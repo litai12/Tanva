@@ -5220,21 +5220,22 @@ function FlowInner() {
                 ? params.sourceHeight
                 : naturalH;
 
-            const scaleX = srcW > 0 ? naturalW / srcW : 1;
-            const scaleY = srcH > 0 ? naturalH / srcH : 1;
+	            const scaleX = srcW > 0 ? naturalW / srcW : 1;
+	            const scaleY = srcH > 0 ? naturalH / srcH : 1;
 
-            const sx = Math.max(
-              0,
-              Math.min(naturalW - 1, params.rect.x * scaleX)
-            );
-            const sy = Math.max(
-              0,
-              Math.min(naturalH - 1, params.rect.y * scaleY)
-            );
-            const swRaw = Math.max(1, params.rect.width * scaleX);
-            const shRaw = Math.max(1, params.rect.height * scaleY);
-            const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
-            const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
+	            // 对 source 坐标做整数化，减少边缘采样导致的“白边/透明边”伪影
+	            const sx = Math.max(
+	              0,
+	              Math.min(naturalW - 1, Math.round(params.rect.x * scaleX))
+	            );
+	            const sy = Math.max(
+	              0,
+	              Math.min(naturalH - 1, Math.round(params.rect.y * scaleY))
+	            );
+	            const swRaw = Math.max(1, Math.round(params.rect.width * scaleX));
+	            const shRaw = Math.max(1, Math.round(params.rect.height * scaleY));
+	            const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
+	            const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
 
             const canvas = makeCanvas(outW, outH);
             const ctx = canvas.getContext("2d");
@@ -5277,21 +5278,21 @@ function FlowInner() {
               ? params.sourceHeight
               : naturalH;
 
-          const scaleX = srcW > 0 ? naturalW / srcW : 1;
-          const scaleY = srcH > 0 ? naturalH / srcH : 1;
+	          const scaleX = srcW > 0 ? naturalW / srcW : 1;
+	          const scaleY = srcH > 0 ? naturalH / srcH : 1;
 
-          const sx = Math.max(
-            0,
-            Math.min(naturalW - 1, params.rect.x * scaleX)
-          );
-          const sy = Math.max(
-            0,
-            Math.min(naturalH - 1, params.rect.y * scaleY)
-          );
-          const swRaw = Math.max(1, params.rect.width * scaleX);
-          const shRaw = Math.max(1, params.rect.height * scaleY);
-          const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
-          const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
+	          const sx = Math.max(
+	            0,
+	            Math.min(naturalW - 1, Math.round(params.rect.x * scaleX))
+	          );
+	          const sy = Math.max(
+	            0,
+	            Math.min(naturalH - 1, Math.round(params.rect.y * scaleY))
+	          );
+	          const swRaw = Math.max(1, Math.round(params.rect.width * scaleX));
+	          const shRaw = Math.max(1, Math.round(params.rect.height * scaleY));
+	          const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
+	          const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
 
           const canvas = makeCanvas(outW, outH);
           const ctx = canvas.getContext("2d");

@@ -313,6 +313,145 @@ const isWhitePixel = (r: number, g: number, b: number, threshold = 250): boolean
   return r >= threshold && g >= threshold && b >= threshold;
 };
 
+const TRIM_MAX_PIXELS = 4_000_000; // ~4MP，避免单次 getImageData 过大导致内存峰值
+const WHITE_BG_RATIO_THRESHOLD = 0.55;
+
+const toLuma = (r: number, g: number, b: number): number => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+// 更宽松的“白底/纸张底色”判断：用于去白边裁切（而非连通域检测）
+const isLightBackgroundPixel = (r: number, g: number, b: number, a: number): boolean => {
+  if (a <= 12) return true; // 透明视为背景
+  if (r >= 245 && g >= 245 && b >= 245) return true;
+  if (r >= 235 && g >= 235 && b >= 235) return true;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const chroma = max - min;
+  const luma = toLuma(r, g, b);
+  return luma >= 225 && chroma <= 35;
+};
+
+type ContentBounds = { minX: number; minY: number; maxX: number; maxY: number };
+
+const findContentBoundsInRect = (
+  data: Uint8ClampedArray,
+  width: number,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number
+): ContentBounds | null => {
+  let minX = x1;
+  let minY = y1;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = y0; y < y1; y += 1) {
+    const rowOffset = y * width * 4;
+    for (let x = x0; x < x1; x += 1) {
+      const idx = rowOffset + x * 4;
+      if (!isLightBackgroundPixel(data[idx]!, data[idx + 1]!, data[idx + 2]!, data[idx + 3]!)) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  if (maxX < 0 || maxY < 0) return null;
+  return { minX, minY, maxX, maxY };
+};
+
+const looksLikeWhiteBackgroundFromSample = (img: HTMLImageElement): boolean => {
+  const w = Math.min(96, img.width);
+  const h = Math.min(96, img.height);
+  if (w <= 0 || h <= 0) return false;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx =
+    (canvas.getContext('2d', { willReadFrequently: true } as any) as CanvasRenderingContext2D | null) ||
+    (canvas.getContext('2d') as CanvasRenderingContext2D | null);
+  if (!ctx) return false;
+  try {
+    // @ts-ignore - 部分环境无此字段
+    ctx.imageSmoothingEnabled = false;
+  } catch {}
+
+  ctx.clearRect(0, 0, w, h);
+  ctx.drawImage(img, 0, 0, w, h);
+
+  const sampled = ctx.getImageData(0, 0, w, h);
+  const data = sampled.data;
+  let white = 0;
+  const total = data.length / 4;
+  for (let i = 0; i < data.length; i += 4) {
+    if (isLightBackgroundPixel(data[i]!, data[i + 1]!, data[i + 2]!, data[i + 3]!)) white += 1;
+  }
+  const ratio = total > 0 ? white / total : 0;
+  return ratio >= WHITE_BG_RATIO_THRESHOLD;
+};
+
+const trimRectsByDownsample = (
+  img: HTMLImageElement,
+  rects: SplitRectItem[]
+): SplitRectItem[] => {
+  if (!rects.length) return rects;
+  if (img.width <= 0 || img.height <= 0) return rects;
+
+  const totalPixels = img.width * img.height;
+  const scale =
+    totalPixels > TRIM_MAX_PIXELS ? Math.sqrt(TRIM_MAX_PIXELS / totalPixels) : 1;
+  const sw = Math.max(1, Math.floor(img.width * scale));
+  const sh = Math.max(1, Math.floor(img.height * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = sw;
+  canvas.height = sh;
+  const ctx =
+    (canvas.getContext('2d', { willReadFrequently: true } as any) as CanvasRenderingContext2D | null) ||
+    (canvas.getContext('2d') as CanvasRenderingContext2D | null);
+  if (!ctx) return rects;
+  try {
+    // @ts-ignore - 部分环境无此字段
+    ctx.imageSmoothingEnabled = false;
+  } catch {}
+
+  ctx.clearRect(0, 0, sw, sh);
+  ctx.drawImage(img, 0, 0, sw, sh);
+  const imageData = ctx.getImageData(0, 0, sw, sh);
+  const data = imageData.data;
+  const scaleX = sw / img.width;
+  const scaleY = sh / img.height;
+
+  return rects.map((rect) => {
+    const x0 = Math.max(0, Math.min(sw - 1, Math.floor(rect.x * scaleX)));
+    const y0 = Math.max(0, Math.min(sh - 1, Math.floor(rect.y * scaleY)));
+    const x1 = Math.max(x0 + 1, Math.min(sw, Math.ceil((rect.x + rect.width) * scaleX)));
+    const y1 = Math.max(y0 + 1, Math.min(sh, Math.ceil((rect.y + rect.height) * scaleY)));
+
+    const bounds = findContentBoundsInRect(data, sw, x0, y0, x1, y1);
+    if (!bounds) return rect;
+
+    const ox0 = Math.max(0, Math.min(img.width - 1, Math.floor(bounds.minX / scaleX)));
+    const oy0 = Math.max(0, Math.min(img.height - 1, Math.floor(bounds.minY / scaleY)));
+    const ox1 = Math.max(ox0 + 1, Math.min(img.width, Math.ceil((bounds.maxX + 1) / scaleX)));
+    const oy1 = Math.max(oy0 + 1, Math.min(img.height, Math.ceil((bounds.maxY + 1) / scaleY)));
+
+    const trimmed = {
+      ...rect,
+      x: ox0,
+      y: oy0,
+      width: Math.max(1, ox1 - ox0),
+      height: Math.max(1, oy1 - oy0),
+    };
+
+    if (trimmed.width < 2 || trimmed.height < 2) return rect;
+    return trimmed;
+  });
+};
+
 type SplitRectsResult = {
   rects: SplitRectItem[];
   sourceWidth: number;
@@ -330,7 +469,7 @@ const splitRectsByGrid = async (imageSrc: string, count: number): Promise<SplitR
         const cols = Math.max(1, Math.ceil(Math.sqrt(safeCount)));
         const rows = Math.max(1, Math.ceil(safeCount / cols));
 
-        const rects: SplitRectItem[] = [];
+        let rects: SplitRectItem[] = [];
 
         for (let i = 0; i < safeCount; i += 1) {
           const row = Math.floor(i / cols);
@@ -345,6 +484,11 @@ const splitRectsByGrid = async (imageSrc: string, count: number): Promise<SplitR
           const h = Math.max(1, y1 - y0);
 
           rects.push({ index: i, x: x0, y: y0, width: w, height: h });
+        }
+
+        // 白底场景：按内容去白边（避免“报纸/证件照”类切片带大面积白边）
+        if (looksLikeWhiteBackgroundFromSample(img)) {
+          rects = trimRectsByDownsample(img, rects);
         }
 
         resolve({ rects, sourceWidth: img.width, sourceHeight: img.height });
@@ -372,26 +516,8 @@ const detectAndSplitRects = async (imageSrc: string): Promise<SplitRectsResult> 
         const totalPixels = img.width * img.height;
         const MAX_PIXELS_FOR_REGION_DETECT = 2_000_000; // ~2MP
         const SAMPLE_SIZE = 96;
-        const sampleCanvas = document.createElement('canvas');
-        sampleCanvas.width = Math.min(SAMPLE_SIZE, img.width);
-        sampleCanvas.height = Math.min(SAMPLE_SIZE, img.height);
-        const sampleCtx = sampleCanvas.getContext('2d');
-        if (sampleCtx) {
-          sampleCtx.drawImage(img, 0, 0, sampleCanvas.width, sampleCanvas.height);
-          const sampled = sampleCtx.getImageData(0, 0, sampleCanvas.width, sampleCanvas.height);
-          const sampledData = sampled.data;
-          let white = 0;
-          const total = sampledData.length / 4;
-          for (let i = 0; i < sampledData.length; i += 4) {
-            if (isWhitePixel(sampledData[i], sampledData[i + 1], sampledData[i + 2])) white += 1;
-          }
-          const whiteRatio = total > 0 ? white / total : 0;
-          const looksLikeWhiteBackground = whiteRatio >= 0.55;
-          if (!looksLikeWhiteBackground || totalPixels > MAX_PIXELS_FOR_REGION_DETECT) {
-            resolve({ rects: [], sourceWidth: img.width, sourceHeight: img.height });
-            return;
-          }
-        } else if (totalPixels > MAX_PIXELS_FOR_REGION_DETECT) {
+        const looksLikeWhiteBackground = looksLikeWhiteBackgroundFromSample(img);
+        if (!looksLikeWhiteBackground || totalPixels > MAX_PIXELS_FOR_REGION_DETECT) {
           resolve({ rects: [], sourceWidth: img.width, sourceHeight: img.height });
           return;
         }
@@ -427,7 +553,31 @@ const detectAndSplitRects = async (imageSrc: string): Promise<SplitRectsResult> 
           });
         });
 
-        resolve({ rects, sourceWidth: img.width, sourceHeight: img.height });
+        // 去白边：基于完整 imageData 做精确裁切（仅小图/白底场景执行）
+        const trimmed = rects.map((r) => {
+          const x0 = Math.max(0, Math.min(width - 1, Math.floor(r.x)));
+          const y0 = Math.max(0, Math.min(height - 1, Math.floor(r.y)));
+          const x1 = Math.max(x0 + 1, Math.min(width, Math.ceil(r.x + r.width)));
+          const y1 = Math.max(y0 + 1, Math.min(height, Math.ceil(r.y + r.height)));
+          const bounds = findContentBoundsInRect(data, width, x0, y0, x1, y1);
+          if (!bounds) return r;
+
+          const tx0 = Math.max(0, Math.min(width - 1, bounds.minX));
+          const ty0 = Math.max(0, Math.min(height - 1, bounds.minY));
+          const tx1 = Math.max(tx0 + 1, Math.min(width, bounds.maxX + 1));
+          const ty1 = Math.max(ty0 + 1, Math.min(height, bounds.maxY + 1));
+          const next = {
+            ...r,
+            x: tx0,
+            y: ty0,
+            width: Math.max(1, tx1 - tx0),
+            height: Math.max(1, ty1 - ty0),
+          };
+          if (next.width < 2 || next.height < 2) return r;
+          return next;
+        });
+
+        resolve({ rects: trimmed, sourceWidth: img.width, sourceHeight: img.height });
       } catch (err) {
         reject(err);
       }

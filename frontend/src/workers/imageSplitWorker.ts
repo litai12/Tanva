@@ -61,6 +61,89 @@ const DEFAULT_OUTPUT_COUNT = 9;
 const isWhitePixel = (r: number, g: number, b: number, threshold = 250): boolean =>
   r >= threshold && g >= threshold && b >= threshold;
 
+const TRIM_MAX_PIXELS = 4_000_000; // ~4MP，避免单次 getImageData 过大导致内存峰值
+const WHITE_BG_RATIO_THRESHOLD = 0.55;
+
+const toLuma = (r: number, g: number, b: number): number =>
+  0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+// 更宽松的“白底/纸张底色”判断：用于去白边裁切（而非连通域检测）
+const isLightBackgroundPixel = (r: number, g: number, b: number, a: number): boolean => {
+  if (a <= 12) return true; // 透明视为背景
+
+  // 纯白/近白：直接当背景（避免 JPEG 噪声导致的“白边连通”）
+  if (r >= 245 && g >= 245 && b >= 245) return true;
+  if (r >= 235 && g >= 235 && b >= 235) return true;
+
+  // 纸张类底色：亮度高且色差小
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const chroma = max - min;
+  const luma = toLuma(r, g, b);
+  return luma >= 225 && chroma <= 35;
+};
+
+type Bounds = { minX: number; minY: number; maxX: number; maxY: number };
+
+const findContentBounds = (
+  data: Uint8ClampedArray,
+  width: number,
+  height: number
+): Bounds | null => {
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < height; y += 1) {
+    const rowOffset = y * width * 4;
+    for (let x = 0; x < width; x += 1) {
+      const idx = rowOffset + x * 4;
+      if (!isLightBackgroundPixel(data[idx]!, data[idx + 1]!, data[idx + 2]!, data[idx + 3]!)) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  if (maxX < 0 || maxY < 0) return null;
+  return { minX, minY, maxX, maxY };
+};
+
+const looksLikeWhiteBackground = async (bitmap: ImageBitmap): Promise<boolean> => {
+  if (typeof OffscreenCanvas === "undefined") return false;
+
+  const SAMPLE_SIZE = 96;
+  const w = Math.min(SAMPLE_SIZE, bitmap.width);
+  const h = Math.min(SAMPLE_SIZE, bitmap.height);
+  if (w <= 0 || h <= 0) return false;
+
+  const sampleCanvas = new OffscreenCanvas(w, h);
+  const sampleCtx = sampleCanvas.getContext("2d", { willReadFrequently: true } as any);
+  if (!sampleCtx) return false;
+
+  try {
+    // @ts-ignore - 部分环境无此字段
+    sampleCtx.imageSmoothingEnabled = false;
+  } catch {}
+
+  sampleCtx.clearRect(0, 0, w, h);
+  sampleCtx.drawImage(bitmap, 0, 0, w, h);
+
+  const sampled = sampleCtx.getImageData(0, 0, w, h);
+  const data = sampled.data;
+
+  let white = 0;
+  const total = data.length / 4;
+  for (let i = 0; i < data.length; i += 4) {
+    if (isLightBackgroundPixel(data[i]!, data[i + 1]!, data[i + 2]!, data[i + 3]!)) white += 1;
+  }
+  const ratio = total > 0 ? white / total : 0;
+  return ratio >= WHITE_BG_RATIO_THRESHOLD;
+};
+
 type Region = { minX: number; minY: number; maxX: number; maxY: number };
 
 const findNonWhiteRegions = (
@@ -338,6 +421,94 @@ const splitRectsByRegions = async (
   return out;
 };
 
+const clampRectToBitmap = (
+  rect: SplitImageRectItem,
+  bitmapW: number,
+  bitmapH: number
+): SplitImageRectItem => {
+  const x0 = Math.max(0, Math.min(bitmapW - 1, Math.floor(rect.x)));
+  const y0 = Math.max(0, Math.min(bitmapH - 1, Math.floor(rect.y)));
+  const x1 = Math.max(x0 + 1, Math.min(bitmapW, Math.ceil(rect.x + rect.width)));
+  const y1 = Math.max(y0 + 1, Math.min(bitmapH, Math.ceil(rect.y + rect.height)));
+  return {
+    index: rect.index,
+    x: x0,
+    y: y0,
+    width: Math.max(1, x1 - x0),
+    height: Math.max(1, y1 - y0),
+  };
+};
+
+const trimRectToContent = async (
+  bitmap: ImageBitmap,
+  rect: SplitImageRectItem,
+  canvas: OffscreenCanvas,
+  ctx: OffscreenCanvasRenderingContext2D
+): Promise<SplitImageRectItem> => {
+  const safe = clampRectToBitmap(rect, bitmap.width, bitmap.height);
+  const area = safe.width * safe.height;
+  const scale = area > TRIM_MAX_PIXELS ? Math.sqrt(TRIM_MAX_PIXELS / area) : 1;
+  const sw = Math.max(1, Math.floor(safe.width * scale));
+  const sh = Math.max(1, Math.floor(safe.height * scale));
+
+  canvas.width = sw;
+  canvas.height = sh;
+  try {
+    // @ts-ignore - 部分环境无此字段
+    ctx.imageSmoothingEnabled = false;
+  } catch {}
+  ctx.clearRect(0, 0, sw, sh);
+  ctx.drawImage(bitmap, safe.x, safe.y, safe.width, safe.height, 0, 0, sw, sh);
+
+  const img = ctx.getImageData(0, 0, sw, sh);
+  const bounds = findContentBounds(img.data, sw, sh);
+  if (!bounds) return safe;
+
+  const scaleX = sw / safe.width;
+  const scaleY = sh / safe.height;
+
+  const x0 = safe.x + Math.floor(bounds.minX / scaleX);
+  const y0 = safe.y + Math.floor(bounds.minY / scaleY);
+  const x1 = safe.x + Math.ceil((bounds.maxX + 1) / scaleX);
+  const y1 = safe.y + Math.ceil((bounds.maxY + 1) / scaleY);
+
+  const clampedX0 = Math.max(0, Math.min(bitmap.width - 1, x0));
+  const clampedY0 = Math.max(0, Math.min(bitmap.height - 1, y0));
+  const clampedX1 = Math.max(clampedX0 + 1, Math.min(bitmap.width, x1));
+  const clampedY1 = Math.max(clampedY0 + 1, Math.min(bitmap.height, y1));
+
+  const trimmed = {
+    index: rect.index,
+    x: clampedX0,
+    y: clampedY0,
+    width: Math.max(1, clampedX1 - clampedX0),
+    height: Math.max(1, clampedY1 - clampedY0),
+  };
+
+  // 过滤极端情况：如果裁得过小，保留原 rect（避免误判导致内容丢失）
+  if (trimmed.width < 2 || trimmed.height < 2) return safe;
+
+  return trimmed;
+};
+
+const trimRectsToContent = async (
+  bitmap: ImageBitmap,
+  rects: SplitImageRectItem[]
+): Promise<SplitImageRectItem[]> => {
+  if (!rects.length) return rects;
+  if (typeof OffscreenCanvas === "undefined") return rects;
+
+  const canvas = new OffscreenCanvas(1, 1);
+  const ctx = canvas.getContext("2d", { willReadFrequently: true } as any);
+  if (!ctx) return rects;
+
+  const out: SplitImageRectItem[] = [];
+  for (const rect of rects) {
+    out.push(await trimRectToContent(bitmap, rect, canvas, ctx));
+  }
+  return out;
+};
+
 const resolveSourceToBlob = async (source: SplitImageSource): Promise<Blob> => {
   if (source.kind === "blob") return source.blob;
 
@@ -491,6 +662,11 @@ self.addEventListener(
 
         if (rects.length <= 1 || tooManyPieces) {
           rects = splitRectsByGrid(bitmap, safeCount);
+        }
+
+        // 仅在“看起来是白底/纸张底色”时进行去白边裁切，避免误伤照片类图片
+        if (await looksLikeWhiteBackground(bitmap)) {
+          rects = await trimRectsToContent(bitmap, rects);
         }
 
         const sourceWidth = bitmap.width;
