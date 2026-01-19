@@ -134,6 +134,42 @@ const NO_IMAGE_RETRY_DELAY_MS = 800;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const parseHttpStatusFromErrorCode = (code?: string): number | null => {
+  if (!code) return null;
+  const match = code.match(/^HTTP_(\d{3})$/);
+  if (!match) return null;
+  const status = Number(match[1]);
+  return Number.isFinite(status) ? status : null;
+};
+
+const isRetryableImageGenerationError = (error?: {
+  code?: string;
+  message?: string;
+}): boolean => {
+  if (!error) return false;
+  if (error.code === "NETWORK_ERROR") return true;
+
+  const status = parseHttpStatusFromErrorCode(error.code);
+  if (status !== null) {
+    if (status === 408 || status === 429) return true;
+    if (status >= 500) return true;
+  }
+
+  const message = String(error.message ?? "").toLowerCase();
+  if (!message) return false;
+
+  // 后端上游偶发返回空图（截图中对应：生成图像数据为空，无法上传。）
+  const transientPatterns = [
+    "生成图像数据为空",
+    "no image data",
+    "returned no image",
+    "empty image",
+  ];
+  return transientPatterns.some((pattern) =>
+    message.includes(pattern.toLowerCase())
+  );
+};
+
 const resolveDefaultModel = (
   requestModel: string | undefined,
   provider: SupportedAIProvider | undefined
@@ -299,6 +335,23 @@ export async function generateImageViaAPI(
     lastResponse = await performGenerateImageRequest(request);
 
     if (!lastResponse.success || !lastResponse.data) {
+      if (
+        attempt < MAX_IMAGE_GENERATION_ATTEMPTS &&
+        isRetryableImageGenerationError(lastResponse.error)
+      ) {
+        console.warn("⚠️ generate-image request failed, auto retrying", {
+          attempt,
+          nextAttempt: attempt + 1,
+          maxAttempts: MAX_IMAGE_GENERATION_ATTEMPTS,
+          provider: request.aiProvider,
+          model: resolveDefaultModel(request.model, request.aiProvider),
+          errorCode: lastResponse.error?.code,
+          errorMessage: lastResponse.error?.message,
+        });
+        await sleep(NO_IMAGE_RETRY_DELAY_MS * attempt);
+        continue;
+      }
+
       logApiTiming("generate-image", startedAt, {
         success: false,
         attempts,
@@ -449,6 +502,23 @@ export async function editImageViaAPI(
     lastResponse = await performEditImageRequest(request);
 
     if (!lastResponse.success || !lastResponse.data) {
+      if (
+        attempt < MAX_IMAGE_GENERATION_ATTEMPTS &&
+        isRetryableImageGenerationError(lastResponse.error)
+      ) {
+        console.warn("⚠️ edit-image request failed, auto retrying", {
+          attempt,
+          nextAttempt: attempt + 1,
+          maxAttempts: MAX_IMAGE_GENERATION_ATTEMPTS,
+          provider: request.aiProvider,
+          model: resolveDefaultModel(request.model, request.aiProvider),
+          errorCode: lastResponse.error?.code,
+          errorMessage: lastResponse.error?.message,
+        });
+        await sleep(NO_IMAGE_RETRY_DELAY_MS * attempt);
+        continue;
+      }
+
       logApiTiming("edit-image", startedAt, {
         success: false,
         attempts,
@@ -584,6 +654,23 @@ export async function blendImagesViaAPI(
     lastResponse = await performBlendImagesRequest(request);
 
     if (!lastResponse.success || !lastResponse.data) {
+      if (
+        attempt < MAX_IMAGE_GENERATION_ATTEMPTS &&
+        isRetryableImageGenerationError(lastResponse.error)
+      ) {
+        console.warn("⚠️ blend-images request failed, auto retrying", {
+          attempt,
+          nextAttempt: attempt + 1,
+          maxAttempts: MAX_IMAGE_GENERATION_ATTEMPTS,
+          provider: request.aiProvider,
+          model: resolveDefaultModel(request.model, request.aiProvider),
+          errorCode: lastResponse.error?.code,
+          errorMessage: lastResponse.error?.message,
+        });
+        await sleep(NO_IMAGE_RETRY_DELAY_MS * attempt);
+        continue;
+      }
+
       logApiTiming("blend-images", startedAt, {
         success: false,
         attempts,
