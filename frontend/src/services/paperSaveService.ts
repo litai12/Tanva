@@ -394,12 +394,29 @@ class PaperSaveService {
 
         const dataRemoteUrl = typeof raster?.data?.remoteUrl === 'string' ? raster.data.remoteUrl.trim() : '';
         const dataKey = typeof raster?.data?.key === 'string' ? raster.data.key.trim() : '';
-        const sourceString = typeof raster.source === 'string' ? raster.source.trim() : '';
+        // Paper.js 在加载过程中 Raster.source 可能是 string，也可能已变成 HTMLImageElement（source.src）。
+        // 必须统一拿到“可解析的 src 字符串”，否则会漏掉 key/remote URL 的代理修复，导致图片空白。
+        const sourceStringRaw = this.getRasterSourceString(raster).trim();
+        const sourceString = (() => {
+          const normalized = sourceStringRaw ? normalizePersistableImageRef(sourceStringRaw) : '';
+          // 若来源是同源的绝对 URL（浏览器会把 `projects/...` 解析成 `http://origin/projects/...`），
+          // 且 pathname 看起来像 OSS key，则还原为 key，避免误走同源静态路径导致 404/空白图。
+          if (normalized && isRemoteUrl(normalized) && typeof window !== 'undefined') {
+            try {
+              const url = new URL(normalized);
+              if (url.origin === window.location.origin) {
+                const maybeKey = url.pathname.replace(/^\/+/, '');
+                if (isAssetKeyRef(maybeKey)) return maybeKey;
+              }
+            } catch {}
+          }
+          return normalized;
+        })();
 
         const candidate =
           (dataKey && isPersistableImageRef(dataKey) ? dataKey : '') ||
           (dataRemoteUrl ? normalizePersistableImageRef(dataRemoteUrl) : '') ||
-          (sourceString ? normalizePersistableImageRef(sourceString) : '');
+          (sourceString ? sourceString : '');
 
         if (!candidate || this.isInlineImageSource(candidate)) return;
         if (!isPersistableImageRef(candidate)) return;

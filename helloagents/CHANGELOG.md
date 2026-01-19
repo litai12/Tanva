@@ -32,6 +32,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端图片转码：新增全局并发限流（暂定 10），收口图片生成/转化（`canvas.toDataURL/toBlob`、`FileReader.readAsDataURL`、`Response.blob`、`createImageBitmap/WebCodecs` 等）并在 AI Chat/Flow/画布等链路复用，降低多图场景瞬时内存峰值与卡顿。
 - 截图：`AutoScreenshotService` 绘制 Raster 时仅在“确实跨域且未设置 crossOrigin”场景才重载图片，避免同源 `/api/assets/proxy` 资源被重复请求导致的接口刷屏与内存抖动。
 - Canvas：保存 `paperJson` 时将 `*/api/assets/proxy?...` 反解为 remote URL/OSS key，避免把 `http://localhost:5173/...` 等运行时代理地址落库。
+- Canvas：修复反序列化后 `Raster.source` 变为 `<img>.src` 导致 OSS key/远程引用未被正确识别与代理，出现图片空白（`frontend/src/services/paperSaveService.ts`）。
 - 保存：云端保存前会额外清理 `aiChatSessions`/`assets.images` 中残留的 `data:`/`blob:`/裸 base64（含 `localDataUrl/dataUrl/previewDataUrl`、`imageData/thumbnail` 等），避免“全选清空后仍携带 dataURL”导致 payload 过大或落库污染。
 - Flow：Image Split 分割完成后“生成节点”不再置灰；支持基于 `splitRects` 生成 Image 节点并在 Image 节点运行时裁剪预览（不落库）。
 - Flow：视频节点参考图按连线解析，支持 Image Split 切片作为输入。
