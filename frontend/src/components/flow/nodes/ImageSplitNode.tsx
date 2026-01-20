@@ -60,8 +60,6 @@ type Props = {
 const MIN_OUTPUT_COUNT = 1;
 const MAX_OUTPUT_COUNT = 50;
 const DEFAULT_OUTPUT_COUNT = 9;
-const MIN_GRID_COUNT = 1;
-const MAX_GRID_COUNT = Math.floor(Math.sqrt(MAX_OUTPUT_COUNT)); // 7 (<= 49)
 
 const normalizeMimeType = (type: string): string => {
   const lower = type.trim().toLowerCase();
@@ -811,11 +809,6 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
   const edgesRef = React.useRef<Edge[]>(edges);
   const projectId = useProjectContentStore((s) => s.projectId);
 
-  const initialOutputCount = Math.min(
-    MAX_OUTPUT_COUNT,
-    Math.max(MIN_OUTPUT_COUNT, data.outputCount || DEFAULT_OUTPUT_COUNT)
-  );
-
   const [splitRects, setSplitRects] = React.useState<SplitRectItem[]>(() => {
     if (Array.isArray(data.splitRects) && data.splitRects.length > 0) {
       return data.splitRects;
@@ -833,11 +826,9 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
     width: typeof data.sourceWidth === 'number' ? data.sourceWidth : 0,
     height: typeof data.sourceHeight === 'number' ? data.sourceHeight : 0,
   }));
-  const [outputCount, setOutputCount] = React.useState<number>(initialOutputCount);
-  const [gridCount, setGridCount] = React.useState<number>(() => {
-    const root = Math.round(Math.sqrt(Math.max(MIN_OUTPUT_COUNT, initialOutputCount)));
-    return Math.min(MAX_GRID_COUNT, Math.max(MIN_GRID_COUNT, root));
-  });
+  const [outputCount, setOutputCount] = React.useState<number>(
+    Math.min(MAX_OUTPUT_COUNT, Math.max(MIN_OUTPUT_COUNT, data.outputCount || DEFAULT_OUTPUT_COUNT))
+  );
   const [hover, setHover] = React.useState<string | null>(null);
   const [isProcessing, setIsProcessing] = React.useState(false);
 
@@ -1183,13 +1174,6 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
     }
   }, [data.outputCount]);
 
-  // outputCount 变化时，同步 UI 上的“每边份数”（用于显示/编辑）
-  React.useEffect(() => {
-    const root = Math.round(Math.sqrt(Math.max(MIN_OUTPUT_COUNT, outputCount)));
-    const next = Math.min(MAX_GRID_COUNT, Math.max(MIN_GRID_COUNT, root));
-    if (next !== gridCount) setGridCount(next);
-  }, [outputCount, gridCount]);
-
   // 执行分割
   const handleSplit = React.useCallback(async () => {
     if (!normalizeString(rawInputImage)) {
@@ -1352,15 +1336,11 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
     }
   }, [id, inputAssetId, inputImageSrc, outputCount, projectId, rawInputImage, updateNodeData, upstreamImageGridInputs]);
 
-  // 更新网格（每边份数）：实际输出数量 = gridCount^2
-  const handleGridCountChange = React.useCallback((value: number) => {
-    const safeGrid = Math.min(MAX_GRID_COUNT, Math.max(MIN_GRID_COUNT, Math.floor(value)));
-    if (!Number.isFinite(safeGrid)) return;
-
-    setGridCount(safeGrid);
-    const nextOutputCount = Math.min(MAX_OUTPUT_COUNT, Math.max(MIN_OUTPUT_COUNT, safeGrid * safeGrid));
-    setOutputCount(nextOutputCount);
-    updateNodeData({ outputCount: nextOutputCount });
+  // 更新输出端口数量
+  const handleOutputCountChange = React.useCallback((value: number) => {
+    const count = Math.min(MAX_OUTPUT_COUNT, Math.max(MIN_OUTPUT_COUNT, value));
+    setOutputCount(count);
+    updateNodeData({ outputCount: count });
   }, [updateNodeData]);
 
   const stopNodeDrag = React.useCallback((event: React.SyntheticEvent) => {
@@ -1449,10 +1429,12 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
       targetHandle: string;
     }> = [];
 
+    // 优先使用 ImageSplit 自己的 inputImageUrl（Split 时归一化后的“基底引用”），
+    // 避免误用上游 thumbnail 造成切片分辨率变低。
     const baseRef =
-      normalizeString(connectedImage) ||
-      normalizeString(rawInputImage) ||
       normalizeString(data.inputImageUrl) ||
+      normalizeString(rawInputImage) ||
+      normalizeString(connectedImage) ||
       normalizeString(data.inputImage) ||
       '';
     const basePatch = baseRef
@@ -1593,13 +1575,13 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
 
       {/* 输出数量配置 */}
       <div className="nodrag nopan" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <label style={{ fontSize: 12, color: '#6b7280' }}>每边份数</label>
+        <label style={{ fontSize: 12, color: '#6b7280' }}>输出端口</label>
         <input
           type="number"
-          min={MIN_GRID_COUNT}
-          max={MAX_GRID_COUNT}
-          value={gridCount}
-          onChange={(e) => handleGridCountChange(Number(e.target.value))}
+          min={MIN_OUTPUT_COUNT}
+          max={MAX_OUTPUT_COUNT}
+          value={outputCount}
+          onChange={(e) => handleOutputCountChange(Number(e.target.value))}
           onPointerDown={stopNodeDrag}
           onPointerDownCapture={stopNodeDrag}
           onMouseDown={stopNodeDrag}
@@ -1615,9 +1597,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
             borderRadius: 6
           }}
         />
-        <span style={{ fontSize: 11, color: '#9ca3af' }}>
-          (1-{MAX_GRID_COUNT}，共 {outputCount} 张)
-        </span>
+        <span style={{ fontSize: 11, color: '#9ca3af' }}>(1-50)</span>
       </div>
 
       {/* 输入图片预览 */}
