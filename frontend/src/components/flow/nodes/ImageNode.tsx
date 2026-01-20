@@ -588,8 +588,43 @@ function ImageNodeInner({ id, data, selected }: Props) {
         const srcNode = state.getNodes().find((n) => n.id === edgeToThis.source);
         if (!srcNode) return null;
 
-        if (srcNode.type === "image" || srcNode.type === "imagePro") {
-          const d = (srcNode.data || {}) as any;
+        const specFromImageSplit = (node: any, sourceHandle?: string) => {
+          const d = (node.data || {}) as any;
+          const baseRef =
+            (typeof d.inputImageUrl === "string" && d.inputImageUrl.trim()) ||
+            (typeof d.inputImage === "string" && d.inputImage.trim()) ||
+            "";
+          if (!baseRef) return null;
+
+          const handle = typeof sourceHandle === "string" ? sourceHandle : "";
+          const match = handle ? /^image(\\d+)$/.exec(handle) : null;
+          if (!match) return null;
+          const idx = Math.max(0, Number(match[1]) - 1);
+
+          const splitRects = Array.isArray(d.splitRects) ? d.splitRects : [];
+          const rect = splitRects?.[idx];
+          const x = typeof rect?.x === "number" ? rect.x : Number(rect?.x ?? 0);
+          const y = typeof rect?.y === "number" ? rect.y : Number(rect?.y ?? 0);
+          const w = typeof rect?.width === "number" ? rect.width : Number(rect?.width ?? 0);
+          const h = typeof rect?.height === "number" ? rect.height : Number(rect?.height ?? 0);
+          if (!Number.isFinite(x) || !Number.isFinite(y) || w <= 0 || h <= 0) return null;
+
+          const sourceWidth = typeof d.sourceWidth === "number" ? d.sourceWidth : undefined;
+          const sourceHeight = typeof d.sourceHeight === "number" ? d.sourceHeight : undefined;
+          return {
+            baseRef,
+            rect: { x, y, width: w, height: h },
+            sourceWidth,
+            sourceHeight,
+          };
+        };
+
+        const resolveCropFromImageChain = (node: any, visited: Set<string>): any | null => {
+          if (!node?.id || visited.has(node.id)) return null;
+          visited.add(node.id);
+          if (node.type !== "image" && node.type !== "imagePro") return null;
+
+          const d = (node.data || {}) as any;
           const crop = d?.crop as
             | { x?: unknown; y?: unknown; width?: unknown; height?: unknown; sourceWidth?: unknown; sourceHeight?: unknown }
             | undefined;
@@ -613,39 +648,30 @@ function ImageNodeInner({ id, data, selected }: Props) {
               };
             }
           }
+
+          const upstream = edges.find(
+            (e) => e.target === node.id && e.targetHandle === "img"
+          );
+          if (!upstream) return null;
+          const up = state.getNodes().find((n) => n.id === upstream.source);
+          const handle = (upstream as any).sourceHandle as string | undefined;
+          if (up?.type === "imageSplit") {
+            return specFromImageSplit(up, handle);
+          }
+          if (up?.type === "image" || up?.type === "imagePro") {
+            return resolveCropFromImageChain(up, visited);
+          }
           return null;
+        };
+
+        if (srcNode.type === "image" || srcNode.type === "imagePro") {
+          return resolveCropFromImageChain(srcNode, new Set());
         }
 
         if (srcNode.type !== "imageSplit") return null;
 
         const handle = (edgeToThis as any).sourceHandle as string | undefined;
-        const match = typeof handle === "string" ? /^image(\\d+)$/.exec(handle) : null;
-        if (!match) return null;
-        const idx = Math.max(0, Number(match[1]) - 1);
-
-        const d = (srcNode.data || {}) as any;
-        const baseRef =
-          (typeof d.inputImageUrl === "string" && d.inputImageUrl.trim()) ||
-          (typeof d.inputImage === "string" && d.inputImage.trim()) ||
-          "";
-        if (!baseRef) return null;
-
-        const splitRects = Array.isArray(d.splitRects) ? d.splitRects : [];
-        const rect = splitRects?.[idx];
-        const x = typeof rect?.x === "number" ? rect.x : Number(rect?.x ?? 0);
-        const y = typeof rect?.y === "number" ? rect.y : Number(rect?.y ?? 0);
-        const w = typeof rect?.width === "number" ? rect.width : Number(rect?.width ?? 0);
-        const h = typeof rect?.height === "number" ? rect.height : Number(rect?.height ?? 0);
-        if (!Number.isFinite(x) || !Number.isFinite(y) || w <= 0 || h <= 0) return null;
-
-        const sourceWidth = typeof d.sourceWidth === "number" ? d.sourceWidth : undefined;
-        const sourceHeight = typeof d.sourceHeight === "number" ? d.sourceHeight : undefined;
-        return {
-          baseRef,
-          rect: { x, y, width: w, height: h },
-          sourceWidth,
-          sourceHeight,
-        };
+        return specFromImageSplit(srcNode, handle);
       },
       [id]
     ),

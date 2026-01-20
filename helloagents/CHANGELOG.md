@@ -38,6 +38,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow：Image 节点断开上游连接时会保留当前裁剪渲染状态，避免回退到整图（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
 - Flow：Image 节点裁剪预览改为与节点容器等比居中显示，避免生成的切片预览尺寸异常（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
 - Flow：Image 节点裁剪预览使用原始裁剪分辨率绘制并缩放展示，避免下载/保存时分辨率变小与模糊（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
+- Flow：Image 节点可递归解析上游 Image 链路中的裁剪信息，避免长链路回退到原始图（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
 - Flow：ImageSplit 通过 Image 链路输入时递归解析上游裁剪信息，避免回退到原图（`frontend/src/components/flow/nodes/ImageSplitNode.tsx`）。
 - Flow：ImageSplit 接收裁剪后的 Image 节点输入时可回溯上游解析 baseRef，确保按裁剪结果分割而非原图（`frontend/src/components/flow/nodes/ImageSplitNode.tsx`）。
 - Flow：ImageSplit 输入预览在上游为裁剪链路时优先显示裁剪预览并等待临时输入准备好，避免先显示整图后跳变（`frontend/src/components/flow/nodes/ImageSplitNode.tsx`）。
