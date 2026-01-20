@@ -25,6 +25,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 后端：支持 `CORS_ORIGIN=*` 放开所有来源（仅建议本地/测试）。
 
 ### Fixed
+- Flow：Image 节点在连接到下游 Image/ImagePro 时会优先使用源节点自身图片并支持读取其 `crop` 做裁剪预览，避免链路传递后图片空白或回退整图（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
 - Flow：ImageSplit 生成 Image 节点时优先使用 `inputImageUrl/inputImage` 作为基底，减少误用上游缩略图导致的清晰度下降（`frontend/src/components/flow/nodes/ImageSplitNode.tsx`）。
 - Flow：ImageGrid 读取 Image/ImagePro 节点时优先尊重 `crop`，避免下游仍使用整图（`frontend/src/components/flow/nodes/ImageGridNode.tsx`）。
 - 项目内容加载：前端对同项目 `GET /api/projects/:id/content` 做并发去重；后端 OSS 未配置/禁用时跳过读写并设置超时，减少重复下载与长时间卡顿。

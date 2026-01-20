@@ -476,8 +476,14 @@ function ImageNodeInner({ id, data, selected }: Props) {
           return frame.thumbnailDataUrl || frame.imageUrl;
         }
 
-          // Image 节点 - 支持把上游输入继续往下传
-          if (node.type === "image") {
+          // Image 节点 - 优先使用节点自身的图片，其次才回溯上游
+          if (node.type === "image" || node.type === "imagePro") {
+            const direct =
+              (nodeData.imageData as string | undefined) ||
+              (nodeData.imageUrl as string | undefined) ||
+              (nodeData.thumbnail as string | undefined);
+            if (direct) return direct || undefined;
+
             const upstream = edges.find(
               (e) => e.target === nodeId && e.targetHandle === "img"
             );
@@ -485,12 +491,6 @@ function ImageNodeInner({ id, data, selected }: Props) {
               ? resolveFromNode(upstream.source, upstream, visited)
               : undefined;
             if (upstreamResolved) return upstreamResolved;
-
-            const direct =
-              (nodeData.imageData as string | undefined) ||
-              (nodeData.imageUrl as string | undefined) ||
-              (nodeData.thumbnail as string | undefined);
-            return direct || undefined;
           }
 
           // 兜底：尽量兼容其他输出图片的节点
@@ -574,7 +574,37 @@ function ImageNodeInner({ id, data, selected }: Props) {
         if (!edgeToThis) return null;
 
         const srcNode = state.getNodes().find((n) => n.id === edgeToThis.source);
-        if (!srcNode || srcNode.type !== "imageSplit") return null;
+        if (!srcNode) return null;
+
+        if (srcNode.type === "image" || srcNode.type === "imagePro") {
+          const d = (srcNode.data || {}) as any;
+          const crop = d?.crop as
+            | { x?: unknown; y?: unknown; width?: unknown; height?: unknown; sourceWidth?: unknown; sourceHeight?: unknown }
+            | undefined;
+          const baseRef =
+            (typeof d.imageData === "string" && d.imageData.trim()) ||
+            (typeof d.imageUrl === "string" && d.imageUrl.trim()) ||
+            "";
+          if (crop && baseRef) {
+            const x = typeof crop.x === "number" ? crop.x : Number(crop.x ?? 0);
+            const y = typeof crop.y === "number" ? crop.y : Number(crop.y ?? 0);
+            const w = typeof crop.width === "number" ? crop.width : Number(crop.width ?? 0);
+            const h = typeof crop.height === "number" ? crop.height : Number(crop.height ?? 0);
+            if (Number.isFinite(x) && Number.isFinite(y) && w > 0 && h > 0) {
+              const sourceWidth = typeof crop.sourceWidth === "number" ? crop.sourceWidth : Number(crop.sourceWidth ?? 0);
+              const sourceHeight = typeof crop.sourceHeight === "number" ? crop.sourceHeight : Number(crop.sourceHeight ?? 0);
+              return {
+                baseRef,
+                rect: { x, y, width: w, height: h },
+                sourceWidth: sourceWidth > 0 ? sourceWidth : undefined,
+                sourceHeight: sourceHeight > 0 ? sourceHeight : undefined,
+              };
+            }
+          }
+          return null;
+        }
+
+        if (srcNode.type !== "imageSplit") return null;
 
         const handle = (edgeToThis as any).sourceHandle as string | undefined;
         const match = typeof handle === "string" ? /^image(\\d+)$/.exec(handle) : null;
