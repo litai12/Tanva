@@ -39,6 +39,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow：Image Split 分割完成后“生成节点”不再置灰；支持基于 `splitRects` 生成 Image 节点并在 Image 节点运行时裁剪预览（不落库）。
 - Flow：Image Split 生成的 Image 节点裁剪预览在右键保存/导出时不再包含 contain 留白白边（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
 - Flow：Image Split 配置恢复为“输出端口数量(1-50)”语义；网格切分按端口数自动推导（例如 2048x2048 要 512x512 切片可设 `16`）（`frontend/src/components/flow/nodes/ImageSplitNode.tsx`）。
+- Flow：Image Split（Worker 网格切分）不再对切片做“去白边裁切”，并保证输出数量严格等于端口数，避免切片尺寸被裁小/数量漂移（`frontend/src/workers/imageSplitWorker.ts`、`frontend/src/components/flow/nodes/ImageSplitNode.tsx`）。
 - Flow：Analysis 节点支持解析 Image Split / Image(crop) 的裁切输入，调用分析接口时会发送切片图（而非整图），并保持切片分辨率与尺寸正确（`frontend/src/components/flow/nodes/AnalyzeNode.tsx`、`frontend/src/components/flow/nodes/ImageSplitNode.tsx`）。
 - Flow：修复 Image Split 切片在下游裁切/拼合时误按解码后像素尺寸导出，导致只加载到缩略图时分辨率被压缩（例如 2048->400 使 1024 切片变 200），并降低边缘白边概率（`frontend/src/components/flow/FlowOverlay.tsx`、`frontend/src/components/flow/nodes/ImageGridNode.tsx`）。
 - Flow：视频节点参考图按连线解析，支持 Image Split 切片作为输入。
