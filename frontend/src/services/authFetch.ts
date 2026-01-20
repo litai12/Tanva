@@ -48,8 +48,9 @@ async function ensureRefresh(): Promise<boolean> {
 }
 
 const normalizeInit = (init?: AuthFetchInit): RequestInit => {
-  const headers = new Headers(init?.headers || {});
-  const authMode = init?.auth ?? "auto";
+  const { auth, ...rest } = init || {};
+  const headers = new Headers(rest.headers || {});
+  const authMode = auth ?? "auto";
 
   if (authMode !== "omit" && !headers.has("Authorization")) {
     const accessToken = getAccessToken();
@@ -59,10 +60,10 @@ const normalizeInit = (init?: AuthFetchInit): RequestInit => {
   }
 
   const credentials =
-    init?.credentials ?? (authMode === "omit" ? "omit" : "include");
+    rest.credentials ?? (authMode === "omit" ? "omit" : "include");
 
   return {
-    ...(init || {}),
+    ...rest,
     credentials,
     headers,
   };

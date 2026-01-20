@@ -4628,10 +4628,11 @@ function FlowInner() {
                   credentials = "omit";
                 }
               }
-              const response = await fetch(
-                source,
-                credentials ? { credentials } : undefined
-              );
+              const response = await fetchWithAuth(source, {
+                ...(credentials ? { credentials } : {}),
+                auth: "omit",
+                allowRefresh: false,
+              });
               if (response.ok) {
                 const blob = await responseToBlob(response);
                 const file = new File([blob], fileName, {
@@ -6209,7 +6210,11 @@ function FlowInner() {
                 fetchUrl.startsWith("blob:") || fetchUrl.startsWith("data:")
                   ? {}
                   : { mode: "cors", credentials: "omit" };
-              const response = await fetch(fetchUrl, init);
+              const response = await fetchWithAuth(fetchUrl, {
+                ...init,
+                auth: "omit",
+                allowRefresh: false,
+              });
               if (!response.ok) {
                 throw new Error(`参考图拉取失败: ${response.status}`);
               }

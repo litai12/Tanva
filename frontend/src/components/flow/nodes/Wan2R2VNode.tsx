@@ -3,6 +3,7 @@ import { Handle, Position } from "reactflow";
 import { Video, Share2, Download } from "lucide-react";
 import SmartImage from "../../ui/SmartImage";
 import GenerationProgressBar from "./GenerationProgressBar";
+import { fetchWithAuth } from "@/services/authFetch";
 
 type Props = {
   id: string;
@@ -116,9 +117,11 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
         message: "视频下载中，请稍等...",
       });
       try {
-        const response = await fetch(url, {
+        const response = await fetchWithAuth(url, {
           mode: "cors",
           credentials: "omit",
+          auth: "omit",
+          allowRefresh: false,
         });
         if (response.ok) {
           const blob = await response.blob();

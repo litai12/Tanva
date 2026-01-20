@@ -4,6 +4,7 @@ import SmartImage from '../../ui/SmartImage';
 import { isAssetProxyEnabled, proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { imageUploadService } from '@/services/imageUploadService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
+import { fetchWithAuth } from '@/services/authFetch';
 
 type FrameData = {
   index: number;
@@ -177,7 +178,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
   const extractFramesBackend = React.useCallback(async () => {
     updateNodeData({ extractProgress: 10 });
 
-    const response = await fetch(`${API_BASE_URL}/video-frames/extract`, {
+    const response = await fetchWithAuth(`${API_BASE_URL}/video-frames/extract`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

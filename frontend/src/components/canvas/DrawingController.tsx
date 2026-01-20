@@ -24,6 +24,7 @@ import ImageContainer from './ImageContainer';
 import SelectionGroupToolbar from './SelectionGroupToolbar';
 import { DrawingLayerManager } from './drawing/DrawingLayerManager';
 import { AutoScreenshotService } from '@/services/AutoScreenshotService';
+import { fetchWithAuth } from '@/services/authFetch';
 import { logger } from '@/utils/logger';
 import { ensureImageGroupStructure } from '@/utils/paperImageGroup';
 import { BoundsCalculator } from '@/utils/BoundsCalculator';
@@ -826,7 +827,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     async (url: string): Promise<string | null> => {
       const tryFetch = async (init?: RequestInit) => {
         try {
-          const res = await fetch(url, init);
+          const res = await fetchWithAuth(url, {
+            ...(init || {}),
+            auth: 'omit',
+            allowRefresh: false,
+          });
           if (!res.ok) return null;
           const text = await res.text();
           return looksLikeSvgMarkup(text) ? text : null;
@@ -4500,10 +4505,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             }
           }
 
-          const response = await fetch(
-            source,
-            credentials ? { credentials } : undefined
-          );
+          const response = await fetchWithAuth(source, {
+            ...(credentials ? { credentials } : {}),
+            auth: 'omit',
+            allowRefresh: false,
+          });
           if (response.ok) {
             const blob = await responseToBlob(response);
             const fileName = normalizeImageFileName(

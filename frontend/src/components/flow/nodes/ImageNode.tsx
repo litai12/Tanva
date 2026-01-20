@@ -20,7 +20,7 @@ import {
   toFlowImageAssetRef,
 } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
-import { resolveImageToBlob } from "@/utils/imageSource";
+import { isPersistableImageRef, resolveImageToBlob } from "@/utils/imageSource";
 import { blobToDataUrl, canvasToBlob, createImageBitmapLimited } from "@/utils/imageConcurrency";
 import { shallow } from "zustand/shallow";
 
@@ -252,21 +252,22 @@ const CanvasCropPreview = React.memo(({
       const sw = Math.max(1, ex - sx);
       const sh = Math.max(1, ey - sy);
 
-      // contain：画布尺寸等于实际渲染尺寸，避免把留白画进 canvas（右键保存/导出会带白边）
       const fit = Math.min(w / sw, h / sh);
       const dw = Math.max(1, Math.round(sw * fit));
       const dh = Math.max(1, Math.round(sh * fit));
+      const dx = Math.max(0, Math.round((w - dw) / 2));
+      const dy = Math.max(0, Math.round((h - dh) / 2));
 
-      canvas.style.width = `${dw}px`;
-      canvas.style.height = `${dh}px`;
-      canvas.width = Math.max(1, Math.round(dw * dpr));
-      canvas.height = Math.max(1, Math.round(dh * dpr));
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      canvas.width = Math.max(1, Math.round(w * dpr));
+      canvas.height = Math.max(1, Math.round(h * dpr));
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      ctx.clearRect(0, 0, dw, dh);
+      ctx.clearRect(0, 0, w, h);
       ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, dw, dh);
-      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
     };
 
     const onError = () => {
@@ -670,6 +671,82 @@ function ImageNodeInner({ id, data, selected }: Props) {
       sourceHeight: cropInfo.sourceHeight,
     }
     : undefined;
+
+  const lastCropRef = React.useRef<{
+    baseRef: string;
+    rect: { x: number; y: number; width: number; height: number };
+    sourceWidth?: number;
+    sourceHeight?: number;
+  } | null>(null);
+
+  React.useEffect(() => {
+    if (!cropInfo?.baseRef) return;
+    lastCropRef.current = {
+      baseRef: cropInfo.baseRef,
+      rect: cropInfo.rect,
+      sourceWidth: cropInfo.sourceWidth,
+      sourceHeight: cropInfo.sourceHeight,
+    };
+  }, [cropInfo?.baseRef, cropInfo?.rect?.height, cropInfo?.rect?.width, cropInfo?.rect?.x, cropInfo?.rect?.y, cropInfo?.sourceHeight, cropInfo?.sourceWidth]);
+
+  React.useEffect(() => {
+    if (hasInputConnection) return;
+
+    const crop = (data as any)?.crop as
+      | { x?: unknown; y?: unknown; width?: unknown; height?: unknown }
+      | undefined;
+    const hasValidCrop =
+      crop &&
+      Number.isFinite(Number(crop.x ?? 0)) &&
+      Number.isFinite(Number(crop.y ?? 0)) &&
+      Number(crop.width ?? 0) > 0 &&
+      Number(crop.height ?? 0) > 0;
+    if (hasValidCrop) return;
+
+    const snapshot = lastCropRef.current;
+    if (!snapshot?.baseRef) return;
+
+    const existingBaseRef =
+      (typeof data.imageData === "string" && data.imageData.trim()) ||
+      (typeof data.imageUrl === "string" && data.imageUrl.trim()) ||
+      "";
+    if (existingBaseRef && existingBaseRef !== snapshot.baseRef) return;
+
+    const patch: Record<string, unknown> = {
+      crop: {
+        x: snapshot.rect.x,
+        y: snapshot.rect.y,
+        width: snapshot.rect.width,
+        height: snapshot.rect.height,
+        sourceWidth: snapshot.sourceWidth,
+        sourceHeight: snapshot.sourceHeight,
+      },
+    };
+
+    if (!existingBaseRef) {
+      if (isPersistableImageRef(snapshot.baseRef)) {
+        patch.imageUrl = snapshot.baseRef;
+        patch.imageData = undefined;
+      } else {
+        patch.imageData = snapshot.baseRef;
+      }
+    }
+
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: { id, patch },
+      })
+    );
+  }, [
+    (data as any)?.crop?.height,
+    (data as any)?.crop?.width,
+    (data as any)?.crop?.x,
+    (data as any)?.crop?.y,
+    data.imageData,
+    data.imageUrl,
+    hasInputConnection,
+    id,
+  ]);
 
   const projectId = useProjectContentStore((state) => state.projectId);
   const [hover, setHover] = React.useState<string | null>(null);

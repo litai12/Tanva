@@ -8,6 +8,7 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import paper from "paper";
 import { aiImageService } from "@/services/aiImageService";
 import { paperSandboxService } from "@/services/paperSandboxService";
+import { fetchWithAuth } from "@/services/authFetch";
 import {
   generateImageViaAPI,
   editImageViaAPI,
@@ -1056,9 +1057,12 @@ const downloadUrlAsDataUrl = async (url: string): Promise<string | null> => {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), VIDEO_FETCH_TIMEOUT_MS);
-    const response = await fetch(url, {
+    const response = await fetchWithAuth(url, {
       signal: controller.signal,
       mode: "cors",
+      auth: "omit",
+      allowRefresh: false,
+      credentials: "omit",
     });
     clearTimeout(timer);
     if (!response.ok) {
@@ -1080,9 +1084,12 @@ const fetchVideoBlob = async (url: string): Promise<Blob | null> => {
       () => controller.abort(),
       Math.max(VIDEO_FETCH_TIMEOUT_MS, 12000)
     );
-    const response = await fetch(url, {
+    const response = await fetchWithAuth(url, {
       signal: controller.signal,
       mode: "cors",
+      auth: "omit",
+      allowRefresh: false,
+      credentials: "omit",
     });
     clearTimeout(timer);
     if (!response.ok) {

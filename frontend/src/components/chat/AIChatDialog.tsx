@@ -13,6 +13,7 @@ import React, {
   useMemo,
 } from "react";
 import { createPortal } from "react-dom";
+import { fetchWithAuth } from "@/services/authFetch";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -4135,12 +4136,15 @@ const AIChatDialog: React.FC = () => {
                                                           // 方案 1: 尝试直接 fetch 下载
                                                           try {
                                                             const response =
-                                                              await fetch(
+                                                              await fetchWithAuth(
                                                                 message.videoUrl!,
                                                                 {
                                                                   mode: "cors",
                                                                   credentials:
                                                                     "omit",
+                                                                  auth: "omit",
+                                                                  allowRefresh:
+                                                                    false,
                                                                 }
                                                               );
 

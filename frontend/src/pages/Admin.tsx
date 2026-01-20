@@ -1175,9 +1175,12 @@ function TemplatesTab() {
     form.append("signature", presign.signature);
     form.append("file", file);
 
-    const uploadResp = await fetch(presign.host, {
+    const uploadResp = await fetchWithAuth(presign.host, {
       method: "POST",
       body: form,
+      auth: "omit",
+      allowRefresh: false,
+      credentials: "omit",
     });
 
     if (!uploadResp.ok) {
@@ -1428,14 +1431,12 @@ function TemplatesTab() {
                           className='px-3 py-2 bg-blue-600 text-white rounded'
                           onClick={async () => {
                             try {
-                              const token = localStorage.getItem("authToken");
-                              const res = await fetch(
+                              const res = await fetchWithAuth(
                                 "/api/admin/templates/categories",
                                 {
                                   method: "POST",
                                   headers: {
                                     "Content-Type": "application/json",
-                                    Authorization: `Bearer ${token}`,
                                   },
                                   body: JSON.stringify({
                                     category: formData.category,
