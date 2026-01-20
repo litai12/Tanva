@@ -1752,8 +1752,8 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
     const baseRef =
       normalizeString(data.inputImageUrl) ||
       normalizeString(rawInputImage) ||
-      normalizeString(connectedImage) ||
       normalizeString(data.inputImage) ||
+      normalizeString(connectedImage) ||
       '';
     const basePatch = baseRef
       ? (isPersistableImageRef(baseRef) ? { imageUrl: baseRef } : { imageData: baseRef })

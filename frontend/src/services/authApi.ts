@@ -1,3 +1,10 @@
+import {
+  clearTokens,
+  getAccessAuthHeader,
+  getRefreshAuthHeader,
+  setTokens,
+} from "./authTokenStorage";
+
 export type UserInfo = {
   id: string;
   email: string;
@@ -175,7 +182,10 @@ export const authApi = {
     }
 
     try {
-      let res = await fetch(`${base}/api/auth/me`, { credentials: "include" });
+      let res = await fetch(`${base}/api/auth/me`, {
+        credentials: "include",
+        headers: { ...getAccessAuthHeader() },
+      });
       if (res.ok) {
         const data = await res.json().catch(() => null);
         const user =
@@ -196,10 +206,16 @@ export const authApi = {
           const r = await fetch(`${base}/api/auth/refresh`, {
             method: "POST",
             credentials: "include",
+            headers: { ...getRefreshAuthHeader() },
           });
           if (r.ok) {
+            const refreshData = await r.json().catch(() => null);
+            if (refreshData?.tokens) {
+              setTokens(refreshData.tokens);
+            }
             res = await fetch(`${base}/api/auth/me`, {
               credentials: "include",
+              headers: { ...getAccessAuthHeader() },
             });
             if (res.ok) {
               const data = await res.json().catch(() => null);
@@ -228,6 +244,7 @@ export const authApi = {
         clearSession();
         clearStoredTokenExpiry();
         clearStoredLastAuthAt();
+        clearTokens();
         return { user: null, source: null };
       }
 
@@ -300,7 +317,10 @@ export const authApi = {
       body: JSON.stringify(payload),
       credentials: "include",
     });
-    const out = await json<{ user: UserInfo }>(res);
+    const out = await json<{ user: UserInfo; tokens?: { accessToken?: string; refreshToken?: string } }>(res);
+    if (out.tokens) {
+      setTokens(out.tokens);
+    }
     // 本地持久化用户，提升刷新体验（用于开发环境或后端短暂不可用时）
     saveSession(out.user);
     // 设置token过期时间（24小时）
@@ -330,7 +350,10 @@ export const authApi = {
       body: JSON.stringify(payload),
       credentials: "include",
     });
-    const out = await json<{ user: UserInfo }>(res);
+    const out = await json<{ user: UserInfo; tokens?: { accessToken?: string; refreshToken?: string } }>(res);
+    if (out.tokens) {
+      setTokens(out.tokens);
+    }
     saveSession(out.user);
     // 设置token过期时间（24小时）
     setStoredTokenExpiry(Date.now() + 24 * 60 * 60 * 1000);
@@ -368,7 +391,10 @@ export const authApi = {
       return loadSession();
     }
     try {
-      let res = await fetch(`${base}/api/auth/me`, { credentials: "include" });
+      let res = await fetch(`${base}/api/auth/me`, {
+        credentials: "include",
+        headers: { ...getAccessAuthHeader() },
+      });
       if (!res.ok) {
         // 常见 401：尝试使用 refresh cookie 刷新一次
         if (res.status === 401 || res.status === 403) {
@@ -376,10 +402,16 @@ export const authApi = {
             const r = await fetch(`${base}/api/auth/refresh`, {
               method: "POST",
               credentials: "include",
+              headers: { ...getRefreshAuthHeader() },
             });
             if (r.ok) {
+              const refreshData = await r.json().catch(() => null);
+              if (refreshData?.tokens) {
+                setTokens(refreshData.tokens);
+              }
               res = await fetch(`${base}/api/auth/me`, {
                 credentials: "include",
+                headers: { ...getAccessAuthHeader() },
               });
             }
           } catch (e) {
@@ -394,6 +426,7 @@ export const authApi = {
           clearSession();
           clearStoredTokenExpiry();
           clearStoredLastAuthAt();
+          clearTokens();
           return null;
         }
         // 尝试使用本地持久化的用户，避免开发场景下的闪跳登录
@@ -422,6 +455,7 @@ export const authApi = {
       const res = await fetch(`${base}/api/auth/logout`, {
         method: "POST",
         credentials: "include",
+        headers: { ...getRefreshAuthHeader() },
       });
       if (!res.ok) {
         let msg = `HTTP ${res.status}`;
@@ -439,6 +473,7 @@ export const authApi = {
       clearSession();
       clearStoredTokenExpiry(); // 清除token过期时间
       clearStoredLastAuthAt();
+      clearTokens();
     }
 
     return { ok } as { ok: boolean };
@@ -455,6 +490,7 @@ export const authApi = {
     try {
       const res = await fetch(`${base}/api/users/google-api-key`, {
         credentials: "include",
+        headers: { ...getAccessAuthHeader() },
       });
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
@@ -481,7 +517,7 @@ export const authApi = {
 
     const res = await fetch(`${base}/api/users/google-api-key`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...getAccessAuthHeader() },
       body: JSON.stringify(dto),
       credentials: "include",
     });

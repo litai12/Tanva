@@ -179,6 +179,7 @@ async function bootstrap() {
       : true,
     credentials: true,
     methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
+    allowedHeaders: ["content-type", "authorization", "x-api-key"],
   });
 
   app.useGlobalPipes(

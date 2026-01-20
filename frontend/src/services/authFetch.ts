@@ -1,5 +1,6 @@
 import { tokenRefreshManager } from './tokenRefreshManager';
 import { triggerAuthExpired } from './authEvents';
+import { getAccessToken, getRefreshAuthHeader, setTokens } from './authTokenStorage';
 
 type RequestInput = RequestInfo | URL;
 
@@ -15,11 +16,21 @@ async function ensureRefresh(): Promise<boolean> {
     refreshPromise = fetch(refreshUrl, {
       method: 'POST',
       credentials: 'include',
+      headers: { ...getRefreshAuthHeader() },
     })
       .then((res) => {
         if (res.ok) {
-          // 刷新成功，通知 tokenRefreshManager
-          tokenRefreshManager.onLoginSuccess();
+          return res
+            .json()
+            .catch(() => null)
+            .then((data) => {
+              if (data?.tokens) {
+                setTokens(data.tokens);
+              }
+              // 刷新成功，通知 tokenRefreshManager
+              tokenRefreshManager.onLoginSuccess();
+              return true;
+            });
         }
         return res.ok;
       })
@@ -31,10 +42,20 @@ async function ensureRefresh(): Promise<boolean> {
   return refreshPromise;
 }
 
-const normalizeInit = (init?: RequestInit): RequestInit => ({
-  ...(init || {}),
-  credentials: 'include',
-});
+const normalizeInit = (init?: RequestInit): RequestInit => {
+  const headers = new Headers(init?.headers || {});
+  if (!headers.has('Authorization')) {
+    const accessToken = getAccessToken();
+    if (accessToken) {
+      headers.set('Authorization', `Bearer ${accessToken}`);
+    }
+  }
+  return {
+    ...(init || {}),
+    credentials: 'include',
+    headers,
+  };
+};
 
 export async function fetchWithAuth(input: RequestInput, init?: RequestInit): Promise<Response> {
   const response = await fetch(input, normalizeInit(init));

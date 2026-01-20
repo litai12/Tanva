@@ -25,6 +25,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 后端：支持 `CORS_ORIGIN=*` 放开所有来源（仅建议本地/测试）。
 
 ### Fixed
+- Flow：ImageSplit 生成 Image 节点时优先使用 `inputImageUrl/inputImage` 作为基底，减少误用上游缩略图导致的清晰度下降（`frontend/src/components/flow/nodes/ImageSplitNode.tsx`）。
+- Flow：ImageGrid 读取 Image/ImagePro 节点时优先尊重 `crop`，避免下游仍使用整图（`frontend/src/components/flow/nodes/ImageGridNode.tsx`）。
 - 项目内容加载：前端对同项目 `GET /api/projects/:id/content` 做并发去重；后端 OSS 未配置/禁用时跳过读写并设置超时，减少重复下载与长时间卡顿。
 - 后端 AI：工具选择响应解析更稳健（支持前后缀文本/markdown code fence/尾随逗号/松散 key:value/从文本提取工具名），避免误降级到 chatResponse（`backend/src/ai/tool-selection-json.util.ts`）。
 - AI 对话框：工具选择阶段先展示“正在思考中...”占位提示，并复用一次工具选择结果避免重复请求（`frontend/src/stores/aiChatStore.ts`）。
