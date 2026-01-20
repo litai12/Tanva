@@ -103,7 +103,7 @@ class BackgroundRemovalService {
       logger.info("🌐 Sending request to backend for background removal...");
 
       // 使用公开 API 端点（无需认证）
-      const response = await fetch(
+      const response = await fetchWithAuth(
         `${API_BASE}/api/public/ai/remove-background`,
         {
           method: "POST",

@@ -1,3 +1,6 @@
+/**
+ * Paper.js persistence helpers for exporting, importing, and autosaving project content.
+ */
 import paper from 'paper';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { useAIChatStore } from '@/stores/aiChatStore';
@@ -16,6 +19,7 @@ import {
 } from '@/utils/imageSource';
 import { FLOW_IMAGE_ASSET_PREFIX } from '@/services/flowImageAssetStore';
 import { canvasToBlob, dataUrlToBlob, responseToBlob } from '@/utils/imageConcurrency';
+import { fetchWithAuth } from '@/services/authFetch';
 
 class PaperSaveService {
   private saveTimeoutId: number | null = null;
@@ -475,7 +479,11 @@ class PaperSaveService {
 
   private async convertBlobUrlToBlob(blobUrl: string): Promise<Blob | null> {
     try {
-      const response = await fetch(blobUrl);
+      const response = await fetchWithAuth(blobUrl, {
+        auth: 'omit',
+        allowRefresh: false,
+        credentials: 'omit',
+      });
       if (!response.ok) return null;
       return await responseToBlob(response);
     } catch (error) {
@@ -1275,6 +1283,48 @@ class PaperSaveService {
     } catch (error) {
       console.error('❌ Paper.js项目序列化失败:', error);
       return null;
+    }
+  }
+
+  /**
+   * 导出用于剪贴板/云端持久化的 Paper JSON（不触发上传）。
+   */
+  serializePaperProjectForExport(
+    excludeImageIds: string[],
+    persistableRefMap?: Map<string, string>
+  ): string | null {
+    const previousMap = this.persistableImageRefMap;
+    this.persistableImageRefMap = persistableRefMap ?? null;
+    try {
+      return this.serializePaperProject(excludeImageIds);
+    } finally {
+      this.persistableImageRefMap = previousMap ?? null;
+    }
+  }
+
+  /**
+   * 追加导入 Paper JSON，不清空当前项目。
+   */
+  appendPaperJson(jsonString: string): boolean {
+    try {
+      if (!this.isPaperProjectReady()) {
+        console.warn('⚠️ Paper.js项目未正确初始化，无法导入');
+        return false;
+      }
+      if (!jsonString || jsonString.trim() === '') {
+        return true;
+      }
+      const processedJson = this.preprocessJsonForProxy(jsonString);
+      (paper.project as any).importJSON(processedJson);
+      this.ensureRasterCrossOriginAndProxySources();
+      this.ensureRasterLoadUpdates();
+      try {
+        window.dispatchEvent(new CustomEvent('paper-project-changed'));
+      } catch {}
+      return true;
+    } catch (error) {
+      console.error('❌ 追加导入 Paper.js JSON 失败:', error);
+      return false;
     }
   }
 

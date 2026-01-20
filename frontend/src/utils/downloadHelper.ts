@@ -4,6 +4,7 @@
 
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import { canvasToBlob } from "@/utils/imageConcurrency";
+import { fetchWithAuth } from "@/services/authFetch";
 
 /**
  * 下载图片文件
@@ -109,7 +110,11 @@ export const downloadFile = async (url: string, fileName: string = 'download') =
     }
 
     // 如果是HTTP/HTTPS URL，先fetch再下载
-    const response = await fetch(resolvedUrl);
+    const response = await fetchWithAuth(resolvedUrl, {
+      auth: "omit",
+      allowRefresh: false,
+      credentials: "omit",
+    });
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }

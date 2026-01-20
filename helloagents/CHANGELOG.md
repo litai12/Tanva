@@ -7,8 +7,10 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ## [Unreleased]
 ### Added
 - 工作流历史版本：新增 `WorkflowHistory` 表（按 `userId + projectId + updatedAt` 复合主键），后端提供查询接口；前端右上角增加 n8n 风格历史按钮与“恢复并保存”交互。
+- 画布与 AI 对话框支持 JSON 复制/导入（右键 + `Ctrl/Cmd+Shift+C/V`），导出内容与 `Project.contentJson` 保持一致。
 
 ### Changed
+- Flow：Image 节点新增“发送到画板”按钮，支持将当前图片资源一键发送到画布（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
 - Flow：Image Split 分割运行时使用 `canvas/flow-asset`（Split 时不再强制上传 OSS）；保存前通过 `frontend/src/services/flowSaveService.ts` 自动补传并将 `inputImageUrl` 替换为远程 URL/OSS key，持久化仍为 `inputImageUrl + splitRects`；Worker 侧计算降低主线程峰值。
 - 设计 JSON：`Project.contentJson` / `PublicTemplate.templateData` 强制禁止 `data:`/`blob:`/base64 图片进入 DB/OSS（后端清洗 + 提供批量修复脚本）。
 - 后端 AI：`POST /api/ai/generate-image` 不再返回 base64 `imageData`，改为上传 OSS 并返回 `imageUrl`（前端 Flow/AI Chat 调用已适配）。
@@ -23,10 +25,19 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 清空画布：重置 undo/redo 历史并清理剪贴板/图像缓存，避免清空后仍被旧快照引用导致内存不降。
 - 后端：开发环境可通过 `CORS_DEV_ALLOW_ALL` 放开跨域并忽略 `CORS_ORIGIN`。
 - 后端：支持 `CORS_ORIGIN=*` 放开所有来源（仅建议本地/测试）。
+- 前端 AI：`aiImageService` 统一使用 `fetchWithAuth` 请求，确保工具选择等内部 API 注入鉴权头并复用刷新逻辑（`frontend/src/services/aiImageService.ts`）。
 
 ### Fixed
+- Flow：Image 节点发送到画板时以当前渲染资源为准，含 `crop`/ImageSplit 预览裁剪（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
+- Flow：ImageSplit 通过 Image 链路输入时递归解析上游裁剪信息，避免回退到原图（`frontend/src/components/flow/nodes/ImageSplitNode.tsx`）。
+- Flow：ImageSplit 接收裁剪后的 Image 节点输入时可回溯上游解析 baseRef，确保按裁剪结果分割而非原图（`frontend/src/components/flow/nodes/ImageSplitNode.tsx`）。
+- Flow：ImageSplit 输入预览在上游为裁剪链路时优先显示裁剪预览并等待临时输入准备好，避免先显示整图后跳变（`frontend/src/components/flow/nodes/ImageSplitNode.tsx`）。
+- Flow：Image 节点切换输入连线时清理旧 crop，避免复用旧裁剪结果（`frontend/src/components/flow/FlowOverlay.tsx`）。
+- Flow：Image 节点从上游读取图片时优先跟随连线，避免上游更新后下游不刷新（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
+- Flow：Image 节点发送到画板时尊重 `crop`，发送裁剪结果而非原图（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
 - Flow：Analysis 节点断开输入连线时清理残留图片数据，避免预览仍显示旧图（`frontend/src/components/flow/nodes/AnalyzeNode.tsx`）。
 - Flow：Analysis 节点在 Image→Image→Analysis 链路中可递归识别上游 `crop`/`ImageSplit`，避免回退成整图（`frontend/src/components/flow/nodes/AnalyzeNode.tsx`）。
+- Flow：Analysis 节点在上游 Image 仅作展示时会继续回溯其输入来渲染预览，避免初始空白（`frontend/src/components/flow/nodes/AnalyzeNode.tsx`）。
 - Flow：Image 节点在连接到下游 Image/ImagePro 时会优先使用源节点自身图片并支持读取其 `crop` 做裁剪预览，避免链路传递后图片空白或回退整图（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
 - Flow：ImageSplit 生成 Image 节点时优先使用 `inputImageUrl/inputImage` 作为基底，减少误用上游缩略图导致的清晰度下降（`frontend/src/components/flow/nodes/ImageSplitNode.tsx`）。
 - Flow：ImageGrid 读取 Image/ImagePro 节点时优先尊重 `crop`，避免下游仍使用整图（`frontend/src/components/flow/nodes/ImageGridNode.tsx`）。

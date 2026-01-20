@@ -3,6 +3,7 @@
  */
 
 import { runWithImageConcurrency } from '@/utils/imageConcurrency';
+import { fetchWithAuth } from '@/services/authFetch';
 
 export type ImagePreviewOptions = {
   maxSize?: number;
@@ -133,7 +134,11 @@ export async function createImagePreviewDataUrl(
         const init: RequestInit = /^blob:/i.test(dataUrl)
           ? {}
           : { mode: 'cors', credentials: 'omit' };
-        const response = await fetch(dataUrl, init);
+        const response = await fetchWithAuth(dataUrl, {
+          ...init,
+          auth: 'omit',
+          allowRefresh: false,
+        });
         if (!response.ok) return null;
         const blob = await response.blob();
         if (!blob || blob.size <= 0) return null;
@@ -188,7 +193,11 @@ export async function createImagePreviewDataUrl(
         const init: RequestInit = /^blob:/i.test(dataUrl)
           ? {}
           : { mode: 'cors', credentials: 'omit' };
-        const response = await fetch(dataUrl, init);
+        const response = await fetchWithAuth(dataUrl, {
+          ...init,
+          auth: 'omit',
+          allowRefresh: false,
+        });
         if (!response.ok) return null;
         const blob = await response.blob();
         if (!blob || blob.size <= 0) return null;

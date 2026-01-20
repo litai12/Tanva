@@ -1,6 +1,19 @@
+/**
+ * Canvas drawing controller with selection, context menu, and persistence hooks.
+ */
 import React, { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import paper from 'paper';
-import { ArrowDown, ArrowUp, ClipboardPaste, Copy, Download, Trash2, FolderPlus } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  ClipboardPaste,
+  Copy,
+  Download,
+  Trash2,
+  FolderPlus,
+  FileJson,
+  FileInput,
+} from 'lucide-react';
 import { useToolStore, useCanvasStore, useLayerStore } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
@@ -17,6 +30,7 @@ import { BoundsCalculator } from '@/utils/BoundsCalculator';
 import { createImageGroupBlock, formatImageGroupTitle, removeGroupBlockTitle } from '@/utils/paperImageGroupBlock';
 import { contextManager } from '@/services/contextManager';
 import { clipboardService, type CanvasClipboardData, type PathClipboardSnapshot } from '@/services/clipboardService';
+import { clipboardJsonService } from '@/services/clipboardJsonService';
 import { isGroup, isRaster } from '@/utils/paperCoords';
 import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot, VideoAssetSnapshot } from '@/types/project';
 import ContextMenu from '@/components/ui/context-menu';
@@ -5048,6 +5062,43 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   const closeContextMenu = useCallback(() => setContextMenuState(null), []);
 
+  const showToast = useCallback(
+    (message: string, type: "success" | "error" = "success") => {
+      try {
+        window.dispatchEvent(
+          new CustomEvent("toast", { detail: { message, type } })
+        );
+      } catch {
+        if (type === "error") {
+          console.error(message);
+        } else {
+          console.log(message);
+        }
+      }
+    },
+    []
+  );
+
+  const handleCopyCanvasJson = useCallback(async () => {
+    try {
+      await clipboardJsonService.copyProjectContentToClipboard();
+      showToast("已复制画布 JSON");
+    } catch (error) {
+      console.error("复制画布 JSON 失败:", error);
+      showToast("复制失败，请重试", "error");
+    }
+  }, [showToast]);
+
+  const handleImportCanvasJson = useCallback(async () => {
+    try {
+      await clipboardJsonService.importProjectContentFromClipboard();
+      showToast("已导入画布 JSON");
+    } catch (error) {
+      console.error("导入画布 JSON 失败:", error);
+      showToast("导入失败，请检查剪贴板内容", "error");
+    }
+  }, [showToast]);
+
   const contextMenuItems = useMemo(() => {
     if (!contextMenuState) return [];
 
@@ -5075,6 +5126,20 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           handleCanvasPaste();
         },
         disabled: !canPaste,
+      },
+      {
+        label: "复制画布 JSON",
+        icon: <FileJson className='w-4 h-4' />,
+        onClick: () => {
+          void handleCopyCanvasJson().finally(() => closeContextMenu());
+        },
+      },
+      {
+        label: "导入画布 JSON",
+        icon: <FileInput className='w-4 h-4' />,
+        onClick: () => {
+          void handleImportCanvasJson().finally(() => closeContextMenu());
+        },
       },
     ];
 
@@ -5151,6 +5216,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     contextMenuState,
     handleCanvasCopy,
     handleCanvasPaste,
+    handleCopyCanvasJson,
+    handleImportCanvasJson,
     handleAddImageToLibrary,
     handleDeleteSelection,
     handleDownloadImage,
@@ -5162,6 +5229,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     selectionTool.selectedPath,
     selectionTool.selectedPaths,
     hasSelection,
+    closeContextMenu,
   ]);
 
   // 事件监听器/长生命周期回调使用稳定引用，避免依赖 tool 对象导致频繁解绑/重绑

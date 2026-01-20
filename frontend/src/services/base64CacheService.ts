@@ -4,6 +4,7 @@
  */
 
 import { blobToDataUrl, responseToBlob } from '@/utils/imageConcurrency';
+import { fetchWithAuth } from '@/services/authFetch';
 
 // ============ 配置常量 ============
 const MAX_MEMORY_CACHE_SIZE = 50 * 1024 * 1024;  // 内存缓存上限 50MB
@@ -276,9 +277,11 @@ class Base64CacheService {
    */
   private async fetchFromUrl(url: string): Promise<string | null> {
     try {
-      const response = await fetch(url, {
+      const response = await fetchWithAuth(url, {
         mode: 'cors',
         credentials: 'omit',
+        auth: 'omit',
+        allowRefresh: false,
       });
 
       if (!response.ok) {

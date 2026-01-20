@@ -8,6 +8,7 @@
  */
 
 import { triggerAuthExpired } from "./authEvents";
+import { fetchWithAuth } from "./authFetch";
 import { getRefreshAuthHeader, setTokens } from "./authTokenStorage";
 
 // Token 配置（与后端 JWT_ACCESS_TTL=24h 对应）
@@ -174,10 +175,12 @@ class TokenRefreshManager {
     this.isRefreshing = true;
 
     try {
-      const res = await fetch(`${base}/api/auth/refresh`, {
+      const res = await fetchWithAuth(`${base}/api/auth/refresh`, {
         method: "POST",
         credentials: "include",
         headers: { ...getRefreshAuthHeader() },
+        auth: "omit",
+        allowRefresh: false,
       });
 
       if (res.ok) {

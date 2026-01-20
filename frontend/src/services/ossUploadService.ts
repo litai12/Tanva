@@ -186,9 +186,12 @@ export async function uploadToOSS(
           })
     );
 
-    const uploadResp = await fetch(presign.host, {
+    const uploadResp = await fetchWithAuth(presign.host, {
       method: "POST",
       body: formData,
+      auth: "omit",
+      allowRefresh: false,
+      credentials: "omit",
     });
 
     if (!uploadResp.ok) {

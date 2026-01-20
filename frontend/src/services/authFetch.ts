@@ -4,6 +4,11 @@ import { getAccessToken, getRefreshAuthHeader, setTokens } from './authTokenStor
 
 type RequestInput = RequestInfo | URL;
 
+export type AuthFetchInit = RequestInit & {
+  auth?: "auto" | "omit";
+  allowRefresh?: boolean;
+};
+
 let refreshPromise: Promise<boolean> | null = null;
 
 const refreshUrl =
@@ -42,30 +47,50 @@ async function ensureRefresh(): Promise<boolean> {
   return refreshPromise;
 }
 
-const normalizeInit = (init?: RequestInit): RequestInit => {
+const normalizeInit = (init?: AuthFetchInit): RequestInit => {
   const headers = new Headers(init?.headers || {});
-  if (!headers.has('Authorization')) {
+  const authMode = init?.auth ?? "auto";
+
+  if (authMode !== "omit" && !headers.has("Authorization")) {
     const accessToken = getAccessToken();
     if (accessToken) {
-      headers.set('Authorization', `Bearer ${accessToken}`);
+      headers.set("Authorization", `Bearer ${accessToken}`);
     }
   }
+
+  const credentials =
+    init?.credentials ?? (authMode === "omit" ? "omit" : "include");
+
   return {
     ...(init || {}),
-    credentials: 'include',
+    credentials,
     headers,
   };
 };
 
-export async function fetchWithAuth(input: RequestInput, init?: RequestInit): Promise<Response> {
-  const response = await fetch(input, normalizeInit(init));
+export async function fetchWithAuth(
+  input: RequestInput,
+  init?: AuthFetchInit
+): Promise<Response> {
+  const { allowRefresh = true, auth = "auto", ...rest } = init || {};
+  const normalized = normalizeInit({ ...rest, auth });
+  const response = await fetch(input, normalized);
   if (response.status !== 401 && response.status !== 403) {
+    return response;
+  }
+
+  if (auth === "omit") {
+    return response;
+  }
+
+  if (!allowRefresh) {
+    triggerAuthExpired();
     return response;
   }
 
   const refreshed = await ensureRefresh();
   if (refreshed) {
-    const retryResponse = await fetch(input, normalizeInit(init));
+    const retryResponse = await fetch(input, normalizeInit({ ...rest, auth }));
     // refresh 返回 ok 但重试仍 401/403：认为登录态已失效，触发退出/登录提示
     if (retryResponse.status === 401 || retryResponse.status === 403) {
       triggerAuthExpired();

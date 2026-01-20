@@ -56,6 +56,114 @@ type CropSpec = {
   sourceHeight?: number;
 };
 
+const CanvasCropPreview = React.memo(({
+  src,
+  rect,
+  sourceWidth,
+  sourceHeight,
+}: {
+  src: string;
+  rect: { x: number; y: number; width: number; height: number };
+  sourceWidth?: number;
+  sourceHeight?: number;
+}) => {
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
+  const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+  const [size, setSize] = React.useState<{ w: number; h: number }>({ w: 0, h: 0 });
+
+  React.useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const update = () => {
+      const rect = container.getBoundingClientRect();
+      const w = Math.max(1, Math.round(rect.width));
+      const h = Math.max(1, Math.round(rect.height));
+      setSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+    };
+
+    update();
+
+    let ro: ResizeObserver | null = null;
+    try {
+      ro = new ResizeObserver(update);
+      ro.observe(container);
+    } catch {}
+
+    window.addEventListener('resize', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      try { ro?.disconnect(); } catch {}
+    };
+  }, []);
+
+  React.useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const w = size.w;
+    const h = size.h;
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+
+    const drawPlaceholder = () => {
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      canvas.width = Math.max(1, Math.round(w * dpr));
+      canvas.height = Math.max(1, Math.round(h * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = '#f3f4f6';
+      ctx.fillRect(0, 0, w, h);
+    };
+
+    if (!src || !rect || rect.width <= 0 || rect.height <= 0 || w <= 0 || h <= 0) {
+      drawPlaceholder();
+      return;
+    }
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const naturalW = img.naturalWidth || img.width;
+      const naturalH = img.naturalHeight || img.height;
+      if (!naturalW || !naturalH) {
+        drawPlaceholder();
+        return;
+      }
+
+      const srcW = sourceWidth && sourceWidth > 0 ? sourceWidth : naturalW;
+      const srcH = sourceHeight && sourceHeight > 0 ? sourceHeight : naturalH;
+      const scaleX = srcW > 0 ? naturalW / srcW : 1;
+      const scaleY = srcH > 0 ? naturalH / srcH : 1;
+
+      const sx = Math.max(0, Math.min(naturalW - 1, Math.round(rect.x * scaleX)));
+      const sy = Math.max(0, Math.min(naturalH - 1, Math.round(rect.y * scaleY)));
+      const swRaw = Math.max(1, Math.round(rect.width * scaleX));
+      const shRaw = Math.max(1, Math.round(rect.height * scaleY));
+      const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
+      const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
+
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      canvas.width = Math.max(1, Math.round(w * dpr));
+      canvas.height = Math.max(1, Math.round(h * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+    };
+    img.onerror = drawPlaceholder;
+    img.src = src;
+  }, [rect.height, rect.width, rect.x, rect.y, size.h, size.w, sourceHeight, sourceWidth, src]);
+
+  return (
+    <div ref={containerRef} style={{ width: '100%', height: '100%' }}>
+      <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: '100%' }} />
+    </div>
+  );
+});
+
 type Props = {
   id: string;
   data: {
@@ -1156,11 +1264,13 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
           };
         };
 
-        const specFromImageNode = (node: Node<any>): CropSpec | null => {
-          const d = (node.data ?? {}) as any;
+        const resolveCropFromImageChain = (node: Node<any>, visited: Set<string>): CropSpec | null => {
+          if (!node || visited.has(node.id)) return null;
+          visited.add(node.id);
+          if (node.type !== 'image' && node.type !== 'imagePro') return null;
 
-          // 1) 若 Image 节点本身有 crop（通常来自 ImageSplit 的“生成节点”），直接用它
-          const baseRef = normalizeString(d.imageData) || normalizeString(d.imageUrl) || '';
+          const d = (node.data ?? {}) as any;
+          let baseRef = normalizeString(d.imageData) || normalizeString(d.imageUrl) || '';
           const crop = d?.crop as any;
           if (baseRef && crop) {
             const x = typeof crop.x === 'number' ? crop.x : Number(crop.x ?? 0);
@@ -1183,6 +1293,88 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
               };
             }
           }
+
+          const upstream = state.edges.find(
+            (e) => e.target === node.id && (e.targetHandle === 'img' || !e.targetHandle)
+          );
+          if (!upstream) return null;
+          const up = nodeById.get(upstream.source);
+          const upHandle = (upstream as any).sourceHandle as string | undefined;
+          if (up?.type === 'imageSplit') {
+            return specFromImageSplit(up, upHandle);
+          }
+          if (up?.type === 'image' || up?.type === 'imagePro') {
+            return resolveCropFromImageChain(up, visited);
+          }
+          return null;
+        };
+
+        const specFromImageNode = (node: Node<any>): CropSpec | null => {
+          const d = (node.data ?? {}) as any;
+
+          // 1) 若 Image 节点本身有 crop（通常来自 ImageSplit 的“生成节点”），直接用它
+          let baseRef = normalizeString(d.imageData) || normalizeString(d.imageUrl) || '';
+          const crop = d?.crop as any;
+          if (baseRef && crop) {
+            const x = typeof crop.x === 'number' ? crop.x : Number(crop.x ?? 0);
+            const y = typeof crop.y === 'number' ? crop.y : Number(crop.y ?? 0);
+            const w = typeof crop.width === 'number' ? crop.width : Number(crop.width ?? 0);
+            const h = typeof crop.height === 'number' ? crop.height : Number(crop.height ?? 0);
+            if (Number.isFinite(x) && Number.isFinite(y) && w > 0 && h > 0) {
+              const sourceWidth = typeof crop.sourceWidth === 'number' ? crop.sourceWidth : Number(crop.sourceWidth ?? 0);
+              const sourceHeight = typeof crop.sourceHeight === 'number' ? crop.sourceHeight : Number(crop.sourceHeight ?? 0);
+              const identityBase = normalizeIdentityBase(baseRef);
+              return {
+                identity: `${identityBase}#crop:${x},${y},${w},${h}@${sourceWidth || 0}x${sourceHeight || 0}`,
+                baseRef,
+                x,
+                y,
+                width: w,
+                height: h,
+                sourceWidth: sourceWidth > 0 ? sourceWidth : undefined,
+                sourceHeight: sourceHeight > 0 ? sourceHeight : undefined,
+              };
+            }
+          }
+
+          // 如果 Image 节点自身没有 baseRef，但有 crop，尝试从上游节点解析 baseRef
+          if (!baseRef && crop) {
+            const upstream = state.edges.find(
+              (e) => e.target === node.id && (e.targetHandle === 'img' || !e.targetHandle)
+            );
+            if (upstream) {
+              const up = nodeById.get(upstream.source);
+              if (up) {
+                baseRef = normalizeString(readImageFromNode(up, (upstream as any).sourceHandle)) || '';
+              }
+            }
+          }
+
+          if (baseRef && crop) {
+            const x = typeof crop.x === 'number' ? crop.x : Number(crop.x ?? 0);
+            const y = typeof crop.y === 'number' ? crop.y : Number(crop.y ?? 0);
+            const w = typeof crop.width === 'number' ? crop.width : Number(crop.width ?? 0);
+            const h = typeof crop.height === 'number' ? crop.height : Number(crop.height ?? 0);
+            if (Number.isFinite(x) && Number.isFinite(y) && w > 0 && h > 0) {
+              const sourceWidth = typeof crop.sourceWidth === 'number' ? crop.sourceWidth : Number(crop.sourceWidth ?? 0);
+              const sourceHeight = typeof crop.sourceHeight === 'number' ? crop.sourceHeight : Number(crop.sourceHeight ?? 0);
+              const identityBase = normalizeIdentityBase(baseRef);
+              return {
+                identity: `${identityBase}#crop:${x},${y},${w},${h}@${sourceWidth || 0}x${sourceHeight || 0}`,
+                baseRef,
+                x,
+                y,
+                width: w,
+                height: h,
+                sourceWidth: sourceWidth > 0 ? sourceWidth : undefined,
+                sourceHeight: sourceHeight > 0 ? sourceHeight : undefined,
+              };
+            }
+          }
+
+          // 递归向上游 Image 链路找 crop（Image 节点可能只显示上游裁剪结果但不落数据）
+          const derivedFromChain = resolveCropFromImageChain(node, new Set());
+          if (derivedFromChain) return derivedFromChain;
 
           // 2) 若 Image 节点只是“显示”来自上游（例如 ImageSplit -> Image），回溯上游 imageSplit 生成 crop
           const upstream = state.edges.find(
@@ -1362,8 +1554,12 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
     if (Array.isArray(data.splitRects) && data.splitRects.length > 0) {
       return rawInputImage;
     }
+    // 上游是裁剪链路时，等待裁剪后的临时输入准备好再继续（避免先显示/拆分整图）
+    if (incomingCropSpec?.identity) {
+      return normalizeString(derivedInputRef);
+    }
     return normalizeString(derivedInputRef) || rawInputImage;
-  }, [data.splitRects, derivedInputRef, rawInputImage]);
+  }, [data.splitRects, derivedInputRef, incomingCropSpec?.identity, rawInputImage]);
   const inputAssetId = React.useMemo(() => parseFlowImageAssetRef(effectiveInputImage), [effectiveInputImage]);
   const inputAssetUrl = useFlowImageAssetUrl(inputAssetId);
 
@@ -1371,6 +1567,23 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
     if (inputAssetId) return inputAssetUrl || undefined;
     return buildImageSrc(effectiveInputImage);
   }, [effectiveInputImage, inputAssetId, inputAssetUrl]);
+  const incomingCropBaseRef = incomingCropSpec?.baseRef;
+  const incomingCropAssetId = React.useMemo(
+    () => parseFlowImageAssetRef(incomingCropBaseRef),
+    [incomingCropBaseRef]
+  );
+  const incomingCropAssetUrl = useFlowImageAssetUrl(incomingCropAssetId);
+  const incomingCropSrc = React.useMemo(() => {
+    if (!incomingCropBaseRef) return undefined;
+    if (incomingCropAssetId) return incomingCropAssetUrl || undefined;
+    return buildImageSrc(incomingCropBaseRef);
+  }, [incomingCropAssetId, incomingCropAssetUrl, incomingCropBaseRef]);
+  const showIncomingCropPreview = Boolean(
+    incomingCropSpec &&
+      incomingCropSrc &&
+      !normalizeString(derivedInputRef) &&
+      (!Array.isArray(data.splitRects) || data.splitRects.length === 0)
+  );
   const canSplit = !!normalizeString(effectiveInputImage);
 
   // 更新节点数据
@@ -1931,7 +2144,14 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
         flexDirection: 'column',
         gap: 6,
       }}>
-        {inputImageSrc ? (
+        {showIncomingCropPreview && incomingCropSpec?.rect ? (
+          <CanvasCropPreview
+            src={incomingCropSrc as string}
+            rect={incomingCropSpec.rect}
+            sourceWidth={incomingCropSpec.sourceWidth}
+            sourceHeight={incomingCropSpec.sourceHeight}
+          />
+        ) : inputImageSrc ? (
           <SmartImage
             src={inputImageSrc}
             alt="输入图片"

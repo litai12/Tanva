@@ -1,4 +1,5 @@
 import { createAsyncLimiter } from "@/utils/asyncLimit";
+import { fetchWithAuth } from "@/services/authFetch";
 
 // 全局图片生成/转化并发限制（暂定 10）
 export const IMAGE_CONCURRENCY = 10;
@@ -61,7 +62,11 @@ export const dataUrlToBlob = (dataUrl: string): Promise<Blob> =>
     }
 
     try {
-      const response = await fetch(trimmed);
+      const response = await fetchWithAuth(trimmed, {
+        auth: "omit",
+        allowRefresh: false,
+        credentials: "omit",
+      });
       if (response.ok) {
         const blob = await response.blob();
         if (blob && blob.size > 0) return blob;

@@ -1,7 +1,9 @@
 // @ts-nocheck
+// Flow Image 节点交互与预览逻辑。
 import React from "react";
 import { Handle, Position, useReactFlow, useStore, type ReactFlowState } from "reactflow";
 import { NodeResizeControl } from "@reactflow/node-resizer";
+import { Send as SendIcon } from "lucide-react";
 import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
 import SmartImage from "../../ui/SmartImage";
 import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
@@ -12,11 +14,14 @@ import { imageUploadService } from "@/services/imageUploadService";
 import { generateOssKey } from "@/services/ossUploadService";
 import {
   deleteFlowImage,
+  FLOW_IMAGE_ASSET_PREFIX,
   parseFlowImageAssetRef,
   putFlowImageBlobs,
   toFlowImageAssetRef,
 } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
+import { resolveImageToBlob } from "@/utils/imageSource";
+import { blobToDataUrl, canvasToBlob, createImageBitmapLimited } from "@/utils/imageConcurrency";
 import { shallow } from "zustand/shallow";
 
 const RESIZE_EDGE_THICKNESS = 8;
@@ -115,6 +120,7 @@ type Props = {
       sourceWidth?: number;
       sourceHeight?: number;
     };
+    onSend?: (id: string) => void;
   };
   selected?: boolean;
 };
@@ -476,21 +482,25 @@ function ImageNodeInner({ id, data, selected }: Props) {
           return frame.thumbnailDataUrl || frame.imageUrl;
         }
 
-          // Image 节点 - 优先使用节点自身的图片，其次才回溯上游
+          // Image 节点 - 有输入连线时优先使用上游，避免修改上游后未更新
           if (node.type === "image" || node.type === "imagePro") {
+            const upstream = edges.find(
+              (e) => e.target === nodeId && e.targetHandle === "img"
+            );
+            if (upstream) {
+              const upstreamResolved = resolveFromNode(
+                upstream.source,
+                upstream,
+                visited
+              );
+              if (upstreamResolved) return upstreamResolved;
+            }
+
             const direct =
               (nodeData.imageData as string | undefined) ||
               (nodeData.imageUrl as string | undefined) ||
               (nodeData.thumbnail as string | undefined);
             if (direct) return direct || undefined;
-
-            const upstream = edges.find(
-              (e) => e.target === nodeId && e.targetHandle === "img"
-            );
-            const upstreamResolved = upstream
-              ? resolveFromNode(upstream.source, upstream, visited)
-              : undefined;
-            if (upstreamResolved) return upstreamResolved;
           }
 
           // 兜底：尽量兼容其他输出图片的节点
@@ -551,6 +561,9 @@ function ImageNodeInner({ id, data, selected }: Props) {
 
     // 运行时预览优先使用本地 flow-asset/blob（上传中 key 可能尚不可用）
     const baseRef =
+      (hasInputConnection &&
+        typeof connectedFrameImage === "string" &&
+        connectedFrameImage.trim()) ||
       (typeof (data as any)?.imageData === "string" && (data as any).imageData.trim()) ||
       (typeof (data as any)?.imageUrl === "string" && (data as any).imageUrl.trim()) ||
       (typeof connectedFrameImage === "string" && connectedFrameImage.trim()) ||
@@ -790,6 +803,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
     return resolvedImageName;
   }, [resolvedImageName]);
   const shouldShowImageName = Boolean(data.imageData && truncatedImageName);
+  const canSend = Boolean(canvasCrop?.src || displaySrc || fullSrc);
   React.useEffect(() => {
     if (!preview) return;
     const handler = (e: KeyboardEvent) => {
@@ -798,6 +812,177 @@ function ImageNodeInner({ id, data, selected }: Props) {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [preview]);
+
+  const handleSendToCanvas = React.useCallback(async () => {
+    if (!canSend) return;
+
+    const makeFileName = () => {
+      const base = resolvedImageName || `flow_${id}_${Date.now()}`;
+      if (/\.(png|jpe?g|webp)$/i.test(base)) return base;
+      return `${base}.png`;
+    };
+
+    const notify = (message: string, type: "success" | "warning" | "error") => {
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message, type },
+        })
+      );
+    };
+
+    const emitSend = (imageData: string) => {
+      window.dispatchEvent(
+        new CustomEvent("triggerQuickImageUpload", {
+          detail: {
+            imageData,
+            fileName: makeFileName(),
+            operationType: "generate",
+            smartPosition: undefined,
+            sourceImageId: undefined,
+            sourceImages: undefined,
+          },
+        })
+      );
+      notify("图片已发送到画板", "success");
+    };
+
+    const resolveRenderableToDataUrl = async (value: string): Promise<string | null> => {
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+      if (trimmed.startsWith("data:")) return trimmed;
+      if (trimmed.startsWith(FLOW_IMAGE_ASSET_PREFIX) || trimmed.startsWith("blob:")) {
+        const blob = await resolveImageToBlob(trimmed, { preferProxy: true });
+        if (!blob) return null;
+        return await blobToDataUrl(blob);
+      }
+      if (
+        trimmed.startsWith("/api/assets/proxy") ||
+        trimmed.startsWith("/assets/proxy") ||
+        trimmed.startsWith("http://") ||
+        trimmed.startsWith("https://") ||
+        trimmed.startsWith("/") ||
+        trimmed.startsWith("./") ||
+        trimmed.startsWith("../") ||
+        /^(templates|projects|uploads|videos)\//i.test(trimmed)
+      ) {
+        return trimmed;
+      }
+      const compact = trimmed.replace(/\s+/g, "");
+      if (!compact) return null;
+      return `data:image/png;base64,${compact}`;
+    };
+
+    const cropImageToDataUrl = async (params: {
+      baseRef: string;
+      rect: { x: number; y: number; width: number; height: number };
+      sourceWidth?: number;
+      sourceHeight?: number;
+    }): Promise<string | null> => {
+      const baseRef = params.baseRef?.trim?.() || "";
+      if (!baseRef) return null;
+
+      const w = Math.max(1, Math.round(params.rect.width));
+      const h = Math.max(1, Math.round(params.rect.height));
+      if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
+        return null;
+      }
+
+      const blob = await resolveImageToBlob(baseRef, { preferProxy: true });
+      if (!blob) return null;
+
+      if (typeof createImageBitmap !== "function") return null;
+
+      const bitmap = await createImageBitmapLimited(blob);
+      try {
+        const naturalW = bitmap.width;
+        const naturalH = bitmap.height;
+        if (!naturalW || !naturalH) return null;
+
+        const srcW =
+          typeof params.sourceWidth === "number" && params.sourceWidth > 0
+            ? params.sourceWidth
+            : naturalW;
+        const srcH =
+          typeof params.sourceHeight === "number" && params.sourceHeight > 0
+            ? params.sourceHeight
+            : naturalH;
+
+        const scaleX = srcW > 0 ? naturalW / srcW : 1;
+        const scaleY = srcH > 0 ? naturalH / srcH : 1;
+
+        const sx = Math.max(
+          0,
+          Math.min(naturalW - 1, Math.round(params.rect.x * scaleX))
+        );
+        const sy = Math.max(
+          0,
+          Math.min(naturalH - 1, Math.round(params.rect.y * scaleY))
+        );
+        const swRaw = Math.max(1, Math.round(params.rect.width * scaleX));
+        const shRaw = Math.max(1, Math.round(params.rect.height * scaleY));
+        const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
+        const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
+
+        const canvas =
+          typeof OffscreenCanvas !== "undefined"
+            ? new OffscreenCanvas(w, h)
+            : Object.assign(document.createElement("canvas"), { width: w, height: h });
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return null;
+        ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, w, h);
+        const outBlob = await canvasToBlob(canvas, { type: "image/png" });
+        return await blobToDataUrl(outBlob);
+      } finally {
+        try {
+          bitmap.close();
+        } catch {}
+      }
+    };
+
+    if (canvasCrop && cropInfo?.rect && cropBaseRef) {
+      const cropped = await cropImageToDataUrl({
+        baseRef: cropBaseRef,
+        rect: cropInfo.rect,
+        sourceWidth: cropInfo.sourceWidth,
+        sourceHeight: cropInfo.sourceHeight,
+      });
+      if (!cropped) {
+        notify("裁剪失败，未发送图片", "warning");
+        return;
+      }
+      emitSend(cropped);
+      return;
+    }
+
+    const baseRef =
+      (typeof rawThumbValue === "string" && rawThumbValue.trim()) ||
+      (typeof rawFullValue === "string" && rawFullValue.trim()) ||
+      displaySrc ||
+      fullSrc ||
+      "";
+    if (!baseRef) {
+      notify("没有可发送的图片", "warning");
+      return;
+    }
+
+    const resolved = await resolveRenderableToDataUrl(baseRef);
+    if (!resolved) {
+      notify("没有可发送的图片", "warning");
+      return;
+    }
+    emitSend(resolved);
+  }, [
+    canSend,
+    canvasCrop,
+    cropInfo,
+    cropBaseRef,
+    resolvedImageName,
+    id,
+    rawThumbValue,
+    rawFullValue,
+    displaySrc,
+    fullSrc,
+  ]);
 
   const handleFiles = React.useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -1066,6 +1251,21 @@ function ImageNodeInner({ id, data, selected }: Props) {
       >
         <div style={{ fontWeight: 600 }}>{data.label || "Image"}</div>
         <div style={{ display: "flex", gap: 6 }}>
+          <button
+            onClick={handleSendToCanvas}
+            disabled={!canSend}
+            title={!canSend ? "无可发送的图像" : "发送到画布"}
+            style={{
+              fontSize: 12,
+              padding: "4px 8px",
+              borderRadius: 6,
+              border: "1px solid #e5e7eb",
+              background: !canSend ? "#e5e7eb" : "#fff",
+              cursor: !canSend ? "not-allowed" : "pointer",
+            }}
+          >
+            <SendIcon size={14} strokeWidth={2} />
+          </button>
           {hasInputConnection && (
             <button
               onClick={() => {

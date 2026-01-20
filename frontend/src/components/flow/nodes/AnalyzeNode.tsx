@@ -323,6 +323,38 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
           return null;
         };
 
+        const resolveBaseFromImageChain = (
+          node: Node<any>,
+          visited: Set<string>
+        ): string => {
+          if (!node || visited.has(node.id)) return '';
+          visited.add(node.id);
+
+          const d = (node.data ?? {}) as any;
+          const direct =
+            normalize(d.imageData) ||
+            normalize(d.imageUrl) ||
+            normalize(d.thumbnailDataUrl) ||
+            normalize(d.thumbnail) ||
+            '';
+          if (direct) return direct;
+
+          const upstreamEdge = state.edges.find(
+            (e) => e.target === node.id && (e.targetHandle === 'img' || !e.targetHandle)
+          );
+          if (!upstreamEdge) return '';
+
+          const up = nodeById.get(upstreamEdge.source);
+          if (!up) return '';
+
+          if (up.type === 'imageSplit') {
+            const upData = (up.data ?? {}) as any;
+            return normalize(upData.inputImageUrl) || normalize(upData.inputImage) || '';
+          }
+
+          return resolveBaseFromImageChain(up, visited);
+        };
+
         // Image/ImagePro -> Analysis：优先读取节点 crop；否则尝试回溯其上游 imageSplit / image 链路
         if (srcNode.type === 'image' || srcNode.type === 'imagePro') {
           const d = (srcNode.data ?? {}) as any;
@@ -332,7 +364,11 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
             return { kind: 'crop', crop: derivedCrop };
           }
 
-          const fallback = baseRef || normalize(d.thumbnailDataUrl) || normalize(d.thumbnail);
+          const fallback =
+            baseRef ||
+            normalize(d.thumbnailDataUrl) ||
+            normalize(d.thumbnail) ||
+            resolveBaseFromImageChain(srcNode, new Set());
           return fallback ? { kind: 'base', baseRef: fallback } : null;
         }
 

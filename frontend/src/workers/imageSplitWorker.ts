@@ -1,5 +1,7 @@
 /// <reference lib="webworker" />
 
+import { fetchWithAuth } from "@/services/authFetch";
+
 type SplitImageSource =
   | { kind: "url"; url: string }
   | { kind: "blob"; blob: Blob };
@@ -516,7 +518,11 @@ const resolveSourceToBlob = async (source: SplitImageSource): Promise<Blob> => {
   if (!url) throw new Error("缺少图片地址");
 
   const init: RequestInit = /^blob:/i.test(url) ? {} : { mode: "cors", credentials: "omit" };
-  const response = await fetch(url, init);
+  const response = await fetchWithAuth(url, {
+    ...init,
+    auth: "omit",
+    allowRefresh: false,
+  });
   if (!response.ok) {
     throw new Error(`图片加载失败 (${response.status})`);
   }

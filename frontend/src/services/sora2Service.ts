@@ -5,6 +5,7 @@
  */
 
 import type { AIError, AIServiceResponse } from '@/types/ai';
+import { fetchWithAuth } from './authFetch';
 
 // ============ 类型定义 ============
 
@@ -127,13 +128,16 @@ class Sora2Service {
 
       console.log('🎯 Sora2Service: Using model', model);
 
-      const response = await fetch(`${this.API_BASE}/v1/chat/completions`, {
+      const response = await fetchWithAuth(`${this.API_BASE}/v1/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${this.apiKey}`,
         },
         body: JSON.stringify(request),
+        auth: 'omit',
+        allowRefresh: false,
+        credentials: 'omit',
       });
 
       if (!response.ok) {
@@ -204,13 +208,16 @@ class Sora2Service {
 
       console.log('🎯 Sora2Service: Using model', model);
 
-      const response = await fetch(`${this.API_BASE}/v1/chat/completions`, {
+      const response = await fetchWithAuth(`${this.API_BASE}/v1/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${this.apiKey}`,
         },
         body: JSON.stringify(request),
+        auth: 'omit',
+        allowRefresh: false,
+        credentials: 'omit',
       });
 
       if (!response.ok) {

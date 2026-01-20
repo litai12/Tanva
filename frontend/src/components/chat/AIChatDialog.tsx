@@ -27,9 +27,11 @@ import {
 import ImagePreviewModal from "@/components/ui/ImagePreviewModal";
 import SmartImage from "@/components/ui/SmartImage";
 import SmoothSmartImage from "@/components/ui/SmoothSmartImage";
+import ContextMenu from "@/components/ui/context-menu";
 import { useAIChatStore, getTextModelForProvider } from "@/stores/aiChatStore";
 import { useUIStore } from "@/stores";
 import type { ManualAIMode, ChatMessage } from "@/stores/aiChatStore";
+import { clipboardJsonService } from "@/services/clipboardJsonService";
 import {
   Send,
   AlertCircle,
@@ -45,6 +47,8 @@ import {
   Download,
   Brain,
   Copy,
+  FileJson,
+  FileInput,
   FileText,
   Play,
   RotateCcw,
@@ -321,6 +325,10 @@ const AIChatDialog: React.FC = () => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inputAreaRef = useRef<HTMLDivElement>(null); // 输入区域容器 ref
   const dialogRef = useRef<HTMLDivElement>(null);
+  const [chatContextMenu, setChatContextMenu] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const ensureInputVisibleRafRef = useRef<number | null>(null);
@@ -1484,6 +1492,77 @@ const AIChatDialog: React.FC = () => {
     []
   );
 
+  const handleChatContextMenu = useCallback(
+    (event: React.MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest?.("[data-chat-content]")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setChatContextMenu({ x: event.clientX, y: event.clientY });
+    },
+    []
+  );
+
+  const closeChatContextMenu = useCallback(() => setChatContextMenu(null), []);
+
+  const hasChatText = useMemo(
+    () => messages.some((message) => (message.content || "").trim().length > 0),
+    [messages]
+  );
+
+  const chatContextMenuItems = useMemo(
+    () => [
+      {
+        label: "复制对话 JSON",
+        icon: <FileJson className='h-4 w-4' />,
+        disabled: messages.length === 0,
+        onClick: async () => {
+          try {
+            await clipboardJsonService.copyChatSessionsToClipboard();
+            showToast("已复制对话 JSON");
+          } catch (error) {
+            console.error("复制对话 JSON 失败:", error);
+            showToast("复制失败，请重试", "error");
+          } finally {
+            closeChatContextMenu();
+          }
+        },
+      },
+      {
+        label: "复制对话文本",
+        icon: <FileText className='h-4 w-4' />,
+        disabled: !hasChatText,
+        onClick: async () => {
+          try {
+            await clipboardJsonService.copyChatTextToClipboard(messages);
+            showToast("已复制对话文本");
+          } catch (error) {
+            console.error("复制对话文本失败:", error);
+            showToast("复制失败，请重试", "error");
+          } finally {
+            closeChatContextMenu();
+          }
+        },
+      },
+      {
+        label: "导入对话 JSON",
+        icon: <FileInput className='h-4 w-4' />,
+        onClick: async () => {
+          try {
+            await clipboardJsonService.importChatSessionsFromClipboard();
+            showToast("已导入对话 JSON");
+          } catch (error) {
+            console.error("导入对话 JSON 失败:", error);
+            showToast("导入失败，请检查剪贴板内容", "error");
+          } finally {
+            closeChatContextMenu();
+          }
+        },
+      },
+    ],
+    [closeChatContextMenu, hasChatText, messages, showToast]
+  );
+
   const handleCopyMessage = useCallback(
     async (message: ChatMessage) => {
       const text = message.content?.trim();
@@ -2641,6 +2720,7 @@ const AIChatDialog: React.FC = () => {
         <div
           ref={contentRef}
           data-chat-content
+          onContextMenu={handleChatContextMenu}
           className={cn(
             "flex flex-col",
             (showHistory || isMaximized) && "flex-1 min-h-0",
@@ -4724,6 +4804,14 @@ const AIChatDialog: React.FC = () => {
           imageSrc={previewImage.src}
           imageTitle={previewImage.title}
           onClose={handleClosePreview}
+        />
+      )}
+      {chatContextMenu && (
+        <ContextMenu
+          items={chatContextMenuItems}
+          x={chatContextMenu.x}
+          y={chatContextMenu.y}
+          onClose={closeChatContextMenu}
         />
       )}
     </div>
