@@ -29,10 +29,15 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端网络请求：全量收口到 `fetchWithAuth`，统一鉴权与 401/403 退出逻辑，并为公开/第三方请求提供 `auth: "omit"` 与 `credentials` 控制（`frontend/src/services/authFetch.ts` 等）。
 
 ### Fixed
+- Worker 图片上传：主线程透传 access token，OSS presign 请求携带 Authorization，避免跨站 401（`frontend/src/services/imageUploadWorkerClient.ts`、`frontend/src/workers/imageUploadWorker.ts`、`frontend/src/services/ossUploadService.ts`）。
+- 前端鉴权：`fetchWithAuth` 仅在 Authorization 为空时注入 access token，避免空值阻断注入（`frontend/src/services/authFetch.ts`）。
+- Worker 图片分割：通过主线程透传 access token 并在 Worker 请求中补齐 Authorization，避免跨站资源拉取 401（`frontend/src/services/imageSplitWorkerClient.ts`、`frontend/src/workers/imageSplitWorker.ts`）。
+- 前端 AI：`aiImageService` 刷新会话时补充 `refresh_token` Authorization 头，避免跨站仅依赖 cookie 导致 401（`frontend/src/services/aiImageService.ts`）。
 - AI 对话框：选中文本时右键允许浏览器默认菜单，确保可复制选中文本（`frontend/src/components/chat/AIChatDialog.tsx`）。
 - Flow：Image 节点发送到画板时以当前渲染资源为准，含 `crop`/ImageSplit 预览裁剪（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
 - Flow：Image 节点断开上游连接时会保留当前裁剪渲染状态，避免回退到整图（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
 - Flow：Image 节点裁剪预览改为与节点容器等比居中显示，避免生成的切片预览尺寸异常（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
+- Flow：Image 节点裁剪预览使用原始裁剪分辨率绘制并缩放展示，避免下载/保存时分辨率变小与模糊（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
 - Flow：ImageSplit 通过 Image 链路输入时递归解析上游裁剪信息，避免回退到原图（`frontend/src/components/flow/nodes/ImageSplitNode.tsx`）。
 - Flow：ImageSplit 接收裁剪后的 Image 节点输入时可回溯上游解析 baseRef，确保按裁剪结果分割而非原图（`frontend/src/components/flow/nodes/ImageSplitNode.tsx`）。
 - Flow：ImageSplit 输入预览在上游为裁剪链路时优先显示裁剪预览并等待临时输入准备好，避免先显示整图后跳变（`frontend/src/components/flow/nodes/ImageSplitNode.tsx`）。

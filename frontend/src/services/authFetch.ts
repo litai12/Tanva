@@ -52,9 +52,10 @@ const normalizeInit = (init?: AuthFetchInit): RequestInit => {
   const headers = new Headers(rest.headers || {});
   const authMode = auth ?? "auto";
 
-  if (authMode !== "omit" && !headers.has("Authorization")) {
+  if (authMode !== "omit") {
     const accessToken = getAccessToken();
-    if (accessToken) {
+    const currentAuth = headers.get("Authorization");
+    if (!currentAuth && accessToken) {
       headers.set("Authorization", `Bearer ${accessToken}`);
     }
   }

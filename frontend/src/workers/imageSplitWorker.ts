@@ -11,6 +11,7 @@ export type SplitImageRequest = {
   requestId: string;
   source: SplitImageSource;
   outputCount: number;
+  authToken?: string;
 };
 
 export type SplitImageRectItem = {
@@ -26,6 +27,7 @@ export type SplitImageRectsRequest = {
   requestId: string;
   source: SplitImageSource;
   outputCount: number;
+  authToken?: string;
 };
 
 export type SplitImageResultItem = {
@@ -511,15 +513,20 @@ const trimRectsToContent = async (
   return out;
 };
 
-const resolveSourceToBlob = async (source: SplitImageSource): Promise<Blob> => {
+const resolveSourceToBlob = async (
+  source: SplitImageSource,
+  authToken?: string
+): Promise<Blob> => {
   if (source.kind === "blob") return source.blob;
 
   const url = typeof source.url === "string" ? source.url.trim() : "";
   if (!url) throw new Error("缺少图片地址");
 
   const init: RequestInit = /^blob:/i.test(url) ? {} : { mode: "cors", credentials: "omit" };
+  const headers = authToken ? { Authorization: `Bearer ${authToken}` } : undefined;
   const response = await fetchWithAuth(url, {
     ...init,
+    headers,
     auth: "omit",
     allowRefresh: false,
   });
@@ -557,7 +564,7 @@ self.addEventListener(
             Math.max(MIN_OUTPUT_COUNT, Math.floor(data.outputCount || DEFAULT_OUTPUT_COUNT))
           );
 
-          const blob = await resolveSourceToBlob(data.source);
+          const blob = await resolveSourceToBlob(data.source, data.authToken);
           const bitmap = await createImageBitmap(blob);
 
           let pieces: Array<
@@ -652,7 +659,7 @@ self.addEventListener(
           Math.max(MIN_OUTPUT_COUNT, Math.floor(data.outputCount || DEFAULT_OUTPUT_COUNT))
         );
 
-        const blob = await resolveSourceToBlob(data.source);
+        const blob = await resolveSourceToBlob(data.source, data.authToken);
         const bitmap = await createImageBitmap(blob);
 
         let rects: SplitImageRectItem[] = [];

@@ -9,3 +9,4 @@
 - 202601201739_copy-json-workflow - 画布与对话框 JSON 复制/导入（✅已完成） -> `history/2026-01/202601201739_copy-json-workflow/`
 - 202601201806_ai-tool-selection-auth-request - AI 工具选择鉴权请求合并（✅已完成） -> `history/2026-01/202601201806_ai-tool-selection-auth-request/`
 - 202601201823_unify-frontend-fetch - 前端统一 fetch 鉴权入口（✅已完成） -> `history/2026-01/202601201823_unify-frontend-fetch/`
+- 202601201858_chat-contextmenu-copy - AI 对话框右键复制选中文本（✅已完成） -> `history/2026-01/202601201858_chat-contextmenu-copy/`

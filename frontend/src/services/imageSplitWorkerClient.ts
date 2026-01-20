@@ -6,6 +6,7 @@ import type {
   SplitImageResponse,
   SplitImageRectsResponse,
 } from "../workers/imageSplitWorker";
+import { getAccessToken } from "./authTokenStorage";
 
 export type WorkerSplitImageSource =
   | { kind: "url"; url: string }
@@ -132,6 +133,7 @@ class ImageSplitWorkerClient {
         requestId,
         source,
         outputCount: options.outputCount,
+        authToken: getAccessToken() || undefined,
       };
 
       worker.postMessage(payload);
@@ -167,6 +169,7 @@ class ImageSplitWorkerClient {
         requestId,
         source,
         outputCount: options.outputCount,
+        authToken: getAccessToken() || undefined,
       };
 
       worker.postMessage(payload);

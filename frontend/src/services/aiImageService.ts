@@ -10,6 +10,7 @@
 
 import { v4 as uuidv4 } from "uuid";
 import { tokenRefreshManager } from "./tokenRefreshManager";
+import { getRefreshAuthHeader } from "./authTokenStorage";
 import { triggerAuthExpired } from "./authEvents";
 import { fetchWithAuth } from "./authFetch";
 import type {
@@ -542,6 +543,7 @@ class AIImageService {
       const res = await fetchWithAuth(`${this.API_BASE}/auth/refresh`, {
         method: "POST",
         credentials: "include",
+        headers: { ...getRefreshAuthHeader() },
         auth: "omit",
         allowRefresh: false,
       });

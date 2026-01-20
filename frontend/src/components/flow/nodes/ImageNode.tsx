@@ -255,19 +255,17 @@ const CanvasCropPreview = React.memo(({
       const fit = Math.min(w / sw, h / sh);
       const dw = Math.max(1, Math.round(sw * fit));
       const dh = Math.max(1, Math.round(sh * fit));
-      const dx = Math.max(0, Math.round((w - dw) / 2));
-      const dy = Math.max(0, Math.round((h - dh) / 2));
 
-      canvas.style.width = `${w}px`;
-      canvas.style.height = `${h}px`;
-      canvas.width = Math.max(1, Math.round(w * dpr));
-      canvas.height = Math.max(1, Math.round(h * dpr));
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      canvas.style.width = `${dw}px`;
+      canvas.style.height = `${dh}px`;
+      canvas.width = Math.max(1, Math.round(sw));
+      canvas.height = Math.max(1, Math.round(sh));
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-      ctx.clearRect(0, 0, w, h);
+      ctx.clearRect(0, 0, sw, sh);
       ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, w, h);
-      ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+      ctx.fillRect(0, 0, sw, sh);
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
     };
 
     const onError = () => {
