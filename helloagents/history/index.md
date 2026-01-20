@@ -8,3 +8,4 @@
 - 202601201727_image_send_to_canvas - Image 节点发送到画布按钮（✅已完成） -> `history/2026-01/202601201727_image_send_to_canvas/`
 - 202601201739_copy-json-workflow - 画布与对话框 JSON 复制/导入（✅已完成） -> `history/2026-01/202601201739_copy-json-workflow/`
 - 202601201806_ai-tool-selection-auth-request - AI 工具选择鉴权请求合并（✅已完成） -> `history/2026-01/202601201806_ai-tool-selection-auth-request/`
+- 202601201823_unify-frontend-fetch - 前端统一 fetch 鉴权入口（✅已完成） -> `history/2026-01/202601201823_unify-frontend-fetch/`

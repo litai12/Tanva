@@ -26,8 +26,10 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 后端：开发环境可通过 `CORS_DEV_ALLOW_ALL` 放开跨域并忽略 `CORS_ORIGIN`。
 - 后端：支持 `CORS_ORIGIN=*` 放开所有来源（仅建议本地/测试）。
 - 前端 AI：`aiImageService` 统一使用 `fetchWithAuth` 请求，确保工具选择等内部 API 注入鉴权头并复用刷新逻辑（`frontend/src/services/aiImageService.ts`）。
+- 前端网络请求：全量收口到 `fetchWithAuth`，统一鉴权与 401/403 退出逻辑，并为公开/第三方请求提供 `auth: "omit"` 与 `credentials` 控制（`frontend/src/services/authFetch.ts` 等）。
 
 ### Fixed
+- AI 对话框：选中文本时右键允许浏览器默认菜单，确保可复制选中文本（`frontend/src/components/chat/AIChatDialog.tsx`）。
 - Flow：Image 节点发送到画板时以当前渲染资源为准，含 `crop`/ImageSplit 预览裁剪（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
 - Flow：Image 节点断开上游连接时会保留当前裁剪渲染状态，避免回退到整图（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
 - Flow：Image 节点裁剪预览改为与节点容器等比居中显示，避免生成的切片预览尺寸异常（`frontend/src/components/flow/nodes/ImageNode.tsx`）。

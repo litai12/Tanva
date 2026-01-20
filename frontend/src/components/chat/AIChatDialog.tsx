@@ -1497,6 +1497,23 @@ const AIChatDialog: React.FC = () => {
     (event: React.MouseEvent) => {
       const target = event.target as HTMLElement | null;
       if (!target?.closest?.("[data-chat-content]")) return;
+      const selection =
+        typeof window !== "undefined" ? window.getSelection() : null;
+      const selectedText = selection?.toString().trim();
+      if (selectedText) {
+        const container = contentRef.current;
+        const anchorNode = selection?.anchorNode;
+        const focusNode = selection?.focusNode;
+        if (
+          container &&
+          anchorNode &&
+          focusNode &&
+          container.contains(anchorNode) &&
+          container.contains(focusNode)
+        ) {
+          return;
+        }
+      }
       event.preventDefault();
       event.stopPropagation();
       setChatContextMenu({ x: event.clientX, y: event.clientY });
