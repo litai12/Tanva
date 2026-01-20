@@ -121,6 +121,7 @@ async function bootstrap() {
         .map((o: string) => o.trim())
         .filter(Boolean)
     : [];
+  const corsAllowAll = corsOrigins.includes("*");
   const resolveHostname = (value: string) => {
     try {
       return new URL(value).hostname;
@@ -171,7 +172,7 @@ async function bootstrap() {
 
   // 使用 Fastify 的 CORS 插件，确保 preflight (OPTIONS) 被正确处理并返回 Access-Control-Allow-* 头
   await fastifyInstance.register(fastifyCors as any, {
-    origin: corsDevAllowAll
+    origin: corsDevAllowAll || corsAllowAll
       ? true
       : corsOrigins.length > 0
       ? originCallback

@@ -10,13 +10,13 @@
 
 ## 关键行为
 - 请求体限制：`bodyLimit` 200MB（适配较大的项目内容请求）
-- CORS：支持 `trycloudflare.com` 子域名 + `CORS_ORIGIN` 白名单（逗号分隔）；开发环境可通过开关放开所有来源
+- CORS：支持 `trycloudflare.com` 子域名 + `CORS_ORIGIN` 白名单（逗号分隔）；`CORS_ORIGIN=*` 可放开所有来源（慎用生产），开发环境也可通过开关放开所有来源
 - Swagger：`/api/docs`（cookie auth 名为 `access_token`）
 - 代理：启动时用 undici `EnvHttpProxyAgent` 读取 `HTTP_PROXY/HTTPS_PROXY/ALL_PROXY/NO_PROXY`
 
 ## 配置项（节选）
 - `PORT`（默认 4000）
 - `HOST`（默认 `0.0.0.0`）
-- `CORS_ORIGIN`（可选）
+- `CORS_ORIGIN`（可选；支持 `*` 放开所有来源）
 - `CORS_DEV_ALLOW_ALL`（开发环境放开 CORS，`NODE_ENV=development` 且为 true 时生效）
 - Cookie secret：`COOKIE_SECRET`（缺省为 dev 值，仅用于开发兜底）

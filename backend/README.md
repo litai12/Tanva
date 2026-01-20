@@ -71,6 +71,6 @@ Swagger UI: `GET /api/docs`
 ## Notes
 
 - Cookies: `access_token`, `refresh_token` (HttpOnly). `COOKIE_DOMAIN` should not be set to `localhost` in dev.
-- CORS: origins from `CORS_ORIGIN` (comma-separated) with `credentials: true`.
+- CORS: origins from `CORS_ORIGIN` (comma-separated) with `credentials: true` (`CORS_ORIGIN=*` allows all, dev/test only).
 - OSS direct upload: Use `presign` response to POST to `https://<bucket>.<region>.aliyuncs.com` (or CDN host if configured) with returned fields and your file.
 - Project content is written to OSS when possible; DB field `contentJson` stores latest snapshot as fallback; `contentVersion` increments on updates.
