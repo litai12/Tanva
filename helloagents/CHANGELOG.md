@@ -38,6 +38,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 保存：云端保存前会额外清理 `aiChatSessions`/`assets.images` 中残留的 `data:`/`blob:`/裸 base64（含 `localDataUrl/dataUrl/previewDataUrl`、`imageData/thumbnail` 等），避免“全选清空后仍携带 dataURL”导致 payload 过大或落库污染。
 - Flow：Image Split 分割完成后“生成节点”不再置灰；支持基于 `splitRects` 生成 Image 节点并在 Image 节点运行时裁剪预览（不落库）。
 - Flow：Image Split 生成的 Image 节点裁剪预览在右键保存/导出时不再包含 contain 留白白边（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
+- Flow：Image Split 网格分割配置改为“每边份数 N”，实际输出为 `N*N` 张切片（例如 2048x2048，N=4 -> 16 张 512x512），避免切片尺寸与预期不符（`frontend/src/components/flow/nodes/ImageSplitNode.tsx`）。
 - Flow：修复 Image Split 切片在下游裁切/拼合时误按解码后像素尺寸导出，导致只加载到缩略图时分辨率被压缩（例如 2048->400 使 1024 切片变 200），并降低边缘白边概率（`frontend/src/components/flow/FlowOverlay.tsx`、`frontend/src/components/flow/nodes/ImageGridNode.tsx`）。
 - Flow：视频节点参考图按连线解析，支持 Image Split 切片作为输入。
 - Flow：Image Split 生成的 Image 节点（`crop`）在下游运行时按裁切结果传参，避免仍使用完整原图。
