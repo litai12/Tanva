@@ -277,9 +277,16 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
           return crop ? { kind: 'crop', crop } : null;
         }
 
-        // Image/ImagePro -> Analysis：优先读取节点 crop；否则尝试回溯其上游 imageSplit
-        if (srcNode.type === 'image' || srcNode.type === 'imagePro') {
-          const d = (srcNode.data ?? {}) as any;
+        const resolveCropFromImageChain = (
+          node: Node<any>,
+          visited: Set<string>
+        ): CropInfo | null => {
+          if (!node || visited.has(node.id)) return null;
+          visited.add(node.id);
+
+          if (node.type !== 'image' && node.type !== 'imagePro') return null;
+
+          const d = (node.data ?? {}) as any;
           const crop = d?.crop as any;
           const baseRef = normalize(d.imageData) || normalize(d.imageUrl);
 
@@ -292,28 +299,37 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
               const sourceWidth = typeof crop.sourceWidth === 'number' ? crop.sourceWidth : Number(crop.sourceWidth ?? 0);
               const sourceHeight = typeof crop.sourceHeight === 'number' ? crop.sourceHeight : Number(crop.sourceHeight ?? 0);
               return {
-                kind: 'crop',
-                crop: {
-                  baseRef,
-                  rect: { x, y, width: w, height: hh },
-                  sourceWidth: sourceWidth > 0 ? sourceWidth : undefined,
-                  sourceHeight: sourceHeight > 0 ? sourceHeight : undefined,
-                },
+                baseRef,
+                rect: { x, y, width: w, height: hh },
+                sourceWidth: sourceWidth > 0 ? sourceWidth : undefined,
+                sourceHeight: sourceHeight > 0 ? sourceHeight : undefined,
               };
             }
           }
 
           const upstreamEdge = state.edges.find(
-            (e) => e.target === srcNode.id && (e.targetHandle === 'img' || !e.targetHandle)
+            (e) => e.target === node.id && (e.targetHandle === 'img' || !e.targetHandle)
           );
-          if (upstreamEdge) {
-            const up = nodeById.get(upstreamEdge.source);
-            const upHandle = (upstreamEdge as any).sourceHandle as string | undefined;
-            const upH = typeof upHandle === 'string' ? upHandle.trim() : '';
-            if (up?.type === 'imageSplit') {
-              const derived = toCropInfoFromImageSplit(up, upH);
-              return derived ? { kind: 'crop', crop: derived } : null;
-            }
+          if (!upstreamEdge) return null;
+          const up = nodeById.get(upstreamEdge.source);
+          const upHandle = (upstreamEdge as any).sourceHandle as string | undefined;
+          const upH = typeof upHandle === 'string' ? upHandle.trim() : '';
+          if (up?.type === 'imageSplit') {
+            return toCropInfoFromImageSplit(up, upH);
+          }
+          if (up?.type === 'image' || up?.type === 'imagePro') {
+            return resolveCropFromImageChain(up, visited);
+          }
+          return null;
+        };
+
+        // Image/ImagePro -> Analysis：优先读取节点 crop；否则尝试回溯其上游 imageSplit / image 链路
+        if (srcNode.type === 'image' || srcNode.type === 'imagePro') {
+          const d = (srcNode.data ?? {}) as any;
+          const baseRef = normalize(d.imageData) || normalize(d.imageUrl);
+          const derivedCrop = resolveCropFromImageChain(srcNode, new Set());
+          if (derivedCrop) {
+            return { kind: 'crop', crop: derivedCrop };
           }
 
           const fallback = baseRef || normalize(d.thumbnailDataUrl) || normalize(d.thumbnail);
@@ -349,6 +365,16 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
     if (fallbackAssetId) return fallbackAssetUrl || undefined;
     return buildImageSrc(fallbackRaw);
   }, [fallbackAssetId, fallbackAssetUrl, fallbackRaw]);
+
+  React.useEffect(() => {
+    if (incomingEdge) return;
+    if (!data.imageData && !data.imageUrl) return;
+    window.dispatchEvent(
+      new CustomEvent('flow:updateNodeData', {
+        detail: { id, patch: { imageData: undefined, imageUrl: undefined } },
+      })
+    );
+  }, [incomingEdge, data.imageData, data.imageUrl, id]);
 
   const connectedBaseRef = connectedInput?.kind === 'crop'
     ? connectedInput.crop.baseRef

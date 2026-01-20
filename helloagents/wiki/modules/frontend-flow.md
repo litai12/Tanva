@@ -17,6 +17,8 @@
 - **Image Split 输出端口数**：节点配置使用“输出端口数量(1-50)”，Worker 会按 `cols=ceil(sqrt(count))`、`rows=ceil(count/cols)` 做网格裁切；例如 2048x2048 要得到 512x512 的 4x4 切片，应将输出端口设为 `16`（仅裁切不缩放）。
 - **裁切输出尺寸**：下游按 `splitRects[].width/height`（源坐标系）作为输出尺寸；当 base 图像只加载到缩略图（`naturalW < sourceWidth`）时，仍会输出正确尺寸（避免 1024 误变 200）。
 - **Image 节点裁切透传**：`Image`/`ImagePro` 节点带 `crop` 时，下游聚合（如 `Image Grid`）会优先按 `crop` 裁切再拼合，避免回退到整图；节点连接链路中也支持读取上游 `Image` 的 `crop` 进行裁剪预览。
+- **Analysis 裁切继承**：`Analysis` 节点在输入为 `Image/ImagePro` 时会递归向上游查找 `crop`/`ImageSplit`，以确保链路中转后仍使用裁剪结果。
+- **Analysis 断开清空**：断开图片连线后会清理节点内残留的 `imageData/imageUrl`，预览恢复为空状态。
 - **Worker 计算**：`Image Split` 使用 `frontend/src/workers/imageSplitWorker.ts` 在 Worker 内解码并计算裁切矩形，避免主线程做像素级扫描与 `toDataURL` 产生的峰值。
 
 ## 3D 模型节点
