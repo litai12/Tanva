@@ -3,7 +3,6 @@ import { Handle, Position } from 'reactflow';
 import ImagePreviewModal from '../../ui/ImagePreviewModal';
 import SmartImage from '../../ui/SmartImage';
 import { aiImageService } from '@/services/aiImageService';
-import { fetchWithAuth } from '@/services/authFetch';
 import { useAIChatStore, getImageModelForProvider } from '@/stores/aiChatStore';
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { blobToDataUrl, responseToBlob } from '@/utils/imageConcurrency';
@@ -115,7 +114,11 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
 
         if (fetchUrl) {
           // 类型定义要求 base64，这里在前端将远程图转成 dataURL
-          const response = await fetchWithAuth(fetchUrl);
+          const init: RequestInit =
+            fetchUrl.startsWith('blob:') || fetchUrl.startsWith('data:')
+              ? {}
+              : { mode: 'cors', credentials: 'omit' };
+          const response = await fetch(fetchUrl, init);
           if (!response.ok) throw new Error(`图片加载失败: ${response.status}`);
           const blob = await responseToBlob(response);
           return await blobToDataUrl(blob);

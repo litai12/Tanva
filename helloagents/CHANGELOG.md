@@ -30,6 +30,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - AI 对话框：工具选择阶段先展示“正在思考中...”占位提示，并复用一次工具选择结果避免重复请求（`frontend/src/stores/aiChatStore.ts`）。
 - AI 图片：后端 `generate-image` 对“空图/非法格式图”在同一次请求内自动重试（最多 3 次），并将空图/非法格式统一视为 502（BadGateway）；前端保留兜底重试，减少对话框 X4 模式偶发只生成 3 张的问题（`backend/src/ai/ai.controller.ts`、`frontend/src/services/aiBackendAPI.ts`）。
 - Assets Proxy：`GET /api/assets/proxy` 跟随重定向前主动 cancel 上一个响应体；客户端中断时 abort 上游 fetch 并安全清理流，避免 `ReadableStream is locked` 报错，降低高频图片代理下的内存/连接占用。
+- Flow：Analyze/参考图拉取远程图片时使用 `credentials: omit`，避免跨域部署下 `/api/assets/proxy` 的 `Access-Control-Allow-Origin=*` 与 `credentials: include` 冲突导致浏览器拦截（`frontend/src/components/flow/nodes/AnalyzeNode.tsx`、`frontend/src/components/flow/FlowOverlay.tsx`）。
 - 前端图片转码：新增全局并发限流（暂定 10），收口图片生成/转化（`canvas.toDataURL/toBlob`、`FileReader.readAsDataURL`、`Response.blob`、`createImageBitmap/WebCodecs` 等）并在 AI Chat/Flow/画布等链路复用，降低多图场景瞬时内存峰值与卡顿。
 - 截图：`AutoScreenshotService` 绘制 Raster 时仅在“确实跨域且未设置 crossOrigin”场景才重载图片，避免同源 `/api/assets/proxy` 资源被重复请求导致的接口刷屏与内存抖动。
 - Canvas：保存 `paperJson` 时将 `*/api/assets/proxy?...` 反解为 remote URL/OSS key，避免把 `http://localhost:5173/...` 等运行时代理地址落库。

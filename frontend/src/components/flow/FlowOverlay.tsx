@@ -6202,7 +6202,12 @@ function FlowInner() {
         if (referenceImages.length) {
           try {
             const fetchRemoteImageAsDataUrl = async (url: string) => {
-              const response = await fetchWithAuth(proxifyRemoteAssetUrl(url));
+              const fetchUrl = proxifyRemoteAssetUrl(url);
+              const init: RequestInit =
+                fetchUrl.startsWith("blob:") || fetchUrl.startsWith("data:")
+                  ? {}
+                  : { mode: "cors", credentials: "omit" };
+              const response = await fetch(fetchUrl, init);
               if (!response.ok) {
                 throw new Error(`参考图拉取失败: ${response.status}`);
               }
