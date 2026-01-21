@@ -1782,8 +1782,8 @@ export default function Admin() {
               ))}
             </nav>
           </div>
-          <Button variant='ghost' onClick={() => navigate("/")}>
-            返回首页
+          <Button variant='ghost' onClick={() => navigate(-1)}>
+            返回
           </Button>
         </div>
       </header>
