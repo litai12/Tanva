@@ -13,3 +13,5 @@
 - 202601211015_pending_upload_move_only - 上传中图片仅允许移动（✅已完成） -> `history/2026-01/202601211015_pending_upload_move_only/`
 - 202601211212_flow_image_zoom_refresh - Flow 图片节点缩放刷新尺寸一致（✅已完成） -> `history/2026-01/202601211212_flow_image_zoom_refresh/`
 - 202601211256_flow_minimap_drag - Flow MiniMap 拖拽时常驻（✅已完成） -> `history/2026-01/202601211256_flow_minimap_drag/`
+- 202601211428_seedance-oss-video - Seedance 视频结果上传 OSS（✅已完成） -> `history/2026-01/202601211428_seedance-oss-video/`
+- 202601211438_minimap_delay - MiniMap 刷新延迟展示修复（✅已完成） -> `history/2026-01/202601211438_minimap_delay/`

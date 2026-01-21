@@ -1,3 +1,4 @@
+// OSS helper for upload/signing and public host resolution.
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import crypto from 'crypto';
@@ -178,6 +179,16 @@ export class OssService {
     const { cdnHost, bucket, region } = this.conf;
     const host = cdnHost || `${bucket}.${region}.aliyuncs.com`;
     return `https://${host}/${key}`;
+  }
+
+  publicHosts(): string[] {
+    const { cdnHost, bucket, region } = this.conf;
+    const stripProtocol = (value: string) => value.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+    const hosts = [`${bucket}.${region}.aliyuncs.com`];
+    if (cdnHost) {
+      hosts.push(stripProtocol(cdnHost));
+    }
+    return Array.from(new Set(hosts)).filter(Boolean);
   }
 
   allowedPublicHosts(): string[] {

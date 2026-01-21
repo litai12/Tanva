@@ -1,10 +1,13 @@
+// Video provider integration (Kling/Vidu/Seedance) with OSS post-processing.
 import {
+  BadRequestException,
   Injectable,
   Logger,
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { VideoProviderRequestDto } from "../dto/video-provider.dto";
 import { OssService } from "../../oss/oss.service";
+import { Readable } from "node:stream";
 
 export interface VideoGenerationResult {
   taskId: string;
@@ -16,8 +19,92 @@ export interface VideoGenerationResult {
 @Injectable()
 export class VideoProviderService {
   private readonly logger = new Logger(VideoProviderService.name);
+  private readonly doubaoVideoCache = new Map<string, string>();
 
   constructor(private readonly oss: OssService) {}
+
+  private resolveOssHosts(): string[] {
+    return this.oss.publicHosts();
+  }
+
+  private isOssPublicUrl(url: string): boolean {
+    try {
+      const host = new URL(url).hostname;
+      const ossHosts = this.resolveOssHosts();
+      return ossHosts.some(
+        (ossHost) => host === ossHost || host.endsWith("." + ossHost)
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private isAllowedUpstreamHost(hostname: string): boolean {
+    const allowed = this.oss.allowedPublicHosts();
+    return allowed.some(
+      (host) => hostname === host || hostname.endsWith("." + host)
+    );
+  }
+
+  private async uploadRemoteVideoToOss(
+    sourceUrl: string,
+    taskId: string
+  ): Promise<string> {
+    if (!this.oss.isEnabled()) {
+      throw new ServiceUnavailableException("OSS 未配置，无法上传视频");
+    }
+
+    const cached = this.doubaoVideoCache.get(taskId);
+    if (cached) return cached;
+
+    let parsed: URL;
+    try {
+      parsed = new URL(sourceUrl);
+    } catch {
+      throw new BadRequestException("Seedance 视频 URL 无效");
+    }
+
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new BadRequestException("Seedance 视频 URL 协议不支持");
+    }
+
+    if (!this.isAllowedUpstreamHost(parsed.hostname)) {
+      throw new BadRequestException("Seedance 视频来源域名不允许");
+    }
+
+    const response = await fetch(sourceUrl);
+    if (!response.ok) {
+      throw new ServiceUnavailableException(
+        `Seedance 视频拉取失败: HTTP ${response.status}`
+      );
+    }
+
+    const body = response.body;
+    if (!body) {
+      throw new ServiceUnavailableException("Seedance 视频响应为空");
+    }
+
+    const contentType = response.headers.get("content-type") || "video/mp4";
+    const extension =
+      contentType.includes("video/") && contentType.split("/")[1]
+        ? contentType.split("/")[1].split(";")[0].trim()
+        : "mp4";
+    const key = `ai/videos/doubao/${taskId}-${Date.now()}.${extension}`;
+
+    const fromWeb = (Readable as unknown as { fromWeb?: (stream: unknown) => Readable })
+      .fromWeb;
+    const nodeStream =
+      typeof fromWeb === "function"
+        ? fromWeb(body as unknown)
+        : Readable.from(Buffer.from(await response.arrayBuffer()));
+
+    const { url } = await this.oss.putStream(key, nodeStream, {
+      headers: { "Content-Type": contentType },
+    });
+
+    this.doubaoVideoCache.set(taskId, url);
+    return url;
+  }
 
   // 上传 Base64 图片到 OSS 并返回 URL
   private async uploadBase64ImageToOSS(
@@ -221,10 +308,15 @@ export class VideoProviderService {
       );
 
       if (data.status === "succeeded") {
-        return {
-          status: "succeeded",
-          videoUrl: data.content?.video_url,
-        };
+        const upstreamUrl: string | undefined = data.content?.video_url;
+        if (!upstreamUrl) {
+          throw new ServiceUnavailableException("Seedance 返回空视频链接");
+        }
+        if (this.isOssPublicUrl(upstreamUrl)) {
+          return { status: "succeeded", videoUrl: upstreamUrl };
+        }
+        const ossUrl = await this.uploadRemoteVideoToOss(upstreamUrl, taskId);
+        return { status: "succeeded", videoUrl: ossUrl };
       }
 
       if (data.status === "failed") {

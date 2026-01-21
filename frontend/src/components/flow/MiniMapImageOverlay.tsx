@@ -17,6 +17,7 @@ const MiniMapImageOverlay: React.FC = () => {
   const [svgEl, setSvgEl] = React.useState<SVGSVGElement | null>(null);
   const [targetEl, setTargetEl] = React.useState<SVGGElement | SVGSVGElement | null>(null);
   const [images, setImages] = React.useState<Array<{ id: string; x: number; y: number; width: number; height: number }>>([]);
+  const lastSigRef = React.useRef("");
   const dragState = React.useRef<{ active: boolean; pointerId: number | null; lastEvent: PointerEvent | null; raf: number }>({
     active: false,
     pointerId: null,
@@ -75,35 +76,45 @@ const MiniMapImageOverlay: React.FC = () => {
     return () => window.clearInterval(id);
   }, []);
 
-  // 轮询读取图片实例并更新（轻量，避免引入跨模块繁杂依赖）
+  const updateImages = React.useCallback(() => {
+    try {
+      const list = (window as any).tanvaImageInstances || [];
+      // 仅保留可见图片
+      const visible = list.filter((img: any) => img && (img.visible !== false));
+      const dpr = (window.devicePixelRatio || 1);
+      const mapped = visible.map((img: any) => ({
+        id: img.id,
+        x: Number(img.bounds?.x || 0) / dpr,
+        y: Number(img.bounds?.y || 0) / dpr,
+        width: Number(img.bounds?.width || 0) / dpr,
+        height: Number(img.bounds?.height || 0) / dpr,
+      }));
+      // 生成签名，发生变更再更新状态
+      const sig = JSON.stringify(mapped);
+      if (sig !== lastSigRef.current) {
+        lastSigRef.current = sig;
+        setImages(mapped);
+      }
+    } catch {}
+  }, []);
+
+  // 事件驱动：图片实例更新后立即刷新 MiniMap
   React.useEffect(() => {
-    let raf = 0;
-    let lastSig = '';
-    const tick = () => {
-      try {
-        const list = (window as any).tanvaImageInstances || [];
-        // 仅保留可见图片
-        const visible = list.filter((img: any) => img && (img.visible !== false));
-        const dpr = (window.devicePixelRatio || 1);
-        const mapped = visible.map((img: any) => ({
-          id: img.id,
-          x: Number(img.bounds?.x || 0) / dpr,
-          y: Number(img.bounds?.y || 0) / dpr,
-          width: Number(img.bounds?.width || 0) / dpr,
-          height: Number(img.bounds?.height || 0) / dpr,
-        }));
-        // 生成签名，发生变更再更新状态
-        const sig = JSON.stringify(mapped);
-        if (sig !== lastSig) {
-          lastSig = sig;
-          setImages(mapped);
-        }
-      } catch {}
-      raf = window.requestAnimationFrame(tick);
-    };
-    raf = window.requestAnimationFrame(tick);
-    return () => { if (raf) window.cancelAnimationFrame(raf); };
-  }, [targetEl]);
+    const onUpdate = () => updateImages();
+    window.addEventListener("tanva-image-instances-updated", onUpdate);
+    return () => window.removeEventListener("tanva-image-instances-updated", onUpdate);
+  }, [updateImages]);
+
+  // 轻量兜底轮询，避免极端情况下事件遗漏
+  React.useEffect(() => {
+    const id = window.setInterval(() => updateImages(), 1000);
+    return () => window.clearInterval(id);
+  }, [updateImages]);
+
+  React.useEffect(() => {
+    if (!targetEl) return;
+    updateImages();
+  }, [targetEl, updateImages]);
 
   // 点击 MiniMap 快速跳转到视图
   React.useEffect(() => {

@@ -24,6 +24,9 @@
 - `POST dashscope/generate-wan2-6-*`
 - `POST analyze-video`
 
+## 注意事项
+- Seedance（doubao）视频任务成功后，后端会将上游视频拉取并上传到 OSS，仅返回自有 OSS 公网链接给前端。
+
 ## 配置项（以代码与环境为准）
 - Gemini/第三方：`GOOGLE_GEMINI_API_KEY`、`RUNNINGHUB_API_KEY` 等
 - 视频/供应商：`DASHSCOPE_API_KEY`、`SORA2_API_ENDPOINT`、`BANANA_API_KEY` 等

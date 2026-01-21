@@ -117,6 +117,23 @@ const extractPersistableImageRef = (imageData: unknown): string | null => {
   return null;
 };
 
+const dispatchImageInstancesUpdated = (instances: ImageInstance[]) => {
+  try {
+    window.dispatchEvent(
+      new CustomEvent("tanva-image-instances-updated", {
+        detail: { count: instances?.length ?? 0 },
+      })
+    );
+  } catch {}
+};
+
+const syncImageInstancesToWindow = (instances: ImageInstance[]) => {
+  try {
+    (window as any).tanvaImageInstances = instances;
+  } catch {}
+  dispatchImageInstancesUpdated(instances);
+};
+
 const getPersistedImageAssetSnapshot = (imageId: string): unknown | null => {
   if (!imageId) return null;
   try {
@@ -5330,7 +5347,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   // 将图片和3D模型实例暴露给图层面板使用
   useEffect(() => {
     try {
-      (window as any).tanvaImageInstances = imageTool.imageInstances;
+      syncImageInstancesToWindow(imageTool.imageInstances);
     } catch {}
     try {
       (window as any).tanvaModel3DInstances = model3DTool.model3DInstances;
@@ -5348,7 +5365,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   useEffect(() => {
     return () => {
       try {
-        (window as any).tanvaImageInstances = [];
+        syncImageInstancesToWindow([]);
       } catch {}
       try {
         (window as any).tanvaModel3DInstances = [];

@@ -27,8 +27,10 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 后端：支持 `CORS_ORIGIN=*` 放开所有来源（仅建议本地/测试）。
 - 前端 AI：`aiImageService` 统一使用 `fetchWithAuth` 请求，确保工具选择等内部 API 注入鉴权头并复用刷新逻辑（`frontend/src/services/aiImageService.ts`）。
 - 前端网络请求：全量收口到 `fetchWithAuth`，统一鉴权与 401/403 退出逻辑，并为公开/第三方请求提供 `auth: "omit"` 与 `credentials` 控制（`frontend/src/services/authFetch.ts` 等）。
+- 后端 AI：Seedance（doubao）视频任务成功后自动上传到 OSS，仅返回自有 OSS 公网链接，避免上游 TOS 直链的 CORS/过期问题。
 
 ### Fixed
+- Flow：MiniMap 图片/节点概览在刷新后可即时更新，改为事件驱动并保留 1s 兜底轮询（`frontend/src/components/flow/MiniMapImageOverlay.tsx`、`frontend/src/components/canvas/DrawingController.tsx`）。
 - Flow：MiniMap 不再在拖动画布/节点时隐藏，保持持续可见（`frontend/src/components/flow/FlowOverlay.tsx`）。
 - Flow：修复图片节点裁剪预览尺寸读取受画布缩放影响，导致刷新后预览被放大（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
 - Worker 图片上传：主线程透传 access token，OSS presign 请求携带 Authorization，避免跨站 401（`frontend/src/services/imageUploadWorkerClient.ts`、`frontend/src/workers/imageUploadWorker.ts`、`frontend/src/services/ossUploadService.ts`）。
