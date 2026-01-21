@@ -3140,6 +3140,55 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     simpleTextTool.hydrateFromSnapshot,
   ]);
 
+  useEffect(() => {
+    if (!projectId) return;
+    const hydratedFlagKey = `__tanva_initial_assets_hydrated__:${projectId}`;
+
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (!event.persisted) return;
+      try {
+        (window as any)[hydratedFlagKey] = false;
+        (window as any).tanvaPaperRestored = false;
+      } catch {}
+
+      const hasExisting =
+        imageTool.imageInstances.length > 0 ||
+        model3DTool.model3DInstances.length > 0 ||
+        simpleTextTool.textItems.length > 0;
+      if (hasExisting) return;
+
+      try {
+        if (projectAssets?.images?.length) {
+          imageTool.hydrateFromSnapshot(projectAssets.images);
+        }
+        if (projectAssets?.models?.length) {
+          model3DTool.hydrateFromSnapshot(projectAssets.models);
+        }
+        if (projectAssets?.texts?.length) {
+          simpleTextTool.hydrateFromSnapshot(projectAssets.texts);
+        }
+        if (projectAssets?.videos?.length) {
+          videoTool.hydrateFromSnapshot(projectAssets.videos);
+        }
+      } catch (error) {
+        console.warn("pageshow 回填资产失败:", error);
+      }
+    };
+
+    window.addEventListener("pageshow", handlePageShow);
+    return () => window.removeEventListener("pageshow", handlePageShow);
+  }, [
+    projectId,
+    projectAssets,
+    imageTool.imageInstances.length,
+    model3DTool.model3DInstances.length,
+    simpleTextTool.textItems.length,
+    imageTool.hydrateFromSnapshot,
+    model3DTool.hydrateFromSnapshot,
+    simpleTextTool.hydrateFromSnapshot,
+    videoTool.hydrateFromSnapshot,
+  ]);
+
   // 暴露文本工具状态到全局，供工具栏使用
   useEffect(() => {
     (window as any).tanvaTextTool = simpleTextTool;
