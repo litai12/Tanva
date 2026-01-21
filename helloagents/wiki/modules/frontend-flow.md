@@ -60,6 +60,18 @@
 - **根因:** MiniMap 仅依赖轮询读取 `window.tanvaImageInstances`，且缺少实例更新事件通知。
 - **修复:** 增加 `tanva-image-instances-updated` 事件驱动更新，保留 1s 兜底轮询。
 - **预防:** 对画布实例变更提供事件通知，避免单一轮询。
+- **问题现象:** 刷新后 MiniMap 未显示图片占位，需要拖动图片后才出现。
+- **根因:** 反序列化等待 Raster 加载后才触发重建事件，且事件可能早于监听注册导致丢失；重建失败时也未回退到快照数据。
+- **修复:** 反序列化完成立即触发 `paper-project-imported` 并记录导入时间戳兜底触发；恢复路径按 `data.imageId` 匹配并在失败时用快照 bounds 兜底种子化 `imageInstances`。
+- **预防:** 导入完成即触发重建事件，并提供一次性兜底触发避免丢事件。
+- **问题现象:** Multi-generate → Image → Generate 链路中，Generate 未使用上游 Image 节点展示图。
+- **根因:** Generate 输入解析对 Image 节点优先回溯上游，忽略 Image 节点本身的当前渲染数据。
+- **修复:** 输入解析优先使用 Image 节点的 `imageData/imageUrl/thumbnail`，再回溯上游；解析失败时对 proxy URL 进行带鉴权兜底拉取。
+- **预防:** 下游输入解析需以当前节点展示资源为准，再做链路回溯。
+- **问题现象:** Generate 读取 OSS 直链时跨域导致图片未被使用。
+- **根因:** 前端需要将图片转成 dataURL，跨域拉取失败导致输入为空。
+- **修复:** 生成链路允许传递远程 URL，由后端下载转码后处理。
+- **预防:** 对跨域资源优先走后端拉取，避免前端 CORS 限制。
 
 ## 3D 模型节点
 - 三维节点（`frontend/src/components/flow/nodes/ThreeNode.tsx`）选择模型文件后会上传至 OSS，并将 `modelUrl` 持久化为远程引用，避免 `blob:` 等临时 URL 进入 `content.flow`。

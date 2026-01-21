@@ -2872,8 +2872,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           const restoredImageGroups = (() => {
             try {
               const items = (paper.project as any).getItems?.({
-                match: (item: any) =>
-                  item?.data?.type === "image" && item?.data?.imageId,
+                match: (item: any) => item?.data?.imageId,
               }) as paper.Item[] | undefined;
               const list = Array.isArray(items) ? items : [];
 
@@ -2924,6 +2923,27 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               ) {
                 return paperBounds as paper.Rectangle;
               }
+
+              const cachedBounds =
+                (raster as any)?.data?.__tanvaBounds ||
+                (group as any)?.data?.__tanvaBounds ||
+                (item as any)?.data?.__tanvaBounds;
+              if (
+                cachedBounds &&
+                typeof cachedBounds === "object" &&
+                Number.isFinite((cachedBounds as any)?.width) &&
+                Number.isFinite((cachedBounds as any)?.height) &&
+                (cachedBounds as any).width > 0 &&
+                (cachedBounds as any).height > 0
+              ) {
+                return new paper.Rectangle(
+                  (cachedBounds as any).x,
+                  (cachedBounds as any).y,
+                  (cachedBounds as any).width,
+                  (cachedBounds as any).height
+                );
+              }
+
               if (snapshot?.bounds) {
                 return new paper.Rectangle(
                   snapshot.bounds.x,
@@ -3021,6 +3041,41 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             try {
               paper.view.update();
             } catch {}
+          } else if (projectAssets.images?.length) {
+            const seeded: ImageInstance[] = projectAssets.images
+              .filter((snap) => snap?.id && snap?.bounds)
+              .map((snap) => {
+                const source =
+                  snap?.url || snap?.src || snap?.key || snap?.localDataUrl;
+                return {
+                  id: snap.id,
+                  imageData: {
+                    id: snap.id,
+                    url: snap.url ?? snap.key ?? source,
+                    src: snap.src ?? snap.url ?? source,
+                    key: snap.key,
+                    fileName: snap.fileName,
+                    width: snap.width,
+                    height: snap.height,
+                    contentType: snap.contentType,
+                    pendingUpload: snap.pendingUpload,
+                    localDataUrl: snap.localDataUrl,
+                  },
+                  bounds: {
+                    x: snap.bounds.x,
+                    y: snap.bounds.y,
+                    width: snap.bounds.width,
+                    height: snap.bounds.height,
+                  },
+                  isSelected: false,
+                  visible: true,
+                  layerId: snap.layerId,
+                };
+              });
+            if (seeded.length > 0) {
+              imageTool.setImageInstances(seeded);
+              imageTool.setSelectedImageIds([]);
+            }
           }
         }
       } catch (error) {
@@ -6345,10 +6400,25 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     };
 
     window.addEventListener(
+      "paper-project-imported",
+      scheduleRebuild as EventListener
+    );
+    window.addEventListener(
       "paper-project-changed",
       scheduleRebuild as EventListener
     );
+    try {
+      const importedAt = (window as any).__tanvaPaperImportedAt;
+      if (importedAt) {
+        scheduleRebuild();
+        (window as any).__tanvaPaperImportedAt = null;
+      }
+    } catch {}
     return () => {
+      window.removeEventListener(
+        "paper-project-imported",
+        scheduleRebuild as EventListener
+      );
       window.removeEventListener(
         "paper-project-changed",
         scheduleRebuild as EventListener

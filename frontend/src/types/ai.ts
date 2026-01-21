@@ -102,7 +102,8 @@ export interface AIImageGenerateRequest {
 // AI图像编辑请求参数
 export interface AIImageEditRequest {
   prompt: string;
-  sourceImage: string; // base64 encoded image
+  sourceImage?: string; // base64 encoded image
+  sourceImageUrl?: string; // remote URL to be handled by backend
   model?: string;
   aiProvider?: SupportedAIProvider;
   providerOptions?: AIProviderOptions;
@@ -116,7 +117,8 @@ export interface AIImageEditRequest {
 // AI图像融合请求参数
 export interface AIImageBlendRequest {
   prompt: string;
-  sourceImages: string[]; // base64 encoded images
+  sourceImages?: string[]; // base64 encoded images
+  sourceImageUrls?: string[]; // remote URLs to be handled by backend
   model?: string;
   aiProvider?: SupportedAIProvider;
   providerOptions?: AIProviderOptions;

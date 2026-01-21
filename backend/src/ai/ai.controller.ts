@@ -627,6 +627,61 @@ export class AiController {
     return parsed;
   }
 
+  private parseAndValidateAllowedImageUrl(urlValue: string): URL {
+    let parsed: URL;
+    try {
+      parsed = new URL(urlValue);
+    } catch {
+      throw new BadRequestException('Invalid imageUrl');
+    }
+
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new BadRequestException('Unsupported imageUrl protocol');
+    }
+
+    const hostname = parsed.hostname;
+    const allowedHosts = this.oss.allowedPublicHosts();
+    const isAllowed =
+      allowedHosts.includes(hostname) ||
+      allowedHosts.some((allowed) => hostname === allowed || hostname.endsWith(`.${allowed}`));
+
+    if (!isAllowed) {
+      throw new BadRequestException('imageUrl host not allowed');
+    }
+
+    return parsed;
+  }
+
+  private async fetchImageAsDataUrl(imageUrl: string): Promise<string> {
+    const parsed = this.parseAndValidateAllowedImageUrl(imageUrl);
+    const response = await fetch(parsed.toString());
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new BadRequestException(
+        `Failed to fetch imageUrl: HTTP ${response.status} ${text}`.trim(),
+      );
+    }
+
+    const contentType = response.headers.get('content-type') || 'image/png';
+    if (!contentType.startsWith('image/')) {
+      throw new BadRequestException('imageUrl is not an image');
+    }
+
+    const maxBytes = 15 * 1024 * 1024;
+    const contentLength = Number(response.headers.get('content-length') || 0);
+    if (contentLength && contentLength > maxBytes) {
+      throw new BadRequestException('imageUrl is too large');
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.length > maxBytes) {
+      throw new BadRequestException('imageUrl is too large');
+    }
+
+    const base64 = buffer.toString('base64');
+    return `data:${contentType};base64,${base64}`;
+  }
+
   private resolveTextModel(providerName: string | null, requestedModel?: string): string {
     const model = requestedModel?.trim();
     if (model?.length) {
@@ -939,11 +994,26 @@ export class AiController {
     const skipCredits = !!customApiKey;
 
     return this.withCredits(req, 'gemini-image-edit', model, async () => {
+      const fallbackUrl =
+        !dto.sourceImageUrl && dto.sourceImage && /^https?:\/\//i.test(dto.sourceImage)
+          ? dto.sourceImage
+          : dto.sourceImageUrl;
+      const sourceImage =
+        dto.sourceImage && !fallbackUrl
+          ? dto.sourceImage
+          : fallbackUrl
+          ? await this.fetchImageAsDataUrl(fallbackUrl)
+          : undefined;
+
+      if (!sourceImage) {
+        throw new BadRequestException('sourceImage or sourceImageUrl is required');
+      }
+
       if (providerName && providerName !== 'gemini-pro') {
         const provider = this.factory.getProvider(dto.model, providerName);
         const result = await provider.editImage({
           prompt: dto.prompt,
-          sourceImage: dto.sourceImage,
+          sourceImage,
           model,
           imageOnly: dto.imageOnly,
           aspectRatio: dto.aspectRatio,
@@ -964,7 +1034,7 @@ export class AiController {
       }
 
       // gemini 和 gemini-pro 都使用默认的 Gemini 服务
-      const data = await this.imageGeneration.editImage({ ...dto, customApiKey });
+      const data = await this.imageGeneration.editImage({ ...dto, sourceImage, customApiKey });
       const watermarked = await this.watermarkIfNeeded(data.imageData, req);
       return { ...data, imageData: watermarked };
     }, 1, 1, skipCredits);
@@ -980,11 +1050,25 @@ export class AiController {
     const skipCredits = !!customApiKey;
 
     return this.withCredits(req, 'gemini-image-blend', model, async () => {
+      const sourceImages = dto.sourceImages?.length
+        ? await Promise.all(
+            dto.sourceImages.map(async (value) =>
+              /^https?:\/\//i.test(value) ? this.fetchImageAsDataUrl(value) : value,
+            ),
+          )
+        : dto.sourceImageUrls?.length
+        ? await Promise.all(dto.sourceImageUrls.map((url) => this.fetchImageAsDataUrl(url)))
+        : [];
+
+      if (!sourceImages.length) {
+        throw new BadRequestException('sourceImages or sourceImageUrls is required');
+      }
+
       if (providerName && providerName !== 'gemini-pro') {
         const provider = this.factory.getProvider(dto.model, providerName);
         const result = await provider.blendImages({
           prompt: dto.prompt,
-          sourceImages: dto.sourceImages,
+          sourceImages,
           model,
           imageOnly: dto.imageOnly,
           aspectRatio: dto.aspectRatio,
@@ -1005,7 +1089,7 @@ export class AiController {
       }
 
       // gemini 和 gemini-pro 都使用默认的 Gemini 服务
-      const data = await this.imageGeneration.blendImages({ ...dto, customApiKey });
+      const data = await this.imageGeneration.blendImages({ ...dto, sourceImages, customApiKey });
       const watermarked = await this.watermarkIfNeeded(data.imageData, req);
       return { ...data, imageData: watermarked };
     }, dto.sourceImages?.length || 0, 1, skipCredits);

@@ -5159,10 +5159,36 @@ function FlowInner() {
 
         if (trimmed.startsWith("data:")) return trimmed;
 
+        const normalizedRemote = normalizeStableRemoteUrl(trimmed);
+        if (isRemoteUrl(normalizedRemote)) {
+          return normalizedRemote;
+        }
+
         const fetchable = toFetchableUrl(trimmed);
         if (fetchable) {
           // resolveImageToDataUrl 内部会处理 flow-asset/blob/http，并优先走 proxy 以降低 CORS 失败概率
-          return await resolveImageToDataUrl(fetchable, { preferProxy: true });
+          const resolved = await resolveImageToDataUrl(fetchable, {
+            preferProxy: true,
+          });
+          if (resolved) return resolved;
+          if (
+            fetchable.includes("/api/assets/proxy") ||
+            fetchable.includes("/assets/proxy") ||
+            fetchable.startsWith(window.location.origin)
+          ) {
+            try {
+              const response = await fetchWithAuth(fetchable, {
+                auth: "auto",
+                allowRefresh: false,
+              });
+              if (!response.ok) return null;
+              const blob = await responseToBlob(response);
+              return await blobToDataUrl(blob);
+            } catch {
+              return null;
+            }
+          }
+          return null;
         }
 
         // 兜底：认为是裸 base64（注意：设计 JSON 不允许落库，但运行时可用）
@@ -5486,6 +5512,18 @@ function FlowInner() {
               });
               if (cropped) return cropped;
             }
+          }
+
+          const directRef =
+            (typeof d.imageData === "string" && d.imageData.trim()) ||
+            (typeof d.imageUrl === "string" && d.imageUrl.trim()) ||
+            (typeof d.thumbnail === "string" && d.thumbnail.trim()) ||
+            "";
+          if (directRef) {
+            const resolved = await resolveImageValueToDataUrlForBackend(
+              directRef
+            );
+            if (resolved) return resolved;
           }
 
           // Image/ImagePro 作为“显示节点”时，图片可能来自上游连线；优先向上追溯以匹配当前显示内容
@@ -6919,6 +6957,9 @@ function FlowInner() {
               data?: AIImageResult;
               error?: { message: string };
             };
+            const remoteInputs = imageDatas.filter(isRemoteUrl);
+            const hasOnlyRemote =
+              imageDatas.length > 0 && remoteInputs.length === imageDatas.length;
             if (imageDatas.length === 0) {
               result = await generateImageViaAPI({
                 prompt,
@@ -6931,7 +6972,9 @@ function FlowInner() {
             } else if (imageDatas.length === 1) {
               result = await editImageViaAPI({
                 prompt,
-                sourceImage: imageDatas[0],
+                ...(hasOnlyRemote
+                  ? { sourceImageUrl: imageDatas[0] }
+                  : { sourceImage: imageDatas[0] }),
                 outputFormat: "png",
                 aiProvider,
                 model: imageModel,
@@ -6941,7 +6984,9 @@ function FlowInner() {
             } else {
               result = await blendImagesViaAPI({
                 prompt,
-                sourceImages: imageDatas.slice(0, 6),
+                ...(hasOnlyRemote
+                  ? { sourceImageUrls: imageDatas.slice(0, 6) }
+                  : { sourceImages: imageDatas.slice(0, 6) }),
                 outputFormat: "png",
                 aiProvider,
                 model: imageModel,
@@ -7137,6 +7182,9 @@ function FlowInner() {
               data?: AIImageResult;
               error?: { message: string };
             };
+            const remoteInputs = imageDatas.filter(isRemoteUrl);
+            const hasOnlyRemote =
+              imageDatas.length > 0 && remoteInputs.length === imageDatas.length;
             if (imageDatas.length === 0) {
               result = await generateImageViaAPI({
                 prompt,
@@ -7149,7 +7197,9 @@ function FlowInner() {
             } else if (imageDatas.length === 1) {
               result = await editImageViaAPI({
                 prompt,
-                sourceImage: imageDatas[0],
+                ...(hasOnlyRemote
+                  ? { sourceImageUrl: imageDatas[0] }
+                  : { sourceImage: imageDatas[0] }),
                 outputFormat: "png",
                 aiProvider,
                 model: imageModel,
@@ -7159,7 +7209,9 @@ function FlowInner() {
             } else {
               result = await blendImagesViaAPI({
                 prompt,
-                sourceImages: imageDatas.slice(0, 6),
+                ...(hasOnlyRemote
+                  ? { sourceImageUrls: imageDatas.slice(0, 6) }
+                  : { sourceImages: imageDatas.slice(0, 6) }),
                 outputFormat: "png",
                 aiProvider,
                 model: imageModel,
@@ -7364,6 +7416,9 @@ function FlowInner() {
           error?: { message: string };
         };
 
+        const remoteInputs = imageDatas.filter(isRemoteUrl);
+        const hasOnlyRemote =
+          imageDatas.length > 0 && remoteInputs.length === imageDatas.length;
         if (imageDatas.length === 0) {
           result = await generateImageViaAPI({
             prompt,
@@ -7376,7 +7431,9 @@ function FlowInner() {
         } else if (imageDatas.length === 1) {
           result = await editImageViaAPI({
             prompt,
-            sourceImage: imageDatas[0],
+            ...(hasOnlyRemote
+              ? { sourceImageUrl: imageDatas[0] }
+              : { sourceImage: imageDatas[0] }),
             outputFormat: "png",
             aiProvider,
             model: imageModel,
@@ -7386,7 +7443,9 @@ function FlowInner() {
         } else {
           result = await blendImagesViaAPI({
             prompt,
-            sourceImages: imageDatas.slice(0, 6),
+            ...(hasOnlyRemote
+              ? { sourceImageUrls: imageDatas.slice(0, 6) }
+              : { sourceImages: imageDatas.slice(0, 6) }),
             outputFormat: "png",
             aiProvider,
             model: imageModel,

@@ -15,3 +15,7 @@
 - 202601211256_flow_minimap_drag - Flow MiniMap 拖拽时常驻（✅已完成） -> `history/2026-01/202601211256_flow_minimap_drag/`
 - 202601211428_seedance-oss-video - Seedance 视频结果上传 OSS（✅已完成） -> `history/2026-01/202601211428_seedance-oss-video/`
 - 202601211438_minimap_delay - MiniMap 刷新延迟展示修复（✅已完成） -> `history/2026-01/202601211438_minimap_delay/`
+- 202601211501_minimap_image_refresh - MiniMap 刷新后图片占位显示修复（✅已完成） -> `history/2026-01/202601211501_minimap_image_refresh/`
+- 202601211539_minimap_instant - MiniMap 图片占位即时显示（✅已完成） -> `history/2026-01/202601211539_minimap_instant/`
+- 202601211547_generate_uses_upstream_image - Generate 读取上游 Image 展示图（✅已完成） -> `history/2026-01/202601211547_generate_uses_upstream_image/`
+- 202601211612_generate_remote_url_backend - Generate 传远程 URL 由后端处理（✅已完成） -> `history/2026-01/202601211612_generate_remote_url_backend/`

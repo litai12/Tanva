@@ -1384,6 +1384,11 @@ class PaperSaveService {
       this.ensureRasterLoadUpdates();
 
       console.log('✅ Paper.js项目反序列化成功');
+      try {
+        (window as any).__tanvaPaperImportedAt = Date.now();
+      } catch {}
+      // 提前通知导入完成，避免等待 Raster 加载导致 UI 延迟
+      try { window.dispatchEvent(new CustomEvent('paper-project-imported')); } catch {}
 
       // 获取所有 Raster 并等待加载完成后再触发事件
       const rasterClass = (paper as any).Raster;

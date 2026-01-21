@@ -440,7 +440,27 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       layerId: paper.project.activeLayer.name
     };
 
-    setImageInstances(prev => [...prev, newImageInstance]);
+    setImageInstances((prev) => {
+      const existingIndex = prev.findIndex((img) => img.id === imageId);
+      if (existingIndex === -1) {
+        return [...prev, newImageInstance];
+      }
+      const next = [...prev];
+      const existing = prev[existingIndex];
+      next[existingIndex] = {
+        ...existing,
+        ...newImageInstance,
+        imageData: {
+          ...existing.imageData,
+          ...newImageInstance.imageData,
+        },
+        bounds: { ...newImageInstance.bounds },
+        layerId: newImageInstance.layerId ?? existing.layerId,
+        visible: newImageInstance.visible ?? existing.visible,
+        isSelected: existing.isSelected ?? newImageInstance.isSelected,
+      };
+      return next;
+    });
     // 不默认选中，让用户需要时再点击选择
     // setSelectedImageId(imageId);
     // eventHandlers.onImageSelect?.(imageId);
@@ -1225,7 +1245,37 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       }
     } catch {}
 
-    setImageInstances([]);
+    const seededInstances: ImageInstance[] = snapshots
+      .filter((snap) => snap?.id && snap?.bounds)
+      .map((snap) => {
+        const source = snap?.url || snap?.src || snap?.key || snap?.localDataUrl;
+        return {
+          id: snap.id,
+          imageData: {
+            id: snap.id,
+            url: snap.url ?? snap.key ?? source,
+            src: snap.src ?? snap.url ?? source,
+            key: snap.key,
+            fileName: snap.fileName,
+            width: snap.width,
+            height: snap.height,
+            contentType: snap.contentType,
+            pendingUpload: snap.pendingUpload,
+            localDataUrl: snap.localDataUrl,
+          },
+          bounds: {
+            x: snap.bounds.x,
+            y: snap.bounds.y,
+            width: snap.bounds.width,
+            height: snap.bounds.height,
+          },
+          isSelected: false,
+          visible: true,
+          layerId: snap.layerId,
+        };
+      });
+
+    setImageInstances(seededInstances);
     setSelectedImageIds([]);
 
     snapshots.forEach((snap) => {

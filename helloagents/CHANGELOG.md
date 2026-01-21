@@ -30,6 +30,10 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 后端 AI：Seedance（doubao）视频任务成功后自动上传到 OSS，仅返回自有 OSS 公网链接，避免上游 TOS 直链的 CORS/过期问题。
 
 ### Fixed
+- Flow：生成链路允许传递远程 URL，由后端下载处理，规避前端跨域读取失败（`frontend/src/components/flow/FlowOverlay.tsx`、`backend/src/ai/ai.controller.ts`、`backend/src/ai/dto/image-generation.dto.ts`）。
+- Flow：Generate 输入解析优先使用 Image 节点当前渲染数据，并在 proxy 拉取失败时使用带鉴权兜底（`frontend/src/components/flow/FlowOverlay.tsx`）。
+- Flow：MiniMap 即时显示图片占位，导入完成即触发重建并用导入时间戳兜底触发（`frontend/src/services/paperSaveService.ts`、`frontend/src/components/canvas/DrawingController.tsx`）。
+- Flow：刷新后 MiniMap 图片占位不显示的问题，反序列化完成即触发重建事件，并在重建失败时回退到快照种子化（`frontend/src/services/paperSaveService.ts`、`frontend/src/components/canvas/DrawingController.tsx`、`frontend/src/components/canvas/hooks/useImageTool.ts`）。
 - Flow：MiniMap 图片/节点概览在刷新后可即时更新，改为事件驱动并保留 1s 兜底轮询（`frontend/src/components/flow/MiniMapImageOverlay.tsx`、`frontend/src/components/canvas/DrawingController.tsx`）。
 - Flow：MiniMap 不再在拖动画布/节点时隐藏，保持持续可见（`frontend/src/components/flow/FlowOverlay.tsx`）。
 - Flow：修复图片节点裁剪预览尺寸读取受画布缩放影响，导致刷新后预览被放大（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
