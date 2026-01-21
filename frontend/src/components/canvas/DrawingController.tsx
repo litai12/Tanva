@@ -26,6 +26,7 @@ import { DrawingLayerManager } from './drawing/DrawingLayerManager';
 import { AutoScreenshotService } from '@/services/AutoScreenshotService';
 import { fetchWithAuth } from '@/services/authFetch';
 import { logger } from '@/utils/logger';
+import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import { ensureImageGroupStructure } from '@/utils/paperImageGroup';
 import { BoundsCalculator } from '@/utils/BoundsCalculator';
 import { createImageGroupBlock, formatImageGroupTitle, removeGroupBlockTitle } from '@/utils/paperImageGroupBlock';
@@ -781,6 +782,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                     },
                     uploadResult.asset.fileName || file.name
                   );
+                  void recordImageHistoryEntry({
+                    remoteUrl: uploadResult.asset.url,
+                    title: uploadResult.asset.fileName || file.name,
+                    fileName: uploadResult.asset.fileName || file.name,
+                    nodeId: "canvas",
+                    nodeType: "image",
+                    projectId,
+                    skipInitialStoreUpdate: true,
+                  });
                 } else {
                   // fallback: blob URL（避免 base64）
                   const blobUrl = URL.createObjectURL(file);
@@ -1112,6 +1122,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                     })
                   );
                 } catch {}
+                void recordImageHistoryEntry({
+                  remoteUrl: uploadResult.asset.url,
+                  title: file.name,
+                  fileName: file.name,
+                  nodeId: "canvas",
+                  nodeType: "image",
+                  projectId,
+                  skipInitialStoreUpdate: true,
+                });
               })
               .catch((err) => {
                 logger.upload?.("⚠️ [CanvasDrop] 图片上传异常，已保留本地副本", { err });

@@ -1,6 +1,8 @@
+// Canvas image upload trigger with local preview and OSS sync.
 import { logger } from '@/utils/logger';
 import React, { useRef, useCallback } from 'react';
 import { imageUploadService } from '@/services/imageUploadService';
+import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import type { StoredImageAsset } from '@/types/canvas';
 import { generateOssKey } from '@/services/ossUploadService';
 
@@ -73,6 +75,15 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
             }),
           );
         } catch {}
+        void recordImageHistoryEntry({
+          remoteUrl: result.asset.url,
+          title: file.name,
+          fileName: file.name,
+          nodeId: 'canvas',
+          nodeType: 'image',
+          projectId,
+          skipInitialStoreUpdate: true,
+        });
         return;
       }
 

@@ -1,3 +1,4 @@
+// Service for CRUD operations on global image history records.
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateGlobalImageHistoryDto, QueryGlobalImageHistoryDto } from './dto/global-image-history.dto';
@@ -21,11 +22,14 @@ export class GlobalImageHistoryService {
   }
 
   async list(userId: string, query: QueryGlobalImageHistoryDto) {
-    const { limit = 20, cursor, sourceType } = query;
+    const { limit = 20, cursor, sourceType, sourceProjectId } = query;
 
     const where: any = { userId };
     if (sourceType) {
       where.sourceType = sourceType;
+    }
+    if (sourceProjectId) {
+      where.sourceProjectId = sourceProjectId;
     }
 
     const items = await this.prisma.globalImageHistory.findMany({

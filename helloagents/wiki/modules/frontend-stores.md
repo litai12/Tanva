@@ -9,4 +9,5 @@
 ## 交互要点
 - `ProtectedRoute` 在首次挂载时触发 `authStore.init()`，避免无意义的“每次打开页面就请求一次 /api/auth/me”。
 - AI 会话状态由 `aiChatStore` 管理，持久化字段为 `Project.contentJson.aiChatSessions/aiChatActiveSessionId`。
+- AI 图片工具链路（融合/编辑）在源图为远程 URL 时优先传 `sourceImageUrls/sourceImageUrl`；混合来源时先上传本地图片并统一改为 URL，避免 CORS 与 base64 序列化。
 - 导入对话 JSON 时采用追加策略并重映射 `sessionId`，避免覆盖当前会话。
