@@ -12,3 +12,4 @@
 - 202601201858_chat-contextmenu-copy - AI 对话框右键复制选中文本（✅已完成） -> `history/2026-01/202601201858_chat-contextmenu-copy/`
 - 202601211015_pending_upload_move_only - 上传中图片仅允许移动（✅已完成） -> `history/2026-01/202601211015_pending_upload_move_only/`
 - 202601211212_flow_image_zoom_refresh - Flow 图片节点缩放刷新尺寸一致（✅已完成） -> `history/2026-01/202601211212_flow_image_zoom_refresh/`
+- 202601211256_flow_minimap_drag - Flow MiniMap 拖拽时常驻（✅已完成） -> `history/2026-01/202601211256_flow_minimap_drag/`

@@ -29,6 +29,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端网络请求：全量收口到 `fetchWithAuth`，统一鉴权与 401/403 退出逻辑，并为公开/第三方请求提供 `auth: "omit"` 与 `credentials` 控制（`frontend/src/services/authFetch.ts` 等）。
 
 ### Fixed
+- Flow：MiniMap 不再在拖动画布/节点时隐藏，保持持续可见（`frontend/src/components/flow/FlowOverlay.tsx`）。
 - Flow：修复图片节点裁剪预览尺寸读取受画布缩放影响，导致刷新后预览被放大（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
 - Worker 图片上传：主线程透传 access token，OSS presign 请求携带 Authorization，避免跨站 401（`frontend/src/services/imageUploadWorkerClient.ts`、`frontend/src/workers/imageUploadWorker.ts`、`frontend/src/services/ossUploadService.ts`）。
 - 前端鉴权：`fetchWithAuth` 仅在 Authorization 为空时注入 access token，避免空值阻断注入（`frontend/src/services/authFetch.ts`）。

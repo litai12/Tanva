@@ -19,6 +19,14 @@
 画布滚轮放大后刷新页面。
 - 图片节点内部渲染尺寸与缩放前一致
 
+### 需求: MiniMap 拖拽时常驻
+**模块:** Flow 画布
+拖动画布或拖动节点过程中，MiniMap 始终可见且不闪烁。
+
+#### 场景: 拖动画布/节点
+在同一页面拖动画布或节点。
+- MiniMap 持续可见
+
 ## 图片与内存
 - **原则**：不要在 `content.flow`（项目内容 JSON）里持久化大体积 base64；这会导致序列化/对比/自动保存时产生巨型临时字符串并推高内存。
 - **Flow 图片资产**：`frontend/src/services/flowImageAssetStore.ts` 的 `flow-asset:<id>` 仅用于运行期/本地缓存；**保存到后端前必须替换为远程 URL/OSS key**（否则会被阻止保存/或被后端清洗丢弃）。当前通过 `frontend/src/services/flowSaveService.ts` 在保存链路里自动补传并替换（优先覆盖 `Image Split` 的输入图引用）。
@@ -36,6 +44,10 @@
 - **根因:** 预览尺寸使用 `getBoundingClientRect`，被 ReactFlow 视口缩放 transform 影响。
 - **修复:** 改用布局尺寸（`offsetWidth/clientWidth`）作为基准，回退时才读取 `getBoundingClientRect`。
 - **预防:** 渲染尺寸计算优先使用布局尺寸，避免受 transform 影响。
+- **问题现象:** 拖动画布/节点时 MiniMap 消失。
+- **根因:** MiniMap 在 `isNodeDragging` 为 true 时被条件隐藏。
+- **修复:** 去除拖拽态隐藏逻辑，保持仅在专注模式下隐藏。
+- **预防:** 可视性依赖业务模式（如专注模式），避免与交互态绑定。
 
 ## 3D 模型节点
 - 三维节点（`frontend/src/components/flow/nodes/ThreeNode.tsx`）选择模型文件后会上传至 OSS，并将 `modelUrl` 持久化为远程引用，避免 `blob:` 等临时 URL 进入 `content.flow`。

@@ -9175,11 +9175,9 @@ function FlowInner() {
           />
         )}
         {/* 视口由 Canvas 驱动，禁用 MiniMap 交互避免竞态 - 专注模式下隐藏 */}
-        {!focusMode && !isNodeDragging && (
-          <MiniMap pannable={false} zoomable={false} />
-        )}
+        {!focusMode && <MiniMap pannable={false} zoomable={false} />}
         {/* 将画布上的图片以绿色块显示在 MiniMap 内 - 专注模式下隐藏 */}
-        {!focusMode && !isNodeDragging && <MiniMapImageOverlay />}
+        {!focusMode && <MiniMapImageOverlay />}
       </ReactFlow>
 
       {showFpsOverlay && (
