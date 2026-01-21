@@ -30,7 +30,7 @@ import type { Model3DData } from "@/services/model3DUploadService";
 import ExpandImageSelector from "./ExpandImageSelector";
 import { useToolStore } from "@/stores";
 import aiImageService from "@/services/aiImageService";
-import { useImageHistoryStore } from "@/stores/imageHistoryStore";
+import { useGlobalImageHistoryStore } from "@/stores/globalImageHistoryStore";
 import { loadImageElement } from "@/utils/imageHelper";
 import { imageUrlCache } from "@/services/imageUrlCache";
 import { isGroup, isRaster } from "@/utils/paperCoords";
@@ -208,31 +208,71 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const [isExpandingImage, setIsExpandingImage] = useState(false);
   const [isOptimizingHd, setIsOptimizingHd] = useState(false);
   const [showExpandSelector, setShowExpandSelector] = useState(false);
-  const [localPreviewTimestamp] = useState(() => Date.now());
+  const globalHistoryLoadedRef = useRef(false);
 
   // 获取项目ID用于上传
   const projectId = useProjectContentStore((state) => state.projectId);
-  const history = useImageHistoryStore((state) => state.history);
+  const globalHistory = useGlobalImageHistoryStore((state) => state.items);
+  const fetchGlobalHistory = useGlobalImageHistoryStore(
+    (state) => state.fetchItems
+  );
   const setDrawMode = useToolStore((state) => state.setDrawMode);
 
-  const scopedHistory = useMemo(() => {
-    if (!projectId) return history;
-    return history.filter((item) => {
-      const pid = item.projectId ?? null;
-      return pid === projectId || pid === null;
-    });
-  }, [history, projectId]);
+  useEffect(() => {
+    if (!showPreview) {
+      globalHistoryLoadedRef.current = false;
+      return;
+    }
+    if (globalHistoryLoadedRef.current) return;
+    globalHistoryLoadedRef.current = true;
+
+    let cancelled = false;
+    const loadAllHistory = async () => {
+      try {
+        await fetchGlobalHistory(globalHistory.length === 0);
+
+        let guard = 0;
+        while (!cancelled) {
+          const state = useGlobalImageHistoryStore.getState();
+          if (state.isLoading) {
+            await new Promise((resolve) => setTimeout(resolve, 60));
+            continue;
+          }
+          if (!state.hasMore) break;
+          await state.fetchItems();
+          guard += 1;
+          if (guard > 50) break;
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    loadAllHistory();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchGlobalHistory, globalHistory.length, showPreview]);
+
+  const scopedGlobalHistory = useMemo(() => {
+    if (!projectId) return globalHistory;
+    return globalHistory.filter(
+      (item) => item.sourceProjectId === projectId
+    );
+  }, [globalHistory, projectId]);
 
   const relatedHistoryImages = useMemo<ImageItem[]>(() => {
-    return scopedHistory
-      .filter((item) => !!item.src)
+    return scopedGlobalHistory
+      .filter((item) => !!item.imageUrl)
       .map((item) => ({
         id: item.id,
-        src: normalizeImageSrc(item.src),
-        title: item.title,
-        timestamp: item.timestamp,
+        src: normalizeImageSrc(item.imageUrl),
+        title: item.prompt || item.sourceProjectName || "图片",
+        timestamp: Number.isNaN(Date.parse(item.createdAt))
+          ? undefined
+          : Date.parse(item.createdAt),
       }));
-  }, [scopedHistory]);
+  }, [scopedGlobalHistory]);
 
   // 监听 body class：图片拖拽 / 选择框拖拽时隐藏文字与工具栏，避免“跟随不紧”观感
   useEffect(() => {
