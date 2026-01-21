@@ -3088,7 +3088,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                   },
                   isSelected: false,
                   visible: true,
-                  layerId: snap.layerId,
+                  layerId: snap.layerId ?? undefined,
                 };
               });
             if (seeded.length > 0) {
@@ -6611,6 +6611,17 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       {/* 图片UI覆盖层实例 */}
       {imageTool.imageInstances.map((image) => {
+        // 构建所有画布图片数据，用于预览时显示
+        const allCanvasImagesData = imageTool.imageInstances.map((img) => ({
+          id: img.id,
+          url: img.imageData?.url,
+          src: img.imageData?.src,
+          localDataUrl: img.imageData?.localDataUrl,
+          fileName: img.imageData?.fileName,
+          pendingUpload: img.imageData?.pendingUpload,
+          width: img.imageData?.width,
+          height: img.imageData?.height,
+        }));
         return (
           <ImageContainer
             key={image.id}
@@ -6629,6 +6640,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             visible={image.visible}
             drawMode={drawMode}
             isSelectionDragging={selectionTool.isSelectionDragging}
+            allCanvasImages={allCanvasImagesData}
             onSelect={() => imageTool.handleImageSelect(image.id)}
             onMove={(newPosition) =>
               imageTool.handleImageMove(image.id, newPosition)

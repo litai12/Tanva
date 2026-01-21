@@ -1271,7 +1271,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
           },
           isSelected: false,
           visible: true,
-          layerId: snap.layerId,
+          layerId: snap.layerId ?? undefined,
         };
       });
 

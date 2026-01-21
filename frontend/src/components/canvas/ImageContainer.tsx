@@ -132,6 +132,7 @@ interface ImageContainerProps {
   drawMode?: string; // 当前绘图模式
   isSelectionDragging?: boolean; // 是否正在拖拽选择框
   layerIndex?: number; // 图层索引，用于计算z-index
+  allCanvasImages?: ImageData[]; // 画布上所有图片，用于预览时显示项目内所有图片
   onSelect?: () => void;
   onMove?: (newPosition: { x: number; y: number }) => void; // Paper.js坐标
   onResize?: (newBounds: {
@@ -154,6 +155,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   drawMode: _drawMode = "select",
   isSelectionDragging: _isSelectionDragging = false,
   layerIndex = 0,
+  allCanvasImages = [],
   onSelect: _onSelect,
   onMove: _onMove,
   onResize: _onResize,
@@ -1376,51 +1378,50 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const previewCollection = useMemo<ImageItem[]>(() => {
     const mapBySrc = new Map<string, ImageItem>();
 
-    // 判断文件名是否以.png结尾
-    const isPngFileName = (title?: string): boolean => {
-      if (!title) return false;
-      return title.toLowerCase().endsWith(".png");
-    };
+    // 1. 首先添加画布上所有图片（优先级最高）
+    allCanvasImages.forEach((img) => {
+      const src = normalizeImageSrc(img.url || img.src || img.localDataUrl || "");
+      if (!src) return;
+      if (mapBySrc.has(src)) return; // 去重
+      mapBySrc.set(src, {
+        id: img.id,
+        src,
+        title: img.fileName || "画布图片",
+        timestamp: Date.now(), // 画布图片视为最新
+      });
+    });
 
-    // 处理历史图片，优先保留非.png命名的图片
-    // 只按URL去重，避免误判不同内容的图片为重复
+    // 2. 然后添加历史图片（补充画布上没有的）
     relatedHistoryImages.forEach((item) => {
       if (!item.src) return;
       const normalizedSrc = normalizeImageSrc(item.src);
       if (!normalizedSrc) return;
-
-      const existing = mapBySrc.get(normalizedSrc);
-      const currentIsPng = isPngFileName(item.title);
-
-      // 如果URL相同，按URL去重
-      if (existing) {
-        const existingIsPng = isPngFileName(existing.title);
-
-        // 优先保留非.png命名的图片
-        if (currentIsPng && !existingIsPng) {
-          // 当前是.png，已存在的是非.png，保留已存在的
-          return;
-        } else if (!currentIsPng && existingIsPng) {
-          // 当前是非.png，已存在的是.png，替换为当前的
-          mapBySrc.set(normalizedSrc, {
-            ...item,
-            src: normalizedSrc,
-          });
-        } else {
-          // 两者都是.png或都不是.png，保留已存在的（避免重复）
-          return;
-        }
-      } else {
-        // 如果URL不同，认为是不同的图片，直接添加
-        mapBySrc.set(normalizedSrc, {
-          ...item,
-          src: normalizedSrc,
-        });
-      }
+      if (mapBySrc.has(normalizedSrc)) return; // 已存在则跳过
+      mapBySrc.set(normalizedSrc, {
+        ...item,
+        src: normalizedSrc,
+      });
     });
 
-    return Array.from(mapBySrc.values());
-  }, [relatedHistoryImages]);
+    // 获取所有图片并排序
+    const allItems = Array.from(mapBySrc.values());
+
+    // 构建当前双击图片的信息
+    const currentImageSrc = normalizeImageSrc(
+      imageData.url || imageData.src || imageData.localDataUrl || ""
+    );
+
+    // 排序：当前图片在第一位，其他按时间降序
+    return allItems.sort((a, b) => {
+      // 当前双击的图片始终在第一位
+      if (a.id === imageData.id) return -1;
+      if (b.id === imageData.id) return 1;
+      // 其他按时间降序
+      const timeA = a.timestamp ?? 0;
+      const timeB = b.timestamp ?? 0;
+      return timeB - timeA;
+    });
+  }, [allCanvasImages, relatedHistoryImages, imageData.id, imageData.url, imageData.src, imageData.localDataUrl]);
 
   const activePreviewId = previewImageId ?? imageData.id;
   const activePreviewSrc = useMemo(() => {

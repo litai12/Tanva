@@ -2144,10 +2144,10 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
         flexDirection: 'column',
         gap: 6,
       }}>
-        {showIncomingCropPreview && incomingCropSpec?.rect ? (
+        {showIncomingCropPreview && incomingCropSpec ? (
           <CanvasCropPreview
             src={incomingCropSrc as string}
-            rect={incomingCropSpec.rect}
+            rect={{ x: incomingCropSpec.x, y: incomingCropSpec.y, width: incomingCropSpec.width, height: incomingCropSpec.height }}
             sourceWidth={incomingCropSpec.sourceWidth}
             sourceHeight={incomingCropSpec.sourceHeight}
           />

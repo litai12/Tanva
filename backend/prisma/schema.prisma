@@ -229,6 +229,7 @@ model GlobalImageHistory {
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([sourceType])
+  @@index([userId, sourceProjectId, createdAt(sort: Desc)])
 }
 
 model PublicTemplate {

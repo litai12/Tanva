@@ -3508,7 +3508,7 @@ export const useAIChatStore = create<AIChatState>()(
               };
 
               providerOptions = await buildRunningHubProviderOptions({
-                primaryImage: normalizedSourceImage,
+                primaryImage: normalizedSourceImage || '',
                 referenceImage: state.sourceImagesForBlending?.[0],
                 projectId,
                 onStageUpdate: stageUpdater,
