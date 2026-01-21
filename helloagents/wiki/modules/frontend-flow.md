@@ -10,6 +10,15 @@
 - `frontend/src/components/flow/utils/`：辅助逻辑
 - `frontend/src/components/flow/PersonalLibraryPanel.tsx`：个人库面板（与后端 personal-library 相关）
 
+## 规范
+### 需求: 图片节点缩放后刷新尺寸一致
+**模块:** Flow 图片节点
+图片节点在画布放大后刷新页面，内部渲染尺寸应保持一致，不随缩放倍数被重复放大。
+
+#### 场景: 放大后刷新
+画布滚轮放大后刷新页面。
+- 图片节点内部渲染尺寸与缩放前一致
+
 ## 图片与内存
 - **原则**：不要在 `content.flow`（项目内容 JSON）里持久化大体积 base64；这会导致序列化/对比/自动保存时产生巨型临时字符串并推高内存。
 - **Flow 图片资产**：`frontend/src/services/flowImageAssetStore.ts` 的 `flow-asset:<id>` 仅用于运行期/本地缓存；**保存到后端前必须替换为远程 URL/OSS key**（否则会被阻止保存/或被后端清洗丢弃）。当前通过 `frontend/src/services/flowSaveService.ts` 在保存链路里自动补传并替换（优先覆盖 `Image Split` 的输入图引用）。
@@ -21,6 +30,12 @@
 - **Analysis 裁切继承**：`Analysis` 节点在输入为 `Image/ImagePro` 时会递归向上游查找 `crop`/`ImageSplit`，以确保链路中转后仍使用裁剪结果。
 - **Analysis 断开清空**：断开图片连线后会清理节点内残留的 `imageData/imageUrl`，预览恢复为空状态。
 - **Worker 计算**：`Image Split` 使用 `frontend/src/workers/imageSplitWorker.ts` 在 Worker 内解码并计算裁切矩形，避免主线程做像素级扫描与 `toDataURL` 产生的峰值。
+
+## 缺陷复盘
+- **问题现象:** 画布放大后刷新，Image 节点裁剪预览尺寸变大。
+- **根因:** 预览尺寸使用 `getBoundingClientRect`，被 ReactFlow 视口缩放 transform 影响。
+- **修复:** 改用布局尺寸（`offsetWidth/clientWidth`）作为基准，回退时才读取 `getBoundingClientRect`。
+- **预防:** 渲染尺寸计算优先使用布局尺寸，避免受 transform 影响。
 
 ## 3D 模型节点
 - 三维节点（`frontend/src/components/flow/nodes/ThreeNode.tsx`）选择模型文件后会上传至 OSS，并将 `modelUrl` 持久化为远程引用，避免 `blob:` 等临时 URL 进入 `content.flow`。

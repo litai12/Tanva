@@ -29,6 +29,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端网络请求：全量收口到 `fetchWithAuth`，统一鉴权与 401/403 退出逻辑，并为公开/第三方请求提供 `auth: "omit"` 与 `credentials` 控制（`frontend/src/services/authFetch.ts` 等）。
 
 ### Fixed
+- Flow：修复图片节点裁剪预览尺寸读取受画布缩放影响，导致刷新后预览被放大（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
 - Worker 图片上传：主线程透传 access token，OSS presign 请求携带 Authorization，避免跨站 401（`frontend/src/services/imageUploadWorkerClient.ts`、`frontend/src/workers/imageUploadWorker.ts`、`frontend/src/services/ossUploadService.ts`）。
 - 前端鉴权：`fetchWithAuth` 仅在 Authorization 为空时注入 access token，避免空值阻断注入（`frontend/src/services/authFetch.ts`）。
 - Worker 图片分割：通过主线程透传 access token 并在 Worker 请求中补齐 Authorization，避免跨站资源拉取 401（`frontend/src/services/imageSplitWorkerClient.ts`、`frontend/src/workers/imageSplitWorker.ts`）。

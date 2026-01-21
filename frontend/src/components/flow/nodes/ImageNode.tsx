@@ -173,10 +173,17 @@ const CanvasCropPreview = React.memo(({
     if (!container) return;
 
     const update = () => {
-      const rect = container.getBoundingClientRect();
-      const w = Math.max(1, Math.round(rect.width));
-      const h = Math.max(1, Math.round(rect.height));
-      setSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+      // Prefer layout size to avoid ReactFlow zoom transform affecting measurements.
+      let w = container.offsetWidth || container.clientWidth;
+      let h = container.offsetHeight || container.clientHeight;
+      if (!w || !h) {
+        const rect = container.getBoundingClientRect();
+        w = rect.width;
+        h = rect.height;
+      }
+      const nextW = Math.max(1, Math.round(w));
+      const nextH = Math.max(1, Math.round(h));
+      setSize((prev) => (prev.w === nextW && prev.h === nextH ? prev : { w: nextW, h: nextH }));
     };
 
     update();
