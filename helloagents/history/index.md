@@ -23,3 +23,4 @@
 - 202601211650_paper_image_history - 画布图片预览历史列表（✅已完成） -> `history/2026-01/202601211650_paper_image_history/`
 - 202601211750_chat_image_mode_guard - AI 对话框图片模式可用性保护（✅已完成） -> `history/2026-01/202601211750_chat_image_mode_guard/`
 - 202601211801_remote_image_url - AI 对话框远程 URL 直传后端融合/编辑（✅已完成） -> `history/2026-01/202601211801_remote_image_url/`
+- 202601211840_canvas_project_image_list - 画布图片预览项目内列表懒加载（✅已完成） -> `history/2026-01/202601211840_canvas_project_image_list/`

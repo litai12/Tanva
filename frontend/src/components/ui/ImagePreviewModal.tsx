@@ -2,7 +2,7 @@
  * 图片全屏预览模态框组件
  */
 
-import React, { useEffect, useCallback, useState, useMemo } from 'react';
+import React, { useEffect, useCallback, useState, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, ChevronUp, ChevronDown } from 'lucide-react';
 import { Button } from './button';
@@ -25,6 +25,9 @@ interface ImagePreviewModalProps {
   currentImageId?: string; // 当前图片ID
   onImageChange?: (imageId: string) => void; // 切换图片回调
   collectionTitle?: string; // 缩略图集合标题
+  onLoadMore?: () => void; // 滚动加载更多
+  hasMore?: boolean;
+  isLoading?: boolean;
 }
 
 const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
@@ -35,7 +38,10 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
   imageCollection = [],
   currentImageId,
   onImageChange,
-  collectionTitle = '历史记录'
+  collectionTitle = '历史记录',
+  onLoadMore,
+  hasMore = false,
+  isLoading = false,
 }) => {
   const sortedCollection = useMemo(() => {
     return imageCollection
@@ -51,6 +57,8 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
   const [thumbnailScrollPosition, setThumbnailScrollPosition] = useState(0);
   const hasCollection = sortedCollection.length > 0;
   const showOrderBadges = hasCollection && sortedCollection.some((item) => typeof item.timestamp === 'number');
+  const thumbnailListRef = useRef<HTMLDivElement | null>(null);
+  const loadMoreGuardRef = useRef(false);
   // 处理缩略图点击
   const handleThumbnailClick = useCallback((imageId: string) => {
     if (onImageChange) {
@@ -114,6 +122,23 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
       onClose();
     }
   }, [onClose]);
+
+  const handleThumbnailScroll = useCallback(() => {
+    const container = thumbnailListRef.current;
+    if (!container || !onLoadMore || !hasMore || isLoading) return;
+    const threshold = 120;
+    const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    if (distanceToBottom <= threshold && !loadMoreGuardRef.current) {
+      loadMoreGuardRef.current = true;
+      onLoadMore();
+    }
+  }, [hasMore, isLoading, onLoadMore]);
+
+  useEffect(() => {
+    if (!isLoading) {
+      loadMoreGuardRef.current = false;
+    }
+  }, [isLoading]);
 
   if (!isOpen) return null;
 
@@ -188,7 +213,11 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
             </div>
 
             {/* 缩略图滚动容器 */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar">
+            <div
+              className="flex-1 overflow-y-auto custom-scrollbar"
+              ref={thumbnailListRef}
+              onScroll={handleThumbnailScroll}
+            >
               <div className="p-2 space-y-2">
                 {sortedCollection.map((item, index) => {
                   const isActive = item.id === currentImageId;

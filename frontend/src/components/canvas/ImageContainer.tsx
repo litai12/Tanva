@@ -30,7 +30,7 @@ import type { Model3DData } from "@/services/model3DUploadService";
 import ExpandImageSelector from "./ExpandImageSelector";
 import { useToolStore } from "@/stores";
 import aiImageService from "@/services/aiImageService";
-import { useGlobalImageHistoryStore } from "@/stores/globalImageHistoryStore";
+import { globalImageHistoryApi, type GlobalImageHistoryItem } from "@/services/globalImageHistoryApi";
 import { loadImageElement } from "@/utils/imageHelper";
 import { imageUrlCache } from "@/services/imageUrlCache";
 import { isGroup, isRaster } from "@/utils/paperCoords";
@@ -208,61 +208,91 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const [isExpandingImage, setIsExpandingImage] = useState(false);
   const [isOptimizingHd, setIsOptimizingHd] = useState(false);
   const [showExpandSelector, setShowExpandSelector] = useState(false);
-  const globalHistoryLoadedRef = useRef(false);
+  const [projectHistoryItems, setProjectHistoryItems] = useState<
+    GlobalImageHistoryItem[]
+  >([]);
+  const [projectHistoryCursor, setProjectHistoryCursor] = useState<
+    string | undefined
+  >(undefined);
+  const [projectHistoryHasMore, setProjectHistoryHasMore] = useState(false);
+  const [projectHistoryLoading, setProjectHistoryLoading] = useState(false);
+  const lastLoadedProjectIdRef = useRef<string | null>(null);
+  const projectHistoryLoadedRef = useRef(false);
 
   // 获取项目ID用于上传
   const projectId = useProjectContentStore((state) => state.projectId);
-  const globalHistory = useGlobalImageHistoryStore((state) => state.items);
-  const fetchGlobalHistory = useGlobalImageHistoryStore(
-    (state) => state.fetchItems
-  );
   const setDrawMode = useToolStore((state) => state.setDrawMode);
+
+  const loadProjectHistory = useCallback(
+    async (options?: { reset?: boolean }) => {
+      if (!projectId) {
+        setProjectHistoryItems([]);
+        setProjectHistoryCursor(undefined);
+        setProjectHistoryHasMore(false);
+        return;
+      }
+      if (projectHistoryLoading) return;
+      const reset = options?.reset ?? false;
+      setProjectHistoryLoading(true);
+      try {
+        const result = await globalImageHistoryApi.list({
+          limit: 20,
+          cursor: reset ? undefined : projectHistoryCursor,
+          sourceProjectId: projectId,
+        });
+        setProjectHistoryItems((current) =>
+          reset ? result.items : [...current, ...result.items]
+        );
+        setProjectHistoryCursor(result.nextCursor);
+        setProjectHistoryHasMore(result.hasMore);
+      } catch {
+        // ignore
+      } finally {
+        setProjectHistoryLoading(false);
+      }
+    },
+    [projectHistoryCursor, projectHistoryLoading, projectId]
+  );
 
   useEffect(() => {
     if (!showPreview) {
-      globalHistoryLoadedRef.current = false;
+      projectHistoryLoadedRef.current = false;
       return;
     }
-    if (globalHistoryLoadedRef.current) return;
-    globalHistoryLoadedRef.current = true;
-
-    let cancelled = false;
-    const loadAllHistory = async () => {
-      try {
-        await fetchGlobalHistory(globalHistory.length === 0);
-
-        let guard = 0;
-        while (!cancelled) {
-          const state = useGlobalImageHistoryStore.getState();
-          if (state.isLoading) {
-            await new Promise((resolve) => setTimeout(resolve, 60));
-            continue;
-          }
-          if (!state.hasMore) break;
-          await state.fetchItems();
-          guard += 1;
-          if (guard > 50) break;
-        }
-      } catch {
-        // ignore
-      }
-    };
-
-    loadAllHistory();
-    return () => {
-      cancelled = true;
-    };
-  }, [fetchGlobalHistory, globalHistory.length, showPreview]);
-
-  const scopedGlobalHistory = useMemo(() => {
-    if (!projectId) return globalHistory;
-    return globalHistory.filter(
-      (item) => item.sourceProjectId === projectId
-    );
-  }, [globalHistory, projectId]);
+    if (!projectId) {
+      setProjectHistoryItems([]);
+      setProjectHistoryCursor(undefined);
+      setProjectHistoryHasMore(false);
+      projectHistoryLoadedRef.current = false;
+      return;
+    }
+    const shouldReset = lastLoadedProjectIdRef.current !== projectId;
+    if (shouldReset) {
+      projectHistoryLoadedRef.current = false;
+    }
+    const shouldLoad =
+      shouldReset ||
+      (!projectHistoryLoadedRef.current &&
+        projectHistoryItems.length === 0 &&
+        (projectHistoryHasMore || projectHistoryCursor === undefined));
+    if (shouldReset) {
+      lastLoadedProjectIdRef.current = projectId;
+    }
+    if (shouldLoad) {
+      projectHistoryLoadedRef.current = true;
+      void loadProjectHistory({ reset: true });
+    }
+  }, [
+    loadProjectHistory,
+    projectHistoryCursor,
+    projectHistoryHasMore,
+    projectHistoryItems.length,
+    projectId,
+    showPreview,
+  ]);
 
   const relatedHistoryImages = useMemo<ImageItem[]>(() => {
-    return scopedGlobalHistory
+    return projectHistoryItems
       .filter((item) => !!item.imageUrl)
       .map((item) => ({
         id: item.id,
@@ -272,7 +302,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           ? undefined
           : Date.parse(item.createdAt),
       }));
-  }, [scopedGlobalHistory]);
+  }, [projectHistoryItems]);
 
   // 监听 body class：图片拖拽 / 选择框拖拽时隐藏文字与工具栏，避免“跟随不紧”观感
   useEffect(() => {
@@ -1716,6 +1746,12 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         currentImageId={activePreviewId}
         onImageChange={(imageId: string) => setPreviewImageId(imageId)}
         collectionTitle='项目内图片'
+        hasMore={projectHistoryHasMore}
+        isLoading={projectHistoryLoading}
+        onLoadMore={() => {
+          if (!projectHistoryHasMore || projectHistoryLoading) return;
+          void loadProjectHistory();
+        }}
       />
     </div>
   );
