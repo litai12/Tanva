@@ -10,7 +10,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 画布与 AI 对话框支持 JSON 复制/导入（右键 + `Ctrl/Cmd+Shift+C/V`），导出内容与 `Project.contentJson` 保持一致。
 
 ### Changed
+- Canvas：图片预览右侧缩略图改为展示当前项目历史列表，主图保持双击选中图片优先（`frontend/src/components/canvas/ImageContainer.tsx`）。
 - Flow：Image 节点新增“发送到画板”按钮，支持将当前图片资源一键发送到画布（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
+- AI 对话框：对话框内容区右键恢复为浏览器默认菜单，不再展示自定义菜单（`frontend/src/components/chat/AIChatDialog.tsx`）。
 - Flow：Image Split 分割运行时使用 `canvas/flow-asset`（Split 时不再强制上传 OSS）；保存前通过 `frontend/src/services/flowSaveService.ts` 自动补传并将 `inputImageUrl` 替换为远程 URL/OSS key，持久化仍为 `inputImageUrl + splitRects`；Worker 侧计算降低主线程峰值。
 - 设计 JSON：`Project.contentJson` / `PublicTemplate.templateData` 强制禁止 `data:`/`blob:`/base64 图片进入 DB/OSS（后端清洗 + 提供批量修复脚本）。
 - 后端 AI：`POST /api/ai/generate-image` 不再返回 base64 `imageData`，改为上传 OSS 并返回 `imageUrl`（前端 Flow/AI Chat 调用已适配）。

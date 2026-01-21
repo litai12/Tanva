@@ -40,3 +40,7 @@
 ## JSON 复制/导入（Project.contentJson）
 - 右键画布菜单与 `Ctrl/Cmd+Shift+C` 支持复制画布 JSON（严格走 `sanitizeProjectContentForCloudSave` 清理内联图片引用）。
 - `Ctrl/Cmd+Shift+V` 或右键导入画布 JSON 时追加到当前项目，并触发 `paper-project-changed` 重建实例。
+
+## 画布图片预览
+- 双击画布图片打开预览蒙层，主图优先显示当前双击图片。
+- 右侧缩略图栏展示当前项目的图片历史列表，支持点击切换预览。

@@ -1349,54 +1349,20 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       }
     });
 
-    // 处理当前选中的图片
-    if (basePreviewSrc) {
-      const currentItem: ImageItem = {
-        id: imageData.id,
-        src: basePreviewSrc,
-        title: imageData.fileName || `图片 ${imageData.id}`,
-        timestamp: localPreviewTimestamp,
-      };
-      const existing = mapBySrc.get(basePreviewSrc);
-      const currentIsPng = isPngFileName(imageData.fileName);
-
-      // 如果URL相同
-      if (existing) {
-        const existingIsPng = isPngFileName(existing.title);
-
-        // 如果当前选中的是.png，且已存在非.png的，则隐藏当前选中的（不添加到集合）
-        if (currentIsPng && !existingIsPng) {
-          // 不添加，保留已存在的非.png版本，继续执行返回结果
-        } else if (!currentIsPng && existingIsPng) {
-          // 当前是非.png，已存在的是.png，替换为当前的
-          mapBySrc.set(basePreviewSrc, currentItem);
-        } else {
-          // 两者都是.png或都不是.png，更新为当前选中的
-          mapBySrc.set(basePreviewSrc, currentItem);
-        }
-      } else {
-        // 如果URL不同，认为是不同的图片，直接添加
-        mapBySrc.set(basePreviewSrc, currentItem);
-      }
-    }
-
     return Array.from(mapBySrc.values());
-  }, [
-    basePreviewSrc,
-    imageData.fileName,
-    imageData.id,
-    relatedHistoryImages,
-    localPreviewTimestamp,
-  ]);
+  }, [relatedHistoryImages]);
 
   const activePreviewId = previewImageId ?? imageData.id;
   const activePreviewSrc = useMemo(() => {
+    if (activePreviewId === imageData.id) {
+      return basePreviewSrc || previewCollection[0]?.src || "";
+    }
     if (!previewCollection.length) return "";
     const target = previewCollection.find(
       (item) => item.id === activePreviewId
     );
     return target?.src || previewCollection[0]?.src || "";
-  }, [activePreviewId, previewCollection]);
+  }, [activePreviewId, basePreviewSrc, imageData.id, previewCollection]);
 
   useEffect(() => {
     if (!showPreview) return;
@@ -1404,10 +1370,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     const exists = previewCollection.some(
       (item) => item.id === activePreviewId
     );
-    if (!exists) {
+    if (!exists && activePreviewId !== imageData.id) {
       setPreviewImageId(previewCollection[0].id);
     }
-  }, [activePreviewId, previewCollection, showPreview]);
+  }, [activePreviewId, imageData.id, previewCollection, showPreview]);
   useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ imageId?: string }>).detail;

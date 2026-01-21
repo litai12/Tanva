@@ -19,3 +19,5 @@
 - 202601211539_minimap_instant - MiniMap 图片占位即时显示（✅已完成） -> `history/2026-01/202601211539_minimap_instant/`
 - 202601211547_generate_uses_upstream_image - Generate 读取上游 Image 展示图（✅已完成） -> `history/2026-01/202601211547_generate_uses_upstream_image/`
 - 202601211612_generate_remote_url_backend - Generate 传远程 URL 由后端处理（✅已完成） -> `history/2026-01/202601211612_generate_remote_url_backend/`
+- 202601211640_chat_context_menu_default - 对话框右键菜单恢复浏览器默认（✅已完成） -> `history/2026-01/202601211640_chat_context_menu_default/`
+- 202601211650_paper_image_history - 画布图片预览历史列表（✅已完成） -> `history/2026-01/202601211650_paper_image_history/`
