@@ -1975,11 +1975,81 @@ const AIChatDialog: React.FC = () => {
     setSourceImageForEditing(null);
   };
 
+  const selectedImageCount = useMemo(() => {
+    let count = 0;
+    if (sourceImagesForBlending.length > 0) {
+      count += sourceImagesForBlending.length;
+    }
+    if (sourceImageForEditing) {
+      count += 1;
+    }
+    if (sourceImageForAnalysis) {
+      count += 1;
+    }
+    return count;
+  }, [
+    sourceImagesForBlending,
+    sourceImageForEditing,
+    sourceImageForAnalysis,
+  ]);
+
+  const hasPdfForAnalysis = Boolean(sourcePdfForAnalysis);
+
+  const getModeSupport = useCallback(
+    (mode: ManualAIMode) => {
+      const count = selectedImageCount;
+      switch (mode) {
+        case "auto":
+          return { supported: true };
+        case "text":
+        case "generate":
+        case "vector":
+          return { supported: count === 0 };
+        case "edit":
+          return { supported: count === 1 };
+        case "blend":
+          return { supported: count >= 2 };
+        case "analyze":
+          if (hasPdfForAnalysis) {
+            return { supported: count === 0 };
+          }
+          return { supported: count === 1 };
+        case "video":
+          return { supported: count <= 1 };
+        default:
+          return { supported: true };
+      }
+    },
+    [hasPdfForAnalysis, selectedImageCount]
+  );
+
+  const isManualModeSupported = useMemo(() => {
+    if (manualAIMode === "auto") return true;
+    return getModeSupport(manualAIMode).supported;
+  }, [getModeSupport, manualAIMode]);
+
+  const manualModeWarning = useMemo(() => {
+    if (manualAIMode === "auto") return null;
+    if (isManualModeSupported) return null;
+    return `当前模式不支持${selectedImageCount}张图`;
+  }, [isManualModeSupported, manualAIMode, selectedImageCount]);
+
+  useEffect(() => {
+    if (manualAIMode === "auto") return;
+    if (isManualModeSupported) return;
+    setManualAIMode("auto");
+  }, [isManualModeSupported, manualAIMode, setManualAIMode]);
+
   // 处理发送 - 使用AI智能工具选择
   const handleSend = async () => {
     const trimmedInput = currentInput.trim();
     if (!trimmedInput || generationStatus.isGenerating || autoOptimizing)
       return;
+
+    if (manualModeWarning) {
+      showToast(manualModeWarning, "error");
+      return;
+    }
 
     if (!isVisible) {
       showDialog();
@@ -2433,7 +2503,10 @@ const AIChatDialog: React.FC = () => {
   if (!isVisible) return null;
 
   // 🔥 修改发送按钮的禁用条件：允许在生成中继续发送（并行模式）
-  const canSend = currentInput.trim().length > 0 && !autoOptimizing;
+  const canSend =
+    currentInput.trim().length > 0 &&
+    !autoOptimizing &&
+    (manualAIMode === "auto" || isManualModeSupported);
   const hasHistoryContent = messages.length > 0 || isStreaming;
   const shouldShowHistoryPanel =
     (showHistory || isMaximized) && (hasHistoryContent || showHistory);
@@ -2475,6 +2548,7 @@ const AIChatDialog: React.FC = () => {
     sendShortcut === "enter"
       ? "快捷键：Enter 发送，Shift+Enter 换行"
       : "快捷键：Ctrl/Cmd + Enter 发送，Enter 换行";
+  const sendButtonTitle = manualModeWarning || sendShortcutHint;
 
   // 计算拖拽时是否使用自定义位置
   const useDragPosition = showHistory && !isMaximized && dragOffsetX !== null;
@@ -2920,10 +2994,16 @@ const AIChatDialog: React.FC = () => {
                     </DropdownMenuLabel>
                     {availableManualModeOptions.map((option) => {
                       const isActive = manualAIMode === option.value;
+                      const support = getModeSupport(option.value);
+                      const isDisabled = !support.supported;
+                      const disabledTitle = isDisabled
+                        ? `当前模式不支持${selectedImageCount}张图`
+                        : undefined;
                       return (
                         <DropdownMenuItem
                           key={option.value}
                           onClick={(event) => {
+                            if (isDisabled) return;
                             setManualAIMode(option.value);
                             const root = (
                               event.currentTarget as HTMLElement
@@ -2935,6 +3015,8 @@ const AIChatDialog: React.FC = () => {
                               trigger.click();
                             }
                           }}
+                          disabled={isDisabled}
+                          title={disabledTitle}
                           className={cn(
                             "flex items-start gap-2 px-3 py-2 text-xs",
                             isActive
@@ -3351,7 +3433,7 @@ const AIChatDialog: React.FC = () => {
                 disabled={!canSend}
                 size='sm'
                 variant='outline'
-                title={sendShortcutHint}
+                title={sendButtonTitle}
                 className={cn(
                   "absolute right-4 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
                   "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",

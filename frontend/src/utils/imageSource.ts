@@ -15,6 +15,25 @@ export type DataImageUrl = `data:image/${string}`;
 export const isRemoteUrl = (value?: string | null): value is RemoteUrl =>
   typeof value === "string" && /^https?:\/\//i.test(value.trim());
 
+export const normalizeRemoteUrl = (value?: string | null): RemoteUrl | null => {
+  if (!isRemoteUrl(value)) return null;
+  return value.trim() as RemoteUrl;
+};
+
+export const areAllRemoteUrls = (
+  values: Array<string | null | undefined>
+): values is RemoteUrl[] => {
+  if (!Array.isArray(values) || values.length === 0) return false;
+  return values.every((value) => isRemoteUrl(value));
+};
+
+export const collectRemoteUrls = (
+  values: Array<string | null | undefined>
+): RemoteUrl[] =>
+  values
+    .map((value) => normalizeRemoteUrl(value))
+    .filter((value): value is RemoteUrl => Boolean(value));
+
 export const isBlobUrl = (value?: string | null): value is BlobUrl =>
   typeof value === "string" && /^blob:/i.test(value.trim());
 

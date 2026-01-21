@@ -21,3 +21,5 @@
 - 202601211612_generate_remote_url_backend - Generate 传远程 URL 由后端处理（✅已完成） -> `history/2026-01/202601211612_generate_remote_url_backend/`
 - 202601211640_chat_context_menu_default - 对话框右键菜单恢复浏览器默认（✅已完成） -> `history/2026-01/202601211640_chat_context_menu_default/`
 - 202601211650_paper_image_history - 画布图片预览历史列表（✅已完成） -> `history/2026-01/202601211650_paper_image_history/`
+- 202601211750_chat_image_mode_guard - AI 对话框图片模式可用性保护（✅已完成） -> `history/2026-01/202601211750_chat_image_mode_guard/`
+- 202601211801_remote_image_url - AI 对话框远程 URL 直传后端融合/编辑（✅已完成） -> `history/2026-01/202601211801_remote_image_url/`

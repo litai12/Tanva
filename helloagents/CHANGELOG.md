@@ -13,6 +13,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Canvas：图片预览右侧缩略图改为使用全局图片历史数据，并按当前项目过滤（`frontend/src/components/canvas/ImageContainer.tsx`）。
 - Flow：Image 节点新增“发送到画板”按钮，支持将当前图片资源一键发送到画布（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
 - AI 对话框：对话框内容区右键恢复为浏览器默认菜单，不再展示自定义菜单（`frontend/src/components/chat/AIChatDialog.tsx`）。
+- AI 对话框：手动模式按图片数量禁用不可用项，发送按钮提示不支持的图片数量并自动回退 Auto（`frontend/src/components/chat/AIChatDialog.tsx`）。
+- AI 对话框：融合/编辑在源图为远程 URL 时优先直传后端，不再序列化为 base64（`frontend/src/stores/aiChatStore.ts`）。
 - Flow：Image Split 分割运行时使用 `canvas/flow-asset`（Split 时不再强制上传 OSS）；保存前通过 `frontend/src/services/flowSaveService.ts` 自动补传并将 `inputImageUrl` 替换为远程 URL/OSS key，持久化仍为 `inputImageUrl + splitRects`；Worker 侧计算降低主线程峰值。
 - 设计 JSON：`Project.contentJson` / `PublicTemplate.templateData` 强制禁止 `data:`/`blob:`/base64 图片进入 DB/OSS（后端清洗 + 提供批量修复脚本）。
 - 后端 AI：`POST /api/ai/generate-image` 不再返回 base64 `imageData`，改为上传 OSS 并返回 `imageUrl`（前端 Flow/AI Chat 调用已适配）。
@@ -33,6 +35,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Fixed
 - Flow：生成链路允许传递远程 URL，由后端下载处理，规避前端跨域读取失败（`frontend/src/components/flow/FlowOverlay.tsx`、`backend/src/ai/ai.controller.ts`、`backend/src/ai/dto/image-generation.dto.ts`）。
+- AI 对话框：融合时混合来源图片先上传本地资源再统一走 URL，避免 CORS 与 base64 序列化失败（`frontend/src/stores/aiChatStore.ts`）。
 - Flow：Generate 输入解析优先使用 Image 节点当前渲染数据，并在 proxy 拉取失败时使用带鉴权兜底（`frontend/src/components/flow/FlowOverlay.tsx`）。
 - Flow：MiniMap 即时显示图片占位，导入完成即触发重建并用导入时间戳兜底触发（`frontend/src/services/paperSaveService.ts`、`frontend/src/components/canvas/DrawingController.tsx`）。
 - Flow：刷新后 MiniMap 图片占位不显示的问题，反序列化完成即触发重建事件，并在重建失败时回退到快照种子化（`frontend/src/services/paperSaveService.ts`、`frontend/src/components/canvas/DrawingController.tsx`、`frontend/src/components/canvas/hooks/useImageTool.ts`）。
