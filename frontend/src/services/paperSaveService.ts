@@ -372,7 +372,7 @@ class PaperSaveService {
           return match;
         }
 
-        const proxied = proxifyRemoteAssetUrl(match, { forceProxy: true });
+        const proxied = proxifyRemoteAssetUrl(match);
         if (proxied !== match) {
           processedCount++;
           console.log('[preprocessJsonForProxy] 转换:', match.substring(0, 80), '...');
@@ -437,9 +437,7 @@ class PaperSaveService {
         if (!candidate || this.isInlineImageSource(candidate)) return;
         if (!isPersistableImageRef(candidate)) return;
 
-        const renderable = isRemoteUrl(candidate)
-          ? proxifyRemoteAssetUrl(candidate, { forceProxy: true })
-          : toRenderableImageSrc(candidate);
+        const renderable = toRenderableImageSrc(candidate);
         if (!renderable) return;
         const shouldProxy = renderable !== candidate;
 
