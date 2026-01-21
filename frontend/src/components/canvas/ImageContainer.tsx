@@ -1,3 +1,4 @@
+// Renders the image overlay UI and per-image actions on the canvas.
 import React, {
   useRef,
   useCallback,
@@ -191,6 +192,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
   // 是否正在拖拽（图片拖拽/选择拖拽会通过 body class 标记；画布中键平移通过 store 标记）
   const [isBodyDragging, setIsBodyDragging] = useState(false);
+  const isPendingUpload = Boolean(imageData.pendingUpload);
 
   // 图片真实像素尺寸（通过加载图片获取）
   const [naturalSize, setNaturalSize] = useState<{
@@ -1581,10 +1583,16 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               <Button
                 variant='ghost'
                 size='sm'
-                disabled={isRemovingBackground}
+                disabled={isPendingUpload || isRemovingBackground}
                 className={sharedButtonClass}
                 onClick={handleBackgroundRemoval}
-                title={isRemovingBackground ? "正在抠图..." : "一键抠图"}
+                title={
+                  isPendingUpload
+                    ? "上传中暂不可操作"
+                    : isRemovingBackground
+                    ? "正在抠图..."
+                    : "一键抠图"
+                }
               >
                 {isRemovingBackground ? (
                   <LoadingSpinner size='sm' className='text-blue-600' />
@@ -1597,10 +1605,16 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               <Button
                 variant='ghost'
                 size='sm'
-                disabled={isConvertingTo3D}
+                disabled={isPendingUpload || isConvertingTo3D}
                 className={sharedButtonClass}
                 onClick={handleConvertTo3D}
-                title={isConvertingTo3D ? "正在转换3D..." : "2D转3D"}
+                title={
+                  isPendingUpload
+                    ? "上传中暂不可操作"
+                    : isConvertingTo3D
+                    ? "正在转换3D..."
+                    : "2D转3D"
+                }
               >
                 {isConvertingTo3D ? (
                   <LoadingSpinner size='sm' className='text-blue-600' />
@@ -1613,10 +1627,16 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               <Button
                 variant='ghost'
                 size='sm'
-                disabled={isOptimizingHd}
+                disabled={isPendingUpload || isOptimizingHd}
                 className={sharedButtonClass}
                 onClick={handleOptimizeHdImage}
-                title={isOptimizingHd ? "正在高清放大..." : "高清放大"}
+                title={
+                  isPendingUpload
+                    ? "上传中暂不可操作"
+                    : isOptimizingHd
+                    ? "正在高清放大..."
+                    : "高清放大"
+                }
               >
                 {isOptimizingHd ? (
                   <LoadingSpinner size='sm' className='text-blue-600' />
@@ -1629,11 +1649,13 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               <Button
                 variant='ghost'
                 size='sm'
-                disabled={isExpandingImage || showExpandSelector}
+                disabled={isPendingUpload || isExpandingImage || showExpandSelector}
                 className={sharedButtonClass}
                 onClick={handleExpandImage}
                 title={
-                  isExpandingImage
+                  isPendingUpload
+                    ? "上传中暂不可操作"
+                    : isExpandingImage
                     ? "正在扩图..."
                     : showExpandSelector
                     ? "请选择扩图区域"
@@ -1665,7 +1687,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                 size='sm'
                 className={sharedButtonClass}
                 onClick={handleCreateFlowImageNode}
-                title='生成节点'
+                disabled={isPendingUpload}
+                title={isPendingUpload ? "上传中暂不可操作" : "生成节点"}
               >
                 <ArrowRightLeft className={sharedIconClass} />
                 {showButtonText && <span>生成节点</span>}

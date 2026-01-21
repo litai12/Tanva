@@ -282,6 +282,12 @@ export const useInteractionController = ({
     return mode === 'select' || mode === 'marquee' || mode === 'pointer';
   }, []);
 
+  const isPendingUploadImage = useCallback((imageId: string): boolean => {
+    const images = imageToolRef.current?.imageInstances ?? [];
+    const match = images.find((img: any) => String(img.id) === String(imageId));
+    return Boolean(match?.imageData?.pendingUpload);
+  }, []);
+
   const collectSelectedPaths = useCallback(() => {
     const latestSelectionTool = selectionToolRef.current;
     const single = latestSelectionTool?.selectedPath ?? null;
@@ -713,19 +719,23 @@ export const useInteractionController = ({
         const imageId = resizeHandleHit.item.data.imageId;
         const direction = resizeHandleHit.item.data.direction;
 
-        const actualBounds = getImagePaperBounds(imageId);
-        if (!actualBounds) return;
+        if (isPendingUploadImage(imageId)) {
+          // 上传中仅允许移动，跳过 resize，继续后续选择逻辑
+        } else {
+          const actualBounds = getImagePaperBounds(imageId);
+          if (!actualBounds) return;
 
-        latestImageTool.setImageResizeState({
-          isImageResizing: true,
-          resizeImageId: imageId,
-          resizeDirection: direction,
-          resizeStartBounds: actualBounds,
-          resizeStartPoint: point
-        });
-        // 调整大小时也禁用工具栏/Flow 节点事件，避免快速拖动时经过悬浮工具栏导致交互中断
-        document.body.classList.add('tanva-canvas-dragging');
-        return;
+          latestImageTool.setImageResizeState({
+            isImageResizing: true,
+            resizeImageId: imageId,
+            resizeDirection: direction,
+            resizeStartBounds: actualBounds,
+            resizeStartPoint: point
+          });
+          // 调整大小时也禁用工具栏/Flow 节点事件，避免快速拖动时经过悬浮工具栏导致交互中断
+          document.body.classList.add('tanva-canvas-dragging');
+          return;
+        }
       }
 
       // 处理路径编辑交互
@@ -2127,6 +2137,13 @@ export const useInteractionController = ({
           const deletePath = (p: paper.Path) => {
             // 检查是否为图片组块，如果是则删除整个组（包括图片）
             if (isImageGroupBlock(p)) {
+              const raw = (p.data as any)?.imageIds;
+              const blocked = Array.isArray(raw)
+                ? raw.some((id) => typeof id === 'string' && isPendingUploadImage(id))
+                : false;
+              if (blocked) {
+                return;
+              }
               const deletedIds = deleteImageGroupBlock(p);
               deletedIds.forEach(id => deletedImageIdsFromGroup.add(id));
               if (deletedIds.length > 0 || p.data?.groupId) {
@@ -2170,6 +2187,7 @@ export const useInteractionController = ({
             ids.forEach((id: string) => {
               // 跳过已通过删除组块而删除的图片
               if (deletedImageIdsFromGroup.has(id)) return;
+              if (isPendingUploadImage(id)) return;
               try { latestImageTool.handleImageDelete?.(id); didDelete = true; } catch {}
             });
           }

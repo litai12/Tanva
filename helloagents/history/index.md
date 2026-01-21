@@ -10,3 +10,4 @@
 - 202601201806_ai-tool-selection-auth-request - AI 工具选择鉴权请求合并（✅已完成） -> `history/2026-01/202601201806_ai-tool-selection-auth-request/`
 - 202601201823_unify-frontend-fetch - 前端统一 fetch 鉴权入口（✅已完成） -> `history/2026-01/202601201823_unify-frontend-fetch/`
 - 202601201858_chat-contextmenu-copy - AI 对话框右键复制选中文本（✅已完成） -> `history/2026-01/202601201858_chat-contextmenu-copy/`
+- 202601211015_pending_upload_move_only - 上传中图片仅允许移动（✅已完成） -> `history/2026-01/202601211015_pending_upload_move_only/`
