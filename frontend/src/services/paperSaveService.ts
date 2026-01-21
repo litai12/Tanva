@@ -1,3 +1,6 @@
+/**
+ * Paper.js persistence helpers for exporting, importing, and autosaving project content.
+ */
 import paper from 'paper';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { useAIChatStore } from '@/stores/aiChatStore';
@@ -16,6 +19,7 @@ import {
 } from '@/utils/imageSource';
 import { FLOW_IMAGE_ASSET_PREFIX } from '@/services/flowImageAssetStore';
 import { canvasToBlob, dataUrlToBlob, responseToBlob } from '@/utils/imageConcurrency';
+import { fetchWithAuth } from '@/services/authFetch';
 
 class PaperSaveService {
   private saveTimeoutId: number | null = null;
@@ -368,7 +372,7 @@ class PaperSaveService {
           return match;
         }
 
-        const proxied = proxifyRemoteAssetUrl(match);
+        const proxied = proxifyRemoteAssetUrl(match, { forceProxy: true });
         if (proxied !== match) {
           processedCount++;
           console.log('[preprocessJsonForProxy] 转换:', match.substring(0, 80), '...');
@@ -433,7 +437,9 @@ class PaperSaveService {
         if (!candidate || this.isInlineImageSource(candidate)) return;
         if (!isPersistableImageRef(candidate)) return;
 
-        const renderable = toRenderableImageSrc(candidate);
+        const renderable = isRemoteUrl(candidate)
+          ? proxifyRemoteAssetUrl(candidate, { forceProxy: true })
+          : toRenderableImageSrc(candidate);
         if (!renderable) return;
         const shouldProxy = renderable !== candidate;
 
@@ -475,7 +481,11 @@ class PaperSaveService {
 
   private async convertBlobUrlToBlob(blobUrl: string): Promise<Blob | null> {
     try {
-      const response = await fetch(blobUrl);
+      const response = await fetchWithAuth(blobUrl, {
+        auth: 'omit',
+        allowRefresh: false,
+        credentials: 'omit',
+      });
       if (!response.ok) return null;
       return await responseToBlob(response);
     } catch (error) {
@@ -1279,6 +1289,48 @@ class PaperSaveService {
   }
 
   /**
+   * 导出用于剪贴板/云端持久化的 Paper JSON（不触发上传）。
+   */
+  serializePaperProjectForExport(
+    excludeImageIds: string[],
+    persistableRefMap?: Map<string, string>
+  ): string | null {
+    const previousMap = this.persistableImageRefMap;
+    this.persistableImageRefMap = persistableRefMap ?? null;
+    try {
+      return this.serializePaperProject(excludeImageIds);
+    } finally {
+      this.persistableImageRefMap = previousMap ?? null;
+    }
+  }
+
+  /**
+   * 追加导入 Paper JSON，不清空当前项目。
+   */
+  appendPaperJson(jsonString: string): boolean {
+    try {
+      if (!this.isPaperProjectReady()) {
+        console.warn('⚠️ Paper.js项目未正确初始化，无法导入');
+        return false;
+      }
+      if (!jsonString || jsonString.trim() === '') {
+        return true;
+      }
+      const processedJson = this.preprocessJsonForProxy(jsonString);
+      (paper.project as any).importJSON(processedJson);
+      this.ensureRasterCrossOriginAndProxySources();
+      this.ensureRasterLoadUpdates();
+      try {
+        window.dispatchEvent(new CustomEvent('paper-project-changed'));
+      } catch {}
+      return true;
+    } catch (error) {
+      console.error('❌ 追加导入 Paper.js JSON 失败:', error);
+      return false;
+    }
+  }
+
+  /**
    * 从JSON字符串恢复Paper.js项目
    */
   deserializePaperProject(jsonString: string): boolean {
@@ -1334,6 +1386,11 @@ class PaperSaveService {
       this.ensureRasterLoadUpdates();
 
       console.log('✅ Paper.js项目反序列化成功');
+      try {
+        (window as any).__tanvaPaperImportedAt = Date.now();
+      } catch {}
+      // 提前通知导入完成，避免等待 Raster 加载导致 UI 延迟
+      try { window.dispatchEvent(new CustomEvent('paper-project-imported')); } catch {}
 
       // 获取所有 Raster 并等待加载完成后再触发事件
       const rasterClass = (paper as any).Raster;

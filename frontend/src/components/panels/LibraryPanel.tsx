@@ -20,6 +20,7 @@ import {
 import { model3DPreviewService } from "@/services/model3DPreviewService";
 import { personalLibraryApi } from "@/services/personalLibraryApi";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
+import { fetchWithAuth } from "@/services/authFetch";
 import { blobToDataUrl, responseToBlob } from "@/utils/imageConcurrency";
 import {
   createPersonalAssetId,
@@ -321,9 +322,11 @@ const LibraryPanel: React.FC = () => {
       } catch {}
 
       const fetchUrl = proxifyRemoteAssetUrl(url);
-      const response = await fetch(fetchUrl, {
+      const response = await fetchWithAuth(fetchUrl, {
         mode: "cors",
         credentials: resolveImageFetchCredentials(fetchUrl),
+        auth: "omit",
+        allowRefresh: false,
       });
       if (!response.ok) return null;
       const blob = await responseToBlob(response);

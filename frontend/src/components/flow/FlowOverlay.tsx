@@ -1,4 +1,5 @@
 // @ts-nocheck
+// Flow 主画布与节点调度入口。
 import React from "react";
 import { Trash2, Plus, Upload, Download } from "lucide-react";
 import { fetchTemplateCategories } from "@/services/publicTemplateService";
@@ -4246,6 +4247,7 @@ function FlowInner() {
                   data: {
                     ...n.data,
                     ...imagePatch,
+                    crop: undefined,
                     imageName: normalizedIncomingName || undefined,
                     ...thumbPatch,
                     ...resetStatus,
@@ -4626,10 +4628,11 @@ function FlowInner() {
                   credentials = "omit";
                 }
               }
-              const response = await fetch(
-                source,
-                credentials ? { credentials } : undefined
-              );
+              const response = await fetchWithAuth(source, {
+                ...(credentials ? { credentials } : {}),
+                auth: "omit",
+                allowRefresh: false,
+              });
               if (response.ok) {
                 const blob = await responseToBlob(response);
                 const file = new File([blob], fileName, {
@@ -5156,10 +5159,36 @@ function FlowInner() {
 
         if (trimmed.startsWith("data:")) return trimmed;
 
+        const normalizedRemote = normalizeStableRemoteUrl(trimmed);
+        if (isRemoteUrl(normalizedRemote)) {
+          return normalizedRemote;
+        }
+
         const fetchable = toFetchableUrl(trimmed);
         if (fetchable) {
           // resolveImageToDataUrl 内部会处理 flow-asset/blob/http，并优先走 proxy 以降低 CORS 失败概率
-          return await resolveImageToDataUrl(fetchable, { preferProxy: true });
+          const resolved = await resolveImageToDataUrl(fetchable, {
+            preferProxy: true,
+          });
+          if (resolved) return resolved;
+          if (
+            fetchable.includes("/api/assets/proxy") ||
+            fetchable.includes("/assets/proxy") ||
+            fetchable.startsWith(window.location.origin)
+          ) {
+            try {
+              const response = await fetchWithAuth(fetchable, {
+                auth: "auto",
+                allowRefresh: false,
+              });
+              if (!response.ok) return null;
+              const blob = await responseToBlob(response);
+              return await blobToDataUrl(blob);
+            } catch {
+              return null;
+            }
+          }
+          return null;
         }
 
         // 兜底：认为是裸 base64（注意：设计 JSON 不允许落库，但运行时可用）
@@ -5483,6 +5512,18 @@ function FlowInner() {
               });
               if (cropped) return cropped;
             }
+          }
+
+          const directRef =
+            (typeof d.imageData === "string" && d.imageData.trim()) ||
+            (typeof d.imageUrl === "string" && d.imageUrl.trim()) ||
+            (typeof d.thumbnail === "string" && d.thumbnail.trim()) ||
+            "";
+          if (directRef) {
+            const resolved = await resolveImageValueToDataUrlForBackend(
+              directRef
+            );
+            if (resolved) return resolved;
           }
 
           // Image/ImagePro 作为“显示节点”时，图片可能来自上游连线；优先向上追溯以匹配当前显示内容
@@ -6202,7 +6243,16 @@ function FlowInner() {
         if (referenceImages.length) {
           try {
             const fetchRemoteImageAsDataUrl = async (url: string) => {
-              const response = await fetchWithAuth(proxifyRemoteAssetUrl(url));
+              const fetchUrl = proxifyRemoteAssetUrl(url);
+              const init: RequestInit =
+                fetchUrl.startsWith("blob:") || fetchUrl.startsWith("data:")
+                  ? {}
+                  : { mode: "cors", credentials: "omit" };
+              const response = await fetchWithAuth(fetchUrl, {
+                ...init,
+                auth: "omit",
+                allowRefresh: false,
+              });
               if (!response.ok) {
                 throw new Error(`参考图拉取失败: ${response.status}`);
               }
@@ -6907,6 +6957,9 @@ function FlowInner() {
               data?: AIImageResult;
               error?: { message: string };
             };
+            const remoteInputs = imageDatas.filter(isRemoteUrl);
+            const hasOnlyRemote =
+              imageDatas.length > 0 && remoteInputs.length === imageDatas.length;
             if (imageDatas.length === 0) {
               result = await generateImageViaAPI({
                 prompt,
@@ -6919,7 +6972,9 @@ function FlowInner() {
             } else if (imageDatas.length === 1) {
               result = await editImageViaAPI({
                 prompt,
-                sourceImage: imageDatas[0],
+                ...(hasOnlyRemote
+                  ? { sourceImageUrl: imageDatas[0] }
+                  : { sourceImage: imageDatas[0] }),
                 outputFormat: "png",
                 aiProvider,
                 model: imageModel,
@@ -6929,7 +6984,9 @@ function FlowInner() {
             } else {
               result = await blendImagesViaAPI({
                 prompt,
-                sourceImages: imageDatas.slice(0, 6),
+                ...(hasOnlyRemote
+                  ? { sourceImageUrls: imageDatas.slice(0, 6) }
+                  : { sourceImages: imageDatas.slice(0, 6) }),
                 outputFormat: "png",
                 aiProvider,
                 model: imageModel,
@@ -7125,6 +7182,9 @@ function FlowInner() {
               data?: AIImageResult;
               error?: { message: string };
             };
+            const remoteInputs = imageDatas.filter(isRemoteUrl);
+            const hasOnlyRemote =
+              imageDatas.length > 0 && remoteInputs.length === imageDatas.length;
             if (imageDatas.length === 0) {
               result = await generateImageViaAPI({
                 prompt,
@@ -7137,7 +7197,9 @@ function FlowInner() {
             } else if (imageDatas.length === 1) {
               result = await editImageViaAPI({
                 prompt,
-                sourceImage: imageDatas[0],
+                ...(hasOnlyRemote
+                  ? { sourceImageUrl: imageDatas[0] }
+                  : { sourceImage: imageDatas[0] }),
                 outputFormat: "png",
                 aiProvider,
                 model: imageModel,
@@ -7147,7 +7209,9 @@ function FlowInner() {
             } else {
               result = await blendImagesViaAPI({
                 prompt,
-                sourceImages: imageDatas.slice(0, 6),
+                ...(hasOnlyRemote
+                  ? { sourceImageUrls: imageDatas.slice(0, 6) }
+                  : { sourceImages: imageDatas.slice(0, 6) }),
                 outputFormat: "png",
                 aiProvider,
                 model: imageModel,
@@ -7352,6 +7416,9 @@ function FlowInner() {
           error?: { message: string };
         };
 
+        const remoteInputs = imageDatas.filter(isRemoteUrl);
+        const hasOnlyRemote =
+          imageDatas.length > 0 && remoteInputs.length === imageDatas.length;
         if (imageDatas.length === 0) {
           result = await generateImageViaAPI({
             prompt,
@@ -7364,7 +7431,9 @@ function FlowInner() {
         } else if (imageDatas.length === 1) {
           result = await editImageViaAPI({
             prompt,
-            sourceImage: imageDatas[0],
+            ...(hasOnlyRemote
+              ? { sourceImageUrl: imageDatas[0] }
+              : { sourceImage: imageDatas[0] }),
             outputFormat: "png",
             aiProvider,
             model: imageModel,
@@ -7374,7 +7443,9 @@ function FlowInner() {
         } else {
           result = await blendImagesViaAPI({
             prompt,
-            sourceImages: imageDatas.slice(0, 6),
+            ...(hasOnlyRemote
+              ? { sourceImageUrls: imageDatas.slice(0, 6) }
+              : { sourceImages: imageDatas.slice(0, 6) }),
             outputFormat: "png",
             aiProvider,
             model: imageModel,
@@ -7531,9 +7602,51 @@ function FlowInner() {
 
   // 定义稳定的onSend回调
   const onSendHandler = React.useCallback(
-    (id: string) => {
+    async (id: string) => {
       const node = rf.getNode(id);
       if (!node) return;
+      const cacheKey = "flow_send_image_cache_v1";
+      const getCachedUrl = (key: string): string | null => {
+        try {
+          const raw = localStorage.getItem(cacheKey);
+          if (!raw) return null;
+          const data = JSON.parse(raw) as Record<string, { url: string; ts: number }>;
+          const entry = data[key];
+          return entry?.url || null;
+        } catch {
+          return null;
+        }
+      };
+      const setCachedUrl = (key: string, url: string) => {
+        try {
+          const raw = localStorage.getItem(cacheKey);
+          const data = (raw ? JSON.parse(raw) : {}) as Record<
+            string,
+            { url: string; ts: number }
+          >;
+          data[key] = { url, ts: Date.now() };
+          const keys = Object.keys(data);
+          if (keys.length > 50) {
+            const sorted = keys.sort((a, b) => data[a].ts - data[b].ts);
+            sorted.slice(0, keys.length - 50).forEach((k) => delete data[k]);
+          }
+          localStorage.setItem(cacheKey, JSON.stringify(data));
+        } catch {}
+      };
+      const hash32 = (input: string): string => {
+        let hash = 0x811c9dc5;
+        for (let i = 0; i < input.length; i++) {
+          hash ^= input.charCodeAt(i);
+          hash = Math.imul(hash, 0x01000193);
+        }
+        return (hash >>> 0).toString(16);
+      };
+      const fingerprintDataUrl = (dataUrl: string): string => {
+        const sampleSize = 256;
+        const head = dataUrl.slice(0, sampleSize);
+        const tail = dataUrl.slice(Math.max(0, dataUrl.length - sampleSize));
+        return `${dataUrl.length}:${hash32(`${head}|${tail}`)}`;
+      };
       const normalizeForCanvas = (value?: string): string | null => {
         const trimmed = value?.trim();
         if (!trimmed) return null;
@@ -7553,6 +7666,82 @@ function FlowInner() {
         )
           return trimmed;
         return `data:image/png;base64,${trimmed}`;
+      };
+
+      const cropImageToDataUrl = async (params: {
+        baseRef: string;
+        rect: { x: number; y: number; width: number; height: number };
+        sourceWidth?: number;
+        sourceHeight?: number;
+      }): Promise<string | null> => {
+        const baseRef = params.baseRef?.trim?.() || "";
+        if (!baseRef) return null;
+
+        const w = Math.max(1, Math.round(params.rect.width));
+        const h = Math.max(1, Math.round(params.rect.height));
+        if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
+          return null;
+        }
+
+        const blob = await resolveImageToBlob(baseRef, { preferProxy: true });
+        if (!blob) return null;
+
+        const makeCanvas = (cw: number, ch: number): any => {
+          if (typeof OffscreenCanvas !== "undefined") {
+            return new OffscreenCanvas(cw, ch);
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = cw;
+          canvas.height = ch;
+          return canvas;
+        };
+
+        if (typeof createImageBitmap === "function") {
+          const bitmap = await createImageBitmapLimited(blob);
+          try {
+            const naturalW = bitmap.width;
+            const naturalH = bitmap.height;
+            if (!naturalW || !naturalH) return null;
+
+            const srcW =
+              typeof params.sourceWidth === "number" && params.sourceWidth > 0
+                ? params.sourceWidth
+                : naturalW;
+            const srcH =
+              typeof params.sourceHeight === "number" && params.sourceHeight > 0
+                ? params.sourceHeight
+                : naturalH;
+
+            const scaleX = srcW > 0 ? naturalW / srcW : 1;
+            const scaleY = srcH > 0 ? naturalH / srcH : 1;
+
+            const sx = Math.max(
+              0,
+              Math.min(naturalW - 1, Math.round(params.rect.x * scaleX))
+            );
+            const sy = Math.max(
+              0,
+              Math.min(naturalH - 1, Math.round(params.rect.y * scaleY))
+            );
+            const swRaw = Math.max(1, Math.round(params.rect.width * scaleX));
+            const shRaw = Math.max(1, Math.round(params.rect.height * scaleY));
+            const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
+            const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
+
+            const canvas = makeCanvas(w, h);
+            const ctx = canvas.getContext("2d");
+            if (!ctx) return null;
+            ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, w, h);
+            const outBlob = await canvasToBlob(canvas, { type: "image/png" });
+            return await blobToDataUrl(outBlob);
+          } finally {
+            try {
+              bitmap.close();
+            } catch {}
+          }
+        }
+
+        return null;
       };
 
       if (node.type === "generate4" || node.type === "generatePro4") {
@@ -7602,6 +7791,225 @@ function FlowInner() {
               message: `已发送 ${normalizedImages.length} 张图片到画板`,
               type: "success",
             },
+          })
+        );
+        return;
+      }
+
+      if (node.type === "image" || node.type === "imagePro") {
+        const resolveCropFromImageChain = (
+          current: any,
+          visited: Set<string>
+        ): {
+          baseRef: string;
+          rect: { x: number; y: number; width: number; height: number };
+          sourceWidth?: number;
+          sourceHeight?: number;
+        } | null => {
+          if (!current?.id || visited.has(current.id)) return null;
+          visited.add(current.id);
+          if (current.type !== "image" && current.type !== "imagePro") return null;
+
+          const d = (current.data ?? {}) as any;
+          const crop = d?.crop as
+            | {
+                x?: unknown;
+                y?: unknown;
+                width?: unknown;
+                height?: unknown;
+                sourceWidth?: unknown;
+                sourceHeight?: unknown;
+              }
+            | undefined;
+          const baseRef =
+            (typeof d.imageData === "string" && d.imageData.trim()) ||
+            (typeof d.imageUrl === "string" && d.imageUrl.trim()) ||
+            "";
+          if (crop && baseRef) {
+            const x = typeof crop.x === "number" ? crop.x : Number(crop.x ?? 0);
+            const y = typeof crop.y === "number" ? crop.y : Number(crop.y ?? 0);
+            const w = typeof crop.width === "number" ? crop.width : Number(crop.width ?? 0);
+            const h = typeof crop.height === "number" ? crop.height : Number(crop.height ?? 0);
+            if (Number.isFinite(x) && Number.isFinite(y) && w > 0 && h > 0) {
+              const sourceWidth =
+                typeof crop.sourceWidth === "number"
+                  ? crop.sourceWidth
+                  : Number(crop.sourceWidth ?? 0);
+              const sourceHeight =
+                typeof crop.sourceHeight === "number"
+                  ? crop.sourceHeight
+                  : Number(crop.sourceHeight ?? 0);
+              return {
+                baseRef,
+                rect: { x, y, width: w, height: h },
+                sourceWidth: sourceWidth > 0 ? sourceWidth : undefined,
+                sourceHeight: sourceHeight > 0 ? sourceHeight : undefined,
+              };
+            }
+          }
+
+          const upstream = rf
+            .getEdges()
+            .find((e) => e.target === current.id && e.targetHandle === "img");
+          if (!upstream) return null;
+          const up = rf.getNode(upstream.source);
+          const handle = (upstream as any).sourceHandle as string | undefined;
+          if (up?.type === "imageSplit") {
+            const splitData = (up.data ?? {}) as any;
+            const base =
+              (typeof splitData.inputImageUrl === "string" && splitData.inputImageUrl.trim()) ||
+              (typeof splitData.inputImage === "string" && splitData.inputImage.trim()) ||
+              "";
+            const match = handle ? /^image(\d+)$/.exec(handle) : null;
+            const idx = match ? Math.max(0, Number(match[1]) - 1) : 0;
+            const splitRects = Array.isArray(splitData.splitRects) ? splitData.splitRects : [];
+            const rect = splitRects?.[idx];
+            const x = typeof rect?.x === "number" ? rect.x : Number(rect?.x ?? 0);
+            const y = typeof rect?.y === "number" ? rect.y : Number(rect?.y ?? 0);
+            const w = typeof rect?.width === "number" ? rect.width : Number(rect?.width ?? 0);
+            const h = typeof rect?.height === "number" ? rect.height : Number(rect?.height ?? 0);
+            if (base && Number.isFinite(x) && Number.isFinite(y) && w > 0 && h > 0) {
+              const sourceWidth =
+                typeof splitData.sourceWidth === "number" ? splitData.sourceWidth : undefined;
+              const sourceHeight =
+                typeof splitData.sourceHeight === "number" ? splitData.sourceHeight : undefined;
+              return {
+                baseRef: base,
+                rect: { x, y, width: w, height: h },
+                sourceWidth,
+                sourceHeight,
+              };
+            }
+            return null;
+          }
+          if (up?.type === "image" || up?.type === "imagePro") {
+            return resolveCropFromImageChain(up, visited);
+          }
+          return null;
+        };
+
+        const d = (node.data ?? {}) as any;
+        const baseRef =
+          (typeof d.imageData === "string" && d.imageData.trim()) ||
+          (typeof d.imageUrl === "string" && d.imageUrl.trim()) ||
+          "";
+        const cropSpec = resolveCropFromImageChain(node, new Set());
+        if (cropSpec?.baseRef) {
+          const cropped = await cropImageToDataUrl({
+            baseRef: cropSpec.baseRef,
+            rect: cropSpec.rect,
+            sourceWidth: cropSpec.sourceWidth,
+            sourceHeight: cropSpec.sourceHeight,
+          });
+          if (cropped) {
+            const fingerprint = fingerprintDataUrl(cropped);
+            const cachedUrl = getCachedUrl(fingerprint);
+            const fileName = `flow_${id}_${Date.now()}.png`;
+            if (cachedUrl) {
+              window.dispatchEvent(
+                new CustomEvent("triggerQuickImageUpload", {
+                  detail: {
+                    imageData: cachedUrl,
+                    fileName,
+                    operationType: "generate",
+                    smartPosition: undefined,
+                    sourceImageId: undefined,
+                    sourceImages: undefined,
+                  },
+                })
+              );
+              window.dispatchEvent(
+                new CustomEvent("toast", {
+                  detail: { message: "图片已发送到画板", type: "success" },
+                })
+              );
+              return;
+            }
+
+            try {
+              const blob = await resolveImageToBlob(cropped, { preferProxy: true });
+              if (blob) {
+                const file = new File([blob], fileName, { type: "image/png" });
+                const uploadResult = await imageUploadService.uploadImageFile(file, {
+                  fileName,
+                  contentType: "image/png",
+                });
+                if (uploadResult.success && uploadResult.asset?.url) {
+                  setCachedUrl(fingerprint, uploadResult.asset.url);
+                  window.dispatchEvent(
+                    new CustomEvent("triggerQuickImageUpload", {
+                      detail: {
+                        imageData: uploadResult.asset.url,
+                        fileName,
+                        operationType: "generate",
+                        smartPosition: undefined,
+                        sourceImageId: undefined,
+                        sourceImages: undefined,
+                      },
+                    })
+                  );
+                  window.dispatchEvent(
+                    new CustomEvent("toast", {
+                      detail: { message: "图片已发送到画板", type: "success" },
+                    })
+                  );
+                  return;
+                }
+              }
+            } catch {}
+
+            window.dispatchEvent(
+              new CustomEvent("triggerQuickImageUpload", {
+                detail: {
+                  imageData: cropped,
+                  fileName,
+                  operationType: "generate",
+                  smartPosition: undefined,
+                  sourceImageId: undefined,
+                  sourceImages: undefined,
+                },
+              })
+            );
+            window.dispatchEvent(
+              new CustomEvent("toast", {
+                detail: { message: "图片已发送到画板", type: "success" },
+              })
+            );
+            return;
+          }
+        }
+
+        const normalized = normalizeForCanvas(baseRef);
+        const resolved =
+          normalized ||
+          (baseRef
+            ? await resolveImageToDataUrl(baseRef, { preferProxy: true })
+            : null);
+        if (!resolved) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "没有可发送的图片", type: "warning" },
+            })
+          );
+          return;
+        }
+
+        const fileName = `flow_${id}_${Date.now()}.png`;
+        window.dispatchEvent(
+          new CustomEvent("triggerQuickImageUpload", {
+            detail: {
+              imageData: resolved,
+              fileName,
+              operationType: "generate",
+              smartPosition: undefined,
+              sourceImageId: undefined,
+              sourceImages: undefined,
+            },
+          })
+        );
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "图片已发送到画板", type: "success" },
           })
         );
         return;
@@ -7664,7 +8072,7 @@ function FlowInner() {
         n.type === "generatePro4" ||
         n.type === "midjourney"
           ? { ...n, data: { ...n.data, onRun: runNode, onSend: onSendHandler } }
-          : n.type === "imagePro"
+          : n.type === "image" || n.type === "imagePro"
           ? { ...n, data: { ...n.data, onSend: onSendHandler } }
           : n.type === "sora2Video" ||
             n.type === "wan26" ||
@@ -8826,11 +9234,9 @@ function FlowInner() {
           />
         )}
         {/* 视口由 Canvas 驱动，禁用 MiniMap 交互避免竞态 - 专注模式下隐藏 */}
-        {!focusMode && !isNodeDragging && (
-          <MiniMap pannable={false} zoomable={false} />
-        )}
+        {!focusMode && <MiniMap pannable={false} zoomable={false} />}
         {/* 将画布上的图片以绿色块显示在 MiniMap 内 - 专注模式下隐藏 */}
-        {!focusMode && !isNodeDragging && <MiniMapImageOverlay />}
+        {!focusMode && <MiniMapImageOverlay />}
       </ReactFlow>
 
       {showFpsOverlay && (

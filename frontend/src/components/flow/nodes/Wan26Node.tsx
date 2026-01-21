@@ -4,6 +4,7 @@ import { Video, Download, Share2, AlertTriangle } from "lucide-react";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { uploadAudioToOSS } from "@/stores/aiChatStore";
 import { useProjectContentStore } from "@/stores/projectContentStore";
+import { fetchWithAuth } from "@/services/authFetch";
 
 type VideoHistoryItem = {
   id: string;
@@ -141,7 +142,12 @@ function Wan26Node({ id, data, selected }: Props) {
       setIsDownloading(true);
       setDownloadFeedback({ type: "progress", message: "视频下载中，请稍等..." });
       try {
-        const response = await fetch(url, { mode: "cors", credentials: "omit" });
+        const response = await fetchWithAuth(url, {
+          mode: "cors",
+          credentials: "omit",
+          auth: "omit",
+          allowRefresh: false,
+        });
         if (response.ok) {
           const blob = await response.blob();
           const downloadUrl = URL.createObjectURL(blob);

@@ -15,6 +15,8 @@ export type OssUploadOptions = {
   contentType?: string;
   /** 指定 OSS key（覆盖自动生成） */
   key?: string;
+  /** 可选：显式透传 access token（供 Worker 使用） */
+  authToken?: string;
 };
 
 export type OssUploadResult = {
@@ -100,7 +102,8 @@ export async function dataURLToBlobAsync(dataURL: string): Promise<Blob> {
 
 async function requestPresign(
   dir: string,
-  maxSize?: number
+  maxSize?: number,
+  authToken?: string
 ): Promise<PresignResponse> {
   // 后端基础地址，统一从 .env 读取；无配置默认 http://localhost:4000
   const API_BASE =
@@ -109,10 +112,16 @@ async function requestPresign(
       ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")
       : "http://localhost:4000";
 
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (authToken) {
+    headers.Authorization = `Bearer ${authToken}`;
+  }
   const res = await fetchWithAuth(`${API_BASE}/api/uploads/presign`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ dir, maxSize }),
+    auth: authToken ? "omit" : "auto",
+    credentials: authToken ? "omit" : "include",
   });
   const data = await res.json();
   if (!res.ok) {
@@ -146,7 +155,7 @@ export async function uploadToOSS(
 ): Promise<OssUploadResult> {
   try {
     const dir = normalizeDir(options.dir, options.projectId);
-    const presign = await requestPresign(dir, options.maxSize);
+    const presign = await requestPresign(dir, options.maxSize, options.authToken);
 
     const extension = inferExtension(
       options.fileName,
@@ -186,9 +195,12 @@ export async function uploadToOSS(
           })
     );
 
-    const uploadResp = await fetch(presign.host, {
+    const uploadResp = await fetchWithAuth(presign.host, {
       method: "POST",
       body: formData,
+      auth: "omit",
+      allowRefresh: false,
+      credentials: "omit",
     });
 
     if (!uploadResp.ok) {

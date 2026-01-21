@@ -1,4 +1,5 @@
 import type { OssUploadOptions } from "./ossUploadService";
+import { getAccessToken } from "./authTokenStorage";
 
 export type WorkerImageUploadOptions = OssUploadOptions & {
   fileName?: string;
@@ -23,6 +24,7 @@ type UploadImageFileRequest = {
   type: "UPLOAD_IMAGE_FILE";
   requestId: string;
   file: File;
+  authToken?: string;
   options: WorkerImageUploadOptions;
 };
 
@@ -117,6 +119,7 @@ class ImageUploadWorkerClient {
         type: "UPLOAD_IMAGE_FILE",
         requestId,
         file,
+        authToken: getAccessToken() || undefined,
         options,
       };
       worker.postMessage(payload);
@@ -125,4 +128,3 @@ class ImageUploadWorkerClient {
 }
 
 export const imageUploadWorkerClient = new ImageUploadWorkerClient();
-

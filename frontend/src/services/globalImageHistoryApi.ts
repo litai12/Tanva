@@ -1,3 +1,4 @@
+// API client for global image history endpoints.
 import { fetchWithAuth } from "./authFetch";
 
 const base =
@@ -42,6 +43,7 @@ export const globalImageHistoryApi = {
     limit?: number;
     cursor?: string;
     sourceType?: string;
+    sourceProjectId?: string;
   }): Promise<{
     items: GlobalImageHistoryItem[];
     nextCursor?: string;
@@ -51,6 +53,9 @@ export const globalImageHistoryApi = {
     if (params?.limit) searchParams.set("limit", String(params.limit));
     if (params?.cursor) searchParams.set("cursor", params.cursor);
     if (params?.sourceType) searchParams.set("sourceType", params.sourceType);
+    if (params?.sourceProjectId) {
+      searchParams.set("sourceProjectId", params.sourceProjectId);
+    }
 
     const url = `${base}/api/global-image-history?${searchParams.toString()}`;
     const res = await fetchWithAuth(url);

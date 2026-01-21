@@ -8,6 +8,7 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import paper from "paper";
 import { aiImageService } from "@/services/aiImageService";
 import { paperSandboxService } from "@/services/paperSandboxService";
+import { fetchWithAuth } from "@/services/authFetch";
 import {
   generateImageViaAPI,
   editImageViaAPI,
@@ -32,6 +33,7 @@ import {
   resolveImageToDataUrl,
   resolveImageToObjectUrl,
   isPersistableImageRef,
+  normalizeRemoteUrl,
   toRenderableImageSrc,
 } from "@/utils/imageSource";
 import { blobToDataUrl as blobToDataUrlLimited, canvasToDataUrl, responseToBlob } from "@/utils/imageConcurrency";
@@ -1056,9 +1058,12 @@ const downloadUrlAsDataUrl = async (url: string): Promise<string | null> => {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), VIDEO_FETCH_TIMEOUT_MS);
-    const response = await fetch(url, {
+    const response = await fetchWithAuth(url, {
       signal: controller.signal,
       mode: "cors",
+      auth: "omit",
+      allowRefresh: false,
+      credentials: "omit",
     });
     clearTimeout(timer);
     if (!response.ok) {
@@ -1080,9 +1085,12 @@ const fetchVideoBlob = async (url: string): Promise<Blob | null> => {
       () => controller.abort(),
       Math.max(VIDEO_FETCH_TIMEOUT_MS, 12000)
     );
-    const response = await fetch(url, {
+    const response = await fetchWithAuth(url, {
       signal: controller.signal,
       mode: "cors",
+      auth: "omit",
+      allowRefresh: false,
+      credentials: "omit",
     });
     clearTimeout(timer);
     if (!response.ok) {
@@ -3437,9 +3445,13 @@ export const useAIChatStore = create<AIChatState>()(
               stage: "正在编辑",
             });
 
-            // ✅ 统一把源图解析为 dataURL（支持 dataURL/base64/blob/remote），避免把 blob/remote 当作 base64 拼接
-            const normalizedSourceImage = await resolveImageToDataUrl(sourceImage);
-            if (!normalizedSourceImage) {
+            const remoteSourceUrl = normalizeRemoteUrl(sourceImage);
+            const preferRemoteUrl =
+              Boolean(remoteSourceUrl) && state.aiProvider !== "runninghub";
+            const normalizedSourceImage = preferRemoteUrl
+              ? null
+              : await resolveImageToDataUrl(sourceImage);
+            if (!normalizedSourceImage && !preferRemoteUrl) {
               throw new Error("源图像读取失败，请重新选择图片。");
             }
 
@@ -3496,7 +3508,7 @@ export const useAIChatStore = create<AIChatState>()(
               };
 
               providerOptions = await buildRunningHubProviderOptions({
-                primaryImage: normalizedSourceImage,
+                primaryImage: normalizedSourceImage || '',
                 referenceImage: state.sourceImagesForBlending?.[0],
                 projectId,
                 onStageUpdate: stageUpdater,
@@ -3505,7 +3517,8 @@ export const useAIChatStore = create<AIChatState>()(
 
             const buildEditRequest = (model: string): AIImageEditRequest => ({
               prompt,
-              sourceImage: normalizedSourceImage,
+              sourceImage: normalizedSourceImage || undefined,
+              sourceImageUrl: preferRemoteUrl ? remoteSourceUrl ?? undefined : undefined,
               model,
               aiProvider: state.aiProvider,
               providerOptions,
@@ -4127,18 +4140,34 @@ export const useAIChatStore = create<AIChatState>()(
               stage: "正在融合",
             });
 
-            // ✅ 统一把融合源图解析为 dataURL（支持 dataURL/base64/blob/remote），避免直接把 blob/remote 传给后端
-            const normalizedSourceImages = await mapWithLimit(
-              sourceImages,
-              2,
-              async (img) => {
-                const resolved = await resolveImageToDataUrl(img);
-                if (!resolved) {
-                  throw new Error("融合图片读取失败，请重新选择图片。");
-                }
-                return resolved;
-              }
+            const hasRemoteSource = sourceImages.some(
+              (img) => normalizeRemoteUrl(img) !== null
             );
+            const normalizedSourceImages = hasRemoteSource
+              ? null
+              : await mapWithLimit(sourceImages, 2, async (img) => {
+                  const resolved = await resolveImageToDataUrl(img);
+                  if (!resolved) {
+                    throw new Error("融合图片读取失败，请重新选择图片。");
+                  }
+                  return resolved;
+                });
+            const sourceImageUrls = hasRemoteSource
+              ? await mapWithLimit(sourceImages, 2, async (img) => {
+                  const remoteUrl = normalizeRemoteUrl(img);
+                  if (remoteUrl) return remoteUrl;
+                  const resolved = await resolveImageToDataUrl(img);
+                  if (!resolved) {
+                    throw new Error("融合图片读取失败，请重新选择图片。");
+                  }
+                  const projectId = useProjectContentStore.getState().projectId;
+                  const uploadedUrl = await uploadImageToOSS(resolved, projectId);
+                  if (!uploadedUrl) {
+                    throw new Error("融合图片上传失败，请重试。");
+                  }
+                  return uploadedUrl;
+                })
+              : undefined;
 
             // 模拟进度更新 - 2分钟（120秒）内从0%到95%
             // 每秒更新一次，每次增加约0.79%
@@ -4173,7 +4202,8 @@ export const useAIChatStore = create<AIChatState>()(
 
             const result = await blendImagesViaAPI({
               prompt,
-              sourceImages: normalizedSourceImages,
+              sourceImages: normalizedSourceImages ?? undefined,
+              sourceImageUrls,
               model: modelToUse,
               aiProvider: state.aiProvider,
               outputFormat: "png",

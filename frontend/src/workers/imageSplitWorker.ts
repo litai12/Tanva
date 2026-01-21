@@ -1,5 +1,7 @@
 /// <reference lib="webworker" />
 
+import { fetchWithAuth } from "@/services/authFetch";
+
 type SplitImageSource =
   | { kind: "url"; url: string }
   | { kind: "blob"; blob: Blob };
@@ -9,6 +11,7 @@ export type SplitImageRequest = {
   requestId: string;
   source: SplitImageSource;
   outputCount: number;
+  authToken?: string;
 };
 
 export type SplitImageRectItem = {
@@ -24,6 +27,7 @@ export type SplitImageRectsRequest = {
   requestId: string;
   source: SplitImageSource;
   outputCount: number;
+  authToken?: string;
 };
 
 export type SplitImageResultItem = {
@@ -509,14 +513,23 @@ const trimRectsToContent = async (
   return out;
 };
 
-const resolveSourceToBlob = async (source: SplitImageSource): Promise<Blob> => {
+const resolveSourceToBlob = async (
+  source: SplitImageSource,
+  authToken?: string
+): Promise<Blob> => {
   if (source.kind === "blob") return source.blob;
 
   const url = typeof source.url === "string" ? source.url.trim() : "";
   if (!url) throw new Error("缺少图片地址");
 
   const init: RequestInit = /^blob:/i.test(url) ? {} : { mode: "cors", credentials: "omit" };
-  const response = await fetch(url, init);
+  const headers = authToken ? { Authorization: `Bearer ${authToken}` } : undefined;
+  const response = await fetchWithAuth(url, {
+    ...init,
+    headers,
+    auth: "omit",
+    allowRefresh: false,
+  });
   if (!response.ok) {
     throw new Error(`图片加载失败 (${response.status})`);
   }
@@ -551,7 +564,7 @@ self.addEventListener(
             Math.max(MIN_OUTPUT_COUNT, Math.floor(data.outputCount || DEFAULT_OUTPUT_COUNT))
           );
 
-          const blob = await resolveSourceToBlob(data.source);
+          const blob = await resolveSourceToBlob(data.source, data.authToken);
           const bitmap = await createImageBitmap(blob);
 
           let pieces: Array<
@@ -646,10 +659,11 @@ self.addEventListener(
           Math.max(MIN_OUTPUT_COUNT, Math.floor(data.outputCount || DEFAULT_OUTPUT_COUNT))
         );
 
-        const blob = await resolveSourceToBlob(data.source);
+        const blob = await resolveSourceToBlob(data.source, data.authToken);
         const bitmap = await createImageBitmap(blob);
 
         let rects: SplitImageRectItem[] = [];
+        let usedGrid = false;
 
         const canDetect = await shouldAttemptRegionDetect(bitmap);
         if (canDetect) {
@@ -660,12 +674,18 @@ self.addEventListener(
           rects.length >
           Math.min(MAX_OUTPUT_COUNT, Math.max(safeCount, DEFAULT_OUTPUT_COUNT)) * 2;
 
-        if (rects.length <= 1 || tooManyPieces) {
+        // 端口语义：输出数量必须严格等于 safeCount。
+        // - 连通域检测可能得到任意数量的区域（更像“份数”），会破坏“端口数量(1-50)”的语义；
+        // - 网格切分则能保证输出数量与每块尺寸稳定（例如 2048 -> 16 份，每块 512x512）。
+        //
+        // 因此：仅当连通域检测刚好得到 safeCount 时才采纳，否则回退到网格切分。
+        if (rects.length !== safeCount || rects.length <= 1 || tooManyPieces) {
           rects = splitRectsByGrid(bitmap, safeCount);
+          usedGrid = true;
         }
 
-        // 仅在“看起来是白底/纸张底色”时进行去白边裁切，避免误伤照片类图片
-        if (await looksLikeWhiteBackground(bitmap)) {
+        // 去白边裁切会改变每块输出尺寸；仅在“连通域检测模式”下启用，避免网格切分出现尺寸不一致。
+        if (!usedGrid && (await looksLikeWhiteBackground(bitmap))) {
           rects = await trimRectsToContent(bitmap, rects);
         }
 

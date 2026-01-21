@@ -5,6 +5,7 @@ import SmartImage from "../../ui/SmartImage";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { useAuthStore } from "@/stores/authStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
+import { fetchWithAuth } from "@/services/authFetch";
 
 export type VideoProvider = "kling" | "vidu" | "doubao";
 
@@ -304,9 +305,11 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       });
       try {
         const proxiedUrl = proxifyRemoteAssetUrl(url);
-        const response = await fetch(proxiedUrl, {
+        const response = await fetchWithAuth(proxiedUrl, {
           mode: "cors",
           credentials: "omit",
+          auth: "omit",
+          allowRefresh: false,
         });
         if (response.ok) {
           const blob = await response.blob();

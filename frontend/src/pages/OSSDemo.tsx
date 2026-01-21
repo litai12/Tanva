@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { fetchWithAuth } from "@/services/authFetch";
 import { Button } from "@/components/ui/button";
 import AccountBadge from "@/components/AccountBadge";
 
@@ -21,7 +22,7 @@ export default function OSSDemo() {
           ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")
           : "http://localhost:4000";
 
-      const presignRes = await fetch(`${API_BASE}/api/uploads/presign`, {
+      const presignRes = await fetchWithAuth(`${API_BASE}/api/uploads/presign`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -43,7 +44,13 @@ export default function OSSDemo() {
       fd.append("signature", presign.signature);
       fd.append("success_action_status", "200");
       fd.append("file", file);
-      const ossResp = await fetch(presign.host, { method: "POST", body: fd });
+      const ossResp = await fetchWithAuth(presign.host, {
+        method: "POST",
+        body: fd,
+        auth: "omit",
+        allowRefresh: false,
+        credentials: "omit",
+      });
       if (!ossResp.ok) throw new Error("OSS 上传失败");
       const publicUrl = `${presign.host}/${key}`;
       setUrl(publicUrl);

@@ -32,7 +32,10 @@ export class AuthController {
       { ip: req.ip, ua: req.headers['user-agent'] },
     );
     this.auth.setAuthCookies(res, tokens, req);
-    return { user: { id: user.id, email: user.email, name: user.name, phone: user.phone, role: user.role } };
+    return {
+      user: { id: user.id, email: user.email, name: user.name, phone: user.phone, role: user.role },
+      tokens,
+    };
   }
 
   // 发送短信（生产需要配置阿里云并推荐配置 REDIS_URL；开发时可启用 SMS_DEBUG=true 返回调试码）
@@ -59,7 +62,10 @@ export class AuthController {
       ua: req.headers['user-agent'],
     });
     this.auth.setAuthCookies(res, tokens, req);
-    return { user: { id: user.id, email: user.email, name: user.name, phone: user.phone, role: user.role } };
+    return {
+      user: { id: user.id, email: user.email, name: user.name, phone: user.phone, role: user.role },
+      tokens,
+    };
   }
 
   // 忘记密码重置
@@ -83,7 +89,7 @@ export class AuthController {
   async refresh(@Req() req: any, @Res({ passthrough: true }) res: any) {
     const tokens = await this.auth.refresh(req.user, req.user.refreshToken);
     this.auth.setAuthCookies(res, tokens, req);
-    return { ok: true };
+    return { ok: true, tokens };
   }
 
   @Post('logout')

@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsArray, IsBoolean, IsEnum, IsObject } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsArray, IsBoolean, IsEnum, IsObject, ValidateIf } from 'class-validator';
 
 enum AspectRatio {
   'SQUARE' = '1:1',
@@ -73,9 +73,15 @@ export class EditImageDto {
   @IsNotEmpty()
   prompt!: string;
 
+  @ValidateIf((o) => !o.sourceImageUrl)
   @IsString()
   @IsNotEmpty()
-  sourceImage!: string; // base64
+  sourceImage?: string; // base64
+
+  @ValidateIf((o) => !o.sourceImage)
+  @IsString()
+  @IsNotEmpty()
+  sourceImageUrl?: string; // remote URL to be fetched by backend
 
   @IsOptional()
   @IsString()
@@ -115,10 +121,17 @@ export class BlendImagesDto {
   @IsNotEmpty()
   prompt!: string;
 
+  @ValidateIf((o) => !o.sourceImageUrls || o.sourceImageUrls.length === 0)
   @IsArray()
   @IsString({ each: true })
   @IsNotEmpty()
-  sourceImages!: string[]; // base64 array
+  sourceImages?: string[]; // base64 array
+
+  @ValidateIf((o) => !o.sourceImages || o.sourceImages.length === 0)
+  @IsArray()
+  @IsString({ each: true })
+  @IsNotEmpty()
+  sourceImageUrls?: string[]; // remote URLs to be fetched by backend
 
   @IsOptional()
   @IsString()

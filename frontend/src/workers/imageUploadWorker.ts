@@ -6,6 +6,7 @@ type UploadImageFileRequest = {
   type: "UPLOAD_IMAGE_FILE";
   requestId: string;
   file: File;
+  authToken?: string;
   options: OssUploadOptions & {
     fileName?: string;
     contentType?: string;
@@ -137,6 +138,7 @@ self.addEventListener("message", (event: MessageEvent<WorkerRequest>) => {
         ...options,
         fileName,
         contentType: prepared.contentType || contentType,
+        authToken: data.authToken,
       });
 
       if (!upload.success || !upload.url) {

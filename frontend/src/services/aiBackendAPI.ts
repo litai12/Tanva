@@ -423,6 +423,7 @@ async function performEditImageRequest(
     imageOnly: request.imageOnly,
     prompt: request.prompt?.substring(0, 50) + "...",
     sourceImageLength: request.sourceImage?.length || 0,
+    sourceImageUrl: request.sourceImageUrl,
   });
   
   try {

@@ -10,7 +10,9 @@
 
 import { v4 as uuidv4 } from "uuid";
 import { tokenRefreshManager } from "./tokenRefreshManager";
+import { getRefreshAuthHeader } from "./authTokenStorage";
 import { triggerAuthExpired } from "./authEvents";
+import { fetchWithAuth } from "./authFetch";
 import type {
   AIImageGenerateRequest,
   AIImageEditRequest,
@@ -295,12 +297,11 @@ class AIImageService {
         }`
       );
 
-      const response = await fetch(url, {
+      const response = await fetchWithAuth(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        credentials: "include", // 发送认证 cookie
         body: JSON.stringify(request),
         signal: controller.signal,
       });
@@ -410,12 +411,15 @@ class AIImageService {
       console.log(
         `🌐 ${operationType}: falling back to public endpoint ${this.PUBLIC_API_BASE}${publicSuffix}`
       );
-      const response = await fetch(`${this.PUBLIC_API_BASE}${publicSuffix}`, {
+      const response = await fetchWithAuth(`${this.PUBLIC_API_BASE}${publicSuffix}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(request),
+        auth: "omit",
+        allowRefresh: false,
+        credentials: "omit",
       });
 
       if (!response.ok) {
@@ -536,9 +540,12 @@ class AIImageService {
    */
   private async refreshSession(): Promise<boolean> {
     try {
-      const res = await fetch(`${this.API_BASE}/auth/refresh`, {
+      const res = await fetchWithAuth(`${this.API_BASE}/auth/refresh`, {
         method: "POST",
         credentials: "include",
+        headers: { ...getRefreshAuthHeader() },
+        auth: "omit",
+        allowRefresh: false,
       });
       if (res.ok) {
         console.log("🔄 Session refresh succeeded");
@@ -559,7 +566,7 @@ class AIImageService {
    */
   async isAvailable(): Promise<boolean> {
     try {
-      const response = await fetch(`${this.API_BASE}/ai/health`, {
+      const response = await fetchWithAuth(`${this.API_BASE}/ai/health`, {
         method: "GET",
         credentials: "include",
       });
@@ -583,7 +590,11 @@ class AIImageService {
    */
   async getAvailableProviders(): Promise<any> {
     try {
-      const response = await fetch(`${this.PUBLIC_API_BASE}/providers`);
+      const response = await fetchWithAuth(`${this.PUBLIC_API_BASE}/providers`, {
+        auth: "omit",
+        allowRefresh: false,
+        credentials: "omit",
+      });
       if (!response.ok) throw new Error("Failed to fetch providers");
       return response.json();
     } catch (error) {

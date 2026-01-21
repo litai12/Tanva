@@ -211,6 +211,7 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
 
         const result: ImageItem[] = [];
         const nodes = state.getNodes();
+        const nodeById = new Map(nodes.map((n) => [n.id, n]));
 
         const readSingleImageFromNode = (
           node: Node<any>
@@ -233,18 +234,23 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
           return { full: normalize(fullCandidate), thumb: normalize(thumbCandidate) };
         };
 
-        const readImagesFromNode = (node: Node<any>, sourceHandle?: string | null): ImageItem[] => {
+        const readImagesFromNode = (
+          node: Node<any>,
+          sourceHandle?: string | null,
+          visited: Set<string> = new Set()
+        ): ImageItem[] => {
           if (!node) return [];
+          if (visited.has(node.id)) return [];
+          visited.add(node.id);
           const d = (node.data ?? {}) as any;
+          const normalize = (v: unknown): string | undefined => {
+            if (typeof v !== 'string') return undefined;
+            const trimmed = v.trim();
+            return trimmed ? trimmed : undefined;
+          };
 
           // ImageSplitNode：按 image1..imageN 读取（无 sourceHandle 时输出全部 splitImages）
           if (node.type === 'imageSplit') {
-            const normalize = (v: unknown): string | undefined => {
-              if (typeof v !== 'string') return undefined;
-              const trimmed = v.trim();
-              return trimmed ? trimmed : undefined;
-            };
-
             const base = normalize(d?.inputImageUrl) || normalize(d?.inputImage);
             const splitRects = Array.isArray(d.splitRects) ? (d.splitRects as Array<any>) : [];
             const sourceWidth = typeof d.sourceWidth === 'number' ? d.sourceWidth : undefined;
@@ -313,6 +319,56 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
                 })
                 .filter((item): item is ImageItem => item !== null);
             }
+          }
+
+          if (node.type === 'image' || node.type === 'imagePro') {
+            const base = normalize(d?.imageData) || normalize(d?.imageUrl);
+            const crop = d?.crop as
+              | { x?: unknown; y?: unknown; width?: unknown; height?: unknown; sourceWidth?: unknown; sourceHeight?: unknown }
+              | undefined;
+            if (base && crop) {
+              const x = typeof crop.x === 'number' ? crop.x : Number(crop.x ?? 0);
+              const y = typeof crop.y === 'number' ? crop.y : Number(crop.y ?? 0);
+              const w = typeof crop.width === 'number' ? crop.width : Number(crop.width ?? 0);
+              const h = typeof crop.height === 'number' ? crop.height : Number(crop.height ?? 0);
+              if (Number.isFinite(x) && Number.isFinite(y) && w > 0 && h > 0) {
+                const sourceWidth = typeof crop.sourceWidth === 'number' ? crop.sourceWidth : Number(crop.sourceWidth ?? 0);
+                const sourceHeight = typeof crop.sourceHeight === 'number' ? crop.sourceHeight : Number(crop.sourceHeight ?? 0);
+                return [{
+                  id: `${node.id}-crop`,
+                  imageData: base,
+                  thumbnailData: base,
+                  crop: {
+                    x,
+                    y,
+                    width: w,
+                    height: h,
+                    sourceWidth: sourceWidth > 0 ? sourceWidth : undefined,
+                    sourceHeight: sourceHeight > 0 ? sourceHeight : undefined,
+                  },
+                }];
+              }
+            }
+
+            if (!base) {
+              const upstream = state.edges.find(
+                (e) => e.target === node.id && (e.targetHandle === 'img' || !e.targetHandle)
+              );
+              if (upstream) {
+                const upstreamNode = nodeById.get(upstream.source);
+                if (upstreamNode) {
+                  return readImagesFromNode(upstreamNode, (upstream as any).sourceHandle, visited);
+                }
+              }
+            }
+
+            const fallback =
+              base ||
+              normalize(d?.thumbnailDataUrl) ||
+              normalize(d?.thumbnail);
+            return fallback
+              ? [{ id: node.id, imageData: fallback, thumbnailData: fallback }]
+              : [];
           }
 
           // VideoFrameExtractNode：按 sourceHandle 决定单帧/范围/全部

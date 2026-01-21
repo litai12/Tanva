@@ -1,6 +1,19 @@
+/**
+ * Canvas drawing controller with selection, context menu, and persistence hooks.
+ */
 import React, { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import paper from 'paper';
-import { ArrowDown, ArrowUp, ClipboardPaste, Copy, Download, Trash2, FolderPlus } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  ClipboardPaste,
+  Copy,
+  Download,
+  Trash2,
+  FolderPlus,
+  FileJson,
+  FileInput,
+} from 'lucide-react';
 import { useToolStore, useCanvasStore, useLayerStore } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
@@ -11,12 +24,15 @@ import ImageContainer from './ImageContainer';
 import SelectionGroupToolbar from './SelectionGroupToolbar';
 import { DrawingLayerManager } from './drawing/DrawingLayerManager';
 import { AutoScreenshotService } from '@/services/AutoScreenshotService';
+import { fetchWithAuth } from '@/services/authFetch';
 import { logger } from '@/utils/logger';
+import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import { ensureImageGroupStructure } from '@/utils/paperImageGroup';
 import { BoundsCalculator } from '@/utils/BoundsCalculator';
 import { createImageGroupBlock, formatImageGroupTitle, removeGroupBlockTitle } from '@/utils/paperImageGroupBlock';
 import { contextManager } from '@/services/contextManager';
 import { clipboardService, type CanvasClipboardData, type PathClipboardSnapshot } from '@/services/clipboardService';
+import { clipboardJsonService } from '@/services/clipboardJsonService';
 import { isGroup, isRaster } from '@/utils/paperCoords';
 import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot, VideoAssetSnapshot } from '@/types/project';
 import ContextMenu from '@/components/ui/context-menu';
@@ -100,6 +116,23 @@ const extractPersistableImageRef = (imageData: unknown): string | null => {
     return normalized;
   }
   return null;
+};
+
+const dispatchImageInstancesUpdated = (instances: ImageInstance[]) => {
+  try {
+    window.dispatchEvent(
+      new CustomEvent("tanva-image-instances-updated", {
+        detail: { count: instances?.length ?? 0 },
+      })
+    );
+  } catch {}
+};
+
+const syncImageInstancesToWindow = (instances: ImageInstance[]) => {
+  try {
+    (window as any).tanvaImageInstances = instances;
+  } catch {}
+  dispatchImageInstancesUpdated(instances);
 };
 
 const getPersistedImageAssetSnapshot = (imageId: string): unknown | null => {
@@ -749,6 +782,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                     },
                     uploadResult.asset.fileName || file.name
                   );
+                  void recordImageHistoryEntry({
+                    remoteUrl: uploadResult.asset.url,
+                    title: uploadResult.asset.fileName || file.name,
+                    fileName: uploadResult.asset.fileName || file.name,
+                    nodeId: "canvas",
+                    nodeType: "image",
+                    projectId,
+                    skipInitialStoreUpdate: true,
+                  });
                 } else {
                   // fallback: blob URL（避免 base64）
                   const blobUrl = URL.createObjectURL(file);
@@ -812,7 +854,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     async (url: string): Promise<string | null> => {
       const tryFetch = async (init?: RequestInit) => {
         try {
-          const res = await fetch(url, init);
+          const res = await fetchWithAuth(url, {
+            ...(init || {}),
+            auth: 'omit',
+            allowRefresh: false,
+          });
           if (!res.ok) return null;
           const text = await res.text();
           return looksLikeSvgMarkup(text) ? text : null;
@@ -1076,6 +1122,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                     })
                   );
                 } catch {}
+                void recordImageHistoryEntry({
+                  remoteUrl: uploadResult.asset.url,
+                  title: file.name,
+                  fileName: file.name,
+                  nodeId: "canvas",
+                  nodeType: "image",
+                  projectId,
+                  skipInitialStoreUpdate: true,
+                });
               })
               .catch((err) => {
                 logger.upload?.("⚠️ [CanvasDrop] 图片上传异常，已保留本地副本", { err });
@@ -2836,8 +2891,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           const restoredImageGroups = (() => {
             try {
               const items = (paper.project as any).getItems?.({
-                match: (item: any) =>
-                  item?.data?.type === "image" && item?.data?.imageId,
+                match: (item: any) => item?.data?.imageId,
               }) as paper.Item[] | undefined;
               const list = Array.isArray(items) ? items : [];
 
@@ -2888,6 +2942,27 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               ) {
                 return paperBounds as paper.Rectangle;
               }
+
+              const cachedBounds =
+                (raster as any)?.data?.__tanvaBounds ||
+                (group as any)?.data?.__tanvaBounds ||
+                (item as any)?.data?.__tanvaBounds;
+              if (
+                cachedBounds &&
+                typeof cachedBounds === "object" &&
+                Number.isFinite((cachedBounds as any)?.width) &&
+                Number.isFinite((cachedBounds as any)?.height) &&
+                (cachedBounds as any).width > 0 &&
+                (cachedBounds as any).height > 0
+              ) {
+                return new paper.Rectangle(
+                  (cachedBounds as any).x,
+                  (cachedBounds as any).y,
+                  (cachedBounds as any).width,
+                  (cachedBounds as any).height
+                );
+              }
+
               if (snapshot?.bounds) {
                 return new paper.Rectangle(
                   snapshot.bounds.x,
@@ -2985,6 +3060,41 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             try {
               paper.view.update();
             } catch {}
+          } else if (projectAssets.images?.length) {
+            const seeded: ImageInstance[] = projectAssets.images
+              .filter((snap) => snap?.id && snap?.bounds)
+              .map((snap) => {
+                const source =
+                  snap?.url || snap?.src || snap?.key || snap?.localDataUrl;
+                return {
+                  id: snap.id,
+                  imageData: {
+                    id: snap.id,
+                    url: snap.url ?? snap.key ?? source,
+                    src: snap.src ?? snap.url ?? source,
+                    key: snap.key,
+                    fileName: snap.fileName,
+                    width: snap.width,
+                    height: snap.height,
+                    contentType: snap.contentType,
+                    pendingUpload: snap.pendingUpload,
+                    localDataUrl: snap.localDataUrl,
+                  },
+                  bounds: {
+                    x: snap.bounds.x,
+                    y: snap.bounds.y,
+                    width: snap.bounds.width,
+                    height: snap.bounds.height,
+                  },
+                  isSelected: false,
+                  visible: true,
+                  layerId: snap.layerId ?? undefined,
+                };
+              });
+            if (seeded.length > 0) {
+              imageTool.setImageInstances(seeded);
+              imageTool.setSelectedImageIds([]);
+            }
           }
         }
       } catch (error) {
@@ -3028,6 +3138,55 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     imageTool.hydrateFromSnapshot,
     model3DTool.hydrateFromSnapshot,
     simpleTextTool.hydrateFromSnapshot,
+  ]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    const hydratedFlagKey = `__tanva_initial_assets_hydrated__:${projectId}`;
+
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (!event.persisted) return;
+      try {
+        (window as any)[hydratedFlagKey] = false;
+        (window as any).tanvaPaperRestored = false;
+      } catch {}
+
+      const hasExisting =
+        imageTool.imageInstances.length > 0 ||
+        model3DTool.model3DInstances.length > 0 ||
+        simpleTextTool.textItems.length > 0;
+      if (hasExisting) return;
+
+      try {
+        if (projectAssets?.images?.length) {
+          imageTool.hydrateFromSnapshot(projectAssets.images);
+        }
+        if (projectAssets?.models?.length) {
+          model3DTool.hydrateFromSnapshot(projectAssets.models);
+        }
+        if (projectAssets?.texts?.length) {
+          simpleTextTool.hydrateFromSnapshot(projectAssets.texts);
+        }
+        if (projectAssets?.videos?.length) {
+          videoTool.hydrateFromSnapshot(projectAssets.videos);
+        }
+      } catch (error) {
+        console.warn("pageshow 回填资产失败:", error);
+      }
+    };
+
+    window.addEventListener("pageshow", handlePageShow);
+    return () => window.removeEventListener("pageshow", handlePageShow);
+  }, [
+    projectId,
+    projectAssets,
+    imageTool.imageInstances.length,
+    model3DTool.model3DInstances.length,
+    simpleTextTool.textItems.length,
+    imageTool.hydrateFromSnapshot,
+    model3DTool.hydrateFromSnapshot,
+    simpleTextTool.hydrateFromSnapshot,
+    videoTool.hydrateFromSnapshot,
   ]);
 
   // 暴露文本工具状态到全局，供工具栏使用
@@ -3230,6 +3389,22 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     return Array.from(ids);
   }, [imageTool.selectedImageIds, selectedGroupImageIds]);
 
+  const pendingImageIds = useMemo(() => {
+    return new Set<string>(
+      (imageTool.imageInstances ?? [])
+        .filter((img) => img?.imageData?.pendingUpload)
+        .map((img) => String(img.id))
+    );
+  }, [imageTool.imageInstances]);
+
+  const hasPendingSelection = useMemo(() => {
+    if (pendingImageIds.size === 0) return false;
+    if (selectedImageInstances.some((img) => pendingImageIds.has(String(img.id)))) {
+      return true;
+    }
+    return selectedGroupImageIds.some((id) => pendingImageIds.has(String(id)));
+  }, [pendingImageIds, selectedImageInstances, selectedGroupImageIds]);
+
   const groupSelectionCount =
     selectedImageInstances.length +
     selectedModelInstances.length +
@@ -3243,8 +3418,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     groupableImageIds.length >= 2 &&
     selectedModelInstances.length === 0 &&
     selectedTextItems.length === 0 &&
-    selectedNonGroupPaths.length === 0;
-  const canUngroupImages = selectedGroupBlocks.length > 0;
+    selectedNonGroupPaths.length === 0 &&
+    !hasPendingSelection;
+  const canUngroupImages = selectedGroupBlocks.length > 0 && !hasPendingSelection;
 
   const groupPaperBounds = useMemo(() => {
     if (!showSelectionGroupToolbar) return null;
@@ -3317,6 +3493,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     async (options?: { sendToDialog?: boolean }) => {
       const hasCaptureTarget =
         isGroupSelection || selectedGroupBlocks.length > 0;
+      if (hasPendingSelection) return;
       if (!hasCaptureTarget || !groupPaperBounds) return;
       if (isGroupCapturePending) return;
       setIsGroupCapturePending(true);
@@ -3417,6 +3594,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       }
     },
     [
+      hasPendingSelection,
       isGroupSelection,
       selectedGroupBlocks.length,
       selectedGroupImageIds,
@@ -4486,10 +4664,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             }
           }
 
-          const response = await fetch(
-            source,
-            credentials ? { credentials } : undefined
-          );
+          const response = await fetchWithAuth(source, {
+            ...(credentials ? { credentials } : {}),
+            auth: 'omit',
+            allowRefresh: false,
+          });
           if (response.ok) {
             const blob = await responseToBlob(response);
             const fileName = normalizeImageFileName(
@@ -5048,6 +5227,43 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   const closeContextMenu = useCallback(() => setContextMenuState(null), []);
 
+  const showToast = useCallback(
+    (message: string, type: "success" | "error" = "success") => {
+      try {
+        window.dispatchEvent(
+          new CustomEvent("toast", { detail: { message, type } })
+        );
+      } catch {
+        if (type === "error") {
+          console.error(message);
+        } else {
+          console.log(message);
+        }
+      }
+    },
+    []
+  );
+
+  const handleCopyCanvasJson = useCallback(async () => {
+    try {
+      await clipboardJsonService.copyProjectContentToClipboard();
+      showToast("已复制画布 JSON");
+    } catch (error) {
+      console.error("复制画布 JSON 失败:", error);
+      showToast("复制失败，请重试", "error");
+    }
+  }, [showToast]);
+
+  const handleImportCanvasJson = useCallback(async () => {
+    try {
+      await clipboardJsonService.importProjectContentFromClipboard();
+      showToast("已导入画布 JSON");
+    } catch (error) {
+      console.error("导入画布 JSON 失败:", error);
+      showToast("导入失败，请检查剪贴板内容", "error");
+    }
+  }, [showToast]);
+
   const contextMenuItems = useMemo(() => {
     if (!contextMenuState) return [];
 
@@ -5075,6 +5291,20 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           handleCanvasPaste();
         },
         disabled: !canPaste,
+      },
+      {
+        label: "复制画布 JSON",
+        icon: <FileJson className='w-4 h-4' />,
+        onClick: () => {
+          void handleCopyCanvasJson().finally(() => closeContextMenu());
+        },
+      },
+      {
+        label: "导入画布 JSON",
+        icon: <FileInput className='w-4 h-4' />,
+        onClick: () => {
+          void handleImportCanvasJson().finally(() => closeContextMenu());
+        },
       },
     ];
 
@@ -5151,6 +5381,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     contextMenuState,
     handleCanvasCopy,
     handleCanvasPaste,
+    handleCopyCanvasJson,
+    handleImportCanvasJson,
     handleAddImageToLibrary,
     handleDeleteSelection,
     handleDownloadImage,
@@ -5162,6 +5394,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     selectionTool.selectedPath,
     selectionTool.selectedPaths,
     hasSelection,
+    closeContextMenu,
   ]);
 
   // 事件监听器/长生命周期回调使用稳定引用，避免依赖 tool 对象导致频繁解绑/重绑
@@ -5237,7 +5470,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   // 将图片和3D模型实例暴露给图层面板使用
   useEffect(() => {
     try {
-      (window as any).tanvaImageInstances = imageTool.imageInstances;
+      syncImageInstancesToWindow(imageTool.imageInstances);
     } catch {}
     try {
       (window as any).tanvaModel3DInstances = model3DTool.model3DInstances;
@@ -5255,7 +5488,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   useEffect(() => {
     return () => {
       try {
-        (window as any).tanvaImageInstances = [];
+        syncImageInstancesToWindow([]);
       } catch {}
       try {
         (window as any).tanvaModel3DInstances = [];
@@ -6235,10 +6468,25 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     };
 
     window.addEventListener(
+      "paper-project-imported",
+      scheduleRebuild as EventListener
+    );
+    window.addEventListener(
       "paper-project-changed",
       scheduleRebuild as EventListener
     );
+    try {
+      const importedAt = (window as any).__tanvaPaperImportedAt;
+      if (importedAt) {
+        scheduleRebuild();
+        (window as any).__tanvaPaperImportedAt = null;
+      }
+    } catch {}
     return () => {
+      window.removeEventListener(
+        "paper-project-imported",
+        scheduleRebuild as EventListener
+      );
       window.removeEventListener(
         "paper-project-changed",
         scheduleRebuild as EventListener
@@ -6363,6 +6611,17 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       {/* 图片UI覆盖层实例 */}
       {imageTool.imageInstances.map((image) => {
+        // 构建所有画布图片数据，用于预览时显示
+        const allCanvasImagesData = imageTool.imageInstances.map((img) => ({
+          id: img.id,
+          url: img.imageData?.url,
+          src: img.imageData?.src,
+          localDataUrl: img.imageData?.localDataUrl,
+          fileName: img.imageData?.fileName,
+          pendingUpload: img.imageData?.pendingUpload,
+          width: img.imageData?.width,
+          height: img.imageData?.height,
+        }));
         return (
           <ImageContainer
             key={image.id}
@@ -6381,6 +6640,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             visible={image.visible}
             drawMode={drawMode}
             isSelectionDragging={selectionTool.isSelectionDragging}
+            allCanvasImages={allCanvasImagesData}
             onSelect={() => imageTool.handleImageSelect(image.id)}
             onMove={(newPosition) =>
               imageTool.handleImageMove(image.id, newPosition)
@@ -6435,10 +6695,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         <SelectionGroupToolbar
           bounds={groupScreenBounds}
           selectedCount={groupSelectionCount}
-          onCapture={handleGroupCapture}
-          onGroupImages={handleGroupImages}
+          onCapture={hasPendingSelection ? undefined : handleGroupCapture}
+          onGroupImages={hasPendingSelection ? undefined : handleGroupImages}
           canGroupImages={canGroupImages}
-          onUngroupImages={handleUngroupImages}
+          onUngroupImages={hasPendingSelection ? undefined : handleUngroupImages}
           canUngroupImages={canUngroupImages}
           isCapturing={isGroupCapturePending}
         />

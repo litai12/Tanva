@@ -1,3 +1,11 @@
+import {
+  clearTokens,
+  getAccessAuthHeader,
+  getRefreshAuthHeader,
+  setTokens,
+} from "./authTokenStorage";
+import { fetchWithAuth } from "./authFetch";
+
 export type UserInfo = {
   id: string;
   email: string;
@@ -175,7 +183,12 @@ export const authApi = {
     }
 
     try {
-      let res = await fetch(`${base}/api/auth/me`, { credentials: "include" });
+      let res = await fetchWithAuth(`${base}/api/auth/me`, {
+        credentials: "include",
+        headers: { ...getAccessAuthHeader() },
+        auth: "omit",
+        allowRefresh: false,
+      });
       if (res.ok) {
         const data = await res.json().catch(() => null);
         const user =
@@ -193,13 +206,23 @@ export const authApi = {
       }
       if (res.status === 401 || res.status === 403) {
         try {
-          const r = await fetch(`${base}/api/auth/refresh`, {
+          const r = await fetchWithAuth(`${base}/api/auth/refresh`, {
             method: "POST",
             credentials: "include",
+            headers: { ...getRefreshAuthHeader() },
+            auth: "omit",
+            allowRefresh: false,
           });
           if (r.ok) {
-            res = await fetch(`${base}/api/auth/me`, {
+            const refreshData = await r.json().catch(() => null);
+            if (refreshData?.tokens) {
+              setTokens(refreshData.tokens);
+            }
+            res = await fetchWithAuth(`${base}/api/auth/me`, {
               credentials: "include",
+              headers: { ...getAccessAuthHeader() },
+              auth: "omit",
+              allowRefresh: false,
             });
             if (res.ok) {
               const data = await res.json().catch(() => null);
@@ -228,6 +251,7 @@ export const authApi = {
         clearSession();
         clearStoredTokenExpiry();
         clearStoredLastAuthAt();
+        clearTokens();
         return { user: null, source: null };
       }
 
@@ -275,11 +299,13 @@ export const authApi = {
       writeUsers(users);
       return { user };
     }
-    const res = await fetch(`${base}/api/auth/register`, {
+    const res = await fetchWithAuth(`${base}/api/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
       credentials: "include",
+      auth: "omit",
+      allowRefresh: false,
     });
     return json<{ user: UserInfo }>(res);
   },
@@ -294,13 +320,18 @@ export const authApi = {
       saveSession(user);
       return { user };
     }
-    const res = await fetch(`${base}/api/auth/login`, {
+    const res = await fetchWithAuth(`${base}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
       credentials: "include",
+      auth: "omit",
+      allowRefresh: false,
     });
-    const out = await json<{ user: UserInfo }>(res);
+    const out = await json<{ user: UserInfo; tokens?: { accessToken?: string; refreshToken?: string } }>(res);
+    if (out.tokens) {
+      setTokens(out.tokens);
+    }
     // 本地持久化用户，提升刷新体验（用于开发环境或后端短暂不可用时）
     saveSession(out.user);
     // 设置token过期时间（24小时）
@@ -324,13 +355,18 @@ export const authApi = {
         setStoredLastAuthAt(Date.now());
       return { user };
     }
-    const res = await fetch(`${base}/api/auth/login-sms`, {
+    const res = await fetchWithAuth(`${base}/api/auth/login-sms`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
       credentials: "include",
+      auth: "omit",
+      allowRefresh: false,
     });
-    const out = await json<{ user: UserInfo }>(res);
+    const out = await json<{ user: UserInfo; tokens?: { accessToken?: string; refreshToken?: string } }>(res);
+    if (out.tokens) {
+      setTokens(out.tokens);
+    }
     saveSession(out.user);
     // 设置token过期时间（24小时）
     setStoredTokenExpiry(Date.now() + 24 * 60 * 60 * 1000);
@@ -342,10 +378,12 @@ export const authApi = {
       await delay(300);
       return { ok: true } as { ok: true };
     }
-    const res = await fetch(`${base}/api/auth/send-sms`, {
+    const res = await fetchWithAuth(`${base}/api/auth/send-sms`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+      auth: "omit",
+      allowRefresh: false,
     });
     const result = await json<{ ok: boolean; error?: string }>(res);
 
@@ -368,18 +406,33 @@ export const authApi = {
       return loadSession();
     }
     try {
-      let res = await fetch(`${base}/api/auth/me`, { credentials: "include" });
+      let res = await fetchWithAuth(`${base}/api/auth/me`, {
+        credentials: "include",
+        headers: { ...getAccessAuthHeader() },
+        auth: "omit",
+        allowRefresh: false,
+      });
       if (!res.ok) {
         // 常见 401：尝试使用 refresh cookie 刷新一次
         if (res.status === 401 || res.status === 403) {
           try {
-            const r = await fetch(`${base}/api/auth/refresh`, {
+            const r = await fetchWithAuth(`${base}/api/auth/refresh`, {
               method: "POST",
               credentials: "include",
+              headers: { ...getRefreshAuthHeader() },
+              auth: "omit",
+              allowRefresh: false,
             });
             if (r.ok) {
-              res = await fetch(`${base}/api/auth/me`, {
+              const refreshData = await r.json().catch(() => null);
+              if (refreshData?.tokens) {
+                setTokens(refreshData.tokens);
+              }
+              res = await fetchWithAuth(`${base}/api/auth/me`, {
                 credentials: "include",
+                headers: { ...getAccessAuthHeader() },
+                auth: "omit",
+                allowRefresh: false,
               });
             }
           } catch (e) {
@@ -394,6 +447,7 @@ export const authApi = {
           clearSession();
           clearStoredTokenExpiry();
           clearStoredLastAuthAt();
+          clearTokens();
           return null;
         }
         // 尝试使用本地持久化的用户，避免开发场景下的闪跳登录
@@ -419,9 +473,12 @@ export const authApi = {
 
     let ok = false;
     try {
-      const res = await fetch(`${base}/api/auth/logout`, {
+      const res = await fetchWithAuth(`${base}/api/auth/logout`, {
         method: "POST",
         credentials: "include",
+        headers: { ...getRefreshAuthHeader() },
+        auth: "omit",
+        allowRefresh: false,
       });
       if (!res.ok) {
         let msg = `HTTP ${res.status}`;
@@ -439,6 +496,7 @@ export const authApi = {
       clearSession();
       clearStoredTokenExpiry(); // 清除token过期时间
       clearStoredLastAuthAt();
+      clearTokens();
     }
 
     return { ok } as { ok: boolean };
@@ -453,8 +511,11 @@ export const authApi = {
     }
 
     try {
-      const res = await fetch(`${base}/api/users/google-api-key`, {
+      const res = await fetchWithAuth(`${base}/api/users/google-api-key`, {
         credentials: "include",
+        headers: { ...getAccessAuthHeader() },
+        auth: "omit",
+        allowRefresh: false,
       });
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
@@ -479,11 +540,13 @@ export const authApi = {
       };
     }
 
-    const res = await fetch(`${base}/api/users/google-api-key`, {
+    const res = await fetchWithAuth(`${base}/api/users/google-api-key`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...getAccessAuthHeader() },
       body: JSON.stringify(dto),
       credentials: "include",
+      auth: "omit",
+      allowRefresh: false,
     });
     return json<{ success: boolean; hasCustomKey: boolean; mode: string }>(res);
   },
@@ -502,10 +565,12 @@ export const authApi = {
       }
       return { success: true };
     }
-    const res = await fetch(`${base}/api/auth/reset-password`, {
+    const res = await fetchWithAuth(`${base}/api/auth/reset-password`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+      auth: "omit",
+      allowRefresh: false,
     });
     return json<{ success: boolean }>(res);
   },

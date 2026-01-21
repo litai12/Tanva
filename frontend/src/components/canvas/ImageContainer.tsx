@@ -1,3 +1,4 @@
+// Renders the image overlay UI and per-image actions on the canvas.
 import React, {
   useRef,
   useCallback,
@@ -29,7 +30,7 @@ import type { Model3DData } from "@/services/model3DUploadService";
 import ExpandImageSelector from "./ExpandImageSelector";
 import { useToolStore } from "@/stores";
 import aiImageService from "@/services/aiImageService";
-import { useImageHistoryStore } from "@/stores/imageHistoryStore";
+import { globalImageHistoryApi, type GlobalImageHistoryItem } from "@/services/globalImageHistoryApi";
 import { loadImageElement } from "@/utils/imageHelper";
 import { imageUrlCache } from "@/services/imageUrlCache";
 import { isGroup, isRaster } from "@/utils/paperCoords";
@@ -131,6 +132,7 @@ interface ImageContainerProps {
   drawMode?: string; // 当前绘图模式
   isSelectionDragging?: boolean; // 是否正在拖拽选择框
   layerIndex?: number; // 图层索引，用于计算z-index
+  allCanvasImages?: ImageData[]; // 画布上所有图片，用于预览时显示项目内所有图片
   onSelect?: () => void;
   onMove?: (newPosition: { x: number; y: number }) => void; // Paper.js坐标
   onResize?: (newBounds: {
@@ -153,6 +155,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   drawMode: _drawMode = "select",
   isSelectionDragging: _isSelectionDragging = false,
   layerIndex = 0,
+  allCanvasImages = [],
   onSelect: _onSelect,
   onMove: _onMove,
   onResize: _onResize,
@@ -191,6 +194,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
   // 是否正在拖拽（图片拖拽/选择拖拽会通过 body class 标记；画布中键平移通过 store 标记）
   const [isBodyDragging, setIsBodyDragging] = useState(false);
+  const isPendingUpload = Boolean(imageData.pendingUpload);
 
   // 图片真实像素尺寸（通过加载图片获取）
   const [naturalSize, setNaturalSize] = useState<{
@@ -206,31 +210,101 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const [isExpandingImage, setIsExpandingImage] = useState(false);
   const [isOptimizingHd, setIsOptimizingHd] = useState(false);
   const [showExpandSelector, setShowExpandSelector] = useState(false);
-  const [localPreviewTimestamp] = useState(() => Date.now());
+  const [projectHistoryItems, setProjectHistoryItems] = useState<
+    GlobalImageHistoryItem[]
+  >([]);
+  const [projectHistoryCursor, setProjectHistoryCursor] = useState<
+    string | undefined
+  >(undefined);
+  const [projectHistoryHasMore, setProjectHistoryHasMore] = useState(false);
+  const [projectHistoryLoading, setProjectHistoryLoading] = useState(false);
+  const lastLoadedProjectIdRef = useRef<string | null>(null);
+  const projectHistoryLoadedRef = useRef(false);
 
   // 获取项目ID用于上传
   const projectId = useProjectContentStore((state) => state.projectId);
-  const history = useImageHistoryStore((state) => state.history);
   const setDrawMode = useToolStore((state) => state.setDrawMode);
 
-  const scopedHistory = useMemo(() => {
-    if (!projectId) return history;
-    return history.filter((item) => {
-      const pid = item.projectId ?? null;
-      return pid === projectId || pid === null;
-    });
-  }, [history, projectId]);
+  const loadProjectHistory = useCallback(
+    async (options?: { reset?: boolean }) => {
+      if (!projectId) {
+        setProjectHistoryItems([]);
+        setProjectHistoryCursor(undefined);
+        setProjectHistoryHasMore(false);
+        return;
+      }
+      if (projectHistoryLoading) return;
+      const reset = options?.reset ?? false;
+      setProjectHistoryLoading(true);
+      try {
+        const result = await globalImageHistoryApi.list({
+          limit: 20,
+          cursor: reset ? undefined : projectHistoryCursor,
+          sourceProjectId: projectId,
+        });
+        setProjectHistoryItems((current) =>
+          reset ? result.items : [...current, ...result.items]
+        );
+        setProjectHistoryCursor(result.nextCursor);
+        setProjectHistoryHasMore(result.hasMore);
+      } catch {
+        // ignore
+      } finally {
+        setProjectHistoryLoading(false);
+      }
+    },
+    [projectHistoryCursor, projectHistoryLoading, projectId]
+  );
+
+  useEffect(() => {
+    if (!showPreview) {
+      projectHistoryLoadedRef.current = false;
+      return;
+    }
+    if (!projectId) {
+      setProjectHistoryItems([]);
+      setProjectHistoryCursor(undefined);
+      setProjectHistoryHasMore(false);
+      projectHistoryLoadedRef.current = false;
+      return;
+    }
+    const shouldReset = lastLoadedProjectIdRef.current !== projectId;
+    if (shouldReset) {
+      projectHistoryLoadedRef.current = false;
+    }
+    const shouldLoad =
+      shouldReset ||
+      (!projectHistoryLoadedRef.current &&
+        projectHistoryItems.length === 0 &&
+        (projectHistoryHasMore || projectHistoryCursor === undefined));
+    if (shouldReset) {
+      lastLoadedProjectIdRef.current = projectId;
+    }
+    if (shouldLoad) {
+      projectHistoryLoadedRef.current = true;
+      void loadProjectHistory({ reset: true });
+    }
+  }, [
+    loadProjectHistory,
+    projectHistoryCursor,
+    projectHistoryHasMore,
+    projectHistoryItems.length,
+    projectId,
+    showPreview,
+  ]);
 
   const relatedHistoryImages = useMemo<ImageItem[]>(() => {
-    return scopedHistory
-      .filter((item) => !!item.src)
+    return projectHistoryItems
+      .filter((item) => !!item.imageUrl)
       .map((item) => ({
         id: item.id,
-        src: normalizeImageSrc(item.src),
-        title: item.title,
-        timestamp: item.timestamp,
+        src: normalizeImageSrc(item.imageUrl),
+        title: item.prompt || item.sourceProjectName || "图片",
+        timestamp: Number.isNaN(Date.parse(item.createdAt))
+          ? undefined
+          : Date.parse(item.createdAt),
       }));
-  }, [scopedHistory]);
+  }, [projectHistoryItems]);
 
   // 监听 body class：图片拖拽 / 选择框拖拽时隐藏文字与工具栏，避免“跟随不紧”观感
   useEffect(() => {
@@ -1304,97 +1378,62 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const previewCollection = useMemo<ImageItem[]>(() => {
     const mapBySrc = new Map<string, ImageItem>();
 
-    // 判断文件名是否以.png结尾
-    const isPngFileName = (title?: string): boolean => {
-      if (!title) return false;
-      return title.toLowerCase().endsWith(".png");
-    };
+    // 1. 首先添加画布上所有图片（优先级最高）
+    allCanvasImages.forEach((img) => {
+      const src = normalizeImageSrc(img.url || img.src || img.localDataUrl || "");
+      if (!src) return;
+      if (mapBySrc.has(src)) return; // 去重
+      mapBySrc.set(src, {
+        id: img.id,
+        src,
+        title: img.fileName || "画布图片",
+        timestamp: Date.now(), // 画布图片视为最新
+      });
+    });
 
-    // 处理历史图片，优先保留非.png命名的图片
-    // 只按URL去重，避免误判不同内容的图片为重复
+    // 2. 然后添加历史图片（补充画布上没有的）
     relatedHistoryImages.forEach((item) => {
       if (!item.src) return;
       const normalizedSrc = normalizeImageSrc(item.src);
       if (!normalizedSrc) return;
-
-      const existing = mapBySrc.get(normalizedSrc);
-      const currentIsPng = isPngFileName(item.title);
-
-      // 如果URL相同，按URL去重
-      if (existing) {
-        const existingIsPng = isPngFileName(existing.title);
-
-        // 优先保留非.png命名的图片
-        if (currentIsPng && !existingIsPng) {
-          // 当前是.png，已存在的是非.png，保留已存在的
-          return;
-        } else if (!currentIsPng && existingIsPng) {
-          // 当前是非.png，已存在的是.png，替换为当前的
-          mapBySrc.set(normalizedSrc, {
-            ...item,
-            src: normalizedSrc,
-          });
-        } else {
-          // 两者都是.png或都不是.png，保留已存在的（避免重复）
-          return;
-        }
-      } else {
-        // 如果URL不同，认为是不同的图片，直接添加
-        mapBySrc.set(normalizedSrc, {
-          ...item,
-          src: normalizedSrc,
-        });
-      }
+      if (mapBySrc.has(normalizedSrc)) return; // 已存在则跳过
+      mapBySrc.set(normalizedSrc, {
+        ...item,
+        src: normalizedSrc,
+      });
     });
 
-    // 处理当前选中的图片
-    if (basePreviewSrc) {
-      const currentItem: ImageItem = {
-        id: imageData.id,
-        src: basePreviewSrc,
-        title: imageData.fileName || `图片 ${imageData.id}`,
-        timestamp: localPreviewTimestamp,
-      };
-      const existing = mapBySrc.get(basePreviewSrc);
-      const currentIsPng = isPngFileName(imageData.fileName);
+    // 获取所有图片并排序
+    const allItems = Array.from(mapBySrc.values());
 
-      // 如果URL相同
-      if (existing) {
-        const existingIsPng = isPngFileName(existing.title);
+    // 构建当前双击图片的信息
+    const currentImageSrc = normalizeImageSrc(
+      imageData.url || imageData.src || imageData.localDataUrl || ""
+    );
 
-        // 如果当前选中的是.png，且已存在非.png的，则隐藏当前选中的（不添加到集合）
-        if (currentIsPng && !existingIsPng) {
-          // 不添加，保留已存在的非.png版本，继续执行返回结果
-        } else if (!currentIsPng && existingIsPng) {
-          // 当前是非.png，已存在的是.png，替换为当前的
-          mapBySrc.set(basePreviewSrc, currentItem);
-        } else {
-          // 两者都是.png或都不是.png，更新为当前选中的
-          mapBySrc.set(basePreviewSrc, currentItem);
-        }
-      } else {
-        // 如果URL不同，认为是不同的图片，直接添加
-        mapBySrc.set(basePreviewSrc, currentItem);
-      }
-    }
-
-    return Array.from(mapBySrc.values());
-  }, [
-    basePreviewSrc,
-    imageData.fileName,
-    imageData.id,
-    relatedHistoryImages,
-    localPreviewTimestamp,
-  ]);
+    // 排序：当前图片在第一位，其他按时间降序
+    return allItems.sort((a, b) => {
+      // 当前双击的图片始终在第一位
+      if (a.id === imageData.id) return -1;
+      if (b.id === imageData.id) return 1;
+      // 其他按时间降序
+      const timeA = a.timestamp ?? 0;
+      const timeB = b.timestamp ?? 0;
+      return timeB - timeA;
+    });
+  }, [allCanvasImages, relatedHistoryImages, imageData.id, imageData.url, imageData.src, imageData.localDataUrl]);
 
   const activePreviewId = previewImageId ?? imageData.id;
   const activePreviewSrc = useMemo(() => {
+    if (activePreviewId === imageData.id) {
+      return basePreviewSrc || previewCollection[0]?.src || "";
+    }
     if (!previewCollection.length) return "";
     const target = previewCollection.find(
       (item) => item.id === activePreviewId
     );
     return target?.src || previewCollection[0]?.src || "";
-  }, [activePreviewId, previewCollection]);
+  }, [activePreviewId, basePreviewSrc, imageData.id, previewCollection]);
 
   useEffect(() => {
     if (!showPreview) return;
@@ -1402,10 +1441,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     const exists = previewCollection.some(
       (item) => item.id === activePreviewId
     );
-    if (!exists) {
+    if (!exists && activePreviewId !== imageData.id) {
       setPreviewImageId(previewCollection[0].id);
     }
-  }, [activePreviewId, previewCollection, showPreview]);
+  }, [activePreviewId, imageData.id, previewCollection, showPreview]);
   useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ imageId?: string }>).detail;
@@ -1581,10 +1620,16 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               <Button
                 variant='ghost'
                 size='sm'
-                disabled={isRemovingBackground}
+                disabled={isPendingUpload || isRemovingBackground}
                 className={sharedButtonClass}
                 onClick={handleBackgroundRemoval}
-                title={isRemovingBackground ? "正在抠图..." : "一键抠图"}
+                title={
+                  isPendingUpload
+                    ? "上传中暂不可操作"
+                    : isRemovingBackground
+                    ? "正在抠图..."
+                    : "一键抠图"
+                }
               >
                 {isRemovingBackground ? (
                   <LoadingSpinner size='sm' className='text-blue-600' />
@@ -1597,10 +1642,16 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               <Button
                 variant='ghost'
                 size='sm'
-                disabled={isConvertingTo3D}
+                disabled={isPendingUpload || isConvertingTo3D}
                 className={sharedButtonClass}
                 onClick={handleConvertTo3D}
-                title={isConvertingTo3D ? "正在转换3D..." : "2D转3D"}
+                title={
+                  isPendingUpload
+                    ? "上传中暂不可操作"
+                    : isConvertingTo3D
+                    ? "正在转换3D..."
+                    : "2D转3D"
+                }
               >
                 {isConvertingTo3D ? (
                   <LoadingSpinner size='sm' className='text-blue-600' />
@@ -1613,10 +1664,16 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               <Button
                 variant='ghost'
                 size='sm'
-                disabled={isOptimizingHd}
+                disabled={isPendingUpload || isOptimizingHd}
                 className={sharedButtonClass}
                 onClick={handleOptimizeHdImage}
-                title={isOptimizingHd ? "正在高清放大..." : "高清放大"}
+                title={
+                  isPendingUpload
+                    ? "上传中暂不可操作"
+                    : isOptimizingHd
+                    ? "正在高清放大..."
+                    : "高清放大"
+                }
               >
                 {isOptimizingHd ? (
                   <LoadingSpinner size='sm' className='text-blue-600' />
@@ -1629,11 +1686,13 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               <Button
                 variant='ghost'
                 size='sm'
-                disabled={isExpandingImage || showExpandSelector}
+                disabled={isPendingUpload || isExpandingImage || showExpandSelector}
                 className={sharedButtonClass}
                 onClick={handleExpandImage}
                 title={
-                  isExpandingImage
+                  isPendingUpload
+                    ? "上传中暂不可操作"
+                    : isExpandingImage
                     ? "正在扩图..."
                     : showExpandSelector
                     ? "请选择扩图区域"
@@ -1665,7 +1724,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                 size='sm'
                 className={sharedButtonClass}
                 onClick={handleCreateFlowImageNode}
-                title='生成节点'
+                disabled={isPendingUpload}
+                title={isPendingUpload ? "上传中暂不可操作" : "生成节点"}
               >
                 <ArrowRightLeft className={sharedIconClass} />
                 {showButtonText && <span>生成节点</span>}
@@ -1687,6 +1747,12 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         currentImageId={activePreviewId}
         onImageChange={(imageId: string) => setPreviewImageId(imageId)}
         collectionTitle='项目内图片'
+        hasMore={projectHistoryHasMore}
+        isLoading={projectHistoryLoading}
+        onLoadMore={() => {
+          if (!projectHistoryHasMore || projectHistoryLoading) return;
+          void loadProjectHistory();
+        }}
       />
     </div>
   );

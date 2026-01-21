@@ -1,7 +1,9 @@
 // @ts-nocheck
+// Flow Image 节点交互与预览逻辑。
 import React from "react";
 import { Handle, Position, useReactFlow, useStore, type ReactFlowState } from "reactflow";
 import { NodeResizeControl } from "@reactflow/node-resizer";
+import { Send as SendIcon } from "lucide-react";
 import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
 import SmartImage from "../../ui/SmartImage";
 import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
@@ -12,11 +14,14 @@ import { imageUploadService } from "@/services/imageUploadService";
 import { generateOssKey } from "@/services/ossUploadService";
 import {
   deleteFlowImage,
+  FLOW_IMAGE_ASSET_PREFIX,
   parseFlowImageAssetRef,
   putFlowImageBlobs,
   toFlowImageAssetRef,
 } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
+import { isPersistableImageRef, resolveImageToBlob } from "@/utils/imageSource";
+import { blobToDataUrl, canvasToBlob, createImageBitmapLimited } from "@/utils/imageConcurrency";
 import { shallow } from "zustand/shallow";
 
 const RESIZE_EDGE_THICKNESS = 8;
@@ -115,6 +120,7 @@ type Props = {
       sourceWidth?: number;
       sourceHeight?: number;
     };
+    onSend?: (id: string) => void;
   };
   selected?: boolean;
 };
@@ -167,10 +173,17 @@ const CanvasCropPreview = React.memo(({
     if (!container) return;
 
     const update = () => {
-      const rect = container.getBoundingClientRect();
-      const w = Math.max(1, Math.round(rect.width));
-      const h = Math.max(1, Math.round(rect.height));
-      setSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+      // Prefer layout size to avoid ReactFlow zoom transform affecting measurements.
+      let w = container.offsetWidth || container.clientWidth;
+      let h = container.offsetHeight || container.clientHeight;
+      if (!w || !h) {
+        const rect = container.getBoundingClientRect();
+        w = rect.width;
+        h = rect.height;
+      }
+      const nextW = Math.max(1, Math.round(w));
+      const nextH = Math.max(1, Math.round(h));
+      setSize((prev) => (prev.w === nextW && prev.h === nextH ? prev : { w: nextW, h: nextH }));
     };
 
     update();
@@ -246,21 +259,20 @@ const CanvasCropPreview = React.memo(({
       const sw = Math.max(1, ex - sx);
       const sh = Math.max(1, ey - sy);
 
-      // contain：画布尺寸等于实际渲染尺寸，避免把留白画进 canvas（右键保存/导出会带白边）
       const fit = Math.min(w / sw, h / sh);
       const dw = Math.max(1, Math.round(sw * fit));
       const dh = Math.max(1, Math.round(sh * fit));
 
       canvas.style.width = `${dw}px`;
       canvas.style.height = `${dh}px`;
-      canvas.width = Math.max(1, Math.round(dw * dpr));
-      canvas.height = Math.max(1, Math.round(dh * dpr));
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      canvas.width = Math.max(1, Math.round(sw));
+      canvas.height = Math.max(1, Math.round(sh));
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-      ctx.clearRect(0, 0, dw, dh);
+      ctx.clearRect(0, 0, sw, sh);
       ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, dw, dh);
-      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
+      ctx.fillRect(0, 0, sw, sh);
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
     };
 
     const onError = () => {
@@ -476,21 +488,25 @@ function ImageNodeInner({ id, data, selected }: Props) {
           return frame.thumbnailDataUrl || frame.imageUrl;
         }
 
-          // Image 节点 - 支持把上游输入继续往下传
-          if (node.type === "image") {
+          // Image 节点 - 有输入连线时优先使用上游，避免修改上游后未更新
+          if (node.type === "image" || node.type === "imagePro") {
             const upstream = edges.find(
               (e) => e.target === nodeId && e.targetHandle === "img"
             );
-            const upstreamResolved = upstream
-              ? resolveFromNode(upstream.source, upstream, visited)
-              : undefined;
-            if (upstreamResolved) return upstreamResolved;
+            if (upstream) {
+              const upstreamResolved = resolveFromNode(
+                upstream.source,
+                upstream,
+                visited
+              );
+              if (upstreamResolved) return upstreamResolved;
+            }
 
             const direct =
               (nodeData.imageData as string | undefined) ||
               (nodeData.imageUrl as string | undefined) ||
               (nodeData.thumbnail as string | undefined);
-            return direct || undefined;
+            if (direct) return direct || undefined;
           }
 
           // 兜底：尽量兼容其他输出图片的节点
@@ -551,6 +567,9 @@ function ImageNodeInner({ id, data, selected }: Props) {
 
     // 运行时预览优先使用本地 flow-asset/blob（上传中 key 可能尚不可用）
     const baseRef =
+      (hasInputConnection &&
+        typeof connectedFrameImage === "string" &&
+        connectedFrameImage.trim()) ||
       (typeof (data as any)?.imageData === "string" && (data as any).imageData.trim()) ||
       (typeof (data as any)?.imageUrl === "string" && (data as any).imageUrl.trim()) ||
       (typeof connectedFrameImage === "string" && connectedFrameImage.trim()) ||
@@ -574,36 +593,92 @@ function ImageNodeInner({ id, data, selected }: Props) {
         if (!edgeToThis) return null;
 
         const srcNode = state.getNodes().find((n) => n.id === edgeToThis.source);
-        if (!srcNode || srcNode.type !== "imageSplit") return null;
+        if (!srcNode) return null;
+
+        const specFromImageSplit = (node: any, sourceHandle?: string) => {
+          const d = (node.data || {}) as any;
+          const baseRef =
+            (typeof d.inputImageUrl === "string" && d.inputImageUrl.trim()) ||
+            (typeof d.inputImage === "string" && d.inputImage.trim()) ||
+            "";
+          if (!baseRef) return null;
+
+          const handle = typeof sourceHandle === "string" ? sourceHandle : "";
+          const match = handle ? /^image(\\d+)$/.exec(handle) : null;
+          if (!match) return null;
+          const idx = Math.max(0, Number(match[1]) - 1);
+
+          const splitRects = Array.isArray(d.splitRects) ? d.splitRects : [];
+          const rect = splitRects?.[idx];
+          const x = typeof rect?.x === "number" ? rect.x : Number(rect?.x ?? 0);
+          const y = typeof rect?.y === "number" ? rect.y : Number(rect?.y ?? 0);
+          const w = typeof rect?.width === "number" ? rect.width : Number(rect?.width ?? 0);
+          const h = typeof rect?.height === "number" ? rect.height : Number(rect?.height ?? 0);
+          if (!Number.isFinite(x) || !Number.isFinite(y) || w <= 0 || h <= 0) return null;
+
+          const sourceWidth = typeof d.sourceWidth === "number" ? d.sourceWidth : undefined;
+          const sourceHeight = typeof d.sourceHeight === "number" ? d.sourceHeight : undefined;
+          return {
+            baseRef,
+            rect: { x, y, width: w, height: h },
+            sourceWidth,
+            sourceHeight,
+          };
+        };
+
+        const resolveCropFromImageChain = (node: any, visited: Set<string>): any | null => {
+          if (!node?.id || visited.has(node.id)) return null;
+          visited.add(node.id);
+          if (node.type !== "image" && node.type !== "imagePro") return null;
+
+          const d = (node.data || {}) as any;
+          const crop = d?.crop as
+            | { x?: unknown; y?: unknown; width?: unknown; height?: unknown; sourceWidth?: unknown; sourceHeight?: unknown }
+            | undefined;
+          const baseRef =
+            (typeof d.imageData === "string" && d.imageData.trim()) ||
+            (typeof d.imageUrl === "string" && d.imageUrl.trim()) ||
+            "";
+          if (crop && baseRef) {
+            const x = typeof crop.x === "number" ? crop.x : Number(crop.x ?? 0);
+            const y = typeof crop.y === "number" ? crop.y : Number(crop.y ?? 0);
+            const w = typeof crop.width === "number" ? crop.width : Number(crop.width ?? 0);
+            const h = typeof crop.height === "number" ? crop.height : Number(crop.height ?? 0);
+            if (Number.isFinite(x) && Number.isFinite(y) && w > 0 && h > 0) {
+              const sourceWidth = typeof crop.sourceWidth === "number" ? crop.sourceWidth : Number(crop.sourceWidth ?? 0);
+              const sourceHeight = typeof crop.sourceHeight === "number" ? crop.sourceHeight : Number(crop.sourceHeight ?? 0);
+              return {
+                baseRef,
+                rect: { x, y, width: w, height: h },
+                sourceWidth: sourceWidth > 0 ? sourceWidth : undefined,
+                sourceHeight: sourceHeight > 0 ? sourceHeight : undefined,
+              };
+            }
+          }
+
+          const upstream = edges.find(
+            (e) => e.target === node.id && e.targetHandle === "img"
+          );
+          if (!upstream) return null;
+          const up = state.getNodes().find((n) => n.id === upstream.source);
+          const handle = (upstream as any).sourceHandle as string | undefined;
+          if (up?.type === "imageSplit") {
+            return specFromImageSplit(up, handle);
+          }
+          if (up?.type === "image" || up?.type === "imagePro") {
+            return resolveCropFromImageChain(up, visited);
+          }
+          return null;
+        };
+
+        if (srcNode.type === "image" || srcNode.type === "imagePro") {
+          return resolveCropFromImageChain(srcNode, new Set());
+        }
+
+        if (srcNode.type !== "imageSplit") return null;
 
         const handle = (edgeToThis as any).sourceHandle as string | undefined;
-        const match = typeof handle === "string" ? /^image(\\d+)$/.exec(handle) : null;
-        if (!match) return null;
-        const idx = Math.max(0, Number(match[1]) - 1);
-
-        const d = (srcNode.data || {}) as any;
-        const baseRef =
-          (typeof d.inputImageUrl === "string" && d.inputImageUrl.trim()) ||
-          (typeof d.inputImage === "string" && d.inputImage.trim()) ||
-          "";
-        if (!baseRef) return null;
-
-        const splitRects = Array.isArray(d.splitRects) ? d.splitRects : [];
-        const rect = splitRects?.[idx];
-        const x = typeof rect?.x === "number" ? rect.x : Number(rect?.x ?? 0);
-        const y = typeof rect?.y === "number" ? rect.y : Number(rect?.y ?? 0);
-        const w = typeof rect?.width === "number" ? rect.width : Number(rect?.width ?? 0);
-        const h = typeof rect?.height === "number" ? rect.height : Number(rect?.height ?? 0);
-        if (!Number.isFinite(x) || !Number.isFinite(y) || w <= 0 || h <= 0) return null;
-
-        const sourceWidth = typeof d.sourceWidth === "number" ? d.sourceWidth : undefined;
-        const sourceHeight = typeof d.sourceHeight === "number" ? d.sourceHeight : undefined;
-        return {
-          baseRef,
-          rect: { x, y, width: w, height: h },
-          sourceWidth,
-          sourceHeight,
-        };
+        return specFromImageSplit(srcNode, handle);
       },
       [id]
     ),
@@ -627,6 +702,82 @@ function ImageNodeInner({ id, data, selected }: Props) {
       sourceHeight: cropInfo.sourceHeight,
     }
     : undefined;
+
+  const lastCropRef = React.useRef<{
+    baseRef: string;
+    rect: { x: number; y: number; width: number; height: number };
+    sourceWidth?: number;
+    sourceHeight?: number;
+  } | null>(null);
+
+  React.useEffect(() => {
+    if (!cropInfo?.baseRef) return;
+    lastCropRef.current = {
+      baseRef: cropInfo.baseRef,
+      rect: cropInfo.rect,
+      sourceWidth: cropInfo.sourceWidth,
+      sourceHeight: cropInfo.sourceHeight,
+    };
+  }, [cropInfo?.baseRef, cropInfo?.rect?.height, cropInfo?.rect?.width, cropInfo?.rect?.x, cropInfo?.rect?.y, cropInfo?.sourceHeight, cropInfo?.sourceWidth]);
+
+  React.useEffect(() => {
+    if (hasInputConnection) return;
+
+    const crop = (data as any)?.crop as
+      | { x?: unknown; y?: unknown; width?: unknown; height?: unknown }
+      | undefined;
+    const hasValidCrop =
+      crop &&
+      Number.isFinite(Number(crop.x ?? 0)) &&
+      Number.isFinite(Number(crop.y ?? 0)) &&
+      Number(crop.width ?? 0) > 0 &&
+      Number(crop.height ?? 0) > 0;
+    if (hasValidCrop) return;
+
+    const snapshot = lastCropRef.current;
+    if (!snapshot?.baseRef) return;
+
+    const existingBaseRef =
+      (typeof data.imageData === "string" && data.imageData.trim()) ||
+      (typeof data.imageUrl === "string" && data.imageUrl.trim()) ||
+      "";
+    if (existingBaseRef && existingBaseRef !== snapshot.baseRef) return;
+
+    const patch: Record<string, unknown> = {
+      crop: {
+        x: snapshot.rect.x,
+        y: snapshot.rect.y,
+        width: snapshot.rect.width,
+        height: snapshot.rect.height,
+        sourceWidth: snapshot.sourceWidth,
+        sourceHeight: snapshot.sourceHeight,
+      },
+    };
+
+    if (!existingBaseRef) {
+      if (isPersistableImageRef(snapshot.baseRef)) {
+        patch.imageUrl = snapshot.baseRef;
+        patch.imageData = undefined;
+      } else {
+        patch.imageData = snapshot.baseRef;
+      }
+    }
+
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: { id, patch },
+      })
+    );
+  }, [
+    (data as any)?.crop?.height,
+    (data as any)?.crop?.width,
+    (data as any)?.crop?.x,
+    (data as any)?.crop?.y,
+    data.imageData,
+    data.imageUrl,
+    hasInputConnection,
+    id,
+  ]);
 
   const projectId = useProjectContentStore((state) => state.projectId);
   const [hover, setHover] = React.useState<string | null>(null);
@@ -760,6 +911,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
     return resolvedImageName;
   }, [resolvedImageName]);
   const shouldShowImageName = Boolean(data.imageData && truncatedImageName);
+  const canSend = Boolean(canvasCrop?.src || displaySrc || fullSrc);
   React.useEffect(() => {
     if (!preview) return;
     const handler = (e: KeyboardEvent) => {
@@ -768,6 +920,177 @@ function ImageNodeInner({ id, data, selected }: Props) {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [preview]);
+
+  const handleSendToCanvas = React.useCallback(async () => {
+    if (!canSend) return;
+
+    const makeFileName = () => {
+      const base = resolvedImageName || `flow_${id}_${Date.now()}`;
+      if (/\.(png|jpe?g|webp)$/i.test(base)) return base;
+      return `${base}.png`;
+    };
+
+    const notify = (message: string, type: "success" | "warning" | "error") => {
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message, type },
+        })
+      );
+    };
+
+    const emitSend = (imageData: string) => {
+      window.dispatchEvent(
+        new CustomEvent("triggerQuickImageUpload", {
+          detail: {
+            imageData,
+            fileName: makeFileName(),
+            operationType: "generate",
+            smartPosition: undefined,
+            sourceImageId: undefined,
+            sourceImages: undefined,
+          },
+        })
+      );
+      notify("图片已发送到画板", "success");
+    };
+
+    const resolveRenderableToDataUrl = async (value: string): Promise<string | null> => {
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+      if (trimmed.startsWith("data:")) return trimmed;
+      if (trimmed.startsWith(FLOW_IMAGE_ASSET_PREFIX) || trimmed.startsWith("blob:")) {
+        const blob = await resolveImageToBlob(trimmed, { preferProxy: true });
+        if (!blob) return null;
+        return await blobToDataUrl(blob);
+      }
+      if (
+        trimmed.startsWith("/api/assets/proxy") ||
+        trimmed.startsWith("/assets/proxy") ||
+        trimmed.startsWith("http://") ||
+        trimmed.startsWith("https://") ||
+        trimmed.startsWith("/") ||
+        trimmed.startsWith("./") ||
+        trimmed.startsWith("../") ||
+        /^(templates|projects|uploads|videos)\//i.test(trimmed)
+      ) {
+        return trimmed;
+      }
+      const compact = trimmed.replace(/\s+/g, "");
+      if (!compact) return null;
+      return `data:image/png;base64,${compact}`;
+    };
+
+    const cropImageToDataUrl = async (params: {
+      baseRef: string;
+      rect: { x: number; y: number; width: number; height: number };
+      sourceWidth?: number;
+      sourceHeight?: number;
+    }): Promise<string | null> => {
+      const baseRef = params.baseRef?.trim?.() || "";
+      if (!baseRef) return null;
+
+      const w = Math.max(1, Math.round(params.rect.width));
+      const h = Math.max(1, Math.round(params.rect.height));
+      if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
+        return null;
+      }
+
+      const blob = await resolveImageToBlob(baseRef, { preferProxy: true });
+      if (!blob) return null;
+
+      if (typeof createImageBitmap !== "function") return null;
+
+      const bitmap = await createImageBitmapLimited(blob);
+      try {
+        const naturalW = bitmap.width;
+        const naturalH = bitmap.height;
+        if (!naturalW || !naturalH) return null;
+
+        const srcW =
+          typeof params.sourceWidth === "number" && params.sourceWidth > 0
+            ? params.sourceWidth
+            : naturalW;
+        const srcH =
+          typeof params.sourceHeight === "number" && params.sourceHeight > 0
+            ? params.sourceHeight
+            : naturalH;
+
+        const scaleX = srcW > 0 ? naturalW / srcW : 1;
+        const scaleY = srcH > 0 ? naturalH / srcH : 1;
+
+        const sx = Math.max(
+          0,
+          Math.min(naturalW - 1, Math.round(params.rect.x * scaleX))
+        );
+        const sy = Math.max(
+          0,
+          Math.min(naturalH - 1, Math.round(params.rect.y * scaleY))
+        );
+        const swRaw = Math.max(1, Math.round(params.rect.width * scaleX));
+        const shRaw = Math.max(1, Math.round(params.rect.height * scaleY));
+        const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
+        const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
+
+        const canvas =
+          typeof OffscreenCanvas !== "undefined"
+            ? new OffscreenCanvas(w, h)
+            : Object.assign(document.createElement("canvas"), { width: w, height: h });
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return null;
+        ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, w, h);
+        const outBlob = await canvasToBlob(canvas, { type: "image/png" });
+        return await blobToDataUrl(outBlob);
+      } finally {
+        try {
+          bitmap.close();
+        } catch {}
+      }
+    };
+
+    if (canvasCrop && cropInfo?.rect && cropBaseRef) {
+      const cropped = await cropImageToDataUrl({
+        baseRef: cropBaseRef,
+        rect: cropInfo.rect,
+        sourceWidth: cropInfo.sourceWidth,
+        sourceHeight: cropInfo.sourceHeight,
+      });
+      if (!cropped) {
+        notify("裁剪失败，未发送图片", "warning");
+        return;
+      }
+      emitSend(cropped);
+      return;
+    }
+
+    const baseRef =
+      (typeof rawThumbValue === "string" && rawThumbValue.trim()) ||
+      (typeof rawFullValue === "string" && rawFullValue.trim()) ||
+      displaySrc ||
+      fullSrc ||
+      "";
+    if (!baseRef) {
+      notify("没有可发送的图片", "warning");
+      return;
+    }
+
+    const resolved = await resolveRenderableToDataUrl(baseRef);
+    if (!resolved) {
+      notify("没有可发送的图片", "warning");
+      return;
+    }
+    emitSend(resolved);
+  }, [
+    canSend,
+    canvasCrop,
+    cropInfo,
+    cropBaseRef,
+    resolvedImageName,
+    id,
+    rawThumbValue,
+    rawFullValue,
+    displaySrc,
+    fullSrc,
+  ]);
 
   const handleFiles = React.useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -1036,6 +1359,21 @@ function ImageNodeInner({ id, data, selected }: Props) {
       >
         <div style={{ fontWeight: 600 }}>{data.label || "Image"}</div>
         <div style={{ display: "flex", gap: 6 }}>
+          <button
+            onClick={handleSendToCanvas}
+            disabled={!canSend}
+            title={!canSend ? "无可发送的图像" : "发送到画布"}
+            style={{
+              fontSize: 12,
+              padding: "4px 8px",
+              borderRadius: 6,
+              border: "1px solid #e5e7eb",
+              background: !canSend ? "#e5e7eb" : "#fff",
+              cursor: !canSend ? "not-allowed" : "pointer",
+            }}
+          >
+            <SendIcon size={14} strokeWidth={2} />
+          </button>
           {hasInputConnection && (
             <button
               onClick={() => {

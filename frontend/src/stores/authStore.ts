@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { authApi, type UserInfo } from '@/services/authApi';
+import { clearTokens } from '@/services/authTokenStorage';
 
 type AuthState = {
   user: UserInfo | null;
@@ -82,6 +83,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       localStorage.removeItem('mock_user');
       localStorage.removeItem('token_expiry');
       localStorage.removeItem('last_auth_at');
+      clearTokens();
     } catch {}
   }
 }));

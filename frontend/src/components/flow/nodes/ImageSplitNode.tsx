@@ -12,12 +12,13 @@ import {
 } from 'reactflow';
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { imageSplitWorkerClient } from '@/services/imageSplitWorkerClient';
-import { parseFlowImageAssetRef, putFlowImageBlobs, toFlowImageAssetRef } from '@/services/flowImageAssetStore';
+import { deleteFlowImage, parseFlowImageAssetRef, putFlowImageBlobs, toFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { isPersistableImageRef, normalizePersistableImageRef, resolveImageToBlob } from '@/utils/imageSource';
 import { canvasToBlob, createImageBitmapLimited } from '@/utils/imageConcurrency';
 import SmartImage from '../../ui/SmartImage';
+import { shallow } from 'zustand/shallow';
 
 // 类型定义
 type SplitRectItem = {
@@ -36,6 +37,132 @@ type UpstreamImageItem = {
   id: string;
   imageData: string; // base64 或 URL
 };
+
+type CropInfo = {
+  baseRef: string;
+  rect: { x: number; y: number; width: number; height: number };
+  sourceWidth?: number;
+  sourceHeight?: number;
+};
+
+type CropSpec = {
+  identity: string;
+  baseRef: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  sourceWidth?: number;
+  sourceHeight?: number;
+};
+
+const CanvasCropPreview = React.memo(({
+  src,
+  rect,
+  sourceWidth,
+  sourceHeight,
+}: {
+  src: string;
+  rect: { x: number; y: number; width: number; height: number };
+  sourceWidth?: number;
+  sourceHeight?: number;
+}) => {
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
+  const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+  const [size, setSize] = React.useState<{ w: number; h: number }>({ w: 0, h: 0 });
+
+  React.useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const update = () => {
+      const rect = container.getBoundingClientRect();
+      const w = Math.max(1, Math.round(rect.width));
+      const h = Math.max(1, Math.round(rect.height));
+      setSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+    };
+
+    update();
+
+    let ro: ResizeObserver | null = null;
+    try {
+      ro = new ResizeObserver(update);
+      ro.observe(container);
+    } catch {}
+
+    window.addEventListener('resize', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      try { ro?.disconnect(); } catch {}
+    };
+  }, []);
+
+  React.useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const w = size.w;
+    const h = size.h;
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+
+    const drawPlaceholder = () => {
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      canvas.width = Math.max(1, Math.round(w * dpr));
+      canvas.height = Math.max(1, Math.round(h * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = '#f3f4f6';
+      ctx.fillRect(0, 0, w, h);
+    };
+
+    if (!src || !rect || rect.width <= 0 || rect.height <= 0 || w <= 0 || h <= 0) {
+      drawPlaceholder();
+      return;
+    }
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const naturalW = img.naturalWidth || img.width;
+      const naturalH = img.naturalHeight || img.height;
+      if (!naturalW || !naturalH) {
+        drawPlaceholder();
+        return;
+      }
+
+      const srcW = sourceWidth && sourceWidth > 0 ? sourceWidth : naturalW;
+      const srcH = sourceHeight && sourceHeight > 0 ? sourceHeight : naturalH;
+      const scaleX = srcW > 0 ? naturalW / srcW : 1;
+      const scaleY = srcH > 0 ? naturalH / srcH : 1;
+
+      const sx = Math.max(0, Math.min(naturalW - 1, Math.round(rect.x * scaleX)));
+      const sy = Math.max(0, Math.min(naturalH - 1, Math.round(rect.y * scaleY)));
+      const swRaw = Math.max(1, Math.round(rect.width * scaleX));
+      const shRaw = Math.max(1, Math.round(rect.height * scaleY));
+      const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
+      const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
+
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      canvas.width = Math.max(1, Math.round(w * dpr));
+      canvas.height = Math.max(1, Math.round(h * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+    };
+    img.onerror = drawPlaceholder;
+    img.src = src;
+  }, [rect.height, rect.width, rect.x, rect.y, size.h, size.w, sourceHeight, sourceWidth, src]);
+
+  return (
+    <div ref={containerRef} style={{ width: '100%', height: '100%' }}>
+      <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: '100%' }} />
+    </div>
+  );
+});
 
 type Props = {
   id: string;
@@ -96,6 +223,106 @@ const makeCanvas = (width: number, height: number): HTMLCanvasElement | Offscree
   canvas.width = width;
   canvas.height = height;
   return canvas;
+};
+
+const cropImageToBlob = async (params: CropInfo): Promise<Blob | null> => {
+  const baseRef = params.baseRef?.trim?.() || '';
+  if (!baseRef) return null;
+
+  const w = Math.max(1, Math.round(params.rect.width));
+  const h = Math.max(1, Math.round(params.rect.height));
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return null;
+
+  // 目标输出尺寸：使用“源坐标系”的裁切尺寸
+  const MAX_OUTPUT_PIXELS = 32_000_000;
+  const outputScale = w * h > MAX_OUTPUT_PIXELS ? Math.sqrt(MAX_OUTPUT_PIXELS / (w * h)) : 1;
+  const outW = Math.max(1, Math.floor(w * outputScale));
+  const outH = Math.max(1, Math.floor(h * outputScale));
+
+  const blob = await resolveImageToBlob(baseRef, { preferProxy: true });
+  if (!blob) return null;
+
+  // 优先 ImageBitmap
+  if (typeof createImageBitmap === 'function') {
+    let bitmap: ImageBitmap | null = null;
+    try {
+      bitmap = await createImageBitmapLimited(blob);
+      const naturalW = bitmap.width;
+      const naturalH = bitmap.height;
+      if (!naturalW || !naturalH) return null;
+
+      const srcW = typeof params.sourceWidth === 'number' && params.sourceWidth > 0 ? params.sourceWidth : naturalW;
+      const srcH = typeof params.sourceHeight === 'number' && params.sourceHeight > 0 ? params.sourceHeight : naturalH;
+
+      const scaleX = srcW > 0 ? naturalW / srcW : 1;
+      const scaleY = srcH > 0 ? naturalH / srcH : 1;
+
+      const sx = Math.max(0, Math.min(naturalW - 1, Math.round(params.rect.x * scaleX)));
+      const sy = Math.max(0, Math.min(naturalH - 1, Math.round(params.rect.y * scaleY)));
+      const swRaw = Math.max(1, Math.round(params.rect.width * scaleX));
+      const shRaw = Math.max(1, Math.round(params.rect.height * scaleY));
+      const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
+      const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
+
+      const canvas = makeCanvas(outW, outH);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+      try {
+        // @ts-ignore - 部分环境无此字段
+        ctx.imageSmoothingEnabled = true;
+      } catch {}
+      ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, outW, outH);
+      return await canvasToBlob(canvas, { type: 'image/png' });
+    } catch {
+      return null;
+    } finally {
+      if (bitmap) {
+        try { bitmap.close(); } catch {}
+      }
+    }
+  }
+
+  // 兜底：HTMLImageElement
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('图片解码失败'));
+      img.src = objectUrl;
+    });
+
+    const naturalW = img.naturalWidth || img.width;
+    const naturalH = img.naturalHeight || img.height;
+    if (!naturalW || !naturalH) return null;
+
+    const srcW = typeof params.sourceWidth === 'number' && params.sourceWidth > 0 ? params.sourceWidth : naturalW;
+    const srcH = typeof params.sourceHeight === 'number' && params.sourceHeight > 0 ? params.sourceHeight : naturalH;
+
+    const scaleX = srcW > 0 ? naturalW / srcW : 1;
+    const scaleY = srcH > 0 ? naturalH / srcH : 1;
+
+    const sx = Math.max(0, Math.min(naturalW - 1, Math.round(params.rect.x * scaleX)));
+    const sy = Math.max(0, Math.min(naturalH - 1, Math.round(params.rect.y * scaleY)));
+    const swRaw = Math.max(1, Math.round(params.rect.width * scaleX));
+    const shRaw = Math.max(1, Math.round(params.rect.height * scaleY));
+    const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
+    const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
+
+    const canvas = makeCanvas(outW, outH);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    try {
+      // @ts-ignore - 部分环境无此字段
+      ctx.imageSmoothingEnabled = true;
+    } catch {}
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, outW, outH);
+    return await canvasToBlob(canvas, { type: 'image/png' });
+  } catch {
+    return null;
+  } finally {
+    try { URL.revokeObjectURL(objectUrl); } catch {}
+  }
 };
 
 // 仅用于运行时：通过 canvas 重编码，去除 EXIF/元数据，确保后续裁切坐标系一致（但不上传 OSS）
@@ -831,9 +1058,25 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
   );
   const [hover, setHover] = React.useState<string | null>(null);
   const [isProcessing, setIsProcessing] = React.useState(false);
+  const [derivedInputRef, setDerivedInputRef] = React.useState<string | null>(null);
+  const derivedInputRefLatest = React.useRef<string | null>(null);
 
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
+
+  React.useEffect(() => {
+    derivedInputRefLatest.current = derivedInputRef;
+  }, [derivedInputRef]);
+
+  // 组件卸载时清理“仅运行时”的临时裁切输入，避免 IndexedDB 资源累积
+  React.useEffect(() => {
+    return () => {
+      const ref = derivedInputRefLatest.current;
+      const assetId = ref ? parseFlowImageAssetRef(ref) : null;
+      if (!assetId) return;
+      void deleteFlowImage(assetId).catch(() => {});
+    };
+  }, []);
 
   // 同步 edges ref
   React.useEffect(() => {
@@ -968,6 +1211,263 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
     )
   );
 
+  // ImageSplit 输出（imageX）与 Image(crop) 作为输入时：动态生成“裁切后的临时图片”(flow-asset)，避免下游继续使用整图。
+  const incomingCropSpec = useStore(
+    React.useCallback(
+      (state: ReactFlowState): CropSpec | null => {
+        const candidateEdges = state.edges.filter(
+          (e) =>
+            e.target === id &&
+            (e.targetHandle === 'img' || e.targetHandle === 'image' || !e.targetHandle)
+        );
+        if (candidateEdges.length === 0) return null;
+
+        const nodes = state.getNodes();
+        const nodeById = new Map(nodes.map((n) => [n.id, n]));
+
+        const normalizeIdentityBase = (value: string): string => {
+          const trimmed = value.trim();
+          if (!trimmed) return trimmed;
+          return isPersistableImageRef(trimmed) ? normalizePersistableImageRef(trimmed) : trimmed;
+        };
+
+        const specFromImageSplit = (node: Node<any>, sourceHandle?: string | null): CropSpec | null => {
+          const d = (node.data ?? {}) as any;
+          const baseRef = normalizeString(d.inputImageUrl) || normalizeString(d.inputImage) || '';
+          if (!baseRef) return null;
+
+          const handle = typeof sourceHandle === 'string' ? sourceHandle.trim() : '';
+          const match = handle ? /^image(\d+)$/.exec(handle) : null;
+          if (!match) return null;
+          const idx = Math.max(0, Number(match[1]) - 1);
+
+          const splitRects = Array.isArray(d.splitRects) ? d.splitRects : [];
+          const rect = splitRects?.[idx];
+          const x = typeof rect?.x === 'number' ? rect.x : Number(rect?.x ?? 0);
+          const y = typeof rect?.y === 'number' ? rect.y : Number(rect?.y ?? 0);
+          const w = typeof rect?.width === 'number' ? rect.width : Number(rect?.width ?? 0);
+          const h = typeof rect?.height === 'number' ? rect.height : Number(rect?.height ?? 0);
+          if (!Number.isFinite(x) || !Number.isFinite(y) || w <= 0 || h <= 0) return null;
+
+          const sourceWidth = typeof d.sourceWidth === 'number' ? d.sourceWidth : undefined;
+          const sourceHeight = typeof d.sourceHeight === 'number' ? d.sourceHeight : undefined;
+          const identityBase = normalizeIdentityBase(baseRef);
+          return {
+            identity: `${identityBase}#split:${idx}:${x},${y},${w},${h}@${sourceWidth || 0}x${sourceHeight || 0}`,
+            baseRef,
+            x,
+            y,
+            width: w,
+            height: h,
+            sourceWidth,
+            sourceHeight,
+          };
+        };
+
+        const resolveCropFromImageChain = (node: Node<any>, visited: Set<string>): CropSpec | null => {
+          if (!node || visited.has(node.id)) return null;
+          visited.add(node.id);
+          if (node.type !== 'image' && node.type !== 'imagePro') return null;
+
+          const d = (node.data ?? {}) as any;
+          let baseRef = normalizeString(d.imageData) || normalizeString(d.imageUrl) || '';
+          const crop = d?.crop as any;
+          if (baseRef && crop) {
+            const x = typeof crop.x === 'number' ? crop.x : Number(crop.x ?? 0);
+            const y = typeof crop.y === 'number' ? crop.y : Number(crop.y ?? 0);
+            const w = typeof crop.width === 'number' ? crop.width : Number(crop.width ?? 0);
+            const h = typeof crop.height === 'number' ? crop.height : Number(crop.height ?? 0);
+            if (Number.isFinite(x) && Number.isFinite(y) && w > 0 && h > 0) {
+              const sourceWidth = typeof crop.sourceWidth === 'number' ? crop.sourceWidth : Number(crop.sourceWidth ?? 0);
+              const sourceHeight = typeof crop.sourceHeight === 'number' ? crop.sourceHeight : Number(crop.sourceHeight ?? 0);
+              const identityBase = normalizeIdentityBase(baseRef);
+              return {
+                identity: `${identityBase}#crop:${x},${y},${w},${h}@${sourceWidth || 0}x${sourceHeight || 0}`,
+                baseRef,
+                x,
+                y,
+                width: w,
+                height: h,
+                sourceWidth: sourceWidth > 0 ? sourceWidth : undefined,
+                sourceHeight: sourceHeight > 0 ? sourceHeight : undefined,
+              };
+            }
+          }
+
+          const upstream = state.edges.find(
+            (e) => e.target === node.id && (e.targetHandle === 'img' || !e.targetHandle)
+          );
+          if (!upstream) return null;
+          const up = nodeById.get(upstream.source);
+          const upHandle = (upstream as any).sourceHandle as string | undefined;
+          if (up?.type === 'imageSplit') {
+            return specFromImageSplit(up, upHandle);
+          }
+          if (up?.type === 'image' || up?.type === 'imagePro') {
+            return resolveCropFromImageChain(up, visited);
+          }
+          return null;
+        };
+
+        const specFromImageNode = (node: Node<any>): CropSpec | null => {
+          const d = (node.data ?? {}) as any;
+
+          // 1) 若 Image 节点本身有 crop（通常来自 ImageSplit 的“生成节点”），直接用它
+          let baseRef = normalizeString(d.imageData) || normalizeString(d.imageUrl) || '';
+          const crop = d?.crop as any;
+          if (baseRef && crop) {
+            const x = typeof crop.x === 'number' ? crop.x : Number(crop.x ?? 0);
+            const y = typeof crop.y === 'number' ? crop.y : Number(crop.y ?? 0);
+            const w = typeof crop.width === 'number' ? crop.width : Number(crop.width ?? 0);
+            const h = typeof crop.height === 'number' ? crop.height : Number(crop.height ?? 0);
+            if (Number.isFinite(x) && Number.isFinite(y) && w > 0 && h > 0) {
+              const sourceWidth = typeof crop.sourceWidth === 'number' ? crop.sourceWidth : Number(crop.sourceWidth ?? 0);
+              const sourceHeight = typeof crop.sourceHeight === 'number' ? crop.sourceHeight : Number(crop.sourceHeight ?? 0);
+              const identityBase = normalizeIdentityBase(baseRef);
+              return {
+                identity: `${identityBase}#crop:${x},${y},${w},${h}@${sourceWidth || 0}x${sourceHeight || 0}`,
+                baseRef,
+                x,
+                y,
+                width: w,
+                height: h,
+                sourceWidth: sourceWidth > 0 ? sourceWidth : undefined,
+                sourceHeight: sourceHeight > 0 ? sourceHeight : undefined,
+              };
+            }
+          }
+
+          // 如果 Image 节点自身没有 baseRef，但有 crop，尝试从上游节点解析 baseRef
+          if (!baseRef && crop) {
+            const upstream = state.edges.find(
+              (e) => e.target === node.id && (e.targetHandle === 'img' || !e.targetHandle)
+            );
+            if (upstream) {
+              const up = nodeById.get(upstream.source);
+              if (up) {
+                baseRef = normalizeString(readImageFromNode(up, (upstream as any).sourceHandle)) || '';
+              }
+            }
+          }
+
+          if (baseRef && crop) {
+            const x = typeof crop.x === 'number' ? crop.x : Number(crop.x ?? 0);
+            const y = typeof crop.y === 'number' ? crop.y : Number(crop.y ?? 0);
+            const w = typeof crop.width === 'number' ? crop.width : Number(crop.width ?? 0);
+            const h = typeof crop.height === 'number' ? crop.height : Number(crop.height ?? 0);
+            if (Number.isFinite(x) && Number.isFinite(y) && w > 0 && h > 0) {
+              const sourceWidth = typeof crop.sourceWidth === 'number' ? crop.sourceWidth : Number(crop.sourceWidth ?? 0);
+              const sourceHeight = typeof crop.sourceHeight === 'number' ? crop.sourceHeight : Number(crop.sourceHeight ?? 0);
+              const identityBase = normalizeIdentityBase(baseRef);
+              return {
+                identity: `${identityBase}#crop:${x},${y},${w},${h}@${sourceWidth || 0}x${sourceHeight || 0}`,
+                baseRef,
+                x,
+                y,
+                width: w,
+                height: h,
+                sourceWidth: sourceWidth > 0 ? sourceWidth : undefined,
+                sourceHeight: sourceHeight > 0 ? sourceHeight : undefined,
+              };
+            }
+          }
+
+          // 递归向上游 Image 链路找 crop（Image 节点可能只显示上游裁剪结果但不落数据）
+          const derivedFromChain = resolveCropFromImageChain(node, new Set());
+          if (derivedFromChain) return derivedFromChain;
+
+          // 2) 若 Image 节点只是“显示”来自上游（例如 ImageSplit -> Image），回溯上游 imageSplit 生成 crop
+          const upstream = state.edges.find(
+            (e) => e.target === node.id && (e.targetHandle === 'img' || !e.targetHandle)
+          );
+          if (upstream) {
+            const up = nodeById.get(upstream.source);
+            if (up?.type === 'imageSplit') {
+              return specFromImageSplit(up, (upstream as any).sourceHandle);
+            }
+          }
+
+          return null;
+        };
+
+        for (const edge of candidateEdges) {
+          const srcNode = nodeById.get(edge.source);
+          if (!srcNode) continue;
+
+          if (srcNode.type === 'imageSplit') {
+            const spec = specFromImageSplit(srcNode, (edge as any).sourceHandle);
+            if (spec) return spec;
+            continue;
+          }
+
+          if (srcNode.type === 'image' || srcNode.type === 'imagePro') {
+            const spec = specFromImageNode(srcNode);
+            if (spec) return spec;
+            continue;
+          }
+        }
+
+        return null;
+      },
+      [id]
+    ),
+    shallow
+  );
+
+  // 基于裁切信息生成临时 flow-asset 输入（不落库；仅用于下游继续 split）
+  const deriveSeqRef = React.useRef(0);
+  React.useEffect(() => {
+    const spec = incomingCropSpec;
+    const nextIdentity = spec?.identity || null;
+    deriveSeqRef.current += 1;
+    const seq = deriveSeqRef.current;
+
+    if (!spec || !nextIdentity) {
+      setDerivedInputRef((prev) => {
+        const prevAssetId = prev ? parseFlowImageAssetRef(prev) : null;
+        if (prevAssetId) void deleteFlowImage(prevAssetId).catch(() => {});
+        return null;
+      });
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      const blob = await cropImageToBlob({
+        baseRef: spec.baseRef,
+        rect: { x: spec.x, y: spec.y, width: spec.width, height: spec.height },
+        sourceWidth: spec.sourceWidth,
+        sourceHeight: spec.sourceHeight,
+      });
+      if (!blob || cancelled || deriveSeqRef.current !== seq) return;
+
+      const [assetId] = await putFlowImageBlobs([{
+        blob,
+        projectId: projectId ?? null,
+        nodeId: id,
+      }]);
+      if (!assetId) return;
+
+      if (cancelled || deriveSeqRef.current !== seq) {
+        void deleteFlowImage(assetId).catch(() => {});
+        return;
+      }
+
+      const ref = toFlowImageAssetRef(assetId);
+      setDerivedInputRef((prev) => {
+        const prevAssetId = prev ? parseFlowImageAssetRef(prev) : null;
+        if (prevAssetId && prevAssetId !== assetId) {
+          void deleteFlowImage(prevAssetId).catch(() => {});
+        }
+        return ref;
+      });
+    })().catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [incomingCropSpec?.identity, id, projectId]);
+
   // 若上游来自 imageGrid（直接连或经由 image 节点传递），优先读取其“输入图片列表”，避免用像素连通域误分割成大量碎片
   const upstreamImageGridInputs = useStore(
     React.useCallback(
@@ -1049,14 +1549,42 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
     }
     return connectedImage || data.inputImage || data.inputImageUrl;
   }, [connectedImage, data.inputImage, data.inputImageUrl, data.splitRects]);
-  const inputAssetId = React.useMemo(() => parseFlowImageAssetRef(rawInputImage), [rawInputImage]);
+  const effectiveInputImage = React.useMemo(() => {
+    // 已经完成 split 并落了 splitRects：继续用持久化引用作为基底，避免坐标系漂移
+    if (Array.isArray(data.splitRects) && data.splitRects.length > 0) {
+      return rawInputImage;
+    }
+    // 上游是裁剪链路时，等待裁剪后的临时输入准备好再继续（避免先显示/拆分整图）
+    if (incomingCropSpec?.identity) {
+      return normalizeString(derivedInputRef);
+    }
+    return normalizeString(derivedInputRef) || rawInputImage;
+  }, [data.splitRects, derivedInputRef, incomingCropSpec?.identity, rawInputImage]);
+  const inputAssetId = React.useMemo(() => parseFlowImageAssetRef(effectiveInputImage), [effectiveInputImage]);
   const inputAssetUrl = useFlowImageAssetUrl(inputAssetId);
 
   const inputImageSrc = React.useMemo(() => {
     if (inputAssetId) return inputAssetUrl || undefined;
-    return buildImageSrc(rawInputImage);
-  }, [inputAssetId, inputAssetUrl, rawInputImage]);
-  const canSplit = !!normalizeString(rawInputImage);
+    return buildImageSrc(effectiveInputImage);
+  }, [effectiveInputImage, inputAssetId, inputAssetUrl]);
+  const incomingCropBaseRef = incomingCropSpec?.baseRef;
+  const incomingCropAssetId = React.useMemo(
+    () => parseFlowImageAssetRef(incomingCropBaseRef),
+    [incomingCropBaseRef]
+  );
+  const incomingCropAssetUrl = useFlowImageAssetUrl(incomingCropAssetId);
+  const incomingCropSrc = React.useMemo(() => {
+    if (!incomingCropBaseRef) return undefined;
+    if (incomingCropAssetId) return incomingCropAssetUrl || undefined;
+    return buildImageSrc(incomingCropBaseRef);
+  }, [incomingCropAssetId, incomingCropAssetUrl, incomingCropBaseRef]);
+  const showIncomingCropPreview = Boolean(
+    incomingCropSpec &&
+      incomingCropSrc &&
+      !normalizeString(derivedInputRef) &&
+      (!Array.isArray(data.splitRects) || data.splitRects.length === 0)
+  );
+  const canSplit = !!normalizeString(effectiveInputImage);
 
   // 更新节点数据
   const updateNodeData = React.useCallback((patch: Record<string, unknown>) => {
@@ -1095,7 +1623,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
   }, [updateNodeData]);
 
   React.useEffect(() => {
-    const currentIdentity = normalizeString(connectedImageIdentity);
+    const currentIdentity = normalizeString(incomingCropSpec?.identity || normalizeString(connectedImageIdentity));
 
     // 初始化：记录当前 identity，并在“明确是不同持久化引用”的情况下做一次兜底清理
     if (!inputIdentityInitedRef.current) {
@@ -1134,6 +1662,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
     }
   }, [
     connectedImageIdentity,
+    incomingCropSpec?.identity,
     data.inputImage,
     data.inputImageUrl,
     hasAnySplitResult,
@@ -1176,7 +1705,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
 
   // 执行分割
   const handleSplit = React.useCallback(async () => {
-    if (!normalizeString(rawInputImage)) {
+    if (!normalizeString(effectiveInputImage)) {
       updateNodeData({ status: 'failed', error: '没有输入图片', splitRects: [] });
       setSplitRects([]);
       setSourceSize({ width: 0, height: 0 });
@@ -1211,7 +1740,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
         return trimmed;
       };
 
-      const rawInput = normalizeString(rawInputImage)!;
+      const rawInput = normalizeString(effectiveInputImage)!;
       const normalizedInputRef = normalizePersistableRef(rawInput);
       // 图片分割本身不需要上传 OSS：优先用 blob/canvas 在运行时完成；
       // 只有当“保存/接口调用”不支持 canvas 时，才在对应链路里上传并替换引用。
@@ -1279,9 +1808,11 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
         sourceHeight = detected.sourceHeight;
 
         // 对“整张图是一个连通块 / 无法识别区域”的情况做兜底：按输出数量做等分网格切图
+        // 端口语义：输出数量必须严格等于 safeCount，否则认为“检测结果不可靠”，回退到网格切分。
+        const countMismatch = rects.length !== safeCount;
         const tooManyPieces =
           rects.length > Math.min(MAX_OUTPUT_COUNT, Math.max(safeCount, DEFAULT_OUTPUT_COUNT)) * 2;
-        if (rects.length <= 1 || tooManyPieces) {
+        if (countMismatch || rects.length <= 1 || tooManyPieces) {
           const grid = await splitRectsByGrid(splitSrc, safeCount);
           rects = grid.rects;
           sourceWidth = grid.sourceWidth;
@@ -1429,11 +1960,13 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
       targetHandle: string;
     }> = [];
 
+    // 优先使用 ImageSplit 自己的 inputImageUrl（Split 时归一化后的“基底引用”），
+    // 避免误用上游 thumbnail 造成切片分辨率变低。
     const baseRef =
-      normalizeString(connectedImage) ||
-      normalizeString(rawInputImage) ||
       normalizeString(data.inputImageUrl) ||
+      normalizeString(rawInputImage) ||
       normalizeString(data.inputImage) ||
+      normalizeString(connectedImage) ||
       '';
     const basePatch = baseRef
       ? (isPersistableImageRef(baseRef) ? { imageUrl: baseRef } : { imageData: baseRef })
@@ -1611,7 +2144,14 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
         flexDirection: 'column',
         gap: 6,
       }}>
-        {inputImageSrc ? (
+        {showIncomingCropPreview && incomingCropSpec ? (
+          <CanvasCropPreview
+            src={incomingCropSrc as string}
+            rect={{ x: incomingCropSpec.x, y: incomingCropSpec.y, width: incomingCropSpec.width, height: incomingCropSpec.height }}
+            sourceWidth={incomingCropSpec.sourceWidth}
+            sourceHeight={incomingCropSpec.sourceHeight}
+          />
+        ) : inputImageSrc ? (
           <SmartImage
             src={inputImageSrc}
             alt="输入图片"

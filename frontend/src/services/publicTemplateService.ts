@@ -33,7 +33,7 @@ export async function fetchPublicTemplateIndex(): Promise<
   TemplateIndexEntry[]
 > {
   try {
-    const response = await fetch(`${API_BASE}/api/templates/index`);
+    const response = await fetchWithAuth(`${API_BASE}/api/templates/index`);
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
@@ -50,7 +50,7 @@ export async function fetchPublicTemplateById(
   id: string
 ): Promise<FlowTemplate | null> {
   try {
-    const response = await fetch(`${API_BASE}/api/templates/${id}`);
+    const response = await fetchWithAuth(`${API_BASE}/api/templates/${id}`);
     if (!response.ok) {
       if (response.status === 404) {
         return null;

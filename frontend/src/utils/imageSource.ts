@@ -5,6 +5,7 @@ import {
   parseFlowImageAssetRef,
 } from "@/services/flowImageAssetStore";
 import { blobToDataUrl, responseToBlob } from "@/utils/imageConcurrency";
+import { fetchWithAuth } from "@/services/authFetch";
 
 export type RemoteUrl = `http://${string}` | `https://${string}`;
 export type BlobUrl = `blob:${string}`;
@@ -13,6 +14,25 @@ export type DataImageUrl = `data:image/${string}`;
 
 export const isRemoteUrl = (value?: string | null): value is RemoteUrl =>
   typeof value === "string" && /^https?:\/\//i.test(value.trim());
+
+export const normalizeRemoteUrl = (value?: string | null): RemoteUrl | null => {
+  if (!isRemoteUrl(value)) return null;
+  return value.trim() as RemoteUrl;
+};
+
+export const areAllRemoteUrls = (
+  values: Array<string | null | undefined>
+): values is RemoteUrl[] => {
+  if (!Array.isArray(values) || values.length === 0) return false;
+  return values.every((value) => isRemoteUrl(value));
+};
+
+export const collectRemoteUrls = (
+  values: Array<string | null | undefined>
+): RemoteUrl[] =>
+  values
+    .map((value) => normalizeRemoteUrl(value))
+    .filter((value): value is RemoteUrl => Boolean(value));
 
 export const isBlobUrl = (value?: string | null): value is BlobUrl =>
   typeof value === "string" && /^blob:/i.test(value.trim());
@@ -228,7 +248,11 @@ export const resolveImageToDataUrl = async (
       const init: RequestInit = isBlobUrl(url)
         ? {}
         : { mode: "cors", credentials: "omit" };
-      const response = await fetch(url, init);
+      const response = await fetchWithAuth(url, {
+        ...init,
+        auth: "omit",
+        allowRefresh: false,
+      });
       if (!response.ok) continue;
       const blob = await responseToBlob(response);
       const dataUrl = await blobToDataUrl(blob);
@@ -307,7 +331,11 @@ export const resolveImageToBlob = async (
       const init: RequestInit = isBlobUrl(url)
         ? {}
         : { mode: "cors", credentials: "omit" };
-      const response = await fetch(url, init);
+      const response = await fetchWithAuth(url, {
+        ...init,
+        auth: "omit",
+        allowRefresh: false,
+      });
       if (!response.ok) continue;
       return await responseToBlob(response);
     } catch {

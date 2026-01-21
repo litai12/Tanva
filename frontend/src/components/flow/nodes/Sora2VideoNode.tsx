@@ -6,6 +6,7 @@ import GenerationProgressBar from './GenerationProgressBar';
 import { SORA2_VIDEO_MODELS, type Sora2VideoQuality } from '@/stores/aiChatStore';
 import { useAuthStore } from '@/stores/authStore';
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
+import { fetchWithAuth } from '@/services/authFetch';
 
 type Props = {
   id: string;
@@ -231,7 +232,12 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
     setDownloadFeedback({ type: 'progress', message: '视频下载中，请稍等...' });
     try {
       const proxiedUrl = proxifyRemoteAssetUrl(url);
-      const response = await fetch(proxiedUrl, { mode: 'cors', credentials: 'omit' });
+      const response = await fetchWithAuth(proxiedUrl, {
+        mode: 'cors',
+        credentials: 'omit',
+        auth: 'omit',
+        allowRefresh: false,
+      });
       if (response.ok) {
         const blob = await response.blob();
         const downloadUrl = URL.createObjectURL(blob);
