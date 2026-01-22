@@ -4,6 +4,61 @@ import { fetchWithAuth } from "@/services/authFetch";
 // 全局图片生成/转化并发限制（暂定 10）
 export const IMAGE_CONCURRENCY = 10;
 
+// 无效的 MIME 类型黑名单（禁止作为图片处理）
+const INVALID_IMAGE_MIME_TYPES = [
+  "text/html",
+  "text/plain",
+  "text/css",
+  "text/javascript",
+  "application/json",
+  "application/javascript",
+  "application/xml",
+];
+
+/**
+ * 验证 MIME 类型是否为有效的图片格式
+ */
+export const isValidImageMimeType = (mimeType?: string | null): boolean => {
+  if (!mimeType) return true; // 未知类型允许通过，让后续解码判断
+  const lower = mimeType.toLowerCase().trim();
+  if (INVALID_IMAGE_MIME_TYPES.some((t) => lower.startsWith(t))) return false;
+  return lower.startsWith("image/") || lower === "application/pdf";
+};
+
+/**
+ * 验证 Blob 是否为有效的图片格式，无效则抛出错误
+ */
+export const assertValidImageBlob = (blob: Blob, context?: string): void => {
+  if (blob.type && !isValidImageMimeType(blob.type)) {
+    const ctx = context ? ` (${context})` : "";
+    throw new Error(`无效的图片格式${ctx}: ${blob.type}`);
+  }
+};
+
+/**
+ * 验证 data URL 是否为有效的图片格式
+ */
+export const isValidImageDataUrl = (dataUrl: string): boolean => {
+  if (!dataUrl) return false;
+  const match = dataUrl.match(/^data:([^;,]+)/i);
+  if (!match) return true; // 非 data URL 格式，让后续处理
+  return isValidImageMimeType(match[1]);
+};
+
+/**
+ * 验证 data URL 是否为有效的图片格式，无效则抛出错误
+ */
+export const assertValidImageDataUrl = (dataUrl: string, context?: string): void => {
+  if (!dataUrl) return;
+  const match = dataUrl.match(/^data:([^;,]+)/i);
+  if (!match) return;
+  const mimeType = match[1];
+  if (!isValidImageMimeType(mimeType)) {
+    const ctx = context ? ` (${context})` : "";
+    throw new Error(`无效的图片格式${ctx}: ${mimeType}`);
+  }
+};
+
 const imageConcurrencyLimiter = createAsyncLimiter(IMAGE_CONCURRENCY);
 
 export const runWithImageConcurrency = async <T>(
@@ -28,6 +83,9 @@ export const blobToDataUrl = (blob: Blob): Promise<string> =>
     () =>
       new Promise((resolve, reject) => {
         try {
+          // 验证 blob 是有效的图片格式
+          assertValidImageBlob(blob, "blobToDataUrl");
+
           const reader = new FileReader();
           reader.onload = () => {
             const result = reader.result;
@@ -135,5 +193,7 @@ export const createImageBitmapLimited = (blob: Blob): Promise<ImageBitmap> =>
     if (typeof createImageBitmap !== "function") {
       throw new Error("createImageBitmap 不可用");
     }
+    // 验证 blob 是有效的图片格式
+    assertValidImageBlob(blob, "createImageBitmap");
     return await createImageBitmap(blob);
   });

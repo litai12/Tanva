@@ -31,6 +31,24 @@ type UploadImageFileResponse = {
 
 type WorkerRequest = UploadImageFileRequest;
 
+// 无效的 MIME 类型黑名单
+const INVALID_IMAGE_MIME_TYPES = [
+  "text/html",
+  "text/plain",
+  "text/css",
+  "text/javascript",
+  "application/json",
+  "application/javascript",
+  "application/xml",
+];
+
+const isValidImageMimeType = (mimeType?: string | null): boolean => {
+  if (!mimeType) return true;
+  const lower = mimeType.toLowerCase().trim();
+  if (INVALID_IMAGE_MIME_TYPES.some((t) => lower.startsWith(t))) return false;
+  return lower.startsWith("image/") || lower === "application/pdf";
+};
+
 const isRasterImage = (type: string) => {
   const lower = type.toLowerCase();
   return (
@@ -68,6 +86,11 @@ const convertViaOffscreenCanvas = async (file: File): Promise<{
   contentType: string;
 }> => {
   const contentType = normalizeOutputType(file.type || "image/png");
+
+  // 验证文件是有效的图片格式
+  if (!isValidImageMimeType(file.type)) {
+    throw new Error(`无效的图片格式: ${file.type}`);
+  }
 
   if (
     typeof createImageBitmap !== "function" ||

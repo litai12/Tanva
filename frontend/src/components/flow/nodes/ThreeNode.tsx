@@ -10,6 +10,7 @@ import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
 import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
+import { toRenderableImageSrc } from '@/utils/imageSource';
 import { canvasToDataUrl } from '@/utils/imageConcurrency';
 
 type Props = {
@@ -550,26 +551,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     const img = data.imageData || data.imageUrl;
     if (!img) return;
     const trimmed = img.trim();
-    const dataUrl =
-      trimmed.startsWith('data:image')
-        ? trimmed
-        : trimmed.startsWith('blob:')
-          ? trimmed
-          : trimmed.startsWith('/api/assets/proxy') || trimmed.startsWith('/assets/proxy')
-            ? proxifyRemoteAssetUrl(trimmed)
-            : /^(templates|projects|uploads|videos)\//i.test(trimmed)
-              ? proxifyRemoteAssetUrl(
-                  `/api/assets/proxy?key=${encodeURIComponent(
-                    trimmed.replace(/^\/+/, '')
-                  )}`
-                )
-              : trimmed.startsWith('http://') || trimmed.startsWith('https://')
-                ? trimmed
-                : trimmed.startsWith('/') ||
-                    trimmed.startsWith('./') ||
-                    trimmed.startsWith('../')
-                  ? trimmed
-                  : `data:image/png;base64,${trimmed}`;
+    const dataUrl = toRenderableImageSrc(trimmed) || trimmed;
     const fileName = `three_${Date.now()}.png`;
     window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
       detail: { imageData: dataUrl, fileName, operationType: 'generate' }
@@ -586,22 +568,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
   const src = (() => {
     const raw = (data.imageData || data.imageUrl)?.trim();
     if (!raw) return undefined;
-    if (raw.startsWith('data:image')) return raw;
-    if (raw.startsWith('blob:')) return raw;
-    if (raw.startsWith('/api/assets/proxy') || raw.startsWith('/assets/proxy')) {
-      return proxifyRemoteAssetUrl(raw);
-    }
-    if (raw.startsWith('/') || raw.startsWith('./') || raw.startsWith('../')) {
-      return raw;
-    }
-    if (/^(templates|projects|uploads|videos)\//i.test(raw)) {
-      return proxifyRemoteAssetUrl(
-        `/api/assets/proxy?key=${encodeURIComponent(raw.replace(/^\/+/, ''))}`
-      );
-    }
-    if (raw.startsWith('http://') || raw.startsWith('https://'))
-      return proxifyRemoteAssetUrl(raw);
-    return `data:image/png;base64,${raw}`;
+    return toRenderableImageSrc(raw) || undefined;
   })();
 
   return (

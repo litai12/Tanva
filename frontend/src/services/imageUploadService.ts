@@ -33,11 +33,27 @@ const SUPPORTED_IMAGE_TYPES = [
   'image/svg+xml',
 ];
 
+// 无效的 MIME 类型黑名单（禁止作为图片处理）
+const INVALID_IMAGE_MIME_TYPES = [
+  'text/html',
+  'text/plain',
+  'text/css',
+  'text/javascript',
+  'application/json',
+  'application/javascript',
+  'application/xml',
+];
+
 // 限制并发上传，避免同时解码/压缩/网络导致内存峰值
 const uploadLimiter = createAsyncLimiter(2);
 
 function validateImageFile(file: File, options?: ImageUploadOptions): string | null {
-  if (!SUPPORTED_IMAGE_TYPES.includes(file.type.toLowerCase())) {
+  const fileType = file.type.toLowerCase();
+  // 检查是否为无效格式
+  if (INVALID_IMAGE_MIME_TYPES.some((t) => fileType.startsWith(t))) {
+    return `无效的图片格式: ${file.type}`;
+  }
+  if (!SUPPORTED_IMAGE_TYPES.includes(fileType)) {
     return '不支持的图片格式，请选择 PNG、JPG、JPEG、GIF、WebP 或 SVG 图片';
   }
   const limit = options?.maxFileSize ?? options?.maxSize ?? 32 * 1024 * 1024;

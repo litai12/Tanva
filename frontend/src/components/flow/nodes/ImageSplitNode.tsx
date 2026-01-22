@@ -13,6 +13,7 @@ import {
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { imageSplitWorkerClient } from '@/services/imageSplitWorkerClient';
 import { deleteFlowImage, parseFlowImageAssetRef, putFlowImageBlobs, toFlowImageAssetRef } from '@/services/flowImageAssetStore';
+import { toRenderableImageSrc } from '@/utils/imageSource';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { isPersistableImageRef, normalizePersistableImageRef, resolveImageToBlob } from '@/utils/imageSource';
@@ -363,28 +364,13 @@ const normalizeString = (value: unknown): string | undefined => {
   return trimmed ? trimmed : undefined;
 };
 
-// 构建图片 src
+// 构建图片 src - 优先使用 OSS URL，避免 proxy 降级
 const buildImageSrc = (value?: string): string | undefined => {
   if (!value) return undefined;
   const trimmed = value.trim();
   if (!trimmed) return undefined;
-  if (trimmed.startsWith('data:image')) return trimmed;
-  if (trimmed.startsWith('blob:')) return trimmed;
-  if (trimmed.startsWith('/api/assets/proxy') || trimmed.startsWith('/assets/proxy')) {
-    return proxifyRemoteAssetUrl(trimmed);
-  }
-  if (trimmed.startsWith('/') || trimmed.startsWith('./') || trimmed.startsWith('../')) {
-    return trimmed;
-  }
-  if (/^(templates|projects|uploads|videos)\//i.test(trimmed)) {
-    return proxifyRemoteAssetUrl(
-      `/api/assets/proxy?key=${encodeURIComponent(trimmed.replace(/^\/+/, ''))}`
-    );
-  }
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-    return proxifyRemoteAssetUrl(trimmed);
-  }
-  return `data:image/png;base64,${trimmed}`;
+  // 使用统一的图片源处理函数
+  return toRenderableImageSrc(trimmed) || undefined;
 };
 
 const readImageFromNode = (node: Node<any>, sourceHandle?: string | null): string | undefined => {

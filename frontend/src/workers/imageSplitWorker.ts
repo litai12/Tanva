@@ -517,7 +517,13 @@ const resolveSourceToBlob = async (
   source: SplitImageSource,
   authToken?: string
 ): Promise<Blob> => {
-  if (source.kind === "blob") return source.blob;
+  if (source.kind === "blob") {
+    // 验证 blob 是图片类型
+    if (source.blob.type && !source.blob.type.startsWith("image/")) {
+      throw new Error(`无效的图片格式: ${source.blob.type}`);
+    }
+    return source.blob;
+  }
 
   const url = typeof source.url === "string" ? source.url.trim() : "";
   if (!url) throw new Error("缺少图片地址");
@@ -533,7 +539,14 @@ const resolveSourceToBlob = async (
   if (!response.ok) {
     throw new Error(`图片加载失败 (${response.status})`);
   }
-  return await response.blob();
+  const blob = await response.blob();
+
+  // 验证返回的内容是图片类型
+  if (blob.type && !blob.type.startsWith("image/")) {
+    throw new Error(`源图片无法解码: 服务器返回了 ${blob.type} 而非图片`);
+  }
+
+  return blob;
 };
 
 self.addEventListener(

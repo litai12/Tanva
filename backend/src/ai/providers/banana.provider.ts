@@ -178,6 +178,25 @@ export class BananaProvider implements IAIProvider {
 
     let trimmed = fileInput.trim();
 
+    // 🔥 拒绝无效的 MIME 类型（如 text/html）
+    const invalidMimeTypes = [
+      "data:text/html",
+      "data:text/plain",
+      "data:text/css",
+      "data:text/javascript",
+      "data:application/json",
+      "data:application/javascript",
+      "data:application/xml",
+    ];
+    for (const invalid of invalidMimeTypes) {
+      if (trimmed.toLowerCase().startsWith(invalid)) {
+        const mimeType = trimmed.match(/^data:([^;,]+)/i)?.[1] || "unknown";
+        throw new Error(
+          `Invalid ${context} file format: expected image/*, got ${mimeType}`
+        );
+      }
+    }
+
     // 添加调试日志
     this.logger.debug(
       `[normalizeFileInputAsync] ${context}: input length=${
@@ -217,11 +236,27 @@ export class BananaProvider implements IAIProvider {
           );
         }
         const contentType = response.headers.get("content-type") || "image/png";
+        const mimeType = contentType.split(";")[0].trim().toLowerCase();
+
+        // 🔥 验证返回的内容类型是图片
+        const invalidContentTypes = [
+          "text/html",
+          "text/plain",
+          "text/css",
+          "text/javascript",
+          "application/json",
+          "application/javascript",
+          "application/xml",
+        ];
+        if (invalidContentTypes.some((t) => mimeType.startsWith(t))) {
+          throw new Error(
+            `Invalid ${context} file: server returned ${mimeType} instead of image`
+          );
+        }
+
         const arrayBuffer = await response.arrayBuffer();
         const base64Data = Buffer.from(arrayBuffer).toString("base64");
 
-        // 从 content-type 提取 mimeType
-        const mimeType = contentType.split(";")[0].trim();
         this.logger.log(
           `[normalizeFileInputAsync] Fetched image successfully: ${base64Data.length} chars, mimeType: ${mimeType}`
         );

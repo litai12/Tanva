@@ -12,6 +12,7 @@ import ContextMenu from '../../ui/context-menu';
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { deleteFlowImage, parseFlowImageAssetRef, putFlowImageBlobs, toFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
+import { toRenderableImageSrc } from '@/utils/imageSource';
 
 type Props = {
   id: string;
@@ -28,25 +29,12 @@ type Props = {
   selected?: boolean;
 };
 
+// 构建图片 src - 优先使用 OSS URL，避免 proxy 降级
 const buildImageSrc = (value?: string): string | undefined => {
   if (!value) return undefined;
   const trimmed = value.trim();
   if (!trimmed) return undefined;
-  if (trimmed.startsWith('data:image')) return trimmed;
-  if (trimmed.startsWith('blob:')) return trimmed;
-  if (trimmed.startsWith('/api/assets/proxy') || trimmed.startsWith('/assets/proxy')) {
-    return proxifyRemoteAssetUrl(trimmed);
-  }
-  if (trimmed.startsWith('/') || trimmed.startsWith('./') || trimmed.startsWith('../')) {
-    return trimmed;
-  }
-  if (/^(templates|projects|uploads|videos)\//i.test(trimmed)) {
-    return proxifyRemoteAssetUrl(
-      `/api/assets/proxy?key=${encodeURIComponent(trimmed.replace(/^\/+/, ''))}`
-    );
-  }
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return proxifyRemoteAssetUrl(trimmed);
-  return `data:image/png;base64,${trimmed}`;
+  return toRenderableImageSrc(trimmed) || undefined;
 };
 
 const MIN_IMAGE_WIDTH = 150;

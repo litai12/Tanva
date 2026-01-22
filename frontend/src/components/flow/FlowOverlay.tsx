@@ -3661,6 +3661,15 @@ function FlowInner() {
     []
   );
 
+  // 辅助函数：检查是否为图片相关的 handle（兼容 "image" 和 "img"）
+  const isImageHandle = React.useCallback(
+    (handle?: string | null): boolean => {
+      if (!handle) return false;
+      return handle === "image" || handle === "img";
+    },
+    []
+  );
+
   const appendSora2History = React.useCallback(
     (
       history: Sora2VideoHistoryItem[] | undefined,
@@ -3733,7 +3742,7 @@ function FlowInner() {
         return false;
       }
       if (targetNode.type === "sora2Video") {
-        if (targetHandle === "image") {
+        if (isImageHandle(targetHandle)) {
           return isImageSource(sourceNode, sourceHandle);
         }
         if (targetHandle === "text") {
@@ -3746,7 +3755,7 @@ function FlowInner() {
         if (targetHandle === "text") {
           return textSourceTypes.includes(sourceNode.type || "");
         }
-        if (targetHandle === "image") {
+        if (isImageHandle(targetHandle)) {
           return isImageSource(sourceNode, sourceHandle);
         }
         return false;
@@ -3780,7 +3789,7 @@ function FlowInner() {
           targetNode.type || ""
         )
       ) {
-        if (targetHandle === "image") {
+        if (isImageHandle(targetHandle)) {
           return isImageSource(sourceNode, sourceHandle);
         }
         if (targetHandle === "text") {
@@ -3917,7 +3926,7 @@ function FlowInner() {
       }
       return false;
     },
-    [rf, isTextHandle, textSourceTypes]
+    [rf, isTextHandle, isImageHandle, textSourceTypes]
   );
 
   // 限制：Generate(text) 仅一个连接；Generate(img) 最多6条
@@ -3967,12 +3976,12 @@ function FlowInner() {
       }
       if (targetNode?.type === "sora2Video") {
         // 类型校验由 isValidConnection 负责；这里仅做容量/替换策略控制
-        if (params.targetHandle === "image") return true;
+        if (isImageHandle(params.targetHandle)) return true;
         if (params.targetHandle === "text") return true;
       }
       if (targetNode?.type === "wan26") {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
-        if (params.targetHandle === "image") return true; // 新线会替换旧线
+        if (isImageHandle(params.targetHandle)) return true; // 新线会替换旧线
       }
       if (targetNode?.type === "wan2R2V") {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
@@ -3983,7 +3992,7 @@ function FlowInner() {
           targetNode?.type || ""
         )
       ) {
-        if (params.targetHandle === "image") return true;
+        if (isImageHandle(params.targetHandle)) return true;
         if (params.targetHandle === "text") return true;
       }
       // Midjourney 节点连接容量控制
@@ -4014,7 +4023,7 @@ function FlowInner() {
       }
       return false;
     },
-    [rf, isTextHandle]
+    [rf, isTextHandle, isImageHandle]
   );
 
   const onConnect = React.useCallback(
@@ -4089,13 +4098,13 @@ function FlowInner() {
             ["klingVideo", "viduVideo", "doubaoVideo"].includes(
               tgt?.type || ""
             )) &&
-          params.targetHandle === "image"
+          isImageHandle(params.targetHandle)
         ) {
           // 允许多条 image 连接，但限制总数；超过时移除最早的
           let remainingToDrop = Math.max(
             0,
             next.filter(
-              (e) => e.target === params.target && e.targetHandle === "image"
+              (e) => e.target === params.target && isImageHandle(e.targetHandle)
             ).length -
               SORA2_MAX_REFERENCE_IMAGES +
               1 // +1 for the incoming edge
@@ -4104,7 +4113,7 @@ function FlowInner() {
             next = next.filter((e) => {
               if (remainingToDrop <= 0) return true;
               const isImageEdge =
-                e.target === params.target && e.targetHandle === "image";
+                e.target === params.target && isImageHandle(e.targetHandle);
               if (isImageEdge) {
                 remainingToDrop -= 1;
                 return false;
@@ -4114,9 +4123,9 @@ function FlowInner() {
           }
         }
         // wan26 只允许单个 image 输入
-        if (tgt?.type === "wan26" && params.targetHandle === "image") {
+        if (tgt?.type === "wan26" && isImageHandle(params.targetHandle)) {
           next = next.filter(
-            (e) => !(e.target === params.target && e.targetHandle === "image")
+            (e) => !(e.target === params.target && isImageHandle(e.targetHandle))
           );
         }
         // wan2R2V: 每个 video-* 句柄只保留 1 条输入线
@@ -5183,22 +5192,62 @@ function FlowInner() {
         value?: string
       ): Promise<string | null> => {
         const trimmed = typeof value === "string" ? value.trim() : "";
-        if (!trimmed) return null;
+        if (!trimmed) {
+          console.warn("[resolveImageValueToDataUrlForBackend] 输入为空");
+          return null;
+        }
 
-        if (trimmed.startsWith("data:")) return trimmed;
+        console.log(`[resolveImageValueToDataUrlForBackend] 输入: ${trimmed.slice(0, 80)}...`);
 
+        // 已经是 data URL，直接返回
+        if (trimmed.startsWith("data:")) {
+          console.log("[resolveImageValueToDataUrlForBackend] 已是 data URL");
+          return trimmed;
+        }
+
+        // 优先处理 flow-asset: 引用 - 必须转换为 data URL
+        if (trimmed.startsWith(FLOW_IMAGE_ASSET_PREFIX)) {
+          console.log("[resolveImageValueToDataUrlForBackend] 检测到 flow-asset 引用，尝试转换...");
+          const resolved = await resolveImageToDataUrl(trimmed, { preferProxy: true });
+          if (resolved) {
+            console.log(`[resolveImageValueToDataUrlForBackend] flow-asset 转换成功: ${resolved.slice(0, 50)}...`);
+            return resolved;
+          }
+          console.warn("[resolveImageValueToDataUrlForBackend] flow-asset 转换失败");
+          return null;
+        }
+
+        // 处理 blob: URL - 必须转换为 data URL
+        if (trimmed.startsWith("blob:")) {
+          console.log("[resolveImageValueToDataUrlForBackend] 检测到 blob URL，尝试转换...");
+          const resolved = await resolveImageToDataUrl(trimmed, { preferProxy: true });
+          if (resolved) {
+            console.log(`[resolveImageValueToDataUrlForBackend] blob 转换成功: ${resolved.slice(0, 50)}...`);
+            return resolved;
+          }
+          console.warn("[resolveImageValueToDataUrlForBackend] blob 转换失败");
+          return null;
+        }
+
+        // 远程 URL - 可以直接返回（后端会处理）
         const normalizedRemote = normalizeStableRemoteUrl(trimmed);
         if (isRemoteUrl(normalizedRemote)) {
+          console.log(`[resolveImageValueToDataUrlForBackend] 远程 URL: ${normalizedRemote}`);
           return normalizedRemote;
         }
 
+        // 其他格式通过 toFetchableUrl 处理
         const fetchable = toFetchableUrl(trimmed);
         if (fetchable) {
-          // resolveImageToDataUrl 内部会处理 flow-asset/blob/http，并优先走 proxy 以降低 CORS 失败概率
+          console.log(`[resolveImageValueToDataUrlForBackend] fetchable URL: ${fetchable.slice(0, 80)}...`);
           const resolved = await resolveImageToDataUrl(fetchable, {
             preferProxy: true,
           });
-          if (resolved) return resolved;
+          if (resolved) {
+            console.log(`[resolveImageValueToDataUrlForBackend] 转换成功: ${resolved.slice(0, 50)}...`);
+            return resolved;
+          }
+          // 尝试直接 fetch
           if (
             fetchable.includes("/api/assets/proxy") ||
             fetchable.includes("/assets/proxy") ||
@@ -5209,17 +5258,25 @@ function FlowInner() {
                 auth: "auto",
                 allowRefresh: false,
               });
-              if (!response.ok) return null;
+              if (!response.ok) {
+                console.warn(`[resolveImageValueToDataUrlForBackend] fetch 失败: ${response.status}`);
+                return null;
+              }
               const blob = await responseToBlob(response);
-              return await blobToDataUrl(blob);
-            } catch {
+              const dataUrl = await blobToDataUrl(blob);
+              console.log(`[resolveImageValueToDataUrlForBackend] fetch 转换成功: ${dataUrl.slice(0, 50)}...`);
+              return dataUrl;
+            } catch (err) {
+              console.warn("[resolveImageValueToDataUrlForBackend] fetch 异常:", err);
               return null;
             }
           }
+          console.warn("[resolveImageValueToDataUrlForBackend] fetchable 转换失败");
           return null;
         }
 
-        // 兜底：认为是裸 base64（注意：设计 JSON 不允许落库，但运行时可用）
+        // 兜底：认为是裸 base64
+        console.log("[resolveImageValueToDataUrlForBackend] 兜底处理为裸 base64");
         return ensureDataUrl(trimmed);
       };
 
@@ -5373,13 +5430,22 @@ function FlowInner() {
         sourceHandle?: string | null,
         visited: Set<string> = new Set()
       ): Promise<string | null> => {
-        if (!node || !node.id) return null;
-        if (visited.has(node.id)) return null;
+        if (!node || !node.id) {
+          console.warn("[resolveNodeImageToDataUrl] 节点无效");
+          return null;
+        }
+        if (visited.has(node.id)) {
+          console.warn(`[resolveNodeImageToDataUrl] 循环引用: ${node.id}`);
+          return null;
+        }
         visited.add(node.id);
 
         const d = (node.data ?? {}) as any;
         const handle =
           typeof sourceHandle === "string" ? sourceHandle.trim() : "";
+
+        console.log(`[resolveNodeImageToDataUrl] 节点: ${node.id}, 类型: ${node.type}, handle: ${handle}`);
+        console.log(`[resolveNodeImageToDataUrl] 节点数据: imageData=${d.imageData?.slice?.(0, 50) || 'undefined'}, imageUrl=${d.imageUrl?.slice?.(0, 50) || 'undefined'}`);
 
         if (node.type === "imageSplit") {
           const base =
@@ -5582,26 +5648,37 @@ function FlowInner() {
         edge: Edge
       ): Promise<string | null> => {
         const srcNode = rf.getNode(edge.source);
-        if (!srcNode) return null;
-        return await resolveNodeImageToDataUrl(
+        if (!srcNode) {
+          console.warn(`[resolveEdgeImageToDataUrl] 源节点不存在: ${edge.source}`);
+          return null;
+        }
+        const result = await resolveNodeImageToDataUrl(
           srcNode as any,
           (edge as any).sourceHandle,
           new Set()
         );
+        console.log(`[resolveEdgeImageToDataUrl] 边 ${edge.source} -> ${edge.target}, 结果: ${result ? `${result.slice(0, 50)}...` : 'null'}`);
+        return result;
       };
 
       const resolveEdgesAsDataUrls = async (
         edges: Edge[]
       ): Promise<string[]> => {
+        console.log(`[resolveEdgesAsDataUrls] 开始解析 ${edges.length} 条边`);
         const out: string[] = [];
         for (const edge of edges) {
           try {
             const dataUrl = await resolveEdgeImageToDataUrl(edge);
-            if (dataUrl) out.push(dataUrl);
-          } catch {
-            // ignore single-edge failure, allow other inputs
+            if (dataUrl) {
+              out.push(dataUrl);
+            } else {
+              console.warn(`[resolveEdgesAsDataUrls] 边 ${edge.source} -> ${edge.target} 解析返回 null`);
+            }
+          } catch (err) {
+            console.error(`[resolveEdgesAsDataUrls] 边 ${edge.source} -> ${edge.target} 解析失败:`, err);
           }
         }
+        console.log(`[resolveEdgesAsDataUrls] 解析完成，成功 ${out.length}/${edges.length}`);
         return out;
       };
       const getTextPromptForNode = (targetId: string) => {
@@ -5680,7 +5757,7 @@ function FlowInner() {
           .filter(
             (e) =>
               e.target === nodeId &&
-              (e.targetHandle === "image" || e.targetHandle === "img")
+              isImageHandle(e.targetHandle)
           )
           .slice(0, 1);
         const hasImageInput = imageEdges.length > 0;
@@ -6059,7 +6136,7 @@ function FlowInner() {
           : promptText;
 
         const imageEdges = currentEdges
-          .filter((e) => e.target === nodeId && e.targetHandle === "image")
+          .filter((e) => e.target === nodeId && isImageHandle(e.targetHandle))
           .slice(0, SORA2_MAX_REFERENCE_IMAGES);
         const referenceImages = await resolveEdgesAsDataUrls(imageEdges);
 
@@ -6262,9 +6339,20 @@ function FlowInner() {
         const provider = (node.data as any)?.provider || "kling";
 
         const imageEdges = currentEdges
-          .filter((e) => e.target === nodeId && e.targetHandle === "image")
+          .filter((e) => e.target === nodeId && isImageHandle(e.targetHandle))
           .slice(0, SORA2_MAX_REFERENCE_IMAGES);
+
+        console.log(`🎬 [VideoProvider] 节点 ${nodeId} 图片边数量: ${imageEdges.length}`);
+        imageEdges.forEach((e, i) => {
+          console.log(`🎬 [VideoProvider] 边${i + 1}: ${e.source} -> ${e.target}, handle: ${e.sourceHandle}`);
+        });
+
         const referenceImages = await resolveEdgesAsDataUrls(imageEdges);
+
+        console.log(`🎬 [VideoProvider] 解析后参考图数量: ${referenceImages.length}`);
+        referenceImages.forEach((img, i) => {
+          console.log(`🎬 [VideoProvider] 参考图${i + 1}: ${img?.slice(0, 60)}...`);
+        });
 
         const generationStartMs = Date.now();
         const referenceImageUrls: string[] = [];

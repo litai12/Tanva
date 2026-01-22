@@ -72,7 +72,6 @@ const RunningHubTest: React.FC = () => {
         dir: 'runninghub-test/',
         fileName: `${label}-${Date.now()}.png`,
         contentType: 'image/png',
-        maxSize: 10 * 1024 * 1024,
       });
 
       if (!uploadResult.success || !uploadResult.url) {

@@ -10,6 +10,7 @@ import {
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { imageUploadService } from '@/services/imageUploadService';
 import { canvasToBlob } from '@/utils/imageConcurrency';
+import { toRenderableImageSrc } from '@/utils/imageSource';
 
 type ImageItem = {
   id: string;
@@ -44,26 +45,12 @@ type Props = {
 
 const MAX_PREVIEW_IMAGES = 9;
 
+// 构建图片 src - 优先使用 OSS URL，避免 proxy 降级
 const buildImageSrc = (value?: string): string => {
   if (!value) return '';
   const trimmed = value.trim();
   if (!trimmed) return '';
-  if (trimmed.startsWith('data:image')) return trimmed;
-  if (trimmed.startsWith('blob:')) return trimmed;
-  if (trimmed.startsWith('/api/assets/proxy') || trimmed.startsWith('/assets/proxy')) {
-    return proxifyRemoteAssetUrl(trimmed);
-  }
-  const keyCandidate = trimmed.replace(/^\/+/, '');
-  if (/^(templates|projects|uploads|videos)\//i.test(keyCandidate)) {
-    return proxifyRemoteAssetUrl(
-      `/api/assets/proxy?key=${encodeURIComponent(keyCandidate)}`
-    );
-  }
-  if (trimmed.startsWith('/') || trimmed.startsWith('./') || trimmed.startsWith('../')) {
-    return trimmed;
-  }
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return proxifyRemoteAssetUrl(trimmed);
-  return `data:image/png;base64,${trimmed}`;
+  return toRenderableImageSrc(trimmed) || '';
 };
 
 function FlowImagePreview({ item, alt }: { item: ImageItem; alt: string }) {

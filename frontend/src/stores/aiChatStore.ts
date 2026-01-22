@@ -757,7 +757,32 @@ const resolveCachedImageForImageTools = async (
   const candidate = cached.imageData ?? cached.remoteUrl ?? null;
   if (!candidate || typeof candidate !== "string") return null;
   const trimmed = candidate.trim();
-  return trimmed ? trimmed : null;
+  if (!trimmed) return null;
+
+  console.log(`[resolveCachedImageForImageTools] 输入: ${trimmed.slice(0, 80)}...`);
+
+  // 如果已经是 data URL，直接返回
+  if (trimmed.startsWith("data:image/")) {
+    console.log("[resolveCachedImageForImageTools] 已是 data URL");
+    return trimmed;
+  }
+
+  // 如果是远程 URL (http/https)，直接返回
+  if (/^https?:\/\//i.test(trimmed)) {
+    console.log("[resolveCachedImageForImageTools] 远程 URL");
+    return trimmed;
+  }
+
+  // 其他格式（flow-asset:, blob:, OSS key 等）需要转换为 data URL
+  console.log("[resolveCachedImageForImageTools] 尝试转换为 data URL...");
+  const resolved = await resolveImageToDataUrl(trimmed, { preferProxy: true });
+  if (resolved) {
+    console.log(`[resolveCachedImageForImageTools] 转换成功: ${resolved.slice(0, 50)}...`);
+    return resolved;
+  }
+
+  console.warn("[resolveCachedImageForImageTools] 转换失败，返回原值");
+  return trimmed;
 };
 const shouldUploadLegacyInline = (
   inline: string | null,
@@ -1392,7 +1417,6 @@ export async function uploadImageToOSS(
         projectId,
         fileName: `ai-chat-${Date.now()}.png`,
         contentType: blob.type || "image/png",
-        maxSize: 10 * 1024 * 1024, // 10MB
       });
 
       if (result.success && result.url) {
@@ -2147,10 +2171,29 @@ export const useAIChatStore = create<AIChatState>()(
 
       const sanitizeImageInput = (value?: string | null): string | null => {
         if (!value) return null;
+        // 先尝试标准化为 data URL
         const normalized = normalizeInlineImageData(value);
         if (normalized) return normalized;
+
         const trimmed = typeof value === "string" ? value.trim() : "";
-        return trimmed ? trimmed : null;
+        if (!trimmed) return null;
+
+        // 支持其他有效的图片引用格式
+        // flow-asset: IndexedDB 存储的图片
+        // blob: 临时 blob URL
+        // http/https: 远程 URL
+        // projects/uploads/templates/videos: OSS key
+        if (
+          trimmed.startsWith("flow-asset:") ||
+          trimmed.startsWith("blob:") ||
+          /^https?:\/\//i.test(trimmed) ||
+          /^(projects|uploads|templates|videos)\//i.test(trimmed)
+        ) {
+          console.log(`[sanitizeImageInput] 保留有效图片引用: ${trimmed.slice(0, 60)}...`);
+          return trimmed;
+        }
+
+        return null;
       };
 
       return {
@@ -6979,7 +7022,6 @@ export async function uploadAudioToOSS(
       projectId,
       fileName: `ai-audio-${Date.now()}.mp3`,
       contentType,
-      maxSize: 15 * 1024 * 1024,
     });
 
     if (result.success && result.url) {

@@ -1,4 +1,4 @@
-import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
+import { getPublicAssetBaseUrl, proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import {
   FLOW_IMAGE_ASSET_PREFIX,
   getFlowImageBlob,
@@ -12,7 +12,12 @@ export type BlobUrl = `blob:${string}`;
 export type DataUrl = `data:${string}`;
 export type DataImageUrl = `data:image/${string}`;
 
-const OSS_BASE_URL = "https://tai-tanva-ai.oss-cn-shenzhen.aliyuncs.com/";
+// 优先使用环境变量配置的 OSS URL，否则使用默认值
+const getOssBaseUrl = (): string => {
+  const envBase = getPublicAssetBaseUrl();
+  if (envBase) return envBase.endsWith("/") ? envBase : `${envBase}/`;
+  return "https://tai-tanva-ai.oss-cn-shenzhen.aliyuncs.com/";
+};
 
 export const isRemoteUrl = (value?: string | null): value is RemoteUrl =>
   typeof value === "string" && /^https?:\/\//i.test(value.trim());
@@ -156,7 +161,7 @@ export const toRenderableImageSrc = (value?: string | null): string | null => {
   if (isBlobUrl(trimmed)) return trimmed;
   if (isAssetKeyRef(trimmed)) {
     const withoutLeading = trimmed.replace(/^\/+/, "");
-    return `${OSS_BASE_URL}${withoutLeading}`;
+    return `${getOssBaseUrl()}${withoutLeading}`;
   }
   if (isRemoteUrl(trimmed)) return trimmed;
   if (
@@ -184,25 +189,36 @@ export const resolveImageToDataUrl = async (
   const trimmed = value.trim();
   if (!trimmed) return null;
 
+  console.log(`[resolveImageToDataUrl] 输入: ${trimmed.slice(0, 80)}...`);
+
   const flowAssetId = parseFlowImageAssetRef(trimmed);
   if (flowAssetId) {
+    console.log(`[resolveImageToDataUrl] 检测到 flow-asset 引用, assetId: ${flowAssetId}`);
     try {
       const blob = await getFlowImageBlob(flowAssetId);
-      if (!blob) return null;
+      if (!blob) {
+        console.warn(`[resolveImageToDataUrl] flow-asset blob 为空, assetId: ${flowAssetId}`);
+        return null;
+      }
+      console.log(`[resolveImageToDataUrl] flow-asset blob 获取成功, size: ${blob.size}, type: ${blob.type}`);
       const dataUrl = await blobToDataUrl(blob);
+      console.log(`[resolveImageToDataUrl] flow-asset 转换成功: ${dataUrl.slice(0, 50)}...`);
       return normalizePossiblyDuplicatedDataUrl(dataUrl);
-    } catch {
+    } catch (err) {
+      console.error(`[resolveImageToDataUrl] flow-asset 转换失败:`, err);
       return null;
     }
   }
 
   if (isDataImageUrl(trimmed)) {
+    console.log(`[resolveImageToDataUrl] 已是 data URL`);
     return normalizePossiblyDuplicatedDataUrl(trimmed);
   }
 
   // blob:/data:/http(s)/proxy-path/key/path 统一 fetch -> blob -> dataURL
   const candidates: string[] = [];
   if (isRemoteUrl(trimmed)) {
+    console.log(`[resolveImageToDataUrl] 远程 URL`);
     const preferProxy = options?.preferProxy ?? true;
     if (preferProxy) {
       try {
@@ -211,12 +227,22 @@ export const resolveImageToDataUrl = async (
       } catch {}
     }
     candidates.push(trimmed);
-  } else if (isBlobUrl(trimmed) || isDataUrl(trimmed)) {
+  } else if (isBlobUrl(trimmed)) {
+    console.log(`[resolveImageToDataUrl] blob URL`);
+    candidates.push(trimmed);
+  } else if (isDataUrl(trimmed)) {
+    console.log(`[resolveImageToDataUrl] data URL (非图片)`);
     candidates.push(trimmed);
   } else if (isAssetProxyRef(trimmed)) {
+    console.log(`[resolveImageToDataUrl] asset proxy 引用`);
     candidates.push(proxifyRemoteAssetUrl(trimmed));
   } else if (isAssetKeyRef(trimmed)) {
+    console.log(`[resolveImageToDataUrl] asset key 引用`);
     const withoutLeading = trimmed.replace(/^\/+/, "");
+    // 优先直接使用 OSS URL（CORS 已配置），避免走代理
+    const directOssUrl = `${getOssBaseUrl()}${withoutLeading}`;
+    candidates.push(directOssUrl);
+    // 备选：走代理
     candidates.push(
       proxifyRemoteAssetUrl(
         `/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`
@@ -227,6 +253,7 @@ export const resolveImageToDataUrl = async (
     trimmed.startsWith("./") ||
     trimmed.startsWith("../")
   ) {
+    console.log(`[resolveImageToDataUrl] 相对路径`);
     try {
       const base =
         typeof window !== "undefined" && window.location?.origin
@@ -238,30 +265,49 @@ export const resolveImageToDataUrl = async (
     }
   } else {
     // 兜底：裸 base64
+    console.log(`[resolveImageToDataUrl] 兜底处理为裸 base64`);
     const compact = trimmed.replace(/\s+/g, "");
     if (!compact) return null;
     return `data:image/png;base64,${compact}`;
   }
 
+  console.log(`[resolveImageToDataUrl] 候选 URL 数量: ${candidates.length}`);
+
   for (const url of candidates) {
+    console.log(`[resolveImageToDataUrl] 尝试 fetch: ${url.slice(0, 80)}...`);
     try {
+      // 判断是否需要认证：本地 API 代理需要认证
+      const needsAuth = url.includes("/api/assets/proxy") || url.includes("/assets/proxy");
       const init: RequestInit = isBlobUrl(url)
         ? {}
-        : { mode: "cors", credentials: "omit" };
+        : { mode: "cors", credentials: needsAuth ? "include" : "omit" };
       const response = await fetchWithAuth(url, {
         ...init,
-        auth: "omit",
+        auth: needsAuth ? "auto" : "omit",
         allowRefresh: false,
       });
-      if (!response.ok) continue;
+      if (!response.ok) {
+        console.warn(`[resolveImageToDataUrl] fetch 失败: ${response.status}`);
+        continue;
+      }
       const blob = await responseToBlob(response);
+      // 验证 blob 是图片类型
+      if (!blob.type.startsWith("image/")) {
+        console.warn(
+          `[resolveImageToDataUrl] 跳过非图片类型: ${blob.type}, url: ${url}`
+        );
+        continue;
+      }
       const dataUrl = await blobToDataUrl(blob);
+      console.log(`[resolveImageToDataUrl] 转换成功: ${dataUrl.slice(0, 50)}...`);
       return normalizePossiblyDuplicatedDataUrl(dataUrl);
-    } catch {
+    } catch (err) {
+      console.warn(`[resolveImageToDataUrl] fetch 异常:`, err);
       // try next candidate
     }
   }
 
+  console.warn(`[resolveImageToDataUrl] 所有候选 URL 均失败`);
   return null;
 };
 
@@ -337,7 +383,15 @@ export const resolveImageToBlob = async (
         allowRefresh: false,
       });
       if (!response.ok) continue;
-      return await responseToBlob(response);
+      const blob = await responseToBlob(response);
+      // 验证 blob 是图片类型
+      if (blob.type && !blob.type.startsWith("image/")) {
+        console.warn(
+          `[resolveImageToBlob] 跳过非图片类型: ${blob.type}, url: ${url}`
+        );
+        continue;
+      }
+      return blob;
     } catch {
       // try next candidate
     }

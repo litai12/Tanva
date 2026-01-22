@@ -652,6 +652,19 @@ export class AiController {
     return parsed;
   }
 
+  private validateImageDataUrl(dataUrl: string): void {
+    const match = dataUrl.match(/^data:([^;,]+)/i);
+    if (!match) {
+      return; // 不是 data URL，可能是纯 base64，让后续处理
+    }
+    const mimeType = match[1].toLowerCase();
+    if (!mimeType.startsWith('image/') && mimeType !== 'application/pdf') {
+      throw new BadRequestException(
+        `Invalid image format: expected image/*, got ${mimeType}`,
+      );
+    }
+  }
+
   private async fetchImageAsDataUrl(imageUrl: string): Promise<string> {
     const parsed = this.parseAndValidateAllowedImageUrl(imageUrl);
     const response = await fetch(parsed.toString());
@@ -986,6 +999,9 @@ export class AiController {
 
   @Post('edit-image')
   async editImage(@Body() dto: EditImageDto, @Req() req: any): Promise<ImageGenerationResult> {
+    // 调试日志：记录接收到的图片参数
+    this.logger.log(`🖼️ [edit-image] 接收参数: sourceImage=${dto.sourceImage ? `${dto.sourceImage.slice(0, 50)}... (${dto.sourceImage.length} chars)` : 'undefined'}, sourceImageUrl=${dto.sourceImageUrl || 'undefined'}`);
+
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
 
@@ -1008,6 +1024,9 @@ export class AiController {
       if (!sourceImage) {
         throw new BadRequestException('sourceImage or sourceImageUrl is required');
       }
+
+      // 验证 sourceImage 是有效的图片格式
+      this.validateImageDataUrl(sourceImage);
 
       if (providerName && providerName !== 'gemini-pro') {
         const provider = this.factory.getProvider(dto.model, providerName);
@@ -1417,6 +1436,14 @@ export class AiController {
    */
   @Post('generate-video-provider')
   async generateVideoProvider(@Body() dto: VideoProviderRequestDto, @Req() req: any) {
+    // 调试日志：记录接收到的参考图参数
+    this.logger.log(`🎬 [generate-video-provider] 接收参数: provider=${dto.provider}, referenceImages=${dto.referenceImages?.length || 0}张`);
+    if (dto.referenceImages?.length) {
+      dto.referenceImages.forEach((img, i) => {
+        this.logger.log(`🎬 [generate-video-provider] 参考图${i + 1}: ${img.slice(0, 60)}... (${img.length} chars)`);
+      });
+    }
+
     const serviceType: ServiceType = `${dto.provider}-video` as ServiceType;
     return this.withCredits(
       req,
