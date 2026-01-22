@@ -35,7 +35,7 @@ function isAssetProxyPath(pathname: string): boolean {
   return pathname === "/api/assets/proxy" || pathname === "/assets/proxy";
 }
 
-// 是否启用前端代理 OSS 资源（可通过 VITE_PROXY_ASSETS 控制，默认 true）
+// 是否启用前端代理 OSS 资源（可通过 VITE_PROXY_ASSETS 控制，默认 false）
 function shouldProxyAssets(): boolean {
   const raw = import.meta.env.VITE_PROXY_ASSETS as string | undefined;
   if (typeof raw === "string") {
@@ -43,14 +43,14 @@ function shouldProxyAssets(): boolean {
     if (v === "false" || v === "0" || v === "no") return false;
     return true;
   }
-  return true;
+  return false;
 }
 
 export function isAssetProxyEnabled(): boolean {
   return shouldProxyAssets();
 }
 
-function resolvePublicAssetUrlFromKey(key: string): string | null {
+export function resolvePublicAssetUrlFromKey(key: string): string | null {
   const base = getPublicAssetBaseUrl();
   const trimmed = typeof key === "string" ? key.trim() : "";
   const withoutLeading = trimmed.replace(/^\/+/, "");
@@ -72,6 +72,7 @@ function tryUnwrapAssetProxyUrl(input: string): string | null {
     if (key) {
       const direct = resolvePublicAssetUrlFromKey(key);
       if (direct) return direct;
+      return key.replace(/^\/+/, "");
     }
     const remote = url.searchParams.get("url");
     if (remote) return remote;

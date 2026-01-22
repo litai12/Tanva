@@ -27,6 +27,10 @@
 - 后端开发：`cd backend && npm i && npm run dev`
 - 后端构建：`cd backend && npm run build`
 
+### 资源访问
+- 直连 OSS/CDN：默认禁用 `/api/assets/proxy`，使用 `VITE_ASSET_PUBLIC_BASE_URL` 将 `projects/...` 等 key 拼成可访问 URL
+- 如需重新启用代理：设置 `VITE_PROXY_ASSETS=true`
+
 ### API 前缀与文档
 - 后端全局前缀：`/api`
 - Swagger：`/api/docs`

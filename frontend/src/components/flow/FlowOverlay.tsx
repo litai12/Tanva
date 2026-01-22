@@ -1103,6 +1103,8 @@ function FlowInner() {
   const projectId = useProjectContentStore((s) => s.projectId);
   const hydrated = useProjectContentStore((s) => s.hydrated);
   const contentFlow = useProjectContentStore((s) => s.content?.flow);
+  const prevProjectIdRef = React.useRef<string | null>(null);
+  const hasHydratedFlowRef = React.useRef(false);
   const updateProjectPartial = useProjectContentStore((s) => s.updatePartial);
   const hydratingFromStoreRef = React.useRef(false);
   const lastSyncedJSONRef = React.useRef<string | null>(null);
@@ -1762,6 +1764,17 @@ function FlowInner() {
     return () => window.removeEventListener("paste", handlePaste);
   }, [handlePasteFlow]);
 
+  // 切换项目时先清空，避免跨项目残留
+  React.useEffect(() => {
+    if (prevProjectIdRef.current && prevProjectIdRef.current !== projectId) {
+      setNodes([]);
+      setEdges([]);
+      hasHydratedFlowRef.current = false;
+      lastSyncedJSONRef.current = null;
+    }
+    prevProjectIdRef.current = projectId ?? null;
+  }, [projectId, setNodes, setEdges]);
+
   // 当项目内容的 flow 变化时，水合到 ReactFlow
   React.useEffect(() => {
     if (!projectId || !hydrated) return;
@@ -1790,6 +1803,7 @@ function FlowInner() {
     setEdges(tplEdgesToRfEdges(es));
     // 记录当前从 store 水合的快照，避免立刻写回造成环路
     lastSyncedJSONRef.current = getFlowSnapshotSignature(ns, es);
+    hasHydratedFlowRef.current = true;
     Promise.resolve().then(() => {
       hydratingFromStoreRef.current = false;
     });
@@ -1804,12 +1818,6 @@ function FlowInner() {
     getFlowSnapshotSignature,
   ]);
 
-  // 切换项目时先清空，避免跨项目残留
-  React.useEffect(() => {
-    setNodes([]);
-    setEdges([]);
-  }, [projectId, setNodes, setEdges]);
-
   // 将 ReactFlow 的更改写回项目内容（触发自动保存）
   const scheduleCommit = React.useCallback(
     (nodesSnapshot: TemplateNode[], edgesSnapshot: TemplateEdge[]) => {
@@ -1817,6 +1825,7 @@ function FlowInner() {
       if (!hydrated) return;
       if (hydratingFromStoreRef.current) return;
       if (nodeDraggingRef.current) return; // 拖拽时不高频写回
+      if (!hasHydratedFlowRef.current) return;
       const json = getFlowSnapshotSignature(nodesSnapshot, edgesSnapshot);
       if (json && lastSyncedJSONRef.current === json) return;
       if (commitTimerRef.current) window.clearTimeout(commitTimerRef.current);
@@ -2012,6 +2021,20 @@ function FlowInner() {
     [backgroundSize, setBackgroundSize]
   );
 
+  const initialViewport = React.useMemo(() => {
+    try {
+      const state = useCanvasStore.getState();
+      const z = state.zoom || 1;
+      const dpr =
+        typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+      const x = ((state.panX || 0) * z) / dpr;
+      const y = ((state.panY || 0) * z) / dpr;
+      return { x, y, zoom: z };
+    } catch {
+      return { x: 0, y: 0, zoom: 1 };
+    }
+  }, [projectId]);
+
   // 使用Canvas → Flow 单向同步：保证节点随画布平移/缩放
   // 使用 subscribe 直接订阅状态变化，避免 useEffect 的渲染延迟
   const lastApplied = React.useRef<{ x: number; y: number; z: number } | null>(
@@ -2073,6 +2096,11 @@ function FlowInner() {
 
     return unsubscribe;
   }, []);
+
+  React.useLayoutEffect(() => {
+    if (!projectId) return;
+    syncViewportToCanvasStore();
+  }, [projectId]);
 
   // 当开始/结束连线拖拽时，全局禁用/恢复文本选择，避免蓝色选区
   React.useEffect(() => {
@@ -9047,6 +9075,7 @@ function FlowInner() {
         edges={edges}
         onNodesChange={onNodesChangeWithHistory}
         onEdgesChange={onEdgesChangeWithHistory}
+        defaultViewport={initialViewport}
         onNodeDragStart={(event, node) => {
           nodeDraggingRef.current = true;
           setIsNodeDragging(true);

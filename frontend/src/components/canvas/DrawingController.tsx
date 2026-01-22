@@ -154,6 +154,32 @@ const resolveCanvasImageRefForChat = (
   imageId: string,
   imageData: unknown
 ): string | null => {
+  const rasterRemoteUrl = (() => {
+    if (!imageId) return null;
+    try {
+      const project = paper?.project as any;
+      const rasterClass = (paper as any).Raster;
+      if (!project?.getItems || !rasterClass) return null;
+      const rasters = project.getItems({ class: rasterClass }) as any[];
+      for (const raster of rasters) {
+        if (!raster) continue;
+        const rid =
+          raster?.data?.imageId ||
+          raster?.parent?.data?.imageId ||
+          raster?.data?.id ||
+          raster?.id;
+        if (String(rid) !== String(imageId)) continue;
+        const raw =
+          typeof raster?.data?.remoteUrl === "string"
+            ? raster.data.remoteUrl
+            : "";
+        const normalized = normalizePersistableImageRef(raw) || raw;
+        if (normalized && isRemoteUrl(normalized)) return normalized;
+      }
+    } catch {}
+    return null;
+  })();
+
   const persisted = getPersistedImageAssetSnapshot(imageId);
   const pendingUpload =
     Boolean((persisted as any)?.pendingUpload) ||
@@ -171,10 +197,30 @@ const resolveCanvasImageRefForChat = (
     return localPreview;
   }
 
+  if (rasterRemoteUrl) return rasterRemoteUrl;
+
+  const remoteCandidate = (() => {
+    const candidates = [
+      (persisted as any)?.remoteUrl,
+      (imageData as any)?.remoteUrl,
+      (persisted as any)?.url,
+      (imageData as any)?.url,
+    ];
+    for (const candidate of candidates) {
+      if (typeof candidate !== "string") continue;
+      const trimmed = candidate.trim();
+      if (!trimmed) continue;
+      const normalized = normalizePersistableImageRef(trimmed) || trimmed;
+      if (isRemoteUrl(normalized)) return normalized;
+    }
+    return null;
+  })();
+  if (remoteCandidate) return remoteCandidate;
+
   const persistedRef = extractPersistableImageRef(persisted);
   const runtimeRef = extractPersistableImageRef(imageData);
   const persistable = persistedRef || runtimeRef;
-  if (persistable) return persistable;
+  if (persistable) return toRenderableImageSrc(persistable) || persistable;
 
   return localPreview;
 };
@@ -334,6 +380,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const canvasBlobToFlowAssetRefCacheRef = useRef<Map<string, string>>(
     new Map()
   );
+  const scheduleRebuildRef = useRef<(() => void) | null>(null);
+  const lastRecoveryAtRef = useRef(0);
 
   // 内存优化：使用 ref 存储频繁变化的值，避免闭包重建
   const zoomRef = useRef(zoom);
@@ -563,6 +611,53 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   });
 
   imageInstancesRef.current = imageTool.imageInstances;
+
+  const shouldRecoverPaperImages = useCallback(() => {
+    if (!paper || !paper.project) return false;
+
+    const rasterClass = (paper as any).Raster;
+    const rasters = rasterClass
+      ? ((paper.project as any).getItems?.({ class: rasterClass }) as any[])
+      : [];
+    const imageItems = (paper.project as any).getItems?.({
+      match: (item: any) =>
+        item?.data?.type === "image" && typeof item?.data?.imageId === "string",
+    }) as any[] | undefined;
+    const selectionAreas = (paper.project as any).getItems?.({
+      match: (item: any) =>
+        item?.data?.type === "image-selection-area" &&
+        typeof item?.data?.imageId === "string",
+    }) as any[] | undefined;
+
+    const rasterCount = rasters?.length ?? 0;
+    const imageItemCount = imageItems?.length ?? 0;
+    const selectionCount = selectionAreas?.length ?? 0;
+    const instances = imageInstancesRef.current || [];
+
+    const hasPaperImages = rasterCount > 0 || imageItemCount > 0;
+    if (!hasPaperImages) return false;
+
+    const hasValidInstanceBounds = instances.some(
+      (img) => (img?.bounds?.width ?? 0) > 0 && (img?.bounds?.height ?? 0) > 0
+    );
+
+    if (instances.length === 0) return true;
+    if (!hasValidInstanceBounds) return true;
+    if (selectionCount === 0) return true;
+    return false;
+  }, []);
+
+  const requestPaperRecovery = useCallback(
+    (reason: string) => {
+      const now = Date.now();
+      if (now - lastRecoveryAtRef.current < 800) return;
+      if (!shouldRecoverPaperImages()) return;
+      lastRecoveryAtRef.current = now;
+      logger.debug("🧩 Paper 恢复触发:", reason);
+      scheduleRebuildRef.current?.();
+    },
+    [shouldRecoverPaperImages]
+  );
 
   // ========== 初始化快速图片上传Hook ==========
   const quickImageUpload = useQuickImageUpload({
@@ -1802,12 +1897,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	        normalizedIncoming && isRemoteUrl(normalizedIncoming)
 	          ? normalizedIncoming
 	          : undefined;
+	      const resolvedRemoteUrl = incomingSrc || undefined;
 	      const persistedUrl = (incomingKey || normalizedIncoming).trim();
 	      if (!persistedUrl) return false;
         const nextRenderableSrc =
-          toRenderableImageSrc(incomingSrc || persistedUrl) ||
+          toRenderableImageSrc(resolvedRemoteUrl || incomingSrc || persistedUrl) ||
+          resolvedRemoteUrl ||
           incomingSrc ||
           persistedUrl;
+	      const nextStoredUrl = (resolvedRemoteUrl || incomingSrc || persistedUrl).trim();
 
 		      let updated = false;
 
@@ -1838,6 +1936,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	                : "";
 
 	            const nextRemoteUrl =
+	              resolvedRemoteUrl ||
 	              incomingSrc ||
 	              (normalizedPrevRemoteUrl && isRemoteUrl(normalizedPrevRemoteUrl)
 	                ? normalizedPrevRemoteUrl
@@ -1862,7 +1961,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	            updated = true;
 	            const nextImageData: any = {
 	              ...imageData,
-	              url: persistedUrl,
+	              url: nextStoredUrl,
 	              key: incomingKey || imageData.key,
 	              pendingUpload: false,
 	            };
@@ -1909,6 +2008,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 : "";
 
             const nextRemoteUrl =
+              resolvedRemoteUrl ||
               incomingSrc ||
               (normalizedPrevRemoteUrl && isRemoteUrl(normalizedPrevRemoteUrl)
                 ? normalizedPrevRemoteUrl
@@ -1916,12 +2016,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 ? normalizedPrevSrc
                 : undefined);
 
-	            const nextImageData: any = {
-	              ...imageData,
-	              url: persistedUrl,
-	              key: incomingKey || imageData.key,
-	              pendingUpload: false,
-	            };
+            const nextImageData: any = {
+              ...imageData,
+              url: nextStoredUrl,
+              key: incomingKey || imageData.key,
+              pendingUpload: false,
+            };
 	            if (nextRemoteUrl) {
 	              nextImageData.remoteUrl = nextRemoteUrl;
 	            }
@@ -1952,7 +2052,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             const currentSource = getRasterSourceString(raster);
 	            raster.data = {
 	              ...(raster.data || {}),
-	              ...(incomingSrc ? { remoteUrl: incomingSrc } : null),
+	              ...(resolvedRemoteUrl ? { remoteUrl: resolvedRemoteUrl } : null),
 	              ...(incomingKey ? { key: incomingKey } : null),
 	              pendingUpload: false,
 	            };
@@ -2028,15 +2128,16 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
 	      let attempts = 0;
 	      const maxAttempts = 10;
-	      const attempt = () => {
-	        const ok = tryUpgrade({ placeholderId, remoteUrl, key });
-	        if (ok) {
-	          logger.upload?.("🔄 [Canvas] 已回写图片远程元数据", {
-	            placeholderId,
-	            ref: String(ref).substring(0, 80),
-	          });
-	          return;
-	        }
+        const attempt = () => {
+          const ok = tryUpgrade({ placeholderId, remoteUrl, key });
+          if (ok) {
+            logger.upload?.("🔄 [Canvas] 已回写图片远程元数据", {
+              placeholderId,
+              ref: String(ref).substring(0, 80),
+            });
+            try { paperSaveService.triggerAutoSave('image-uploaded'); } catch {}
+            return;
+          }
         if (attempts >= maxAttempts) return;
         attempts += 1;
         setTimeout(attempt, 250 * attempts);
@@ -6466,6 +6567,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         }
       });
     };
+    scheduleRebuildRef.current = scheduleRebuild;
 
     window.addEventListener(
       "paper-project-imported",
@@ -6483,6 +6585,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       }
     } catch {}
     return () => {
+      scheduleRebuildRef.current = null;
       window.removeEventListener(
         "paper-project-imported",
         scheduleRebuild as EventListener
@@ -6503,6 +6606,35 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     dcSetSelectedImageIds,
     dcSetSelectedModel3DIds,
   ]);
+
+  useEffect(() => {
+    const handlePaperReady = () => requestPaperRecovery("paper-ready");
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        requestPaperRecovery("pageshow");
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        requestPaperRecovery("visibility");
+      }
+    };
+
+    window.addEventListener("paper-ready", handlePaperReady as EventListener);
+    window.addEventListener("pageshow", handlePageShow as EventListener);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    const timer = setTimeout(() => {
+      requestPaperRecovery("project-enter");
+    }, 300);
+
+    return () => {
+      window.removeEventListener("paper-ready", handlePaperReady as EventListener);
+      window.removeEventListener("pageshow", handlePageShow as EventListener);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      clearTimeout(timer);
+    };
+  }, [projectId, requestPaperRecovery]);
 
   // 历史快速回放（仅图片 bounds）：避免 undo/redo 时全量重建导致全图闪烁
   useEffect(() => {

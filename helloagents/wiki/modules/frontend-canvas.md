@@ -19,6 +19,7 @@
   - `toRenderableImageSrc`：把 key/proxy/remote/path 转成可渲染的 src（默认会按需走 proxy 降低 CORS；如需禁用 proxy：`VITE_PROXY_ASSETS=false` + `VITE_ASSET_PUBLIC_BASE_URL`）。
   - `isPersistableImageRef` / `normalizePersistableImageRef`：保存前判定与规范化（避免把 proxy/data/blob 写进设计 JSON）。
   - `resolveImageToBlob` / `resolveImageToDataUrl`：上传/AI/edit 等需要 blob/dataURL 的场景。
+- 选中图片同步到 AI 对话框时，优先使用 `remoteUrl`；缺失时再用 `toRenderableImageSrc` 将 key 转为可访问 URL。
   - UI 渲染：`frontend/src/components/ui/SmartImage.tsx`、`frontend/src/hooks/useNonBase64ImageSrc.ts`（把 base64/dataURL 转成 `blob:` 渲染）。
 - **Paper.js Raster 约定**：
   - `raster.source` 用 `toRenderableImageSrc(...)` 的结果（展示用）。
@@ -35,6 +36,7 @@
 - 上传：`frontend/src/services/imageUploadService.ts` → `frontend/src/services/ossUploadService.ts`（先 `POST /api/uploads/presign` 获取策略，再 `POST` 到 OSS `host`）
 - 上传中回显：`frontend/src/components/canvas/ImageContainer.tsx`（根据 `pendingUpload` 显示“上传中…”）
 - 成功回写与清理：`frontend/src/components/canvas/DrawingController.tsx` 监听 `tanva:upgradeImageSource`，切换 `Raster.source` 到远程引用、清理 `localDataUrl` 并回收 `ObjectURL`
+- 远程地址：上传回写时将 OSS `key` 解析为完整 `remoteUrl`（基于 `VITE_ASSET_PUBLIC_BASE_URL`），优先使用 `remoteUrl` 同步到 AI 对话框
 - 保存兜底：`frontend/src/services/paperSaveService.ts` 的 `ensureRemoteAssets` 会在云保存前补传 `pendingUpload` 的图片，并同样触发 `tanva:upgradeImageSource`
 
 ## JSON 复制/导入（Project.contentJson）

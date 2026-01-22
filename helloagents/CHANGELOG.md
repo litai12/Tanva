@@ -11,6 +11,11 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Changed
 - Canvas：图片预览右侧缩略图改为项目级分页懒加载，不再全量拉取全局历史（`frontend/src/components/canvas/ImageContainer.tsx`）。
+- Canvas：选中图片同步到 AI 对话框时，优先使用 `remoteUrl`，缺失时将 OSS key 转为可访问 URL（`frontend/src/components/canvas/DrawingController.tsx`）。
+- AI 对话框：预览区渲染时将图片 key 转为可访问 URL，避免显示 `/projects/...` 导致图片空白（`frontend/src/components/chat/AIChatDialog.tsx`）。
+- Canvas：上传回写时确保 `remoteUrl` 为完整 OSS URL（基于 `VITE_ASSET_PUBLIC_BASE_URL`），避免选中图片只显示 key（`frontend/src/components/canvas/DrawingController.tsx`）。
+- Canvas：上传回写时 `imageData.url` 优先使用远程 URL，避免选中时仍落在 key（`frontend/src/components/canvas/DrawingController.tsx`）。
+- Canvas：图片生成/上传完成后自动触发一次保存（`frontend/src/components/canvas/hooks/useQuickImageUpload.ts`、`frontend/src/components/canvas/DrawingController.tsx`）。
 - Canvas：本地上传图片完成后写入项目全局历史，确保预览列表可见（`frontend/src/components/canvas/ImageUploadComponent.tsx`）。
 - Canvas：粘贴/拖拽上传完成后补写项目全局历史（`frontend/src/components/canvas/DrawingController.tsx`）。
 - Canvas：Paper 反序列化时强制对远程图片走代理，避免跨域空白（`frontend/src/services/paperSaveService.ts`）。
@@ -27,7 +32,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Canvas：统一图片引用适配（remote URL / `/api/assets/proxy` / OSS key / 相对路径），并将 `<img>`/Paper.js Raster 的展示源统一收口到 `frontend/src/utils/imageSource.ts`（`toRenderableImageSrc`、`isPersistableImageRef`、`normalizePersistableImageRef`、`resolveImageToBlob/DataUrl`）。
 - Canvas：本地上传改为 `blob:` 预览优先（先关联 OSS `key`、后台上传，成功后通过 `tanva:upgradeImageSource` 覆盖远程引用并回收 `ObjectURL`）。
 - 前端 UI：画板/图层/缩略图等展示引入 `SmartImage`/`useNonBase64ImageSrc`，将 `data:image/*`/裸 base64 渲染统一转换为 `blob:`（objectURL）或走 `canvas`，减少大字符串驻留与内存峰值。
-- 前端：支持通过 `VITE_PROXY_ASSETS=false` + `VITE_ASSET_PUBLIC_BASE_URL` 直连 OSS/CDN（将 `projects/...` 等 key 拼成可访问 URL），减少对 `/api/assets/proxy` 的依赖。
+- 前端：默认禁用 `/api/assets/proxy` 静态资源代理，改为直连 OSS/CDN（`VITE_ASSET_PUBLIC_BASE_URL` 拼接 `projects/...` 等 key；需要代理时显式设置 `VITE_PROXY_ASSETS=true`）。
 - 前端：编辑器内若存在上传中/待上传图片，离开页面/切换项目/退出登录时弹出确认提示（覆盖 `beforeunload` 与浏览器前进后退）。
 - 清空画布：重置 undo/redo 历史并清理剪贴板/图像缓存，避免清空后仍被旧快照引用导致内存不降。
 - 后端：开发环境可通过 `CORS_DEV_ALLOW_ALL` 放开跨域并忽略 `CORS_ORIGIN`。
@@ -37,6 +42,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 后端 AI：Seedance（doubao）视频任务成功后自动上传到 OSS，仅返回自有 OSS 公网链接，避免上游 TOS 直链的 CORS/过期问题。
 
 ### Fixed
+- Flow：返回首页再进入项目时，节点首屏缩放闪烁的 viewport 同步修正（`frontend/src/components/flow/FlowOverlay.tsx`）。
+- Canvas：返回首页再进入项目后，Paper 图片命中/选择偶发失效的恢复逻辑（`frontend/src/components/canvas/DrawingController.tsx`、`frontend/src/utils/paperCoords.ts`）。
 - Flow：生成链路允许传递远程 URL，由后端下载处理，规避前端跨域读取失败（`frontend/src/components/flow/FlowOverlay.tsx`、`backend/src/ai/ai.controller.ts`、`backend/src/ai/dto/image-generation.dto.ts`）。
 - AI 对话框：融合时混合来源图片先上传本地资源再统一走 URL，避免 CORS 与 base64 序列化失败（`frontend/src/stores/aiChatStore.ts`）。
 - Flow：Generate 输入解析优先使用 Image 节点当前渲染数据，并在 proxy 拉取失败时使用带鉴权兜底（`frontend/src/components/flow/FlowOverlay.tsx`）。

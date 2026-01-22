@@ -12,6 +12,8 @@ export type BlobUrl = `blob:${string}`;
 export type DataUrl = `data:${string}`;
 export type DataImageUrl = `data:image/${string}`;
 
+const OSS_BASE_URL = "https://tai-tanva-ai.oss-cn-shenzhen.aliyuncs.com/";
+
 export const isRemoteUrl = (value?: string | null): value is RemoteUrl =>
   typeof value === "string" && /^https?:\/\//i.test(value.trim());
 
@@ -147,18 +149,16 @@ const normalizePossiblyDuplicatedDataUrl = (dataUrl: string): string => {
  */
 export const toRenderableImageSrc = (value?: string | null): string | null => {
   if (!value || typeof value !== "string") return null;
-  const trimmed = value.trim();
+  const normalized = normalizePersistableImageRef(value);
+  const trimmed = normalized.trim();
   if (!trimmed) return null;
   if (isDataImageUrl(trimmed)) return normalizePossiblyDuplicatedDataUrl(trimmed);
   if (isBlobUrl(trimmed)) return trimmed;
-  if (isAssetProxyRef(trimmed)) return proxifyRemoteAssetUrl(trimmed);
   if (isAssetKeyRef(trimmed)) {
     const withoutLeading = trimmed.replace(/^\/+/, "");
-    return proxifyRemoteAssetUrl(
-      `/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`
-    );
+    return `${OSS_BASE_URL}${withoutLeading}`;
   }
-  if (isRemoteUrl(trimmed)) return proxifyRemoteAssetUrl(trimmed);
+  if (isRemoteUrl(trimmed)) return trimmed;
   if (
     trimmed.startsWith("/") ||
     trimmed.startsWith("./") ||

@@ -7,6 +7,7 @@ import { useCallback, useRef, useState } from 'react';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
 import { historyService } from '@/services/historyService';
+import { paperSaveService } from '@/services/paperSaveService';
 import { useUIStore } from '@/stores/uiStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useImageHistoryStore } from '@/stores/imageHistoryStore';
@@ -1754,6 +1755,12 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     : (placeholder ? '占位框位置' : '坐标原点');
                 logger.upload(`✅ 快速上传成功：图片已添加到${positionInfo} - ${fileName || 'uploaded-image'}`);
                 try { historyService.commit('add-image').catch(() => {}); } catch {}
+                const persistableRef = normalizePersistableImageRef(
+                    resolvedRemoteUrl || resolvedKey || asset.url || asset.src || ''
+                );
+                if (!asset.pendingUpload && persistableRef && isPersistableImageRef(persistableRef)) {
+                    try { paperSaveService.triggerAutoSave('image-added'); } catch {}
+                }
 
                 // 若图片落点不在当前视口内，自动将视口平移到图片中心，避免"已成功但看不见"的困扰
                 try {
