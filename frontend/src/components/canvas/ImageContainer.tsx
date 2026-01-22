@@ -742,10 +742,12 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
         // 优先走远程引用，避免把 base64 写入 Flow 节点/项目 JSON
         if (persistableRef) {
+          const resolvedImageUrl =
+            toRenderableImageSrc(persistableRef) ?? persistableRef;
           window.dispatchEvent(
             new CustomEvent("flow:createImageNode", {
               detail: {
-                imageUrl: persistableRef,
+                imageUrl: resolvedImageUrl,
                 label: "Image",
                 imageName: imageData.fileName || `图片 ${imageData.id}`,
               },
