@@ -11,6 +11,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Changed
 - Canvas：图片预览右侧缩略图改为项目级分页懒加载，不再全量拉取全局历史（`frontend/src/components/canvas/ImageContainer.tsx`）。
+- Canvas：选中图片同步到 AI 对话框时，优先使用 `remoteUrl`，缺失时将 OSS key 转为可访问 URL（`frontend/src/components/canvas/DrawingController.tsx`）。
+- AI 对话框：预览区渲染时将图片 key 转为可访问 URL，避免显示 `/projects/...` 导致图片空白（`frontend/src/components/chat/AIChatDialog.tsx`）。
 - Canvas：本地上传图片完成后写入项目全局历史，确保预览列表可见（`frontend/src/components/canvas/ImageUploadComponent.tsx`）。
 - Canvas：粘贴/拖拽上传完成后补写项目全局历史（`frontend/src/components/canvas/DrawingController.tsx`）。
 - Canvas：返回页面（bfcache）时恢复资产回填，避免后退/返回后画布内容缺失（`frontend/src/components/canvas/DrawingController.tsx`）。
@@ -27,7 +29,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Canvas：统一图片引用适配（remote URL / `/api/assets/proxy` / OSS key / 相对路径），并将 `<img>`/Paper.js Raster 的展示源统一收口到 `frontend/src/utils/imageSource.ts`（`toRenderableImageSrc`、`isPersistableImageRef`、`normalizePersistableImageRef`、`resolveImageToBlob/DataUrl`）。
 - Canvas：本地上传改为 `blob:` 预览优先（先关联 OSS `key`、后台上传，成功后通过 `tanva:upgradeImageSource` 覆盖远程引用并回收 `ObjectURL`）。
 - 前端 UI：画板/图层/缩略图等展示引入 `SmartImage`/`useNonBase64ImageSrc`，将 `data:image/*`/裸 base64 渲染统一转换为 `blob:`（objectURL）或走 `canvas`，减少大字符串驻留与内存峰值。
-- 前端：支持通过 `VITE_PROXY_ASSETS=false` + `VITE_ASSET_PUBLIC_BASE_URL` 直连 OSS/CDN（将 `projects/...` 等 key 拼成可访问 URL），减少对 `/api/assets/proxy` 的依赖。
+- 前端：默认禁用 `/api/assets/proxy` 静态资源代理，改为直连 OSS/CDN（`VITE_ASSET_PUBLIC_BASE_URL` 拼接 `projects/...` 等 key；需要代理时显式设置 `VITE_PROXY_ASSETS=true`）。
 - 前端：编辑器内若存在上传中/待上传图片，离开页面/切换项目/退出登录时弹出确认提示（覆盖 `beforeunload` 与浏览器前进后退）。
 - 清空画布：重置 undo/redo 历史并清理剪贴板/图像缓存，避免清空后仍被旧快照引用导致内存不降。
 - 后端：开发环境可通过 `CORS_DEV_ALLOW_ALL` 放开跨域并忽略 `CORS_ORIGIN`。

@@ -59,7 +59,7 @@ import type { Model3DData } from "@/services/model3DUploadService";
 import { clientToProject } from "@/utils/paperCoords";
 import { downloadImage, getSuggestedFileName } from "@/utils/downloadHelper";
 import { applyCursorForDrawMode } from "@/utils/cursorStyles";
-import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
+import { proxifyRemoteAssetUrl, resolvePublicAssetUrlFromKey } from "@/utils/assetProxy";
 import {
   isAssetKeyRef,
   isPersistableImageRef,
@@ -171,10 +171,32 @@ const resolveCanvasImageRefForChat = (
     return localPreview;
   }
 
+  const remoteCandidate = (() => {
+    const candidates = [
+      (persisted as any)?.remoteUrl,
+      (imageData as any)?.remoteUrl,
+      (persisted as any)?.url,
+      (imageData as any)?.url,
+    ];
+    for (const candidate of candidates) {
+      if (typeof candidate !== "string") continue;
+      const trimmed = candidate.trim();
+      if (!trimmed) continue;
+      const normalized = normalizePersistableImageRef(trimmed) || trimmed;
+      if (isRemoteUrl(normalized)) return normalized;
+      if (isAssetKeyRef(normalized)) {
+        const direct = resolvePublicAssetUrlFromKey(normalized);
+        if (direct) return direct;
+      }
+    }
+    return null;
+  })();
+  if (remoteCandidate) return remoteCandidate;
+
   const persistedRef = extractPersistableImageRef(persisted);
   const runtimeRef = extractPersistableImageRef(imageData);
   const persistable = persistedRef || runtimeRef;
-  if (persistable) return persistable;
+  if (persistable) return toRenderableImageSrc(persistable) || persistable;
 
   return localPreview;
 };
@@ -1802,10 +1824,18 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	        normalizedIncoming && isRemoteUrl(normalizedIncoming)
 	          ? normalizedIncoming
 	          : undefined;
+	      const resolvedRemoteUrl =
+	        incomingSrc ||
+	        (incomingKey ? resolvePublicAssetUrlFromKey(incomingKey) : null) ||
+	        (normalizedIncoming && isAssetKeyRef(normalizedIncoming)
+	          ? resolvePublicAssetUrlFromKey(normalizedIncoming)
+	          : null) ||
+	        undefined;
 	      const persistedUrl = (incomingKey || normalizedIncoming).trim();
 	      if (!persistedUrl) return false;
         const nextRenderableSrc =
-          toRenderableImageSrc(incomingSrc || persistedUrl) ||
+          toRenderableImageSrc(resolvedRemoteUrl || incomingSrc || persistedUrl) ||
+          resolvedRemoteUrl ||
           incomingSrc ||
           persistedUrl;
 
@@ -1838,6 +1868,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	                : "";
 
 	            const nextRemoteUrl =
+	              resolvedRemoteUrl ||
 	              incomingSrc ||
 	              (normalizedPrevRemoteUrl && isRemoteUrl(normalizedPrevRemoteUrl)
 	                ? normalizedPrevRemoteUrl
@@ -1909,6 +1940,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 : "";
 
             const nextRemoteUrl =
+              resolvedRemoteUrl ||
               incomingSrc ||
               (normalizedPrevRemoteUrl && isRemoteUrl(normalizedPrevRemoteUrl)
                 ? normalizedPrevRemoteUrl
@@ -1952,7 +1984,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             const currentSource = getRasterSourceString(raster);
 	            raster.data = {
 	              ...(raster.data || {}),
-	              ...(incomingSrc ? { remoteUrl: incomingSrc } : null),
+	              ...(resolvedRemoteUrl ? { remoteUrl: resolvedRemoteUrl } : null),
 	              ...(incomingKey ? { key: incomingKey } : null),
 	              pendingUpload: false,
 	            };

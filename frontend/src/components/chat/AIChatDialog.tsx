@@ -2516,6 +2516,16 @@ const AIChatDialog: React.FC = () => {
       sourceImageForAnalysis ||
       sourcePdfForAnalysis
   );
+  const renderableSourceImageForEditing = sourceImageForEditing
+    ? toRenderableImageSrc(sourceImageForEditing) || sourceImageForEditing
+    : null;
+  const renderableSourceImagesForBlending = React.useMemo(
+    () =>
+      sourceImagesForBlending.map(
+        (value) => toRenderableImageSrc(value) || value
+      ),
+    [sourceImagesForBlending]
+  );
   // 最大化时不显示顶部横条指示器
   const showHistoryHoverIndicator = !isMaximized;
   const historyHoverIndicatorExpanded =
@@ -2800,10 +2810,10 @@ const AIChatDialog: React.FC = () => {
               <div className='mb-3'>
                 <div className='flex flex-wrap gap-2'>
                   {/* 单图编辑显示 */}
-                  {sourceImageForEditing && (
+                  {renderableSourceImageForEditing && (
                     <div className='relative group'>
                       <SmoothSmartImage
-                        src={sourceImageForEditing}
+                        src={renderableSourceImageForEditing}
                         alt='编辑图像'
                         className='object-cover w-16 h-16 border rounded shadow-sm'
                       />
@@ -2836,7 +2846,7 @@ const AIChatDialog: React.FC = () => {
                   )}
 
                   {/* 多图融合显示 */}
-                  {sourceImagesForBlending.map((imageData, index) => (
+                  {renderableSourceImagesForBlending.map((imageData, index) => (
                     <div key={index} className='relative group'>
                       <SmoothSmartImage
                         src={imageData}

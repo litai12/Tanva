@@ -1,4 +1,8 @@
-import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
+import {
+  isAssetProxyEnabled,
+  proxifyRemoteAssetUrl,
+  resolvePublicAssetUrlFromKey,
+} from "@/utils/assetProxy";
 import {
   FLOW_IMAGE_ASSET_PREFIX,
   getFlowImageBlob,
@@ -154,6 +158,11 @@ export const toRenderableImageSrc = (value?: string | null): string | null => {
   if (isAssetProxyRef(trimmed)) return proxifyRemoteAssetUrl(trimmed);
   if (isAssetKeyRef(trimmed)) {
     const withoutLeading = trimmed.replace(/^\/+/, "");
+    if (!isAssetProxyEnabled()) {
+      const direct = resolvePublicAssetUrlFromKey(withoutLeading);
+      if (direct) return direct;
+      return `/${withoutLeading}`;
+    }
     return proxifyRemoteAssetUrl(
       `/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`
     );
