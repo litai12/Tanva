@@ -42,6 +42,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 后端 AI：Seedance（doubao）视频任务成功后自动上传到 OSS，仅返回自有 OSS 公网链接，避免上游 TOS 直链的 CORS/过期问题。
 
 ### Fixed
+- Flow：返回首页再进入项目时，节点首屏缩放闪烁的 viewport 同步修正（`frontend/src/components/flow/FlowOverlay.tsx`）。
+- Canvas：返回首页再进入项目后，Paper 图片命中/选择偶发失效的恢复逻辑（`frontend/src/components/canvas/DrawingController.tsx`、`frontend/src/utils/paperCoords.ts`）。
 - Flow：生成链路允许传递远程 URL，由后端下载处理，规避前端跨域读取失败（`frontend/src/components/flow/FlowOverlay.tsx`、`backend/src/ai/ai.controller.ts`、`backend/src/ai/dto/image-generation.dto.ts`）。
 - AI 对话框：融合时混合来源图片先上传本地资源再统一走 URL，避免 CORS 与 base64 序列化失败（`frontend/src/stores/aiChatStore.ts`）。
 - Flow：Generate 输入解析优先使用 Image 节点当前渲染数据，并在 proxy 拉取失败时使用带鉴权兜底（`frontend/src/components/flow/FlowOverlay.tsx`）。

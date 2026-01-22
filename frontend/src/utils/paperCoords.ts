@@ -7,7 +7,9 @@ export function getDpr(): number {
 
 // 将浏览器事件的 client 坐标转换为 Paper 的 project 坐标
 export function clientToProject(canvas: HTMLCanvasElement, clientX: number, clientY: number): paper.Point {
-  const rect = canvas.getBoundingClientRect();
+  const viewCanvas =
+    (paper?.view?.element as HTMLCanvasElement | undefined) || canvas;
+  const rect = viewCanvas.getBoundingClientRect();
   const dpr = getDpr();
   const vx = (clientX - rect.left) * dpr;
   const vy = (clientY - rect.top) * dpr;
@@ -21,7 +23,9 @@ export function clientToProject(canvas: HTMLCanvasElement, clientX: number, clie
 
 // 将 Paper 的 project 点转换为浏览器屏幕的 client 坐标
 export function projectToClient(canvas: HTMLCanvasElement, projectPoint: paper.Point): { x: number; y: number } {
-  const rect = canvas.getBoundingClientRect();
+  const viewCanvas =
+    (paper?.view?.element as HTMLCanvasElement | undefined) || canvas;
+  const rect = viewCanvas.getBoundingClientRect();
   const dpr = getDpr();
   let v = { x: projectPoint.x, y: projectPoint.y } as any;
   try {

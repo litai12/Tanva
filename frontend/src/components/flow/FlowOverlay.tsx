@@ -2021,6 +2021,20 @@ function FlowInner() {
     [backgroundSize, setBackgroundSize]
   );
 
+  const initialViewport = React.useMemo(() => {
+    try {
+      const state = useCanvasStore.getState();
+      const z = state.zoom || 1;
+      const dpr =
+        typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+      const x = ((state.panX || 0) * z) / dpr;
+      const y = ((state.panY || 0) * z) / dpr;
+      return { x, y, zoom: z };
+    } catch {
+      return { x: 0, y: 0, zoom: 1 };
+    }
+  }, [projectId]);
+
   // 使用Canvas → Flow 单向同步：保证节点随画布平移/缩放
   // 使用 subscribe 直接订阅状态变化，避免 useEffect 的渲染延迟
   const lastApplied = React.useRef<{ x: number; y: number; z: number } | null>(
@@ -2082,6 +2096,11 @@ function FlowInner() {
 
     return unsubscribe;
   }, []);
+
+  React.useLayoutEffect(() => {
+    if (!projectId) return;
+    syncViewportToCanvasStore();
+  }, [projectId]);
 
   // 当开始/结束连线拖拽时，全局禁用/恢复文本选择，避免蓝色选区
   React.useEffect(() => {
@@ -9056,6 +9075,7 @@ function FlowInner() {
         edges={edges}
         onNodesChange={onNodesChangeWithHistory}
         onEdgesChange={onEdgesChangeWithHistory}
+        defaultViewport={initialViewport}
         onNodeDragStart={(event, node) => {
           nodeDraggingRef.current = true;
           setIsNodeDragging(true);

@@ -380,6 +380,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const canvasBlobToFlowAssetRefCacheRef = useRef<Map<string, string>>(
     new Map()
   );
+  const scheduleRebuildRef = useRef<(() => void) | null>(null);
+  const lastRecoveryAtRef = useRef(0);
 
   // 内存优化：使用 ref 存储频繁变化的值，避免闭包重建
   const zoomRef = useRef(zoom);
@@ -609,6 +611,53 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   });
 
   imageInstancesRef.current = imageTool.imageInstances;
+
+  const shouldRecoverPaperImages = useCallback(() => {
+    if (!paper || !paper.project) return false;
+
+    const rasterClass = (paper as any).Raster;
+    const rasters = rasterClass
+      ? ((paper.project as any).getItems?.({ class: rasterClass }) as any[])
+      : [];
+    const imageItems = (paper.project as any).getItems?.({
+      match: (item: any) =>
+        item?.data?.type === "image" && typeof item?.data?.imageId === "string",
+    }) as any[] | undefined;
+    const selectionAreas = (paper.project as any).getItems?.({
+      match: (item: any) =>
+        item?.data?.type === "image-selection-area" &&
+        typeof item?.data?.imageId === "string",
+    }) as any[] | undefined;
+
+    const rasterCount = rasters?.length ?? 0;
+    const imageItemCount = imageItems?.length ?? 0;
+    const selectionCount = selectionAreas?.length ?? 0;
+    const instances = imageInstancesRef.current || [];
+
+    const hasPaperImages = rasterCount > 0 || imageItemCount > 0;
+    if (!hasPaperImages) return false;
+
+    const hasValidInstanceBounds = instances.some(
+      (img) => (img?.bounds?.width ?? 0) > 0 && (img?.bounds?.height ?? 0) > 0
+    );
+
+    if (instances.length === 0) return true;
+    if (!hasValidInstanceBounds) return true;
+    if (selectionCount === 0) return true;
+    return false;
+  }, []);
+
+  const requestPaperRecovery = useCallback(
+    (reason: string) => {
+      const now = Date.now();
+      if (now - lastRecoveryAtRef.current < 800) return;
+      if (!shouldRecoverPaperImages()) return;
+      lastRecoveryAtRef.current = now;
+      logger.debug("🧩 Paper 恢复触发:", reason);
+      scheduleRebuildRef.current?.();
+    },
+    [shouldRecoverPaperImages]
+  );
 
   // ========== 初始化快速图片上传Hook ==========
   const quickImageUpload = useQuickImageUpload({
@@ -6518,6 +6567,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         }
       });
     };
+    scheduleRebuildRef.current = scheduleRebuild;
 
     window.addEventListener(
       "paper-project-imported",
@@ -6535,6 +6585,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       }
     } catch {}
     return () => {
+      scheduleRebuildRef.current = null;
       window.removeEventListener(
         "paper-project-imported",
         scheduleRebuild as EventListener
@@ -6555,6 +6606,35 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     dcSetSelectedImageIds,
     dcSetSelectedModel3DIds,
   ]);
+
+  useEffect(() => {
+    const handlePaperReady = () => requestPaperRecovery("paper-ready");
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        requestPaperRecovery("pageshow");
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        requestPaperRecovery("visibility");
+      }
+    };
+
+    window.addEventListener("paper-ready", handlePaperReady as EventListener);
+    window.addEventListener("pageshow", handlePageShow as EventListener);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    const timer = setTimeout(() => {
+      requestPaperRecovery("project-enter");
+    }, 300);
+
+    return () => {
+      window.removeEventListener("paper-ready", handlePaperReady as EventListener);
+      window.removeEventListener("pageshow", handlePageShow as EventListener);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      clearTimeout(timer);
+    };
+  }, [projectId, requestPaperRecovery]);
 
   // 历史快速回放（仅图片 bounds）：避免 undo/redo 时全量重建导致全图闪烁
   useEffect(() => {
