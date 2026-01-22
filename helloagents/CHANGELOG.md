@@ -13,6 +13,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Canvas：图片预览右侧缩略图改为项目级分页懒加载，不再全量拉取全局历史（`frontend/src/components/canvas/ImageContainer.tsx`）。
 - Canvas：选中图片同步到 AI 对话框时，优先使用 `remoteUrl`，缺失时将 OSS key 转为可访问 URL（`frontend/src/components/canvas/DrawingController.tsx`）。
 - AI 对话框：预览区渲染时将图片 key 转为可访问 URL，避免显示 `/projects/...` 导致图片空白（`frontend/src/components/chat/AIChatDialog.tsx`）。
+- Canvas：上传回写时确保 `remoteUrl` 为完整 OSS URL（基于 `VITE_ASSET_PUBLIC_BASE_URL`），避免选中图片只显示 key（`frontend/src/components/canvas/DrawingController.tsx`）。
+- Canvas：上传回写时 `imageData.url` 优先使用远程 URL，避免选中时仍落在 key（`frontend/src/components/canvas/DrawingController.tsx`）。
+- Canvas：图片生成/上传完成后自动触发一次保存（`frontend/src/components/canvas/hooks/useQuickImageUpload.ts`、`frontend/src/components/canvas/DrawingController.tsx`）。
 - Canvas：本地上传图片完成后写入项目全局历史，确保预览列表可见（`frontend/src/components/canvas/ImageUploadComponent.tsx`）。
 - Canvas：粘贴/拖拽上传完成后补写项目全局历史（`frontend/src/components/canvas/DrawingController.tsx`）。
 - Canvas：返回页面（bfcache）时恢复资产回填，避免后退/返回后画布内容缺失（`frontend/src/components/canvas/DrawingController.tsx`）。

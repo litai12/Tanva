@@ -59,7 +59,7 @@ import type { Model3DData } from "@/services/model3DUploadService";
 import { clientToProject } from "@/utils/paperCoords";
 import { downloadImage, getSuggestedFileName } from "@/utils/downloadHelper";
 import { applyCursorForDrawMode } from "@/utils/cursorStyles";
-import { proxifyRemoteAssetUrl, resolvePublicAssetUrlFromKey } from "@/utils/assetProxy";
+import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import {
   isAssetKeyRef,
   isPersistableImageRef,
@@ -154,6 +154,32 @@ const resolveCanvasImageRefForChat = (
   imageId: string,
   imageData: unknown
 ): string | null => {
+  const rasterRemoteUrl = (() => {
+    if (!imageId) return null;
+    try {
+      const project = paper?.project as any;
+      const rasterClass = (paper as any).Raster;
+      if (!project?.getItems || !rasterClass) return null;
+      const rasters = project.getItems({ class: rasterClass }) as any[];
+      for (const raster of rasters) {
+        if (!raster) continue;
+        const rid =
+          raster?.data?.imageId ||
+          raster?.parent?.data?.imageId ||
+          raster?.data?.id ||
+          raster?.id;
+        if (String(rid) !== String(imageId)) continue;
+        const raw =
+          typeof raster?.data?.remoteUrl === "string"
+            ? raster.data.remoteUrl
+            : "";
+        const normalized = normalizePersistableImageRef(raw) || raw;
+        if (normalized && isRemoteUrl(normalized)) return normalized;
+      }
+    } catch {}
+    return null;
+  })();
+
   const persisted = getPersistedImageAssetSnapshot(imageId);
   const pendingUpload =
     Boolean((persisted as any)?.pendingUpload) ||
@@ -171,6 +197,8 @@ const resolveCanvasImageRefForChat = (
     return localPreview;
   }
 
+  if (rasterRemoteUrl) return rasterRemoteUrl;
+
   const remoteCandidate = (() => {
     const candidates = [
       (persisted as any)?.remoteUrl,
@@ -184,10 +212,6 @@ const resolveCanvasImageRefForChat = (
       if (!trimmed) continue;
       const normalized = normalizePersistableImageRef(trimmed) || trimmed;
       if (isRemoteUrl(normalized)) return normalized;
-      if (isAssetKeyRef(normalized)) {
-        const direct = resolvePublicAssetUrlFromKey(normalized);
-        if (direct) return direct;
-      }
     }
     return null;
   })();
@@ -1824,13 +1848,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	        normalizedIncoming && isRemoteUrl(normalizedIncoming)
 	          ? normalizedIncoming
 	          : undefined;
-	      const resolvedRemoteUrl =
-	        incomingSrc ||
-	        (incomingKey ? resolvePublicAssetUrlFromKey(incomingKey) : null) ||
-	        (normalizedIncoming && isAssetKeyRef(normalizedIncoming)
-	          ? resolvePublicAssetUrlFromKey(normalizedIncoming)
-	          : null) ||
-	        undefined;
+	      const resolvedRemoteUrl = incomingSrc || undefined;
 	      const persistedUrl = (incomingKey || normalizedIncoming).trim();
 	      if (!persistedUrl) return false;
         const nextRenderableSrc =
@@ -1838,6 +1856,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           resolvedRemoteUrl ||
           incomingSrc ||
           persistedUrl;
+	      const nextStoredUrl = (resolvedRemoteUrl || incomingSrc || persistedUrl).trim();
 
 		      let updated = false;
 
@@ -1893,7 +1912,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	            updated = true;
 	            const nextImageData: any = {
 	              ...imageData,
-	              url: persistedUrl,
+	              url: nextStoredUrl,
 	              key: incomingKey || imageData.key,
 	              pendingUpload: false,
 	            };
@@ -1948,12 +1967,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 ? normalizedPrevSrc
                 : undefined);
 
-	            const nextImageData: any = {
-	              ...imageData,
-	              url: persistedUrl,
-	              key: incomingKey || imageData.key,
-	              pendingUpload: false,
-	            };
+            const nextImageData: any = {
+              ...imageData,
+              url: nextStoredUrl,
+              key: incomingKey || imageData.key,
+              pendingUpload: false,
+            };
 	            if (nextRemoteUrl) {
 	              nextImageData.remoteUrl = nextRemoteUrl;
 	            }
@@ -2060,15 +2079,16 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
 	      let attempts = 0;
 	      const maxAttempts = 10;
-	      const attempt = () => {
-	        const ok = tryUpgrade({ placeholderId, remoteUrl, key });
-	        if (ok) {
-	          logger.upload?.("🔄 [Canvas] 已回写图片远程元数据", {
-	            placeholderId,
-	            ref: String(ref).substring(0, 80),
-	          });
-	          return;
-	        }
+        const attempt = () => {
+          const ok = tryUpgrade({ placeholderId, remoteUrl, key });
+          if (ok) {
+            logger.upload?.("🔄 [Canvas] 已回写图片远程元数据", {
+              placeholderId,
+              ref: String(ref).substring(0, 80),
+            });
+            try { paperSaveService.triggerAutoSave('image-uploaded'); } catch {}
+            return;
+          }
         if (attempts >= maxAttempts) return;
         attempts += 1;
         setTimeout(attempt, 250 * attempts);
