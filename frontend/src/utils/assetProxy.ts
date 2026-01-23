@@ -93,10 +93,13 @@ export function proxifyRemoteAssetUrl(
   const forceProxy = options?.forceProxy === true;
   const proxyEnabled = forceProxy || shouldProxyAssets();
 
-  // 判断是否为视频资源或 presigned 链接（例如包含 X-Amz-* 参数）
+  // 判断是否为视频资源或 presigned 链接（例如包含签名参数）
   const looksLikeVideo = /\.(mp4|webm|m3u8)(\?|$)/i.test(value);
+  // 检测各种云厂商的签名 URL：AWS(X-Amz)、火山引擎(X-Tos)、阿里云OSS(OSSAccessKeyId/Signature/Expires)
   const looksLikePresigned =
-    /[?&](?:X-Amz|X-Tos)[^=]*=/i.test(value) || /x-amz-|x-tos-/i.test(value);
+    /[?&](?:X-Amz|X-Tos)[^=]*=/i.test(value) ||
+    /x-amz-|x-tos-/i.test(value) ||
+    /[?&](?:OSSAccessKeyId|Signature|Expires)=/i.test(value);
 
   // 对 presigned 链接：如果强制代理（下载场景），走后端代理；否则直接返回原始 URL
   if (looksLikePresigned) {

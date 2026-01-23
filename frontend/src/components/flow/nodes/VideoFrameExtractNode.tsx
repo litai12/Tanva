@@ -1,7 +1,6 @@
 import React from 'react';
 import { Handle, Position, useStore, type ReactFlowState, type Node } from 'reactflow';
 import SmartImage from '../../ui/SmartImage';
-import { isAssetProxyEnabled, proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { imageUploadService } from '@/services/imageUploadService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { fetchWithAuth } from '@/services/authFetch';
@@ -28,7 +27,6 @@ type Props = {
     rangeStart?: number;
     rangeEnd?: number;
     extractProgress?: number;
-    extractMode?: 'frontend' | 'backend';
   };
   selected?: boolean;
 };
@@ -58,6 +56,18 @@ const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL.trim().length > 0
     ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, '')
     : 'http://localhost:4000') + '/api';
+
+// 判断是否为自己的 OSS（已配置 CORS）
+const isOwnOss = (url: string): boolean => {
+  try {
+    const u = new URL(url);
+    // 你自己的 OSS bucket 域名
+    const ownHosts = ['tai-tanva-ai.oss-cn-shenzhen.aliyuncs.com'];
+    return ownHosts.some(h => u.hostname === h || u.hostname.endsWith(h));
+  } catch {
+    return false;
+  }
+};
 
 // 简单的 URL 清洗器：去掉空白并返回 undefined 当为空
 const sanitizeMediaUrl = (raw?: string | null | undefined): string | undefined => {
@@ -167,115 +177,59 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
     if (typeof data.frames === 'undefined') {
       updateNodeData({ frames: [] });
     }
-    // 当视频是 URL 格式时，默认使用前端抽帧（避免 ffmpeg 问题）
-    if (typeof data.extractMode === 'undefined') {
-      const isUrlVideo = effectiveVideoUrl && /^https?:\/\//i.test(effectiveVideoUrl);
-      updateNodeData({ extractMode: isUrlVideo ? 'frontend' : 'frontend' });
-    }
-  }, [data.intervalSeconds, data.outputMode, data.frames, data.extractMode, effectiveVideoUrl, updateNodeData]);
-
-  // 默认使用前端抽帧模式
-  const extractMode = data.extractMode ?? 'frontend';
-
-  // 后端抽帧逻辑
-  const extractFramesBackend = React.useCallback(async () => {
-    updateNodeData({ extractProgress: 10 });
-
-    const response = await fetchWithAuth(`${API_BASE_URL}/video-frames/extract`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        videoUrl: effectiveVideoUrl,
-        intervalSeconds,
-      }),
-    });
-
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.message || `HTTP ${response.status}`);
-    }
-
-    const result = await response.json();
-    if (!result.success) {
-      throw new Error(result.error || '抽帧失败');
-    }
-
-    const extractedFrames: FrameData[] = result.frames.map((f: any) => ({
-      index: f.index,
-      timestamp: f.timestamp,
-      imageUrl: f.imageUrl,
-      thumbnailDataUrl: buildOssThumbnailUrl(f.imageUrl, 320),
-    }));
-
-    updateNodeData({
-      status: 'ready',
-      frames: extractedFrames,
-      totalFrames: extractedFrames.length,
-      videoDuration: result.duration,
-      rangeEnd: extractedFrames.length,
-      extractProgress: 100,
-    });
-
-    console.log(`[Backend] 抽帧完成: ${extractedFrames.length} 帧`);
-  }, [effectiveVideoUrl, intervalSeconds, updateNodeData]);
+  }, [data.intervalSeconds, data.outputMode, data.frames, updateNodeData]);
 
   // 前端抽帧核心逻辑
   const extractFramesFrontend = React.useCallback(async () => {
     if (!effectiveVideoUrl) throw new Error('视频 URL 不存在');
-    const videoUrl = effectiveVideoUrl;
-    const proxyEnabled = isAssetProxyEnabled();
-    const createVideo = (src: string) => {
-        const video = document.createElement('video');
-        video.crossOrigin = 'anonymous';
-        video.src = src;
-        video.preload = 'metadata';
-        video.muted = true;
-        // iOS/Safari: 避免自动全屏导致 seek/canvas 行为不一致
-        (video as any).playsInline = true;
-        return video;
-      };
 
-      const loadMetadata = (video: HTMLVideoElement) =>
-        new Promise<void>((resolve, reject) => {
-          const timer = window.setTimeout(() => {
-            cleanup();
-            reject(new Error('视频加载超时'));
-          }, 30000);
+    let videoSrc = effectiveVideoUrl;
 
-          const cleanup = () => {
-            window.clearTimeout(timer);
-            video.onloadedmetadata = null;
-            video.onerror = null;
-          };
-
-          video.onloadedmetadata = () => {
-            cleanup();
-            resolve();
-          };
-          video.onerror = () => {
-            cleanup();
-            reject(new Error('视频加载失败'));
-          };
-        });
-
-      // 优先按全局开关决定是否走代理；若关闭代理但直连失败，则自动回退到强制代理（用于本地开发 CORS 场景）
-      const primaryUrl = proxifyRemoteAssetUrl(videoUrl);
-      let video = createVideo(primaryUrl);
-      try {
-        await loadMetadata(video);
-      } catch (e) {
-        if (!proxyEnabled) {
-          const forcedUrl = proxifyRemoteAssetUrl(videoUrl, { forceProxy: true });
-          if (forcedUrl !== primaryUrl) {
-            video = createVideo(forcedUrl);
-            await loadMetadata(video);
-          } else {
-            throw e;
-          }
-        } else {
-          throw e;
-        }
+    // 如果不是自己的 OSS，先通过后端转存到自己的 OSS
+    if (!isOwnOss(effectiveVideoUrl)) {
+      updateNodeData({ extractProgress: 5 });
+      const resp = await fetchWithAuth(`${API_BASE_URL}/uploads/transfer-video`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoUrl: effectiveVideoUrl }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.message || '视频转存失败');
       }
+      const result = await resp.json();
+      if (!result.url) throw new Error('视频转存失败');
+      videoSrc = result.url;
+      updateNodeData({ extractProgress: 10 });
+    }
+
+    const video = document.createElement('video');
+    video.crossOrigin = 'anonymous';
+    video.src = videoSrc;
+    video.preload = 'metadata';
+    video.muted = true;
+    (video as any).playsInline = true;
+
+    await new Promise<void>((resolve, reject) => {
+      const timer = window.setTimeout(() => {
+        video.onloadedmetadata = null;
+        video.onerror = null;
+        reject(new Error('视频加载超时'));
+      }, 30000);
+
+      video.onloadedmetadata = () => {
+        window.clearTimeout(timer);
+        video.onloadedmetadata = null;
+        video.onerror = null;
+        resolve();
+      };
+      video.onerror = () => {
+        window.clearTimeout(timer);
+        video.onloadedmetadata = null;
+        video.onerror = null;
+        reject(new Error('视频加载失败，请确保视频URL可访问'));
+      };
+    });
 
       const duration = video.duration;
       if (!duration || duration <= 0) {
@@ -365,11 +319,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
     });
 
     try {
-      if (extractMode === 'backend') {
-        await extractFramesBackend();
-      } else {
-        await extractFramesFrontend();
-      }
+      await extractFramesFrontend();
     } catch (err: any) {
       console.error('抽帧失败:', err);
       updateNodeData({
@@ -377,7 +327,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
         error: err.message || '抽帧失败',
       });
     }
-  }, [effectiveVideoUrl, status, extractMode, extractFramesBackend, extractFramesFrontend, updateNodeData]);
+  }, [effectiveVideoUrl, status, extractFramesFrontend, updateNodeData]);
 
   const onIntervalChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const val = parseFloat(e.target.value);
@@ -506,26 +456,6 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
           }}
         />
         <span style={{ fontSize: 12, color: '#6b7280' }}>秒</span>
-      </div>
-
-      {/* 抽帧模式选择 */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: 12, color: '#374151' }}>模式:</span>
-        <select
-          className="nodrag nopan"
-          value={extractMode}
-          onChange={(e) => updateNodeData({ extractMode: e.target.value })}
-          style={{
-            fontSize: 12,
-            padding: '4px 6px',
-            borderRadius: 4,
-            border: '1px solid #d1d5db',
-            background: '#fff',
-          }}
-        >
-          <option value="backend">服务端 (ffmpeg)</option>
-          <option value="frontend">浏览器端</option>
-        </select>
       </div>
 
       {/* 帧预览区 */}
