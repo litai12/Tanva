@@ -599,6 +599,17 @@ const FloatingHeader: React.FC = () => {
     refreshCreditsAndDailyReward();
   }, [isSettingsOpen, refreshCreditsAndDailyReward, user]);
 
+  // 监听全局积分刷新事件
+  useEffect(() => {
+    const handleRefreshCredits = () => {
+      refreshCreditsAndDailyReward();
+    };
+    window.addEventListener("refresh-credits", handleRefreshCredits);
+    return () => {
+      window.removeEventListener("refresh-credits", handleRefreshCredits);
+    };
+  }, [refreshCreditsAndDailyReward]);
+
   const handleClaimDailyReward = useCallback(async () => {
     if (!user || dailyRewardClaiming) return;
     setDailyRewardClaiming(true);
