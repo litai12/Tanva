@@ -263,6 +263,27 @@ model SystemSetting {
   updatedAt   DateTime @updatedAt
 }
 
+model PaymentOrder {
+  id            String   @id @default(uuid())
+  orderNo       String   @unique
+  userId        String
+  amount        Decimal  @db.Decimal(10, 2)
+  credits       Int
+  paymentMethod String   // alipay, wechat
+  status        String   @default("pending") // pending, paid, failed, expired
+  qrCodeUrl     String?
+  tradeNo       String?  // 第三方支付交易号
+  paidAt        DateTime?
+  expiredAt     DateTime
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@index([orderNo])
+}
+
 /// This table has subclasses and requires additional setup for migrations. Visit https://pris.ly/d/table-inheritance for more info.
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.

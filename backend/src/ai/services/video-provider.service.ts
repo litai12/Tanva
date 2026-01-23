@@ -23,110 +23,26 @@ export class VideoProviderService {
 
   constructor(private readonly oss: OssService) {}
 
-  private resolveOssHosts(): string[] {
-    return this.oss.publicHosts();
-  }
-
-  private isOssPublicUrl(url: string): boolean {
-    try {
-      const host = new URL(url).hostname;
-      const ossHosts = this.resolveOssHosts();
-      return ossHosts.some(
-        (ossHost) => host === ossHost || host.endsWith("." + ossHost)
-      );
-    } catch {
-      return false;
-    }
-  }
-
-  private isAllowedUpstreamHost(hostname: string): boolean {
-    const allowed = this.oss.allowedPublicHosts();
-    return allowed.some(
-      (host) => hostname === host || hostname.endsWith("." + host)
-    );
-  }
-
-  private async uploadRemoteVideoToOss(
-    sourceUrl: string,
-    taskId: string
-  ): Promise<string> {
-    if (!this.oss.isEnabled()) {
-      throw new ServiceUnavailableException("OSS 未配置，无法上传视频");
-    }
-
-    const cached = this.doubaoVideoCache.get(taskId);
-    if (cached) return cached;
-
-    let parsed: URL;
-    try {
-      parsed = new URL(sourceUrl);
-    } catch {
-      throw new BadRequestException("Seedance 视频 URL 无效");
-    }
-
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      throw new BadRequestException("Seedance 视频 URL 协议不支持");
-    }
-
-    if (!this.isAllowedUpstreamHost(parsed.hostname)) {
-      throw new BadRequestException("Seedance 视频来源域名不允许");
-    }
-
-    const response = await fetch(sourceUrl);
-    if (!response.ok) {
-      throw new ServiceUnavailableException(
-        `Seedance 视频拉取失败: HTTP ${response.status}`
-      );
-    }
-
-    const body = response.body;
-    if (!body) {
-      throw new ServiceUnavailableException("Seedance 视频响应为空");
-    }
-
-    const contentType = response.headers.get("content-type") || "video/mp4";
-    const extension =
-      contentType.includes("video/") && contentType.split("/")[1]
-        ? contentType.split("/")[1].split(";")[0].trim()
-        : "mp4";
-    const key = `ai/videos/doubao/${taskId}-${Date.now()}.${extension}`;
-
-    const fromWeb = (Readable as unknown as { fromWeb?: (stream: unknown) => Readable })
-      .fromWeb;
-    const nodeStream =
-      typeof fromWeb === "function"
-        ? fromWeb(body as unknown)
-        : Readable.from(Buffer.from(await response.arrayBuffer()));
-
-    const { url } = await this.oss.putStream(key, nodeStream, {
-      headers: { "Content-Type": contentType },
-    });
-
-    this.doubaoVideoCache.set(taskId, url);
-    return url;
-  }
-
-  // 上传 Base64 图片到 OSS 并返回 URL
   private async uploadBase64ImageToOSS(
     base64Data: string,
     mimeType: string = "image/png"
   ): Promise<string> {
     try {
-      // 去除 data URI 前缀（如有）
+      if (base64Data.startsWith("http://") || base64Data.startsWith("https://")) {
+        this.logger.log(`📎 Image is already a URL: ${base64Data.substring(0, 100)}...`);
+        return base64Data;
+      }
+
       const cleanBase64 = base64Data.includes("base64,")
         ? base64Data.split("base64,")[1]
         : base64Data;
 
-      // 转换为 Buffer
       const imageBuffer = Buffer.from(cleanBase64, "base64");
-
-      // 生成唯一的文件名
       const timestamp = Date.now();
       const randomId = Math.random().toString(36).substring(2, 8);
       const extension = mimeType.split("/")[1] || "png";
       const key = `ai/images/kling-inputs/${timestamp}-${randomId}.${extension}`;
 
-      // 上传到 OSS
       const result = await this.oss.putStream(
         key,
         require("stream").Readable.from(imageBuffer)
@@ -140,7 +56,6 @@ export class VideoProviderService {
     }
   }
 
-  // 将要发送给外部提供商的请求体安全日志化（截断超长字段）
   private logProviderPayload(provider: string, payload: any) {
     try {
       const safe = JSON.parse(
@@ -264,7 +179,6 @@ export class VideoProviderService {
       model: "doubao-seedance-1-5-pro-251215",
       content,
     };
-    // log payload before sending
     this.logProviderPayload("doubao", payload);
 
     const response = await fetch(
@@ -349,30 +263,66 @@ export class VideoProviderService {
     options: VideoProviderRequestDto,
     apiKey: string
   ): Promise<VideoGenerationResult> {
-    const isImageToVideo =
-      options.referenceImages && options.referenceImages.length > 0;
-    const endpoint = isImageToVideo
-      ? `https://models.kapon.cloud/kling/v1/videos/image2video`
-      : `https://models.kapon.cloud/kling/v1/videos/text2video`;
+    let videoMode = options.videoMode;
+    const imageCount = options.referenceImages?.length || 0;
+    const hasPrompt = !!options.prompt;
+    const KLING_DEFAULT_REFERENCE_PROMPT = "参考图片内容生成视频";
+
+    if (!videoMode) {
+      if (imageCount === 0) {
+        videoMode = "text2video";
+      } else if (imageCount === 1) {
+        videoMode = "image2video";
+      } else if (imageCount === 2) {
+        videoMode = "image2video-tail";
+      } else {
+        videoMode = "multi-image2video";
+      }
+    }
+
+    const endpointMap: Record<string, string> = {
+      "image2video": "https://models.kapon.cloud/kling/v1/videos/image2video",
+      "image2video-tail": "https://models.kapon.cloud/kling/v1/videos/image2video",
+      "multi-image2video": "https://models.kapon.cloud/kling/v1/videos/multi-image2video",
+      "text2video": "https://models.kapon.cloud/kling/v1/videos/text2video",
+    };
+    const endpoint = endpointMap[videoMode] || endpointMap["text2video"];
 
     const payload: any = {
-      model_name: "kling-v1-6",
-      prompt: options.prompt,
+      model_name: "kling-v2-1",
+      mode: (options as any).mode || "pro",
       duration: options.duration === 10 ? "10" : "5",
-      aspect_ratio: options.aspectRatio || "16:9",
-      // 可选模式：'std' 或 'pro'
-      mode: (options as any).mode || "std",
     };
 
-    if (isImageToVideo) {
-      // 先上传图片到 OSS，然后使用 URL 而不是 Base64，以避免 524 超时
-      const imageUrl = await this.uploadBase64ImageToOSS(
-        options.referenceImages![0]
-      );
-      payload.image = imageUrl;
+    if (options.aspectRatio) {
+      payload.aspect_ratio = options.aspectRatio;
     }
-    // log payload before sending (图片 URL 不需要截断)
+
+    if (videoMode === "text2video") {
+      if (!options.prompt) {
+        throw new Error("文生视频需要提供 prompt 参数");
+      }
+      payload.prompt = options.prompt;
+    } else if (videoMode === "image2video") {
+      payload.image = await this.uploadBase64ImageToOSS(options.referenceImages![0]);
+      if (options.prompt) {
+        payload.prompt = options.prompt;
+      }
+    } else if (videoMode === "image2video-tail") {
+      payload.image = await this.uploadBase64ImageToOSS(options.referenceImages![0]);
+      payload.image_tail = await this.uploadBase64ImageToOSS(options.referenceImages![1]);
+      payload.prompt = options.prompt || KLING_DEFAULT_REFERENCE_PROMPT;
+    } else if (videoMode === "multi-image2video") {
+      payload.model_name = "kling-v1-6";
+      const imageUrls = await Promise.all(
+        options.referenceImages!.slice(0, 4).map(img => this.uploadBase64ImageToOSS(img))
+      );
+      payload.image_list = imageUrls.map(url => ({ image: url }));
+      payload.prompt = options.prompt || KLING_DEFAULT_REFERENCE_PROMPT;
+    }
+
     this.logProviderPayload("kling", payload);
+    this.logger.log(`🎬 Kling: mode=${videoMode}, images=${imageCount}, endpoint=${endpoint}`);
 
     const response = await fetch(endpoint, {
       method: "POST",
@@ -389,17 +339,20 @@ export class VideoProviderService {
       response.headers.forEach((v, k) => (headers[k] = v));
 
       this.logger.error(
-        `❌ Kling 生成失败: HTTP ${response.status}, payload_size=${
-          JSON.stringify(payload).length
-        } bytes, image_size=${
-          payload.image?.length || 0
-        } chars, response_text=${textBody.slice(
+        `❌ Kling 生成失败: HTTP ${response.status}, mode=${videoMode}, response_text=${textBody.slice(
           0,
           1000
         )}, headers=${JSON.stringify(headers)}`
       );
 
-      const error = textBody ? JSON.parse(textBody).catch(() => ({})) : {};
+      let error: any = {};
+      if (textBody) {
+        try {
+          error = JSON.parse(textBody);
+        } catch {
+          error = {};
+        }
+      }
       throw new Error(
         error.error?.message ||
           error.message ||
@@ -417,26 +370,31 @@ export class VideoProviderService {
 
   private async queryKling(taskId: string, apiKey: string) {
     try {
-      // Kling 的查询路径在 Kapon 上区分 text2video 和 image2video
-      // 我们先尝试 text2video 路径
-      let response = await fetch(
+      // Kling 的查询路径在 Kapon 上区分不同模式
+      // 依次尝试 text2video、image2video、multi-image2video 路径
+      const endpoints = [
         `https://models.kapon.cloud/kling/v1/videos/text2video/${taskId}`,
-        {
+        `https://models.kapon.cloud/kling/v1/videos/image2video/${taskId}`,
+        `https://models.kapon.cloud/kling/v1/videos/multi-image2video/${taskId}`,
+      ];
+
+      let data: any = null;
+
+      for (const endpoint of endpoints) {
+        const response = await fetch(endpoint, {
           headers: { Authorization: `Bearer ${apiKey}` },
+        });
+        const result = await response.json().catch(() => ({}));
+
+        // 如果获取到有效数据，使用该结果
+        if (result.data && result.code === 0) {
+          data = result;
+          break;
         }
-      );
+      }
 
-      let data = await response.json().catch(() => ({}));
-
-      // 如果没有获取到有效数据，尝试 image2video 路径
-      if (!data.data || data.code !== 0) {
-        response = await fetch(
-          `https://models.kapon.cloud/kling/v1/videos/image2video/${taskId}`,
-          {
-            headers: { Authorization: `Bearer ${apiKey}` },
-          }
-        );
-        data = await response.json().catch(() => ({}));
+      if (!data || !data.data) {
+        throw new Error("无法查询到任务状态");
       }
 
       this.logger.log(
@@ -480,28 +438,71 @@ export class VideoProviderService {
     options: VideoProviderRequestDto,
     apiKey: string
   ): Promise<VideoGenerationResult> {
-    const isImageToVideo =
-      options.referenceImages && options.referenceImages.length > 0;
-    const endpoint = isImageToVideo
-      ? `https://models.kapon.cloud/vidu/ent/v2/img2video`
-      : `https://models.kapon.cloud/vidu/ent/v2/text2video`;
+    // 确定视频生成模式（智能判断）
+    let videoMode = options.videoMode;
+    const imageCount = options.referenceImages?.length || 0;
+    const hasPrompt = !!options.prompt;
 
-    const payload: any = {
-      model: isImageToVideo ? "viduq2-turbo" : "viduq2",
-      prompt: options.prompt,
-      duration: options.duration || 5,
-      aspect_ratio: options.aspectRatio || "16:9",
-      resolution: options.resolution || "720p",
-      style: options.style || "general",
-      off_peak: options.offPeak || false,
-    };
-
-    if (isImageToVideo) {
-      payload.images = [options.referenceImages![0]];
+    // 如果没有指定模式，根据图片数量和是否有prompt智能判断
+    if (!videoMode) {
+      if (imageCount === 0) {
+        // 0张图：文生视频
+        videoMode = "text2video";
+      } else if (imageCount === 1) {
+        // 1张图：有prompt用参考生视频，无prompt用图生视频
+        videoMode = hasPrompt ? "reference2video" : "img2video";
+      } else if (imageCount === 2) {
+        // 2张图：有prompt用参考生视频，无prompt用首尾帧
+        videoMode = hasPrompt ? "reference2video" : "start-end2video";
+      } else {
+        // 3+张图：参考生视频
+        videoMode = "reference2video";
+      }
     }
 
-    // log payload before sending
+    const endpointMap: Record<string, string> = {
+      "img2video": "https://models.kapon.cloud/vidu/ent/v2/img2video",
+      "start-end2video": "https://models.kapon.cloud/vidu/ent/v2/start-end2video",
+      "reference2video": "https://models.kapon.cloud/vidu/ent/v2/reference2video",
+      "text2video": "https://models.kapon.cloud/vidu/ent/v2/text2video",
+    };
+    const endpoint = endpointMap[videoMode] || endpointMap["text2video"];
+    const payload: any = {};
+
+    if (videoMode === "text2video") {
+      if (!options.prompt) {
+        throw new Error("文生视频模式需要提供 prompt 参数");
+      }
+      payload.model = "viduq2";
+      payload.prompt = options.prompt;
+      payload.duration = options.duration || 5;
+      payload.resolution = options.resolution || "720p";
+      payload.style = options.style || "general";
+      payload.off_peak = options.offPeak || false;
+    } else if (videoMode === "img2video") {
+      payload.model = "viduq2-turbo";
+      payload.images = [options.referenceImages![0]];
+      payload.duration = options.duration || 5;
+      payload.resolution = options.resolution || "720p";
+      payload.off_peak = options.offPeak || false;
+    } else if (videoMode === "start-end2video") {
+      payload.model = "viduq2-turbo";
+      payload.images = [options.referenceImages![0], options.referenceImages![1]];
+      payload.duration = options.duration || 5;
+      payload.resolution = options.resolution || "720p";
+    } else if (videoMode === "reference2video") {
+      if (!options.prompt) {
+        throw new Error("参考生视频模式需要提供 prompt 参数");
+      }
+      payload.model = "viduq2";
+      payload.images = options.referenceImages!.slice(0, 7);
+      payload.prompt = options.prompt;
+      payload.duration = options.duration || 5;
+      payload.resolution = options.resolution || "720p";
+    }
+
     this.logProviderPayload("vidu", payload);
+    this.logger.log(`🎬 Vidu: mode=${videoMode}, images=${imageCount}, endpoint=${endpoint}`);
 
     const response = await fetch(endpoint, {
       method: "POST",

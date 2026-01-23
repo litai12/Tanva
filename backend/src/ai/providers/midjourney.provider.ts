@@ -379,19 +379,19 @@ export class MidjourneyProvider implements IAIProvider {
 
   private async buildEditPayload(request: ImageEditRequest): Promise<Record<string, any>> {
     const options = this.extractMidjourneyOptions(request.providerOptions);
-    // /mj/submit/edits 接口要求使用 image 字段（而非 base64Array）
+    // 使用 imagine 接口 + base64Array 实现图片编辑（参考图模式）
+    const imageDataUrl = await this.ensureDataUrlAsync(request.sourceImage);
     const payload: Record<string, any> = {
       prompt: request.prompt,
-      action: 'EDITS',
-      image: await this.ensureDataUrlAsync(request.sourceImage),
-      remix: options?.remix ?? false,
+      base64Array: [imageDataUrl],
+      mode: options?.mode ?? this.defaultMode,
     };
 
-    if (options?.maskBase64) {
-      payload.maskBase64 = await this.ensureDataUrlAsync(options.maskBase64);
-    }
+    if (options?.botType) payload.botType = options.botType;
     if (options?.notifyHook) payload.notifyHook = options.notifyHook;
     if (options?.state) payload.state = options.state;
+    const accountFilter = this.buildAccountFilter(options);
+    if (accountFilter) payload.accountFilter = accountFilter;
 
     return payload;
   }
@@ -475,7 +475,8 @@ export class MidjourneyProvider implements IAIProvider {
   async editImage(request: ImageEditRequest): Promise<AIProviderResponse<ImageResult>> {
     try {
       const payload = await this.buildEditPayload(request);
-      const taskId = await this.submitTask('/mj/submit/edits', payload, 'editImage');
+      // 使用 imagine 接口实现图片编辑（通过 base64Array 传入参考图）
+      const taskId = await this.submitTask('/mj/submit/imagine', payload, 'editImage');
       const task = await this.pollTask(taskId, 'editImage');
       const imageUrl = this.extractImageUrl(task);
       const imageData = await this.downloadImageAsBase64(imageUrl);

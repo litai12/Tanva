@@ -423,3 +423,104 @@ export async function upsertSetting(data: {
   });
   return response.json();
 }
+
+// ==================== 支付相关 ====================
+
+export type PaymentMethod = "alipay" | "wechat";
+export type PaymentStatus = "pending" | "paid" | "failed" | "expired";
+
+export interface PaymentOrderResponse {
+  orderId: string;
+  orderNo: string;
+  amount: number;
+  credits: number;
+  paymentMethod: PaymentMethod;
+  status: PaymentStatus;
+  qrCodeUrl: string | null;
+  expiredAt: string;
+  createdAt: string;
+}
+
+export interface PaymentStatusResponse {
+  orderNo: string;
+  status: PaymentStatus;
+  paidAt: string | null;
+  credits: number;
+}
+
+// 创建支付订单
+export async function createPaymentOrder(data: {
+  amount: number;
+  credits: number;
+  paymentMethod: PaymentMethod;
+}): Promise<PaymentOrderResponse> {
+  const response = await request("/api/payment/order", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  return response.json();
+}
+
+// 查询订单状态
+export async function getPaymentStatus(
+  orderNo: string
+): Promise<PaymentStatusResponse> {
+  const response = await request(`/api/payment/order/${orderNo}/status`);
+  return response.json();
+}
+
+// 确认支付完成
+export async function confirmPayment(
+  orderNo: string
+): Promise<{ success: boolean; credits: number; newBalance: number }> {
+  const response = await request(`/api/payment/order/${orderNo}/confirm`, {
+    method: "POST",
+  });
+  return response.json();
+}
+
+// 订单记录
+export interface PaymentOrderRecord {
+  orderId: string;
+  orderNo: string;
+  amount: number;
+  credits: number;
+  paymentMethod: string;
+  status: PaymentStatus;
+  paidAt: string | null;
+  createdAt: string;
+}
+
+// 获取用户订单列表
+export async function getPaymentOrders(params?: {
+  page?: number;
+  pageSize?: number;
+}): Promise<{ orders: PaymentOrderRecord[]; pagination: Pagination }> {
+  const searchParams = new URLSearchParams();
+  if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
+
+  const response = await request(`/api/payment/orders?${searchParams}`);
+  return response.json();
+}
+
+// 套餐配置
+export interface RechargePackage {
+  price: number;
+  credits: number;
+  bonus: string | null;
+  tag: string | null;
+}
+
+export interface PackagesResponse {
+  isFirstRecharge: boolean;
+  packages: RechargePackage[];
+  creditsPerYuan: number;
+}
+
+// 获取充值套餐（根据首充状态返回不同配置）
+export async function getPaymentPackages(): Promise<PackagesResponse> {
+  const response = await request("/api/payment/packages");
+  return response.json();
+}

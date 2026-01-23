@@ -14,6 +14,7 @@ import { InvitesModule } from './invites/invites.module';
 import { PersonalLibraryModule } from './personal-library/personal-library.module';
 import { GlobalImageHistoryModule } from './global-image-history/global-image-history.module';
 import { TemplatesModule } from './templates/templates.module';
+import { PaymentModule } from './payment/payment.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { TemplatesModule } from './templates/templates.module';
     PersonalLibraryModule, // 个人库资源持久化
     GlobalImageHistoryModule, // 全局图片历史
     TemplatesModule, // 公共模板模块
+    PaymentModule,   // 支付模块
   ],
 })
 export class AppModule {}
