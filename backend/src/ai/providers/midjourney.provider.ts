@@ -118,16 +118,32 @@ export class MidjourneyProvider implements IAIProvider {
       body: payload ? JSON.stringify(payload) : undefined,
     });
 
+    const text = await response.text();
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = null;
+    }
+
     if (!response.ok) {
-      const text = await response.text();
       this.logger.error(
         `[Midjourney] ${operation} failed: HTTP ${response.status} ${response.statusText} ${text}`
       );
-      throw new Error(`Midjourney ${operation} failed: ${response.status} ${response.statusText}`);
+      // 提取更友好的错误信息
+      const errorDesc = data?.description || data?.message || response.statusText;
+      throw new Error(`Midjourney ${operation} failed: ${errorDesc}`);
     }
 
-    const data = (await response.json()) as T;
-    return data;
+    // 检查 API 返回的业务错误码
+    if (data?.code && data.code !== 1 && data.code !== 22) {
+      // code 1 = 成功, code 22 = 排队中
+      const errorMsg = data.description || data.message || 'Unknown API error';
+      this.logger.error(`[Midjourney] ${operation} API error: code=${data.code}, ${errorMsg}`);
+      throw new Error(`Midjourney ${operation} failed: ${errorMsg}`);
+    }
+
+    return data as T;
   }
 
   private async submitTask(
@@ -379,13 +395,21 @@ export class MidjourneyProvider implements IAIProvider {
 
   private async buildEditPayload(request: ImageEditRequest): Promise<Record<string, any>> {
     const options = this.extractMidjourneyOptions(request.providerOptions);
-    // 使用 imagine 接口 + base64Array 实现图片编辑（参考图模式）
-    const imageDataUrl = await this.ensureDataUrlAsync(request.sourceImage);
+    const sourceImage = request.sourceImage.trim();
+
+    // 如果是 URL，直接嵌入 prompt 中（Midjourney 原生支持）
+    const isUrl = sourceImage.startsWith('http://') || sourceImage.startsWith('https://');
+
     const payload: Record<string, any> = {
-      prompt: request.prompt,
-      base64Array: [imageDataUrl],
+      prompt: isUrl ? `${sourceImage} ${request.prompt}` : request.prompt,
       mode: options?.mode ?? this.defaultMode,
     };
+
+    // 如果不是 URL，则使用 base64Array
+    if (!isUrl) {
+      const imageDataUrl = await this.ensureDataUrlAsync(sourceImage);
+      payload.base64Array = [imageDataUrl];
+    }
 
     if (options?.botType) payload.botType = options.botType;
     if (options?.notifyHook) payload.notifyHook = options.notifyHook;
