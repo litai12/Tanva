@@ -21,9 +21,15 @@ export class TemplateService {
     if (!templateData && dto.templateJsonKey) {
       // 从 OSS 拉取 JSON 内容
       const json = await this.oss.getJSON(dto.templateJsonKey);
-      templateData = json ?? {};
+      if (!json) {
+        throw new Error(`无法从 OSS 读取模板 JSON 文件: ${dto.templateJsonKey}`);
+      }
+      templateData = json;
     }
-    templateData = sanitizeDesignJson(templateData ?? {});
+    if (!templateData || (typeof templateData === 'object' && Object.keys(templateData).length === 0)) {
+      throw new Error('模板数据不能为空');
+    }
+    templateData = sanitizeDesignJson(templateData);
 
     return this.prisma.publicTemplate.create({
       data: {

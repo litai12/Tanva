@@ -167,12 +167,15 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
     if (typeof data.frames === 'undefined') {
       updateNodeData({ frames: [] });
     }
+    // 当视频是 URL 格式时，默认使用前端抽帧（避免 ffmpeg 问题）
     if (typeof data.extractMode === 'undefined') {
-      updateNodeData({ extractMode: 'backend' });
+      const isUrlVideo = effectiveVideoUrl && /^https?:\/\//i.test(effectiveVideoUrl);
+      updateNodeData({ extractMode: isUrlVideo ? 'frontend' : 'frontend' });
     }
-  }, [data.intervalSeconds, data.outputMode, data.frames, data.extractMode, updateNodeData]);
+  }, [data.intervalSeconds, data.outputMode, data.frames, data.extractMode, effectiveVideoUrl, updateNodeData]);
 
-  const extractMode = data.extractMode ?? 'backend';
+  // 默认使用前端抽帧模式
+  const extractMode = data.extractMode ?? 'frontend';
 
   // 后端抽帧逻辑
   const extractFramesBackend = React.useCallback(async () => {

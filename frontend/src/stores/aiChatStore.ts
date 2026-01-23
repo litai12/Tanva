@@ -7037,6 +7037,71 @@ export async function uploadAudioToOSS(
   }
 }
 
+/**
+ * 从远程 URL 下载视频并上传到 OSS，返回持久化的 OSS URL
+ * 用于将临时的 presigned URL 转换为永久可访问的 OSS URL
+ */
+export async function uploadVideoToOSS(
+  videoUrl: string,
+  projectId?: string | null
+): Promise<string | null> {
+  try {
+    if (!videoUrl || typeof videoUrl !== "string") {
+      console.warn("⚠️ 无效的视频 URL，跳过上传");
+      return null;
+    }
+
+    const trimmed = videoUrl.trim();
+    if (!trimmed) return null;
+
+    // 如果已经是我们自己的 OSS URL，直接返回
+    if (trimmed.includes("aliyuncs.com") && !trimmed.includes("X-Amz")) {
+      return trimmed;
+    }
+
+    console.log("🎬 [uploadVideoToOSS] 开始下载视频:", trimmed.slice(0, 100));
+
+    // 下载远程视频
+    const response = await fetch(trimmed, {
+      mode: "cors",
+      credentials: "omit",
+    });
+
+    if (!response.ok) {
+      throw new Error(`视频下载失败: ${response.status} ${response.statusText}`);
+    }
+
+    const blob = await response.blob();
+    console.log("🎬 [uploadVideoToOSS] 视频下载完成, 大小:", blob.size);
+
+    // 确定 content-type
+    let contentType = blob.type || "video/mp4";
+    if (!contentType.startsWith("video/")) {
+      contentType = "video/mp4";
+    }
+
+    // 上传到 OSS
+    const result = await ossUploadService.uploadToOSS(blob, {
+      dir: "ai-generated-videos/",
+      projectId,
+      fileName: `video-${Date.now()}.mp4`,
+      contentType,
+    });
+
+    if (result.success && result.url) {
+      console.log("✅ [uploadVideoToOSS] 视频上传成功:", result.url);
+      return result.url;
+    } else {
+      const errMsg = result.error || "视频上传失败";
+      console.error("❌ [uploadVideoToOSS] 视频上传失败:", errMsg);
+      return null;
+    }
+  } catch (error: any) {
+    console.error("❌ [uploadVideoToOSS] 视频上传异常:", error);
+    return null;
+  }
+}
+
 // 当画布被清空时，同步清理 AI 对话框的参考图/缓存图，避免遗留 blob: 引用占用内存
 const AI_CHAT_PAPER_CLEARED_LISTENER_FLAG =
   "__tanva_aiChat_paperProjectClearedListenerRegistered";

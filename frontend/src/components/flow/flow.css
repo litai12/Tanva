@@ -388,3 +388,49 @@ body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__handle *,
 body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__handle::after {
   pointer-events: none !important;
 }
+
+/* ==================== 视频全屏样式 ==================== */
+/* 视频全屏时保持原始比例，不铺满屏幕 */
+video:fullscreen,
+video:-webkit-full-screen,
+video:-moz-full-screen,
+video:-ms-fullscreen {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100vw !important;
+  max-height: 100vh !important;
+  object-fit: contain !important;
+  background: #000 !important;
+}
+
+/* 全屏容器背景 */
+video::backdrop {
+  background: #000 !important;
+}
+
+video::-webkit-media-controls-fullscreen-button {
+  cursor: pointer;
+}
+
+/* 针对 Flow 节点内的视频全屏 */
+.tanva-flow-overlay video:fullscreen,
+.tanva-flow-overlay video:-webkit-full-screen,
+.tanva-flow-overlay video:-moz-full-screen,
+.tanva-flow-overlay video:-ms-fullscreen {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100vw !important;
+  max-height: 100vh !important;
+  object-fit: contain !important;
+  background: #000 !important;
+  border-radius: 0 !important;
+}
+
+/* 确保全屏时视频居中显示 */
+*:fullscreen video,
+*:-webkit-full-screen video,
+*:-moz-full-screen video,
+*:-ms-fullscreen video {
+  object-fit: contain !important;
+  background: #000 !important;
+}

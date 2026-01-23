@@ -118,6 +118,47 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     }
   }, [cacheBustedVideoUrl, sanitizedVideoUrl]);
 
+  // 全屏时强制设置 object-fit: contain，确保视频按原比例显示
+  React.useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handleFullscreenChange = () => {
+      const isFullscreen =
+        document.fullscreenElement === video ||
+        (document as any).webkitFullscreenElement === video ||
+        (document as any).mozFullScreenElement === video ||
+        (document as any).msFullscreenElement === video;
+
+      if (isFullscreen) {
+        video.style.objectFit = "contain";
+        video.style.width = "100%";
+        video.style.height = "100%";
+        video.style.maxWidth = "100vw";
+        video.style.maxHeight = "100vh";
+        video.style.background = "#000";
+      } else {
+        video.style.objectFit = "cover";
+        video.style.width = "100%";
+        video.style.height = "100%";
+        video.style.maxWidth = "";
+        video.style.maxHeight = "";
+      }
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    document.addEventListener("mozfullscreenchange", handleFullscreenChange);
+    document.addEventListener("MSFullscreenChange", handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+      document.removeEventListener("mozfullscreenchange", handleFullscreenChange);
+      document.removeEventListener("MSFullscreenChange", handleFullscreenChange);
+    };
+  }, [sanitizedVideoUrl]);
+
   React.useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;

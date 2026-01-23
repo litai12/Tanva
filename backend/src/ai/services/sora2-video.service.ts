@@ -245,6 +245,10 @@ export class Sora2VideoService {
           errorData?.error?.message ||
           errorData?.message ||
           `HTTP ${createResponse.status}`;
+        // 对于服务端错误（5xx），显示友好提示
+        if (createResponse.status >= 500) {
+          throw new ServiceUnavailableException("服务器不稳定，请稍后再试");
+        }
         throw new ServiceUnavailableException(
           `极速Sora2 创建任务失败: ${message}`
         );
@@ -272,7 +276,7 @@ export class Sora2VideoService {
       this.logger.log(`极速Sora2 任务已创建: ${taskId}`);
     } catch (error) {
       if ((error as any)?.name === "AbortError") {
-        throw new ServiceUnavailableException("极速Sora2 创建任务超时");
+        throw new ServiceUnavailableException("服务器不稳定，请稍后再试");
       }
       throw error;
     } finally {
@@ -283,20 +287,18 @@ export class Sora2VideoService {
     const pollResult = await this.pollV2TaskUntilComplete(taskId);
 
     if (!pollResult) {
-      throw new ServiceUnavailableException("极速Sora2 视频生成超时");
+      throw new ServiceUnavailableException("服务器不稳定，请稍后再试");
     }
 
     if (
       pollResult.status &&
       SORA2_V2_FAILED_STATUSES.includes(pollResult.status)
     ) {
-      throw new ServiceUnavailableException(
-        `极速Sora2 生成失败: ${pollResult.errorMessage || pollResult.status}`
-      );
+      throw new ServiceUnavailableException("服务器不稳定，请稍后再试");
     }
 
     if (!pollResult.videoUrl) {
-      throw new ServiceUnavailableException("极速Sora2 未返回有效的视频URL");
+      throw new ServiceUnavailableException("服务器不稳定，请稍后再试");
     }
 
     const duration = ((Date.now() - startedAt) / 1000).toFixed(2);
@@ -551,7 +553,7 @@ export class Sora2VideoService {
             `普通Sora2 创建任务 fetch 异常 (attempt ${attempt}): ${msg}`,
             fetchErr as any
           );
-          throw new ServiceUnavailableException("Sora2 请求失败: fetch failed");
+          throw new ServiceUnavailableException("服务器不稳定，请稍后再试");
         } finally {
           clearTimeout(timer);
         }
@@ -574,6 +576,10 @@ export class Sora2VideoService {
             parsedError?.message ||
             parsedError?.error?.message ||
             `HTTP ${createResponse.status}`;
+          // 对于服务端错误（5xx），显示友好提示
+          if (createResponse.status >= 500) {
+            throw new ServiceUnavailableException("服务器不稳定，请稍后再试");
+          }
           throw new ServiceUnavailableException(`Sora2 请求失败: ${message}`);
         }
 
@@ -619,7 +625,7 @@ export class Sora2VideoService {
               createResult
             ).slice(0, 400)}`
           );
-          throw new ServiceUnavailableException("Sora2 未返回任务 ID");
+          throw new ServiceUnavailableException("服务器不稳定，请稍后再试");
         }
 
         // Poll task status with adaptive interval (5s -> up to 30s)
@@ -696,7 +702,7 @@ export class Sora2VideoService {
         }
 
         if (!finalResult) {
-          throw new ServiceUnavailableException("Sora2 视频生成轮询超时");
+          throw new ServiceUnavailableException("服务器不稳定，请稍后再试");
         }
 
         const statusValue = (finalResult?.status || "")
@@ -725,7 +731,7 @@ export class Sora2VideoService {
               finalResult
             ).slice(0, 400)}`
           );
-          throw new ServiceUnavailableException("Sora2 未返回有效的视频 URL");
+          throw new ServiceUnavailableException("服务器不稳定，请稍后再试");
         }
 
         const totalDur = ((Date.now() - startedAt) / 1000).toFixed(2);
@@ -765,7 +771,7 @@ export class Sora2VideoService {
         }
 
         throw new ServiceUnavailableException(
-          error instanceof Error ? error.message : "Sora2 调用失败"
+          error instanceof Error ? error.message : "服务器不稳定，请稍后再试"
         );
       }
     }

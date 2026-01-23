@@ -697,8 +697,15 @@ export default function TemplateModal({
                         item={item}
                         onClick={() => {
                           (async () => {
+                            console.log("[TemplateModal] 点击模板:", item.id, item.name);
                             const tpl = await loadBuiltInTemplateById(item.id);
-                            if (tpl) instantiateTemplateAt(tpl);
+                            console.log("[TemplateModal] 获取到模板数据:", tpl);
+                            if (tpl) {
+                              console.log("[TemplateModal] 模板节点数:", tpl.nodes?.length);
+                              instantiateTemplateAt(tpl);
+                            } else {
+                              console.warn("[TemplateModal] 模板数据为空");
+                            }
                           })();
                         }}
                       />

@@ -1,9 +1,20 @@
 import React from "react";
 import { Handle, Position } from "reactflow";
-import { Video, Share2, Download } from "lucide-react";
+import { Video, Share2, Download, AlertTriangle } from "lucide-react";
 import SmartImage from "../../ui/SmartImage";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { fetchWithAuth } from "@/services/authFetch";
+
+type VideoHistoryItem = {
+  id: string;
+  videoUrl: string;
+  thumbnail?: string;
+  prompt: string;
+  createdAt: string;
+  elapsedSeconds?: number;
+  quality?: string;
+  referenceCount?: number;
+};
 
 type Props = {
   id: string;
@@ -17,7 +28,7 @@ type Props = {
     size?: string;
     duration?: number;
     shotType?: "single" | "multi";
-    history?: any[];
+    history?: VideoHistoryItem[];
   };
   selected?: boolean;
 };
@@ -35,6 +46,43 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
   const [sizeMenuOpen, setSizeMenuOpen] = React.useState(false);
   const [durationMenuOpen, setDurationMenuOpen] = React.useState(false);
   const [shotMenuOpen, setShotMenuOpen] = React.useState(false);
+
+  const historyItems = React.useMemo<VideoHistoryItem[]>(
+    () => (Array.isArray(data.history) ? data.history : []),
+    [data.history]
+  );
+
+  const handleApplyHistory = React.useCallback(
+    (item: VideoHistoryItem) => {
+      const patch: Record<string, any> = {
+        videoUrl: item.videoUrl,
+        thumbnail: item.thumbnail,
+        videoVersion: Number(data.videoVersion || 0) + 1,
+      };
+      if (data.status !== "running") {
+        patch.status = "succeeded";
+        patch.error = undefined;
+      }
+      window.dispatchEvent(
+        new CustomEvent("flow:updateNodeData", { detail: { id, patch } })
+      );
+    },
+    [id, data.videoVersion, data.status]
+  );
+
+  const formatHistoryTime = React.useCallback((iso: string) => {
+    if (!iso) return "-";
+    try {
+      return new Date(iso).toLocaleString();
+    } catch {
+      return iso;
+    }
+  }, []);
+
+  const truncatePrompt = React.useCallback((text: string) => {
+    if (!text) return "（无提示词）";
+    return text.length > 80 ? `${text.slice(0, 80)}…` : text;
+  }, []);
 
   const scheduleFeedbackClear = React.useCallback((delay: number = 3000) => {
     if (downloadFeedbackTimer.current) {
@@ -75,6 +123,47 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
     } catch (error) {
       console.warn("无法重置视频播放器", error);
     }
+  }, [sanitizedVideoUrl]);
+
+  // 全屏时强制设置 object-fit: contain，确保视频按原比例显示
+  React.useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handleFullscreenChange = () => {
+      const isFullscreen =
+        document.fullscreenElement === video ||
+        (document as any).webkitFullscreenElement === video ||
+        (document as any).mozFullScreenElement === video ||
+        (document as any).msFullscreenElement === video;
+
+      if (isFullscreen) {
+        video.style.objectFit = "contain";
+        video.style.width = "100%";
+        video.style.height = "100%";
+        video.style.maxWidth = "100vw";
+        video.style.maxHeight = "100vh";
+        video.style.background = "#000";
+      } else {
+        video.style.objectFit = "cover";
+        video.style.width = "100%";
+        video.style.height = "100%";
+        video.style.maxWidth = "";
+        video.style.maxHeight = "";
+      }
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    document.addEventListener("mozfullscreenchange", handleFullscreenChange);
+    document.addEventListener("MSFullscreenChange", handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+      document.removeEventListener("mozfullscreenchange", handleFullscreenChange);
+      document.removeEventListener("MSFullscreenChange", handleFullscreenChange);
+    };
   }, [sanitizedVideoUrl]);
 
   React.useEffect(() => {
@@ -650,6 +739,132 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
           data.status === "running" ? 30 : data.status === "succeeded" ? 100 : 0
         }
       />
+
+      {historyItems.length > 0 && (
+        <div
+          style={{
+            marginTop: 8,
+            padding: "8px 10px",
+            borderRadius: 8,
+            border: "1px solid #e2e8f0",
+            background: "#f8fafc",
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#0f172a" }}>
+              历史记录
+            </span>
+            <span style={{ fontSize: 11, color: "#94a3b8" }}>
+              {historyItems.length} 条
+            </span>
+          </div>
+          {historyItems.map((item, index) => {
+            const isActive = item.videoUrl === data.videoUrl;
+            return (
+              <div
+                key={item.id}
+                style={{
+                  borderRadius: 6,
+                  border: "1px solid " + (isActive ? "#c7d2fe" : "#e2e8f0"),
+                  background: isActive ? "#eef2ff" : "#fff",
+                  padding: "6px 8px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 4,
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    fontSize: 11,
+                    color: "#475569",
+                  }}
+                >
+                  <span>
+                    #{index + 1} · {formatHistoryTime(item.createdAt)}
+                  </span>
+                  {isActive && (
+                    <span style={{ fontSize: 10, color: "#1d4ed8", fontWeight: 600 }}>
+                      当前
+                    </span>
+                  )}
+                </div>
+                {typeof item.elapsedSeconds === "number" && (
+                  <div style={{ fontSize: 11, color: "#475569" }}>
+                    耗时 {item.elapsedSeconds}s
+                  </div>
+                )}
+                {item.quality && (
+                  <div style={{ fontSize: 11, color: "#475569" }}>
+                    {item.quality}
+                    {typeof item.referenceCount === "number" && ` · ${item.referenceCount}个参考视频`}
+                  </div>
+                )}
+                <div style={{ fontSize: 11, color: "#0f172a" }}>
+                  {truncatePrompt(item.prompt)}
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {!isActive && (
+                    <button
+                      type="button"
+                      onClick={() => handleApplyHistory(item)}
+                      style={{
+                        padding: "4px 8px",
+                        borderRadius: 6,
+                        border: "1px solid #94a3b8",
+                        background: "#fff",
+                        fontSize: 11,
+                        cursor: "pointer",
+                      }}
+                    >
+                      设为当前
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => copyVideoLink(item.videoUrl)}
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: 6,
+                      border: "1px solid #94a3b8",
+                      background: "#fff",
+                      fontSize: 11,
+                      cursor: "pointer",
+                    }}
+                  >
+                    复制链接
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => triggerDownload(item.videoUrl)}
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: 6,
+                      border: "1px solid #94a3b8",
+                      background: "#fff",
+                      fontSize: 11,
+                      cursor: "pointer",
+                    }}
+                  >
+                    下载
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {data.error && (
         <div

@@ -13,6 +13,12 @@ export class TemplatesController {
     return this.templateService.getActiveTemplatesForFrontend();
   }
 
+  @Get('categories')
+  @ApiOperation({ summary: '获取公共模板分类（前端使用）' })
+  async getCategories() {
+    return this.templateService.getTemplateCategories();
+  }
+
   @Get(':id')
   @ApiOperation({ summary: '获取单个公共模板数据' })
   async getTemplate(@Param('id') id: string) {
@@ -21,12 +27,6 @@ export class TemplatesController {
       throw new NotFoundException('模板不存在或已禁用');
     }
     return template.templateData;
-  }
-
-  @Get('categories')
-  @ApiOperation({ summary: '获取公共模板分类（前端使用）' })
-  async getCategories() {
-    return this.templateService.getTemplateCategories();
   }
 }
 

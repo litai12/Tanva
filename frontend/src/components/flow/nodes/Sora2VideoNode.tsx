@@ -76,6 +76,11 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
   );
   const cacheBustedVideoUrl = React.useMemo(() => {
     if (!sanitizedVideoUrl) return undefined;
+    // 如果是 presigned 链接（包含 X-Amz / X-Tos 等签名字段），不要添加 cache-bust 参数（会导致签名失效）
+    const isPresigned =
+      /[?&](?:X-Amz|X-Tos)[^=]*=/i.test(sanitizedVideoUrl) ||
+      /x-amz-|x-tos-/i.test(sanitizedVideoUrl);
+    if (isPresigned) return sanitizedVideoUrl;
     const version = Number(data.videoVersion || 0);
     const separator = sanitizedVideoUrl.includes('?') ? '&' : '?';
     return `${sanitizedVideoUrl}${separator}v=${version}&_ts=${Date.now()}`;
@@ -97,6 +102,47 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
       console.warn('无法重置视频播放器', error);
     }
   }, [cacheBustedVideoUrl, sanitizedVideoUrl]);
+
+  // 全屏时强制设置 object-fit: contain，确保视频按原比例显示
+  React.useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handleFullscreenChange = () => {
+      const isFullscreen =
+        document.fullscreenElement === video ||
+        (document as any).webkitFullscreenElement === video ||
+        (document as any).mozFullScreenElement === video ||
+        (document as any).msFullscreenElement === video;
+
+      if (isFullscreen) {
+        video.style.objectFit = 'contain';
+        video.style.width = '100%';
+        video.style.height = '100%';
+        video.style.maxWidth = '100vw';
+        video.style.maxHeight = '100vh';
+        video.style.background = '#000';
+      } else {
+        video.style.objectFit = 'cover';
+        video.style.width = '100%';
+        video.style.height = '100%';
+        video.style.maxWidth = '';
+        video.style.maxHeight = '';
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
+    };
+  }, [sanitizedVideoUrl]);
   React.useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;

@@ -155,18 +155,23 @@ export class OssService {
   }
 
   async getJSON<T = unknown>(key: string): Promise<T | null> {
+    console.log('[OssService] getJSON called with key:', key);
     if (!this.isOssEnabled()) {
       this.logDisabledOnce();
+      console.log('[OssService] OSS is disabled, returning null');
       return null;
     }
     try {
       const client = this.client();
+      console.log('[OssService] Fetching from OSS...');
       const res = await client.get(key);
       const content = res.content?.toString();
+      console.log('[OssService] Got content, length:', content?.length || 0);
       if (!content) return null;
       return JSON.parse(content) as T;
     } catch (err: any) {
       if (err?.name === 'NoSuchKeyError' || err?.code === 'NoSuchKey') {
+        console.log('[OssService] Key not found:', key);
         return null;
       }
       // 处理其他OSS错误（如bucket不存在等）

@@ -209,6 +209,40 @@ export class MidjourneyProvider implements IAIProvider {
       return trimmed;
     }
 
+    // 如果是 URL，抛出错误提示需要使用异步方法
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      throw new Error(
+        `Image is a URL, use ensureDataUrlAsync instead: ${trimmed.slice(0, 80)}...`
+      );
+    }
+
+    const base64 = trimmed.replace(/^"+|"+$/g, '').replace(/^'+|'+$/g, '');
+    const mimeType = this.inferMimeTypeFromBase64(base64);
+    return `data:${mimeType};base64,${base64}`;
+  }
+
+  private async ensureDataUrlAsync(image: string): Promise<string> {
+    const trimmed = image.trim();
+    if (trimmed.startsWith('data:image/')) {
+      return trimmed;
+    }
+
+    // 如果是 URL，下载并转换为 base64
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      this.logger.log(`[Midjourney] Downloading image from URL: ${trimmed.slice(0, 80)}...`);
+      const response = await fetch(trimmed);
+      if (!response.ok) {
+        throw new Error(`Failed to download image: HTTP ${response.status}`);
+      }
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.startsWith('image/')) {
+        throw new Error(`URL returned non-image content: ${contentType}`);
+      }
+      const buffer = Buffer.from(await response.arrayBuffer());
+      const base64 = buffer.toString('base64');
+      return `data:${contentType};base64,${base64}`;
+    }
+
     const base64 = trimmed.replace(/^"+|"+$/g, '').replace(/^'+|'+$/g, '');
     const mimeType = this.inferMimeTypeFromBase64(base64);
     return `data:${mimeType};base64,${base64}`;
@@ -324,10 +358,13 @@ export class MidjourneyProvider implements IAIProvider {
     return payload;
   }
 
-  private buildBlendPayload(request: ImageBlendRequest): Record<string, any> {
+  private async buildBlendPayload(request: ImageBlendRequest): Promise<Record<string, any>> {
     const options = this.extractMidjourneyOptions(request.providerOptions);
+    const base64Array = await Promise.all(
+      request.sourceImages.map((img) => this.ensureDataUrlAsync(img))
+    );
     const payload: Record<string, any> = {
-      base64Array: request.sourceImages.map((img) => this.ensureDataUrl(img)),
+      base64Array,
       dimensions: options?.dimensions ?? this.aspectRatioToDimensions(request.aspectRatio) ?? 'SQUARE',
     };
 
@@ -340,17 +377,18 @@ export class MidjourneyProvider implements IAIProvider {
     return payload;
   }
 
-  private buildEditPayload(request: ImageEditRequest): Record<string, any> {
+  private async buildEditPayload(request: ImageEditRequest): Promise<Record<string, any>> {
     const options = this.extractMidjourneyOptions(request.providerOptions);
+    // /mj/submit/edits 接口要求使用 image 字段（而非 base64Array）
     const payload: Record<string, any> = {
       prompt: request.prompt,
       action: 'EDITS',
-      base64Array: [this.ensureDataUrl(request.sourceImage)],
+      image: await this.ensureDataUrlAsync(request.sourceImage),
       remix: options?.remix ?? false,
     };
 
     if (options?.maskBase64) {
-      payload.maskBase64 = this.ensureDataUrl(options.maskBase64);
+      payload.maskBase64 = await this.ensureDataUrlAsync(options.maskBase64);
     }
     if (options?.notifyHook) payload.notifyHook = options.notifyHook;
     if (options?.state) payload.state = options.state;
@@ -358,10 +396,10 @@ export class MidjourneyProvider implements IAIProvider {
     return payload;
   }
 
-  private buildDescribePayload(request: ImageAnalysisRequest): Record<string, any> {
+  private async buildDescribePayload(request: ImageAnalysisRequest): Promise<Record<string, any>> {
     const options = this.extractMidjourneyOptions(request.providerOptions);
     const payload: Record<string, any> = {
-      base64: this.ensureDataUrl(request.sourceImage),
+      base64: await this.ensureDataUrlAsync(request.sourceImage),
       dimensions: options?.dimensions ?? 'SQUARE',
     };
 
@@ -436,7 +474,7 @@ export class MidjourneyProvider implements IAIProvider {
 
   async editImage(request: ImageEditRequest): Promise<AIProviderResponse<ImageResult>> {
     try {
-      const payload = this.buildEditPayload(request);
+      const payload = await this.buildEditPayload(request);
       const taskId = await this.submitTask('/mj/submit/edits', payload, 'editImage');
       const task = await this.pollTask(taskId, 'editImage');
       const imageUrl = this.extractImageUrl(task);
@@ -461,7 +499,7 @@ export class MidjourneyProvider implements IAIProvider {
         throw new Error('Midjourney blend requires at least two source images.');
       }
 
-      const payload = this.buildBlendPayload(request);
+      const payload = await this.buildBlendPayload(request);
       const taskId = await this.submitTask('/mj/submit/blend', payload, 'blendImages');
       const task = await this.pollTask(taskId, 'blendImages');
       const imageUrl = this.extractImageUrl(task);
@@ -482,7 +520,7 @@ export class MidjourneyProvider implements IAIProvider {
 
   async analyzeImage(request: ImageAnalysisRequest): Promise<AIProviderResponse<AnalysisResult>> {
     try {
-      const payload = this.buildDescribePayload(request);
+      const payload = await this.buildDescribePayload(request);
       const taskId = await this.submitTask('/mj/submit/describe', payload, 'describeImage');
       const task = await this.pollTask(taskId, 'describeImage');
 

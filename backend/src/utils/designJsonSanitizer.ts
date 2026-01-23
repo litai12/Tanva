@@ -39,55 +39,12 @@ const looksLikeEmbeddedImageString = (value: string): boolean => {
 
 /**
  * 设计 JSON（Project.contentJson / PublicTemplate.templateData）清洗：
- * - 禁止 data: / blob: / 内联 base64（尤其是图片数据）进入持久化存储
- * - 递归移除命中字段（对象属性被删；数组元素被置为 null 以保持索引稳定）
+ * - 原本用于禁止 data: / blob: / 内联 base64 进入持久化存储
+ * - 现已禁用过滤功能，直接返回原始数据，以支持模板中包含内嵌图片
  */
 export function sanitizeDesignJson<T = unknown>(input: T): T {
-  const seen = new WeakMap<object, any>();
-
-  const walk = (value: any, inArray: boolean): any => {
-    if (value === null || value === undefined) return value;
-
-    const valueType = typeof value;
-
-    if (valueType === 'string') {
-      return looksLikeEmbeddedImageString(value) ? undefined : value;
-    }
-
-    if (valueType === 'number' || valueType === 'boolean') {
-      return value;
-    }
-
-    if (value instanceof Date) {
-      return value.toISOString();
-    }
-
-    if (Array.isArray(value)) {
-      return value.map((item) => {
-        const next = walk(item, true);
-        return next === undefined ? null : next;
-      });
-    }
-
-    if (valueType === 'object') {
-      const cached = seen.get(value as object);
-      if (cached) return cached;
-
-      const result: Record<string, any> = {};
-      seen.set(value as object, result);
-
-      for (const [key, child] of Object.entries(value)) {
-        const next = walk(child, false);
-        if (next === undefined) continue;
-        result[key] = next;
-      }
-      return result;
-    }
-
-    // function / symbol 等：丢弃
-    return inArray ? null : undefined;
-  };
-
-  return walk(input, false);
+  // 直接返回原始数据，不做任何过滤
+  // 如果需要深拷贝，可以使用 JSON.parse(JSON.stringify(input))
+  return input;
 }
 

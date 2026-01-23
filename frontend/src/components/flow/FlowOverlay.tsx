@@ -82,6 +82,7 @@ import {
   useAIChatStore,
   getImageModelForProvider,
   uploadImageToOSS,
+  uploadVideoToOSS,
   requestSora2VideoGeneration,
   DEFAULT_SORA2_VIDEO_QUALITY,
 } from "@/stores/aiChatStore";
@@ -6237,19 +6238,35 @@ function FlowInner() {
             taskId: videoResult.taskId,
             referencedUrls: videoResult.referencedUrls?.length,
           });
+
+          // 将视频上传到 OSS，获取持久化 URL
+          const projectId = useProjectContentStore.getState().projectId;
+          let persistedVideoUrl = videoResult.videoUrl;
+          let persistedThumbnail = videoResult.thumbnailUrl;
+
+          try {
+            console.log("🎬 [Flow] Uploading Sora2 video to OSS...");
+            const ossVideoUrl = await uploadVideoToOSS(videoResult.videoUrl, projectId);
+            if (ossVideoUrl) {
+              persistedVideoUrl = ossVideoUrl;
+              console.log("✅ [Flow] Sora2 video uploaded to OSS:", ossVideoUrl);
+            }
+          } catch (uploadErr) {
+            console.warn("⚠️ [Flow] Failed to upload video to OSS, using original URL", uploadErr);
+          }
+
           setNodes((ns) =>
             ns.map((n) => {
               if (n.id !== nodeId) return n;
               const previousData = (n.data as any) || {};
-              const nextThumbnail =
-                videoResult.thumbnailUrl || previousData.thumbnail;
+              const nextThumbnail = persistedThumbnail || previousData.thumbnail;
               const elapsedSeconds = Math.max(
                 1,
                 Math.round((Date.now() - generationStartMs) / 1000)
               );
               const historyEntry: Sora2VideoHistoryItem = {
                 id: `sora2-history-${Date.now()}`,
-                videoUrl: videoResult.videoUrl,
+                videoUrl: persistedVideoUrl,
                 thumbnail: nextThumbnail,
                 prompt: finalPromptText,
                 quality: videoQuality,
@@ -6261,7 +6278,7 @@ function FlowInner() {
                 data: {
                   ...previousData,
                   status: "succeeded",
-                  videoUrl: videoResult.videoUrl,
+                  videoUrl: persistedVideoUrl,
                   thumbnail: nextThumbnail,
                   error: undefined,
                   fallbackMessage: (videoResult as any).fallbackMessage,
@@ -8938,6 +8955,29 @@ function FlowInner() {
     },
     [setNodes, setEdges]
   );
+
+  // 监听模板实例化事件（从 TemplateModal 触发）
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail as {
+        template: FlowTemplate;
+      };
+      if (!detail?.template?.nodes?.length) {
+        console.warn("[FlowOverlay] instantiateTemplate: 模板数据无效", detail);
+        return;
+      }
+      const container = document.querySelector(".react-flow");
+      const rect = container?.getBoundingClientRect();
+      const centerX = rect ? rect.width / 2 : 400;
+      const centerY = rect ? rect.height / 2 : 300;
+      const world = rf.screenToFlowPosition({ x: centerX, y: centerY });
+      console.log("[FlowOverlay] 收到模板实例化事件，位置:", world);
+      instantiateTemplateAt(detail.template, world);
+    };
+    window.addEventListener("flow:instantiateTemplate", handler as EventListener);
+    return () =>
+      window.removeEventListener("flow:instantiateTemplate", handler as EventListener);
+  }, [rf, instantiateTemplateAt]);
 
   const saveCurrentAsTemplate = React.useCallback(async () => {
     const allNodes = rf.getNodes();

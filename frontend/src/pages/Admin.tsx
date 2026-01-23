@@ -1095,36 +1095,25 @@ function TemplatesTab() {
         return;
       }
 
-      // 先验证JSON格式是否正确
+      // 读取并验证JSON格式
       const content = await file.text();
+      let parsedJson;
       try {
-        JSON.parse(content);
+        parsedJson = JSON.parse(content);
       } catch (parseError) {
         alert("JSON文件格式不正确，请检查文件内容");
         return;
       }
 
-      // 将 maxSize 一并传给 presign，确保后端生成的 policy 匹配前端校验
-      const url = await uploadFileToOSS(
-        file,
-        "templates/json/",
-        32 * 1024 * 1024
-      );
-      // presign strategy returns host/key url; we need the key to let backend fetch
-      // extract key from returned url (host/.../key)
-      const urlObj = new URL(url);
-      const key = urlObj.pathname.startsWith("/")
-        ? urlObj.pathname.slice(1)
-        : urlObj.pathname;
-
-      if (!key || key.trim() === "") {
-        throw new Error("无法提取文件key，请重试");
-      }
-
-      setFormData({ ...formData, templateJsonKey: key, templateData: "" });
+      // 直接将 JSON 内容设置为 templateData，不再依赖 OSS 读取
+      setFormData({
+        ...formData,
+        templateJsonKey: undefined,
+        templateData: JSON.stringify(parsedJson, null, 2)
+      });
     } catch (err: any) {
-      console.error("JSON 上传失败:", err);
-      alert(`JSON 上传失败: ${err.message || "未知错误"}`);
+      console.error("JSON 读取失败:", err);
+      alert(`JSON 读取失败: ${err.message || "未知错误"}`);
     }
   };
 
