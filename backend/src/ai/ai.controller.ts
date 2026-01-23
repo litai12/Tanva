@@ -616,11 +616,13 @@ export class AiController {
 
     const hostname = parsed.hostname;
     const allowedHosts = this.oss.allowedPublicHosts();
+    this.logger.debug(`Validating URL host: ${hostname}, allowed: ${allowedHosts.join(', ')}`);
     const isAllowed =
       allowedHosts.includes(hostname) ||
       allowedHosts.some((allowed) => hostname === allowed || hostname.endsWith(`.${allowed}`));
 
     if (!isAllowed) {
+      this.logger.warn(`URL host not allowed: ${hostname}, allowedHosts: ${allowedHosts.join(', ')}`);
       throw new BadRequestException('videoUrl host not allowed');
     }
 
@@ -646,6 +648,7 @@ export class AiController {
       allowedHosts.some((allowed) => hostname === allowed || hostname.endsWith(`.${allowed}`));
 
     if (!isAllowed) {
+      this.logger.warn(`Image URL host not allowed: ${hostname}`);
       throw new BadRequestException('imageUrl host not allowed');
     }
 
@@ -2146,9 +2149,12 @@ export class AiController {
                 processingTime,
               };
             } catch (err: any) {
-              this.logger.warn(
-                `⚠️ 147 direct video understanding failed, falling back to frame extraction: ${this.summarizeError(err)}`
+              // 147 直接视频理解失败，不再降级到 ffmpeg 抽帧方案
+              // 因为 ffmpeg 需要服务器安装，不适合云部署环境
+              this.logger.error(
+                `❌ 147 direct video understanding failed: ${this.summarizeError(err)}`
               );
+              throw err;
             }
           }
         }

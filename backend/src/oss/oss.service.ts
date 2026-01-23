@@ -212,18 +212,17 @@ export class OssService {
       });
     }
 
-    // 默认内置一些常用的 AI 供应商资源域名，避免用户频繁配置
+    // 允许的域名：OSS + AI 供应商资源域名
     const defaultAllowed = [
-      'kechuangai.com',      // Kling / 可灵
-      'v2-fdl.kechuangai.com',
-      'models.kapon.cloud',  // Kapon / Vidu / Kling
-      'volces.com',          // 字节/豆包
-      'ark.cn-beijing.volces.com',
-      'ark-project-oss-cn-beijing.volces.com',
-      'alicdn.com',
-      'aliyuncs.com',        // 允许所有阿里云 OSS 域名（可选，如果需要更宽松的话）
+      'aliyuncs.com',           // 阿里云 OSS
+      'amazonaws.com.cn',       // AWS 中国区 (Vidu)
+      'amazonaws.com',          // AWS 国际
+      's3.cn-northwest-1.amazonaws.com.cn', // Vidu S3
+      'kechuangai.com',         // Kling / 可灵
+      'models.kapon.cloud',     // Kapon / Vidu
+      'volces.com',             // 字节/豆包
     ];
-    
+
     defaultAllowed.forEach(h => hosts.push(h));
 
     return Array.from(new Set(hosts)).filter(Boolean);
