@@ -102,7 +102,9 @@ export function proxifyRemoteAssetUrl(
   if (looksLikePresigned) {
     if (forceProxy) {
       // 强制代理：用于下载场景，避免第三方 S3 的 CORS 问题
-      return `${apiBase}/api/assets/proxy?url=${encodeURIComponent(value)}`;
+      // 生产环境使用当前页面 origin，开发环境使用 apiBase
+      const proxyBase = import.meta.env.DEV ? apiBase : (typeof window !== 'undefined' ? window.location.origin : apiBase);
+      return `${proxyBase}/api/assets/proxy?url=${encodeURIComponent(value)}`;
     }
     return value;
   }
