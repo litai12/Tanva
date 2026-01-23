@@ -698,7 +698,7 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
     >
       {/* 标题栏 */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ fontWeight: 600 }}>图片拼合</div>
+        <div style={{ fontWeight: 600 }}>Image Grid</div>
         <button
           onClick={combineImages}
           disabled={!canCombine}

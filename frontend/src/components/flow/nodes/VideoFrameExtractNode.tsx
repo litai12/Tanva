@@ -440,7 +440,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
     >
       {/* 标题栏 */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ fontWeight: 600 }}>视频抽帧</div>
+        <div style={{ fontWeight: 600 }}>Video Frame Extract</div>
         <button
           onClick={extractFrames}
           disabled={!canExtract}
