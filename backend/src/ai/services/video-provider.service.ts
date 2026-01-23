@@ -23,6 +23,89 @@ export class VideoProviderService {
 
   constructor(private readonly oss: OssService) {}
 
+  private resolveOssHosts(): string[] {
+    return this.oss.publicHosts();
+  }
+
+  private isOssPublicUrl(url: string): boolean {
+    try {
+      const host = new URL(url).hostname;
+      const ossHosts = this.resolveOssHosts();
+      return ossHosts.some(
+        (ossHost) => host === ossHost || host.endsWith("." + ossHost)
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private isAllowedUpstreamHost(hostname: string): boolean {
+    const allowed = this.oss.allowedPublicHosts();
+    return allowed.some(
+      (host) => hostname === host || hostname.endsWith("." + host)
+    );
+  }
+
+  private async uploadRemoteVideoToOss(
+    sourceUrl: string,
+    taskId: string
+  ): Promise<string> {
+    if (!this.oss.isEnabled()) {
+      throw new ServiceUnavailableException("OSS 未配置，无法上传视频");
+    }
+
+    const cached = this.doubaoVideoCache.get(taskId);
+    if (cached) return cached;
+
+    let parsed: URL;
+    try {
+      parsed = new URL(sourceUrl);
+    } catch {
+      throw new BadRequestException("Seedance 视频 URL 无效");
+    }
+
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new BadRequestException("Seedance 视频 URL 协议不支持");
+    }
+
+    if (!this.isAllowedUpstreamHost(parsed.hostname)) {
+      throw new BadRequestException("Seedance 视频来源域名不允许");
+    }
+
+    const response = await fetch(sourceUrl);
+    if (!response.ok) {
+      throw new ServiceUnavailableException(
+        `Seedance 视频拉取失败: HTTP ${response.status}`
+      );
+    }
+
+    const body = response.body;
+    if (!body) {
+      throw new ServiceUnavailableException("Seedance 视频响应为空");
+    }
+
+    const contentType = response.headers.get("content-type") || "video/mp4";
+    const extension =
+      contentType.includes("video/") && contentType.split("/")[1]
+        ? contentType.split("/")[1].split(";")[0].trim()
+        : "mp4";
+    const key = `ai/videos/doubao/${taskId}-${Date.now()}.${extension}`;
+
+    const fromWeb = (Readable as unknown as { fromWeb?: (stream: unknown) => Readable })
+      .fromWeb;
+    const nodeStream =
+      typeof fromWeb === "function"
+        ? fromWeb(body as unknown)
+        : Readable.from(Buffer.from(await response.arrayBuffer()));
+
+    const { url } = await this.oss.putStream(key, nodeStream, {
+      headers: { "Content-Type": contentType },
+    });
+
+    this.doubaoVideoCache.set(taskId, url);
+    return url;
+  }
+
   private async uploadBase64ImageToOSS(
     base64Data: string,
     mimeType: string = "image/png"
@@ -99,10 +182,10 @@ export class VideoProviderService {
     }
 
     this.logger.log(
-      `🎬 视频生成任务创建: provider=${provider}, prompt=${options.prompt.substring(
+      `🎬 视频生成任务创建: provider=${provider}, prompt=${options.prompt?.substring(
         0,
         50
-      )}...`
+      ) || "N/A"}...`
     );
 
     switch (provider) {
