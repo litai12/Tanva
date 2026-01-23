@@ -90,21 +90,24 @@ export function proxifyRemoteAssetUrl(
   if (!value) return input;
 
   const apiBase = getApiBaseUrl();
-  const proxyEnabled = options?.forceProxy ? true : shouldProxyAssets();
+  const forceProxy = options?.forceProxy === true;
+  const proxyEnabled = forceProxy || shouldProxyAssets();
 
   // 判断是否为视频资源或 presigned 链接（例如包含 X-Amz-* 参数）
   const looksLikeVideo = /\.(mp4|webm|m3u8)(\?|$)/i.test(value);
   const looksLikePresigned =
     /[?&](?:X-Amz|X-Tos)[^=]*=/i.test(value) || /x-amz-|x-tos-/i.test(value);
 
-  // 对 presigned 链接：**直接返回原始 URL**，不要代理或修改（否则会破坏签名）。
-  // 前提是目标 S3/OSS 已正确配置 CORS，允许浏览器直接请求。
+  // 对 presigned 链接：如果强制代理（下载场景），走后端代理；否则直接返回原始 URL
   if (looksLikePresigned) {
+    if (forceProxy) {
+      // 强制代理：用于下载场景，避免第三方 S3 的 CORS 问题
+      return `${apiBase}/api/assets/proxy?url=${encodeURIComponent(value)}`;
+    }
     return value;
   }
 
-  // 对普通视频资源（非 presigned），优先直接使用已知允许的 OSS/CDN 主机的原始 URL（避免代理签名或触发网关限制）。
-  // 仅在目标主机不在允许列表时，才使用前端 proxy（或根据 proxyEnabled 决定）。
+  // 对普通视频资源（非 presigned），优先直接使用已知允许的 OSS/CDN 主机的原始 URL
   if (looksLikeVideo) {
     try {
       const url = new URL(value);
@@ -120,7 +123,6 @@ export function proxifyRemoteAssetUrl(
         (host) => url.hostname === host || url.hostname.endsWith(host)
       );
       if (isAllowed) {
-        // 直接使用 OSS/CDN 原始 URL（不要通过前端 proxy），以便 video 元素直接请求
         return value;
       }
     } catch {

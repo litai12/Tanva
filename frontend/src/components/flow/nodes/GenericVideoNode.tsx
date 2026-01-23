@@ -304,7 +304,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         message: "视频下载中，请稍等...",
       });
       try {
-        const proxiedUrl = proxifyRemoteAssetUrl(url);
+        // 检测是否为 Vidu 的 S3 URL（需要代理绕过 CORS）
+        const isViduS3 = url.includes('amazonaws.com.cn') || url.includes('prod-ss-vidu');
+        const proxiedUrl = proxifyRemoteAssetUrl(url, { forceProxy: isViduS3 });
         const response = await fetchWithAuth(proxiedUrl, {
           mode: "cors",
           credentials: "omit",
