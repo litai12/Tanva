@@ -3852,6 +3852,8 @@ function FlowInner() {
             "klingVideo",
             "viduVideo",
             "doubaoVideo",
+            "wan26",
+            "wan2R2V",
           ].includes(sourceNode.type || "");
         return false;
       }
