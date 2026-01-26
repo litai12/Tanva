@@ -984,7 +984,14 @@ function TemplatesTab() {
   const loadCategories = async () => {
     try {
       const result = await fetchTemplateCategories();
-      setCategories(result);
+      // 将"其他"分类固定在末尾
+      if (Array.isArray(result)) {
+        const otherCat = result.filter((c) => c === "其他");
+        const restCats = result.filter((c) => c !== "其他");
+        setCategories([...restCats, ...otherCat]);
+      } else {
+        setCategories(result);
+      }
     } catch (error) {
       console.error("加载分类失败:", error);
     }
@@ -1400,63 +1407,106 @@ function TemplatesTab() {
                 </div>
                 <div>
                   <label className='block text-sm text-gray-600 mb-1'>
-                    分类（可输入新分类）
+                    分类
                   </label>
-                  <div className='flex gap-2'>
-                    <input
-                      list='template-categories'
-                      value={formData.category}
-                      onChange={(e) =>
-                        setFormData({ ...formData, category: e.target.value })
-                      }
-                      className='w-full border rounded px-3 py-2'
-                      placeholder='选择或输入分类'
-                    />
-                    {/* 如果输入的新分类不在已有列表中，显示添加按钮 */}
-                    {formData.category &&
-                      !categories.includes(formData.category) && (
-                        <button
-                          type='button'
-                          className='px-3 py-2 bg-blue-600 text-white rounded'
-                          onClick={async () => {
-                            try {
-                              const res = await fetchWithAuth(
-                                "/api/admin/templates/categories",
-                                {
-                                  method: "POST",
-                                  headers: {
-                                    "Content-Type": "application/json",
-                                  },
-                                  body: JSON.stringify({
-                                    category: formData.category,
-                                  }),
-                                }
-                              );
-                              if (!res.ok) throw new Error("添加分类失败");
-                              const data = await res.json();
-                              if (data?.success) {
-                                await loadCategories();
-                                alert("分类已添加");
-                              } else {
-                                alert(data?.message || "添加分类失败");
-                              }
-                            } catch (err: any) {
-                              console.error("添加分类失败", err);
-                              alert("添加分类失败");
-                            }
-                          }}
-                        >
-                          添加
-                        </button>
-                      )}
-                  </div>
-                  <datalist id='template-categories'>
+                  <select
+                    value={formData.category}
+                    onChange={(e) =>
+                      setFormData({ ...formData, category: e.target.value })
+                    }
+                    className='w-full border rounded px-3 py-2'
+                  >
+                    <option value=''>请选择分类</option>
                     {categories.map((cat) => (
                       <option key={cat} value={cat}>
                         {cat}
                       </option>
                     ))}
-                  </datalist>
+                  </select>
+                  <div className='flex gap-2 mt-2'>
+                    <input
+                      type='text'
+                      id='new-category-input'
+                      className='flex-1 border rounded px-3 py-2 text-sm'
+                      placeholder='输入新分类名称'
+                    />
+                    <button
+                      type='button'
+                      className='px-3 py-2 bg-blue-600 text-white rounded text-sm'
+                      onClick={async () => {
+                        const input = document.getElementById('new-category-input') as HTMLInputElement;
+                        const newCat = input?.value?.trim();
+                        if (!newCat) {
+                          alert('请输入分类名称');
+                          return;
+                        }
+                        if (categories.includes(newCat)) {
+                          alert('该分类已存在');
+                          return;
+                        }
+                        try {
+                          const res = await fetchWithAuth(
+                            "/api/admin/templates/categories",
+                            {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ category: newCat }),
+                            }
+                          );
+                          if (!res.ok) throw new Error("添加分类失败");
+                          const data = await res.json();
+                          if (data?.success) {
+                            await loadCategories();
+                            input.value = '';
+                            setFormData({ ...formData, category: newCat });
+                          } else {
+                            alert(data?.message || "添加分类失败");
+                          }
+                        } catch (err) {
+                          console.error("添加分类失败", err);
+                          alert("添加分类失败");
+                        }
+                      }}
+                    >
+                      添加
+                    </button>
+                    <button
+                      type='button'
+                      className='px-3 py-2 bg-red-500 text-white rounded text-sm'
+                      onClick={async () => {
+                        if (!formData.category) {
+                          alert('请先选择要删除的分类');
+                          return;
+                        }
+                        if (formData.category === '其他') {
+                          alert('"其他"分类不能删除');
+                          return;
+                        }
+                        if (!confirm(`确定要删除分类"${formData.category}"吗？`)) {
+                          return;
+                        }
+                        try {
+                          const res = await fetchWithAuth(
+                            `/api/admin/templates/categories/${encodeURIComponent(formData.category)}`,
+                            { method: "DELETE" }
+                          );
+                          if (!res.ok) throw new Error("删除分类失败");
+                          const data = await res.json();
+                          if (data?.success) {
+                            await loadCategories();
+                            setFormData({ ...formData, category: '' });
+                          } else {
+                            alert(data?.message || "删除分类失败");
+                          }
+                        } catch (err) {
+                          console.error("删除分类失败", err);
+                          alert("删除分类失败");
+                        }
+                      }}
+                    >
+                      删除
+                    </button>
+                  </div>
                 </div>
               </div>
 

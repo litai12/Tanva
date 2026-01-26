@@ -148,7 +148,11 @@ export class TemplateService {
       try {
         const list = JSON.parse(setting.value);
         if (Array.isArray(list)) {
-          return list.filter(Boolean).sort();
+          const filtered = list.filter(Boolean);
+          // 将"其他"分类固定在末尾
+          const other = filtered.filter((c: string) => c === '其他');
+          const rest = filtered.filter((c: string) => c !== '其他').sort();
+          return [...rest, ...other];
         }
       } catch (e) {
         // ignore parse error and fallback
@@ -162,10 +166,11 @@ export class TemplateService {
       distinct: ['category'],
     });
 
-    return categories
-      .map(c => c.category)
-      .filter(Boolean)
-      .sort();
+    const cats = categories.map(c => c.category).filter(Boolean);
+    // 将"其他"分类固定在末尾
+    const other = cats.filter(c => c === '其他');
+    const rest = cats.filter(c => c !== '其他').sort();
+    return [...rest, ...other];
   }
 
   async getActiveTemplatesForFrontend() {

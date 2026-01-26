@@ -386,9 +386,14 @@ export default function TemplateModal({
       try {
         const cats = await fetchTemplateCategories();
         if (!cancelled) {
-          setBuiltinCategories(
-            Array.isArray(cats) && cats.length ? cats : ["其他"]
-          );
+          if (Array.isArray(cats) && cats.length) {
+            // 将"其他"分类固定在末尾
+            const otherCat = cats.filter((c) => c === "其他");
+            const restCats = cats.filter((c) => c !== "其他");
+            setBuiltinCategories([...restCats, ...otherCat]);
+          } else {
+            setBuiltinCategories(["其他"]);
+          }
         }
       } catch (e) {
         // ignore
