@@ -6877,18 +6877,18 @@ function FlowInner() {
               },
             });
           } else if (mjImageDatas.length === 1) {
-            // 图生图 (Edit)
-            const imgData = mjImageDatas[0];
-            const isUrl = imgData.startsWith("http");
-            mjResult = await editImageViaAPI({
+            // 图生图：使用 imagine 接口 + base64Array
+            mjResult = await generateImageViaAPI({
               prompt: finalPrompt,
-              sourceImage: isUrl ? undefined : imgData,
-              sourceImageUrl: isUrl ? imgData : undefined,
               outputFormat: "png",
               aiProvider: "midjourney",
               model: "midjourney-fast",
+              aspectRatio: mjAspectRatio,
               providerOptions: {
-                midjourney: { mode: mjMode },
+                midjourney: {
+                  mode: mjMode,
+                  base64Array: mjImageDatas,
+                },
               },
             });
           } else {

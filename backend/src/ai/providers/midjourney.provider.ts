@@ -374,6 +374,7 @@ export class MidjourneyProvider implements IAIProvider {
     if (options?.state) payload.state = options.state;
     if (options?.base64Array?.length) {
       payload.base64Array = options.base64Array.map((img) => this.ensureDataUrl(img));
+      this.logger.log(`[Midjourney] buildImaginePayload: 包含 ${payload.base64Array.length} 张图片`);
     }
     const accountFilter = this.buildAccountFilter(options);
     if (accountFilter) payload.accountFilter = accountFilter;
