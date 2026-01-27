@@ -6835,10 +6835,12 @@ function FlowInner() {
           const d = srcNode.data as any;
           // 优先使用 imageUrl（OSS URL），其次使用 imageData
           const url = d?.imageUrl || d?.thumbnail || "";
+          console.log(`[MJ] 源节点 ${srcNode.id} 数据:`, { imageUrl: d?.imageUrl, thumbnail: d?.thumbnail, hasImageData: !!d?.imageData });
           if (url && url.startsWith("http")) {
             mjImageUrls.push(url);
           }
         }
+        console.log(`[MJ] 获取到的 URL 数量: ${mjImageUrls.length}`, mjImageUrls);
         // 如果没有获取到 URL，回退到 base64
         const mjImageDatas = mjImageUrls.length > 0
           ? mjImageUrls
@@ -6876,9 +6878,12 @@ function FlowInner() {
             });
           } else if (mjImageDatas.length === 1) {
             // 图生图 (Edit)
+            const imgData = mjImageDatas[0];
+            const isUrl = imgData.startsWith("http");
             mjResult = await editImageViaAPI({
               prompt: finalPrompt,
-              sourceImage: mjImageDatas[0],
+              sourceImage: isUrl ? undefined : imgData,
+              sourceImageUrl: isUrl ? imgData : undefined,
               outputFormat: "png",
               aiProvider: "midjourney",
               model: "midjourney-fast",

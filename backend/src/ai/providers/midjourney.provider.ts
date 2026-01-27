@@ -108,6 +108,13 @@ export class MidjourneyProvider implements IAIProvider {
     const apiKey = this.ensureApiKey();
     const url = this.buildUrl(path);
 
+    // 日志：打印请求信息（不打印完整 base64）
+    const logPayload = payload ? {
+      ...payload,
+      base64Array: payload.base64Array ? `[${payload.base64Array.length} images, first ${payload.base64Array[0]?.length || 0} chars]` : undefined,
+    } : undefined;
+    this.logger.log(`[Midjourney] ${operation} request: ${method} ${path}, payload keys: ${logPayload ? Object.keys(logPayload).join(', ') : 'none'}`);
+
     const response = await fetch(url, {
       method,
       headers: {
@@ -397,8 +404,11 @@ export class MidjourneyProvider implements IAIProvider {
     const options = this.extractMidjourneyOptions(request.providerOptions);
     const sourceImage = request.sourceImage.trim();
 
-    // 始终将图片转换为 base64 格式，用于 /mj/submit/edits 接口
+    // 将图片转换为 data URL 格式
     const imageDataUrl = await this.ensureDataUrlAsync(sourceImage);
+
+    // 日志
+    this.logger.log(`[Midjourney] buildEditPayload: dataUrl prefix=${imageDataUrl.slice(0, 30)}`);
 
     const payload: Record<string, any> = {
       action: 'EDITS',
@@ -410,6 +420,39 @@ export class MidjourneyProvider implements IAIProvider {
     if (options?.notifyHook) payload.notifyHook = options.notifyHook;
     if (options?.state) payload.state = options.state;
     if (options?.remix !== undefined) payload.remix = options.remix;
+    const accountFilter = this.buildAccountFilter(options);
+    if (accountFilter) payload.accountFilter = accountFilter;
+
+    return payload;
+  }
+
+  /**
+   * 构建用于 /mj/submit/imagine 接口的图生图请求
+   * 如果是 URL，直接在 prompt 中引用；如果是 base64，使用 base64Array
+   */
+  private async buildEditPayloadForImagine(request: ImageEditRequest): Promise<Record<string, any>> {
+    const options = this.extractMidjourneyOptions(request.providerOptions);
+    const sourceImage = request.sourceImage.trim();
+    const isUrl = sourceImage.startsWith('http://') || sourceImage.startsWith('https://');
+
+    const payload: Record<string, any> = {
+      mode: options?.mode ?? this.defaultMode,
+    };
+
+    if (isUrl) {
+      // URL 格式：在 prompt 前添加图片 URL
+      payload.prompt = `${sourceImage} ${request.prompt}`;
+      this.logger.log(`[Midjourney] Using URL in prompt: ${sourceImage.slice(0, 80)}...`);
+    } else {
+      // base64 格式：使用 base64Array
+      const imageDataUrl = await this.ensureDataUrlAsync(sourceImage);
+      payload.prompt = request.prompt;
+      payload.base64Array = [imageDataUrl];
+    }
+
+    if (options?.botType) payload.botType = options.botType;
+    if (options?.notifyHook) payload.notifyHook = options.notifyHook;
+    if (options?.state) payload.state = options.state;
     const accountFilter = this.buildAccountFilter(options);
     if (accountFilter) payload.accountFilter = accountFilter;
 
@@ -494,9 +537,26 @@ export class MidjourneyProvider implements IAIProvider {
 
   async editImage(request: ImageEditRequest): Promise<AIProviderResponse<ImageResult>> {
     try {
-      const payload = await this.buildEditPayload(request);
-      // 使用 edits 接口实现图片编辑
-      const taskId = await this.submitTask('/mj/submit/edits', payload, 'editImage');
+      // 使用 /mj/submit/imagine 接口 + base64Array 实现图生图
+      const options = this.extractMidjourneyOptions(request.providerOptions);
+      const imageDataUrl = await this.ensureDataUrlAsync(request.sourceImage.trim());
+
+      const payload: Record<string, any> = {
+        prompt: request.prompt,
+        mode: options?.mode ?? this.defaultMode,
+        base64Array: [imageDataUrl],
+      };
+
+      if (options?.botType) payload.botType = options.botType;
+      if (options?.notifyHook) payload.notifyHook = options.notifyHook;
+      if (options?.state) payload.state = options.state;
+      const accountFilter = this.buildAccountFilter(options);
+      if (accountFilter) payload.accountFilter = accountFilter;
+
+      // 详细日志：打印所有参数
+      this.logger.log(`[Midjourney] editImage payload: prompt="${request.prompt?.slice(0, 50)}", mode=${payload.mode}, base64Array.length=${payload.base64Array?.length}, base64[0].length=${payload.base64Array?.[0]?.length}, keys=${Object.keys(payload).join(',')}`);
+
+      const taskId = await this.submitTask('/mj/submit/imagine', payload, 'editImage');
       const task = await this.pollTask(taskId, 'editImage');
       const imageUrl = this.extractImageUrl(task);
       const imageData = await this.downloadImageAsBase64(imageUrl);

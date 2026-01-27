@@ -1003,10 +1003,12 @@ export class AiController {
   @Post('edit-image')
   async editImage(@Body() dto: EditImageDto, @Req() req: any): Promise<ImageGenerationResult> {
     // 调试日志：记录接收到的图片参数
-    this.logger.log(`🖼️ [edit-image] 接收参数: sourceImage=${dto.sourceImage ? `${dto.sourceImage.slice(0, 50)}... (${dto.sourceImage.length} chars)` : 'undefined'}, sourceImageUrl=${dto.sourceImageUrl || 'undefined'}`);
+    this.logger.log(`🖼️ [edit-image] 接收参数: aiProvider=${dto.aiProvider}, model=${dto.model}, sourceImage=${dto.sourceImage ? `${dto.sourceImage.slice(0, 50)}... (${dto.sourceImage.length} chars)` : 'undefined'}, sourceImageUrl=${dto.sourceImageUrl || 'undefined'}`);
 
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
+
+    this.logger.log(`🖼️ [edit-image] 解析后: providerName=${providerName}, model=${model}`);
 
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
@@ -1017,19 +1019,29 @@ export class AiController {
         !dto.sourceImageUrl && dto.sourceImage && /^https?:\/\//i.test(dto.sourceImage)
           ? dto.sourceImage
           : dto.sourceImageUrl;
-      const sourceImage =
-        dto.sourceImage && !fallbackUrl
-          ? dto.sourceImage
-          : fallbackUrl
-          ? await this.fetchImageAsDataUrl(fallbackUrl)
-          : undefined;
+
+      // MJ 支持直接使用 URL，不需要转换为 base64
+      const isMidjourney = providerName === 'midjourney';
+
+      let sourceImage: string | undefined;
+      if (isMidjourney && fallbackUrl) {
+        // MJ: 直接使用 URL
+        sourceImage = fallbackUrl;
+        this.logger.log(`🖼️ [edit-image] MJ 使用 URL: ${fallbackUrl.slice(0, 80)}...`);
+      } else if (dto.sourceImage && !fallbackUrl) {
+        sourceImage = dto.sourceImage;
+      } else if (fallbackUrl) {
+        sourceImage = await this.fetchImageAsDataUrl(fallbackUrl);
+      }
 
       if (!sourceImage) {
         throw new BadRequestException('sourceImage or sourceImageUrl is required');
       }
 
-      // 验证 sourceImage 是有效的图片格式
-      this.validateImageDataUrl(sourceImage);
+      // 非 MJ 时验证 sourceImage 是有效的图片格式
+      if (!isMidjourney || !sourceImage.startsWith('http')) {
+        this.validateImageDataUrl(sourceImage);
+      }
 
       if (providerName && providerName !== 'gemini-pro') {
         const provider = this.factory.getProvider(dto.model, providerName);
