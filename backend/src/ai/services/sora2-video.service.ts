@@ -493,40 +493,28 @@ export class Sora2VideoService {
           return isPortrait ? "sora2-portrait" : "sora2-landscape";
         })();
 
+        const duration = options.duration ? Number(options.duration) : 10;
+
+        // 构建请求体（通过模型名称区分时长和比例，不需要额外传 duration 和 aspect_ratio）
         const createPayload: Record<string, any> = {
           model: selectedModel,
           prompt: options.prompt,
         };
-        // 如果未指定 duration，默认 10
-        createPayload.duration = options.duration
-          ? Number(options.duration)
-          : 10;
+
+        // 图生视频：添加 image URL
         if (isImageToVideo) {
-          // prefer passing the first image URL if available (API accepts image URL in JSON)
           const imageUrl = options.referenceImageUrls!.find(
-            (u) => typeof u === "string" && u.startsWith("http")
+            (u) => typeof u === "string" && u.trim().length > 0
           );
           if (imageUrl) {
             createPayload.image = imageUrl;
           }
         }
-        // 打印请求信息（不要泄露完整 API key）
-        try {
-          const maskedKey = (this.apiKey || "").slice(0, 6)
-            ? `${(this.apiKey || "").slice(0, 6)}...`
-            : "missing";
-          this.logger.debug(
-            `普通Sora2 创建请求: url=${
-              this.apiBase
-            }/v1/videos, model=${selectedModel}, duration=${
-              createPayload.duration
-            }, hasImage=${!!createPayload.image}, promptPreview=${String(
-              createPayload.prompt
-            ).slice(0, 200)}, authPrefix=${maskedKey}`
-          );
-        } catch (logErr) {
-          this.logger.warn("打印 Sora2 请求信息失败", logErr as any);
-        }
+
+        // 打印请求信息
+        this.logger.log(
+          `普通Sora2 创建请求: model=${selectedModel}, prompt=${options.prompt.slice(0, 100)}, hasImage=${!!createPayload.image}, imageUrl=${createPayload.image || 'none'}`
+        );
 
         const controller = new AbortController();
         const timer = setTimeout(

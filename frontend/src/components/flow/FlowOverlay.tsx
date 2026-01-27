@@ -6184,6 +6184,7 @@ function FlowInner() {
           typeof (node.data as any)?.aspectRatio === "string"
             ? (node.data as any).aspectRatio
             : "";
+        const provider = (node.data as any)?.provider || "sora2";
         const suffixPieces: string[] = [];
         if (clipDuration) suffixPieces.push(`${clipDuration}s`);
         if (aspectSetting) {
