@@ -5,7 +5,6 @@ import SmartImage from "../../ui/SmartImage";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { useAuthStore } from "@/stores/authStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
-import { fetchWithAuth } from "@/services/authFetch";
 
 export type VideoProvider = "kling" | "vidu" | "doubao";
 
@@ -345,31 +344,41 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         message: "视频下载中，请稍等...",
       });
       try {
-        // 检测是否为 Vidu 的 S3 URL（需要代理绕过 CORS）
-        const isViduS3 = url.includes('amazonaws.com.cn') || url.includes('prod-ss-vidu');
-        const proxiedUrl = proxifyRemoteAssetUrl(url, { forceProxy: isViduS3 });
-        const response = await fetchWithAuth(proxiedUrl, {
+        // 检测是否为 OSS URL（阿里云 OSS 支持 CORS，可直接下载）
+        const isOssUrl = url.includes('aliyuncs.com');
+        // 非 OSS URL 需要代理
+        const downloadUrl = isOssUrl ? url : proxifyRemoteAssetUrl(url, { forceProxy: true });
+        console.log(`[视频下载] 原始URL: ${url}`);
+        console.log(`[视频下载] 下载URL: ${downloadUrl}, isOSS: ${isOssUrl}`);
+
+        const response = await fetch(downloadUrl, {
           mode: "cors",
           credentials: "omit",
-          auth: "omit",
-          allowRefresh: false,
         });
+        console.log(`[视频下载] 响应状态: ${response.status}, Content-Type: ${response.headers.get('content-type')}`);
+
         if (response.ok) {
           const blob = await response.blob();
-          const downloadUrl = URL.createObjectURL(blob);
+          console.log(`[视频下载] Blob类型: ${blob.type}, 大小: ${blob.size}`);
+          // 确保 blob 类型正确
+          const videoBlob = blob.type.startsWith('video/')
+            ? blob
+            : new Blob([blob], { type: 'video/mp4' });
+          const blobUrl = URL.createObjectURL(videoBlob);
           const link = document.createElement("a");
-          link.href = downloadUrl;
+          link.href = blobUrl;
           link.download = `video-${new Date().toISOString().split("T")[0]}.mp4`;
           document.body.appendChild(link);
           link.click();
           document.body.removeChild(link);
-          setTimeout(() => URL.revokeObjectURL(downloadUrl), 200);
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 200);
           setDownloadFeedback({
             type: "success",
             message: "下载完成，稍后可再次下载",
           });
           scheduleFeedbackClear(2000);
         } else {
+          // 下载失败，尝试在新标签页打开
           const link = document.createElement("a");
           link.href = url;
           link.target = "_blank";
@@ -384,8 +393,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         }
       } catch (error) {
         console.error("下载失败:", error);
-        alert("下载失败，请尝试在浏览器中打开链接");
-        setDownloadFeedback({ type: "error", message: "下载失败，请稍后重试" });
+        // 下载失败时，尝试直接打开链接
+        window.open(url, "_blank");
+        setDownloadFeedback({ type: "error", message: "下载失败，已在新标签页打开" });
         scheduleFeedbackClear(4000);
       } finally {
         setIsDownloading(false);

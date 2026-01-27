@@ -61,27 +61,29 @@ export class VideoProviderService {
     try {
       parsed = new URL(sourceUrl);
     } catch {
-      throw new BadRequestException("Seedance 视频 URL 无效");
+      throw new BadRequestException("视频 URL 无效");
     }
 
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      throw new BadRequestException("Seedance 视频 URL 协议不支持");
+      throw new BadRequestException("视频 URL 协议不支持");
     }
 
     if (!this.isAllowedUpstreamHost(parsed.hostname)) {
-      throw new BadRequestException("Seedance 视频来源域名不允许");
+      this.logger.warn(`视频来源域名不在白名单: ${parsed.hostname}`);
+      // 不抛出异常，直接返回原始 URL
+      return sourceUrl;
     }
 
     const response = await fetch(sourceUrl);
     if (!response.ok) {
       throw new ServiceUnavailableException(
-        `Seedance 视频拉取失败: HTTP ${response.status}`
+        `视频拉取失败: HTTP ${response.status}`
       );
     }
 
     const body = response.body;
     if (!body) {
-      throw new ServiceUnavailableException("Seedance 视频响应为空");
+      throw new ServiceUnavailableException("视频响应为空");
     }
 
     const contentType = response.headers.get("content-type") || "video/mp4";
@@ -89,7 +91,12 @@ export class VideoProviderService {
       contentType.includes("video/") && contentType.split("/")[1]
         ? contentType.split("/")[1].split(";")[0].trim()
         : "mp4";
-    const key = `ai/videos/doubao/${taskId}-${Date.now()}.${extension}`;
+
+    // 根据 taskId 前缀确定存储路径
+    const provider = taskId.startsWith("vidu-") ? "vidu"
+      : taskId.startsWith("kling-") ? "kling"
+      : "doubao";
+    const key = `ai/videos/${provider}/${taskId}-${Date.now()}.${extension}`;
 
     const fromWeb = (Readable as unknown as { fromWeb?: (stream: unknown) => Readable })
       .fromWeb;
@@ -485,10 +492,18 @@ export class VideoProviderService {
       );
 
       if (data.data?.task_status === "succeed") {
-        return {
-          status: "succeeded",
-          videoUrl: data.data.task_result?.videos?.[0]?.url,
-        };
+        const upstreamUrl: string | undefined = data.data.task_result?.videos?.[0]?.url;
+        if (!upstreamUrl) {
+          throw new ServiceUnavailableException("Kling 返回空视频链接");
+        }
+        // 如果已经是 OSS URL，直接返回
+        if (this.isOssPublicUrl(upstreamUrl)) {
+          return { status: "succeeded", videoUrl: upstreamUrl };
+        }
+        // 上传到 OSS
+        const ossUrl = await this.uploadRemoteVideoToOss(upstreamUrl, `kling-${taskId}`);
+        this.logger.log(`📤 Kling 视频已上传到 OSS: ${ossUrl}`);
+        return { status: "succeeded", videoUrl: ossUrl };
       }
 
       if (data.data?.task_status === "failed") {
@@ -630,10 +645,18 @@ export class VideoProviderService {
       );
 
       if (data.state === "success") {
-        return {
-          status: "succeeded",
-          videoUrl: data.creations?.[0]?.url,
-        };
+        const upstreamUrl: string | undefined = data.creations?.[0]?.url;
+        if (!upstreamUrl) {
+          throw new ServiceUnavailableException("Vidu 返回空视频链接");
+        }
+        // 如果已经是 OSS URL，直接返回
+        if (this.isOssPublicUrl(upstreamUrl)) {
+          return { status: "succeeded", videoUrl: upstreamUrl };
+        }
+        // 上传到 OSS
+        const ossUrl = await this.uploadRemoteVideoToOss(upstreamUrl, `vidu-${taskId}`);
+        this.logger.log(`📤 Vidu 视频已上传到 OSS: ${ossUrl}`);
+        return { status: "succeeded", videoUrl: ossUrl };
       }
 
       if (data.state === "failed") {

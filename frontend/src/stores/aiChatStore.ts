@@ -6419,6 +6419,10 @@ export const useAIChatStore = create<AIChatState>()(
               // 🖼️ 多图强制使用融合模式，避免 AI 误选 editImage
               selectedTool = "blendImages";
               console.log("🎯 [工具选择] 检测到多图输入，强制使用融合模式");
+            } else if (state.sourceImageForEditing) {
+              // 🖼️ 单图强制使用编辑模式
+              selectedTool = "editImage";
+              console.log("🎯 [工具选择] 检测到单图输入，强制使用编辑模式");
             } else {
               // 调用 AI 进行工具选择
               const cachedImage = contextManager.getCachedImage();

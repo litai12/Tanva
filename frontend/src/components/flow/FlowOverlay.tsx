@@ -6826,7 +6826,23 @@ function FlowInner() {
         const mjImageEdges = currentEdges
           .filter((e) => e.target === nodeId && e.targetHandle === "img")
           .slice(0, 6);
-        const mjImageDatas = await resolveEdgesAsDataUrls(mjImageEdges);
+
+        // MJ 优先使用 URL 格式，从源节点获取 imageUrl
+        const mjImageUrls: string[] = [];
+        for (const edge of mjImageEdges) {
+          const srcNode = rf.getNode(edge.source);
+          if (!srcNode) continue;
+          const d = srcNode.data as any;
+          // 优先使用 imageUrl（OSS URL），其次使用 imageData
+          const url = d?.imageUrl || d?.thumbnail || "";
+          if (url && url.startsWith("http")) {
+            mjImageUrls.push(url);
+          }
+        }
+        // 如果没有获取到 URL，回退到 base64
+        const mjImageDatas = mjImageUrls.length > 0
+          ? mjImageUrls
+          : await resolveEdgesAsDataUrls(mjImageEdges);
 
         setNodes((ns) =>
           ns.map((n) =>
