@@ -108,12 +108,15 @@ export class MidjourneyProvider implements IAIProvider {
     const apiKey = this.ensureApiKey();
     const url = this.buildUrl(path);
 
-    // 日志：打印请求信息（不打印完整 base64）
-    const logPayload = payload ? {
-      ...payload,
-      base64Array: payload.base64Array ? `[${payload.base64Array.length} images, first ${payload.base64Array[0]?.length || 0} chars]` : undefined,
-    } : undefined;
-    this.logger.log(`[Midjourney] ${operation} request: ${method} ${path}, payload keys: ${logPayload ? Object.keys(logPayload).join(', ') : 'none'}`);
+    // 只在 POST 请求时打印简洁日志
+    if (method === 'POST' && payload) {
+      const logPayload = {
+        ...payload,
+        base64Array: payload.base64Array ? `[${payload.base64Array.length}张图片]` : undefined,
+        prompt: payload.prompt?.slice(0, 50) + (payload.prompt?.length > 50 ? '...' : ''),
+      };
+      this.logger.log(`[Midjourney] API: ${method} ${path}, model: ${payload.mode || 'FAST'}, payload: ${JSON.stringify(logPayload)}`);
+    }
 
     const response = await fetch(url, {
       method,
@@ -374,7 +377,6 @@ export class MidjourneyProvider implements IAIProvider {
     if (options?.state) payload.state = options.state;
     if (options?.base64Array?.length) {
       payload.base64Array = options.base64Array.map((img) => this.ensureDataUrl(img));
-      this.logger.log(`[Midjourney] buildImaginePayload: 包含 ${payload.base64Array.length} 张图片`);
     }
     const accountFilter = this.buildAccountFilter(options);
     if (accountFilter) payload.accountFilter = accountFilter;
@@ -408,9 +410,6 @@ export class MidjourneyProvider implements IAIProvider {
     // 将图片转换为 data URL 格式
     const imageDataUrl = await this.ensureDataUrlAsync(sourceImage);
 
-    // 日志
-    this.logger.log(`[Midjourney] buildEditPayload: dataUrl prefix=${imageDataUrl.slice(0, 30)}`);
-
     const payload: Record<string, any> = {
       action: 'EDITS',
       prompt: request.prompt,
@@ -443,7 +442,6 @@ export class MidjourneyProvider implements IAIProvider {
     if (isUrl) {
       // URL 格式：在 prompt 前添加图片 URL
       payload.prompt = `${sourceImage} ${request.prompt}`;
-      this.logger.log(`[Midjourney] Using URL in prompt: ${sourceImage.slice(0, 80)}...`);
     } else {
       // base64 格式：使用 base64Array
       const imageDataUrl = await this.ensureDataUrlAsync(sourceImage);
@@ -553,9 +551,6 @@ export class MidjourneyProvider implements IAIProvider {
       if (options?.state) payload.state = options.state;
       const accountFilter = this.buildAccountFilter(options);
       if (accountFilter) payload.accountFilter = accountFilter;
-
-      // 详细日志：打印所有参数
-      this.logger.log(`[Midjourney] editImage payload: prompt="${request.prompt?.slice(0, 50)}", mode=${payload.mode}, base64Array.length=${payload.base64Array?.length}, base64[0].length=${payload.base64Array?.[0]?.length}, keys=${Object.keys(payload).join(',')}`);
 
       const taskId = await this.submitTask('/mj/submit/imagine', payload, 'editImage');
       const task = await this.pollTask(taskId, 'editImage');

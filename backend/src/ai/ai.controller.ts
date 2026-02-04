@@ -849,19 +849,6 @@ export class AiController {
   async generateImage(@Body() dto: GenerateImageDto, @Req() req: any): Promise<GenerateImageUrlResult> {
     const startTime = Date.now();
     const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
-    
-    // 记录请求参数日志
-    this.logger.log(`[generate-image] 收到图像生成请求 - 用户ID: ${userId}, provider: ${dto.aiProvider || 'gemini'}, model: ${dto.model || 'default'}, imageSize: ${dto.imageSize || '未指定'}, aspectRatio: ${dto.aspectRatio || '未指定'}, thinkingLevel: ${dto.thinkingLevel || '未指定'}, imageOnly: ${dto.imageOnly || false}`);
-    this.logger.debug(`[generate-image] 完整请求参数: ${JSON.stringify({ 
-      prompt: dto.prompt?.substring(0, 100) + '...', 
-      aiProvider: dto.aiProvider, 
-      model: dto.model, 
-      imageSize: dto.imageSize, 
-      aspectRatio: dto.aspectRatio, 
-      thinkingLevel: dto.thinkingLevel,
-      imageOnly: dto.imageOnly,
-      outputFormat: dto.outputFormat 
-    })}`);
 
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
@@ -870,8 +857,6 @@ export class AiController {
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
-
-	    this.logger.log(`[generate-image] 解析后的配置 - providerName: ${providerName || 'null'}, model: ${model}, serviceType: ${serviceType}, 使用自定义API Key: ${!!customApiKey}`);
 	
 	    try {
 	      return await this.withCredits(req, serviceType, model, async () => {
@@ -905,7 +890,6 @@ export class AiController {
 	            }
 	
 	            if (providerName && providerName !== 'gemini-pro') {
-	              this.logger.log(`[generate-image] 使用 Provider: ${providerName}`);
 	              const provider = this.factory.getProvider(dto.model, providerName);
 	              const result = await provider.generateImage({
 	                prompt: dto.prompt,
@@ -918,17 +902,9 @@ export class AiController {
 	                providerOptions: dto.providerOptions,
 	              });
 	
-	              this.logger.log(
-	                `[generate-image] Provider ${providerName} 返回结果 - success: ${result.success}, hasImage: ${!!result.data?.imageData}, imageDataLength: ${result.data?.imageData?.length || 0}, error: ${result.error?.message || 'none'}`
-	              );
-	
 	              if (result.success && result.data) {
 	                const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
 	                const upload = await this.uploadGeneratedImageToOss(watermarked || '', { userId });
-	                const duration = Date.now() - startTime;
-	                this.logger.log(
-	                  `[generate-image] 图像生成成功 - Provider: ${providerName}, 耗时: ${duration}ms, 上传: ${upload.key}, bytes: ${upload.size}`
-	                );
 	                return {
 	                  imageUrl: upload.url,
 	                  textResponse: result.data.textResponse || '',
@@ -945,21 +921,10 @@ export class AiController {
 	            }
 	
 	            // gemini 和 gemini-pro 都使用默认的 Gemini 服务
-	            this.logger.log(
-	              `[generate-image] 使用默认 Gemini 服务 (providerName: ${providerName || 'gemini'})`
-	            );
 	            const data = await this.imageGeneration.generateImage({ ...dto, customApiKey });
-	
-	            this.logger.log(
-	              `[generate-image] Gemini 服务返回结果 - hasImage: ${!!data.imageData}, imageDataLength: ${data.imageData?.length || 0}, textResponseLength: ${data.textResponse?.length || 0}`
-	            );
 	
 	            const watermarked = await this.watermarkIfNeeded(data.imageData, req);
 	            const upload = await this.uploadGeneratedImageToOss(watermarked || '', { userId });
-	            const duration = Date.now() - startTime;
-	            this.logger.log(
-	              `[generate-image] 图像生成成功 - 使用默认 Gemini 服务, 耗时: ${duration}ms, 上传: ${upload.key}, bytes: ${upload.size}`
-	            );
 	            return {
 	              imageUrl: upload.url,
 	              textResponse: data.textResponse || '',
@@ -991,24 +956,17 @@ export class AiController {
 	
 	        throw new InternalServerErrorException('Image generation retry loop exhausted unexpectedly');
 	      }, 0, 1, skipCredits);
-		    } catch (error) {
-		      const duration = Date.now() - startTime;
-		      const errorMessage = error instanceof Error ? error.message : String(error);
-	      const errorStack = error instanceof Error ? error.stack : undefined;
-      this.logger.error(`[generate-image] 图像生成失败 - 耗时: ${duration}ms, 错误: ${errorMessage}`, errorStack);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`[generate-image] 失败: ${errorMessage}`);
       throw error;
     }
   }
 
   @Post('edit-image')
   async editImage(@Body() dto: EditImageDto, @Req() req: any): Promise<ImageGenerationResult> {
-    // 调试日志：记录接收到的图片参数
-    this.logger.log(`🖼️ [edit-image] 接收参数: aiProvider=${dto.aiProvider}, model=${dto.model}, sourceImage=${dto.sourceImage ? `${dto.sourceImage.slice(0, 50)}... (${dto.sourceImage.length} chars)` : 'undefined'}, sourceImageUrl=${dto.sourceImageUrl || 'undefined'}`);
-
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
-
-    this.logger.log(`🖼️ [edit-image] 解析后: providerName=${providerName}, model=${model}`);
 
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
@@ -1027,7 +985,6 @@ export class AiController {
       if (isMidjourney && fallbackUrl) {
         // MJ: 直接使用 URL
         sourceImage = fallbackUrl;
-        this.logger.log(`🖼️ [edit-image] MJ 使用 URL: ${fallbackUrl.slice(0, 80)}...`);
       } else if (dto.sourceImage && !fallbackUrl) {
         sourceImage = dto.sourceImage;
       } else if (fallbackUrl) {
@@ -1451,14 +1408,6 @@ export class AiController {
    */
   @Post('generate-video-provider')
   async generateVideoProvider(@Body() dto: VideoProviderRequestDto, @Req() req: any) {
-    // 调试日志：记录接收到的参考图参数
-    this.logger.log(`🎬 [generate-video-provider] 接收参数: provider=${dto.provider}, referenceImages=${dto.referenceImages?.length || 0}张`);
-    if (dto.referenceImages?.length) {
-      dto.referenceImages.forEach((img, i) => {
-        this.logger.log(`🎬 [generate-video-provider] 参考图${i + 1}: ${img.slice(0, 60)}... (${img.length} chars)`);
-      });
-    }
-
     const serviceType: ServiceType = `${dto.provider}-video` as ServiceType;
     return this.withCredits(
       req,
@@ -1847,83 +1796,16 @@ export class AiController {
           return { success: true, data };
         }
 
-        const statusUrl = `https://dashscope.aliyuncs.com/api/v1/tasks/${encodeURIComponent(taskId)}`;
-        const intervalMs = 15000;
-        const maxAttempts = 40;
-        this.logger.log(
-          `🔁 Start polling DashScope i2v task ${taskId} (${maxAttempts} attempts, ${intervalMs}ms interval)`
-        );
-
-        for (let attempt = 0; attempt < maxAttempts; attempt++) {
-          await new Promise((r) => setTimeout(r, intervalMs));
-          try {
-            const statusResp = await fetch(statusUrl, {
-              method: 'GET',
-              headers: {
-                Authorization: `Bearer ${dashKey}`,
-                'Content-Type': 'application/json',
-              },
-            });
-            if (!statusResp.ok) {
-              const errBody = await statusResp.text().catch(() => '');
-              this.logger.warn('DashScope i2v status check non-OK', {
-                status: statusResp.status,
-                body: errBody,
-              });
-              continue;
-            }
-            const statusData = await statusResp.json().catch(() => ({}));
-            this.logger.debug(
-              `🔎 DashScope i2v status response (attempt ${attempt + 1}): ${JSON.stringify(statusData).slice(0, 200)}`
-            );
-            const statusValue = (
-              statusData?.output?.task_status ||
-              statusData?.status ||
-              statusData?.state ||
-              statusData?.task_status ||
-              ''
-            )
-              .toString()
-              .toLowerCase();
-
-            if (statusValue === 'succeeded' || statusValue === 'success') {
-              const finalVideoUrl =
-                extractVideoUrl(statusData) ||
-                extractVideoUrl(statusData?.result) ||
-                extractVideoUrl(statusData?.output) ||
-                undefined;
-              this.logger.log(
-                `✅ DashScope i2v task ${taskId} succeeded, videoUrl: ${String(finalVideoUrl).slice(0, 120)}`
-              );
-              return {
-                success: true,
-                data: {
-                  taskId,
-                  status: statusValue,
-                  videoUrl: finalVideoUrl,
-                  video_url: finalVideoUrl,
-                  output: { video_url: finalVideoUrl },
-                  raw: statusData,
-                },
-              };
-            }
-            if (statusValue === 'failed' || statusValue === 'error') {
-              this.logger.error(`❌ DashScope i2v task ${taskId} failed`, { raw: statusData });
-              return {
-                success: false,
-                error: { message: 'DashScope i2v task failed', details: statusData },
-              };
-            }
-          } catch (err: any) {
-            this.logger.warn('DashScope i2v polling exception, will retry', err);
-          }
-        }
-        this.logger.warn(
-          `⏳ DashScope i2v task ${taskId} polling timed out after ${maxAttempts} attempts`
-        );
+        // 异步模式：立即返回 taskId，前端轮询查询状态
+        this.logger.log(`✅ DashScope i2v task created: ${taskId}`);
         return {
-          success: false,
-          error: { message: 'DashScope i2v task polling timed out' },
+          success: true,
+          data: {
+            taskId,
+            task_id: taskId,
+            status: 'pending',
+            raw: data,
+          },
         };
       } catch (error: any) {
         this.logger.error('❌ DashScope i2v request exception', error);
@@ -1933,6 +1815,50 @@ export class AiController {
         };
       }
     });
+  }
+
+  /**
+   * DashScope 任务状态查询接口（前端轮询用）
+   */
+  @Get('dashscope/task/:taskId')
+  async getDashscopeTaskStatus(@Param('taskId') taskId: string) {
+    const dashKey = process.env.DASHSCOPE_API_KEY;
+    if (!dashKey) {
+      return { success: false, error: { message: 'DASHSCOPE_API_KEY not configured' } };
+    }
+
+    const statusUrl = `https://dashscope.aliyuncs.com/api/v1/tasks/${encodeURIComponent(taskId)}`;
+    try {
+      const resp = await fetch(statusUrl, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${dashKey}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        return { success: false, error: { code: `HTTP_${resp.status}`, details: data } };
+      }
+
+      const statusValue = (
+        data?.output?.task_status || data?.status || data?.state || ''
+      ).toString().toLowerCase();
+
+      const extractVideoUrl = (obj: any) =>
+        obj?.output?.video_url || obj?.video_url || obj?.videoUrl ||
+        (Array.isArray(obj?.output) && obj.output[0]?.video_url) || undefined;
+
+      const videoUrl = extractVideoUrl(data) || extractVideoUrl(data?.output);
+
+      return {
+        success: true,
+        data: { taskId, status: statusValue, videoUrl, video_url: videoUrl, raw: data },
+      };
+    } catch (err: any) {
+      return { success: false, error: { message: err?.message || String(err) } };
+    }
   }
 
   /**

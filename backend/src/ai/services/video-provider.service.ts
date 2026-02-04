@@ -399,6 +399,7 @@ export class VideoProviderService {
         payload.prompt = options.prompt;
       }
     } else if (videoMode === "image2video-tail") {
+      payload.model_name = "kling-v1";
       payload.image = await this.uploadBase64ImageToOSS(options.referenceImages![0]);
       payload.image_tail = await this.uploadBase64ImageToOSS(options.referenceImages![1]);
       payload.prompt = options.prompt || KLING_DEFAULT_REFERENCE_PROMPT;

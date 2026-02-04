@@ -697,84 +697,87 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         </div>
       )}
 
-      <div
-        className='video-dropdown'
-        style={{ marginBottom: 8, position: "relative" }}
-      >
-        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
-          尺寸
-        </div>
-        <button
-          type='button'
-          onClick={(event) => {
-            event.stopPropagation();
-            setDurationMenuOpen(false);
-            setAspectMenuOpen((open) => !open);
-          }}
-          style={{
-            width: "100%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "6px 10px",
-            borderRadius: 8,
-            border: "1px solid #e5e7eb",
-            background: "#fff",
-            fontSize: 12,
-            cursor: "pointer",
-          }}
+      {/* 尺寸选择 - Vidu 不支持 */}
+      {provider !== "vidu" && (
+        <div
+          className='video-dropdown'
+          style={{ marginBottom: 8, position: "relative" }}
         >
-          <span>{aspectLabel}</span>
-          <span style={{ fontSize: 16, lineHeight: 1 }}>
-            {aspectMenuOpen ? "▴" : "▾"}
-          </span>
-        </button>
-        {aspectMenuOpen && (
-          <div
-            className='video-dropdown-menu'
-            onClick={(event) => event.stopPropagation()}
+          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+            尺寸
+          </div>
+          <button
+            type='button'
+            onClick={(event) => {
+              event.stopPropagation();
+              setDurationMenuOpen(false);
+              setAspectMenuOpen((open) => !open);
+            }}
             style={{
-              position: "absolute",
-              zIndex: 20,
-              top: "calc(100% + 4px)",
-              left: 0,
-              right: 0,
-              background: "#fff",
-              border: "1px solid #e5e7eb",
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "6px 10px",
               borderRadius: 8,
-              padding: 8,
-              boxShadow: "0 8px 16px rgba(15,23,42,0.08)",
+              border: "1px solid #e5e7eb",
+              background: "#fff",
+              fontSize: 12,
+              cursor: "pointer",
             }}
           >
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {aspectOptions.map((option) => {
-                const isActive = option.value === aspectRatioValue;
-                return (
-                  <button
-                    key={option.value || "auto"}
-                    type='button'
-                    onClick={() => {
-                      handleAspectChange(option.value);
-                      setAspectMenuOpen(false);
-                    }}
-                    style={{
-                      padding: "4px 10px",
-                      borderRadius: 999,
-                      border: `1px solid ${isActive ? "#2563eb" : "#e5e7eb"}`,
-                      background: isActive ? "#2563eb" : "#fff",
-                      color: isActive ? "#fff" : "#111827",
-                      fontSize: 12,
-                      cursor: "pointer",
-                    }}
-                  >
-                    {option.label}
-                  </button>
-                );
-              })}
+            <span>{aspectLabel}</span>
+            <span style={{ fontSize: 16, lineHeight: 1 }}>
+              {aspectMenuOpen ? "▴" : "▾"}
+            </span>
+          </button>
+          {aspectMenuOpen && (
+            <div
+              className='video-dropdown-menu'
+              onClick={(event) => event.stopPropagation()}
+              style={{
+                position: "absolute",
+                zIndex: 20,
+                top: "calc(100% + 4px)",
+                left: 0,
+                right: 0,
+                background: "#fff",
+                border: "1px solid #e5e7eb",
+                borderRadius: 8,
+                padding: 8,
+                boxShadow: "0 8px 16px rgba(15,23,42,0.08)",
+              }}
+            >
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {aspectOptions.map((option) => {
+                  const isActive = option.value === aspectRatioValue;
+                  return (
+                    <button
+                      key={option.value || "auto"}
+                      type='button'
+                      onClick={() => {
+                        handleAspectChange(option.value);
+                        setAspectMenuOpen(false);
+                      }}
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: 999,
+                        border: `1px solid ${isActive ? "#2563eb" : "#e5e7eb"}`,
+                        background: isActive ? "#2563eb" : "#fff",
+                        color: isActive ? "#fff" : "#111827",
+                        fontSize: 12,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
 
       <div
         className='video-dropdown'
