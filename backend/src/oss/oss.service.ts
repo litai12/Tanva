@@ -127,6 +127,22 @@ export class OssService {
     return { key, url: this.publicUrl(key) };
   }
 
+  async putBuffer(
+    key: string,
+    buffer: Buffer,
+    contentType?: string
+  ): Promise<{ key: string; url: string }> {
+    if (!this.isOssEnabled()) {
+      this.logDisabledOnce();
+      return { key, url: '' };
+    }
+    const client = this.client();
+    const headers: Record<string, string> = {};
+    if (contentType) headers['Content-Type'] = contentType;
+    await client.put(key, buffer, { headers });
+    return { key, url: this.publicUrl(key) };
+  }
+
   async putJSON(
     key: string,
     data: unknown,

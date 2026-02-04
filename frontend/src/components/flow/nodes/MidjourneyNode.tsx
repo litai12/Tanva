@@ -546,20 +546,12 @@ function MidjourneyNodeInner({ id, data, selected }: Props) {
       {/* Midjourney 操作按钮 */}
       {renderActionButtons()}
 
-      {/* 连接点 */}
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="img"
-        style={{ top: '35%' }}
-        onMouseEnter={() => setHover('img-in')}
-        onMouseLeave={() => setHover(null)}
-      />
+      {/* 连接点 - MJ 只支持文生图，无 image 输入 */}
       <Handle
         type="target"
         position={Position.Left}
         id="text"
-        style={{ top: '65%' }}
+        style={{ top: '50%' }}
         onMouseEnter={() => setHover('prompt-in')}
         onMouseLeave={() => setHover(null)}
       />
@@ -573,18 +565,10 @@ function MidjourneyNodeInner({ id, data, selected }: Props) {
       />
 
       {/* 连接点提示 */}
-      {hover === 'img-in' && (
-        <div
-          className="flow-tooltip"
-          style={{ left: -8, top: '35%', transform: 'translate(-100%, -50%)' }}
-        >
-          image
-        </div>
-      )}
       {hover === 'prompt-in' && (
         <div
           className="flow-tooltip"
-          style={{ left: -8, top: '65%', transform: 'translate(-100%, -50%)' }}
+          style={{ left: -8, top: '50%', transform: 'translate(-100%, -50%)' }}
         >
           prompt
         </div>

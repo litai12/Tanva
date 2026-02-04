@@ -1,5 +1,6 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { OssService } from '../../oss/oss.service';
 import {
   AIProviderResponse,
   AnalysisResult,
@@ -60,7 +61,10 @@ export class MidjourneyProvider implements IAIProvider {
   private readonly defaultMode: 'FAST' | 'RELAX' = 'FAST';
   private apiKey: string | null = null;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly ossService: OssService,
+  ) {
     this.apiBaseUrl =
       this.config.get<string>('MIDJOURNEY_API_BASE_URL') ?? 'https://api1.147ai.com';
     this.pollIntervalMs = Number(
@@ -365,8 +369,40 @@ export class MidjourneyProvider implements IAIProvider {
     }
   }
 
+  private async uploadImageToOSS(imageUrl: string | null): Promise<string | null> {
+    if (!imageUrl) return null;
+
+    try {
+      const response = await fetch(imageUrl);
+      if (!response.ok) {
+        this.logger.warn(`[Midjourney] Failed to download image for OSS: ${response.status}`);
+        return null;
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const contentType = response.headers.get('content-type') || 'image/png';
+      const ext = contentType.includes('webp') ? 'webp' : contentType.includes('jpeg') ? 'jpg' : 'png';
+      const timestamp = Date.now();
+      const randomId = Math.random().toString(36).substring(2, 8);
+      const key = `uploads/midjourney/${timestamp}_${randomId}.${ext}`;
+
+      const result = await this.ossService.putBuffer(key, buffer, contentType);
+      if (result.url) {
+        this.logger.log(`[Midjourney] Image uploaded to OSS: ${result.url}`);
+        return result.url;
+      }
+      return null;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`[Midjourney] Error uploading to OSS: ${message}`);
+      return null;
+    }
+  }
+
   private buildImaginePayload(request: ImageGenerationRequest): Record<string, any> {
     const options = this.extractMidjourneyOptions(request.providerOptions);
+    // Midjourney 只支持纯文生图，不支持图片输入
     const payload: Record<string, any> = {
       prompt: request.prompt,
       mode: options?.mode ?? this.defaultMode,
@@ -375,9 +411,6 @@ export class MidjourneyProvider implements IAIProvider {
     if (options?.botType) payload.botType = options.botType;
     if (options?.notifyHook) payload.notifyHook = options.notifyHook;
     if (options?.state) payload.state = options.state;
-    if (options?.base64Array?.length) {
-      payload.base64Array = options.base64Array.map((img) => this.ensureDataUrl(img));
-    }
     const accountFilter = this.buildAccountFilter(options);
     if (accountFilter) payload.accountFilter = accountFilter;
 
@@ -477,6 +510,7 @@ export class MidjourneyProvider implements IAIProvider {
   private buildSuccessImageResponse(
     task: MidjourneyTaskResponse,
     imageData: string | null,
+    ossUrl: string | null,
     extraMetadata: Record<string, any> = {}
   ): AIProviderResponse<ImageResult> {
     const textResponse =
@@ -485,7 +519,9 @@ export class MidjourneyProvider implements IAIProvider {
       task.promptEn ||
       'Midjourney image generated successfully.';
 
-    const imageUrl = this.extractImageUrl(task);
+    const originalImageUrl = this.extractImageUrl(task);
+    // 优先使用 OSS URL
+    const imageUrl = ossUrl || originalImageUrl;
     const midjourneyMeta = {
       taskId: task.id,
       status: task.status,
@@ -495,6 +531,7 @@ export class MidjourneyProvider implements IAIProvider {
       description: task.description,
       properties: task.properties,
       imageUrl,
+      originalImageUrl,
     };
 
     return {
@@ -502,7 +539,7 @@ export class MidjourneyProvider implements IAIProvider {
       data: {
         imageData: imageData ?? undefined,
         textResponse,
-        hasImage: Boolean(imageData),
+        hasImage: Boolean(imageData) || Boolean(ossUrl),
         metadata: {
           provider: 'midjourney',
           imageUrl,
@@ -519,9 +556,10 @@ export class MidjourneyProvider implements IAIProvider {
       const taskId = await this.submitTask('/mj/submit/imagine', payload, 'generateImage');
       const task = await this.pollTask(taskId, 'generateImage');
       const imageUrl = this.extractImageUrl(task);
-      const imageData = await this.downloadImageAsBase64(imageUrl);
+      const ossUrl = await this.uploadImageToOSS(imageUrl);
+      const imageData = ossUrl ? null : await this.downloadImageAsBase64(imageUrl);
 
-      return this.buildSuccessImageResponse(task, imageData);
+      return this.buildSuccessImageResponse(task, imageData, ossUrl);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
@@ -555,9 +593,10 @@ export class MidjourneyProvider implements IAIProvider {
       const taskId = await this.submitTask('/mj/submit/imagine', payload, 'editImage');
       const task = await this.pollTask(taskId, 'editImage');
       const imageUrl = this.extractImageUrl(task);
-      const imageData = await this.downloadImageAsBase64(imageUrl);
+      const ossUrl = await this.uploadImageToOSS(imageUrl);
+      const imageData = ossUrl ? null : await this.downloadImageAsBase64(imageUrl);
 
-      return this.buildSuccessImageResponse(task, imageData);
+      return this.buildSuccessImageResponse(task, imageData, ossUrl);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
@@ -580,9 +619,10 @@ export class MidjourneyProvider implements IAIProvider {
       const taskId = await this.submitTask('/mj/submit/blend', payload, 'blendImages');
       const task = await this.pollTask(taskId, 'blendImages');
       const imageUrl = this.extractImageUrl(task);
-      const imageData = await this.downloadImageAsBase64(imageUrl);
+      const ossUrl = await this.uploadImageToOSS(imageUrl);
+      const imageData = ossUrl ? null : await this.downloadImageAsBase64(imageUrl);
 
-      return this.buildSuccessImageResponse(task, imageData);
+      return this.buildSuccessImageResponse(task, imageData, ossUrl);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
@@ -734,9 +774,10 @@ export class MidjourneyProvider implements IAIProvider {
       const newTaskId = await this.submitTask('/mj/submit/action', payload, 'action');
       const task = await this.pollTask(newTaskId, 'action');
       const imageUrl = this.extractImageUrl(task);
-      const imageData = await this.downloadImageAsBase64(imageUrl);
+      const ossUrl = await this.uploadImageToOSS(imageUrl);
+      const imageData = ossUrl ? null : await this.downloadImageAsBase64(imageUrl);
 
-      return this.buildSuccessImageResponse(task, imageData, {
+      return this.buildSuccessImageResponse(task, imageData, ossUrl, {
         parentTaskId: request.taskId,
         actionCustomId: request.customId,
       });
@@ -765,9 +806,10 @@ export class MidjourneyProvider implements IAIProvider {
       const newTaskId = await this.submitTask('/mj/submit/modal', payload, 'modal');
       const task = await this.pollTask(newTaskId, 'modal');
       const imageUrl = this.extractImageUrl(task);
-      const imageData = await this.downloadImageAsBase64(imageUrl);
+      const ossUrl = await this.uploadImageToOSS(imageUrl);
+      const imageData = ossUrl ? null : await this.downloadImageAsBase64(imageUrl);
 
-      return this.buildSuccessImageResponse(task, imageData, {
+      return this.buildSuccessImageResponse(task, imageData, ossUrl, {
         parentTaskId: request.taskId,
         modalPrompt: request.prompt,
       });

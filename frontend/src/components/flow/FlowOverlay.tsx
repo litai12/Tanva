@@ -3801,15 +3801,10 @@ function FlowInner() {
         return false;
       }
 
-      // Midjourney 节点连接验证
+      // Midjourney 节点连接验证 - 只支持文本输入（纯文生图）
       if (targetNode.type === "midjourney") {
         if (targetHandle === "text") {
           return textSourceTypes.includes(sourceNode.type || "");
-        }
-        if (targetHandle === "img") {
-          // midjourney 也可以作为图片源
-          if (sourceNode.type === "midjourney") return true;
-          return isImageSource(sourceNode, sourceHandle);
         }
         return false;
       }
@@ -4011,10 +4006,9 @@ function FlowInner() {
         if (params.targetHandle === "image") return true;
         if (params.targetHandle === "text") return true;
       }
-      // Midjourney 节点连接容量控制
+      // Midjourney 节点连接容量控制 - 只支持文本输入
       if (targetNode?.type === "midjourney") {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
-        if (params.targetHandle === "img") return incoming.length < 6; // 最多6张图片输入
       }
       if (targetNode?.type === "analysis") {
         if (params.targetHandle === "img") return true; // 仅一条连接，后续替换
@@ -6822,30 +6816,7 @@ function FlowInner() {
         const mjMode = (node.data as any)?.mode || "FAST";
         const mjAspectRatio = (node.data as any)?.aspectRatio;
 
-        // 检查是否有图片输入
-        const mjImageEdges = currentEdges
-          .filter((e) => e.target === nodeId && e.targetHandle === "img")
-          .slice(0, 6);
-
-        // MJ 优先使用 URL 格式，从源节点获取 imageUrl
-        const mjImageUrls: string[] = [];
-        for (const edge of mjImageEdges) {
-          const srcNode = rf.getNode(edge.source);
-          if (!srcNode) continue;
-          const d = srcNode.data as any;
-          // 优先使用 imageUrl（OSS URL），其次使用 imageData
-          const url = d?.imageUrl || d?.thumbnail || "";
-          console.log(`[MJ] 源节点 ${srcNode.id} 数据:`, { imageUrl: d?.imageUrl, thumbnail: d?.thumbnail, hasImageData: !!d?.imageData });
-          if (url && url.startsWith("http")) {
-            mjImageUrls.push(url);
-          }
-        }
-        console.log(`[MJ] 获取到的 URL 数量: ${mjImageUrls.length}`, mjImageUrls);
-        // 如果没有获取到 URL，回退到 base64
-        const mjImageDatas = mjImageUrls.length > 0
-          ? mjImageUrls
-          : await resolveEdgesAsDataUrls(mjImageEdges);
-
+        // Midjourney 只支持纯文生图，不支持图片输入
         setNodes((ns) =>
           ns.map((n) =>
             n.id === nodeId
@@ -6858,53 +6829,17 @@ function FlowInner() {
         );
 
         try {
-          let mjResult: {
-            success: boolean;
-            data?: any;
-            error?: { message: string };
-          };
-
-          if (mjImageDatas.length === 0) {
-            // 文生图 (Imagine)
-            mjResult = await generateImageViaAPI({
-              prompt: finalPrompt,
-              outputFormat: "png",
-              aiProvider: "midjourney",
-              model: "midjourney-fast",
-              aspectRatio: mjAspectRatio,
-              providerOptions: {
-                midjourney: { mode: mjMode },
-              },
-            });
-          } else if (mjImageDatas.length === 1) {
-            // 图生图：使用 imagine 接口 + base64Array
-            mjResult = await generateImageViaAPI({
-              prompt: finalPrompt,
-              outputFormat: "png",
-              aiProvider: "midjourney",
-              model: "midjourney-fast",
-              aspectRatio: mjAspectRatio,
-              providerOptions: {
-                midjourney: {
-                  mode: mjMode,
-                  base64Array: mjImageDatas,
-                },
-              },
-            });
-          } else {
-            // 融图 (Blend)
-            mjResult = await blendImagesViaAPI({
-              prompt: finalPrompt,
-              sourceImages: mjImageDatas.slice(0, 6),
-              outputFormat: "png",
-              aiProvider: "midjourney",
-              model: "midjourney-fast",
-              aspectRatio: mjAspectRatio,
-              providerOptions: {
-                midjourney: { mode: mjMode },
-              },
-            });
-          }
+          // 文生图 (Imagine)
+          const mjResult = await generateImageViaAPI({
+            prompt: finalPrompt,
+            outputFormat: "png",
+            aiProvider: "midjourney",
+            model: "midjourney-fast",
+            aspectRatio: mjAspectRatio,
+            providerOptions: {
+              midjourney: { mode: mjMode },
+            },
+          });
 
           if (!mjResult.success || !mjResult.data) {
             const msg = mjResult.error?.message || "Midjourney 生成失败";

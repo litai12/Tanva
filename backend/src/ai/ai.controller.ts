@@ -903,6 +903,15 @@ export class AiController {
 	              });
 	
 	              if (result.success && result.data) {
+	                // Midjourney 已经上传到 OSS，直接使用返回的 URL
+	                const existingOssUrl = result.data.metadata?.imageUrl;
+	                if (existingOssUrl && existingOssUrl.includes('oss')) {
+	                  return {
+	                    imageUrl: existingOssUrl,
+	                    textResponse: result.data.textResponse || '',
+	                    metadata: result.data.metadata || {},
+	                  };
+	                }
 	                const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
 	                const upload = await this.uploadGeneratedImageToOss(watermarked || '', { userId });
 	                return {
