@@ -1163,7 +1163,8 @@ const FloatingHeader: React.FC = () => {
               </div>
             </div>
 
-            {/* Google API Key 设置 - 已注释
+            {/* Google API Key 设置 - 已隐藏 */}
+            {false && (
             <div className='p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur'>
               <div className='flex items-center gap-2 mb-4'>
                 <Key className='w-4 h-4 text-green-600' />
@@ -1274,7 +1275,7 @@ const FloatingHeader: React.FC = () => {
                 )}
               </div>
             </div>
-            */}
+            )}
           </div>
         );
       case "advanced":
