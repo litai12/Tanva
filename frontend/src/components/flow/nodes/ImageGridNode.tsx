@@ -569,17 +569,11 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
             const sh = Math.max(1, Math.min(img.naturalHeight - sy, shRaw));
 
             cropParams = { sx, sy, sw, sh };
-            // 目标尺寸以“源坐标系”的 crop.width/height 为准，避免 base 图像被缩放（例如仅加载到缩略图）时，
-            // 拼合结果跟着被压缩（例如 2048->400 导致 1024 变 200）。
+            // 目标尺寸以"源坐标系"的 crop.width/height 为准
             const targetW = Math.max(1, Math.round(crop.width));
             const targetH = Math.max(1, Math.round(crop.height));
-            const MAX_OUTPUT_PIXELS = 32_000_000; // ~32MP
-            const scale =
-              targetW * targetH > MAX_OUTPUT_PIXELS
-                ? Math.sqrt(MAX_OUTPUT_PIXELS / (targetW * targetH))
-                : 1;
-            effectiveWidth = Math.max(1, Math.floor(targetW * scale));
-            effectiveHeight = Math.max(1, Math.floor(targetH * scale));
+            effectiveWidth = targetW;
+            effectiveHeight = targetH;
           }
 
           return { img, item, revoke: ephemeral?.revoke, effectiveWidth, effectiveHeight, cropParams };

@@ -7136,6 +7136,17 @@ function FlowInner() {
       })();
       const effectiveImageSize = nodeSizeValue || imageSize || undefined;
 
+      // 根据节点类型选择模型：generate/generate4 使用 fast 模型，generatePro/generatePro4 使用 pro 模型
+      const nodeSpecificModel = (() => {
+        if (node.type === "generate" || node.type === "generate4") {
+          return "gemini-2.5-flash-image";
+        }
+        if (node.type === "generatePro" || node.type === "generatePro4") {
+          return "gemini-3-pro-image-preview";
+        }
+        return imageModel; // 其他节点使用全局模型
+      })();
+
       if (node.type === "generate4") {
         const total = Math.max(
           1,
@@ -7187,7 +7198,7 @@ function FlowInner() {
                 prompt,
                 outputFormat: "png",
                 aiProvider,
-                model: imageModel,
+                model: nodeSpecificModel,
                 aspectRatio: aspectRatioValue,
                 imageSize: effectiveImageSize,
               });
@@ -7199,7 +7210,7 @@ function FlowInner() {
                   : { sourceImage: imageDatas[0] }),
                 outputFormat: "png",
                 aiProvider,
-                model: imageModel,
+                model: nodeSpecificModel,
                 aspectRatio: aspectRatioValue,
                 imageSize: effectiveImageSize,
               });
@@ -7211,7 +7222,7 @@ function FlowInner() {
                   : { sourceImages: imageDatas.slice(0, 6) }),
                 outputFormat: "png",
                 aiProvider,
-                model: imageModel,
+                model: nodeSpecificModel,
                 aspectRatio: aspectRatioValue,
                 imageSize: effectiveImageSize,
               });
@@ -7230,7 +7241,7 @@ function FlowInner() {
                     nodeId,
                     slot: i,
                     aiProvider,
-                    model: imageModel,
+                    model: nodeSpecificModel,
                     prompt,
                     hasImage: !!generatedSrc,
                   }
@@ -7412,7 +7423,7 @@ function FlowInner() {
                 prompt,
                 outputFormat: "png",
                 aiProvider,
-                model: imageModel,
+                model: nodeSpecificModel,
                 aspectRatio: aspectRatioValue,
                 imageSize: effectiveImageSize,
               });
@@ -7424,7 +7435,7 @@ function FlowInner() {
                   : { sourceImage: imageDatas[0] }),
                 outputFormat: "png",
                 aiProvider,
-                model: imageModel,
+                model: nodeSpecificModel,
                 aspectRatio: aspectRatioValue,
                 imageSize: effectiveImageSize,
               });
@@ -7436,7 +7447,7 @@ function FlowInner() {
                   : { sourceImages: imageDatas.slice(0, 6) }),
                 outputFormat: "png",
                 aiProvider,
-                model: imageModel,
+                model: nodeSpecificModel,
                 aspectRatio: aspectRatioValue,
                 imageSize: effectiveImageSize,
               });
@@ -7646,7 +7657,7 @@ function FlowInner() {
             prompt,
             outputFormat: "png",
             aiProvider,
-            model: imageModel,
+            model: nodeSpecificModel,
             aspectRatio: aspectRatioValue,
             imageSize: effectiveImageSize,
           });
@@ -7658,7 +7669,7 @@ function FlowInner() {
               : { sourceImage: imageDatas[0] }),
             outputFormat: "png",
             aiProvider,
-            model: imageModel,
+            model: nodeSpecificModel,
             aspectRatio: aspectRatioValue,
             imageSize: effectiveImageSize,
           });
@@ -7670,7 +7681,7 @@ function FlowInner() {
               : { sourceImages: imageDatas.slice(0, 6) }),
             outputFormat: "png",
             aiProvider,
-            model: imageModel,
+            model: nodeSpecificModel,
             aspectRatio: aspectRatioValue,
             imageSize: effectiveImageSize,
           });
@@ -7695,7 +7706,7 @@ function FlowInner() {
           console.warn("⚠️ Flow generate success but no image returned", {
             nodeId,
             aiProvider,
-            model: imageModel,
+            model: nodeSpecificModel,
             prompt,
             hasImage: !!imgBase64,
           });

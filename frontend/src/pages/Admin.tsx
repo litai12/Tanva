@@ -915,12 +915,12 @@ const SORA2_PROVIDER_OPTIONS = [
   {
     value: "auto",
     label: "自动切换",
-    description: "优先使用极速Sora2，失败后自动切换到普通Sora2",
+    description: "优先使用Sora2 Pro，失败后自动切换到普通Sora2",
   },
   {
     value: "v2",
-    label: "极速Sora2",
-    description: "强制使用极速Sora2 (t8star.cn)",
+    label: "Sora2 Pro",
+    description: "强制使用Sora2 Pro (newapi.megabyai.cc)",
   },
   {
     value: "legacy",
@@ -1663,7 +1663,7 @@ function SettingsTab() {
         <h3 className='text-lg font-semibold mb-4'>Sora2 视频生成设置</h3>
         <p className='text-sm text-gray-500 mb-4'>
           选择视频生成时使用的 API
-          供应商。自动模式会优先使用极速Sora2，失败后自动切换到普通Sora2。
+          供应商。自动模式会优先使用Sora2 Pro，失败后自动切换到普通Sora2。
         </p>
         <div className='space-y-3'>
           {SORA2_PROVIDER_OPTIONS.map((option) => (

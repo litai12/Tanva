@@ -2,16 +2,16 @@
 export const CREDIT_PRICING_CONFIG = {
   // Gemini 图像服务
   'gemini-3-pro-image': {
-    serviceName: 'Gemini 3 Pro 生图',
+    serviceName: 'Nano banana Pro 生图',
     provider: 'gemini',
     creditsPerCall: 30,
-    description: '使用 Gemini 3 Pro 模型生成高质量图像',
+    description: '使用 Nano banana Pro 模型生成高质量图像',
   },
   'gemini-2.5-image': {
-    serviceName: 'Gemini 2.5 生图',
+    serviceName: 'Nano banana 生图',
     provider: 'gemini',
     creditsPerCall: 10,
-    description: '使用 Gemini 2.5 模型生成图像',
+    description: '使用 Nano banana 模型生成图像',
   },
   'gemini-image-edit': {
     serviceName: 'Gemini 图像编辑',

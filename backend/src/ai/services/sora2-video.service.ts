@@ -32,16 +32,27 @@ const SORA2_POLL_INTERVAL_MS = 5000;
 const SORA2_POLL_MAX_ATTEMPTS = 120;
 const SORA2_POLL_STATUSES = ["queued", "processing", "downloading", "pending"];
 
-// ==================== 新API (极速Sora2) 配置 ====================
-// 极速Sora2 使用 /v2/videos/generations 接口（与普通版不同）
-const SORA2_V2_VIDEO_MODELS: Record<VideoQuality, string> = {
-  hd: "sora-2-pro",
-  sd: "sora-2",
-};
+// ==================== 新API (Sora2 Pro - newapi.megabyai.cc) 配置 ====================
+// 使用 OpenAI 兼容接口 /v1/videos
 const SORA2_V2_POLL_INTERVAL_MS = 5000;
 const SORA2_V2_POLL_MAX_ATTEMPTS = 120;
 const SORA2_V2_FAILED_STATUSES = ["failed", "error", "cancelled", "FAILURE"];
 const SORA2_V2_FETCH_TIMEOUT_MS = 120000;
+
+// Sora2 Pro 模型选择（根据质量和是否图生视频）
+const getSora2ProModel = (quality: "standard" | "hd", isImageToVideo: boolean): string => {
+  // 根据文档，模型名称为:
+  // - sora-2-text-to-video (标准文生视频)
+  // - sora-2-pro-text-to-video (Pro文生视频)
+  // - sora-2-image-to-video (标准图生视频)
+  // - sora-2-pro-image-to-video (Pro图生视频)
+
+  // hd 质量使用 pro 模型，sd 质量使用标准模型
+  if (quality === "hd") {
+    return isImageToVideo ? "sora-2-pro-image-to-video" : "sora-2-pro-text-to-video";
+  }
+  return isImageToVideo ? "sora-2-image-to-video" : "sora-2-text-to-video";
+};
 
 interface Sora2ResolvedMedia {
   videoUrl?: string;
@@ -86,10 +97,9 @@ export class Sora2VideoService {
   private readonly apiBase =
     process.env.SORA2_API_ENDPOINT || "https://api1.147ai.com";
   private readonly apiKey = process.env.SORA2_API_KEY;
-  // 新API (极速Sora2)
-  private readonly apiBaseV2 =
-    process.env.SORA2_V2_API_ENDPOINT || "https://ai.t8star.cn";
-  private readonly apiKeyV2 = process.env.SORA2_V2_API_KEY;
+  // 新API (Sora2 Pro - newapi.megabyai.cc)
+  private readonly apiBaseV2 = "https://newapi.megabyai.cc";
+  private readonly apiKeyV2 = process.env.NEW_API_KEY;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -125,11 +135,11 @@ export class Sora2VideoService {
 
     // 根据配置选择供应商
     if (provider === "v2") {
-      // 强制使用极速 Sora2
+      // 强制使用 Sora2 Pro
       if (!this.apiKeyV2) {
-        throw new ServiceUnavailableException("极速Sora2 API Key 未配置");
+        throw new ServiceUnavailableException("Sora2 Pro API Key 未配置");
       }
-      this.logger.log("使用极速Sora2 API (强制)");
+      this.logger.log("使用Sora2 Pro API (强制)");
       return await this.generateVideoV2(options);
     }
 
@@ -142,21 +152,21 @@ export class Sora2VideoService {
       return await this.generateVideoLegacy(options);
     }
 
-    // auto 模式：首选极速Sora2，失败后回退到普通Sora2
+    // auto 模式：首选Sora2 Pro，失败后回退到普通Sora2
     if (this.apiKeyV2) {
       try {
-        this.logger.log("尝试使用极速Sora2 API...");
+        this.logger.log("尝试使用Sora2 Pro API...");
         return await this.generateVideoV2(options);
       } catch (error) {
         this.logger.warn(
-          `极速Sora2 API失败，切换到普通Sora2: ${
+          `Sora2 Pro API失败，切换到普通Sora2: ${
             error instanceof Error ? error.message : error
           }`
         );
         // 继续使用备选方案
       }
     } else {
-      this.logger.log("极速Sora2 API Key未配置，使用普通Sora2");
+      this.logger.log("Sora2 Pro API Key未配置，使用普通Sora2");
     }
 
     // 备选：普通Sora2 (旧API)
@@ -165,57 +175,61 @@ export class Sora2VideoService {
     }
 
     const result = await this.generateVideoLegacy(options);
-    // 如果是从极速Sora2回退的，添加提示信息
+    // 如果是从Sora2 Pro回退的，添加提示信息
     if (this.apiKeyV2) {
-      result.fallbackMessage = "极速Sora2过于繁忙，已为您切换到普通Sora2";
+      result.fallbackMessage = "Sora2 Pro过于繁忙，已为您切换到普通Sora2";
     }
     return result;
   }
 
   /**
-   * 极速Sora2 (新API - t8star.cn)
-   * 使用 /v2/videos/generations 接口（创建任务 + 轮询状态）
+   * Sora2 Pro (新API - newapi.megabyai.cc)
+   * 使用 OpenAI 兼容接口 /v1/videos
    */
   private async generateVideoV2(
     options: GenerateVideoOptions
   ): Promise<Sora2VideoResult> {
-    const quality: VideoQuality = options.quality === "sd" ? "sd" : "hd";
-    const model = SORA2_V2_VIDEO_MODELS[quality];
     const startedAt = Date.now();
 
+    // 判断是否为图生视频
+    const isImageToVideo =
+      options.referenceImageUrls && options.referenceImageUrls.length > 0;
+
+    // 根据参数选择模型
+    const duration = options.duration || "10";
+    const orientation = options.aspectRatio === "9:16" ? "portrait" : "landscape";
+    const qualityLevel = options.quality === "hd" ? "hd" : "standard";
+
+    const model = getSora2ProModel(qualityLevel, !!isImageToVideo);
+
     this.logger.log(
-      `极速Sora2 视频生成开始 (quality=${quality}, model=${model})`
+      `Sora2 Pro 视频生成开始 (model=${model}, duration=${duration}, orientation=${orientation}, quality=${qualityLevel}, isImageToVideo=${!!isImageToVideo})`
     );
 
-    // 1. 创建任务
+    // 根据文档构建请求体
+    // 文生视频: { model, prompt, duration, size }
+    // 图生视频: { model, prompt, images, duration, size, metadata }
+    const size = orientation === "portrait" ? "720x1280" : "1280x720";
+
     const createPayload: Record<string, any> = {
       model,
       prompt: options.prompt,
+      duration: Number(duration),
+      size,
     };
 
-    // 添加参考图片：极速Sora2 文档要求使用 image 字段（单个字符串），支持 URL / base64
-    if (options.referenceImageUrls && options.referenceImageUrls.length > 0) {
-      const images = options.referenceImageUrls.filter(
+    // 图生视频：添加 images 数组
+    if (isImageToVideo) {
+      const images = options.referenceImageUrls!.filter(
         (url) => typeof url === "string" && url.trim().length > 0
       );
       if (images.length > 0) {
-        // 贞贞 Sora2 V2 文档指出使用 image 字段，而不是 images 数组
-        createPayload.image = images[0];
+        createPayload.images = images;
+        createPayload.metadata = {
+          aspect_ratio: orientation,
+          remove_watermark: true,
+        };
       }
-    }
-
-    // 画面比例：贞贞 Sora2 V2 使用 ratio 字段
-    if (options.aspectRatio === "16:9" || options.aspectRatio === "9:16") {
-      createPayload.ratio = options.aspectRatio;
-    }
-
-    // 时长
-    if (
-      options.duration === "10" ||
-      options.duration === "15" ||
-      options.duration === "25"
-    ) {
-      createPayload.duration = options.duration;
     }
 
     const controller = new AbortController();
@@ -227,7 +241,7 @@ export class Sora2VideoService {
     let taskId: string;
     try {
       const createResponse = await fetch(
-        `${this.apiBaseV2}/v2/videos/generations`,
+        `${this.apiBaseV2}/v1/videos`,
         {
           method: "POST",
           headers: {
@@ -245,35 +259,42 @@ export class Sora2VideoService {
           errorData?.error?.message ||
           errorData?.message ||
           `HTTP ${createResponse.status}`;
-        // 对于服务端错误（5xx），显示友好提示
+        this.logger.error(
+          `Sora2 Pro 创建任务失败: HTTP ${createResponse.status}, 错误: ${message}, 完整响应: ${JSON.stringify(errorData)}`
+        );
+
+        // 检测配额不足错误
+        if (message.toLowerCase().includes('quota') || message.toLowerCase().includes('not enough')) {
+          throw new ServiceUnavailableException("服务金额不足，请联系管理员");
+        }
+
         if (createResponse.status >= 500) {
           throw new ServiceUnavailableException("服务器不稳定，请稍后再试");
         }
         throw new ServiceUnavailableException(
-          `极速Sora2 创建任务失败: ${message}`
+          `Sora2 Pro 创建任务失败: ${message}`
         );
       }
 
       const createResult = await createResponse.json();
       this.logger.log(
-        `极速Sora2 创建任务响应: ${JSON.stringify(createResult)}`
+        `Sora2 Pro 创建任务响应: ${JSON.stringify(createResult)}`
       );
 
-      // 尝试多种字段名提取 taskId，兼容贞贞文档中的 data[0].task_id 格式
+      // 提取 taskId
       taskId =
         createResult?.task_id ||
         createResult?.id ||
         createResult?.data?.task_id ||
-        createResult?.data?.id ||
-        createResult?.data?.[0]?.task_id;
+        createResult?.data?.id;
 
       if (!taskId) {
         throw new ServiceUnavailableException(
-          `极速Sora2 未返回任务ID, 响应: ${JSON.stringify(createResult)}`
+          `Sora2 Pro 未返回任务ID, 响应: ${JSON.stringify(createResult)}`
         );
       }
 
-      this.logger.log(`极速Sora2 任务已创建: ${taskId}`);
+      this.logger.log(`Sora2 Pro 任务已创建: ${taskId}`);
     } catch (error) {
       if ((error as any)?.name === "AbortError") {
         throw new ServiceUnavailableException("服务器不稳定，请稍后再试");
@@ -301,12 +322,12 @@ export class Sora2VideoService {
       throw new ServiceUnavailableException("服务器不稳定，请稍后再试");
     }
 
-    const duration = ((Date.now() - startedAt) / 1000).toFixed(2);
-    this.logger.log(`极速Sora2 视频生成成功，耗时 ${duration}s`);
+    const elapsedTime = ((Date.now() - startedAt) / 1000).toFixed(2);
+    this.logger.log(`Sora2 Pro 视频生成成功，耗时 ${elapsedTime}s`);
 
     return {
       videoUrl: pollResult.videoUrl,
-      content: `视频已生成（极速Sora2，任务ID: ${taskId}）`,
+      content: `视频已生成（Sora2 Pro，任务ID: ${taskId}）`,
       thumbnailUrl: pollResult.thumbnailUrl,
       referencedUrls: pollResult.videoUrl ? [pollResult.videoUrl] : [],
       status: pollResult.status,
@@ -316,7 +337,7 @@ export class Sora2VideoService {
   }
 
   /**
-   * 轮询极速Sora2任务状态
+   * 轮询Sora2 Pro任务状态
    */
   private async pollV2TaskUntilComplete(
     taskId: string
@@ -337,7 +358,7 @@ export class Sora2VideoService {
         let response: Response;
         try {
           response = await fetch(
-            `${this.apiBaseV2}/v2/videos/generations/${taskId}`,
+            `${this.apiBaseV2}/v1/videos/${taskId}`,
             {
               method: "GET",
               headers: {
@@ -348,7 +369,7 @@ export class Sora2VideoService {
           );
         } catch (fetchError) {
           if ((fetchError as any)?.name === "AbortError") {
-            this.logger.warn(`极速Sora2 轮询超时 (attempt ${attempt})`);
+            this.logger.warn(`Sora2 Pro 轮询超时 (attempt ${attempt})`);
             continue;
           }
           throw fetchError;
@@ -357,12 +378,12 @@ export class Sora2VideoService {
         }
 
         if (!response.ok) {
-          this.logger.warn(`极速Sora2 轮询失败: HTTP ${response.status}`);
+          this.logger.warn(`Sora2 Pro 轮询失败: HTTP ${response.status}`);
           continue;
         }
 
         const result = await response.json();
-        this.logger.debug(`极速Sora2 轮询响应: ${JSON.stringify(result)}`);
+        this.logger.debug(`Sora2 Pro 轮询响应: ${JSON.stringify(result)}`);
 
         const data = result?.data || result;
         const status = data?.status;
@@ -394,26 +415,26 @@ export class Sora2VideoService {
         // 仍在处理中，每10次输出一次日志
         if (attempt % 10 === 0) {
           this.logger.log(
-            `极速Sora2 任务 ${taskId} 仍在处理中... (${attempt}/${SORA2_V2_POLL_MAX_ATTEMPTS}) status=${
+            `Sora2 Pro 任务 ${taskId} 仍在处理中... (${attempt}/${SORA2_V2_POLL_MAX_ATTEMPTS}) status=${
               status || "unknown"
             }`
           );
         }
       } catch (error) {
         this.logger.warn(
-          `极速Sora2 轮询异常: ${
+          `Sora2 Pro 轮询异常: ${
             error instanceof Error ? error.message : error
           }`
         );
       }
     }
 
-    this.logger.warn(`极速Sora2 任务 ${taskId} 轮询超时`);
+    this.logger.warn(`Sora2 Pro 任务 ${taskId} 轮询超时`);
     return null;
   }
 
   /**
-   * 从极速Sora2响应中提取视频URL（兼容多种字段名）
+   * 从Sora2 Pro响应中提取视频URL
    */
   private extractV2VideoUrl(data: any): string | undefined {
     if (!data) return undefined;
