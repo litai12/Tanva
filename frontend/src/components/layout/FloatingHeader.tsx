@@ -1078,6 +1078,7 @@ const FloatingHeader: React.FC = () => {
                 AI 提供商
               </div>
               <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
+                {/* 国际版按钮已注释
                 <button
                   onClick={() => setAIProvider("gemini-pro")}
                   className={cn(
@@ -1104,6 +1105,7 @@ const FloatingHeader: React.FC = () => {
                     )}
                   </div>
                 </button>
+                */}
 
                 <button
                   onClick={() => setAIProvider("banana")}
@@ -1161,7 +1163,7 @@ const FloatingHeader: React.FC = () => {
               </div>
             </div>
 
-            {/* Google API Key 设置 */}
+            {/* Google API Key 设置 - 已注释
             <div className='p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur'>
               <div className='flex items-center gap-2 mb-4'>
                 <Key className='w-4 h-4 text-green-600' />
@@ -1174,7 +1176,6 @@ const FloatingHeader: React.FC = () => {
                 进行生图，不消耗积分。不输入则使用系统默认 Key（消耗积分）。
               </div>
 
-              {/* 当前状态显示 */}
               <div className='p-3 mb-4 border rounded-xl bg-slate-50 border-slate-100'>
                 <div className='flex items-center justify-between'>
                   <div className='text-xs text-slate-600'>
@@ -1273,6 +1274,7 @@ const FloatingHeader: React.FC = () => {
                 )}
               </div>
             </div>
+            */}
           </div>
         );
       case "advanced":
