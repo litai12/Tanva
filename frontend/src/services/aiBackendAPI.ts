@@ -1362,3 +1362,40 @@ export async function generateWan26R2VViaAPI(request: {
     };
   }
 }
+
+/**
+ * 查询 DashScope 任务状态（用于 wan2.6 I2V 异步模式轮询）
+ */
+export async function queryDashscopeTask(taskId: string): Promise<{
+  success: boolean;
+  status?: string;
+  videoUrl?: string;
+  error?: { message: string };
+}> {
+  try {
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/ai/dashscope/task/${encodeURIComponent(taskId)}`,
+      { method: "GET" }
+    );
+
+    if (!response.ok) {
+      return { success: false, error: { message: `HTTP ${response.status}` } };
+    }
+
+    const result = await response.json();
+    if (!result.success) {
+      return { success: false, error: result.error };
+    }
+
+    return {
+      success: true,
+      status: result.data?.status,
+      videoUrl: result.data?.videoUrl || result.data?.video_url,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: { message: error instanceof Error ? error.message : "Network error" },
+    };
+  }
+}

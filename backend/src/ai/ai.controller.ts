@@ -981,7 +981,15 @@ export class AiController {
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
 
-    return this.withCredits(req, 'gemini-image-edit', model, async () => {
+    // 根据模型选择服务类型：Fast (2.5) 或 Pro
+    const serviceType = model?.includes('2.5') ? 'gemini-2.5-image-edit' : 'gemini-image-edit';
+    console.log(`\n========== [editImage] ==========`);
+    console.log(`dto.model: ${dto.model}`);
+    console.log(`resolved model: ${model}`);
+    console.log(`serviceType: ${serviceType}`);
+    console.log(`=================================\n`);
+
+    return this.withCredits(req, serviceType as any, model, async () => {
       const fallbackUrl =
         !dto.sourceImageUrl && dto.sourceImage && /^https?:\/\//i.test(dto.sourceImage)
           ? dto.sourceImage
@@ -1049,7 +1057,10 @@ export class AiController {
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
 
-    return this.withCredits(req, 'gemini-image-blend', model, async () => {
+    // 根据模型选择服务类型：Fast (2.5) 或 Pro
+    const serviceType = model?.includes('2.5') ? 'gemini-2.5-image-blend' : 'gemini-image-blend';
+
+    return this.withCredits(req, serviceType as any, model, async () => {
       const sourceImages = dto.sourceImages?.length
         ? await Promise.all(
             dto.sourceImages.map(async (value) =>

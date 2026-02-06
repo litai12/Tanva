@@ -27,7 +27,6 @@ interface PaymentPanelProps {
 
 const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess }) => {
   const [packages, setPackages] = useState<RechargePackage[]>([]);
-  const [isFirstRecharge, setIsFirstRecharge] = useState(true);
   const [creditsPerYuan, setCreditsPerYuan] = useState(100);
   const [packagesLoading, setPackagesLoading] = useState(true);
   const [selectedPackage, setSelectedPackage] = useState<number | null>(null);
@@ -39,6 +38,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
   const [showOrders, setShowOrders] = useState(false);
   const [orders, setOrders] = useState<PaymentOrderRecord[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<string>("all");
   const [countdown, setCountdown] = useState(300);
   const [isExpired, setIsExpired] = useState(false);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
@@ -56,16 +56,18 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
     return { amount: Math.ceil(credits / creditsPerYuan), credits };
   }, [selectedPackage, customCredits, packages, creditsPerYuan]);
 
-  // 加载订单列表（只显示已支付和已过期的，不显示已取消的）
+  // 筛选后的订单列表
+  const filteredOrders = useMemo(() => {
+    if (statusFilter === "all") return orders;
+    return orders.filter(order => order.status === statusFilter);
+  }, [orders, statusFilter]);
+
+  // 加载订单列表
   const loadOrders = useCallback(async () => {
     setOrdersLoading(true);
     try {
       const result = await getPaymentOrders({ page: 1, pageSize: 20 });
-      // 过滤掉已取消和待支付的订单
-      const filteredOrders = result.orders.filter(
-        (order) => order.status === "paid" || order.status === "expired" || order.status === "failed"
-      );
-      setOrders(filteredOrders);
+      setOrders(result.orders);
     } catch (error) {
       console.error("加载订单失败:", error);
     } finally {
@@ -127,7 +129,6 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
       try {
         const data = await getPaymentPackages();
         setPackages(data.packages);
-        setIsFirstRecharge(data.isFirstRecharge);
         setCreditsPerYuan(data.creditsPerYuan);
         if (data.packages.length > 0) {
           setSelectedPackage(0);
@@ -288,6 +289,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
         return <Clock className="w-4 h-4 text-yellow-500" />;
       case "expired":
       case "failed":
+      case "cancelled":
         return <XCircle className="w-4 h-4 text-red-500" />;
       default:
         return null;
@@ -301,6 +303,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
       case "pending": return "待支付";
       case "expired": return "已过期";
       case "failed": return "失败";
+      case "cancelled": return "已取消";
       default: return status;
     }
   };
@@ -334,17 +337,41 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
       {/* 订单记录视图 */}
       {showOrders ? (
         <div className='mt-6'>
+          {/* 状态筛选 */}
+          <div className='flex items-center gap-2 mb-4 flex-wrap'>
+            {[
+              { value: "all", label: "全部" },
+              { value: "paid", label: "已支付" },
+              { value: "pending", label: "待支付" },
+              { value: "expired", label: "已过期" },
+              { value: "cancelled", label: "已取消" },
+            ].map((item) => (
+              <button
+                key={item.value}
+                onClick={() => setStatusFilter(item.value)}
+                className={cn(
+                  "px-3 py-1.5 text-sm rounded-lg border transition-colors",
+                  statusFilter === item.value
+                    ? "border-blue-400 bg-blue-50 text-blue-600"
+                    : "border-slate-200 text-slate-500 hover:border-slate-300"
+                )}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+
           {ordersLoading ? (
             <div className='flex items-center justify-center py-12'>
               <Loader2 className='w-6 h-6 animate-spin text-slate-400' />
             </div>
-          ) : orders.length === 0 ? (
+          ) : filteredOrders.length === 0 ? (
             <div className='text-center py-12 text-slate-400'>
-              暂无订单记录
+              {orders.length === 0 ? "暂无订单记录" : "暂无符合条件的订单"}
             </div>
           ) : (
             <div className='space-y-3'>
-              {orders.map((order) => (
+              {filteredOrders.map((order) => (
                 <div
                   key={order.orderId}
                   className='flex items-center justify-between p-4 bg-slate-50 rounded-xl'

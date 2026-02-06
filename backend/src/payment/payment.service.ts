@@ -221,11 +221,42 @@ export class PaymentService implements OnModuleInit {
   async adminConfirmPayment(orderNo: string) { return { success: true, credits: 0, userId: '' }; }
   async cleanupExpiredOrders() { return 0; }
   async handleAlipayNotify(data: any) { return true; }
-  async checkIsFirstRecharge(userId: string): Promise<boolean> {
-    // 查询用户是否有已支付的订单
+  /**
+   * 检查用户某个金额档位是否为首充
+   * @param userId 用户ID
+   * @param amount 套餐金额（可选，不传则返回所有档位的首充状态）
+   */
+  async checkIsFirstRechargeByAmount(userId: string, amount?: number): Promise<boolean> {
     const paidOrder = await this.prisma.paymentOrder.findFirst({
-      where: { userId, status: PaymentStatus.PAID },
+      where: {
+        userId,
+        status: PaymentStatus.PAID,
+        ...(amount !== undefined && { amount }),
+      },
     });
-    return !paidOrder; // 没有已支付订单 = 首充
+    return !paidOrder;
+  }
+
+  /**
+   * 获取用户各套餐档位的首充状态
+   * @param userId 用户ID
+   * @param amounts 套餐金额列表
+   */
+  async getFirstRechargeStatusByAmounts(userId: string, amounts: number[]): Promise<Record<number, boolean>> {
+    // 查询用户已支付的所有订单金额
+    const paidOrders = await this.prisma.paymentOrder.findMany({
+      where: { userId, status: PaymentStatus.PAID },
+      select: { amount: true },
+    });
+
+    // 已购买过的金额集合
+    const paidAmounts = new Set(paidOrders.map(o => Number(o.amount)));
+
+    // 返回每个金额档位的首充状态
+    const result: Record<number, boolean> = {};
+    for (const amount of amounts) {
+      result[amount] = !paidAmounts.has(amount);
+    }
+    return result;
   }
 }

@@ -113,6 +113,7 @@ import {
   generateWan26ViaAPI,
   generateWan26R2VViaAPI,
   midjourneyActionViaAPI,
+  queryDashscopeTask,
 } from "@/services/aiBackendAPI";
 import {
   generateVideoByProvider,
@@ -5877,7 +5878,41 @@ function FlowInner() {
             throw new Error(result?.error?.message || "任务提交失败");
           }
 
-          const videoUrl = extractVideoUrl(result.data);
+          let videoUrl = extractVideoUrl(result.data);
+
+          // I2V 异步模式：如果没有直接返回视频地址但有 taskId，则轮询
+          const taskId = result.data?.taskId || result.data?.task_id;
+          if (!videoUrl && taskId) {
+            const pollInterval = 5000; // 5秒
+            const maxAttempts = 180; // 最多180次（15分钟）
+
+            for (let attempt = 0; attempt < maxAttempts; attempt++) {
+              await new Promise((r) => setTimeout(r, pollInterval));
+
+              const queryResult = await queryDashscopeTask(taskId);
+
+              if (!queryResult.success) {
+                continue; // 查询失败，继续重试
+              }
+
+              const status = queryResult.status?.toLowerCase();
+
+              if (status === "succeeded" || status === "success") {
+                videoUrl = queryResult.videoUrl;
+                break;
+              }
+
+              if (status === "failed" || status === "error") {
+                throw new Error("视频生成任务失败");
+              }
+              // pending/running 状态继续轮询
+            }
+
+            if (!videoUrl) {
+              throw new Error("任务查询超时，请稍后重试");
+            }
+          }
+
           if (!videoUrl) {
             throw new Error("未返回视频地址");
           }
@@ -6898,12 +6933,8 @@ function FlowInner() {
           // 生成缩略图
           if (historyId) {
             const projectId = useProjectContentStore.getState().projectId;
-            const actionLabel =
-              mjImageDatas.length === 0
-                ? "Imagine"
-                : mjImageDatas.length === 1
-                ? "Edit"
-                : "Blend";
+            // Midjourney 当前只支持纯文生图，actionLabel 固定为 "Imagine"
+            const actionLabel = "Imagine";
             void recordImageHistoryEntry({
               id: historyId,
               base64: hasRemoteUrl ? undefined : mjImgBase64,
@@ -7136,15 +7167,14 @@ function FlowInner() {
       })();
       const effectiveImageSize = nodeSizeValue || imageSize || undefined;
 
-      // 根据节点类型选择模型：generate/generate4 使用 fast 模型，generatePro/generatePro4 使用 pro 模型
+      // 根据节点类型和全局模式选择模型
       const nodeSpecificModel = (() => {
-        if (node.type === "generate" || node.type === "generate4") {
-          return "gemini-2.5-flash-image";
-        }
+        // generatePro/generatePro4 始终使用 pro 模型
         if (node.type === "generatePro" || node.type === "generatePro4") {
           return "gemini-3-pro-image-preview";
         }
-        return imageModel; // 其他节点使用全局模型
+        // 其他节点（包括 generate/generate4/image 等）使用全局模型设置
+        return imageModel;
       })();
 
       if (node.type === "generate4") {
@@ -7662,6 +7692,7 @@ function FlowInner() {
             imageSize: effectiveImageSize,
           });
         } else if (imageDatas.length === 1) {
+          console.log('[FlowOverlay] editImage调用参数:', { aiProvider, model: nodeSpecificModel, imageModel });
           result = await editImageViaAPI({
             prompt,
             ...(hasOnlyRemote

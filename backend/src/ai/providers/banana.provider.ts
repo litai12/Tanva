@@ -550,11 +550,8 @@ export class BananaProvider implements IAIProvider {
       }
     }
 
-    // 🔍 详细调试日志：完整请求体
+    // 🔍 详细调试日志：请求URL
     this.logger.debug(`Making request to ${url}`);
-    this.logger.debug(`Object:`, {
-      body: JSON.stringify(body),
-    });
 
     const response = await fetch(url, {
       method: "POST",

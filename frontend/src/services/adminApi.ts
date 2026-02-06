@@ -511,10 +511,10 @@ export interface RechargePackage {
   credits: number;
   bonus: string | null;
   tag: string | null;
+  isFirstRecharge: boolean;
 }
 
 export interface PackagesResponse {
-  isFirstRecharge: boolean;
   packages: RechargePackage[];
   creditsPerYuan: number;
 }

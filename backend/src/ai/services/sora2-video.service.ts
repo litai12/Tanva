@@ -35,9 +35,9 @@ const SORA2_POLL_STATUSES = ["queued", "processing", "downloading", "pending"];
 // ==================== 新API (Sora2 Pro - newapi.megabyai.cc) 配置 ====================
 // 使用 OpenAI 兼容接口 /v1/videos
 const SORA2_V2_POLL_INTERVAL_MS = 5000;
-const SORA2_V2_POLL_MAX_ATTEMPTS = 120;
+const SORA2_V2_POLL_MAX_ATTEMPTS = 180; // 增加到180次，约15分钟
 const SORA2_V2_FAILED_STATUSES = ["failed", "error", "cancelled", "FAILURE"];
-const SORA2_V2_FETCH_TIMEOUT_MS = 120000;
+const SORA2_V2_FETCH_TIMEOUT_MS = 180000; // 增加到3分钟
 
 // Sora2 Pro 模型选择（根据质量和是否图生视频）
 const getSora2ProModel = (quality: "standard" | "hd", isImageToVideo: boolean): string => {

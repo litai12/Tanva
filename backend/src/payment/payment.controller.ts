@@ -72,37 +72,43 @@ export class PaymentController {
   }
 
   /**
-   * 获取充值套餐列表（根据用户首充状态返回不同配置）
+   * 获取充值套餐列表（每个套餐独立判断首充状态）
    */
   @Get('packages')
   @UseGuards(JwtAuthGuard)
   async getPackages(@Request() req: any) {
-    const isFirstRecharge = await this.paymentService.checkIsFirstRecharge(req.user.sub);
     const creditsPerYuan = 100;
+    const amounts = [10, 30, 50, 100, 200, 500];
 
-    // 首充套餐（有赠送）
-    const firstRechargePackages = [
-      { price: 10, credits: 2000, bonus: null, tag: '首充翻倍' },
-      { price: 30, credits: 6300, bonus: '送5%', tag: '首充翻倍' },
-      { price: 50, credits: 10500, bonus: '送5%', tag: '首充翻倍' },
-      { price: 100, credits: 22400, bonus: '送12%', tag: '首充翻倍' },
-      { price: 200, credits: 48000, bonus: '送20%', tag: '首充翻倍' },
-      { price: 500, credits: 130000, bonus: '送30%', tag: '首充翻倍' },
-    ];
+    // 获取每个金额档位的首充状态
+    const firstRechargeStatus = await this.paymentService.getFirstRechargeStatusByAmounts(
+      req.user.sub,
+      amounts,
+    );
 
-    // 非首充套餐（原价 1:100）
-    const normalPackages = [
-      { price: 10, credits: 1000, bonus: null, tag: null },
-      { price: 30, credits: 3000, bonus: null, tag: null },
-      { price: 50, credits: 5000, bonus: null, tag: null },
-      { price: 100, credits: 10000, bonus: null, tag: null },
-      { price: 200, credits: 20000, bonus: null, tag: null },
-      { price: 500, credits: 50000, bonus: null, tag: null },
-    ];
+    // 首充配置
+    const firstRechargeConfig: Record<number, { credits: number; bonus: string | null }> = {
+      10: { credits: 2000, bonus: null },
+      30: { credits: 6300, bonus: '送5%' },
+      50: { credits: 10500, bonus: '送5%' },
+      100: { credits: 22400, bonus: '送12%' },
+      200: { credits: 48000, bonus: '送20%' },
+      500: { credits: 130000, bonus: '送30%' },
+    };
+
+    // 根据每个套餐的首充状态返回对应配置
+    const packages = amounts.map(price => {
+      const isFirst = firstRechargeStatus[price];
+      if (isFirst) {
+        const config = firstRechargeConfig[price];
+        return { price, credits: config.credits, bonus: config.bonus, tag: '首充翻倍', isFirstRecharge: true };
+      } else {
+        return { price, credits: price * creditsPerYuan, bonus: null, tag: null, isFirstRecharge: false };
+      }
+    });
 
     return {
-      isFirstRecharge,
-      packages: isFirstRecharge ? firstRechargePackages : normalPackages,
+      packages,
       creditsPerYuan,
     };
   }
