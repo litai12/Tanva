@@ -211,10 +211,15 @@ export const DropdownMenuItem: React.FC<DropdownMenuItemProps> = ({ children, cl
     }
   };
 
+  const isDisabled = props.disabled;
+
   return (
     <button
       className={cn(
-        "w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center first:rounded-t-md last:rounded-b-md",
+        "w-full text-left px-4 py-2 text-sm flex items-center first:rounded-t-md last:rounded-b-md",
+        isDisabled
+          ? "text-gray-400 cursor-not-allowed opacity-50"
+          : "text-gray-700 hover:bg-gray-100",
         className
       )}
       onClick={handleClick}

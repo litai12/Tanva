@@ -5144,8 +5144,13 @@ function FlowInner() {
   // 运行：根据输入自动选择 生图/编辑/融合（支持 generate / generate4 / generateRef）
   const runNode = React.useCallback(
     async (nodeId: string) => {
+      console.log('[runNode] 被调用, nodeId:', nodeId);
       const node = rf.getNode(nodeId);
-      if (!node) return;
+      if (!node) {
+        console.log('[runNode] 节点不存在');
+        return;
+      }
+      console.log('[runNode] 节点类型:', node.type);
 
       const currentEdges = rf.getEdges();
 
@@ -8337,7 +8342,7 @@ function FlowInner() {
         n.type === "midjourney"
           ? { ...n, data: { ...n.data, onRun: runNode, onSend: onSendHandler } }
           : n.type === "image" || n.type === "imagePro"
-          ? { ...n, data: { ...n.data, onSend: onSendHandler } }
+          ? { ...n, data: { ...n.data, onRun: runNode, onSend: onSendHandler } }
           : n.type === "sora2Video" ||
             n.type === "wan26" ||
             n.type === "wan2R2V" ||

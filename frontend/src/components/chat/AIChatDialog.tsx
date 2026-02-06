@@ -2031,14 +2031,17 @@ const AIChatDialog: React.FC = () => {
   const manualModeWarning = useMemo(() => {
     if (manualAIMode === "auto") return null;
     if (isManualModeSupported) return null;
+    // 根据模式提供更清晰的提示
+    if (manualAIMode === "edit") {
+      return selectedImageCount === 0
+        ? "Edit模式需要添加1张图片"
+        : "Edit模式仅支持1张图片";
+    }
+    if (manualAIMode === "blend") {
+      return "Blend模式需要添加至少2张以上图片";
+    }
     return `当前模式不支持${selectedImageCount}张图`;
   }, [isManualModeSupported, manualAIMode, selectedImageCount]);
-
-  useEffect(() => {
-    if (manualAIMode === "auto") return;
-    if (isManualModeSupported) return;
-    setManualAIMode("auto");
-  }, [isManualModeSupported, manualAIMode, setManualAIMode]);
 
   // 处理发送 - 使用AI智能工具选择
   const handleSend = async () => {
@@ -3004,16 +3007,10 @@ const AIChatDialog: React.FC = () => {
                     </DropdownMenuLabel>
                     {availableManualModeOptions.map((option) => {
                       const isActive = manualAIMode === option.value;
-                      const support = getModeSupport(option.value);
-                      const isDisabled = !support.supported;
-                      const disabledTitle = isDisabled
-                        ? `当前模式不支持${selectedImageCount}张图`
-                        : undefined;
                       return (
                         <DropdownMenuItem
                           key={option.value}
                           onClick={(event) => {
-                            if (isDisabled) return;
                             setManualAIMode(option.value);
                             const root = (
                               event.currentTarget as HTMLElement
@@ -3025,8 +3022,6 @@ const AIChatDialog: React.FC = () => {
                               trigger.click();
                             }
                           }}
-                          disabled={isDisabled}
-                          title={disabledTitle}
                           className={cn(
                             "flex items-start gap-2 px-3 py-2 text-xs",
                             isActive
