@@ -3000,7 +3000,7 @@ const AIChatDialog: React.FC = () => {
                     align='start'
                     side={dropdownSide}
                     sideOffset={8}
-                    className='dropdown-menu-root min-w-[220px] max-h-[400px] overflow-y-auto rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md'
+                    className='dropdown-menu-root min-w-[220px] max-h-[400px] overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg'
                   >
                     <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
                       快速切换模式
