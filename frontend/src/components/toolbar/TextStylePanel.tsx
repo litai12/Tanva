@@ -63,7 +63,7 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
 
   return (
     <div className="absolute left-full ml-3 transition-all duration-[50ms] ease-out z-[1001]" style={{ top: '-14px' }}>
-      <div className="flex flex-col items-center gap-3 px-3 py-3 rounded-2xl bg-liquid-glass-light backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass-light min-w-[180px]">
+      <div className="flex flex-col items-center gap-3 px-3 py-3 rounded-2xl bg-white shadow-lg border border-gray-200 min-w-[180px]">
         
         {/* 字体选择 */}
         <div className="w-full">
