@@ -127,6 +127,21 @@ export default function RegisterPage() {
           </div>
         </form>
       </Card>
+
+      {/* 协议链接 */}
+      <div className='absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex gap-4 text-xs text-white/60'>
+        <Link to='/legal/terms' className='hover:text-white transition-colors'>
+          用户服务与AI使用协议
+        </Link>
+        <span>|</span>
+        <Link to='/legal/privacy' className='hover:text-white transition-colors'>
+          隐私政策
+        </Link>
+        <span>|</span>
+        <Link to='/legal/community' className='hover:text-white transition-colors'>
+          社区自律公约
+        </Link>
+      </div>
     </div>
   );
 }

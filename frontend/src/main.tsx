@@ -10,6 +10,9 @@ import RegisterPage from '@/pages/auth/Register';
 import OSSDemo from '@/pages/OSSDemo';
 import Admin from '@/pages/Admin';
 import MyCredits from '@/pages/MyCredits';
+import TermsOfService from '@/pages/legal/TermsOfService';
+import PrivacyPolicy from '@/pages/legal/PrivacyPolicy';
+import CommunityGuidelines from '@/pages/legal/CommunityGuidelines';
 import { useAuthStore } from '@/stores/authStore';
 import { useProjectStore } from '@/stores/projectStore';
 import Workspace from '@/pages/Workspace';
@@ -29,6 +32,9 @@ function RootRoutes() {
       <Route path="/" element={<Home />} />
       <Route path="/auth/login" element={<LoginPage />} />
       <Route path="/auth/register" element={<RegisterPage />} />
+      <Route path="/legal/terms" element={<TermsOfService />} />
+      <Route path="/legal/privacy" element={<PrivacyPolicy />} />
+      <Route path="/legal/community" element={<CommunityGuidelines />} />
       <Route path="/oss" element={<OSSDemo />} />
       <Route path="/runninghub-test" element={<RunningHubTest />} />
       <Route element={<ProtectedRoute />}>

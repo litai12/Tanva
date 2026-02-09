@@ -268,6 +268,18 @@ export default function Home() {
               />
             </svg>
           </div>
+
+          {/* 备案号 */}
+          <div className='absolute bottom-4 left-4 z-10'>
+            <a
+              href='https://beian.miit.gov.cn/'
+              target='_blank'
+              rel='noopener noreferrer'
+              className='text-xs text-white/60 hover:text-white/80 transition-colors'
+            >
+              粤ICP备2026004877号-1
+            </a>
+          </div>
         </section>
 
         {/* 第二页 - 功能介绍 */}
