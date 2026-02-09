@@ -23,10 +23,4 @@ export class RegisterDto {
   @IsString({ message: '手机号必须是字符串' })
   @Matches(/^1[3-9]\d{9}$/, { message: '手机号格式不正确，请输入有效的11位手机号' })
   phone!: string;
-
-  @ApiProperty({ required: false, description: '邀请码，可选或必填取决于配置' })
-  @IsOptional()
-  @IsString({ message: '邀请码必须是字符串' })
-  @Length(4, 64, { message: '邀请码长度应在4-64位之间' })
-  invitationCode?: string;
 }

@@ -277,7 +277,6 @@ export const authApi = {
     password: string;
     name?: string;
     email?: string;
-    invitationCode?: string;
   }) {
     if (isMock) {
       await delay(300);

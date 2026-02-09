@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { useAuthStore } from "@/stores/authStore";
+import { Eye, EyeOff } from "lucide-react";
 
 export default function RegisterPage() {
   const [phone, setPhone] = useState("");
@@ -11,7 +12,8 @@ export default function RegisterPage() {
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [invitationCode, setInvitationCode] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const navigate = useNavigate();
   const { register, loading, error } = useAuthStore();
 
@@ -25,8 +27,7 @@ export default function RegisterPage() {
       phone,
       password,
       name || undefined,
-      email || undefined,
-      invitationCode.trim() || undefined
+      email || undefined
     );
     // 注册成功后跳转到登录
     navigate("/auth/login");
@@ -76,29 +77,40 @@ export default function RegisterPage() {
             onChange={(e) => setName(e.target.value)}
             className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12'
           />
-          <Input
-            placeholder='邀请码（必填）'
-            value={invitationCode}
-            onChange={(e) => setInvitationCode(e.target.value)}
-            required
-            className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12'
-          />
-          <Input
-            placeholder='设置密码（至少10位，含大小写与数字）'
-            type='password'
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12'
-          />
-          <Input
-            placeholder='确认密码'
-            type='password'
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-            required
-            className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12'
-          />
+          <div className='relative'>
+            <Input
+              placeholder='设置密码（至少10位，含大小写与数字）'
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12 pr-10'
+            />
+            <button
+              type='button'
+              onClick={() => setShowPassword(!showPassword)}
+              className='absolute right-3 top-1/2 -translate-y-1/2 text-white/70 hover:text-white transition-colors'
+            >
+              {showPassword ? <Eye className='h-5 w-5' /> : <EyeOff className='h-5 w-5' />}
+            </button>
+          </div>
+          <div className='relative'>
+            <Input
+              placeholder='确认密码'
+              type={showConfirm ? 'text' : 'password'}
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              required
+              className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12 pr-10'
+            />
+            <button
+              type='button'
+              onClick={() => setShowConfirm(!showConfirm)}
+              className='absolute right-3 top-1/2 -translate-y-1/2 text-white/70 hover:text-white transition-colors'
+            >
+              {showConfirm ? <Eye className='h-5 w-5' /> : <EyeOff className='h-5 w-5' />}
+            </button>
+          </div>
           {error && <div className='text-red-400 text-sm drop-shadow-md'>{error}</div>}
           <Button
             type='submit'

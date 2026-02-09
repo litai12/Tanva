@@ -13,9 +13,6 @@ import {
   deductCredits,
   updateUserStatus,
   updateUserRole,
-  listInvites,
-  generateInvites,
-  disableInvite,
   getSettings,
   upsertSetting,
   type DashboardStats,
@@ -23,7 +20,6 @@ import {
   type ApiUsageStats,
   type ApiUsageRecord,
   type Pagination,
-  type InvitationCode,
   type SystemSetting,
 } from "@/services/adminApi";
 import {
@@ -675,237 +671,6 @@ function ApiRecordsTab() {
           </Button>
         </div>
       )}
-    </div>
-  );
-}
-
-// 邀请码管理 Tab
-function InvitesTab() {
-  const [items, setItems] = useState<InvitationCode[]>([]);
-  const [pagination, setPagination] = useState<Pagination | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [page, setPage] = useState(1);
-  const [status, setStatus] = useState<string>("");
-  const [codeSearch, setCodeSearch] = useState("");
-
-  const [genCount, setGenCount] = useState("10");
-  const [genMaxUses, setGenMaxUses] = useState("1");
-  const [genPrefix, setGenPrefix] = useState("");
-  const [genInviter, setGenInviter] = useState("");
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const res = await listInvites({
-        page,
-        pageSize: 20,
-        status: status || undefined,
-        code: codeSearch || undefined,
-      });
-      setItems(res.items);
-      setPagination(res.pagination);
-    } catch (e: any) {
-      alert(e?.message || "加载邀请码失败");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    load();
-  }, [page, status]);
-
-  const onGenerate = async () => {
-    try {
-      const count = Number(genCount) || 1;
-      const maxUses = Number(genMaxUses) || 1;
-      await generateInvites({
-        count,
-        maxUses,
-        prefix: genPrefix || undefined,
-        inviterUserId: genInviter || undefined,
-      });
-      load();
-      alert("生成成功");
-    } catch (e: any) {
-      alert(e?.message || "生成失败");
-    }
-  };
-
-  const onDisable = async (id: string) => {
-    if (!confirm("确认禁用该邀请码？")) return;
-    try {
-      await disableInvite(id);
-      load();
-    } catch (e: any) {
-      alert(e?.message || "禁用失败");
-    }
-  };
-
-  return (
-    <div className='space-y-4'>
-      <div className='grid md:grid-cols-2 gap-4'>
-        <div className='bg-white border rounded-lg p-4 shadow-sm space-y-3'>
-          <h3 className='font-semibold'>生成邀请码</h3>
-          <div className='grid grid-cols-2 gap-2'>
-            <Input
-              placeholder='数量'
-              value={genCount}
-              onChange={(e) => setGenCount(e.target.value)}
-            />
-            <Input
-              placeholder='每码可用次数'
-              value={genMaxUses}
-              onChange={(e) => setGenMaxUses(e.target.value)}
-            />
-            <Input
-              placeholder='前缀（可选）'
-              value={genPrefix}
-              onChange={(e) => setGenPrefix(e.target.value)}
-            />
-            <Input
-              placeholder='邀请人用户ID（可选）'
-              value={genInviter}
-              onChange={(e) => setGenInviter(e.target.value)}
-            />
-          </div>
-          <Button onClick={onGenerate}>生成</Button>
-        </div>
-
-        <div className='bg-white border rounded-lg p-4 shadow-sm space-y-3'>
-          <h3 className='font-semibold'>筛选</h3>
-          <div className='grid grid-cols-3 gap-2'>
-            <Input
-              placeholder='按code搜索'
-              value={codeSearch}
-              onChange={(e) => setCodeSearch(e.target.value)}
-            />
-            <select
-              className='border rounded px-2 py-2'
-              value={status}
-              onChange={(e) => {
-                setStatus(e.target.value);
-                setPage(1);
-              }}
-            >
-              <option value=''>全部状态</option>
-              <option value='active'>可用</option>
-              <option value='used'>已用完</option>
-              <option value='disabled'>已禁用</option>
-            </select>
-            <Button
-              variant='outline'
-              onClick={() => {
-                setCodeSearch("");
-                setStatus("");
-                setPage(1);
-                load();
-              }}
-            >
-              重置
-            </Button>
-            <Button
-              variant='outline'
-              onClick={() => {
-                setPage(1);
-                load();
-              }}
-            >
-              查找
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      <div className='bg-white border rounded-lg p-4 shadow-sm overflow-auto'>
-        <table className='w-full text-sm'>
-          <thead>
-            <tr className='text-left border-b'>
-              <th className='py-2 pr-2'>Code</th>
-              <th className='py-2 pr-2'>状态</th>
-              <th className='py-2 pr-2'>用量</th>
-              <th className='py-2 pr-2'>邀请人</th>
-              <th className='py-2 pr-2'>使用账户</th>
-              <th className='py-2 pr-2'>创建时间</th>
-              <th className='py-2 pr-2'>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item) => (
-              <tr key={item.id} className='border-b last:border-none'>
-                <td className='py-2 pr-2 font-mono'>{item.code}</td>
-                <td className='py-2 pr-2'>{item.status}</td>
-                <td className='py-2 pr-2'>
-                  {item.usedCount}/{item.maxUses}
-                </td>
-                <td className='py-2 pr-2 text-xs'>
-                  {item.inviterUserId || "-"}
-                </td>
-                <td className='py-2 pr-2 text-xs'>
-                  {item.redemptions && item.redemptions.length > 0
-                    ? item.redemptions
-                        .map(
-                          (r) =>
-                            r.invitee?.phone ||
-                            r.inviteeUserId ||
-                            r.invitee?.name
-                        )
-                        .filter(Boolean)
-                        .slice(0, 3)
-                        .join("，")
-                    : "—"}
-                </td>
-                <td className='py-2 pr-2 text-xs'>
-                  {new Date(item.createdAt).toLocaleString()}
-                </td>
-                <td className='py-2 pr-2'>
-                  {item.status === "active" ? (
-                    <Button
-                      size='sm'
-                      variant='outline'
-                      onClick={() => onDisable(item.id)}
-                    >
-                      禁用
-                    </Button>
-                  ) : (
-                    <span className='text-gray-400'>-</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {!items.length && (
-              <tr>
-                <td colSpan={6} className='py-4 text-center text-gray-500'>
-                  {loading ? "加载中..." : "暂无数据"}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-        {pagination && (
-          <div className='flex items-center justify-end gap-2 mt-3 text-sm'>
-            <span>
-              第 {pagination.page}/{pagination.totalPages} 页
-            </span>
-            <Button
-              size='sm'
-              variant='outline'
-              disabled={page <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-            >
-              上一页
-            </Button>
-            <Button
-              size='sm'
-              variant='outline'
-              disabled={page >= pagination.totalPages}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              下一页
-            </Button>
-          </div>
-        )}
-      </div>
     </div>
   );
 }
@@ -1748,7 +1513,6 @@ export default function Admin() {
     | "users"
     | "api-stats"
     | "api-records"
-    | "invites"
     | "settings"
     | "templates"
   >("dashboard");
@@ -1793,7 +1557,6 @@ export default function Admin() {
     { key: "users", label: "用户管理" },
     { key: "api-stats", label: "API统计" },
     { key: "api-records", label: "API记录" },
-    { key: "invites", label: "邀请码" },
     { key: "templates", label: "公共模板" },
     { key: "settings", label: "系统设置" },
   ] as const;
@@ -1869,7 +1632,6 @@ export default function Admin() {
         {activeTab === "users" && <UsersTab />}
         {activeTab === "api-stats" && <ApiStatsTab />}
         {activeTab === "api-records" && <ApiRecordsTab />}
-        {activeTab === "invites" && <InvitesTab />}
         {activeTab === "templates" && <TemplatesTab />}
         {activeTab === "settings" && <SettingsTab />}
       </main>

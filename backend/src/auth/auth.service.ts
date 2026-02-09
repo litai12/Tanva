@@ -73,19 +73,6 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto, meta?: { ip?: string; ua?: string }) {
-    // 默认强制邀请码，如需关闭可设置 INVITE_REQUIRED=false
-    const inviteRequired =
-      (this.config.get<string>("INVITE_REQUIRED") ?? "true") === "true";
-    const trimmedCode = dto.invitationCode?.trim();
-    const nodeEnv = (this.config.get<string>("NODE_ENV") || "development").toLowerCase();
-    const isDev = nodeEnv !== "production";
-    const devInviteCode = this.config.get<string>("DEV_INVITE_CODE")?.trim();
-    const isDevFixedInvite = !!devInviteCode && trimmedCode === devInviteCode;
-
-    if (inviteRequired && !trimmedCode) {
-      throw new BadRequestException("需要邀请码");
-    }
-
     const hash = await bcrypt.hash(dto.password, 10);
 
     return this.prisma.$transaction(async (tx) => {
@@ -100,46 +87,12 @@ export class AuthService {
         if (existsByEmail) throw new UnauthorizedException("邮箱已存在");
       }
 
-      let inviteContext: { inviterUserId?: string; codeId: string } | null =
-        null;
-
-      if (trimmedCode && !(isDev && isDevFixedInvite)) {
-        const invite = await tx.invitationCode.findUnique({
-          where: { code: trimmedCode },
-        });
-        if (!invite) throw new BadRequestException("邀请码不存在");
-        if (invite.status !== "active")
-          throw new BadRequestException("邀请码不可用");
-        if (invite.usedCount >= invite.maxUses)
-          throw new BadRequestException("邀请码已用完");
-
-        const updateResult = await tx.invitationCode.updateMany({
-          where: {
-            id: invite.id,
-            status: "active",
-            usedCount: { lt: invite.maxUses },
-          },
-          data: {
-            usedCount: { increment: 1 },
-            status: invite.usedCount + 1 >= invite.maxUses ? "used" : "active",
-          },
-        });
-        if (updateResult.count === 0)
-          throw new BadRequestException("邀请码已被用完");
-
-        inviteContext = {
-          inviterUserId: invite.inviterUserId || undefined,
-          codeId: invite.id,
-        };
-      }
-
       const user = await tx.user.create({
         data: {
           email: dto.email ? dto.email.toLowerCase() : null,
           passwordHash: hash,
           name: dto.name || dto.phone.slice(-4),
           phone: dto.phone,
-          invitedById: inviteContext?.inviterUserId,
         },
         select: {
           id: true,
@@ -152,17 +105,6 @@ export class AuthService {
           createdAt: true,
         },
       });
-
-      if (inviteContext) {
-        await tx.invitationRedemption.create({
-          data: {
-            codeId: inviteContext.codeId,
-            inviteeUserId: user.id,
-            inviterUserId: inviteContext.inviterUserId,
-            metadata: meta ? { ip: meta.ip, ua: meta.ua } : undefined,
-          },
-        });
-      }
 
       return user;
     });

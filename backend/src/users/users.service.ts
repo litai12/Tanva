@@ -22,14 +22,13 @@ export class UsersService {
     return this.prisma.user.findUnique({ where: { id } });
   }
 
-  async create(data: { phone: string; passwordHash: string; name?: string; email?: string; invitedById?: string }) {
+  async create(data: { phone: string; passwordHash: string; name?: string; email?: string }) {
     return this.prisma.user.create({
       data: {
         email: data.email ? data.email.toLowerCase() : null,
         passwordHash: data.passwordHash,
         name: data.name,
         phone: data.phone,
-        invitedById: data.invitedById,
       },
       select: { id: true, email: true, phone: true, name: true, avatarUrl: true, role: true, status: true, createdAt: true },
     });

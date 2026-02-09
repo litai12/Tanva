@@ -108,93 +108,11 @@ export interface PaginatedResponse<T> {
   pagination: Pagination;
 }
 
-export interface InvitationCode {
-  id: string;
-  code: string;
-  status: "active" | "disabled" | "used" | string;
-  maxUses: number;
-  usedCount: number;
-  inviterUserId?: string | null;
-  metadata?: any;
-  createdAt: string;
-  updatedAt: string;
-  redemptions?: Array<{
-    inviteeUserId: string;
-    inviterUserId?: string | null;
-    createdAt: string;
-    invitee?: {
-      id: string;
-      name?: string | null;
-      phone: string;
-      email?: string | null;
-    } | null;
-  }>;
-}
-
-export interface InvitationListResult {
-  items: InvitationCode[];
-  pagination: Pagination;
-}
 
 // 获取管理后台统计数据
 export async function getDashboardStats(): Promise<DashboardStats> {
   const response = await request("/api/admin/dashboard");
   return response.json();
-}
-
-// 邀请码列表
-export async function listInvites(params: {
-  page?: number;
-  pageSize?: number;
-  status?: string;
-  code?: string;
-}): Promise<InvitationListResult> {
-  const searchParams = new URLSearchParams();
-  if (params.page) searchParams.set("page", String(params.page));
-  if (params.pageSize) searchParams.set("pageSize", String(params.pageSize));
-  if (params.status) searchParams.set("status", params.status);
-  if (params.code) searchParams.set("code", params.code);
-
-  const response = await request(`/api/invites?${searchParams.toString()}`);
-  return response.json();
-}
-
-// 批量生成邀请码
-export async function generateInvites(body: {
-  count?: number;
-  maxUses?: number;
-  prefix?: string;
-  inviterUserId?: string;
-}) {
-  const response = await request("/api/invites/generate", {
-    method: "POST",
-    headers: JSON_HEADERS,
-    body: JSON.stringify(body),
-  });
-  return response.json() as Promise<{ codes: string[] }>;
-}
-
-// 禁用邀请码
-export async function disableInvite(id: string) {
-  const response = await request(`/api/invites/${id}/disable`, {
-    method: "PATCH",
-  });
-  return response.json();
-}
-
-// 校验邀请码（公共）
-export async function validateInvite(code: string) {
-  const response = await request(
-    `/api/invites/validate?code=${encodeURIComponent(code)}`,
-    {
-      credentials: "include",
-    }
-  );
-  return response.json() as Promise<{
-    usable: boolean;
-    status: string;
-    remaining: number;
-  }>;
 }
 
 // 获取用户列表
