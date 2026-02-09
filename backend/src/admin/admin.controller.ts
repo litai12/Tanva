@@ -332,4 +332,40 @@ export class AdminController {
     this.checkAdmin(req);
     return this.templateService.deleteTemplate(id);
   }
+
+  // ==================== 水印白名单管理 ====================
+
+  @Get('watermark-whitelist')
+  @ApiOperation({ summary: '获取水印白名单用户列表' })
+  async getWatermarkWhitelist(
+    @Request() req: AuthenticatedRequest,
+    @Query() query: { page?: string; pageSize?: string; search?: string },
+  ) {
+    this.checkAdmin(req);
+    return this.adminService.getWatermarkWhitelist({
+      page: query.page ? parseInt(query.page) : 1,
+      pageSize: query.pageSize ? parseInt(query.pageSize) : 20,
+      search: query.search,
+    });
+  }
+
+  @Post('watermark-whitelist/:userId')
+  @ApiOperation({ summary: '添加用户到水印白名单' })
+  async addToWatermarkWhitelist(
+    @Request() req: AuthenticatedRequest,
+    @Param('userId') userId: string,
+  ) {
+    this.checkAdmin(req);
+    return this.adminService.addToWatermarkWhitelist(userId);
+  }
+
+  @Delete('watermark-whitelist/:userId')
+  @ApiOperation({ summary: '从水印白名单移除用户' })
+  async removeFromWatermarkWhitelist(
+    @Request() req: AuthenticatedRequest,
+    @Param('userId') userId: string,
+  ) {
+    this.checkAdmin(req);
+    return this.adminService.removeFromWatermarkWhitelist(userId);
+  }
 }

@@ -15,12 +15,16 @@ import {
   updateUserRole,
   getSettings,
   upsertSetting,
+  getWatermarkWhitelist,
+  addToWatermarkWhitelist,
+  removeFromWatermarkWhitelist,
   type DashboardStats,
   type UserWithCredits,
   type ApiUsageStats,
   type ApiUsageRecord,
   type Pagination,
   type SystemSetting,
+  type WatermarkWhitelistUser,
 } from "@/services/adminApi";
 import {
   fetchTemplates,
@@ -1372,6 +1376,181 @@ function TemplatesTab() {
   );
 }
 
+// 水印白名单管理 Tab
+function WatermarkWhitelistTab() {
+  const [whitelistUsers, setWhitelistUsers] = useState<WatermarkWhitelistUser[]>([]);
+  const [allUsers, setAllUsers] = useState<UserWithCredits[]>([]);
+  const [pagination, setPagination] = useState<Pagination | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [userSearch, setUserSearch] = useState("");
+
+  const loadWhitelist = async () => {
+    setLoading(true);
+    try {
+      const result = await getWatermarkWhitelist({ page, pageSize: 20, search });
+      setWhitelistUsers(result.users);
+      setPagination(result.pagination);
+    } catch (error) {
+      console.error("加载白名单失败:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadAllUsers = async () => {
+    try {
+      const result = await getUsers({ page: 1, pageSize: 50, search: userSearch });
+      setAllUsers(result.users);
+    } catch (error) {
+      console.error("加载用户列表失败:", error);
+    }
+  };
+
+  useEffect(() => {
+    loadWhitelist();
+  }, [page, search]);
+
+  useEffect(() => {
+    if (showAddModal) {
+      loadAllUsers();
+    }
+  }, [showAddModal, userSearch]);
+
+  const handleAdd = async (userId: string) => {
+    try {
+      await addToWatermarkWhitelist(userId);
+      setShowAddModal(false);
+      loadWhitelist();
+    } catch (error: any) {
+      alert(error.message || "添加失败");
+    }
+  };
+
+  const handleRemove = async (userId: string) => {
+    if (!confirm("确定要从白名单中移除该用户吗？")) return;
+    try {
+      await removeFromWatermarkWhitelist(userId);
+      loadWhitelist();
+    } catch (error: any) {
+      alert(error.message || "移除失败");
+    }
+  };
+
+  return (
+    <div>
+      <div className='mb-4 flex gap-2'>
+        <Input
+          placeholder='搜索手机号/邮箱/昵称'
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className='max-w-xs'
+        />
+        <Button onClick={() => { setPage(1); loadWhitelist(); }}>搜索</Button>
+        <Button onClick={() => setShowAddModal(true)}>添加用户</Button>
+      </div>
+
+      <div className='bg-white rounded-lg border overflow-hidden'>
+        <table className='w-full text-sm'>
+          <thead className='bg-gray-50'>
+            <tr>
+              <th className='px-4 py-3 text-left'>用户</th>
+              <th className='px-4 py-3 text-left'>手机号</th>
+              <th className='px-4 py-3 text-left'>邮箱</th>
+              <th className='px-4 py-3 text-left'>添加时间</th>
+              <th className='px-4 py-3 text-left'>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr>
+                <td colSpan={5} className='px-4 py-8 text-center text-gray-500'>加载中...</td>
+              </tr>
+            ) : whitelistUsers.length === 0 ? (
+              <tr>
+                <td colSpan={5} className='px-4 py-8 text-center text-gray-500'>暂无数据</td>
+              </tr>
+            ) : (
+              whitelistUsers.map((user) => (
+                <tr key={user.id} className='border-t hover:bg-gray-50'>
+                  <td className='px-4 py-3'>{user.name || "-"}</td>
+                  <td className='px-4 py-3'>{user.phone}</td>
+                  <td className='px-4 py-3'>{user.email || "-"}</td>
+                  <td className='px-4 py-3 text-xs text-gray-500'>
+                    {new Date(user.createdAt).toLocaleDateString()}
+                  </td>
+                  <td className='px-4 py-3'>
+                    <Button size='sm' variant='outline' onClick={() => handleRemove(user.id)}>
+                      移除
+                    </Button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {pagination && pagination.totalPages > 1 && (
+        <div className='mt-4 flex items-center justify-center gap-4'>
+          <span className='text-sm text-gray-500'>共 {pagination.total} 条记录</span>
+          <div className='flex items-center gap-2'>
+            <Button variant='outline' size='sm' disabled={page === 1} onClick={() => setPage(page - 1)}>
+              上一页
+            </Button>
+            <span className='px-4 py-2 text-sm'>{page} / {pagination.totalPages}</span>
+            <Button variant='outline' size='sm' disabled={page === pagination.totalPages} onClick={() => setPage(page + 1)}>
+              下一页
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* 添加用户弹窗 */}
+      {showAddModal && (
+        <div className='fixed inset-0 bg-black/50 flex items-center justify-center z-50'>
+          <div className='bg-white rounded-lg p-6 w-[500px] max-h-[80vh] overflow-auto'>
+            <h3 className='text-lg font-semibold mb-4'>添加用户到白名单</h3>
+            <Input
+              placeholder='搜索用户手机号/邮箱/昵称'
+              value={userSearch}
+              onChange={(e) => setUserSearch(e.target.value)}
+              className='mb-4'
+            />
+            <div className='max-h-[400px] overflow-auto border rounded'>
+              <table className='w-full text-sm'>
+                <thead className='bg-gray-50 sticky top-0'>
+                  <tr>
+                    <th className='px-3 py-2 text-left'>用户</th>
+                    <th className='px-3 py-2 text-left'>手机号</th>
+                    <th className='px-3 py-2 text-left'>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allUsers.map((user) => (
+                    <tr key={user.id} className='border-t hover:bg-gray-50'>
+                      <td className='px-3 py-2'>{user.name || "-"}</td>
+                      <td className='px-3 py-2'>{user.phone}</td>
+                      <td className='px-3 py-2'>
+                        <Button size='sm' onClick={() => handleAdd(user.id)}>添加</Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className='mt-4 flex justify-end'>
+              <Button variant='outline' onClick={() => setShowAddModal(false)}>关闭</Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // 系统设置 Tab
 function SettingsTab() {
   const [settings, setSettings] = useState<SystemSetting[]>([]);
@@ -1513,6 +1692,7 @@ export default function Admin() {
     | "users"
     | "api-stats"
     | "api-records"
+    | "watermark"
     | "settings"
     | "templates"
   >("dashboard");
@@ -1557,6 +1737,7 @@ export default function Admin() {
     { key: "users", label: "用户管理" },
     { key: "api-stats", label: "API统计" },
     { key: "api-records", label: "API记录" },
+    { key: "watermark", label: "水印白名单" },
     { key: "templates", label: "公共模板" },
     { key: "settings", label: "系统设置" },
   ] as const;
@@ -1632,6 +1813,7 @@ export default function Admin() {
         {activeTab === "users" && <UsersTab />}
         {activeTab === "api-stats" && <ApiStatsTab />}
         {activeTab === "api-records" && <ApiRecordsTab />}
+        {activeTab === "watermark" && <WatermarkWhitelistTab />}
         {activeTab === "templates" && <TemplatesTab />}
         {activeTab === "settings" && <SettingsTab />}
       </main>

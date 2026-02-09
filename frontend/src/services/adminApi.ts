@@ -442,3 +442,45 @@ export async function getPaymentPackages(): Promise<PackagesResponse> {
   const response = await request("/api/payment/packages");
   return response.json();
 }
+
+// ==================== 水印白名单 ====================
+
+export interface WatermarkWhitelistUser {
+  id: string;
+  phone: string;
+  email: string | null;
+  name: string | null;
+  noWatermark: boolean;
+  createdAt: string;
+}
+
+// 获取水印白名单用户列表
+export async function getWatermarkWhitelist(params?: {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+}): Promise<{ users: WatermarkWhitelistUser[]; pagination: Pagination }> {
+  const searchParams = new URLSearchParams();
+  if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
+  if (params?.search) searchParams.set("search", params.search);
+
+  const response = await request(`/api/admin/watermark-whitelist?${searchParams}`);
+  return response.json();
+}
+
+// 添加用户到水印白名单
+export async function addToWatermarkWhitelist(userId: string) {
+  const response = await request(`/api/admin/watermark-whitelist/${userId}`, {
+    method: "POST",
+  });
+  return response.json();
+}
+
+// 从水印白名单移除用户
+export async function removeFromWatermarkWhitelist(userId: string) {
+  const response = await request(`/api/admin/watermark-whitelist/${userId}`, {
+    method: "DELETE",
+  });
+  return response.json();
+}

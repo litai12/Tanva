@@ -16,6 +16,7 @@ model User {
   avatarUrl                  String?
   role                       String                 @default("user")
   status                     String                 @default("active")
+  noWatermark                Boolean                @default(false)
   googleCustomApiKey         String?
   googleKeyMode              String                 @default("official")
   googleOfficialVerified     Boolean                @default(false)

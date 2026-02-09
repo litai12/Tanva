@@ -112,7 +112,29 @@ export class AiController {
   }
 
   /**
-   * 对返回的 base64 图片统一加水印；管理员或失败时返回原图
+   * 检查用户是否可以跳过水印（管理员或水印白名单用户）
+   */
+  private async canSkipWatermark(req: any): Promise<boolean> {
+    // 管理员直接跳过
+    if (this.isAdminUser(req)) {
+      return true;
+    }
+    // 检查水印白名单
+    const userId = req?.user?.id || req?.user?.sub;
+    if (!userId) {
+      return false;
+    }
+    try {
+      const user = await this.usersService.findById(userId);
+      return user?.noWatermark === true;
+    } catch (e) {
+      this.logger.warn('检查水印白名单失败', e);
+      return false;
+    }
+  }
+
+  /**
+   * 对返回的 base64 图片统一加水印；管理员/白名单用户或失败时返回原图
    */
   private async watermarkIfNeeded(
     imageData?: string | null,
@@ -120,7 +142,9 @@ export class AiController {
   ): Promise<string | undefined> {
     if (!imageData) return imageData ?? undefined;
 
-    if (this.isAdminUser(req)) {
+    // 检查是否可以跳过水印（管理员或白名单用户）
+    const skipWatermark = await this.canSkipWatermark(req);
+    if (skipWatermark) {
       return imageData;
     }
 
@@ -1370,20 +1394,20 @@ export class AiController {
           return result;
         }
 
-        const isAdmin = this.isAdminUser(req);
-        this.logger.log(`🎬 Video generated, isAdmin=${isAdmin}, videoUrl=${result.videoUrl?.substring(0, 80)}...`);
+        const skipWatermark = await this.canSkipWatermark(req);
+        this.logger.log(`🎬 Video generated, skipWatermark=${skipWatermark}, videoUrl=${result.videoUrl?.substring(0, 80)}...`);
 
-        if (isAdmin) {
-          this.logger.log('🎬 Admin user, skipping watermark');
+        if (skipWatermark) {
+          this.logger.log('🎬 User can skip watermark (admin or whitelist)');
           let proxiedUrl = result.videoUrl;
           try {
             const uploaded = await this.videoWatermarkService.uploadOriginalToOSS(result.videoUrl);
             proxiedUrl = uploaded.url;
             this.logger.log(
-              `✅ Admin video copied to OSS: ${proxiedUrl?.substring(0, 80)}...`,
+              `✅ Video copied to OSS without watermark: ${proxiedUrl?.substring(0, 80)}...`,
             );
           } catch (error) {
-            this.logger.warn('⚠️ Admin video OSS copy failed, fallback to raw URL', error as any);
+            this.logger.warn('⚠️ Video OSS copy failed, fallback to raw URL', error as any);
           }
           return {
             ...result,
@@ -1394,7 +1418,7 @@ export class AiController {
           };
         }
 
-        this.logger.log('🎬 Non-admin user, adding watermark...');
+        this.logger.log('🎬 User needs watermark, adding...');
         try {
           const wm = await this.videoWatermarkService.addWatermarkAndUpload(result.videoUrl, {
             text: 'Tanvas AI',

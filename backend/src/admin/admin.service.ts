@@ -448,4 +448,88 @@ export class AdminService {
       where: { key },
     });
   }
+
+  // ==================== 水印白名单管理 ====================
+
+  /**
+   * 获取水印白名单用户列表
+   */
+  async getWatermarkWhitelist(options: {
+    page?: number;
+    pageSize?: number;
+    search?: string;
+  } = {}) {
+    const { page = 1, pageSize = 20, search } = options;
+
+    const where: any = { noWatermark: true };
+    if (search) {
+      where.OR = [
+        { phone: { contains: search } },
+        { email: { contains: search } },
+        { name: { contains: search } },
+      ];
+      where.noWatermark = true;
+    }
+
+    const [users, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        select: {
+          id: true,
+          phone: true,
+          email: true,
+          name: true,
+          noWatermark: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    return {
+      users,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+      },
+    };
+  }
+
+  /**
+   * 添加用户到水印白名单
+   */
+  async addToWatermarkWhitelist(userId: string) {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { noWatermark: true },
+      select: { id: true, phone: true, name: true, noWatermark: true },
+    });
+  }
+
+  /**
+   * 从水印白名单移除用户
+   */
+  async removeFromWatermarkWhitelist(userId: string) {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { noWatermark: false },
+      select: { id: true, phone: true, name: true, noWatermark: true },
+    });
+  }
+
+  /**
+   * 检查用户是否在水印白名单中
+   */
+  async checkWatermarkWhitelist(userId: string): Promise<boolean> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { noWatermark: true },
+    });
+    return user?.noWatermark ?? false;
+  }
 }
