@@ -598,10 +598,18 @@ const NodePaletteButton: React.FC<{
       : null;
 
   const getBadgeStyle = (badgeText?: string): React.CSSProperties => {
-    if (badgeText === "维护中" || badgeText === "即将开放") {
+    if (badgeText === "维护中") {
       return {
         ...nodePaletteBadgeStyle,
-        color: "#92400e",
+        color: "#dc2626",
+        background: "#fee2e2",
+        border: "1px solid #fca5a5",
+      };
+    }
+    if (badgeText === "即将开放") {
+      return {
+        ...nodePaletteBadgeStyle,
+        color: "#d97706",
         background: "#fef3c7",
         border: "1px solid #fcd34d",
       };
