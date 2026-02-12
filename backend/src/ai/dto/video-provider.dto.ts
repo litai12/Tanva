@@ -3,8 +3,8 @@ import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, MaxLength } from 'cl
 
 export class VideoProviderRequestDto {
   @ApiProperty({ description: '供应商' })
-  @IsEnum(['kling', 'kling-o1', 'vidu', 'doubao'])
-  provider!: 'kling' | 'kling-o1' | 'vidu' | 'doubao';
+  @IsEnum(['kling', 'kling-2.6', 'kling-o1', 'vidu', 'doubao'])
+  provider!: 'kling' | 'kling-2.6' | 'kling-o1' | 'vidu' | 'doubao';
 
   @ApiProperty({ description: '视频生成模式 (Vidu: text2video/img2video/start-end2video/reference2video; Kling: text2video/image2video/image2video-tail/multi-image2video; Kling-O1: omni-video)', required: false })
   @IsOptional()

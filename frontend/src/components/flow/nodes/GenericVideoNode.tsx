@@ -6,7 +6,7 @@ import GenerationProgressBar from "./GenerationProgressBar";
 import { useAuthStore } from "@/stores/authStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 
-export type VideoProvider = "kling" | "vidu" | "doubao";
+export type VideoProvider = "kling" | "kling-2.6" | "vidu" | "doubao";
 
 type Props = {
   id: string;
@@ -43,6 +43,7 @@ type DownloadFeedback = {
 
 const PROVIDER_CONFIG: Record<VideoProvider, { name: string; zh: string }> = {
   kling: { name: "Kling", zh: "Kling" },
+  "kling-2.6": { name: "Kling 2.6", zh: "Kling 2.6" },
   vidu: { name: "Vidu", zh: "Vidu" },
   doubao: { name: "Seedance", zh: "Seedance" },
 };
@@ -197,7 +198,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
 
   // 根据供应商配置不同的选项
   const getAspectOptions = () => {
-    if (provider === "kling") {
+    if (provider === "kling" || provider === "kling-2.6") {
       return [
         { label: "自动", value: "" },
         { label: "横屏（16:9）", value: "16:9" },
@@ -213,7 +214,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   };
 
   const getDurationOptions = () => {
-    if (provider === "kling") {
+    if (provider === "kling" || provider === "kling-2.6") {
       return [
         { label: "5秒", value: 5 },
         { label: "10秒", value: 10 },
@@ -868,7 +869,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       </div>
 
       {/* Kling 专用参数：模式选择 */}
-      {provider === "kling" && (
+      {(provider === "kling" || provider === "kling-2.6") && (
         <div style={{ marginBottom: 8 }}>
           <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
             模式

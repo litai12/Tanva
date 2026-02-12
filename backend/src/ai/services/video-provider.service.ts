@@ -170,6 +170,7 @@ export class VideoProviderService {
   // API Keys 优先从环境变量获取，否则使用默认值（仅供参考）
   private readonly apiKeys = {
     kling: process.env.KLING_API_KEY || "sk-kling-xxx",
+    "kling-2.6": process.env.KLING_API_KEY || "sk-kling-xxx",
     "kling-o1": process.env.KLING_API_KEY || "sk-kling-xxx",
     vidu: process.env.VIDU_API_KEY || "sk-vidu-xxx",
     doubao:
@@ -201,6 +202,8 @@ export class VideoProviderService {
         return this.generateDoubao(options, apiKey);
       case "kling":
         return this.generateKling(options, apiKey);
+      case "kling-2.6":
+        return this.generateKling26(options, apiKey);
       case "kling-o1":
         return this.generateKlingO1(options, apiKey);
       case "vidu":
@@ -214,7 +217,7 @@ export class VideoProviderService {
    * 查询任务状态
    */
   async queryTask(
-    provider: "kling" | "kling-o1" | "vidu" | "doubao",
+    provider: "kling" | "kling-2.6" | "kling-o1" | "vidu" | "doubao",
     taskId: string
   ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string }> {
     const apiKey = this.apiKeys[provider];
@@ -225,6 +228,8 @@ export class VideoProviderService {
         return this.queryDoubao(taskId, apiKey);
       case "kling":
         return this.queryKling(taskId, apiKey);
+      case "kling-2.6":
+        return this.queryKling26(taskId, apiKey);
       case "kling-o1":
         return this.queryKlingO1(taskId, apiKey);
       case "vidu":
@@ -528,6 +533,182 @@ export class VideoProviderService {
     } catch (error) {
       this.logger.error(
         `❌ Kling 查询异常: taskId=${taskId}, error=${
+          error instanceof Error ? error.message : error
+        }`
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * 可灵 Kling 2.6 视频生成 (使用 kling-v2-6 模型)
+   */
+  private async generateKling26(
+    options: VideoProviderRequestDto,
+    apiKey: string
+  ): Promise<VideoGenerationResult> {
+    let videoMode = options.videoMode;
+    const imageCount = options.referenceImages?.length || 0;
+    const KLING_DEFAULT_REFERENCE_PROMPT = "参考图片内容生成视频";
+
+    if (!videoMode) {
+      if (imageCount === 0) {
+        videoMode = "text2video";
+      } else if (imageCount === 1) {
+        videoMode = "image2video";
+      } else if (imageCount === 2) {
+        videoMode = "image2video-tail";
+      } else {
+        videoMode = "multi-image2video";
+      }
+    }
+
+    const endpointMap: Record<string, string> = {
+      "image2video": "https://models.kapon.cloud/kling/v1/videos/image2video",
+      "image2video-tail": "https://models.kapon.cloud/kling/v1/videos/image2video",
+      "multi-image2video": "https://models.kapon.cloud/kling/v1/videos/multi-image2video",
+      "text2video": "https://models.kapon.cloud/kling/v1/videos/text2video",
+    };
+    const endpoint = endpointMap[videoMode] || endpointMap["text2video"];
+
+    const payload: any = {
+      model_name: "kling-v2-6",
+      mode: (options as any).mode || "pro",
+      duration: options.duration === 10 ? "10" : "5",
+    };
+
+    if (options.aspectRatio) {
+      payload.aspect_ratio = options.aspectRatio;
+    }
+
+    if (videoMode === "text2video") {
+      if (!options.prompt) {
+        throw new Error("文生视频需要提供 prompt 参数");
+      }
+      payload.prompt = options.prompt;
+    } else if (videoMode === "image2video") {
+      payload.image = await this.uploadBase64ImageToOSS(options.referenceImages![0]);
+      if (options.prompt) {
+        payload.prompt = options.prompt;
+      }
+    } else if (videoMode === "image2video-tail") {
+      payload.image = await this.uploadBase64ImageToOSS(options.referenceImages![0]);
+      payload.image_tail = await this.uploadBase64ImageToOSS(options.referenceImages![1]);
+      payload.prompt = options.prompt || KLING_DEFAULT_REFERENCE_PROMPT;
+    } else if (videoMode === "multi-image2video") {
+      const imageUrls = await Promise.all(
+        options.referenceImages!.slice(0, 4).map(img => this.uploadBase64ImageToOSS(img))
+      );
+      payload.image_list = imageUrls.map(url => ({ image: url }));
+      payload.prompt = options.prompt || KLING_DEFAULT_REFERENCE_PROMPT;
+    }
+
+    this.logProviderPayload("kling-2.6", payload);
+    this.logger.log(`🎬 Kling 2.6: mode=${videoMode}, images=${imageCount}, endpoint=${endpoint}`);
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const textBody = await response.text().catch(() => "");
+      const headers: Record<string, string> = {};
+      response.headers.forEach((v, k) => (headers[k] = v));
+
+      this.logger.error(
+        `❌ Kling 2.6 生成失败: HTTP ${response.status}, mode=${videoMode}, response_text=${textBody.slice(
+          0,
+          1000
+        )}, headers=${JSON.stringify(headers)}`
+      );
+
+      let error: any = {};
+      if (textBody) {
+        try {
+          error = JSON.parse(textBody);
+        } catch {
+          error = {};
+        }
+      }
+      throw new Error(
+        error.error?.message ||
+          error.message ||
+          textBody ||
+          `HTTP ${response.status}`
+      );
+    }
+
+    const data = await response.json();
+    return {
+      taskId: data.data?.task_id,
+      status: "queued",
+    };
+  }
+
+  private async queryKling26(taskId: string, apiKey: string) {
+    try {
+      const endpoints = [
+        `https://models.kapon.cloud/kling/v1/videos/text2video/${taskId}`,
+        `https://models.kapon.cloud/kling/v1/videos/image2video/${taskId}`,
+        `https://models.kapon.cloud/kling/v1/videos/multi-image2video/${taskId}`,
+      ];
+
+      let data: any = null;
+
+      for (const endpoint of endpoints) {
+        const response = await fetch(endpoint, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+        });
+        const result = await response.json().catch(() => ({}));
+
+        if (result.data && result.code === 0) {
+          data = result;
+          break;
+        }
+      }
+
+      if (!data || !data.data) {
+        throw new Error("无法查询到任务状态");
+      }
+
+      this.logger.log(
+        `🔍 Kling 2.6 任务状态查询: taskId=${taskId}, status=${data.data?.task_status}`
+      );
+
+      if (data.data?.task_status === "succeed") {
+        const upstreamUrl: string | undefined = data.data.task_result?.videos?.[0]?.url;
+        if (!upstreamUrl) {
+          throw new ServiceUnavailableException("Kling 2.6 返回空视频链接");
+        }
+        if (this.isOssPublicUrl(upstreamUrl)) {
+          return { status: "succeeded", videoUrl: upstreamUrl };
+        }
+        const ossUrl = await this.uploadRemoteVideoToOss(upstreamUrl, `kling26-${taskId}`);
+        this.logger.log(`📤 Kling 2.6 视频已上传到 OSS: ${ossUrl}`);
+        return { status: "succeeded", videoUrl: ossUrl };
+      }
+
+      if (data.data?.task_status === "failed") {
+        this.logger.error(
+          `❌ Kling 2.6 任务失败: taskId=${taskId}, error=${JSON.stringify(
+            data.data.task_result || data
+          )}`
+        );
+        return {
+          status: "failed",
+          error: data.data?.task_status_msg || "生成失败",
+        };
+      }
+
+      return { status: data.data?.task_status || "processing" };
+    } catch (error) {
+      this.logger.error(
+        `❌ Kling 2.6 查询异常: taskId=${taskId}, error=${
           error instanceof Error ? error.message : error
         }`
       );

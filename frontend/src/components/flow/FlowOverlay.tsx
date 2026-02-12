@@ -65,6 +65,7 @@ import GeneratePro4Node from "./nodes/GeneratePro4Node";
 import ImageProNode from "./nodes/ImageProNode";
 import MidjourneyNode from "./nodes/MidjourneyNode";
 import KlingVideoNode from "./nodes/KlingVideoNode";
+import Kling26VideoNode from "./nodes/Kling26VideoNode";
 import KlingO1VideoNode from "./nodes/KlingO1VideoNode";
 import ViduVideoNode from "./nodes/ViduVideoNode";
 import DoubaoVideoNode from "./nodes/DoubaoVideoNode";
@@ -264,6 +265,7 @@ const nodeTypes = {
   wan26: Wan26Node,
   wan2R2V: Wan2R2VNode,
   klingVideo: KlingVideoNode,
+  kling26Video: Kling26VideoNode,
   klingO1Video: KlingO1VideoNode,
   viduVideo: ViduVideoNode,
   doubaoVideo: DoubaoVideoNode,
@@ -430,6 +432,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   wan26: 600, // Wan2.6生成视频 - wan26-video
   wan2R2V: 600, // 视频融合 - wan26-r2v
   klingVideo: "40-400", // 可灵视频生成 - 可能使用 sora-sd 或 sora-hd
+  kling26Video: "40-400", // 可灵2.6视频生成 - kling-v2-6
   klingO1Video: "40-400", // 可灵O1视频生成 - Omni Video
   viduVideo: "40-400", // Vidu视频生成 - 可能使用 sora-sd 或 sora-hd
   doubaoVideo: "40-400", // 豆包视频生成 - 可能使用 sora-sd 或 sora-hd
@@ -467,6 +470,7 @@ const NODE_PALETTE_ITEMS = [
   { key: "wan26", zh: "Wan2.6生成视频", en: "Wan2.6", category: "video" },
   { key: "wan2R2V", zh: "视频融合", en: "Wan2.6 R2V", category: "video" },
   { key: "klingVideo", zh: "Kling视频生成", en: "Kling", category: "video", badge: "维护中" },
+  { key: "kling26Video", zh: "Kling 2.6视频生成", en: "Kling 2.6", category: "video" },
   { key: "klingO1Video", zh: "Kling O1视频生成", en: "Kling O1", category: "video" },
   { key: "viduVideo", zh: "Vidu视频生成", en: "Vidu", category: "video" },
   {
@@ -3457,6 +3461,7 @@ function FlowInner() {
         | "wan26"
         | "wan2R2V"
         | "klingVideo"
+        | "kling26Video"
         | "klingO1Video"
         | "viduVideo"
         | "doubaoVideo"
@@ -3490,6 +3495,7 @@ function FlowInner() {
         wan26: { w: 300, h: 320 },
         wan2R2V: { w: 300, h: 360 },
         klingVideo: { w: 280, h: 260 },
+        kling26Video: { w: 280, h: 260 },
         klingO1Video: { w: 280, h: 380 },
         viduVideo: { w: 280, h: 260 },
         doubaoVideo: { w: 280, h: 260 },
@@ -3683,6 +3689,7 @@ function FlowInner() {
               boxH: size.h,
             }
           : type === "klingVideo" ||
+            type === "kling26Video" ||
             type === "viduVideo" ||
             type === "doubaoVideo"
           ? {
@@ -3696,6 +3703,8 @@ function FlowInner() {
               provider:
                 type === "klingVideo"
                   ? "kling"
+                  : type === "kling26Video"
+                  ? "kling-2.6"
                   : type === "viduVideo"
                   ? "vidu"
                   : "doubao",
@@ -3872,6 +3881,7 @@ function FlowInner() {
             "wan2R2V",
             "wan26",
             "klingVideo",
+            "kling26Video",
             "klingO1Video",
             "viduVideo",
             "doubaoVideo",
@@ -3881,7 +3891,7 @@ function FlowInner() {
       }
 
       if (
-        ["klingVideo", "viduVideo", "doubaoVideo"].includes(
+        ["klingVideo", "kling26Video", "viduVideo", "doubaoVideo"].includes(
           targetNode.type || ""
         )
       ) {
@@ -3910,6 +3920,7 @@ function FlowInner() {
             "wan26",
             "wan2R2V",
             "klingVideo",
+            "kling26Video",
             "klingO1Video",
             "viduVideo",
             "doubaoVideo",
@@ -3962,6 +3973,7 @@ function FlowInner() {
             "video", // 上传视频
             "sora2Video",
             "klingVideo",
+            "kling26Video",
             "klingO1Video",
             "viduVideo",
             "doubaoVideo",
@@ -3979,6 +3991,7 @@ function FlowInner() {
             "wan26",
             "wan2R2V",
             "klingVideo",
+            "kling26Video",
             "klingO1Video",
             "viduVideo",
             "doubaoVideo",
@@ -4114,7 +4127,7 @@ function FlowInner() {
         if (params.targetHandle === "text") return true;
       }
       // Kling 视频节点：支持最多 4 张参考图
-      if (targetNode?.type === "klingVideo") {
+      if (targetNode?.type === "klingVideo" || targetNode?.type === "kling26Video") {
         if (params.targetHandle === "image") {
           return incoming.length < KLING_MAX_REFERENCE_IMAGES;
         }
@@ -4215,6 +4228,7 @@ function FlowInner() {
           "storyboardSplit",
           "midjourney",
           "klingVideo",
+          "kling26Video",
           "viduVideo",
           "doubaoVideo",
         ];
@@ -4254,7 +4268,7 @@ function FlowInner() {
           }
         }
         // Kling 视频节点：支持最多 4 张参考图
-        if (tgt?.type === "klingVideo" && params.targetHandle === "image") {
+        if ((tgt?.type === "klingVideo" || tgt?.type === "kling26Video") && params.targetHandle === "image") {
           let remainingToDrop = Math.max(
             0,
             next.filter(
@@ -6573,13 +6587,15 @@ function FlowInner() {
       }
 
       // 新的视频生成节点处理逻辑（可灵 Kling、Kling O1、Vidu、豆包 Seedance）
-      const newVideoNodeTypes = ["klingVideo", "klingO1Video", "viduVideo", "doubaoVideo"];
+      const newVideoNodeTypes = ["klingVideo", "kling26Video", "klingO1Video", "viduVideo", "doubaoVideo"];
       if (newVideoNodeTypes.includes(node.type || "")) {
         const projectId = useProjectContentStore.getState().projectId;
         // 根据节点类型确定 provider
         let provider: string;
         if (node.type === "klingO1Video") {
           provider = "kling-o1";
+        } else if (node.type === "kling26Video") {
+          provider = "kling-2.6";
         } else {
           provider = (node.data as any)?.provider || "kling";
         }
@@ -6588,7 +6604,7 @@ function FlowInner() {
         const maxImages =
           provider === "vidu"
             ? VIDU_MAX_REFERENCE_IMAGES
-            : provider === "kling" || provider === "kling-o1"
+            : provider === "kling" || provider === "kling-2.6" || provider === "kling-o1"
             ? KLING_MAX_REFERENCE_IMAGES
             : SORA2_MAX_REFERENCE_IMAGES;
 
@@ -8553,6 +8569,7 @@ function FlowInner() {
             n.type === "wan26" ||
             n.type === "wan2R2V" ||
             n.type === "klingVideo" ||
+            n.type === "kling26Video" ||
             n.type === "klingO1Video" ||
             n.type === "viduVideo" ||
             n.type === "doubaoVideo"
