@@ -248,9 +248,9 @@ export class NodeConfigService {
         nameEn: 'Kling 2.6',
         category: 'video',
         sortOrder: 21,
-        creditsPerCall: 60,
+        creditsPerCall: 100,
         serviceType: 'kling-2.6-video',
-        priceYuan: 0.6,
+        priceYuan: 1,
         description: '可灵Kling 2.6视频生成，使用kling-v2-6模型',
       },
       {
@@ -450,9 +450,9 @@ export class NodeConfigService {
         nameEn: 'Kling 2.6',
         category: 'video',
         sortOrder: 21,
-        creditsPerCall: 60,
+        creditsPerCall: 100,
         serviceType: 'kling-2.6-video',
-        priceYuan: 0.6,
+        priceYuan: 1,
         description: '可灵Kling 2.6视频生成，使用kling-v2-6模型',
       },
       {

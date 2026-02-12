@@ -156,7 +156,7 @@ export const CREDIT_PRICING_CONFIG = {
   'kling-2.6-video': {
     serviceName: '可灵 Kling 2.6 视频',
     provider: 'kling',
-    creditsPerCall: 60,
+    creditsPerCall: 100,
     description: '使用可灵 Kling 2.6 生成视频',
   },
   'kling-o1-video': {
