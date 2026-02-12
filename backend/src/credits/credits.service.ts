@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CREDIT_PRICING_CONFIG,
@@ -7,6 +7,7 @@ import {
   ServiceType,
 } from './credits.config';
 import { TransactionType, ApiResponseStatus } from './dto/credits.dto';
+import { ReferralService } from '../referral/referral.service';
 
 export interface DeductCreditsResult {
   success: boolean;
@@ -36,7 +37,11 @@ export interface ApiUsageParams {
 
 @Injectable()
 export class CreditsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Inject(forwardRef(() => ReferralService))
+    private referralService: ReferralService,
+  ) {}
 
   /**
    * 获取或创建用户积分账户
@@ -223,7 +228,7 @@ export class CreditsService {
     errorMessage?: string,
     processingTime?: number,
   ) {
-    await this.prisma.apiUsageRecord.update({
+    const apiUsage = await this.prisma.apiUsageRecord.update({
       where: { id: apiUsageId },
       data: {
         responseStatus: status,
@@ -231,6 +236,16 @@ export class CreditsService {
         processingTime,
       },
     });
+
+    // 如果 API 调用成功，检查是否需要核验邀请奖励
+    if (status === ApiResponseStatus.SUCCESS && apiUsage.userId) {
+      try {
+        await this.referralService.verifyAndRewardInviter(apiUsage.userId);
+      } catch (e) {
+        // 核验失败不影响主流程，只记录日志
+        console.warn(`[Credits] 邀请奖励核验失败: ${e instanceof Error ? e.message : e}`);
+      }
+    }
   }
 
   /**

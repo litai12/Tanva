@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AiModule } from '../ai/ai.module';
+import { AdminModule } from '../admin/admin.module';
 import { AiPublicController } from './ai-public.controller';
 import { AiPublicService } from './ai-public.service';
 
@@ -8,7 +9,7 @@ import { AiPublicService } from './ai-public.service';
  * 提供无需认证的 AI 功能接口供外部调用
  */
 @Module({
-  imports: [AiModule],
+  imports: [AiModule, AdminModule],
   controllers: [AiPublicController],
   providers: [AiPublicService],
 })

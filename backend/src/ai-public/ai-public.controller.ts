@@ -12,6 +12,7 @@ import { BackgroundRemovalService } from '../ai/services/background-removal.serv
 import { RemoveBackgroundDto } from '../ai/dto/background-removal.dto';
 import { VeoVideoService } from '../ai/services/veo-video.service';
 import { VeoGenerateVideoDto, VeoVideoResponseDto, VeoModelsResponseDto } from '../ai/dto/veo-video.dto';
+import { NodeConfigService } from '../admin/services/node-config.service';
 
 /**
  * 公开 AI API 控制器
@@ -27,6 +28,7 @@ export class AiPublicController {
     private readonly aiPublicService: AiPublicService,
     private readonly backgroundRemoval: BackgroundRemovalService,
     private readonly veoVideoService: VeoVideoService,
+    private readonly nodeConfigService: NodeConfigService,
   ) {}
 
   @Post('generate')
@@ -267,5 +269,34 @@ export class AiPublicController {
     });
 
     return result;
+  }
+
+  // ==================== 节点配置（公开接口） ====================
+
+  @Get('node-configs')
+  @ApiOperation({
+    summary: '获取节点配置',
+    description: '获取所有可见的节点配置，用于前端节点面板显示。无需身份认证。',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '返回节点配置列表',
+    schema: {
+      example: [
+        {
+          nodeKey: 'klingO1Video',
+          nameZh: 'Kling O1视频生成',
+          nameEn: 'Kling O1',
+          category: 'video',
+          status: 'normal',
+          creditsPerCall: 100,
+          priceYuan: 1,
+        },
+      ],
+    },
+  })
+  async getNodeConfigs() {
+    this.logger.log('📋 [PUBLIC] Node configs requested');
+    return this.nodeConfigService.getAllNodeConfigs();
   }
 }

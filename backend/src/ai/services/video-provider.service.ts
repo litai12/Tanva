@@ -170,6 +170,7 @@ export class VideoProviderService {
   // API Keys 优先从环境变量获取，否则使用默认值（仅供参考）
   private readonly apiKeys = {
     kling: process.env.KLING_API_KEY || "sk-kling-xxx",
+    "kling-o1": process.env.KLING_API_KEY || "sk-kling-xxx",
     vidu: process.env.VIDU_API_KEY || "sk-vidu-xxx",
     doubao:
       process.env.DOUBAO_API_KEY || "0ac5fae84-f299-4db4-8d7e-3f7fc355c6ac",
@@ -200,6 +201,8 @@ export class VideoProviderService {
         return this.generateDoubao(options, apiKey);
       case "kling":
         return this.generateKling(options, apiKey);
+      case "kling-o1":
+        return this.generateKlingO1(options, apiKey);
       case "vidu":
         return this.generateVidu(options, apiKey);
       default:
@@ -211,7 +214,7 @@ export class VideoProviderService {
    * 查询任务状态
    */
   async queryTask(
-    provider: "kling" | "vidu" | "doubao",
+    provider: "kling" | "kling-o1" | "vidu" | "doubao",
     taskId: string
   ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string }> {
     const apiKey = this.apiKeys[provider];
@@ -222,6 +225,8 @@ export class VideoProviderService {
         return this.queryDoubao(taskId, apiKey);
       case "kling":
         return this.queryKling(taskId, apiKey);
+      case "kling-o1":
+        return this.queryKlingO1(taskId, apiKey);
       case "vidu":
         return this.queryVidu(taskId, apiKey);
       default:
@@ -676,6 +681,154 @@ export class VideoProviderService {
     } catch (error) {
       this.logger.error(
         `❌ Vidu 查询异常: taskId=${taskId}, error=${
+          error instanceof Error ? error.message : error
+        }`
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * 可灵 Kling O1 (Omni Video) 视频生成
+   * 支持：文生视频、图片参考、首尾帧、视频编辑
+   */
+  private async generateKlingO1(
+    options: VideoProviderRequestDto,
+    apiKey: string
+  ): Promise<VideoGenerationResult> {
+    const endpoint = "https://models.kapon.cloud/kling/v1/videos/omni-video";
+    const imageCount = options.referenceImages?.length || 0;
+    const hasVideo = !!options.referenceVideo;
+
+    const payload: any = {
+      model_name: "kling-video-o1",
+      mode: options.mode || "pro",
+    };
+
+    // 处理 prompt
+    if (options.prompt) {
+      payload.prompt = options.prompt;
+    }
+
+    // 处理时长 (3-10秒)
+    if (options.duration) {
+      const dur = Math.max(3, Math.min(10, options.duration));
+      payload.duration = String(dur);
+    } else {
+      payload.duration = "5";
+    }
+
+    // 处理画面比例
+    // Kling O1 要求：没有首帧图片且不是视频编辑模式时必须指定 aspect_ratio
+    if (options.aspectRatio) {
+      payload.aspect_ratio = options.aspectRatio;
+    } else if (imageCount === 0 && !hasVideo) {
+      // 文生视频模式，默认 16:9
+      payload.aspect_ratio = "16:9";
+    }
+
+    // 处理图片列表
+    if (imageCount > 0) {
+      const imageList: any[] = [];
+      for (let i = 0; i < Math.min(imageCount, 7); i++) {
+        const imgUrl = await this.uploadBase64ImageToOSS(options.referenceImages![i]);
+        const imgItem: any = { image_url: imgUrl };
+        // 如果是前两张图，可以设置为首帧/尾帧
+        if (i === 0 && imageCount >= 1) {
+          imgItem.type = "first_frame";
+        } else if (i === 1 && imageCount === 2) {
+          imgItem.type = "end_frame";
+        }
+        imageList.push(imgItem);
+      }
+      payload.image_list = imageList;
+    }
+
+    // 处理参考视频
+    if (hasVideo) {
+      payload.video_list = [{
+        video_url: options.referenceVideo,
+        refer_type: options.referenceVideoType || "feature",
+        keep_original_sound: options.keepOriginalSound || "no",
+      }];
+    }
+
+    this.logProviderPayload("kling-o1", payload);
+    this.logger.log(`🎬 Kling O1: images=${imageCount}, hasVideo=${hasVideo}, endpoint=${endpoint}`);
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const textBody = await response.text().catch(() => "");
+      this.logger.error(
+        `❌ Kling O1 生成失败: HTTP ${response.status}, response_text=${textBody.slice(0, 1000)}`
+      );
+      let error: any = {};
+      if (textBody) {
+        try {
+          error = JSON.parse(textBody);
+        } catch {}
+      }
+      throw new Error(
+        error.error?.message || error.message || textBody || `HTTP ${response.status}`
+      );
+    }
+
+    const data = await response.json();
+    return {
+      taskId: data.data?.task_id,
+      status: "queued",
+    };
+  }
+
+  private async queryKlingO1(taskId: string, apiKey: string) {
+    try {
+      const endpoint = `https://models.kapon.cloud/kling/v1/videos/omni-video/${taskId}`;
+      const response = await fetch(endpoint, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+      const data = await response.json();
+
+      this.logger.log(
+        `🔍 Kling O1 任务状态查询: taskId=${taskId}, status=${data.data?.task_status}`
+      );
+
+      if (data.data?.task_status === "succeed") {
+        const upstreamUrl: string | undefined = data.data.task_result?.videos?.[0]?.url;
+        if (!upstreamUrl) {
+          throw new ServiceUnavailableException("Kling O1 返回空视频链接");
+        }
+        if (this.isOssPublicUrl(upstreamUrl)) {
+          return { status: "succeeded", videoUrl: upstreamUrl };
+        }
+        const ossUrl = await this.uploadRemoteVideoToOss(upstreamUrl, `kling-o1-${taskId}`);
+        this.logger.log(`📤 Kling O1 视频已上传到 OSS: ${ossUrl}`);
+        return { status: "succeeded", videoUrl: ossUrl };
+      }
+
+      if (data.data?.task_status === "failed") {
+        this.logger.error(
+          `❌ Kling O1 任务失败: taskId=${taskId}, error=${JSON.stringify(
+            data.data.task_result || data
+          )}`
+        );
+        return {
+          status: "failed",
+          error: data.data?.task_status_msg || "生成失败",
+        };
+      }
+
+      return { status: data.data?.task_status || "processing" };
+    } catch (error) {
+      this.logger.error(
+        `❌ Kling O1 查询异常: taskId=${taskId}, error=${
           error instanceof Error ? error.message : error
         }`
       );

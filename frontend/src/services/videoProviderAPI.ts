@@ -5,7 +5,7 @@
 import { fetchWithAuth } from "./authFetch";
 import { getApiBaseUrl } from "../utils/assetProxy";
 
-export type VideoProvider = "kling" | "vidu" | "doubao";
+export type VideoProvider = "kling" | "kling-o1" | "vidu" | "doubao";
 
 export interface VideoGenerationRequest {
   prompt: string;
@@ -20,6 +20,12 @@ export interface VideoGenerationRequest {
   // 豆包专用参数
   camerafixed?: boolean;
   watermark?: boolean;
+  // Kling/Kling-O1 专用参数
+  mode?: "std" | "pro";
+  // Kling O1 视频编辑专用参数
+  referenceVideo?: string;
+  referenceVideoType?: "feature" | "motion" | "expression";
+  keepOriginalSound?: "yes" | "no";
 }
 
 export interface VideoGenerationResult {

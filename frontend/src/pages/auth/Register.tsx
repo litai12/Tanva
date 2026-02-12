@@ -1,36 +1,83 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { useAuthStore } from "@/stores/authStore";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, Check, X } from "lucide-react";
+import { validateInviteCode } from "@/services/referralApi";
 
 export default function RegisterPage() {
+  const [searchParams] = useSearchParams();
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
+  const [inviteCodeValid, setInviteCodeValid] = useState<boolean | null>(null);
+  const [inviterName, setInviterName] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [agreeTerms, setAgreeTerms] = useState(true); // 默认勾选
   const navigate = useNavigate();
-  const { register, loading, error } = useAuthStore();
+  const { register, login, loading, error } = useAuthStore();
+
+  // 从URL参数中获取邀请码
+  useEffect(() => {
+    const code = searchParams.get("code");
+    if (code) {
+      setInviteCode(code);
+      // 自动验证邀请码
+      validateInviteCode(code).then((result) => {
+        setInviteCodeValid(result.valid);
+        if (result.valid && result.inviterName) {
+          setInviterName(result.inviterName);
+        }
+      });
+    }
+  }, [searchParams]);
+
+  // 验证邀请码
+  const handleInviteCodeBlur = async () => {
+    if (!inviteCode.trim()) {
+      setInviteCodeValid(null);
+      setInviterName(null);
+      return;
+    }
+    const result = await validateInviteCode(inviteCode.trim());
+    setInviteCodeValid(result.valid);
+    if (result.valid && result.inviterName) {
+      setInviterName(result.inviterName);
+    } else {
+      setInviterName(null);
+    }
+  };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!agreeTerms) {
+      alert("请先同意用户协议和隐私政策");
+      return;
+    }
     if (password !== confirm) {
       alert("两次输入的密码不一致");
       return;
     }
-    await register(
-      phone,
-      password,
-      name || undefined,
-      email || undefined
-    );
-    // 注册成功后跳转到登录
-    navigate("/auth/login");
+    try {
+      await register(
+        phone,
+        password,
+        name || undefined,
+        email || undefined,
+        inviteCode.trim() || undefined
+      );
+      // 注册成功后自动登录
+      await login(phone, password);
+      navigate("/");
+    } catch (err) {
+      // 错误已在 store 中处理
+    }
   };
 
   return (
@@ -111,11 +158,65 @@ export default function RegisterPage() {
               {showConfirm ? <Eye className='h-5 w-5' /> : <EyeOff className='h-5 w-5' />}
             </button>
           </div>
+          <div className='relative'>
+            <Input
+              placeholder='邀请码（选填）'
+              value={inviteCode}
+              onChange={(e) => {
+                setInviteCode(e.target.value);
+                setInviteCodeValid(null);
+              }}
+              onBlur={handleInviteCodeBlur}
+              className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12 pr-10'
+            />
+            {inviteCodeValid !== null && (
+              <div className='absolute right-3 top-1/2 -translate-y-1/2'>
+                {inviteCodeValid ? (
+                  <Check className='h-5 w-5 text-green-400' />
+                ) : (
+                  <X className='h-5 w-5 text-red-400' />
+                )}
+              </div>
+              
+            )}
+            {inviteCodeValid && inviterName && (
+              <div className='text-xs text-green-400 mt-1 ml-1'>
+                来自 {inviterName} 的邀请
+              </div>
+            )}
+          </div>
           {error && <div className='text-red-400 text-sm drop-shadow-md'>{error}</div>}
+
+          {/* 协议勾选 */}
+          <div className='flex items-center justify-center gap-2'>
+            <button
+              type='button'
+              onClick={() => setAgreeTerms(!agreeTerms)}
+              className={`w-3 h-3 rounded-full border-2 flex items-center justify-center transition-all ${
+                agreeTerms
+                  ? 'bg-white border-white'
+                  : 'bg-transparent border-white/50'
+              }`}
+            >
+              {agreeTerms && <Check className='w-3 h-3 text-black' />}
+            </button>
+            <label
+              onClick={() => setAgreeTerms(!agreeTerms)}
+              className='text-xs text-white/70 cursor-pointer'
+            >
+              我已阅读并同意
+              <Link to='/legal/terms' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>用户协议</Link>
+              、
+              <Link to='/legal/privacy' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>隐私政策</Link>
+              和
+              <Link to='/legal/community' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>社区自律公约</Link>
+            </label>
+          </div>
+
           <Button
             type='submit'
             className='w-full bg-white/20 hover:bg-white/30 text-white border border-white/30 rounded-xl h-12 font-medium backdrop-blur-sm transition-all duration-200 disabled:opacity-70 hover:shadow-lg'
-            disabled={loading}
+            disabled={loading || !agreeTerms}
           >
             {loading ? "提交中..." : "注册"}
           </Button>
@@ -127,21 +228,6 @@ export default function RegisterPage() {
           </div>
         </form>
       </Card>
-
-      {/* 协议链接 */}
-      <div className='absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex gap-4 text-xs text-white/60'>
-        <Link to='/legal/terms' className='hover:text-white transition-colors'>
-          用户服务与AI使用协议
-        </Link>
-        <span>|</span>
-        <Link to='/legal/privacy' className='hover:text-white transition-colors'>
-          隐私政策
-        </Link>
-        <span>|</span>
-        <Link to='/legal/community' className='hover:text-white transition-colors'>
-          社区自律公约
-        </Link>
-      </div>
     </div>
   );
 }

@@ -109,6 +109,9 @@ model CreditAccount {
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
   lastDailyRewardAt DateTime?
+  // 连续签到相关字段
+  consecutiveDays   Int                 @default(0)  // 当前连续签到天数
+  lastCheckInDate   DateTime?           // 最后签到日期
   user              User                @relation(fields: [userId], references: [id])
   transactions      CreditTransaction[]
 }
@@ -206,6 +209,9 @@ model InvitationRedemption {
   codeId        String
   inviteeUserId String
   inviterUserId String?
+  rewardStatus  String         @default("pending") // pending(等核验), rewarded(已发奖)
+  rewardAmount  Int            @default(0)         // 奖励积分数
+  rewardedAt    DateTime?                          // 发奖时间
   metadata      Json?
   createdAt     DateTime       @default(now())
   code          InvitationCode @relation(fields: [codeId], references: [id])
@@ -214,6 +220,7 @@ model InvitationRedemption {
 
   @@index([codeId])
   @@index([inviteeUserId])
+  @@index([inviterUserId])
 }
 
 model GlobalImageHistory {
@@ -262,6 +269,29 @@ model SystemSetting {
   updatedBy   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// 节点配置管理 - 控制前端节点面板的显示状态和计费
+model NodeConfig {
+  id              String   @id @default(uuid())
+  nodeKey         String   @unique          // 节点唯一标识，如 "klingO1Video"
+  nameZh          String                    // 中文名称
+  nameEn          String                    // 英文名称
+  category        String   @default("other") // 分类: input, image, video, other
+  status          String   @default("normal") // 状态: normal(正常), maintenance(维护中), coming_soon(即将开放), disabled(已禁用)
+  statusMessage   String?                   // 状态说明，如 "预计2月底恢复"
+  creditsPerCall  Int      @default(0)      // 每次调用消耗积分
+  priceYuan       Decimal? @db.Decimal(10, 2) // 原价(元)，用于显示参考
+  serviceType     String?                   // 关联的服务类型，用于计费
+  sortOrder       Int      @default(0)      // 排序顺序
+  isVisible       Boolean  @default(true)   // 是否在节点面板显示
+  description     String?                   // 节点描述
+  metadata        Json?                     // 扩展配置，如不同参数的计费规则
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([category, sortOrder])
+  @@index([status])
 }
 
 model PaymentOrder {

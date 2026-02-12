@@ -3,10 +3,10 @@ import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, MaxLength } from 'cl
 
 export class VideoProviderRequestDto {
   @ApiProperty({ description: '供应商' })
-  @IsEnum(['kling', 'vidu', 'doubao'])
-  provider!: 'kling' | 'vidu' | 'doubao';
+  @IsEnum(['kling', 'kling-o1', 'vidu', 'doubao'])
+  provider!: 'kling' | 'kling-o1' | 'vidu' | 'doubao';
 
-  @ApiProperty({ description: '视频生成模式 (Vidu: text2video/img2video/start-end2video/reference2video; Kling: text2video/image2video/image2video-tail/multi-image2video)', required: false })
+  @ApiProperty({ description: '视频生成模式 (Vidu: text2video/img2video/start-end2video/reference2video; Kling: text2video/image2video/image2video-tail/multi-image2video; Kling-O1: omni-video)', required: false })
   @IsOptional()
   @IsString()
   videoMode?: string;
@@ -14,13 +14,28 @@ export class VideoProviderRequestDto {
   @ApiProperty({ description: '视频描述提示词', required: false })
   @IsOptional()
   @IsString()
-  @MaxLength(2000)
+  @MaxLength(2500)
   prompt?: string;
 
   @ApiProperty({ description: '参考图像 URL 列表', required: false, type: [String] })
   @IsOptional()
   @IsString({ each: true })
   referenceImages?: string[];
+
+  @ApiProperty({ description: '参考视频 URL', required: false })
+  @IsOptional()
+  @IsString()
+  referenceVideo?: string;
+
+  @ApiProperty({ description: '参考视频类型 (feature/base)', required: false })
+  @IsOptional()
+  @IsString()
+  referenceVideoType?: 'feature' | 'base';
+
+  @ApiProperty({ description: '保留原声 (yes/no)', required: false })
+  @IsOptional()
+  @IsString()
+  keepOriginalSound?: 'yes' | 'no';
 
   @ApiProperty({ description: '画面比例', required: false })
   @IsOptional()

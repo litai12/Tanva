@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { useAuthStore } from "@/stores/authStore";
-import { Loader2, Eye, EyeOff } from "lucide-react";
+import { Loader2, Eye, EyeOff, Check } from "lucide-react";
 import { authApi } from "@/services/authApi";
 import ForgotPasswordModal from "@/components/auth/ForgotPasswordModal";
 
@@ -16,6 +16,7 @@ export default function LoginPage() {
   const [code, setCode] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
+  const [agreeTerms, setAgreeTerms] = useState(true); // 默认勾选
   const navigate = useNavigate();
   const { login, loginWithSms, error, user } = useAuthStore();
 
@@ -31,6 +32,10 @@ export default function LoginPage() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!agreeTerms) {
+      alert("请先同意用户协议和隐私政策");
+      return;
+    }
     setIsSubmitting(true);
     try {
       if (tab === "password") {
@@ -105,7 +110,7 @@ export default function LoginPage() {
               </button>
             </div>
             {/* 固定高度容器，避免切换时跳跃 */}
-            <div className='relative min-h-[260px] transition-[min-height] px-36'>
+            <div className='relative min-h-[260px] transition-[min-height] px-28'>
               {tab === "password" ? (
                 <form onSubmit={onSubmit} className='space-y-6'>
                   <Input
@@ -140,7 +145,7 @@ export default function LoginPage() {
                   <Button
                     type='submit'
                     className='w-full bg-white/20 hover:bg-white/30 text-white border border-white/30 rounded-xl h-12 font-medium backdrop-blur-sm transition-all duration-200 disabled:opacity-70 hover:shadow-lg'
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || !agreeTerms}
                   >
                     {isSubmitting ? (
                       <>
@@ -164,6 +169,32 @@ export default function LoginPage() {
                     >
                       立即注册
                     </Link>
+                  </div>
+
+                  {/* 协议勾选 */}
+                  <div className='flex items-center justify-center gap-2 pt-2'>
+                    <button
+                      type='button'
+                      onClick={() => setAgreeTerms(!agreeTerms)}
+                      className={`w-3 h-3 rounded-full border-2 flex items-center justify-center transition-all ${
+                        agreeTerms
+                          ? 'bg-white border-white'
+                          : 'bg-transparent border-white/50'
+                      }`}
+                    >
+                      {agreeTerms && <Check className='w-3 h-3 text-black' />}
+                    </button>
+                    <label
+                      onClick={() => setAgreeTerms(!agreeTerms)}
+                      className='text-xs text-white/70 cursor-pointer'
+                    >
+                      我已阅读并同意
+                      <Link to='/legal/terms' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>用户协议</Link>
+                      、
+                      <Link to='/legal/privacy' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>隐私政策</Link>
+                      和
+                      <Link to='/legal/community' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>社区自律公约</Link>
+                    </label>
                   </div>
                 </form>
               ) : (
@@ -249,7 +280,7 @@ export default function LoginPage() {
                   <Button
                     type='submit'
                     className='w-full bg-white/20 hover:bg-white/30 text-white border border-white/30 rounded-xl h-12 font-medium backdrop-blur-sm transition-all duration-200 disabled:opacity-70 hover:shadow-lg'
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || !agreeTerms}
                   >
                     {isSubmitting ? (
                       <>
@@ -260,27 +291,38 @@ export default function LoginPage() {
                       "登录"
                     )}
                   </Button>
+
+                  {/* 协议勾选 */}
+                  <div className='flex items-center justify-center gap-2 pt-2'>
+                    <button
+                      type='button'
+                      onClick={() => setAgreeTerms(!agreeTerms)}
+                      className={`w-3 h-3 rounded-full border-2 flex items-center justify-center transition-all ${
+                        agreeTerms
+                          ? 'bg-white border-white'
+                          : 'bg-transparent border-white/50'
+                      }`}
+                    >
+                      {agreeTerms && <Check className='w-3 h-3 text-black' />}
+                    </button>
+                    <label
+                      onClick={() => setAgreeTerms(!agreeTerms)}
+                      className='text-xs text-white/70 cursor-pointer'
+                    >
+                      我已阅读并同意
+                      <Link to='/legal/terms' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>用户协议</Link>
+                      、
+                      <Link to='/legal/privacy' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>隐私政策</Link>
+                      和
+                      <Link to='/legal/community' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>社区自律公约</Link>
+                    </label>
+                  </div>
                 </form>
               )}
             </div>
           </div>
         </div>
       </Card>
-
-      {/* 协议链接 */}
-      <div className='absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex gap-4 text-xs text-white/60'>
-        <Link to='/legal/terms' className='hover:text-white transition-colors'>
-          用户服务与AI使用协议
-        </Link>
-        <span>|</span>
-        <Link to='/legal/privacy' className='hover:text-white transition-colors'>
-          隐私政策
-        </Link>
-        <span>|</span>
-        <Link to='/legal/community' className='hover:text-white transition-colors'>
-          社区自律公约
-        </Link>
-      </div>
 
       {/* 忘记密码模态框 */}
       <ForgotPasswordModal

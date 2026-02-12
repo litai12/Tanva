@@ -484,3 +484,97 @@ export async function removeFromWatermarkWhitelist(userId: string) {
   });
   return response.json();
 }
+
+// ==================== 付费用户管理 ====================
+
+export interface PaidUser {
+  id: string;
+  phone: string;
+  email: string | null;
+  name: string | null;
+  role: string;
+  status: string;
+  createdAt: string;
+  lastLoginAt: string | null;
+  creditBalance: number;
+  totalSpent: number;
+  totalEarned: number;
+  totalPaid: number;
+  orderCount: number;
+}
+
+// 获取付费用户列表
+export async function getPaidUsers(params?: {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+}): Promise<{ users: PaidUser[]; pagination: Pagination }> {
+  const searchParams = new URLSearchParams();
+  if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
+  if (params?.search) searchParams.set("search", params.search);
+
+  const response = await request(`/api/admin/paid-users?${searchParams}`);
+  return response.json();
+}
+
+// ==================== 节点配置管理 ====================
+
+export interface NodeConfig {
+  id?: string;
+  nodeKey: string;
+  nameZh: string;
+  nameEn: string;
+  category: string;
+  status: string;
+  statusMessage?: string;
+  creditsPerCall: number;
+  priceYuan?: number;
+  serviceType?: string;
+  sortOrder: number;
+  isVisible: boolean;
+  description?: string;
+  metadata?: Record<string, any>;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// 获取所有节点配置（管理员）
+export async function getNodeConfigs(): Promise<NodeConfig[]> {
+  const response = await request("/api/admin/node-configs");
+  return response.json();
+}
+
+// 获取单个节点配置
+export async function getNodeConfig(nodeKey: string): Promise<NodeConfig> {
+  const response = await request(`/api/admin/node-configs/${nodeKey}`);
+  return response.json();
+}
+
+// 创建节点配置
+export async function createNodeConfig(data: Omit<NodeConfig, 'id' | 'createdAt' | 'updatedAt'>): Promise<NodeConfig> {
+  const response = await request("/api/admin/node-configs", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  return response.json();
+}
+
+// 更新节点配置
+export async function updateNodeConfig(nodeKey: string, data: Partial<NodeConfig>): Promise<NodeConfig> {
+  const response = await request(`/api/admin/node-configs/${nodeKey}`, {
+    method: "PATCH",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  return response.json();
+}
+
+// 删除节点配置
+export async function deleteNodeConfig(nodeKey: string): Promise<{ success: boolean }> {
+  const response = await request(`/api/admin/node-configs/${nodeKey}`, {
+    method: "DELETE",
+  });
+  return response.json();
+}

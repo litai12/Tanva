@@ -18,6 +18,10 @@ import {
   getWatermarkWhitelist,
   addToWatermarkWhitelist,
   removeFromWatermarkWhitelist,
+  getPaidUsers,
+  getNodeConfigs,
+  updateNodeConfig,
+  createNodeConfig,
   type DashboardStats,
   type UserWithCredits,
   type ApiUsageStats,
@@ -25,6 +29,8 @@ import {
   type Pagination,
   type SystemSetting,
   type WatermarkWhitelistUser,
+  type PaidUser,
+  type NodeConfig,
 } from "@/services/adminApi";
 import {
   fetchTemplates,
@@ -75,7 +81,7 @@ function UsersTab() {
   const loadUsers = async () => {
     setLoading(true);
     try {
-      const result = await getUsers({ page, pageSize: 20, search });
+      const result = await getUsers({ page, pageSize: 10, search });
       setUsers(result.users);
       setPagination(result.pagination);
     } catch (error) {
@@ -346,7 +352,7 @@ function ApiStatsTab() {
   const [stats, setStats] = useState<ApiUsageStats[]>([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
-  const pageSize = 20;
+  const pageSize = 10;
 
   useEffect(() => {
     const loadStats = async () => {
@@ -501,7 +507,7 @@ function ApiRecordsTab() {
     try {
       const result = await getApiUsageRecords({
         page,
-        pageSize: 50,
+        pageSize: 10,
         ...filters,
       });
       setRecords(result.records);
@@ -736,7 +742,7 @@ function TemplatesTab() {
     try {
       const result = await fetchTemplates({
         page,
-        pageSize: 20,
+        pageSize: 10,
         category: category || undefined,
         isActive,
         search: search || undefined,
@@ -1390,7 +1396,7 @@ function WatermarkWhitelistTab() {
   const loadWhitelist = async () => {
     setLoading(true);
     try {
-      const result = await getWatermarkWhitelist({ page, pageSize: 20, search });
+      const result = await getWatermarkWhitelist({ page, pageSize: 10, search });
       setWhitelistUsers(result.users);
       setPagination(result.pagination);
     } catch (error) {
@@ -1551,6 +1557,119 @@ function WatermarkWhitelistTab() {
   );
 }
 
+// 付费用户管理 Tab
+function PaidUsersTab() {
+  const [users, setUsers] = useState<PaidUser[]>([]);
+  const [pagination, setPagination] = useState<Pagination | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+
+  const loadUsers = async () => {
+    setLoading(true);
+    try {
+      const result = await getPaidUsers({ page, pageSize: 10, search });
+      setUsers(result.users);
+      setPagination(result.pagination);
+    } catch (error) {
+      console.error("加载付费用户失败:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadUsers();
+  }, [page, search]);
+
+  return (
+    <div>
+      <div className='mb-4 flex gap-2'>
+        <Input
+          placeholder='搜索手机号/邮箱/昵称'
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className='max-w-xs'
+        />
+        <Button onClick={() => { setPage(1); loadUsers(); }}>搜索</Button>
+      </div>
+
+      <div className='bg-white rounded-lg border overflow-hidden'>
+        <div className='max-h-[800px] overflow-auto'>
+          <table className='w-full text-sm'>
+            <thead className='bg-gray-50'>
+              <tr>
+                <th className='px-4 py-3 text-left'>用户</th>
+                <th className='px-4 py-3 text-left'>手机号</th>
+                <th className='px-4 py-3 text-right'>总支付金额</th>
+                <th className='px-4 py-3 text-right'>订单数</th>
+                <th className='px-4 py-3 text-right'>积分余额</th>
+                <th className='px-4 py-3 text-right'>已消费积分</th>
+                <th className='px-4 py-3 text-left'>状态</th>
+                <th className='px-4 py-3 text-left'>注册时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={8} className='px-4 py-8 text-center text-gray-500'>加载中...</td>
+                </tr>
+              ) : users.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className='px-4 py-8 text-center text-gray-500'>暂无付费用户</td>
+                </tr>
+              ) : (
+                users.map((user) => (
+                  <tr key={user.id} className='border-t hover:bg-gray-50'>
+                    <td className='px-4 py-3'>
+                      <div>{user.name || "-"}</div>
+                      <div className='text-xs text-gray-400'>{user.email || "-"}</div>
+                    </td>
+                    <td className='px-4 py-3'>{user.phone}</td>
+                    <td className='px-4 py-3 text-right font-medium text-green-600'>
+                      ¥{user.totalPaid.toFixed(2)}
+                    </td>
+                    <td className='px-4 py-3 text-right'>{user.orderCount}</td>
+                    <td className='px-4 py-3 text-right text-blue-600'>{user.creditBalance}</td>
+                    <td className='px-4 py-3 text-right'>{user.totalSpent}</td>
+                    <td className='px-4 py-3'>
+                      <span className={`px-2 py-1 rounded text-xs ${
+                        user.status === 'active' ? 'bg-green-100 text-green-700' :
+                        user.status === 'inactive' ? 'bg-yellow-100 text-yellow-700' :
+                        'bg-red-100 text-red-700'
+                      }`}>
+                        {user.status === 'active' ? '正常' : user.status === 'inactive' ? '禁用' : '封禁'}
+                      </span>
+                    </td>
+                    <td className='px-4 py-3 text-xs text-gray-500'>
+                      {new Date(user.createdAt).toLocaleDateString()}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {pagination && pagination.totalPages > 1 && (
+        <div className='mt-4 flex items-center justify-center gap-4'>
+          <span className='text-sm text-gray-500'>共 {pagination.total} 条记录</span>
+          <div className='flex items-center gap-2'>
+            <Button variant='outline' size='sm' disabled={page === 1} onClick={() => setPage(page - 1)}>
+              上一页
+            </Button>
+            <span className='px-4 py-2 text-sm'>{page} / {pagination.totalPages}</span>
+            <Button variant='outline' size='sm' disabled={page === pagination.totalPages} onClick={() => setPage(page + 1)}>
+              下一页
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // 系统设置 Tab
 function SettingsTab() {
   const [settings, setSettings] = useState<SystemSetting[]>([]);
@@ -1683,6 +1802,366 @@ function SettingsTab() {
   );
 }
 
+// 节点配置管理 Tab
+function NodeConfigsTab() {
+  const [configs, setConfigs] = useState<NodeConfig[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [editingConfig, setEditingConfig] = useState<NodeConfig | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+
+  const loadConfigs = async () => {
+    setLoading(true);
+    try {
+      const result = await getNodeConfigs();
+      setConfigs(result);
+    } catch (error) {
+      console.error("加载节点配置失败:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadConfigs();
+  }, []);
+
+  const handleEdit = (config: NodeConfig) => {
+    setEditingConfig({ ...config });
+    setIsCreating(false);
+    setModalOpen(true);
+  };
+
+  const handleCreate = () => {
+    setEditingConfig({
+      nodeKey: "",
+      nameZh: "",
+      nameEn: "",
+      category: "other",
+      status: "normal",
+      creditsPerCall: 0,
+      sortOrder: 0,
+      isVisible: true,
+    });
+    setIsCreating(true);
+    setModalOpen(true);
+  };
+
+  const handleSave = async () => {
+    if (!editingConfig) return;
+
+    if (isCreating) {
+      if (!editingConfig.nodeKey || !editingConfig.nameZh || !editingConfig.nameEn) {
+        alert("请填写节点标识、中文名称和英文名称");
+        return;
+      }
+      try {
+        await createNodeConfig({
+          nodeKey: editingConfig.nodeKey,
+          nameZh: editingConfig.nameZh,
+          nameEn: editingConfig.nameEn,
+          category: editingConfig.category,
+          status: editingConfig.status,
+          statusMessage: editingConfig.statusMessage,
+          creditsPerCall: editingConfig.creditsPerCall,
+          priceYuan: editingConfig.priceYuan,
+          serviceType: editingConfig.serviceType,
+          sortOrder: editingConfig.sortOrder,
+          isVisible: editingConfig.isVisible,
+          description: editingConfig.description,
+        });
+        setModalOpen(false);
+        setEditingConfig(null);
+        loadConfigs();
+      } catch (error: any) {
+        alert(error.message || "创建失败");
+      }
+    } else {
+      try {
+        await updateNodeConfig(editingConfig.nodeKey, {
+          nameZh: editingConfig.nameZh,
+          nameEn: editingConfig.nameEn,
+          category: editingConfig.category,
+          status: editingConfig.status,
+          statusMessage: editingConfig.statusMessage,
+          creditsPerCall: editingConfig.creditsPerCall,
+          priceYuan: editingConfig.priceYuan,
+          serviceType: editingConfig.serviceType,
+          sortOrder: editingConfig.sortOrder,
+          isVisible: editingConfig.isVisible,
+          description: editingConfig.description,
+        });
+        setModalOpen(false);
+        setEditingConfig(null);
+        loadConfigs();
+      } catch (error: any) {
+        alert(error.message || "保存失败");
+      }
+    }
+  };
+
+  const statusOptions = [
+    { value: "normal", label: "正常" },
+    { value: "maintenance", label: "维护中" },
+    { value: "coming_soon", label: "即将开放" },
+    { value: "disabled", label: "已禁用" },
+  ];
+
+  const categoryOptions = [
+    { value: "input", label: "输入节点" },
+    { value: "image", label: "图像生成" },
+    { value: "video", label: "视频生成" },
+    { value: "other", label: "其他" },
+  ];
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "normal":
+        return <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs">正常</span>;
+      case "maintenance":
+        return <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded text-xs">维护中</span>;
+      case "coming_soon":
+        return <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs">即将开放</span>;
+      case "disabled":
+        return <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs">已禁用</span>;
+      default:
+        return <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs">{status}</span>;
+    }
+  };
+
+  const getCategoryBadge = (category: string) => {
+    switch (category) {
+      case "input":
+        return <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs">输入</span>;
+      case "image":
+        return <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs">图像</span>;
+      case "video":
+        return <span className="px-2 py-1 bg-pink-100 text-pink-700 rounded text-xs">视频</span>;
+      default:
+        return <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs">其他</span>;
+    }
+  };
+
+  return (
+    <div>
+      <div className="mb-4">
+        <Button onClick={handleCreate}>添加节点</Button>
+      </div>
+
+      <div className="bg-white rounded-lg border overflow-hidden">
+        <div className="max-h-[800px] overflow-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 sticky top-0">
+              <tr>
+                <th className="px-4 py-3 text-left">节点</th>
+                <th className="px-4 py-3 text-left">分类</th>
+                <th className="px-4 py-3 text-left">状态</th>
+                <th className="px-4 py-3 text-right">积分/次</th>
+                <th className="px-4 py-3 text-right">原价(元)</th>
+                <th className="px-4 py-3 text-left">服务类型</th>
+                <th className="px-4 py-3 text-center">显示</th>
+                <th className="px-4 py-3 text-left">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={8} className="px-4 py-8 text-center text-gray-500">加载中...</td>
+                </tr>
+              ) : configs.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
+                    暂无数据，请点击"初始化默认配置"
+                  </td>
+                </tr>
+              ) : (
+                configs.map((config) => (
+                  <tr key={config.nodeKey} className="border-t hover:bg-gray-50">
+                    <td className="px-4 py-3">
+                      <div className="font-medium">{config.nameZh}</div>
+                      <div className="text-xs text-gray-400">{config.nodeKey}</div>
+                    </td>
+                    <td className="px-4 py-3">{getCategoryBadge(config.category)}</td>
+                    <td className="px-4 py-3">
+                      {getStatusBadge(config.status)}
+                      {config.statusMessage && (
+                        <div className="text-xs text-gray-400 mt-1">{config.statusMessage}</div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right font-medium">
+                      {config.creditsPerCall > 0 ? config.creditsPerCall : <span className="text-green-600">免费</span>}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {config.priceYuan ? `¥${config.priceYuan}` : "-"}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-500">
+                      {config.serviceType || "-"}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {config.isVisible ? (
+                        <span className="text-green-600">✓</span>
+                      ) : (
+                        <span className="text-red-600">✗</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Button size="sm" variant="outline" onClick={() => handleEdit(config)}>
+                        编辑
+                      </Button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* 编辑弹窗 */}
+      {modalOpen && editingConfig && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-auto">
+            <h3 className="text-lg font-semibold mb-4">
+              {isCreating ? "添加节点" : `编辑节点 - ${editingConfig.nameZh}`}
+            </h3>
+            <div className="space-y-4">
+              {isCreating && (
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">节点标识 *</label>
+                  <Input
+                    value={editingConfig.nodeKey}
+                    onChange={(e) => setEditingConfig({ ...editingConfig, nodeKey: e.target.value })}
+                    placeholder="如：myNewNode（唯一标识，创建后不可修改）"
+                  />
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">中文名称 *</label>
+                  <Input
+                    value={editingConfig.nameZh}
+                    onChange={(e) => setEditingConfig({ ...editingConfig, nameZh: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">英文名称 *</label>
+                  <Input
+                    value={editingConfig.nameEn}
+                    onChange={(e) => setEditingConfig({ ...editingConfig, nameEn: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">分类</label>
+                  <select
+                    value={editingConfig.category}
+                    onChange={(e) => setEditingConfig({ ...editingConfig, category: e.target.value })}
+                    className="w-full border rounded px-3 py-2"
+                  >
+                    {categoryOptions.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">状态</label>
+                  <select
+                    value={editingConfig.status}
+                    onChange={(e) => setEditingConfig({ ...editingConfig, status: e.target.value })}
+                    className="w-full border rounded px-3 py-2"
+                  >
+                    {statusOptions.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">状态说明（可选）</label>
+                <Input
+                  value={editingConfig.statusMessage || ""}
+                  onChange={(e) => setEditingConfig({ ...editingConfig, statusMessage: e.target.value })}
+                  placeholder="如：接口维护中，预计明天恢复"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">积分消耗/次</label>
+                  <Input
+                    type="number"
+                    value={editingConfig.creditsPerCall}
+                    onChange={(e) => setEditingConfig({ ...editingConfig, creditsPerCall: parseInt(e.target.value) || 0 })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">原价(元)</label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={editingConfig.priceYuan || ""}
+                    onChange={(e) => setEditingConfig({ ...editingConfig, priceYuan: parseFloat(e.target.value) || undefined })}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">服务类型</label>
+                  <Input
+                    value={editingConfig.serviceType || ""}
+                    onChange={(e) => setEditingConfig({ ...editingConfig, serviceType: e.target.value })}
+                    placeholder="如：kling-o1-video"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">排序</label>
+                  <Input
+                    type="number"
+                    value={editingConfig.sortOrder}
+                    onChange={(e) => setEditingConfig({ ...editingConfig, sortOrder: parseInt(e.target.value) || 0 })}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">描述</label>
+                <Input
+                  value={editingConfig.description || ""}
+                  onChange={(e) => setEditingConfig({ ...editingConfig, description: e.target.value })}
+                  placeholder="节点功能描述"
+                />
+              </div>
+
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={editingConfig.isVisible}
+                    onChange={(e) => setEditingConfig({ ...editingConfig, isVisible: e.target.checked })}
+                  />
+                  <span className="text-sm text-gray-600">在节点面板中显示</span>
+                </label>
+              </div>
+
+              <div className="flex gap-2 justify-end pt-4">
+                <Button variant="outline" onClick={() => { setModalOpen(false); setEditingConfig(null); }}>
+                  取消
+                </Button>
+                <Button onClick={handleSave}>保存</Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // 主页面
 export default function Admin() {
   const navigate = useNavigate();
@@ -1690,9 +2169,11 @@ export default function Admin() {
   const [activeTab, setActiveTab] = useState<
     | "dashboard"
     | "users"
+    | "paid-users"
     | "api-stats"
     | "api-records"
     | "watermark"
+    | "node-configs"
     | "settings"
     | "templates"
   >("dashboard");
@@ -1735,9 +2216,11 @@ export default function Admin() {
   const tabs = [
     { key: "dashboard", label: "概览" },
     { key: "users", label: "用户管理" },
+    { key: "paid-users", label: "付费用户" },
     { key: "api-stats", label: "API统计" },
     { key: "api-records", label: "API记录" },
     { key: "watermark", label: "水印白名单" },
+    { key: "node-configs", label: "节点管理" },
     { key: "templates", label: "公共模板" },
     { key: "settings", label: "系统设置" },
   ] as const;
@@ -1811,9 +2294,11 @@ export default function Admin() {
         )}
 
         {activeTab === "users" && <UsersTab />}
+        {activeTab === "paid-users" && <PaidUsersTab />}
         {activeTab === "api-stats" && <ApiStatsTab />}
         {activeTab === "api-records" && <ApiRecordsTab />}
         {activeTab === "watermark" && <WatermarkWhitelistTab />}
+        {activeTab === "node-configs" && <NodeConfigsTab />}
         {activeTab === "templates" && <TemplatesTab />}
         {activeTab === "settings" && <SettingsTab />}
       </main>

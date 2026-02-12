@@ -43,6 +43,7 @@ import {
   FolderOpen,
   Send,
   Globe,
+  Gift,
 } from "lucide-react";
 import MemoryDebugPanel from "@/components/debug/MemoryDebugPanel";
 import HistoryDebugPanel from "@/components/debug/HistoryDebugPanel";
@@ -65,6 +66,7 @@ import { clipboardService } from "@/services/clipboardService";
 import { contextManager } from "@/services/contextManager";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { authApi, type GoogleApiKeyInfo } from "@/services/authApi";
+import ReferralRewards from "@/components/ReferralRewards";
 import {
   claimDailyReward,
   getDailyRewardStatus,
@@ -75,6 +77,7 @@ import {
 
 const SETTINGS_SECTIONS = [
   { id: "workspace", label: "工作区", icon: Square },
+  { id: "referral", label: "推广激励", icon: Gift, hasNotification: true },
   { id: "appearance", label: "视图外观", icon: Eye },
   { id: "ai", label: "AI 设置", icon: Sparkles },
   { id: "advanced", label: "高级", icon: Zap },
@@ -722,20 +725,6 @@ const FloatingHeader: React.FC = () => {
                   <span className='text-lg font-medium text-slate-700'>
                     我的积分
                   </span>
-                  <button
-                    onClick={handleClaimDailyReward}
-                    disabled={
-                      !user ||
-                      dailyRewardLoading ||
-                      dailyRewardClaiming ||
-                      dailyRewardStatus?.canClaim === false
-                    }
-                    className='text-xs text-blue-500 hover:text-blue-600 disabled:text-slate-400 px-2'
-                  >
-                    {dailyRewardStatus?.canClaim === false
-                      ? "今日已领"
-                      : "每日签到奖励"}
-                  </button>
                 </div>
                 <button
                   onClick={() => {
@@ -810,6 +799,8 @@ const FloatingHeader: React.FC = () => {
             </div>
           </div>
         );
+      case "referral":
+        return <ReferralRewards />;
       case "appearance":
         return (
           <div className='pb-6 space-y-6'>
@@ -1600,6 +1591,7 @@ const FloatingHeader: React.FC = () => {
                       {SETTINGS_SECTIONS.map((section) => {
                         const Icon = section.icon;
                         const isActive = activeSettingsSection === section.id;
+                        const hasNotification = 'hasNotification' in section && section.hasNotification;
                         return (
                           <button
                             key={section.id}
@@ -1614,6 +1606,9 @@ const FloatingHeader: React.FC = () => {
                           >
                             <Icon className='w-4 h-4' />
                             <span>{section.label}</span>
+                            {hasNotification && (
+                              <span className='w-2 h-2 bg-red-500 rounded-full ml-auto' />
+                            )}
                           </button>
                         );
                       })}

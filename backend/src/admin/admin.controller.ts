@@ -18,6 +18,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 import { AdminService } from './admin.service';
 import { CreditsService } from '../credits/credits.service';
 import { TemplateService } from './services/template.service';
+import { NodeConfigService, NodeConfigDto, UpdateNodeConfigDto } from './services/node-config.service';
 import {
   UsersQueryDto,
   ApiUsageStatsQueryDto,
@@ -47,6 +48,7 @@ export class AdminController {
     private readonly adminService: AdminService,
     private readonly creditsService: CreditsService,
     private readonly templateService: TemplateService,
+    private readonly nodeConfigService: NodeConfigService,
   ) {}
 
   /**
@@ -367,5 +369,89 @@ export class AdminController {
   ) {
     this.checkAdmin(req);
     return this.adminService.removeFromWatermarkWhitelist(userId);
+  }
+
+  // ==================== 付费用户管理 ====================
+
+  @Get('paid-users')
+  @ApiOperation({ summary: '获取付费用户列表（按总支付金额排序）' })
+  async getPaidUsers(
+    @Request() req: AuthenticatedRequest,
+    @Query() query: { page?: string; pageSize?: string; search?: string },
+  ) {
+    this.checkAdmin(req);
+    return this.adminService.getPaidUsers({
+      page: query.page ? parseInt(query.page) : 1,
+      pageSize: query.pageSize ? parseInt(query.pageSize) : 10,
+      search: query.search,
+    });
+  }
+
+  // ==================== 节点配置管理 ====================
+
+  @Get('node-configs')
+  @ApiOperation({ summary: '获取所有节点配置（管理员）' })
+  async getAllNodeConfigs(@Request() req: AuthenticatedRequest) {
+    this.checkAdmin(req);
+    return this.nodeConfigService.getAllNodeConfigsAdmin();
+  }
+
+  @Get('node-configs/:nodeKey')
+  @ApiOperation({ summary: '获取单个节点配置' })
+  async getNodeConfig(
+    @Request() req: AuthenticatedRequest,
+    @Param('nodeKey') nodeKey: string,
+  ) {
+    this.checkAdmin(req);
+    const config = await this.nodeConfigService.getNodeConfig(nodeKey);
+    if (!config) {
+      throw new NotFoundException(`节点配置不存在: ${nodeKey}`);
+    }
+    return config;
+  }
+
+  @Post('node-configs')
+  @ApiOperation({ summary: '创建节点配置' })
+  async createNodeConfig(
+    @Request() req: AuthenticatedRequest,
+    @Body() dto: NodeConfigDto,
+  ) {
+    this.checkAdmin(req);
+    return this.nodeConfigService.createNodeConfig(dto);
+  }
+
+  @Patch('node-configs/:nodeKey')
+  @ApiOperation({ summary: '更新节点配置' })
+  async updateNodeConfig(
+    @Request() req: AuthenticatedRequest,
+    @Param('nodeKey') nodeKey: string,
+    @Body() dto: UpdateNodeConfigDto,
+  ) {
+    this.checkAdmin(req);
+    return this.nodeConfigService.updateNodeConfig(nodeKey, dto);
+  }
+
+  @Delete('node-configs/:nodeKey')
+  @ApiOperation({ summary: '删除节点配置' })
+  async deleteNodeConfig(
+    @Request() req: AuthenticatedRequest,
+    @Param('nodeKey') nodeKey: string,
+  ) {
+    this.checkAdmin(req);
+    return this.nodeConfigService.deleteNodeConfig(nodeKey);
+  }
+
+  @Post('node-configs/initialize')
+  @ApiOperation({ summary: '初始化默认节点配置' })
+  async initializeNodeConfigs(@Request() req: AuthenticatedRequest) {
+    this.checkAdmin(req);
+    return this.nodeConfigService.initializeDefaultConfigs();
+  }
+
+  @Post('node-configs/sync')
+  @ApiOperation({ summary: '同步所有节点配置（覆盖已存在的）' })
+  async syncNodeConfigs(@Request() req: AuthenticatedRequest) {
+    this.checkAdmin(req);
+    return this.nodeConfigService.syncAllConfigs();
   }
 }

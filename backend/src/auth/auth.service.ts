@@ -2,6 +2,8 @@ import {
   Injectable,
   UnauthorizedException,
   BadRequestException,
+  Inject,
+  forwardRef,
 } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
@@ -10,6 +12,7 @@ import { UsersService } from "../users/users.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { RegisterDto } from "./dto/register.dto";
 import { SmsService } from "./sms.service";
+import { ReferralService } from "../referral/referral.service";
 
 type TokenPair = { accessToken: string; refreshToken: string };
 
@@ -20,7 +23,9 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
-    private readonly smsService: SmsService
+    private readonly smsService: SmsService,
+    @Inject(forwardRef(() => ReferralService))
+    private readonly referralService: ReferralService
   ) {}
 
   private async signTokens(user: {
@@ -75,7 +80,7 @@ export class AuthService {
   async register(dto: RegisterDto, meta?: { ip?: string; ua?: string }) {
     const hash = await bcrypt.hash(dto.password, 10);
 
-    return this.prisma.$transaction(async (tx) => {
+    const user = await this.prisma.$transaction(async (tx) => {
       const existsByPhone = await tx.user.findUnique({
         where: { phone: dto.phone },
       });
@@ -87,7 +92,7 @@ export class AuthService {
         if (existsByEmail) throw new UnauthorizedException("邮箱已存在");
       }
 
-      const user = await tx.user.create({
+      const newUser = await tx.user.create({
         data: {
           email: dto.email ? dto.email.toLowerCase() : null,
           passwordHash: hash,
@@ -106,8 +111,20 @@ export class AuthService {
         },
       });
 
-      return user;
+      return newUser;
     });
+
+    // 处理邀请码（在事务外执行，避免影响注册流程）
+    if (dto.inviteCode) {
+      try {
+        await this.referralService.useInviteCode(user.id, dto.inviteCode);
+      } catch (e) {
+        // 邀请码处理失败不影响注册，只记录日志
+        console.warn(`[Register] 邀请码处理失败: ${e instanceof Error ? e.message : e}`);
+      }
+    }
+
+    return user;
   }
 
   async validateUser(phone: string, password: string) {

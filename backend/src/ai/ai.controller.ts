@@ -1470,7 +1470,7 @@ export class AiController {
    */
   @Get('video-task/:provider/:taskId')
   async queryVideoTask(
-    @Param('provider') provider: 'kling' | 'vidu' | 'doubao',
+    @Param('provider') provider: 'kling' | 'kling-o1' | 'vidu' | 'doubao',
     @Param('taskId') taskId: string,
   ) {
     return this.videoProviderService.queryTask(provider, taskId);

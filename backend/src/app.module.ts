@@ -14,6 +14,7 @@ import { PersonalLibraryModule } from './personal-library/personal-library.modul
 import { GlobalImageHistoryModule } from './global-image-history/global-image-history.module';
 import { TemplatesModule } from './templates/templates.module';
 import { PaymentModule } from './payment/payment.module';
+import { ReferralModule } from './referral/referral.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { PaymentModule } from './payment/payment.module';
     GlobalImageHistoryModule, // 全局图片历史
     TemplatesModule, // 公共模板模块
     PaymentModule,   // 支付模块
+    ReferralModule,  // 推广激励模块
   ],
 })
 export class AppModule {}

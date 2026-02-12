@@ -98,7 +98,7 @@ export class AdminService {
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
   } = {}): Promise<{ users: UserWithCredits[]; pagination: any }> {
-    const { page = 1, pageSize = 20, search, sortBy = 'createdAt', sortOrder = 'desc' } = options;
+    const { page = 1, pageSize = 10, search, sortBy = 'createdAt', sortOrder = 'desc' } = options;
 
     const where: any = {};
     if (search) {
@@ -328,7 +328,7 @@ export class AdminService {
     startDate?: Date;
     endDate?: Date;
   } = {}) {
-    const { page = 1, pageSize = 50, userId, serviceType, provider, status, startDate, endDate } = options;
+    const { page = 1, pageSize = 10, userId, serviceType, provider, status, startDate, endDate } = options;
 
     const where: any = {};
     if (userId) where.userId = userId;
@@ -459,7 +459,7 @@ export class AdminService {
     pageSize?: number;
     search?: string;
   } = {}) {
-    const { page = 1, pageSize = 20, search } = options;
+    const { page = 1, pageSize = 10, search } = options;
 
     const where: any = { noWatermark: true };
     if (search) {
@@ -531,5 +531,129 @@ export class AdminService {
       select: { noWatermark: true },
     });
     return user?.noWatermark ?? false;
+  }
+
+  // ==================== 付费用户管理 ====================
+
+  /**
+   * 获取付费用户列表（按总支付金额排序）
+   */
+  async getPaidUsers(options: {
+    page?: number;
+    pageSize?: number;
+    search?: string;
+  } = {}) {
+    const { page = 1, pageSize = 10, search } = options;
+
+    // 先获取所有有支付记录的用户及其总支付金额
+    const paidUsersQuery = await this.prisma.paymentOrder.groupBy({
+      by: ['userId'],
+      where: {
+        status: 'paid',
+      },
+      _sum: {
+        amount: true,
+      },
+      _count: {
+        id: true,
+      },
+    });
+
+    // 获取用户ID列表
+    const userIds = paidUsersQuery.map(p => p.userId);
+
+    if (userIds.length === 0) {
+      return {
+        users: [],
+        pagination: {
+          page,
+          pageSize,
+          total: 0,
+          totalPages: 0,
+        },
+      };
+    }
+
+    // 构建搜索条件
+    const where: any = {
+      id: { in: userIds },
+    };
+    if (search) {
+      where.OR = [
+        { phone: { contains: search } },
+        { email: { contains: search } },
+        { name: { contains: search } },
+      ];
+    }
+
+    // 获取符合搜索条件的用户
+    const filteredUsers = await this.prisma.user.findMany({
+      where,
+      select: {
+        id: true,
+        phone: true,
+        email: true,
+        name: true,
+        role: true,
+        status: true,
+        createdAt: true,
+        lastLoginAt: true,
+        creditAccount: {
+          select: {
+            balance: true,
+            totalSpent: true,
+            totalEarned: true,
+          },
+        },
+      },
+    });
+
+    // 创建用户ID到支付信息的映射
+    const paymentMap = new Map(
+      paidUsersQuery.map(p => [
+        p.userId,
+        {
+          totalPaid: Number(p._sum.amount) || 0,
+          orderCount: p._count.id,
+        },
+      ])
+    );
+
+    // 合并用户信息和支付信息，并按总支付金额排序
+    const usersWithPayment = filteredUsers
+      .map(user => ({
+        id: user.id,
+        phone: user.phone,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        status: user.status,
+        createdAt: user.createdAt,
+        lastLoginAt: user.lastLoginAt,
+        creditBalance: user.creditAccount?.balance || 0,
+        totalSpent: user.creditAccount?.totalSpent || 0,
+        totalEarned: user.creditAccount?.totalEarned || 0,
+        totalPaid: paymentMap.get(user.id)?.totalPaid || 0,
+        orderCount: paymentMap.get(user.id)?.orderCount || 0,
+      }))
+      .sort((a, b) => b.totalPaid - a.totalPaid);
+
+    // 分页
+    const total = usersWithPayment.length;
+    const totalPages = Math.ceil(total / pageSize);
+    const paginatedUsers = usersWithPayment.slice(
+      (page - 1) * pageSize,
+      page * pageSize
+    );
+
+    return {
+      users: paginatedUsers,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages,
+      },
+    };
   }
 }

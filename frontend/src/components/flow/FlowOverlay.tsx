@@ -65,6 +65,7 @@ import GeneratePro4Node from "./nodes/GeneratePro4Node";
 import ImageProNode from "./nodes/ImageProNode";
 import MidjourneyNode from "./nodes/MidjourneyNode";
 import KlingVideoNode from "./nodes/KlingVideoNode";
+import KlingO1VideoNode from "./nodes/KlingO1VideoNode";
 import ViduVideoNode from "./nodes/ViduVideoNode";
 import DoubaoVideoNode from "./nodes/DoubaoVideoNode";
 import VideoNode from "./nodes/VideoNode";
@@ -122,6 +123,11 @@ import {
 } from "@/services/videoProviderAPI";
 import { imageUploadService } from "@/services/imageUploadService";
 import { personalLibraryApi } from "@/services/personalLibraryApi";
+import {
+  fetchNodeConfigs,
+  getStatusBadge,
+  type NodeConfig,
+} from "@/services/nodeConfigService";
 import {
   createPersonalAssetId,
   usePersonalLibraryStore,
@@ -258,6 +264,7 @@ const nodeTypes = {
   wan26: Wan26Node,
   wan2R2V: Wan2R2VNode,
   klingVideo: KlingVideoNode,
+  klingO1Video: KlingO1VideoNode,
   viduVideo: ViduVideoNode,
   doubaoVideo: DoubaoVideoNode,
   storyboardSplit: StoryboardSplitNode,
@@ -423,6 +430,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   wan26: 600, // Wan2.6生成视频 - wan26-video
   wan2R2V: 600, // 视频融合 - wan26-r2v
   klingVideo: "40-400", // 可灵视频生成 - 可能使用 sora-sd 或 sora-hd
+  klingO1Video: "40-400", // 可灵O1视频生成 - Omni Video
   viduVideo: "40-400", // Vidu视频生成 - 可能使用 sora-sd 或 sora-hd
   doubaoVideo: "40-400", // 豆包视频生成 - 可能使用 sora-sd 或 sora-hd
   camera: 0, // 截图节点 - 不消耗积分
@@ -435,36 +443,42 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   generatePro4: 120, // 四图专业生成节点 - 4次 × 30积分
 };
 
-// 普通节点列表（不包含 Beta 节点）
+// 普通节点列表（按分类整理）
 const NODE_PALETTE_ITEMS = [
-  { key: "textPrompt", zh: "提示词节点", en: "Prompt Node" },
-  { key: "textChat", zh: "纯文本交互节点", en: "Text Chat Node" },
-  { key: "textNote", zh: "纯文本节点", en: "Text Note Node" },
-  { key: "promptOptimize", zh: "提示词优化节点", en: "Prompt Optimizer" },
-  { key: "analysis", zh: "图像分析节点", en: "Analysis Node" },
-  { key: "image", zh: "图片节点", en: "Image Node" },
-  { key: "video", zh: "视频节点", en: "Video Node" },
-  { key: "videoAnalyze", zh: "视频分析节点", en: "Video Analysis" },
-  { key: "videoFrameExtract", zh: "视频抽帧节点", en: "Video Frame Extract" },
-  { key: "imageGrid", zh: "图片拼合节点", en: "Image Grid" },
-  { key: "imageSplit", zh: "图片分割节点", en: "Image Split" },
-  { key: "generate", zh: "生成节点", en: "Generate Node" },
-  { key: "generateRef", zh: "参考图生成节点", en: "Generate Refer" },
-  { key: "generate4", zh: "生成多张图片节点", en: "Multi Generate" },
-  { key: "midjourney", zh: "Midjourney生成", en: "Midjourney" },
-  { key: "three", zh: "三维节点", en: "3D Node" },
-  { key: "sora2Video", zh: "Sora2视频生成", en: "Sora2" },
-  { key: "wan26", zh: "Wan2.6生成视频", en: "Wan2.6" },
-  { key: "wan2R2V", zh: "视频融合", en: "Wan2.6 R2V" },
-  { key: "klingVideo", zh: "Kling视频生成", en: "Kling" },
-  { key: "viduVideo", zh: "Vidu视频生成", en: "Vidu" },
+  // 输入节点
+  { key: "textPrompt", zh: "提示词节点", en: "Prompt Node", category: "input" },
+  { key: "textChat", zh: "纯文本交互节点", en: "Text Chat Node", category: "input" },
+  { key: "textNote", zh: "纯文本节点", en: "Text Note Node", category: "input" },
+  { key: "promptOptimize", zh: "提示词优化节点", en: "Prompt Optimizer", category: "input" },
+  { key: "image", zh: "图片节点", en: "Image Node", category: "input" },
+  { key: "video", zh: "视频节点", en: "Video Node", category: "input" },
+  { key: "camera", zh: "截图节点", en: "Shot Node", category: "input" },
+  // 生图节点
+  { key: "generate", zh: "生成节点", en: "Generate Node", category: "image" },
+  { key: "generateRef", zh: "参考图生成节点", en: "Generate Refer", category: "image" },
+  { key: "generate4", zh: "生成多张图片节点", en: "Multi Generate", category: "image" },
+  { key: "midjourney", zh: "Midjourney生成", en: "Midjourney", category: "image" },
+  { key: "analysis", zh: "图像分析节点", en: "Analysis Node", category: "image" },
+  { key: "imageGrid", zh: "图片拼合节点", en: "Image Grid", category: "image" },
+  { key: "imageSplit", zh: "图片分割节点", en: "Image Split", category: "image" },
+  { key: "three", zh: "三维节点", en: "3D Node", category: "image" },
+  // 视频生成节点
+  { key: "sora2Video", zh: "Sora2视频生成", en: "Sora2", category: "video" },
+  { key: "wan26", zh: "Wan2.6生成视频", en: "Wan2.6", category: "video" },
+  { key: "wan2R2V", zh: "视频融合", en: "Wan2.6 R2V", category: "video" },
+  { key: "klingVideo", zh: "Kling视频生成", en: "Kling", category: "video", badge: "维护中" },
+  { key: "klingO1Video", zh: "Kling O1视频生成", en: "Kling O1", category: "video" },
+  { key: "viduVideo", zh: "Vidu视频生成", en: "Vidu", category: "video" },
   {
     key: "doubaoVideo",
     zh: "Seedance 1.5 Pro视频生成",
     en: "Seedance 1.5 Pro",
+    category: "video",
   },
-  { key: "camera", zh: "截图节点", en: "Shot Node" },
-  { key: "storyboardSplit", zh: "分镜拆分节点", en: "Storyboard Split" },
+  // 其他节点
+  { key: "videoAnalyze", zh: "视频分析节点", en: "Video Analysis", category: "other" },
+  { key: "videoFrameExtract", zh: "视频抽帧节点", en: "Video Frame Extract", category: "other" },
+  { key: "storyboardSplit", zh: "分镜拆分节点", en: "Storyboard Split", category: "other" },
 ];
 
 // Beta 节点列表（实验性功能）
@@ -569,8 +583,9 @@ const NodePaletteButton: React.FC<{
   en: string;
   badge?: string;
   credits?: number | string;
+  disabled?: boolean;
   onClick: () => void;
-}> = ({ zh, en, badge, credits, onClick }) => {
+}> = ({ zh, en, badge, credits, disabled, onClick }) => {
   const creditsDisplay =
     credits !== undefined && credits !== 0
       ? typeof credits === "string"
@@ -578,16 +593,38 @@ const NodePaletteButton: React.FC<{
         : credits.toString()
       : null;
 
+  const getBadgeStyle = (badgeText?: string): React.CSSProperties => {
+    if (badgeText === "维护中" || badgeText === "即将开放") {
+      return {
+        ...nodePaletteBadgeStyle,
+        color: "#92400e",
+        background: "#fef3c7",
+        border: "1px solid #fcd34d",
+      };
+    }
+    return nodePaletteBadgeStyle;
+  };
+
+  const buttonStyle: React.CSSProperties = {
+    ...nodePaletteButtonStyle,
+    ...(disabled ? {
+      opacity: 0.6,
+      cursor: "not-allowed",
+      background: "#f9fafb",
+    } : {}),
+  };
+
   return (
     <button
-      onClick={onClick}
-      style={nodePaletteButtonStyle}
-      onMouseEnter={(e) => setNodePaletteHover(e.currentTarget, true)}
-      onMouseLeave={(e) => setNodePaletteHover(e.currentTarget, false)}
+      onClick={disabled ? undefined : onClick}
+      style={buttonStyle}
+      onMouseEnter={(e) => !disabled && setNodePaletteHover(e.currentTarget, true)}
+      onMouseLeave={(e) => !disabled && setNodePaletteHover(e.currentTarget, false)}
+      disabled={disabled}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}>
         <span style={nodePaletteEnCodeStyle}>{en}</span>
-        {badge ? <span style={nodePaletteBadgeStyle}>{badge}</span> : null}
+        {badge ? <span style={getBadgeStyle(badge)}>{badge}</span> : null}
         {/* {creditsDisplay && (
           <span style={nodePaletteCreditsStyle}>消耗{creditsDisplay}积分</span>
         )} */}
@@ -946,6 +983,12 @@ function FlowInner() {
 
   const addPersonalAsset = usePersonalLibraryStore((state) => state.addAsset);
 
+  // 动态节点配置
+  const [nodeConfigs, setNodeConfigs] = React.useState<NodeConfig[]>([]);
+  React.useEffect(() => {
+    fetchNodeConfigs().then(setNodeConfigs).catch(console.error);
+  }, []);
+
   const onNodesChangeWithHistory = React.useCallback(
     (changes: any) => {
       const altState = altDragStartRef.current;
@@ -1058,8 +1101,45 @@ function FlowInner() {
     [onNodesChange]
   );
 
+  const rf = useReactFlow();
+  const rfRef = React.useRef(rf);
+  React.useEffect(() => {
+    rfRef.current = rf;
+  }, [rf]);
+
   const onEdgesChangeWithHistory = React.useCallback(
     (changes: any) => {
+      // 检查是否有 Kling O1 节点的视频连接被删除
+      if (Array.isArray(changes)) {
+        const removedEdges = changes.filter((c: any) => c?.type === "remove");
+        for (const change of removedEdges) {
+          const edgeId = change.id;
+          const edge = edges.find((e) => e.id === edgeId);
+          if (edge && edge.targetHandle === "video") {
+            const targetNode = rfRef.current.getNode(edge.target);
+            if (targetNode?.type === "klingO1Video") {
+              // 检查是否还有其他视频连接
+              const remainingVideoEdges = edges.filter(
+                (e) =>
+                  e.id !== edgeId &&
+                  e.target === edge.target &&
+                  e.targetHandle === "video"
+              );
+              if (remainingVideoEdges.length === 0) {
+                setTimeout(() => {
+                  setNodes((ns) =>
+                    ns.map((n) =>
+                      n.id === edge.target
+                        ? { ...n, data: { ...n.data, hasVideoInput: false } }
+                        : n
+                    )
+                  );
+                }, 0);
+              }
+            }
+          }
+        }
+      }
       onEdgesChange(changes);
       try {
         const needCommit =
@@ -1075,13 +1155,8 @@ function FlowInner() {
         }
       } catch {}
     },
-    [onEdgesChange]
+    [onEdgesChange, edges, setNodes]
   );
-  const rf = useReactFlow();
-  const rfRef = React.useRef(rf);
-  React.useEffect(() => {
-    rfRef.current = rf;
-  }, [rf]);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [isConnecting, setIsConnecting] = React.useState(false);
   const [edgeLabelEditor, setEdgeLabelEditor] =
@@ -3382,6 +3457,7 @@ function FlowInner() {
         | "wan26"
         | "wan2R2V"
         | "klingVideo"
+        | "klingO1Video"
         | "viduVideo"
         | "doubaoVideo"
         | "storyboardSplit"
@@ -3414,6 +3490,7 @@ function FlowInner() {
         wan26: { w: 300, h: 320 },
         wan2R2V: { w: 300, h: 360 },
         klingVideo: { w: 280, h: 260 },
+        klingO1Video: { w: 280, h: 380 },
         viduVideo: { w: 280, h: 260 },
         doubaoVideo: { w: 280, h: 260 },
         storyboardSplit: { w: 320, h: 400 },
@@ -3632,6 +3709,20 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
+          : type === "klingO1Video"
+          ? {
+              status: "idle" as const,
+              videoUrl: undefined,
+              thumbnail: undefined,
+              videoVersion: 0,
+              history: [],
+              clipDuration: 5,
+              aspectRatio: undefined,
+              mode: "pro" as const,
+              provider: "kling-o1",
+              boxW: size.w,
+              boxH: size.h,
+            }
           : { boxW: size.w, boxH: size.h };
       setNodes((ns) => ns.concat([{ id, type, position: pos, data } as any]));
       try {
@@ -3781,6 +3872,7 @@ function FlowInner() {
             "wan2R2V",
             "wan26",
             "klingVideo",
+            "klingO1Video",
             "viduVideo",
             "doubaoVideo",
           ].includes(sourceNode.type || "");
@@ -3798,6 +3890,30 @@ function FlowInner() {
         }
         if (targetHandle === "text") {
           return textSourceTypes.includes(sourceNode.type || "");
+        }
+        return false;
+      }
+
+      // Kling O1 视频节点连接验证 - 支持文本、图片和视频输入
+      if (targetNode.type === "klingO1Video") {
+        if (isImageHandle(targetHandle)) {
+          return isImageSource(sourceNode, sourceHandle);
+        }
+        if (targetHandle === "text") {
+          return textSourceTypes.includes(sourceNode.type || "");
+        }
+        if (targetHandle === "video") {
+          // 允许从视频节点连接
+          return [
+            "video",
+            "sora2Video",
+            "wan26",
+            "wan2R2V",
+            "klingVideo",
+            "klingO1Video",
+            "viduVideo",
+            "doubaoVideo",
+          ].includes(sourceNode.type || "");
         }
         return false;
       }
@@ -3846,6 +3962,7 @@ function FlowInner() {
             "video", // 上传视频
             "sora2Video",
             "klingVideo",
+            "klingO1Video",
             "viduVideo",
             "doubaoVideo",
             "wan26",
@@ -3862,6 +3979,7 @@ function FlowInner() {
             "wan26",
             "wan2R2V",
             "klingVideo",
+            "klingO1Video",
             "viduVideo",
             "doubaoVideo",
             "genericVideo",
@@ -4001,6 +4119,14 @@ function FlowInner() {
           return incoming.length < KLING_MAX_REFERENCE_IMAGES;
         }
         if (params.targetHandle === "text") return true;
+      }
+      // Kling O1 视频节点：支持最多 7 张参考图 + 视频输入
+      if (targetNode?.type === "klingO1Video") {
+        if (params.targetHandle === "image") {
+          return incoming.length < 7; // Kling O1 支持最多 7 张图片
+        }
+        if (params.targetHandle === "text") return true;
+        if (params.targetHandle === "video") return incoming.length < 1; // 只支持 1 个视频
       }
       // Doubao 视频节点
       if (targetNode?.type === "doubaoVideo") {
@@ -4150,6 +4276,29 @@ function FlowInner() {
             });
           }
         }
+        // Kling O1 视频节点：支持最多 7 张参考图
+        if (tgt?.type === "klingO1Video" && params.targetHandle === "image") {
+          let remainingToDrop = Math.max(
+            0,
+            next.filter(
+              (e) => e.target === params.target && e.targetHandle === "image"
+            ).length -
+              7 + // Kling O1 支持最多 7 张图片
+              1 // +1 for the incoming edge
+          );
+          if (remainingToDrop > 0) {
+            next = next.filter((e) => {
+              if (remainingToDrop <= 0) return true;
+              const isImageEdge =
+                e.target === params.target && e.targetHandle === "image";
+              if (isImageEdge) {
+                remainingToDrop -= 1;
+                return false;
+              }
+              return true;
+            });
+          }
+        }
         // Sora2、Doubao 视频节点：限制参考图数量
         if (
           (tgt?.type === "sora2Video" || tgt?.type === "doubaoVideo") &&
@@ -4176,6 +4325,22 @@ function FlowInner() {
               return true;
             });
           }
+        }
+        // Kling O1 视频节点：视频输入只允许 1 条，并更新 hasVideoInput 状态
+        if (tgt?.type === "klingO1Video" && params.targetHandle === "video") {
+          next = next.filter(
+            (e) => !(e.target === params.target && e.targetHandle === "video")
+          );
+          // 更新节点的 hasVideoInput 状态
+          setTimeout(() => {
+            setNodes((ns) =>
+              ns.map((n) =>
+                n.id === params.target
+                  ? { ...n, data: { ...n.data, hasVideoInput: true } }
+                  : n
+              )
+            );
+          }, 0);
         }
         // wan26 只允许单个 image 输入
         if (tgt?.type === "wan26" && isImageHandle(params.targetHandle)) {
@@ -6407,17 +6572,23 @@ function FlowInner() {
         return;
       }
 
-      // 新的视频生成节点处理逻辑（可灵 Kling、Vidu、豆包 Seedance）
-      const newVideoNodeTypes = ["klingVideo", "viduVideo", "doubaoVideo"];
+      // 新的视频生成节点处理逻辑（可灵 Kling、Kling O1、Vidu、豆包 Seedance）
+      const newVideoNodeTypes = ["klingVideo", "klingO1Video", "viduVideo", "doubaoVideo"];
       if (newVideoNodeTypes.includes(node.type || "")) {
         const projectId = useProjectContentStore.getState().projectId;
-        const provider = (node.data as any)?.provider || "kling";
+        // 根据节点类型确定 provider
+        let provider: string;
+        if (node.type === "klingO1Video") {
+          provider = "kling-o1";
+        } else {
+          provider = (node.data as any)?.provider || "kling";
+        }
 
         // 先获取图片数量，判断是否需要 prompt
         const maxImages =
           provider === "vidu"
             ? VIDU_MAX_REFERENCE_IMAGES
-            : provider === "kling"
+            : provider === "kling" || provider === "kling-o1"
             ? KLING_MAX_REFERENCE_IMAGES
             : SORA2_MAX_REFERENCE_IMAGES;
 
@@ -6460,11 +6631,12 @@ function FlowInner() {
           if (imageCount >= 3 && !promptText) {
             finalPrompt = "基于图片生成视频";
           }
-        } else if (provider === "kling") {
-          // Kling 智能模式判断逻辑：
+        } else if (provider === "kling" || provider === "kling-o1") {
+          // Kling / Kling O1 智能模式判断逻辑：
           // - 0张图必须有prompt (text2video)
           // - 1-2张图：可选prompt (image2video/image2video-tail)
           // - 3-4张图：使用multi-image2video（必须有prompt，无prompt时使用默认）
+          // Kling O1 支持更灵活的输入组合
           if (imageCount === 0 && !hasText) {
             // 0张图必须有prompt
             setNodes((ns) =>
@@ -6531,6 +6703,27 @@ function FlowInner() {
             ? (node.data as any).aspectRatio
             : "";
 
+        // Kling O1 视频输入处理
+        let referenceVideoUrl: string | undefined = undefined;
+        if (provider === "kling-o1") {
+          const videoEdge = currentEdges.find(
+            (e) => e.target === nodeId && e.targetHandle === "video"
+          );
+          if (videoEdge) {
+            const sourceNode = rf.getNode(videoEdge.source);
+            if (sourceNode) {
+              const videoUrl =
+                (sourceNode.data as any)?.videoUrl ||
+                (sourceNode.data as any)?.url ||
+                (sourceNode.data as any)?.src;
+              if (videoUrl && typeof videoUrl === "string") {
+                referenceVideoUrl = videoUrl.trim();
+                console.log(`🎬 [Kling O1] 检测到视频输入: ${referenceVideoUrl.slice(0, 80)}...`);
+              }
+            }
+          }
+        }
+
         const referenceImages = await resolveEdgesAsDataUrls(imageEdges);
 
         console.log(`🎬 [VideoProvider] 解析后参考图数量: ${referenceImages.length}`);
@@ -6565,7 +6758,7 @@ function FlowInner() {
               if (!trimmed) continue;
 
               // 根据供应商处理图片格式
-              if (provider === "vidu" || provider === "kling") {
+              if (provider === "vidu" || provider === "kling" || provider === "kling-o1") {
                 // Vidu 和 Kling 需要可访问的 URL，必须上传到 OSS
                 if (isRemoteUrl(trimmed)) {
                   referenceImageUrls.push(normalizeStableRemoteUrl(trimmed));
@@ -6638,6 +6831,13 @@ function FlowInner() {
           ) {
             durationForAPI = clipDuration;
           } else if (
+            provider === "kling-o1" &&
+            clipDuration >= 3 &&
+            clipDuration <= 10
+          ) {
+            // Kling O1 支持 3-10 秒
+            durationForAPI = clipDuration;
+          } else if (
             provider === "vidu" &&
             clipDuration >= 1 &&
             clipDuration <= 10
@@ -6658,6 +6858,7 @@ function FlowInner() {
             aspectRatio: aspectRatioForAPI,
             duration: durationForAPI,
             referenceCount: referenceImageUrls.length,
+            referenceVideo: referenceVideoUrl ? "有" : "无",
             promptPreview: finalPrompt?.slice(0, 120) || "(无提示词)",
           });
 
@@ -6674,6 +6875,11 @@ function FlowInner() {
             offPeak: (node.data as any)?.offPeak,
             camerafixed: (node.data as any)?.camerafixed,
             watermark: (node.data as any)?.watermark,
+            mode: (node.data as any)?.mode,
+            // Kling O1 视频编辑参数
+            referenceVideo: referenceVideoUrl,
+            referenceVideoType: (node.data as any)?.referenceVideoType,
+            keepOriginalSound: (node.data as any)?.keepOriginalSound,
           });
 
           console.log("✅ [Flow] Video task created", {
@@ -8347,6 +8553,7 @@ function FlowInner() {
             n.type === "wan26" ||
             n.type === "wan2R2V" ||
             n.type === "klingVideo" ||
+            n.type === "klingO1Video" ||
             n.type === "viduVideo" ||
             n.type === "doubaoVideo"
           ? { ...n, data: { ...n.data, onRun: runNode } }
@@ -9761,26 +9968,32 @@ function FlowInner() {
                   paddingTop: 8,
                 }}
               >
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-                    gap: 12,
-                    padding: 20,
-                  }}
-                >
-                  {NODE_PALETTE_ITEMS.map((item) => (
-                    <NodePaletteButton
-                      key={item.key}
-                      zh={item.zh}
-                      en={item.en}
-                      badge={item.badge}
-                      credits={NODE_CREDITS_MAP[item.key]}
-                      onClick={() =>
-                        createNodeAtWorldCenter(item.key, addPanel.world)
-                      }
-                    />
-                  ))}
+                <div style={{ padding: "0 20px 20px" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
+                    {(nodeConfigs.length > 0 ? nodeConfigs : NODE_PALETTE_ITEMS.map(item => ({
+                      nodeKey: item.key,
+                      nameZh: item.zh,
+                      nameEn: item.en,
+                      category: item.category as "input" | "image" | "video" | "other",
+                      status: (item.badge === "维护中" ? "maintenance" : "normal") as "normal" | "maintenance" | "coming_soon" | "disabled",
+                      creditsPerCall: NODE_CREDITS_MAP[item.key] || 0,
+                      sortOrder: 0,
+                    }))).filter(config => config.status !== "disabled").map((config) => {
+                      const isDisabled = config.status === "maintenance" || config.status === "coming_soon";
+                      const badge = getStatusBadge(config.status);
+                      return (
+                        <NodePaletteButton
+                          key={config.nodeKey}
+                          zh={config.nameZh}
+                          en={config.nameEn}
+                          badge={badge}
+                          credits={config.creditsPerCall}
+                          disabled={isDisabled}
+                          onClick={() => createNodeAtWorldCenter(config.nodeKey, addPanel.world)}
+                        />
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             ) : addTab === "beta" ? (
