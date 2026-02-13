@@ -605,8 +605,10 @@ export class VideoProviderService {
     const payload: any = {
       model_name: "kling-v2-6",
       mode: (options as any).mode || "pro",
-      duration: options.duration === 10 ? "10" : "5",
+      duration: Number(options.duration) === 10 ? "10" : "5",
     };
+
+    this.logger.log(`🎬 Kling 2.6 参数: duration=${options.duration}, 转换后=${Number(options.duration) === 10 ? "10" : "5"}`);
 
     if (options.aspectRatio) {
       payload.aspect_ratio = options.aspectRatio;

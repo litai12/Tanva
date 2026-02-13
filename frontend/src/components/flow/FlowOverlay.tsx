@@ -6856,6 +6856,12 @@ function FlowInner() {
           ) {
             durationForAPI = clipDuration;
           } else if (
+            provider === "kling-2.6" &&
+            (clipDuration === 5 || clipDuration === 10)
+          ) {
+            // Kling 2.6 支持 5 秒或 10 秒
+            durationForAPI = clipDuration;
+          } else if (
             provider === "kling-o1" &&
             clipDuration >= 3 &&
             clipDuration <= 10
