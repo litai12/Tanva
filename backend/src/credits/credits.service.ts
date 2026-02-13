@@ -119,6 +119,9 @@ export class CreditsService {
    */
   async getBalance(userId: string): Promise<number> {
     const account = await this.getOrCreateAccount(userId);
+    if (!account) {
+      throw new NotFoundException('用户积分账户不存在');
+    }
     return account.balance;
   }
 
@@ -127,6 +130,9 @@ export class CreditsService {
    */
   async getAccountDetails(userId: string) {
     const account = await this.getOrCreateAccount(userId);
+    if (!account) {
+      throw new NotFoundException('用户积分账户不存在');
+    }
     return {
       balance: account.balance,
       totalEarned: account.totalEarned,
@@ -461,6 +467,9 @@ export class CreditsService {
     const { page = 1, pageSize = 20, type } = options;
 
     const account = await this.getOrCreateAccount(userId);
+    if (!account) {
+      throw new NotFoundException('用户积分账户不存在');
+    }
 
     const where: any = { accountId: account.id };
     if (type) {
@@ -544,6 +553,9 @@ export class CreditsService {
    */
   async canClaimDailyReward(userId: string): Promise<{ canClaim: boolean; lastClaimAt: Date | null }> {
     const account = await this.getOrCreateAccount(userId);
+    if (!account) {
+      throw new NotFoundException('用户积分账户不存在');
+    }
 
     if (!account.lastDailyRewardAt) {
       return { canClaim: true, lastClaimAt: null };
@@ -682,6 +694,9 @@ export class CreditsService {
     calendarDays: Array<{ day: number; checked: boolean; missed: boolean; isToday: boolean }>;
   }> {
     const account = await this.getOrCreateAccount(userId);
+    if (!account) {
+      throw new NotFoundException('用户积分账户不存在');
+    }
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
