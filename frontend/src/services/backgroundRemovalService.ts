@@ -8,11 +8,11 @@
 import { logger } from "@/utils/logger";
 import { fetchWithAuth } from "./authFetch";
 
-// 后端基础地址，统一从 .env 中读取；无配置默认 http://localhost:4000
+// 后端基础地址，统一从 .env 中读取；无配置时使用相对路径（通过 Vite 代理）
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL && import.meta.env.VITE_API_BASE_URL.trim().length > 0
     ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")
-    : "http://localhost:4000";
+    : "";
 
 export interface BackgroundRemovalResult {
   success: boolean;
