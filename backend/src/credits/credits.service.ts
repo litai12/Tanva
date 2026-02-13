@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException, NotFoundException, Inject, forwardRef, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CREDIT_PRICING_CONFIG,
@@ -66,11 +67,16 @@ export class CreditsService {
    * 获取或创建用户积分账户
    */
   async getOrCreateAccount(userId: string) {
+    // 先查一次，绝大多数场景直接命中，不走事务
     let account = await this.prisma.creditAccount.findUnique({
       where: { userId },
     });
 
-    if (!account) {
+    if (account) {
+      return account;
+    }
+
+    try {
       // 创建新账户并赠送初始积分
       account = await this.prisma.$transaction(async (tx) => {
         const newAccount = await tx.creditAccount.create({
@@ -95,9 +101,17 @@ export class CreditsService {
 
         return newAccount;
       });
-    }
 
-    return account;
+      return account;
+    } catch (error) {
+      // 并发场景下可能会触发 userId 唯一索引冲突，这里捕获后再查一次即可
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        return this.prisma.creditAccount.findUnique({
+          where: { userId },
+        });
+      }
+      throw error;
+    }
   }
 
   /**
