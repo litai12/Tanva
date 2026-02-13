@@ -282,33 +282,8 @@ const MyCredits: React.FC = () => {
               <div className="mb-1 text-sm text-blue-100 select-none">可用积分</div>
               <div className="text-5xl font-bold">{credits?.balance || 0}</div>
             </div>
-            <div className="flex flex-col items-end gap-3">
-              <div className="p-3 bg-white/20 rounded-2xl">
-                <Zap className="w-8 h-8" />
-              </div>
-              <Button
-                variant="outline"
-                size="md"
-                className={cn(
-                  "h-9 px-4 rounded-full border-white/30 bg-white/15 text-white hover:bg-white/25",
-                  dailyRewardStatus?.canClaim === false && "opacity-80"
-                )}
-                disabled={
-                  dailyRewardLoading ||
-                  dailyRewardClaiming ||
-                  dailyRewardStatus?.canClaim === false
-                }
-                onClick={handleClaimDailyReward}
-                title={dailyRewardStatus?.lastClaimAt ? `上次领取：${new Date(dailyRewardStatus.lastClaimAt).toLocaleString('zh-CN')}` : undefined}
-              >
-                {dailyRewardLoading
-                  ? '加载中...'
-                  : dailyRewardClaiming
-                    ? '领取中...'
-                    : dailyRewardStatus?.canClaim === false
-                      ? '今日已领'
-                      : '领取奖励'}
-              </Button>
+            <div className="p-3 bg-white/20 rounded-2xl">
+              <Zap className="w-8 h-8" />
             </div>
           </div>
           <div className="grid grid-cols-3 gap-4 mt-6">
@@ -326,83 +301,6 @@ const MyCredits: React.FC = () => {
             </div>
           </div>
         </div>
-
-        {/* 7天签到日历 */}
-        {checkInCalendar && (
-          <div className="p-5 bg-white shadow-sm rounded-2xl">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-medium text-slate-700">连续签到</h3>
-              <span className="text-sm text-slate-500">
-                已连续签到 {checkInCalendar.consecutiveDays} 天
-              </span>
-            </div>
-            <div className="grid grid-cols-7 gap-2">
-              {checkInCalendar.calendarDays.map((day) => (
-                <div
-                  key={day.day}
-                  className={cn(
-                    "flex flex-col items-center justify-center p-2 rounded-xl transition-all relative",
-                    day.checked
-                      ? day.day === 7 ? "bg-amber-100 border border-amber-300" : "bg-emerald-100 border border-emerald-300"
-                      : day.isToday
-                        ? "bg-blue-50 border-2 border-blue-400 border-dashed"
-                        : day.missed
-                          ? "bg-red-50 border border-red-200"
-                          : day.day === 7 ? "bg-amber-50 border border-amber-200" : "bg-slate-50 border border-slate-200"
-                  )}
-                >
-                  {day.day === 7 && (
-                    <span className="absolute -top-1 -right-1 px-1 py-0.5 text-[10px] bg-amber-500 text-white rounded-full">
-                      +500
-                    </span>
-                  )}
-                  <span className={cn(
-                    "text-xs font-medium",
-                    day.checked
-                      ? day.day === 7 ? "text-amber-700" : "text-emerald-700"
-                      : day.isToday ? "text-blue-600"
-                      : day.missed ? "text-red-400"
-                      : day.day === 7 ? "text-amber-600" : "text-slate-400"
-                  )}>
-                    第{day.day}天
-                  </span>
-                  <div className={cn(
-                    "w-6 h-6 mt-1 rounded-full flex items-center justify-center",
-                    day.checked
-                      ? day.day === 7 ? "bg-amber-500" : "bg-emerald-500"
-                      : day.isToday
-                        ? "bg-blue-100"
-                        : day.missed
-                          ? "bg-red-100"
-                          : day.day === 7 ? "bg-amber-100" : "bg-slate-100"
-                  )}>
-                    {day.checked ? (
-                      <Check className="w-4 h-4 text-white" />
-                    ) : day.isToday ? (
-                      <span className="text-xs text-blue-500">今</span>
-                    ) : day.missed ? (
-                      <span className="text-xs text-red-400">×</span>
-                    ) : day.day === 7 ? (
-                      <Zap className="w-3 h-3 text-amber-500" />
-                    ) : null}
-                  </div>
-                </div>
-              ))}
-            </div>
-            {!checkInCalendar.todayCheckedIn && (
-              <div className="mt-4 text-center">
-                <Button
-                  size="sm"
-                  className="px-6 text-white bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600"
-                  disabled={dailyRewardClaiming}
-                  onClick={handleClaimDailyReward}
-                >
-                  {dailyRewardClaiming ? '签到中...' : '立即签到'}
-                </Button>
-              </div>
-            )}
-          </div>
-        )}
 
         {/* 过期积分提示 - 仅普通用户显示 */}
         {expiringCredits && !expiringCredits.isPaidUser && expiringCredits.totalExpiring > 0 && (

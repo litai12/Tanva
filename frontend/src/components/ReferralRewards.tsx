@@ -56,15 +56,15 @@ export default function ReferralRewards() {
   };
 
   const handleCopy = async () => {
-    if (!stats) return;
+    if (!stats?.inviteCode) return;
     try {
-      await navigator.clipboard.writeText(stats.inviteLink);
+      await navigator.clipboard.writeText(stats.inviteCode);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (error) {
       // 降级方案
       const input = document.createElement("input");
-      input.value = stats.inviteLink;
+      input.value = stats.inviteCode;
       document.body.appendChild(input);
       input.select();
       document.execCommand("copy");
@@ -96,79 +96,61 @@ export default function ReferralRewards() {
   }
 
   const consecutiveDays = checkInStatus?.consecutiveDays || 0;
-  const dayInWeek = consecutiveDays % 7; // 当前周期内的天数 (0-6)
 
   return (
     <div className="space-y-6">
       {/* 每日签到区域 */}
       <div className="bg-white rounded-xl border p-6">
-        <div className="mb-1">
-          <h3 className="text-lg font-semibold text-gray-900">每日签到</h3>
-          <p className="text-xs text-gray-400 uppercase tracking-wider">CHECK-IN REWARDS</p>
-        </div>
-
-        {/* 连续签到信息 */}
-        <div className="flex items-center justify-between mt-4 p-4 bg-gray-50 rounded-lg">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-              <Calendar className="w-5 h-5 text-blue-600" />
-            </div>
-            <div>
-              <div className="font-semibold text-gray-900">
-                连续第 {consecutiveDays} 天
-              </div>
-              <div className="text-sm text-gray-500">
-                满7天领 <span className="text-amber-500 font-medium">500</span> 积分
-              </div>
-            </div>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Calendar className="w-5 h-5 text-blue-500" />
+            <h3 className="font-medium">每日签到</h3>
           </div>
-          <Button
-            onClick={handleCheckIn}
-            disabled={!checkInStatus?.canCheckIn || checkingIn}
-            variant={checkInStatus?.canCheckIn ? "default" : "outline"}
-            className={checkInStatus?.canCheckIn ? "bg-blue-500 hover:bg-blue-600" : ""}
-          >
-            {checkingIn ? "签到中..." : checkInStatus?.canCheckIn ? "立即签到" : "今日已签"}
-          </Button>
+          <span className="text-sm text-gray-500">
+            已连续签到 {consecutiveDays} 天
+          </span>
         </div>
 
         {/* 7天签到格子 */}
-        <div className="grid grid-cols-7 gap-2 mt-4">
-          {[0, 1, 2, 3, 4, 5, 6].map((dayIndex) => {
-            const isCompleted = dayIndex < dayInWeek;
-            const isCurrent = dayIndex === dayInWeek;
-            const isD7 = dayIndex === 6;
-            const reward = checkInStatus?.rewards?.[dayIndex] || 100;
+        <div className="grid grid-cols-7 gap-2 mb-4">
+          {[1, 2, 3, 4, 5, 6, 7].map((day) => {
+            const checked = day <= (consecutiveDays % 7 || (consecutiveDays > 0 && consecutiveDays % 7 === 0 ? 7 : 0));
+            const isToday = !checkInStatus?.canCheckIn ? false : day === (consecutiveDays % 7) + 1;
 
             return (
               <div
-                key={dayIndex}
-                className={`relative flex flex-col items-center justify-center p-3 rounded-lg border-2 transition-all ${
-                  isCurrent
-                    ? "border-blue-500 bg-blue-50"
-                    : isCompleted
-                    ? "border-gray-200 bg-gray-50"
-                    : "border-gray-200 bg-white"
+                key={day}
+                className={`flex flex-col items-center justify-center p-2 rounded-lg ${
+                  checked
+                    ? "bg-blue-500 text-white"
+                    : isToday
+                    ? "bg-blue-100 border-2 border-blue-500 border-dashed"
+                    : "bg-gray-100"
                 }`}
               >
-                {isCompleted ? (
-                  <div className="w-6 h-6 rounded-full bg-gray-300 flex items-center justify-center">
-                    <Check className="w-4 h-4 text-white" />
-                  </div>
-                ) : isD7 ? (
-                  <Gift className={`w-6 h-6 ${isCurrent ? "text-blue-500" : "text-amber-500"}`} />
-                ) : (
-                  <span className={`text-lg font-bold ${isCurrent ? "text-blue-600" : "text-gray-400"}`}>
-                    {reward}
-                  </span>
-                )}
-                <span className={`text-xs mt-1 ${isCurrent ? "text-blue-600 font-medium" : "text-gray-400"}`}>
-                  D{dayIndex + 1}
-                </span>
+                <span className="text-xs font-medium">D{day}</span>
+                {checked && <Check className="w-4 h-4 mt-1" />}
               </div>
             );
           })}
         </div>
+
+        {/* 签到按钮 */}
+        <Button
+          className="w-full"
+          disabled={!checkInStatus?.canCheckIn || checkingIn}
+          onClick={handleCheckIn}
+        >
+          {checkingIn
+            ? "签到中..."
+            : checkInStatus?.canCheckIn
+            ? "立即签到 (+100积分)"
+            : "今日已签到"}
+        </Button>
+
+        <p className="text-xs text-gray-400 mt-2 text-center">
+          连续签到7天可额外获得500积分奖励
+        </p>
       </div>
 
       {/* 邀请统计和邀请码区域 */}
@@ -210,16 +192,10 @@ export default function ReferralRewards() {
             <span className="text-sm text-gray-600">邀请码</span>
             <Sparkles className="w-4 h-4 text-amber-500" />
           </div>
-          <div className="text-xl font-bold text-gray-900 mb-3">
-            {stats?.inviteCode || "TANVAS-XXXX"}
-          </div>
           <div className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
-            <input
-              type="text"
-              readOnly
-              value={stats?.inviteLink || "tanvas.ai/invite?code=TANVAS-XXXX"}
-              className="flex-1 bg-transparent text-sm text-gray-600 outline-none"
-            />
+            <span className="flex-1 text-xl font-bold text-gray-900">
+              {stats?.inviteCode || "TANVAS-XXXX"}
+            </span>
             <Button
               size="sm"
               variant="outline"

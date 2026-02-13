@@ -451,6 +451,9 @@ export class CreditsService {
     const where: any = { accountId: account.id };
     if (type) {
       where.type = type;
+    } else {
+      // 默认不显示每日签到积分记录
+      where.type = { not: TransactionType.DAILY_REWARD };
     }
 
     const [transactions, total] = await Promise.all([
