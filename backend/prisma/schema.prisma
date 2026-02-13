@@ -127,10 +127,15 @@ model CreditTransaction {
   apiUsageId    String?
   metadata      Json?
   createdAt     DateTime      @default(now())
+  // 签到积分过期相关字段
+  expiresAt     DateTime?     // 过期时间，null 表示永不过期
+  expiredAmount Int           @default(0) // 已过期清除的积分数量
+  isExpired     Boolean       @default(false) // 是否已过期处理
   account       CreditAccount @relation(fields: [accountId], references: [id])
 
   @@index([accountId, createdAt])
   @@index([type])
+  @@index([expiresAt, isExpired]) // 用于定时清理任务查询
 }
 
 model ApiUsageRecord {

@@ -1,13 +1,17 @@
-import { Injectable, BadRequestException, NotFoundException, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, Inject, forwardRef, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CREDIT_PRICING_CONFIG,
   DEFAULT_NEW_USER_CREDITS,
   DAILY_LOGIN_REWARD_CREDITS,
+  CONSECUTIVE_7_DAY_BONUS_CREDITS,
   ServiceType,
 } from './credits.config';
 import { TransactionType, ApiResponseStatus } from './dto/credits.dto';
 import { ReferralService } from '../referral/referral.service';
+
+// 签到积分过期天数（普通用户）
+const DAILY_REWARD_EXPIRE_DAYS = 7;
 
 export interface DeductCreditsResult {
   success: boolean;
@@ -37,11 +41,26 @@ export interface ApiUsageParams {
 
 @Injectable()
 export class CreditsService {
+  private readonly logger = new Logger(CreditsService.name);
+
   constructor(
     private prisma: PrismaService,
     @Inject(forwardRef(() => ReferralService))
     private referralService: ReferralService,
   ) {}
+
+  /**
+   * 判断用户是否为付费用户（有成功支付的订单）
+   */
+  async isPaidUser(userId: string): Promise<boolean> {
+    const paidOrder = await this.prisma.paymentOrder.findFirst({
+      where: {
+        userId,
+        status: 'paid',
+      },
+    });
+    return !!paidOrder;
+  }
 
   /**
    * 获取或创建用户积分账户
@@ -527,8 +546,10 @@ export class CreditsService {
 
   /**
    * 领取每日登录奖励
+   * 普通用户的签到积分7天后过期，付费用户永不过期
+   * 规则：连续签到7天额外赠送500积分，断签或满7天后重置到第1天
    */
-  async claimDailyReward(userId: string): Promise<AddCreditsResult & { alreadyClaimed?: boolean }> {
+  async claimDailyReward(userId: string): Promise<AddCreditsResult & { alreadyClaimed?: boolean; expiresAt?: Date | null; consecutiveDays?: number; bonusCredits?: number }> {
     const { canClaim, lastClaimAt } = await this.canClaimDailyReward(userId);
 
     if (!canClaim) {
@@ -540,6 +561,12 @@ export class CreditsService {
       };
     }
 
+    // 检查是否为付费用户
+    const isPaid = await this.isPaidUser(userId);
+
+    // 计算过期时间：付费用户永不过期(null)，普通用户7天后过期
+    const expiresAt = isPaid ? null : new Date(Date.now() + DAILY_REWARD_EXPIRE_DAYS * 24 * 60 * 60 * 1000);
+
     return await this.prisma.$transaction(async (tx) => {
       const account = await tx.creditAccount.findUnique({
         where: { userId },
@@ -549,27 +576,69 @@ export class CreditsService {
         throw new NotFoundException('用户积分账户不存在');
       }
 
-      const newBalance = account.balance + DAILY_LOGIN_REWARD_CREDITS;
+      // 计算连续签到天数
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
 
-      // 更新账户余额和最后领取时间
+      let newConsecutiveDays = 1;
+      let bonusCredits = 0;
+
+      if (account.lastCheckInDate) {
+        const lastCheckIn = new Date(account.lastCheckInDate);
+        lastCheckIn.setHours(0, 0, 0, 0);
+
+        const diffDays = Math.floor((today.getTime() - lastCheckIn.getTime()) / (24 * 60 * 60 * 1000));
+
+        if (diffDays === 1) {
+          // 连续签到
+          if (account.consecutiveDays >= 7) {
+            // 已满7天，重置到第1天
+            newConsecutiveDays = 1;
+          } else {
+            newConsecutiveDays = account.consecutiveDays + 1;
+          }
+        } else if (diffDays === 0) {
+          // 同一天，保持不变（理论上不会走到这里，因为 canClaim 会返回 false）
+          newConsecutiveDays = account.consecutiveDays;
+        }
+        // diffDays > 1 表示断签，重新从1开始（默认值已经是1）
+      }
+
+      // 第7天额外奖励500积分
+      if (newConsecutiveDays === 7) {
+        bonusCredits = CONSECUTIVE_7_DAY_BONUS_CREDITS;
+      }
+
+      const totalCredits = DAILY_LOGIN_REWARD_CREDITS + bonusCredits;
+      const newBalance = account.balance + totalCredits;
+
+      // 更新账户余额、最后领取时间和连续签到天数
       await tx.creditAccount.update({
         where: { id: account.id },
         data: {
           balance: newBalance,
-          totalEarned: account.totalEarned + DAILY_LOGIN_REWARD_CREDITS,
+          totalEarned: account.totalEarned + totalCredits,
           lastDailyRewardAt: new Date(),
+          lastCheckInDate: new Date(),
+          consecutiveDays: newConsecutiveDays,
         },
       });
 
-      // 创建交易记录
+      // 创建签到交易记录
+      const description = bonusCredits > 0
+        ? (isPaid ? `连续签到第7天+额外奖励${bonusCredits}积分（永久）` : `连续签到第7天+额外奖励${bonusCredits}积分（${DAILY_REWARD_EXPIRE_DAYS}天后过期）`)
+        : (isPaid ? `每日签到第${newConsecutiveDays}天（永久）` : `每日签到第${newConsecutiveDays}天（${DAILY_REWARD_EXPIRE_DAYS}天后过期）`);
+
       const transaction = await tx.creditTransaction.create({
         data: {
           accountId: account.id,
           type: TransactionType.DAILY_REWARD,
-          amount: DAILY_LOGIN_REWARD_CREDITS,
+          amount: totalCredits,
           balanceBefore: account.balance,
           balanceAfter: newBalance,
-          description: '每日登录奖励',
+          description,
+          expiresAt,
+          metadata: bonusCredits > 0 ? { bonusCredits, baseCredits: DAILY_LOGIN_REWARD_CREDITS } : undefined,
         },
       });
 
@@ -577,7 +646,238 @@ export class CreditsService {
         success: true,
         newBalance,
         transactionId: transaction.id,
+        expiresAt,
+        consecutiveDays: newConsecutiveDays,
+        bonusCredits,
       };
     });
+  }
+
+  /**
+   * 获取用户签到日历状态（7天周期）
+   * 规则：连续签到7天后重置，断签也重置
+   * 日历显示：已签到(checked)、今日待签(isToday)、未来待签(其他)
+   */
+  async getCheckInCalendar(userId: string): Promise<{
+    consecutiveDays: number;
+    lastCheckInDate: Date | null;
+    todayCheckedIn: boolean;
+    calendarDays: Array<{ day: number; checked: boolean; missed: boolean; isToday: boolean }>;
+  }> {
+    const account = await this.getOrCreateAccount(userId);
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    let todayCheckedIn = false;
+    let consecutiveDays = account.consecutiveDays || 0;
+
+    if (account.lastCheckInDate) {
+      const lastCheckIn = new Date(account.lastCheckInDate);
+      lastCheckIn.setHours(0, 0, 0, 0);
+      todayCheckedIn = lastCheckIn.getTime() === today.getTime();
+
+      // 检查是否断签（超过1天没签到）
+      const diffDays = Math.floor((today.getTime() - lastCheckIn.getTime()) / (24 * 60 * 60 * 1000));
+      if (diffDays > 1) {
+        // 断签了，显示为0天（但数据库中的值会在下次签到时重置）
+        consecutiveDays = 0;
+      }
+    }
+
+    // 构建7天日历
+    const calendarDays: Array<{ day: number; checked: boolean; missed: boolean; isToday: boolean }> = [];
+
+    for (let i = 1; i <= 7; i++) {
+      // 已签到：第1天到第consecutiveDays天
+      const checked = i <= consecutiveDays;
+      // 今日待签：下一个要签到的天数（如果今天还没签到）
+      const isToday = !todayCheckedIn && i === consecutiveDays + 1;
+
+      calendarDays.push({
+        day: i,
+        checked,
+        missed: false, // 断签会重置周期，所以当前周期内不存在漏签
+        isToday,
+      });
+    }
+
+    return {
+      consecutiveDays,
+      lastCheckInDate: account.lastCheckInDate,
+      todayCheckedIn,
+      calendarDays,
+    };
+  }
+
+  /**
+   * 清理过期的签到积分（定时任务调用）
+   * 只清理普通用户的过期签到积分
+   */
+  async cleanupExpiredDailyRewards(): Promise<{ processedUsers: number; totalExpiredCredits: number }> {
+    const now = new Date();
+
+    // 查找所有已过期但未处理的签到积分记录
+    const expiredTransactions = await this.prisma.creditTransaction.findMany({
+      where: {
+        type: TransactionType.DAILY_REWARD,
+        expiresAt: { lte: now },
+        isExpired: false,
+        amount: { gt: 0 }, // 只处理正数（获得积分的记录）
+      },
+      include: {
+        account: true,
+      },
+    });
+
+    if (expiredTransactions.length === 0) {
+      return { processedUsers: 0, totalExpiredCredits: 0 };
+    }
+
+    // 按用户分组处理
+    const userTransactions = new Map<string, typeof expiredTransactions>();
+    for (const tx of expiredTransactions) {
+      const userId = tx.account.userId;
+      if (!userTransactions.has(userId)) {
+        userTransactions.set(userId, []);
+      }
+      userTransactions.get(userId)!.push(tx);
+    }
+
+    let processedUsers = 0;
+    let totalExpiredCredits = 0;
+
+    for (const [userId, transactions] of userTransactions) {
+      // 再次确认不是付费用户（双重检查）
+      const isPaid = await this.isPaidUser(userId);
+      if (isPaid) {
+        // 付费用户：将这些记录标记为永不过期
+        await this.prisma.creditTransaction.updateMany({
+          where: {
+            id: { in: transactions.map(t => t.id) },
+          },
+          data: {
+            expiresAt: null,
+            isExpired: false,
+          },
+        });
+        continue;
+      }
+
+      // 计算该用户需要清除的过期积分总额
+      const expiredAmount = transactions.reduce((sum, t) => sum + t.amount, 0);
+
+      if (expiredAmount <= 0) continue;
+
+      // 获取用户当前余额
+      const account = await this.prisma.creditAccount.findUnique({
+        where: { userId },
+      });
+
+      if (!account) continue;
+
+      // 实际扣除的积分不能超过当前余额
+      const actualDeduct = Math.min(expiredAmount, account.balance);
+
+      if (actualDeduct > 0) {
+        await this.prisma.$transaction(async (tx) => {
+          // 扣除过期积分
+          const newBalance = account.balance - actualDeduct;
+          await tx.creditAccount.update({
+            where: { id: account.id },
+            data: { balance: newBalance },
+          });
+
+          // 创建过期扣除记录
+          await tx.creditTransaction.create({
+            data: {
+              accountId: account.id,
+              type: TransactionType.EXPIRE,
+              amount: -actualDeduct,
+              balanceBefore: account.balance,
+              balanceAfter: newBalance,
+              description: `签到积分过期清除（${transactions.length}笔）`,
+              metadata: {
+                expiredTransactionIds: transactions.map(t => t.id),
+                originalExpiredAmount: expiredAmount,
+              },
+            },
+          });
+
+          // 标记原始交易记录为已过期
+          await tx.creditTransaction.updateMany({
+            where: {
+              id: { in: transactions.map(t => t.id) },
+            },
+            data: {
+              isExpired: true,
+              expiredAmount: actualDeduct,
+            },
+          });
+        });
+
+        totalExpiredCredits += actualDeduct;
+      } else {
+        // 余额为0，只标记为已过期
+        await this.prisma.creditTransaction.updateMany({
+          where: {
+            id: { in: transactions.map(t => t.id) },
+          },
+          data: {
+            isExpired: true,
+            expiredAmount: 0,
+          },
+        });
+      }
+
+      processedUsers++;
+    }
+
+    this.logger.log(`签到积分过期清理完成: 处理 ${processedUsers} 个用户, 清除 ${totalExpiredCredits} 积分`);
+    return { processedUsers, totalExpiredCredits };
+  }
+
+  /**
+   * 获取用户即将过期的签到积分信息
+   */
+  async getExpiringCredits(userId: string): Promise<{
+    totalExpiring: number;
+    expiringDetails: Array<{ amount: number; expiresAt: Date }>;
+    isPaidUser: boolean;
+  }> {
+    const isPaid = await this.isPaidUser(userId);
+
+    if (isPaid) {
+      return { totalExpiring: 0, expiringDetails: [], isPaidUser: true };
+    }
+
+    const account = await this.prisma.creditAccount.findUnique({
+      where: { userId },
+    });
+
+    if (!account) {
+      return { totalExpiring: 0, expiringDetails: [], isPaidUser: false };
+    }
+
+    // 查找未过期的签到积分
+    const expiringTransactions = await this.prisma.creditTransaction.findMany({
+      where: {
+        accountId: account.id,
+        type: TransactionType.DAILY_REWARD,
+        expiresAt: { not: null },
+        isExpired: false,
+        amount: { gt: 0 },
+      },
+      orderBy: { expiresAt: 'asc' },
+    });
+
+    const expiringDetails = expiringTransactions.map(t => ({
+      amount: t.amount,
+      expiresAt: t.expiresAt!,
+    }));
+
+    const totalExpiring = expiringDetails.reduce((sum, d) => sum + d.amount, 0);
+
+    return { totalExpiring, expiringDetails, isPaidUser: false };
   }
 }

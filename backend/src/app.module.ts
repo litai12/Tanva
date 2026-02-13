@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaModule } from './prisma/prisma.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
@@ -23,6 +24,7 @@ import { ReferralModule } from './referral/referral.module';
       envFilePath: ['.env', '../.env'], // 尝试多个路径
       expandVariables: true
     }),
+    ScheduleModule.forRoot(), // 定时任务模块
     PrismaModule,
     UsersModule,
     AuthModule,

@@ -288,6 +288,21 @@ export interface ClaimDailyRewardResult {
   newBalance: number;
   transactionId: string;
   alreadyClaimed?: boolean;
+  expiresAt?: string | null;
+  consecutiveDays?: number;
+}
+
+export interface ExpiringCreditsInfo {
+  totalExpiring: number;
+  expiringDetails: Array<{ amount: number; expiresAt: string }>;
+  isPaidUser: boolean;
+}
+
+export interface CheckInCalendar {
+  consecutiveDays: number;
+  lastCheckInDate: string | null;
+  todayCheckedIn: boolean;
+  calendarDays: Array<{ day: number; checked: boolean; missed: boolean; isToday: boolean }>;
 }
 
 export async function getDailyRewardStatus(): Promise<DailyRewardStatus> {
@@ -299,6 +314,16 @@ export async function claimDailyReward(): Promise<ClaimDailyRewardResult> {
   const response = await request("/api/credits/daily-reward/claim", {
     method: "POST",
   });
+  return response.json();
+}
+
+export async function getExpiringCredits(): Promise<ExpiringCreditsInfo> {
+  const response = await request("/api/credits/expiring");
+  return response.json();
+}
+
+export async function getCheckInCalendar(): Promise<CheckInCalendar> {
+  const response = await request("/api/credits/check-in/calendar");
   return response.json();
 }
 

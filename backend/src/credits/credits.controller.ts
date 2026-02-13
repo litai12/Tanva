@@ -48,6 +48,22 @@ export class CreditsController {
     return this.creditsService.canClaimDailyReward(req.user.id);
   }
 
+  @Get('expiring')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '获取即将过期的签到积分' })
+  async getExpiringCredits(@Request() req: FastifyRequest & { user: AuthenticatedUser }) {
+    return this.creditsService.getExpiringCredits(req.user.id);
+  }
+
+  @Get('check-in/calendar')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '获取签到日历状态' })
+  async getCheckInCalendar(@Request() req: FastifyRequest & { user: AuthenticatedUser }) {
+    return this.creditsService.getCheckInCalendar(req.user.id);
+  }
+
   @Post('daily-reward/claim')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()

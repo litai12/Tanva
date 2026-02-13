@@ -16,7 +16,7 @@ export default function LoginPage() {
   const [code, setCode] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
-  const [agreeTerms, setAgreeTerms] = useState(true); // 默认勾选
+  const [agreeTerms, setAgreeTerms] = useState(false); // 默认不勾选，必须手动同意
   const navigate = useNavigate();
   const { login, loginWithSms, error, user } = useAuthStore();
 

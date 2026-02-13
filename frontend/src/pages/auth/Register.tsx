@@ -19,7 +19,7 @@ export default function RegisterPage() {
   const [inviterName, setInviterName] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [agreeTerms, setAgreeTerms] = useState(true); // 默认勾选
+  const [agreeTerms, setAgreeTerms] = useState(false); // 默认不勾选，必须手动同意
   const navigate = useNavigate();
   const { register, login, loading, error } = useAuthStore();
 
@@ -63,6 +63,21 @@ export default function RegisterPage() {
     if (password !== confirm) {
       alert("两次输入的密码不一致");
       return;
+    }
+    // 如果填写了邀请码，必须验证有效性
+    if (inviteCode.trim()) {
+      if (inviteCodeValid === null) {
+        // 还没验证过，先验证
+        const result = await validateInviteCode(inviteCode.trim());
+        setInviteCodeValid(result.valid);
+        if (!result.valid) {
+          alert("邀请码无效，请检查后重试");
+          return;
+        }
+      } else if (inviteCodeValid === false) {
+        alert("邀请码无效，请检查后重试");
+        return;
+      }
     }
     try {
       await register(

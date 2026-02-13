@@ -1,14 +1,18 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, TrendingUp, TrendingDown, Activity, Zap, Calendar, RefreshCw } from 'lucide-react';
+import { ArrowLeft, TrendingUp, TrendingDown, Activity, Zap, Calendar, RefreshCw, AlertTriangle, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   claimDailyReward,
   getDailyRewardStatus,
+  getExpiringCredits,
+  getCheckInCalendar,
   getMyApiUsage,
   getMyCredits,
   getMyTransactions,
   type DailyRewardStatus,
+  type ExpiringCreditsInfo,
+  type CheckInCalendar,
   type UserCreditsInfo,
 } from '@/services/adminApi';
 import { cn } from '@/lib/utils';
@@ -106,6 +110,8 @@ const MyCredits: React.FC = () => {
   const [dailyRewardStatus, setDailyRewardStatus] = useState<DailyRewardStatus | null>(null);
   const [dailyRewardLoading, setDailyRewardLoading] = useState(false);
   const [dailyRewardClaiming, setDailyRewardClaiming] = useState(false);
+  const [expiringCredits, setExpiringCredits] = useState<ExpiringCreditsInfo | null>(null);
+  const [checkInCalendar, setCheckInCalendar] = useState<CheckInCalendar | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'transactions' | 'usage'>('overview');
 
   useEffect(() => {
@@ -115,15 +121,19 @@ const MyCredits: React.FC = () => {
   const loadData = async (showLoading: boolean = true) => {
     if (showLoading) setLoading(true);
     try {
-      const [creditsData, transactionsData, usageData] = await Promise.all([
+      const [creditsData, transactionsData, usageData, expiringData, calendarData] = await Promise.all([
         getMyCredits(),
         getMyTransactions({ pageSize: 100 }),
         // API 最多支持 100 条，超过会导致 400，进而使积分信息也拿不到
         getMyApiUsage({ pageSize: 100 }),
+        getExpiringCredits(),
+        getCheckInCalendar(),
       ]);
       setCredits(creditsData);
       setTransactions(transactionsData.transactions || []);
       setApiUsage(usageData.records || []);
+      setExpiringCredits(expiringData);
+      setCheckInCalendar(calendarData);
     } catch (error) {
       console.error('Failed to load credits data:', error);
     } finally {
@@ -316,6 +326,120 @@ const MyCredits: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* 7天签到日历 */}
+        {checkInCalendar && (
+          <div className="p-5 bg-white shadow-sm rounded-2xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-medium text-slate-700">连续签到</h3>
+              <span className="text-sm text-slate-500">
+                已连续签到 {checkInCalendar.consecutiveDays} 天
+              </span>
+            </div>
+            <div className="grid grid-cols-7 gap-2">
+              {checkInCalendar.calendarDays.map((day) => (
+                <div
+                  key={day.day}
+                  className={cn(
+                    "flex flex-col items-center justify-center p-2 rounded-xl transition-all relative",
+                    day.checked
+                      ? day.day === 7 ? "bg-amber-100 border border-amber-300" : "bg-emerald-100 border border-emerald-300"
+                      : day.isToday
+                        ? "bg-blue-50 border-2 border-blue-400 border-dashed"
+                        : day.missed
+                          ? "bg-red-50 border border-red-200"
+                          : day.day === 7 ? "bg-amber-50 border border-amber-200" : "bg-slate-50 border border-slate-200"
+                  )}
+                >
+                  {day.day === 7 && (
+                    <span className="absolute -top-1 -right-1 px-1 py-0.5 text-[10px] bg-amber-500 text-white rounded-full">
+                      +500
+                    </span>
+                  )}
+                  <span className={cn(
+                    "text-xs font-medium",
+                    day.checked
+                      ? day.day === 7 ? "text-amber-700" : "text-emerald-700"
+                      : day.isToday ? "text-blue-600"
+                      : day.missed ? "text-red-400"
+                      : day.day === 7 ? "text-amber-600" : "text-slate-400"
+                  )}>
+                    第{day.day}天
+                  </span>
+                  <div className={cn(
+                    "w-6 h-6 mt-1 rounded-full flex items-center justify-center",
+                    day.checked
+                      ? day.day === 7 ? "bg-amber-500" : "bg-emerald-500"
+                      : day.isToday
+                        ? "bg-blue-100"
+                        : day.missed
+                          ? "bg-red-100"
+                          : day.day === 7 ? "bg-amber-100" : "bg-slate-100"
+                  )}>
+                    {day.checked ? (
+                      <Check className="w-4 h-4 text-white" />
+                    ) : day.isToday ? (
+                      <span className="text-xs text-blue-500">今</span>
+                    ) : day.missed ? (
+                      <span className="text-xs text-red-400">×</span>
+                    ) : day.day === 7 ? (
+                      <Zap className="w-3 h-3 text-amber-500" />
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {!checkInCalendar.todayCheckedIn && (
+              <div className="mt-4 text-center">
+                <Button
+                  size="sm"
+                  className="px-6 text-white bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600"
+                  disabled={dailyRewardClaiming}
+                  onClick={handleClaimDailyReward}
+                >
+                  {dailyRewardClaiming ? '签到中...' : '立即签到'}
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 过期积分提示 - 仅普通用户显示 */}
+        {expiringCredits && !expiringCredits.isPaidUser && expiringCredits.totalExpiring > 0 && (
+          <div className="flex items-start gap-3 p-4 border bg-amber-50 border-amber-200 rounded-2xl">
+            <AlertTriangle className="flex-shrink-0 w-5 h-5 mt-0.5 text-amber-500" />
+            <div className="flex-1">
+              <div className="text-sm font-medium text-amber-800">
+                您有 {expiringCredits.totalExpiring} 积分即将过期
+              </div>
+              <div className="mt-1 text-xs text-amber-600">
+                签到获得的积分将在7天后过期，请尽快使用。充值成为付费用户后，签到积分将永久保留。
+              </div>
+              {expiringCredits.expiringDetails.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {expiringCredits.expiringDetails.slice(0, 3).map((detail, idx) => (
+                    <div key={idx} className="text-xs text-amber-700">
+                      {detail.amount} 积分将于 {new Date(detail.expiresAt).toLocaleDateString('zh-CN')} 过期
+                    </div>
+                  ))}
+                  {expiringCredits.expiringDetails.length > 3 && (
+                    <div className="text-xs text-amber-600">
+                      还有 {expiringCredits.expiringDetails.length - 3} 笔即将过期...
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* 付费用户标识 */}
+        {expiringCredits?.isPaidUser && (
+          <div className="flex items-center gap-2 p-3 border bg-emerald-50 border-emerald-200 rounded-xl">
+            <Zap className="w-4 h-4 text-emerald-500" />
+            <span className="text-sm text-emerald-700">付费用户 - 签到积分永久有效</span>
+          </div>
+        )}
 
         {/* Tab 切换 */}
         <div className="flex gap-2 bg-white rounded-2xl p-1.5 shadow-sm">

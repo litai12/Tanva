@@ -186,3 +186,6 @@ export const DEFAULT_NEW_USER_CREDITS = 1000;
 
 // 每日登录奖励积分
 export const DAILY_LOGIN_REWARD_CREDITS = 100;
+
+// 连续签到7天额外奖励积分
+export const CONSECUTIVE_7_DAY_BONUS_CREDITS = 500;
