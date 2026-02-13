@@ -106,9 +106,15 @@ export class CreditsService {
     } catch (error) {
       // 并发场景下可能会触发 userId 唯一索引冲突，这里捕获后再查一次即可
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        return this.prisma.creditAccount.findUnique({
+        const existingAccount = await this.prisma.creditAccount.findUnique({
           where: { userId },
         });
+        if (!existingAccount) {
+          // 理论上不应该发生，但为了安全起见
+          this.logger.warn(`P2002错误后未找到账户 userId=${userId}，重试创建`);
+          throw error; // 重新抛出原错误
+        }
+        return existingAccount;
       }
       throw error;
     }
