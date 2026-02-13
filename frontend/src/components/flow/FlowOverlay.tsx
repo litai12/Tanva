@@ -1002,6 +1002,23 @@ function FlowInner() {
     fetchNodeConfigs().then(setNodeConfigs).catch(console.error);
   }, []);
 
+  // 确保画布节点面板中的顺序：输入 → 图像 → 视频 → 其他
+  const sortedNodeConfigs = React.useMemo(() => {
+    if (!nodeConfigs || nodeConfigs.length === 0) return nodeConfigs;
+    const categoryOrder: Record<string, number> = {
+      input: 0,
+      image: 1,
+      video: 2,
+      other: 3,
+    };
+    return [...nodeConfigs].sort((a, b) => {
+      const ca = categoryOrder[a.category ?? "other"] ?? 99;
+      const cb = categoryOrder[b.category ?? "other"] ?? 99;
+      if (ca !== cb) return ca - cb;
+      return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+    });
+  }, [nodeConfigs]);
+
   const onNodesChangeWithHistory = React.useCallback(
     (changes: any) => {
       const altState = altDragStartRef.current;
@@ -10038,7 +10055,7 @@ function FlowInner() {
               >
                 <div style={{ padding: "0 20px 20px" }}>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
-                    {(nodeConfigs.length > 0 ? nodeConfigs : NODE_PALETTE_ITEMS.map(item => ({
+                  {(sortedNodeConfigs && sortedNodeConfigs.length > 0 ? sortedNodeConfigs : NODE_PALETTE_ITEMS.map(item => ({
                       nodeKey: item.key,
                       nameZh: item.zh,
                       nameEn: item.en,

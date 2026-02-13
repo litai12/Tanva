@@ -45,10 +45,25 @@ export class NodeConfigService {
   async getAllNodeConfigs() {
     const configs = await this.prisma.nodeConfig.findMany({
       where: { isVisible: true },
-      orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }],
+      orderBy: [{ sortOrder: 'asc' }], // 先按 sortOrder 粗排，后面再自定义分类顺序
     });
 
-    return configs.map((config) => ({
+    // 自定义分类顺序：输入(input) → 图像(image) → 视频(video) → 其他(other)
+    const categoryOrder: Record<string, number> = {
+      input: 0,
+      image: 1,
+      video: 2,
+      other: 3,
+    };
+
+    const sorted = configs.sort((a, b) => {
+      const ca = categoryOrder[a.category ?? 'other'] ?? 99;
+      const cb = categoryOrder[b.category ?? 'other'] ?? 99;
+      if (ca !== cb) return ca - cb;
+      return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+    });
+
+    return sorted.map((config) => ({
       nodeKey: config.nodeKey,
       nameZh: config.nameZh,
       nameEn: config.nameEn,
@@ -69,10 +84,25 @@ export class NodeConfigService {
    */
   async getAllNodeConfigsAdmin() {
     const configs = await this.prisma.nodeConfig.findMany({
-      orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }],
+      orderBy: [{ sortOrder: 'asc' }],
     });
 
-    return configs.map((config) => ({
+    // 管理端同样按：输入 → 图像 → 视频 → 其他 排序
+    const categoryOrder: Record<string, number> = {
+      input: 0,
+      image: 1,
+      video: 2,
+      other: 3,
+    };
+
+    const sorted = configs.sort((a, b) => {
+      const ca = categoryOrder[a.category ?? 'other'] ?? 99;
+      const cb = categoryOrder[b.category ?? 'other'] ?? 99;
+      if (ca !== cb) return ca - cb;
+      return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+    });
+
+    return sorted.map((config) => ({
       id: config.id,
       nodeKey: config.nodeKey,
       nameZh: config.nameZh,
