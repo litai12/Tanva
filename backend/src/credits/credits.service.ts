@@ -65,9 +65,10 @@ export class CreditsService {
 
   /**
    * 获取或创建用户积分账户
+   * 使用双重检查锁定模式（Double-Checked Locking）避免并发创建冲突
    */
   async getOrCreateAccount(userId: string) {
-    // 先查一次，绝大多数场景直接命中，不走事务
+    // 第一次检查：快速路径，绝大多数场景直接命中
     let account = await this.prisma.creditAccount.findUnique({
       where: { userId },
     });
@@ -76,9 +77,20 @@ export class CreditsService {
       return account;
     }
 
+    // 第二次检查：在事务内部再次检查，避免并发创建冲突
     try {
-      // 创建新账户并赠送初始积分
       account = await this.prisma.$transaction(async (tx) => {
+        // 在事务中再次查询，确保在创建前账户不存在
+        // 这样可以避免两个并发请求同时创建的情况
+        const existingAccount = await tx.creditAccount.findUnique({
+          where: { userId },
+        });
+
+        if (existingAccount) {
+          return existingAccount;
+        }
+
+        // 创建新账户并赠送初始积分
         const newAccount = await tx.creditAccount.create({
           data: {
             userId,
@@ -100,19 +112,24 @@ export class CreditsService {
         });
 
         return newAccount;
+      }, {
+        // 设置事务超时和隔离级别
+        timeout: 10000, // 10秒超时
+        isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
       });
 
       return account;
     } catch (error) {
-      // 并发场景下可能会触发 userId 唯一索引冲突，这里捕获后再查一次即可
+      // 如果仍然发生唯一约束冲突（理论上不应该，但作为最后的安全网）
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        this.logger.warn(`检测到并发创建账户冲突 userId=${userId}，重新查询`);
         const existingAccount = await this.prisma.creditAccount.findUnique({
           where: { userId },
         });
         if (!existingAccount) {
-          // 理论上不应该发生，但为了安全起见
-          this.logger.warn(`P2002错误后未找到账户 userId=${userId}，重试创建`);
-          throw error; // 重新抛出原错误
+          // 如果仍然找不到，记录错误并抛出
+          this.logger.error(`P2002错误后未找到账户 userId=${userId}`);
+          throw error;
         }
         return existingAccount;
       }
