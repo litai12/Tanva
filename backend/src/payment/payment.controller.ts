@@ -9,7 +9,7 @@ import {
   Request,
   Res,
 } from '@nestjs/common';
-import { Response } from 'express';
+import { FastifyReply } from 'fastify';
 import { PaymentService } from './payment.service';
 import { CreateOrderDto, PaymentMethod } from './dto/payment.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard';
@@ -119,7 +119,7 @@ export class PaymentController {
   @Post('notify')
   async alipayNotify(
     @Body() notifyData: Record<string, string>,
-    @Res() res: Response,
+    @Res() res: FastifyReply,
   ) {
     try {
       const result = await this.paymentService.handleAlipayNotify(notifyData);
