@@ -4,6 +4,7 @@ import { Video, Share2, Download, AlertTriangle } from "lucide-react";
 import SmartImage from "../../ui/SmartImage";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { fetchWithAuth } from "@/services/authFetch";
+import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 
 type VideoHistoryItem = {
   id: string;
@@ -228,22 +229,33 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
         message: "视频下载中，请稍等...",
       });
       try {
-        const response = await fetchWithAuth(url, {
+        // 检测是否为 OSS URL（阿里云 OSS 支持 CORS，可直接下载）
+        const isOssUrl = url.includes('aliyuncs.com');
+        // 非 OSS URL 需要代理
+        const downloadUrl = isOssUrl ? url : proxifyRemoteAssetUrl(url, { forceProxy: true });
+        console.log(`[Wan2.6 R2V视频下载] 原始URL: ${url}`);
+        console.log(`[Wan2.6 R2V视频下载] 下载URL: ${downloadUrl}, isOSS: ${isOssUrl}`);
+
+        const response = await fetch(downloadUrl, {
           mode: "cors",
           credentials: "omit",
-          auth: "omit",
-          allowRefresh: false,
         });
+        console.log(`[Wan2.6 R2V视频下载] 响应状态: ${response.status}`);
+
         if (response.ok) {
           const blob = await response.blob();
-          const downloadUrl = URL.createObjectURL(blob);
+          // 确保 blob 类型正确
+          const videoBlob = blob.type.startsWith('video/')
+            ? blob
+            : new Blob([blob], { type: 'video/mp4' });
+          const blobUrl = URL.createObjectURL(videoBlob);
           const link = document.createElement("a");
-          link.href = downloadUrl;
+          link.href = blobUrl;
           link.download = `video-${new Date().toISOString().split("T")[0]}.mp4`;
           document.body.appendChild(link);
           link.click();
           document.body.removeChild(link);
-          setTimeout(() => URL.revokeObjectURL(downloadUrl), 200);
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 200);
           setDownloadFeedback({ type: "success", message: "下载完成" });
           scheduleFeedbackClear(2000);
         } else {
