@@ -10040,7 +10040,11 @@ function FlowInner() {
                       status: (item.badge === "维护中" ? "maintenance" : "normal") as "normal" | "maintenance" | "coming_soon" | "disabled",
                       creditsPerCall: NODE_CREDITS_MAP[item.key] || 0,
                       sortOrder: 0,
-                    }))).filter(config => config.status !== "disabled").map((config) => {
+                    })))
+                      // 过滤掉 Pro/Beta 节点（它们在 Beta 节点分类中显示）
+                      .filter(config => !['textPromptPro', 'imagePro', 'generatePro', 'generatePro4'].includes(config.nodeKey))
+                      .filter(config => config.status !== "disabled")
+                      .map((config) => {
                       const isDisabled = config.status === "maintenance" || config.status === "coming_soon";
                       const badge = getStatusBadge(config.status);
                       return (
