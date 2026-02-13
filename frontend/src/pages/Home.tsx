@@ -4,6 +4,83 @@ import AccountBadge from "@/components/AccountBadge";
 import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import GlassButton from "@/components/GlassButton";
 import { useAuthStore } from "@/stores/authStore";
+import { MessageCircle, X } from "lucide-react";
+
+// 微信咨询悬浮按钮组件
+const WeChatFloatingButton = () => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [qrCodes, setQrCodes] = useState<{ officialAccount: string; wechatGroup: string }>({
+    officialAccount: '/qrcode-official.png',
+    wechatGroup: '/qrcode-group.png',
+  });
+
+  // 从后端获取二维码配置
+  useEffect(() => {
+    const fetchQrCodes = async () => {
+      try {
+        const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || 'http://localhost:4000';
+        const response = await fetch(`${API_BASE}/api/settings/wechat-qrcodes`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.officialAccount) setQrCodes(prev => ({ ...prev, officialAccount: data.officialAccount }));
+          if (data.wechatGroup) setQrCodes(prev => ({ ...prev, wechatGroup: data.wechatGroup }));
+        }
+      } catch (e) {
+        // 使用默认图片
+      }
+    };
+    fetchQrCodes();
+  }, []);
+
+  return (
+    <div
+      className="fixed bottom-6 right-6 z-50"
+      onMouseEnter={() => setIsOpen(true)}
+      onMouseLeave={() => setIsOpen(false)}
+    >
+      {/* 二维码弹出面板 */}
+      {isOpen && (
+        <div className="absolute bottom-16 right-0 p-4 rounded-2xl bg-black/80 backdrop-blur-md border border-white/10 shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <div className="flex gap-4">
+            <div className="flex flex-col items-center">
+              <div className="w-32 h-32 bg-white rounded-lg p-2 mb-2">
+                <img
+                  src={qrCodes.officialAccount}
+                  alt="公众号二维码"
+                  className="w-full h-full object-contain"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="%23f0f0f0" width="100" height="100"/><text x="50" y="55" text-anchor="middle" fill="%23999" font-size="12">暂无图片</text></svg>';
+                  }}
+                />
+              </div>
+              <span className="text-xs text-white/80">关注公众号</span>
+            </div>
+            <div className="flex flex-col items-center">
+              <div className="w-32 h-32 bg-white rounded-lg p-2 mb-2">
+                <img
+                  src={qrCodes.wechatGroup}
+                  alt="微信群二维码"
+                  className="w-full h-full object-contain"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="%23f0f0f0" width="100" height="100"/><text x="50" y="55" text-anchor="middle" fill="%23999" font-size="12">暂无图片</text></svg>';
+                  }}
+                />
+              </div>
+              <span className="text-xs text-white/80">加入交流群</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 悬浮按钮 */}
+      <button
+        className="w-12 h-12 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md border border-white/10 shadow-lg flex items-center justify-center transition-all duration-300 hover:scale-110"
+      >
+        <MessageCircle className="w-6 h-6 text-white" />
+      </button>
+    </div>
+  );
+};
 
 export default function Home() {
   const navigate = useNavigate();
@@ -384,6 +461,9 @@ export default function Home() {
           </footer>
         </section>
       </div>
+
+      {/* 微信咨询悬浮按钮 - 放在最外层确保始终可见 */}
+      <WeChatFloatingButton />
     </div>
   );
 }

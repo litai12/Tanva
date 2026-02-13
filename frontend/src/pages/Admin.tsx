@@ -1677,6 +1677,12 @@ function SettingsTab() {
   const [saving, setSaving] = useState(false);
   const [sora2Provider, setSora2Provider] = useState("auto");
 
+  // 微信二维码状态
+  const [officialQrCode, setOfficialQrCode] = useState<string>("");
+  const [groupQrCode, setGroupQrCode] = useState<string>("");
+  const [uploadingOfficial, setUploadingOfficial] = useState(false);
+  const [uploadingGroup, setUploadingGroup] = useState(false);
+
   const loadSettings = async () => {
     setLoading(true);
     try {
@@ -1686,6 +1692,15 @@ function SettingsTab() {
       const sora2Setting = result.find((s) => s.key === "sora2_provider");
       if (sora2Setting) {
         setSora2Provider(sora2Setting.value);
+      }
+      // 加载微信二维码设置
+      const officialSetting = result.find((s) => s.key === "wechat_official_account_qrcode");
+      if (officialSetting) {
+        setOfficialQrCode(officialSetting.value);
+      }
+      const groupSetting = result.find((s) => s.key === "wechat_group_qrcode");
+      if (groupSetting) {
+        setGroupQrCode(groupSetting.value);
       }
     } catch (error) {
       console.error("加载设置失败:", error);
@@ -1697,6 +1712,51 @@ function SettingsTab() {
   useEffect(() => {
     loadSettings();
   }, []);
+
+  // 上传二维码图片
+  const handleQrCodeUpload = async (
+    file: File,
+    type: 'official' | 'group'
+  ) => {
+    const setUploading = type === 'official' ? setUploadingOfficial : setUploadingGroup;
+    const settingKey = type === 'official' ? 'wechat_official_account_qrcode' : 'wechat_group_qrcode';
+    const description = type === 'official' ? '微信公众号二维码' : '微信交流群二维码';
+
+    setUploading(true);
+    try {
+      // 使用 OSS 上传
+      const { uploadToOSS } = await import('@/services/ossUploadService');
+      const result = await uploadToOSS(file, {
+        dir: 'settings/qrcodes/',
+        fileName: file.name,
+      });
+
+      if (!result.success || !result.url) {
+        throw new Error(result.error || '上传失败');
+      }
+
+      // 保存到系统设置
+      await upsertSetting({
+        key: settingKey,
+        value: result.url,
+        description,
+      });
+
+      // 更新本地状态
+      if (type === 'official') {
+        setOfficialQrCode(result.url);
+      } else {
+        setGroupQrCode(result.url);
+      }
+
+      alert('上传成功');
+      loadSettings();
+    } catch (error: any) {
+      alert(error.message || '上传失败');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const handleSaveSora2Provider = async () => {
     setSaving(true);
@@ -1759,6 +1819,83 @@ function SettingsTab() {
           <Button onClick={handleSaveSora2Provider} disabled={saving}>
             {saving ? "保存中..." : "保存设置"}
           </Button>
+        </div>
+      </div>
+
+      {/* 微信二维码设置 */}
+      <div className='bg-white rounded-lg border p-6 shadow-sm'>
+        <h3 className='text-lg font-semibold mb-4'>微信咨询二维码</h3>
+        <p className='text-sm text-gray-500 mb-4'>
+          设置欢迎页面右下角悬浮按钮显示的微信二维码，用于用户咨询和加入交流群。
+        </p>
+        <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
+          {/* 公众号二维码 */}
+          <div className='border rounded-lg p-4'>
+            <div className='text-sm font-medium mb-3'>公众号二维码</div>
+            <div className='flex flex-col items-center'>
+              <div className='w-32 h-32 bg-gray-100 rounded-lg mb-3 flex items-center justify-center overflow-hidden'>
+                {officialQrCode ? (
+                  <img src={officialQrCode} alt='公众号二维码' className='w-full h-full object-contain' />
+                ) : (
+                  <span className='text-gray-400 text-xs'>暂无图片</span>
+                )}
+              </div>
+              <label className='cursor-pointer'>
+                <input
+                  type='file'
+                  accept='image/*'
+                  className='hidden'
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleQrCodeUpload(file, 'official');
+                    e.target.value = '';
+                  }}
+                  disabled={uploadingOfficial}
+                />
+                <span className={`px-4 py-2 text-sm rounded-lg border transition ${
+                  uploadingOfficial
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : 'bg-white hover:bg-gray-50 text-gray-700 cursor-pointer'
+                }`}>
+                  {uploadingOfficial ? '上传中...' : officialQrCode ? '更换图片' : '上传图片'}
+                </span>
+              </label>
+            </div>
+          </div>
+
+          {/* 交流群二维码 */}
+          <div className='border rounded-lg p-4'>
+            <div className='text-sm font-medium mb-3'>微信交流群二维码</div>
+            <div className='flex flex-col items-center'>
+              <div className='w-32 h-32 bg-gray-100 rounded-lg mb-3 flex items-center justify-center overflow-hidden'>
+                {groupQrCode ? (
+                  <img src={groupQrCode} alt='交流群二维码' className='w-full h-full object-contain' />
+                ) : (
+                  <span className='text-gray-400 text-xs'>暂无图片</span>
+                )}
+              </div>
+              <label className='cursor-pointer'>
+                <input
+                  type='file'
+                  accept='image/*'
+                  className='hidden'
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleQrCodeUpload(file, 'group');
+                    e.target.value = '';
+                  }}
+                  disabled={uploadingGroup}
+                />
+                <span className={`px-4 py-2 text-sm rounded-lg border transition ${
+                  uploadingGroup
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : 'bg-white hover:bg-gray-50 text-gray-700 cursor-pointer'
+                }`}>
+                  {uploadingGroup ? '上传中...' : groupQrCode ? '更换图片' : '上传图片'}
+                </span>
+              </label>
+            </div>
+          </div>
         </div>
       </div>
 

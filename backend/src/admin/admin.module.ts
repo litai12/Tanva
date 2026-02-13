@@ -1,6 +1,7 @@
 import { Module, OnModuleInit, Logger } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { AdminController } from './admin.controller';
+import { SettingsPublicController } from './settings-public.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { CreditsModule } from '../credits/credits.module';
 import { OssModule } from '../oss/oss.module';
@@ -9,7 +10,7 @@ import { NodeConfigService } from './services/node-config.service';
 
 @Module({
   imports: [PrismaModule, CreditsModule, OssModule],
-  controllers: [AdminController],
+  controllers: [AdminController, SettingsPublicController],
   providers: [AdminService, TemplateService, NodeConfigService],
   exports: [AdminService, TemplateService, NodeConfigService],
 })
