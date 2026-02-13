@@ -583,47 +583,62 @@ export class AiController {
       'https://api1.147ai.com'
     ).replace(/\/+$/, '');
 
-    const response = await fetch(`${apiBaseUrl}/v1/chat/completions`, {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: params.model,
-        stream: false,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: params.prompt },
-              { type: 'image_url', image_url: { url: params.videoUrl } },
-            ],
-          },
-        ],
-      }),
-    });
+    // 视频分析需要较长时间，设置 5 分钟超时
+    const VIDEO_ANALYSIS_TIMEOUT = 5 * 60 * 1000;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), VIDEO_ANALYSIS_TIMEOUT);
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      throw new ServiceUnavailableException(
-        `147 /v1/chat/completions error: HTTP ${response.status} ${text}`.trim()
-      );
+    try {
+      const response = await fetch(`${apiBaseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: params.model,
+          stream: false,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: params.prompt },
+                { type: 'image_url', image_url: { url: params.videoUrl } },
+              ],
+            },
+          ],
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new ServiceUnavailableException(
+          `147 /v1/chat/completions error: HTTP ${response.status} ${text}`.trim()
+        );
+      }
+
+      const data: any = await response.json().catch(() => ({}));
+      const content = data?.choices?.[0]?.message?.content;
+      if (typeof content === 'string' && content.trim().length) return content.trim();
+      if (Array.isArray(content)) {
+        const joined = content
+          .map((part: any) => (typeof part?.text === 'string' ? part.text : ''))
+          .join('')
+          .trim();
+        if (joined.length) return joined;
+      }
+
+      throw new ServiceUnavailableException('147 returned empty content');
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        throw new ServiceUnavailableException(`Video analysis timeout (${VIDEO_ANALYSIS_TIMEOUT / 1000}s)`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    const data: any = await response.json().catch(() => ({}));
-    const content = data?.choices?.[0]?.message?.content;
-    if (typeof content === 'string' && content.trim().length) return content.trim();
-    if (Array.isArray(content)) {
-      const joined = content
-        .map((part: any) => (typeof part?.text === 'string' ? part.text : ''))
-        .join('')
-        .trim();
-      if (joined.length) return joined;
-    }
-
-    throw new ServiceUnavailableException('147 returned empty content');
   }
 
   private parseAndValidateAllowedUrl(urlValue: string): URL {
