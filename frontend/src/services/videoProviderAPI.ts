@@ -5,7 +5,7 @@
 import { fetchWithAuth } from "./authFetch";
 import { getApiBaseUrl } from "../utils/assetProxy";
 
-export type VideoProvider = "kling" | "kling-o1" | "vidu" | "doubao";
+export type VideoProvider = "kling" | "kling-2.6" | "kling-o1" | "vidu" | "doubao";
 
 export interface VideoGenerationRequest {
   prompt: string;
@@ -34,6 +34,7 @@ export interface VideoGenerationResult {
   thumbnailUrl?: string;
   status: string;
   error?: string;
+  apiUsageId?: string; // 用于失败时退款
 }
 
 /**
@@ -68,10 +69,34 @@ export async function generateVideoByProvider(
 export async function queryVideoTask(
   provider: VideoProvider,
   taskId: string
-): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string }> {
+): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string; error?: string }> {
   const apiBaseUrl = getApiBaseUrl();
   const response = await fetchWithAuth(
     `${apiBaseUrl}/api/ai/video-task/${provider}/${taskId}`
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.message || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * 视频任务失败时退还积分
+ */
+export async function refundVideoTask(apiUsageId: string): Promise<{ success: boolean; newBalance: number }> {
+  const apiBaseUrl = getApiBaseUrl();
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/api/ai/video-task-refund`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ apiUsageId }),
+    }
   );
 
   if (!response.ok) {

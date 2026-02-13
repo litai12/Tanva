@@ -1449,20 +1449,95 @@ export class AiController {
 
   /**
    * 视频生成（通用供应商：可灵、Vidu、豆包）
+   * 返回 taskId 和 apiUsageId，前端在任务失败时可请求退款
    */
   @Post('generate-video-provider')
   async generateVideoProvider(@Body() dto: VideoProviderRequestDto, @Req() req: any) {
     const serviceType: ServiceType = `${dto.provider}-video` as ServiceType;
-    return this.withCredits(
-      req,
+    const userId = this.getUserId(req);
+
+    // 如果没有用户ID（API Key认证），直接执行操作
+    if (!userId) {
+      this.logger.debug('API Key authentication - skipping credits deduction');
+      const result = await this.videoProviderService.generateVideo(dto);
+      return { ...result, apiUsageId: null };
+    }
+
+    // 确保用户有积分账户
+    await this.creditsService.getOrCreateAccount(userId);
+
+    // 预扣积分
+    const deductResult = await this.creditsService.preDeductCredits({
+      userId,
       serviceType,
-      dto.provider,
-      async () => {
-        return this.videoProviderService.generateVideo(dto);
-      },
-      dto.referenceImages?.length || undefined,
-      0,
-    );
+      model: dto.provider,
+      inputImageCount: dto.referenceImages?.length || undefined,
+      outputImageCount: 0,
+      ipAddress: req.ip,
+      userAgent: req.headers?.['user-agent'],
+    });
+
+    const apiUsageId = deductResult.apiUsageId;
+    this.logger.debug(`Credits pre-deducted for video: ${serviceType}, apiUsageId: ${apiUsageId}`);
+
+    try {
+      const result = await this.videoProviderService.generateVideo(dto);
+      // 返回 apiUsageId，前端在任务失败时可请求退款
+      return { ...result, apiUsageId };
+    } catch (error) {
+      // 创建任务失败，立即退款
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      await this.creditsService.updateApiUsageStatus(
+        apiUsageId,
+        ApiResponseStatus.FAILED,
+        errorMessage,
+        0,
+      );
+      try {
+        await this.creditsService.refundCredits(userId, apiUsageId);
+        this.logger.debug(`Credits refunded for failed video task creation: ${apiUsageId}`);
+      } catch (refundError) {
+        this.logger.error('Failed to refund credits:', refundError);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * 视频任务失败时退还积分
+   */
+  @Post('video-task-refund')
+  async refundVideoTask(
+    @Body() body: { apiUsageId: string },
+    @Req() req: any,
+  ) {
+    const userId = this.getUserId(req);
+    if (!userId) {
+      throw new BadRequestException('需要用户认证');
+    }
+
+    const { apiUsageId } = body;
+    if (!apiUsageId) {
+      throw new BadRequestException('缺少 apiUsageId 参数');
+    }
+
+    try {
+      // 先更新状态为失败
+      await this.creditsService.updateApiUsageStatus(
+        apiUsageId,
+        ApiResponseStatus.FAILED,
+        '视频生成任务失败',
+        0,
+      );
+      // 退还积分
+      const result = await this.creditsService.refundCredits(userId, apiUsageId);
+      this.logger.log(`✅ 视频任务积分已退还: apiUsageId=${apiUsageId}, refunded=${result.newBalance}`);
+      return { success: true, newBalance: result.newBalance };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`❌ 视频任务积分退还失败: ${message}`);
+      throw error;
+    }
   }
 
   /**

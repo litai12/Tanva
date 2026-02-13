@@ -9,6 +9,37 @@ import { VideoProviderRequestDto } from "../dto/video-provider.dto";
 import { OssService } from "../../oss/oss.service";
 import { Readable } from "node:stream";
 
+// 默认请求超时时间（毫秒）
+const DEFAULT_FETCH_TIMEOUT = 120000; // 2分钟
+const QUERY_FETCH_TIMEOUT = 60000; // 1分钟
+
+/**
+ * 带超时的 fetch 请求
+ */
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit & { timeout?: number } = {}
+): Promise<Response> {
+  const { timeout = DEFAULT_FETCH_TIMEOUT, ...fetchOptions } = options;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const response = await fetch(url, {
+      ...fetchOptions,
+      signal: controller.signal,
+    });
+    return response;
+  } catch (error: any) {
+    if (error.name === 'AbortError') {
+      throw new Error(`请求超时 (${timeout}ms)`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export interface VideoGenerationResult {
   taskId: string;
   status: "queued" | "processing" | "succeeded" | "failed";
@@ -606,13 +637,14 @@ export class VideoProviderService {
     this.logProviderPayload("kling-2.6", payload);
     this.logger.log(`🎬 Kling 2.6: mode=${videoMode}, images=${imageCount}, endpoint=${endpoint}`);
 
-    const response = await fetch(endpoint, {
+    const response = await fetchWithTimeout(endpoint, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(payload),
+      timeout: DEFAULT_FETCH_TIMEOUT,
     });
 
     if (!response.ok) {
@@ -661,8 +693,9 @@ export class VideoProviderService {
       let data: any = null;
 
       for (const endpoint of endpoints) {
-        const response = await fetch(endpoint, {
+        const response = await fetchWithTimeout(endpoint, {
           headers: { Authorization: `Bearer ${apiKey}` },
+          timeout: QUERY_FETCH_TIMEOUT,
         });
         const result = await response.json().catch(() => ({}));
 
@@ -937,13 +970,14 @@ export class VideoProviderService {
     this.logProviderPayload("kling-o1", payload);
     this.logger.log(`🎬 Kling O1: images=${imageCount}, hasVideo=${hasVideo}, endpoint=${endpoint}`);
 
-    const response = await fetch(endpoint, {
+    const response = await fetchWithTimeout(endpoint, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(payload),
+      timeout: DEFAULT_FETCH_TIMEOUT,
     });
 
     if (!response.ok) {
@@ -972,8 +1006,9 @@ export class VideoProviderService {
   private async queryKlingO1(taskId: string, apiKey: string) {
     try {
       const endpoint = `https://models.kapon.cloud/kling/v1/videos/omni-video/${taskId}`;
-      const response = await fetch(endpoint, {
+      const response = await fetchWithTimeout(endpoint, {
         headers: { Authorization: `Bearer ${apiKey}` },
+        timeout: QUERY_FETCH_TIMEOUT,
       });
       const data = await response.json();
 

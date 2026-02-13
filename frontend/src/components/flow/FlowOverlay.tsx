@@ -120,6 +120,7 @@ import {
 import {
   generateVideoByProvider,
   queryVideoTask,
+  refundVideoTask,
   type VideoProvider,
 } from "@/services/videoProviderAPI";
 import { imageUploadService } from "@/services/imageUploadService";
@@ -6922,6 +6923,24 @@ function FlowInner() {
             attempts++;
             if (attempts > maxAttempts) {
               clearInterval(pollTimer);
+              // 超时也尝试退还积分
+              if (createResult.apiUsageId) {
+                try {
+                  await refundVideoTask(createResult.apiUsageId);
+                  console.log("✅ [Flow] Video task credits refunded (timeout)", {
+                    nodeId,
+                    provider,
+                    apiUsageId: createResult.apiUsageId,
+                  });
+                } catch (refundError) {
+                  console.warn("❌ [Flow] Failed to refund credits (timeout)", {
+                    nodeId,
+                    provider,
+                    apiUsageId: createResult.apiUsageId,
+                    error: refundError instanceof Error ? refundError.message : String(refundError),
+                  });
+                }
+              }
               setNodes((ns) =>
                 ns.map((n) =>
                   n.id === nodeId
@@ -6989,6 +7008,24 @@ function FlowInner() {
                 queryResult.status === "FAILURE"
               ) {
                 clearInterval(pollTimer);
+                // 任务失败，尝试退还积分
+                if (createResult.apiUsageId) {
+                  try {
+                    await refundVideoTask(createResult.apiUsageId);
+                    console.log("✅ [Flow] Video task credits refunded", {
+                      nodeId,
+                      provider,
+                      apiUsageId: createResult.apiUsageId,
+                    });
+                  } catch (refundError) {
+                    console.warn("❌ [Flow] Failed to refund credits", {
+                      nodeId,
+                      provider,
+                      apiUsageId: createResult.apiUsageId,
+                      error: refundError instanceof Error ? refundError.message : String(refundError),
+                    });
+                  }
+                }
                 setNodes((ns) =>
                   ns.map((n) =>
                     n.id === nodeId
