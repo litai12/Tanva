@@ -322,13 +322,37 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   );
 
   const copyVideoLink = React.useCallback(async (url?: string) => {
-    if (!url) return;
+    if (!url) {
+      alert("没有可复制的视频链接");
+      return;
+    }
     try {
-      await navigator.clipboard.writeText(url);
-      alert("已复制视频链接");
+      // 优先使用 Clipboard API
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(url);
+        alert("已复制视频链接");
+        return;
+      }
+      // 备用方案：使用 execCommand
+      const textArea = document.createElement("textarea");
+      textArea.value = url;
+      textArea.style.position = "fixed";
+      textArea.style.left = "-9999px";
+      textArea.style.top = "-9999px";
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      const success = document.execCommand("copy");
+      document.body.removeChild(textArea);
+      if (success) {
+        alert("已复制视频链接");
+      } else {
+        alert("复制失败，请手动复制：\n" + url);
+      }
     } catch (error) {
       console.error("复制失败:", error);
-      alert("复制失败，请手动复制链接");
+      // 最后的备用方案：显示链接让用户手动复制
+      prompt("复制失败，请手动复制以下链接：", url);
     }
   }, []);
 

@@ -177,16 +177,38 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
 
   const copyVideoLink = React.useCallback(
     async (url?: string) => {
-      if (!url) return;
+      if (!url) {
+        setDownloadFeedback({ type: "error", message: "没有可复制的视频链接" });
+        scheduleFeedbackClear(2000);
+        return;
+      }
       try {
-        await navigator.clipboard.writeText(url);
-        setDownloadFeedback({ type: "success", message: "已复制视频链接" });
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(url);
+          setDownloadFeedback({ type: "success", message: "已复制视频链接" });
+          scheduleFeedbackClear(2000);
+          return;
+        }
+        const textArea = document.createElement("textarea");
+        textArea.value = url;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-9999px";
+        textArea.style.top = "-9999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        const success = document.execCommand("copy");
+        document.body.removeChild(textArea);
+        if (success) {
+          setDownloadFeedback({ type: "success", message: "已复制视频链接" });
+        } else {
+          setDownloadFeedback({ type: "error", message: "复制失败" });
+          prompt("请手动复制以下链接：", url);
+        }
         scheduleFeedbackClear(2000);
       } catch {
-        setDownloadFeedback({
-          type: "error",
-          message: "复制失败，请手动复制链接",
-        });
+        setDownloadFeedback({ type: "error", message: "复制失败" });
+        prompt("请手动复制以下链接：", url);
         scheduleFeedbackClear(3000);
       }
     },

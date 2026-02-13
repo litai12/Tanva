@@ -259,13 +259,34 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
     [data.history]
   );
   const copyVideoLink = React.useCallback(async (url?: string) => {
-    if (!url) return;
+    if (!url) {
+      alert('没有可复制的视频链接');
+      return;
+    }
     try {
-      await navigator.clipboard.writeText(url);
-      alert('已复制视频链接');
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(url);
+        alert('已复制视频链接');
+        return;
+      }
+      const textArea = document.createElement('textarea');
+      textArea.value = url;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-9999px';
+      textArea.style.top = '-9999px';
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      const success = document.execCommand('copy');
+      document.body.removeChild(textArea);
+      if (success) {
+        alert('已复制视频链接');
+      } else {
+        prompt('请手动复制以下链接：', url);
+      }
     } catch (error) {
       console.error('复制失败:', error);
-      alert('复制失败，请手动复制链接');
+      prompt('复制失败，请手动复制以下链接：', url);
     }
   }, []);
   const triggerDownload = React.useCallback(async (url?: string) => {
