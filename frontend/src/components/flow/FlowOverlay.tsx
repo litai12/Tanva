@@ -141,6 +141,88 @@ import MiniMapImageOverlay from "./MiniMapImageOverlay";
 import PersonalLibraryPanel from "./PersonalLibraryPanel";
 import { resolveTextFromSourceNode } from "./utils/textSource";
 
+/**
+ * 调整图片尺寸以满足 Wan2.6 I2V 的要求（宽高必须是 16 的倍数）
+ * 如果图片尺寸不满足要求，会自动缩放到最近的合法尺寸
+ */
+async function adjustImageSizeForWan26(
+  imageUrl: string
+): Promise<string | null> {
+  try {
+    // 获取图片
+    const response = await fetch(imageUrl);
+    const blob = await response.blob();
+    const bitmap = await createImageBitmapLimited(blob);
+
+    let width = bitmap.width;
+    let height = bitmap.height;
+
+    // 检查是否需要调整
+    const isValid = width % 16 === 0 && height % 16 === 0;
+
+    if (isValid) {
+      // 已经是合法尺寸，直接返回原图
+      return imageUrl;
+    }
+
+    // 计算调整后的尺寸（向最近的有效尺寸对齐）
+    const newWidth = Math.round(width / 16) * 16;
+    const newHeight = Math.round(height / 16) * 16;
+
+    // 创建一个 OffscreenCanvas 进行缩放
+    const canvas = new OffscreenCanvas(newWidth, newHeight);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+
+    ctx.drawImage(bitmap, 0, 0, newWidth, newHeight);
+
+    // 导出为 blob
+    const resizedBlob = await canvas.convertToBlob({
+      type: "image/jpeg",
+      quality: 0.92,
+    });
+
+    // 转换为 data URL
+    const resizedDataUrl = await blobToDataUrl(resizedBlob);
+
+    return resizedDataUrl;
+  } catch (error) {
+    console.error("调整图片尺寸失败:", error);
+    return null;
+  }
+}
+
+/**
+ * 校验并调整图片尺寸，返回调整后的 URL（如果是远程 URL 则下载后调整）
+ */
+async function validateAndAdjustImageForWan26(
+  imageUrl: string,
+  projectId: string
+): Promise<string> {
+  // 如果是远程 URL
+  if (isRemoteUrl(imageUrl)) {
+    const normalizedUrl = normalizeStableRemoteUrl(imageUrl);
+    const adjusted = await adjustImageSizeForWan26(normalizedUrl);
+    if (adjusted && adjusted !== normalizedUrl) {
+      // 尺寸被调整了，需要上传
+      const uploaded = await uploadImageToOSS(adjusted, projectId);
+      if (uploaded) return uploaded;
+      return adjusted;
+    }
+    // 已经是合法尺寸，直接返回原始 URL
+    return normalizedUrl;
+  }
+
+  // 本地 dataUrl/ blobUrl 需要上传到 OSS
+  // 先尝试调整尺寸，然后上传
+  const adjusted = await adjustImageSizeForWan26(imageUrl);
+  const urlToUpload = adjusted || imageUrl;
+  const uploaded = await uploadImageToOSS(urlToUpload, projectId);
+  if (uploaded) return uploaded;
+  // 如果上传失败，返回 dataUrl
+  return urlToUpload;
+}
+
 type RFNode = Node<any>;
 
 type EdgeLabelEditorState = {
@@ -3626,7 +3708,7 @@ function FlowInner() {
               status: "idle" as const,
               videoUrl: undefined,
               thumbnail: undefined,
-              size: undefined,
+              size: "16:9",
               resolution: "720P",
               duration: 5,
               shotType: "single",
@@ -6047,14 +6129,30 @@ function FlowInner() {
             for (const img of imageDatas) {
               const trimmed = typeof img === "string" ? img.trim() : "";
               if (!trimmed) continue;
+
+              // 对 I2V 模式的图片进行尺寸校验和调整
+              let processedUrl = trimmed;
               if (isRemoteUrl(trimmed)) {
-                imgUrl = normalizeStableRemoteUrl(trimmed);
-                continue;
+                processedUrl = normalizeStableRemoteUrl(trimmed);
+                // 远程 URL 需要下载后调整尺寸
+                const adjusted = await validateAndAdjustImageForWan26(
+                  processedUrl,
+                  projectId
+                );
+                if (adjusted !== processedUrl) {
+                  // 尺寸被调整了，需要重新上传
+                  processedUrl = adjusted;
+                }
+              } else {
+                // 本地 dataUrl 需要先上传后再调整（或者直接调整后上传）
+                const dataUrl = ensureDataUrl(trimmed);
+                const adjusted = await validateAndAdjustImageForWan26(
+                  dataUrl,
+                  projectId
+                );
+                processedUrl = adjusted;
               }
-              const dataUrl = ensureDataUrl(trimmed);
-              const uploaded = await uploadImageToOSS(dataUrl, projectId);
-              if (!uploaded) throw new Error("图片上传失败");
-              imgUrl = uploaded;
+              imgUrl = processedUrl;
             }
           }
 
