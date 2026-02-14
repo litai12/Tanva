@@ -11,7 +11,7 @@ import { Readable } from "node:stream";
 
 // 默认请求超时时间（毫秒）
 const DEFAULT_FETCH_TIMEOUT = 180000; // 3分钟
-const QUERY_FETCH_TIMEOUT = 120000; // 2分钟（服务器环境网络延迟较大）
+const QUERY_FETCH_TIMEOUT = 300000; // 5分钟（服务器环境网络延迟较大，Kling视频生成较慢）
 
 /**
  * 带超时的 fetch 请求
@@ -742,12 +742,15 @@ export class VideoProviderService {
 
       return { status: data.data?.task_status || "processing" };
     } catch (error) {
-      this.logger.error(
-        `❌ Kling 2.6 查询异常: taskId=${taskId}, error=${
+      // 超时或网络错误时，不抛异常，返回 processing 状态让前端继续轮询
+      const isTimeout = error instanceof Error && error.message.includes('超时');
+      this.logger.warn(
+        `⚠️ Kling 2.6 查询${isTimeout ? '超时' : '异常'}: taskId=${taskId}, error=${
           error instanceof Error ? error.message : error
-        }`
+        }，将继续轮询`
       );
-      throw error;
+      // 返回 processing 状态，让前端继续轮询而不是报错
+      return { status: "processing" };
     }
   }
 
