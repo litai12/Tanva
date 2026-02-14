@@ -13,6 +13,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { RegisterDto } from "./dto/register.dto";
 import { SmsService } from "./sms.service";
 import { ReferralService } from "../referral/referral.service";
+import { CreditsService } from "../credits/credits.service";
 
 type TokenPair = { accessToken: string; refreshToken: string };
 
@@ -25,7 +26,8 @@ export class AuthService {
     private readonly config: ConfigService,
     private readonly smsService: SmsService,
     @Inject(forwardRef(() => ReferralService))
-    private readonly referralService: ReferralService
+    private readonly referralService: ReferralService,
+    private readonly creditsService: CreditsService
   ) {}
 
   private async signTokens(user: {
@@ -122,6 +124,14 @@ export class AuthService {
         // 邀请码处理失败不影响注册，只记录日志
         console.warn(`[Register] 邀请码处理失败: ${e instanceof Error ? e.message : e}`);
       }
+    }
+
+    // 创建积分账户并赠送新用户初始积分
+    try {
+      await this.creditsService.getOrCreateAccount(user.id);
+    } catch (e) {
+      // 积分账户创建失败不影响注册，只记录日志
+      console.warn(`[Register] 创建积分账户失败: ${e instanceof Error ? e.message : e}`);
     }
 
     return user;
