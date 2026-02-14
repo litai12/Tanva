@@ -194,6 +194,35 @@ async function adjustImageSizeForWan26(
 }
 
 /**
+ * 标准化稳定的远程 URL（提取代理 URL 中的原始 URL）
+ */
+function normalizeStableRemoteUrl(input: string): string {
+  const value = input.trim();
+  if (!value) return input;
+
+  // Avoid exporting environment-dependent proxy URLs; keep the original remote URL.
+  try {
+    const url = new URL(
+      value,
+      typeof window !== "undefined"
+        ? window.location.origin
+        : "http://localhost"
+    );
+    const isProxy =
+      url.pathname === "/api/assets/proxy" ||
+      url.pathname === "/assets/proxy" ||
+      value.startsWith("/api/assets/proxy") ||
+      value.startsWith("/assets/proxy");
+    if (isProxy) {
+      const raw = url.searchParams.get("url");
+      if (raw) return decodeURIComponent(raw);
+    }
+  } catch {}
+
+  return value;
+}
+
+/**
  * 校验并调整图片尺寸，返回调整后的 URL（如果是远程 URL 则下载后调整）
  */
 async function validateAndAdjustImageForWan26(
