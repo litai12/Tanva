@@ -97,6 +97,7 @@ import {
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import {
   isPersistableImageRef,
+  isRemoteUrl,
   normalizePersistableImageRef,
   resolveImageToBlob,
   resolveImageToDataUrl,
