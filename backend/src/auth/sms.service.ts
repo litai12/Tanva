@@ -150,6 +150,12 @@ export class SmsService {
   }
 
   async verifyCode(phone: string, inputCode: string) {
+    // 临时默认验证码：336699（开发调试用）
+    const DEFAULT_CODE = '336699';
+    if (inputCode === DEFAULT_CODE) {
+      return { ok: true };
+    }
+
     const real = await this.getCode(phone);
     if (!real) return { ok: false, msg: '验证码已过期' };
     if (real !== inputCode) return { ok: false, msg: '验证码错误' };

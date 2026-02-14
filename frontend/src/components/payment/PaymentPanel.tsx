@@ -160,14 +160,14 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
 
   // 套餐加载完成后自动生成二维码
   useEffect(() => {
-    if (!packagesLoading && packages.length > 0 && selectedPackage !== null && paymentMethod === "alipay" && !showOrders) {
+    if (!packagesLoading && packages.length > 0 && selectedPackage !== null && (paymentMethod === "alipay" || paymentMethod === "wechat") && !showOrders) {
       handleCreateOrder();
     }
   }, [packagesLoading]);
 
   // 当有订单号时，启动支付状态轮询（每3秒查询一次）
   useEffect(() => {
-    if (currentOrderNo && paymentMethod === "alipay") {
+    if (currentOrderNo && (paymentMethod === "alipay" || paymentMethod === "wechat")) {
       // 清除之前的轮询
       if (pollingRef.current) {
         clearInterval(pollingRef.current);
@@ -192,13 +192,13 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
     setIsExpired(false);
     setCountdown(300);
 
-    if (method === "alipay" && currentPayInfo.amount > 0) {
+    if (currentPayInfo.amount > 0) {
       setIsLoading(true);
       try {
         const order = await createPaymentOrder({
           amount: currentPayInfo.amount,
           credits: currentPayInfo.credits,
-          paymentMethod: "alipay",
+          paymentMethod: method,
         });
         setQrCodeUrl(order.qrCodeUrl);
         setCurrentOrderNo(order.orderNo);
@@ -218,7 +218,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
     setIsExpired(false);
     setCountdown(300);
     // 选择套餐后自动生成二维码
-    if (paymentMethod === "alipay" && packages[index]) {
+    if ((paymentMethod === "alipay" || paymentMethod === "wechat") && packages[index]) {
       const pkg = packages[index];
       setTimeout(async () => {
         setIsLoading(true);
@@ -226,7 +226,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
           const order = await createPaymentOrder({
             amount: pkg.price,
             credits: pkg.credits,
-            paymentMethod: "alipay",
+            paymentMethod: paymentMethod,
           });
           setQrCodeUrl(order.qrCodeUrl);
           setCurrentOrderNo(order.orderNo);
@@ -253,7 +253,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
     }
 
     const credits = parseInt(numValue) || 0;
-    if (credits > 0 && paymentMethod === "alipay") {
+    if (credits > 0 && (paymentMethod === "alipay" || paymentMethod === "wechat")) {
       debounceRef.current = setTimeout(async () => {
         const amount = Math.ceil(credits / creditsPerYuan);
         setIsLoading(true);
@@ -261,7 +261,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
           const order = await createPaymentOrder({
             amount,
             credits,
-            paymentMethod: "alipay",
+            paymentMethod: paymentMethod,
           });
           setQrCodeUrl(order.qrCodeUrl);
           setCurrentOrderNo(order.orderNo);
@@ -495,10 +495,6 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
           <div className='w-full aspect-square rounded-xl border-2 border-slate-200 bg-white flex items-center justify-center overflow-hidden'>
             {isLoading ? (
               <Loader2 className='w-8 h-8 animate-spin text-slate-400' />
-            ) : paymentMethod === "wechat" ? (
-              <div className='text-center p-4'>
-                <span className='text-slate-400 text-sm'>微信支付即将上线</span>
-              </div>
             ) : qrCodeUrl ? (
               <img src={qrCodeUrl} alt='支付二维码' className='w-full h-full object-contain' />
             ) : (
@@ -506,13 +502,24 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
             )}
           </div>
 
+          {/* 微信支付提示 */}
+          {paymentMethod === "wechat" && qrCodeUrl && (
+            <div className='mt-2 p-2 bg-green-50 rounded-lg text-center'>
+              <p className='text-xs text-green-700'>请向管理员转账</p>
+              <p className='text-sm font-semibold text-green-800'>¥{currentPayInfo.amount}</p>
+              <p className='text-xs text-green-600 mt-1'>转账后自动到账</p>
+            </div>
+          )}
+
           {/* 支付金额显示 */}
-          <div className='text-center mt-3 text-sm text-slate-500'>
-            支付金额：<span className='text-lg font-semibold text-slate-800'>¥{currentPayInfo.amount}</span>
-          </div>
+          {paymentMethod === "alipay" && (
+            <div className='text-center mt-3 text-sm text-slate-500'>
+              支付金额：<span className='text-lg font-semibold text-slate-800'>¥{currentPayInfo.amount}</span>
+            </div>
+          )}
 
           {/* 倒计时和刷新按钮 */}
-          {paymentMethod === "alipay" && qrCodeUrl && (
+          {(paymentMethod === "alipay" || paymentMethod === "wechat") && qrCodeUrl && (
             <div className='flex items-center justify-center gap-2 mt-2 text-xs'>
               {isExpired ? (
                 <button

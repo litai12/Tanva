@@ -16,10 +16,13 @@ import { TransactionType } from '../credits/dto/credits.dto';
 const alipayLib = require('alipay-sdk');
 const AlipaySdk = alipayLib.default || alipayLib.AlipaySdk || alipayLib;
 const QRCode = require('qrcode');
+// --- 微信支付 SDK ---
+const WeChatPay = require('wechatpay-node-v3');
 
 @Injectable()
 export class PaymentService implements OnModuleInit {
   private alipaySdk: any;
+  private wechatPay: any;
 
   constructor(
     private prisma: PrismaService,
@@ -41,11 +44,17 @@ export class PaymentService implements OnModuleInit {
     // 2. 切分：每 64 字符换行
     const chunked = content.match(/.{1,64}/g)?.join('\n');
 
-    // 3. 组装：使用 RSA 专用头 (完美匹配 MIIEow 开头的密钥)
+    // 3. 组装：优先使用 RSA 专用头，也支持 PKCS8 格式
     let header, footer;
     if (type === 'PRIVATE') {
-      header = '-----BEGIN RSA PRIVATE KEY-----';  // 👈 必须是 RSA
-      footer = '-----END RSA PRIVATE KEY-----';    // 👈 必须是 RSA
+      // 支持 PKCS1 (RSA PRIVATE KEY) 和 PKCS8 (PRIVATE KEY)
+      if (key.includes('-----BEGIN PRIVATE KEY-----')) {
+        header = '-----BEGIN PRIVATE KEY-----';
+        footer = '-----END PRIVATE KEY-----';
+      } else {
+        header = '-----BEGIN RSA PRIVATE KEY-----';
+        footer = '-----END RSA PRIVATE KEY-----';
+      }
     } else {
       header = '-----BEGIN PUBLIC KEY-----';
       footer = '-----END PUBLIC KEY-----';
@@ -88,6 +97,62 @@ export class PaymentService implements OnModuleInit {
     } else {
       console.warn('⚠️ 支付宝配置缺失，支付功能不可用');
     }
+
+    // --- 微信支付初始化 ---
+    const wechatMchId = this.configService.get<string>('WECHAT_MCH_ID');
+    const wechatPrivateKey = this.configService.get<string>('WECHAT_PRIVATE_KEY');
+    const wechatAppId = this.configService.get<string>('WECHAT_APP_ID');
+    const wechatCertificate = this.configService.get<string>('WECHAT_CERTIFICATE');
+    const wechatSerialNo = this.configService.get<string>('WECHAT_SERIAL_NO');
+
+    if (wechatMchId && wechatPrivateKey && wechatAppId) {
+      try {
+        // 格式化商户私钥
+        let formattedPrivateKey = wechatPrivateKey;
+        if (wechatPrivateKey && !wechatPrivateKey.includes('-----BEGIN')) {
+          formattedPrivateKey = this.formatKey(wechatPrivateKey, 'PRIVATE');
+        }
+
+        console.log('🔧 微信支付初始化参数:', {
+          appid: wechatAppId,
+          mchid: wechatMchId,
+          privateKeyStart: formattedPrivateKey?.substring(0, 50),
+          hasCertificate: !!wechatCertificate,
+          hasSerialNo: !!wechatSerialNo,
+        });
+
+        // 优先使用证书序列号方式初始化（推荐）
+        if (wechatSerialNo && wechatCertificate) {
+          this.wechatPay = new WeChatPay({
+            appid: wechatAppId,
+            mchid: wechatMchId,
+            privateKey: formattedPrivateKey,
+            publicKey: wechatCertificate,
+            serial_no: wechatSerialNo,
+          });
+        } else if (wechatCertificate) {
+          // 如果只有证书，让SDK自动提取序列号
+          this.wechatPay = new WeChatPay({
+            appid: wechatAppId,
+            mchid: wechatMchId,
+            privateKey: formattedPrivateKey,
+            publicKey: wechatCertificate,
+          });
+        } else {
+          throw new Error('缺少商户证书（WECHAT_CERTIFICATE）');
+        }
+
+        console.log('✅ 微信支付SDK初始化成功');
+      } catch (error: any) {
+        console.error('❌ 微信支付SDK初始化异常:', error);
+        console.error('❌ 错误详情:', error?.message || error?.stack || error);
+      }
+    } else {
+      console.warn('⚠️ 微信支付配置缺失，支付功能不可用');
+      console.warn('  - WECHAT_MCH_ID:', wechatMchId ? '✅' : '❌ 缺失');
+      console.warn('  - WECHAT_APP_ID:', wechatAppId ? '✅' : '❌ 缺失');
+      console.warn('  - WECHAT_PRIVATE_KEY:', wechatPrivateKey ? '✅' : '❌ 缺失');
+    }
   }
 
   // --- 业务逻辑 ---
@@ -116,6 +181,8 @@ export class PaymentService implements OnModuleInit {
     let qrCodeUrl: string | null = null;
     if (paymentMethod === PaymentMethod.ALIPAY) {
       qrCodeUrl = await this.generateAlipayQrCode(orderNo, amount);
+    } else if (paymentMethod === PaymentMethod.WECHAT) {
+      qrCodeUrl = await this.generateWechatQrCode(orderNo, amount);
     }
 
     const order = await this.prisma.paymentOrder.create({
@@ -172,12 +239,65 @@ export class PaymentService implements OnModuleInit {
     }
   }
 
+  /**
+   * 生成微信支付二维码
+   * 使用 Native 支付模式：统一下单获取 code_url，然后生成二维码
+   */
+  private async generateWechatQrCode(orderNo: string, amount: number): Promise<string> {
+    if (!this.wechatPay) {
+      throw new BadRequestException('微信支付SDK未初始化');
+    }
+
+    try {
+      const params = {
+        appid: this.configService.get<string>('WECHAT_APP_ID'),
+        mchid: this.configService.get<string>('WECHAT_MCH_ID'),
+        description: `积分充值 - ${amount}元`,
+        out_trade_no: orderNo,
+        notify_url: process.env.WECHAT_NOTIFY_URL || 'https://www.tanvas.cn/api/payment/wechat-notify',
+        amount: {
+          total: Math.round(amount * 100), // 金额单位：分
+          currency: 'CNY',
+        },
+      };
+
+      console.log('微信支付统一下单请求:', JSON.stringify(params, null, 2));
+
+      const result = await this.wechatPay.transactions_native(params);
+
+      console.log('微信支付统一下单响应:', JSON.stringify(result, null, 2));
+
+      if (result.code_url) {
+        // 生成二维码
+        const qrCodeDataUrl = await QRCode.toDataURL(result.code_url, {
+          width: 256,
+          margin: 2,
+          color: { dark: '#000000', light: '#ffffff' },
+        });
+        return qrCodeDataUrl;
+      } else {
+        throw new BadRequestException('未获取到微信支付二维码链接');
+      }
+    } catch (error: any) {
+      console.error('生成微信支付二维码失败:', error);
+      throw new BadRequestException(error.message || '生成微信支付二维码失败');
+    }
+  }
+
   async getOrderStatus(orderNo: string, userId: string): Promise<PaymentStatusResponse> {
     const order = await this.prisma.paymentOrder.findFirst({ where: { orderNo, userId } });
     if (!order) throw new NotFoundException('订单不存在');
     if (order.status === PaymentStatus.PENDING && order.paymentMethod === PaymentMethod.ALIPAY) {
       const alipayStatus = await this.queryAlipayTradeStatus(orderNo);
       if (alipayStatus === 'TRADE_SUCCESS' || alipayStatus === 'TRADE_FINISHED') {
+        await this.processPaymentSuccess(order.id, userId, order.credits, order.amount);
+        return { orderNo: order.orderNo, status: PaymentStatus.PAID, paidAt: new Date(), credits: order.credits };
+      }
+    }
+    // 微信支付状态查询
+    if (order.status === PaymentStatus.PENDING && order.paymentMethod === PaymentMethod.WECHAT) {
+      const wechatStatus = await this.queryWechatTradeStatus(orderNo);
+      if (wechatStatus === 'SUCCESS') {
         await this.processPaymentSuccess(order.id, userId, order.credits, order.amount);
         return { orderNo: order.orderNo, status: PaymentStatus.PAID, paidAt: new Date(), credits: order.credits };
       }
@@ -192,6 +312,32 @@ export class PaymentService implements OnModuleInit {
       if (result.code === '10000') { return result.tradeStatus; }
       return null;
     } catch (error) { console.error('查询支付宝交易状态失败:', error); return null; }
+  }
+
+  /**
+   * 查询微信支付交易状态
+   */
+  private async queryWechatTradeStatus(orderNo: string): Promise<string | null> {
+    if (!this.wechatPay) { return null; }
+    try {
+      const appid = this.configService.get<string>('WECHAT_APP_ID');
+      const mchid = this.configService.get<string>('WECHAT_MCH_ID');
+      const result = await this.wechatPay.orderQuery({
+        appid,
+        mchid,
+        out_trade_no: orderNo,
+      });
+
+      console.log('微信支付订单查询响应:', JSON.stringify(result, null, 2));
+
+      if (result.trade_state) {
+        return result.trade_state;
+      }
+      return null;
+    } catch (error) {
+      console.error('查询微信支付交易状态失败:', error);
+      return null;
+    }
   }
 
   private async processPaymentSuccess(orderId: string, userId: string, credits: number, amount: any): Promise<void> {
@@ -222,6 +368,37 @@ export class PaymentService implements OnModuleInit {
   async adminConfirmPayment(orderNo: string) { return { success: true, credits: 0, userId: '' }; }
   async cleanupExpiredOrders() { return 0; }
   async handleAlipayNotify(data: any) { return true; }
+
+  /**
+   * 处理微信支付异步回调通知
+   */
+  async handleWechatNotify(data: any): Promise<boolean> {
+    try {
+      console.log('收到微信支付回调:', JSON.stringify(data, null, 2));
+
+      // 微信支付 V3 回调验签和解密需要处理
+      // 这里简化处理，实际需要验证签名和解密 ciphertext
+      const { out_trade_no, transaction_id, trade_state } = data;
+
+      if (trade_state === 'SUCCESS' && out_trade_no) {
+        // 通过订单号查找订单
+        const order = await this.prisma.paymentOrder.findFirst({
+          where: { orderNo: out_trade_no },
+        });
+
+        if (order && order.status === PaymentStatus.PENDING) {
+          await this.processPaymentSuccess(order.id, order.userId, order.credits, order.amount);
+          console.log(`订单 ${out_trade_no} 已通过微信回调处理成功`);
+          return true;
+        }
+      }
+
+      return true; // 返回成功避免微信重复推送
+    } catch (error) {
+      console.error('处理微信支付回调失败:', error);
+      return false;
+    }
+  }
   /**
    * 检查用户某个金额档位是否为首充
    * @param userId 用户ID

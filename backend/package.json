@@ -44,7 +44,8 @@
     "qrcode": "^1.5.4",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "sharp": "^0.34.5"
+    "sharp": "^0.34.5",
+    "wechatpay-node-v3": "^2.2.1"
   },
   "devDependencies": {
     "@types/ali-oss": "^6.16.11",
