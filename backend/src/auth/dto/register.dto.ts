@@ -24,6 +24,11 @@ export class RegisterDto {
   @Matches(/^1[3-9]\d{9}$/, { message: '手机号格式不正确，请输入有效的11位手机号' })
   phone!: string;
 
+  @ApiProperty({ description: '手机验证码（必填）' })
+  @IsString({ message: '验证码必须是字符串' })
+  @Length(6, 6, { message: '验证码必须是6位数字' })
+  code!: string;
+
   @ApiProperty({ required: false, description: '邀请码（选填）' })
   @IsOptional()
   @IsString({ message: '邀请码必须是字符串' })

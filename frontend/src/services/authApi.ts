@@ -275,6 +275,7 @@ export const authApi = {
   async register(payload: {
     phone: string;
     password: string;
+    code: string;
     name?: string;
     email?: string;
     inviteCode?: string;

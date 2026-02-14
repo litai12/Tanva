@@ -6,10 +6,13 @@ import { Card } from "@/components/ui/card";
 import { useAuthStore } from "@/stores/authStore";
 import { Eye, EyeOff, Check, X } from "lucide-react";
 import { validateInviteCode } from "@/services/referralApi";
+import { authApi } from "@/services/authApi";
 
 export default function RegisterPage() {
   const [searchParams] = useSearchParams();
   const [phone, setPhone] = useState("");
+  const [code, setCode] = useState("");
+  const [codeCountdown, setCodeCountdown] = useState(0);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
@@ -22,6 +25,38 @@ export default function RegisterPage() {
   const [agreeTerms, setAgreeTerms] = useState(false); // 默认不勾选，必须手动同意
   const navigate = useNavigate();
   const { register, login, loading, error } = useAuthStore();
+
+  // 发送验证码
+  const handleSendCode = async () => {
+    if (!phone.trim() || !/^1[3-9]\d{9}$/.test(phone)) {
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: "请输入有效的手机号", type: "error" },
+        })
+      );
+      return;
+    }
+    try {
+      await authApi.sendSms({ phone });
+      // 开始倒计时
+      setCodeCountdown(60);
+      const timer = setInterval(() => {
+        setCodeCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } catch (err: any) {
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: err?.message || "发送失败", type: "error" },
+        })
+      );
+    }
+  };
 
   // 从URL参数中获取邀请码
   useEffect(() => {
@@ -83,6 +118,7 @@ export default function RegisterPage() {
       await register(
         phone,
         password,
+        code,
         name || undefined,
         email || undefined,
         inviteCode.trim() || undefined
@@ -126,6 +162,24 @@ export default function RegisterPage() {
             required
             className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12'
           />
+          <div className='flex gap-2'>
+            <Input
+              placeholder='请输入验证码'
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              required
+              maxLength={6}
+              className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12 flex-1'
+            />
+            <Button
+              type='button'
+              onClick={handleSendCode}
+              disabled={codeCountdown > 0 || !phone.trim()}
+              className='bg-white/20 border border-white/30 text-white hover:bg-white/30 rounded-xl h-12 px-4 whitespace-nowrap disabled:opacity-50'
+            >
+              {codeCountdown > 0 ? `${codeCountdown}s` : '获取验证码'}
+            </Button>
+          </div>
           <Input
             placeholder='邮箱（选填）'
             type='email'
