@@ -81,9 +81,9 @@ export class OssService {
 
   private timeoutMs(): number {
     const raw = this.config.get<string>('OSS_TIMEOUT_MS');
-    const n = raw ? Number(raw) : 8000;
-    if (!Number.isFinite(n)) return 8000;
-    return Math.max(1000, Math.min(120000, Math.floor(n)));
+    const n = raw ? Number(raw) : 300000; // 默认 5 分钟，适合视频上传
+    if (!Number.isFinite(n)) return 300000;
+    return Math.max(1000, Math.min(600000, Math.floor(n))); // 最大 10 分钟
   }
 
   presignPost(dir = 'uploads/', expiresInSeconds = 300, maxSize = 20 * 1024 * 1024): PresignPolicy {

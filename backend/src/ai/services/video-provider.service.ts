@@ -11,7 +11,7 @@ import { Readable } from "node:stream";
 
 // 默认请求超时时间（毫秒）
 const DEFAULT_FETCH_TIMEOUT = 180000; // 3分钟
-const QUERY_FETCH_TIMEOUT = 300000; // 5分钟（服务器环境网络延迟较大，Kling视频生成较慢）
+const QUERY_FETCH_TIMEOUT = 60000; // 60秒（避免触发阿里云 ESA 300秒超时限制，采用短超时+快速轮询策略）
 
 /**
  * 带超时的 fetch 请求
@@ -420,7 +420,7 @@ export class VideoProviderService {
     const endpoint = endpointMap[videoMode] || endpointMap["text2video"];
 
     const payload: any = {
-      model_name: "kling-v2-1",
+      model_name: "kling-v1",  // 使用 v1 以确保兼容性
       mode: (options as any).mode || "pro",
       duration: options.duration === 10 ? "10" : "5",
     };
@@ -924,9 +924,15 @@ export class VideoProviderService {
       mode: options.mode || "pro",
     };
 
-    // 处理 prompt
+    // 处理 prompt（Kling O1 要求 prompt 必填）
     if (options.prompt) {
       payload.prompt = options.prompt;
+    } else if (imageCount > 0) {
+      // 有图片但没有 prompt，使用默认描述
+      payload.prompt = "根据参考图片生成视频";
+    } else {
+      // 既没有图片也没有 prompt，使用通用默认值
+      payload.prompt = "生成视频";
     }
 
     // 处理时长 (3-10秒)
