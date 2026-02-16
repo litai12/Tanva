@@ -80,11 +80,11 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto, meta?: { ip?: string; ua?: string }) {
-    // 先验证手机验证码
-    const verify = await this.smsService.verifyCode(dto.phone, dto.code);
-    if (!verify.ok) {
-      throw new UnauthorizedException(verify.msg || '验证码错误');
-    }
+    // 暂时注释掉验证码验证
+    // const verify = await this.smsService.verifyCode(dto.phone, dto.code);
+    // if (!verify.ok) {
+    //   throw new UnauthorizedException(verify.msg || '验证码错误');
+    // }
 
     const hash = await bcrypt.hash(dto.password, 10);
 
