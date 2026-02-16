@@ -118,7 +118,7 @@ export default function RegisterPage() {
       await register(
         phone,
         password,
-        code,
+        code || "336699", // 暂时使用默认验证码，因为验证码输入框已隐藏
         name || undefined,
         email || undefined,
         inviteCode.trim() || undefined
