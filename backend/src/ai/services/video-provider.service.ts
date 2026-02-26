@@ -312,7 +312,7 @@ export class VideoProviderService {
     };
     this.logProviderPayload("doubao", payload);
 
-    const response = await fetch(
+    const response = await fetchWithTimeout(
       "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
       {
         method: "POST",
@@ -321,6 +321,7 @@ export class VideoProviderService {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(payload),
+        timeout: DEFAULT_FETCH_TIMEOUT,
       }
     );
 
@@ -340,10 +341,11 @@ export class VideoProviderService {
 
   private async queryDoubao(taskId: string, apiKey: string) {
     try {
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/${taskId}`,
         {
           headers: { Authorization: `Bearer ${apiKey}` },
+          timeout: QUERY_FETCH_TIMEOUT,
         }
       );
 
