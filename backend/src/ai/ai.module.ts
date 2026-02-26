@@ -15,6 +15,7 @@ import { ExpandImageService } from './services/expand-image.service';
 import { Sora2VideoService } from './services/sora2-video.service';
 import { VeoVideoService } from './services/veo-video.service';
 import { VideoProviderService } from './services/video-provider.service';
+import { ImageTaskService } from './services/image-task.service';
 import { ApiKeyOrJwtGuard } from '../auth/guards/api-key-or-jwt.guard';
 import { UsersModule } from '../users/users.module';
 import { CreditsModule } from '../credits/credits.module';
@@ -23,7 +24,13 @@ import { VideoWatermarkService } from './services/video-watermark.service';
 import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
-  imports: [ConfigModule, UsersModule, CreditsModule, OssModule, PrismaModule],
+  imports: [
+    ConfigModule,
+    UsersModule,
+    CreditsModule,
+    OssModule,
+    PrismaModule,
+  ],
   providers: [
     AiService,
     ImageGenerationService,
@@ -40,6 +47,7 @@ import { PrismaModule } from '../prisma/prisma.module';
     VeoVideoService, // 添加 VEO 视频服务
     VideoProviderService,
     VideoWatermarkService,
+    ImageTaskService, // 添加图像任务服务
     ApiKeyOrJwtGuard,
   ],
   controllers: [AiController],

@@ -68,8 +68,8 @@ export class ImageGenerationService {
   private readonly genAI: GoogleGenAI | null;
   private readonly defaultApiKey: string | null;
   private readonly DEFAULT_MODEL = 'gemini-3-pro-image-preview';
-  private readonly DEFAULT_TIMEOUT = 300000; // 5分钟
-  private readonly EDIT_TIMEOUT = 300000; // 5分钟
+  private readonly DEFAULT_TIMEOUT = 120000; // 2分钟（避免触发 ESA 300秒超时，让前端重试）
+  private readonly EDIT_TIMEOUT = 120000; // 2分钟
   // 优化后的重试配置：单层重试，递增延迟
   private readonly MAX_RETRIES = 3; // 最多重试 3 次（总共 4 次尝试）
   private readonly RETRY_DELAYS = [2000, 5000, 10000]; // 递增延迟: 2s, 5s, 10s

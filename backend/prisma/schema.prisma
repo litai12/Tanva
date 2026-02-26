@@ -320,6 +320,27 @@ model PaymentOrder {
   @@index([orderNo])
 }
 
+model ImageTask {
+  id           String    @id @default(uuid())
+  userId       String
+  type         String    // generate, edit, blend, expand
+  status       String    @default("queued") // queued, processing, succeeded, failed
+  prompt       String    @db.Text
+  requestData  Json?
+  imageUrl     String?   @db.Text
+  thumbnailUrl String?   @db.Text
+  textResponse String?   @db.Text
+  error        String?   @db.Text
+  aiProvider   String?
+  retryCount   Int       @default(0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  completedAt  DateTime?
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
 /// This table has subclasses and requires additional setup for migrations. Visit https://pris.ly/d/table-inheritance for more info.
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.

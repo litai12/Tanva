@@ -18,6 +18,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { AiService } from './ai.service';
 import { ImageGenerationService, ImageGenerationResult } from './image-generation.service';
 import { BackgroundRemovalService } from './services/background-removal.service';
+import { ImageTaskService } from './services/image-task.service';
 import { AIProviderFactory } from './ai-provider.factory';
 import { ApiKeyOrJwtGuard } from '../auth/guards/api-key-or-jwt.guard';
 import { ToolSelectionRequestDto } from './dto/tool-selection.dto';
@@ -99,6 +100,7 @@ export class AiController {
     private readonly veoVideoService: VeoVideoService,
     private readonly videoProviderService: VideoProviderService,
     private readonly oss: OssService,
+    @Optional() private readonly imageTaskService?: ImageTaskService,
   ) {}
 
   /**
@@ -709,32 +711,49 @@ export class AiController {
 
   private async fetchImageAsDataUrl(imageUrl: string): Promise<string> {
     const parsed = this.parseAndValidateAllowedImageUrl(imageUrl);
-    const response = await fetch(parsed.toString());
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      throw new BadRequestException(
-        `Failed to fetch imageUrl: HTTP ${response.status} ${text}`.trim(),
-      );
-    }
 
-    const contentType = response.headers.get('content-type') || 'image/png';
-    if (!contentType.startsWith('image/')) {
-      throw new BadRequestException('imageUrl is not an image');
-    }
+    // 添加 60 秒超时控制
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
 
-    const maxBytes = 15 * 1024 * 1024;
-    const contentLength = Number(response.headers.get('content-length') || 0);
-    if (contentLength && contentLength > maxBytes) {
-      throw new BadRequestException('imageUrl is too large');
-    }
+    try {
+      const response = await fetch(parsed.toString(), {
+        signal: controller.signal,
+      });
 
-    const buffer = Buffer.from(await response.arrayBuffer());
-    if (buffer.length > maxBytes) {
-      throw new BadRequestException('imageUrl is too large');
-    }
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new BadRequestException(
+          `Failed to fetch imageUrl: HTTP ${response.status} ${text}`.trim(),
+        );
+      }
 
-    const base64 = buffer.toString('base64');
-    return `data:${contentType};base64,${base64}`;
+      const contentType = response.headers.get('content-type') || 'image/png';
+      if (!contentType.startsWith('image/')) {
+        throw new BadRequestException('imageUrl is not an image');
+      }
+
+      const maxBytes = 15 * 1024 * 1024;
+      const contentLength = Number(response.headers.get('content-length') || 0);
+      if (contentLength && contentLength > maxBytes) {
+        throw new BadRequestException('imageUrl is too large');
+      }
+
+      const buffer = Buffer.from(await response.arrayBuffer());
+      if (buffer.length > maxBytes) {
+        throw new BadRequestException('imageUrl is too large');
+      }
+
+      const base64 = buffer.toString('base64');
+      return `data:${contentType};base64,${base64}`;
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        throw new BadRequestException('图片下载超时（60秒）');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   private resolveTextModel(providerName: string | null, requestedModel?: string): string {
@@ -2461,5 +2480,123 @@ export class AiController {
         } catch {}
       }
     }, 1, 0);
+  }
+
+  /**
+   * 异步图像生成 - 创建任务
+   */
+  @Post('generate-image-async')
+  async generateImageAsync(@Body() dto: GenerateImageDto, @Req() req: any) {
+    if (!this.imageTaskService) {
+      throw new ServiceUnavailableException('图像任务服务未启用');
+    }
+
+    const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
+    const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+    const model = this.resolveImageModel(providerName, dto.model);
+
+    // 创建任务
+    const task = await this.imageTaskService.createTask(
+      userId,
+      'generate',
+      dto.prompt,
+      { ...dto, model },
+      providerName || 'gemini',
+    );
+
+    return {
+      taskId: task.id,
+      status: task.status,
+    };
+  }
+
+  /**
+   * 异步图像编辑 - 创建任务
+   */
+  @Post('edit-image-async')
+  async editImageAsync(@Body() dto: EditImageDto, @Req() req: any) {
+    if (!this.imageTaskService) {
+      throw new ServiceUnavailableException('图像任务服务未启用');
+    }
+
+    const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
+    const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+    const model = this.resolveImageModel(providerName, dto.model);
+
+    // 如果提供了 URL，先下载图片
+    let sourceImage = dto.sourceImage;
+    if (dto.sourceImageUrl && !sourceImage) {
+      sourceImage = await this.fetchImageAsDataUrl(dto.sourceImageUrl);
+    }
+
+    const task = await this.imageTaskService.createTask(
+      userId,
+      'edit',
+      dto.prompt,
+      { ...dto, sourceImage, model },
+      providerName || 'gemini',
+    );
+
+    return {
+      taskId: task.id,
+      status: task.status,
+    };
+  }
+
+  /**
+   * 异步图像混合 - 创建任务
+   */
+  @Post('blend-images-async')
+  async blendImagesAsync(@Body() dto: BlendImagesDto, @Req() req: any) {
+    if (!this.imageTaskService) {
+      throw new ServiceUnavailableException('图像任务服务未启用');
+    }
+
+    const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
+    const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+    const model = this.resolveImageModel(providerName, dto.model);
+
+    // 如果提供了 URL，先下载图片
+    let sourceImages = dto.sourceImages || [];
+    if (dto.sourceImageUrls && dto.sourceImageUrls.length > 0 && sourceImages.length === 0) {
+      sourceImages = await Promise.all(
+        dto.sourceImageUrls.map((url) => this.fetchImageAsDataUrl(url))
+      );
+    }
+
+    const task = await this.imageTaskService.createTask(
+      userId,
+      'blend',
+      dto.prompt,
+      { ...dto, sourceImages, model },
+      providerName || 'gemini',
+    );
+
+    return {
+      taskId: task.id,
+      status: task.status,
+    };
+  }
+
+  /**
+   * 查询图像任务状态
+   */
+  @Get('image-task/:taskId')
+  async getImageTaskStatus(@Param('taskId') taskId: string, @Req() req: any) {
+    if (!this.imageTaskService) {
+      throw new ServiceUnavailableException('图像任务服务未启用');
+    }
+
+    const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
+    const task = await this.imageTaskService.getTaskStatus(taskId, userId);
+
+    return {
+      status: task.status,
+      imageUrl: task.imageUrl,
+      thumbnailUrl: task.thumbnailUrl,
+      textResponse: task.textResponse,
+      error: task.error,
+      progress: task.status === 'processing' ? 50 : task.status === 'succeeded' ? 100 : 0,
+    };
   }
 }
