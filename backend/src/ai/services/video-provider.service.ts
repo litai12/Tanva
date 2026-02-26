@@ -299,11 +299,14 @@ export class VideoProviderService {
 
     const content: any[] = [{ type: "text", text: promptText }];
 
+    // 处理参考图片：如果是 base64，先上传到 OSS
     if (options.referenceImages && options.referenceImages.length > 0) {
+      const imageUrl = await this.uploadBase64ImageToOSS(options.referenceImages[0]);
       content.push({
         type: "image_url",
-        image_url: { url: options.referenceImages[0] },
+        image_url: { url: imageUrl },
       });
+      this.logger.log(`📸 Seedance 参考图片已处理: ${imageUrl.substring(0, 100)}...`);
     }
 
     const payload = {
