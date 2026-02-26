@@ -205,12 +205,14 @@ function Wan26Node({ id, data, selected }: Props) {
       setIsDownloading(true);
       setDownloadFeedback({ type: "progress", message: "视频下载中，请稍等..." });
       try {
-        // 检测是否为 OSS URL（阿里云 OSS 支持 CORS，可直接下载）
-        const isOssUrl = url.includes('aliyuncs.com');
-        // 非 OSS URL 需要代理
-        const downloadUrl = isOssUrl ? url : proxifyRemoteAssetUrl(url, { forceProxy: true });
+        // DashScope OSS 加速域名不支持 CORS，需要通过代理下载
+        const isDashScopeOss = url.includes('dashscope') && url.includes('aliyuncs.com');
+        // 检测是否为普通 OSS URL（阿里云 OSS 支持 CORS，可直接下载）
+        const isOssUrl = url.includes('aliyuncs.com') && !isDashScopeOss;
+        // DashScope OSS 或非 OSS URL 需要代理
+        const downloadUrl = (isDashScopeOss || !isOssUrl) ? proxifyRemoteAssetUrl(url, { forceProxy: true }) : url;
         console.log(`[Wan2.6视频下载] 原始URL: ${url}`);
-        console.log(`[Wan2.6视频下载] 下载URL: ${downloadUrl}, isOSS: ${isOssUrl}`);
+        console.log(`[Wan2.6视频下载] 下载URL: ${downloadUrl}, isOSS: ${isOssUrl}, isDashScope: ${isDashScopeOss}`);
 
         const response = await fetch(downloadUrl, {
           mode: "cors",

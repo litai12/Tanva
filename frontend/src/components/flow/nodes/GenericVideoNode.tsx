@@ -1,5 +1,5 @@
 import React from "react";
-import { Handle, Position } from "reactflow";
+import { Handle, Position, useReactFlow, useStore } from "reactflow";
 import { AlertTriangle, Video, Share2, Download } from "lucide-react";
 import SmartImage from "../../ui/SmartImage";
 import GenerationProgressBar from "./GenerationProgressBar";
@@ -63,6 +63,14 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     React.useState<DownloadFeedback | null>(null);
   const downloadFeedbackTimer = React.useRef<number | undefined>(undefined);
   const user = useAuthStore((state) => state.user);
+
+  // 检测是否有图片输入连接
+  const hasImageInput = useStore((state) => {
+    const edges = state.edges || [];
+    return edges.some(
+      (edge) => edge.target === id && edge.targetHandle === "image"
+    );
+  });
 
   const provider = data.provider || "kling";
   const providerInfo = PROVIDER_CONFIG[provider] || PROVIDER_CONFIG["kling"];
@@ -722,8 +730,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         </div>
       )}
 
-      {/* 尺寸选择 - Vidu 不支持 */}
-      {provider !== "vidu" && (
+      {/* 尺寸选择 - Vidu 不支持，有图片输入时也隐藏 */}
+      {provider !== "vidu" && !hasImageInput && (
         <div
           className='video-dropdown'
           style={{ marginBottom: 8, position: "relative" }}
@@ -1145,9 +1153,15 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           </div>
           {historyItems.map((item, index) => {
             const isActive = item.videoUrl === data.videoUrl;
+            // 使用组合 key 确保唯一性：id + index
+            const uniqueKey = `${item.id}-${index}`;
+
+            // 从 URL 中提取视频 ID 作为唯一标识
+            const videoId = item.videoUrl?.split('/').pop()?.split('?')[0]?.slice(-12) || '';
+
             return (
               <div
-                key={item.id}
+                key={uniqueKey}
                 style={{
                   borderRadius: 6,
                   border: "1px solid " + (isActive ? "#c7d2fe" : "#e2e8f0"),
@@ -1170,17 +1184,31 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                   <span>
                     #{index + 1} · {formatHistoryTime(item.createdAt)}
                   </span>
-                  {isActive && (
-                    <span
-                      style={{
-                        fontSize: 10,
-                        color: "#1d4ed8",
-                        fontWeight: 600,
-                      }}
-                    >
-                      当前
-                    </span>
-                  )}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    {videoId && (
+                      <span
+                        style={{
+                          fontSize: 9,
+                          color: "#94a3b8",
+                          fontFamily: "monospace",
+                        }}
+                        title={`视频ID: ${videoId}`}
+                      >
+                        {videoId}
+                      </span>
+                    )}
+                    {isActive && (
+                      <span
+                        style={{
+                          fontSize: 10,
+                          color: "#1d4ed8",
+                          fontWeight: 600,
+                        }}
+                      >
+                        当前
+                      </span>
+                    )}
+                  </div>
                 </div>
                 {typeof item.elapsedSeconds === "number" && (
                   <div style={{ fontSize: 11, color: "#475569" }}>
