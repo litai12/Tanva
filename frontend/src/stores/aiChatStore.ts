@@ -2935,10 +2935,15 @@ export const useAIChatStore = create<AIChatState>()(
 
             if (result.success && result.data) {
               // 生成成功 - 更新消息内容和状态
-              const rawTextResponse = result.data.textResponse || "";
+              const rawTextResponse = (result.data.textResponse || "").trim();
+              const normalizedTextResponse = rawTextResponse.toLowerCase();
+              const isPlaceholderText =
+                normalizedTextResponse === "image generated successfully" ||
+                normalizedTextResponse === "generated successfully";
               const shouldUseTextResponse =
                 typeof rawTextResponse === "string" &&
-                /[\u4e00-\u9fff]/.test(rawTextResponse);
+                rawTextResponse.length > 0 &&
+                !isPlaceholderText;
               const messageContent = shouldUseTextResponse
                 ? rawTextResponse
                 : result.data.hasImage
@@ -7079,7 +7084,6 @@ export const useAIChatStore = create<AIChatState>()(
         aiProvider: state.aiProvider,
         autoDownload: state.autoDownload,
         enableWebSearch: state.enableWebSearch,
-        imageOnly: state.imageOnly,
         aspectRatio: state.aspectRatio,
         imageSize: state.imageSize,
         thinkingLevel: state.thinkingLevel,
@@ -7093,6 +7097,8 @@ export const useAIChatStore = create<AIChatState>()(
       merge: (persistedState, currentState) => ({
         ...currentState,
         ...(persistedState as Partial<AIChatState>),
+        // imageOnly 开关已不在对话框中暴露，避免历史持久化把用户锁在“仅图片”模式
+        imageOnly: currentState.imageOnly,
       }),
     }
   )

@@ -239,6 +239,7 @@ export class OssService {
       'amazonaws.com.cn',       // AWS 中国区 (Vidu)
       'amazonaws.com',          // AWS 国际
       's3.cn-northwest-1.amazonaws.com.cn', // Vidu S3
+      'apimart.ai',             // Nano2 / Apimart 图像资源
       'kechuangai.com',         // Kling / 可灵
       'models.kapon.cloud',     // Kapon / Vidu
       'volces.com',             // 字节/豆包
