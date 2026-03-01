@@ -7703,10 +7703,14 @@ function FlowInner() {
       // 优先使用节点本地的 imageSize，否则使用全局设置
       const nodeSizeValue = (() => {
         const raw = (node.data as any)?.imageSize;
-        if (raw === "1K" || raw === "2K" || raw === "4K") return raw;
+        if (raw === "0.5K" || raw === "1K" || raw === "2K" || raw === "4K")
+          return raw;
         return undefined;
       })();
-      const effectiveImageSize = nodeSizeValue || imageSize || undefined;
+      const effectiveImageSize =
+        node.type === "generate" && aiProvider === "banana-2.5"
+          ? undefined
+          : nodeSizeValue || imageSize || undefined;
 
       // 根据节点类型和全局模式选择模型
       const nodeSpecificModel = (() => {
