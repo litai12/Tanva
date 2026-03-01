@@ -41,7 +41,7 @@ export class GenerateImageDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'runninghub' | 'midjourney';
+  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'runninghub' | 'midjourney' | 'nano2';
 
   @IsOptional()
   @IsObject()
@@ -66,6 +66,19 @@ export class GenerateImageDto {
   @IsOptional()
   @IsBoolean()
   imageOnly?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  imageUrls?: string[]; // Nano2 参考图片 URL 列表
+
+  @IsOptional()
+  @IsBoolean()
+  googleSearch?: boolean; // Nano2 Google 文本搜索增强
+
+  @IsOptional()
+  @IsBoolean()
+  googleImageSearch?: boolean; // Nano2 Google 图片搜索增强
 }
 
 export class EditImageDto {
@@ -89,7 +102,7 @@ export class EditImageDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'runninghub' | 'midjourney';
+  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'runninghub' | 'midjourney' | 'nano2';
 
   @IsOptional()
   @IsObject()
@@ -139,7 +152,7 @@ export class BlendImagesDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'runninghub' | 'midjourney';
+  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'runninghub' | 'midjourney' | 'nano2';
 
   @IsOptional()
   @IsObject()
@@ -181,7 +194,7 @@ export class AnalyzeImageDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'runninghub' | 'midjourney';
+  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'runninghub' | 'midjourney' | 'nano2';
 
   @IsOptional()
   @IsObject()
@@ -199,7 +212,7 @@ export class TextChatDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'runninghub' | 'midjourney';
+  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'runninghub' | 'midjourney' | 'nano2';
 
   @IsOptional()
   @IsObject()
