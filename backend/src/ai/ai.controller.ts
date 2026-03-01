@@ -919,7 +919,6 @@ export class AiController {
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
-    const userId = this.getUserId(req);
 
     try {
       return await this.withCredits(req, serviceType, model, async () => {
