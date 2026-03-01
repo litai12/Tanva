@@ -393,6 +393,34 @@ const nodeTypes = {
   imageSplit: ImageSplitNode,
 };
 
+type FlowNodeTypeKey = keyof typeof nodeTypes;
+
+const normalizeNodeTypeToken = (value: string): string =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+
+const NODE_TYPE_TOKEN_MAP = Object.keys(nodeTypes).reduce(
+  (acc, key) => {
+    acc[normalizeNodeTypeToken(key)] = key as FlowNodeTypeKey;
+    return acc;
+  },
+  {} as Record<string, FlowNodeTypeKey>
+);
+
+const NODE_TYPE_ALIAS_MAP: Record<string, FlowNodeTypeKey> = {
+  // Admin defaults / common aliases
+  generatereference: "generateRef",
+  reference: "generateRef",
+};
+
+const normalizeNodeTypeKey = (rawType: string): FlowNodeTypeKey | null => {
+  const token = normalizeNodeTypeToken(rawType);
+  if (!token) return null;
+  return NODE_TYPE_TOKEN_MAP[token] || NODE_TYPE_ALIAS_MAP[token] || null;
+};
+
 // 自定义边组件 - 选中时在终点显示删除按钮
 const EDGE_DELETE_BUTTON_STYLE: React.CSSProperties = {
   width: 16,
@@ -3581,40 +3609,24 @@ function FlowInner() {
 
   const createNodeAtWorldCenter = React.useCallback(
     (
-      type:
-        | "textPrompt"
-        | "textPromptPro"
-        | "textChat"
-        | "textNote"
-        | "promptOptimize"
-        | "image"
-        | "imagePro"
-        | "generate"
-        | "generatePro"
-        | "generatePro4"
-        | "generate4"
-        | "generateRef"
-        | "three"
-        | "camera"
-        | "analysis"
-        | "sora2Video"
-        | "wan26"
-        | "wan2R2V"
-        | "klingVideo"
-        | "kling26Video"
-        | "klingO1Video"
-        | "viduVideo"
-        | "doubaoVideo"
-        | "storyboardSplit"
-        | "midjourney"
-        | "nano2"
-        | "video"
-        | "videoAnalyze"
-        | "videoFrameExtract"
-        | "imageGrid"
-        | "imageSplit",
+      rawType: string,
       world: { x: number; y: number }
     ) => {
+      const type = normalizeNodeTypeKey(rawType);
+      if (!type) {
+        console.warn("[FlowOverlay] Unsupported node key from panel:", rawType);
+        try {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message: `Unsupported node type: ${rawType || "unknown"}`,
+                type: "error",
+              },
+            })
+          );
+        } catch {}
+        return;
+      }
       // 以默认尺寸中心对齐放置
       const size = {
         textPrompt: { w: 240, h: 180 },
@@ -3648,7 +3660,7 @@ function FlowInner() {
         videoFrameExtract: { w: 300, h: 420 },
         imageGrid: { w: 300, h: 380 },
         imageSplit: { w: 320, h: 400 },
-      }[type];
+      }[type] || { w: 260, h: 200 };
       const id = `${type}_${Date.now()}`;
       const pos = { x: world.x - size.w / 2, y: world.y - size.h / 2 };
       const data =
