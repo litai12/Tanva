@@ -85,6 +85,9 @@ export interface ImageGenerationRequest {
   outputFormat?: 'jpeg' | 'png' | 'webp';
   imageOnly?: boolean;
   providerOptions?: ProviderOptionsPayload;
+  imageUrls?: string[];
+  googleSearch?: boolean;
+  googleImageSearch?: boolean;
 }
 
 export interface ImageEditRequest {
@@ -139,6 +142,7 @@ export interface AIProviderResponse<T> {
 
 export interface ImageResult {
   imageData?: string; // base64 编码的图像数据
+  imageUrl?: string; // 图像 URL
   textResponse: string; // AI 的文本回复
   hasImage: boolean;
   metadata?: Record<string, any>;
