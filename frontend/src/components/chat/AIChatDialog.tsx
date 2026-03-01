@@ -3818,10 +3818,7 @@ const AIChatDialog: React.FC = () => {
                       );
                     }
 
-                    if (
-                      msgExpectsImageOutput ||
-                      msgGenerationStatus?.isGenerating
-                    ) {
+                    if (msgExpectsImageOutput) {
                       return (
                         <div
                           className={`ai-image-placeholder ${imageSize}`}
@@ -3957,12 +3954,16 @@ const AIChatDialog: React.FC = () => {
                                 message.videoUrl
                               );
                               const isAiMessage = message.type === "ai";
+                              const isReferenceOnlyAiMessage = Boolean(
+                                isAiMessage &&
+                                  hasReferenceImages &&
+                                  !expectsImageOutput &&
+                                  !hasGeneratedImage
+                              );
                               const isImageTaskInFlight = Boolean(
                                 isAiMessage &&
                                   generationStatus?.isGenerating &&
-                                  (expectsImageOutput ||
-                                    hasGeneratedImage ||
-                                    hasReferenceImages)
+                                  (expectsImageOutput || hasGeneratedImage)
                               );
                               const isVideoTaskInFlight = Boolean(
                                 isAiMessage &&
@@ -3970,16 +3971,18 @@ const AIChatDialog: React.FC = () => {
                                   (expectsVideoOutput || hasGeneratedVideo)
                               );
                               const showImageLayout =
-                                hasGeneratedImage ||
-                                hasReferenceImages ||
-                                expectsImageOutput ||
-                                isImageTaskInFlight;
+                                !isReferenceOnlyAiMessage &&
+                                (hasGeneratedImage ||
+                                  hasReferenceImages ||
+                                  expectsImageOutput ||
+                                  isImageTaskInFlight);
                               const showVideoLayout =
                                 hasGeneratedVideo ||
                                 expectsVideoOutput ||
                                 isVideoTaskInFlight;
                               const shouldUseVerticalLayout =
                                 isAiMessage &&
+                                !isReferenceOnlyAiMessage &&
                                 (hasGeneratedImage ||
                                   expectsImageOutput ||
                                   isImageTaskInFlight ||
