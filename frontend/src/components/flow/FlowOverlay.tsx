@@ -74,6 +74,7 @@ import VideoAnalyzeNode from "./nodes/VideoAnalyzeNode";
 import VideoFrameExtractNode from "./nodes/VideoFrameExtractNode";
 import ImageGridNode from "./nodes/ImageGridNode";
 import ImageSplitNode from "./nodes/ImageSplitNode";
+import Nano2Node from "./nodes/Nano2Node";
 import { FLOW_IMAGE_ASSET_PREFIX } from "@/services/flowImageAssetStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useFlowStore, FlowBackgroundVariant } from "@/stores/flowStore";
@@ -384,6 +385,7 @@ const nodeTypes = {
   doubaoVideo: DoubaoVideoNode,
   storyboardSplit: StoryboardSplitNode,
   midjourney: MidjourneyNode,
+  nano2: Nano2Node,
   video: VideoNode,
   videoAnalyze: VideoAnalyzeNode,
   videoFrameExtract: VideoFrameExtractNode,
@@ -3619,6 +3621,7 @@ function FlowInner() {
         | "doubaoVideo"
         | "storyboardSplit"
         | "midjourney"
+        | "nano2"
         | "video"
         | "videoAnalyze"
         | "videoFrameExtract"
@@ -3653,6 +3656,7 @@ function FlowInner() {
         doubaoVideo: { w: 280, h: 260 },
         storyboardSplit: { w: 320, h: 400 },
         midjourney: { w: 280, h: 320 },
+        nano2: { w: 260, h: 200 },
         video: { w: 320, h: 280 },
         videoAnalyze: { w: 280, h: 360 },
         videoFrameExtract: { w: 300, h: 420 },
@@ -3967,6 +3971,7 @@ function FlowInner() {
           "imageGrid",
           "imageSplit",
           "midjourney",
+          "nano2",
         ];
         if (imageNodeTypes.includes(node.type || "")) return true;
         // videoFrameExtract 的 image 句柄输出单张图片
@@ -3980,9 +3985,29 @@ function FlowInner() {
         if (targetHandle === "text")
           return textSourceTypes.includes(sourceNode.type || "");
         if (targetHandle === "image1" || targetHandle === "refer")
-          return isImageSource(sourceNode, sourceHandle);
+          return [
+            "image",
+            "imagePro",
+            "generate",
+            "generate4",
+            "generatePro",
+            "generatePro4",
+            "generateRef",
+            "three",
+            "camera",
+          ].includes(sourceNode.type || "");
         if (targetHandle === "image2" || targetHandle === "img")
-          return isImageSource(sourceNode, sourceHandle);
+          return [
+            "image",
+            "imagePro",
+            "generate",
+            "generate4",
+            "generatePro",
+            "generatePro4",
+            "generateRef",
+            "three",
+            "camera",
+          ].includes(sourceNode.type || "");
         return false;
       }
       if (
@@ -4081,10 +4106,13 @@ function FlowInner() {
         return false;
       }
 
-      // Midjourney 节点连接验证 - 只支持文本输入（纯文生图）
-      if (targetNode.type === "midjourney") {
+      // Nano2 节点连接验证 - 支持文本和图片输入
+      if (targetNode.type === "nano2") {
         if (targetHandle === "text") {
           return textSourceTypes.includes(sourceNode.type || "");
+        }
+        if (targetHandle === "img") {
+          return isImageSource(sourceNode, sourceHandle);
         }
         return false;
       }
@@ -4301,6 +4329,12 @@ function FlowInner() {
       // Midjourney 节点连接容量控制 - 只支持文本输入
       if (targetNode?.type === "midjourney") {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
+        if (params.targetHandle === "img") return incoming.length < 6; // 最多6张图片输入
+      }
+      // Nano2 节点连接容量控制 - 支持文本和图片输入
+      if (targetNode?.type === "nano2") {
+        if (params.targetHandle === "text") return true; // 新线会替换旧线
+        if (params.targetHandle === "img") return true; // 图片输入
       }
       if (targetNode?.type === "analysis") {
         if (params.targetHandle === "img") return true; // 仅一条连接，后续替换
@@ -7466,6 +7500,78 @@ function FlowInner() {
         return;
       }
 
+      // Nano2 节点处理逻辑
+      if (node.type === "nano2") {
+        const { text: promptText, hasEdge: hasText } = getTextPromptForNode(nodeId);
+        if (!hasText || !promptText) {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? { ...n, data: { ...n.data, status: "failed", error: "缺少提示词输入" } }
+                : n
+            )
+          );
+          return;
+        }
+
+        // 获取输入图片
+        const imgEdges = currentEdges
+          .filter((e) => e.target === nodeId && e.targetHandle === "img")
+          .slice(0, 14); // Nano2 最多支持 14 张参考图
+        const imageDatas = await resolveEdgesAsDataUrls(imgEdges);
+
+        setNodes((ns) =>
+          ns.map((n) =>
+            n.id === nodeId
+              ? { ...n, data: { ...n.data, status: "running", error: undefined } }
+              : n
+          )
+        );
+
+        try {
+          const result = await generateImageViaAPI({
+            prompt: promptText,
+            aiProvider: "nano2",
+            aspectRatio: (node.data as any)?.aspectRatio || "16:9",
+            imageSize: (node.data as any)?.resolution || "1K",
+            imageUrls: imageDatas.length > 0 ? imageDatas : undefined,
+            googleSearch: (node.data as any)?.googleSearch,
+            googleImageSearch: (node.data as any)?.googleImageSearch,
+          });
+
+          if (!result.success || !result.data) {
+            const msg = result.error?.message || "Nano2 生成失败";
+            setNodes((ns) =>
+              ns.map((n) =>
+                n.id === nodeId
+                  ? { ...n, data: { ...n.data, status: "failed", error: msg } }
+                  : n
+              )
+            );
+            return;
+          }
+
+          const imageData = result.data.imageData || result.data.imageUrl;
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? { ...n, data: { ...n.data, status: "succeeded", imageData, error: undefined } }
+                : n
+            )
+          );
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : "Nano2 生成失败";
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? { ...n, data: { ...n.data, status: "failed", error: msg } }
+                : n
+            )
+          );
+        }
+        return;
+      }
+
       if (
         node.type !== "generate" &&
         node.type !== "generate4" &&
@@ -8771,7 +8877,8 @@ function FlowInner() {
         n.type === "generateRef" ||
         n.type === "generatePro" ||
         n.type === "generatePro4" ||
-        n.type === "midjourney"
+        n.type === "midjourney" ||
+        n.type === "nano2"
           ? { ...n, data: { ...n.data, onRun: runNode, onSend: onSendHandler } }
           : n.type === "image" || n.type === "imagePro"
           ? { ...n, data: { ...n.data, onRun: runNode, onSend: onSendHandler } }
