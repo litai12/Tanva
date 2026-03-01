@@ -993,14 +993,45 @@ export class AiController {
                   };
                 }
 
-                // 如果只有外部 imageUrl（如 Nano2），直接返回
+                // 如果只有外部 imageUrl（如 Nano2）
                 if (result.data.imageUrl || result.data.metadata?.imageUrl) {
                   const imageUrl = result.data.imageUrl || result.data.metadata?.imageUrl;
-                  return {
-                    imageUrl,
-                    textResponse: result.data.textResponse || '',
-                    metadata: result.data.metadata || {},
-                  };
+
+                  // 白名单用户可跳过水印，保留外链直返
+                  const skipWatermark = await this.canSkipWatermark(req);
+                  if (skipWatermark) {
+                    return {
+                      imageUrl,
+                      textResponse: result.data.textResponse || '',
+                      metadata: result.data.metadata || {},
+                    };
+                  }
+
+                  try {
+                    // 普通用户：下载外链图片 -> 加水印 -> 上传 OSS 后返回
+                    const sourceImageDataUrl = await this.fetchImageAsDataUrl(imageUrl);
+                    const watermarked = await this.watermarkIfNeeded(sourceImageDataUrl, req);
+                    const upload = await this.uploadGeneratedImageToOss(watermarked || '', { userId });
+                    return {
+                      imageUrl: upload.url,
+                      textResponse: result.data.textResponse || '',
+                      metadata: {
+                        ...(result.data.metadata || {}),
+                        imageUrl: upload.url,
+                        imageKey: upload.key,
+                        mimeType: upload.mimeType,
+                        bytes: upload.size,
+                        sourceImageUrl: imageUrl,
+                      },
+                    };
+                  } catch (error) {
+                    this.logger.error(
+                      `[generate-image] 外链图片加水印失败: ${this.summarizeError(error)}`
+                    );
+                    throw new BadGatewayException(
+                      'Nano2 图片水印处理失败，请稍后重试（必要时请配置 ALLOWED_PROXY_HOSTS）'
+                    );
+                  }
                 }
               }
               throw new Error(result.error?.message || 'Failed to generate image');
