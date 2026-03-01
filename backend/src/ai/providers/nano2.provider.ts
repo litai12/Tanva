@@ -117,7 +117,15 @@ export class Nano2Provider implements IAIProvider {
     throw new Error('Nano2 does not support image analysis');
   }
 
-  async textChat(request: any): Promise<any> {
-    throw new Error('Nano2 does not support text chat');
+  async generateText(request: any): Promise<any> {
+    throw new Error('Nano2 does not support text generation');
+  }
+
+  async selectTool(request: any): Promise<any> {
+    throw new Error('Nano2 does not support tool selection');
+  }
+
+  async generatePaperJS(request: any): Promise<any> {
+    throw new Error('Nano2 does not support PaperJS generation');
   }
 }
