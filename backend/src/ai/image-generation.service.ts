@@ -12,8 +12,22 @@ interface GenerateImageRequest {
   prompt: string;
   model?: string;
   outputFormat?: 'jpeg' | 'png' | 'webp';
-  aspectRatio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9';
-  imageSize?: '1K' | '2K' | '4K';
+  aspectRatio?:
+    | '1:1'
+    | '2:3'
+    | '3:2'
+    | '3:4'
+    | '4:3'
+    | '4:5'
+    | '5:4'
+    | '9:16'
+    | '16:9'
+    | '21:9'
+    | '4:1'
+    | '1:4'
+    | '8:1'
+    | '1:8';
+  imageSize?: '0.5K' | '1K' | '2K' | '4K';
   thinkingLevel?: 'high' | 'low';
   imageOnly?: boolean;
   customApiKey?: string | null; // 用户自定义 API Key
@@ -24,8 +38,22 @@ interface EditImageRequest {
   sourceImage: string; // base64
   model?: string;
   outputFormat?: 'jpeg' | 'png' | 'webp';
-  aspectRatio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9';
-  imageSize?: '1K' | '2K' | '4K';
+  aspectRatio?:
+    | '1:1'
+    | '2:3'
+    | '3:2'
+    | '3:4'
+    | '4:3'
+    | '4:5'
+    | '5:4'
+    | '9:16'
+    | '16:9'
+    | '21:9'
+    | '4:1'
+    | '1:4'
+    | '8:1'
+    | '1:8';
+  imageSize?: '0.5K' | '1K' | '2K' | '4K';
   thinkingLevel?: 'high' | 'low';
   imageOnly?: boolean;
   customApiKey?: string | null; // 用户自定义 API Key
@@ -36,8 +64,22 @@ interface BlendImagesRequest {
   sourceImages: string[]; // base64 array
   model?: string;
   outputFormat?: 'jpeg' | 'png' | 'webp';
-  aspectRatio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9';
-  imageSize?: '1K' | '2K' | '4K';
+  aspectRatio?:
+    | '1:1'
+    | '2:3'
+    | '3:2'
+    | '3:4'
+    | '4:3'
+    | '4:5'
+    | '5:4'
+    | '9:16'
+    | '16:9'
+    | '21:9'
+    | '4:1'
+    | '1:4'
+    | '8:1'
+    | '1:8';
+  imageSize?: '0.5K' | '1K' | '2K' | '4K';
   thinkingLevel?: 'high' | 'low';
   imageOnly?: boolean;
   customApiKey?: string | null; // 用户自定义 API Key
@@ -459,7 +501,7 @@ export class ImageGenerationService {
               }
 
               if (request.imageSize) {
-                // 根据官方文档，imageSize 必须是字符串 "1K"、"2K" 或 "4K"（大写K）
+                // 根据官方文档，imageSize 必须是字符串 "0.5K"、"1K"、"2K" 或 "4K"（大写K）
                 // 不需要转换，直接使用原始值
                 imageConfig.imageSize = request.imageSize;
                 this.logger.log(`[ImageGenerationService] 设置 imageSize: ${request.imageSize} (类型: ${typeof request.imageSize})`);
@@ -704,7 +746,7 @@ export class ImageGenerationService {
               }
 
               if (request.imageSize) {
-                // 根据官方文档，imageSize 必须是字符串 "1K"、"2K" 或 "4K"（大写K）
+                // 根据官方文档，imageSize 必须是字符串 "0.5K"、"1K"、"2K" 或 "4K"（大写K）
                 // 不需要转换，直接使用原始值
                 imageConfig.imageSize = request.imageSize;
               }
@@ -860,7 +902,7 @@ export class ImageGenerationService {
               }
 
               if (request.imageSize) {
-                // 根据官方文档，imageSize 必须是字符串 "1K"、"2K" 或 "4K"（大写K）
+                // 根据官方文档，imageSize 必须是字符串 "0.5K"、"1K"、"2K" 或 "4K"（大写K）
                 // 不需要转换，直接使用原始值
                 imageConfig.imageSize = request.imageSize;
               }

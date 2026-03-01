@@ -661,7 +661,7 @@ export class BananaProvider implements IAIProvider {
                   config.imageConfig.aspectRatio = request.aspectRatio;
                 }
                 if (request.imageSize) {
-                  // 根据官方文档，imageSize 必须是字符串 "1K"、"2K" 或 "4K"（大写K）
+                  // 根据官方文档，imageSize 必须是字符串 "0.5K"、"1K"、"2K" 或 "4K"（大写K）
                   // 不需要转换，直接使用原始值
                   config.imageConfig.imageSize = request.imageSize;
                 }
@@ -784,7 +784,7 @@ export class BananaProvider implements IAIProvider {
                   config.imageConfig.aspectRatio = request.aspectRatio;
                 }
                 if (request.imageSize) {
-                  // 根据官方文档，imageSize 必须是字符串 "1K"、"2K" 或 "4K"（大写K）
+                  // 根据官方文档，imageSize 必须是字符串 "0.5K"、"1K"、"2K" 或 "4K"（大写K）
                   // 不需要转换，直接使用原始值
                   config.imageConfig.imageSize = request.imageSize;
                 }
@@ -926,7 +926,7 @@ export class BananaProvider implements IAIProvider {
                   config.imageConfig.aspectRatio = request.aspectRatio;
                 }
                 if (request.imageSize) {
-                  // 根据官方文档，imageSize 必须是字符串 "1K"、"2K" 或 "4K"（大写K）
+                  // 根据官方文档，imageSize 必须是字符串 "0.5K"、"1K"、"2K" 或 "4K"（大写K）
                   // 不需要转换，直接使用原始值
                   config.imageConfig.imageSize = request.imageSize;
                 }

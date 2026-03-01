@@ -47,6 +47,7 @@ import {
   Download,
   Brain,
   Clock,
+  ChevronDown,
   Copy,
   FileText,
   Play,
@@ -479,10 +480,13 @@ const AIChatDialog: React.FC = () => {
       description: "国内Ultra版",
     },
   ];
+  const currentProviderOption =
+    providerToggleOptions.find((option) => option.value === aiProvider) ?? null;
   const isDomesticProvider = providerToggleOptions.some(
     (option) => option.value === aiProvider
   );
   const isFastMode = aiProvider === "banana-2.5";
+  const isUltraMode = aiProvider === "banana-3.1";
   const isVideoMode =
     manualAIMode === "video" ||
     (manualAIMode === "auto" && autoSelectedTool === "generateVideo");
@@ -505,6 +509,39 @@ const AIChatDialog: React.FC = () => {
       aiProvider === "banana-2.5" ||
       aiProvider === "banana-3.1");
 
+  const aspectRatioOptions = useMemo(() => {
+    const baseRatios = [
+      "1:1",
+      "2:3",
+      "3:2",
+      "3:4",
+      "4:3",
+      "4:5",
+      "5:4",
+      "9:16",
+      "16:9",
+      "21:9",
+    ] as const;
+    const ultraExtraRatios = ["4:1", "1:4", "8:1", "1:8"] as const;
+    const ratios = isUltraMode
+      ? [...baseRatios, ...ultraExtraRatios]
+      : baseRatios;
+    return [
+      { label: "自动", value: null },
+      ...ratios.map((ratio) => ({ label: ratio, value: ratio })),
+    ];
+  }, [isUltraMode]);
+
+  const imageSizeOptions = useMemo(() => {
+    const sizes = [
+      ...(isUltraMode ? [{ label: "0.5K", value: "0.5K" }] : []),
+      { label: "1K", value: "1K" },
+      { label: "2K", value: "2K" },
+      { label: "4K", value: "4K" },
+    ];
+    return [{ label: "自动", value: null }, ...sizes];
+  }, [isUltraMode]);
+
   // 记录最新的最大化状态，供原生事件监听使用
   useEffect(() => {
     isMaximizedRef.current = isMaximized;
@@ -519,6 +556,7 @@ const AIChatDialog: React.FC = () => {
     currentManualMode?.label ??
     availableManualModeOptions[0]?.label ??
     "选择模式";
+  const providerButtonLabel = currentProviderOption?.label ?? "国内模型";
   // 统一向上展开（最大化时避免溢出，紧凑模式保持原有行为）
   const dropdownSide: "top" | "bottom" = "top";
 
@@ -3164,40 +3202,81 @@ const AIChatDialog: React.FC = () => {
                 </DropdownMenu>
 
                 {!shouldHideImageParamControls && (
-                  <div
-                    className={cn(
-                      "flex h-7 items-center gap-0.5 rounded-full border border-liquid-glass bg-liquid-glass px-1 shadow-liquid-glass backdrop-blur-liquid backdrop-saturate-125",
-                      generationStatus.isGenerating && "opacity-90"
-                    )}
-                    title='快速切换国内模型'
-                  >
-                    {providerToggleOptions.map((option) => {
-                      const isActive = aiProvider === option.value;
-                      return (
-                        <button
-                          key={option.value}
-                          type='button'
-                          className={cn(
-                            "flex h-[20px] items-center justify-center rounded-full px-3 text-[12px] font-semibold transition-colors duration-150",
-                            isActive
-                              ? "bg-slate-900 text-white shadow-sm"
-                              : "text-slate-700",
-                            generationStatus.isGenerating && "cursor-pointer"
-                          )}
-                          onClick={() => {
-                            if (aiProvider !== option.value) {
-                              console.log("🤖 切换 AI 提供商:", option.value);
-                              setAIProvider(option.value);
-                            }
-                          }}
-                          aria-pressed={isActive}
-                          title={`${option.label} · ${option.description}`}
-                        >
-                          {option.label}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        disabled={false}
+                        data-dropdown-trigger='true'
+                        className={cn(
+                          "h-7 pl-2 pr-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
+                          "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                          !generationStatus.isGenerating
+                            ? "hover:bg-gray-100 text-gray-700"
+                            : "opacity-50 cursor-not-allowed text-gray-400"
+                        )}
+                        title='快速切换国内模型'
+                      >
+                        <span className='font-medium'>{providerButtonLabel}</span>
+                        <ChevronDown className='h-3.5 w-3.5 opacity-60' />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align='start'
+                      side={dropdownSide}
+                      sideOffset={8}
+                      className='dropdown-menu-root min-w-[220px] rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md'
+                    >
+                      <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
+                        快速切换模型
+                      </DropdownMenuLabel>
+                      {providerToggleOptions.map((option) => {
+                        const isActive = aiProvider === option.value;
+                        return (
+                          <DropdownMenuItem
+                            key={option.value}
+                            onClick={(event) => {
+                              if (aiProvider !== option.value) {
+                                console.log(
+                                  "🤖 切换 AI 提供商:",
+                                  option.value
+                                );
+                                setAIProvider(option.value);
+                              }
+                              const root = (
+                                event.currentTarget as HTMLElement
+                              ).closest(".dropdown-menu-root");
+                              const trigger = root?.querySelector(
+                                '[data-dropdown-trigger="true"]'
+                              ) as HTMLButtonElement | null;
+                              if (trigger && !trigger.disabled) {
+                                trigger.click();
+                              }
+                            }}
+                            className={cn(
+                              "flex items-start gap-2 px-3 py-2 text-xs",
+                              isActive
+                                ? "bg-gray-100 text-gray-800"
+                                : "text-slate-600"
+                            )}
+                          >
+                            <div className='flex-1 space-y-0.5'>
+                              <div className='font-medium leading-none'>
+                                {option.label}
+                              </div>
+                              <div className='text-[11px] text-slate-400 leading-snug'>
+                                {option.description}
+                              </div>
+                            </div>
+                            {isActive && (
+                              <Check className='h-3.5 w-3.5 text-white' />
+                            )}
+                          </DropdownMenuItem>
+                        );
+                      })}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 )}
 
                 {MULTIPLIER_ENABLED_MODES.includes(manualAIMode) && (
@@ -3412,23 +3491,7 @@ const AIChatDialog: React.FC = () => {
                     }}
                   >
                     <div className='flex items-center gap-1 p-2'>
-                      {[
-                        { label: "自动", value: null },
-                        ...(
-                          [
-                            "1:1",
-                            "2:3",
-                            "3:2",
-                            "3:4",
-                            "4:3",
-                            "4:5",
-                            "5:4",
-                            "9:16",
-                            "16:9",
-                            "21:9",
-                          ] as const
-                        ).map((r) => ({ label: r, value: r })),
-                      ].map((opt) => (
+                      {aspectRatioOptions.map((opt) => (
                         <button
                           key={opt.label}
                           className={cn(
@@ -3570,12 +3633,7 @@ const AIChatDialog: React.FC = () => {
                     }}
                   >
                     <div className='flex items-center gap-1 p-2'>
-                      {[
-                        { label: "自动", value: null },
-                        { label: "1K", value: "1K" },
-                        { label: "2K", value: "2K" },
-                        { label: "4K", value: "4K" },
-                      ].map((opt) => (
+                      {imageSizeOptions.map((opt) => (
                         <button
                           key={opt.label}
                           className={cn(

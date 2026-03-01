@@ -342,7 +342,7 @@ export class GeminiProProvider implements IAIProvider {
                 }
 
                 if (request.imageSize) {
-                  // 根据官方文档，imageSize 必须是字符串 "1K"、"2K" 或 "4K"（大写K）
+                  // 根据官方文档，imageSize 必须是字符串 "0.5K"、"1K"、"2K" 或 "4K"（大写K）
                   // 不需要转换，直接使用原始值
                   imageConfig.imageSize = request.imageSize;
                   this.logger.log(`[GeminiProProvider] 设置 imageSize: ${request.imageSize} (类型: ${typeof request.imageSize})`);
@@ -491,7 +491,7 @@ export class GeminiProProvider implements IAIProvider {
                 }
 
                 if (request.imageSize) {
-                  // 根据官方文档，imageSize 必须是字符串 "1K"、"2K" 或 "4K"（大写K）
+                  // 根据官方文档，imageSize 必须是字符串 "0.5K"、"1K"、"2K" 或 "4K"（大写K）
                   // 不需要转换，直接使用原始值
                   imageConfig.imageSize = request.imageSize;
                 }
@@ -608,7 +608,7 @@ export class GeminiProProvider implements IAIProvider {
                 }
 
                 if (request.imageSize) {
-                  // 根据官方文档，imageSize 必须是字符串 "1K"、"2K" 或 "4K"（大写K）
+                  // 根据官方文档，imageSize 必须是字符串 "0.5K"、"1K"、"2K" 或 "4K"（大写K）
                   // 不需要转换，直接使用原始值
                   imageConfig.imageSize = request.imageSize;
                 }

@@ -25,6 +25,7 @@ export type GenerateData = {
   imageUrl?: string; // remote URL (preferred for templates)
   error?: string;
   aspectRatio?: string;
+  imageSize?: '0.5K' | '1K' | '2K' | '4K';
   presetPrompt?: string;
 };
 
