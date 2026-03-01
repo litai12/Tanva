@@ -1,0 +1,436 @@
+/* 让整个 Flow 覆盖层默认穿透 */
+.tanva-flow-overlay {
+  pointer-events: none;
+}
+
+/* 允许交互的子元素重新启用事件 */
+.tanva-flow-overlay .react-flow__node,
+.tanva-flow-overlay .react-flow__edge,
+.tanva-flow-overlay .react-flow__handle,
+.tanva-flow-overlay .react-flow__controls,
+.tanva-flow-overlay .react-flow__minimap,
+.tanva-flow-overlay .react-flow__node-resizer,
+.tanva-flow-overlay .react-flow__node-resizer-handle,
+.tanva-flow-overlay .tanva-flow-toolbar,
+.tanva-flow-overlay .tanva-add-panel,
+.tanva-flow-overlay .tanva-edge-label-editor {
+  pointer-events: auto;
+}
+
+/* ==================== Image 节点缩放体验 ==================== */
+.flow-image-node {
+  position: relative;
+}
+
+.flow-image-node--resizing {
+  contain: layout paint;
+}
+
+.flow-image-node--resizing img {
+  will-change: transform;
+}
+
+.flow-image-node .image-node-resize-line,
+.flow-image-node .image-node-resize-handle {
+  pointer-events: auto;
+  z-index: 5;
+  background: transparent;
+  border: none;
+  opacity: 0;
+  box-shadow: none;
+  transition: none;
+}
+
+/* 禁用Pane捕获，避免空白区域吞事件 */
+.tanva-flow-overlay .react-flow__pane {
+  pointer-events: none !important;
+}
+
+/* 可选：降低背景干扰 */
+.tanva-flow-overlay .react-flow__background {
+  opacity: 0.6;
+  z-index: -1 !important; /* 将点阵放到所有Flow子元素之下 */
+  position: absolute; /* 确保可应用z-index */
+}
+
+/* 禁止 MiniMap 和连线被浏览器选中，避免双击出现蓝色选区 */
+.tanva-flow-overlay .react-flow__minimap,
+.tanva-flow-overlay .react-flow__minimap *,
+.tanva-flow-overlay .react-flow__edge,
+.tanva-flow-overlay .react-flow__edge *,
+.tanva-flow-overlay .react-flow__edges,
+.tanva-flow-overlay .react-flow__edges * {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.tanva-textnote-editor[contenteditable="true"]:empty:before {
+  content: attr(data-placeholder);
+  color: #cbd5f5;
+  font-weight: 400;
+}
+
+/* React Flow 默认禁用了节点文本选择，文本便笺需要能复制/全选 */
+.tanva-textnote,
+.tanva-textnote * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.tanva-textnote .tanva-textnote-handle {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.tanva-textnote .tanva-textnote-handle--source {
+  pointer-events: auto;
+}
+
+.tanva-textnote:hover .tanva-textnote-handle,
+.tanva-textnote .tanva-textnote-handle:focus-visible {
+  opacity: 1;
+}
+
+.tanva-flow-connecting .tanva-textnote .tanva-textnote-handle--source {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tanva-flow-connecting .tanva-textnote .tanva-textnote-handle--target {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.tanva-edge-label-editor {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 4px 6px;
+  min-width: 140px;
+  max-width: 220px;
+  border: 1px solid #2563eb;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.15);
+  z-index: 30;
+}
+
+.tanva-edge-label-editor input {
+  width: 100%;
+  border: none;
+  outline: none;
+  font-size: 13px;
+  color: #0f172a;
+  background: transparent;
+}
+
+.tanva-edge-label-editor input::placeholder {
+  color: #94a3b8;
+}
+
+/* ==================== 连线选择优化 ==================== */
+
+/* 连线容易被选中的关键：增加击中检测区域 */
+.react-flow__edge-path {
+  stroke-width: 2px;
+  transition: stroke-width 0.15s ease;
+}
+
+/* 鼠标悬停时突出显示连线，增大笔画宽度 */
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke-width: 6px;
+}
+
+/* 被选中的连线也要显示视觉反馈 */
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke-width: 4px;
+}
+
+/* 为连线的底层添加隐形击中区域（提高可选性）*/
+.react-flow__edge {
+  position: relative;
+}
+
+.react-flow__edge-path {
+  /* 添加外发光效果提示可选性 */
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.1));
+  cursor: pointer;
+}
+
+/* 鼠标悬停时显示吸附效果 */
+.react-flow__edge:hover .react-flow__edge-path {
+  filter: drop-shadow(0 0 4px rgba(37, 99, 235, 0.3));
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  filter: drop-shadow(0 0 6px rgba(37, 99, 235, 0.6));
+}
+
+/* 连接线拖拽时，禁用全局文本选择以避免页面出现蓝色选区 */
+.tanva-no-select, .tanva-no-select * {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+}
+
+/* 确保文本工具生成的文字始终可以被选中 */
+.tanva-textnote,
+.tanva-textnote *,
+textarea,
+input[type="text"],
+[contenteditable="true"] {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+}
+
+/* 去除节点被选中时的蓝色外框/阴影 */
+.tanva-flow-overlay .react-flow__node.selected {
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* 通用小提示样式（用于句柄悬停提示） */
+.flow-tooltip {
+  position: absolute;
+  background: #111827;
+  color: #fff;
+  font-size: 10px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+  pointer-events: none;
+}
+
+/* 擦除模式下的悬停高亮（节点） */
+.tanva-flow-overlay .react-flow__node.eraser-hover > div {
+  box-shadow: 0 0 0 2px #3b82f6 inset !important; /* tailwind blue-500 */
+  border-radius: 8px;
+}
+
+/* 生成节点统一的进度条 */
+.flow-node-progress {
+  display: block;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.25);
+  overflow: hidden;
+  opacity: 0.35;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+  margin-top: 6px;
+}
+
+.flow-node-progress[data-active="true"] {
+  opacity: 1;
+}
+
+.flow-node-progress__fill {
+  height: 100%;
+  width: 0%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #38bdf8, #2563eb);
+  background-size: 200% 100%;
+  transition: width 0.35s ease;
+}
+
+.flow-node-progress[data-indeterminate="true"] .flow-node-progress__fill {
+  animation: flow-progress-stripes 1s linear infinite;
+}
+
+.flow-node-progress--succeeded .flow-node-progress__fill {
+  background: linear-gradient(90deg, #34d399, #059669);
+}
+
+.flow-node-progress--failed .flow-node-progress__fill {
+  background: linear-gradient(90deg, #f87171, #ef4444);
+}
+
+@keyframes flow-progress-stripes {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: -200% 50%;
+  }
+}
+
+/* Pointer 选择工具模式样式 */
+.tanva-flow-overlay.pointer-mode {
+  cursor: crosshair !important;
+}
+
+.tanva-flow-overlay.pointer-mode .react-flow__pane {
+  cursor: crosshair !important;
+  pointer-events: auto !important;
+}
+
+.tanva-flow-overlay.pointer-mode .react-flow__node {
+  cursor: pointer !important;
+}
+
+.tanva-flow-overlay.pointer-mode .react-flow__node.selected > div {
+  box-shadow: 0 0 0 2px #2563eb inset !important;
+  border-radius: 8px;
+}
+
+/* Pointer 模式下禁用节点内文本选择，防止双击时文字变蓝 */
+.tanva-flow-overlay.pointer-mode .react-flow__node,
+.tanva-flow-overlay.pointer-mode .react-flow__node * {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+}
+
+/* Marquee 纯框选模式：禁用 Flow 图谱交互，避免阻挡画布框选 */
+.tanva-flow-overlay.marquee-mode .react-flow__node,
+.tanva-flow-overlay.marquee-mode .react-flow__node *,
+.tanva-flow-overlay.marquee-mode .react-flow__edge,
+.tanva-flow-overlay.marquee-mode .react-flow__edge *,
+.tanva-flow-overlay.marquee-mode .react-flow__handle,
+.tanva-flow-overlay.marquee-mode .react-flow__handle *,
+.tanva-flow-overlay.marquee-mode .react-flow__handle::after,
+.tanva-flow-overlay.marquee-mode .react-flow__controls,
+.tanva-flow-overlay.marquee-mode .react-flow__controls *,
+.tanva-flow-overlay.marquee-mode .react-flow__minimap,
+.tanva-flow-overlay.marquee-mode .react-flow__minimap *,
+.tanva-flow-overlay.marquee-mode .react-flow__node-resizer,
+.tanva-flow-overlay.marquee-mode .react-flow__node-resizer-handle {
+  pointer-events: none !important;
+}
+
+/* 统一句柄尺寸/交互（全部节点） */
+.tanva-flow-overlay .react-flow__handle {
+  position: absolute; /* keep default positioning */
+  border-radius: 999px;
+  outline: none;
+}
+
+/* ==================== 句柄颜色区分 ==================== */
+/* Prompt/Text 类型句柄 - 绿色 */
+.tanva-flow-overlay .react-flow__handle[data-handleid="text"],
+.tanva-flow-overlay .react-flow__handle[data-handleid^="text-"],
+.tanva-flow-overlay .react-flow__handle[data-handleid^="prompt"] {
+  background: #22c55e !important;
+  border-color: #16a34a !important;
+}
+
+/* Image 类型句柄 - 橙色 */
+.tanva-flow-overlay .react-flow__handle[data-handleid="img"],
+.tanva-flow-overlay .react-flow__handle[data-handleid="image"],
+.tanva-flow-overlay .react-flow__handle[data-handleid^="image"],
+.tanva-flow-overlay .react-flow__handle[data-handleid="refer"],
+.tanva-flow-overlay .react-flow__handle[data-handleid="img1"],
+.tanva-flow-overlay .react-flow__handle[data-handleid="img2"],
+.tanva-flow-overlay .react-flow__handle[data-handleid="img3"],
+.tanva-flow-overlay .react-flow__handle[data-handleid="img4"] {
+  background: #f97316 !important;
+  border-color: #ea580c !important;
+}
+
+/* Video 类型句柄 - 紫色 */
+.tanva-flow-overlay .react-flow__handle[data-handleid="video"],
+.tanva-flow-overlay .react-flow__handle[data-handleid^="video-"] {
+  background: #a855f7 !important;
+  border-color: #9333ea !important;
+}
+
+/* Images 类型句柄 (多图) - 黄色 */
+.tanva-flow-overlay .react-flow__handle[data-handleid="images"],
+.tanva-flow-overlay .react-flow__handle[data-handleid^="images-"] {
+  background: #eab308 !important;
+  border-color: #ca8a04 !important;
+}
+
+/* 放大不可见热区，不改变视觉尺寸 */
+.tanva-flow-overlay .react-flow__handle::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 16px;
+  pointer-events: auto;
+}
+
+.tanva-flow-overlay .react-flow__handle:hover::after,
+.tanva-flow-overlay .react-flow__handle:focus-visible::after {
+  /* 热区直接贴着句柄芯，inset: -8px 意味着从句柄边缘向外 8px */
+  /* 使用 inset 的 box-shadow 让灰色圈从热区内边缘开始 */
+  box-shadow: inset 0 0 0 8px rgba(15, 23, 42, 0.06);
+}
+
+/* 连接时的可视放大（拖拽接入/有效目标） */
+.tanva-flow-overlay .react-flow__handle-connecting::after,
+.tanva-flow-overlay .react-flow__handle-valid::after,
+.tanva-flow-overlay .react-flow__handle-connecting-target::after {
+  box-shadow: inset 0 0 0 10px rgba(15, 23, 42, 0.08);
+}
+
+/* ==================== 框选时禁用 Flow 节点事件 ==================== */
+/* 当 Canvas 正在框选时，禁用 Flow 节点的 pointer-events，避免框选被打断 */
+body.tanva-selection-dragging .tanva-flow-overlay .react-flow__node,
+body.tanva-selection-dragging .tanva-flow-overlay .react-flow__node *,
+body.tanva-selection-dragging .tanva-flow-overlay .react-flow__edge,
+body.tanva-selection-dragging .tanva-flow-overlay .react-flow__edge *,
+body.tanva-selection-dragging .tanva-flow-overlay .react-flow__handle,
+body.tanva-selection-dragging .tanva-flow-overlay .react-flow__handle *,
+body.tanva-selection-dragging .tanva-flow-overlay .react-flow__handle::after {
+  pointer-events: none !important;
+}
+
+/* ==================== 拖拽时禁用 Flow 节点事件 ==================== */
+/* 当 Canvas 正在拖拽图片时，禁用 Flow 节点的 pointer-events，避免经过节点时被打断 */
+body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__node,
+body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__node *,
+body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__edge,
+body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__edge *,
+body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__handle,
+body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__handle *,
+body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__handle::after {
+  pointer-events: none !important;
+}
+
+/* ==================== 视频全屏样式 ==================== */
+/* 视频全屏时保持原始比例，不铺满屏幕 */
+video:fullscreen,
+video:-webkit-full-screen,
+video:-moz-full-screen,
+video:-ms-fullscreen {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100vw !important;
+  max-height: 100vh !important;
+  object-fit: contain !important;
+  background: #000 !important;
+}
+
+/* 全屏容器背景 */
+video::backdrop {
+  background: #000 !important;
+}
+
+video::-webkit-media-controls-fullscreen-button {
+  cursor: pointer;
+}
+
+/* 针对 Flow 节点内的视频全屏 */
+.tanva-flow-overlay video:fullscreen,
+.tanva-flow-overlay video:-webkit-full-screen,
+.tanva-flow-overlay video:-moz-full-screen,
+.tanva-flow-overlay video:-ms-fullscreen {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100vw !important;
+  max-height: 100vh !important;
+  object-fit: contain !important;
+  background: #000 !important;
+  border-radius: 0 !important;
+}
+
+/* 确保全屏时视频居中显示 */
+*:fullscreen video,
+*:-webkit-full-screen video,
+*:-moz-full-screen video,
+*:-ms-fullscreen video {
+  object-fit: contain !important;
+  background: #000 !important;
+}

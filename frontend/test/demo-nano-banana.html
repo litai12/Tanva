@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Banana API 图像生成测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, select, textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        textarea {
+            height: 80px;
+            resize: vertical;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+            display: none;
+        }
+        .success {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .loading {
+            background-color: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+        .image-result {
+            margin-top: 15px;
+            text-align: center;
+        }
+        .image-result img {
+            max-width: 100%;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .debug-info {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎨 Banana API 图像生成测试</h1>
+        
+        <form id="testForm">
+            <div class="form-group">
+                <label for="apiKey">API Key:</label>
+                <input type="password" id="apiKey" placeholder="输入你的Banana API Key" value="sk-YO5bqpHjJ7zcm2iuukjsybBEKn9roLMrH4wLFYu15TBhY5lt" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="prompt">提示词:</label>
+                <textarea id="prompt" placeholder="输入图像生成提示词，例如：画一只可爱的猫" required>画一只可爱的猫</textarea>
+            </div>
+            
+            <div class="form-group">
+                <label for="aspectRatio">长宽比:</label>
+                <select id="aspectRatio">
+                    <option value="">自动 (1:1)</option>
+                    <option value="1:1">1:1 (正方形)</option>
+                    <option value="2:3">2:3 (竖屏)</option>
+                    <option value="3:2">3:2 (横屏)</option>
+                    <option value="3:4">3:4 (竖屏)</option>
+                    <option value="4:3">4:3 (横屏)</option>
+                    <option value="4:5">4:5 (竖屏)</option>
+                    <option value="5:4">5:4 (横屏)</option>
+                    <option value="9:16">9:16 (手机竖屏)</option>
+                    <option value="16:9">16:9 (宽屏)</option>
+                    <option value="21:9">21:9 (超宽屏)</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="imageOnly">输出模式:</label>
+                <select id="imageOnly">
+                    <option value="false">图像 + 文本</option>
+                    <option value="true">仅图像</option>
+                </select>
+            </div>
+            
+            <button type="submit" id="generateBtn">生成图像</button>
+        </form>
+        
+        <div id="result" class="result"></div>
+        <div id="imageResult" class="image-result"></div>
+        <div id="debugInfo" class="debug-info" style="display: none;"></div>
+    </div>
+
+    <script type="module">
+        // 使用Google GenAI库
+        import { GoogleGenAI } from 'https://esm.run/@google/genai';
+
+        const form = document.getElementById('testForm');
+        const resultDiv = document.getElementById('result');
+        const imageResultDiv = document.getElementById('imageResult');
+        const debugInfoDiv = document.getElementById('debugInfo');
+        const generateBtn = document.getElementById('generateBtn');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const apiKey = document.getElementById('apiKey').value;
+            const prompt = document.getElementById('prompt').value;
+            const aspectRatio = document.getElementById('aspectRatio').value;
+            const imageOnly = document.getElementById('imageOnly').value === 'true';
+
+            if (!apiKey) {
+                showResult('请输入API Key', 'error');
+                return;
+            }
+
+            try {
+                generateBtn.disabled = true;
+                showResult('正在生成图像...', 'loading');
+                imageResultDiv.innerHTML = '';
+                debugInfoDiv.style.display = 'none';
+
+                // 初始化GenAI客户端
+                const genAI = new GoogleGenAI({ apiKey });
+
+                // 构建配置
+                const config = {
+                    safetySettings: [
+                        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+                        { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+                        { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
+                    ]
+                };
+
+                // 添加长宽比配置
+                if (aspectRatio) {
+                    config.imageConfig = {
+                        aspectRatio: aspectRatio
+                    };
+                }
+
+                // 添加仅图像模式
+                if (imageOnly) {
+                    config.responseModalities = ['Image'];
+                }
+
+                // 调试信息
+                const debugInfo = {
+                    model: 'gemini-2.5-flash-image',
+                    prompt: prompt,
+                    aspectRatio: aspectRatio || '自动',
+                    imageOnly: imageOnly,
+                    config: config,
+                    timestamp: new Date().toISOString()
+                };
+
+                console.log('🔍 发送的配置:', debugInfo);
+                showDebugInfo(debugInfo);
+
+                // 调用API
+                const startTime = Date.now();
+                const response = await genAI.models.generateContentStream({
+                    model: 'gemini-2.5-flash-image',
+                    contents: prompt,
+                    config: config
+                });
+
+                let imageData = null;
+                let textResponse = '';
+
+                // 处理流式响应
+                for await (const chunk of response) {
+                    if (chunk.candidates && chunk.candidates[0]?.content?.parts) {
+                        for (const part of chunk.candidates[0].content.parts) {
+                            if (part.text) {
+                                textResponse += part.text;
+                            }
+                            if (part.inlineData && part.inlineData.data) {
+                                imageData = part.inlineData.data;
+                            }
+                        }
+                    }
+                }
+
+                const endTime = Date.now();
+                const duration = endTime - startTime;
+
+                if (imageData) {
+                    // 显示图像
+                    const imageUrl = `data:image/png;base64,${imageData}`;
+                    imageResultDiv.innerHTML = `
+                        <h3>✅ 生成成功!</h3>
+                        <img src="${imageUrl}" alt="生成的图像">
+                        <p><strong>耗时:</strong> ${duration}ms</p>
+                        <p><strong>长宽比:</strong> ${aspectRatio || '自动'}</p>
+                        <p><strong>仅图像模式:</strong> ${imageOnly ? '是' : '否'}</p>
+                        ${textResponse ? `<p><strong>文本回复:</strong> ${textResponse}</p>` : ''}
+                    `;
+                    showResult('图像生成成功!', 'success');
+                } else {
+                    showResult('生成失败：未返回图像数据', 'error');
+                    if (textResponse) {
+                        debugInfoDiv.innerHTML += `\n文本回复: ${textResponse}`;
+                        debugInfoDiv.style.display = 'block';
+                    }
+                }
+
+            } catch (error) {
+                console.error('生成失败:', error);
+                showResult(`生成失败: ${error.message}`, 'error');
+                showDebugInfo({ error: error.message, stack: error.stack });
+            } finally {
+                generateBtn.disabled = false;
+            }
+        });
+
+        function showResult(message, type) {
+            resultDiv.textContent = message;
+            resultDiv.className = `result ${type}`;
+            resultDiv.style.display = 'block';
+        }
+
+        function showDebugInfo(info) {
+            debugInfoDiv.textContent = JSON.stringify(info, null, 2);
+            debugInfoDiv.style.display = 'block';
+        }
+    </script>
+</body>
+</html>

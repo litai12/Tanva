@@ -1,0 +1,21 @@
+{
+  "url": "https://ai-gateway-intl.eo-edgefunctions7.com/v1/models/gemini-2.5-flash:generateContent?key=AIzaSyDUKP60M4YLpyyStCOvntwDtPX0zvl5F64",
+  "method": "POST",
+  "headers": {
+    "OE-Key": "d5c8babe0e654ac2bee47ebd992448ae",
+    "OE-Gateway-Name": "gemini-test",
+    "OE-AI-Provider": "gemini",
+    "Content-Type": "application/json"
+  },
+  "body": {
+    "contents": [
+      {
+        "parts": [
+          {
+            "text": "你好，请简单介绍一下你自己"
+          }
+        ]
+      }
+    ]
+  }
+}

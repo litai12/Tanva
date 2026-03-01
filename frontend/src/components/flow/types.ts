@@ -1,0 +1,122 @@
+import type { Node, Edge } from 'reactflow';
+
+export type NodeKind = 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generatePro' | 'storyboardSplit' | 'imageSplit';
+
+export type TextPromptData = {
+  text?: string;
+  boxW?: number;
+  boxH?: number;
+  title?: string;
+};
+
+export type ImageData = {
+  // Base64 string (no data URL prefix)
+  imageData?: string;
+  // Remote URL (preferred for templates)
+  imageUrl?: string;
+  label?: string;
+};
+
+export type GenerateStatus = 'idle' | 'running' | 'succeeded' | 'failed';
+
+export type GenerateData = {
+  status?: GenerateStatus;
+  imageData?: string; // base64 string or remote URL
+  imageUrl?: string; // remote URL (preferred for templates)
+  error?: string;
+  aspectRatio?: string;
+  presetPrompt?: string;
+};
+
+export type GenerateProData = {
+  status?: GenerateStatus;
+  imageData?: string; // base64 string or remote URL
+  imageUrl?: string; // remote URL (preferred for templates)
+  error?: string;
+  aspectRatio?: string;
+  prompts?: string[]; // 多个提示词，依次叠加
+};
+
+export type Generate4Data = {
+  status?: GenerateStatus;
+  images?: string[]; // base64 strings (up to 4)
+  imageUrls?: string[]; // remote URLs (preferred for templates)
+  count?: number; // 1..4
+  error?: string;
+};
+
+export type PromptOptimizeData = {
+  text?: string; // input or selected output
+  expandedText?: string; // optimized preview/output
+};
+
+export type TextChatStatus = 'idle' | 'running' | 'succeeded' | 'failed';
+
+export type TextChatData = {
+  status?: TextChatStatus;
+  responseText?: string;
+  manualInput?: string;
+  enableWebSearch?: boolean;
+  error?: string;
+};
+
+export type StoryboardSplitStatus = 'idle' | 'succeeded' | 'failed';
+
+export type StoryboardSplitData = {
+  status?: StoryboardSplitStatus;
+  inputText?: string;
+  segments?: string[];
+  outputCount?: number; // default 9, max 20
+  error?: string;
+  boxW?: number;
+  boxH?: number;
+};
+
+export type ImageSplitStatus = 'idle' | 'processing' | 'succeeded' | 'failed';
+
+export type SplitRectItem = {
+  index: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type SplitImageItem = {
+  index: number;
+  imageData: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type ImageSplitData = {
+  status?: ImageSplitStatus;
+  inputImage?: string;
+  inputImageUrl?: string;
+  // 方案A：持久化仅保存裁切矩形与原图引用（不保存切片图片数据）
+  splitRects?: SplitRectItem[];
+  sourceWidth?: number;
+  sourceHeight?: number;
+  // legacy：历史数据可能仍包含切片图片（将逐步迁移到 splitRects）
+  splitImages?: SplitImageItem[];
+  outputCount?: number;
+  error?: string;
+  boxW?: number;
+  boxH?: number;
+};
+
+export type AnyNodeData = TextPromptData | PromptOptimizeData | ImageData | GenerateData | GenerateProData | Generate4Data | TextChatData | StoryboardSplitData | ImageSplitData;
+
+export type AnyNode = Node<AnyNodeData>;
+export type AnyEdge = Edge;
+
+// 节点组类型（用于 NodeGroupWrapper 和 nodeGroupStore）
+export interface NodeGroup {
+  id: string;
+  nodeIds: string[];
+  prompts?: string[];
+  aspectRatio?: string;
+  createdAt: number;
+}

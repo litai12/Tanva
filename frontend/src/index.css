@@ -1,0 +1,271 @@
+@import './styles/scrollbar.css';
+@import './styles/markdown.css';
+@import './styles/chat.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* shadcn/ui CSS 变量 */
+@layer base {
+  :root {
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --border: 214.3 31.8% 91.4%;
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+  }
+
+  .dark {
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+  }
+}
+
+/* 基础重置样式 */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  background-color: #ffffff;
+  color: #1f2937;
+}
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ==================== 自定义光标系统 ==================== */
+/* 使用系统默认光标（移除自定义覆盖） */
+
+/* ==================== 彩雾动画效果 ==================== */
+@keyframes mist-drift-1 {
+  0%, 100% {
+    transform: translate(0%, 0%) rotate(0deg) scale(1);
+  }
+  25% {
+    transform: translate(15%, -10%) rotate(5deg) scale(1.05);
+  }
+  50% {
+    transform: translate(5%, 15%) rotate(-3deg) scale(0.98);
+  }
+  75% {
+    transform: translate(-10%, 5%) rotate(2deg) scale(1.02);
+  }
+}
+
+@keyframes mist-drift-2 {
+  0%, 100% {
+    transform: translate(0%, 0%) rotate(0deg) scale(1);
+  }
+  33% {
+    transform: translate(-12%, 8%) rotate(-4deg) scale(1.03);
+  }
+  66% {
+    transform: translate(8%, -12%) rotate(6deg) scale(0.97);
+  }
+}
+
+@keyframes mist-drift-3 {
+  0%, 100% {
+    transform: translate(0%, 0%) rotate(0deg) scale(1);
+  }
+  50% {
+    transform: translate(10%, 10%) rotate(-5deg) scale(1.08);
+  }
+}
+
+@keyframes mist-drift-4 {
+  0%, 100% {
+    transform: translate(0%, 0%) rotate(0deg) scale(1);
+  }
+  40% {
+    transform: translate(-8%, -8%) rotate(3deg) scale(1.04);
+  }
+  80% {
+    transform: translate(6%, -4%) rotate(-2deg) scale(0.96);
+  }
+}
+
+@keyframes mist-pulse {
+  0%, 100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.mist-card-wrapper {
+  position: relative;
+  padding: 20px 80px 120px 80px;
+  margin: -20px -80px -120px -80px;
+}
+
+/* 纯净液态玻璃卡片 - 无颜色 */
+.mist-card {
+  position: relative;
+  background: rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  z-index: 1;
+  border: 1px solid rgba(255, 255, 255, 0.35) !important;
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.mist-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.25) 0%,
+    transparent 50%
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* 动态旋转的彩雾光环 */
+@keyframes mist-rotate {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes mist-rotate-reverse {
+  0% {
+    transform: rotate(360deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes mist-scale-pulse {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.05) rotate(180deg);
+    opacity: 0.8;
+  }
+}
+
+.mist-glow {
+  position: absolute;
+  top: -80px;
+  left: -100px;
+  right: -100px;
+  bottom: -60px;
+  pointer-events: none;
+  z-index: 0;
+  filter: blur(40px);
+  background:
+    radial-gradient(circle 320px at 25% 40%, rgba(147, 197, 253, 0.7) 0%, rgba(147, 197, 253, 0.3) 45%, transparent 75%),
+    radial-gradient(circle 300px at 75% 45%, rgba(196, 181, 253, 0.65) 0%, rgba(196, 181, 253, 0.25) 45%, transparent 75%);
+  animation: mist-rotate 20s linear infinite;
+}
+
+.mist-layer-1 {
+  position: absolute;
+  top: -100px;
+  left: -120px;
+  right: -120px;
+  bottom: -80px;
+  pointer-events: none;
+  z-index: 0;
+  filter: blur(45px);
+  background:
+    radial-gradient(circle 340px at 70% 35%, rgba(251, 207, 232, 0.7) 0%, rgba(251, 207, 232, 0.3) 45%, transparent 75%),
+    radial-gradient(circle 310px at 30% 50%, rgba(167, 243, 208, 0.65) 0%, rgba(167, 243, 208, 0.25) 45%, transparent 75%);
+  animation: mist-rotate-reverse 25s linear infinite;
+}
+
+.mist-layer-2 {
+  position: absolute;
+  top: -120px;
+  left: -140px;
+  right: -140px;
+  bottom: -100px;
+  pointer-events: none;
+  z-index: 0;
+  filter: blur(50px);
+  background:
+    radial-gradient(circle 360px at 35% 40%, rgba(165, 180, 252, 0.65) 0%, rgba(165, 180, 252, 0.25) 45%, transparent 75%),
+    radial-gradient(circle 330px at 65% 40%, rgba(253, 230, 138, 0.6) 0%, rgba(253, 230, 138, 0.2) 45%, transparent 75%);
+  animation: mist-scale-pulse 30s ease-in-out infinite;
+}
+
+.mist-content {
+  position: relative;
+  z-index: 2;
+}
+
+/* ==================== Alt+拖拽到库的高亮效果 ==================== */
+.library-drop-highlight {
+  box-shadow:
+    inset 0 0 0 3px rgba(59, 130, 246, 0.6),
+    0 0 20px rgba(59, 130, 246, 0.3) !important;
+  transition: box-shadow 0.15s ease-out;
+}
+
+.library-drop-highlight::after {
+  content: '松开添加到库';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(59, 130, 246, 0.9);
+  color: white;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  z-index: 9999;
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* ==================== 画布拖拽时禁用工具栏事件 ==================== */
+/* 当 Canvas 正在拖拽图片时，禁用图片/模型工具栏的 pointer-events，避免经过时被打断 */
+body.tanva-canvas-dragging [data-image-toolbar],
+body.tanva-canvas-dragging [data-image-toolbar] *,
+body.tanva-canvas-dragging [data-model-toolbar],
+body.tanva-canvas-dragging [data-model-toolbar] *,
+body.tanva-selection-dragging [data-image-toolbar],
+body.tanva-selection-dragging [data-image-toolbar] *,
+body.tanva-selection-dragging [data-model-toolbar],
+body.tanva-selection-dragging [data-model-toolbar] * {
+  pointer-events: none !important;
+}
+
+/* 选中组工具栏：拖拽中隐藏，停止后显示 */
+body.tanva-canvas-dragging .tanva-selection-group-toolbar {
+  opacity: 0 !important;
+  visibility: hidden !important;
+}

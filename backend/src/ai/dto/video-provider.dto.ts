@@ -1,0 +1,79 @@
+import { ApiProperty } from '@nestjs/swagger';
+import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
+
+export class VideoProviderRequestDto {
+  @ApiProperty({ description: '供应商' })
+  @IsEnum(['kling', 'kling-2.6', 'kling-o1', 'vidu', 'doubao'])
+  provider!: 'kling' | 'kling-2.6' | 'kling-o1' | 'vidu' | 'doubao';
+
+  @ApiProperty({ description: '视频生成模式 (Vidu: text2video/img2video/start-end2video/reference2video; Kling: text2video/image2video/image2video-tail/multi-image2video; Kling-O1: omni-video)', required: false })
+  @IsOptional()
+  @IsString()
+  videoMode?: string;
+
+  @ApiProperty({ description: '视频描述提示词', required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2500)
+  prompt?: string;
+
+  @ApiProperty({ description: '参考图像 URL 列表', required: false, type: [String] })
+  @IsOptional()
+  @IsString({ each: true })
+  referenceImages?: string[];
+
+  @ApiProperty({ description: '参考视频 URL', required: false })
+  @IsOptional()
+  @IsString()
+  referenceVideo?: string;
+
+  @ApiProperty({ description: '参考视频类型 (feature/base)', required: false })
+  @IsOptional()
+  @IsString()
+  referenceVideoType?: 'feature' | 'base';
+
+  @ApiProperty({ description: '保留原声 (yes/no)', required: false })
+  @IsOptional()
+  @IsString()
+  keepOriginalSound?: 'yes' | 'no';
+
+  @ApiProperty({ description: '画面比例', required: false })
+  @IsOptional()
+  @IsString()
+  aspectRatio?: string;
+
+  @ApiProperty({ description: '视频时长（秒）', required: false })
+  @IsOptional()
+  @IsNumber()
+  duration?: number;
+
+  @ApiProperty({ description: '分辨率 (Vidu)', required: false })
+  @IsOptional()
+  @IsString()
+  resolution?: string;
+
+  @ApiProperty({ description: '风格 (Vidu)', required: false })
+  @IsOptional()
+  @IsString()
+  style?: string;
+
+  @ApiProperty({ description: '供应商特定模式 (Kling: std/pro)', required: false })
+  @IsOptional()
+  @IsString()
+  mode?: string;
+
+  @ApiProperty({ description: '错峰生成 (Vidu)', required: false })
+  @IsOptional()
+  @IsBoolean()
+  offPeak?: boolean;
+
+  @ApiProperty({ description: '镜头固定 (豆包)', required: false })
+  @IsOptional()
+  @IsBoolean()
+  camerafixed?: boolean;
+
+  @ApiProperty({ description: '添加水印 (豆包)', required: false })
+  @IsOptional()
+  @IsBoolean()
+  watermark?: boolean;
+}

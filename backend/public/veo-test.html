@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VEO 视频生成测试</title>
+  <link rel="icon" href="data:,">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      padding: 20px;
+      color: #fff;
+    }
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 30px;
+      font-size: 2rem;
+      background: linear-gradient(90deg, #00d4ff, #7b2cbf);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .card {
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(10px);
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 500;
+      color: #a0a0a0;
+    }
+    select, input, textarea {
+      width: 100%;
+      padding: 12px 16px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.3);
+      color: #fff;
+      font-size: 14px;
+      transition: border-color 0.3s;
+    }
+    select:focus, input:focus, textarea:focus {
+      outline: none;
+      border-color: #00d4ff;
+    }
+    textarea {
+      min-height: 120px;
+      resize: vertical;
+    }
+    .model-cards {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .model-card {
+      padding: 16px;
+      border: 2px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.3s;
+      text-align: center;
+    }
+    .model-card:hover {
+      border-color: rgba(0, 212, 255, 0.5);
+      background: rgba(0, 212, 255, 0.1);
+    }
+    .model-card.selected {
+      border-color: #00d4ff;
+      background: rgba(0, 212, 255, 0.2);
+    }
+    .model-card h3 {
+      font-size: 14px;
+      margin-bottom: 8px;
+      color: #fff;
+    }
+    .model-card p {
+      font-size: 12px;
+      color: #a0a0a0;
+    }
+    .model-card .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      margin-top: 8px;
+    }
+    .badge-fast {
+      background: #22c55e;
+      color: #fff;
+    }
+    .badge-quality {
+      background: #7b2cbf;
+      color: #fff;
+    }
+    .badge-image {
+      background: #f59e0b;
+      color: #fff;
+    }
+    .image-input-group {
+      display: none;
+    }
+    .image-input-group.visible {
+      display: block;
+    }
+    button {
+      width: 100%;
+      padding: 14px 24px;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+    .btn-primary {
+      background: linear-gradient(90deg, #00d4ff, #7b2cbf);
+      color: #fff;
+    }
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 30px rgba(0, 212, 255, 0.3);
+    }
+    .btn-primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .result-section {
+      display: none;
+    }
+    .result-section.visible {
+      display: block;
+    }
+    .status {
+      padding: 16px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+    }
+    .status-loading {
+      background: rgba(59, 130, 246, 0.2);
+      border: 1px solid rgba(59, 130, 246, 0.5);
+    }
+    .status-success {
+      background: rgba(34, 197, 94, 0.2);
+      border: 1px solid rgba(34, 197, 94, 0.5);
+    }
+    .status-error {
+      background: rgba(239, 68, 68, 0.2);
+      border: 1px solid rgba(239, 68, 68, 0.5);
+    }
+    .spinner {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-right: 10px;
+      vertical-align: middle;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .video-container {
+      margin-top: 20px;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #000;
+    }
+    video {
+      width: 100%;
+      display: block;
+    }
+    .links {
+      display: flex;
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .links a {
+      flex: 1;
+      padding: 12px;
+      text-align: center;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      color: #00d4ff;
+      text-decoration: none;
+      transition: background 0.3s;
+    }
+    .links a:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+    .raw-content {
+      margin-top: 16px;
+      padding: 16px;
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .toggle-raw {
+      background: none;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #a0a0a0;
+      padding: 8px 16px;
+      font-size: 12px;
+      margin-top: 12px;
+      width: auto;
+    }
+    .hint {
+      margin-top: 6px;
+      font-size: 12px;
+      color: #a0a0a0;
+    }
+    .api-info {
+      font-size: 12px;
+      color: #a0a0a0;
+      text-align: center;
+      margin-top: 20px;
+    }
+    @media (max-width: 600px) {
+      .model-cards {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎬 VEO 视频生成测试</h1>
+
+    <div class="card">
+      <div class="form-group">
+        <label for="apiBase">API Base（可选）</label>
+        <input type="text" id="apiBase" placeholder="http://localhost:4000 或 https://your-domain.com">
+        <div class="hint">如果用 file:// 打开本页，请填写后端地址；同源打开可直接使用当前站点。</div>
+      </div>
+
+      <div class="form-group">
+        <label>选择模型</label>
+        <div class="model-cards">
+          <div class="model-card selected" data-model="veo3-fast">
+            <h3>VEO3 Fast</h3>
+            <p>文字快速生成视频</p>
+            <span class="badge badge-fast">快速</span>
+          </div>
+          <div class="model-card" data-model="veo3-pro">
+            <h3>VEO3 Pro</h3>
+            <p>文字生成高质量视频</p>
+            <span class="badge badge-quality">高质量</span>
+          </div>
+          <div class="model-card" data-model="veo3-pro-frames">
+            <h3>VEO3 Pro Frames</h3>
+            <p>图片+文字生成视频</p>
+            <span class="badge badge-image">支持垫图</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="prompt">视频描述 (Prompt)</label>
+        <textarea id="prompt" placeholder="描述你想要生成的视频内容，例如：一只可爱的猫咪在草地上奔跑，阳光明媚，画面温馨"></textarea>
+      </div>
+
+      <div class="form-group image-input-group" id="imageInputGroup">
+        <label for="imageUrl">参考图片 URL (仅 veo3-pro-frames 模式)</label>
+        <input type="url" id="imageUrl" placeholder="https://example.com/image.jpg">
+      </div>
+
+      <button class="btn-primary" id="generateBtn" onclick="generateVideo()">
+        生成视频
+      </button>
+    </div>
+
+    <div class="card result-section" id="resultSection">
+      <h2 style="margin-bottom: 16px;">生成结果</h2>
+
+      <div class="status" id="statusBox">
+        <span class="spinner"></span>
+        <span id="statusText">正在生成视频...</span>
+      </div>
+
+      <div class="video-container" id="videoContainer" style="display: none;">
+        <video id="videoPlayer" controls></video>
+      </div>
+
+      <div class="links" id="linksContainer" style="display: none;">
+        <a href="#" id="watchLink" target="_blank">▶️ 在线观看</a>
+        <a href="#" id="downloadLink" target="_blank">⏬ 下载视频</a>
+      </div>
+
+      <button class="toggle-raw" onclick="toggleRawContent()">显示/隐藏原始响应</button>
+      <div class="raw-content" id="rawContent" style="display: none;"></div>
+    </div>
+
+    <p class="api-info">
+      当前 API: <span id="apiEndpointText"></span><br>
+      后端上游: https://api1.147ai.com/v1/chat/completions<br>
+      API 端点: POST /api/public/ai/veo/generate<br>
+      支持模型: veo3-fast | veo3-pro | veo3-pro-frames
+    </p>
+  </div>
+
+  <script>
+    let selectedModel = 'veo3-fast';
+    const API_PATH = '/api/public/ai/veo/generate';
+
+    function normalizeBaseUrl(value) {
+      const trimmed = (value || '').trim();
+      if (!trimmed) return '';
+      try {
+        const url = new URL(trimmed);
+        if (url.protocol === 'http:' || url.protocol === 'https:') {
+          return url.origin;
+        }
+        return '';
+      } catch {
+        const scheme = /^(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/i.test(trimmed) ? 'http' : 'https';
+        return `${scheme}://${trimmed}`.replace(/\/$/, '');
+      }
+    }
+
+    function getInferredBase() {
+      const origin = location.origin;
+      // Safari 在 file:// 场景下可能返回 "file://"
+      if (origin && origin !== 'null' && !origin.startsWith('file:')) {
+        return origin;
+      }
+      return 'http://localhost:4000';
+    }
+
+    const apiBaseInput = document.getElementById('apiBase');
+    const apiEndpointText = document.getElementById('apiEndpointText');
+
+    function getApiBase() {
+      return normalizeBaseUrl(apiBaseInput.value) || getInferredBase();
+    }
+
+    function updateApiInfo() {
+      apiEndpointText.textContent = `${getApiBase()}${API_PATH}`;
+    }
+
+    // 初始化 API Base：query > localStorage > inferred
+    const params = new URLSearchParams(location.search);
+    const baseFromQuery = params.get('apiBase') || params.get('base');
+    const baseFromStorage = localStorage.getItem('veo_api_base');
+    const initialBase = baseFromQuery || baseFromStorage || getInferredBase();
+    const normalizedInitialBase = normalizeBaseUrl(initialBase) || getInferredBase();
+    apiBaseInput.value = normalizedInitialBase;
+    localStorage.setItem('veo_api_base', normalizedInitialBase);
+    updateApiInfo();
+
+    apiBaseInput.addEventListener('change', () => {
+      const normalizedBase = getApiBase();
+      apiBaseInput.value = normalizedBase;
+      localStorage.setItem('veo_api_base', normalizedBase);
+      updateApiInfo();
+    });
+
+    // 模型选择
+    document.querySelectorAll('.model-card').forEach(card => {
+      card.addEventListener('click', () => {
+        document.querySelectorAll('.model-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        selectedModel = card.dataset.model;
+
+        // 显示/隐藏图片输入
+        const imageGroup = document.getElementById('imageInputGroup');
+        if (selectedModel === 'veo3-pro-frames') {
+          imageGroup.classList.add('visible');
+        } else {
+          imageGroup.classList.remove('visible');
+        }
+      });
+    });
+
+    async function generateVideo() {
+      const prompt = document.getElementById('prompt').value.trim();
+      const imageUrl = document.getElementById('imageUrl').value.trim();
+      const btn = document.getElementById('generateBtn');
+      const resultSection = document.getElementById('resultSection');
+      const statusBox = document.getElementById('statusBox');
+      const statusText = document.getElementById('statusText');
+      const videoContainer = document.getElementById('videoContainer');
+      const linksContainer = document.getElementById('linksContainer');
+      const rawContent = document.getElementById('rawContent');
+
+      if (!prompt) {
+        alert('请输入视频描述');
+        return;
+      }
+
+      if (selectedModel === 'veo3-pro-frames' && !imageUrl) {
+        alert('veo3-pro-frames 模式需要提供参考图片 URL');
+        return;
+      }
+
+      // 重置 UI
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> 生成中...';
+      resultSection.classList.add('visible');
+      statusBox.className = 'status status-loading';
+      statusText.textContent = '正在生成视频，请稍候...';
+      videoContainer.style.display = 'none';
+      linksContainer.style.display = 'none';
+      rawContent.style.display = 'none';
+
+      try {
+        const body = {
+          prompt,
+          model: selectedModel,
+        };
+
+        if (selectedModel === 'veo3-pro-frames' && imageUrl) {
+          body.referenceImageUrl = imageUrl;
+        }
+
+        // 使用后端公开 API 地址（无需认证）
+        const response = await fetch(`${getApiBase()}${API_PATH}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify(body),
+        });
+
+        const text = await response.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = { success: false, error: text };
+        }
+        rawContent.textContent = JSON.stringify(data, null, 2);
+
+        if (data.success && (data.videoUrl || data.downloadUrl)) {
+          statusBox.className = 'status status-success';
+          statusText.textContent = '✅ 视频生成成功！';
+
+          const videoUrl = data.videoUrl || data.downloadUrl;
+
+          // 显示视频
+          const videoPlayer = document.getElementById('videoPlayer');
+          videoPlayer.src = videoUrl;
+          videoContainer.style.display = 'block';
+
+          // 显示链接
+          if (data.videoUrl) {
+            document.getElementById('watchLink').href = data.videoUrl;
+          }
+          if (data.downloadUrl) {
+            document.getElementById('downloadLink').href = data.downloadUrl;
+          }
+          linksContainer.style.display = 'flex';
+        } else {
+          statusBox.className = 'status status-error';
+          statusText.textContent = '❌ ' + (data.error || '生成失败');
+
+          if (data.rawContent) {
+            rawContent.textContent = data.rawContent;
+            rawContent.style.display = 'block';
+          }
+        }
+      } catch (error) {
+        statusBox.className = 'status status-error';
+        statusText.textContent = '❌ 请求失败: ' + error.message;
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '生成视频';
+      }
+    }
+
+    function toggleRawContent() {
+      const rawContent = document.getElementById('rawContent');
+      rawContent.style.display = rawContent.style.display === 'none' ? 'block' : 'none';
+    }
+  </script>
+</body>
+</html>

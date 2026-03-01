@@ -1,0 +1,376 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                         String                 @id @default(uuid())
+  email                      String?                @unique
+  phone                      String                 @unique
+  passwordHash               String
+  name                       String?
+  avatarUrl                  String?
+  role                       String                 @default("user")
+  status                     String                 @default("active")
+  noWatermark                Boolean                @default(false)
+  googleCustomApiKey         String?
+  googleKeyMode              String                 @default("official")
+  googleOfficialVerified     Boolean                @default(false)
+  googleOfficialVerifiedAt   DateTime?
+  lastLoginAt                DateTime?
+  createdAt                  DateTime               @default(now())
+  updatedAt                  DateTime               @updatedAt
+  invitedById                String?
+  apiUsageRecords            ApiUsageRecord[]
+  creditAccount              CreditAccount?
+  globalImageHistory         GlobalImageHistory[]
+  invitationCodes            InvitationCode[]
+  invitationRedemptions      InvitationRedemption[] @relation("InvitationRedemptionInvitee")
+  invitationRedemptionsGiven InvitationRedemption[] @relation("InvitationRedemptionInviter")
+  projects                   Project[]
+  workflowHistory            WorkflowHistory[]
+  refreshTokens              RefreshToken[]
+  invitedBy                  User?                  @relation("UserInvitedBy", fields: [invitedById], references: [id])
+  invites                    User[]                 @relation("UserInvitedBy")
+
+  // 索引优化：加速用户验证和查找
+  @@index([phone, status])  // 手机号登录优化
+  @@index([email, status])  // 邮箱登录优化（如果支持）
+  @@index([role, status])   // 角色筛选优化
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String
+  userAgent String?
+  ip        String?
+  isRevoked Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+
+  // 索引优化：加速token验证和清理
+  @@index([userId, isRevoked])           // 用户活跃token查询
+  @@index([expiresAt])                   // 过期token清理
+  @@index([userId, expiresAt, isRevoked]) // 复合索引：用户未过期未撤销token
+}
+
+model Project {
+  id             String   @id @default(uuid())
+  userId         String
+  name           String
+  ossPrefix      String
+  mainKey        String
+  thumbnailUrl   String?
+  contentVersion Int      @default(1)
+  contentJson    Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  user           User     @relation(fields: [userId], references: [id])
+  workflowHistory WorkflowHistory[]
+
+  // 索引优化：加速项目列表查询
+  @@index([userId, createdAt])     // 用户项目列表，按创建时间倒序
+  @@index([userId, updatedAt])     // 用户项目列表，按更新时间倒序
+  @@index([createdAt])             // 全局项目统计
+}
+
+model WorkflowHistory {
+  userId    String
+  projectId String
+  /// 业务语义上的“更新时间/保存时间”（作为排序键），不使用 @updatedAt
+  updatedAt DateTime @default(now())
+  /// 对应 Project.contentVersion（便于定位/展示版本号）
+  version   Int
+  /// Flow 工作流图快照（nodes/edges）
+  flow      Json     @default("{}")
+  nodeCount Int      @default(0)
+  edgeCount Int      @default(0)
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([userId, projectId, updatedAt])
+  @@unique([userId, projectId, version])
+}
+
+model CreditAccount {
+  id                String              @id @default(uuid())
+  userId            String              @unique
+  balance           Int                 @default(0)
+  totalEarned       Int                 @default(0)
+  totalSpent        Int                 @default(0)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  lastDailyRewardAt DateTime?
+  // 连续签到相关字段
+  consecutiveDays   Int                 @default(0)  // 当前连续签到天数
+  lastCheckInDate   DateTime?           // 最后签到日期
+  user              User                @relation(fields: [userId], references: [id])
+  transactions      CreditTransaction[]
+}
+
+model CreditTransaction {
+  id            String        @id @default(uuid())
+  accountId     String
+  type          String
+  amount        Int
+  balanceBefore Int
+  balanceAfter  Int
+  description   String
+  apiUsageId    String?
+  metadata      Json?
+  createdAt     DateTime      @default(now())
+  // 签到积分过期相关字段
+  expiresAt     DateTime?     // 过期时间，null 表示永不过期
+  expiredAmount Int           @default(0) // 已过期清除的积分数量
+  isExpired     Boolean       @default(false) // 是否已过期处理
+  account       CreditAccount @relation(fields: [accountId], references: [id])
+
+  @@index([accountId, createdAt])
+  @@index([type])
+  @@index([expiresAt, isExpired]) // 用于定时清理任务查询
+}
+
+model ApiUsageRecord {
+  id               String   @id @default(uuid())
+  userId           String
+  serviceType      String
+  serviceName      String
+  provider         String
+  model            String?
+  creditsUsed      Int
+  inputTokens      Int?
+  outputTokens     Int?
+  inputImageCount  Int?
+  outputImageCount Int?
+  requestParams    Json?
+  responseStatus   String
+  errorMessage     String?
+  processingTime   Int?
+  ipAddress        String?
+  userAgent        String?
+  createdAt        DateTime @default(now())
+  user             User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([serviceType])
+  @@index([provider])
+  @@index([responseStatus])
+}
+
+model CreditPricing {
+  id               String   @id @default(uuid())
+  serviceType      String   @unique
+  serviceName      String
+  provider         String
+  creditsPerCall   Int
+  description      String?
+  isActive         Boolean  @default(true)
+  maxInputTokens   Int?
+  maxContextLength Int?
+  metadata         Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model CreditPackage {
+  id           String   @id @default(uuid())
+  name         String
+  credits      Int
+  price        Decimal  @db.Decimal(10, 2)
+  bonusCredits Int      @default(0)
+  description  String?
+  isActive     Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model InvitationCode {
+  id            String                 @id @default(uuid())
+  code          String                 @unique
+  status        String                 @default("active")
+  maxUses       Int                    @default(1)
+  usedCount     Int                    @default(0)
+  inviterUserId String?
+  metadata      Json?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  inviter       User?                  @relation(fields: [inviterUserId], references: [id])
+  redemptions   InvitationRedemption[]
+
+  @@index([status])
+}
+
+model InvitationRedemption {
+  id            String         @id @default(uuid())
+  codeId        String
+  inviteeUserId String
+  inviterUserId String?
+  rewardStatus  String         @default("pending") // pending(等核验), rewarded(已发奖)
+  rewardAmount  Int            @default(0)         // 奖励积分数
+  rewardedAt    DateTime?                          // 发奖时间
+  metadata      Json?
+  createdAt     DateTime       @default(now())
+  code          InvitationCode @relation(fields: [codeId], references: [id])
+  invitee       User           @relation("InvitationRedemptionInvitee", fields: [inviteeUserId], references: [id])
+  inviter       User?          @relation("InvitationRedemptionInviter", fields: [inviterUserId], references: [id])
+
+  @@index([codeId])
+  @@index([inviteeUserId])
+  @@index([inviterUserId])
+}
+
+model GlobalImageHistory {
+  id                String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  userId            String
+  imageUrl          String
+  prompt            String?
+  sourceType        String
+  sourceProjectId   String?
+  sourceProjectName String?
+  metadata          Json?
+  createdAt         DateTime @default(now())
+  user              User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([sourceType])
+  @@index([userId, sourceProjectId, createdAt(sort: Desc)])
+}
+
+model PublicTemplate {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String
+  category       String?
+  description    String?
+  tags           String[]
+  thumbnail      String?
+  templateData   Json     @default("{}")
+  isActive       Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  createdBy      String?
+  updatedBy      String?
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+  thumbnailSmall String?
+
+  @@index([category], map: "idx_publictemplate_category")
+  @@index([thumbnailSmall], map: "idx_publictemplate_thumbnailsmall")
+}
+
+model SystemSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String
+  description String?
+  metadata    Json?
+  updatedBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// 节点配置管理 - 控制前端节点面板的显示状态和计费
+model NodeConfig {
+  id              String   @id @default(uuid())
+  nodeKey         String   @unique          // 节点唯一标识，如 "klingO1Video"
+  nameZh          String                    // 中文名称
+  nameEn          String                    // 英文名称
+  category        String   @default("other") // 分类: input, image, video, other
+  status          String   @default("normal") // 状态: normal(正常), maintenance(维护中), coming_soon(即将开放), disabled(已禁用)
+  statusMessage   String?                   // 状态说明，如 "预计2月底恢复"
+  creditsPerCall  Int      @default(0)      // 每次调用消耗积分
+  priceYuan       Decimal? @db.Decimal(10, 2) // 原价(元)，用于显示参考
+  serviceType     String?                   // 关联的服务类型，用于计费
+  sortOrder       Int      @default(0)      // 排序顺序
+  isVisible       Boolean  @default(true)   // 是否在节点面板显示
+  description     String?                   // 节点描述
+  metadata        Json?                     // 扩展配置，如不同参数的计费规则
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([category, sortOrder])
+  @@index([status])
+}
+
+model PaymentOrder {
+  id            String   @id @default(uuid())
+  orderNo       String   @unique
+  userId        String
+  amount        Decimal  @db.Decimal(10, 2)
+  credits       Int
+  paymentMethod String   // alipay, wechat
+  status        String   @default("pending") // pending, paid, failed, expired
+  qrCodeUrl     String?
+  tradeNo       String?  // 第三方支付交易号
+  paidAt        DateTime?
+  expiredAt     DateTime
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@index([orderNo])
+}
+
+model ImageTask {
+  id           String    @id @default(uuid())
+  userId       String
+  type         String    // generate, edit, blend, expand
+  status       String    @default("queued") // queued, processing, succeeded, failed
+  prompt       String    @db.Text
+  requestData  Json?
+  imageUrl     String?   @db.Text
+  thumbnailUrl String?   @db.Text
+  textResponse String?   @db.Text
+  error        String?   @db.Text
+  aiProvider   String?
+  retryCount   Int       @default(0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  completedAt  DateTime?
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+/// This table has subclasses and requires additional setup for migrations. Visit https://pris.ly/d/table-inheritance for more info.
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model postgres_log {
+  log_time               DateTime? @db.Timestamptz(3)
+  user_name              String?
+  database_name          String?
+  process_id             Int?
+  connection_from        String?
+  session_id             String
+  session_line_num       BigInt
+  command_tag            String?
+  session_start_time     DateTime? @db.Timestamptz(6)
+  virtual_transaction_id String?
+  transaction_id         BigInt?
+  error_severity         String?
+  sql_state_code         String?
+  message                String?
+  detail                 String?
+  hint                   String?
+  internal_query         String?
+  internal_query_pos     Int?
+  context                String?
+  query                  String?
+  query_pos              Int?
+  location               String?
+  application_name       String?
+  backend_type           String?
+  leader_pid             Int?
+  query_id               BigInt?
+
+  @@ignore
+}

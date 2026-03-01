@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Midjourney Provider Tester</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='80'>🎨</text></svg>">
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    body {
+      margin: 0 auto;
+      padding: 32px 20px 80px;
+      max-width: 960px;
+      background: #f6f8fb;
+      color: #0f172a;
+    }
+    h1 {
+      margin-bottom: 4px;
+      font-size: 28px;
+      font-weight: 700;
+    }
+    p {
+      margin: 4px 0 24px;
+      color: #475569;
+    }
+    form,
+    section {
+      background: #fff;
+      border-radius: 16px;
+      padding: 20px 22px;
+      box-shadow: 0 18px 60px rgba(15, 23, 42, 0.12);
+      margin-bottom: 24px;
+    }
+    .grid {
+      display: grid;
+      gap: 16px;
+    }
+    @media (min-width: 720px) {
+      .grid-2 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    label {
+      font-size: 13px;
+      font-weight: 600;
+      color: #475569;
+      margin-bottom: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    input[type="text"],
+    textarea,
+    select {
+      width: 100%;
+      font-size: 15px;
+      border-radius: 12px;
+      border: 1px solid #cbd5f5;
+      padding: 10px 14px;
+      outline: none;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      background: #fbfcff;
+    }
+    input:focus,
+    textarea:focus,
+    select:focus {
+      border-color: #6366f1;
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+    }
+    textarea {
+      min-height: 90px;
+      resize: vertical;
+    }
+    button {
+      border: none;
+      border-radius: 12px;
+      padding: 12px 18px;
+      font-size: 16px;
+      font-weight: 600;
+      color: #fff;
+      cursor: pointer;
+      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      box-shadow: 0 10px 35px rgba(99, 102, 241, 0.35);
+      transition: transform 0.18s ease, box-shadow 0.18s ease;
+    }
+    button:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 16px 40px rgba(99, 102, 241, 0.45);
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: wait;
+      box-shadow: none;
+      transform: none;
+    }
+    .muted {
+      color: #94a3b8;
+      font-size: 12px;
+      margin-top: 4px;
+    }
+    .result-img {
+      margin-top: 16px;
+      text-align: center;
+    }
+    .result-img img {
+      max-width: 100%;
+      border-radius: 16px;
+      border: 1px solid #e2e8f0;
+      box-shadow: 0 14px 38px rgba(15, 23, 42, 0.18);
+    }
+    .status {
+      padding: 14px;
+      border-radius: 12px;
+      font-size: 14px;
+      margin-top: 12px;
+    }
+    .status.info {
+      background: #fef9c3;
+      color: #713f12;
+      border: 1px solid #fde047;
+    }
+    .status.success {
+      background: #d1fae5;
+      color: #065f46;
+      border: 1px solid #34d399;
+    }
+    .status.error {
+      background: #fee2e2;
+      color: #991b1b;
+      border: 1px solid #fecaca;
+    }
+    .meta-list {
+      list-style: none;
+      padding-left: 0;
+      margin: 0;
+      font-size: 14px;
+      color: #334155;
+    }
+    .meta-list li {
+      padding: 6px 0;
+      border-bottom: 1px dashed #e2e8f0;
+    }
+    .meta-list li:last-child {
+      border-bottom: none;
+    }
+    .action-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 18px;
+    }
+    .action-buttons button {
+      padding: 8px 14px;
+      font-size: 13px;
+      border-radius: 999px;
+      background: #fff;
+      color: #4c1d95;
+      border: 1px solid #c4b5fd;
+      box-shadow: none;
+    }
+    .action-buttons button:hover:not(:disabled) {
+      background: #ede9fe;
+      color: #5b21b6;
+      transform: translateY(-1px);
+    }
+    .debug {
+      font-family: Menlo, Consolas, monospace;
+      font-size: 12px;
+      background: #0f172a;
+      color: #94a3b8;
+      border-radius: 12px;
+      padding: 18px;
+      white-space: pre-wrap;
+      overflow-x: auto;
+      max-height: 360px;
+    }
+    .preview-thumb {
+      margin-top: 8px;
+      max-width: 120px;
+      border-radius: 12px;
+      border: 1px solid #e2e8f0;
+    }
+  </style>
+</head>
+<body>
+  <h1>Midjourney Provider Tester</h1>
+  <p>调用后端 <code>/api/ai/generate-image</code> 并固定使用 <strong>Midjourney</strong> provider，用于快速诊断 147 接口是否可用。</p>
+
+  <form id="mjForm">
+    <div class="grid grid-2">
+      <div>
+        <label for="prompt">提示词</label>
+        <textarea id="prompt" required>a cat wearing suit, cinematic light</textarea>
+      </div>
+      <div>
+        <label for="mode">通道 <span class="muted">(FAST 使用与项目相同的 key)</span></label>
+        <select id="mode">
+          <option value="FAST">FAST (快速)</option>
+          <option value="RELAX">RELAX (慢速)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="grid grid-2" style="margin-top:16px;">
+      <div>
+        <label for="state">State (可选)</label>
+        <input id="state" type="text" placeholder="可用于追踪任务" />
+      </div>
+      <div>
+        <label for="imageOnly">响应模式</label>
+        <select id="imageOnly">
+          <option value="false">图 + 文</option>
+          <option value="true">只要图片</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="margin-top:16px;">
+      <label>上传垫图 / 参考图 (可选)</label>
+      <input type="file" id="referenceImage" accept="image/*" />
+      <img id="referencePreview" class="preview-thumb" style="display:none;" alt="reference preview" />
+      <div class="muted">若上传，将作为 <code>base64Array[0]</code> 传给 Midjourney。</div>
+    </div>
+
+    <div style="margin-top:20px;">
+      <button type="submit" id="submitBtn">🚀 调用 Midjourney</button>
+    </div>
+  </form>
+
+  <section id="resultSection" style="display:none;">
+    <h2 style="margin-top:0;">最新结果</h2>
+    <div id="statusBox" class="status info">等待调用...</div>
+
+    <div id="imageContainer" class="result-img" style="display:none;">
+      <img id="resultImage" alt="Midjourney result" />
+      <div class="muted" id="imageSourceHint"></div>
+    </div>
+
+    <ul id="metaList" class="meta-list"></ul>
+
+    <div id="actionPanel" style="display:none;">
+      <div style="font-size:13px; color:#475569; margin-bottom:6px;">可用按钮</div>
+      <div class="action-buttons" id="buttonList"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2 style="margin-top:0;">调试日志</h2>
+    <pre id="debugLog" class="debug">等待调用...</pre>
+  </section>
+
+  <script>
+    const form = document.getElementById('mjForm');
+    const submitBtn = document.getElementById('submitBtn');
+    const promptInput = document.getElementById('prompt');
+    const modeSelect = document.getElementById('mode');
+    const stateInput = document.getElementById('state');
+    const imageOnlySelect = document.getElementById('imageOnly');
+    const referenceInput = document.getElementById('referenceImage');
+    const referencePreview = document.getElementById('referencePreview');
+
+    const resultSection = document.getElementById('resultSection');
+    const statusBox = document.getElementById('statusBox');
+    const metaList = document.getElementById('metaList');
+    const debugLog = document.getElementById('debugLog');
+    const imageContainer = document.getElementById('imageContainer');
+    const resultImage = document.getElementById('resultImage');
+    const imageSourceHint = document.getElementById('imageSourceHint');
+    const actionPanel = document.getElementById('actionPanel');
+    const buttonList = document.getElementById('buttonList');
+
+    let referenceImageBase64 = null;
+    let lastMetadata = null;
+
+    referenceInput.addEventListener('change', (event) => {
+      const file = event.target.files?.[0];
+      if (!file) {
+        referenceImageBase64 = null;
+        referencePreview.style.display = 'none';
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        referenceImageBase64 = reader.result;
+        referencePreview.src = reader.result;
+        referencePreview.style.display = 'block';
+      };
+      reader.readAsDataURL(file);
+    });
+
+    const appendLog = (message) => {
+      const timestamp = new Date().toISOString();
+      const text = typeof message === 'string' ? message : JSON.stringify(message, null, 2);
+      debugLog.textContent = `[${timestamp}]\n${text}\n\n${debugLog.textContent}`;
+    };
+
+    const displayStatus = (message, type = 'info') => {
+      statusBox.textContent = message;
+      statusBox.className = `status ${type}`;
+    };
+
+    const renderMeta = (metadata = {}) => {
+      metaList.innerHTML = '';
+      const mid = metadata.midjourney || {};
+      const rows = [
+        ['Task ID', mid.taskId || '—'],
+        ['状态', mid.status || '—'],
+        ['Prompt (EN)', mid.promptEn || '—'],
+        ['描述', mid.description || metadata.textResponse || '—'],
+        ['Image URL', mid.imageUrl || metadata.imageUrl || '—'],
+      ];
+      rows.forEach(([label, value]) => {
+        const li = document.createElement('li');
+        li.innerHTML = `<strong>${label}：</strong> ${value || '<span style="color:#94a3b8;">(无)</span>'}`;
+        metaList.appendChild(li);
+      });
+    };
+
+    const renderImage = (payload) => {
+      const dataUrl = payload.imageData
+        ? (payload.imageData.startsWith('data:image')
+            ? payload.imageData
+            : `data:image/png;base64,${payload.imageData}`)
+        : null;
+      const remoteUrl = payload.metadata?.midjourney?.imageUrl || payload.metadata?.imageUrl;
+      const src = dataUrl || remoteUrl;
+      if (!src) {
+        imageContainer.style.display = 'none';
+        return;
+      }
+      resultImage.src = src;
+      imageSourceHint.textContent = dataUrl ? '来源：后端 base64 数据' : '来源：Midjourney 远程 URL';
+      imageContainer.style.display = 'block';
+    };
+
+    const renderButtons = (metadata) => {
+      const buttons = metadata?.midjourney?.buttons || [];
+      const taskId = metadata?.midjourney?.taskId;
+
+      const prettifyLabel = (btn) => {
+        const raw = (btn.label || '').trim().toUpperCase();
+        if (/^[UV]\d$/.test(raw)) return raw;
+        return null;
+      };
+
+      const filtered = buttons
+        .map((btn) => ({ ...btn, pretty: prettifyLabel(btn) }))
+        .filter((btn) => btn.pretty && btn.customId);
+
+      if (!filtered.length || !taskId) {
+        actionPanel.style.display = 'none';
+        buttonList.innerHTML = '';
+        return;
+      }
+
+      buttonList.innerHTML = '';
+      filtered.forEach((btn) => {
+        const button = document.createElement('button');
+        button.textContent = btn.pretty;
+        button.disabled = !!btn.disabled;
+        button.addEventListener('click', () =>
+          triggerAction(taskId, { ...btn, label: btn.pretty })
+        );
+        buttonList.appendChild(button);
+      });
+      actionPanel.style.display = 'block';
+    };
+
+    const triggerAction = async (taskId, button) => {
+      if (!taskId || !button?.customId) return;
+      displayStatus(`正在执行 ${button.label || button.customId}...`, 'info');
+      appendLog({ action: 'midjourneyAction', taskId, customId: button.customId });
+
+      try {
+        const res = await fetch('/api/ai/midjourney/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            taskId,
+            customId: button.customId,
+            state: stateInput.value || undefined,
+          }),
+        });
+
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}));
+          throw new Error(errorData?.message || `HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        appendLog({ event: 'actionResult', data });
+        handleResult(data);
+        displayStatus(`按钮 ${button.label || button.customId} 执行成功`, 'success');
+      } catch (error) {
+        console.error(error);
+        appendLog(error);
+        displayStatus(`执行按钮失败：${error.message}`, 'error');
+      }
+    };
+
+    const handleResult = (data) => {
+      resultSection.style.display = 'block';
+      lastMetadata = data.metadata || {};
+
+      renderMeta(lastMetadata);
+      renderImage(data);
+      renderButtons(lastMetadata);
+    };
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const prompt = promptInput.value.trim();
+      if (!prompt) {
+        alert('提示词不能为空');
+        return;
+      }
+
+      submitBtn.disabled = true;
+      displayStatus('正在调用 Midjourney ...', 'info');
+      appendLog({ event: 'generateImage', prompt, mode: modeSelect.value });
+
+      const providerOptions = {
+        midjourney: {
+          mode: modeSelect.value,
+        },
+      };
+      if (stateInput.value.trim()) {
+        providerOptions.midjourney.state = stateInput.value.trim();
+      }
+      if (referenceImageBase64) {
+        providerOptions.midjourney.base64Array = [referenceImageBase64];
+      }
+
+      const payload = {
+        prompt,
+        aiProvider: 'midjourney',
+        model: 'midjourney-fast',
+        imageOnly: imageOnlySelect.value === 'true',
+        providerOptions,
+      };
+
+      try {
+        const res = await fetch('/api/ai/generate-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}));
+          throw new Error(errorData?.message || `HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        appendLog({ event: 'generateResult', data });
+
+        if (data.imageData || data.metadata) {
+          displayStatus('生成成功 ✅', 'success');
+          handleResult(data);
+        } else {
+          displayStatus('生成完成，但没有返回图片。', 'error');
+        }
+      } catch (error) {
+        console.error(error);
+        appendLog(error);
+        displayStatus(`调用失败：${error.message}`, 'error');
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

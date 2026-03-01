@@ -1,0 +1,340 @@
+import React from "react";
+import { Handle, Position, NodeResizer, useReactFlow } from "reactflow";
+import { Send as SendIcon, Camera } from "lucide-react";
+import { AutoScreenshotService } from "@/services/AutoScreenshotService";
+import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
+import SmartImage from "../../ui/SmartImage";
+import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
+import { recordImageHistoryEntry } from "@/services/imageHistoryService";
+import { useProjectContentStore } from "@/stores/projectContentStore";
+import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
+import { toRenderableImageSrc } from "@/utils/imageSource";
+
+type Props = {
+  id: string;
+  data: { imageData?: string; imageUrl?: string; boxW?: number; boxH?: number };
+  selected?: boolean;
+};
+
+function CameraNodeInner({ id, data, selected }: Props) {
+  const rf = useReactFlow();
+  const [hover, setHover] = React.useState<string | null>(null);
+  const [preview, setPreview] = React.useState(false);
+  const [currentImageId, setCurrentImageId] = React.useState<string>("");
+  const src = (() => {
+    const raw = (data.imageData || data.imageUrl)?.trim();
+    if (!raw) return undefined;
+    return toRenderableImageSrc(raw) || undefined;
+  })();
+  const borderColor = selected ? "#2563eb" : "#e5e7eb";
+  const boxShadow = selected
+    ? "0 0 0 2px rgba(37,99,235,0.12)"
+    : "0 1px 2px rgba(0,0,0,0.04)";
+
+  // 使用全局图片历史记录
+  const projectId = useProjectContentStore((state) => state.projectId);
+  const history = useImageHistoryStore((state) => state.history);
+  const projectHistory = React.useMemo(() => {
+    if (!projectId) return history;
+    return history.filter((item) => {
+      const pid = item.projectId ?? null;
+      return pid === projectId || pid === null;
+    });
+  }, [history, projectId]);
+  const allImages = React.useMemo(
+    () =>
+      projectHistory.map(
+        (item) =>
+          ({
+            id: item.id,
+            src: item.src,
+            title: item.title,
+            timestamp: item.timestamp,
+          } as ImageItem)
+      ),
+    [projectHistory]
+  );
+
+  const capture = async () => {
+    try {
+      const imgs = (window as any).tanvaImageInstances || [];
+      const models = (window as any).tanvaModel3DInstances || [];
+      const res = await AutoScreenshotService.captureAutoScreenshot(
+        imgs,
+        models,
+        {
+          format: "png",
+          scale: 2,
+          includeBackground: false,
+          backgroundColor: "#ffffff",
+          autoDownload: false,
+        }
+      );
+      if (res.success && res.dataUrl) {
+        const dataUrl = res.dataUrl;
+        const base64 = dataUrl.split(",")[1];
+        rf.setNodes((ns) =>
+          ns.map((n) =>
+            n.id === id ? { ...n, data: { ...n.data, imageData: base64 } } : n
+          )
+        );
+
+        // 添加到全局历史记录
+        const newImageId = `${id}-${Date.now()}`;
+        void recordImageHistoryEntry({
+          id: newImageId,
+          base64,
+          title: `Camera节点截图 ${new Date().toLocaleTimeString()}`,
+          nodeId: id,
+          nodeType: "camera",
+          fileName: `camera_capture_${newImageId}.png`,
+          projectId,
+        })
+          .then(({ remoteUrl }) => {
+            if (!remoteUrl) return;
+            // 用远程 URL 替换节点内的 base64，避免写入项目 JSON/DB
+            rf.setNodes((ns) =>
+              ns.map((n) =>
+                n.id === id
+                  ? ((n.data as any)?.imageData !== base64
+                      ? n
+                      : {
+                          ...n,
+                          data: {
+                            ...n.data,
+                            imageUrl: remoteUrl,
+                            imageData: undefined,
+                            thumbnail: undefined,
+                          },
+                        })
+                  : n
+              )
+            );
+
+            // 同步更新下游 Image 节点（避免 base64 传播并落库）
+            try {
+              const outs = rf.getEdges().filter((e) => e.source === id);
+              if (outs.length) {
+                rf.setNodes((ns) =>
+                  ns.map((n) => {
+                    const hits = outs.filter((e) => e.target === n.id);
+                    if (!hits.length) return n;
+                    if (n.type === "image") {
+                      if ((n.data as any)?.imageData !== base64) return n;
+                      return {
+                        ...n,
+                        data: {
+                          ...n.data,
+                          imageUrl: remoteUrl,
+                          imageData: undefined,
+                          thumbnail: undefined,
+                        },
+                      };
+                    }
+                    return n;
+                  })
+                );
+              }
+            } catch {}
+          })
+          .catch(() => {});
+        setCurrentImageId(newImageId);
+
+        // 向下游 Image 节点传播
+        try {
+          const outs = rf.getEdges().filter((e) => e.source === id);
+          if (outs.length) {
+            rf.setNodes((ns) =>
+              ns.map((n) => {
+                const hits = outs.filter((e) => e.target === n.id);
+                if (!hits.length) return n;
+                if (n.type === "image") {
+                  return { ...n, data: { ...n.data, imageData: base64 } };
+                }
+                return n;
+              })
+            );
+          }
+        } catch {}
+      }
+    } catch (e) {
+      console.error("capture failed", e);
+    }
+  };
+
+  const sendToCanvas = () => {
+    const img = data.imageData || data.imageUrl;
+    if (!img) return;
+    const trimmed = img.trim();
+    const dataUrl = toRenderableImageSrc(trimmed) || trimmed;
+    const fileName = `capture_${Date.now()}.png`;
+    window.dispatchEvent(
+      new CustomEvent("triggerQuickImageUpload", {
+        detail: { imageData: dataUrl, fileName, operationType: "generate" },
+      })
+    );
+  };
+
+  React.useEffect(() => {
+    if (!preview) return;
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPreview(false);
+    };
+    window.addEventListener("keydown", esc);
+    return () => window.removeEventListener("keydown", esc);
+  }, [preview]);
+
+  return (
+    <div
+      style={{
+        width: data.boxW || 260,
+        height: data.boxH || 220,
+        padding: 8,
+        background: "#fff",
+        border: `1px solid ${borderColor}`,
+        borderRadius: 8,
+        boxShadow,
+        transition: "border-color 0.15s ease, box-shadow 0.15s ease",
+        display: "flex",
+        flexDirection: "column",
+        position: "relative",
+      }}
+    >
+      <NodeResizer
+        isVisible={!!selected}
+        minWidth={220}
+        minHeight={180}
+        color='transparent'
+        lineStyle={{ display: "none" }}
+        handleStyle={{
+          background: "transparent",
+          border: "none",
+          width: 12,
+          height: 12,
+          opacity: 0,
+        }}
+        onResize={(e, p) =>
+          rf.setNodes((ns) =>
+            ns.map((n) =>
+              n.id === id
+                ? { ...n, data: { ...n.data, boxW: p.width, boxH: p.height } }
+                : n
+            )
+          )
+        }
+        onResizeEnd={(e, p) =>
+          rf.setNodes((ns) =>
+            ns.map((n) =>
+              n.id === id
+                ? { ...n, data: { ...n.data, boxW: p.width, boxH: p.height } }
+                : n
+            )
+          )
+        }
+      />
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 6,
+        }}
+      >
+        <div style={{ fontWeight: 600 }}>Camera</div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button
+            onClick={capture}
+            style={{
+              fontSize: 12,
+              padding: "4px 8px",
+              background: "#111827",
+              color: "#fff",
+              borderRadius: 6,
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+            }}
+          >
+            <Camera size={14} /> Capture
+          </button>
+          <button
+            onClick={sendToCanvas}
+            disabled={!(data.imageData || data.imageUrl)}
+            title={!(data.imageData || data.imageUrl) ? "无可发送的图像" : "发送到画布"}
+            style={{
+              fontSize: 12,
+              padding: "4px 8px",
+              background: !(data.imageData || data.imageUrl) ? "#e5e7eb" : "#111827",
+              color: "#fff",
+              borderRadius: 6,
+            }}
+          >
+            <SendIcon size={14} />
+          </button>
+        </div>
+      </div>
+      <div
+        onDoubleClick={() => src && setPreview(true)}
+        style={{
+          flex: 1,
+          background: "#fff",
+          borderRadius: 6,
+          border: "1px solid #e5e7eb",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+        }}
+      >
+        {src ? (
+          <SmartImage
+            src={src}
+            alt=""
+            style={{ width: "100%", height: "100%", objectFit: "contain" }}
+          />
+        ) : (
+          <span style={{ fontSize: 12, color: "#9ca3af" }}>
+            点击 Capture 拍摄
+          </span>
+        )}
+      </div>
+      <Handle
+        type='source'
+        position={Position.Right}
+        id='img'
+        onMouseEnter={() => setHover("img-out")}
+        onMouseLeave={() => setHover(null)}
+      />
+      {hover === "img-out" && (
+        <div
+          className='flow-tooltip'
+          style={{ right: -8, top: "50%", transform: "translate(100%, -50%)" }}
+        >
+          image
+        </div>
+      )}
+      <ImagePreviewModal
+        isOpen={preview}
+        imageSrc={
+          allImages.length > 0 && currentImageId
+            ? allImages.find((item) => item.id === currentImageId)?.src ||
+              src ||
+              ""
+            : src || ""
+        }
+        imageTitle='全局图片预览'
+        onClose={() => setPreview(false)}
+        imageCollection={allImages}
+        currentImageId={currentImageId}
+        onImageChange={(imageId: string) => {
+          const selectedImage = allImages.find((item) => item.id === imageId);
+          if (selectedImage) {
+            setCurrentImageId(imageId);
+          }
+        }}
+      />
+    </div>
+  );
+}
+
+export default React.memo(CameraNodeInner);

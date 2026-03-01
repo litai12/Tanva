@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>147 API 快速测试</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0 auto;
+      max-width: 900px;
+      padding: 24px;
+      background: #f7f7f7;
+      color: #222;
+    }
+
+    h1 {
+      font-size: 26px;
+      margin-bottom: 8px;
+    }
+
+    p {
+      margin-top: 0;
+      color: #555;
+    }
+
+    form {
+      background: #fff;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #d1d5db;
+      font-size: 14px;
+      box-sizing: border-box;
+      background: #fff;
+    }
+
+    textarea {
+      min-height: 90px;
+      resize: vertical;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      color: #fff;
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    button:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 20px rgba(99, 102, 241, 0.25);
+    }
+
+    button:disabled {
+      cursor: wait;
+      background: #cbd5f5;
+      box-shadow: none;
+      transform: none;
+    }
+
+    .result {
+      margin-top: 24px;
+      padding: 16px;
+      border-radius: 10px;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      display: none;
+    }
+
+    .result.success {
+      border-color: #bbf7d0;
+      background: #f0fdf4;
+      color: #14532d;
+    }
+
+    .result.error {
+      border-color: #fecaca;
+      background: #fef2f2;
+      color: #7f1d1d;
+    }
+
+    .result.loading {
+      border-color: #bae6fd;
+      background: #f0f9ff;
+      color: #0c4a6e;
+    }
+
+    .image-preview {
+      margin-top: 24px;
+      text-align: center;
+      padding: 20px;
+      background: #fff;
+      border-radius: 12px;
+      border: 1px solid #e5e7eb;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+    }
+
+    .image-preview img {
+      max-width: 100%;
+      max-height: 500px;
+      border-radius: 12px;
+      border: 1px solid #e2e8f0;
+      box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
+      transition: transform 0.2s ease;
+    }
+
+    .image-preview img:hover {
+      transform: scale(1.02);
+    }
+
+    .image-preview p {
+      margin: 0;
+      padding: 10px;
+      font-size: 14px;
+    }
+
+    .debug {
+      margin-top: 24px;
+      background: #0f172a;
+      color: #e2e8f0;
+      border-radius: 10px;
+      padding: 18px;
+      font-family: Menlo, Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      overflow-x: auto;
+      display: none;
+    }
+
+    .section-title {
+      margin-top: 32px;
+      font-size: 18px;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <h1>147 API 快速测试</h1>
+  <p>用于单独验证 147 Banana API 可用性。只在本地运行，不会保存任何密钥。</p>
+
+  <form id="testerForm">
+    <div class="form-group">
+      <label for="apiKey">147 API Key</label>
+      <input id="apiKey" type="password" required placeholder="例如：sk-xxxxxxxxxxxxxxxx" autocomplete="off" value="sk-WBd9sGus7I68Wwl9ivwfIBP148GzuF7ypLISfdUqlW5Ipj5P" />
+      <small style="color: #28a745; font-size: 12px;">✅ 已预设有效的API Key，可直接测试</small>
+    </div>
+
+    <div class="form-group">
+      <label for="prompt">提示词</label>
+      <textarea id="prompt" required>画一只可爱的橘猫，戴着太空头盔，在月球漫步。</textarea>
+    </div>
+
+    <div class="form-group">
+      <label for="aspectRatio">长宽比</label>
+      <select id="aspectRatio">
+        <option value="">默认 (1:1)</option>
+        <option value="1:1">1:1 正方形</option>
+        <option value="3:4">3:4 竖屏</option>
+        <option value="4:3">4:3 横屏</option>
+        <option value="9:16">9:16 手机竖屏</option>
+        <option value="16:9">16:9 宽屏</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="responseMode">响应内容</label>
+      <select id="responseMode">
+        <option value="both">图像 + 文本</option>
+        <option value="image">仅图像</option>
+        <option value="text">仅文本</option>
+      </select>
+    </div>
+
+    <button type="submit" id="submitBtn">调用 147 API</button>
+    <button type="button" id="testImageOnlyBtn" style="margin-top: 10px; background: linear-gradient(135deg, #10b981 0%, #059669 100%);">测试仅图像生成</button>
+    <button type="button" id="pingTestBtn" style="margin-top: 10px; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">Ping 测试延迟</button>
+  </form>
+
+  <div id="result" class="result"></div>
+  <div id="imagePreview" class="image-preview"></div>
+  <div id="debug" class="debug"></div>
+
+  <h2 class="section-title">如何使用</h2>
+  <ol>
+    <li>直接用浏览器打开本页面 (无需起服务器)。</li>
+    <li>粘贴 147 提供的 API Key，输入提示词后点击「调用 147 API」。</li>
+    <li>若成功，会在下方显示生成图，以及接口原始响应。</li>
+    <li>若失败，请复制调试信息反馈或自行定位问题。</li>
+    <li><strong>新增功能：</strong>点击「Ping 测试延迟」可以测试到 147 API 的网络延迟和连接稳定性。</li>
+  </ol>
+
+  <script>
+    const form = document.getElementById('testerForm');
+    const submitBtn = document.getElementById('submitBtn');
+    const resultDiv = document.getElementById('result');
+    const imagePreview = document.getElementById('imagePreview');
+    const debugDiv = document.getElementById('debug');
+
+    const API_BASE = 'https://api1.147ai.com/v1beta/models';
+    const MODEL = 'gemini-2.5-flash-image';
+
+    function setResult(message, type) {
+      resultDiv.style.display = 'block';
+      resultDiv.className = `result ${type}`;
+      resultDiv.textContent = message;
+    }
+
+    function resetUI() {
+      resultDiv.style.display = 'none';
+      imagePreview.innerHTML = '';
+      debugDiv.style.display = 'none';
+      debugDiv.textContent = '';
+    }
+
+    function buildAuthorizationHeader(apiKey) {
+      if (!apiKey) {
+        throw new Error('API Key 不能为空');
+      }
+      // 147 API 使用 sk- 开头的密钥，如有 Bearer 前缀则去掉
+      return apiKey.replace(/^Bearer\s+/i, '').trim();
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+
+      const apiKey = document.getElementById('apiKey').value.trim();
+      const prompt = document.getElementById('prompt').value.trim();
+      const aspectRatio = document.getElementById('aspectRatio').value;
+      const responseMode = document.getElementById('responseMode').value;
+
+      if (!apiKey || !prompt) {
+        setResult('API Key 和提示词不能为空', 'error');
+        return;
+      }
+
+      resetUI();
+      submitBtn.disabled = true;
+      setResult('正在调用 147 API...', 'loading');
+
+      const startTime = Date.now();
+
+      const responseModalities = (() => {
+        switch (responseMode) {
+          case 'image':
+            return ['IMAGE'];
+          case 'text':
+            return ['TEXT'];
+          default:
+            return ['TEXT', 'IMAGE'];
+        }
+      })();
+
+      const body = {
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { text: prompt },
+            ],
+          },
+        ],
+        safetySettings: [
+          { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+          { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+          { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+          { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+          { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' },
+        ],
+        generationConfig: {
+          responseModalities,
+        },
+      };
+
+      if (aspectRatio) {
+        body.generationConfig.imageConfig = { aspectRatio };
+      }
+
+      // 添加调试信息
+      console.log('🚀 开始API调用:', {
+        url: `${API_BASE}/${MODEL}:generateContent`,
+        responseModalities,
+        aspectRatio,
+        startTime: new Date().toLocaleTimeString(),
+        body: JSON.stringify(body, null, 2)
+      });
+
+      let fetchResponse;
+      let responseJson;
+      const url = `${API_BASE}/${MODEL}:generateContent`;
+
+      try {
+        fetchResponse = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Authorization': buildAuthorizationHeader(apiKey),
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(body),
+        });
+
+        const rawText = await fetchResponse.text();
+        debugDiv.style.display = 'block';
+        debugDiv.textContent = `HTTP ${fetchResponse.status} ${fetchResponse.statusText}\n\n${rawText}`;
+
+        if (!fetchResponse.ok) {
+          setResult(`调用失败：HTTP ${fetchResponse.status}`, 'error');
+          return;
+        }
+
+        responseJson = JSON.parse(rawText);
+        
+        // 记录API响应时间
+        const apiResponseTime = Date.now();
+        const apiDuration = apiResponseTime - startTime;
+        console.log(`📡 API响应完成，耗时: ${(apiDuration / 1000).toFixed(2)}秒`);
+        
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setResult(`请求出错：${message}`, 'error');
+        debugDiv.style.display = 'block';
+        debugDiv.textContent += `\n\n异常信息：${message}`;
+        return;
+      } finally {
+        submitBtn.disabled = false;
+      }
+
+      const candidate = responseJson?.candidates?.[0];
+      const parts = candidate?.content?.parts || [];
+      let imageData = null;
+      let textResponse = '';
+
+      console.log('解析响应数据:', { candidate, parts });
+
+      parts.forEach((part, index) => {
+        console.log(`Part ${index}:`, part);
+        if (typeof part.text === 'string') {
+          textResponse += part.text;
+        }
+        if (part.inlineData?.data) {
+          imageData = part.inlineData.data;
+          console.log('找到图像数据，长度:', imageData.length);
+        }
+      });
+
+      if (!imageData && !textResponse) {
+        setResult('调用成功但未返回图像或文本，请检查响应数据。', 'error');
+        return;
+      }
+
+      const endTime = Date.now();
+      const totalTime = endTime - startTime;
+      const timeSeconds = (totalTime / 1000).toFixed(2);
+
+      let message = `调用成功 (耗时: ${timeSeconds}秒)`;
+      if (textResponse) {
+        message += `，文本输出：${textResponse}`;
+      }
+      if (imageData) {
+        message += `，图像数据长度：${imageData.length} 字符`;
+      }
+      setResult(message, 'success');
+
+      if (imageData) {
+        try {
+          // 清理base64数据
+          const cleanImageData = imageData.replace(/\s+/g, '');
+          console.log('清理后的图像数据长度:', cleanImageData.length);
+          
+          const img = document.createElement('img');
+          img.src = `data:image/png;base64,${cleanImageData}`;
+          img.alt = '生成的图像';
+          img.style.maxWidth = '100%';
+          img.style.height = 'auto';
+          img.style.borderRadius = '12px';
+          img.style.border = '1px solid #e2e8f0';
+          img.style.boxShadow = '0 8px 18px rgba(15, 23, 42, 0.12)';
+          
+          img.onload = () => {
+            const imageLoadTime = Date.now();
+            const imageLoadDuration = imageLoadTime - startTime;
+            console.log(`图像加载成功，总耗时: ${(imageLoadDuration / 1000).toFixed(2)}秒`);
+          };
+          
+          img.onerror = (error) => {
+            console.error('图像加载失败:', error);
+            imagePreview.innerHTML = '<p style="color: red;">图像加载失败，请检查base64数据格式</p>';
+          };
+          
+          imagePreview.innerHTML = '';
+          imagePreview.appendChild(img);
+        } catch (error) {
+          console.error('创建图像元素失败:', error);
+          imagePreview.innerHTML = '<p style="color: red;">图像显示失败: ' + error.message + '</p>';
+        }
+      } else {
+        imagePreview.innerHTML = '<p style="color: #666;">未生成图像</p>';
+      }
+    });
+
+    // Ping 测试延迟按钮
+    document.getElementById('pingTestBtn').addEventListener('click', async () => {
+      resetUI();
+      setResult('正在测试 147 API 延迟...', 'loading');
+      
+      const pingResults = [];
+      const testCount = 5; // 测试5次
+      const apiUrl = `${API_BASE}/${MODEL}:generateContent`;
+      
+      console.log('🚀 开始 Ping 测试:', {
+        url: apiUrl,
+        testCount,
+        startTime: new Date().toLocaleTimeString()
+      });
+      
+      for (let i = 0; i < testCount; i++) {
+        const startTime = performance.now();
+
+        try {
+          // 发送一个简单的OPTIONS请求测试连接
+          // OPTIONS是标准的CORS预检请求，用来检查API可用性
+          const response = await fetch(apiUrl, {
+            method: 'OPTIONS',
+            headers: {
+              'Authorization': buildAuthorizationHeader(document.getElementById('apiKey').value.trim()),
+            },
+          });
+
+          const endTime = performance.now();
+          const latency = endTime - startTime;
+
+          pingResults.push({
+            attempt: i + 1,
+            latency: latency,
+            status: response.status,
+            success: true  // OPTIONS 请求通常返回 200-204，认为有响应就是成功
+          });
+
+          console.log(`Ping ${i + 1}: ${latency.toFixed(2)}ms (HTTP ${response.status})`);
+
+        } catch (error) {
+          const endTime = performance.now();
+          const latency = endTime - startTime;
+
+          pingResults.push({
+            attempt: i + 1,
+            latency: latency,
+            status: 'ERROR',
+            success: false,
+            error: error.message
+          });
+
+          console.log(`Ping ${i + 1}: ${latency.toFixed(2)}ms (ERROR: ${error.message})`);
+        }
+
+        // 每次测试间隔100ms
+        if (i < testCount - 1) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+      
+      // 计算统计信息
+      const successfulPings = pingResults.filter(p => p.success);
+      const avgLatency = successfulPings.length > 0 
+        ? successfulPings.reduce((sum, p) => sum + p.latency, 0) / successfulPings.length 
+        : 0;
+      const minLatency = successfulPings.length > 0 
+        ? Math.min(...successfulPings.map(p => p.latency)) 
+        : 0;
+      const maxLatency = successfulPings.length > 0 
+        ? Math.max(...successfulPings.map(p => p.latency)) 
+        : 0;
+      
+      // 显示结果
+      let resultMessage = `Ping 测试完成 (${testCount}次测试)\n`;
+      resultMessage += `成功率: ${successfulPings.length}/${testCount} (${((successfulPings.length/testCount)*100).toFixed(1)}%)\n`;
+      
+      if (successfulPings.length > 0) {
+        resultMessage += `平均延迟: ${avgLatency.toFixed(2)}ms\n`;
+        resultMessage += `最小延迟: ${minLatency.toFixed(2)}ms\n`;
+        resultMessage += `最大延迟: ${maxLatency.toFixed(2)}ms`;
+      } else {
+        resultMessage += `所有测试均失败`;
+      }
+      
+      setResult(resultMessage, successfulPings.length > 0 ? 'success' : 'error');
+      
+      // 显示详细调试信息
+      debugDiv.style.display = 'block';
+      debugDiv.textContent = `Ping 测试详细结果:\n\n` + 
+        pingResults.map(p => 
+          `测试 ${p.attempt}: ${p.latency.toFixed(2)}ms - ${p.success ? '成功' : '失败'} (${p.status})${p.error ? ` - ${p.error}` : ''}`
+        ).join('\n') +
+        `\n\n统计信息:\n` +
+        `- 测试次数: ${testCount}\n` +
+        `- 成功次数: ${successfulPings.length}\n` +
+        `- 失败次数: ${testCount - successfulPings.length}\n` +
+        `- 成功率: ${((successfulPings.length/testCount)*100).toFixed(1)}%\n` +
+        `- 平均延迟: ${avgLatency.toFixed(2)}ms\n` +
+        `- 最小延迟: ${minLatency.toFixed(2)}ms\n` +
+        `- 最大延迟: ${maxLatency.toFixed(2)}ms\n` +
+        `- 延迟标准差: ${successfulPings.length > 1 ? 
+          Math.sqrt(successfulPings.reduce((sum, p) => sum + Math.pow(p.latency - avgLatency, 2), 0) / successfulPings.length).toFixed(2) : 
+          '0.00'}ms`;
+    });
+
+    // 测试仅图像生成按钮
+    document.getElementById('testImageOnlyBtn').addEventListener('click', async () => {
+      const apiKey = document.getElementById('apiKey').value.trim();
+      const prompt = document.getElementById('prompt').value.trim();
+      const aspectRatio = document.getElementById('aspectRatio').value;
+
+      if (!apiKey || !prompt) {
+        setResult('API Key 和提示词不能为空', 'error');
+        return;
+      }
+
+      resetUI();
+      setResult('正在测试仅图像生成...', 'loading');
+
+      const startTime = Date.now();
+
+      const body = {
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { text: prompt },
+            ],
+          },
+        ],
+        safetySettings: [
+          { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+          { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+          { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+          { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+          { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' },
+        ],
+        generationConfig: {
+          responseModalities: ['IMAGE'], // 强制仅生成图像
+        },
+      };
+
+      if (aspectRatio) {
+        body.generationConfig.imageConfig = { aspectRatio };
+      }
+
+      console.log('🚀 开始仅图像生成测试:', {
+        url: `${API_BASE}/${MODEL}:generateContent`,
+        startTime: new Date().toLocaleTimeString(),
+        body: JSON.stringify(body, null, 2)
+      });
+
+      try {
+        const response = await fetch(`${API_BASE}/${MODEL}:generateContent`, {
+          method: 'POST',
+          headers: {
+            'Authorization': buildAuthorizationHeader(apiKey),
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(body),
+        });
+
+        const rawText = await response.text();
+        debugDiv.style.display = 'block';
+        debugDiv.textContent = `HTTP ${response.status} ${response.statusText}\n\n${rawText}`;
+
+        if (!response.ok) {
+          setResult(`仅图像生成测试失败：HTTP ${response.status}`, 'error');
+          return;
+        }
+
+        const responseJson = JSON.parse(rawText);
+        
+        // 记录API响应时间
+        const apiResponseTime = Date.now();
+        const apiDuration = apiResponseTime - startTime;
+        console.log(`📡 仅图像API响应完成，耗时: ${(apiDuration / 1000).toFixed(2)}秒`);
+        
+        console.log('仅图像生成响应:', responseJson);
+
+        const candidate = responseJson?.candidates?.[0];
+        const parts = candidate?.content?.parts || [];
+        let imageData = null;
+
+        parts.forEach((part, index) => {
+          console.log(`仅图像 Part ${index}:`, part);
+          if (part.inlineData?.data) {
+            imageData = part.inlineData.data;
+            console.log('找到图像数据，长度:', imageData.length);
+          }
+        });
+
+        if (imageData) {
+          const endTime = Date.now();
+          const totalTime = endTime - startTime;
+          const timeSeconds = (totalTime / 1000).toFixed(2);
+          
+          setResult(`仅图像生成测试成功！(耗时: ${timeSeconds}秒)`, 'success');
+          
+          const cleanImageData = imageData.replace(/\s+/g, '');
+          const img = document.createElement('img');
+          img.src = `data:image/png;base64,${cleanImageData}`;
+          img.alt = '生成的图像';
+          img.style.maxWidth = '100%';
+          img.style.height = 'auto';
+          img.style.borderRadius = '12px';
+          img.style.border = '1px solid #e2e8f0';
+          img.style.boxShadow = '0 8px 18px rgba(15, 23, 42, 0.12)';
+          
+          imagePreview.innerHTML = '';
+          imagePreview.appendChild(img);
+        } else {
+          setResult('仅图像生成测试失败：未返回图像数据', 'error');
+          imagePreview.innerHTML = '<p style="color: red;">未返回图像数据</p>';
+        }
+
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setResult(`仅图像生成测试出错：${message}`, 'error');
+        debugDiv.style.display = 'block';
+        debugDiv.textContent += `\n\n异常信息：${message}`;
+      }
+    });
+  </script>
+</body>
+</html>
