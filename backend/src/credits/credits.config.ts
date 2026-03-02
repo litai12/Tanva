@@ -40,7 +40,7 @@ export const CREDIT_PRICING_CONFIG = {
   'gemini-image-analyze': {
     serviceName: 'Gemini 图像分析',
     provider: 'gemini',
-    creditsPerCall: 6,
+    creditsPerCall: 20,
     description: '使用 Gemini 分析图像内容',
   },
 
@@ -48,7 +48,7 @@ export const CREDIT_PRICING_CONFIG = {
   'gemini-text': {
     serviceName: 'Gemini 文字对话',
     provider: 'gemini',
-    creditsPerCall: 2,
+    creditsPerCall: 10,
     description: '使用 Gemini 进行文字对话',
     maxInputTokens: 8000,
     maxContextLength: 32000,
@@ -185,7 +185,7 @@ export type ServiceType = keyof typeof CREDIT_PRICING_CONFIG;
 export const DEFAULT_NEW_USER_CREDITS = 1000;
 
 // 每日登录奖励积分
-export const DAILY_LOGIN_REWARD_CREDITS = 100;
+export const DAILY_LOGIN_REWARD_CREDITS = 50;
 
 // 连续签到7天额外奖励积分
-export const CONSECUTIVE_7_DAY_BONUS_CREDITS = 500;
+export const CONSECUTIVE_7_DAY_BONUS_CREDITS = 150;

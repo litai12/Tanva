@@ -541,14 +541,14 @@ const getStoredAddPanelTab = (): AddPanelTab => {
 const NODE_CREDITS_MAP: Record<string, number | string> = {
   // 普通节点
   textPrompt: 0, // 提示词节点 - 不消耗积分
-  textChat: 2, // 纯文本交互节点 - gemini-text
+  textChat: 10, // 纯文本交互节点 - gemini-text
   textNote: 0, // 纯文本节点 - 不消耗积分
-  promptOptimize: 2, // 提示词优化节点 - gemini-text
-  analysis: 6, // 图像分析节点 - gemini-image-analyze
+  promptOptimize: 10, // 提示词优化节点 - gemini-text
+  analysis: 20, // 图像分析节点 - gemini-image-analyze
   image: 0, // 图片节点 - 不消耗积分
   generate: "10-30", // 生成节点 - gemini-2.5-image (10) 或 gemini-3-pro-image (30)
   generateRef: 30, // 参考图生成节点 - gemini-image-edit 或 gemini-image-blend
-  generate4: 40, // 生成多张图片节点 - 4次 × 10积分
+  generate4: 120, // 生成多张图片节点 - 4次 × 30积分
   midjourney: 50, // Midjourney生成 - midjourney-imagine
   three: 30, // 三维节点 - convert-2d-to-3d
   sora2Video: "40-400", // 视频生成节点 - sora-sd (40) 或 sora-hd (400)
@@ -563,7 +563,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   storyboardSplit: 0, // 分镜拆分节点 - 不消耗积分
 
   // Beta 节点
-  textPromptPro: 2, // 专业提示词节点 - gemini-text
+  textPromptPro: 0, // 专业提示词节点 - 输入节点，不消耗积分
   imagePro: 0, // 专业图片节点 - 不消耗积分
   generatePro: 30, // 专业生成节点 - gemini-3-pro-image
   generatePro4: 120, // 四图专业生成节点 - 4次 × 30积分
