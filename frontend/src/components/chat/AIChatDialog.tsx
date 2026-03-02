@@ -2986,41 +2986,6 @@ const AIChatDialog: React.FC = () => {
 
               {/* 左侧按钮组 */}
               <div className='absolute flex items-center gap-2 left-2 bottom-2'>
-                <div
-                  className={cn(
-                    "flex h-7 items-center gap-0.5 rounded-full border border-liquid-glass bg-liquid-glass px-1 shadow-liquid-glass backdrop-blur-liquid backdrop-saturate-125",
-                    generationStatus.isGenerating && "opacity-90"
-                  )}
-                  title='快速切换国内模型'
-                >
-                  {providerToggleOptions.map((option) => {
-                    const isActive = aiProvider === option.value;
-                    return (
-                      <button
-                        key={option.value}
-                        type='button'
-                        className={cn(
-                          "flex h-[20px] items-center justify-center rounded-full px-3 text-[12px] font-semibold transition-colors duration-150",
-                          isActive
-                            ? "bg-slate-900 text-white shadow-sm"
-                            : "text-slate-700",
-                          generationStatus.isGenerating && "cursor-pointer"
-                        )}
-                        onClick={() => {
-                          if (aiProvider !== option.value) {
-                            console.log("🤖 切换 AI 提供商:", option.value);
-                            setAIProvider(option.value);
-                          }
-                        }}
-                        aria-pressed={isActive}
-                        title={`${option.label} · ${option.description}`}
-                      >
-                        {option.label}
-                      </button>
-                    );
-                  })}
-                </div>
-
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
