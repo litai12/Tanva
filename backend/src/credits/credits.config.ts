@@ -150,31 +150,31 @@ export const CREDIT_PRICING_CONFIG = {
   'kling-video': {
     serviceName: '可灵 Kling 视频',
     provider: 'kling',
-    creditsPerCall: 60,
+    creditsPerCall: 600,
     description: '使用可灵 Kling 生成视频',
   },
   'kling-2.6-video': {
     serviceName: '可灵 Kling 2.6 视频',
     provider: 'kling',
-    creditsPerCall: 100,
+    creditsPerCall: 600,
     description: '使用可灵 Kling 2.6 生成视频',
   },
   'kling-o1-video': {
     serviceName: '可灵 Kling O1 视频',
     provider: 'kling',
-    creditsPerCall: 100,
+    creditsPerCall: 1600,
     description: '使用可灵 Kling O1 (Omni Video) 生成视频',
   },
   'vidu-video': {
     serviceName: 'Vidu 视频',
     provider: 'vidu',
-    creditsPerCall: 60,
+    creditsPerCall: 600,
     description: '使用 Vidu 生成视频',
   },
   'doubao-video': {
     serviceName: '豆包 Seedance 视频',
     provider: 'doubao',
-    creditsPerCall: 60,
+    creditsPerCall: 600,
     description: '使用豆包 Seedance 生成视频',
   },
 } as const;

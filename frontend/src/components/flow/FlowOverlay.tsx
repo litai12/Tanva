@@ -546,11 +546,11 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   sora2Video: "40-400", // 视频生成节点 - sora-sd (40) 或 sora-hd (400)
   wan26: 600, // Wan2.6生成视频 - wan26-video
   wan2R2V: 600, // 视频融合 - wan26-r2v
-  klingVideo: "40-400", // 可灵视频生成 - 可能使用 sora-sd 或 sora-hd
-  kling26Video: 100, // 可灵2.6视频生成 - kling-v2-6
-  klingO1Video: "40-400", // 可灵O1视频生成 - Omni Video
-  viduVideo: "40-400", // Vidu视频生成 - 可能使用 sora-sd 或 sora-hd
-  doubaoVideo: "40-400", // 豆包视频生成 - 可能使用 sora-sd 或 sora-hd
+  klingVideo: 600, // 可灵视频生成
+  kling26Video: 600, // 可灵2.6视频生成 - kling-v2-6
+  klingO1Video: 1600, // 可灵O1视频生成 - Omni Video
+  viduVideo: 600, // Vidu视频生成
+  doubaoVideo: 600, // 豆包视频生成
   camera: 0, // 截图节点 - 不消耗积分
   storyboardSplit: 0, // 分镜拆分节点 - 不消耗积分
 
