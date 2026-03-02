@@ -57,6 +57,7 @@ import { GoogleGenAI } from '@google/genai';
 import { spawn } from 'child_process';
 import crypto from 'crypto';
 import { Readable } from 'stream';
+import { verify } from 'jsonwebtoken';
 
 type GenerateImageUrlResult = {
   imageUrl: string;
@@ -105,32 +106,59 @@ export class AiController {
     @Optional() private readonly imageTaskService?: ImageTaskService,
   ) {}
 
+  private extractAccessToken(req: any): string | null {
+    const cookieToken = req?.cookies?.access_token;
+    if (typeof cookieToken === 'string' && cookieToken.trim()) {
+      return cookieToken.trim();
+    }
+
+    const authHeader = req?.headers?.authorization ?? req?.headers?.Authorization;
+    if (typeof authHeader === 'string') {
+      const match = authHeader.match(/^Bearer\s+(.+)$/i);
+      if (match?.[1]) {
+        return match[1].trim();
+      }
+    }
+
+    return null;
+  }
+
   /**
-   * 判断是否管理员：管理员可跳过水印
+   * 兼容无守卫场景：优先读取 req.user，其次尝试校验 access token 提取 userId。
    */
-  private isAdminUser(req: any): boolean {
-    const role =
-      req?.user?.role ??
-      (Array.isArray(req?.user?.roles) ? req.user.roles.find((r: any) => r) : null);
-    return typeof role === 'string' && role.toLowerCase() === 'admin';
+  private resolveRequestUserId(req: any): string | null {
+    const fromUser = req?.user?.id || req?.user?.sub;
+    if (typeof fromUser === 'string' && fromUser.length > 0) {
+      return fromUser;
+    }
+
+    const token = this.extractAccessToken(req);
+    if (!token) {
+      return null;
+    }
+
+    const secret = process.env.JWT_ACCESS_SECRET || 'dev-access-secret';
+    try {
+      const payload = verify(token, secret) as { sub?: string; id?: string };
+      const fromToken = payload?.sub || payload?.id;
+      return typeof fromToken === 'string' && fromToken.length > 0 ? fromToken : null;
+    } catch {
+      return null;
+    }
   }
 
   /**
    * 检查用户是否可以跳过水印（管理员或水印白名单用户）
    */
   private async canSkipWatermark(req: any): Promise<boolean> {
-    // 管理员直接跳过
-    if (this.isAdminUser(req)) {
-      return true;
-    }
-    // 检查水印白名单
-    const userId = req?.user?.id || req?.user?.sub;
+    const userId = this.resolveRequestUserId(req);
     if (!userId) {
       return false;
     }
     try {
       const user = await this.usersService.findById(userId);
-      return user?.noWatermark === true;
+      const isAdmin = typeof user?.role === 'string' && user.role.toLowerCase() === 'admin';
+      return isAdmin || user?.noWatermark === true;
     } catch (e) {
       this.logger.warn('检查水印白名单失败', e);
       return false;
@@ -1539,11 +1567,20 @@ export class AiController {
   async generateVideoProvider(@Body() dto: VideoProviderRequestDto, @Req() req: any) {
     const serviceType: ServiceType = `${dto.provider}-video` as ServiceType;
     const userId = this.getUserId(req);
+    const effectiveDto: VideoProviderRequestDto = { ...dto };
+
+    // 白名单/管理员兜底：豆包链路即使前端传入 watermark=true，也强制关闭水印。
+    if (effectiveDto.provider === 'doubao') {
+      const skipWatermark = await this.canSkipWatermark(req);
+      if (skipWatermark) {
+        effectiveDto.watermark = false;
+      }
+    }
 
     // 如果没有用户ID（API Key认证），直接执行操作
     if (!userId) {
       this.logger.debug('API Key authentication - skipping credits deduction');
-      const result = await this.videoProviderService.generateVideo(dto);
+      const result = await this.videoProviderService.generateVideo(effectiveDto);
       return { ...result, apiUsageId: null };
     }
 
@@ -1554,8 +1591,8 @@ export class AiController {
     const deductResult = await this.creditsService.preDeductCredits({
       userId,
       serviceType,
-      model: dto.provider,
-      inputImageCount: dto.referenceImages?.length || undefined,
+      model: effectiveDto.provider,
+      inputImageCount: effectiveDto.referenceImages?.length || undefined,
       outputImageCount: 0,
       ipAddress: req.ip,
       userAgent: req.headers?.['user-agent'],
@@ -1565,7 +1602,7 @@ export class AiController {
     this.logger.debug(`Credits pre-deducted for video: ${serviceType}, apiUsageId: ${apiUsageId}`);
 
     try {
-      const result = await this.videoProviderService.generateVideo(dto);
+      const result = await this.videoProviderService.generateVideo(effectiveDto);
       // 返回 apiUsageId，前端在任务失败时可请求退款
       return { ...result, apiUsageId };
     } catch (error) {
