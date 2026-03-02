@@ -660,6 +660,27 @@ const FLOW_NODE_KEY_ALIASES: Record<string, FlowNodeType> = {
   generate_reference: "generateRef",
 };
 
+const canonicalizeNodeTypeKey = (value: string): string =>
+  value.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+const FLOW_NODE_CANONICAL_MAP: Record<string, FlowNodeType> = (() => {
+  const map: Record<string, FlowNodeType> = {};
+
+  (Object.keys(FLOW_NODE_DEFAULT_SIZE) as FlowNodeType[]).forEach((key) => {
+    map[canonicalizeNodeTypeKey(key)] = key;
+  });
+
+  Object.entries(FLOW_NODE_KEY_ALIASES).forEach(([alias, type]) => {
+    map[canonicalizeNodeTypeKey(alias)] = type;
+  });
+
+  return map;
+})();
+
+const FLOW_NODE_CANONICAL_ENTRIES = Object.entries(FLOW_NODE_CANONICAL_MAP).sort(
+  (a, b) => b[0].length - a[0].length
+);
+
 const normalizeFlowNodeType = (rawType?: string): FlowNodeType | null => {
   if (typeof rawType !== "string") return null;
   const trimmed = rawType.trim();
@@ -674,7 +695,45 @@ const normalizeFlowNodeType = (rawType?: string): FlowNodeType | null => {
     .find((key) => key.toLowerCase() === lowered);
   if (caseInsensitive) return caseInsensitive;
 
-  return FLOW_NODE_KEY_ALIASES[lowered] || null;
+  const aliasMatched = FLOW_NODE_KEY_ALIASES[lowered];
+  if (aliasMatched) return aliasMatched;
+
+  const canonical = canonicalizeNodeTypeKey(trimmed);
+  const canonicalMatched = FLOW_NODE_CANONICAL_MAP[canonical];
+  if (canonicalMatched) return canonicalMatched;
+
+  const fuzzyMatched = FLOW_NODE_CANONICAL_ENTRIES.find(([candidate]) =>
+    canonical.includes(candidate)
+  );
+  if (fuzzyMatched) return fuzzyMatched[1];
+
+  return null;
+};
+
+const resolveFlowNodeTypeFromConfig = (config: Partial<NodeConfig>): string => {
+  const metadata = (config.metadata ?? {}) as Record<string, unknown>;
+  const candidates = [
+    config.nodeKey,
+    config.nameEn,
+    config.nameZh,
+    config.serviceType,
+    typeof metadata.nodeKey === "string" ? metadata.nodeKey : undefined,
+    typeof metadata.type === "string" ? metadata.type : undefined,
+    typeof metadata.provider === "string" ? metadata.provider : undefined,
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeFlowNodeType(candidate);
+    if (normalized) return normalized;
+  }
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  return "";
 };
 
 const nodePaletteButtonStyle: React.CSSProperties = {
@@ -10416,7 +10475,12 @@ function FlowInner() {
                           badge={badge}
                           credits={config.creditsPerCall}
                           disabled={isDisabled}
-                          onClick={() => createNodeAtWorldCenter(config.nodeKey, addPanel.world)}
+                          onClick={() =>
+                            createNodeAtWorldCenter(
+                              resolveFlowNodeTypeFromConfig(config),
+                              addPanel.world
+                            )
+                          }
                         />
                       );
                     })}
