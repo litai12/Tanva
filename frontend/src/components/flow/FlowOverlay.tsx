@@ -618,6 +618,65 @@ const BETA_NODE_ITEMS = [
   },
 ];
 
+const FLOW_NODE_DEFAULT_SIZE = {
+  textPrompt: { w: 240, h: 180 },
+  textPromptPro: { w: 420, h: 360 },
+  textNote: { w: 220, h: 140 },
+  textChat: { w: 320, h: 540 },
+  promptOptimize: { w: 360, h: 300 },
+  image: { w: 260, h: 240 },
+  imagePro: { w: 320, h: 240 },
+  generate: { w: 260, h: 200 },
+  generatePro: { w: 320, h: 400 },
+  generatePro4: { w: 380, h: 480 },
+  generate4: { w: 300, h: 240 },
+  generateRef: { w: 260, h: 240 },
+  three: { w: 280, h: 260 },
+  camera: { w: 260, h: 220 },
+  analysis: { w: 260, h: 280 },
+  sora2Video: { w: 280, h: 260 },
+  wan26: { w: 300, h: 320 },
+  wan2R2V: { w: 300, h: 360 },
+  klingVideo: { w: 280, h: 260 },
+  kling26Video: { w: 280, h: 260 },
+  klingO1Video: { w: 280, h: 380 },
+  viduVideo: { w: 280, h: 260 },
+  doubaoVideo: { w: 280, h: 260 },
+  storyboardSplit: { w: 320, h: 400 },
+  midjourney: { w: 280, h: 320 },
+  nano2: { w: 260, h: 200 },
+  video: { w: 320, h: 280 },
+  videoAnalyze: { w: 280, h: 360 },
+  videoFrameExtract: { w: 300, h: 420 },
+  imageGrid: { w: 300, h: 380 },
+  imageSplit: { w: 320, h: 400 },
+} as const;
+
+type FlowNodeType = keyof typeof FLOW_NODE_DEFAULT_SIZE;
+
+const FLOW_NODE_KEY_ALIASES: Record<string, FlowNodeType> = {
+  generatereference: "generateRef",
+  "generate-reference": "generateRef",
+  generate_reference: "generateRef",
+};
+
+const normalizeFlowNodeType = (rawType?: string): FlowNodeType | null => {
+  if (typeof rawType !== "string") return null;
+  const trimmed = rawType.trim();
+  if (!trimmed) return null;
+
+  if (trimmed in FLOW_NODE_DEFAULT_SIZE) {
+    return trimmed as FlowNodeType;
+  }
+
+  const lowered = trimmed.toLowerCase();
+  const caseInsensitive = (Object.keys(FLOW_NODE_DEFAULT_SIZE) as FlowNodeType[])
+    .find((key) => key.toLowerCase() === lowered);
+  if (caseInsensitive) return caseInsensitive;
+
+  return FLOW_NODE_KEY_ALIASES[lowered] || null;
+};
+
 const nodePaletteButtonStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
@@ -3595,74 +3654,23 @@ function FlowInner() {
 
   const createNodeAtWorldCenter = React.useCallback(
     (
-      type:
-        | "textPrompt"
-        | "textPromptPro"
-        | "textChat"
-        | "textNote"
-        | "promptOptimize"
-        | "image"
-        | "imagePro"
-        | "generate"
-        | "generatePro"
-        | "generatePro4"
-        | "generate4"
-        | "generateRef"
-        | "three"
-        | "camera"
-        | "analysis"
-        | "sora2Video"
-        | "wan26"
-        | "wan2R2V"
-        | "klingVideo"
-        | "kling26Video"
-        | "klingO1Video"
-        | "viduVideo"
-        | "doubaoVideo"
-        | "storyboardSplit"
-        | "midjourney"
-        | "nano2"
-        | "video"
-        | "videoAnalyze"
-        | "videoFrameExtract"
-        | "imageGrid"
-        | "imageSplit",
+      rawType: string,
       world: { x: number; y: number }
     ) => {
       // 以默认尺寸中心对齐放置
-      const size = {
-        textPrompt: { w: 240, h: 180 },
-        textPromptPro: { w: 420, h: 360 },
-        textNote: { w: 220, h: 140 },
-        textChat: { w: 320, h: 540 },
-        promptOptimize: { w: 360, h: 300 },
-        image: { w: 260, h: 240 },
-        imagePro: { w: 320, h: 240 },
-        generate: { w: 260, h: 200 },
-        generatePro: { w: 320, h: 400 },
-        generatePro4: { w: 380, h: 480 },
-        generate4: { w: 300, h: 240 },
-        generateRef: { w: 260, h: 240 },
-        three: { w: 280, h: 260 },
-        camera: { w: 260, h: 220 },
-        analysis: { w: 260, h: 280 },
-        sora2Video: { w: 280, h: 260 },
-        wan26: { w: 300, h: 320 },
-        wan2R2V: { w: 300, h: 360 },
-        klingVideo: { w: 280, h: 260 },
-        kling26Video: { w: 280, h: 260 },
-        klingO1Video: { w: 280, h: 380 },
-        viduVideo: { w: 280, h: 260 },
-        doubaoVideo: { w: 280, h: 260 },
-        storyboardSplit: { w: 320, h: 400 },
-        midjourney: { w: 280, h: 320 },
-        nano2: { w: 260, h: 200 },
-        video: { w: 320, h: 280 },
-        videoAnalyze: { w: 280, h: 360 },
-        videoFrameExtract: { w: 300, h: 420 },
-        imageGrid: { w: 300, h: 380 },
-        imageSplit: { w: 320, h: 400 },
-      }[type];
+      const type = normalizeFlowNodeType(rawType);
+      if (!type) {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: {
+              message: `节点类型未接入：${rawType || "unknown"}`,
+              type: "error",
+            },
+          })
+        );
+        return null;
+      }
+      const size = FLOW_NODE_DEFAULT_SIZE[type];
       const id = `${type}_${Date.now()}`;
       const pos = { x: world.x - size.w / 2, y: world.y - size.h / 2 };
       const data =
