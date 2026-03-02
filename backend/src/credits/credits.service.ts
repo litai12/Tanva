@@ -311,6 +311,45 @@ export class CreditsService {
   }
 
   /**
+   * 标记用户的 API 使用记录为失败（用于可轮询任务的手动退款前置校验）
+   */
+  async markApiUsageFailedForUser(
+    userId: string,
+    apiUsageId: string,
+    errorMessage: string = 'API调用失败',
+    processingTime: number = 0,
+  ) {
+    const apiUsage = await this.prisma.apiUsageRecord.findUnique({
+      where: { id: apiUsageId },
+    });
+
+    if (!apiUsage) {
+      throw new NotFoundException('API使用记录不存在');
+    }
+
+    if (apiUsage.userId !== userId) {
+      throw new BadRequestException('无权操作该 API 使用记录');
+    }
+
+    if (apiUsage.responseStatus === ApiResponseStatus.SUCCESS) {
+      throw new BadRequestException('成功的 API 调用不支持退款');
+    }
+
+    if (apiUsage.responseStatus === ApiResponseStatus.FAILED) {
+      return apiUsage;
+    }
+
+    return this.prisma.apiUsageRecord.update({
+      where: { id: apiUsageId },
+      data: {
+        responseStatus: ApiResponseStatus.FAILED,
+        errorMessage,
+        processingTime,
+      },
+    });
+  }
+
+  /**
    * API 调用失败时退还积分
    */
   async refundCredits(userId: string, apiUsageId: string): Promise<AddCreditsResult> {
@@ -322,6 +361,10 @@ export class CreditsService {
 
       if (!apiUsage) {
         throw new NotFoundException('API使用记录不存在');
+      }
+
+      if (apiUsage.userId !== userId) {
+        throw new BadRequestException('无权退还该 API 调用积分');
       }
 
       if (apiUsage.responseStatus !== ApiResponseStatus.FAILED) {
@@ -336,15 +379,33 @@ export class CreditsService {
         throw new NotFoundException('用户积分账户不存在');
       }
 
+      // 幂等保护：同一个 apiUsage 只允许创建一次退款交易
+      const existingRefund = await tx.creditTransaction.findFirst({
+        where: {
+          apiUsageId,
+          type: TransactionType.REFUND,
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      if (existingRefund) {
+        return {
+          success: true,
+          newBalance: account.balance,
+          transactionId: existingRefund.id,
+        };
+      }
+
       const creditsToRefund = apiUsage.creditsUsed;
       const newBalance = account.balance + creditsToRefund;
+      const adjustedTotalSpent = Math.max(0, account.totalSpent - creditsToRefund);
 
       // 更新账户余额
       await tx.creditAccount.update({
         where: { id: account.id },
         data: {
           balance: newBalance,
-          totalSpent: account.totalSpent - creditsToRefund,
+          totalSpent: adjustedTotalSpent,
         },
       });
 

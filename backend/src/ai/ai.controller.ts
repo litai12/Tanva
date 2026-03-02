@@ -1505,7 +1505,9 @@ export class AiController {
         });
 
         if (!result?.videoUrl) {
-          return result;
+          throw new ServiceUnavailableException(
+            result?.fallbackMessage || result?.content || '视频生成失败：未返回可用的视频链接',
+          );
         }
 
         const skipWatermark = await this.canSkipWatermark(req);
@@ -1605,6 +1607,26 @@ export class AiController {
 
     try {
       const result = await this.videoProviderService.generateVideo(effectiveDto);
+      const normalizedStatus = String(result?.status || '').toLowerCase();
+
+      if (normalizedStatus === 'failed' || normalizedStatus === 'failure') {
+        throw new ServiceUnavailableException((result as any)?.error || '视频任务创建失败');
+      }
+
+      if (!result?.taskId && !result?.videoUrl) {
+        throw new ServiceUnavailableException('视频任务创建失败：未返回 taskId 或 videoUrl');
+      }
+
+      // 兼容“立即出片”供应商：直接标记成功；异步任务维持 pending，交由轮询结果决定是否退款
+      if (result.videoUrl) {
+        await this.creditsService.updateApiUsageStatus(
+          apiUsageId,
+          ApiResponseStatus.SUCCESS,
+          undefined,
+          0,
+        );
+      }
+
       // 返回 apiUsageId，前端在任务失败时可请求退款
       return { ...result, apiUsageId };
     } catch (error) {
@@ -1645,16 +1667,17 @@ export class AiController {
     }
 
     try {
-      // 先更新状态为失败
-      await this.creditsService.updateApiUsageStatus(
+      // 先校验归属并标记失败（仅允许当前用户操作自己的记录）
+      await this.creditsService.markApiUsageFailedForUser(
+        userId,
         apiUsageId,
-        ApiResponseStatus.FAILED,
         '视频生成任务失败',
         0,
       );
+
       // 退还积分
       const result = await this.creditsService.refundCredits(userId, apiUsageId);
-      this.logger.log(`✅ 视频任务积分已退还: apiUsageId=${apiUsageId}, refunded=${result.newBalance}`);
+      this.logger.log(`✅ 视频任务积分已处理退款: apiUsageId=${apiUsageId}, balance=${result.newBalance}`);
       return { success: true, newBalance: result.newBalance };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
