@@ -612,6 +612,7 @@ const TEXT_MODEL_BY_PROVIDER: Record<AIProviderType, string> = {
   "banana-3.1": BANANA_TEXT_MODEL,
   runninghub: DEFAULT_TEXT_MODEL,
   midjourney: DEFAULT_TEXT_MODEL,
+  nano2: DEFAULT_TEXT_MODEL,
 };
 
 export const getTextModelForProvider = (provider: AIProviderType): string => {

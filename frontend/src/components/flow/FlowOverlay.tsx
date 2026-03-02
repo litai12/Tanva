@@ -7701,6 +7701,10 @@ function FlowInner() {
           ? (raw.trim() as AIImageGenerateRequest["aspectRatio"])
           : undefined;
       })();
+      const effectiveAspectRatio =
+        node.type === "generate" && aiProvider === "banana-2.5"
+          ? undefined
+          : aspectRatioValue;
 
       // 优先使用节点本地的 imageSize，否则使用全局设置
       const nodeSizeValue = (() => {
@@ -7776,7 +7780,7 @@ function FlowInner() {
                 outputFormat: "png",
                 aiProvider,
                 model: nodeSpecificModel,
-                aspectRatio: aspectRatioValue,
+                aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
               });
             } else if (imageDatas.length === 1) {
@@ -7788,7 +7792,7 @@ function FlowInner() {
                 outputFormat: "png",
                 aiProvider,
                 model: nodeSpecificModel,
-                aspectRatio: aspectRatioValue,
+                aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
               });
             } else {
@@ -7800,7 +7804,7 @@ function FlowInner() {
                 outputFormat: "png",
                 aiProvider,
                 model: nodeSpecificModel,
-                aspectRatio: aspectRatioValue,
+                aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
               });
             }
@@ -8001,7 +8005,7 @@ function FlowInner() {
                 outputFormat: "png",
                 aiProvider,
                 model: nodeSpecificModel,
-                aspectRatio: aspectRatioValue,
+                aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
               });
             } else if (imageDatas.length === 1) {
@@ -8013,7 +8017,7 @@ function FlowInner() {
                 outputFormat: "png",
                 aiProvider,
                 model: nodeSpecificModel,
-                aspectRatio: aspectRatioValue,
+                aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
               });
             } else {
@@ -8025,7 +8029,7 @@ function FlowInner() {
                 outputFormat: "png",
                 aiProvider,
                 model: nodeSpecificModel,
-                aspectRatio: aspectRatioValue,
+                aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
               });
             }
@@ -8235,7 +8239,7 @@ function FlowInner() {
             outputFormat: "png",
             aiProvider,
             model: nodeSpecificModel,
-            aspectRatio: aspectRatioValue,
+            aspectRatio: effectiveAspectRatio,
             imageSize: effectiveImageSize,
           });
         } else if (imageDatas.length === 1) {
@@ -8248,7 +8252,7 @@ function FlowInner() {
             outputFormat: "png",
             aiProvider,
             model: nodeSpecificModel,
-            aspectRatio: aspectRatioValue,
+            aspectRatio: effectiveAspectRatio,
             imageSize: effectiveImageSize,
           });
         } else {
@@ -8260,7 +8264,7 @@ function FlowInner() {
             outputFormat: "png",
             aiProvider,
             model: nodeSpecificModel,
-            aspectRatio: aspectRatioValue,
+            aspectRatio: effectiveAspectRatio,
             imageSize: effectiveImageSize,
           });
         }
