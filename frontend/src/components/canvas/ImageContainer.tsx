@@ -1115,6 +1115,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     ) => {
       setShowExpandSelector(false);
       setIsExpandingImage(true);
+      let expandPlaceholderId: string | null = null;
 
       try {
         const selectedRight = selectedBounds.x + selectedBounds.width;
@@ -1145,6 +1146,35 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             detail: {
               message: "⏳ 正在准备扩图画布并发送给 Gemini...",
               type: "info",
+            },
+          })
+        );
+
+        const expandPlacementGap = Math.max(
+          32,
+          Math.min(120, selectedBounds.width * 0.1)
+        );
+        const expandedCenter = {
+          x: selectedBounds.x + selectedBounds.width / 2,
+          y: selectedBounds.y + selectedBounds.height / 2,
+        };
+        const expandResultCenter = {
+          x: expandedCenter.x - selectedBounds.width - expandPlacementGap,
+          y: expandedCenter.y,
+        };
+        expandPlaceholderId = `expand_${imageData.id}_${Date.now()}_${Math.random()
+          .toString(36)
+          .slice(2, 8)}`;
+        window.dispatchEvent(
+          new CustomEvent("predictImagePlaceholder", {
+            detail: {
+              action: "add",
+              placeholderId: expandPlaceholderId,
+              center: expandResultCenter,
+              width: selectedBounds.width,
+              height: selectedBounds.height,
+              operationType: "expand-image",
+              sourceImageId: imageData.id,
             },
           })
         );
@@ -1240,20 +1270,6 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           "image/png"
         );
 
-        // 使用扩展后的边界尺寸来计算放置位置，避免错位
-        const expandedCenter = {
-          x: selectedBounds.x + selectedBounds.width / 2,
-          y: selectedBounds.y + selectedBounds.height / 2,
-        };
-        const expandPlacementGap = Math.max(
-          32,
-          Math.min(120, selectedBounds.width * 0.1)
-        );
-        const expandResultCenter = {
-          x: expandedCenter.x - selectedBounds.width - expandPlacementGap,
-          y: expandedCenter.y,
-        };
-
         window.dispatchEvent(
           new CustomEvent("triggerQuickImageUpload", {
             detail: {
@@ -1263,6 +1279,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               smartPosition: expandResultCenter,
               operationType: "expand-image",
               sourceImageId: imageData.id,
+              placeholderId: expandPlaceholderId,
             },
           })
         );
@@ -1275,6 +1292,13 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       } catch (error) {
         const message = error instanceof Error ? error.message : "扩图失败";
         logger.error("扩图失败", error);
+        if (expandPlaceholderId) {
+          window.dispatchEvent(
+            new CustomEvent("predictImagePlaceholder", {
+              detail: { action: "remove", placeholderId: expandPlaceholderId },
+            })
+          );
+        }
         window.dispatchEvent(
           new CustomEvent("toast", {
             detail: { message, type: "error" },
