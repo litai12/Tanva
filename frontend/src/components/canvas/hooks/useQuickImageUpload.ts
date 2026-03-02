@@ -113,6 +113,35 @@ const getRasterSourceString = (raster: any): string => {
 
 // 图片加载超时时间，防止占位框长时间悬挂
 const IMAGE_LOAD_TIMEOUT = 20000; // 20s
+const MATRIX_CELL_PADDING = 16;
+const MAX_LINEAR_SHIFT_STEPS = 50;
+const GENERATE_VERTICAL_GAP_MIN = 48;
+const GENERATE_VERTICAL_GAP_MAX = 104;
+const GENERATE_COLLISION_PADDING = 32;
+const GENERATE_GROUP_TITLE_SAFE_SPACE = 56;
+const GROUP_HORIZONTAL_GAP_MIN = 16;
+const GROUP_HORIZONTAL_GAP_MAX = 48;
+
+type MatrixLayoutContext = {
+    groupId?: string;
+    groupIndex?: number;
+    groupTotal?: number;
+    anchorCenter?: { x: number; y: number } | null;
+    sourceImageId?: string;
+    sourceImages?: string[];
+    preferHorizontal?: boolean;
+};
+
+type MatrixLayoutState = {
+    anchor: { x: number; y: number };
+    cellW: number;
+    cellH: number;
+    cols: number;
+    nextIndex: number;
+    groupRowShift?: number;
+    occupied: Set<number>;
+    slotById: Map<string, number>;
+};
 
 export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickImageUploadProps) => {
     const { ensureDrawingLayer, zoom } = context;
@@ -139,6 +168,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
     const pendingImagesRef = useRef<Array<PendingImageEntry>>([]);
     const predictedPlaceholdersRef = useRef<Map<string, paper.Item>>(new Map());
+    const matrixLayoutsRef = useRef<Map<string, MatrixLayoutState>>(new Map());
+    const matrixSlotRegistryRef = useRef<Map<string, { contextKey: string; index: number }>>(new Map());
+    const lockedMatrixPositionRef = useRef<Map<string, { x: number; y: number }>>(new Map());
 
     // 🔥 收集并行生成的图片 ID，用于 X4/X8 自动打组
     // key: parallelGroupId, value: { total: 期望数量, imageIds: 已加载的图片 ID 列表 }
@@ -192,28 +224,6 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             progressLabel.content = `${progress.toFixed(1)}%`;
             paper.view?.update();
         }
-    }, []);
-
-    // 🔥 生成类图片的行排布状态，确保 X4 等并行批次横向排版、批次之间按行下移
-    const generationLayoutRef = useRef<{
-        baseAnchor: { x: number; y: number } | null;
-        nextRow: number;
-        rowAssignments: Map<string, { rowIndex: number; rowSpan: number; columns: number }>;
-    }>({
-        baseAnchor: null,
-        nextRow: 0,
-        rowAssignments: new Map(),
-    });
-
-    const allocateRowForBatch = useCallback((batchKey: string, columns: number, rowsNeeded: number) => {
-        const state = generationLayoutRef.current;
-        let assignment = state.rowAssignments.get(batchKey);
-        if (!assignment) {
-            assignment = { rowIndex: state.nextRow, rowSpan: rowsNeeded, columns };
-            state.rowAssignments.set(batchKey, assignment);
-            state.nextRow += rowsNeeded;
-        }
-        return assignment;
     }, []);
 
     // ========== 智能排版工具函数 ==========
@@ -289,115 +299,277 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         return images.find(img => img.id === imageId);
     }, [getAllCanvasImages]);
 
-    // 解决位置冲突：如果目标位置已有图片，则按业务规则依次偏移
-    const findNonOverlappingPosition = useCallback((
-        desiredPosition: paper.Point,
-        expectedWidth: number,
-        expectedHeight: number,
-        operationType?: string,
-        currentImageId?: string,
-        preferHorizontal?: boolean  // 🔥 新增：是否优先横向排列
-    ): paper.Point => {
-        const spacingHorizontal = useUIStore.getState().smartPlacementOffsetHorizontal || 522;
-        const spacingVertical = useUIStore.getState().smartPlacementOffsetVertical || 552;
-        const verticalStep = Math.max(spacingVertical, expectedHeight + 16);
-        const horizontalStep = Math.max(spacingHorizontal, expectedWidth + 16);
-        const maxAttempts = 50;
+    const buildMatrixContextKey = useCallback((
+        operationType: string,
+        anchor: paper.Point,
+        cellW: number,
+        cellH: number,
+        layoutContext?: MatrixLayoutContext
+    ) => {
+        if (layoutContext?.groupId) return `${operationType}:group:${layoutContext.groupId}`;
+        if (operationType === 'edit' && layoutContext?.sourceImageId) {
+            return `${operationType}:source:${layoutContext.sourceImageId}`;
+        }
+        if (operationType === 'blend' && Array.isArray(layoutContext?.sourceImages) && layoutContext.sourceImages.length > 0) {
+            return `${operationType}:sources:${layoutContext.sourceImages.slice(0, 4).join('|')}`;
+        }
+        const bucketX = Math.round(anchor.x / Math.max(1, cellW));
+        const bucketY = Math.round(anchor.y / Math.max(1, cellH));
+        return `${operationType}:anchor:${bucketX}:${bucketY}`;
+    }, []);
 
-        // 🔍 [DEBUG-问题1] 打印间距配置值
-        console.log(`🔍 [DEBUG-问题1-间距配置] imageId: ${currentImageId}`, {
-            spacingHorizontal,
-            spacingVertical,
-            horizontalStep,
-            verticalStep,
-            expectedWidth,
-            expectedHeight,
-            operationType,
-            preferHorizontal,
-            desiredPosition: { x: desiredPosition.x.toFixed(1), y: desiredPosition.y.toFixed(1) }
-        });
+    const getMatrixPointByIndex = useCallback((layout: MatrixLayoutState, index: number) => {
+        const row = Math.floor(index / layout.cols);
+        const col = index % layout.cols;
+        return new paper.Point(
+            layout.anchor.x + (col - (layout.cols - 1) / 2) * layout.cellW,
+            layout.anchor.y + row * layout.cellH
+        );
+    }, []);
 
-        const doesOverlap = (point: paper.Point) => {
-            const halfWidth = expectedWidth / 2;
-            const halfHeight = expectedHeight / 2;
+    const resolveMatrixPosition = useCallback((params: {
+        operationType: string;
+        anchor: paper.Point;
+        expectedWidth: number;
+        expectedHeight: number;
+        currentImageId?: string;
+        layoutContext?: MatrixLayoutContext;
+    }): paper.Point => {
+        const spacingH = useUIStore.getState().smartPlacementOffsetHorizontal || 522;
+        const spacingV = useUIStore.getState().smartPlacementOffsetVertical || 552;
+        const groupTotal = Math.max(1, params.layoutContext?.groupTotal ?? 1);
+        const getGenerateStepY = (expectedHeight: number, referenceHeight?: number) => {
+            const baseHeight = Math.max(expectedHeight, referenceHeight || 0);
+            const dynamicGap = Math.round(baseHeight * 0.14);
+            const extraGap = Math.max(
+                GENERATE_VERTICAL_GAP_MIN,
+                Math.min(GENERATE_VERTICAL_GAP_MAX, dynamicGap)
+            );
+            return baseHeight + extraGap;
+        };
+        const getGroupStepX = (expectedWidth: number) => {
+            const dynamicGap = Math.round(expectedWidth * 0.08);
+            const extraGap = Math.max(
+                GROUP_HORIZONTAL_GAP_MIN,
+                Math.min(GROUP_HORIZONTAL_GAP_MAX, dynamicGap)
+            );
+            return expectedWidth + extraGap;
+        };
+        const useFixedHorizontalStep =
+            (params.operationType === 'edit' || params.operationType === 'blend') && groupTotal <= 1;
+        const cellW = useFixedHorizontalStep
+            ? spacingH
+            : (groupTotal > 1
+                ? getGroupStepX(params.expectedWidth)
+                : Math.max(spacingH, params.expectedWidth + MATRIX_CELL_PADDING));
+        const isGenerateGroup = params.operationType === 'generate' && groupTotal > 1;
+        const cellH = params.operationType === 'generate'
+            ? (getGenerateStepY(params.expectedHeight) + (isGenerateGroup ? GENERATE_GROUP_TITLE_SAFE_SPACE : 0))
+            : Math.max(spacingV, params.expectedHeight + MATRIX_CELL_PADDING);
+        const cols = isGenerateGroup ? Math.min(4, groupTotal) : (groupTotal > 1 ? Math.min(4, groupTotal) : 1);
+        const rawAnchor = params.layoutContext?.anchorCenter
+            && Number.isFinite(params.layoutContext.anchorCenter.x)
+            && Number.isFinite(params.layoutContext.anchorCenter.y)
+            ? new paper.Point(params.layoutContext.anchorCenter.x, params.layoutContext.anchorCenter.y)
+            : params.anchor;
+        let desiredAnchor = rawAnchor;
+        if (isGenerateGroup) {
+            const generatedImages = getAllCanvasImages().filter((img) => img.operationType === 'generate');
+            if (generatedImages.length > 0) {
+                let bottomLeft = generatedImages[0];
+                for (const img of generatedImages) {
+                    if (img.y > bottomLeft.y || (img.y === bottomLeft.y && img.x < bottomLeft.x)) {
+                        bottomLeft = img;
+                    }
+                }
+                const stepY = getGenerateStepY(params.expectedHeight, bottomLeft.height) + GENERATE_GROUP_TITLE_SAFE_SPACE;
+                const nextGroupLeftX = bottomLeft.x;
+                const nextGroupY = bottomLeft.y + stepY;
+                desiredAnchor = new paper.Point(
+                    nextGroupLeftX + ((cols - 1) / 2) * cellW,
+                    nextGroupY
+                );
+            } else {
+                desiredAnchor = new paper.Point(
+                    rawAnchor.x + ((cols - 1) / 2) * cellW,
+                    rawAnchor.y
+                );
+            }
+        }
+        const currentId = params.currentImageId;
+        const lockPoint = (point: paper.Point) => {
+            if (currentId) {
+                lockedMatrixPositionRef.current.set(currentId, { x: point.x, y: point.y });
+            }
+            return point;
+        };
+
+        if (currentId) {
+            const locked = lockedMatrixPositionRef.current.get(currentId);
+            if (locked && Number.isFinite(locked.x) && Number.isFinite(locked.y)) {
+                return new paper.Point(locked.x, locked.y);
+            }
+        }
+
+        if (getAllCanvasImages().length === 0 && pendingImagesRef.current.length === 0) {
+            matrixLayoutsRef.current.clear();
+            matrixSlotRegistryRef.current.clear();
+            lockedMatrixPositionRef.current.clear();
+        }
+
+        const doesOverlap = (point: paper.Point, width: number, height: number) => {
+            const halfWidth = width / 2;
+            const halfHeight = height / 2;
             const left = point.x - halfWidth;
             const right = point.x + halfWidth;
             const top = point.y - halfHeight;
             const bottom = point.y + halfHeight;
-
             const images = getAllCanvasImages();
-            
-            // 🔍 [DEBUG-问题4] 打印当前画布上所有图片（含 pending）
-            console.log(`🔍 [DEBUG-问题4-竞态检测] 检测重叠时的画布图片列表 (共 ${images.length} 张):`, 
-                images.map(img => ({
-                    id: img.id.substring(0, 30),
-                    x: img.x.toFixed(1),
-                    y: img.y.toFixed(1),
-                    w: img.width.toFixed(0),
-                    h: img.height.toFixed(0)
-                }))
-            );
-
-            const overlappingImg = images.find(img => {
-                if (img.id === currentImageId) return false;
+            const overlap = images.find((img) => {
+                if (currentId && img.id === currentId) return false;
                 const imgHalfWidth = img.width / 2;
                 const imgHalfHeight = img.height / 2;
                 const imgLeft = img.x - imgHalfWidth;
                 const imgRight = img.x + imgHalfWidth;
                 const imgTop = img.y - imgHalfHeight;
                 const imgBottom = img.y + imgHalfHeight;
-
-                const isOverlapping = !(right <= imgLeft || left >= imgRight || bottom <= imgTop || top >= imgBottom);
-                if (isOverlapping) {
-                    console.log(`⚠️ [DEBUG-问题2-重叠检测] 发现重叠! 当前图片与 ${img.id.substring(0, 30)} 重叠`, {
-                        current: { left: left.toFixed(1), right: right.toFixed(1), top: top.toFixed(1), bottom: bottom.toFixed(1) },
-                        existing: { left: imgLeft.toFixed(1), right: imgRight.toFixed(1), top: imgTop.toFixed(1), bottom: imgBottom.toFixed(1) }
-                    });
-                }
-                return isOverlapping;
+                return !(right <= imgLeft || left >= imgRight || bottom <= imgTop || top >= imgBottom);
             });
-
-            return !!overlappingImg;
+            return !!overlap;
         };
 
-        let position = desiredPosition.clone();
-        let attempts = 0;
+        const generateCollisionHeight = params.operationType === 'generate'
+            ? params.expectedHeight + GENERATE_COLLISION_PADDING
+            : params.expectedHeight;
 
-        while (doesOverlap(position) && attempts < maxAttempts) {
-            attempts += 1;
+        // 单图生成：只向下排版（取当前 generate 中“最下面，若同层取最左”再向下偏移）
+        if (params.operationType === 'generate' && groupTotal <= 1) {
+            const images = getAllCanvasImages().filter((img) => img.operationType === 'generate');
+            let point = desiredAnchor.clone();
+            let stepY = getGenerateStepY(params.expectedHeight);
+            if (images.length > 0) {
+                let bottomLeft = images[0];
+                for (const img of images) {
+                    if (img.y > bottomLeft.y || (img.y === bottomLeft.y && img.x < bottomLeft.x)) {
+                        bottomLeft = img;
+                    }
+                }
+                stepY = getGenerateStepY(params.expectedHeight, bottomLeft.height);
+                point = new paper.Point(bottomLeft.x, bottomLeft.y + stepY);
+            }
+            let steps = 0;
+            while (doesOverlap(point, params.expectedWidth, generateCollisionHeight) && steps < MAX_LINEAR_SHIFT_STEPS) {
+                point = point.add(new paper.Point(0, stepY));
+                steps += 1;
+            }
+            return lockPoint(point);
+        }
 
-            // 🔥 如果指定了横向排列优先，或者是 edit/blend 类型，则横向偏移
-            if (preferHorizontal || operationType === 'edit' || operationType === 'blend') {
-                // 🔍 [DEBUG-问题2] 打印累积偏移
-                console.log(`🔄 [DEBUG-问题2-累积偏移] 第 ${attempts} 次偏移 (横向): +${horizontalStep}px`, {
-                    beforeX: position.x.toFixed(1),
-                    afterX: (position.x + horizontalStep).toFixed(1)
-                });
-                position = position.add(new paper.Point(horizontalStep, 0));
-            } else {
-                // 🔍 [DEBUG-问题2] 打印累积偏移
-                console.log(`🔄 [DEBUG-问题2-累积偏移] 第 ${attempts} 次偏移 (纵向): +${verticalStep}px`, {
-                    beforeY: position.y.toFixed(1),
-                    afterY: (position.y + verticalStep).toFixed(1)
-                });
-                position = position.add(new paper.Point(0, verticalStep));
+        // 单图编辑：只向右排版（从 source 右侧开始，冲突继续向右顺延）
+        if (params.operationType === 'edit' && groupTotal <= 1) {
+            const source = params.layoutContext?.sourceImageId ? findImageById(params.layoutContext.sourceImageId) : null;
+            let point = source ? new paper.Point(source.x + cellW, source.y) : desiredAnchor.clone();
+            let steps = 0;
+            while (doesOverlap(point, params.expectedWidth, params.expectedHeight) && steps < MAX_LINEAR_SHIFT_STEPS) {
+                point = point.add(new paper.Point(cellW, 0));
+                steps += 1;
+            }
+            return lockPoint(point);
+        }
+
+        // 单图融合：沿 source 列表第一张图向右排版
+        if (params.operationType === 'blend' && groupTotal <= 1) {
+            const sourceId = params.layoutContext?.sourceImages?.[0];
+            const source = sourceId ? findImageById(sourceId) : null;
+            let point = source ? new paper.Point(source.x + cellW, source.y) : desiredAnchor.clone();
+            let steps = 0;
+            while (doesOverlap(point, params.expectedWidth, params.expectedHeight) && steps < MAX_LINEAR_SHIFT_STEPS) {
+                point = point.add(new paper.Point(cellW, 0));
+                steps += 1;
+            }
+            return lockPoint(point);
+        }
+
+        const contextKey = buildMatrixContextKey(
+            params.operationType || 'manual',
+            desiredAnchor,
+            cellW,
+            cellH,
+            params.layoutContext
+        );
+
+        let layout = matrixLayoutsRef.current.get(contextKey);
+        if (!layout) {
+            layout = {
+                anchor: { x: desiredAnchor.x, y: desiredAnchor.y },
+                cellW,
+                cellH,
+                cols,
+                nextIndex: 0,
+                groupRowShift: undefined,
+                occupied: new Set<number>(),
+                slotById: new Map<string, number>(),
+            };
+            matrixLayoutsRef.current.set(contextKey, layout);
+        } else {
+            layout.cellW = Math.max(layout.cellW, cellW);
+            layout.cellH = Math.max(layout.cellH, cellH);
+            layout.cols = cols;
+        }
+
+        if (currentId) {
+            const globalSlot = matrixSlotRegistryRef.current.get(currentId);
+            if (globalSlot) {
+                const lockedLayout = matrixLayoutsRef.current.get(globalSlot.contextKey);
+                if (lockedLayout) {
+                    lockedLayout.occupied.add(globalSlot.index);
+                    lockedLayout.slotById.set(currentId, globalSlot.index);
+                    return lockPoint(getMatrixPointByIndex(lockedLayout, globalSlot.index));
+                }
             }
         }
 
-        // 🔍 [DEBUG] 最终位置
-        const totalOffset = {
-            x: position.x - desiredPosition.x,
-            y: position.y - desiredPosition.y
-        };
-        console.log(`✅ [DEBUG-findNonOverlapping结果] imageId: ${currentImageId?.substring(0, 30)}`, {
-            原始位置: { x: desiredPosition.x.toFixed(1), y: desiredPosition.y.toFixed(1) },
-            最终位置: { x: position.x.toFixed(1), y: position.y.toFixed(1) },
-            总偏移量: { x: totalOffset.x.toFixed(1), y: totalOffset.y.toFixed(1) },
-            偏移次数: attempts
-        });
+        let index: number;
+        if (currentId && layout.slotById.has(currentId)) {
+            index = layout.slotById.get(currentId)!;
+        } else if (groupTotal > 1 && Number.isFinite(params.layoutContext?.groupIndex)) {
+            // 并行组按“整组”与现有图片避让：先求可用行偏移，再给各成员统一套用
+            if (typeof layout.groupRowShift !== 'number') {
+                let shift = 0;
+                while (shift < MAX_LINEAR_SHIFT_STEPS) {
+                    let hasCollision = false;
+                    for (let i = 0; i < groupTotal; i += 1) {
+                        const idx = i + shift * layout.cols;
+                        const point = getMatrixPointByIndex(layout, idx);
+                        if (doesOverlap(point, params.expectedWidth, generateCollisionHeight)) {
+                            hasCollision = true;
+                            break;
+                        }
+                    }
+                    if (!hasCollision) break;
+                    shift += 1;
+                }
+                layout.groupRowShift = shift;
+            }
+            const baseIndex = Math.max(0, params.layoutContext?.groupIndex ?? 0);
+            index = baseIndex + (layout.groupRowShift || 0) * layout.cols;
+        } else {
+            index = layout.nextIndex;
+        }
 
-        return position;
-    }, [getAllCanvasImages]);
+        while (layout.occupied.has(index)) {
+            index += 1;
+        }
+
+        layout.occupied.add(index);
+        layout.nextIndex = Math.max(layout.nextIndex, index + 1);
+        if (currentId) {
+            layout.slotById.set(currentId, index);
+            matrixSlotRegistryRef.current.set(currentId, { contextKey, index });
+        }
+
+        return lockPoint(getMatrixPointByIndex(layout, index));
+    }, [buildMatrixContextKey, findImageById, getAllCanvasImages, getMatrixPointByIndex]);
 
     // 计算智能排版位置
     const calculateSmartPosition = useCallback((
@@ -415,15 +587,6 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
     ) => {
         const getSpacingHorizontal = () => useUIStore.getState().smartPlacementOffsetHorizontal || 522;
         const getSpacingVertical = () => useUIStore.getState().smartPlacementOffsetVertical || 552;
-        const existingImages = getAllCanvasImages();
-
-        // 如果画布上没有任何图片，重置行分配状态，避免旧状态干扰
-        if (existingImages.length === 0 && pendingImagesRef.current.length === 0) {
-            generationLayoutRef.current.rowAssignments.clear();
-            generationLayoutRef.current.nextRow = 0;
-            generationLayoutRef.current.baseAnchor = null;
-        }
-
         switch (operationType) {
             case 'generate': {
                 const spacingH = getSpacingHorizontal();
@@ -464,52 +627,25 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 const groupId = layoutContext?.groupId;
                 const groupIndex = Math.max(0, layoutContext?.groupIndex ?? 0);
                 const groupTotal = Math.max(1, layoutContext?.groupTotal ?? 1);
-                // X4 等并行模式：一行展示 groupTotal 张（最多 4 张），后续批次自动换行
-                const columns = groupTotal > 1 ? Math.min(4, Math.max(1, groupTotal)) : 1;
-                const rowsNeeded = Math.max(1, Math.ceil(groupTotal / columns));
-                const batchKey = groupId || currentImageId || `generate-${existingImages.length}-${Date.now()}`;
+                const anchor = layoutContext?.anchorCenter
+                    && Number.isFinite(layoutContext.anchorCenter.x)
+                    && Number.isFinite(layoutContext.anchorCenter.y)
+                    ? { x: layoutContext.anchorCenter.x, y: layoutContext.anchorCenter.y }
+                    : { x: viewCenter.x, y: viewCenter.y };
 
-                // 初始化全局锚点：优先使用传入的 groupAnchor/center，其次视口中心
-                if (!generationLayoutRef.current.baseAnchor) {
-                    const anchor = layoutContext?.anchorCenter;
-                    if (anchor && Number.isFinite(anchor.x) && Number.isFinite(anchor.y)) {
-                        generationLayoutRef.current.baseAnchor = { x: anchor.x, y: anchor.y };
-                    } else {
-                        generationLayoutRef.current.baseAnchor = { x: viewCenter.x, y: viewCenter.y };
-                    }
-                    console.log(`📐 [DEBUG-calculateSmartPosition] 初始化全局锚点`, {
-                        baseAnchor: generationLayoutRef.current.baseAnchor
-                    });
+                // 单图生成：直接使用上游给定锚点（通常是缓存图右侧/视口中心），避免全局行号累积导致越排越远。
+                if (groupTotal <= 1) {
+                    return anchor;
                 }
-                const anchor = generationLayoutRef.current.baseAnchor ?? { x: viewCenter.x, y: viewCenter.y };
 
-                // 为当前批次分配行号，确保每批次占用独立行
-                const assignment = allocateRowForBatch(batchKey, columns, rowsNeeded);
-                const rowIndex = assignment.rowIndex + Math.floor(groupIndex / columns);
-                const colIndex = Math.min(columns - 1, Math.max(0, groupIndex % columns));
-
-                const result = {
-                    x: anchor.x + (colIndex - (columns - 1) / 2) * spacingH,
-                    y: anchor.y + rowIndex * spacingV
-                };
-
-                // 🔍 [DEBUG-calculateSmartPosition] 打印 X4 模式的详细计算
-                console.log(`📐 [DEBUG-calculateSmartPosition-X4计算] imageId: ${currentImageId?.substring(0, 30)}`, {
+                // 并行生成：不在这里做横向/网格预排版，统一交给 resolveMatrixPosition
+                console.log(`📐 [DEBUG-calculateSmartPosition-generate-group] 使用组锚点，矩阵阶段再做纵向排版`, {
                     groupId: groupId?.substring(0, 20),
                     groupIndex,
                     groupTotal,
-                    columns,
-                    rowIndex,
-                    colIndex,
-                    anchor: { x: anchor.x.toFixed(1), y: anchor.y.toFixed(1) },
-                    spacingH,
-                    spacingV,
-                    计算公式_X: `${anchor.x.toFixed(1)} + (${colIndex} - ${(columns - 1) / 2}) * ${spacingH} = ${result.x.toFixed(1)}`,
-                    计算公式_Y: `${anchor.y.toFixed(1)} + ${rowIndex} * ${spacingV} = ${result.y.toFixed(1)}`,
-                    最终位置: { x: result.x.toFixed(1), y: result.y.toFixed(1) }
+                    anchor: { x: anchor.x.toFixed(1), y: anchor.y.toFixed(1) }
                 });
-
-                return result;
+                return anchor;
             }
 
             case 'edit': {
@@ -568,7 +704,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 const defaultPosition = { x: 0, y: 0 };
                 return defaultPosition;
         }
-    }, [getAllCanvasImages, findImageById, allocateRowForBatch]);
+    }, [findImageById]);
 
     const showPredictedPlaceholder = useCallback((params: {
         placeholderId: string;
@@ -608,13 +744,18 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             groupIndex: params.groupIndex,
             groupTotal: params.groupTotal,
             anchorCenter: params.groupAnchor ?? params.center ?? params.smartPosition ?? null,
+            sourceImageId: params.sourceImageId,
+            sourceImages: params.sourceImages,
             preferHorizontal
         };
 
         const resolveCenter = (): { x: number; y: number } | null => {
             let base = params.center ?? params.smartPosition ?? null;
 
-            if ((params.preferSmartLayout || !base) && typeof calculateSmartPosition === 'function') {
+            if (
+                (!base || !Number.isFinite(base.x) || !Number.isFinite(base.y)) &&
+                typeof calculateSmartPosition === 'function'
+            ) {
                 const smart = calculateSmartPosition(
                     params.operationType || 'generate',
                     params.sourceImageId,
@@ -647,16 +788,16 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         let centerPoint = desiredPoint;
 
         try {
-            centerPoint = findNonOverlappingPosition(
-                desiredPoint,
-                width,
-                height,
-                params.operationType,
-                params.placeholderId,
-                preferHorizontal
-            );
+            centerPoint = resolveMatrixPosition({
+                operationType: params.operationType || 'generate',
+                anchor: desiredPoint,
+                expectedWidth: width,
+                expectedHeight: height,
+                currentImageId: params.placeholderId,
+                layoutContext,
+            });
         } catch (e) {
-            logger.upload('[QuickUpload] 占位符防碰撞计算失败，使用原始位置', e);
+            logger.upload('[QuickUpload] 占位符矩阵定位失败，使用原始位置', e);
         }
 
         // ========== Agent 风格占位符 - 内部动效设计 ==========
@@ -875,7 +1016,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             // 检查占位框是否在当前视口内
             const isInView = viewBounds && viewBounds.intersects(placeholderBounds);
 
-            if (!isInView) {
+            // AI 自动排版不自动抢焦点，避免体感“图片突然飞很远”。
+            const shouldAutoFocus = !params.operationType || params.operationType === 'manual';
+            if (!isInView && shouldAutoFocus) {
                 // 占位框不在视口内，自动平移视角到占位框中心
                 const { zoom: currentZoom, setPan } = useCanvasStore.getState();
                 const viewSize = paper.view.viewSize;
@@ -893,7 +1036,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             // 忽略自动聚焦错误，不影响主流程
             logger.debug('自动聚焦视角失败:', e);
         }
-    }, [calculateSmartPosition, ensureDrawingLayer, findNonOverlappingPosition, removePredictedPlaceholder, upsertPendingImage]);
+    }, [calculateSmartPosition, ensureDrawingLayer, removePredictedPlaceholder, resolveMatrixPosition, upsertPendingImage]);
 
     // ========== 查找画布中的图片占位框 ==========
     const findImagePlaceholder = useCallback((placeholderId?: string) => {
@@ -1057,6 +1200,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             const preferHorizontal = extraOptions?.preferHorizontal ?? false;  // 🔥 获取横向排列偏好
             // 🔥 获取并行生成分组信息
             const parallelGroupId = extraOptions?.parallelGroupId;
+            const parallelGroupIndex = extraOptions?.parallelGroupIndex;
             const parallelGroupTotal = extraOptions?.parallelGroupTotal;
             let targetPosition: paper.Point;
             let pendingEntry: PendingImageEntry | null = null;
@@ -1102,6 +1246,22 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
             const baseWidth = expectedWidth;
             const baseHeight = expectedHeight;
+            const resolveTargetPosition = (anchor: paper.Point, op: string) => resolveMatrixPosition({
+                operationType: op || 'manual',
+                anchor,
+                expectedWidth: baseWidth,
+                expectedHeight: baseHeight,
+                currentImageId: imageId,
+                layoutContext: {
+                    groupId: parallelGroupId,
+                    groupIndex: parallelGroupIndex,
+                    groupTotal: parallelGroupTotal,
+                    anchorCenter: { x: anchor.x, y: anchor.y },
+                    sourceImageId,
+                    sourceImages,
+                    preferHorizontal,
+                },
+            });
 
             // 🔍 [DEBUG-问题3] 打印位置计算分支
             console.log(`🎯 [DEBUG-问题3-位置分支] imageId: ${imageId.substring(0, 30)}`, {
@@ -1122,7 +1282,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             if (smartPosition) {
                 const desiredPoint = new paper.Point(smartPosition.x, smartPosition.y);
                 pendingEntry = registerPending(desiredPoint);
-                const adjustedPoint = findNonOverlappingPosition(desiredPoint, baseWidth, baseHeight, pendingOperationType, imageId, preferHorizontal);
+                const adjustedPoint = resolveTargetPosition(desiredPoint, pendingOperationType);
                 targetPosition = adjustedPoint;
                 if (pendingEntry) {
                     pendingEntry.x = adjustedPoint.x;
@@ -1135,12 +1295,12 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 }
             } else if (placeholderCenter) {
                 pendingEntry = registerPending(placeholderCenter);
-                targetPosition = placeholderCenter; // 严格按占位符落点，不做防碰撞偏移
+                targetPosition = resolveTargetPosition(placeholderCenter, pendingOperationType);
                 if (pendingEntry) {
-                    pendingEntry.x = placeholderCenter.x;
-                    pendingEntry.y = placeholderCenter.y;
+                    pendingEntry.x = targetPosition.x;
+                    pendingEntry.y = targetPosition.y;
                 }
-                logger.upload(`📍 快速上传：使用占位符原位置 (${placeholderCenter.x.toFixed(1)}, ${placeholderCenter.y.toFixed(1)})`);
+                logger.upload(`📍 快速上传：使用占位符矩阵位置 (${targetPosition.x.toFixed(1)}, ${targetPosition.y.toFixed(1)})`);
             } else if (operationType) {
                 pendingEntry = registerPending(null);
                 const calculated = calculateSmartPosition(operationType, sourceImageId, sourceImages, imageId);
@@ -1149,7 +1309,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     pendingEntry.x = desiredPoint.x;
                     pendingEntry.y = desiredPoint.y;
                 }
-                const adjustedPoint = findNonOverlappingPosition(desiredPoint, baseWidth, baseHeight, operationType, imageId, preferHorizontal);
+                const adjustedPoint = resolveTargetPosition(desiredPoint, operationType);
                 targetPosition = adjustedPoint;
                 if (pendingEntry) {
                     pendingEntry.x = adjustedPoint.x;
@@ -1166,7 +1326,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     : new paper.Point(0, 0);
                 const centerPoint = new paper.Point(centerSource.x, centerSource.y);
                 pendingEntry = registerPending(centerPoint);
-                const adjustedPoint = findNonOverlappingPosition(centerPoint, baseWidth, baseHeight, 'manual', imageId, preferHorizontal);
+                const adjustedPoint = resolveTargetPosition(centerPoint, 'manual');
                 targetPosition = adjustedPoint;
                 if (pendingEntry) {
                     pendingEntry.x = adjustedPoint.x;
@@ -1502,7 +1662,22 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                             // 使用 expectedWidth 和 expectedHeight，如果没有则使用原始尺寸
                             const widthForPosition = expectedWidth || originalWidth || 512;
                             const heightForPosition = expectedHeight || originalHeight || 512;
-                            const adjustedPoint = findNonOverlappingPosition(desiredPoint, widthForPosition, heightForPosition, operationType, imageId, preferHorizontal);
+                            const adjustedPoint = resolveMatrixPosition({
+                                operationType: operationType || 'manual',
+                                anchor: desiredPoint,
+                                expectedWidth: widthForPosition,
+                                expectedHeight: heightForPosition,
+                                currentImageId: imageId,
+                                layoutContext: {
+                                    groupId: parallelGroupId,
+                                    groupIndex: parallelGroupIndex,
+                                    groupTotal: parallelGroupTotal,
+                                    anchorCenter: { x: desiredPoint.x, y: desiredPoint.y },
+                                    sourceImageId,
+                                    sourceImages,
+                                    preferHorizontal,
+                                },
+                            });
                             finalPosition = adjustedPoint;
                             logger.upload(`📍 使用智能位置计算: (${adjustedPoint.x.toFixed(1)}, ${adjustedPoint.y.toFixed(1)})`);
                         } catch (error) {
@@ -1766,7 +1941,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 try {
                     const vb = paper.view.bounds;
                     const inView = vb && vb.intersects(raster.bounds);
-                    if (!inView) {
+                    const shouldAutoFocus = pendingOperationType === 'manual';
+                    if (!inView && shouldAutoFocus) {
                         const { zoom: z, setPan } = useCanvasStore.getState();
                         const vs = paper.view.viewSize;
                         const cx = vs.width / 2; // 屏幕中心（项目坐标）
@@ -1860,7 +2036,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 	        } catch (error) {
 	            logger.error('快速上传图片时出错:', error);
 	        }
-    }, [ensureDrawingLayer, calculateSmartPosition, findImagePlaceholder, findNonOverlappingPosition, projectId, removePredictedPlaceholder, upsertPendingImage]);
+    }, [ensureDrawingLayer, calculateSmartPosition, findImagePlaceholder, projectId, removePredictedPlaceholder, resolveMatrixPosition, upsertPendingImage]);
 
     // 处理上传错误
     const handleQuickUploadError = useCallback((error: string) => {
