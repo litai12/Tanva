@@ -144,7 +144,9 @@ function GenerateNodeInner({ id, data, selected }: Props) {
     return aiProvider;
   }, [aiProvider, providerMode]);
 
+  const showAspectRatioSelector = providerMode !== "fast";
   const showImageSizeSelector = providerMode === "pro" || providerMode === "ultra";
+  const showSizeControls = showAspectRatioSelector || showImageSizeSelector;
 
   const imageSizeOptions: Array<{ label: string; value: string }> = React.useMemo(() => {
     const base = [
@@ -329,91 +331,98 @@ function GenerateNodeInner({ id, data, selected }: Props) {
           会在 TextPrompt 输入前自动添加
         </div>
       </div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: showImageSizeSelector ? "space-between" : "flex-start",
-          marginBottom: 6,
-        }}
-      >
-        <label
-          className='nodrag nopan'
+      {showSizeControls && (
+        <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 6,
-            fontSize: 12,
-            color: "#6b7280",
+            justifyContent:
+              showAspectRatioSelector && showImageSizeSelector
+                ? "space-between"
+                : "flex-start",
+            marginBottom: 6,
           }}
         >
-          尺寸
-          <select
-            value={aspectRatioValue}
-            onChange={(e) => updateAspectRatio(e.target.value)}
-            onPointerDown={stopNodeDrag}
-            onPointerDownCapture={stopNodeDrag}
-            onMouseDown={stopNodeDrag}
-            onMouseDownCapture={stopNodeDrag}
-            onClick={stopNodeDrag}
-            onClickCapture={stopNodeDrag}
-            className='nodrag nopan'
-            style={{
-              fontSize: 12,
-              padding: "2px 6px",
-              borderRadius: 6,
-              border: "1px solid #e5e7eb",
-              background: "#fff",
-              color: "#111827",
-            }}
-          >
-            {aspectOptions.map((opt) => (
-              <option key={opt.value || "auto"} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        {showImageSizeSelector && (
-          <label
-            className='nodrag nopan'
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              fontSize: 12,
-              color: "#6b7280",
-            }}
-          >
-            分辨率
-            <select
-              value={imageSizeValue}
-              onChange={(e) => updateImageSize(e.target.value)}
-              onPointerDown={stopNodeDrag}
-              onPointerDownCapture={stopNodeDrag}
-              onMouseDown={stopNodeDrag}
-              onMouseDownCapture={stopNodeDrag}
-              onClick={stopNodeDrag}
-              onClickCapture={stopNodeDrag}
+          {showAspectRatioSelector && (
+            <label
               className='nodrag nopan'
               style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
                 fontSize: 12,
-                padding: "2px 6px",
-                borderRadius: 6,
-                border: "1px solid #e5e7eb",
-                background: "#fff",
-                color: "#111827",
+                color: "#6b7280",
               }}
             >
-              {imageSizeOptions.map((opt) => (
-                <option key={opt.value || "auto"} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-      </div>
+              尺寸
+              <select
+                value={aspectRatioValue}
+                onChange={(e) => updateAspectRatio(e.target.value)}
+                onPointerDown={stopNodeDrag}
+                onPointerDownCapture={stopNodeDrag}
+                onMouseDown={stopNodeDrag}
+                onMouseDownCapture={stopNodeDrag}
+                onClick={stopNodeDrag}
+                onClickCapture={stopNodeDrag}
+                className='nodrag nopan'
+                style={{
+                  fontSize: 12,
+                  padding: "2px 6px",
+                  borderRadius: 6,
+                  border: "1px solid #e5e7eb",
+                  background: "#fff",
+                  color: "#111827",
+                }}
+              >
+                {aspectOptions.map((opt) => (
+                  <option key={opt.value || "auto"} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {showImageSizeSelector && (
+            <label
+              className='nodrag nopan'
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 12,
+                color: "#6b7280",
+              }}
+            >
+              分辨率
+              <select
+                value={imageSizeValue}
+                onChange={(e) => updateImageSize(e.target.value)}
+                onPointerDown={stopNodeDrag}
+                onPointerDownCapture={stopNodeDrag}
+                onMouseDown={stopNodeDrag}
+                onMouseDownCapture={stopNodeDrag}
+                onClick={stopNodeDrag}
+                onClickCapture={stopNodeDrag}
+                className='nodrag nopan'
+                style={{
+                  fontSize: 12,
+                  padding: "2px 6px",
+                  borderRadius: 6,
+                  border: "1px solid #e5e7eb",
+                  background: "#fff",
+                  color: "#111827",
+                }}
+              >
+                {imageSizeOptions.map((opt) => (
+                  <option key={opt.value || "auto"} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
+      )}
       <div
         onDoubleClick={() => fullSrc && setPreview(true)}
         style={{
