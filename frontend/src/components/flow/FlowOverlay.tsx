@@ -4116,6 +4116,13 @@ function FlowInner() {
         }
         return false;
       }
+      // Midjourney 节点连接验证 - 仅支持文本输入
+      if (targetNode.type === "midjourney") {
+        if (targetHandle === "text") {
+          return textSourceTypes.includes(sourceNode.type || "");
+        }
+        return false;
+      }
 
       if (targetNode.type === "image") {
         if (targetHandle === "img")
@@ -4329,7 +4336,6 @@ function FlowInner() {
       // Midjourney 节点连接容量控制 - 只支持文本输入
       if (targetNode?.type === "midjourney") {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
-        if (params.targetHandle === "img") return incoming.length < 6; // 最多6张图片输入
       }
       // Nano2 节点连接容量控制 - 支持文本和图片输入
       if (targetNode?.type === "nano2") {
