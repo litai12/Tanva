@@ -143,6 +143,14 @@ import MiniMapImageOverlay from "./MiniMapImageOverlay";
 import PersonalLibraryPanel from "./PersonalLibraryPanel";
 import { resolveTextFromSourceNode } from "./utils/textSource";
 
+// 兼容历史多图输入句柄：将 targetHandle img1/img2/... 归一化到 img
+const normalizeFlowTargetHandle = (
+  handle?: string | null
+): string | undefined => {
+  if (typeof handle !== "string") return handle ?? undefined;
+  return /^img\d+$/.test(handle) ? "img" : handle;
+};
+
 /**
  * 调整图片尺寸以满足 Wan2.6 I2V 的要求（宽高必须是 16 的倍数）
  * 如果图片尺寸不满足要求，会自动缩放到最近的合法尺寸
@@ -541,7 +549,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   generate: "10-30", // 生成节点 - gemini-2.5-image (10) 或 gemini-3-pro-image (30)
   generateRef: 30, // 参考图生成节点 - gemini-image-edit 或 gemini-image-blend
   generate4: 40, // 生成多张图片节点 - 4次 × 10积分
-  midjourney: 20, // Midjourney生成 - midjourney-imagine
+  midjourney: 50, // Midjourney生成 - midjourney-imagine
   three: 30, // 三维节点 - convert-2d-to-3d
   sora2Video: "40-400", // 视频生成节点 - sora-sd (40) 或 sora-hd (400)
   wan26: 600, // Wan2.6生成视频 - wan26-video
@@ -1484,88 +1492,96 @@ function FlowInner() {
     []
   );
 
-  const sanitizeNodeData = React.useCallback((input: any) => {
-    const BASE64_IMAGE_MAGIC_PREFIXES = [
-      "iVBORw0KGgo", // png
-      "/9j/", // jpeg
-      "R0lGOD", // gif
-      "UklGR", // webp
-      "PHN2Zy", // svg
-    ];
+  const sanitizeNodeData = React.useCallback(
+    (input: any, options?: { preserveImagePayload?: boolean }) => {
+      const preserveImagePayload = options?.preserveImagePayload === true;
+      const BASE64_IMAGE_MAGIC_PREFIXES = [
+        "iVBORw0KGgo", // png
+        "/9j/", // jpeg
+        "R0lGOD", // gif
+        "UklGR", // webp
+        "PHN2Zy", // svg
+      ];
 
-    const looksLikeBase64 = (value: string): boolean => {
-      const compact = value.replace(/\s+/g, "");
-      if (compact.length < 4096) return false;
-      if (compact.length % 4 !== 0) return false;
-      return /^[A-Za-z0-9+/]+={0,2}$/.test(compact);
-    };
+      const looksLikeBase64 = (value: string): boolean => {
+        const compact = value.replace(/\s+/g, "");
+        if (compact.length < 4096) return false;
+        if (compact.length % 4 !== 0) return false;
+        return /^[A-Za-z0-9+/]+={0,2}$/.test(compact);
+      };
 
-    const shouldDropPersistedString = (value: string): boolean => {
-      const trimmed = value?.trim?.() || "";
-      if (!trimmed) return false;
-      if (/^data:/i.test(trimmed)) return true;
-      if (/^blob:/i.test(trimmed)) return true;
-      if (
-        typeof FLOW_IMAGE_ASSET_PREFIX === "string" &&
-        trimmed.startsWith(FLOW_IMAGE_ASSET_PREFIX)
-      ) {
-        return true;
-      }
-      const compact = trimmed.replace(/\s+/g, "");
-      if (
-        BASE64_IMAGE_MAGIC_PREFIXES.some((p) => compact.startsWith(p)) &&
-        compact.length >= 32
-      ) {
-        return true;
-      }
-      return looksLikeBase64(compact);
-    };
-
-    const seen = new WeakMap<object, any>();
-
-    const walk = (value: any): any => {
-      if (typeof value === "function") return undefined;
-      if (!value || typeof value !== "object") {
-        if (typeof value === "string" && shouldDropPersistedString(value))
-          return undefined;
-        return value;
-      }
-
-      // 兼容 JSON.stringify(Date) 的行为
-      if (value instanceof Date) return value.toISOString();
-
-      if (Array.isArray(value)) {
-        const arr = new Array(value.length);
-        for (let i = 0; i < value.length; i += 1) {
-          arr[i] = walk(value[i]);
+      const shouldDropPersistedString = (value: string): boolean => {
+        if (preserveImagePayload) return false;
+        const trimmed = value?.trim?.() || "";
+        if (!trimmed) return false;
+        if (/^data:/i.test(trimmed)) return true;
+        if (/^blob:/i.test(trimmed)) return true;
+        if (
+          typeof FLOW_IMAGE_ASSET_PREFIX === "string" &&
+          trimmed.startsWith(FLOW_IMAGE_ASSET_PREFIX)
+        ) {
+          return true;
         }
-        return arr;
-      }
+        const compact = trimmed.replace(/\s+/g, "");
+        if (
+          BASE64_IMAGE_MAGIC_PREFIXES.some((p) => compact.startsWith(p)) &&
+          compact.length >= 32
+        ) {
+          return true;
+        }
+        return looksLikeBase64(compact);
+      };
 
-      const cached = seen.get(value as object);
-      if (cached) return cached;
+      const seen = new WeakMap<object, any>();
 
-      const result: Record<string, any> = {};
-      seen.set(value as object, result);
-      Object.entries(value).forEach(([key, child]) => {
-        if (typeof child === "function") return;
-        const sanitized = walk(child);
-        if (sanitized === undefined) return;
-        result[key] = sanitized;
-      });
-      return result;
-    };
+      const walk = (value: any): any => {
+        if (typeof value === "function") return undefined;
+        if (!value || typeof value !== "object") {
+          if (typeof value === "string" && shouldDropPersistedString(value))
+            return undefined;
+          return value;
+        }
 
-    return walk(input);
-  }, []);
+        // 兼容 JSON.stringify(Date) 的行为
+        if (value instanceof Date) return value.toISOString();
+
+        if (Array.isArray(value)) {
+          const arr = new Array(value.length);
+          for (let i = 0; i < value.length; i += 1) {
+            arr[i] = walk(value[i]);
+          }
+          return arr;
+        }
+
+        const cached = seen.get(value as object);
+        if (cached) return cached;
+
+        const result: Record<string, any> = {};
+        seen.set(value as object, result);
+        Object.entries(value).forEach(([key, child]) => {
+          if (typeof child === "function") return;
+          const sanitized = walk(child);
+          if (sanitized === undefined) return;
+          result[key] = sanitized;
+        });
+        return result;
+      };
+
+      return walk(input);
+    },
+    []
+  );
 
   const rfNodesToTplNodes = React.useCallback(
-    (ns: RFNode[]): ClipboardFlowNode[] => {
+    (
+      ns: RFNode[],
+      options?: { preserveImagePayload?: boolean }
+    ): ClipboardFlowNode[] => {
       return ns.map((n: any) => {
         const rawData = { ...(n.data || {}) } as any;
         delete rawData.onRun;
         delete rawData.onSend;
-        const data = sanitizeNodeData(rawData);
+        const data = sanitizeNodeData(rawData, options);
         if (data) {
           delete data.status;
           delete data.error;
@@ -1593,7 +1609,7 @@ function FlowInner() {
         source: e.source,
         target: e.target,
         sourceHandle: e.sourceHandle,
-        targetHandle: e.targetHandle,
+        targetHandle: normalizeFlowTargetHandle(e.targetHandle),
         type: e.type || "default",
         label: typeof e.label === "string" ? e.label : undefined,
       })),
@@ -1618,7 +1634,7 @@ function FlowInner() {
         source: e.source,
         target: e.target,
         sourceHandle: e.sourceHandle,
-        targetHandle: e.targetHandle,
+        targetHandle: normalizeFlowTargetHandle(e.targetHandle),
         type: e.type || "default",
         label: e.label,
       })) as any,
@@ -1827,7 +1843,9 @@ function FlowInner() {
       if (canvasPayload) clipboardService.setCanvasData(canvasPayload);
     } catch {}
 
-    const nodeSnapshots = rfNodesToTplNodes(selectedNodes as any);
+    const nodeSnapshots = rfNodesToTplNodes(selectedNodes as any, {
+      preserveImagePayload: true,
+    });
     const selectedIds = new Set(selectedNodes.map((node: any) => node.id));
     const relatedEdges = rf
       .getEdges()
@@ -1868,7 +1886,9 @@ function FlowInner() {
     const newNodes = payload.nodes.map((node) => {
       const newId = generateId(node.type || "n");
       idMap.set(node.id, newId);
-      const data: any = sanitizeNodeData(node.data || {});
+      const data: any = sanitizeNodeData(node.data || {}, {
+        preserveImagePayload: true,
+      });
       return {
         id: newId,
         type: node.type || "default",
@@ -1896,7 +1916,7 @@ function FlowInner() {
           source,
           target,
           sourceHandle: edge.sourceHandle,
-          targetHandle: edge.targetHandle,
+          targetHandle: normalizeFlowTargetHandle(edge.targetHandle),
           type: edge.type || "default",
           label: edge.label,
         } as any;
@@ -2022,6 +2042,7 @@ function FlowInner() {
 
       if (isCopy) {
         if (!anySelected) return;
+        if (currentZone === "canvas" && !fromFlowOverlay) return;
         clipboardService.setActiveZone("flow");
         // 让浏览器触发原生 copy 事件（由上面的 copy 监听器写入系统剪贴板）
         handleCopyFlow();
@@ -2030,7 +2051,12 @@ function FlowInner() {
 
       if (isPaste) {
         // 仅在 Flow 区域或当前 zone 为 Flow 时切换，避免抢占画布粘贴图片
-        if (fromFlowOverlay || currentZone === "flow") {
+        if (
+          fromFlowOverlay ||
+          currentZone === "flow" ||
+          (anySelected && currentZone !== "canvas") ||
+          (canPasteFlow && currentZone !== "canvas")
+        ) {
           clipboardService.setActiveZone("flow");
         } else {
           return;
@@ -2060,7 +2086,13 @@ function FlowInner() {
           (active as any).isContentEditable);
       if (isEditable) return;
 
-      if (clipboardService.getZone() !== "flow") return;
+      const path =
+        typeof event.composedPath === "function" ? event.composedPath() : [];
+      const fromFlowOverlay = path.some(
+        (el) =>
+          el instanceof Element && el.classList?.contains("tanva-flow-overlay")
+      );
+      if (clipboardService.getZone() !== "flow" && !fromFlowOverlay) return;
       const clipboardData = event.clipboardData;
 
       // 先尝试解析系统剪贴板中的 Flow 数据（支持跨页面/跨实例粘贴）
@@ -2095,6 +2127,16 @@ function FlowInner() {
         payload.nodes.length === 0
       )
         return;
+
+      // 优先粘贴 Flow 内部剪贴板数据；避免被系统 image/file 项拦截
+      {
+        const handled = handlePasteFlow();
+        if (handled) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+      }
 
       const items = clipboardData?.items;
       const hasFileOrImage = items
@@ -4980,7 +5022,9 @@ function FlowInner() {
       } catch {}
 
       const idSet = new Set(nodesToCopy.map((n: any) => n.id));
-      const nodeSnapshots = rfNodesToTplNodes(nodesToCopy as any);
+      const nodeSnapshots = rfNodesToTplNodes(nodesToCopy as any, {
+        preserveImagePayload: true,
+      });
       const relatedEdges = rf
         .getEdges()
         .filter(
@@ -5064,7 +5108,9 @@ function FlowInner() {
 
       const OFFSET = 40;
       const newId = generateId(targetNode.type || "n");
-      const data: any = sanitizeNodeData((targetNode.data as any) || {});
+      const data: any = sanitizeNodeData((targetNode.data as any) || {}, {
+        preserveImagePayload: true,
+      });
 
       const newNode = {
         id: newId,
@@ -10062,7 +10108,9 @@ function FlowInner() {
                 const rawData = { ...(n.data || {}) };
                 delete rawData.onRun;
                 delete rawData.onSend;
-                const data = sanitizeNodeData(rawData);
+                const data = sanitizeNodeData(rawData, {
+                  preserveImagePayload: true,
+                });
                 if (data) {
                   delete data.status;
                   delete data.error;

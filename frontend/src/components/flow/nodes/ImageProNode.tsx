@@ -400,23 +400,21 @@ function ImageProNodeInner({ id, data, selected }: Props) {
 
   // 粘贴处理
   const onPaste = React.useCallback((e: React.ClipboardEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-
     const items = e.clipboardData?.items;
-    if (!items) return;
+    if (!items || items.length === 0) return;
 
+    // 仅在检测到图片时拦截，保证全局 Flow 粘贴可继续冒泡
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
-      if (item.type.startsWith('image/')) {
-        const file = item.getAsFile();
-        if (file) {
-          const fileList = new DataTransfer();
-          fileList.items.add(file);
-          handleFiles(fileList.files);
-          return;
-        }
-      }
+      if (!item || !item.type.startsWith('image/')) continue;
+      const file = item.getAsFile();
+      if (!file) continue;
+      e.preventDefault();
+      e.stopPropagation();
+      const fileList = new DataTransfer();
+      fileList.items.add(file);
+      handleFiles(fileList.files);
+      return;
     }
   }, [handleFiles]);
 

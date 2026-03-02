@@ -476,6 +476,24 @@ function GenerateNodeInner({ id, data, selected }: Props) {
         onMouseEnter={() => setHover("img-in")}
         onMouseLeave={() => setHover(null)}
       />
+      {/* 兼容历史多图输入句柄，避免旧连线 targetHandle=img2/img3... 报错 */}
+      {["img2", "img3", "img4", "img5", "img6"].map((legacyHandleId) => (
+        <Handle
+          key={legacyHandleId}
+          type='target'
+          position={Position.Left}
+          id={legacyHandleId}
+          style={{
+            top: "35%",
+            width: 1,
+            height: 1,
+            opacity: 0,
+            border: "none",
+            background: "transparent",
+            pointerEvents: "none",
+          }}
+        />
+      ))}
       <Handle
         type='target'
         position={Position.Left}

@@ -813,6 +813,26 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           const active = document.activeElement as Element | null;
           if (isEditableElement(active)) return;
 
+          // Flow 区域优先处理粘贴，避免画布层拦截导致 Flow 节点无法粘贴
+          const zone = clipboardService.getZone();
+          const flowPayload = clipboardService.getFlowData();
+          const path =
+            typeof e.composedPath === "function" ? e.composedPath() : [];
+          const fromFlowOverlay = path.some(
+            (el) =>
+              el instanceof Element &&
+              el.classList?.contains("tanva-flow-overlay")
+          );
+          if (
+            fromFlowOverlay ||
+            (zone === "flow" &&
+              flowPayload &&
+              Array.isArray(flowPayload.nodes) &&
+              flowPayload.nodes.length > 0)
+          ) {
+            return;
+          }
+
           const clipboardData = e.clipboardData;
           if (!clipboardData) return;
 
@@ -820,6 +840,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           const rawCanvasData =
             clipboardData.getData(CANVAS_CLIPBOARD_MIME) ||
             clipboardData.getData("application/json");
+          let hasStructuredCanvasPayload = false;
           if (rawCanvasData) {
             try {
               const parsed = JSON.parse(rawCanvasData);
@@ -830,6 +851,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                   ? parsed
                   : null;
               if (payload) {
+                hasStructuredCanvasPayload = true;
                 clipboardService.setCanvasData(payload);
                 const handled = handleCanvasPasteRef.current();
                 if (handled) {
@@ -925,7 +947,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
           // 兜底：若系统剪贴板没有图片/URL/结构化数据，但内存中存在画布剪贴板数据，则执行画布内粘贴
           const canUseInMemoryCanvasPaste =
-            !rawCanvasData &&
+            !hasStructuredCanvasPayload &&
             (!text || text === CANVAS_CLIPBOARD_FALLBACK_TEXT) &&
             !!clipboardService.getCanvasData();
           if (canUseInMemoryCanvasPaste) {

@@ -1264,27 +1264,27 @@ function ImageNodeInner({ id, data, selected }: Props) {
     inputRef.current?.click();
   }, []);
 
-  const onPaste = React.useCallback((e: React.ClipboardEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const onPaste = React.useCallback(
+    (e: React.ClipboardEvent<HTMLDivElement>) => {
+      const items = e.clipboardData?.items;
+      if (!items || items.length === 0) return;
 
-    const items = e.clipboardData?.items;
-    if (!items) return;
-
-    // 遍历剪贴板项，查找图片
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      if (item.type.startsWith("image/")) {
+      // 仅当剪贴板里有图片时才拦截，避免吃掉全局 Flow 粘贴（节点复制）
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (!item || !item.type.startsWith("image/")) continue;
         const file = item.getAsFile();
-        if (file) {
-          const fileList = new DataTransfer();
-          fileList.items.add(file);
-          handleFiles(fileList.files);
-          return;
-        }
+        if (!file) continue;
+        e.preventDefault();
+        e.stopPropagation();
+        const fileList = new DataTransfer();
+        fileList.items.add(file);
+        handleFiles(fileList.files);
+        return;
       }
-    }
-  }, [handleFiles]);
+    },
+    [handleFiles]
+  );
 
   return (
     <div

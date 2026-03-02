@@ -110,19 +110,19 @@ export const CREDIT_PRICING_CONFIG = {
   'midjourney-imagine': {
     serviceName: 'Midjourney 生图',
     provider: 'midjourney',
-    creditsPerCall: 20,
+    creditsPerCall: 50,
     description: '使用 Midjourney 生成图像',
   },
   'midjourney-variation': {
     serviceName: 'Midjourney 变体',
     provider: 'midjourney',
-    creditsPerCall: 10,
+    creditsPerCall: 25,
     description: '生成 Midjourney 图像变体',
   },
   'midjourney-upscale': {
     serviceName: 'Midjourney 放大',
     provider: 'midjourney',
-    creditsPerCall: 6,
+    creditsPerCall: 25,
     description: '放大 Midjourney 图像',
   },
 

@@ -99,7 +99,7 @@ function getDefaultConfigs(): NodeConfig[] {
     { nodeKey: "generatePro", nameZh: "高级生成", nameEn: "Generate Pro", category: "image", status: "normal", sortOrder: 12, creditsPerCall: 30 },
     { nodeKey: "generatePro4", nameZh: "高级四图", nameEn: "Generate Pro 4", category: "image", status: "normal", sortOrder: 13, creditsPerCall: 120 },
     { nodeKey: "generateReference", nameZh: "参考生成", nameEn: "Reference", category: "image", status: "normal", sortOrder: 14, creditsPerCall: 30 },
-    { nodeKey: "midjourney", nameZh: "Midjourney", nameEn: "Midjourney", category: "image", status: "normal", sortOrder: 15, creditsPerCall: 20 },
+    { nodeKey: "midjourney", nameZh: "Midjourney", nameEn: "Midjourney", category: "image", status: "normal", sortOrder: 15, creditsPerCall: 50 },
 
     // 视频生成节点
     { nodeKey: "klingVideo", nameZh: "Kling视频生成", nameEn: "Kling", category: "video", status: "maintenance", sortOrder: 20, creditsPerCall: 600 },
