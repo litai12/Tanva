@@ -3594,7 +3594,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     async (options?: { sendToDialog?: boolean }) => {
       const hasCaptureTarget =
         isGroupSelection || selectedGroupBlocks.length > 0;
-      if (hasPendingSelection) return;
       if (!hasCaptureTarget || !groupPaperBounds) return;
       if (isGroupCapturePending) return;
       setIsGroupCapturePending(true);
@@ -3695,7 +3694,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       }
     },
     [
-      hasPendingSelection,
       isGroupSelection,
       selectedGroupBlocks.length,
       selectedGroupImageIds,
@@ -6839,7 +6837,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         <SelectionGroupToolbar
           bounds={groupScreenBounds}
           selectedCount={groupSelectionCount}
-          onCapture={hasPendingSelection ? undefined : handleGroupCapture}
+          onCapture={handleGroupCapture}
           onGroupImages={hasPendingSelection ? undefined : handleGroupImages}
           canGroupImages={canGroupImages}
           onUngroupImages={hasPendingSelection ? undefined : handleUngroupImages}

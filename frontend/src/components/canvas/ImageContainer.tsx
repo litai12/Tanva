@@ -1520,30 +1520,6 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         }}
       />
 
-      {/* 上传状态提示：本地 blob 预览上传中 */}
-      {imageData.pendingUpload && (
-        <div
-          style={{
-            position: "absolute",
-            top: 6,
-            left: 6,
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "4px 8px",
-            borderRadius: 999,
-            background: "rgba(0,0,0,0.45)",
-            color: "#fff",
-            fontSize: 12,
-            lineHeight: "16px",
-            pointerEvents: "none",
-          }}
-        >
-          <LoadingSpinner size="sm" className="text-white" />
-          <span>上传中…</span>
-        </div>
-      )}
-
       {/* 图片信息条 - 选中时显示在图片内部顶部，左上角显示名称，右上角显示分辨率 */}
       {isSelected && !showExpandSelector && !shouldHideUi && (
         <div
@@ -1650,9 +1626,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                 className={sharedButtonClass}
                 onClick={handleBackgroundRemoval}
                 title={
-                  isPendingUpload
-                    ? "上传中暂不可操作"
-                    : isRemovingBackground
+                  isRemovingBackground
                     ? "正在抠图..."
                     : "一键抠图"
                 }
@@ -1672,9 +1646,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                 className={sharedButtonClass}
                 onClick={handleConvertTo3D}
                 title={
-                  isPendingUpload
-                    ? "上传中暂不可操作"
-                    : isConvertingTo3D
+                  isConvertingTo3D
                     ? "正在转换3D..."
                     : "2D转3D"
                 }
@@ -1694,9 +1666,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                 className={sharedButtonClass}
                 onClick={handleOptimizeHdImage}
                 title={
-                  isPendingUpload
-                    ? "上传中暂不可操作"
-                    : isOptimizingHd
+                  isOptimizingHd
                     ? "正在高清放大..."
                     : "高清放大"
                 }
@@ -1716,9 +1686,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                 className={sharedButtonClass}
                 onClick={handleExpandImage}
                 title={
-                  isPendingUpload
-                    ? "上传中暂不可操作"
-                    : isExpandingImage
+                  isExpandingImage
                     ? "正在扩图..."
                     : showExpandSelector
                     ? "请选择扩图区域"
@@ -1751,7 +1719,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                 className={sharedButtonClass}
                 onClick={handleCreateFlowImageNode}
                 disabled={isPendingUpload}
-                title={isPendingUpload ? "上传中暂不可操作" : "生成节点"}
+                title='生成节点'
               >
                 <ArrowRightLeft className={sharedIconClass} />
                 {showButtonText && <span>生成节点</span>}
