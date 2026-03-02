@@ -77,7 +77,7 @@ import {
 
 const SETTINGS_SECTIONS = [
   { id: "workspace", label: "工作区", icon: Square },
-  { id: "referral", label: "推广激励", icon: Gift, hasNotification: true },
+  { id: "referral", label: "推广激励", icon: Gift },
   { id: "appearance", label: "视图外观", icon: Eye },
   { id: "ai", label: "AI 设置", icon: Sparkles },
   { id: "advanced", label: "高级", icon: Zap },
@@ -86,7 +86,17 @@ const SETTINGS_SECTIONS = [
 type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]["id"];
 
 const VIEW_APPEARANCE_STORAGE_KEY = "tanva-view-settings";
+const REFERRAL_NOTIFICATION_LAST_SEEN_DATE_STORAGE_KEY =
+  "tanva-referral-notification-last-seen-date";
 const MAX_QUICK_PROJECTS = 5;
+
+const getTodayDateKey = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
 
 const FloatingHeader: React.FC = () => {
   const navigate = useNavigate();
@@ -397,6 +407,8 @@ const FloatingHeader: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [activeSettingsSection, setActiveSettingsSection] =
     useState<SettingsSectionId>("workspace");
+  const [showReferralNotification, setShowReferralNotification] =
+    useState(false);
   const [isGlobalHistoryOpen, setIsGlobalHistoryOpen] = useState(false);
   const [showPaymentPanel, setShowPaymentPanel] = useState(false);
 
@@ -424,6 +436,28 @@ const FloatingHeader: React.FC = () => {
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [isSettingsOpen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!isSettingsOpen) return;
+    const today = getTodayDateKey();
+    const lastSeen = window.localStorage.getItem(
+      REFERRAL_NOTIFICATION_LAST_SEEN_DATE_STORAGE_KEY
+    );
+    setShowReferralNotification(lastSeen !== today);
+  }, [isSettingsOpen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!showReferralNotification) return;
+    if (activeSettingsSection !== "referral") return;
+    const today = getTodayDateKey();
+    window.localStorage.setItem(
+      REFERRAL_NOTIFICATION_LAST_SEEN_DATE_STORAGE_KEY,
+      today
+    );
+    setShowReferralNotification(false);
+  }, [activeSettingsSection, showReferralNotification]);
 
   const commitGridSize = () => {
     const n = parseInt(gridSizeInput, 10);
@@ -1618,7 +1652,8 @@ const FloatingHeader: React.FC = () => {
                       {SETTINGS_SECTIONS.map((section) => {
                         const Icon = section.icon;
                         const isActive = activeSettingsSection === section.id;
-                        const hasNotification = 'hasNotification' in section && section.hasNotification;
+                        const hasNotification =
+                          section.id === "referral" && showReferralNotification;
                         return (
                           <button
                             key={section.id}

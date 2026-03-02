@@ -3942,6 +3942,39 @@ function FlowInner() {
     []
   );
 
+  const getVideoHistoryKey = React.useCallback(
+    (videoUrl?: string | null): string => {
+      if (typeof videoUrl !== "string") return "";
+      const normalized = normalizeStableRemoteUrl(videoUrl);
+      const trimmed = normalized.trim();
+      if (!trimmed) return "";
+      try {
+        const parsed = new URL(
+          trimmed,
+          typeof window !== "undefined" ? window.location.origin : "http://localhost"
+        );
+        return `${parsed.origin}${parsed.pathname}`;
+      } catch {
+        const withoutHash = trimmed.split("#")[0] || trimmed;
+        return withoutHash.split("?")[0] || withoutHash;
+      }
+    },
+    [normalizeStableRemoteUrl]
+  );
+
+  const appendVideoHistory = React.useCallback(
+    (history: Array<Record<string, any>> | undefined, entry: Record<string, any>) => {
+      const base = Array.isArray(history) ? history : [];
+      const entryKey = getVideoHistoryKey(entry?.videoUrl);
+      if (!entryKey) return [entry, ...base];
+      const deduped = base.filter(
+        (item) => getVideoHistoryKey(item?.videoUrl) !== entryKey
+      );
+      return [entry, ...deduped];
+    },
+    [getVideoHistoryKey]
+  );
+
   // 允许 TextPrompt -> Generate(text); Image/Generate(img) -> Generate(img)
   const isValidConnection = React.useCallback(
     (connection: Connection) => {
@@ -5521,6 +5554,10 @@ function FlowInner() {
         console.log('[runNode] 节点不存在');
         return;
       }
+      if ((node.data as any)?.status === "running") {
+        console.log("[runNode] 节点正在运行，忽略重复触发");
+        return;
+      }
       console.log('[runNode] 节点类型:', node.type);
 
       const currentEdges = rf.getEdges();
@@ -6321,21 +6358,24 @@ function FlowInner() {
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: "succeeded",
-                      videoUrl,
-                      thumbnail,
-                      error: undefined,
-                      videoVersion:
-                        Number((n.data as any).videoVersion || 0) + 1,
-                      history: Array.isArray((n.data as any).history)
-                        ? [historyEntry, ...(n.data as any).history]
-                        : [historyEntry],
-                    },
-                  }
+                ? (() => {
+                    const previousData = (n.data as any) || {};
+                    return {
+                      ...n,
+                      data: {
+                        ...previousData,
+                        status: "succeeded",
+                        videoUrl,
+                        thumbnail,
+                        error: undefined,
+                        videoVersion: Number(previousData.videoVersion || 0) + 1,
+                        history: appendVideoHistory(
+                          previousData.history as Array<Record<string, any>> | undefined,
+                          historyEntry
+                        ),
+                      },
+                    };
+                  })()
                 : n
             )
           );
@@ -6531,21 +6571,24 @@ function FlowInner() {
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: "succeeded",
-                      videoUrl,
-                      thumbnail,
-                      error: undefined,
-                      videoVersion:
-                        Number((n.data as any).videoVersion || 0) + 1,
-                      history: Array.isArray((n.data as any).history)
-                        ? [historyEntry, ...(n.data as any).history]
-                        : [historyEntry],
-                    },
-                  }
+                ? (() => {
+                    const previousData = (n.data as any) || {};
+                    return {
+                      ...n,
+                      data: {
+                        ...previousData,
+                        status: "succeeded",
+                        videoUrl,
+                        thumbnail,
+                        error: undefined,
+                        videoVersion: Number(previousData.videoVersion || 0) + 1,
+                        history: appendVideoHistory(
+                          previousData.history as Array<Record<string, any>> | undefined,
+                          historyEntry
+                        ),
+                      },
+                    };
+                  })()
                 : n
             )
           );
@@ -7123,47 +7166,66 @@ function FlowInner() {
           const maxAttempts = 180; // 最多180次（15分钟）
           let attempts = 0;
           let pollTimer: number | undefined;
+          let settled = false;
+          let polling = false;
+
+          const stopPolling = () => {
+            settled = true;
+            if (typeof pollTimer === "number") {
+              window.clearTimeout(pollTimer);
+              pollTimer = undefined;
+            }
+          };
+
+          const scheduleNextPoll = () => {
+            if (settled) return;
+            pollTimer = window.setTimeout(() => {
+              void pollTask();
+            }, pollInterval);
+          };
 
           const pollTask = async () => {
+            if (settled || polling) return;
+            polling = true;
             attempts++;
-            if (attempts > maxAttempts) {
-              clearInterval(pollTimer);
-              // 超时也尝试退还积分
-              if (createResult.apiUsageId) {
-                try {
-                  await refundVideoTask(createResult.apiUsageId);
-                  console.log("✅ [Flow] Video task credits refunded (timeout)", {
-                    nodeId,
-                    provider,
-                    apiUsageId: createResult.apiUsageId,
-                  });
-                } catch (refundError) {
-                  console.warn("❌ [Flow] Failed to refund credits (timeout)", {
-                    nodeId,
-                    provider,
-                    apiUsageId: createResult.apiUsageId,
-                    error: refundError instanceof Error ? refundError.message : String(refundError),
-                  });
-                }
-              }
-              setNodes((ns) =>
-                ns.map((n) =>
-                  n.id === nodeId
-                    ? {
-                        ...n,
-                        data: {
-                          ...n.data,
-                          status: "failed",
-                          error: "任务查询超时",
-                        },
-                      }
-                    : n
-                )
-              );
-              return;
-            }
-
             try {
+              if (attempts > maxAttempts) {
+                stopPolling();
+                // 超时也尝试退还积分
+                if (createResult.apiUsageId) {
+                  try {
+                    await refundVideoTask(createResult.apiUsageId);
+                    console.log("✅ [Flow] Video task credits refunded (timeout)", {
+                      nodeId,
+                      provider,
+                      apiUsageId: createResult.apiUsageId,
+                    });
+                  } catch (refundError) {
+                    console.warn("❌ [Flow] Failed to refund credits (timeout)", {
+                      nodeId,
+                      provider,
+                      apiUsageId: createResult.apiUsageId,
+                      error: refundError instanceof Error ? refundError.message : String(refundError),
+                    });
+                  }
+                }
+                setNodes((ns) =>
+                  ns.map((n) =>
+                    n.id === nodeId
+                      ? {
+                          ...n,
+                          data: {
+                            ...n.data,
+                            status: "failed",
+                            error: "任务查询超时",
+                          },
+                        }
+                      : n
+                  )
+                );
+                return;
+              }
+
               const queryResult = await queryVideoTask(
                 provider as VideoProvider,
                 createResult.taskId
@@ -7174,7 +7236,7 @@ function FlowInner() {
                 queryResult.status === "SUCCESS" ||
                 queryResult.status === "succeed"
               ) {
-                clearInterval(pollTimer);
+                stopPolling();
                 const elapsedSeconds = Math.max(
                   1,
                   Math.round((Date.now() - generationStartMs) / 1000)
@@ -7201,18 +7263,20 @@ function FlowInner() {
                         error: undefined,
                         videoVersion:
                           Number(previousData.videoVersion || 0) + 1,
-                        history: Array.isArray(previousData.history)
-                          ? [historyEntry, ...previousData.history]
-                          : [historyEntry],
+                        history: appendVideoHistory(
+                          previousData.history as Array<Record<string, any>> | undefined,
+                          historyEntry
+                        ),
                       },
                     };
                   })
                 );
+                return;
               } else if (
                 queryResult.status === "failed" ||
                 queryResult.status === "FAILURE"
               ) {
-                clearInterval(pollTimer);
+                stopPolling();
                 // 任务失败，尝试退还积分
                 if (createResult.apiUsageId) {
                   try {
@@ -7241,10 +7305,11 @@ function FlowInner() {
                             status: "failed",
                             error: (queryResult as any).error || "任务生成失败",
                           },
-                        }
-                      : n
+                      }
+                    : n
                   )
                 );
+                return;
               }
               // 其他状态继续轮询
             } catch (error) {
@@ -7255,13 +7320,15 @@ function FlowInner() {
                 error: error instanceof Error ? error.message : String(error),
               });
               // 继续轮询，不中断
+            } finally {
+              polling = false;
             }
+
+            scheduleNextPoll();
           };
 
-          // 开始轮询
-          pollTimer = window.setInterval(pollTask, pollInterval);
-          // 立即执行一次
-          pollTask();
+          // 立即执行一次，后续按 setTimeout 串行轮询，避免并发 poll 导致重复写 history
+          void pollTask();
         } catch (error) {
           console.warn("❌ [Flow] Video request failed", {
             nodeId,
@@ -8418,7 +8485,7 @@ function FlowInner() {
         );
       }
     },
-    [aiProvider, imageModel, rf, setNodes, appendSora2History]
+    [aiProvider, imageModel, rf, setNodes, appendSora2History, appendVideoHistory]
   );
 
   // 定义稳定的onSend回调

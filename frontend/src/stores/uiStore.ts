@@ -3,7 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import { createSafeStorage } from './storageUtils';
 
 const SMART_PLACEMENT_OFFSET_HORIZONTAL = 522;
-const SMART_PLACEMENT_OFFSET_VERTICAL = 582;
+const SMART_PLACEMENT_OFFSET_VERTICAL = 552;
 
 interface UIState {
   // 面板显示状态

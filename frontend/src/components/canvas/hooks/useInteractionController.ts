@@ -2178,6 +2178,23 @@ export const useInteractionController = ({
           }
         } catch {}
 
+        // 删除组块后，需要同步清理图片工具状态（实例列表、选中态、AI 对话框源图等）
+        // 仅删除 Paper.js 对象会导致“图片看起来消失，但仍被选中”的状态残留。
+        try {
+          if (
+            deletedImageIdsFromGroup.size > 0 &&
+            typeof latestImageTool?.handleImageDelete === 'function'
+          ) {
+            deletedImageIdsFromGroup.forEach((id) => {
+              if (isPendingUploadImage(id)) return;
+              try {
+                latestImageTool.handleImageDelete?.(id);
+                didDelete = true;
+              } catch {}
+            });
+          }
+        } catch {}
+
         // 删除图片（按选中ID或状态），跳过已通过组块删除的图片
         try {
           const ids = (latestImageTool?.selectedImageIds && latestImageTool.selectedImageIds.length > 0)

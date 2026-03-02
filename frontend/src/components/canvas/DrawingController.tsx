@@ -2207,7 +2207,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       let resolvedCenter = center;
       if (
-        (preferSmartLayout || !resolvedCenter) &&
+        !resolvedCenter &&
         typeof quickImageUploadRef.current.calculateSmartPosition === "function"
       ) {
         const smart =

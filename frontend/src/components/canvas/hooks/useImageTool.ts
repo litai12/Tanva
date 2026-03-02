@@ -1155,17 +1155,20 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       return filtered;
     });
 
-    // 如果删除的是当前选中的图片，清除选中状态
-    if (selectedImageIds.includes(imageId)) {
-      setSelectedImageIds(prev => prev.filter(id => id !== imageId));
-      logger.debug('🗑️ 已清除选中状态');
-    }
+    // 清理选中状态（使用函数式更新，避免闭包捕获旧 selectedImageIds）
+    setSelectedImageIds(prev => {
+      const next = prev.filter(id => id !== imageId);
+      if (next.length !== prev.length) {
+        logger.debug('🗑️ 已清除选中状态');
+      }
+      return next;
+    });
 
     // 调用删除回调
     eventHandlers.onImageDelete?.(imageId);
     try { paperSaveService.triggerAutoSave(); } catch {}
     historyService.commit('delete-image').catch(() => {});
-  }, [selectedImageIds[0], eventHandlers.onImageDelete]);
+  }, [eventHandlers.onImageDelete]);
 
   // ========== 图片上传错误处理 ==========
   const handleImageUploadError = useCallback((error: string) => {

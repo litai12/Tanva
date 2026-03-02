@@ -72,12 +72,14 @@ export class BananaProvider implements IAIProvider {
   private readonly DEFAULT_MODEL = "gemini-3-pro-image-preview";
   private readonly DEFAULT_TIMEOUT = 300000; // 5分钟
   private readonly MAX_RETRIES = 3;
+  private readonly MAX_MODEL_ATTEMPTS = 3; // 主模型 + 两级降级（Ultra -> Pro -> Fast）
   private readonly RETRY_DELAYS = [2000, 5000, 10000]; // 递增延迟: 2s, 5s, 10s
 
-  // 降级模型映射：Pro 文本模型 -> Flash（避免走 Pro）
+  // 降级模型映射：优先同代/同能力降级，再降到更保守模型
   private readonly FALLBACK_MODELS: Record<string, string> = {
     "gemini-3-pro-image-preview": "gemini-2.5-flash-image",
-    "gemini-3.1-flash-image-preview": "gemini-2.5-flash-image",
+    "gemini-3.1-flash-image-preview": "gemini-3-pro-image-preview",
+    "banana-gemini-3.1-flash-image-preview": "gemini-3-pro-image-preview",
     "gemini-3-pro-preview": "gemini-3-flash-preview",
     "banana-gemini-3-pro-preview": "gemini-3-flash-preview",
     "banana-gemini-3-pro-image-preview": "gemini-2.5-flash-image",
@@ -639,7 +641,7 @@ export class BananaProvider implements IAIProvider {
     let usedFallback = false;
 
     // 尝试使用主模型，失败后降级
-    for (let round = 0; round < 2; round++) {
+    for (let round = 0; round < this.MAX_MODEL_ATTEMPTS; round++) {
       try {
         this.logger.debug(
           `Using model: ${currentModel}${usedFallback ? " (fallback)" : ""}`
@@ -708,7 +710,7 @@ export class BananaProvider implements IAIProvider {
         const err = error instanceof Error ? error : new Error(String(error));
 
         // 检查是否应该降级
-        if (!usedFallback && this.shouldFallback(err)) {
+        if (this.shouldFallback(err)) {
           const fallbackModel = this.getFallbackModel(currentModel);
           if (fallbackModel) {
             this.logger.warn(
@@ -762,7 +764,7 @@ export class BananaProvider implements IAIProvider {
     let usedFallback = false;
 
     // 尝试使用主模型，失败后降级
-    for (let round = 0; round < 2; round++) {
+    for (let round = 0; round < this.MAX_MODEL_ATTEMPTS; round++) {
       try {
         this.logger.debug(
           `Using model: ${currentModel}${usedFallback ? " (fallback)" : ""}`
@@ -839,7 +841,7 @@ export class BananaProvider implements IAIProvider {
         const err = error instanceof Error ? error : new Error(String(error));
 
         // 检查是否应该降级
-        if (!usedFallback && this.shouldFallback(err)) {
+        if (this.shouldFallback(err)) {
           const fallbackModel = this.getFallbackModel(currentModel);
           if (fallbackModel) {
             this.logger.warn(
@@ -904,7 +906,7 @@ export class BananaProvider implements IAIProvider {
     let usedFallback = false;
 
     // 尝试使用主模型，失败后降级
-    for (let round = 0; round < 2; round++) {
+    for (let round = 0; round < this.MAX_MODEL_ATTEMPTS; round++) {
       try {
         this.logger.debug(
           `Using model: ${currentModel}${usedFallback ? " (fallback)" : ""}`
@@ -973,7 +975,7 @@ export class BananaProvider implements IAIProvider {
         const err = error instanceof Error ? error : new Error(String(error));
 
         // 检查是否应该降级
-        if (!usedFallback && this.shouldFallback(err)) {
+        if (this.shouldFallback(err)) {
           const fallbackModel = this.getFallbackModel(currentModel);
           if (fallbackModel) {
             this.logger.warn(
@@ -1096,7 +1098,7 @@ export class BananaProvider implements IAIProvider {
     let usedFallback = false;
 
     // 尝试使用主模型，失败后降级
-    for (let round = 0; round < 2; round++) {
+    for (let round = 0; round < this.MAX_MODEL_ATTEMPTS; round++) {
       try {
         this.logger.log(
           `📝 Using model: ${currentModel}${usedFallback ? " (fallback)" : ""}`
@@ -1152,7 +1154,7 @@ export class BananaProvider implements IAIProvider {
         const err = error instanceof Error ? error : new Error(String(error));
 
         // 检查是否应该降级
-        if (!usedFallback && this.shouldFallback(err)) {
+        if (this.shouldFallback(err)) {
           const fallbackModel = this.getFallbackModel(currentModel);
           if (fallbackModel) {
             this.logger.warn(
@@ -1425,7 +1427,7 @@ ${
       let usedFallback = false;
 
       // 尝试主模型，失败时按降级模型重试
-      for (let round = 0; round < 2; round++) {
+      for (let round = 0; round < this.MAX_MODEL_ATTEMPTS; round++) {
         try {
           this.logger.debug(
             `Using model: ${currentModel}${usedFallback ? " (fallback)" : ""}`
@@ -1524,7 +1526,7 @@ ${imageAnalysis}
         } catch (error) {
           const err = error instanceof Error ? error : new Error(String(error));
 
-          if (!usedFallback && this.shouldFallback(err)) {
+          if (this.shouldFallback(err)) {
             const fallbackModel = this.getFallbackModel(currentModel);
             if (fallbackModel) {
               this.logger.warn(
@@ -1634,7 +1636,7 @@ ${imageAnalysis}
     let usedFallback = false;
 
     // 尝试使用主模型，失败后降级
-    for (let round = 0; round < 2; round++) {
+    for (let round = 0; round < this.MAX_MODEL_ATTEMPTS; round++) {
       try {
         this.logger.log(
           `📝 Using model: ${currentModel}${usedFallback ? " (fallback)" : ""}`
@@ -1697,7 +1699,7 @@ ${imageAnalysis}
         const err = error instanceof Error ? error : new Error(String(error));
 
         // 检查是否应该降级
-        if (!usedFallback && this.shouldFallback(err)) {
+        if (this.shouldFallback(err)) {
           const fallbackModel = this.getFallbackModel(currentModel);
           if (fallbackModel) {
             this.logger.warn(

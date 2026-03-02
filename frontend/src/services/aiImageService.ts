@@ -145,6 +145,9 @@ class AIImageService {
   async analyzeImage(
     request: AIImageAnalyzeRequest
   ): Promise<AIServiceResponse<AIImageAnalysisResult>> {
+    // 关键操作前确保 token 有效，减少因 401/403 触发 public fallback 导致的响应结构差异
+    await tokenRefreshManager.ensureValidToken();
+
     const response = await this.callAPI<any>(
       `${this.API_BASE}/ai/analyze-image`,
       request,
@@ -155,32 +158,92 @@ class AIImageService {
       return response as AIServiceResponse<AIImageAnalysisResult>;
     }
 
-    const raw = response.data as Partial<AIImageAnalysisResult> & {
-      text?: string;
-      textResponse?: string;
-      result?: string;
-    };
-
-    const analysisText =
-      typeof raw.analysis === "string" && raw.analysis.length
-        ? raw.analysis
-        : typeof raw.text === "string" && raw.text.length
-        ? raw.text
-        : typeof raw.textResponse === "string" && raw.textResponse.length
-        ? raw.textResponse
-        : typeof raw.result === "string"
-        ? raw.result
-        : "";
+    const analysisText = this.extractAnalysisText(response.data);
+    const rawRoot =
+      response.data && typeof response.data === "object"
+        ? (response.data as Record<string, unknown>)
+        : {};
+    if (!analysisText.trim()) {
+      const nestedErrorMessage = this.extractErrorMessage(response.data);
+      return {
+        success: false,
+        error: {
+          code: "EMPTY_ANALYSIS",
+          message:
+            nestedErrorMessage ||
+            "Analysis returned empty response, please try again later",
+          timestamp: new Date(),
+        } as AIError,
+      };
+    }
 
     return {
       success: true,
       data: {
         analysis: analysisText,
         confidence:
-          typeof raw.confidence === "number" ? raw.confidence : undefined,
-        tags: Array.isArray(raw.tags) ? raw.tags : [],
+          typeof rawRoot.confidence === "number"
+            ? rawRoot.confidence
+            : undefined,
+        tags: Array.isArray(rawRoot.tags)
+          ? rawRoot.tags.filter((tag): tag is string => typeof tag === "string")
+          : [],
       },
     };
+  }
+
+  private extractAnalysisText(payload: unknown, depth: number = 0): string {
+    if (depth > 5 || payload == null) return "";
+    if (typeof payload === "string") return payload;
+    if (Array.isArray(payload)) {
+      for (const item of payload) {
+        const text = this.extractAnalysisText(item, depth + 1);
+        if (text.trim()) return text;
+      }
+      return "";
+    }
+    if (typeof payload !== "object") return "";
+
+    const raw = payload as Record<string, unknown>;
+    const directFields = ["analysis", "text", "textResponse", "result"];
+    for (const field of directFields) {
+      const value = raw[field];
+      if (typeof value === "string" && value.trim()) {
+        return value;
+      }
+    }
+
+    const nestedFields = ["data", "response", "payload", "result"];
+    for (const field of nestedFields) {
+      if (!(field in raw)) continue;
+      const nestedText = this.extractAnalysisText(raw[field], depth + 1);
+      if (nestedText.trim()) return nestedText;
+    }
+
+    return "";
+  }
+
+  private extractErrorMessage(payload: unknown, depth: number = 0): string {
+    if (depth > 5 || payload == null || typeof payload !== "object") return "";
+    const raw = payload as Record<string, unknown>;
+
+    const error = raw.error;
+    if (error && typeof error === "object") {
+      const message = (error as Record<string, unknown>).message;
+      if (typeof message === "string" && message.trim()) return message;
+    }
+
+    const message = raw.message;
+    if (typeof message === "string" && message.trim()) return message;
+
+    const nestedFields = ["data", "response", "payload", "result"];
+    for (const field of nestedFields) {
+      if (!(field in raw)) continue;
+      const nestedMessage = this.extractErrorMessage(raw[field], depth + 1);
+      if (nestedMessage.trim()) return nestedMessage;
+    }
+
+    return "";
   }
 
   /**

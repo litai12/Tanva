@@ -3442,6 +3442,7 @@ export const useAIChatStore = create<AIChatState>()(
               width: number;
               height: number;
             } | null = null;
+            let selectedImageId: string | null = null;
             try {
               if ((window as any).tanvaImageInstances) {
                 const selectedImage = (window as any).tanvaImageInstances.find(
@@ -3449,6 +3450,9 @@ export const useAIChatStore = create<AIChatState>()(
                 );
                 if (selectedImage?.bounds) {
                   selectedImageBounds = selectedImage.bounds;
+                  if (typeof selectedImage.id === "string" && selectedImage.id) {
+                    selectedImageId = selectedImage.id;
+                  }
                 }
               }
             } catch {}
@@ -3458,18 +3462,19 @@ export const useAIChatStore = create<AIChatState>()(
               useUIStore.getState().smartPlacementOffsetHorizontal || 522;
             let center: { x: number; y: number } | null = null;
 
-            if (cached?.bounds) {
-              center = {
-                x: cached.bounds.x + cached.bounds.width / 2 + offsetHorizontal,
-                y: cached.bounds.y + cached.bounds.height / 2,
-              };
-            } else if (selectedImageBounds) {
+            // 编辑锚点优先使用“当前选中图”，避免误用缓存图导致向右下偏移
+            if (selectedImageBounds) {
               center = {
                 x:
                   selectedImageBounds.x +
                   selectedImageBounds.width / 2 +
                   offsetHorizontal,
                 y: selectedImageBounds.y + selectedImageBounds.height / 2,
+              };
+            } else if (cached?.bounds) {
+              center = {
+                x: cached.bounds.x + cached.bounds.width / 2 + offsetHorizontal,
+                y: cached.bounds.y + cached.bounds.height / 2,
               };
             } else {
               center = getViewCenter();
@@ -3489,7 +3494,7 @@ export const useAIChatStore = create<AIChatState>()(
                 height: size.height,
                 operationType: "edit",
                 preferSmartLayout: true,
-                sourceImageId: cached?.imageId,
+                sourceImageId: selectedImageId || cached?.imageId,
                 smartPosition: center ? { ...center } : undefined,
                 groupId,
                 groupIndex,
