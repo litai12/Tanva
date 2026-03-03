@@ -9,13 +9,13 @@ import React, {
 import paper from "paper";
 import { useCanvasStore } from "@/stores";
 import {
-  Sparkles,
   EyeOff,
   Wand2,
   ArrowRightLeft,
   Rotate3d,
   Crop,
   ImageUp,
+  Type,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import ImagePreviewModal, { type ImageItem } from "../ui/ImagePreviewModal";
@@ -47,6 +47,14 @@ import { canvasToDataUrl, dataUrlToBlob } from "@/utils/imageConcurrency";
 
 const EXPAND_PRESET_PROMPT =
   "请智能填充图像中的黑色区域，使其与原始图像内容完美融合，保持原图的高宽比不变";
+const TEXT_RECOGNITION_PROMPT =
+  '请识别图片中所有可见文字，并仅返回 JSON 数组，例如：["文字1","文字2"]。不要返回其他解释。';
+
+type TextReplacementItem = {
+  id: string;
+  originalText: string;
+  nextText: string;
+};
 
 type Bounds = { x: number; y: number; width: number; height: number };
 const ensureDataUrlString = (
@@ -61,6 +69,92 @@ const ensureDataUrlString = (
 
 const normalizeImageSrc = (value?: string | null): string => {
   return toRenderableImageSrc(value) || "";
+};
+
+const dedupeTexts = (items: string[]): string[] => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const item of items) {
+    const text = item.trim();
+    if (!text) continue;
+    if (seen.has(text)) continue;
+    seen.add(text);
+    result.push(text);
+  }
+  return result;
+};
+
+const parseRecognizedTexts = (analysis: string): string[] => {
+  const normalized = analysis.trim();
+  if (!normalized) return [];
+
+  const parseJsonTexts = (raw: string): string[] => {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed.filter((item): item is string => typeof item === "string");
+      }
+      if (parsed && typeof parsed === "object") {
+        const maybeTexts = (parsed as { texts?: unknown }).texts;
+        if (Array.isArray(maybeTexts)) {
+          return maybeTexts.filter(
+            (item): item is string => typeof item === "string"
+          );
+        }
+      }
+    } catch {
+      return [];
+    }
+    return [];
+  };
+
+  const fenced = normalized.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1];
+  const fromJson = dedupeTexts([
+    ...parseJsonTexts(fenced ?? ""),
+    ...parseJsonTexts(normalized),
+  ]);
+  if (fromJson.length > 0) {
+    return fromJson.slice(0, 20);
+  }
+
+  const lines = normalized
+    .split(/\r?\n/)
+    .map((line) =>
+      line
+        .replace(/^[\s\-*•\d.)["'`]+/, "")
+        .replace(/[\]"'`]+$/, "")
+        .trim()
+    )
+    .filter(Boolean);
+
+  return dedupeTexts(lines).slice(0, 20);
+};
+
+const buildTextEditPrompt = (
+  replacements: Array<{ originalText: string; nextText: string }>,
+  extraInstruction?: string
+): string => {
+  const lines: string[] = [
+    "请仅修改图片中的文字，保持主体、背景、构图、颜色、光影和风格不变。",
+    "请严格按以下规则替换文字：",
+  ];
+
+  replacements.forEach((item, index) => {
+    lines.push(
+      `${index + 1}. 将“${item.originalText}”替换为“${item.nextText}”。`
+    );
+  });
+
+  if (extraInstruction?.trim()) {
+    lines.push(`补充要求：${extraInstruction.trim()}`);
+  }
+
+  lines.push(
+    "如果某条原文字在图中不存在，请忽略该条，不要新增无关文字。",
+    "除文字替换外，不要改动任何图像内容。"
+  );
+
+  return lines.join("\n");
 };
 
 const _composeExpandedImage = async (
@@ -210,6 +304,13 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const [isConvertingTo3D, setIsConvertingTo3D] = useState(false);
   const [isExpandingImage, setIsExpandingImage] = useState(false);
   const [isOptimizingHd, setIsOptimizingHd] = useState(false);
+  const [isRecognizingText, setIsRecognizingText] = useState(false);
+  const [isApplyingTextEdit, setIsApplyingTextEdit] = useState(false);
+  const [showTextEditPanel, setShowTextEditPanel] = useState(false);
+  const [textReplacementItems, setTextReplacementItems] = useState<
+    TextReplacementItem[]
+  >([]);
+  const [textEditExtraInstruction, setTextEditExtraInstruction] = useState("");
   const [showExpandSelector, setShowExpandSelector] = useState(false);
   const [projectHistoryItems, setProjectHistoryItems] = useState<
     GlobalImageHistoryItem[]
@@ -792,6 +893,201 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       imageData.src,
       imageData.url,
       resolveImageDataUrl,
+    ]
+  );
+
+  const handleRecognizeImageText = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (isRecognizingText || isApplyingTextEdit) {
+        return;
+      }
+
+      const run = async () => {
+        setShowTextEditPanel(true);
+        setTextReplacementItems([]);
+        setTextEditExtraInstruction("");
+        setIsRecognizingText(true);
+
+        try {
+          const sourceImage = await resolveImageDataUrl();
+          if (!sourceImage) {
+            throw new Error("无法获取原图，无法识别文字");
+          }
+
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message: "🔎 正在识别图片文字...",
+                type: "info",
+              },
+            })
+          );
+
+          const bananaProvider = "banana";
+          const bananaModel = getImageModelForProvider(bananaProvider);
+          const result = await aiImageService.analyzeImage({
+            prompt: TEXT_RECOGNITION_PROMPT,
+            sourceImage,
+            aiProvider: bananaProvider,
+            model: bananaModel,
+          });
+
+          if (!result.success || !result.data?.analysis) {
+            throw new Error(result.error?.message || "文字识别失败");
+          }
+
+          const recognized = parseRecognizedTexts(result.data.analysis);
+          const mapped = recognized.map((text, index) => ({
+            id: `${Date.now()}-${index}`,
+            originalText: text,
+            nextText: "",
+          }));
+
+          setTextReplacementItems(mapped);
+
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message:
+                  mapped.length > 0
+                    ? `✅ 识别到 ${mapped.length} 条文字`
+                    : "⚠️ 未识别到明确文字，请补充替换说明后尝试修改",
+                type: mapped.length > 0 ? "success" : "warning",
+              },
+            })
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "文字识别失败";
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message, type: "error" },
+            })
+          );
+          setShowTextEditPanel(false);
+        } finally {
+          setIsRecognizingText(false);
+        }
+      };
+
+      run().catch(() => {
+        setIsRecognizingText(false);
+      });
+    },
+    [isApplyingTextEdit, isRecognizingText, resolveImageDataUrl]
+  );
+
+  const handleApplyTextEdit = useCallback(
+    async (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (isApplyingTextEdit || isRecognizingText) {
+        return;
+      }
+
+      const replacements = textReplacementItems
+        .map((item) => ({
+          originalText: item.originalText.trim(),
+          nextText: item.nextText.trim(),
+        }))
+        .filter(
+          (item) =>
+            item.originalText.length > 0 &&
+            item.nextText.length > 0 &&
+            item.originalText !== item.nextText
+        );
+
+      if (replacements.length === 0 && !textEditExtraInstruction.trim()) {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: {
+              message: "请先填写需要替换的新文字或补充修改说明",
+              type: "warning",
+            },
+          })
+        );
+        return;
+      }
+
+      setIsApplyingTextEdit(true);
+      try {
+        const sourceImage = await resolveImageDataUrl();
+        if (!sourceImage) {
+          throw new Error("无法获取原图");
+        }
+
+        const prompt = buildTextEditPrompt(
+          replacements,
+          textEditExtraInstruction
+        );
+        const bananaProvider = "banana";
+        const bananaModel = getImageModelForProvider(bananaProvider);
+
+        const result = await aiImageService.editImage({
+          prompt,
+          sourceImage,
+          aiProvider: bananaProvider,
+          model: bananaModel,
+          outputFormat: "png",
+          imageOnly: true,
+        });
+
+        if (!result.success || !result.data?.imageData) {
+          throw new Error(result.error?.message || "图片文字修改失败");
+        }
+
+        const editedImageData = ensureDataUrlString(result.data.imageData);
+        const centerPoint = {
+          x: realTimeBounds.x + realTimeBounds.width / 2,
+          y: realTimeBounds.y + realTimeBounds.height / 2,
+        };
+
+        window.dispatchEvent(
+          new CustomEvent("triggerQuickImageUpload", {
+            detail: {
+              imageData: editedImageData,
+              fileName: `text-edited-${Date.now()}.png`,
+              smartPosition: centerPoint,
+              operationType: "text-edit",
+              sourceImageId: imageData.id,
+            },
+          })
+        );
+
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "✨ 文字修改完成，已生成新图", type: "success" },
+          })
+        );
+
+        setShowTextEditPanel(false);
+        setTextReplacementItems([]);
+        setTextEditExtraInstruction("");
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "图片文字修改失败";
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message, type: "error" },
+          })
+        );
+      } finally {
+        setIsApplyingTextEdit(false);
+      }
+    },
+    [
+      imageData.id,
+      isApplyingTextEdit,
+      isRecognizingText,
+      realTimeBounds.height,
+      realTimeBounds.width,
+      realTimeBounds.x,
+      realTimeBounds.y,
+      resolveImageDataUrl,
+      textEditExtraInstruction,
+      textReplacementItems,
     ]
   );
 
@@ -1725,6 +2021,30 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                 {showButtonText && <span>图片拓展</span>}
               </Button>
 
+              <Button
+                variant='ghost'
+                size='sm'
+                disabled={
+                  isPendingUpload || isRecognizingText || isApplyingTextEdit
+                }
+                className={sharedButtonClass}
+                onClick={handleRecognizeImageText}
+                title={
+                  isRecognizingText
+                    ? "正在识别文字..."
+                    : isApplyingTextEdit
+                    ? "正在修改文字..."
+                    : "修改图片中的文字"
+                }
+              >
+                {isRecognizingText || isApplyingTextEdit ? (
+                  <LoadingSpinner size='sm' className='text-blue-600' />
+                ) : (
+                  <Type className={sharedIconClass} />
+                )}
+                {showButtonText && <span>改文字</span>}
+              </Button>
+
               {enableVisibilityToggle && (
                 <Button
                   variant='ghost'
@@ -1749,6 +2069,115 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                 {showButtonText && <span>生成节点</span>}
               </Button>
             </div>
+
+            {showTextEditPanel && (
+              <div className='mt-2 w-[460px] max-w-[80vw] rounded-xl border border-liquid-glass bg-white/95 p-3 shadow-liquid-glass-lg backdrop-blur-md'>
+                <div className='mb-2 flex items-center justify-between'>
+                  <div className='text-sm font-medium text-gray-800'>
+                    修改图片中的文字
+                  </div>
+                  <div className='text-xs text-gray-500'>
+                    {isRecognizingText
+                      ? "识别中..."
+                      : `共 ${textReplacementItems.length} 条`}
+                  </div>
+                </div>
+
+                {isRecognizingText ? (
+                  <div className='rounded-md border border-gray-200 bg-gray-50 px-3 py-6 text-center text-sm text-gray-600'>
+                    正在识别图片文字，请稍候...
+                  </div>
+                ) : (
+                  <div className='space-y-2'>
+                    {textReplacementItems.length > 0 ? (
+                      <div className='max-h-52 space-y-2 overflow-y-auto pr-1'>
+                        {textReplacementItems.map((item) => (
+                          <div
+                            key={item.id}
+                            className='grid grid-cols-[1fr_1fr] gap-2'
+                          >
+                            <input
+                              readOnly
+                              value={item.originalText}
+                              className='h-8 rounded-md border border-gray-200 bg-gray-50 px-2 text-xs text-gray-600'
+                            />
+                            <input
+                              value={item.nextText}
+                              onChange={(event) => {
+                                const value = event.target.value;
+                                setTextReplacementItems((current) =>
+                                  current.map((row) =>
+                                    row.id === item.id
+                                      ? { ...row, nextText: value }
+                                      : row
+                                  )
+                                );
+                              }}
+                              placeholder='输入替换文字'
+                              className='h-8 rounded-md border border-gray-300 bg-white px-2 text-xs text-gray-800 focus:border-blue-400 focus:outline-none'
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className='rounded-md border border-amber-200 bg-amber-50 px-2 py-2 text-xs text-amber-700'>
+                        未识别到明确文字，可在下方输入补充说明后尝试修改。
+                      </div>
+                    )}
+
+                    <textarea
+                      value={textEditExtraInstruction}
+                      onChange={(event) =>
+                        setTextEditExtraInstruction(event.target.value)
+                      }
+                      placeholder='补充说明（可选），例如：将标题改为“春日上新”并保持字体风格一致'
+                      className='min-h-[64px] w-full rounded-md border border-gray-300 bg-white px-2 py-2 text-xs text-gray-800 focus:border-blue-400 focus:outline-none'
+                    />
+
+                    <div className='flex items-center justify-between gap-2 pt-1'>
+                      <Button
+                        variant='ghost'
+                        size='sm'
+                        className={sharedButtonClass}
+                        disabled={isApplyingTextEdit || isRecognizingText}
+                        onClick={handleRecognizeImageText}
+                        title='重新识别图片文字'
+                      >
+                        重新识别
+                      </Button>
+                      <div className='flex items-center gap-2'>
+                        <Button
+                          variant='ghost'
+                          size='sm'
+                          className={sharedButtonClass}
+                          disabled={isApplyingTextEdit || isRecognizingText}
+                          onClick={() => {
+                            setShowTextEditPanel(false);
+                            setTextReplacementItems([]);
+                            setTextEditExtraInstruction("");
+                          }}
+                          title='取消文字修改'
+                        >
+                          取消
+                        </Button>
+                        <Button
+                          variant='ghost'
+                          size='sm'
+                          className={sharedButtonClass}
+                          disabled={isApplyingTextEdit || isRecognizingText}
+                          onClick={(event) => {
+                            void handleApplyTextEdit(event);
+                          }}
+                          title='确认并修改图片文字'
+                        >
+                          {isApplyingTextEdit ? "修改中..." : "确认修改"}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
