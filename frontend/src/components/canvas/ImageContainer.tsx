@@ -11,6 +11,7 @@ import { useCanvasStore } from "@/stores";
 import {
   EyeOff,
   Wand2,
+  Layers,
   ArrowRightLeft,
   Rotate3d,
   Crop,
@@ -301,6 +302,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const [showPreview, setShowPreview] = useState(false);
   const [previewImageId, setPreviewImageId] = useState<string | null>(null);
   const [isRemovingBackground, setIsRemovingBackground] = useState(false);
+  const [isSeparatingLayers, setIsSeparatingLayers] = useState(false);
   const [isConvertingTo3D, setIsConvertingTo3D] = useState(false);
   const [isExpandingImage, setIsExpandingImage] = useState(false);
   const [isOptimizingHd, setIsOptimizingHd] = useState(false);
@@ -1091,12 +1093,85 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     ]
   );
 
+  const runBackgroundRemoval = useCallback(
+    async (
+      baseImage: string,
+      options?: { showToasts?: boolean }
+    ): Promise<string> => {
+      const showToasts = options?.showToasts ?? true;
+
+      logger.info("🎯 开始背景移除", { imageId: imageData.id });
+
+      // 使用 Gemini 2.5 Flash 模型进行预处理（速度更快）
+      const BG_REMOVAL_MODEL = "gemini-2.5-flash-image";
+      const BG_REMOVAL_PROVIDER = "banana"; // 改用Pro版获得更好的质量
+
+      logger.info("📷 Step 1: Gemini 2.5 预处理 - 背景换成纯色", {
+        aiProvider: BG_REMOVAL_PROVIDER,
+        model: BG_REMOVAL_MODEL,
+      });
+
+      if (showToasts) {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "🔄 正在预处理图片...", type: "info" },
+          })
+        );
+      }
+
+      const editResult = await aiImageService.editImage({
+        prompt: "只保留完整的主体，背景换成纯色",
+        sourceImage: baseImage,
+        model: BG_REMOVAL_MODEL,
+        aiProvider: BG_REMOVAL_PROVIDER,
+        outputFormat: "png",
+        imageOnly: true,
+      });
+
+      if (!editResult.success || !editResult.data?.imageData) {
+        logger.warn(
+          "⚠️ Gemini 预处理失败，使用原图继续抠图",
+          editResult.error
+        );
+        // 预处理失败时，继续使用原图进行抠图
+      }
+
+      const imageForRemoval =
+        editResult.success && editResult.data?.imageData
+          ? ensureDataUrlString(editResult.data.imageData, "image/png")
+          : baseImage;
+
+      if (showToasts && editResult.success && editResult.data?.imageData) {
+        logger.info("✅ Gemini 预处理完成，开始抠图算法");
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "🔄 正在精细抠图...", type: "info" },
+          })
+        );
+      }
+
+      // Step 2: 将预处理后的图片传给抠图算法
+      logger.info("📷 Step 2: 抠图算法处理");
+      const result = await backgroundRemovalService.removeBackground(
+        imageForRemoval,
+        "image/png",
+        true
+      );
+      if (!result.success || !result.imageData) {
+        throw new Error(result.error || "背景移除失败");
+      }
+
+      return result.imageData;
+    },
+    [imageData.id]
+  );
+
   const handleBackgroundRemoval = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
 
-      if (isRemovingBackground) {
+      if (isRemovingBackground || isSeparatingLayers) {
         return;
       }
 
@@ -1113,63 +1188,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
         setIsRemovingBackground(true);
         try {
-          logger.info("🎯 开始背景移除", { imageId: imageData.id });
-
-          // 使用 Gemini 2.5 Flash 模型进行预处理（速度更快）
-          const BG_REMOVAL_MODEL = "gemini-2.5-flash-image";
-          const BG_REMOVAL_PROVIDER = "banana"; // 改用Pro版获得更好的质量
-
-          logger.info("📷 Step 1: Gemini 2.5 预处理 - 背景换成纯色", {
-            aiProvider: BG_REMOVAL_PROVIDER,
-            model: BG_REMOVAL_MODEL,
+          const removedData = await runBackgroundRemoval(baseImage, {
+            showToasts: true,
           });
-          window.dispatchEvent(
-            new CustomEvent("toast", {
-              detail: { message: "🔄 正在预处理图片...", type: "info" },
-            })
-          );
-
-          const editResult = await aiImageService.editImage({
-            prompt: "只保留完整的主体，背景换成纯色",
-            sourceImage: baseImage,
-            model: BG_REMOVAL_MODEL,
-            aiProvider: BG_REMOVAL_PROVIDER,
-            outputFormat: "png",
-            imageOnly: true,
-          });
-
-          if (!editResult.success || !editResult.data?.imageData) {
-            logger.warn(
-              "⚠️ Gemini 预处理失败，使用原图继续抠图",
-              editResult.error
-            );
-            // 预处理失败时，继续使用原图进行抠图
-          }
-
-          const imageForRemoval =
-            editResult.success && editResult.data?.imageData
-              ? ensureDataUrlString(editResult.data.imageData, "image/png")
-              : baseImage;
-
-          if (editResult.success && editResult.data?.imageData) {
-            logger.info("✅ Gemini 预处理完成，开始抠图算法");
-            window.dispatchEvent(
-              new CustomEvent("toast", {
-                detail: { message: "🔄 正在精细抠图...", type: "info" },
-              })
-            );
-          }
-
-          // Step 2: 将预处理后的图片传给抠图算法
-          logger.info("📷 Step 2: 抠图算法处理");
-          const result = await backgroundRemovalService.removeBackground(
-            imageForRemoval,
-            "image/png",
-            true
-          );
-          if (!result.success || !result.imageData) {
-            throw new Error(result.error || "背景移除失败");
-          }
 
           const centerPoint = {
             x: realTimeBounds.x + realTimeBounds.width / 2,
@@ -1180,7 +1201,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           window.dispatchEvent(
             new CustomEvent("triggerQuickImageUpload", {
               detail: {
-                imageData: result.imageData,
+                imageData: removedData,
                 fileName,
                 smartPosition: centerPoint,
                 operationType: "background-removal",
@@ -1215,7 +1236,184 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         setIsRemovingBackground(false);
       });
     },
-    [imageData.id, resolveImageDataUrl, isRemovingBackground, realTimeBounds]
+    [
+      imageData.id,
+      resolveImageDataUrl,
+      isRemovingBackground,
+      isSeparatingLayers,
+      realTimeBounds,
+      runBackgroundRemoval,
+    ]
+  );
+
+  const extractBackgroundLayer = useCallback(
+    async (baseImage: string): Promise<string> => {
+      const BG_EXTRACT_MODEL = "gemini-2.5-flash-image";
+      const BG_EXTRACT_PROVIDER = "banana";
+      const prompt =
+        "去掉画面中的主体，只保留背景。保持背景内容、颜色、光影和风格不变，并自然补全被遮挡的区域。";
+
+      const result = await aiImageService.editImage({
+        prompt,
+        sourceImage: baseImage,
+        model: BG_EXTRACT_MODEL,
+        aiProvider: BG_EXTRACT_PROVIDER,
+        outputFormat: "png",
+        imageOnly: true,
+      });
+
+      if (!result.success || !result.data?.imageData) {
+        throw new Error(result.error?.message || "背景提取失败");
+      }
+
+      return ensureDataUrlString(result.data.imageData, "image/png");
+    },
+    []
+  );
+
+  const handleLayerSeparation = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (isSeparatingLayers || isRemovingBackground) {
+        return;
+      }
+
+      const execute = async () => {
+        const baseImage = await resolveImageDataUrl();
+        if (!baseImage) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "无法获取原图，无法分层", type: "error" },
+            })
+          );
+          return;
+        }
+
+        setIsSeparatingLayers(true);
+        const batchId = Date.now();
+        const groupId = `layer-split-${imageData.id}-${batchId}`;
+        const centerPoint = {
+          x: realTimeBounds.x + realTimeBounds.width / 2,
+          y: realTimeBounds.y + realTimeBounds.height / 2,
+        };
+        const placementGap = Math.max(
+          32,
+          Math.min(120, realTimeBounds.width * 0.1)
+        );
+        const anchorPoint = {
+          x: centerPoint.x + realTimeBounds.width + placementGap,
+          y: centerPoint.y,
+        };
+
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "🔄 正在分离主体和背景...", type: "info" },
+          })
+        );
+
+        const [subjectResult, backgroundResult] = await Promise.allSettled([
+          runBackgroundRemoval(baseImage, { showToasts: false }),
+          extractBackgroundLayer(baseImage),
+        ]);
+
+        let successCount = 0;
+
+        if (subjectResult.status === "fulfilled") {
+          const fileName = `layer-subject-${batchId}.png`;
+          window.dispatchEvent(
+            new CustomEvent("triggerQuickImageUpload", {
+              detail: {
+                imageData: subjectResult.value,
+                fileName,
+                smartPosition: anchorPoint,
+                operationType: "layer-split",
+                sourceImageId: imageData.id,
+                parallelGroupId: groupId,
+                parallelGroupIndex: 0,
+                parallelGroupTotal: 2,
+              },
+            })
+          );
+          successCount += 1;
+        } else {
+          logger.error("主体层生成失败", subjectResult.reason);
+        }
+
+        if (backgroundResult.status === "fulfilled") {
+          const fileName = `layer-background-${batchId}.png`;
+          window.dispatchEvent(
+            new CustomEvent("triggerQuickImageUpload", {
+              detail: {
+                imageData: backgroundResult.value,
+                fileName,
+                smartPosition: anchorPoint,
+                operationType: "layer-split",
+                sourceImageId: imageData.id,
+                parallelGroupId: groupId,
+                parallelGroupIndex: 1,
+                parallelGroupTotal: 2,
+              },
+            })
+          );
+          successCount += 1;
+        } else {
+          logger.error("背景层生成失败", backgroundResult.reason);
+        }
+
+        if (successCount === 2) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message: "✨ 分层完成，已生成主体层和背景层",
+                type: "success",
+              },
+            })
+          );
+        } else if (successCount === 1) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message: "分层部分完成，已生成其中一层",
+                type: "warning",
+              },
+            })
+          );
+        } else {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "分层失败，请稍后重试", type: "error" },
+            })
+          );
+        }
+      };
+
+      execute()
+        .catch((error) => {
+          logger.error("分层异常", error);
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "分层失败，请稍后重试", type: "error" },
+            })
+          );
+        })
+        .finally(() => {
+          setIsSeparatingLayers(false);
+        });
+    },
+    [
+      extractBackgroundLayer,
+      imageData.id,
+      isRemovingBackground,
+      isSeparatingLayers,
+      realTimeBounds.height,
+      realTimeBounds.width,
+      realTimeBounds.x,
+      realTimeBounds.y,
+      resolveImageDataUrl,
+      runBackgroundRemoval,
+    ]
   );
 
   // 处理2D转3D按钮点击
@@ -1942,7 +2140,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               <Button
                 variant='ghost'
                 size='sm'
-                disabled={isPendingUpload || isRemovingBackground}
+                disabled={isPendingUpload || isRemovingBackground || isSeparatingLayers}
                 className={sharedButtonClass}
                 onClick={handleBackgroundRemoval}
                 title={
@@ -1957,6 +2155,22 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                   <Wand2 className={sharedIconClass} />
                 )}
                 {showButtonText && <span>一键抠图</span>}
+              </Button>
+
+              <Button
+                variant='ghost'
+                size='sm'
+                disabled={isPendingUpload || isSeparatingLayers || isRemovingBackground}
+                className={sharedButtonClass}
+                onClick={handleLayerSeparation}
+                title={isSeparatingLayers ? "正在分层..." : "一键分层"}
+              >
+                {isSeparatingLayers ? (
+                  <LoadingSpinner size='sm' className='text-blue-600' />
+                ) : (
+                  <Layers className={sharedIconClass} />
+                )}
+                {showButtonText && <span>一键分层</span>}
               </Button>
 
               <Button
@@ -2071,7 +2285,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             </div>
 
             {showTextEditPanel && (
-              <div className='mt-2 w-[460px] max-w-[80vw] rounded-xl border border-liquid-glass bg-white/95 p-3 shadow-liquid-glass-lg backdrop-blur-md'>
+              <div className='mt-2 w-[460px] max-w-[80vw] mx-auto rounded-xl border border-liquid-glass bg-white/95 p-3 shadow-liquid-glass-lg backdrop-blur-md'>
                 <div className='mb-2 flex items-center justify-between'>
                   <div className='text-sm font-medium text-gray-800'>
                     修改图片中的文字
