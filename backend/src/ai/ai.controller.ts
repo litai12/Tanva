@@ -765,7 +765,7 @@ export class AiController {
         throw new BadRequestException('imageUrl is not an image');
       }
 
-      const maxBytes = 15 * 1024 * 1024;
+      const maxBytes = 30 * 1024 * 1024;
       const contentLength = Number(response.headers.get('content-length') || 0);
       if (contentLength && contentLength > maxBytes) {
         throw new BadRequestException('imageUrl is too large');
