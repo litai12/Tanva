@@ -379,6 +379,7 @@ export class AiController {
     inputImageCount?: number,
     outputImageCount?: number,
     skipCredits?: boolean,
+    requestParams?: Record<string, any>,
   ): Promise<T> {
     const userId = this.getUserId(req);
 
@@ -407,6 +408,7 @@ export class AiController {
         model,
         inputImageCount,
         outputImageCount,
+        requestParams,
         ipAddress: req.ip,
         userAgent: req.headers?.['user-agent'],
       });
@@ -1102,7 +1104,7 @@ export class AiController {
         }
 
         throw new InternalServerErrorException('Image generation retry loop exhausted unexpectedly');
-      }, 0, 1, skipCredits);
+      }, 0, 1, skipCredits, { imageSize: dto.imageSize });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(`[generate-image] 失败: ${errorMessage}`);
@@ -1183,7 +1185,7 @@ export class AiController {
       const data = await this.imageGeneration.editImage({ ...dto, sourceImage, customApiKey });
       const watermarked = await this.watermarkIfNeeded(data.imageData, req);
       return { ...data, imageData: watermarked };
-    }, 1, 1, skipCredits);
+    }, 1, 1, skipCredits, { imageSize: dto.imageSize });
   }
 
   @Post('blend-images')
@@ -1241,7 +1243,7 @@ export class AiController {
       const data = await this.imageGeneration.blendImages({ ...dto, sourceImages, customApiKey });
       const watermarked = await this.watermarkIfNeeded(data.imageData, req);
       return { ...data, imageData: watermarked };
-    }, dto.sourceImages?.length || 0, 1, skipCredits);
+    }, dto.sourceImages?.length || 0, 1, skipCredits, { imageSize: dto.imageSize });
   }
 
   @Post('midjourney/action')

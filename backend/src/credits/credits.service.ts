@@ -212,7 +212,13 @@ export class CreditsService {
       throw new BadRequestException(`未知的服务类型: ${serviceType}`);
     }
 
-    const creditsToDeduct = pricing.creditsPerCall;
+    let creditsToDeduct = pricing.creditsPerCall;
+    const requestedImageSize = params?.requestParams?.imageSize;
+    const isImageGeneration =
+      serviceType !== 'midjourney-imagine' && serviceType.endsWith('-image');
+    if (requestedImageSize === '4K' && isImageGeneration) {
+      creditsToDeduct = 60;
+    }
 
     return await this.prisma.$transaction(async (tx) => {
       // 获取账户并锁定
