@@ -660,7 +660,7 @@ export class CreditsService {
   /**
    * 领取每日登录奖励
    * 普通用户的签到积分7天后过期，付费用户永不过期
-   * 规则：连续签到7天额外赠送500积分，断签或满7天后重置到第1天
+   * 规则：连续签到7天额外赠送150积分，断签或满7天后重置到第1天
    */
   async claimDailyReward(userId: string): Promise<AddCreditsResult & { alreadyClaimed?: boolean; expiresAt?: Date | null; consecutiveDays?: number; bonusCredits?: number }> {
     const { canClaim, lastClaimAt } = await this.canClaimDailyReward(userId);
@@ -717,7 +717,7 @@ export class CreditsService {
         // diffDays > 1 表示断签，重新从1开始（默认值已经是1）
       }
 
-      // 第7天额外奖励500积分
+      // 第7天额外奖励150积分
       if (newConsecutiveDays === 7) {
         bonusCredits = CONSECUTIVE_7_DAY_BONUS_CREDITS;
       }

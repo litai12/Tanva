@@ -96,6 +96,8 @@ export default function ReferralRewards() {
   }
 
   const consecutiveDays = checkInStatus?.consecutiveDays || 0;
+  const todayReward = checkInStatus?.todayReward ?? 0;
+  const weeklyBonus = checkInStatus?.weeklyBonus ?? 0;
 
   return (
     <div className="space-y-6">
@@ -144,12 +146,12 @@ export default function ReferralRewards() {
           {checkingIn
             ? "签到中..."
             : checkInStatus?.canCheckIn
-            ? "立即签到 (+100积分)"
+            ? `立即签到 (+${todayReward}积分)`
             : "今日已签到"}
         </Button>
 
         <p className="text-xs text-gray-400 mt-2 text-center">
-          连续签到7天可额外获得500积分奖励
+          连续签到7天可额外获得{weeklyBonus}积分奖励
         </p>
       </div>
 

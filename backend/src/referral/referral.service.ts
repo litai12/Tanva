@@ -3,8 +3,8 @@ import { PrismaService } from '../prisma/prisma.service';
 
 // 邀请奖励配置
 const REFERRAL_REWARD = 1000; // 邀请成功奖励积分
-const DAILY_CHECK_IN_REWARDS = [100, 100, 100, 100, 100, 100, 100]; // D1-D7 每日签到奖励
-const WEEKLY_BONUS = 500; // 满7天额外奖励
+const DAILY_CHECK_IN_REWARDS = [50, 50, 50, 50, 50, 50, 50]; // D1-D7 每日签到奖励
+const WEEKLY_BONUS = 150; // 满7天额外奖励
 
 @Injectable()
 export class ReferralService {
