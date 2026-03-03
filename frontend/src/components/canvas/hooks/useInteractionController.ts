@@ -22,6 +22,7 @@ import {
 import type { ImageAssetSnapshot } from '@/types/project';
 import type { SnapAlignmentAPI } from './useSnapAlignment';
 
+
 // 导入其他hook的类型
 interface SelectionTool {
   isSelectionDragging: boolean;
@@ -198,6 +199,7 @@ export const useInteractionController = ({
   const altDragCloneIdsRef = useRef<string[]>([]); // 记录Alt拖拽时创建的克隆图片ID
   const altDragPlaceholderRef = useRef<paper.Group | null>(null); // Alt+拖拽时的占位框
   const altDragSnapshotsRef = useRef<ImageAssetSnapshot[]>([]); // Alt+拖拽时保存的图片快照
+  
   // 路径 Alt+拖拽复制相关状态
   const pathAltDragClonedRef = useRef(false); // 标记路径是否已创建克隆占位框
   const pathAltDragPlaceholderRef = useRef<paper.Group | null>(null); // 路径 Alt+拖拽占位框
@@ -738,8 +740,9 @@ export const useInteractionController = ({
         }
       }
 
-      // 处理路径编辑交互
       const shiftPressed = event.shiftKey;
+
+      // 处理路径编辑交互
       const selectedPathForEdit = latestSelectionTool.selectedPath;
       const isImageGroupBlockSelected = selectedPathForEdit?.data?.type === 'image-group';
       if (!hasMultiplePathSelection && !isImageGroupBlockSelected) {
@@ -991,7 +994,10 @@ export const useInteractionController = ({
   }, [canvasRef, beginGroupPathDrag, isSelectionLikeMode]);
 
   // 更新鼠标光标样式（需在 handleMouseMove 之前定义，避免临时死区）
-  function updateCursorStyle(point: paper.Point, canvas: HTMLCanvasElement) {
+  function updateCursorStyle(
+    point: paper.Point,
+    canvas: HTMLCanvasElement
+  ) {
     const currentZoom = Math.max(zoomRef.current ?? 1, 0.0001);
     const latestImageTool = imageToolRef.current;
     const latestSelectionTool = selectionToolRef.current;

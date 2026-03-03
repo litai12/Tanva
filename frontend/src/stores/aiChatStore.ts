@@ -304,6 +304,7 @@ export interface ChatMessage {
   groupTotal?: number; // 组内总数量
 }
 
+
 const formatMessageContentForLog = (content: string): string => {
   if (!content) return "";
   const trimmed = content.trim();

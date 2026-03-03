@@ -3,8 +3,8 @@ import { Handle, Position } from "reactflow";
 import { Send as SendIcon } from "lucide-react";
 import ImagePreviewModal from "../../ui/ImagePreviewModal";
 import SmartImage from "../../ui/SmartImage";
-import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { toRenderableImageSrc } from "@/utils/imageSource";
+import { useAIChatStore } from "@/stores/aiChatStore";
 
 type Props = {
   id: string;
@@ -16,6 +16,7 @@ type Props = {
     thumbnails?: string[];
     count?: number;
     aspectRatio?: "1:1" | "2:3" | "3:2" | "3:4" | "4:3" | "4:5" | "5:4" | "9:16" | "16:9" | "21:9";
+    imageSize?: "0.5K" | "1K" | "2K" | "4K";
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
     boxW?: number;
@@ -159,6 +160,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
   const boxW = data.boxW || 300;
   const boxH = data.boxH || 240;
   const aspectRatioValue = data.aspectRatio ?? "";
+  const imageSizeValue = data.imageSize ?? "";
   const aspectOptions = React.useMemo(
     () => [
       { label: "自动", value: "" },
@@ -175,6 +177,53 @@ function Generate4NodeInner({ id, data, selected }: Props) {
     ],
     []
   );
+  const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const providerMode = React.useMemo<"fast" | "pro" | "ultra" | "other">(() => {
+    if (aiProvider === "banana-2.5") return "fast";
+    if (aiProvider === "banana-3.1") return "ultra";
+    if (aiProvider === "banana" || aiProvider === "gemini-pro") return "pro";
+    return "other";
+  }, [aiProvider]);
+
+  const providerModeLabel = React.useMemo(() => {
+    if (providerMode === "fast") return "Fast";
+    if (providerMode === "pro") return "Pro";
+    if (providerMode === "ultra") return "Ultra";
+    return aiProvider;
+  }, [aiProvider, providerMode]);
+
+  const showAspectRatioSelector = providerMode !== "fast";
+  const showImageSizeSelector = providerMode === "pro" || providerMode === "ultra";
+  const showSizeControls = showAspectRatioSelector || showImageSizeSelector;
+
+  const imageSizeOptions: Array<{ label: string; value: string }> = React.useMemo(() => {
+    const base = [
+      { label: "自动", value: "" },
+      { label: "1K", value: "1K" },
+      { label: "2K", value: "2K" },
+      { label: "4K", value: "4K" },
+    ];
+    if (providerMode === "ultra") {
+      return [base[0], { label: "0.5K", value: "0.5K" }, ...base.slice(1)];
+    }
+    return base;
+  }, [providerMode]);
+
+  const updateImageSize = React.useCallback(
+    (size: string) => {
+      window.dispatchEvent(
+        new CustomEvent("flow:updateNodeData", {
+          detail: {
+            id,
+            patch: {
+              imageSize: size || undefined,
+            },
+          },
+        })
+      );
+    },
+    [id]
+  );
 
   return (
     <div
@@ -189,7 +238,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
         position: "relative",
       }}
     >
-      {/* 标题行：仅标题 + 控制按钮 */}
+      {/* 标题行：标题 + 模式标签 + 控制按钮 */}
       <div
         style={{
           display: "flex",
@@ -198,7 +247,23 @@ function Generate4NodeInner({ id, data, selected }: Props) {
           marginBottom: 6,
         }}
       >
-        <div style={{ fontWeight: 600 }}>Multi Generate</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ fontWeight: 600 }}>Multi Generate</div>
+          <div
+            style={{
+              padding: "1px 8px",
+              borderRadius: 999,
+              fontSize: 11,
+              fontWeight: 600,
+              color: providerMode === "ultra" ? "#0f172a" : "#475569",
+              background: providerMode === "ultra" ? "#e2e8f0" : "#f1f5f9",
+              border: "1px solid #e2e8f0",
+            }}
+            title={`当前全局模型模式: ${providerModeLabel}`}
+          >
+            {providerModeLabel}
+          </div>
+        </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button
             onClick={onRun}
@@ -234,13 +299,13 @@ function Generate4NodeInner({ id, data, selected }: Props) {
         </div>
       </div>
 
-      {/* 数量 & 尺寸 */}
+      {/* 数量 */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between",
-          gap: 8,
+          justifyContent: "flex-start",
+          gap: 12,
           marginBottom: 8,
         }}
       >
@@ -277,44 +342,99 @@ function Generate4NodeInner({ id, data, selected }: Props) {
             }}
           />
         </label>
-        <label
-          className='nodrag nopan'
+      </div>
+      {showSizeControls && (
+        <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 8,
-            fontSize: 12,
-            color: "#6b7280",
+            justifyContent:
+              showAspectRatioSelector && showImageSizeSelector
+                ? "space-between"
+                : "flex-start",
+            marginBottom: 8,
           }}
         >
-          尺寸
-          <select
-            value={aspectRatioValue}
-            onChange={(e) => updateAspectRatio(e.target.value)}
-            onPointerDown={stopNodeDrag}
-            onPointerDownCapture={stopNodeDrag}
-            onMouseDown={stopNodeDrag}
-            onMouseDownCapture={stopNodeDrag}
-            onClick={stopNodeDrag}
-            onClickCapture={stopNodeDrag}
-            className='nodrag nopan'
-            style={{
-              fontSize: 12,
-              padding: "2px 6px",
-              borderRadius: 6,
-              border: "1px solid #e5e7eb",
-              background: "#fff",
-              color: "#111827",
-            }}
-          >
-            {aspectOptions.map((opt) => (
-              <option key={opt.value || "auto"} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+          {showAspectRatioSelector && (
+            <label
+              className='nodrag nopan'
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 12,
+                color: "#6b7280",
+              }}
+            >
+              尺寸
+              <select
+                value={aspectRatioValue}
+                onChange={(e) => updateAspectRatio(e.target.value)}
+                onPointerDown={stopNodeDrag}
+                onPointerDownCapture={stopNodeDrag}
+                onMouseDown={stopNodeDrag}
+                onMouseDownCapture={stopNodeDrag}
+                onClick={stopNodeDrag}
+                onClickCapture={stopNodeDrag}
+                className='nodrag nopan'
+                style={{
+                  fontSize: 12,
+                  padding: "2px 6px",
+                  borderRadius: 6,
+                  border: "1px solid #e5e7eb",
+                  background: "#fff",
+                  color: "#111827",
+                }}
+              >
+                {aspectOptions.map((opt) => (
+                  <option key={opt.value || "auto"} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {showImageSizeSelector && (
+            <label
+              className='nodrag nopan'
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 12,
+                color: "#6b7280",
+              }}
+            >
+              分辨率
+              <select
+                value={imageSizeValue}
+                onChange={(e) => updateImageSize(e.target.value)}
+                onPointerDown={stopNodeDrag}
+                onPointerDownCapture={stopNodeDrag}
+                onMouseDown={stopNodeDrag}
+                onMouseDownCapture={stopNodeDrag}
+                onClick={stopNodeDrag}
+                onClickCapture={stopNodeDrag}
+                className='nodrag nopan'
+                style={{
+                  fontSize: 12,
+                  padding: "2px 6px",
+                  borderRadius: 6,
+                  border: "1px solid #e5e7eb",
+                  background: "#fff",
+                  color: "#111827",
+                }}
+              >
+                {imageSizeOptions.map((opt) => (
+                  <option key={opt.value || "auto"} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
+      )}
 
       {/* 2x2 预览网格 */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>

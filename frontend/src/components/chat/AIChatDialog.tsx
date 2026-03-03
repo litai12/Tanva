@@ -4072,6 +4072,7 @@ const AIChatDialog: React.FC = () => {
                     const msgExpectsImageOutput = Boolean(
                       message.expectsImageOutput
                     );
+                    const hasTextContent = Boolean(message.content?.trim());
 
                     const rawImageSrc =
                       message.imageRemoteUrl ||
@@ -4081,6 +4082,13 @@ const AIChatDialog: React.FC = () => {
                     const imageSrc = normalizeDataUrl(rawImageSrc);
 
                     const imageSize = isCompact ? "w-28 h-28" : "w-32 h-32";
+                    const shouldHideUltraTextOnlyPlaceholder = Boolean(
+                      isUltraMode &&
+                        msgExpectsImageOutput &&
+                        hasTextContent &&
+                        !imageSrc &&
+                        !msgGenerationStatus?.isGenerating
+                    );
 
                     if (imageSrc) {
                       return (
@@ -4101,7 +4109,7 @@ const AIChatDialog: React.FC = () => {
                       );
                     }
 
-                    if (msgExpectsImageOutput) {
+                    if (msgExpectsImageOutput && !shouldHideUltraTextOnlyPlaceholder) {
                       return (
                         <div
                           className={`ai-image-placeholder ${imageSize}`}
@@ -4214,15 +4222,16 @@ const AIChatDialog: React.FC = () => {
                             group.aiMessages.map((message) => {
                               const midjourneyMeta = message.metadata
                                 ?.midjourney as MidjourneyMetadata | undefined;
-                              const generationStatus = message.generationStatus;
-                              const expectsImageOutput = Boolean(
-                                message.expectsImageOutput
-                              );
-                              const hasGeneratedImage = Boolean(
-                                message.imageData ||
-                                  message.imageRemoteUrl ||
-                                  message.thumbnail
-                              );
+                    const generationStatus = message.generationStatus;
+                    const expectsImageOutput = Boolean(
+                      message.expectsImageOutput
+                    );
+                    const hasTextContent = Boolean(message.content?.trim());
+                    const hasGeneratedImage = Boolean(
+                      message.imageData ||
+                        message.imageRemoteUrl ||
+                        message.thumbnail
+                    );
                               const hasReferenceImages =
                                 Boolean(message.sourceImageData) ||
                                 Boolean(
@@ -4243,35 +4252,44 @@ const AIChatDialog: React.FC = () => {
                                   !expectsImageOutput &&
                                   !hasGeneratedImage
                               );
-                              const isImageTaskInFlight = Boolean(
+                    const isImageTaskInFlight = Boolean(
+                      isAiMessage &&
+                        generationStatus?.isGenerating &&
+                        (expectsImageOutput || hasGeneratedImage)
+                    );
+                    const shouldExpectImageOutput = Boolean(
+                      expectsImageOutput &&
+                        !(
+                          isUltraMode &&
+                          hasTextContent &&
+                          !hasGeneratedImage &&
+                          !generationStatus?.isGenerating
+                        )
+                    );
+                    const isVideoTaskInFlight = Boolean(
+                      isAiMessage &&
+                        generationStatus?.isGenerating &&
+                        (expectsVideoOutput || hasGeneratedVideo)
+                    );
+                    const showImageLayout =
+                      !isReferenceOnlyAiMessage &&
+                      (hasGeneratedImage ||
+                        hasReferenceImages ||
+                        shouldExpectImageOutput ||
+                        isImageTaskInFlight);
+                    const showVideoLayout =
+                      hasGeneratedVideo ||
+                      expectsVideoOutput ||
+                      isVideoTaskInFlight;
+                    const shouldUseVerticalLayout =
                                 isAiMessage &&
-                                  generationStatus?.isGenerating &&
-                                  (expectsImageOutput || hasGeneratedImage)
-                              );
-                              const isVideoTaskInFlight = Boolean(
-                                isAiMessage &&
-                                  generationStatus?.isGenerating &&
-                                  (expectsVideoOutput || hasGeneratedVideo)
-                              );
-                              const showImageLayout =
-                                !isReferenceOnlyAiMessage &&
-                                (hasGeneratedImage ||
-                                  hasReferenceImages ||
-                                  expectsImageOutput ||
-                                  isImageTaskInFlight);
-                              const showVideoLayout =
-                                hasGeneratedVideo ||
-                                expectsVideoOutput ||
-                                isVideoTaskInFlight;
-                              const shouldUseVerticalLayout =
-                                isAiMessage &&
-                                !isReferenceOnlyAiMessage &&
-                                (hasGeneratedImage ||
-                                  expectsImageOutput ||
-                                  isImageTaskInFlight ||
-                                  hasGeneratedVideo ||
-                                  expectsVideoOutput ||
-                                  isVideoTaskInFlight);
+                        !isReferenceOnlyAiMessage &&
+                        (hasGeneratedImage ||
+                          shouldExpectImageOutput ||
+                          isImageTaskInFlight ||
+                          hasGeneratedVideo ||
+                          expectsVideoOutput ||
+                          isVideoTaskInFlight);
                               const aiHeader = isAiMessage ? (
                                 <div className='flex items-center gap-2 mb-2'>
                                   <SmartImage
@@ -4736,7 +4754,7 @@ const AIChatDialog: React.FC = () => {
                                                         />
                                                       );
                                                     }
-                                                    if (!expectsImageOutput)
+                                                    if (!shouldExpectImageOutput)
                                                       return null;
                                                     return (
                                                       <div className='w-32 h-32 ai-image-placeholder'>
