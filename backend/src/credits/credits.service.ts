@@ -216,7 +216,8 @@ export class CreditsService {
     const requestedImageSize = params?.requestParams?.imageSize;
     const isImageGeneration =
       serviceType !== 'midjourney-imagine' && serviceType.endsWith('-image');
-    if (requestedImageSize === '4K' && isImageGeneration) {
+    const is4KBilling = requestedImageSize === '4K' && isImageGeneration;
+    if (is4KBilling) {
       creditsToDeduct = 60;
     }
 
@@ -273,7 +274,7 @@ export class CreditsService {
           amount: -creditsToDeduct,
           balanceBefore: account.balance,
           balanceAfter: newBalance,
-          description: `使用 ${pricing.serviceName}`,
+          description: `使用 ${pricing.serviceName}${is4KBilling ? '（4K）' : ''}`,
           apiUsageId: apiUsage.id,
         },
       });
