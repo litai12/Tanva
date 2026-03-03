@@ -1271,6 +1271,67 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     []
   );
 
+  const detectImageText = useCallback(async (baseImage: string): Promise<string[]> => {
+    const bananaProvider = "banana";
+    const bananaModel = getImageModelForProvider(bananaProvider);
+    const result = await aiImageService.analyzeImage({
+      prompt: TEXT_RECOGNITION_PROMPT,
+      sourceImage: baseImage,
+      aiProvider: bananaProvider,
+      model: bananaModel,
+    });
+
+    if (!result.success || !result.data?.analysis) {
+      throw new Error(result.error?.message || "文字识别失败");
+    }
+
+    return parseRecognizedTexts(result.data.analysis);
+  }, []);
+
+  const extractTextLayer = useCallback(async (baseImage: string): Promise<string> => {
+    const TEXT_LAYER_MODEL = "gemini-2.5-flash-image";
+    const TEXT_LAYER_PROVIDER = "banana";
+    const prompt =
+      "提取出来图中的文字，保留文字和文字本身的颜色样式，图形都不要，背景留白色。";
+
+    const result = await aiImageService.editImage({
+      prompt,
+      sourceImage: baseImage,
+      model: TEXT_LAYER_MODEL,
+      aiProvider: TEXT_LAYER_PROVIDER,
+      outputFormat: "png",
+      imageOnly: true,
+    });
+
+    if (!result.success || !result.data?.imageData) {
+      throw new Error(result.error?.message || "文字层提取失败");
+    }
+
+    return ensureDataUrlString(result.data.imageData, "image/png");
+  }, []);
+
+  const removeTextLayer = useCallback(async (baseImage: string): Promise<string> => {
+    const TEXT_REMOVE_MODEL = "gemini-2.5-flash-image";
+    const TEXT_REMOVE_PROVIDER = "banana";
+    const prompt =
+      "去掉画面中的所有文字与文字相关图形元素，保留主体、背景、构图、颜色和光影不变，并自然补全被遮挡的区域。";
+
+    const result = await aiImageService.editImage({
+      prompt,
+      sourceImage: baseImage,
+      model: TEXT_REMOVE_MODEL,
+      aiProvider: TEXT_REMOVE_PROVIDER,
+      outputFormat: "png",
+      imageOnly: true,
+    });
+
+    if (!result.success || !result.data?.imageData) {
+      throw new Error(result.error?.message || "去文字处理失败");
+    }
+
+    return ensureDataUrlString(result.data.imageData, "image/png");
+  }, []);
+
   const handleLayerSeparation = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
@@ -1313,56 +1374,130 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           })
         );
 
-        const [subjectResult, backgroundResult] = await Promise.allSettled([
-          runBackgroundRemoval(baseImage, { showToasts: false }),
-          extractBackgroundLayer(baseImage),
-        ]);
+        let workingImage = baseImage;
+        const outputs: Array<{ label: string; imageData: string }> = [];
 
-        let successCount = 0;
-
-        if (subjectResult.status === "fulfilled") {
-          const fileName = `layer-subject-${batchId}.png`;
+        let detectedTexts: string[] = [];
+        try {
+          detectedTexts = await detectImageText(baseImage);
+        } catch (error) {
+          logger.warn("文字识别失败，跳过文字分离", error);
           window.dispatchEvent(
-            new CustomEvent("triggerQuickImageUpload", {
+            new CustomEvent("toast", {
               detail: {
-                imageData: subjectResult.value,
-                fileName,
-                smartPosition: anchorPoint,
-                operationType: "layer-split",
-                sourceImageId: imageData.id,
-                parallelGroupId: groupId,
-                parallelGroupIndex: 0,
-                parallelGroupTotal: 2,
+                message: "⚠️ 文字识别失败，将直接分层",
+                type: "warning",
               },
             })
           );
-          successCount += 1;
+        }
+
+        if (detectedTexts.length > 0) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "📝 检测到文字，正在分离文字...", type: "info" },
+            })
+          );
+
+          const [textLayerResult, textlessResult] = await Promise.allSettled([
+            extractTextLayer(baseImage),
+            removeTextLayer(baseImage),
+          ]);
+
+          if (textLayerResult.status === "fulfilled") {
+            outputs.push({ label: "text-layer", imageData: textLayerResult.value });
+          } else {
+            logger.error("文字层生成失败", textLayerResult.reason);
+          }
+
+          if (textlessResult.status === "fulfilled") {
+            outputs.push({ label: "textless-image", imageData: textlessResult.value });
+            workingImage = textlessResult.value;
+          } else {
+            logger.error("去文字处理失败", textlessResult.reason);
+            window.dispatchEvent(
+              new CustomEvent("toast", {
+                detail: {
+                  message: "⚠️ 去文字失败，将使用原图继续分层",
+                  type: "warning",
+                },
+              })
+            );
+          }
+        }
+
+        const [subjectResult, backgroundResult] = await Promise.allSettled([
+          runBackgroundRemoval(workingImage, { showToasts: false }),
+          extractBackgroundLayer(workingImage),
+        ]);
+
+        if (subjectResult.status === "fulfilled") {
+          outputs.push({ label: "subject-layer", imageData: subjectResult.value });
         } else {
           logger.error("主体层生成失败", subjectResult.reason);
         }
 
         if (backgroundResult.status === "fulfilled") {
-          const fileName = `layer-background-${batchId}.png`;
+          outputs.push({ label: "background-layer", imageData: backgroundResult.value });
+        } else {
+          logger.error("背景层生成失败", backgroundResult.reason);
+          // 如果是基于去文字图失败，尝试回退到原图再生成一次背景层
+          if (workingImage !== baseImage) {
+            try {
+              const fallbackBackground = await extractBackgroundLayer(baseImage);
+              outputs.push({ label: "background-layer", imageData: fallbackBackground });
+              window.dispatchEvent(
+                new CustomEvent("toast", {
+                  detail: {
+                    message: "⚠️ 背景层回退使用原图生成",
+                    type: "warning",
+                  },
+                })
+              );
+            } catch (fallbackError) {
+              logger.error("背景层回退生成失败", fallbackError);
+            }
+          }
+        }
+
+        const totalCount = outputs.length;
+        if (totalCount === 0) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "分层失败，请稍后重试", type: "error" },
+            })
+          );
+          return;
+        }
+
+        outputs.forEach((item, index) => {
+          const fileName = `layer-${item.label}-${batchId}.png`;
           window.dispatchEvent(
             new CustomEvent("triggerQuickImageUpload", {
               detail: {
-                imageData: backgroundResult.value,
+                imageData: item.imageData,
                 fileName,
                 smartPosition: anchorPoint,
                 operationType: "layer-split",
                 sourceImageId: imageData.id,
                 parallelGroupId: groupId,
-                parallelGroupIndex: 1,
-                parallelGroupTotal: 2,
+                parallelGroupIndex: index,
+                parallelGroupTotal: totalCount,
               },
             })
           );
-          successCount += 1;
-        } else {
-          logger.error("背景层生成失败", backgroundResult.reason);
-        }
+        });
 
-        if (successCount === 2) {
+        if (totalCount >= 4) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message: "✨ 分层完成，已生成文字层、去文字图、主体层和背景层",
+                type: "success",
+              },
+            })
+          );
+        } else if (totalCount >= 2) {
           window.dispatchEvent(
             new CustomEvent("toast", {
               detail: {
@@ -1371,19 +1506,13 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               },
             })
           );
-        } else if (successCount === 1) {
-          window.dispatchEvent(
-            new CustomEvent("toast", {
-              detail: {
-                message: "分层部分完成，已生成其中一层",
-                type: "warning",
-              },
-            })
-          );
         } else {
           window.dispatchEvent(
             new CustomEvent("toast", {
-              detail: { message: "分层失败，请稍后重试", type: "error" },
+              detail: {
+                message: "分层部分完成，已生成部分结果",
+                type: "warning",
+              },
             })
           );
         }
@@ -1403,10 +1532,13 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         });
     },
     [
+      detectImageText,
       extractBackgroundLayer,
+      extractTextLayer,
       imageData.id,
       isRemovingBackground,
       isSeparatingLayers,
+      removeTextLayer,
       realTimeBounds.height,
       realTimeBounds.width,
       realTimeBounds.x,
