@@ -66,7 +66,7 @@ type GenerateImageUrlResult = {
 };
 
 @ApiTags('ai')
-// @UseGuards(ApiKeyOrJwtGuard) // 已注释：绕过登录验证用于测试
+@UseGuards(ApiKeyOrJwtGuard)
 @Controller('ai')
 export class AiController {
   private readonly logger = new Logger(AiController.name);
