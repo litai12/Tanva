@@ -212,7 +212,7 @@ export class CreditsService {
       throw new BadRequestException(`未知的服务类型: ${serviceType}`);
     }
 
-    let creditsToDeduct = pricing.creditsPerCall;
+    let creditsToDeduct: number = pricing.creditsPerCall;
     const requestedImageSize = params?.requestParams?.imageSize;
     const isImageGeneration =
       serviceType !== 'midjourney-imagine' && serviceType.endsWith('-image');
