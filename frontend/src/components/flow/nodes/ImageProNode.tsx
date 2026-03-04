@@ -640,6 +640,7 @@ function ImageProNodeInner({ id, data, selected }: Props) {
 
         {/* Handle - 左侧输入 */}
         <Handle
+          className="tanva-beta-handle tanva-beta-handle-image"
           type="target"
           position={Position.Left}
           id="img"
@@ -648,9 +649,9 @@ function ImageProNodeInner({ id, data, selected }: Props) {
             left: -12,
             width: 8,
             height: 8,
-            background: '#6b7280',
-            border: '2px solid #fff',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+            background: '#f97316',
+            border: 'none',
+            boxShadow: 'none',
           }}
           onMouseEnter={() => setHover('img-in')}
           onMouseLeave={() => setHover(null)}
@@ -658,6 +659,7 @@ function ImageProNodeInner({ id, data, selected }: Props) {
 
         {/* Handle - 右侧输出 */}
         <Handle
+          className="tanva-beta-handle tanva-beta-handle-image"
           type="source"
           position={Position.Right}
           id="img"
@@ -666,9 +668,9 @@ function ImageProNodeInner({ id, data, selected }: Props) {
             right: -12,
             width: 8,
             height: 8,
-            background: '#6b7280',
-            border: '2px solid #fff',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+            background: '#f97316',
+            border: 'none',
+            boxShadow: 'none',
           }}
           onMouseEnter={() => setHover('img-out')}
           onMouseLeave={() => setHover(null)}
