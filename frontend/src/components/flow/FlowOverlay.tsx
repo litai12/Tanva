@@ -608,6 +608,68 @@ const NODE_PALETTE_ITEMS = [
   { key: "storyboardSplit", zh: "分镜拆分节点", en: "Storyboard Split", category: "other" },
 ];
 
+const BETA_NODE_KEYS = new Set([
+  "textPromptPro",
+  "imagePro",
+  "generatePro",
+  "generatePro4",
+]);
+
+type NodePanelGroupKey = "text" | "image" | "three" | "other" | "video";
+
+const NODE_PANEL_GROUP_ORDER: NodePanelGroupKey[] = [
+  "text",
+  "image",
+  "other",
+  "video",
+  "three",
+];
+
+const NODE_PANEL_GROUP_META: Record<NodePanelGroupKey, { title: string; subtitle: string }> = {
+  text: { title: "文字类节点", subtitle: "提示词、文本处理与拆分" },
+  image: { title: "图像类节点", subtitle: "图像输入、生成与编辑" },
+  three: { title: "3D 类节点", subtitle: "三维相关节点" },
+  other: { title: "其他节点", subtitle: "辅助能力节点" },
+  video: { title: "视频类节点", subtitle: "视频输入、生成与分析" },
+};
+
+const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
+  textPrompt: "text",
+  textPromptPro: "text",
+  textChat: "text",
+  textNote: "text",
+  promptOptimize: "text",
+  storyboardSplit: "text",
+
+  image: "image",
+  imagePro: "image",
+  camera: "image",
+  generate: "image",
+  generateRef: "image",
+  generate4: "image",
+  generatePro: "image",
+  generatePro4: "image",
+  midjourney: "image",
+  nano2: "image",
+  analysis: "image",
+  imageGrid: "image",
+  imageSplit: "image",
+
+  three: "three",
+
+  video: "video",
+  sora2Video: "video",
+  wan26: "video",
+  wan2R2V: "video",
+  klingVideo: "video",
+  kling26Video: "video",
+  klingO1Video: "video",
+  viduVideo: "video",
+  doubaoVideo: "video",
+  videoAnalyze: "video",
+  videoFrameExtract: "video",
+};
+
 // Beta 节点列表（实验性功能）
 const BETA_NODE_ITEMS = [
   {
@@ -812,6 +874,83 @@ const nodePaletteCreditsStyle: React.CSSProperties = {
   borderRadius: 4,
   letterSpacing: "0.01em",
   whiteSpace: "nowrap",
+};
+
+const nodePaletteSectionStyle: React.CSSProperties = {
+  marginTop: 16,
+};
+
+const nodePaletteSectionHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+  marginBottom: 10,
+};
+
+const nodePaletteSectionTitleStyle: React.CSSProperties = {
+  fontSize: 16,
+  fontWeight: 700,
+  color: "#111827",
+  lineHeight: 1.2,
+};
+
+const nodePaletteSectionSubtitleStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: "#6b7280",
+  marginTop: 2,
+};
+
+const nodePaletteSectionCountStyle: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 600,
+  color: "#4b5563",
+  background: "#f3f4f6",
+  border: "1px solid #e5e7eb",
+  borderRadius: 999,
+  padding: "4px 10px",
+  whiteSpace: "nowrap",
+};
+
+const getNodePaletteGroupKey = (
+  config: Partial<NodeConfig> & { nodeKey?: string; category?: string }
+): NodePanelGroupKey => {
+  const resolvedType = resolveFlowNodeTypeFromConfig(config).trim();
+  if (resolvedType && NODE_PANEL_GROUP_BY_TYPE[resolvedType]) {
+    return NODE_PANEL_GROUP_BY_TYPE[resolvedType];
+  }
+
+  const key = (config.nodeKey ?? "").trim();
+  if (key && NODE_PANEL_GROUP_BY_TYPE[key]) {
+    return NODE_PANEL_GROUP_BY_TYPE[key];
+  }
+
+  const mergedName = `${config.nameZh ?? ""} ${config.nameEn ?? ""}`.toLowerCase();
+  if (mergedName.includes("3d") || mergedName.includes("三维")) return "three";
+  if (mergedName.includes("视频") || mergedName.includes("video")) return "video";
+  if (
+    mergedName.includes("文本") ||
+    mergedName.includes("文字") ||
+    mergedName.includes("提示词") ||
+    mergedName.includes("prompt") ||
+    mergedName.includes("text")
+  ) {
+    return "text";
+  }
+  if (
+    mergedName.includes("图像") ||
+    mergedName.includes("图片") ||
+    mergedName.includes("生成") ||
+    mergedName.includes("image")
+  ) {
+    return "image";
+  }
+
+  if (config.category === "video") return "video";
+  if (config.category === "image") return "image";
+  if (config.category === "input") return "text";
+
+  return "other";
 };
 
 const setNodePaletteHover = (target: HTMLElement, hovered: boolean) => {
@@ -1258,6 +1397,70 @@ function FlowInner() {
       return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
     });
   }, [nodeConfigs]);
+
+  const nodePaletteConfigs = React.useMemo(() => {
+    const baseConfigs = (sortedNodeConfigs && sortedNodeConfigs.length > 0
+      ? sortedNodeConfigs
+      : NODE_PALETTE_ITEMS.map((item) => ({
+          nodeKey: item.key,
+          nameZh: item.zh,
+          nameEn: item.en,
+          category: item.category as "input" | "image" | "video" | "other",
+          status: (item.badge === "维护中" ? "maintenance" : "normal") as
+            | "normal"
+            | "maintenance"
+            | "coming_soon"
+            | "disabled",
+          creditsPerCall: NODE_CREDITS_MAP[item.key] || 0,
+          sortOrder: 0,
+        })))
+      .filter((config) => !BETA_NODE_KEYS.has(config.nodeKey))
+      .filter((config) => config.status !== "disabled");
+
+    return baseConfigs;
+  }, [sortedNodeConfigs]);
+
+  const groupedNodePaletteConfigs = React.useMemo(() => {
+    const grouped: Record<
+      NodePanelGroupKey,
+      Array<NodeConfig & { _index: number; _inactive: number }>
+    > = {
+      text: [],
+      image: [],
+      three: [],
+      other: [],
+      video: [],
+    };
+
+    nodePaletteConfigs.forEach((config, index) => {
+      const groupKey = getNodePaletteGroupKey(config);
+      const inactive =
+        config.status === "maintenance" || config.status === "coming_soon"
+          ? 1
+          : 0;
+      grouped[groupKey].push({ ...config, _index: index, _inactive: inactive });
+    });
+
+    return NODE_PANEL_GROUP_ORDER
+      .map((groupKey) => {
+        const items = grouped[groupKey]
+          .sort((a, b) => {
+            if (a._inactive !== b._inactive) return a._inactive - b._inactive;
+            return a._index - b._index;
+          })
+          .map(({ _index: _ignoredIndex, _inactive: _ignoredInactive, ...item }) => item);
+
+        if (items.length === 0) return null;
+
+        return {
+          key: groupKey,
+          title: NODE_PANEL_GROUP_META[groupKey].title,
+          subtitle: NODE_PANEL_GROUP_META[groupKey].subtitle,
+          items,
+        };
+      })
+      .filter(Boolean);
+  }, [nodePaletteConfigs]);
 
   const onNodesChangeWithHistory = React.useCallback(
     (changes: any) => {
@@ -10499,40 +10702,53 @@ function FlowInner() {
                 }}
               >
                 <div style={{ padding: "0 20px 20px" }}>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
-                  {(sortedNodeConfigs && sortedNodeConfigs.length > 0 ? sortedNodeConfigs : NODE_PALETTE_ITEMS.map(item => ({
-                      nodeKey: item.key,
-                      nameZh: item.zh,
-                      nameEn: item.en,
-                      category: item.category as "input" | "image" | "video" | "other",
-                      status: (item.badge === "维护中" ? "maintenance" : "normal") as "normal" | "maintenance" | "coming_soon" | "disabled",
-                      creditsPerCall: NODE_CREDITS_MAP[item.key] || 0,
-                      sortOrder: 0,
-                    })))
-                      // 过滤掉 Pro/Beta 节点（它们在 Beta 节点分类中显示）
-                      .filter(config => !['textPromptPro', 'imagePro', 'generatePro', 'generatePro4'].includes(config.nodeKey))
-                      .filter(config => config.status !== "disabled")
-                      .map((config) => {
-                      const isDisabled = config.status === "maintenance" || config.status === "coming_soon";
-                      const badge = getStatusBadge(config.status);
-                      return (
-                        <NodePaletteButton
-                          key={config.nodeKey}
-                          zh={config.nameZh}
-                          en={config.nameEn}
-                          badge={badge}
-                          credits={config.creditsPerCall}
-                          disabled={isDisabled}
-                          onClick={() =>
-                            createNodeAtWorldCenter(
-                              resolveFlowNodeTypeFromConfig(config),
-                              addPanel.world
-                            )
-                          }
-                        />
-                      );
-                    })}
-                  </div>
+                  {groupedNodePaletteConfigs.map((group) => (
+                    <section key={group.key} style={nodePaletteSectionStyle}>
+                      <div style={nodePaletteSectionHeaderStyle}>
+                        <div>
+                          <div style={nodePaletteSectionTitleStyle}>
+                            {group.title}
+                          </div>
+                          <div style={nodePaletteSectionSubtitleStyle}>
+                            {group.subtitle}
+                          </div>
+                        </div>
+                        <span style={nodePaletteSectionCountStyle}>
+                          {group.items.length} 个
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                          gap: 12,
+                        }}
+                      >
+                        {group.items.map((config) => {
+                          const isDisabled =
+                            config.status === "maintenance" ||
+                            config.status === "coming_soon";
+                          const badge = getStatusBadge(config.status);
+                          return (
+                            <NodePaletteButton
+                              key={config.nodeKey}
+                              zh={config.nameZh}
+                              en={config.nameEn}
+                              badge={badge}
+                              credits={config.creditsPerCall}
+                              disabled={isDisabled}
+                              onClick={() =>
+                                createNodeAtWorldCenter(
+                                  resolveFlowNodeTypeFromConfig(config),
+                                  addPanel.world
+                                )
+                              }
+                            />
+                          );
+                        })}
+                      </div>
+                    </section>
+                  ))}
                 </div>
               </div>
             ) : addTab === "beta" ? (
