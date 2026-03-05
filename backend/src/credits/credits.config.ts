@@ -7,6 +7,12 @@ export const CREDIT_PRICING_CONFIG = {
     creditsPerCall: 30,
     description: '使用 Nano banana Pro 模型生成高质量图像',
   },
+  'gemini-3.1-image': {
+    serviceName: 'Nano banana 2 生图',
+    provider: 'gemini',
+    creditsPerCall: 30,
+    description: '使用 Nano banana 2 模型生成高质量图像',
+  },
   'gemini-2.5-image': {
     serviceName: 'Nano banana 生图',
     provider: 'gemini',
@@ -19,6 +25,12 @@ export const CREDIT_PRICING_CONFIG = {
     creditsPerCall: 30,
     description: '使用 Nano banana Pro 编辑图像',
   },
+  'gemini-3.1-image-edit': {
+    serviceName: 'Nano banana 2 图像编辑',
+    provider: 'gemini',
+    creditsPerCall: 30,
+    description: '使用 Nano banana 2 编辑图像',
+  },
   'gemini-2.5-image-edit': {
     serviceName: 'Nano banana-2.5 图像编辑',
     provider: 'gemini',
@@ -30,6 +42,12 @@ export const CREDIT_PRICING_CONFIG = {
     provider: 'gemini',
     creditsPerCall: 30,
     description: '使用 Nano banana Pro 融合多张图像',
+  },
+  'gemini-3.1-image-blend': {
+    serviceName: 'Nano banana 2 融合',
+    provider: 'gemini',
+    creditsPerCall: 30,
+    description: '使用 Nano banana 2 融合多张图像',
   },
   'gemini-2.5-image-blend': {
     serviceName: 'Nano banana-2.5 融合',

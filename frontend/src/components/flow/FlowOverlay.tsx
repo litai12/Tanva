@@ -7805,6 +7805,12 @@ function FlowInner() {
               fileName: `flow_midjourney_${historyId}.png`,
               projectId,
               keepThumbnail: false,
+              metadata: {
+                ...mjMetadata,
+                model: "midjourney-fast",
+                aiProvider: "midjourney",
+                provider: "midjourney",
+              },
             })
               .then(({ remoteUrl }) => {
                 if (!remoteUrl) return;
@@ -7940,14 +7946,54 @@ function FlowInner() {
             return;
           }
 
-          const imageData = result.data.imageData || result.data.imageUrl;
+          const resolvedImageUrl =
+            result.data.imageUrl || result.data.metadata?.imageUrl;
+          const imageData =
+            resolvedImageUrl || result.data.imageData || result.data.imageUrl;
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
-                ? { ...n, data: { ...n.data, status: "succeeded", imageData, error: undefined } }
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "succeeded",
+                      imageUrl: resolvedImageUrl || undefined,
+                      imageData: resolvedImageUrl ? undefined : imageData,
+                      error: undefined,
+                    },
+                  }
                 : n
             )
           );
+
+          if (imageData) {
+            try {
+              const projectId = useProjectContentStore.getState().projectId;
+              const historyId = `${nodeId}-${Date.now()}`;
+              const isRemoteHistoryImage =
+                typeof resolvedImageUrl === "string" &&
+                /^https?:\/\//i.test(resolvedImageUrl);
+              void recordImageHistoryEntry({
+                id: historyId,
+                base64: isRemoteHistoryImage ? undefined : imageData,
+                remoteUrl: isRemoteHistoryImage ? resolvedImageUrl : undefined,
+                title: `Nano2 ${new Date().toLocaleTimeString()}`,
+                nodeId,
+                nodeType: "generate",
+                fileName: `flow_nano2_${historyId}.png`,
+                projectId,
+                keepThumbnail: false,
+                metadata: {
+                  ...(result.data.metadata || {}),
+                  model:
+                    result.data.model || "gemini-3.1-flash-image-preview",
+                  aiProvider: "nano2",
+                  provider: "nano2",
+                },
+              }).catch(() => {});
+            } catch {}
+          }
         } catch (error) {
           const msg = error instanceof Error ? error.message : "Nano2 生成失败";
           setNodes((ns) =>
@@ -8154,6 +8200,8 @@ function FlowInner() {
 
         for (let i = 0; i < total; i++) {
           let generatedImage: string | undefined;
+          let generatedModel: string | undefined;
+          let generatedMetadata: Record<string, any> | undefined;
           try {
             let result: {
               success: boolean;
@@ -8219,6 +8267,8 @@ function FlowInner() {
               }
             } else {
               generatedImage = generatedSrc;
+              generatedModel = result.data.model || nodeSpecificModel;
+              generatedMetadata = result.data.metadata as Record<string, any> | undefined;
             }
           } catch {
             // 忽略单张失败，继续下一张
@@ -8270,6 +8320,12 @@ function FlowInner() {
                 fileName: `flow_generate4_${historyId}.png`,
                 projectId,
                 keepThumbnail: false,
+                metadata: {
+                  ...(generatedMetadata || {}),
+                  model: generatedModel || nodeSpecificModel,
+                  aiProvider,
+                  provider: aiProvider,
+                },
               })
                 .then(({ remoteUrl }) => {
                   if (!remoteUrl) return;
@@ -8378,7 +8434,13 @@ function FlowInner() {
         // 并发生成4张图片
         const generateSingleImage = async (
           index: number
-        ): Promise<{ index: number; image?: string; error?: string }> => {
+        ): Promise<{
+          index: number;
+          image?: string;
+          error?: string;
+          model?: string;
+          metadata?: Record<string, any>;
+        }> => {
           try {
             let result: {
               success: boolean;
@@ -8428,7 +8490,12 @@ function FlowInner() {
               result.data?.metadata?.imageUrl ||
               result.data?.imageData;
             if (result.success && generatedSrc) {
-              return { index, image: generatedSrc };
+              return {
+                index,
+                image: generatedSrc,
+                model: result.data?.model || nodeSpecificModel,
+                metadata: result.data?.metadata as Record<string, any> | undefined,
+              };
             }
             // 返回错误信息
             return { index, error: result.error?.message || "生成失败" };
@@ -8515,6 +8582,12 @@ function FlowInner() {
                   fileName: `flow_generatepro4_${historyId}.png`,
                   projectId,
                   keepThumbnail: false,
+                  metadata: {
+                    ...(result.metadata || {}),
+                    model: result.model || nodeSpecificModel,
+                    aiProvider,
+                    provider: aiProvider,
+                  },
                 })
                   .then(({ remoteUrl }) => {
                     if (!remoteUrl) return;
@@ -8744,6 +8817,12 @@ function FlowInner() {
               fileName: `flow_${node.type || "generate"}_${historyId}.png`,
               projectId,
               keepThumbnail: false,
+              metadata: {
+                ...(out.metadata || {}),
+                model: out.model || nodeSpecificModel,
+                aiProvider,
+                provider: aiProvider,
+              },
             })
               .then(({ remoteUrl }) => {
                 if (!remoteUrl) return;

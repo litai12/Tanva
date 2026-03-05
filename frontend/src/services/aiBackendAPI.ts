@@ -28,6 +28,8 @@ const API_BASE_URL =
     ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")
     : "http://localhost:4000") + "/api";
 const DEFAULT_IMAGE_MODEL = "gemini-3-pro-image-preview";
+const BANANA_25_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
+const BANANA_31_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
 const RUNNINGHUB_IMAGE_MODEL = "runninghub-su-effect";
 const MIDJOURNEY_IMAGE_MODEL = "midjourney-fast";
 
@@ -175,6 +177,10 @@ const resolveDefaultModel = (
   provider: SupportedAIProvider | undefined
 ): string => {
   if (requestModel) return requestModel;
+  if (provider === "banana-2.5") return BANANA_25_IMAGE_MODEL;
+  if (provider === "banana-3.1" || provider === "nano2") {
+    return BANANA_31_IMAGE_MODEL;
+  }
   if (provider === "runninghub") return RUNNINGHUB_IMAGE_MODEL;
   if (provider === "midjourney") return MIDJOURNEY_IMAGE_MODEL;
   return DEFAULT_IMAGE_MODEL;

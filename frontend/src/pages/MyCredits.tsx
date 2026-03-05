@@ -41,9 +41,12 @@ interface ApiUsageRecord {
 
 const SERVICE_TYPE_TRANSLATION_KEYS: Record<string, string> = {
   'gemini-3-pro-image': 'gemini3ProImage',
+  'gemini-3.1-image': 'gemini31Image',
   'gemini-2.5-image': 'gemini25Image',
   'gemini-image-edit': 'geminiImageEdit',
+  'gemini-3.1-image-edit': 'gemini31ImageEdit',
   'gemini-image-blend': 'geminiImageBlend',
+  'gemini-3.1-image-blend': 'gemini31ImageBlend',
   'gemini-image-analyze': 'geminiImageAnalyze',
   'gemini-text': 'geminiText',
   'gemini-paperjs': 'geminiPaperJs',

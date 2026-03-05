@@ -15,6 +15,52 @@ const SOURCE_TYPE_LABELS: Record<string, string> = {
   imagePro: '图片Pro',
 };
 
+const BANANA_31_MODEL = 'gemini-3.1-flash-image-preview';
+const BANANA_PRO_MODEL = 'gemini-3-pro-image-preview';
+
+const pickString = (...values: unknown[]): string | undefined => {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return undefined;
+};
+
+const resolveModelLabel = (
+  item: GlobalImageHistoryItem
+): { label: string; rawModel?: string } | null => {
+  const metadata = item.metadata ?? {};
+  const rawModel = pickString(
+    metadata.model,
+    metadata.resolvedModel,
+    metadata.originalModel
+  );
+  const provider = pickString(metadata.aiProvider, metadata.provider);
+
+  const isNanoBanana2 =
+    rawModel?.includes(BANANA_31_MODEL) ||
+    provider === 'nano2' ||
+    provider === 'banana-3.1';
+  if (isNanoBanana2) {
+    return { label: 'Nano Banana 2', rawModel };
+  }
+
+  const isNanoBananaPro =
+    rawModel?.includes(BANANA_PRO_MODEL) ||
+    provider === 'banana' ||
+    provider === 'gemini-pro';
+  if (isNanoBananaPro) {
+    return { label: 'Nano Banana Pro', rawModel };
+  }
+
+  if (rawModel) {
+    return { label: rawModel, rawModel };
+  }
+
+  return null;
+};
+
 interface GlobalImageDetailModalProps {
   item: GlobalImageHistoryItem;
   onClose: () => void;
@@ -30,6 +76,7 @@ const GlobalImageDetailModal: React.FC<GlobalImageDetailModalProps> = ({
 }) => {
   const formattedDate = new Date(item.createdAt).toLocaleString('zh-CN');
   const typeLabel = SOURCE_TYPE_LABELS[item.sourceType] || item.sourceType;
+  const modelInfo = resolveModelLabel(item);
 
   return (
     <div
@@ -97,6 +144,20 @@ const GlobalImageDetailModal: React.FC<GlobalImageDetailModalProps> = ({
               label="类型"
               value={typeLabel}
             />
+            {modelInfo && (
+              <InfoItem
+                icon={<Tag className="h-4 w-4" />}
+                label="模型"
+                value={modelInfo.label}
+              />
+            )}
+            {modelInfo?.rawModel && modelInfo.rawModel !== modelInfo.label && (
+              <InfoItem
+                icon={<Tag className="h-4 w-4" />}
+                label="模型ID"
+                value={modelInfo.rawModel}
+              />
+            )}
             {item.sourceProjectName && (
               <InfoItem
                 icon={<Folder className="h-4 w-4" />}

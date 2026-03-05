@@ -74,7 +74,7 @@ export class AiController {
     gemini: 'gemini-3-pro-image-preview',
     'gemini-pro': 'gemini-3-pro-image-preview',
     banana: 'gemini-3-pro-image-preview',
-    'banana-2.5': 'gemini-2.5-flash-image',
+    'banana-2.5': 'gemini-2.5-flash-image-preview',
     'banana-3.1': 'gemini-3.1-flash-image-preview',
     runninghub: 'runninghub-su-effect',
     midjourney: 'midjourney-fast',
@@ -357,6 +357,10 @@ export class AiController {
     // 根据 provider 和 model 确定服务类型
     if (provider === 'midjourney') {
       return 'midjourney-imagine';
+    }
+
+    if (model?.includes('gemini-3.1')) {
+      return 'gemini-3.1-image';
     }
 
     // Gemini 模型
@@ -1121,8 +1125,12 @@ export class AiController {
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
 
-    // 根据模型选择服务类型：Fast (2.5) 或 Pro
-    const serviceType = model?.includes('2.5') ? 'gemini-2.5-image-edit' : 'gemini-image-edit';
+    // 根据模型选择服务类型：Fast (2.5) / Nano banana 2 (3.1) / Pro
+    const serviceType = model?.includes('2.5')
+      ? 'gemini-2.5-image-edit'
+      : model?.includes('3.1')
+      ? 'gemini-3.1-image-edit'
+      : 'gemini-image-edit';
     console.log(`\n========== [editImage] ==========`);
     console.log(`dto.model: ${dto.model}`);
     console.log(`resolved model: ${model}`);
@@ -1197,8 +1205,12 @@ export class AiController {
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
 
-    // 根据模型选择服务类型：Fast (2.5) 或 Pro
-    const serviceType = model?.includes('2.5') ? 'gemini-2.5-image-blend' : 'gemini-image-blend';
+    // 根据模型选择服务类型：Fast (2.5) / Nano banana 2 (3.1) / Pro
+    const serviceType = model?.includes('2.5')
+      ? 'gemini-2.5-image-blend'
+      : model?.includes('3.1')
+      ? 'gemini-3.1-image-blend'
+      : 'gemini-image-blend';
 
     return this.withCredits(req, serviceType as any, model, async () => {
       const sourceImages = dto.sourceImages?.length

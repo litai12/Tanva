@@ -352,9 +352,12 @@ const enUS = {
     },
     serviceTypes: {
       gemini3ProImage: "Gemini 3 Pro Image",
+      gemini31Image: "Nano banana 2 Image",
       gemini25Image: "Gemini 2.5 Image",
       geminiImageEdit: "Image Editing",
+      gemini31ImageEdit: "Nano banana 2 Image Edit",
       geminiImageBlend: "Image Blending",
+      gemini31ImageBlend: "Nano banana 2 Blend",
       geminiImageAnalyze: "Image Analysis",
       geminiText: "Text Chat",
       geminiPaperJs: "Paper.js Generation",

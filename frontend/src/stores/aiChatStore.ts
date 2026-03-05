@@ -407,7 +407,7 @@ const GEMINI_FLASH_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
 const DEFAULT_TEXT_MODEL = "gemini-3-flash-preview";
 const GEMINI_PRO_TEXT_MODEL = "gemini-3-flash-preview";
 const BANANA_TEXT_MODEL = "gemini-3-flash-preview";
-const BANANA_25_IMAGE_MODEL = "gemini-2.5-flash-image";
+const BANANA_25_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
 const BANANA_25_TEXT_MODEL = "gemini-3-flash-preview";
 const BANANA_31_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
 export const SORA2_VIDEO_MODELS = {
@@ -2027,12 +2027,14 @@ export const useAIChatStore = create<AIChatState>()(
         prompt,
         result,
         operationType,
+        aiProvider,
         skipPreview,
       }: {
         aiMessageId: string;
         prompt: string;
         result: AIImageResult;
         operationType: "generate" | "edit" | "blend";
+        aiProvider: AIProviderType;
         skipPreview?: boolean;
       }): Promise<{ remoteUrl?: string; thumbnail?: string }> => {
         if (!result.imageData) {
@@ -2057,6 +2059,13 @@ export const useAIChatStore = create<AIChatState>()(
               dir: "ai-chat-history/",
               keepThumbnail: Boolean(previewDataUrl),
               thumbnailDataUrl: previewDataUrl ?? undefined,
+              metadata: {
+                ...(result.metadata || {}),
+                model: result.model,
+                aiProvider,
+                provider: aiProvider,
+                operationType,
+              },
             });
             remoteUrl = historyRecord.remoteUrl;
           } catch (error) {
@@ -3146,6 +3155,7 @@ export const useAIChatStore = create<AIChatState>()(
                   prompt,
                   result: result.data,
                   operationType: "generate",
+                  aiProvider: state.aiProvider,
                   skipPreview: isParallel || state.imageSize === "4K",
                 })
                   .then((assets) => {
@@ -3861,6 +3871,7 @@ export const useAIChatStore = create<AIChatState>()(
                   prompt,
                   result: result.data,
                   operationType: "edit",
+                  aiProvider: state.aiProvider,
                   skipPreview: isParallelEdit || state.imageSize === "4K",
                 })
                   .then((assets) => {
@@ -4483,6 +4494,7 @@ export const useAIChatStore = create<AIChatState>()(
                   prompt,
                   result: result.data,
                   operationType: "blend",
+                  aiProvider: state.aiProvider,
                   skipPreview: isParallelBlend || state.imageSize === "4K",
                 })
                   .then((assets) => {
@@ -4737,6 +4749,7 @@ export const useAIChatStore = create<AIChatState>()(
                   prompt,
                   result: result.data,
                   operationType: "generate",
+                  aiProvider: "midjourney",
                   skipPreview: true,
                 });
               }

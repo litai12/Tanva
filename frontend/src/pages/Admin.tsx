@@ -704,6 +704,24 @@ const SORA2_PROVIDER_OPTIONS = [
   },
 ];
 
+const BANANA_PROVIDER_OPTIONS = [
+  {
+    value: "auto",
+    label: "自动切换",
+    description: "优先使用 Apimart，失败后自动切换到 147",
+  },
+  {
+    value: "apimart",
+    label: "Apimart",
+    description: "强制使用 Apimart (api.apimart.ai)",
+  },
+  {
+    value: "legacy",
+    label: "147",
+    description: "强制使用 147 (api1.147ai.com)",
+  },
+];
+
 // 公共模板管理 Tab
 function TemplatesTab() {
   const [templates, setTemplates] = useState<PublicTemplate[]>([]);
@@ -1676,6 +1694,7 @@ function SettingsTab() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [sora2Provider, setSora2Provider] = useState("auto");
+  const [bananaProvider, setBananaProvider] = useState("auto");
 
   // 微信二维码状态
   const [officialQrCode, setOfficialQrCode] = useState<string>("");
@@ -1692,6 +1711,10 @@ function SettingsTab() {
       const sora2Setting = result.find((s) => s.key === "sora2_provider");
       if (sora2Setting) {
         setSora2Provider(sora2Setting.value);
+      }
+      const bananaSetting = result.find((s) => s.key === "banana_provider");
+      if (bananaSetting) {
+        setBananaProvider(bananaSetting.value);
       }
       // 加载微信二维码设置
       const officialSetting = result.find((s) => s.key === "wechat_official_account_qrcode");
@@ -1775,6 +1798,23 @@ function SettingsTab() {
     }
   };
 
+  const handleSaveBananaProvider = async () => {
+    setSaving(true);
+    try {
+      await upsertSetting({
+        key: "banana_provider",
+        value: bananaProvider,
+        description: "Banana 图像底层 API 供应商选择",
+      });
+      alert("保存成功");
+      loadSettings();
+    } catch (error: any) {
+      alert(error.message || "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) {
     return <div className='text-center py-8 text-gray-500'>加载中...</div>;
   }
@@ -1817,6 +1857,46 @@ function SettingsTab() {
         </div>
         <div className='mt-4'>
           <Button onClick={handleSaveSora2Provider} disabled={saving}>
+            {saving ? "保存中..." : "保存设置"}
+          </Button>
+        </div>
+      </div>
+
+      <div className='bg-white rounded-lg border p-6 shadow-sm'>
+        <h3 className='text-lg font-semibold mb-4'>Banana 图像生成设置</h3>
+        <p className='text-sm text-gray-500 mb-4'>
+          选择 Banana 图像能力底层使用的 API 供应商。自动模式会优先使用
+          Apimart，失败后自动切换到 147。
+        </p>
+        <div className='space-y-3'>
+          {BANANA_PROVIDER_OPTIONS.map((option) => (
+            <label
+              key={option.value}
+              className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition ${
+                bananaProvider === option.value
+                  ? "border-blue-500 bg-blue-50"
+                  : "border-gray-200 hover:border-gray-300"
+              }`}
+            >
+              <input
+                type='radio'
+                name='bananaProvider'
+                value={option.value}
+                checked={bananaProvider === option.value}
+                onChange={(e) => setBananaProvider(e.target.value)}
+                className='mt-1'
+              />
+              <div>
+                <div className='font-medium'>{option.label}</div>
+                <div className='text-sm text-gray-500'>
+                  {option.description}
+                </div>
+              </div>
+            </label>
+          ))}
+        </div>
+        <div className='mt-4'>
+          <Button onClick={handleSaveBananaProvider} disabled={saving}>
             {saving ? "保存中..." : "保存设置"}
           </Button>
         </div>

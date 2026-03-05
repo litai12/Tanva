@@ -21,6 +21,7 @@ interface RecordImageHistoryOptions {
   mimeType?: string;
   thumbnailDataUrl?: string;
   skipGlobalHistory?: boolean;
+  metadata?: Record<string, any>;
 }
 
 const ensureDataUrl = (value: string, mimeType: string = 'png'): string => {
@@ -61,6 +62,7 @@ export async function recordImageHistoryEntry(options: RecordImageHistoryOptions
         sourceType: nodeType,
         sourceProjectId: projectId ?? undefined,
         sourceProjectName: projectName,
+        metadata: options.metadata,
       })
       .catch((err) => {
         console.warn('[ImageHistory] 写入全局历史失败:', err);

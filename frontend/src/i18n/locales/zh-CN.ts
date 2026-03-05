@@ -351,9 +351,12 @@ const zhCN = {
     },
     serviceTypes: {
       gemini3ProImage: "Gemini 3 Pro 生图",
+      gemini31Image: "Nano banana 2 生图",
       gemini25Image: "Gemini 2.5 生图",
       geminiImageEdit: "图像编辑",
+      gemini31ImageEdit: "Nano banana 2 图像编辑",
       geminiImageBlend: "图像融合",
+      gemini31ImageBlend: "Nano banana 2 融合",
       geminiImageAnalyze: "图像分析",
       geminiText: "文字对话",
       geminiPaperJs: "Paper.js 生成",
