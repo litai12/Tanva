@@ -67,6 +67,8 @@ import { contextManager } from "@/services/contextManager";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { authApi, type GoogleApiKeyInfo } from "@/services/authApi";
 import ReferralRewards from "@/components/ReferralRewards";
+import LanguageSwitcher from "@/components/LanguageSwitcher";
+import { useTranslation } from "react-i18next";
 import {
   claimDailyReward,
   getDailyRewardStatus,
@@ -76,11 +78,11 @@ import {
 } from "@/services/adminApi";
 
 const SETTINGS_SECTIONS = [
-  { id: "workspace", label: "工作区", icon: Square },
-  { id: "referral", label: "推广激励", icon: Gift },
-  { id: "appearance", label: "视图外观", icon: Eye },
-  { id: "ai", label: "AI 设置", icon: Sparkles },
-  { id: "advanced", label: "高级", icon: Zap },
+  { id: "workspace", labelKey: "workspace.settings.sections.workspace", icon: Square },
+  { id: "referral", labelKey: "workspace.settings.sections.referral", icon: Gift },
+  { id: "appearance", labelKey: "workspace.settings.sections.appearance", icon: Eye },
+  { id: "ai", labelKey: "workspace.settings.sections.ai", icon: Sparkles },
+  { id: "advanced", labelKey: "workspace.settings.sections.advanced", icon: Zap },
 ] as const;
 
 type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]["id"];
@@ -99,7 +101,9 @@ const getTodayDateKey = () => {
 };
 
 const FloatingHeader: React.FC = () => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
+  const untitledLabel = t("common.untitled");
   const {
     showLibraryPanel,
     showGrid,
@@ -157,10 +161,10 @@ const FloatingHeader: React.FC = () => {
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState("");
   useEffect(() => {
-    setTitleInput(currentProject?.name || "未命名");
-  }, [currentProject?.id, currentProject?.name]);
+    setTitleInput(currentProject?.name || untitledLabel);
+  }, [currentProject?.id, currentProject?.name, untitledLabel]);
   const commitTitle = async () => {
-    const name = titleInput.trim() || "未命名";
+    const name = titleInput.trim() || untitledLabel;
     try {
       if (currentProject) {
         if (name !== currentProject.name) {
@@ -259,7 +263,7 @@ const FloatingHeader: React.FC = () => {
   const handleClearGoogleApiKey = useCallback(async () => {
     if (googleApiKeySaving) return;
     const confirmed = window.confirm(
-      "确定要清除自定义 API Key 吗？系统将恢复使用官方 Key。"
+      t("workspace.settings.aiTab.googleKey.clearConfirm")
     );
     if (!confirmed) return;
 
@@ -293,7 +297,7 @@ const FloatingHeader: React.FC = () => {
         2500
       );
     }
-  }, [googleApiKeySaving]);
+  }, [googleApiKeySaving, t]);
 
   // 一次性加载保存的视图外观设置
   useEffect(() => {
@@ -483,16 +487,18 @@ const FloatingHeader: React.FC = () => {
 
   const handleClearImageHistory = React.useCallback(() => {
     if (historyCount === 0) {
-      alert("当前没有需要清理的图片历史。");
+      alert(t("workspace.settings.workspaceTab.history.empty"));
       return;
     }
     const confirmed = window.confirm(
-      `确定要清空 ${historyCount} 条图片历史记录吗？此操作仅清除本地缓存，云端文件不会删除。`
+      t("workspace.settings.workspaceTab.history.clearConfirm", {
+        count: historyCount,
+      })
     );
     if (confirmed) {
       clearImageHistory();
     }
-  }, [clearImageHistory, historyCount]);
+  }, [clearImageHistory, historyCount, t]);
 
   const handleLogoClick = () => {
     logger.debug("Logo clicked - navigating to home");
@@ -503,8 +509,8 @@ const FloatingHeader: React.FC = () => {
     if (navigator.share) {
       navigator
         .share({
-          title: "智绘画板",
-          text: "来体验这个智能画板应用！",
+          title: t("home.share.title"),
+          text: t("home.share.text"),
           url: window.location.href,
         })
         .catch(console.error);
@@ -512,10 +518,10 @@ const FloatingHeader: React.FC = () => {
       navigator.clipboard
         .writeText(window.location.href)
         .then(() => {
-          alert("链接已复制到剪贴板！");
+          alert(t("home.linkCopied"));
         })
         .catch(() => {
-          alert("分享链接: " + window.location.href);
+          alert(t("home.shareLink", { url: window.location.href }));
         });
     }
   };
@@ -523,7 +529,7 @@ const FloatingHeader: React.FC = () => {
   // 清空画布内容（保留网格/背景等系统层）
   const handleClearCanvas = () => {
     const confirmed = window.confirm(
-      "确定要清空画布上的全部内容吗？\n此操作将删除所有绘制元素与节点（保留背景/网格），且当前不支持撤销。"
+      t("workspace.settings.workspaceTab.clearCanvasConfirm")
     );
     if (!confirmed) return;
 
@@ -571,7 +577,7 @@ const FloatingHeader: React.FC = () => {
         } catch {}
       } catch (e) {
         console.error("清空画布失败:", e);
-        alert("清空画布失败，请稍后重试");
+        alert(t("workspace.settings.workspaceTab.clearCanvasFailed"));
       }
     })();
   };
@@ -653,27 +659,27 @@ const FloatingHeader: React.FC = () => {
     try {
       const result = await claimDailyReward();
       if (result.success) {
-        alert("领取成功：已发放每日登录奖励");
+        alert(t("workspace.settings.workspaceTab.dailyReward.success"));
       } else if (result.alreadyClaimed) {
-        alert("今日奖励已领取");
+        alert(t("workspace.settings.workspaceTab.dailyReward.alreadyClaimed"));
       } else {
-        alert("领取失败，请稍后重试");
+        alert(t("workspace.settings.workspaceTab.dailyReward.failed"));
       }
     } catch (e: any) {
       console.error("Failed to claim daily reward:", e);
-      alert(e?.message || "领取失败，请稍后重试");
+      alert(e?.message || t("workspace.settings.workspaceTab.dailyReward.failed"));
     } finally {
       setDailyRewardClaiming(false);
       refreshCreditsAndDailyReward();
     }
-  }, [dailyRewardClaiming, refreshCreditsAndDailyReward, user]);
+  }, [dailyRewardClaiming, refreshCreditsAndDailyReward, t, user]);
 
   const displayName =
     user?.name ||
     user?.phone?.slice(-4) ||
     user?.email ||
     user?.id?.slice(-4) ||
-    "用户";
+    t("common.user");
   const secondaryId =
     user?.email ||
     (user?.phone
@@ -683,15 +689,15 @@ const FloatingHeader: React.FC = () => {
   const status = (() => {
     switch (connection) {
       case "server":
-        return { label: "在线", color: "#16a34a" };
+        return { label: t("common.status.online"), color: "#16a34a" };
       case "refresh":
-        return { label: "已续期", color: "#f59e0b" };
+        return { label: t("common.status.refreshed"), color: "#f59e0b" };
       case "local":
-        return { label: "在线", color: "#16a34a" };
+        return { label: t("common.status.online"), color: "#16a34a" };
       case "mock":
-        return { label: "Mock", color: "#8b5cf6" };
+        return { label: t("common.status.mock"), color: "#8b5cf6" };
       default:
-        return { label: "未知", color: "#9ca3af" };
+        return { label: t("common.status.unknown"), color: "#9ca3af" };
     }
   })();
   const showLibraryButton = false; // 临时关闭素材库入口，后续恢复时改为 true
@@ -717,13 +723,13 @@ const FloatingHeader: React.FC = () => {
   const sendShortcutOptions = [
     {
       value: "enter" as const,
-      label: "回车发送",
-      description: "Enter 发送，Shift+Enter 换行",
+      label: t("workspace.settings.aiTab.shortcuts.enterLabel"),
+      description: t("workspace.settings.aiTab.shortcuts.enterDesc"),
     },
     {
       value: "mod-enter" as const,
       label: "Ctrl/Cmd + Enter",
-      description: "回车换行，Ctrl/Cmd + Enter 发送",
+      description: t("workspace.settings.aiTab.shortcuts.modEnterDesc"),
     },
   ];
   const renderSettingsContent = () => {
@@ -744,7 +750,9 @@ const FloatingHeader: React.FC = () => {
               <div className='flex-1 min-w-0'>
                 <div className='flex items-center gap-2 mb-0.5'>
                   <span className='text-base font-medium text-slate-900'>
-                    你好, {displayName}
+                    {t("workspace.settings.workspaceTab.greeting", {
+                      name: displayName,
+                    })}
                   </span>
                 </div>
                 <div className='text-sm text-slate-400'>{secondaryId}</div>
@@ -757,7 +765,7 @@ const FloatingHeader: React.FC = () => {
                 <div className='flex items-center gap-3'>
                   <Zap className='w-4 h-4 text-blue-500' />
                   <span className='text-lg font-medium text-slate-700'>
-                    我的积分
+                    {t("workspace.settings.workspaceTab.credits.title")}
                   </span>
                 </div>
                 <button
@@ -767,30 +775,36 @@ const FloatingHeader: React.FC = () => {
                   }}
                   className='text-sm text-slate-500 hover:text-slate-700'
                 >
-                  积分详情
+                  {t("workspace.settings.workspaceTab.credits.detail")}
                 </button>
               </div>
 
               <div className='flex items-end justify-between py-2'>
                 {creditsLoading ? (
-                  <div className='text-sm text-slate-500'>加载中...</div>
+                  <div className='text-sm text-slate-500'>
+                    {t("workspace.settings.workspaceTab.loading")}
+                  </div>
                 ) : creditsInfo ? (
                   <>
                     <div className='flex items-baseline gap-2'>
                       <span className='text-5xl font-bold text-slate-800'>
                         {creditsInfo.balance}
                       </span>
-                      <span className='text-base text-slate-400'>积分</span>
+                      <span className='text-base text-slate-400'>
+                        {t("workspace.settings.workspaceTab.credits.unit")}
+                      </span>
                     </div>
                     <button
                       onClick={() => setShowPaymentPanel(true)}
                       className='px-5 py-2 border border-slate-300 text-slate-600 rounded-lg hover:bg-white transition-colors text-sm'
                     >
-                      立即充值
+                      {t("workspace.settings.workspaceTab.credits.recharge")}
                     </button>
                   </>
                 ) : (
-                  <div className='text-sm text-slate-500'>暂无积分信息</div>
+                  <div className='text-sm text-slate-500'>
+                    {t("workspace.settings.workspaceTab.credits.empty")}
+                  </div>
                 )}
               </div>
             </div>
@@ -804,14 +818,14 @@ const FloatingHeader: React.FC = () => {
                 }}
               >
                 <Square className='w-4 h-4' />
-                打开/管理文件
+                {t("workspace.settings.workspaceTab.openManageFile")}
               </button>
               <button
                 className='flex items-center justify-center gap-2 h-12 bg-white border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50 transition-colors'
                 onClick={() => navigate("/")}
               >
                 <Home className='w-4 h-4' />
-                返回首页
+                {t("workspace.settings.workspaceTab.backHome")}
               </button>
             </div>
 
@@ -821,14 +835,14 @@ const FloatingHeader: React.FC = () => {
                 onClick={() => setIsGlobalHistoryOpen(true)}
               >
                 <History className='w-4 h-4' />
-                全局图片历史
+                {t("workspace.settings.workspaceTab.globalHistory")}
               </button>
               <button
                 className='flex items-center justify-center gap-2 h-12 bg-white border border-red-200 rounded-xl text-sm text-red-500 hover:bg-red-50 transition-colors'
                 onClick={handleClearCanvas}
               >
                 <Trash2 className='w-4 h-4' />
-                清空画布内容
+                {t("workspace.settings.workspaceTab.clearCanvas")}
               </button>
             </div>
           </div>
@@ -843,10 +857,10 @@ const FloatingHeader: React.FC = () => {
               <div className='flex items-center justify-between'>
                 <div>
                   <h3 className='text-base font-medium text-slate-800'>
-                    保存视图
+                    {t("workspace.settings.appearanceTab.saveView.title")}
                   </h3>
                   <p className='text-xs text-slate-400 mt-1'>
-                    保存当前网格样式与颜色，刷新后保持一致
+                    {t("workspace.settings.appearanceTab.saveView.desc")}
                   </p>
                 </div>
                 <Button
@@ -855,15 +869,32 @@ const FloatingHeader: React.FC = () => {
                   className='p-5 rounded-3xl text-sm'
                   onClick={handleSaveAppearanceSettings}
                 >
-                  保存设置
+                  {t("workspace.settings.appearanceTab.saveView.button")}
                 </Button>
               </div>
               {saveFeedback === "success" && (
-                <div className='mt-2 text-xs text-green-600'>已保存</div>
+                <div className='mt-2 text-xs text-green-600'>
+                  {t("workspace.settings.appearanceTab.saveView.saved")}
+                </div>
               )}
               {saveFeedback === "error" && (
-                <div className='mt-2 text-xs text-red-600'>保存失败</div>
+                <div className='mt-2 text-xs text-red-600'>
+                  {t("workspace.settings.appearanceTab.saveView.saveFailed")}
+                </div>
               )}
+            </div>
+
+            {/* 界面语言 */}
+            <div className='flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3'>
+              <div>
+                <div className='text-sm font-medium text-slate-700'>
+                  {t("workspace.appearance.languageTitle")}
+                </div>
+                <div className='text-xs text-slate-400 mt-0.5'>
+                  {t("workspace.appearance.languageDesc")}
+                </div>
+              </div>
+              <LanguageSwitcher compact />
             </div>
 
             {/* 网格渲染 + 物理吸附 */}
@@ -871,10 +902,10 @@ const FloatingHeader: React.FC = () => {
               <div className='flex items-center gap-4 flex-1'>
                 <div className='flex-1'>
                   <div className='text-sm font-medium text-slate-700'>
-                    网格渲染
+                    {t("workspace.settings.appearanceTab.gridRender.title")}
                   </div>
                   <div className='text-xs text-slate-400 mt-0.5'>
-                    显示底层参考线
+                    {t("workspace.settings.appearanceTab.gridRender.desc")}
                   </div>
                 </div>
                 <Switch
@@ -886,10 +917,10 @@ const FloatingHeader: React.FC = () => {
               <div className='flex items-center gap-4 flex-1'>
                 <div className='flex-1'>
                   <div className='text-sm font-medium text-slate-700'>
-                    物理吸附
+                    {t("workspace.settings.appearanceTab.snap.title")}
                   </div>
                   <div className='text-xs text-slate-400 mt-0.5'>
-                    智能对齐元素
+                    {t("workspace.settings.appearanceTab.snap.desc")}
                   </div>
                 </div>
                 <Switch
@@ -904,12 +935,18 @@ const FloatingHeader: React.FC = () => {
             <div className='flex items-start justify-between gap-8'>
               <div className='flex-1'>
                 <div className='text-sm font-medium text-slate-700 pb-3'>
-                  风格样式
+                  {t("workspace.settings.appearanceTab.style.title")}
                 </div>
                 <div className='inline-flex rounded-full bg-slate-100 p-1'>
                   {[
-                    { value: GridStyle.LINES, label: "网格" },
-                    { value: GridStyle.SOLID, label: "纯色" },
+                    {
+                      value: GridStyle.LINES,
+                      label: t("workspace.settings.appearanceTab.style.grid"),
+                    },
+                    {
+                      value: GridStyle.SOLID,
+                      label: t("workspace.settings.appearanceTab.style.solid"),
+                    },
                   ].map((option) => (
                     <button
                       key={option.value}
@@ -929,7 +966,7 @@ const FloatingHeader: React.FC = () => {
               </div>
               <div className='flex-1'>
                 <div className='text-sm font-medium text-slate-700 pb-3'>
-                  网格单位
+                  {t("workspace.settings.appearanceTab.gridUnit.title")}
                 </div>
                 <div className='flex items-center gap-2 border border-slate-200 w-28 rounded-3xl'>
                   <input
@@ -958,10 +995,10 @@ const FloatingHeader: React.FC = () => {
             {/* 缩放反馈速度 */}
             <div>
               <div className='text-sm font-medium text-slate-700'>
-                缩放灵敏度
+                {t("workspace.settings.appearanceTab.zoom.title")}
               </div>
               <div className='text-xs text-slate-400 mt-0.5 mb-4'>
-                阻尼感调节
+                {t("workspace.settings.appearanceTab.zoom.desc")}
               </div>
               <div className='flex items-center gap-4'>
                 <input
@@ -986,7 +1023,7 @@ const FloatingHeader: React.FC = () => {
             <div className='flex items-center justify-between'>
               <div>
                 <div className='text-sm font-medium text-slate-700'>
-                  网格颜色
+                  {t("workspace.settings.appearanceTab.gridColor.title")}
                 </div>
               </div>
               <div className='flex items-center'>
@@ -1006,7 +1043,7 @@ const FloatingHeader: React.FC = () => {
             {/* AI 对话框样式 */}
             <div>
               <div className='text-sm font-medium text-slate-700 mb-3'>
-                AI 对话框样式
+                {t("workspace.settings.appearanceTab.chatStyle.title")}
               </div>
               <div className='inline-flex rounded-full bg-slate-100 p-1'>
                 <button
@@ -1019,7 +1056,7 @@ const FloatingHeader: React.FC = () => {
                       : "text-slate-400 hover:text-slate-600"
                   )}
                 >
-                  透明
+                  {t("workspace.settings.appearanceTab.chatStyle.transparent")}
                 </button>
                 <button
                   type='button'
@@ -1031,7 +1068,7 @@ const FloatingHeader: React.FC = () => {
                       : "text-slate-400 hover:text-slate-600"
                   )}
                 >
-                  纯色
+                  {t("workspace.settings.appearanceTab.chatStyle.solid")}
                 </button>
               </div>
             </div>
@@ -1043,10 +1080,10 @@ const FloatingHeader: React.FC = () => {
             <div className='flex flex-col gap-4 p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur sm:flex-row sm:items-center sm:justify-between'>
               <div>
                 <div className='text-sm font-medium text-slate-700'>
-                  仅图像模式
+                  {t("workspace.settings.aiTab.imageOnly.title")}
                 </div>
                 <div className='text-xs text-slate-500'>
-                  禁用文字结果，仅输出图像
+                  {t("workspace.settings.aiTab.imageOnly.desc")}
                 </div>
               </div>
               <Switch
@@ -1061,10 +1098,10 @@ const FloatingHeader: React.FC = () => {
                 <Send className='w-4 h-4 text-blue-600' />
                 <div>
                   <div className='text-sm font-medium text-slate-700'>
-                    发送快捷键
+                    {t("workspace.settings.aiTab.shortcuts.title")}
                   </div>
                   <div className='text-xs text-slate-500'>
-                    选择聊天输入框的发送习惯。
+                    {t("workspace.settings.aiTab.shortcuts.desc")}
                   </div>
                 </div>
               </div>
@@ -1100,7 +1137,7 @@ const FloatingHeader: React.FC = () => {
 
             <div className='p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur'>
               <div className='mb-4 text-sm font-medium text-slate-700'>
-                AI 提供商
+                {t("workspace.settings.aiTab.provider.title")}
               </div>
               <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
                 {/* 国际版按钮已注释
@@ -1146,11 +1183,11 @@ const FloatingHeader: React.FC = () => {
                       <div className='flex items-center gap-2 mb-1'>
                         <Zap className='w-4 h-4 text-amber-600' />
                         <span className='text-sm font-medium text-slate-700'>
-                          国内Pro版
+                          {t("workspace.settings.aiTab.provider.banana")}
                         </span>
                       </div>
                       <div className='text-xs text-slate-500'>
-                        2代模型 品质最佳 建议避开高峰时段使用
+                        {t("workspace.settings.aiTab.provider.bananaDesc")}
                       </div>
                     </div>
                     {aiProvider === "banana" && (
@@ -1173,11 +1210,11 @@ const FloatingHeader: React.FC = () => {
                       <div className='flex items-center gap-2 mb-1'>
                         <Sparkles className='w-4 h-4 text-rose-600' />
                         <span className='text-sm font-medium text-slate-700'>
-                          国内Ultra版
+                          {t("workspace.settings.aiTab.provider.banana31")}
                         </span>
                       </div>
                       <div className='text-xs text-slate-500'>
-                        最新模型 质量更高
+                        {t("workspace.settings.aiTab.provider.banana31Desc")}
                       </div>
                     </div>
                     {aiProvider === "banana-3.1" && (
@@ -1200,11 +1237,11 @@ const FloatingHeader: React.FC = () => {
                       <div className='flex items-center gap-2 mb-1'>
                         <Zap className='w-4 h-4 text-orange-600' />
                         <span className='text-sm font-medium text-slate-700'>
-                          国内极速版
+                          {t("workspace.settings.aiTab.provider.banana25")}
                         </span>
                       </div>
                       <div className='text-xs text-slate-500'>
-                        1代模型 高速稳定
+                        {t("workspace.settings.aiTab.provider.banana25Desc")}
                       </div>
                     </div>
                     {aiProvider === "banana-2.5" && (
@@ -1337,10 +1374,10 @@ const FloatingHeader: React.FC = () => {
               <div className='flex flex-col gap-3 p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur sm:flex-row sm:items-center sm:justify-between'>
                 <div>
                   <div className='text-sm font-medium text-slate-700'>
-                    内存监控
+                    {t("workspace.settings.advancedTab.memory.title")}
                   </div>
                   <div className='text-xs text-slate-500'>
-                    仅开发模式可用的调试工具
+                    {t("workspace.settings.advancedTab.memory.desc")}
                   </div>
                 </div>
                 <Button
@@ -1349,7 +1386,9 @@ const FloatingHeader: React.FC = () => {
                   onClick={() => setShowMemoryDebug(!showMemoryDebug)}
                 >
                   <Activity className='w-4 h-4 mr-2' />
-                  {showMemoryDebug ? "关闭面板" : "打开面板"}
+                  {showMemoryDebug
+                    ? t("workspace.settings.advancedTab.closePanel")
+                    : t("workspace.settings.advancedTab.openPanel")}
                 </Button>
               </div>
             )}
@@ -1357,10 +1396,10 @@ const FloatingHeader: React.FC = () => {
               <div className='flex flex-col gap-3 p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur sm:flex-row sm:items-center sm:justify-between'>
                 <div>
                   <div className='text-sm font-medium text-slate-700'>
-                    历史记录调试
+                    {t("workspace.settings.advancedTab.history.title")}
                   </div>
                   <div className='text-xs text-slate-500'>
-                    查看撤销/重做栈内容与快照详情
+                    {t("workspace.settings.advancedTab.history.desc")}
                   </div>
                 </div>
                 <Button
@@ -1369,17 +1408,19 @@ const FloatingHeader: React.FC = () => {
                   onClick={() => setShowHistoryDebug(!showHistoryDebug)}
                 >
                   <History className='w-4 h-4 mr-2' />
-                  {showHistoryDebug ? "关闭面板" : "打开面板"}
+                  {showHistoryDebug
+                    ? t("workspace.settings.advancedTab.closePanel")
+                    : t("workspace.settings.advancedTab.openPanel")}
                 </Button>
               </div>
             )}
             <div className='flex flex-col gap-3 p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur sm:flex-row sm:items-center sm:justify-between'>
               <div>
                 <div className='text-sm font-medium text-slate-700'>
-                  Paper.js 沙盒
+                  {t("workspace.settings.advancedTab.sandbox.title")}
                 </div>
                 <div className='text-xs text-slate-500'>
-                  打开 Paper.js 代码调试工作台
+                  {t("workspace.settings.advancedTab.sandbox.desc")}
                 </div>
               </div>
               <Button
@@ -1392,16 +1433,16 @@ const FloatingHeader: React.FC = () => {
                 }}
               >
                 <Code className='w-4 h-4 mr-2' />
-                打开沙盒
+                {t("workspace.settings.advancedTab.sandbox.open")}
               </Button>
             </div>
             <div className='flex flex-col gap-3 p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur sm:flex-row sm:items-center sm:justify-between'>
               <div>
                 <div className='text-sm font-medium text-slate-700'>
-                  退出登录
+                  {t("workspace.settings.advancedTab.logout.title")}
                 </div>
                 <div className='text-xs text-slate-500'>
-                  注销当前账号并返回登录页
+                  {t("workspace.settings.advancedTab.logout.desc")}
                 </div>
               </div>
               <Button
@@ -1414,7 +1455,9 @@ const FloatingHeader: React.FC = () => {
                 onClick={handleLogout}
               >
                 <LogOut className='w-4 h-4 mr-2' />
-                {loading ? "正在退出…" : "退出登录"}
+                {loading
+                  ? t("workspace.settings.advancedTab.logout.loading")
+                  : t("workspace.settings.advancedTab.logout.button")}
               </Button>
             </div>
           </div>
@@ -1440,7 +1483,7 @@ const FloatingHeader: React.FC = () => {
           <div
             className='flex w-[110px] h-auto items-center pb-1 justify-center cursor-pointer hover:opacity-80 transition-opacity select-none'
             onClick={handleLogoClick}
-            title='返回首页'
+            title={t("workspace.header.backHome")}
           >
             <img
               src='/LogoText.svg'
@@ -1483,9 +1526,9 @@ const FloatingHeader: React.FC = () => {
                   <ChevronDown className='w-4 h-4 text-slate-500' />
                   <span
                     className='truncate text-sm text-gray-800 max-w-[260px]'
-                    title='双击重命名'
+                    title={t("workspace.header.renameHint")}
                   >
-                    {currentProject?.name || "未命名"}
+                    {currentProject?.name || untitledLabel}
                   </span>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
@@ -1494,7 +1537,7 @@ const FloatingHeader: React.FC = () => {
                   className='min-w-[220px] rounded-xl border border-slate-200 bg-white px-2 py-1.5 shadow-lg overflow-hidden'
                 >
                   <DropdownMenuLabel className='px-2 pb-1 text-[11px] font-medium text-slate-400'>
-                    切换项目
+                    {t("workspace.header.switchProject")}
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator className='mb-1' />
                   <div className='max-h-[340px] overflow-y-auto space-y-0.5'>
@@ -1503,7 +1546,7 @@ const FloatingHeader: React.FC = () => {
                         disabled
                         className='cursor-default text-slate-400'
                       >
-                        暂无项目
+                        {t("workspace.header.noProjects")}
                       </DropdownMenuItem>
                     ) : (
                       recentProjects.map((project) => (
@@ -1516,7 +1559,7 @@ const FloatingHeader: React.FC = () => {
                           className='flex items-center justify-between gap-3 px-2 py-1 text-sm'
                         >
                           <span className='truncate text-slate-700'>
-                            {project.name || "未命名"}
+                            {project.name || untitledLabel}
                           </span>
                           {project.id === currentProject?.id && (
                             <Check className='w-4 h-4 text-blue-600' />
@@ -1534,7 +1577,7 @@ const FloatingHeader: React.FC = () => {
                     className='flex items-center gap-2 px-2 py-1 text-sm text-blue-600 hover:text-blue-700'
                   >
                     <FolderOpen className='w-4 h-4' />
-                    打开/管理文件
+                    {t("workspace.header.openManageFile")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={async (event) => {
@@ -1547,7 +1590,7 @@ const FloatingHeader: React.FC = () => {
                       <span className='inline-flex items-center justify-center w-4 h-4 text-xs border border-current rounded-full'>
                         +
                       </span>
-                      新建项目
+                      {t("workspace.header.newProject")}
                     </span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -1575,10 +1618,14 @@ const FloatingHeader: React.FC = () => {
                   showLibraryPanel ? "text-gray-900" : "",
                   "w-8 sm:w-auto px-0 sm:px-3 gap-0 sm:gap-1"
                 )}
-                title={showLibraryButton ? "关闭素材库" : "打开素材库"}
+                title={
+                  showLibraryButton
+                    ? t("workspace.header.closeLibrary")
+                    : t("workspace.header.openLibrary")
+                }
               >
                 <Library className='w-3 h-3' />
-                <span className='hidden sm:inline'>素材库</span>
+                <span className='hidden sm:inline'>{t("workspace.header.library")}</span>
               </Button>
             )}
 
@@ -1587,7 +1634,7 @@ const FloatingHeader: React.FC = () => {
               variant='ghost'
               size='sm'
               className='p-0 text-gray-600 transition-all duration-200 border rounded-full h-7 w-7 bg-liquid-glass-light backdrop-blur-minimal border-liquid-glass-light hover:bg-liquid-glass-hover'
-              title='帮助'
+              title={t("workspace.header.help")}
               onClick={() =>
                 window.open(
                   "https://gcnyatv1ofs3.feishu.cn/docx/U5Jzd18dLoCtvlxhHdDcoRgVnWd",
@@ -1603,7 +1650,7 @@ const FloatingHeader: React.FC = () => {
               variant='ghost'
               size='sm'
               className='p-0 text-gray-600 transition-all duration-200 border rounded-full h-7 w-7 bg-liquid-glass-light backdrop-blur-minimal border-liquid-glass-light hover:bg-liquid-glass-hover'
-              title='设置'
+              title={t("workspace.header.settings")}
               onClick={() => {
                 setActiveSettingsSection("workspace");
                 setIsSettingsOpen(true);
@@ -1644,7 +1691,9 @@ const FloatingHeader: React.FC = () => {
                         <circle cx='12' cy='12' r='3' />
                         <path d='M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z' />
                       </svg>
-                      <span className='text-sm text-slate-500'>设置</span>
+                      <span className='text-sm text-slate-500'>
+                        {t("workspace.settings.title")}
+                      </span>
                     </div>
 
                     {/* 导航菜单 */}
@@ -1667,7 +1716,7 @@ const FloatingHeader: React.FC = () => {
                             )}
                           >
                             <Icon className='w-4 h-4' />
-                            <span>{section.label}</span>
+                            <span>{t(section.labelKey)}</span>
                             {hasNotification && (
                               <span className='w-2 h-2 bg-red-500 rounded-full ml-auto' />
                             )}
@@ -1706,7 +1755,7 @@ const FloatingHeader: React.FC = () => {
                             )}
                           >
                             <Icon className='w-3 h-3' />
-                            <span>{section.label}</span>
+                            <span>{t(section.labelKey)}</span>
                           </button>
                         );
                       })}

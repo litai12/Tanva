@@ -6,12 +6,14 @@ import { useAuthStore } from '@/stores/authStore';
 import { tokenRefreshManager } from '@/services/tokenRefreshManager';
 import { X } from 'lucide-react';
 import { authApi } from '@/services/authApi';
+import { useTranslation } from 'react-i18next';
 
 type LoginModalProps = {
   onSuccess?: () => void;
 };
 
 export default function LoginModal({ onSuccess }: LoginModalProps) {
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [tab, setTab] = useState<'password' | 'sms'>('password');
   const [phone, setPhone] = useState('');
@@ -54,7 +56,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
     setCode('');
   }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     setLocalError(null);
     setIsSubmitting(true);
@@ -75,11 +77,11 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
       // 触发成功回调
       onSuccess?.();
     } catch (err: any) {
-      setLocalError(err?.message || '登录失败，请重试');
+      setLocalError(err?.message || t('auth.modal.loginFailed'));
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [handleClose, login, loginWithSms, onSuccess, tab, phone, password, code, t]);
 
   if (!isOpen) return null;
 
@@ -105,7 +107,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <div className="flex items-center gap-3">
             <img src="/LogoText.svg" className="h-6 w-auto" alt="Tanva" />
-            <span className="text-sm text-slate-500">登录已过期</span>
+            <span className="text-sm text-slate-500">{t('auth.modal.expiredTitle')}</span>
           </div>
           <button
             onClick={handleClose}
@@ -118,7 +120,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
         {/* 提示信息 */}
         <div className="px-6 pt-4">
           <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-sm">
-            您的登录状态已过期，请重新登录以继续操作。当前页面内容不会丢失。
+            {t('auth.modal.expiredHint')}
           </div>
         </div>
 
@@ -135,7 +137,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
               }
               onClick={() => setTab('password')}
             >
-              密码登录
+              {t('auth.login.passwordTab')}
             </button>
             <button
               type="button"
@@ -146,13 +148,13 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
               }
               onClick={() => setTab('sms')}
             >
-              验证码登录
+              {t('auth.login.smsTab')}
             </button>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <Input
-              placeholder="请输入手机号"
+              placeholder={t('auth.login.phonePlaceholder')}
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               required
@@ -161,7 +163,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
 
             {tab === 'password' ? (
               <Input
-                placeholder="请输入密码"
+                placeholder={t('auth.login.passwordPlaceholder')}
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -170,7 +172,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
             ) : (
               <div className="flex gap-2">
                 <Input
-                  placeholder="请输入验证码"
+                  placeholder={t('auth.login.codePlaceholder')}
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
                   required
@@ -182,26 +184,28 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
                   onClick={async () => {
                     if (sendCooldown > 0) return;
                     if (!phone) {
-                      window.dispatchEvent(new CustomEvent('toast', { detail: { message: '请输入手机号', type: 'error' } }));
+                      window.dispatchEvent(new CustomEvent('toast', { detail: { message: t('auth.login.phoneRequired'), type: 'error' } }));
                       return;
                     }
                     if (!/^1[3-9]\d{9}$/.test(phone)) {
-                      window.dispatchEvent(new CustomEvent('toast', { detail: { message: '手机号格式不正确', type: 'error' } }));
+                      window.dispatchEvent(new CustomEvent('toast', { detail: { message: t('auth.login.phoneInvalid'), type: 'error' } }));
                       return;
                     }
                     try {
-                      const res = await authApi.sendSms({ phone });
+                      await authApi.sendSms({ phone });
                       // 不自动填充验证码；始终提示用户手动输入短信收到的验证码
                       setLocalError(null);
-                      window.dispatchEvent(new CustomEvent('toast', { detail: { message: '验证码已发送，请注意查收短信并手动输入', type: 'success' } }));
+                      window.dispatchEvent(new CustomEvent('toast', { detail: { message: t('auth.login.smsSent'), type: 'success' } }));
                       setSendCooldown(60);
                     } catch (err: any) {
-                      window.dispatchEvent(new CustomEvent('toast', { detail: { message: err?.message || '发送失败', type: 'error' } }));
+                      window.dispatchEvent(new CustomEvent('toast', { detail: { message: err?.message || t('auth.register.sendFailed'), type: 'error' } }));
                     }
                   }}
                   disabled={sendCooldown > 0}
                 >
-                  {sendCooldown > 0 ? `重新发送(${sendCooldown}s)` : '发送'}
+                  {sendCooldown > 0
+                    ? t('auth.login.resendCode', { seconds: sendCooldown })
+                    : t('auth.login.sendCode')}
                 </Button>
               </div>
             )}
@@ -215,7 +219,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
               className="w-full bg-gray-700 hover:bg-gray-800 text-white rounded-xl"
               disabled={isSubmitting}
             >
-              {isSubmitting ? '登录中...' : '重新登录'}
+              {isSubmitting ? t('auth.login.submitting') : t('auth.modal.relogin')}
             </Button>
           </form>
         </div>

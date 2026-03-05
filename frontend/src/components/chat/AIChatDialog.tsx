@@ -13,6 +13,7 @@ import React, {
   useMemo,
 } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import { fetchWithAuth } from "@/services/authFetch";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -258,6 +259,7 @@ const getResendInfoFromMessage = (message: ChatMessage): ResendInfo | null => {
 };
 
 const AIChatDialog: React.FC = () => {
+  const { t } = useTranslation();
   const {
     isVisible,
     isMaximized,
@@ -463,23 +465,26 @@ const AIChatDialog: React.FC = () => {
     value: SupportedAIProvider;
     label: string;
     description: string;
-  }[] = [
-    {
-      value: "banana-2.5",
-      label: "Fast",
-      description: "国内极速版",
-    },
-    {
-      value: "banana",
-      label: "Pro",
-      description: "国内Pro版",
-    },
-    {
-      value: "banana-3.1",
-      label: "Ultra",
-      description: "国内Ultra版",
-    },
-  ];
+  }[] = useMemo(
+    () => [
+      {
+        value: "banana-2.5",
+        label: "Fast",
+        description: t("chat.provider.fastDesc"),
+      },
+      {
+        value: "banana",
+        label: "Pro",
+        description: t("chat.provider.proDesc"),
+      },
+      {
+        value: "banana-3.1",
+        label: "Ultra",
+        description: t("chat.provider.ultraDesc"),
+      },
+    ],
+    [t]
+  );
   const currentProviderOption =
     providerToggleOptions.find((option) => option.value === aiProvider) ?? null;
   const isDomesticProvider = providerToggleOptions.some(
@@ -527,10 +532,10 @@ const AIChatDialog: React.FC = () => {
       ? [...baseRatios, ...ultraExtraRatios]
       : baseRatios;
     return [
-      { label: "自动", value: null },
+      { label: t("chat.common.auto"), value: null },
       ...ratios.map((ratio) => ({ label: ratio, value: ratio })),
     ];
-  }, [isUltraMode]);
+  }, [isUltraMode, t]);
 
   const imageSizeOptions = useMemo(() => {
     const sizes = [
@@ -539,8 +544,8 @@ const AIChatDialog: React.FC = () => {
       { label: "2K", value: "2K" },
       { label: "4K", value: "4K" },
     ];
-    return [{ label: "自动", value: null }, ...sizes];
-  }, [isUltraMode]);
+    return [{ label: t("chat.common.auto"), value: null }, ...sizes];
+  }, [isUltraMode, t]);
 
   // 记录最新的最大化状态，供原生事件监听使用
   useEffect(() => {
@@ -555,8 +560,9 @@ const AIChatDialog: React.FC = () => {
   const manualButtonLabel =
     currentManualMode?.label ??
     availableManualModeOptions[0]?.label ??
-    "选择模式";
-  const providerButtonLabel = currentProviderOption?.label ?? "国内模型";
+    t("chat.labels.selectMode");
+  const providerButtonLabel =
+    currentProviderOption?.label ?? t("chat.labels.domesticModel");
   // 统一向上展开（最大化时避免溢出，紧凑模式保持原有行为）
   const dropdownSide: "top" | "bottom" = "top";
 
@@ -2336,24 +2342,26 @@ const AIChatDialog: React.FC = () => {
     const mode = getAIMode();
     switch (mode) {
       case "text":
-        return "直接输入问题或开始聊天，AI将即时回复。";
+        return t("chat.placeholder.text");
       case "blend":
-        return `描述如何融合这${sourceImagesForBlending.length}张图像...`;
+        return t("chat.placeholder.blend", {
+          count: sourceImagesForBlending.length,
+        });
       case "edit":
-        return "描述你想要做什么，AI会智能判断是编辑还是分析...";
+        return t("chat.placeholder.edit");
       case "analyze":
-        return "询问关于这张图片的问题，或留空进行全面分析...";
+        return t("chat.placeholder.analyze");
       case "video":
         return sourceImageForEditing
-          ? "描述要生成的视频效果，AI将基于上传的图像生成视频..."
-          : "描述要生成的视频场景、风格和动作...";
+          ? t("chat.placeholder.videoWithSource")
+          : t("chat.placeholder.video");
       case "vector":
-        return "描述你想生成的矢量图形，如：'一个蓝色的五角星' 或 '同心圆图案'...";
+        return t("chat.placeholder.vector");
       default:
         if (manualAIMode === "generate") {
-          return "描述你想生成的图像场景、风格或细节...";
+          return t("chat.placeholder.generate");
         }
-        return "输入任何内容，AI会智能判断是生图、对话或视频...";
+        return t("chat.placeholder.default");
     }
   };
 
@@ -3189,7 +3197,10 @@ const AIChatDialog: React.FC = () => {
                               {option.label}
                             </div>
                             <div className='text-[11px] text-slate-400 leading-snug'>
-                              {option.description}
+                              {t(
+                                `chat.manualMode.${option.value}Desc`,
+                                option.description
+                              )}
                             </div>
                           </div>
                           {isActive && (
@@ -3216,7 +3227,7 @@ const AIChatDialog: React.FC = () => {
                             ? "hover:bg-gray-100 text-gray-700"
                             : "opacity-50 cursor-not-allowed text-gray-400"
                         )}
-                        title='快速切换国内模型'
+                        title={t("chat.labels.quickSwitchDomesticModel")}
                       >
                         <span className='font-medium'>{providerButtonLabel}</span>
                         <ChevronDown className='h-3.5 w-3.5 opacity-60' />
@@ -3229,7 +3240,7 @@ const AIChatDialog: React.FC = () => {
                       className='dropdown-menu-root min-w-[220px] rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md'
                     >
                       <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
-                        快速切换模型
+                        {t("chat.labels.quickSwitchModel")}
                       </DropdownMenuLabel>
                       {providerToggleOptions.map((option) => {
                         const isActive = aiProvider === option.value;

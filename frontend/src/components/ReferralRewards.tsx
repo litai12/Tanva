@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
   getReferralStats,
@@ -10,6 +11,7 @@ import {
 import { Calendar, Users, Gift, Copy, Check, Sparkles } from "lucide-react";
 
 export default function ReferralRewards() {
+  const { t } = useTranslation();
   const [stats, setStats] = useState<ReferralStats | null>(null);
   const [checkInStatus, setCheckInStatus] = useState<CheckInStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -26,7 +28,7 @@ export default function ReferralRewards() {
       setStats(statsData);
       setCheckInStatus(checkInData);
     } catch (error) {
-      console.error("加载数据失败:", error);
+      console.error("Failed to load referral data:", error);
     } finally {
       setLoading(false);
     }
@@ -46,10 +48,18 @@ export default function ReferralRewards() {
         await loadData();
         // 触发全局积分刷新事件
         window.dispatchEvent(new CustomEvent("refresh-credits"));
-        alert(`签到成功！获得 ${result.reward} 积分${result.isWeeklyBonus ? '（含满7天额外奖励）' : ''}`);
+        const bonusText = result.isWeeklyBonus
+          ? t("workspace.settings.referralTab.alerts.checkInWeeklyBonus")
+          : "";
+        alert(
+          t("workspace.settings.referralTab.alerts.checkInSuccess", {
+            reward: result.reward,
+            bonus: bonusText,
+          })
+        );
       }
     } catch (error: any) {
-      alert(error.message || "签到失败");
+      alert(error.message || t("workspace.settings.referralTab.alerts.checkInFailed"));
     } finally {
       setCheckingIn(false);
     }
@@ -82,15 +92,25 @@ export default function ReferralRewards() {
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
 
-    if (diffMins < 60) return `${diffMins}m前`;
-    if (diffHours < 24) return `${diffHours}h前`;
-    return `${diffDays}d前`;
+    if (diffMins < 60) {
+      return t("workspace.settings.referralTab.timeAgo.minutes", {
+        count: diffMins,
+      });
+    }
+    if (diffHours < 24) {
+      return t("workspace.settings.referralTab.timeAgo.hours", {
+        count: diffHours,
+      });
+    }
+    return t("workspace.settings.referralTab.timeAgo.days", {
+      count: diffDays,
+    });
   };
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-gray-500">加载中...</div>
+        <div className="text-gray-500">{t("workspace.settings.workspaceTab.loading")}</div>
       </div>
     );
   }
@@ -106,10 +126,12 @@ export default function ReferralRewards() {
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Calendar className="w-5 h-5 text-blue-500" />
-            <h3 className="font-medium">每日签到</h3>
+            <h3 className="font-medium">{t("workspace.settings.referralTab.checkIn.title")}</h3>
           </div>
           <span className="text-sm text-gray-500">
-            已连续签到 {consecutiveDays} 天
+            {t("workspace.settings.referralTab.checkIn.consecutive", {
+              count: consecutiveDays,
+            })}
           </span>
         </div>
 
@@ -144,14 +166,18 @@ export default function ReferralRewards() {
           onClick={handleCheckIn}
         >
           {checkingIn
-            ? "签到中..."
+            ? t("workspace.settings.referralTab.checkIn.checkingIn")
             : checkInStatus?.canCheckIn
-            ? `立即签到 (+${todayReward}积分)`
-            : "今日已签到"}
+            ? t("workspace.settings.referralTab.checkIn.checkInNow", {
+                reward: todayReward,
+              })
+            : t("workspace.settings.referralTab.checkIn.checkedToday")}
         </Button>
 
         <p className="text-xs text-gray-400 mt-2 text-center">
-          连续签到7天可额外获得{weeklyBonus}积分奖励
+          {t("workspace.settings.referralTab.checkIn.weeklyBonusHint", {
+            reward: weeklyBonus,
+          })}
         </p>
       </div>
 
@@ -165,7 +191,9 @@ export default function ReferralRewards() {
                 <Users className="w-5 h-5 text-blue-600" />
               </div>
               <div>
-                <div className="text-xs text-gray-500">成功邀请</div>
+                <div className="text-xs text-gray-500">
+                  {t("workspace.settings.referralTab.stats.successfulInvites")}
+                </div>
                 <div className="text-2xl font-bold text-gray-900">
                   {stats?.successfulInvites || 0}
                 </div>
@@ -179,7 +207,9 @@ export default function ReferralRewards() {
                 <Gift className="w-5 h-5 text-amber-600" />
               </div>
               <div>
-                <div className="text-xs text-gray-500">累计收益</div>
+                <div className="text-xs text-gray-500">
+                  {t("workspace.settings.referralTab.stats.totalEarnings")}
+                </div>
                 <div className="text-2xl font-bold text-gray-900">
                   {stats?.totalEarnings ? (stats.totalEarnings >= 1000 ? `${(stats.totalEarnings / 1000).toFixed(0)}K` : stats.totalEarnings) : 0}
                 </div>
@@ -191,7 +221,9 @@ export default function ReferralRewards() {
         {/* 右侧：邀请码 */}
         <div className="bg-white rounded-xl border p-4">
           <div className="flex items-center gap-2 mb-3">
-            <span className="text-sm text-gray-600">邀请码</span>
+            <span className="text-sm text-gray-600">
+              {t("workspace.settings.referralTab.inviteCode.title")}
+            </span>
             <Sparkles className="w-4 h-4 text-amber-500" />
           </div>
           <div className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
@@ -205,11 +237,15 @@ export default function ReferralRewards() {
               className="shrink-0"
             >
               {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-              <span className="ml-1">{copied ? "已复制" : "复制"}</span>
+              <span className="ml-1">
+                {copied
+                  ? t("workspace.settings.referralTab.inviteCode.copied")
+                  : t("workspace.settings.referralTab.inviteCode.copy")}
+              </span>
             </Button>
           </div>
           <p className="text-xs text-gray-400 mt-3">
-            好友完成首图生成后，系统将自动核验。多账号刷分行为将被永久封禁。
+            {t("workspace.settings.referralTab.inviteCode.desc")}
           </p>
         </div>
       </div>
@@ -217,13 +253,20 @@ export default function ReferralRewards() {
       {/* 邀请状态列表 */}
       <div className="bg-white rounded-xl border p-6">
         <div className="mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">邀请状态</h3>
-          <p className="text-xs text-gray-400 uppercase tracking-wider">REFERRAL STATUS</p>
+          <h3 className="text-lg font-semibold text-gray-900">
+            {t("workspace.settings.referralTab.status.title")}
+          </h3>
+          <p className="text-xs text-gray-400 uppercase tracking-wider">
+            {t("workspace.settings.referralTab.status.subtitle")}
+          </p>
         </div>
 
         {/* 奖励规则说明 */}
         <div className="mb-4 p-3 bg-blue-50 rounded-lg text-xs text-blue-600">
-          <span className="font-medium">奖励规则：</span>好友注册后完成首次AI生成，系统自动核验并发放 1000 积分奖励
+          <span className="font-medium">
+            {t("workspace.settings.referralTab.status.ruleLabel")}
+          </span>
+          {t("workspace.settings.referralTab.status.ruleDesc")}
         </div>
 
         {stats?.inviteRecords && stats.inviteRecords.length > 0 ? (
@@ -240,7 +283,8 @@ export default function ReferralRewards() {
                   <div>
                     <div className="font-medium text-gray-900">{record.inviteeName}</div>
                     <div className="text-xs text-gray-400">
-                      {formatTimeAgo(record.createdAt)} · 邀请
+                      {formatTimeAgo(record.createdAt)} ·{" "}
+                      {t("workspace.settings.referralTab.status.invited")}
                     </div>
                   </div>
                 </div>
@@ -248,12 +292,16 @@ export default function ReferralRewards() {
                   {record.rewardStatus === "rewarded" ? (
                     <>
                       <div className="text-green-500 font-medium">+{record.rewardAmount}</div>
-                      <div className="text-xs text-gray-400">已发放</div>
+                      <div className="text-xs text-gray-400">
+                        {t("workspace.settings.referralTab.status.rewarded")}
+                      </div>
                     </>
                   ) : (
                     <>
                       <div className="text-amber-500 font-medium">+{record.rewardAmount}</div>
-                      <div className="text-xs text-amber-500">待首次生成</div>
+                      <div className="text-xs text-amber-500">
+                        {t("workspace.settings.referralTab.status.pendingFirstGeneration")}
+                      </div>
                     </>
                   )}
                 </div>
@@ -262,7 +310,7 @@ export default function ReferralRewards() {
           </div>
         ) : (
           <div className="text-center py-8 text-gray-400">
-            暂无邀请记录，快去邀请好友吧！
+            {t("workspace.settings.referralTab.status.empty")}
           </div>
         )}
       </div>

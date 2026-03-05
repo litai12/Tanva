@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, TrendingUp, TrendingDown, Activity, Zap, Calendar, RefreshCw, AlertTriangle, Check } from 'lucide-react';
+import { ArrowLeft, TrendingUp, TrendingDown, Activity, Zap, Calendar, RefreshCw, AlertTriangle } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import LanguageSwitcher from '@/components/LanguageSwitcher';
 import {
   claimDailyReward,
   getDailyRewardStatus,
@@ -37,13 +39,32 @@ interface ApiUsageRecord {
   createdAt: string;
 }
 
-// 简单的线性图表组件
+const SERVICE_TYPE_TRANSLATION_KEYS: Record<string, string> = {
+  'gemini-3-pro-image': 'gemini3ProImage',
+  'gemini-2.5-image': 'gemini25Image',
+  'gemini-image-edit': 'geminiImageEdit',
+  'gemini-image-blend': 'geminiImageBlend',
+  'gemini-image-analyze': 'geminiImageAnalyze',
+  'gemini-text': 'geminiText',
+  'gemini-paperjs': 'geminiPaperJs',
+  'midjourney-imagine': 'midjourneyImagine',
+  'midjourney-variation': 'midjourneyVariation',
+  'background-removal': 'backgroundRemoval',
+  'expand-image': 'expandImage',
+  'convert-2d-to-3d': 'convert2dTo3d',
+  'sora-sd': 'soraSd',
+  'sora-hd': 'soraHd',
+};
+
 const SimpleLineChart: React.FC<{
   data: { date: string; value: number }[];
+  emptyText: string;
   color?: string;
   height?: number;
-}> = ({ data, color = '#3b82f6', height = 120 }) => {
-  if (data.length === 0) return <div className="py-8 text-xs text-center text-slate-400">暂无数据</div>;
+}> = ({ data, emptyText, color = '#3b82f6', height = 120 }) => {
+  if (data.length === 0) {
+    return <div className="py-8 text-xs text-center text-slate-400">{emptyText}</div>;
+  }
 
   const maxValue = Math.max(...data.map(d => d.value), 1);
   const minValue = Math.min(...data.map(d => d.value), 0);
@@ -83,25 +104,8 @@ const SimpleLineChart: React.FC<{
   );
 };
 
-// 服务类型中文映射
-const SERVICE_TYPE_LABELS: Record<string, string> = {
-  'gemini-3-pro-image': 'Gemini 3 Pro 生图',
-  'gemini-2.5-image': 'Gemini 2.5 生图',
-  'gemini-image-edit': '图像编辑',
-  'gemini-image-blend': '图像融合',
-  'gemini-image-analyze': '图像分析',
-  'gemini-text': '文字对话',
-  'gemini-paperjs': 'Paper.js 生成',
-  'midjourney-imagine': 'Midjourney 生图',
-  'midjourney-variation': 'Midjourney 变体',
-  'background-removal': '背景移除',
-  'expand-image': '图像扩展',
-  'convert-2d-to-3d': '2D转3D',
-  'sora-sd': 'Sora 普清视频',
-  'sora-hd': 'Sora 高清视频',
-};
-
 const MyCredits: React.FC = () => {
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const [credits, setCredits] = useState<UserCreditsInfo | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -157,15 +161,15 @@ const MyCredits: React.FC = () => {
     try {
       const result = await claimDailyReward();
       if (result.success) {
-        alert('领取成功：已发放每日登录奖励');
+        alert(t('creditsPage.alerts.dailyRewardSuccess'));
       } else if (result.alreadyClaimed) {
-        alert('今日奖励已领取');
+        alert(t('creditsPage.alerts.dailyRewardAlreadyClaimed'));
       } else {
-        alert('领取失败，请稍后重试');
+        alert(t('creditsPage.alerts.dailyRewardFailed'));
       }
     } catch (error: any) {
       console.error('Failed to claim daily reward:', error);
-      alert(error?.message || '领取失败，请稍后重试');
+      alert(error?.message || t('creditsPage.alerts.dailyRewardFailed'));
     } finally {
       setDailyRewardClaiming(false);
       loadData(false);
@@ -200,7 +204,16 @@ const MyCredits: React.FC = () => {
     return Array.from(dailyMap.entries()).map(([date, value]) => ({ date, value }));
   }, [transactions]);
 
-  // 按服务类型统计
+  const currentLocale = i18n.resolvedLanguage?.toLowerCase().startsWith('en')
+    ? 'en-US'
+    : 'zh-CN';
+
+  const getServiceTypeLabel = (serviceType: string) => {
+    const translationKey = SERVICE_TYPE_TRANSLATION_KEYS[serviceType];
+    if (!translationKey) return serviceType;
+    return t(`creditsPage.serviceTypes.${translationKey}`, { defaultValue: serviceType });
+  };
+
   const usageByService = useMemo(() => {
     const serviceMap = new Map<string, { count: number; credits: number }>();
 
@@ -216,11 +229,11 @@ const MyCredits: React.FC = () => {
     return Array.from(serviceMap.entries())
       .map(([serviceType, stats]) => ({
         serviceType,
-        serviceName: SERVICE_TYPE_LABELS[serviceType] || serviceType,
+        serviceName: getServiceTypeLabel(serviceType),
         ...stats,
       }))
       .sort((a, b) => b.credits - a.credits);
-  }, [apiUsage]);
+  }, [apiUsage, i18n.resolvedLanguage, t]);
 
   // 今日消耗
   const todaySpent = useMemo(() => {
@@ -241,8 +254,8 @@ const MyCredits: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-        <div className="text-slate-500">加载中...</div>
+        <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+        <div className="text-slate-500">{t('creditsPage.loading')}</div>
       </div>
     );
   }
@@ -261,16 +274,21 @@ const MyCredits: React.FC = () => {
             >
               <ArrowLeft className="w-5 h-5" />
             </Button>
-            <h1 className="text-lg font-semibold text-slate-800">我的积分</h1>
+            <h1 className="text-lg font-semibold text-slate-800">
+              {t('creditsPage.title')}
+            </h1>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => loadData()}
-            className="p-0 rounded-full h-9 w-9"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <LanguageSwitcher style='simple' compact />
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => loadData()}
+              className="p-0 rounded-full h-9 w-9"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -279,7 +297,9 @@ const MyCredits: React.FC = () => {
         <div className="p-6 text-white shadow-xl bg-gradient-to-br from-blue-500 to-indigo-600 rounded-3xl">
           <div className="flex items-start justify-between">
             <div>
-              <div className="mb-1 text-sm text-blue-100 select-none">可用积分</div>
+              <div className="mb-1 text-sm text-blue-100 select-none">
+                {t('creditsPage.summary.available')}
+              </div>
               <div className="text-5xl font-bold">{credits?.balance || 0}</div>
             </div>
             <div className="p-3 bg-white/20 rounded-2xl">
@@ -288,15 +308,15 @@ const MyCredits: React.FC = () => {
           </div>
           <div className="grid grid-cols-3 gap-4 mt-6">
             <div className="p-3 bg-white/10 rounded-xl">
-              <div className="text-xs text-blue-100">累计获得</div>
+              <div className="text-xs text-blue-100">{t('creditsPage.summary.earned')}</div>
               <div className="text-xl font-semibold">+{credits?.totalEarned || 0}</div>
             </div>
             <div className="p-3 bg-white/10 rounded-xl">
-              <div className="text-xs text-blue-100">累计消耗</div>
+              <div className="text-xs text-blue-100">{t('creditsPage.summary.spent')}</div>
               <div className="text-xl font-semibold">-{credits?.totalSpent || 0}</div>
             </div>
             <div className="p-3 bg-white/10 rounded-xl">
-              <div className="text-xs text-blue-100">今日消耗</div>
+              <div className="text-xs text-blue-100">{t('creditsPage.summary.todaySpent')}</div>
               <div className="text-xl font-semibold">-{todaySpent}</div>
             </div>
           </div>
@@ -308,21 +328,26 @@ const MyCredits: React.FC = () => {
             <AlertTriangle className="flex-shrink-0 w-5 h-5 mt-0.5 text-amber-500" />
             <div className="flex-1">
               <div className="text-sm font-medium text-amber-800">
-                您有 {expiringCredits.totalExpiring} 积分即将过期
+                {t('creditsPage.expiring.title', { total: expiringCredits.totalExpiring })}
               </div>
               <div className="mt-1 text-xs text-amber-600">
-                签到获得的积分将在7天后过期，请尽快使用。充值成为付费用户后，签到积分将永久保留。
+                {t('creditsPage.expiring.desc')}
               </div>
               {expiringCredits.expiringDetails.length > 0 && (
                 <div className="mt-2 space-y-1">
                   {expiringCredits.expiringDetails.slice(0, 3).map((detail, idx) => (
                     <div key={idx} className="text-xs text-amber-700">
-                      {detail.amount} 积分将于 {new Date(detail.expiresAt).toLocaleDateString('zh-CN')} 过期
+                      {t('creditsPage.expiring.detail', {
+                        amount: detail.amount,
+                        date: new Date(detail.expiresAt).toLocaleDateString(currentLocale),
+                      })}
                     </div>
                   ))}
                   {expiringCredits.expiringDetails.length > 3 && (
                     <div className="text-xs text-amber-600">
-                      还有 {expiringCredits.expiringDetails.length - 3} 笔即将过期...
+                      {t('creditsPage.expiring.more', {
+                        count: expiringCredits.expiringDetails.length - 3,
+                      })}
                     </div>
                   )}
                 </div>
@@ -335,16 +360,16 @@ const MyCredits: React.FC = () => {
         {expiringCredits?.isPaidUser && (
           <div className="flex items-center gap-2 p-3 border bg-emerald-50 border-emerald-200 rounded-xl">
             <Zap className="w-4 h-4 text-emerald-500" />
-            <span className="text-sm text-emerald-700">付费用户 - 签到积分永久有效</span>
+            <span className="text-sm text-emerald-700">{t('creditsPage.paidUserBadge')}</span>
           </div>
         )}
 
         {/* Tab 切换 */}
         <div className="flex gap-2 bg-white rounded-2xl p-1.5 shadow-sm">
           {[
-            { id: 'overview', label: '概览', icon: Activity },
-            { id: 'transactions', label: '交易记录', icon: TrendingUp },
-            { id: 'usage', label: 'API 使用', icon: Calendar },
+            { id: 'overview', label: t('creditsPage.tabs.overview'), icon: Activity },
+            { id: 'transactions', label: t('creditsPage.tabs.transactions'), icon: TrendingUp },
+            { id: 'usage', label: t('creditsPage.tabs.usage'), icon: Calendar },
           ].map(tab => {
             const Icon = tab.icon;
             return (
@@ -371,17 +396,24 @@ const MyCredits: React.FC = () => {
             {/* 消耗趋势图 */}
             <div className="p-5 bg-white shadow-sm rounded-2xl">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="font-medium text-slate-700">消耗趋势（最近14天）</h3>
-                <div className="text-xs text-slate-500">最近7天消耗：{weekSpent} 积分</div>
+                <h3 className="font-medium text-slate-700">{t('creditsPage.overview.trendTitle')}</h3>
+                <div className="text-xs text-slate-500">
+                  {t('creditsPage.overview.trendWeekSpent', { value: weekSpent })}
+                </div>
               </div>
-              <SimpleLineChart data={dailyUsageData} color="#3b82f6" height={140} />
+              <SimpleLineChart
+                data={dailyUsageData}
+                emptyText={t('creditsPage.chartNoData')}
+                color="#3b82f6"
+                height={140}
+              />
             </div>
 
             {/* 服务使用统计 */}
             <div className="p-5 bg-white shadow-sm rounded-2xl">
-              <h3 className="mb-4 font-medium text-slate-700">服务使用统计</h3>
+              <h3 className="mb-4 font-medium text-slate-700">{t('creditsPage.overview.serviceStatsTitle')}</h3>
               {usageByService.length === 0 ? (
-                <div className="py-8 text-sm text-center text-slate-400">暂无使用记录</div>
+                <div className="py-8 text-sm text-center text-slate-400">{t('creditsPage.overview.noUsage')}</div>
               ) : (
                 <div className="space-y-3 max-h-[280px] overflow-y-auto">
                   {usageByService.map(service => {
@@ -392,7 +424,10 @@ const MyCredits: React.FC = () => {
                         <div className="flex items-center justify-between mb-1 text-sm">
                           <span className="text-slate-600">{service.serviceName}</span>
                           <span className="text-slate-500">
-                            {service.count} 次 / {service.credits} 积分
+                            {t('creditsPage.overview.usageItem', {
+                              count: service.count,
+                              credits: service.credits,
+                            })}
                           </span>
                         </div>
                         <div className="h-2 overflow-hidden rounded-full bg-slate-100">
@@ -414,10 +449,10 @@ const MyCredits: React.FC = () => {
         {activeTab === 'transactions' && (
           <div className="overflow-hidden bg-white shadow-sm rounded-2xl">
             <div className="p-4 border-b border-slate-100">
-              <h3 className="font-medium text-slate-700">交易记录</h3>
+              <h3 className="font-medium text-slate-700">{t('creditsPage.transactions.title')}</h3>
             </div>
             {transactions.length === 0 ? (
-              <div className="py-12 text-sm text-center text-slate-400">暂无交易记录</div>
+              <div className="py-12 text-sm text-center text-slate-400">{t('creditsPage.transactions.empty')}</div>
             ) : (
               <div className="max-h-[520px] overflow-y-auto divide-y divide-slate-100">
                 {transactions.slice(0, 50).map(tx => {
@@ -438,7 +473,7 @@ const MyCredits: React.FC = () => {
                         <div>
                           <div className="text-sm text-slate-700">{tx.description}</div>
                           <div className="text-xs text-slate-400">
-                            {new Date(tx.createdAt).toLocaleString('zh-CN')}
+                            {new Date(tx.createdAt).toLocaleString(currentLocale)}
                           </div>
                         </div>
                       </div>
@@ -460,17 +495,17 @@ const MyCredits: React.FC = () => {
         {activeTab === 'usage' && (
           <div className="overflow-hidden bg-white shadow-sm rounded-2xl">
             <div className="p-4 border-b border-slate-100">
-              <h3 className="font-medium text-slate-700">API 调用记录</h3>
+              <h3 className="font-medium text-slate-700">{t('creditsPage.usage.title')}</h3>
             </div>
             {apiUsage.length === 0 ? (
-              <div className="py-12 text-sm text-center text-slate-400">暂无调用记录</div>
+              <div className="py-12 text-sm text-center text-slate-400">{t('creditsPage.usage.empty')}</div>
             ) : (
               <div className="max-h-[520px] overflow-y-auto divide-y divide-slate-100">
                 {apiUsage.slice(0, 50).map(record => (
                   <div key={record.id} className="px-4 py-3">
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-sm font-medium text-slate-700">
-                        {SERVICE_TYPE_LABELS[record.serviceType] || record.serviceName}
+                        {getServiceTypeLabel(record.serviceType) || record.serviceName}
                       </span>
                       <span className={cn(
                         "text-xs px-2 py-0.5 rounded-full",
@@ -480,16 +515,23 @@ const MyCredits: React.FC = () => {
                           ? "bg-red-100 text-red-700"
                           : "bg-yellow-100 text-yellow-700"
                       )}>
-                        {record.responseStatus === 'success' ? '成功' :
-                         record.responseStatus === 'failed' ? '失败' : '处理中'}
+                        {record.responseStatus === 'success'
+                          ? t('creditsPage.usage.status.success')
+                          : record.responseStatus === 'failed'
+                          ? t('creditsPage.usage.status.failed')
+                          : t('creditsPage.usage.status.pending')}
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-xs text-slate-400">
-                      <span>{new Date(record.createdAt).toLocaleString('zh-CN')}</span>
+                      <span>{new Date(record.createdAt).toLocaleString(currentLocale)}</span>
                       {record.responseStatus === 'failed' ? (
-                        <span className="text-green-600">已退还 {record.creditsUsed} 积分</span>
+                        <span className="text-green-600">
+                          {t('creditsPage.usage.refunded', { credits: record.creditsUsed })}
+                        </span>
                       ) : (
-                        <span className="text-orange-600">-{record.creditsUsed} 积分</span>
+                        <span className="text-orange-600">
+                          {t('creditsPage.usage.deducted', { credits: record.creditsUsed })}
+                        </span>
                       )}
                     </div>
                   </div>

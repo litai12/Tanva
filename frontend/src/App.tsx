@@ -11,6 +11,7 @@ import LoginModal from '@/components/auth/LoginModal';
 import { tokenRefreshManager } from '@/services/tokenRefreshManager';
 import { useAuthStore } from '@/stores/authStore';
 import { AppLoadingIndicator } from '@/components/AppLoadingIndicator';
+import { useTranslation } from 'react-i18next';
 
 // 检测是否为移动设备
 const isMobileDevice = (): boolean => {
@@ -32,26 +33,30 @@ const isMobileDevice = (): boolean => {
 };
 
 // 移动设备提示组件
-const MobileWarning: React.FC = () => (
-  <div className="flex items-center justify-center w-screen h-screen p-6 bg-gradient-to-br from-gray-900 to-gray-800">
-    <div className="max-w-md text-center">
-      <div className="mb-6 text-6xl">💻</div>
-      <h1 className="mb-4 text-2xl font-bold text-white">
-        请使用电脑访问
-      </h1>
-      <p className="mb-6 leading-relaxed text-gray-300">
-        Tanva 是一款专业的设计工具，需要在电脑端使用以获得最佳体验。
-        <br /><br />
-        请在 PC 或 Mac 上打开浏览器访问本网站。
-      </p>
-      <div className="text-sm text-gray-500">
-        推荐使用 Chrome、Edge 或 Safari 浏览器
+const MobileWarning: React.FC = () => {
+  const { t } = useTranslation();
+  return (
+    <div className="flex items-center justify-center w-screen h-screen p-6 bg-gradient-to-br from-gray-900 to-gray-800">
+      <div className="max-w-md text-center">
+        <div className="mb-6 text-6xl">💻</div>
+        <h1 className="mb-4 text-2xl font-bold text-white">
+          {t('app.mobile.title')}
+        </h1>
+        <p className="mb-6 leading-relaxed text-gray-300">
+          {t('app.mobile.desc1')}
+          <br /><br />
+          {t('app.mobile.desc2')}
+        </p>
+        <div className="text-sm text-gray-500">
+          {t('app.mobile.recommendation')}
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 const App: React.FC = () => {
+  const { t } = useTranslation();
   const [isMobile, setIsMobile] = useState<boolean>(() => isMobileDevice());
   const [showPromptDemo, setShowPromptDemo] = useState<boolean>(() => {
     if (typeof window === 'undefined') {
@@ -182,7 +187,7 @@ const App: React.FC = () => {
 
       {/* 认证初始化加载指示器 */}
       {authLoading && !user && (
-        <AppLoadingIndicator message="正在验证登录状态..." />
+        <AppLoadingIndicator message={t('app.authChecking')} />
       )}
 
       <SaveDebugPanel />

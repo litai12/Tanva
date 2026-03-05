@@ -7,8 +7,10 @@ import { useAuthStore } from "@/stores/authStore";
 import { Loader2, Eye, EyeOff, Check } from "lucide-react";
 import { authApi } from "@/services/authApi";
 import ForgotPasswordModal from "@/components/auth/ForgotPasswordModal";
+import { useTranslation } from "react-i18next";
 
 export default function LoginPage() {
+  const { t } = useTranslation();
   const [tab, setTab] = useState<"password" | "sms">("password");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -33,7 +35,7 @@ export default function LoginPage() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!agreeTerms) {
-      alert("请先同意用户协议和隐私政策");
+      alert(t("auth.agreements.mustAgree"));
       return;
     }
     setIsSubmitting(true);
@@ -72,7 +74,7 @@ export default function LoginPage() {
         className='absolute inset-0 w-full h-full object-cover z-[1]'
       >
         <source src='/OpenVideo.mp4' type='video/mp4' />
-        您的浏览器不支持视频播放。
+        {t("auth.videoUnsupported")}
       </video>
 
       {/* 黑色透明蒙版 */}
@@ -96,7 +98,7 @@ export default function LoginPage() {
                 }
                 onClick={() => setTab("password")}
               >
-                密码登录
+                {t("auth.login.passwordTab")}
               </button>
               <button
                 className={
@@ -106,7 +108,7 @@ export default function LoginPage() {
                 }
                 onClick={() => setTab("sms")}
               >
-                验证码登录
+                {t("auth.login.smsTab")}
               </button>
             </div>
             {/* 固定高度容器，避免切换时跳跃 */}
@@ -114,7 +116,7 @@ export default function LoginPage() {
               {tab === "password" ? (
                 <form onSubmit={onSubmit} className='space-y-6'>
                   <Input
-                    placeholder='请输入手机号'
+                    placeholder={t("auth.login.phonePlaceholder")}
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
                     required
@@ -122,7 +124,7 @@ export default function LoginPage() {
                   />
                   <div className='relative'>
                     <Input
-                      placeholder='请输入密码'
+                      placeholder={t("auth.login.passwordPlaceholder")}
                       type={showPassword ? 'text' : 'password'}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
@@ -150,10 +152,10 @@ export default function LoginPage() {
                     {isSubmitting ? (
                       <>
                         <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                        登录中...
+                        {t("auth.login.submitting")}
                       </>
                     ) : (
-                      "登录"
+                      t("auth.login.submit")
                     )}
                   </Button>
                   <div className='flex justify-between text-sm'>
@@ -161,13 +163,13 @@ export default function LoginPage() {
                       onClick={() => setIsForgotPasswordOpen(true)}
                       className='text-white/80 hover:text-white transition-all duration-200'
                     >
-                      忘记密码
+                      {t("auth.login.forgotPassword")}
                     </button>
                     <Link
                       to='/auth/register'
                       className='text-white/80 hover:text-white transition-all duration-200'
                     >
-                      立即注册
+                      {t("auth.login.registerNow")}
                     </Link>
                   </div>
 
@@ -188,19 +190,22 @@ export default function LoginPage() {
                       onClick={() => setAgreeTerms(!agreeTerms)}
                       className='text-xs text-white/70 cursor-pointer'
                     >
-                      我已阅读并同意
-                      <Link to='/legal/terms' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>用户协议</Link>
-                      、
-                      <Link to='/legal/privacy' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>隐私政策</Link>
-                      和
-                      <Link to='/legal/community' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>社区自律公约</Link>
+                      {t("auth.agreements.prefix")}
+                      {" "}
+                      <Link to='/legal/terms' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>{t("auth.agreements.terms")}</Link>
+                      {t("auth.agreements.comma")}
+                      <Link to='/legal/privacy' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>{t("auth.agreements.privacy")}</Link>
+                      {" "}
+                      {t("auth.agreements.and")}
+                      {" "}
+                      <Link to='/legal/community' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>{t("auth.agreements.community")}</Link>
                     </label>
                   </div>
                 </form>
               ) : (
                 <form onSubmit={onSubmit} className='space-y-6'>
                   <Input
-                    placeholder='请输入手机号'
+                    placeholder={t("auth.login.phonePlaceholder")}
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
                     required
@@ -208,7 +213,7 @@ export default function LoginPage() {
                   />
                   <div className='flex gap-3'>
                     <Input
-                      placeholder='请输入验证码'
+                      placeholder={t("auth.login.codePlaceholder")}
                       value={code}
                       onChange={(e) => setCode(e.target.value)}
                       className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12 flex-1'
@@ -223,7 +228,7 @@ export default function LoginPage() {
                           window.dispatchEvent(
                             new CustomEvent("toast", {
                               detail: {
-                                message: "请输入手机号",
+                                message: t("auth.login.phoneRequired"),
                                 type: "error",
                               },
                             })
@@ -234,7 +239,7 @@ export default function LoginPage() {
                           window.dispatchEvent(
                             new CustomEvent("toast", {
                               detail: {
-                                message: "手机号格式不正确",
+                                message: t("auth.login.phoneInvalid"),
                                 type: "error",
                               },
                             })
@@ -242,14 +247,13 @@ export default function LoginPage() {
                           return;
                         }
                         try {
-                          const res = await authApi.sendSms({ phone });
+                          await authApi.sendSms({ phone });
                           // 如果后端返回调试码（开发模式），自动填充到输入框以便测试
                           // 不自动填充验证码；始终提示用户手动输入短信收到的验证码
                           window.dispatchEvent(
                             new CustomEvent("toast", {
                               detail: {
-                                message:
-                                  "验证码已发送，请注意查收短信并手动输入",
+                                message: t("auth.login.smsSent"),
                                 type: "success",
                               },
                             })
@@ -260,7 +264,7 @@ export default function LoginPage() {
                           window.dispatchEvent(
                             new CustomEvent("toast", {
                               detail: {
-                                message: err?.message || "发送失败",
+                                message: err?.message || t("auth.register.sendFailed"),
                                 type: "error",
                               },
                             })
@@ -269,7 +273,9 @@ export default function LoginPage() {
                       }}
                       disabled={sendCooldown > 0}
                     >
-                      {sendCooldown > 0 ? `重新发送(${sendCooldown}s)` : "发送"}
+                      {sendCooldown > 0
+                        ? t("auth.login.resendCode", { seconds: sendCooldown })
+                        : t("auth.login.sendCode")}
                     </Button>
                   </div>
                   {error && (
@@ -285,10 +291,10 @@ export default function LoginPage() {
                     {isSubmitting ? (
                       <>
                         <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                        登录中...
+                        {t("auth.login.submitting")}
                       </>
                     ) : (
-                      "登录"
+                      t("auth.login.submit")
                     )}
                   </Button>
 
@@ -309,12 +315,15 @@ export default function LoginPage() {
                       onClick={() => setAgreeTerms(!agreeTerms)}
                       className='text-xs text-white/70 cursor-pointer'
                     >
-                      我已阅读并同意
-                      <Link to='/legal/terms' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>用户协议</Link>
-                      、
-                      <Link to='/legal/privacy' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>隐私政策</Link>
-                      和
-                      <Link to='/legal/community' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>社区自律公约</Link>
+                      {t("auth.agreements.prefix")}
+                      {" "}
+                      <Link to='/legal/terms' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>{t("auth.agreements.terms")}</Link>
+                      {t("auth.agreements.comma")}
+                      <Link to='/legal/privacy' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>{t("auth.agreements.privacy")}</Link>
+                      {" "}
+                      {t("auth.agreements.and")}
+                      {" "}
+                      <Link to='/legal/community' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>{t("auth.agreements.community")}</Link>
                     </label>
                   </div>
                 </form>
