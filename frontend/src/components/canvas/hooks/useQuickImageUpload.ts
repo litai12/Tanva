@@ -13,6 +13,7 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import { useImageHistoryStore } from '@/stores/imageHistoryStore';
 import { isRaster } from '@/utils/paperCoords';
 import { createImageGroupBlock } from '@/utils/paperImageGroupBlock';
+import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import {
     isAssetKeyRef,
     isAssetProxyRef,
@@ -55,6 +56,17 @@ const toCanvasSafeInlineImageSource = async (value: string): Promise<string> => 
     return trimmed;
 };
 
+const toPreferredRemoteSource = (value: string): string => {
+    const trimmed = typeof value === 'string' ? value.trim() : '';
+    if (!trimmed || !isRemoteUrl(trimmed)) return value;
+    try {
+        // 远程链接优先走 assets proxy（强制模式），降低跨域/弱网下直连失败率。
+        return proxifyRemoteAssetUrl(trimmed, { forceProxy: true }) || trimmed;
+    } catch {
+        return trimmed;
+    }
+};
+
 const pickRasterSource = (asset: StoredImageAsset): { source: string; remoteUrl?: string; key?: string } => {
     const normalizedUrl = normalizePersistableImageRef(asset.url);
     const normalizedSrc = normalizePersistableImageRef(asset.src);
@@ -82,7 +94,8 @@ const pickRasterSource = (asset: StoredImageAsset): { source: string; remoteUrl?
         asset.url;
 
     const renderable = toRenderableImageSrc(displayCandidate) || displayCandidate;
-    return { source: renderable, remoteUrl, key };
+    const preferredSource = toPreferredRemoteSource(renderable);
+    return { source: preferredSource, remoteUrl, key };
 };
 
 const shouldUseAnonymousCrossOrigin = (source: string): boolean => {
@@ -112,7 +125,9 @@ const getRasterSourceString = (raster: any): string => {
 };
 
 // 图片加载超时时间，防止占位框长时间悬挂
-const IMAGE_LOAD_TIMEOUT = 20000; // 20s
+const IMAGE_LOAD_TIMEOUT = 120000; // 120s
+const IMAGE_LOAD_MAX_RETRIES = 3;
+const IMAGE_LOAD_RETRY_BASE_DELAY = 800; // ms，指数退避
 const MATRIX_CELL_PADDING = 16;
 const MAX_LINEAR_SHIFT_STEPS = 50;
 const GENERATE_VERTICAL_GAP_MIN = 48;
@@ -1434,30 +1449,114 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 	                target.source = value;
 	            };
 
-            // 创建图片的 Raster 对象
-            let raster = loadRasterWithFallback(true);
-            let hasRetriedCrossOrigin = false;
-            let hasRetriedProxyFallback = false;
+	            // 创建图片的 Raster 对象
+	            let raster = loadRasterWithFallback(true);
+	            let hasRetriedCrossOrigin = false;
+	            let hasRetriedProxyFallback = false;
+	            let loadTimeoutId: number | null = null;
+	            let retryCount = 0;
+	            let hasTerminalLoadFailure = false;
+	            let onLoadHandler: (() => void) | null = null;
+	            let onErrorHandler: ((e: any) => void) | null = null;
 
-            // 超时兜底，防止网络问题导致占位框一直存在
-            let loadTimeoutId: number | null = window.setTimeout(() => {
-                logger.error('图片加载超时，已取消', { imageId, placeholderId });
-                removeLoadingIndicator();
-                pendingImagesRef.current = pendingImagesRef.current.filter(p => p.id !== imageId);
-                if (placeholderId) {
-                    removePredictedPlaceholder(placeholderId);
-                }
-                try { raster.remove(); } catch {}
-            }, IMAGE_LOAD_TIMEOUT);
+	            const clearLoadTimeout = () => {
+	                if (loadTimeoutId !== null) {
+	                    clearTimeout(loadTimeoutId);
+	                    loadTimeoutId = null;
+	                }
+	            };
 
-            // 等待图片加载完成
-            raster.onLoad = () => {
-                if (loadTimeoutId !== null) {
-                    clearTimeout(loadTimeoutId);
-                    loadTimeoutId = null;
-                }
-                // 移除加载指示器
-                removeLoadingIndicator();
+	            const bindRasterHandlers = () => {
+	                if (onLoadHandler) raster.onLoad = onLoadHandler;
+	                if (onErrorHandler) raster.onError = onErrorHandler;
+	            };
+
+	            const restartRasterLoad = (useCrossOrigin: boolean) => {
+	                if (hasTerminalLoadFailure) return;
+	                try { raster.remove(); } catch {}
+	                raster = loadRasterWithFallback(useCrossOrigin);
+	                bindRasterHandlers();
+	                scheduleLoadTimeout();
+	                setRasterSource(raster, rasterSource);
+	            };
+
+	            const attemptLoadRetry = (
+	                reason: 'timeout' | 'onError',
+	                options?: { useCrossOrigin?: boolean; immediate?: boolean; error?: any }
+	            ): boolean => {
+	                if (hasTerminalLoadFailure || retryCount >= IMAGE_LOAD_MAX_RETRIES) return false;
+	                retryCount += 1;
+	                const useCrossOrigin = typeof options?.useCrossOrigin === 'boolean'
+	                    ? options.useCrossOrigin
+	                    : !hasRetriedCrossOrigin;
+	                const delayMs = options?.immediate
+	                    ? 0
+	                    : IMAGE_LOAD_RETRY_BASE_DELAY * Math.pow(2, retryCount - 1);
+	                logger.warn('图片加载失败，准备重试', {
+	                    imageId,
+	                    placeholderId,
+	                    reason,
+	                    retryCount,
+	                    maxRetries: IMAGE_LOAD_MAX_RETRIES,
+	                    nextDelayMs: delayMs,
+	                    useCrossOrigin,
+	                    rasterSource,
+	                    error: options?.error
+	                });
+	                clearLoadTimeout();
+	                window.setTimeout(() => {
+	                    restartRasterLoad(useCrossOrigin);
+	                }, delayMs);
+	                return true;
+	            };
+
+	            const finalizeLoadFailure = (e: any, reason: 'timeout' | 'onError') => {
+	                if (hasTerminalLoadFailure) return;
+	                hasTerminalLoadFailure = true;
+	                clearLoadTimeout();
+	                removeLoadingIndicator();
+	                pendingImagesRef.current = pendingImagesRef.current.filter(p => p.id !== imageId);
+	                if (placeholderId) {
+	                    removePredictedPlaceholder(placeholderId);
+	                }
+	                try { raster.remove(); } catch {}
+	                const currentRasterSource = getRasterSourceString(raster);
+	                const isInlineSource = (() => {
+	                    const v = (currentRasterSource || rasterSource || '').trim();
+	                    return v.startsWith('blob:') || v.startsWith('data:image/');
+	                })();
+	                const message = isInlineSource
+	                    ? '图片加载失败：可能是图片格式不受支持（如 HEIC/HEIF）或文件损坏，请转换为 PNG/JPG/WebP 后重试'
+	                    : '图片加载失败，请检查网络或图片链接';
+	                logger.error(reason === 'timeout' ? '图片加载超时，已取消' : '图片加载失败', {
+	                    imageId,
+	                    placeholderId,
+	                    rasterSource,
+	                    currentRasterSource,
+	                    fileName: asset?.fileName,
+	                    contentType: asset?.contentType,
+	                    pendingUpload: asset?.pendingUpload,
+	                    error: e
+	                });
+	                window.dispatchEvent(new CustomEvent('toast', {
+	                    detail: { message, type: 'error' }
+	                }));
+	            };
+
+	            const scheduleLoadTimeout = () => {
+	                clearLoadTimeout();
+	                loadTimeoutId = window.setTimeout(() => {
+	                    if (attemptLoadRetry('timeout')) return;
+	                    finalizeLoadFailure(new Error('image-load-timeout'), 'timeout');
+	                }, IMAGE_LOAD_TIMEOUT);
+	            };
+
+	            // 等待图片加载完成
+	            onLoadHandler = () => {
+	                if (hasTerminalLoadFailure) return;
+	                clearLoadTimeout();
+	                // 移除加载指示器
+	                removeLoadingIndicator();
 
                 // 🔥 若 Raster source 在保存/上传后被切换（dataURL → OSS URL 等），Paper.js 会再次触发 onLoad。
                 // 这里必须避免重复执行“创建图片组/派发事件/写历史”等初始化逻辑，否则会产生无 Raster 的孤儿 image 组，
@@ -1957,81 +2056,40 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 if (placeholderId) {
                     removePredictedPlaceholder(placeholderId);
                 }
-                paper.view.update();
-            };
+	                paper.view.update();
+	            };
 
-            // 保存 onLoad 处理器引用（在 onError 之前定义）
-            const onLoadHandler = raster.onLoad;
-
-            // 🔥 定义 onError 处理器（支持 proxy/CORS 失败后重试）
-            const onErrorHandler = (e: any) => {
-                // 代理失败（如 Host not allowed）时，回退到直接 URL 加载
-                if (
-                    !hasRetriedProxyFallback &&
-                    resolvedRemoteUrl &&
-                    isAssetProxyRef(rasterSource)
-                ) {
-                    hasRetriedProxyFallback = true;
-                    rasterSource = resolvedRemoteUrl;
-                    logger.upload('🔄 Proxy 加载失败，回退到直接 URL 加载...');
-                    try { raster.remove(); } catch {}
-
-	                    raster = loadRasterWithFallback(true);
-	                    raster.onLoad = onLoadHandler;
-	                    raster.onError = onErrorHandler;
-	                    setRasterSource(raster, rasterSource);
+	            // 🔥 定义 onError 处理器（支持 proxy/CORS 失败后重试）
+	            onErrorHandler = (e: any) => {
+	                if (hasTerminalLoadFailure) return;
+	                // 代理失败（如 Host not allowed）时，回退到直接 URL 加载
+	                if (
+	                    !hasRetriedProxyFallback &&
+	                    resolvedRemoteUrl &&
+	                    isAssetProxyRef(rasterSource)
+	                ) {
+	                    hasRetriedProxyFallback = true;
+	                    rasterSource = resolvedRemoteUrl;
+	                    logger.upload('🔄 Proxy 加载失败，回退到直接 URL 加载...');
+	                    restartRasterLoad(true);
 	                    return;
 	                }
 
-                // CORS 失败时，尝试不带 crossOrigin 重新加载
-                if (!hasRetriedCrossOrigin && shouldUseAnonymousCrossOrigin(rasterSource)) {
-                    hasRetriedCrossOrigin = true;
-                    logger.upload('🔄 CORS 加载失败，尝试不带 crossOrigin 重新加载...');
-                    try { raster.remove(); } catch {}
-
-                    // 创建新的 Raster，不设置 crossOrigin
-	                    raster = loadRasterWithFallback(false);
-	                    raster.onLoad = onLoadHandler;
-	                    raster.onError = onErrorHandler;
-	                    setRasterSource(raster, rasterSource);
+	                // CORS 失败时，尝试不带 crossOrigin 重新加载
+	                if (!hasRetriedCrossOrigin && shouldUseAnonymousCrossOrigin(rasterSource)) {
+	                    hasRetriedCrossOrigin = true;
+	                    logger.upload('🔄 CORS 加载失败，尝试不带 crossOrigin 重新加载...');
+	                    restartRasterLoad(false);
 	                    return;
 	                }
 
-                if (loadTimeoutId !== null) {
-                    clearTimeout(loadTimeoutId);
-                    loadTimeoutId = null;
-                }
-                removeLoadingIndicator();
-                pendingImagesRef.current = pendingImagesRef.current.filter(p => p.id !== imageId);
-                if (placeholderId) {
-                    removePredictedPlaceholder(placeholderId);
-                }
-                const currentRasterSource = getRasterSourceString(raster);
-                const isInlineSource = (() => {
-                    const v = (currentRasterSource || rasterSource || '').trim();
-                    return v.startsWith('blob:') || v.startsWith('data:image/');
-                })();
-                const message = isInlineSource
-                    ? '图片加载失败：可能是图片格式不受支持（如 HEIC/HEIF）或文件损坏，请转换为 PNG/JPG/WebP 后重试'
-                    : '图片加载失败，请检查网络或图片链接';
-                logger.error('图片加载失败', {
-                    imageId,
-                    rasterSource,
-                    currentRasterSource,
-                    fileName: asset?.fileName,
-                    contentType: asset?.contentType,
-                    pendingUpload: asset?.pendingUpload,
-                    error: e
-                });
-                window.dispatchEvent(new CustomEvent('toast', {
-                    detail: { message, type: 'error' }
-                }));
-            };
+	                if (attemptLoadRetry('onError', { error: e })) return;
+	                finalizeLoadFailure(e, 'onError');
+	            };
 
-            // 绑定错误处理器
-	            raster.onError = onErrorHandler;
-	
-	            // 触发加载
+	            // 绑定处理器并触发首次加载
+	            bindRasterHandlers();
+	            scheduleLoadTimeout();
 	            setRasterSource(raster, rasterSource);
 	        } catch (error) {
 	            logger.error('快速上传图片时出错:', error);
