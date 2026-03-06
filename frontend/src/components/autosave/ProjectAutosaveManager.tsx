@@ -12,6 +12,7 @@ import { contextManager } from '@/services/contextManager';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { getProjectCache, setProjectCache, isCacheValid } from '@/services/projectCacheStore';
 import { getPendingUploadSummary } from '@/utils/pendingUploadSummary';
+import { consumeBeforeUnloadPromptSkip } from '@/utils/beforeUnloadGuard';
 
 type ProjectAutosaveManagerProps = {
   projectId: string | null;
@@ -299,6 +300,7 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
 
   useEffect(() => {
     const handler = (event: BeforeUnloadEvent) => {
+      if (consumeBeforeUnloadPromptSkip()) return;
       const { dirty } = useProjectContentStore.getState();
       const pending = getPendingUploadSummary();
       if (!dirty && !pending.hasPending) return;
