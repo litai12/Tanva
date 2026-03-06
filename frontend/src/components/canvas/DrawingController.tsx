@@ -5827,11 +5827,31 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
         logger.drawing("🔄 rebuildFromPaper 开始执行...");
 
+        const isRasterContentReady = (raster: any): boolean => {
+          if (!raster) return false;
+          try {
+            if (raster.loaded === true) return true;
+          } catch {}
+          try {
+            const imageLike = (raster as any).image;
+            if (imageLike) {
+              const naturalWidth = Number((imageLike as any).naturalWidth ?? 0);
+              const naturalHeight = Number((imageLike as any).naturalHeight ?? 0);
+              if (naturalWidth > 0 && naturalHeight > 0) return true;
+              const width = Number((imageLike as any).width ?? 0);
+              const height = Number((imageLike as any).height ?? 0);
+              const complete = Boolean((imageLike as any).complete);
+              if (complete && width > 0 && height > 0) return true;
+            }
+          } catch {}
+          return false;
+        };
+
         // 🔍 调试：检查 Raster 加载状态
         const rasterClass = (paper as any).Raster;
         const allRasters = rasterClass ? (paper.project as any).getItems?.({ class: rasterClass }) as any[] : [];
         const rasterCount = allRasters?.length || 0;
-        const loadedCount = allRasters?.filter((r: any) => r?.bounds?.width > 0)?.length || 0;
+        const loadedCount = allRasters?.filter((r: any) => isRasterContentReady(r))?.length || 0;
         console.log(`🔍 [rebuildFromPaper] Raster 状态: 总数=${rasterCount}, 已加载=${loadedCount}, 未加载=${rasterCount - loadedCount}`);
 
         // 避免重复包裹 Raster.onLoad（多次 rebuild 可能导致链式闭包与内存增长）
@@ -5843,11 +5863,27 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           const anyRaster = raster as any;
           anyRaster.__tanvaRebuildOnLoadCallback = callback;
 
+          const runCallbackIfReady = () => {
+            if (!isRasterContentReady(raster)) return;
+            setTimeout(() => {
+              try {
+                const cb = anyRaster.__tanvaRebuildOnLoadCallback;
+                if (typeof cb === "function") {
+                  anyRaster.__tanvaRebuildOnLoadCallback = null;
+                  cb();
+                }
+              } catch (err) {
+                console.warn("Raster rebuild ready callback failed:", err);
+              }
+            }, 0);
+          };
+
           const existingWrapper = anyRaster.__tanvaRebuildOnLoadWrapper as any;
           const currentOnLoad = raster.onLoad;
 
           // 已安装 wrapper：只更新 callback，避免链式包裹
           if (existingWrapper && currentOnLoad === existingWrapper) {
+            runCallbackIfReady();
             return;
           }
 
@@ -5886,6 +5922,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
           anyRaster.__tanvaRebuildOnLoadWrapper = wrapper;
           raster.onLoad = wrapper;
+          runCallbackIfReady();
         };
 
         // 🔥 修复：在重建前清理所有孤儿选择框和无效图片组
@@ -6249,42 +6286,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	                  const b = ensureRasterHasBounds();
 	                  return !!b && b.width > 0 && b.height > 0;
 	                })();
+	                const rasterReady = isRasterContentReady(raster);
 
-	                if (hasValidBounds) {
-	                  const imageInstance = buildImageInstance();
-	                  if (imageInstance) {
-	                    imageInstances.push(imageInstance);
-                  }
-                } else {
-                  // 尚未加载完成的Raster：先记录占位实例，待onLoad完成后再补齐尺寸与辅助元素
-	                  const resolvedUrl = persistedRef ?? inlineDataUrl ?? "";
-	                  const resolvedSrc = persistedRef
-	                    ? toRenderableImageSrc(persistedRef) || persistedRef
-	                    : inlineDataUrl ?? resolvedUrl;
-	                  const pendingUpload = !persistedRef;
-
-                  imageInstances.push({
-                    id: ensuredImageId,
-	                    imageData: {
-	                      id: ensuredImageId,
-	                      url: resolvedUrl,
-	                      key,
-	                      src: resolvedSrc,
-	                      fileName: metadataFromRaster.fileName,
-	                      pendingUpload,
-	                    },
-                    bounds: {
-                      x: raster.position?.x ?? 0,
-                      y: raster.position?.y ?? 0,
-                      width: 0,
-                      height: 0,
-                    },
-                    isSelected: false,
-                    visible: imageGroup.visible !== false,
-                    layerId: layer?.name,
-                  });
-
-                  ensureRasterRebuildOnLoad(raster, () => {
+                  const applyLoadedInstance = () => {
                     const loadedInstance = buildImageInstance();
                     if (!loadedInstance) return;
 
@@ -6313,7 +6317,47 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                     try {
                       paper.view?.update();
                     } catch {}
-                  });
+                  };
+
+	                if (hasValidBounds) {
+	                  const imageInstance = buildImageInstance();
+	                  if (imageInstance) {
+	                    imageInstances.push(imageInstance);
+                  }
+                  // 仅有 bounds 并不代表像素已完成解码；未就绪时仍需等待 onLoad 后再补一次重建/重绘
+                  if (!rasterReady) {
+                    ensureRasterRebuildOnLoad(raster, applyLoadedInstance);
+                  }
+                } else {
+                  // 尚未加载完成的Raster：先记录占位实例，待onLoad完成后再补齐尺寸与辅助元素
+	                  const resolvedUrl = persistedRef ?? inlineDataUrl ?? "";
+	                  const resolvedSrc = persistedRef
+	                    ? toRenderableImageSrc(persistedRef) || persistedRef
+	                    : inlineDataUrl ?? resolvedUrl;
+	                  const pendingUpload = !persistedRef;
+
+                  imageInstances.push({
+                    id: ensuredImageId,
+	                    imageData: {
+	                      id: ensuredImageId,
+	                      url: resolvedUrl,
+	                      key,
+	                      src: resolvedSrc,
+	                      fileName: metadataFromRaster.fileName,
+	                      pendingUpload,
+	                    },
+                    bounds: {
+                      x: raster.position?.x ?? 0,
+                      y: raster.position?.y ?? 0,
+                      width: 0,
+                      height: 0,
+                    },
+                    isSelected: false,
+	                    visible: imageGroup.visible !== false,
+	                    layerId: layer?.name,
+	                  });
+
+                  ensureRasterRebuildOnLoad(raster, applyLoadedInstance);
                 }
               }
             }

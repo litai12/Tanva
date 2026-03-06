@@ -1085,6 +1085,31 @@ class PaperSaveService {
     }
   }
 
+  private isRasterContentReady(raster: any): boolean {
+    if (!raster) return false;
+
+    try {
+      if (raster.loaded === true) return true;
+    } catch {}
+
+    try {
+      const imageLike = raster.image as
+        | { complete?: boolean; naturalWidth?: number; naturalHeight?: number; width?: number; height?: number }
+        | undefined;
+      if (!imageLike) return false;
+
+      const naturalWidth = Number(imageLike.naturalWidth ?? 0);
+      const naturalHeight = Number(imageLike.naturalHeight ?? 0);
+      if (naturalWidth > 0 && naturalHeight > 0) return true;
+
+      const width = Number(imageLike.width ?? 0);
+      const height = Number(imageLike.height ?? 0);
+      if (Boolean(imageLike.complete) && width > 0 && height > 0) return true;
+    } catch {}
+
+    return false;
+  }
+
   private ensureRasterLoadUpdates() {
     try {
       if (!this.isPaperProjectReady()) return;
@@ -1098,7 +1123,12 @@ class PaperSaveService {
 
       rasters.forEach((raster) => {
         if (!raster || (typeof raster !== 'object' && typeof raster !== 'function')) return;
-        if (this.rasterLoadHooked.has(raster)) return;
+        if (this.rasterLoadHooked.has(raster)) {
+          if (this.isRasterContentReady(raster)) {
+            try { paper.view?.update(); } catch {}
+          }
+          return;
+        }
         this.rasterLoadHooked.add(raster);
 
         const previousOnLoad = raster.onLoad;
@@ -1115,6 +1145,10 @@ class PaperSaveService {
             paper.view?.update();
           } catch {}
         };
+
+        if (this.isRasterContentReady(raster)) {
+          try { paper.view?.update(); } catch {}
+        }
       });
     } catch (error) {
       console.warn('[PaperSaveService] 挂接 Raster onLoad 更新失败:', error);
@@ -1396,11 +1430,11 @@ class PaperSaveService {
       const rasterClass = (paper as any).Raster;
       const allRasters = rasterClass ? (paper.project as any).getItems?.({ class: rasterClass }) as any[] : [];
       const rasterCount = allRasters?.length || 0;
-      const loadedCount = allRasters?.filter((r: any) => r?.bounds?.width > 0)?.length || 0;
+      const loadedCount = allRasters?.filter((r: any) => this.isRasterContentReady(r))?.length || 0;
       console.log(`🔍 [deserialize] Raster 状态: 总数=${rasterCount}, 已加载=${loadedCount}, 未加载=${rasterCount - loadedCount}`);
 
       // 等待所有 Raster 加载完成后再触发事件
-      const pendingRasters = allRasters?.filter((r: any) => !r?.bounds?.width || r.bounds.width <= 0) || [];
+      const pendingRasters = allRasters?.filter((r: any) => !this.isRasterContentReady(r)) || [];
 
       if (pendingRasters.length === 0) {
         // 所有图片已加载，直接触发事件
@@ -1415,6 +1449,7 @@ class PaperSaveService {
         let eventFired = false;
         const maxWaitTime = 10000; // 最大等待 10 秒
         const startTime = Date.now();
+        const seenLoadedRasters = new WeakSet<object>();
 
         const fireEventOnce = () => {
           if (eventFired) return;
@@ -1422,6 +1457,19 @@ class PaperSaveService {
           const elapsed = Date.now() - startTime;
           console.log(`🔍 [deserialize] 触发 paper-project-changed 事件 (耗时 ${elapsed}ms)`);
           try { window.dispatchEvent(new CustomEvent('paper-project-changed')); } catch {}
+        };
+
+        const markRasterLoaded = (raster: any) => {
+          if (!raster || (typeof raster !== 'object' && typeof raster !== 'function')) return;
+          if (seenLoadedRasters.has(raster)) return;
+          seenLoadedRasters.add(raster);
+          loadedSoFar++;
+          console.log(`🔍 [deserialize] Raster 加载完成 (${loadedSoFar}/${pendingRasters.length})`);
+          if (loadedSoFar >= pendingRasters.length) {
+            clearTimeout(timeoutId);
+            // 稍微延迟确保 Paper.js 内部状态更新
+            setTimeout(fireEventOnce, 50);
+          }
         };
 
         // 超时兜底
@@ -1436,21 +1484,18 @@ class PaperSaveService {
         pendingRasters.forEach((raster: any) => {
           const originalOnLoad = raster.onLoad;
           raster.onLoad = function(this: any, ...args: any[]) {
-            loadedSoFar++;
-            console.log(`🔍 [deserialize] Raster 加载完成 (${loadedSoFar}/${pendingRasters.length})`);
+            markRasterLoaded(this);
 
             // 调用原始 onLoad
             if (typeof originalOnLoad === 'function') {
               try { originalOnLoad.apply(this, args); } catch {}
             }
-
-            // 所有图片加载完成，触发事件
-            if (loadedSoFar >= pendingRasters.length) {
-              clearTimeout(timeoutId);
-              // 稍微延迟确保 Paper.js 内部状态更新
-              setTimeout(fireEventOnce, 50);
-            }
           };
+
+          // 防止“判定为 pending 后瞬间加载完成”导致 onLoad 丢失
+          if (this.isRasterContentReady(raster)) {
+            markRasterLoaded(raster);
+          }
         });
       }
 

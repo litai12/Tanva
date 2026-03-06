@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import paper from 'paper';
 import { useCanvasStore, useUIStore } from '@/stores';
 import { Button } from '@/components/ui/button';
@@ -334,13 +334,45 @@ const ZoomIndicator: React.FC = () => {
     };
 
     // 适合屏幕：计算所有元素边界并自适应缩放
-    const fitToScreen = () => {
+    const fitToScreen = useCallback(() => {
         fitBoundsToView(getAllContentBounds(), { fallbackToCenter: true });
-    };
+    }, []);
 
-    const fitToSelection = () => {
+    const fitToSelection = useCallback(() => {
         fitBoundsToView(getSelectedContentBounds(), { fallbackToCenter: false });
-    };
+    }, []);
+
+    useEffect(() => {
+        const isEditableTarget = (target: EventTarget | null): boolean => {
+            if (!(target instanceof HTMLElement)) return false;
+            const tag = target.tagName;
+            return (
+                target.isContentEditable ||
+                tag === 'INPUT' ||
+                tag === 'TEXTAREA' ||
+                tag === 'SELECT'
+            );
+        };
+
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.defaultPrevented) return;
+            if (event.repeat) return;
+            if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+            if (isEditableTarget(event.target)) return;
+            if (event.key !== 'z' && event.key !== 'Z') return;
+
+            event.preventDefault();
+            const selectedBounds = getSelectedContentBounds();
+            if (selectedBounds.length > 0) {
+                fitBoundsToView(selectedBounds, { fallbackToCenter: false });
+                return;
+            }
+            fitBoundsToView(getAllContentBounds(), { fallbackToCenter: true });
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [fitToSelection]);
 
     // 检查是否到达边界
     const currentPercent = Math.round(zoom * 100);
@@ -395,7 +427,7 @@ const ZoomIndicator: React.FC = () => {
                                 className="w-full px-3 py-2 text-sm text-left text-gray-700 hover:bg-gray-100"
                                 onClick={fitToSelection}
                             >
-                                选中内容最大化
+                                选中内容最大化 (Z)
                             </button>
                         </div>
                     )}
