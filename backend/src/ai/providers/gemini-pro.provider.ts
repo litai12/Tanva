@@ -62,7 +62,7 @@ export class GeminiProProvider implements IAIProvider {
   private genAI: GoogleGenAI | null = null;
   private readonly DEFAULT_MODEL = 'gemini-3-pro-image-preview';
   private readonly DEFAULT_TIMEOUT = 120000;
-  private readonly EDIT_TIMEOUT = 180000; // 3分钟，编辑图像需要更长时间
+  private readonly EDIT_TIMEOUT = 300000; // 5分钟，一键分层需要更长时间
   private readonly MAX_RETRIES = 3;
 
   constructor(private readonly config: ConfigService) { }
