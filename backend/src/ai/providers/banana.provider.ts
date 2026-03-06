@@ -60,7 +60,11 @@ const VECTOR_KEYWORDS = [
   "vectorgraphics",
 ];
 
-export type BananaImageProvider = "auto" | "apimart" | "legacy";
+export type BananaImageProvider =
+  | "auto"
+  | "legacy_auto"
+  | "apimart"
+  | "legacy";
 export const BANANA_PROVIDER_SETTING_KEY = "banana_provider";
 
 /**
@@ -137,7 +141,10 @@ export class BananaProvider implements IAIProvider {
       const setting = await this.prisma.systemSetting.findUnique({
         where: { key: BANANA_PROVIDER_SETTING_KEY },
       });
-      if (setting && ["auto", "apimart", "legacy"].includes(setting.value)) {
+      if (
+        setting &&
+        ["auto", "legacy_auto", "apimart", "legacy"].includes(setting.value)
+      ) {
         return setting.value as BananaImageProvider;
       }
     } catch (error) {
@@ -932,35 +939,19 @@ export class BananaProvider implements IAIProvider {
     };
   }
 
-  async generateImage(
+  private getProviderFailureMessage(
+    result: AIProviderResponse<ImageResult> | null,
+    error: unknown
+  ): string {
+    if (result?.error?.message) return result.error.message;
+    if (error instanceof Error && error.message) return error.message;
+    if (typeof error === "string" && error.trim()) return error;
+    return "unknown error";
+  }
+
+  private async generateImageViaLegacy(
     request: ImageGenerationRequest
   ): Promise<AIProviderResponse<ImageResult>> {
-    this.logger.log(
-      `Generating image with prompt: ${request.prompt.substring(0, 50)}...`
-    );
-
-    const providerMode = await this.getConfiguredImageProvider();
-    if (providerMode !== "legacy") {
-      try {
-        const result = await this.withTimeout(
-          this.generateImageViaApimart(request),
-          this.DEFAULT_TIMEOUT,
-          "Apimart image generation"
-        );
-        if (result.success) return result;
-        if (providerMode === "apimart") return result;
-      } catch (error) {
-        if (providerMode === "apimart") {
-          return this.buildApimartError("GENERATION_FAILED", error);
-        }
-        this.logger.warn(
-          `Apimart image generation failed in auto mode, fallback to legacy: ${
-            error instanceof Error ? error.message : error
-          }`
-        );
-      }
-    }
-
     const originalModel = this.normalizeLegacyImageModel(
       request.model || this.DEFAULT_MODEL
     );
@@ -1072,35 +1063,70 @@ export class BananaProvider implements IAIProvider {
     };
   }
 
-  async editImage(
-    request: ImageEditRequest
+  async generateImage(
+    request: ImageGenerationRequest
   ): Promise<AIProviderResponse<ImageResult>> {
     this.logger.log(
-      `Editing image with prompt: ${request.prompt.substring(0, 50)}...`
+      `Generating image with prompt: ${request.prompt.substring(0, 50)}...`
     );
 
     const providerMode = await this.getConfiguredImageProvider();
+    if (providerMode === "legacy_auto") {
+      let legacyResult: AIProviderResponse<ImageResult> | null = null;
+      let legacyError: unknown = null;
+
+      try {
+        legacyResult = await this.generateImageViaLegacy(request);
+      } catch (error) {
+        legacyError = error;
+      }
+
+      if (legacyResult?.success) return legacyResult;
+
+      this.logger.warn(
+        `147 image generation failed in 147-first mode, fallback to Apimart: ${this.getProviderFailureMessage(
+          legacyResult,
+          legacyError
+        )}`
+      );
+      try {
+        return await this.withTimeout(
+          this.generateImageViaApimart(request),
+          this.DEFAULT_TIMEOUT,
+          "Apimart image generation"
+        );
+      } catch (error) {
+        return this.buildApimartError("GENERATION_FAILED", error);
+      }
+    }
+
     if (providerMode !== "legacy") {
       try {
         const result = await this.withTimeout(
-          this.editImageViaApimart(request),
+          this.generateImageViaApimart(request),
           this.DEFAULT_TIMEOUT,
-          "Apimart image edit"
+          "Apimart image generation"
         );
         if (result.success) return result;
         if (providerMode === "apimart") return result;
       } catch (error) {
         if (providerMode === "apimart") {
-          return this.buildApimartError("EDIT_FAILED", error);
+          return this.buildApimartError("GENERATION_FAILED", error);
         }
         this.logger.warn(
-          `Apimart image edit failed in auto mode, fallback to legacy: ${
+          `Apimart image generation failed in auto mode, fallback to legacy: ${
             error instanceof Error ? error.message : error
           }`
         );
       }
     }
 
+    return this.generateImageViaLegacy(request);
+  }
+
+  private async editImageViaLegacy(
+    request: ImageEditRequest
+  ): Promise<AIProviderResponse<ImageResult>> {
     // 使用异步版本支持 HTTP URL
     const { data: imageData, mimeType } = await this.normalizeFileInputAsync(
       request.sourceImage,
@@ -1225,37 +1251,70 @@ export class BananaProvider implements IAIProvider {
     };
   }
 
-  async blendImages(
-    request: ImageBlendRequest
+  async editImage(
+    request: ImageEditRequest
   ): Promise<AIProviderResponse<ImageResult>> {
     this.logger.log(
-      `Blending ${
-        request.sourceImages.length
-      } images with prompt: ${request.prompt.substring(0, 50)}...`
+      `Editing image with prompt: ${request.prompt.substring(0, 50)}...`
     );
 
     const providerMode = await this.getConfiguredImageProvider();
+    if (providerMode === "legacy_auto") {
+      let legacyResult: AIProviderResponse<ImageResult> | null = null;
+      let legacyError: unknown = null;
+
+      try {
+        legacyResult = await this.editImageViaLegacy(request);
+      } catch (error) {
+        legacyError = error;
+      }
+
+      if (legacyResult?.success) return legacyResult;
+
+      this.logger.warn(
+        `147 image edit failed in 147-first mode, fallback to Apimart: ${this.getProviderFailureMessage(
+          legacyResult,
+          legacyError
+        )}`
+      );
+      try {
+        return await this.withTimeout(
+          this.editImageViaApimart(request),
+          this.DEFAULT_TIMEOUT,
+          "Apimart image edit"
+        );
+      } catch (error) {
+        return this.buildApimartError("EDIT_FAILED", error);
+      }
+    }
+
     if (providerMode !== "legacy") {
       try {
         const result = await this.withTimeout(
-          this.blendImagesViaApimart(request),
+          this.editImageViaApimart(request),
           this.DEFAULT_TIMEOUT,
-          "Apimart image blend"
+          "Apimart image edit"
         );
         if (result.success) return result;
         if (providerMode === "apimart") return result;
       } catch (error) {
         if (providerMode === "apimart") {
-          return this.buildApimartError("BLEND_FAILED", error);
+          return this.buildApimartError("EDIT_FAILED", error);
         }
         this.logger.warn(
-          `Apimart image blend failed in auto mode, fallback to legacy: ${
+          `Apimart image edit failed in auto mode, fallback to legacy: ${
             error instanceof Error ? error.message : error
           }`
         );
       }
     }
 
+    return this.editImageViaLegacy(request);
+  }
+
+  private async blendImagesViaLegacy(
+    request: ImageBlendRequest
+  ): Promise<AIProviderResponse<ImageResult>> {
     // 使用异步版本支持 HTTP URL
     const normalizedImages = await Promise.all(
       request.sourceImages.map((imageData, index) =>
@@ -1379,6 +1438,69 @@ export class BananaProvider implements IAIProvider {
         message: "Unexpected error in image blend",
       },
     };
+  }
+
+  async blendImages(
+    request: ImageBlendRequest
+  ): Promise<AIProviderResponse<ImageResult>> {
+    this.logger.log(
+      `Blending ${
+        request.sourceImages.length
+      } images with prompt: ${request.prompt.substring(0, 50)}...`
+    );
+
+    const providerMode = await this.getConfiguredImageProvider();
+    if (providerMode === "legacy_auto") {
+      let legacyResult: AIProviderResponse<ImageResult> | null = null;
+      let legacyError: unknown = null;
+
+      try {
+        legacyResult = await this.blendImagesViaLegacy(request);
+      } catch (error) {
+        legacyError = error;
+      }
+
+      if (legacyResult?.success) return legacyResult;
+
+      this.logger.warn(
+        `147 image blend failed in 147-first mode, fallback to Apimart: ${this.getProviderFailureMessage(
+          legacyResult,
+          legacyError
+        )}`
+      );
+      try {
+        return await this.withTimeout(
+          this.blendImagesViaApimart(request),
+          this.DEFAULT_TIMEOUT,
+          "Apimart image blend"
+        );
+      } catch (error) {
+        return this.buildApimartError("BLEND_FAILED", error);
+      }
+    }
+
+    if (providerMode !== "legacy") {
+      try {
+        const result = await this.withTimeout(
+          this.blendImagesViaApimart(request),
+          this.DEFAULT_TIMEOUT,
+          "Apimart image blend"
+        );
+        if (result.success) return result;
+        if (providerMode === "apimart") return result;
+      } catch (error) {
+        if (providerMode === "apimart") {
+          return this.buildApimartError("BLEND_FAILED", error);
+        }
+        this.logger.warn(
+          `Apimart image blend failed in auto mode, fallback to legacy: ${
+            error instanceof Error ? error.message : error
+          }`
+        );
+      }
+    }
+
+    return this.blendImagesViaLegacy(request);
   }
 
   async analyzeImage(

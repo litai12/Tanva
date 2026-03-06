@@ -315,6 +315,8 @@ const enUS = {
       earned: "Total Earned",
       spent: "Total Spent",
       todaySpent: "Spent Today",
+      latestGenerationTime: "Latest generation time",
+      noGenerationYet: "No generation record",
     },
     expiring: {
       title: "You have {{total}} credits expiring soon",
@@ -325,7 +327,7 @@ const enUS = {
     paidUserBadge: "Paid user - check-in credits never expire",
     tabs: {
       overview: "Overview",
-      transactions: "Transactions",
+      transactions: "Credit Records",
       usage: "API Usage",
     },
     overview: {
@@ -336,8 +338,20 @@ const enUS = {
       usageItem: "{{count}} runs / {{credits}} credits",
     },
     transactions: {
-      title: "Transactions",
-      empty: "No transactions yet",
+      title: "Credit Records",
+      empty: "No credit records yet",
+      generationTime: "Generated at",
+      recordTime: "Recorded at",
+      columns: {
+        item: "Item",
+        status: "Status",
+        amount: "Credits",
+        generatedAt: "Generated At",
+        duration: "Duration",
+      },
+      durationUnit: "s",
+      notAvailable: "--",
+      channel: "Channel: {{channel}}",
     },
     usage: {
       title: "API Usage Records",

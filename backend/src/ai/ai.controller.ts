@@ -371,6 +371,54 @@ export class AiController {
     return 'gemini-2.5-image';
   }
 
+  private normalizeChannelName(channel: string | null | undefined): string | null {
+    if (!channel) return null;
+    const value = channel.trim().toLowerCase();
+    if (!value) return null;
+    if (value.includes('apimart')) return 'apimart';
+    if (value === 'legacy' || value.includes('147')) return '147';
+    return value;
+  }
+
+  private asRecord(value: unknown): Record<string, any> | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    return value as Record<string, any>;
+  }
+
+  private extractExecutionChannel(result: unknown): string | null {
+    const payload = this.asRecord(result);
+    if (!payload) return null;
+
+    const metadata = this.asRecord(payload.metadata);
+    if (metadata && typeof metadata.provider === 'string') {
+      return this.normalizeChannelName(metadata.provider);
+    }
+
+    if (typeof payload.provider === 'string') {
+      return this.normalizeChannelName(payload.provider);
+    }
+
+    return null;
+  }
+
+  private buildCreditRequestParams(
+    providerName: string | null,
+    extraParams?: Record<string, any>,
+  ): Record<string, any> {
+    const aiProvider = providerName || 'gemini';
+    const channelHint = aiProvider === 'nano2'
+      ? 'apimart'
+      : aiProvider.startsWith('banana')
+      ? '147'
+      : undefined;
+
+    return {
+      ...(extraParams || {}),
+      aiProvider,
+      channelHint,
+    };
+  }
+
   /**
    * 预扣积分并执行操作
    * @param skipCredits 如果为 true，则跳过积分扣除（例如使用自定义 API Key 时）
@@ -403,6 +451,11 @@ export class AiController {
 
     const startTime = Date.now();
     let apiUsageId: string | null = null;
+    const sanitizedRequestParams = requestParams
+      ? Object.fromEntries(
+          Object.entries(requestParams).filter(([_, value]) => value !== undefined),
+        )
+      : undefined;
 
     try {
       // 预扣积分
@@ -412,7 +465,7 @@ export class AiController {
         model,
         inputImageCount,
         outputImageCount,
-        requestParams,
+        requestParams: sanitizedRequestParams,
         ipAddress: req.ip,
         userAgent: req.headers?.['user-agent'],
       });
@@ -422,6 +475,19 @@ export class AiController {
 
       // 执行实际操作
       const result = await operation();
+      const executionChannel = this.extractExecutionChannel(result);
+
+      if (apiUsageId) {
+        try {
+          await this.creditsService.updateApiUsageRequestParams(apiUsageId, {
+            channel: executionChannel,
+          });
+        } catch (error) {
+          this.logger.warn(
+            `Failed to update apiUsage request params: ${this.summarizeError(error)}`,
+          );
+        }
+      }
 
       // 更新状态为成功
       const processingTime = Date.now() - startTime;
@@ -439,19 +505,49 @@ export class AiController {
       const errorMessage = error instanceof Error ? error.message : String(error);
 
       if (apiUsageId) {
-        await this.creditsService.updateApiUsageStatus(
-          apiUsageId,
-          ApiResponseStatus.FAILED,
-          errorMessage,
-          processingTime,
-        );
-
-        // 退还积分
+        let failedMarked = false;
         try {
-          await this.creditsService.refundCredits(userId, apiUsageId);
-          this.logger.debug(`Credits refunded for failed operation: ${apiUsageId}`);
-        } catch (refundError) {
-          this.logger.error('Failed to refund credits:', refundError);
+          await this.creditsService.updateApiUsageStatus(
+            apiUsageId,
+            ApiResponseStatus.FAILED,
+            errorMessage,
+            processingTime,
+          );
+          failedMarked = true;
+        } catch (statusError) {
+          this.logger.error(
+            `Failed to update api usage status to failed, fallback to markApiUsageFailedForUser: ${this.summarizeError(statusError)}`,
+          );
+        }
+
+        if (!failedMarked) {
+          try {
+            await this.creditsService.markApiUsageFailedForUser(
+              userId,
+              apiUsageId,
+              errorMessage,
+              processingTime,
+            );
+            failedMarked = true;
+          } catch (markError) {
+            this.logger.error(
+              `Failed to mark api usage as failed for refund fallback: ${this.summarizeError(markError)}`,
+            );
+          }
+        }
+
+        if (failedMarked) {
+          // 退还积分
+          try {
+            await this.creditsService.refundCredits(userId, apiUsageId);
+            this.logger.debug(`Credits refunded for failed operation: ${apiUsageId}`);
+          } catch (refundError) {
+            this.logger.error('Failed to refund credits:', refundError);
+          }
+        } else {
+          this.logger.error(
+            `Skip refund because api usage cannot be marked failed. apiUsageId=${apiUsageId}`,
+          );
         }
       }
 
@@ -938,7 +1034,7 @@ export class AiController {
         reasoning: result.reasoning,
         confidence: result.confidence,
       };
-    });
+    }, undefined, undefined, undefined, this.buildCreditRequestParams(providerName));
   }
 
   @Post('generate-image')
@@ -1108,7 +1204,7 @@ export class AiController {
         }
 
         throw new InternalServerErrorException('Image generation retry loop exhausted unexpectedly');
-      }, 0, 1, skipCredits, { imageSize: dto.imageSize });
+      }, 0, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }));
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(`[generate-image] 失败: ${errorMessage}`);
@@ -1179,11 +1275,29 @@ export class AiController {
           providerOptions: dto.providerOptions,
         });
         if (result.success && result.data) {
-          const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
+          if (result.data.imageData) {
+            const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
+            return {
+              imageData: watermarked,
+              textResponse: result.data.textResponse || '',
+              metadata: result.data.metadata,
+            };
+          }
+
+          const providerImageUrl = result.data.imageUrl || result.data.metadata?.imageUrl;
+          if (!providerImageUrl) {
+            throw new BadGatewayException('编辑成功但未返回图片数据');
+          }
+
+          const sourceImageDataUrl = await this.fetchImageAsDataUrl(providerImageUrl);
+          const watermarked = await this.watermarkIfNeeded(sourceImageDataUrl, req);
           return {
             imageData: watermarked,
             textResponse: result.data.textResponse || '',
-            metadata: result.data.metadata,
+            metadata: {
+              ...(result.data.metadata || {}),
+              sourceImageUrl: providerImageUrl,
+            },
           };
         }
         throw new Error(result.error?.message || 'Failed to edit image');
@@ -1193,7 +1307,7 @@ export class AiController {
       const data = await this.imageGeneration.editImage({ ...dto, sourceImage, customApiKey });
       const watermarked = await this.watermarkIfNeeded(data.imageData, req);
       return { ...data, imageData: watermarked };
-    }, 1, 1, skipCredits, { imageSize: dto.imageSize });
+    }, 1, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }));
   }
 
   @Post('blend-images')
@@ -1241,11 +1355,29 @@ export class AiController {
           providerOptions: dto.providerOptions,
         });
         if (result.success && result.data) {
-          const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
+          if (result.data.imageData) {
+            const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
+            return {
+              imageData: watermarked,
+              textResponse: result.data.textResponse || '',
+              metadata: result.data.metadata,
+            };
+          }
+
+          const providerImageUrl = result.data.imageUrl || result.data.metadata?.imageUrl;
+          if (!providerImageUrl) {
+            throw new BadGatewayException('融合成功但未返回图片数据');
+          }
+
+          const sourceImageDataUrl = await this.fetchImageAsDataUrl(providerImageUrl);
+          const watermarked = await this.watermarkIfNeeded(sourceImageDataUrl, req);
           return {
             imageData: watermarked,
             textResponse: result.data.textResponse || '',
-            metadata: result.data.metadata,
+            metadata: {
+              ...(result.data.metadata || {}),
+              sourceImageUrl: providerImageUrl,
+            },
           };
         }
         throw new Error(result.error?.message || 'Failed to blend images');
@@ -1255,7 +1387,7 @@ export class AiController {
       const data = await this.imageGeneration.blendImages({ ...dto, sourceImages, customApiKey });
       const watermarked = await this.watermarkIfNeeded(data.imageData, req);
       return { ...data, imageData: watermarked };
-    }, dto.sourceImages?.length || 0, 1, skipCredits, { imageSize: dto.imageSize });
+    }, dto.sourceImages?.length || 0, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }));
   }
 
   @Post('midjourney/action')

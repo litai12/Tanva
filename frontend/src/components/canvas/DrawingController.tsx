@@ -2766,6 +2766,37 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     simpleTextTool.selectedTextId,
   ]);
 
+  useEffect(() => {
+    try {
+      const selectedPaths = [
+        ...(selectionTool.selectedPath ? [selectionTool.selectedPath] : []),
+        ...((selectionTool.selectedPaths ?? []) as paper.Path[]),
+      ].filter((path): path is paper.Path => !!path);
+      const selectedTextIds = (simpleTextTool.textItems ?? [])
+        .filter((item) => item?.isSelected)
+        .map((item) => item.id);
+
+      (window as any).tanvaCanvasSelection = {
+        imageIds: [...(imageTool.selectedImageIds ?? [])],
+        modelIds: [...(model3DTool.selectedModel3DIds ?? [])],
+        textIds: selectedTextIds,
+        paths: selectedPaths,
+      };
+    } catch {}
+
+    return () => {
+      try {
+        delete (window as any).tanvaCanvasSelection;
+      } catch {}
+    };
+  }, [
+    imageTool.selectedImageIds,
+    model3DTool.selectedModel3DIds,
+    selectionTool.selectedPath,
+    selectionTool.selectedPaths,
+    simpleTextTool.textItems,
+  ]);
+
   const {
     createImageFromSnapshot,
     handleImageMultiSelect,

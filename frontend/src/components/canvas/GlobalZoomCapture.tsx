@@ -92,7 +92,7 @@ const GlobalZoomCapture = () => {
       if (!focus) return;
       const baseZoom = gestureStartZoomRef.current;
       const store = useCanvasStore.getState();
-      const targetZoom = clamp(baseZoom * event.scale, 0.1, 3);
+      const targetZoom = clamp(baseZoom * event.scale, 0.1, 4);
       const currentZoom = store.zoom || 1;
       if (Math.abs(targetZoom - currentZoom) < 1e-4) return;
       event.preventDefault();

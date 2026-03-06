@@ -13,6 +13,21 @@ import { ReferralService } from '../referral/referral.service';
 
 // 签到积分过期天数（普通用户）
 const DAILY_REWARD_EXPIRE_DAYS = 7;
+const STALE_PENDING_DEFAULT_TIMEOUT_MINUTES = 15;
+const STALE_PENDING_DEFAULT_BATCH_SIZE = 200;
+const STALE_PENDING_IMAGE_SERVICE_TYPES: ServiceType[] = [
+  'gemini-3-pro-image',
+  'gemini-3.1-image',
+  'gemini-2.5-image',
+  'gemini-image-edit',
+  'gemini-3.1-image-edit',
+  'gemini-2.5-image-edit',
+  'gemini-image-blend',
+  'gemini-3.1-image-blend',
+  'gemini-2.5-image-blend',
+  'midjourney-imagine',
+  'midjourney-variation',
+];
 
 export interface DeductCreditsResult {
   success: boolean;
@@ -49,6 +64,75 @@ export class CreditsService {
     @Inject(forwardRef(() => ReferralService))
     private referralService: ReferralService,
   ) {}
+
+  private asJsonObject(value: Prisma.JsonValue | null | undefined): Record<string, any> | null {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return value as Record<string, any>;
+    }
+    return null;
+  }
+
+  private normalizeChannel(raw: string | null | undefined): string | null {
+    if (!raw) return null;
+    const value = raw.trim().toLowerCase();
+    if (!value) return null;
+    if (value.includes('apimart')) return 'apimart';
+    if (value === 'legacy' || value.includes('147')) return '147';
+    return value;
+  }
+
+  private extractChannelFromApiUsage(apiUsage?: {
+    provider?: string | null;
+    model?: string | null;
+    requestParams?: Prisma.JsonValue | null;
+  } | null): string | null {
+    if (!apiUsage) return null;
+    const params = this.asJsonObject(apiUsage.requestParams);
+    const candidates = [
+      params?.channel,
+      params?.providerChannel,
+      params?.executionChannel,
+      params?.channelHint,
+    ];
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string') {
+        const normalized = this.normalizeChannel(candidate);
+        if (normalized) return normalized;
+      }
+    }
+
+    if (typeof apiUsage.model === 'string') {
+      const normalizedModel = apiUsage.model.toLowerCase();
+      if (normalizedModel.includes('147') || normalizedModel.includes('banana')) return '147';
+      if (normalizedModel.includes('apimart') || normalizedModel.includes('nano2')) return 'apimart';
+    }
+
+    if (apiUsage.provider === 'nano2') return 'apimart';
+    if (apiUsage.provider?.startsWith('banana')) return '147';
+    return null;
+  }
+
+  private parsePositiveIntEnv(name: string, fallback: number): number {
+    const raw = process.env[name];
+    if (!raw) return fallback;
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+    return parsed;
+  }
+
+  private getStalePendingTimeoutMinutes(): number {
+    return this.parsePositiveIntEnv(
+      'CREDITS_PENDING_TIMEOUT_MINUTES',
+      STALE_PENDING_DEFAULT_TIMEOUT_MINUTES,
+    );
+  }
+
+  private getStalePendingBatchSize(): number {
+    return this.parsePositiveIntEnv(
+      'CREDITS_PENDING_TIMEOUT_BATCH_SIZE',
+      STALE_PENDING_DEFAULT_BATCH_SIZE,
+    );
+  }
 
   /**
    * 判断用户是否为付费用户（有成功支付的订单）
@@ -206,6 +290,9 @@ export class CreditsService {
    */
   async preDeductCredits(params: ApiUsageParams): Promise<DeductCreditsResult> {
     const { userId, serviceType, model, inputTokens, outputTokens, inputImageCount, outputImageCount, requestParams, ipAddress, userAgent } = params;
+    const requestedProvider = typeof requestParams?.aiProvider === 'string'
+      ? requestParams.aiProvider.trim().toLowerCase()
+      : '';
 
     const pricing = CREDIT_PRICING_CONFIG[serviceType];
     if (!pricing) {
@@ -252,7 +339,7 @@ export class CreditsService {
           userId,
           serviceType,
           serviceName: pricing.serviceName,
-          provider: pricing.provider,
+          provider: requestedProvider || pricing.provider,
           model,
           creditsUsed: creditsToDeduct,
           inputTokens,
@@ -315,6 +402,39 @@ export class CreditsService {
         console.warn(`[Credits] 邀请奖励核验失败: ${e instanceof Error ? e.message : e}`);
       }
     }
+  }
+
+  async updateApiUsageRequestParams(
+    apiUsageId: string,
+    requestParamsPatch: Record<string, any>,
+  ): Promise<void> {
+    const sanitizedPatch = Object.fromEntries(
+      Object.entries(requestParamsPatch).filter(([_, value]) => {
+        if (value === undefined || value === null) return false;
+        if (typeof value === 'string') return value.trim().length > 0;
+        return true;
+      }),
+    );
+
+    if (Object.keys(sanitizedPatch).length === 0) return;
+
+    const apiUsage = await this.prisma.apiUsageRecord.findUnique({
+      where: { id: apiUsageId },
+      select: { requestParams: true },
+    });
+
+    if (!apiUsage) return;
+
+    const existingParams = this.asJsonObject(apiUsage.requestParams) || {};
+    await this.prisma.apiUsageRecord.update({
+      where: { id: apiUsageId },
+      data: {
+        requestParams: {
+          ...existingParams,
+          ...sanitizedPatch,
+        },
+      },
+    });
   }
 
   /**
@@ -435,6 +555,104 @@ export class CreditsService {
         transactionId: transaction.id,
       };
     });
+  }
+
+  /**
+   * 自动处理长时间 pending 的生图调用：
+   * - 标记为 failed
+   * - 执行积分退款（幂等）
+   */
+  async autoRefundStalePendingImageUsages(options?: {
+    timeoutMinutes?: number;
+    batchSize?: number;
+  }): Promise<{
+    scanned: number;
+    refunded: number;
+    skippedSuccess: number;
+    errors: number;
+    timeoutMinutes: number;
+    batchSize: number;
+  }> {
+    const timeoutMinutes = options?.timeoutMinutes ?? this.getStalePendingTimeoutMinutes();
+    const batchSize = options?.batchSize ?? this.getStalePendingBatchSize();
+    const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000);
+
+    const staleRecords = await this.prisma.apiUsageRecord.findMany({
+      where: {
+        responseStatus: ApiResponseStatus.PENDING,
+        serviceType: { in: STALE_PENDING_IMAGE_SERVICE_TYPES },
+        createdAt: { lt: cutoff },
+      },
+      orderBy: { createdAt: 'asc' },
+      take: batchSize,
+      select: {
+        id: true,
+        userId: true,
+        serviceType: true,
+        serviceName: true,
+        createdAt: true,
+      },
+    });
+
+    if (staleRecords.length === 0) {
+      return {
+        scanned: 0,
+        refunded: 0,
+        skippedSuccess: 0,
+        errors: 0,
+        timeoutMinutes,
+        batchSize,
+      };
+    }
+
+    let refunded = 0;
+    let skippedSuccess = 0;
+    let errors = 0;
+
+    for (const record of staleRecords) {
+      const processingTime = Math.max(0, Date.now() - record.createdAt.getTime());
+      const timeoutMessage = `超时自动关闭：${timeoutMinutes}分钟未完成`;
+
+      try {
+        await this.markApiUsageFailedForUser(
+          record.userId,
+          record.id,
+          timeoutMessage,
+          processingTime,
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes('成功的 API 调用不支持退款')) {
+          skippedSuccess += 1;
+          continue;
+        }
+        errors += 1;
+        this.logger.error(
+          `自动退款标记失败 apiUsageId=${record.id}, serviceType=${record.serviceType}, error=${message}`,
+        );
+        continue;
+      }
+
+      try {
+        await this.refundCredits(record.userId, record.id);
+        refunded += 1;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        errors += 1;
+        this.logger.error(
+          `自动退款失败 apiUsageId=${record.id}, serviceType=${record.serviceType}, error=${message}`,
+        );
+      }
+    }
+
+    return {
+      scanned: staleRecords.length,
+      refunded,
+      skippedSuccess,
+      errors,
+      timeoutMinutes,
+      batchSize,
+    };
   }
 
   /**
@@ -580,8 +798,55 @@ export class CreditsService {
       this.prisma.creditTransaction.count({ where }),
     ]);
 
+    const apiUsageIds = Array.from(
+      new Set(
+        transactions
+          .map((tx) => tx.apiUsageId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+
+    const apiUsageMap = new Map<
+      string,
+      {
+        provider: string;
+        model: string | null;
+        requestParams: Prisma.JsonValue | null;
+        responseStatus: string;
+        processingTime: number | null;
+      }
+    >();
+
+    if (apiUsageIds.length > 0) {
+      const apiUsages = await this.prisma.apiUsageRecord.findMany({
+        where: { id: { in: apiUsageIds } },
+        select: {
+          id: true,
+          provider: true,
+          model: true,
+          requestParams: true,
+          responseStatus: true,
+          processingTime: true,
+        },
+      });
+
+      for (const usage of apiUsages) {
+        apiUsageMap.set(usage.id, usage);
+      }
+    }
+
+    const enrichedTransactions = transactions.map((tx) => {
+      const usage = tx.apiUsageId ? apiUsageMap.get(tx.apiUsageId) : null;
+      return {
+        ...tx,
+        channel: this.extractChannelFromApiUsage(usage),
+        apiResponseStatus: usage?.responseStatus ?? null,
+        processingTime: usage?.processingTime ?? null,
+      };
+    });
+
     return {
-      transactions,
+      transactions: enrichedTransactions,
       pagination: {
         page,
         pageSize,

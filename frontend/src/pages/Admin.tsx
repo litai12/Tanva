@@ -711,6 +711,11 @@ const BANANA_PROVIDER_OPTIONS = [
     description: "优先使用 Apimart，失败后自动切换到 147",
   },
   {
+    value: "legacy_auto",
+    label: "自动切换（147优先）",
+    description: "优先使用 147，失败后自动切换到 Apimart",
+  },
+  {
     value: "apimart",
     label: "Apimart",
     description: "强制使用 Apimart (api.apimart.ai)",
@@ -1865,8 +1870,8 @@ function SettingsTab() {
       <div className='bg-white rounded-lg border p-6 shadow-sm'>
         <h3 className='text-lg font-semibold mb-4'>Banana 图像生成设置</h3>
         <p className='text-sm text-gray-500 mb-4'>
-          选择 Banana 图像能力底层使用的 API 供应商。自动模式会优先使用
-          Apimart，失败后自动切换到 147。
+          选择 Banana 图像能力底层使用的 API 供应商。支持两种自动模式：
+          Apimart 优先或 147 优先。
         </p>
         <div className='space-y-3'>
           {BANANA_PROVIDER_OPTIONS.map((option) => (
@@ -2443,7 +2448,7 @@ export default function Admin() {
   ] as const;
 
   return (
-    <div className='min-h-screen bg-gray-100'>
+    <div className='h-screen overflow-y-auto bg-gray-100'>
       {/* 顶部导航 */}
       <header className='bg-white border-b'>
         <div className='max-w-7xl mx-auto px-4 py-4 flex items-center justify-between'>

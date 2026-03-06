@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, TrendingUp, TrendingDown, Activity, Zap, Calendar, RefreshCw, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, TrendingUp, TrendingDown, Activity, Zap, RefreshCw, AlertTriangle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
@@ -27,6 +27,10 @@ interface Transaction {
   balanceAfter: number;
   description: string;
   createdAt: string;
+  apiUsageId?: string | null;
+  channel?: string | null;
+  apiResponseStatus?: string | null;
+  processingTime?: number | null;
 }
 
 interface ApiUsageRecord {
@@ -119,7 +123,7 @@ const MyCredits: React.FC = () => {
   const [dailyRewardClaiming, setDailyRewardClaiming] = useState(false);
   const [expiringCredits, setExpiringCredits] = useState<ExpiringCreditsInfo | null>(null);
   const [checkInCalendar, setCheckInCalendar] = useState<CheckInCalendar | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'transactions' | 'usage'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'transactions'>('overview');
 
   useEffect(() => {
     loadData();
@@ -131,8 +135,10 @@ const MyCredits: React.FC = () => {
       const [creditsData, transactionsData, usageData, expiringData, calendarData] = await Promise.all([
         getMyCredits(),
         getMyTransactions({ pageSize: 100 }),
-        // API 最多支持 100 条，超过会导致 400，进而使积分信息也拿不到
-        getMyApiUsage({ pageSize: 100 }),
+        getMyApiUsage({ pageSize: 100 }).catch((error) => {
+          console.warn('Failed to load API overview stats:', error);
+          return { records: [] as ApiUsageRecord[] };
+        }),
         getExpiringCredits(),
         getCheckInCalendar(),
       ]);
@@ -179,13 +185,15 @@ const MyCredits: React.FC = () => {
     }
   };
 
-  // 计算每日消耗趋势（最近14天）
+  const currentLocale = i18n.resolvedLanguage?.toLowerCase().startsWith('en')
+    ? 'en-US'
+    : 'zh-CN';
+
   const dailyUsageData = useMemo(() => {
     const days = 14;
     const now = new Date();
     const dailyMap = new Map<string, number>();
 
-    // 初始化最近14天
     for (let i = days - 1; i >= 0; i--) {
       const date = new Date(now);
       date.setDate(date.getDate() - i);
@@ -193,7 +201,6 @@ const MyCredits: React.FC = () => {
       dailyMap.set(key, 0);
     }
 
-    // 统计消耗
     transactions
       .filter(t => t.type === 'spend')
       .forEach(t => {
@@ -206,10 +213,6 @@ const MyCredits: React.FC = () => {
 
     return Array.from(dailyMap.entries()).map(([date, value]) => ({ date, value }));
   }, [transactions]);
-
-  const currentLocale = i18n.resolvedLanguage?.toLowerCase().startsWith('en')
-    ? 'en-US'
-    : 'zh-CN';
 
   const getServiceTypeLabel = (serviceType: string) => {
     const translationKey = SERVICE_TYPE_TRANSLATION_KEYS[serviceType];
@@ -246,13 +249,19 @@ const MyCredits: React.FC = () => {
       .reduce((sum, t) => sum + Math.abs(t.amount), 0);
   }, [transactions]);
 
-  // 最近7天消耗
   const weekSpent = useMemo(() => {
     const now = new Date();
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     return transactions
       .filter(t => t.type === 'spend' && new Date(t.createdAt) >= weekAgo)
       .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+  }, [transactions]);
+
+  const latestGenerationTime = useMemo(() => {
+    const latestSpendTx = transactions
+      .filter(t => t.type === 'spend')
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+    return latestSpendTx?.createdAt ?? null;
   }, [transactions]);
 
   if (loading) {
@@ -295,7 +304,7 @@ const MyCredits: React.FC = () => {
         </div>
       </div>
 
-      <div className="max-w-4xl px-4 py-6 mx-auto space-y-6">
+      <div className="max-w-4xl px-4 py-5 mx-auto space-y-4">
         {/* 积分概览卡片 */}
         <div className="p-6 text-white shadow-xl bg-gradient-to-br from-blue-500 to-indigo-600 rounded-3xl">
           <div className="flex items-start justify-between">
@@ -322,6 +331,12 @@ const MyCredits: React.FC = () => {
               <div className="text-xs text-blue-100">{t('creditsPage.summary.todaySpent')}</div>
               <div className="text-xl font-semibold">-{todaySpent}</div>
             </div>
+          </div>
+          <div className="mt-4 text-xs text-blue-100/90">
+            {t('creditsPage.summary.latestGenerationTime')}：
+            {latestGenerationTime
+              ? ` ${new Date(latestGenerationTime).toLocaleString(currentLocale)}`
+              : ` ${t('creditsPage.summary.noGenerationYet')}`}
           </div>
         </div>
 
@@ -367,18 +382,16 @@ const MyCredits: React.FC = () => {
           </div>
         )}
 
-        {/* Tab 切换 */}
         <div className="flex gap-2 bg-white rounded-2xl p-1.5 shadow-sm">
           {[
             { id: 'overview', label: t('creditsPage.tabs.overview'), icon: Activity },
             { id: 'transactions', label: t('creditsPage.tabs.transactions'), icon: TrendingUp },
-            { id: 'usage', label: t('creditsPage.tabs.usage'), icon: Calendar },
           ].map(tab => {
             const Icon = tab.icon;
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
+                onClick={() => setActiveTab(tab.id as 'overview' | 'transactions')}
                 className={cn(
                   "flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all",
                   activeTab === tab.id
@@ -393,10 +406,8 @@ const MyCredits: React.FC = () => {
           })}
         </div>
 
-        {/* 概览 Tab */}
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            {/* 消耗趋势图 */}
             <div className="p-5 bg-white shadow-sm rounded-2xl">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-medium text-slate-700">{t('creditsPage.overview.trendTitle')}</h3>
@@ -412,7 +423,6 @@ const MyCredits: React.FC = () => {
               />
             </div>
 
-            {/* 服务使用统计 */}
             <div className="p-5 bg-white shadow-sm rounded-2xl">
               <h3 className="mb-4 font-medium text-slate-700">{t('creditsPage.overview.serviceStatsTitle')}</h3>
               {usageByService.length === 0 ? (
@@ -448,97 +458,71 @@ const MyCredits: React.FC = () => {
           </div>
         )}
 
-        {/* 交易记录 Tab */}
         {activeTab === 'transactions' && (
           <div className="overflow-hidden bg-white shadow-sm rounded-2xl">
-            <div className="p-4 border-b border-slate-100">
-              <h3 className="font-medium text-slate-700">{t('creditsPage.transactions.title')}</h3>
-            </div>
             {transactions.length === 0 ? (
               <div className="py-12 text-sm text-center text-slate-400">{t('creditsPage.transactions.empty')}</div>
             ) : (
-              <div className="max-h-[520px] overflow-y-auto divide-y divide-slate-100">
-                {transactions.slice(0, 50).map(tx => {
-                  const isPositive = tx.amount > 0;
-                  return (
-                    <div key={tx.id} className="flex items-center justify-between px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className={cn(
-                          "w-8 h-8 rounded-full flex items-center justify-center",
-                          isPositive ? "bg-green-100" : "bg-orange-100"
-                        )}>
-                          {isPositive ? (
-                            <TrendingUp className="w-4 h-4 text-green-600" />
-                          ) : (
-                            <TrendingDown className="w-4 h-4 text-orange-600" />
-                          )}
-                        </div>
-                        <div>
-                          <div className="text-sm text-slate-700">{tx.description}</div>
-                          <div className="text-xs text-slate-400">
-                            {new Date(tx.createdAt).toLocaleString(currentLocale)}
-                          </div>
-                        </div>
-                      </div>
-                      <div className={cn(
-                        "font-medium",
-                        isPositive ? "text-green-600" : "text-orange-600"
-                      )}>
-                        {isPositive ? '+' : ''}{tx.amount}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
+              <div className="max-h-[560px] overflow-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="sticky top-0 z-10 bg-slate-50">
+                    <tr className="text-xs font-medium text-slate-500">
+                      <th className="px-4 py-3 text-left">{t('creditsPage.transactions.columns.item')}</th>
+                      <th className="px-4 py-3 text-right">{t('creditsPage.transactions.columns.amount')}</th>
+                      <th className="px-4 py-3 text-left">{t('creditsPage.transactions.columns.generatedAt')}</th>
+                      <th className="px-4 py-3 text-left">{t('creditsPage.transactions.columns.duration')}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {transactions.slice(0, 50).map(tx => {
+                      const isPositive = tx.amount > 0;
+                      const durationSeconds = typeof tx.processingTime === 'number'
+                        ? Math.max(0, Math.round(tx.processingTime / 1000))
+                        : null;
 
-        {/* API 使用 Tab */}
-        {activeTab === 'usage' && (
-          <div className="overflow-hidden bg-white shadow-sm rounded-2xl">
-            <div className="p-4 border-b border-slate-100">
-              <h3 className="font-medium text-slate-700">{t('creditsPage.usage.title')}</h3>
-            </div>
-            {apiUsage.length === 0 ? (
-              <div className="py-12 text-sm text-center text-slate-400">{t('creditsPage.usage.empty')}</div>
-            ) : (
-              <div className="max-h-[520px] overflow-y-auto divide-y divide-slate-100">
-                {apiUsage.slice(0, 50).map(record => (
-                  <div key={record.id} className="px-4 py-3">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm font-medium text-slate-700">
-                        {getServiceTypeLabel(record.serviceType) || record.serviceName}
-                      </span>
-                      <span className={cn(
-                        "text-xs px-2 py-0.5 rounded-full",
-                        record.responseStatus === 'success'
-                          ? "bg-green-100 text-green-700"
-                          : record.responseStatus === 'failed'
-                          ? "bg-red-100 text-red-700"
-                          : "bg-yellow-100 text-yellow-700"
-                      )}>
-                        {record.responseStatus === 'success'
-                          ? t('creditsPage.usage.status.success')
-                          : record.responseStatus === 'failed'
-                          ? t('creditsPage.usage.status.failed')
-                          : t('creditsPage.usage.status.pending')}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs text-slate-400">
-                      <span>{new Date(record.createdAt).toLocaleString(currentLocale)}</span>
-                      {record.responseStatus === 'failed' ? (
-                        <span className="text-green-600">
-                          {t('creditsPage.usage.refunded', { credits: record.creditsUsed })}
-                        </span>
-                      ) : (
-                        <span className="text-orange-600">
-                          {t('creditsPage.usage.deducted', { credits: record.creditsUsed })}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                      return (
+                        <tr key={tx.id} className="hover:bg-slate-50/60">
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <div className={cn(
+                                "w-7 h-7 rounded-full flex items-center justify-center",
+                                isPositive ? "bg-green-100" : "bg-orange-100"
+                              )}>
+                                {isPositive ? (
+                                  <TrendingUp className="w-3.5 h-3.5 text-green-600" />
+                                ) : (
+                                  <TrendingDown className="w-3.5 h-3.5 text-orange-600" />
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="font-medium text-slate-700 truncate max-w-[240px]">{tx.description}</div>
+                                {tx.channel && (
+                                  <div className="text-xs text-slate-500">
+                                    {t('creditsPage.transactions.channel', { channel: tx.channel })}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td className={cn(
+                            "px-4 py-3 text-right font-semibold",
+                            isPositive ? "text-green-600" : "text-orange-600"
+                          )}>
+                            {isPositive ? '+' : ''}{tx.amount}
+                          </td>
+                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                            {new Date(tx.createdAt).toLocaleString(currentLocale)}
+                          </td>
+                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                            {durationSeconds !== null
+                              ? `${durationSeconds}${t('creditsPage.transactions.durationUnit')}`
+                              : t('creditsPage.transactions.notAvailable')}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>

@@ -24,4 +24,22 @@ export class CreditsSchedulerService {
       this.logger.error('签到积分过期清理失败:', error);
     }
   }
+
+  /**
+   * 每 5 分钟执行一次：处理长时间 pending 的生图调用并自动退款
+   */
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  async handleStalePendingAutoRefund() {
+    try {
+      const result = await this.creditsService.autoRefundStalePendingImageUsages();
+
+      if (result.scanned > 0 || result.errors > 0) {
+        this.logger.log(
+          `pending超时自动退款完成: scanned=${result.scanned}, refunded=${result.refunded}, skippedSuccess=${result.skippedSuccess}, errors=${result.errors}, timeoutMinutes=${result.timeoutMinutes}`,
+        );
+      }
+    } catch (error) {
+      this.logger.error('pending超时自动退款任务失败:', error);
+    }
+  }
 }

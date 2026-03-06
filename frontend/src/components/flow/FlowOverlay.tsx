@@ -7924,10 +7924,14 @@ function FlowInner() {
         );
 
         try {
+          const nano2AspectRatio = (() => {
+            const raw = (node.data as any)?.aspectRatio;
+            return typeof raw === "string" && raw.trim().length ? raw.trim() : undefined;
+          })();
           const result = await generateImageViaAPI({
             prompt: promptText,
             aiProvider: "nano2",
-            aspectRatio: (node.data as any)?.aspectRatio || "16:9",
+            aspectRatio: nano2AspectRatio,
             imageSize: (node.data as any)?.resolution || "1K",
             imageUrls: imageDatas.length > 0 ? imageDatas : undefined,
             googleSearch: (node.data as any)?.googleSearch,

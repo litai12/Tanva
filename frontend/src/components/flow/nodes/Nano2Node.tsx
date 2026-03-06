@@ -41,7 +41,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
   const { status, error } = data;
 
   // 参数值
-  const aspectRatioValue = data.aspectRatio ?? "16:9";
+  const aspectRatioValue = data.aspectRatio ?? "";
   const resolutionValue = data.resolution ?? "1K";
   const googleSearchValue = data.googleSearch ?? false;
   const googleImageSearchValue = data.googleImageSearch ?? false;
@@ -113,7 +113,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
     (value: string) => {
       window.dispatchEvent(
         new CustomEvent("flow:updateNodeData", {
-          detail: { id, patch: { aspectRatio: value } },
+          detail: { id, patch: { aspectRatio: value || undefined } },
         })
       );
     },
@@ -291,6 +291,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
           onPointerDownCapture={stopNodeDrag}
           onMouseDownCapture={stopNodeDrag}
         >
+          <option value="">自动</option>
           <option value="1:1">1:1 正方形</option>
           <option value="3:2">3:2 横向照片</option>
           <option value="2:3">2:3 竖向照片</option>

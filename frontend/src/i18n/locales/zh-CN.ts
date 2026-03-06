@@ -314,6 +314,8 @@ const zhCN = {
       earned: "累计获得",
       spent: "累计消耗",
       todaySpent: "今日消耗",
+      latestGenerationTime: "最近生成时间",
+      noGenerationYet: "暂无生成记录",
     },
     expiring: {
       title: "您有 {{total}} 积分即将过期",
@@ -324,7 +326,7 @@ const zhCN = {
     paidUserBadge: "付费用户 - 签到积分永久有效",
     tabs: {
       overview: "概览",
-      transactions: "交易记录",
+      transactions: "积分记录",
       usage: "API 使用",
     },
     overview: {
@@ -335,8 +337,20 @@ const zhCN = {
       usageItem: "{{count}} 次 / {{credits}} 积分",
     },
     transactions: {
-      title: "交易记录",
-      empty: "暂无交易记录",
+      title: "积分记录",
+      empty: "暂无积分记录",
+      generationTime: "生成时间",
+      recordTime: "记录时间",
+      columns: {
+        item: "项目",
+        status: "状态",
+        amount: "积分",
+        generatedAt: "生成时间",
+        duration: "花费时间",
+      },
+      durationUnit: "秒",
+      notAvailable: "--",
+      channel: "渠道：{{channel}}",
     },
     usage: {
       title: "API 调用记录",
