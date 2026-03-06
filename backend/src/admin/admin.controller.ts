@@ -25,6 +25,7 @@ import {
   ApiUsageRecordsQueryDto,
   UpdateUserStatusDto,
   UpdateUserRoleDto,
+  CreditChangeRecordsQueryDto,
 } from './dto/admin.dto';
 import {
   CreateTemplateDto,
@@ -384,6 +385,23 @@ export class AdminController {
       page: query.page ? parseInt(query.page) : 1,
       pageSize: query.pageSize ? parseInt(query.pageSize) : 10,
       search: query.search,
+    });
+  }
+
+  @Get('credit-change-records')
+  @ApiOperation({ summary: '获取积分变更记录（充值 + 后台手动调整）' })
+  async getCreditChangeRecords(
+    @Request() req: AuthenticatedRequest,
+    @Query() query: CreditChangeRecordsQueryDto,
+  ) {
+    this.checkAdmin(req);
+    return this.adminService.getCreditChangeRecords({
+      page: query.page,
+      pageSize: query.pageSize,
+      search: query.search,
+      source: query.source,
+      startDate: query.startDate ? new Date(query.startDate) : undefined,
+      endDate: query.endDate ? new Date(query.endDate) : undefined,
     });
   }
 

@@ -19,6 +19,7 @@ import {
   addToWatermarkWhitelist,
   removeFromWatermarkWhitelist,
   getPaidUsers,
+  getCreditChangeRecords,
   getNodeConfigs,
   updateNodeConfig,
   createNodeConfig,
@@ -30,6 +31,7 @@ import {
   type SystemSetting,
   type WatermarkWhitelistUser,
   type PaidUser,
+  type CreditChangeRecord,
   type NodeConfig,
 } from "@/services/adminApi";
 import {
@@ -1693,6 +1695,192 @@ function PaidUsersTab() {
   );
 }
 
+// 积分变更记录 Tab
+function CreditChangeRecordsTab() {
+  const [records, setRecords] = useState<CreditChangeRecord[]>([]);
+  const [pagination, setPagination] = useState<Pagination | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [source, setSource] = useState<"all" | "recharge" | "admin_add" | "admin_deduct">("all");
+
+  const loadRecords = async () => {
+    setLoading(true);
+    try {
+      const result = await getCreditChangeRecords({
+        page,
+        pageSize: 20,
+        search,
+        source,
+      });
+      setRecords(result.records);
+      setPagination(result.pagination);
+    } catch (error) {
+      console.error("加载积分变更记录失败:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadRecords();
+  }, [page, search, source]);
+
+  const sourceText: Record<string, string> = {
+    recharge: "充值到账",
+    admin_add: "后台加积分",
+    admin_deduct: "后台扣积分",
+  };
+
+  const sourceClass: Record<string, string> = {
+    recharge: "bg-green-100 text-green-700",
+    admin_add: "bg-blue-100 text-blue-700",
+    admin_deduct: "bg-red-100 text-red-700",
+  };
+
+  return (
+    <div>
+      <div className='mb-4 flex gap-2 flex-wrap'>
+        <Input
+          placeholder='搜索手机号/邮箱/昵称'
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className='max-w-xs'
+        />
+        <select
+          value={source}
+          onChange={(e) => {
+            setPage(1);
+            setSource(e.target.value as "all" | "recharge" | "admin_add" | "admin_deduct");
+          }}
+          className='border rounded px-3 py-2 text-sm'
+        >
+          <option value='all'>全部来源</option>
+          <option value='recharge'>充值到账</option>
+          <option value='admin_add'>后台加积分</option>
+          <option value='admin_deduct'>后台扣积分</option>
+        </select>
+        <Button
+          onClick={() => {
+            setPage(1);
+            loadRecords();
+          }}
+        >
+          搜索
+        </Button>
+      </div>
+
+      <div className='bg-white rounded-lg border overflow-hidden'>
+        <div className='max-h-[900px] overflow-auto'>
+          <table className='w-full text-sm'>
+            <thead className='bg-gray-50'>
+              <tr>
+                <th className='px-4 py-3 text-left'>时间</th>
+                <th className='px-4 py-3 text-left'>用户</th>
+                <th className='px-4 py-3 text-left'>来源</th>
+                <th className='px-4 py-3 text-right'>变更积分</th>
+                <th className='px-4 py-3 text-right'>变更后余额</th>
+                <th className='px-4 py-3 text-left'>管理员</th>
+                <th className='px-4 py-3 text-left'>支付信息</th>
+                <th className='px-4 py-3 text-left'>备注</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={8} className='px-4 py-8 text-center text-gray-500'>
+                    加载中...
+                  </td>
+                </tr>
+              ) : records.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className='px-4 py-8 text-center text-gray-500'>
+                    暂无记录
+                  </td>
+                </tr>
+              ) : (
+                records.map((record) => (
+                  <tr key={record.id} className='border-t hover:bg-gray-50'>
+                    <td className='px-4 py-3 text-xs text-gray-500 whitespace-nowrap'>
+                      {new Date(record.createdAt).toLocaleString()}
+                    </td>
+                    <td className='px-4 py-3'>
+                      <div>{record.user.name || "-"}</div>
+                      <div className='text-xs text-gray-400'>{record.user.phone}</div>
+                    </td>
+                    <td className='px-4 py-3'>
+                      <span className={`px-2 py-1 rounded text-xs ${sourceClass[record.source] || "bg-gray-100 text-gray-700"}`}>
+                        {sourceText[record.source] || record.source}
+                      </span>
+                    </td>
+                    <td className={`px-4 py-3 text-right font-medium ${record.amount >= 0 ? "text-green-600" : "text-red-600"}`}>
+                      {record.amount >= 0 ? "+" : ""}
+                      {record.amount}
+                    </td>
+                    <td className='px-4 py-3 text-right text-blue-600 font-medium'>
+                      {record.balanceAfter}
+                    </td>
+                    <td className='px-4 py-3'>
+                      {record.admin ? (
+                        <div>
+                          <div>{record.admin.name || "-"}</div>
+                          <div className='text-xs text-gray-400'>{record.admin.phone}</div>
+                        </div>
+                      ) : (
+                        <span className='text-gray-400'>-</span>
+                      )}
+                    </td>
+                    <td className='px-4 py-3'>
+                      {record.payment ? (
+                        <div className='text-xs'>
+                          <div className='font-medium text-gray-700'>¥{record.payment.amount.toFixed(2)}</div>
+                          <div className='text-gray-400'>{record.payment.orderNo}</div>
+                        </div>
+                      ) : (
+                        <span className='text-gray-400'>-</span>
+                      )}
+                    </td>
+                    <td className='px-4 py-3 text-xs text-gray-500 max-w-[280px] truncate' title={record.description}>
+                      {record.description}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {pagination && pagination.totalPages > 1 && (
+        <div className='mt-4 flex items-center justify-center gap-4'>
+          <span className='text-sm text-gray-500'>共 {pagination.total} 条记录</span>
+          <div className='flex items-center gap-2'>
+            <Button
+              variant='outline'
+              size='sm'
+              disabled={page === 1}
+              onClick={() => setPage(page - 1)}
+            >
+              上一页
+            </Button>
+            <span className='px-4 py-2 text-sm'>
+              {page} / {pagination.totalPages}
+            </span>
+            <Button
+              variant='outline'
+              size='sm'
+              disabled={page === pagination.totalPages}
+              onClick={() => setPage(page + 1)}
+            >
+              下一页
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // 系统设置 Tab
 function SettingsTab() {
   const [settings, setSettings] = useState<SystemSetting[]>([]);
@@ -2392,6 +2580,7 @@ export default function Admin() {
     | "dashboard"
     | "users"
     | "paid-users"
+    | "credit-records"
     | "api-stats"
     | "api-records"
     | "watermark"
@@ -2439,6 +2628,7 @@ export default function Admin() {
     { key: "dashboard", label: "概览" },
     { key: "users", label: "用户管理" },
     { key: "paid-users", label: "付费用户" },
+    { key: "credit-records", label: "积分记录" },
     { key: "api-stats", label: "API统计" },
     { key: "api-records", label: "API记录" },
     { key: "watermark", label: "水印白名单" },
@@ -2517,6 +2707,7 @@ export default function Admin() {
 
         {activeTab === "users" && <UsersTab />}
         {activeTab === "paid-users" && <PaidUsersTab />}
+        {activeTab === "credit-records" && <CreditChangeRecordsTab />}
         {activeTab === "api-stats" && <ApiStatsTab />}
         {activeTab === "api-records" && <ApiRecordsTab />}
         {activeTab === "watermark" && <WatermarkWhitelistTab />}

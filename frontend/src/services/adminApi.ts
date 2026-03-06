@@ -543,6 +543,58 @@ export async function getPaidUsers(params?: {
   return response.json();
 }
 
+export type CreditRecordSource = "recharge" | "admin_add" | "admin_deduct";
+
+export interface CreditChangeRecord {
+  id: string;
+  source: CreditRecordSource;
+  amount: number;
+  balanceBefore: number;
+  balanceAfter: number;
+  description: string;
+  createdAt: string;
+  user: {
+    id: string;
+    phone: string;
+    email: string | null;
+    name: string | null;
+  };
+  admin: {
+    id: string;
+    phone: string;
+    email: string | null;
+    name: string | null;
+  } | null;
+  payment: {
+    id: string;
+    orderNo: string;
+    amount: number;
+    paymentMethod: string;
+    paidAt: string | null;
+  } | null;
+}
+
+// 获取积分变更记录（充值 + 后台手动调整）
+export async function getCreditChangeRecords(params?: {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  source?: "all" | CreditRecordSource;
+  startDate?: string;
+  endDate?: string;
+}): Promise<{ records: CreditChangeRecord[]; pagination: Pagination }> {
+  const searchParams = new URLSearchParams();
+  if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
+  if (params?.search) searchParams.set("search", params.search);
+  if (params?.source) searchParams.set("source", params.source);
+  if (params?.startDate) searchParams.set("startDate", params.startDate);
+  if (params?.endDate) searchParams.set("endDate", params.endDate);
+
+  const response = await request(`/api/admin/credit-change-records?${searchParams}`);
+  return response.json();
+}
+
 // ==================== 节点配置管理 ====================
 
 export interface NodeConfig {
