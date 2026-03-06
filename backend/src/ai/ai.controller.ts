@@ -44,6 +44,7 @@ import { CreditsService } from '../credits/credits.service';
 import { ServiceType } from '../credits/credits.config';
 import { ApiResponseStatus } from '../credits/dto/credits.dto';
 import { GenerateVideoDto } from './dto/video-generation.dto';
+import { CreateSora2CharacterDto } from './dto/sora2-character.dto';
 import { VeoGenerateVideoDto, VeoVideoResponseDto, VeoModelsResponseDto } from './dto/veo-video.dto';
 import { Sora2VideoService } from './services/sora2-video.service';
 import { VeoVideoService } from './services/veo-video.service';
@@ -1625,7 +1626,12 @@ export class AiController {
   async generateVideo(@Body() dto: GenerateVideoDto, @Req() req: any) {
     const quality = dto.quality === 'sd' ? 'sd' : 'hd';
     const serviceType: ServiceType = quality === 'sd' ? 'sora-sd' : 'sora-hd';
-    const model = this.sora2VideoService.getModelForQuality(quality);
+    const selectedSoraModel =
+      dto.model === 'sora-2' || dto.model === 'sora-2-vip' || dto.model === 'sora-2-pro'
+        ? dto.model
+        : quality === 'hd'
+        ? 'sora-2-pro'
+        : 'sora-2';
     const normalizedArray =
       dto.referenceImageUrls?.filter((url) => typeof url === 'string' && url.trim().length > 0) ||
       [];
@@ -1640,7 +1646,7 @@ export class AiController {
     return this.withCredits(
       req,
       serviceType,
-      model,
+      selectedSoraModel,
       async () => {
         const result = await this.sora2VideoService.generateVideo({
           prompt: dto.prompt,
@@ -1648,6 +1654,15 @@ export class AiController {
           quality,
           aspectRatio: dto.aspectRatio,
           duration: dto.duration,
+          model: dto.model,
+          watermark: dto.watermark,
+          thumbnail: dto.thumbnail,
+          privateMode: dto.privateMode,
+          style: dto.style,
+          storyboard: dto.storyboard,
+          characterUrl: dto.characterUrl,
+          characterTimestamps: dto.characterTimestamps,
+          characterTaskId: dto.characterTaskId,
         });
 
         if (!result?.videoUrl) {
@@ -1706,7 +1721,35 @@ export class AiController {
       },
       inputImageCount,
       0,
+      undefined,
+      {
+        quality,
+        soraModel: selectedSoraModel,
+        aspectRatio: dto.aspectRatio,
+        duration: dto.duration,
+      },
     );
+  }
+
+  @Post('sora2/character/create')
+  async createSora2Character(@Body() dto: CreateSora2CharacterDto) {
+    if (!dto.url && !dto.fromTask) {
+      throw new BadRequestException('参数 url 和 fromTask 需二选一');
+    }
+    return this.sora2VideoService.createCharacterTask({
+      model: dto.model,
+      timestamps: dto.timestamps,
+      url: dto.url,
+      fromTask: dto.fromTask,
+    });
+  }
+
+  @Get('sora2/character/:taskId')
+  async querySora2Character(@Param('taskId') taskId: string) {
+    if (!taskId || !taskId.trim()) {
+      throw new BadRequestException('taskId 不能为空');
+    }
+    return this.sora2VideoService.queryCharacterTask(taskId.trim());
   }
 
   /**

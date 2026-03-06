@@ -7,9 +7,10 @@ import {
 import { PrismaService } from "../../prisma/prisma.service";
 
 type VideoQuality = "hd" | "sd";
+type Sora2GenerationModel = "sora-2" | "sora-2-vip" | "sora-2-pro";
 
 // Sora2 供应商类型
-export type Sora2Provider = "auto" | "v2" | "legacy";
+export type Sora2Provider = "auto" | "v2" | "legacy" | "apimart";
 
 // 系统设置键名
 export const SORA2_PROVIDER_SETTING_KEY = "sora2_provider";
@@ -31,6 +32,20 @@ const SORA2_RETRY_BASE_DELAY_MS = 1200;
 const SORA2_POLL_INTERVAL_MS = 5000;
 const SORA2_POLL_MAX_ATTEMPTS = 120;
 const SORA2_POLL_STATUSES = ["queued", "processing", "downloading", "pending"];
+
+// ==================== APIMart Sora2 Pro 配置 ====================
+const SORA2_APIMART_POLL_INTERVAL_MS = 5000;
+const SORA2_APIMART_POLL_MAX_ATTEMPTS = 180;
+const SORA2_APIMART_FETCH_TIMEOUT_MS = 15000;
+const SORA2_APIMART_FAILED_STATUSES = ["failed", "error", "cancelled", "terminated"];
+const SORA2_APIMART_ALLOWED_STYLES = new Set([
+  "thanksgiving",
+  "comic",
+  "news",
+  "selfie",
+  "nostalgic",
+  "anime",
+]);
 
 // ==================== 新API (Sora2 Pro - newapi.megabyai.cc) 配置 ====================
 // 使用 OpenAI 兼容接口 /v1/videos
@@ -68,10 +83,46 @@ interface GenerateVideoOptions {
   prompt: string;
   referenceImageUrls?: string[];
   quality?: VideoQuality;
+  /** APIMart 模型 */
+  model?: Sora2GenerationModel;
   /** 画面比例，仅极速 Sora2 支持，例如 '16:9' | '9:16' */
   aspectRatio?: "16:9" | "9:16";
   /** 时长（秒），仅极速 Sora2 支持，例如 '10' | '15' | '25' */
   duration?: "10" | "15" | "25";
+  /** APIMart 可选高级参数 */
+  watermark?: boolean;
+  thumbnail?: boolean;
+  privateMode?: boolean;
+  style?: string;
+  storyboard?: boolean;
+  characterUrl?: string;
+  characterTimestamps?: string;
+  characterTaskId?: string;
+}
+
+interface CreateCharacterTaskOptions {
+  model?: "sora-2" | "sora-2-pro";
+  timestamps: string;
+  url?: string;
+  fromTask?: string;
+}
+
+type Sora2CharacterInfo = {
+  id?: string;
+  display_name?: string;
+  profile_picture_url?: string;
+  username?: string;
+};
+
+interface Sora2CharacterTaskResult {
+  id?: string;
+  status?: string;
+  progress?: number;
+  result?: {
+    characters?: Sora2CharacterInfo[];
+    [key: string]: any;
+  };
+  [key: string]: any;
 }
 
 export interface Sora2VideoResult {
@@ -100,6 +151,13 @@ export class Sora2VideoService {
   // 新API (Sora2 Pro - newapi.megabyai.cc)
   private readonly apiBaseV2 = "https://newapi.megabyai.cc";
   private readonly apiKeyV2 = process.env.NEW_API_KEY;
+  // APIMart API（支持完整 Sora2 Pro 参数与角色管理）
+  private readonly apiBaseApimart =
+    process.env.SORA2_APIMART_API_ENDPOINT || "https://api.apimart.ai";
+  private readonly apiKeyApimart =
+    process.env.SORA2_APIMART_API_KEY ||
+    process.env.APIMART_API_KEY ||
+    process.env.NANO2_API_KEY;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -111,7 +169,7 @@ export class Sora2VideoService {
       const setting = await this.prisma.systemSetting.findUnique({
         where: { key: SORA2_PROVIDER_SETTING_KEY },
       });
-      if (setting && ["auto", "v2", "legacy"].includes(setting.value)) {
+      if (setting && ["auto", "v2", "legacy", "apimart"].includes(setting.value)) {
         return setting.value as Sora2Provider;
       }
     } catch (error) {
@@ -132,6 +190,15 @@ export class Sora2VideoService {
   ): Promise<Sora2VideoResult> {
     const provider = await this.getConfiguredProvider();
     this.logger.log(`当前 Sora2 供应商配置: ${provider}`);
+    const wantsApimart = this.hasApimartOnlyOptions(options);
+
+    if (provider === "apimart") {
+      if (!this.apiKeyApimart) {
+        throw new ServiceUnavailableException("APIMart Sora2 API Key 未配置");
+      }
+      this.logger.log("使用 APIMart Sora2 API (强制)");
+      return await this.generateVideoApimart(options);
+    }
 
     // 根据配置选择供应商
     if (provider === "v2") {
@@ -152,7 +219,21 @@ export class Sora2VideoService {
       return await this.generateVideoLegacy(options);
     }
 
-    // auto 模式：首选Sora2 Pro，失败后回退到普通Sora2
+    // auto 模式：如启用 Pro 参数，优先 APIMart
+    if (this.apiKeyApimart && wantsApimart) {
+      try {
+        this.logger.log("尝试使用 APIMart Sora2 API...");
+        return await this.generateVideoApimart(options);
+      } catch (error) {
+        this.logger.warn(
+          `APIMart Sora2 API失败，准备切换: ${
+            error instanceof Error ? error.message : error
+          }`
+        );
+      }
+    }
+
+    // auto 模式：其次 Sora2 Pro，失败后回退到普通 Sora2
     if (this.apiKeyV2) {
       try {
         this.logger.log("尝试使用Sora2 Pro API...");
@@ -180,6 +261,429 @@ export class Sora2VideoService {
       result.fallbackMessage = "Sora2 Pro过于繁忙，已为您切换到普通Sora2";
     }
     return result;
+  }
+
+  async createCharacterTask(options: CreateCharacterTaskOptions) {
+    if (!this.apiKeyApimart) {
+      throw new ServiceUnavailableException("APIMart Sora2 API Key 未配置");
+    }
+    if (!options.url && !options.fromTask) {
+      throw new BadRequestException("参数 url 和 fromTask 需二选一");
+    }
+
+    const payload: Record<string, any> = {
+      model: options.model || "sora-2",
+      timestamps: options.timestamps,
+    };
+    if (options.url) payload.url = options.url;
+    if (options.fromTask) payload.from_task = options.fromTask;
+
+    const response = await fetch(`${this.apiBaseApimart}/v1/videos/generations`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${this.apiKeyApimart}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message =
+        data?.error?.message || data?.message || `HTTP ${response.status}`;
+      throw new ServiceUnavailableException(`创建角色失败: ${message}`);
+    }
+
+    const taskId =
+      data?.data?.[0]?.task_id ||
+      data?.data?.task_id ||
+      data?.task_id ||
+      data?.id;
+    if (!taskId) {
+      throw new ServiceUnavailableException("创建角色失败：未返回任务ID");
+    }
+
+    return {
+      success: true,
+      taskId,
+      status: data?.data?.[0]?.status || data?.status || "submitted",
+      raw: data,
+    };
+  }
+
+  async queryCharacterTask(taskId: string) {
+    if (!this.apiKeyApimart) {
+      throw new ServiceUnavailableException("APIMart Sora2 API Key 未配置");
+    }
+    const response = await fetch(
+      `${this.apiBaseApimart}/v1/characters_tasks/${encodeURIComponent(taskId)}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${this.apiKeyApimart}`,
+        },
+      }
+    );
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message =
+        data?.error?.message || data?.message || `HTTP ${response.status}`;
+      throw new ServiceUnavailableException(`查询角色失败: ${message}`);
+    }
+
+    const payload: Sora2CharacterTaskResult = data?.data || data || {};
+    const chars = Array.isArray(payload?.result?.characters)
+      ? payload.result?.characters
+      : [];
+
+    return {
+      id: payload?.id || taskId,
+      status: payload?.status || "unknown",
+      progress: typeof payload?.progress === "number" ? payload.progress : undefined,
+      characters: chars.map((item) => ({
+        id: item?.id,
+        displayName: item?.display_name,
+        username: item?.username,
+        profilePictureUrl: item?.profile_picture_url,
+      })),
+      raw: data,
+    };
+  }
+
+  private hasApimartOnlyOptions(options: GenerateVideoOptions): boolean {
+    return Boolean(
+      options.model ||
+        options.style ||
+        typeof options.watermark === "boolean" ||
+        typeof options.thumbnail === "boolean" ||
+        typeof options.privateMode === "boolean" ||
+        typeof options.storyboard === "boolean" ||
+        options.characterUrl ||
+        options.characterTimestamps ||
+        options.characterTaskId
+    );
+  }
+
+  /**
+   * APIMart Sora2 Pro (api.apimart.ai)
+   */
+  private async generateVideoApimart(
+    options: GenerateVideoOptions
+  ): Promise<Sora2VideoResult> {
+    if (!this.apiKeyApimart) {
+      throw new ServiceUnavailableException("APIMart Sora2 API Key 未配置");
+    }
+
+    const startedAt = Date.now();
+    let prompt = options.prompt || "";
+    let characterUrl =
+      typeof options.characterUrl === "string" && options.characterUrl.trim().length > 0
+        ? options.characterUrl.trim()
+        : undefined;
+
+    if (options.characterTaskId) {
+      const task = await this.queryCharacterTask(options.characterTaskId);
+      const characters = Array.isArray(task?.characters) ? task.characters : [];
+      const usernames = characters
+        .map((item: any) =>
+          typeof item?.username === "string" ? item.username.trim() : ""
+        )
+        .filter((name: string) => name.length > 0);
+      if (usernames.length) {
+        const missingMentions = usernames
+          .map((name: string) => `@${name}`)
+          .filter((mention: string) => !prompt.includes(mention));
+        if (missingMentions.length) {
+          prompt = `${prompt} ${missingMentions.join(" ")}`.trim();
+        }
+      }
+      if (!characterUrl) {
+        const firstId = characters.find(
+          (item: any) => typeof item?.id === "string" && item.id.trim().length > 0
+        )?.id;
+        if (firstId) {
+          characterUrl = firstId;
+        }
+      }
+    }
+
+    const model: Sora2GenerationModel =
+      options.model || (options.quality === "hd" ? "sora-2-pro" : "sora-2");
+    const durationValue =
+      options.duration === "10" || options.duration === "15" || options.duration === "25"
+        ? Number(options.duration)
+        : undefined;
+    if (durationValue === 25 && model !== "sora-2-pro") {
+      throw new BadRequestException("仅 sora-2-pro 支持 25 秒时长，请切换模型或改为 10/15 秒");
+    }
+
+    const normalizedPrompt = (prompt || "").trim();
+    if (!normalizedPrompt) {
+      throw new BadRequestException("prompt 不能为空");
+    }
+
+    if (options.style && options.style.trim()) {
+      const normalizedStyle = options.style.trim().toLowerCase();
+      if (!SORA2_APIMART_ALLOWED_STYLES.has(normalizedStyle)) {
+        throw new BadRequestException(
+          `style 不合法，仅支持: ${Array.from(SORA2_APIMART_ALLOWED_STYLES).join(", ")}`
+        );
+      }
+    }
+
+    if (options.characterTimestamps && options.characterTimestamps.trim()) {
+      const ts = options.characterTimestamps.trim();
+      const matched = ts.match(/^(\d+(?:\.\d+)?),(\d+(?:\.\d+)?)$/);
+      if (!matched) {
+        throw new BadRequestException('character_timestamps 格式错误，应为 "起始秒,结束秒"，例如 "1,3"');
+      }
+      const start = Number(matched[1]);
+      const end = Number(matched[2]);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+        throw new BadRequestException('character_timestamps 范围错误，应满足 "结束秒 > 起始秒"');
+      }
+      if (Math.abs(end - start - 2) > 1e-6) {
+        throw new BadRequestException('character_timestamps 仅支持 2 秒区间，例如 "1,3"');
+      }
+    }
+
+    const createPayload: Record<string, any> = {
+      model,
+      prompt: normalizedPrompt,
+    };
+    if (durationValue) createPayload.duration = durationValue;
+    if (options.aspectRatio) createPayload.aspect_ratio = options.aspectRatio;
+    if (options.watermark === true) createPayload.watermark = true;
+    if (options.thumbnail === true) createPayload.thumbnail = true;
+    if (options.privateMode === true) createPayload.private = true;
+    if (options.storyboard === true) createPayload.storyboard = true;
+    if (options.style && options.style.trim()) createPayload.style = options.style.trim();
+    if (characterUrl) createPayload.character_url = characterUrl;
+    if (options.characterTimestamps && options.characterTimestamps.trim()) {
+      createPayload.character_timestamps = options.characterTimestamps.trim();
+    }
+    const images = (options.referenceImageUrls || [])
+      .filter((url): url is string => typeof url === "string" && url.trim().length > 0)
+      .map((url) => url.trim());
+    if (images.length) {
+      createPayload.image_urls = images;
+    }
+
+    this.logger.log(
+      `APIMart Sora2 创建任务: model=${model}, duration=${createPayload.duration || "default"}, ratio=${
+        createPayload.aspect_ratio || "default"
+      }, refs=${images.length}`
+    );
+
+    const response = await fetch(`${this.apiBaseApimart}/v1/videos/generations`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${this.apiKeyApimart}`,
+      },
+      body: JSON.stringify(createPayload),
+    });
+
+    const createResult = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message =
+        createResult?.error?.message ||
+        createResult?.message ||
+        `HTTP ${response.status}`;
+      this.logger.error(
+        `APIMart Sora2 创建任务失败: status=${response.status}, message=${message}, payload=${JSON.stringify(
+          createPayload
+        )}, resp=${JSON.stringify(createResult).slice(0, 1200)}`
+      );
+      if (response.status === 401 || response.status === 403) {
+        throw new ServiceUnavailableException("APIMart 鉴权失败，请检查 NANO2_API_KEY");
+      }
+      if (response.status >= 500) {
+        throw new ServiceUnavailableException("APIMart 服务繁忙，请稍后再试");
+      }
+      throw new BadRequestException(`APIMart 参数错误: ${message}`);
+    }
+
+    const taskId =
+      createResult?.data?.[0]?.task_id ||
+      createResult?.data?.task_id ||
+      createResult?.task_id ||
+      createResult?.id;
+    if (!taskId) {
+      throw new ServiceUnavailableException(
+        `Sora2 Pro 未返回任务ID: ${JSON.stringify(createResult)}`
+      );
+    }
+
+    const pollResult = await this.pollApimartTaskUntilComplete(taskId);
+    if (!pollResult) {
+      throw new ServiceUnavailableException("Sora2 Pro 任务轮询超时，请稍后再试");
+    }
+
+    if (
+      pollResult.status &&
+      SORA2_APIMART_FAILED_STATUSES.includes(pollResult.status.toLowerCase())
+    ) {
+      throw new ServiceUnavailableException(
+        pollResult.errorMessage || "Sora2 Pro 任务失败"
+      );
+    }
+
+    if (!pollResult.videoUrl) {
+      throw new ServiceUnavailableException("Sora2 Pro 未返回有效视频地址");
+    }
+
+    const elapsedTime = ((Date.now() - startedAt) / 1000).toFixed(2);
+    this.logger.log(`APIMart Sora2 视频生成成功，耗时 ${elapsedTime}s`);
+
+    return {
+      videoUrl: pollResult.videoUrl,
+      content: `视频已生成（Sora2 Pro，任务ID: ${taskId}）`,
+      thumbnailUrl: pollResult.thumbnailUrl,
+      referencedUrls: pollResult.videoUrl ? [pollResult.videoUrl] : [],
+      status: pollResult.status,
+      taskId,
+      taskInfo: pollResult.taskInfo,
+    };
+  }
+
+  private async pollApimartTaskUntilComplete(
+    taskId: string
+  ): Promise<Sora2ResolvedMedia | null> {
+    let attempt = 0;
+    let consecutiveTimeoutErrors = 0;
+    while (attempt < SORA2_APIMART_POLL_MAX_ATTEMPTS) {
+      attempt += 1;
+      await this.delay(SORA2_APIMART_POLL_INTERVAL_MS);
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), SORA2_APIMART_FETCH_TIMEOUT_MS);
+        let response: Response;
+        try {
+          response = await fetch(
+            `${this.apiBaseApimart}/v1/videos/${encodeURIComponent(taskId)}`,
+            {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${this.apiKeyApimart}`,
+              },
+              signal: controller.signal,
+            }
+          );
+        } finally {
+          clearTimeout(timer);
+        }
+        if (!response.ok) {
+          consecutiveTimeoutErrors = 0;
+          continue;
+        }
+        consecutiveTimeoutErrors = 0;
+        const result = await response.json().catch(() => ({}));
+        const data = result?.data || result;
+        const statusRaw = String(data?.status || "");
+        const status = statusRaw.toLowerCase();
+
+        if (status && SORA2_APIMART_FAILED_STATUSES.includes(status)) {
+          return {
+            status,
+            errorMessage:
+              data?.error?.message || data?.message || data?.fail_reason,
+            referencedUrls: [],
+            taskInfo: data,
+          };
+        }
+
+        const { videoUrl, thumbnailUrl } = this.extractApimartMedia(data);
+        if (videoUrl) {
+          return {
+            videoUrl,
+            thumbnailUrl,
+            status: status || "completed",
+            referencedUrls: [videoUrl],
+            taskInfo: data,
+            taskId,
+          };
+        }
+
+        if (attempt % 10 === 0) {
+          this.logger.log(
+            `APIMart Sora2 任务 ${taskId} 处理中... (${attempt}/${SORA2_APIMART_POLL_MAX_ATTEMPTS}) status=${
+              statusRaw || "unknown"
+            }`
+          );
+        }
+      } catch (error) {
+        const causeCode =
+          typeof (error as any)?.cause?.code === "string"
+            ? (error as any).cause.code
+            : undefined;
+        const isAbortError = (error as any)?.name === "AbortError";
+        const effectiveCauseCode = isAbortError ? "ETIMEDOUT" : causeCode;
+        this.logger.warn(
+          `APIMart Sora2 轮询异常(task=${taskId}, attempt=${attempt}): ${
+            error instanceof Error ? error.message : error
+          }${effectiveCauseCode ? ` (cause=${effectiveCauseCode})` : ""}`
+        );
+        if (effectiveCauseCode === "ENOTFOUND") {
+          throw new ServiceUnavailableException(
+            "APIMart 域名解析失败（api.apimart.ai），请检查服务器 DNS 或代理网络"
+          );
+        }
+        if (effectiveCauseCode === "ETIMEDOUT") {
+          consecutiveTimeoutErrors += 1;
+          if (consecutiveTimeoutErrors >= 8) {
+            throw new ServiceUnavailableException(
+              "APIMart 网络连接连续超时，请稍后重试或检查服务器到 api.apimart.ai 的网络链路"
+            );
+          }
+          continue;
+        }
+      }
+    }
+    return null;
+  }
+
+  private extractApimartMedia(data: any): {
+    videoUrl?: string;
+    thumbnailUrl?: string;
+  } {
+    if (!data) return {};
+    const pickUrl = (candidates: unknown[]): string | undefined => {
+      for (const item of candidates) {
+        if (typeof item === "string" && item.startsWith("http")) return item;
+        if (Array.isArray(item)) {
+          const first = item.find(
+            (entry) => typeof entry === "string" && entry.startsWith("http")
+          );
+          if (first) return first;
+        }
+      }
+      return undefined;
+    };
+
+    const resultObj = data?.result || {};
+    const videoUrl = pickUrl([
+      data?.video_url,
+      data?.video,
+      data?.url,
+      data?.output,
+      resultObj?.video_url,
+      resultObj?.video,
+      resultObj?.url,
+      resultObj?.output,
+      data?.resource_url,
+    ]);
+
+    const thumbnailUrl = pickUrl([
+      data?.thumbnail_url,
+      data?.thumbnail,
+      resultObj?.thumbnail_url,
+      resultObj?.thumbnail,
+      resultObj?.cover_url,
+    ]);
+
+    return { videoUrl, thumbnailUrl };
   }
 
   /**

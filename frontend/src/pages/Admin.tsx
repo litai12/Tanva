@@ -19,6 +19,7 @@ import {
   addToWatermarkWhitelist,
   removeFromWatermarkWhitelist,
   getPaidUsers,
+  getCreditChangeRecords,
   getNodeConfigs,
   updateNodeConfig,
   createNodeConfig,
@@ -30,6 +31,7 @@ import {
   type SystemSetting,
   type WatermarkWhitelistUser,
   type PaidUser,
+  type CreditChangeRecord,
   type NodeConfig,
 } from "@/services/adminApi";
 import {
@@ -57,6 +59,83 @@ function StatCard({
       <div className='text-sm text-gray-500'>{title}</div>
       <div className='text-2xl font-bold mt-1'>{value}</div>
       {subtitle && <div className='text-xs text-gray-400 mt-1'>{subtitle}</div>}
+    </div>
+  );
+}
+
+function DashboardTrendChart({
+  data,
+}: {
+  data: DashboardStats["userTrend"];
+}) {
+  if (!data || data.length === 0) {
+    return <div className='text-sm text-gray-400 py-8 text-center'>暂无趋势数据</div>;
+  }
+
+  const maxValue = Math.max(
+    ...data.map((item) => Math.max(item.registeredUsers, item.dailyActiveUsers)),
+    1
+  );
+  const midValue = Math.max(1, Math.round(maxValue / 2));
+
+  const toPoints = (key: "registeredUsers" | "dailyActiveUsers") =>
+    data
+      .map((item, index) => {
+        const x = (index / Math.max(data.length - 1, 1)) * 100;
+        const y = 100 - (item[key] / maxValue) * 100;
+        return `${x},${y}`;
+      })
+      .join(" ");
+
+  const regPoints = toPoints("registeredUsers");
+  const dauPoints = toPoints("dailyActiveUsers");
+
+  return (
+    <div>
+      <div className='flex items-center gap-5 text-xs text-gray-600 mb-3'>
+        <div className='flex items-center gap-2'>
+          <span className='w-2.5 h-2.5 rounded-full bg-blue-500' />
+          <span>注册用户</span>
+        </div>
+        <div className='flex items-center gap-2'>
+          <span className='w-2.5 h-2.5 rounded-full bg-emerald-500' />
+          <span>日活用户</span>
+        </div>
+      </div>
+      <div className='grid grid-cols-[38px_1fr] gap-2'>
+        <div className='relative h-44 text-[11px] text-gray-400 leading-none select-none'>
+          <span className='absolute left-0 top-0'>{maxValue}</span>
+          <span className='absolute left-0 top-1/2 -translate-y-1/2'>{midValue}</span>
+          <span className='absolute left-0 bottom-0'>0</span>
+        </div>
+        <div className='relative h-44'>
+          <svg width='100%' height='100%' viewBox='0 0 100 100' preserveAspectRatio='none'>
+            <line x1='0' y1='100' x2='100' y2='100' stroke='#e5e7eb' strokeWidth='0.6' />
+            <line x1='0' y1='66.6' x2='100' y2='66.6' stroke='#f3f4f6' strokeWidth='0.5' />
+            <line x1='0' y1='33.3' x2='100' y2='33.3' stroke='#f3f4f6' strokeWidth='0.5' />
+
+            <polyline
+              fill='none'
+              stroke='#3b82f6'
+              strokeWidth='2'
+              points={regPoints}
+              vectorEffect='non-scaling-stroke'
+            />
+            <polyline
+              fill='none'
+              stroke='#10b981'
+              strokeWidth='2'
+              points={dauPoints}
+              vectorEffect='non-scaling-stroke'
+            />
+          </svg>
+          <div className='absolute bottom-0 left-0 right-0 flex justify-between text-[11px] text-gray-400'>
+            <span>{data[0]?.date}</span>
+            <span>{data[Math.floor(data.length / 2)]?.date}</span>
+            <span>{data[data.length - 1]?.date}</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -690,7 +769,12 @@ const SORA2_PROVIDER_OPTIONS = [
   {
     value: "auto",
     label: "自动切换",
-    description: "优先使用Sora2 Pro，失败后自动切换到普通Sora2",
+    description: "优先使用 APIMart，失败后自动切换到 Sora2 Pro，再回退到普通Sora2",
+  },
+  {
+    value: "apimart",
+    label: "APIMart",
+    description: "强制使用 APIMart (api.apimart.ai)，不会切换到 147",
   },
   {
     value: "v2",
@@ -1693,6 +1777,192 @@ function PaidUsersTab() {
   );
 }
 
+// 积分变更记录 Tab
+function CreditChangeRecordsTab() {
+  const [records, setRecords] = useState<CreditChangeRecord[]>([]);
+  const [pagination, setPagination] = useState<Pagination | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [source, setSource] = useState<"all" | "recharge" | "admin_add" | "admin_deduct">("all");
+
+  const loadRecords = async () => {
+    setLoading(true);
+    try {
+      const result = await getCreditChangeRecords({
+        page,
+        pageSize: 20,
+        search,
+        source,
+      });
+      setRecords(result.records);
+      setPagination(result.pagination);
+    } catch (error) {
+      console.error("加载积分变更记录失败:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadRecords();
+  }, [page, search, source]);
+
+  const sourceText: Record<string, string> = {
+    recharge: "充值到账",
+    admin_add: "后台加积分",
+    admin_deduct: "后台扣积分",
+  };
+
+  const sourceClass: Record<string, string> = {
+    recharge: "bg-green-100 text-green-700",
+    admin_add: "bg-blue-100 text-blue-700",
+    admin_deduct: "bg-red-100 text-red-700",
+  };
+
+  return (
+    <div>
+      <div className='mb-4 flex gap-2 flex-wrap'>
+        <Input
+          placeholder='搜索手机号/邮箱/昵称'
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className='max-w-xs'
+        />
+        <select
+          value={source}
+          onChange={(e) => {
+            setPage(1);
+            setSource(e.target.value as "all" | "recharge" | "admin_add" | "admin_deduct");
+          }}
+          className='border rounded px-3 py-2 text-sm'
+        >
+          <option value='all'>全部来源</option>
+          <option value='recharge'>充值到账</option>
+          <option value='admin_add'>后台加积分</option>
+          <option value='admin_deduct'>后台扣积分</option>
+        </select>
+        <Button
+          onClick={() => {
+            setPage(1);
+            loadRecords();
+          }}
+        >
+          搜索
+        </Button>
+      </div>
+
+      <div className='bg-white rounded-lg border overflow-hidden'>
+        <div className='max-h-[900px] overflow-auto'>
+          <table className='w-full text-sm'>
+            <thead className='bg-gray-50'>
+              <tr>
+                <th className='px-4 py-3 text-left'>时间</th>
+                <th className='px-4 py-3 text-left'>用户</th>
+                <th className='px-4 py-3 text-left'>来源</th>
+                <th className='px-4 py-3 text-right'>变更积分</th>
+                <th className='px-4 py-3 text-right'>变更后余额</th>
+                <th className='px-4 py-3 text-left'>管理员</th>
+                <th className='px-4 py-3 text-left'>支付信息</th>
+                <th className='px-4 py-3 text-left'>备注</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={8} className='px-4 py-8 text-center text-gray-500'>
+                    加载中...
+                  </td>
+                </tr>
+              ) : records.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className='px-4 py-8 text-center text-gray-500'>
+                    暂无记录
+                  </td>
+                </tr>
+              ) : (
+                records.map((record) => (
+                  <tr key={record.id} className='border-t hover:bg-gray-50'>
+                    <td className='px-4 py-3 text-xs text-gray-500 whitespace-nowrap'>
+                      {new Date(record.createdAt).toLocaleString()}
+                    </td>
+                    <td className='px-4 py-3'>
+                      <div>{record.user.name || "-"}</div>
+                      <div className='text-xs text-gray-400'>{record.user.phone}</div>
+                    </td>
+                    <td className='px-4 py-3'>
+                      <span className={`px-2 py-1 rounded text-xs ${sourceClass[record.source] || "bg-gray-100 text-gray-700"}`}>
+                        {sourceText[record.source] || record.source}
+                      </span>
+                    </td>
+                    <td className={`px-4 py-3 text-right font-medium ${record.amount >= 0 ? "text-green-600" : "text-red-600"}`}>
+                      {record.amount >= 0 ? "+" : ""}
+                      {record.amount}
+                    </td>
+                    <td className='px-4 py-3 text-right text-blue-600 font-medium'>
+                      {record.balanceAfter}
+                    </td>
+                    <td className='px-4 py-3'>
+                      {record.admin ? (
+                        <div>
+                          <div>{record.admin.name || "-"}</div>
+                          <div className='text-xs text-gray-400'>{record.admin.phone}</div>
+                        </div>
+                      ) : (
+                        <span className='text-gray-400'>-</span>
+                      )}
+                    </td>
+                    <td className='px-4 py-3'>
+                      {record.payment ? (
+                        <div className='text-xs'>
+                          <div className='font-medium text-gray-700'>¥{record.payment.amount.toFixed(2)}</div>
+                          <div className='text-gray-400'>{record.payment.orderNo}</div>
+                        </div>
+                      ) : (
+                        <span className='text-gray-400'>-</span>
+                      )}
+                    </td>
+                    <td className='px-4 py-3 text-xs text-gray-500 max-w-[280px] truncate' title={record.description}>
+                      {record.description}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {pagination && pagination.totalPages > 1 && (
+        <div className='mt-4 flex items-center justify-center gap-4'>
+          <span className='text-sm text-gray-500'>共 {pagination.total} 条记录</span>
+          <div className='flex items-center gap-2'>
+            <Button
+              variant='outline'
+              size='sm'
+              disabled={page === 1}
+              onClick={() => setPage(page - 1)}
+            >
+              上一页
+            </Button>
+            <span className='px-4 py-2 text-sm'>
+              {page} / {pagination.totalPages}
+            </span>
+            <Button
+              variant='outline'
+              size='sm'
+              disabled={page === pagination.totalPages}
+              onClick={() => setPage(page + 1)}
+            >
+              下一页
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // 系统设置 Tab
 function SettingsTab() {
   const [settings, setSettings] = useState<SystemSetting[]>([]);
@@ -1831,7 +2101,7 @@ function SettingsTab() {
         <h3 className='text-lg font-semibold mb-4'>Sora2 视频生成设置</h3>
         <p className='text-sm text-gray-500 mb-4'>
           选择视频生成时使用的 API
-          供应商。自动模式会优先使用Sora2 Pro，失败后自动切换到普通Sora2。
+          供应商。若要确保不走 147，请选择 APIMart 渠道。
         </p>
         <div className='space-y-3'>
           {SORA2_PROVIDER_OPTIONS.map((option) => (
@@ -2392,6 +2662,7 @@ export default function Admin() {
     | "dashboard"
     | "users"
     | "paid-users"
+    | "credit-records"
     | "api-stats"
     | "api-records"
     | "watermark"
@@ -2401,6 +2672,8 @@ export default function Admin() {
   >("dashboard");
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
 
   useEffect(() => {
     // 检查是否为管理员
@@ -2408,20 +2681,43 @@ export default function Admin() {
       navigate("/");
       return;
     }
+  }, [user, navigate]);
 
-    const loadDashboard = async () => {
+  useEffect(() => {
+    if (!user || user.role !== "admin") return;
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    const loadDashboard = async (showLoading = false) => {
+      if (showLoading) setLoading(true);
       try {
         const data = await getDashboardStats();
+        if (cancelled) return;
         setStats(data);
+        setDashboardError(null);
+        setLastUpdatedAt(data.generatedAt);
       } catch (error) {
+        if (cancelled) return;
         console.error("加载统计失败:", error);
+        setDashboardError("统计刷新失败，请稍后重试");
       } finally {
-        setLoading(false);
+        if (!cancelled && showLoading) setLoading(false);
       }
     };
 
-    loadDashboard();
-  }, [user, navigate]);
+    if (activeTab === "dashboard") {
+      void loadDashboard(true);
+      timer = setInterval(() => {
+        void loadDashboard(false);
+      }, 10 * 60 * 1000);
+    }
+
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [user, activeTab]);
 
   if (!user || user.role !== "admin") {
     return (
@@ -2439,6 +2735,7 @@ export default function Admin() {
     { key: "dashboard", label: "概览" },
     { key: "users", label: "用户管理" },
     { key: "paid-users", label: "付费用户" },
+    { key: "credit-records", label: "积分记录" },
     { key: "api-stats", label: "API统计" },
     { key: "api-records", label: "API记录" },
     { key: "watermark", label: "水印白名单" },
@@ -2481,33 +2778,50 @@ export default function Admin() {
         {activeTab === "dashboard" && (
           <div>
             <h2 className='text-lg font-semibold mb-4'>系统概览</h2>
-            {loading ? (
+            {loading && !stats ? (
               <div className='text-center py-8 text-gray-500'>加载中...</div>
             ) : stats ? (
-              <div className='grid grid-cols-2 md:grid-cols-4 gap-4'>
-                <StatCard title='总用户数' value={stats.totalUsers} />
-                <StatCard title='活跃用户' value={stats.activeUsers} />
-                <StatCard
-                  title='流通积分'
-                  value={stats.totalCreditsInCirculation}
-                />
-                <StatCard title='已消费积分' value={stats.totalCreditsSpent} />
-                <StatCard
-                  title='API调用总数'
-                  value={stats.totalApiCalls}
-                  subtitle={`成功: ${stats.successfulApiCalls} / 失败: ${stats.failedApiCalls}`}
-                />
-                <StatCard
-                  title='API成功率'
-                  value={
-                    stats.totalApiCalls > 0
-                      ? `${(
-                          (stats.successfulApiCalls / stats.totalApiCalls) *
-                          100
-                        ).toFixed(1)}%`
-                      : "-"
-                  }
-                />
+              <div className='space-y-4'>
+                <div className='text-xs text-gray-500'>
+                  自动刷新：每 10 分钟
+                  {lastUpdatedAt
+                    ? ` · 最后更新 ${new Date(lastUpdatedAt).toLocaleTimeString("zh-CN", {
+                        hour12: false,
+                      })}`
+                    : ""}
+                </div>
+                <div className='grid grid-cols-2 md:grid-cols-4 gap-4'>
+                  <StatCard title='总用户数' value={stats.totalUsers} />
+                  <StatCard title='日活用户' value={stats.dailyActiveUsers} subtitle='当天累计去重' />
+                  <StatCard title='在线用户' value={stats.onlineUsers} subtitle='最近 15 分钟内有登录态请求' />
+                  <StatCard title='当日注册用户' value={stats.todayRegisteredUsers} subtitle='当天新增' />
+                  <StatCard
+                    title='流通积分'
+                    value={stats.totalCreditsInCirculation}
+                  />
+                  <StatCard title='已消费积分' value={stats.totalCreditsSpent} />
+                  <StatCard
+                    title='API调用总数'
+                    value={stats.totalApiCalls}
+                    subtitle={`成功: ${stats.successfulApiCalls} / 失败: ${stats.failedApiCalls}`}
+                  />
+                  <StatCard
+                    title='API成功率'
+                    value={
+                      stats.totalApiCalls > 0
+                        ? `${(
+                            (stats.successfulApiCalls / stats.totalApiCalls) *
+                            100
+                          ).toFixed(1)}%`
+                        : "-"
+                    }
+                  />
+                </div>
+                <div className='bg-white rounded-lg border p-4 shadow-sm'>
+                  <div className='text-sm font-medium text-gray-700 mb-3'>注册用户 vs 日活用户（近 14 天）</div>
+                  <DashboardTrendChart data={stats.userTrend} />
+                </div>
+                {dashboardError && <div className='text-sm text-red-500'>{dashboardError}</div>}
               </div>
             ) : (
               <div className='text-center py-8 text-gray-500'>加载失败</div>
@@ -2517,6 +2831,7 @@ export default function Admin() {
 
         {activeTab === "users" && <UsersTab />}
         {activeTab === "paid-users" && <PaidUsersTab />}
+        {activeTab === "credit-records" && <CreditChangeRecordsTab />}
         {activeTab === "api-stats" && <ApiStatsTab />}
         {activeTab === "api-records" && <ApiRecordsTab />}
         {activeTab === "watermark" && <WatermarkWhitelistTab />}

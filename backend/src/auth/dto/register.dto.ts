@@ -13,11 +13,11 @@ export class RegisterDto {
   @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/, { message: '密码需包含大小写字母和数字' })
   password!: string;
 
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsString({ message: '昵称必须是字符串' })
-  @Length(1, 50, { message: '昵称长度必须在1到50位之间' })
-  name?: string;
+  @ApiProperty({ description: '用户名（必填）', minLength: 1, maxLength: 50 })
+  @IsString({ message: '用户名必须是字符串' })
+  @Length(1, 50, { message: '用户名长度必须在1到50位之间' })
+  @Matches(/\S/, { message: '用户名不能为空' })
+  name!: string;
 
   @ApiProperty({ description: '手机号（必填），国内 11 位' })
   @IsString({ message: '手机号必须是字符串' })

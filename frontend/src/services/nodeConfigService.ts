@@ -108,9 +108,10 @@ function getDefaultConfigs(): NodeConfig[] {
     { nodeKey: "klingO1Video", nameZh: "Kling O1视频生成", nameEn: "Kling O1", category: "video", status: "normal", sortOrder: 22, creditsPerCall: 1600 },
     { nodeKey: "viduVideo", nameZh: "Vidu视频生成", nameEn: "Vidu", category: "video", status: "normal", sortOrder: 23, creditsPerCall: 600 },
     { nodeKey: "doubaoVideo", nameZh: "豆包视频生成", nameEn: "Doubao", category: "video", status: "normal", sortOrder: 24, creditsPerCall: 600 },
-    { nodeKey: "sora2Video", nameZh: "Sora视频生成", nameEn: "Sora", category: "video", status: "normal", sortOrder: 25, creditsPerCall: 40 },
-    { nodeKey: "wan26", nameZh: "Wan2.6视频", nameEn: "Wan2.6", category: "video", status: "normal", sortOrder: 26, creditsPerCall: 600 },
-    { nodeKey: "wan2R2V", nameZh: "Wan2参考视频", nameEn: "Wan2 R2V", category: "video", status: "normal", sortOrder: 27, creditsPerCall: 600 },
+    { nodeKey: "sora2Video", nameZh: "Sora2 Pro视频生成", nameEn: "Sora2 Pro", category: "video", status: "coming_soon", sortOrder: 25, creditsPerCall: 40 },
+    { nodeKey: "sora2Character", nameZh: "Sora2角色生成", nameEn: "Sora2 Character", category: "video", status: "coming_soon", sortOrder: 26, creditsPerCall: 0 },
+    { nodeKey: "wan26", nameZh: "Wan2.6视频", nameEn: "Wan2.6", category: "video", status: "normal", sortOrder: 27, creditsPerCall: 600 },
+    { nodeKey: "wan2R2V", nameZh: "Wan2参考视频", nameEn: "Wan2 R2V", category: "video", status: "normal", sortOrder: 28, creditsPerCall: 600 },
 
     // 其他节点
     { nodeKey: "videoAnalyze", nameZh: "视频分析节点", nameEn: "Video Analysis", category: "other", status: "normal", sortOrder: 30, creditsPerCall: 30 },

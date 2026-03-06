@@ -27,7 +27,7 @@ interface LayerItemData {
 }
 
 const LayerPanel: React.FC = () => {
-    const { showLayerPanel, setShowLayerPanel, focusMode } = useUIStore();
+    const { showLayerPanel, setShowLayerPanel } = useUIStore();
     const { layers, activeLayerId, createLayer, deleteLayer, toggleVisibility, activateLayer, renameLayer, toggleLocked, reorderLayer } = useLayerStore();
     const { setSourceImageForEditing, showDialog } = useAIChatStore();
     const content = useProjectContentStore((state) => state.content);
@@ -1091,8 +1091,8 @@ const LayerPanel: React.FC = () => {
         setShowLayerPanel(false);
     };
 
-    // 专注模式或面板关闭时隐藏
-    if (focusMode || !showLayerPanel) return null;
+    // 面板关闭时隐藏
+    if (!showLayerPanel) return null;
 
     return (
         <>

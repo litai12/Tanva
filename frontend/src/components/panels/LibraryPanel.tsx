@@ -70,7 +70,7 @@ const getTypeLabel = (
 };
 
 const LibraryPanel: React.FC = () => {
-  const { showLibraryPanel, setShowLibraryPanel, focusMode } = useUIStore();
+  const { showLibraryPanel, setShowLibraryPanel } = useUIStore();
   const [isUploading, setUploading] = React.useState(false);
   const [isLibraryDragHovering, setLibraryDragHovering] = React.useState(false);
   const [selectedAsset, setSelectedAsset] =
@@ -638,7 +638,7 @@ const LibraryPanel: React.FC = () => {
 
   // 打开面板时从后端拉取个人库，避免仅依赖 localStorage
   React.useEffect(() => {
-    if (focusMode || !showLibraryPanel) return;
+    if (!showLibraryPanel) return;
     let cancelled = false;
     void personalLibraryApi
       .list()
@@ -656,10 +656,10 @@ const LibraryPanel: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [focusMode, showLibraryPanel, mergeAssets]);
+  }, [showLibraryPanel, mergeAssets]);
 
-  // 专注模式或面板关闭时隐藏
-  if (focusMode || !showLibraryPanel) return null;
+  // 面板关闭时隐藏
+  if (!showLibraryPanel) return null;
 
   return (
     <>

@@ -3296,13 +3296,16 @@ const AIChatDialog: React.FC = () => {
                       <button
                         type='button'
                         className={cn(
-                          "h-7 px-2 text-[11px] font-semibold text-slate-700 transition-colors duration-150",
+                          "h-7 px-2 text-[11px] font-normal text-slate-700 transition-colors duration-150",
                           "hover:text-slate-900 active:translate-y-[0.5px]"
                         )}
                         title='选择生成倍数'
-                        aria-label={`倍数 X${autoModeMultiplier}`}
+                        aria-label={`倍数 ${autoModeMultiplier}X`}
                       >
-                        X{autoModeMultiplier}
+                        <span className='inline-flex items-baseline'>
+                          <span className='text-sm leading-none'>{autoModeMultiplier}</span>
+                          <span className='ml-0.5 text-[9px] leading-none'>X</span>
+                        </span>
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent
@@ -3327,7 +3330,10 @@ const AIChatDialog: React.FC = () => {
                                 : "text-slate-600"
                             )}
                           >
-                            <span className='font-medium'>X{multiplier}</span>
+                            <span className='inline-flex items-baseline'>
+                              <span className='text-sm leading-none'>{multiplier}</span>
+                              <span className='ml-0.5 text-[9px] leading-none'>X</span>
+                            </span>
                             {isActive && (
                               <Check className='h-3.5 w-3.5 text-gray-600' />
                             )}
@@ -4434,6 +4440,12 @@ const AIChatDialog: React.FC = () => {
                                 getResendInfoFromMessage(message);
                               const userActionButtons =
                                 renderUserMessageActions(message, resendInfo);
+                              const videoPlaybackUrl =
+                                message.videoLocalUrl || message.videoUrl;
+                              const videoShareUrl =
+                                message.videoSourceUrl ||
+                                message.videoUrl ||
+                                message.videoLocalUrl;
                               return (
                                 <div
                                   key={message.id}
@@ -4463,7 +4475,7 @@ const AIChatDialog: React.FC = () => {
                                         <div className='mt-3'>
                                           <div className='inline-block p-3 border rounded-lg bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border-liquid-glass-light shadow-liquid-glass'>
                                             <div className='flex flex-col items-center gap-3'>
-                                              {message.videoUrl ? (
+                                              {videoPlaybackUrl ? (
                                                 <>
                                                   <video
                                                     controls
@@ -4475,7 +4487,11 @@ const AIChatDialog: React.FC = () => {
                                                       message.videoThumbnail
                                                     }
                                                     onError={(e) => {
-                                                      console.error('视频加载失败:', message.videoUrl, e);
+                                                      console.error('视频加载失败:', {
+                                                        playback: videoPlaybackUrl,
+                                                        remote: message.videoSourceUrl || message.videoUrl,
+                                                        error: e,
+                                                      });
                                                       const target = e.target as HTMLVideoElement;
                                                       target.style.display = 'none';
                                                       const errorDiv = target.nextElementSibling as HTMLElement;
@@ -4485,7 +4501,7 @@ const AIChatDialog: React.FC = () => {
                                                     }}
                                                   >
                                                     <source
-                                                      src={message.videoUrl}
+                                                      src={videoPlaybackUrl}
                                                       type='video/mp4'
                                                     />
                                                     您的浏览器不支持 HTML5 video
@@ -4521,11 +4537,11 @@ const AIChatDialog: React.FC = () => {
                                                     {/* 分享/复制 */}
                                                     <button
                                                       onClick={async () => {
-                                                        if (!message.videoUrl)
+                                                        if (!videoShareUrl)
                                                           return;
                                                         try {
                                                           await navigator.clipboard.writeText(
-                                                            message.videoUrl
+                                                            videoShareUrl
                                                           );
                                                           console.log(
                                                             "✅ 视频链接已复制，可直接粘贴分享"
@@ -4553,16 +4569,36 @@ const AIChatDialog: React.FC = () => {
                                                     <button
                                                       onClick={async () => {
                                                         try {
+                                                          if (!videoPlaybackUrl && !videoShareUrl) {
+                                                            return;
+                                                          }
+                                                          const downloadTargetUrl =
+                                                            videoShareUrl || videoPlaybackUrl!;
                                                           console.log(
                                                             "📥 开始下载视频:",
-                                                            message.videoUrl
+                                                            downloadTargetUrl
                                                           );
+
+                                                          if (downloadTargetUrl.startsWith("blob:")) {
+                                                            const link =
+                                                              document.createElement("a");
+                                                            link.href = downloadTargetUrl;
+                                                            link.download = `video-${
+                                                              new Date()
+                                                                .toISOString()
+                                                                .split("T")[0]
+                                                            }.mp4`;
+                                                            document.body.appendChild(link);
+                                                            link.click();
+                                                            document.body.removeChild(link);
+                                                            return;
+                                                          }
 
                                                           // 方案 1: 尝试直接 fetch 下载
                                                           try {
                                                             const response =
                                                               await fetchWithAuth(
-                                                                message.videoUrl!,
+                                                                downloadTargetUrl,
                                                                 {
                                                                   mode: "cors",
                                                                   credentials:
@@ -4631,7 +4667,7 @@ const AIChatDialog: React.FC = () => {
                                                               "a"
                                                             );
                                                           link.href =
-                                                            message.videoUrl!;
+                                                            downloadTargetUrl;
                                                           link.download = `video-${
                                                             new Date()
                                                               .toISOString()
@@ -4655,7 +4691,7 @@ const AIChatDialog: React.FC = () => {
                                                           );
                                                           try {
                                                             await navigator.clipboard.writeText(
-                                                              message.videoUrl!
+                                                              downloadTargetUrl
                                                             );
                                                           } catch {}
                                                         }

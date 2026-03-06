@@ -220,12 +220,16 @@ class ContextManager implements IContextManager {
           key === "thumbnail" ||
           key === "thumbnails" ||
           key === "sourceImagesData" ||
-          key === "latest"
+          key === "latest" ||
+          key === "videoLocalUrl"
         ) {
           // 对数组字段保留空数组（避免 JSON 中出现 null 占位影响读取逻辑）
           if (Array.isArray(value)) return [];
           return undefined;
         }
+
+        // 本地视频缓存索引只在 IndexedDB 内有效，不写入 localStorage
+        if (key === "videoLocalAssetId") return undefined;
 
         // 视频任务信息可能非常大且与恢复会话无关
         if (key === "taskInfo") return null;

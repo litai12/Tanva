@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsNumber, IsEnum, IsDateString, Min, Max } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsDateString, Min, Max } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UsersQueryDto {
@@ -97,4 +97,43 @@ export class UpdateUserRoleDto {
   @ApiProperty({ description: '用户角色', enum: ['user', 'admin'] })
   @IsString()
   role!: string;
+}
+
+export class CreditChangeRecordsQueryDto {
+  @ApiPropertyOptional({ description: '页码', default: 1 })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  page?: number = 1;
+
+  @ApiPropertyOptional({ description: '每页数量', default: 20 })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(200)
+  pageSize?: number = 20;
+
+  @ApiPropertyOptional({ description: '搜索关键词（手机号/邮箱/昵称）' })
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @ApiPropertyOptional({
+    description: '来源筛选',
+    enum: ['all', 'recharge', 'admin_add', 'admin_deduct'],
+    default: 'all',
+  })
+  @IsOptional()
+  @IsString()
+  source?: 'all' | 'recharge' | 'admin_add' | 'admin_deduct' = 'all';
+
+  @ApiPropertyOptional({ description: '开始日期' })
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @ApiPropertyOptional({ description: '结束日期' })
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
 }

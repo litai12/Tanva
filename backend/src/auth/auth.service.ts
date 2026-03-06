@@ -30,6 +30,14 @@ export class AuthService {
     private readonly creditsService: CreditsService
   ) {}
 
+  private async touchUserLastLoginAt(userId: string) {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { lastLoginAt: new Date() },
+      select: { id: true },
+    });
+  }
+
   private async signTokens(user: {
     id: string;
     email: string;
@@ -106,7 +114,7 @@ export class AuthService {
         data: {
           email: dto.email ? dto.email.toLowerCase() : null,
           passwordHash: hash,
-          name: dto.name || dto.phone.slice(-4),
+          name: dto.name.trim(),
           phone: dto.phone,
         },
         select: {
@@ -170,6 +178,7 @@ export class AuthService {
         expiresAt,
       },
     });
+    await this.touchUserLastLoginAt(user.id);
     return tokens;
   }
 
@@ -235,6 +244,7 @@ export class AuthService {
     await this.prisma.refreshToken.create({
       data: { userId: userPayload.sub, tokenHash: refreshHash, expiresAt },
     });
+    await this.touchUserLastLoginAt(userPayload.sub);
     return tokens;
   }
 

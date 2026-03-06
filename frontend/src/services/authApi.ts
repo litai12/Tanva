@@ -276,7 +276,7 @@ export const authApi = {
     phone: string;
     password: string;
     code: string;
-    name?: string;
+    name: string;
     email?: string;
     inviteCode?: string;
   }) {
@@ -289,7 +289,7 @@ export const authApi = {
         id: `u_${Date.now()}`,
         email: payload.email || `${payload.phone}@mock.local`,
         phone: payload.phone,
-        name: payload.name || `用户${payload.phone.slice(-4)}`,
+        name: payload.name,
         role: "user",
       };
       // persist optional phone for strict SMS login

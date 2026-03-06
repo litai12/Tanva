@@ -1022,10 +1022,19 @@ export interface VideoGenerationRequest {
   prompt: string;
   referenceImageUrls?: string[];
   quality?: "hd" | "sd";
+  model?: "sora-2" | "sora-2-vip" | "sora-2-pro";
   /** 画面比例，仅极速 Sora2 使用。例如 '16:9' | '9:16' */
   aspectRatio?: "16:9" | "9:16";
   /** 时长（秒，仅极速 Sora2 使用）。字符串形式以兼容后端 DTO。 */
   duration?: "10" | "15" | "25";
+  watermark?: boolean;
+  thumbnail?: boolean;
+  privateMode?: boolean;
+  style?: string;
+  storyboard?: boolean;
+  characterUrl?: string;
+  characterTimestamps?: string;
+  characterTaskId?: string;
 }
 
 export interface VideoGenerationResult {
@@ -1101,6 +1110,103 @@ export async function generateVideoViaAPI(
         : 0,
       error: error instanceof Error ? error.message : "Unknown error",
     });
+    return {
+      success: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "Network error",
+        timestamp: new Date(),
+      },
+    };
+  }
+}
+
+export interface Sora2CharacterCreateRequest {
+  model?: "sora-2" | "sora-2-pro";
+  timestamps: string;
+  url?: string;
+  fromTask?: string;
+}
+
+export interface Sora2CharacterCreateResult {
+  success: boolean;
+  taskId: string;
+  status?: string;
+  raw?: Record<string, any>;
+}
+
+export interface Sora2CharacterTaskResult {
+  id: string;
+  status: string;
+  progress?: number;
+  characters?: Array<{
+    id?: string;
+    displayName?: string;
+    username?: string;
+    profilePictureUrl?: string;
+  }>;
+  raw?: Record<string, any>;
+}
+
+export async function createSora2CharacterViaAPI(
+  request: Sora2CharacterCreateRequest
+): Promise<AIServiceResponse<Sora2CharacterCreateResult>> {
+  try {
+    const response = await fetchWithAuth(`${API_BASE_URL}/ai/sora2/character/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      return {
+        success: false,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: errorData?.message || `HTTP ${response.status}`,
+          timestamp: new Date(),
+        },
+      };
+    }
+
+    const data = (await response.json()) as Sora2CharacterCreateResult;
+    return { success: true, data };
+  } catch (error) {
+    return {
+      success: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "Network error",
+        timestamp: new Date(),
+      },
+    };
+  }
+}
+
+export async function querySora2CharacterTaskViaAPI(
+  taskId: string
+): Promise<AIServiceResponse<Sora2CharacterTaskResult>> {
+  try {
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/ai/sora2/character/${encodeURIComponent(taskId)}`
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      return {
+        success: false,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: errorData?.message || `HTTP ${response.status}`,
+          timestamp: new Date(),
+        },
+      };
+    }
+
+    const data = (await response.json()) as Sora2CharacterTaskResult;
+    return { success: true, data };
+  } catch (error) {
     return {
       success: false,
       error: {
