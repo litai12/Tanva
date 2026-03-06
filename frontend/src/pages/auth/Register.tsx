@@ -93,6 +93,11 @@ export default function RegisterPage() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      alert(t("auth.register.usernameRequired"));
+      return;
+    }
     if (!agreeTerms) {
       alert(t("auth.agreements.mustAgree"));
       return;
@@ -121,7 +126,7 @@ export default function RegisterPage() {
         phone,
         password,
         code || "336699", // 暂时使用默认验证码，因为验证码输入框已隐藏
-        name || undefined,
+        trimmedName,
         email || undefined,
         inviteCode.trim() || undefined
       );
@@ -198,6 +203,7 @@ export default function RegisterPage() {
             placeholder={t("auth.register.namePlaceholder")}
             value={name}
             onChange={(e) => setName(e.target.value)}
+            required
             className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12'
           />
           <div className='relative'>

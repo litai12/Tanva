@@ -47,6 +47,7 @@ import {
   STORE_NAMES,
   idbGet,
   idbPut,
+  idbEnforceLimit,
   isMigrationDone,
   markMigrationDone,
   isIndexedDBAvailable,
@@ -73,6 +74,7 @@ const LOCAL_SESSIONS_KEY = "tanva_aiChat_sessions";
 const LOCAL_ACTIVE_KEY = "tanva_aiChat_activeSessionId";
 const IDB_SESSIONS_KEY = "local_sessions";
 const AI_CHAT_STORE_NAME = STORE_NAMES.AI_CHAT_SESSIONS;
+const AI_CHAT_VIDEO_CACHE_STORE_NAME = STORE_NAMES.AI_CHAT_VIDEO_CACHE;
 
 // 🔥 全局待生成图片计数器（防止连续快速生成时重叠）
 let generatingImageCount = 0;
@@ -104,6 +106,82 @@ interface IDBSessionsData {
   activeSessionId: string | null;
   updatedAt: number;
 }
+
+interface IDBVideoCacheData {
+  id: string;
+  sessionId: string;
+  messageId: string;
+  sourceUrl: string;
+  blob: Blob;
+  contentType: string;
+  size: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+const videoObjectUrlByAssetId = new Map<string, string>();
+const videoObjectUrlByMessageId = new Map<string, string>();
+
+const buildVideoCacheAssetId = (sessionId: string, messageId: string): string =>
+  `${sessionId}::${messageId}`;
+
+const resolveSessionIdByMessageId = (messageId: string): string | null => {
+  const contexts = contextManager.getAllSessions();
+  for (const context of contexts) {
+    if (context.messages.some((message) => message.id === messageId)) {
+      return context.sessionId;
+    }
+  }
+  return null;
+};
+
+const revokeVideoObjectUrlForMessage = (messageId: string): void => {
+  const currentUrl = videoObjectUrlByMessageId.get(messageId);
+  if (!currentUrl) return;
+  videoObjectUrlByMessageId.delete(messageId);
+  const keepByOtherMessage = Array.from(videoObjectUrlByMessageId.values()).some(
+    (url) => url === currentUrl
+  );
+  if (keepByOtherMessage) return;
+
+  for (const [assetId, mappedUrl] of videoObjectUrlByAssetId.entries()) {
+    if (mappedUrl === currentUrl) {
+      videoObjectUrlByAssetId.delete(assetId);
+      break;
+    }
+  }
+  try {
+    URL.revokeObjectURL(currentUrl);
+  } catch {}
+};
+
+const revokeAllVideoObjectUrls = (): void => {
+  for (const objectUrl of videoObjectUrlByAssetId.values()) {
+    try {
+      URL.revokeObjectURL(objectUrl);
+    } catch {}
+  }
+  videoObjectUrlByAssetId.clear();
+  videoObjectUrlByMessageId.clear();
+};
+
+const bindVideoObjectUrlToMessage = (
+  assetId: string,
+  messageId: string,
+  objectUrl: string
+): void => {
+  revokeVideoObjectUrlForMessage(messageId);
+
+  const previousAssetUrl = videoObjectUrlByAssetId.get(assetId);
+  if (previousAssetUrl && previousAssetUrl !== objectUrl) {
+    try {
+      URL.revokeObjectURL(previousAssetUrl);
+    } catch {}
+  }
+
+  videoObjectUrlByAssetId.set(assetId, objectUrl);
+  videoObjectUrlByMessageId.set(messageId, objectUrl);
+};
 
 // 内存优化常量 (P0 修复)
 const MAX_MESSAGES_PER_SESSION = 100;
@@ -285,6 +363,9 @@ export interface ChatMessage {
   videoTaskId?: string | null;
   videoStatus?: string | null;
   videoSourceUrl?: string;
+  // 本地视频缓存（IndexedDB）信息：videoLocalUrl 仅运行时有效，不参与持久化
+  videoLocalAssetId?: string;
+  videoLocalUrl?: string;
   videoMetadata?: Record<string, any>;
   sourceImageData?: string;
   sourceImagesData?: string[];
@@ -1044,10 +1125,19 @@ const migrateLegacySessions = async (
 export type Sora2VideoGenerationOptions = {
   onProgress?: (stage: string, progress: number) => void;
   quality?: Sora2VideoQuality;
+  model?: "sora-2" | "sora-2-vip" | "sora-2-pro";
   /** 画面比例，仅极速 Sora2 支持。例如 '16:9' | '9:16' */
   aspectRatio?: "16:9" | "9:16";
   /** 时长（秒），仅极速 Sora2 支持。例如 10 / 15 / 25 */
   durationSeconds?: 10 | 15 | 25;
+  watermark?: boolean;
+  thumbnail?: boolean;
+  privateMode?: boolean;
+  style?: string;
+  storyboard?: boolean;
+  characterUrl?: string;
+  characterTimestamps?: string;
+  characterTaskId?: string;
 };
 
 export async function requestSora2VideoGeneration(
@@ -1081,8 +1171,17 @@ export async function requestSora2VideoGeneration(
     prompt,
     referenceImageUrls: cleanedImageUrls.length ? cleanedImageUrls : undefined,
     quality: options?.quality,
+    model: options?.model,
     aspectRatio: options?.aspectRatio,
     duration,
+    watermark: options?.watermark,
+    thumbnail: options?.thumbnail,
+    privateMode: options?.privateMode,
+    style: options?.style,
+    storyboard: options?.storyboard,
+    characterUrl: options?.characterUrl,
+    characterTimestamps: options?.characterTimestamps,
+    characterTaskId: options?.characterTaskId,
   });
 
   if (!response.success || !response.data) {
@@ -1140,6 +1239,139 @@ const fetchVideoBlob = async (url: string): Promise<Blob | null> => {
     console.warn("⚠️ 无法下载视频:", url, error);
     return null;
   }
+};
+
+const ensureVideoBlobMime = (blob: Blob): Blob => {
+  if (blob.type && blob.type.startsWith("video/")) {
+    return blob;
+  }
+  return new Blob([blob], { type: "video/mp4" });
+};
+
+const cacheVideoBlobForMessage = async (params: {
+  sessionId: string;
+  messageId: string;
+  videoUrl: string;
+}): Promise<{ assetId: string; objectUrl: string } | null> => {
+  const { sessionId, messageId, videoUrl } = params;
+  if (!sessionId || !messageId || !/^https?:\/\//i.test(videoUrl)) {
+    return null;
+  }
+
+  const blob = await fetchVideoBlob(videoUrl);
+  if (!blob || blob.size <= 0) {
+    return null;
+  }
+
+  const safeBlob = ensureVideoBlobMime(blob);
+  const assetId = buildVideoCacheAssetId(sessionId, messageId);
+  const now = Date.now();
+  const record: IDBVideoCacheData = {
+    id: assetId,
+    sessionId,
+    messageId,
+    sourceUrl: videoUrl,
+    blob: safeBlob,
+    contentType: safeBlob.type || "video/mp4",
+    size: safeBlob.size,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  try {
+    await idbPut(AI_CHAT_VIDEO_CACHE_STORE_NAME, record);
+    await idbEnforceLimit(AI_CHAT_VIDEO_CACHE_STORE_NAME);
+  } catch (error) {
+    console.warn("⚠️ 缓存视频到 IndexedDB 失败:", error);
+    return null;
+  }
+
+  const cachedUrl = videoObjectUrlByAssetId.get(assetId);
+  if (cachedUrl) {
+    bindVideoObjectUrlToMessage(assetId, messageId, cachedUrl);
+    return { assetId, objectUrl: cachedUrl };
+  }
+
+  const objectUrl = URL.createObjectURL(safeBlob);
+  bindVideoObjectUrlToMessage(assetId, messageId, objectUrl);
+  return { assetId, objectUrl };
+};
+
+const loadCachedVideoObjectUrl = async (
+  sessionId: string,
+  messageId: string
+): Promise<{ assetId: string; objectUrl: string } | null> => {
+  if (!sessionId || !messageId) return null;
+  const assetId = buildVideoCacheAssetId(sessionId, messageId);
+  const existing = videoObjectUrlByAssetId.get(assetId);
+  if (existing) {
+    bindVideoObjectUrlToMessage(assetId, messageId, existing);
+    return { assetId, objectUrl: existing };
+  }
+
+  try {
+    const record = await idbGet<IDBVideoCacheData>(
+      AI_CHAT_VIDEO_CACHE_STORE_NAME,
+      assetId
+    );
+    if (!record?.blob) return null;
+
+    const safeBlob =
+      record.blob instanceof Blob
+        ? ensureVideoBlobMime(record.blob)
+        : ensureVideoBlobMime(new Blob([record.blob as any]));
+    const objectUrl = URL.createObjectURL(safeBlob);
+    bindVideoObjectUrlToMessage(assetId, messageId, objectUrl);
+    return { assetId, objectUrl };
+  } catch (error) {
+    console.warn("⚠️ 从 IndexedDB 恢复视频缓存失败:", error);
+    return null;
+  }
+};
+
+const hydrateSessionLocalVideoUrls = async (
+  sessionId: string
+): Promise<boolean> => {
+  const context = contextManager.getSession(sessionId);
+  if (!context || !Array.isArray(context.messages)) {
+    return false;
+  }
+
+  let changed = false;
+  for (const message of context.messages) {
+    const remoteVideoUrl =
+      typeof message.videoUrl === "string" && message.videoUrl.trim()
+        ? message.videoUrl.trim()
+        : typeof message.videoSourceUrl === "string" &&
+          message.videoSourceUrl.trim()
+        ? message.videoSourceUrl.trim()
+        : "";
+    if (!remoteVideoUrl) continue;
+
+    const expectedAssetId = buildVideoCacheAssetId(sessionId, message.id);
+    if (message.videoLocalAssetId !== expectedAssetId) {
+      message.videoLocalAssetId = expectedAssetId;
+      changed = true;
+    }
+    if (message.videoLocalUrl) {
+      message.videoLocalUrl = undefined;
+      changed = true;
+    }
+
+    const local = await loadCachedVideoObjectUrl(sessionId, message.id);
+    if (!local) continue;
+
+    if (
+      message.videoLocalAssetId !== local.assetId ||
+      message.videoLocalUrl !== local.objectUrl
+    ) {
+      message.videoLocalAssetId = local.assetId;
+      message.videoLocalUrl = local.objectUrl;
+      changed = true;
+    }
+  }
+
+  return changed;
 };
 
 const captureVideoPosterFromBlob = async (
@@ -1680,6 +1912,22 @@ const deserializeConversation = (
         (message as any).imageRemoteUrl || (message as any).imageUrl;
       const baseImage = message.imageData;
       const thumbnail = message.thumbnail;
+      const persistedVideoUrl =
+        typeof message.videoUrl === "string" ? message.videoUrl.trim() : "";
+      const persistedVideoSourceUrl =
+        typeof message.videoSourceUrl === "string"
+          ? message.videoSourceUrl.trim()
+          : "";
+      const normalizedVideoUrl = persistedVideoUrl.startsWith("blob:")
+        ? ""
+        : persistedVideoUrl;
+      const normalizedVideoSourceUrl = persistedVideoSourceUrl.startsWith(
+        "blob:"
+      )
+        ? ""
+        : persistedVideoSourceUrl;
+      const effectiveVideoUrl =
+        normalizedVideoUrl || normalizedVideoSourceUrl || undefined;
       return hydrateMessageGenerationState({
         id: message.id,
         type: message.type,
@@ -1706,8 +1954,12 @@ const deserializeConversation = (
               stage: message.generationStatus.stage,
             }
           : undefined,
-        videoUrl: message.videoUrl,
-        videoSourceUrl: message.videoSourceUrl,
+        videoUrl: effectiveVideoUrl,
+        videoSourceUrl: normalizedVideoSourceUrl || normalizedVideoUrl || undefined,
+        videoLocalAssetId: effectiveVideoUrl
+          ? buildVideoCacheAssetId(data.sessionId, message.id)
+          : undefined,
+        videoLocalUrl: undefined,
         videoThumbnail: message.videoThumbnail,
         videoDuration: message.videoDuration,
         videoReferencedUrls: message.videoReferencedUrls,
@@ -1856,6 +2108,7 @@ interface AIChatState {
   refreshSessions: (options?: {
     persistToLocal?: boolean;
     markProjectDirty?: boolean;
+    immediate?: boolean;
   }) => Promise<void>;
   createSession: (name?: string) => Promise<string>;
   switchSession: (sessionId: string) => Promise<void>;
@@ -2196,6 +2449,21 @@ export const useAIChatStore = create<AIChatState>()(
         return sessionId;
       };
 
+      const rehydrateActiveSessionLocalVideos = async (
+        sessionId: string | null
+      ): Promise<void> => {
+        if (!sessionId) return;
+        revokeAllVideoObjectUrls();
+        const changed = await hydrateSessionLocalVideoUrls(sessionId);
+        if (!changed) return;
+        const currentSessionId =
+          get().currentSessionId || contextManager.getCurrentSessionId();
+        if (currentSessionId !== sessionId) return;
+        const context = contextManager.getSession(sessionId);
+        if (!context) return;
+        set({ messages: [...context.messages] });
+      };
+
       const sanitizeImageInput = (value?: string | null): string | null => {
         if (!value) return null;
         // 先尝试标准化为 data URL
@@ -2316,10 +2584,18 @@ export const useAIChatStore = create<AIChatState>()(
 
             return { messages: nextMessages };
           });
+          // 新消息（用户输入/占位消息）立即写入持久层，避免“刚发出就刷新导致丢失”
+          void get().refreshSessions({ immediate: true });
           return storedMessage!;
         },
 
         clearMessages: () => {
+          const currentMessages = get().messages;
+          currentMessages.forEach((msg) => {
+            if (msg.videoLocalUrl) {
+              revokeVideoObjectUrlForMessage(msg.id);
+            }
+          });
           const state = get();
           const sessionId =
             state.currentSessionId || contextManager.getCurrentSessionId();
@@ -2412,6 +2688,74 @@ export const useAIChatStore = create<AIChatState>()(
             return;
           }
 
+          const executePersist = async (): Promise<void> => {
+            const { markProjectDirty = true } = options ?? {};
+            const listedSessions = contextManager.listSessions();
+            const sessionSummaries = listedSessions.map((session) => ({
+              sessionId: session.sessionId,
+              name: session.name,
+              lastActivity: session.lastActivity,
+              messageCount: session.messageCount,
+              preview: session.preview,
+            }));
+
+            // 🔥 异步序列化会话（上传图片到 OSS）
+            const serializedSessionsPromises = listedSessions
+              .map((session) =>
+                contextManager.getSession(session.sessionId)
+              )
+              .filter(
+                (context): context is ConversationContext => !!context
+              )
+              .map((context) => serializeConversation(context));
+
+            const serializedSessions = await Promise.all(
+              serializedSessionsPromises
+            );
+
+            set({ sessions: sessionSummaries });
+
+            const activeSessionId =
+              get().currentSessionId ??
+              contextManager.getCurrentSessionId() ??
+              null;
+
+            if (markProjectDirty) {
+              const projectStore = useProjectContentStore.getState();
+              if (projectStore.projectId && projectStore.hydrated) {
+                const previousSessions =
+                  projectStore.content?.aiChatSessions ?? [];
+                const previousActive =
+                  projectStore.content?.aiChatActiveSessionId ?? null;
+                if (
+                  !sessionsEqual(previousSessions, serializedSessions) ||
+                  (previousActive ?? null) !== (activeSessionId ?? null)
+                ) {
+                  projectStore.updatePartial(
+                    {
+                      aiChatSessions: serializedSessions,
+                      aiChatActiveSessionId: activeSessionId ?? null,
+                    },
+                    { markDirty: true }
+                  );
+                }
+              } else {
+                // 无项目场景：把会话持久化到 IndexedDB
+                writeSessionsToIDB(serializedSessions, activeSessionId);
+              }
+            }
+          };
+
+          const immediate = options?.immediate === true;
+          if (immediate) {
+            if (refreshSessionsTimeout) {
+              clearTimeout(refreshSessionsTimeout);
+              refreshSessionsTimeout = null;
+            }
+            await executePersist();
+            return;
+          }
+
           // 🔥 实现防抖：清除之前的定时器，300ms后执行
           if (refreshSessionsTimeout) {
             clearTimeout(refreshSessionsTimeout);
@@ -2420,61 +2764,7 @@ export const useAIChatStore = create<AIChatState>()(
           return new Promise<void>((resolve) => {
             refreshSessionsTimeout = setTimeout(async () => {
               try {
-                const { markProjectDirty = true } = options ?? {};
-                const listedSessions = contextManager.listSessions();
-                const sessionSummaries = listedSessions.map((session) => ({
-                  sessionId: session.sessionId,
-                  name: session.name,
-                  lastActivity: session.lastActivity,
-                  messageCount: session.messageCount,
-                  preview: session.preview,
-                }));
-
-                // 🔥 异步序列化会话（上传图片到 OSS）
-                const serializedSessionsPromises = listedSessions
-                  .map((session) =>
-                    contextManager.getSession(session.sessionId)
-                  )
-                  .filter(
-                    (context): context is ConversationContext => !!context
-                  )
-                  .map((context) => serializeConversation(context));
-
-                const serializedSessions = await Promise.all(
-                  serializedSessionsPromises
-                );
-
-                set({ sessions: sessionSummaries });
-
-                const activeSessionId =
-                  get().currentSessionId ??
-                  contextManager.getCurrentSessionId() ??
-                  null;
-
-                if (markProjectDirty) {
-                  const projectStore = useProjectContentStore.getState();
-                  if (projectStore.projectId && projectStore.hydrated) {
-                    const previousSessions =
-                      projectStore.content?.aiChatSessions ?? [];
-                    const previousActive =
-                      projectStore.content?.aiChatActiveSessionId ?? null;
-                    if (
-                      !sessionsEqual(previousSessions, serializedSessions) ||
-                      (previousActive ?? null) !== (activeSessionId ?? null)
-                    ) {
-                      projectStore.updatePartial(
-                        {
-                          aiChatSessions: serializedSessions,
-                          aiChatActiveSessionId: activeSessionId ?? null,
-                        },
-                        { markDirty: true }
-                      );
-                    }
-                  } else {
-                    // 无项目场景：把会话持久化到 IndexedDB
-                    writeSessionsToIDB(serializedSessions, activeSessionId);
-                  }
-                }
+                await executePersist();
               } finally {
                 refreshSessionsTimeout = null;
                 resolve();
@@ -2490,6 +2780,7 @@ export const useAIChatStore = create<AIChatState>()(
             currentSessionId: sessionId,
             messages: context ? [...context.messages] : [],
           });
+          void rehydrateActiveSessionLocalVideos(sessionId);
           get().refreshSessions();
           return sessionId;
         },
@@ -2502,6 +2793,7 @@ export const useAIChatStore = create<AIChatState>()(
             currentSessionId: sessionId,
             messages: context ? [...context.messages] : [],
           });
+          void rehydrateActiveSessionLocalVideos(sessionId);
           get().refreshSessions();
         },
 
@@ -2530,6 +2822,7 @@ export const useAIChatStore = create<AIChatState>()(
             currentSessionId: activeId || null,
             messages: nextMessages,
           });
+          void rehydrateActiveSessionLocalVideos(activeId || null);
           get().refreshSessions();
         },
 
@@ -2546,6 +2839,7 @@ export const useAIChatStore = create<AIChatState>()(
           try {
             hasHydratedSessions = true;
 
+            revokeAllVideoObjectUrls();
             contextManager.resetSessions();
             try {
               useImageHistoryStore.getState().clearHistory();
@@ -2614,6 +2908,7 @@ export const useAIChatStore = create<AIChatState>()(
               currentSessionId: targetSessionId,
               messages: context ? [...context.messages] : [],
             });
+            void rehydrateActiveSessionLocalVideos(targetSessionId);
 
             triggerLegacyMigration(
               "hydratePersistedSessions",
@@ -2634,6 +2929,7 @@ export const useAIChatStore = create<AIChatState>()(
             return;
           }
 
+          revokeAllVideoObjectUrls();
           contextManager.resetSessions();
 
           const sessionId = contextManager.createSession();
@@ -5453,12 +5749,13 @@ export const useAIChatStore = create<AIChatState>()(
               thumbnailUrl?: string,
               status?: string
             ) => {
+              const remoteVideoUrl = videoUrl;
               get().updateMessage(aiMessageId, (msg) => ({
                 ...msg,
                 type: "ai",
                 content: "Seedance 视频生成完成",
-                videoUrl,
-                videoSourceUrl: videoUrl,
+                videoUrl: remoteVideoUrl,
+                videoSourceUrl: remoteVideoUrl,
                 videoTaskId: createResult.taskId ?? msg.videoTaskId ?? null,
                 videoStatus: status ?? "succeeded",
                 videoThumbnail: msg.videoThumbnail || thumbnailUrl,
@@ -5477,6 +5774,30 @@ export const useAIChatStore = create<AIChatState>()(
                   stage: "完成",
                 },
               }));
+
+              const sessionId =
+                resolveSessionIdByMessageId(aiMessageId) ||
+                get().currentSessionId ||
+                contextManager.getCurrentSessionId();
+              if (sessionId) {
+                try {
+                  const localCached = await cacheVideoBlobForMessage({
+                    sessionId,
+                    messageId: aiMessageId,
+                    videoUrl: remoteVideoUrl,
+                  });
+                  if (localCached) {
+                    get().updateMessage(aiMessageId, (msg) => ({
+                      ...msg,
+                      videoSourceUrl: remoteVideoUrl,
+                      videoLocalAssetId: localCached.assetId,
+                      videoLocalUrl: localCached.objectUrl,
+                    }));
+                  }
+                } catch (cacheError) {
+                  console.warn("⚠️ 视频本地缓存失败，继续使用远程 URL:", cacheError);
+                }
+              }
 
               if (ENABLE_VIDEO_CANVAS_PLACEMENT) {
                 const placedPoster = await autoPlaceVideoOnCanvas({
@@ -5505,6 +5826,8 @@ export const useAIChatStore = create<AIChatState>()(
                   durationSeconds,
                 },
               });
+
+              await get().refreshSessions();
             };
 
             get().updateMessage(aiMessageId, (msg) => ({
@@ -7016,6 +7339,7 @@ export const useAIChatStore = create<AIChatState>()(
 
         // 重置状态
         resetState: () => {
+          revokeAllVideoObjectUrls();
           set({
             isVisible: false,
             isMaximized: false,
@@ -7040,11 +7364,7 @@ export const useAIChatStore = create<AIChatState>()(
           // 异步加载本地会话（IndexedDB 优先，兼容 localStorage）
           if (!hasHydratedSessions) {
             loadLocalSessions().then((stored) => {
-              if (
-                stored &&
-                stored.sessions.length > 0 &&
-                !hasHydratedSessions
-              ) {
+              if (stored && stored.sessions.length > 0) {
                 get().hydratePersistedSessions(
                   stored.sessions,
                   stored.activeSessionId,
@@ -7072,6 +7392,7 @@ export const useAIChatStore = create<AIChatState>()(
             currentSessionId: sessionId,
             messages: context ? [...context.messages] : [],
           });
+          void rehydrateActiveSessionLocalVideos(sessionId);
           hasHydratedSessions = true;
           get().refreshSessions({ markProjectDirty: false });
         },

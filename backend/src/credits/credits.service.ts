@@ -55,6 +55,8 @@ export interface ApiUsageParams {
   userAgent?: string;
 }
 
+type SoraBillingModel = 'sora-2' | 'sora-2-vip' | 'sora-2-pro';
+
 @Injectable()
 export class CreditsService {
   private readonly logger = new Logger(CreditsService.name);
@@ -79,6 +81,46 @@ export class CreditsService {
     if (value.includes('apimart')) return 'apimart';
     if (value === 'legacy' || value.includes('147')) return '147';
     return value;
+  }
+
+  private normalizeSoraBillingModel(raw: unknown): SoraBillingModel | null {
+    if (typeof raw !== 'string') return null;
+    const value = raw.trim().toLowerCase();
+    if (value === 'sora-2' || value === 'sora-2-vip' || value === 'sora-2-pro') {
+      return value;
+    }
+    return null;
+  }
+
+  private resolveSoraModelCredits(
+    serviceType: ServiceType,
+    defaultCredits: number,
+    requestParams: any,
+    model?: string,
+  ): number {
+    if (serviceType !== 'sora-sd' && serviceType !== 'sora-hd') {
+      return defaultCredits;
+    }
+
+    const servicePricing = CREDIT_PRICING_CONFIG[serviceType] as any;
+    const modelPricing = servicePricing?.modelPricing;
+    if (!modelPricing || typeof modelPricing !== 'object') {
+      return defaultCredits;
+    }
+
+    const selectedModel =
+      this.normalizeSoraBillingModel(requestParams?.soraModel) ||
+      this.normalizeSoraBillingModel(model);
+    if (!selectedModel) {
+      return defaultCredits;
+    }
+
+    const configuredCredits = Number(modelPricing?.[selectedModel]?.creditsPerCall);
+    if (Number.isFinite(configuredCredits) && configuredCredits > 0) {
+      return configuredCredits;
+    }
+
+    return defaultCredits;
   }
 
   private extractChannelFromApiUsage(apiUsage?: {
@@ -300,6 +342,13 @@ export class CreditsService {
     }
 
     let creditsToDeduct: number = pricing.creditsPerCall;
+    creditsToDeduct = this.resolveSoraModelCredits(
+      serviceType,
+      creditsToDeduct,
+      requestParams,
+      model,
+    );
+
     const requestedImageSize = params?.requestParams?.imageSize;
     const isImageGeneration =
       serviceType !== 'midjourney-imagine' && serviceType.endsWith('-image');

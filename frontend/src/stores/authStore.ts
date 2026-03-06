@@ -11,7 +11,7 @@ type AuthState = {
   init: () => Promise<void>;
   login: (phone: string, password: string) => Promise<void>;
   loginWithSms: (phone: string, code: string) => Promise<void>;
-  register: (phone: string, password: string, code: string, name?: string, email?: string, inviteCode?: string) => Promise<void>;
+  register: (phone: string, password: string, code: string, name: string, email?: string, inviteCode?: string) => Promise<void>;
   logout: () => Promise<void>;
   forceLogout: (reason?: string) => void;
 };

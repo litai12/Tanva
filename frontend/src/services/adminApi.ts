@@ -26,11 +26,20 @@ async function request(path: string, options: RequestInit = {}) {
 export interface DashboardStats {
   totalUsers: number;
   activeUsers: number;
+  dailyActiveUsers: number;
+  onlineUsers: number;
+  todayRegisteredUsers: number;
   totalCreditsInCirculation: number;
   totalCreditsSpent: number;
   totalApiCalls: number;
   successfulApiCalls: number;
   failedApiCalls: number;
+  generatedAt: string;
+  userTrend: Array<{
+    date: string;
+    registeredUsers: number;
+    dailyActiveUsers: number;
+  }>;
 }
 
 export interface UserWithCredits {

@@ -65,8 +65,18 @@ export class NodeConfigService {
 
     return sorted.map((config) => ({
       nodeKey: config.nodeKey,
-      nameZh: config.nameZh,
-      nameEn: config.nameEn,
+      nameZh:
+        config.nodeKey === 'sora2Video'
+          ? 'Sora2 Pro视频生成'
+          : config.nodeKey === 'sora2Character'
+          ? 'Sora2角色生成'
+          : config.nameZh,
+      nameEn:
+        config.nodeKey === 'sora2Video'
+          ? 'Sora2 Pro'
+          : config.nodeKey === 'sora2Character'
+          ? 'Sora2 Character'
+          : config.nameEn,
       category: config.category,
       status: config.status,
       statusMessage: config.statusMessage,
@@ -105,8 +115,18 @@ export class NodeConfigService {
     return sorted.map((config) => ({
       id: config.id,
       nodeKey: config.nodeKey,
-      nameZh: config.nameZh,
-      nameEn: config.nameEn,
+      nameZh:
+        config.nodeKey === 'sora2Video'
+          ? 'Sora2 Pro视频生成'
+          : config.nodeKey === 'sora2Character'
+          ? 'Sora2角色生成'
+          : config.nameZh,
+      nameEn:
+        config.nodeKey === 'sora2Video'
+          ? 'Sora2 Pro'
+          : config.nodeKey === 'sora2Character'
+          ? 'Sora2 Character'
+          : config.nameEn,
       category: config.category,
       status: config.status,
       statusMessage: config.statusMessage,
@@ -324,28 +344,40 @@ export class NodeConfigService {
       },
       {
         nodeKey: 'sora2Video',
-        nameZh: 'Sora视频生成',
-        nameEn: 'Sora',
+        nameZh: 'Sora2 Pro视频生成',
+        nameEn: 'Sora2 Pro',
         category: 'video',
+        status: 'coming_soon',
         sortOrder: 25,
-        creditsPerCall: 40,
+        creditsPerCall: 900,
         serviceType: 'sora-sd',
-        priceYuan: 0.4,
-        description: 'OpenAI Sora视频',
+        priceYuan: 9,
+        description: 'OpenAI Sora2 Pro 视频',
         metadata: {
-          billingType: 'by_quality',
-          pricing: {
-            sd: { credits: 40, priceYuan: 0.4 },
-            hd: { credits: 400, priceYuan: 4 },
+          billingType: 'by_model',
+          modelPricing: {
+            'sora-2': { credits: 900, priceYuan: 9 },
+            'sora-2-vip': { credits: 900, priceYuan: 9 },
+            'sora-2-pro': { credits: 900, priceYuan: 9 },
           },
         },
+      },
+      {
+        nodeKey: 'sora2Character',
+        nameZh: 'Sora2角色生成',
+        nameEn: 'Sora2 Character',
+        category: 'video',
+        status: 'coming_soon',
+        sortOrder: 26,
+        creditsPerCall: 0,
+        description: '从视频中提取角色，供 Sora2 Pro 复用',
       },
       {
         nodeKey: 'wan26',
         nameZh: 'Wan2.6视频',
         nameEn: 'Wan2.6',
         category: 'video',
-        sortOrder: 26,
+        sortOrder: 27,
         creditsPerCall: 600,
         serviceType: 'wan26-video',
         priceYuan: 6,
@@ -356,7 +388,7 @@ export class NodeConfigService {
         nameZh: 'Wan2参考视频',
         nameEn: 'Wan2 R2V',
         category: 'video',
-        sortOrder: 27,
+        sortOrder: 28,
         creditsPerCall: 600,
         serviceType: 'wan26-r2v',
         priceYuan: 6,
@@ -526,28 +558,40 @@ export class NodeConfigService {
       },
       {
         nodeKey: 'sora2Video',
-        nameZh: 'Sora视频生成',
-        nameEn: 'Sora',
+        nameZh: 'Sora2 Pro视频生成',
+        nameEn: 'Sora2 Pro',
         category: 'video',
+        status: 'coming_soon',
         sortOrder: 25,
-        creditsPerCall: 40,
+        creditsPerCall: 900,
         serviceType: 'sora-sd',
-        priceYuan: 0.4,
-        description: 'OpenAI Sora视频',
+        priceYuan: 9,
+        description: 'OpenAI Sora2 Pro 视频',
         metadata: {
-          billingType: 'by_quality',
-          pricing: {
-            sd: { credits: 40, priceYuan: 0.4 },
-            hd: { credits: 400, priceYuan: 4 },
+          billingType: 'by_model',
+          modelPricing: {
+            'sora-2': { credits: 900, priceYuan: 9 },
+            'sora-2-vip': { credits: 900, priceYuan: 9 },
+            'sora-2-pro': { credits: 900, priceYuan: 9 },
           },
         },
+      },
+      {
+        nodeKey: 'sora2Character',
+        nameZh: 'Sora2角色生成',
+        nameEn: 'Sora2 Character',
+        category: 'video',
+        status: 'coming_soon',
+        sortOrder: 26,
+        creditsPerCall: 0,
+        description: '从视频中提取角色，供 Sora2 Pro 复用',
       },
       {
         nodeKey: 'wan26',
         nameZh: 'Wan2.6视频',
         nameEn: 'Wan2.6',
         category: 'video',
-        sortOrder: 26,
+        sortOrder: 27,
         creditsPerCall: 600,
         serviceType: 'wan26-video',
         priceYuan: 6,
@@ -558,7 +602,7 @@ export class NodeConfigService {
         nameZh: 'Wan2参考视频',
         nameEn: 'Wan2 R2V',
         category: 'video',
-        sortOrder: 27,
+        sortOrder: 28,
         creditsPerCall: 600,
         serviceType: 'wan26-r2v',
         priceYuan: 6,

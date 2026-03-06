@@ -5,11 +5,20 @@ import { ApiResponseStatus } from '../credits/dto/credits.dto';
 export interface AdminDashboardStats {
   totalUsers: number;
   activeUsers: number;
+  dailyActiveUsers: number;
+  onlineUsers: number;
+  todayRegisteredUsers: number;
   totalCreditsInCirculation: number;
   totalCreditsSpent: number;
   totalApiCalls: number;
   successfulApiCalls: number;
   failedApiCalls: number;
+  generatedAt: string;
+  userTrend: Array<{
+    date: string;
+    registeredUsers: number;
+    dailyActiveUsers: number;
+  }>;
 }
 
 export interface UserWithCredits {
@@ -80,6 +89,26 @@ export interface CreditChangeRecord {
 export class AdminService {
   constructor(private prisma: PrismaService) {}
 
+  private toNumber(value: unknown): number {
+    if (typeof value === 'bigint') return Number(value);
+    if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+    if (typeof value === 'string') {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+    return 0;
+  }
+
+  private startOfDay(date: Date): Date {
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+
+  private formatDayLabel(date: Date): string {
+    return `${date.getMonth() + 1}/${date.getDate()}`;
+  }
+
   private asJsonObject(value: unknown): Record<string, any> | null {
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       return value as Record<string, any>;
@@ -95,14 +124,62 @@ export class AdminService {
    * 获取管理后台统计数据
    */
   async getDashboardStats(): Promise<AdminDashboardStats> {
+    const now = new Date();
+    const startOfToday = this.startOfDay(now);
+    const endOfToday = new Date(startOfToday);
+    endOfToday.setDate(endOfToday.getDate() + 1);
+    const onlineThreshold = new Date(now.getTime() - 15 * 60 * 1000);
+    const trendDays = 14;
+    const trendStart = new Date(startOfToday);
+    trendStart.setDate(trendStart.getDate() - (trendDays - 1));
+
+    const trendDayStarts = Array.from({ length: trendDays }, (_, idx) => {
+      const d = new Date(trendStart);
+      d.setDate(trendStart.getDate() + idx);
+      return d;
+    });
+
     const [
       totalUsers,
-      activeUsers,
+      todayActiveUsersByLastSeen,
+      todayRegisteredUsers,
+      onlineUsers,
+      todayActiveUsersBySessionRows,
       creditStats,
       apiStats,
+      trendRows,
     ] = await Promise.all([
       this.prisma.user.count(),
-      this.prisma.user.count({ where: { status: 'active' } }),
+      this.prisma.user.count({
+        where: {
+          lastLoginAt: {
+            gte: startOfToday,
+            lt: endOfToday,
+          },
+        },
+      }),
+      this.prisma.user.count({
+        where: {
+          createdAt: {
+            gte: startOfToday,
+            lt: endOfToday,
+          },
+        },
+      }),
+      this.prisma.user.count({
+        where: {
+          status: 'active',
+          lastLoginAt: {
+            gte: onlineThreshold,
+          },
+        },
+      }),
+      this.prisma.$queryRaw<Array<{ count: bigint | number | string }>>`
+        SELECT COUNT(DISTINCT "userId")::bigint AS count
+        FROM "RefreshToken"
+        WHERE "createdAt" >= ${startOfToday}
+          AND "createdAt" < ${endOfToday}
+      `,
       this.prisma.creditAccount.aggregate({
         _sum: {
           balance: true,
@@ -113,20 +190,62 @@ export class AdminService {
         by: ['responseStatus'],
         _count: true,
       }),
+      Promise.all(
+        trendDayStarts.map(async (dayStart) => {
+          const dayEnd = new Date(dayStart);
+          dayEnd.setDate(dayEnd.getDate() + 1);
+          const [registeredUsers, dailyActiveRows] = await Promise.all([
+            this.prisma.user.count({
+              where: {
+                createdAt: {
+                  gte: dayStart,
+                  lt: dayEnd,
+                },
+              },
+            }),
+            this.prisma.$queryRaw<Array<{ count: bigint | number | string }>>`
+              SELECT COUNT(DISTINCT "userId")::bigint AS count
+              FROM "RefreshToken"
+              WHERE "createdAt" >= ${dayStart}
+                AND "createdAt" < ${dayEnd}
+            `,
+          ]);
+          return {
+            date: this.formatDayLabel(dayStart),
+            registeredUsers,
+            dailyActiveUsers: this.toNumber(dailyActiveRows[0]?.count ?? 0),
+          };
+        })
+      ),
     ]);
+
+    const todayActiveUsersBySession = this.toNumber(todayActiveUsersBySessionRows[0]?.count ?? 0);
+    const dailyActiveUsers = Math.max(todayActiveUsersByLastSeen, todayActiveUsersBySession);
 
     const totalApiCalls = apiStats.reduce((sum, item) => sum + item._count, 0);
     const successfulApiCalls = apiStats.find(s => s.responseStatus === ApiResponseStatus.SUCCESS)?._count || 0;
     const failedApiCalls = apiStats.find(s => s.responseStatus === ApiResponseStatus.FAILED)?._count || 0;
 
+    const userTrend = trendRows.map((item, index) => {
+      if (index === trendRows.length - 1) {
+        return { ...item, dailyActiveUsers };
+      }
+      return item;
+    });
+
     return {
       totalUsers,
-      activeUsers,
+      activeUsers: dailyActiveUsers,
+      dailyActiveUsers,
+      onlineUsers,
+      todayRegisteredUsers,
       totalCreditsInCirculation: creditStats._sum.balance || 0,
       totalCreditsSpent: creditStats._sum.totalSpent || 0,
       totalApiCalls,
       successfulApiCalls,
       failedApiCalls,
+      generatedAt: now.toISOString(),
+      userTrend,
     };
   }
 

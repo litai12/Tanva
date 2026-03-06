@@ -33,6 +33,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     // 获取完整用户信息
     const user = await this.usersService.findById(payload.sub);
     if (!user) return null;
+    void this.usersService.touchLastLoginAt(user.id).catch(() => undefined);
     const result = {
       sub: user.id,  // 标准JWT字段
       id: user.id,

@@ -4,13 +4,14 @@
  */
 
 const DB_NAME = 'tanva_unified_storage';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 // Store 配置
 export const STORE_NAMES = {
   IMAGE_HISTORY: 'imageHistory',
   PERSONAL_LIBRARY: 'personalLibrary',
   AI_CHAT_SESSIONS: 'aiChatSessions',
+  AI_CHAT_VIDEO_CACHE: 'aiChatVideoCache',
 } as const;
 
 export type StoreName = (typeof STORE_NAMES)[keyof typeof STORE_NAMES];
@@ -20,6 +21,7 @@ const MAX_ENTRIES: Record<StoreName, number> = {
   [STORE_NAMES.IMAGE_HISTORY]: 50,
   [STORE_NAMES.PERSONAL_LIBRARY]: 500,
   [STORE_NAMES.AI_CHAT_SESSIONS]: 50,
+  [STORE_NAMES.AI_CHAT_VIDEO_CACHE]: 30,
 };
 
 // LRU 清理所用的索引名
@@ -27,6 +29,7 @@ const LRU_INDEX_NAMES: Record<StoreName, string> = {
   [STORE_NAMES.IMAGE_HISTORY]: 'timestamp',
   [STORE_NAMES.PERSONAL_LIBRARY]: 'updatedAt',
   [STORE_NAMES.AI_CHAT_SESSIONS]: 'updatedAt',
+  [STORE_NAMES.AI_CHAT_VIDEO_CACHE]: 'updatedAt',
 };
 
 // 连接池
@@ -88,6 +91,15 @@ function openDatabase(): Promise<IDBDatabase> {
           keyPath: 'id'
         });
         chatStore.createIndex('updatedAt', 'updatedAt', { unique: false });
+      }
+
+      // 创建 aiChatVideoCache store（保存视频 Blob，支持刷新后回放）
+      if (!db.objectStoreNames.contains(STORE_NAMES.AI_CHAT_VIDEO_CACHE)) {
+        const videoStore = db.createObjectStore(STORE_NAMES.AI_CHAT_VIDEO_CACHE, {
+          keyPath: 'id'
+        });
+        videoStore.createIndex('updatedAt', 'updatedAt', { unique: false });
+        videoStore.createIndex('sessionId', 'sessionId', { unique: false });
       }
     };
 

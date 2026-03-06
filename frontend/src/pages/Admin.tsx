@@ -63,6 +63,83 @@ function StatCard({
   );
 }
 
+function DashboardTrendChart({
+  data,
+}: {
+  data: DashboardStats["userTrend"];
+}) {
+  if (!data || data.length === 0) {
+    return <div className='text-sm text-gray-400 py-8 text-center'>暂无趋势数据</div>;
+  }
+
+  const maxValue = Math.max(
+    ...data.map((item) => Math.max(item.registeredUsers, item.dailyActiveUsers)),
+    1
+  );
+  const midValue = Math.max(1, Math.round(maxValue / 2));
+
+  const toPoints = (key: "registeredUsers" | "dailyActiveUsers") =>
+    data
+      .map((item, index) => {
+        const x = (index / Math.max(data.length - 1, 1)) * 100;
+        const y = 100 - (item[key] / maxValue) * 100;
+        return `${x},${y}`;
+      })
+      .join(" ");
+
+  const regPoints = toPoints("registeredUsers");
+  const dauPoints = toPoints("dailyActiveUsers");
+
+  return (
+    <div>
+      <div className='flex items-center gap-5 text-xs text-gray-600 mb-3'>
+        <div className='flex items-center gap-2'>
+          <span className='w-2.5 h-2.5 rounded-full bg-blue-500' />
+          <span>注册用户</span>
+        </div>
+        <div className='flex items-center gap-2'>
+          <span className='w-2.5 h-2.5 rounded-full bg-emerald-500' />
+          <span>日活用户</span>
+        </div>
+      </div>
+      <div className='grid grid-cols-[38px_1fr] gap-2'>
+        <div className='relative h-44 text-[11px] text-gray-400 leading-none select-none'>
+          <span className='absolute left-0 top-0'>{maxValue}</span>
+          <span className='absolute left-0 top-1/2 -translate-y-1/2'>{midValue}</span>
+          <span className='absolute left-0 bottom-0'>0</span>
+        </div>
+        <div className='relative h-44'>
+          <svg width='100%' height='100%' viewBox='0 0 100 100' preserveAspectRatio='none'>
+            <line x1='0' y1='100' x2='100' y2='100' stroke='#e5e7eb' strokeWidth='0.6' />
+            <line x1='0' y1='66.6' x2='100' y2='66.6' stroke='#f3f4f6' strokeWidth='0.5' />
+            <line x1='0' y1='33.3' x2='100' y2='33.3' stroke='#f3f4f6' strokeWidth='0.5' />
+
+            <polyline
+              fill='none'
+              stroke='#3b82f6'
+              strokeWidth='2'
+              points={regPoints}
+              vectorEffect='non-scaling-stroke'
+            />
+            <polyline
+              fill='none'
+              stroke='#10b981'
+              strokeWidth='2'
+              points={dauPoints}
+              vectorEffect='non-scaling-stroke'
+            />
+          </svg>
+          <div className='absolute bottom-0 left-0 right-0 flex justify-between text-[11px] text-gray-400'>
+            <span>{data[0]?.date}</span>
+            <span>{data[Math.floor(data.length / 2)]?.date}</span>
+            <span>{data[data.length - 1]?.date}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // 用户管理 Tab
 function UsersTab() {
   const [users, setUsers] = useState<UserWithCredits[]>([]);
@@ -692,7 +769,12 @@ const SORA2_PROVIDER_OPTIONS = [
   {
     value: "auto",
     label: "自动切换",
-    description: "优先使用Sora2 Pro，失败后自动切换到普通Sora2",
+    description: "优先使用 APIMart，失败后自动切换到 Sora2 Pro，再回退到普通Sora2",
+  },
+  {
+    value: "apimart",
+    label: "APIMart",
+    description: "强制使用 APIMart (api.apimart.ai)，不会切换到 147",
   },
   {
     value: "v2",
@@ -2019,7 +2101,7 @@ function SettingsTab() {
         <h3 className='text-lg font-semibold mb-4'>Sora2 视频生成设置</h3>
         <p className='text-sm text-gray-500 mb-4'>
           选择视频生成时使用的 API
-          供应商。自动模式会优先使用Sora2 Pro，失败后自动切换到普通Sora2。
+          供应商。若要确保不走 147，请选择 APIMart 渠道。
         </p>
         <div className='space-y-3'>
           {SORA2_PROVIDER_OPTIONS.map((option) => (
@@ -2590,6 +2672,8 @@ export default function Admin() {
   >("dashboard");
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
 
   useEffect(() => {
     // 检查是否为管理员
@@ -2597,20 +2681,43 @@ export default function Admin() {
       navigate("/");
       return;
     }
+  }, [user, navigate]);
 
-    const loadDashboard = async () => {
+  useEffect(() => {
+    if (!user || user.role !== "admin") return;
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    const loadDashboard = async (showLoading = false) => {
+      if (showLoading) setLoading(true);
       try {
         const data = await getDashboardStats();
+        if (cancelled) return;
         setStats(data);
+        setDashboardError(null);
+        setLastUpdatedAt(data.generatedAt);
       } catch (error) {
+        if (cancelled) return;
         console.error("加载统计失败:", error);
+        setDashboardError("统计刷新失败，请稍后重试");
       } finally {
-        setLoading(false);
+        if (!cancelled && showLoading) setLoading(false);
       }
     };
 
-    loadDashboard();
-  }, [user, navigate]);
+    if (activeTab === "dashboard") {
+      void loadDashboard(true);
+      timer = setInterval(() => {
+        void loadDashboard(false);
+      }, 10 * 60 * 1000);
+    }
+
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [user, activeTab]);
 
   if (!user || user.role !== "admin") {
     return (
@@ -2671,33 +2778,50 @@ export default function Admin() {
         {activeTab === "dashboard" && (
           <div>
             <h2 className='text-lg font-semibold mb-4'>系统概览</h2>
-            {loading ? (
+            {loading && !stats ? (
               <div className='text-center py-8 text-gray-500'>加载中...</div>
             ) : stats ? (
-              <div className='grid grid-cols-2 md:grid-cols-4 gap-4'>
-                <StatCard title='总用户数' value={stats.totalUsers} />
-                <StatCard title='活跃用户' value={stats.activeUsers} />
-                <StatCard
-                  title='流通积分'
-                  value={stats.totalCreditsInCirculation}
-                />
-                <StatCard title='已消费积分' value={stats.totalCreditsSpent} />
-                <StatCard
-                  title='API调用总数'
-                  value={stats.totalApiCalls}
-                  subtitle={`成功: ${stats.successfulApiCalls} / 失败: ${stats.failedApiCalls}`}
-                />
-                <StatCard
-                  title='API成功率'
-                  value={
-                    stats.totalApiCalls > 0
-                      ? `${(
-                          (stats.successfulApiCalls / stats.totalApiCalls) *
-                          100
-                        ).toFixed(1)}%`
-                      : "-"
-                  }
-                />
+              <div className='space-y-4'>
+                <div className='text-xs text-gray-500'>
+                  自动刷新：每 10 分钟
+                  {lastUpdatedAt
+                    ? ` · 最后更新 ${new Date(lastUpdatedAt).toLocaleTimeString("zh-CN", {
+                        hour12: false,
+                      })}`
+                    : ""}
+                </div>
+                <div className='grid grid-cols-2 md:grid-cols-4 gap-4'>
+                  <StatCard title='总用户数' value={stats.totalUsers} />
+                  <StatCard title='日活用户' value={stats.dailyActiveUsers} subtitle='当天累计去重' />
+                  <StatCard title='在线用户' value={stats.onlineUsers} subtitle='最近 15 分钟内有登录态请求' />
+                  <StatCard title='当日注册用户' value={stats.todayRegisteredUsers} subtitle='当天新增' />
+                  <StatCard
+                    title='流通积分'
+                    value={stats.totalCreditsInCirculation}
+                  />
+                  <StatCard title='已消费积分' value={stats.totalCreditsSpent} />
+                  <StatCard
+                    title='API调用总数'
+                    value={stats.totalApiCalls}
+                    subtitle={`成功: ${stats.successfulApiCalls} / 失败: ${stats.failedApiCalls}`}
+                  />
+                  <StatCard
+                    title='API成功率'
+                    value={
+                      stats.totalApiCalls > 0
+                        ? `${(
+                            (stats.successfulApiCalls / stats.totalApiCalls) *
+                            100
+                          ).toFixed(1)}%`
+                        : "-"
+                    }
+                  />
+                </div>
+                <div className='bg-white rounded-lg border p-4 shadow-sm'>
+                  <div className='text-sm font-medium text-gray-700 mb-3'>注册用户 vs 日活用户（近 14 天）</div>
+                  <DashboardTrendChart data={stats.userTrend} />
+                </div>
+                {dashboardError && <div className='text-sm text-red-500'>{dashboardError}</div>}
               </div>
             ) : (
               <div className='text-center py-8 text-gray-500'>加载失败</div>

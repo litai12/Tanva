@@ -3,7 +3,7 @@ import { Handle, Position } from 'reactflow';
 import { AlertTriangle, Video, Share2, Download, Lock } from 'lucide-react';
 import SmartImage from '../../ui/SmartImage';
 import GenerationProgressBar from './GenerationProgressBar';
-import { SORA2_VIDEO_MODELS, type Sora2VideoQuality } from '@/stores/aiChatStore';
+import { type Sora2VideoQuality } from '@/stores/aiChatStore';
 import { useAuthStore } from '@/stores/authStore';
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { fetchWithAuth } from '@/services/authFetch';
@@ -19,8 +19,17 @@ type Props = {
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
     videoQuality?: Sora2VideoQuality;
+    model?: 'sora-2' | 'sora-2-vip' | 'sora-2-pro';
     clipDuration?: number;
     aspectRatio?: string;
+    style?: string;
+    watermark?: boolean;
+    thumbnailEnabled?: boolean;
+    privateMode?: boolean;
+    storyboard?: boolean;
+    characterTaskId?: string;
+    characterUrl?: string;
+    characterTimestamps?: string;
     history?: Sora2VideoHistoryItem[];
     fallbackMessage?: string;
   };
@@ -41,6 +50,22 @@ type DownloadFeedback = {
   type: 'progress' | 'success' | 'error';
   message: string;
 };
+
+const sora2ModelOptions: Array<{ label: string; value: 'sora-2' | 'sora-2-vip' | 'sora-2-pro' }> = [
+  { label: 'sora-2-pro', value: 'sora-2-pro' },
+  { label: 'sora-2-vip', value: 'sora-2-vip' },
+  { label: 'sora-2', value: 'sora-2' },
+];
+
+const styleOptions: Array<{ label: string; value: string }> = [
+  { label: '无（默认）', value: '' },
+  { label: '动漫（anime）', value: 'anime' },
+  { label: '漫画（comic）', value: 'comic' },
+  { label: '新闻（news）', value: 'news' },
+  { label: '自拍（selfie）', value: 'selfie' },
+  { label: '复古（nostalgic）', value: 'nostalgic' },
+  { label: '感恩节（thanksgiving）', value: 'thanksgiving' },
+];
 
 function Sora2VideoNodeInner({ id, data, selected }: Props) {
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
@@ -172,27 +197,42 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
   }, [setDownloadFeedback]);
   const onRun = React.useCallback(() => data.onRun?.(id), [data, id]);
   const onSend = React.useCallback(() => data.onSend?.(id), [data, id]);
-  const videoQuality: Sora2VideoQuality = data.videoQuality === 'hd' ? 'hd' : 'sd';
-  const handleQualityChange = React.useCallback((quality: Sora2VideoQuality) => {
-    if (quality === videoQuality) return;
-    // HD 需要管理员权限
-    if (quality === 'hd' && !isAdmin) return;
-    window.dispatchEvent(
-      new CustomEvent('flow:updateNodeData', {
-        detail: {
-          id,
-          patch: { videoQuality: quality }
-        }
-      })
-    );
-  }, [id, videoQuality, isAdmin]);
-  const qualityOptions = React.useMemo(() => ([
-    { label: 'HD', value: 'hd' as Sora2VideoQuality },
-    { label: 'SD', value: 'sd' as Sora2VideoQuality }
-  ]), []);
-  const activeModel = SORA2_VIDEO_MODELS[videoQuality];
+  const styleValue = typeof data.style === 'string' ? data.style : '';
+  const watermarkEnabled = data.watermark === true;
+  const thumbnailEnabled = data.thumbnailEnabled === true;
+  const privateModeEnabled = data.privateMode === true;
+  const storyboardEnabled = data.storyboard === true;
+  const characterTaskId = typeof data.characterTaskId === 'string' ? data.characterTaskId : '';
+  const characterUrl = typeof data.characterUrl === 'string' ? data.characterUrl : '';
+  const characterTimestamps = typeof data.characterTimestamps === 'string' ? data.characterTimestamps : '';
   const clipDuration = typeof data.clipDuration === 'number' ? data.clipDuration : undefined;
   const aspectRatioValue = typeof data.aspectRatio === 'string' ? data.aspectRatio : '';
+  const selectedModel: 'sora-2' | 'sora-2-vip' | 'sora-2-pro' =
+    data.model === 'sora-2' || data.model === 'sora-2-vip' || data.model === 'sora-2-pro'
+      ? data.model
+      : 'sora-2-pro';
+  const handleModelChange = React.useCallback((value: 'sora-2' | 'sora-2-vip' | 'sora-2-pro') => {
+    if (value === selectedModel) return;
+    window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
+      detail: { id, patch: { model: value } }
+    }));
+  }, [id, selectedModel]);
+  const handleStyleChange = React.useCallback((value: string) => {
+    if (value === styleValue) return;
+    window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
+      detail: { id, patch: { style: value || undefined } }
+    }));
+  }, [id, styleValue]);
+  const toggleFlag = React.useCallback((key: 'watermark' | 'thumbnailEnabled' | 'privateMode' | 'storyboard', current: boolean) => {
+    window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
+      detail: { id, patch: { [key]: !current } }
+    }));
+  }, [id]);
+  const updateTextField = React.useCallback((key: 'characterTaskId' | 'characterUrl' | 'characterTimestamps', value: string) => {
+    window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
+      detail: { id, patch: { [key]: value.trim() || undefined } }
+    }));
+  }, [id]);
   const aspectOptions = React.useMemo(() => ([
     { label: '自动', value: '' },
     { label: '横屏（16:9）', value: '16:9', suffix: '横屏 16:9' },
@@ -470,6 +510,14 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
         onMouseLeave={() => setHover(null)}
       />
       <Handle
+        type="target"
+        position={Position.Left}
+        id="character"
+        style={{ top: '78%' }}
+        onMouseEnter={() => setHover('character-in')}
+        onMouseLeave={() => setHover(null)}
+      />
+      <Handle
         type="source"
         position={Position.Right}
         id="video"
@@ -483,6 +531,9 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
       {hover === 'image-in' && (
         <div className="flow-tooltip" style={{ left: -8, top: '60%', transform: 'translate(-100%, -50%)' }}>image</div>
       )}
+      {hover === 'character-in' && (
+        <div className="flow-tooltip" style={{ left: -8, top: '78%', transform: 'translate(-100%, -50%)' }}>character</div>
+      )}
       {hover === 'video-out' && (
         <div className="flow-tooltip" style={{ right: -8, top: '50%', transform: 'translate(100%, -50%)' }}>video</div>
       )}
@@ -490,7 +541,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
           <Video size={18} />
-          <span>Sora2</span>
+          <span>Sora2 Pro</span>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <button
@@ -579,44 +630,167 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
         </div>
       )}
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-        <span style={{ fontSize: 12, color: '#6b7280' }}>Quality</span>
-        <div style={{ display: 'flex', gap: 6 }}>
-          {qualityOptions.map((option) => {
-            const isActive = option.value === videoQuality;
-            const modelLabel = SORA2_VIDEO_MODELS[option.value];
-            const isHdLocked = option.value === 'hd' && !isAdmin;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => handleQualityChange(option.value)}
-                title={isHdLocked ? 'HD 需要管理员权限' : `${option.label} → ${modelLabel}`}
-                disabled={isHdLocked}
-                style={{
-                  padding: '4px 12px',
-                  borderRadius: 999,
-                  border: `1px solid ${isActive ? '#111827' : '#e5e7eb'}`,
-                  background: isActive ? '#111827' : '#fff',
-                  color: isActive ? '#fff' : (isHdLocked ? '#9ca3af' : '#111827'),
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: isHdLocked ? 'not-allowed' : 'pointer',
-                  opacity: isHdLocked ? 0.6 : 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4
-                }}
-              >
-                {option.label}
-                {isHdLocked && <Lock size={10} />}
-              </button>
-            );
-          })}
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>模型</div>
+        <select
+          className='nodrag'
+          value={selectedModel}
+          onChange={(event) => handleModelChange(event.target.value as 'sora-2' | 'sora-2-vip' | 'sora-2-pro')}
+          style={{
+            width: '100%',
+            height: 32,
+            borderRadius: 8,
+            border: '1px solid #e5e7eb',
+            padding: '0 10px',
+            fontSize: 12,
+            background: '#fff'
+          }}
+        >
+          {sora2ModelOptions.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+      </div>
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>视频风格</div>
+        <select
+          className='nodrag'
+          value={styleValue}
+          onChange={(event) => handleStyleChange(event.target.value)}
+          style={{
+            width: '100%',
+            height: 32,
+            borderRadius: 8,
+            border: '1px solid #e5e7eb',
+            padding: '0 10px',
+            fontSize: 12,
+            background: '#fff'
+          }}
+        >
+          {styleOptions.map((option) => (
+            <option key={option.label} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 8 }}>
+        <button
+          type='button'
+          onMouseDown={handleButtonMouseDown}
+          onClick={() => toggleFlag('watermark', watermarkEnabled)}
+          style={{
+            borderRadius: 8,
+            border: `1px solid ${watermarkEnabled ? '#111827' : '#e5e7eb'}`,
+            background: watermarkEnabled ? '#111827' : '#fff',
+            color: watermarkEnabled ? '#fff' : '#111827',
+            fontSize: 12,
+            height: 30,
+            cursor: 'pointer'
+          }}
+        >
+          水印 {watermarkEnabled ? '开' : '关'}
+        </button>
+        <button
+          type='button'
+          onMouseDown={handleButtonMouseDown}
+          onClick={() => toggleFlag('thumbnailEnabled', thumbnailEnabled)}
+          style={{
+            borderRadius: 8,
+            border: `1px solid ${thumbnailEnabled ? '#111827' : '#e5e7eb'}`,
+            background: thumbnailEnabled ? '#111827' : '#fff',
+            color: thumbnailEnabled ? '#fff' : '#111827',
+            fontSize: 12,
+            height: 30,
+            cursor: 'pointer'
+          }}
+        >
+          缩略图 {thumbnailEnabled ? '开' : '关'}
+        </button>
+        <button
+          type='button'
+          onMouseDown={handleButtonMouseDown}
+          onClick={() => toggleFlag('privateMode', privateModeEnabled)}
+          style={{
+            borderRadius: 8,
+            border: `1px solid ${privateModeEnabled ? '#111827' : '#e5e7eb'}`,
+            background: privateModeEnabled ? '#111827' : '#fff',
+            color: privateModeEnabled ? '#fff' : '#111827',
+            fontSize: 12,
+            height: 30,
+            cursor: 'pointer'
+          }}
+        >
+          隐私 {privateModeEnabled ? '开' : '关'}
+        </button>
+        <button
+          type='button'
+          onMouseDown={handleButtonMouseDown}
+          onClick={() => toggleFlag('storyboard', storyboardEnabled)}
+          style={{
+            borderRadius: 8,
+            border: `1px solid ${storyboardEnabled ? '#111827' : '#e5e7eb'}`,
+            background: storyboardEnabled ? '#111827' : '#fff',
+            color: storyboardEnabled ? '#fff' : '#111827',
+            fontSize: 12,
+            height: 30,
+            cursor: 'pointer'
+          }}
+        >
+          故事板 {storyboardEnabled ? '开' : '关'}
+        </button>
+      </div>
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>角色任务ID（可选）</div>
+        <input
+          className='nodrag'
+          value={characterTaskId}
+          onChange={(event) => updateTextField('characterTaskId', event.target.value)}
+          placeholder='task_xxx'
+          style={{
+            width: '100%',
+            height: 32,
+            borderRadius: 8,
+            border: '1px solid #e5e7eb',
+            padding: '0 10px',
+            fontSize: 12
+          }}
+        />
+        <div style={{ marginTop: 4, fontSize: 10, color: '#94a3b8' }}>
+          运行时会自动解析角色并补全 @username / 角色ID
         </div>
       </div>
-      <div style={{ fontSize: 10, color: '#94a3b8', textAlign: 'right', marginTop: -2, marginBottom: 8 }}>
-        Model: {activeModel}
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>角色ID/URL（可选）</div>
+        <input
+          className='nodrag'
+          value={characterUrl}
+          onChange={(event) => updateTextField('characterUrl', event.target.value)}
+          placeholder='ch_xxx 或 URL'
+          style={{
+            width: '100%',
+            height: 32,
+            borderRadius: 8,
+            border: '1px solid #e5e7eb',
+            padding: '0 10px',
+            fontSize: 12
+          }}
+        />
+      </div>
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>角色时间戳（可选）</div>
+        <input
+          className='nodrag'
+          value={characterTimestamps}
+          onChange={(event) => updateTextField('characterTimestamps', event.target.value)}
+          placeholder='1,3'
+          style={{
+            width: '100%',
+            height: 32,
+            borderRadius: 8,
+            border: '1px solid #e5e7eb',
+            padding: '0 10px',
+            fontSize: 12
+          }}
+        />
       </div>
       <div className="sora2-dropdown" style={{ marginBottom: 8, position: 'relative' }}>
         <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>尺寸</div>
@@ -772,7 +946,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
 
       {promptSuffixPreview && (
         <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8 }}>
-          将附加到提示词末尾：{promptSuffixPreview}
+          当前生成参数：{promptSuffixPreview}
         </div>
       )}
 
@@ -830,7 +1004,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11, color: '#475569' }}>
                   <span>
-                    #{index + 1} · {item.quality.toUpperCase()} · {formatHistoryTime(item.createdAt)}
+                    #{index + 1} · {formatHistoryTime(item.createdAt)}
                   </span>
                   {isActive && (
                     <span style={{ fontSize: 10, color: '#1d4ed8', fontWeight: 600 }}>当前</span>
