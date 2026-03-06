@@ -553,6 +553,11 @@ export async function getPaidUsers(params?: {
 }
 
 export type CreditRecordSource = "recharge" | "admin_add" | "admin_deduct";
+export type CreditRecordFilterSource =
+  | "all"
+  | CreditRecordSource
+  | "invite_reward"
+  | "all_earned";
 
 export interface CreditChangeRecord {
   id: string;
@@ -588,7 +593,8 @@ export async function getCreditChangeRecords(params?: {
   page?: number;
   pageSize?: number;
   search?: string;
-  source?: "all" | CreditRecordSource;
+  userId?: string;
+  source?: CreditRecordFilterSource;
   startDate?: string;
   endDate?: string;
 }): Promise<{ records: CreditChangeRecord[]; pagination: Pagination }> {
@@ -596,6 +602,7 @@ export async function getCreditChangeRecords(params?: {
   if (params?.page) searchParams.set("page", String(params.page));
   if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
   if (params?.search) searchParams.set("search", params.search);
+  if (params?.userId) searchParams.set("userId", params.userId);
   if (params?.source) searchParams.set("source", params.source);
   if (params?.startDate) searchParams.set("startDate", params.startDate);
   if (params?.endDate) searchParams.set("endDate", params.endDate);

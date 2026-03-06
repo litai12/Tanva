@@ -399,6 +399,7 @@ export class AdminController {
       page: query.page,
       pageSize: query.pageSize,
       search: query.search,
+      userId: query.userId,
       source: query.source,
       startDate: query.startDate ? new Date(query.startDate) : undefined,
       endDate: query.endDate ? new Date(query.endDate) : undefined,

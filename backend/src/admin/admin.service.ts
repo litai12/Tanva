@@ -354,12 +354,14 @@ export class AdminService {
 
   /**
    * 获取积分变更记录（充值 + 后台手动调整）
+   * 注意：source='all_earned' 可以查询所有类型的积分增加记录，包括邀请奖励、签到奖励等
    */
   async getCreditChangeRecords(options: {
     page?: number;
     pageSize?: number;
     search?: string;
-    source?: 'all' | 'recharge' | 'admin_add' | 'admin_deduct';
+    userId?: string;
+    source?: 'all' | 'recharge' | 'admin_add' | 'admin_deduct' | 'invite_reward' | 'all_earned';
     startDate?: Date;
     endDate?: Date;
   } = {}): Promise<{ records: CreditChangeRecord[]; pagination: any }> {
@@ -367,6 +369,7 @@ export class AdminService {
       page = 1,
       pageSize = 20,
       search,
+      userId,
       source = 'all',
       startDate,
       endDate,
@@ -380,6 +383,19 @@ export class AdminService {
       where.OR = [{ type: 'admin_adjust', amount: { gt: 0 } }];
     } else if (source === 'admin_deduct') {
       where.OR = [{ type: 'admin_adjust', amount: { lt: 0 } }];
+    } else if (source === 'invite_reward') {
+      where.OR = [{ type: 'REFERRAL_REWARD' }];
+      where.amount = { gt: 0 };
+    } else if (source === 'all_earned') {
+      // 查询所有类型的积分增加记录（包括邀请奖励、签到奖励等）
+      where.OR = [
+        { type: 'earn', description: '充值' },
+        { type: 'admin_adjust', amount: { gt: 0 } },
+        { type: 'REFERRAL_REWARD' }, // 邀请奖励
+        { type: 'CHECK_IN' }, // 签到奖励
+        { type: 'earn', description: '新用户注册赠送积分' }, // 新用户注册赠送
+      ];
+      where.amount = { gt: 0 }; // 只查询积分增加的记录
     } else {
       where.OR = [
         { type: 'earn', description: '充值' },
@@ -387,7 +403,24 @@ export class AdminService {
       ];
     }
 
-    if (search) {
+    if (userId) {
+      const account = await this.prisma.creditAccount.findUnique({
+        where: { userId },
+        select: { id: true },
+      });
+      if (!account) {
+        return {
+          records: [],
+          pagination: {
+            page,
+            pageSize,
+            total: 0,
+            totalPages: 0,
+          },
+        };
+      }
+      where.accountId = account.id;
+    } else if (search) {
       const matchedUsers = await this.prisma.user.findMany({
         where: {
           OR: [
@@ -534,6 +567,12 @@ export class AdminService {
       let recordSource: CreditChangeSource = 'recharge';
       if (tx.type === 'admin_adjust') {
         recordSource = tx.amount >= 0 ? 'admin_add' : 'admin_deduct';
+      } else if (tx.type === 'REFERRAL_REWARD') {
+        recordSource = 'recharge'; // 邀请奖励显示为充值类型，但会在description中标注
+      } else if (tx.type === 'CHECK_IN') {
+        recordSource = 'recharge'; // 签到奖励显示为充值类型，但会在description中标注
+      } else if (tx.type === 'earn' && tx.description === '新用户注册赠送积分') {
+        recordSource = 'recharge'; // 新用户注册赠送显示为充值类型
       }
 
       const adminId = typeof metadata?.adminId === 'string' ? metadata.adminId : null;
