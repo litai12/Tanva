@@ -118,14 +118,19 @@ export class CreditChangeRecordsQueryDto {
   @IsString()
   search?: string;
 
+  @ApiPropertyOptional({ description: '用户ID（精确筛选）' })
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
   @ApiPropertyOptional({
     description: '来源筛选',
-    enum: ['all', 'recharge', 'admin_add', 'admin_deduct'],
+    enum: ['all', 'recharge', 'admin_add', 'admin_deduct', 'invite_reward', 'all_earned'],
     default: 'all',
   })
   @IsOptional()
   @IsString()
-  source?: 'all' | 'recharge' | 'admin_add' | 'admin_deduct' = 'all';
+  source?: 'all' | 'recharge' | 'admin_add' | 'admin_deduct' | 'invite_reward' | 'all_earned' = 'all';
 
   @ApiPropertyOptional({ description: '开始日期' })
   @IsOptional()

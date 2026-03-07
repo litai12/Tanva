@@ -189,6 +189,14 @@ const MyCredits: React.FC = () => {
     ? 'en-US'
     : 'zh-CN';
 
+  const formatChannelLabel = (channel: string | null | undefined): string => {
+    if (!channel) return '';
+    const normalized = channel.trim().toLowerCase();
+    if (normalized.includes('apimart')) return 'M';
+    if (normalized === 'legacy' || normalized.includes('147')) return 'A';
+    return channel;
+  };
+
   const dailyUsageData = useMemo(() => {
     const days = 14;
     const now = new Date();
@@ -498,7 +506,9 @@ const MyCredits: React.FC = () => {
                                 <div className="font-medium text-slate-700 truncate max-w-[240px]">{tx.description}</div>
                                 {tx.channel && (
                                   <div className="text-xs text-slate-500">
-                                    {t('creditsPage.transactions.channel', { channel: tx.channel })}
+                                    {t('creditsPage.transactions.channel', {
+                                      channel: formatChannelLabel(tx.channel),
+                                    })}
                                   </div>
                                 )}
                               </div>

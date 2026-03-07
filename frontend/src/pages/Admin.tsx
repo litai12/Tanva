@@ -156,6 +156,20 @@ function UsersTab() {
   } | null>(null);
   const [creditAmount, setCreditAmount] = useState("");
   const [creditReason, setCreditReason] = useState("");
+  const [creditDetailModal, setCreditDetailModal] = useState<{
+    userId: string;
+    userName: string;
+  } | null>(null);
+  const [creditDetailLoading, setCreditDetailLoading] = useState(false);
+  const [creditDetailRecords, setCreditDetailRecords] = useState<{
+    recharge: CreditChangeRecord[];
+    manualAdd: CreditChangeRecord[];
+    inviteReward: CreditChangeRecord[];
+  }>({
+    recharge: [],
+    manualAdd: [],
+    inviteReward: [],
+  });
 
   const loadUsers = async () => {
     setLoading(true);
@@ -215,6 +229,51 @@ function UsersTab() {
       loadUsers();
     } catch (error) {
       console.error("更新角色失败:", error);
+    }
+  };
+
+  const loadCreditDetails = async (user: UserWithCredits) => {
+    setCreditDetailModal({
+      userId: user.id,
+      userName: user.name || user.phone,
+    });
+    setCreditDetailLoading(true);
+    try {
+      const [rechargeResult, manualAddResult, inviteResult] = await Promise.all([
+        getCreditChangeRecords({
+          userId: user.id,
+          source: "recharge",
+          page: 1,
+          pageSize: 100,
+        }),
+        getCreditChangeRecords({
+          userId: user.id,
+          source: "admin_add",
+          page: 1,
+          pageSize: 100,
+        }),
+        getCreditChangeRecords({
+          userId: user.id,
+          source: "invite_reward",
+          page: 1,
+          pageSize: 100,
+        }),
+      ]);
+
+      setCreditDetailRecords({
+        recharge: rechargeResult.records,
+        manualAdd: manualAddResult.records,
+        inviteReward: inviteResult.records,
+      });
+    } catch (error) {
+      console.error("加载积分详情失败:", error);
+      setCreditDetailRecords({
+        recharge: [],
+        manualAdd: [],
+        inviteReward: [],
+      });
+    } finally {
+      setCreditDetailLoading(false);
     }
   };
 
@@ -343,6 +402,13 @@ function UsersTab() {
                         >
                           扣除
                         </Button>
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          onClick={() => loadCreditDetails(user)}
+                        >
+                          详情
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -419,6 +485,119 @@ function UsersTab() {
                 <Button onClick={handleCreditOperation}>确认</Button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 积分来源详情弹窗 */}
+      {creditDetailModal && (
+        <div className='fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4'>
+          <div className='bg-white rounded-lg p-6 w-full max-w-6xl max-h-[85vh] overflow-auto'>
+            <div className='flex items-center justify-between mb-4'>
+              <h3 className='text-lg font-semibold'>
+                积分详情 - {creditDetailModal.userName}
+              </h3>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() => setCreditDetailModal(null)}
+              >
+                关闭
+              </Button>
+            </div>
+
+            {creditDetailLoading ? (
+              <div className='py-10 text-center text-gray-500'>加载中...</div>
+            ) : (
+              <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
+                <div className='border rounded-lg p-4'>
+                  <div className='flex items-center justify-between mb-3'>
+                    <h4 className='font-medium text-gray-800'>充值积分</h4>
+                    <span className='text-xs text-gray-500'>
+                      {creditDetailRecords.recharge.length} 条
+                    </span>
+                  </div>
+                  <div className='space-y-2 max-h-[52vh] overflow-auto pr-1'>
+                    {creditDetailRecords.recharge.length === 0 ? (
+                      <div className='text-xs text-gray-400 py-6 text-center'>
+                        暂无记录
+                      </div>
+                    ) : (
+                      creditDetailRecords.recharge.map((record) => (
+                        <div key={record.id} className='border rounded p-2 text-xs'>
+                          <div className='text-gray-500'>
+                            {new Date(record.createdAt).toLocaleString()}
+                          </div>
+                          <div className='font-medium text-green-600 mt-1'>
+                            +{record.amount} 积分
+                          </div>
+                          <div className='text-gray-600 mt-1'>{record.description}</div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                <div className='border rounded-lg p-4'>
+                  <div className='flex items-center justify-between mb-3'>
+                    <h4 className='font-medium text-gray-800'>手动增加积分</h4>
+                    <span className='text-xs text-gray-500'>
+                      {creditDetailRecords.manualAdd.length} 条
+                    </span>
+                  </div>
+                  <div className='space-y-2 max-h-[52vh] overflow-auto pr-1'>
+                    {creditDetailRecords.manualAdd.length === 0 ? (
+                      <div className='text-xs text-gray-400 py-6 text-center'>
+                        暂无记录
+                      </div>
+                    ) : (
+                      creditDetailRecords.manualAdd.map((record) => (
+                        <div key={record.id} className='border rounded p-2 text-xs'>
+                          <div className='text-gray-500'>
+                            {new Date(record.createdAt).toLocaleString()}
+                          </div>
+                          <div className='font-medium text-blue-600 mt-1'>
+                            +{record.amount} 积分
+                          </div>
+                          <div className='text-gray-600 mt-1'>{record.description}</div>
+                          <div className='text-gray-400 mt-1'>
+                            管理员: {record.admin?.name || record.admin?.phone || "-"}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                <div className='border rounded-lg p-4'>
+                  <div className='flex items-center justify-between mb-3'>
+                    <h4 className='font-medium text-gray-800'>邀请奖励积分</h4>
+                    <span className='text-xs text-gray-500'>
+                      {creditDetailRecords.inviteReward.length} 条
+                    </span>
+                  </div>
+                  <div className='space-y-2 max-h-[52vh] overflow-auto pr-1'>
+                    {creditDetailRecords.inviteReward.length === 0 ? (
+                      <div className='text-xs text-gray-400 py-6 text-center'>
+                        暂无记录
+                      </div>
+                    ) : (
+                      creditDetailRecords.inviteReward.map((record) => (
+                        <div key={record.id} className='border rounded p-2 text-xs'>
+                          <div className='text-gray-500'>
+                            {new Date(record.createdAt).toLocaleString()}
+                          </div>
+                          <div className='font-medium text-emerald-600 mt-1'>
+                            +{record.amount} 积分
+                          </div>
+                          <div className='text-gray-600 mt-1'>{record.description}</div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

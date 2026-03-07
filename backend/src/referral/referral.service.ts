@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 
 // 邀请奖励配置
 const REFERRAL_REWARD = 1000; // 邀请成功奖励积分
+const REFERRAL_REWARD_LIMIT = 5; // 邀请奖励次数上限
 const DAILY_CHECK_IN_REWARDS = [50, 50, 50, 50, 50, 50, 50]; // D1-D7 每日签到奖励
 const WEEKLY_BONUS = 150; // 满7天额外奖励
 
@@ -28,6 +29,13 @@ export class ReferralService {
       where: { inviterUserId: userId },
     });
 
+    if (inviteCode && inviteCode.maxUses !== REFERRAL_REWARD_LIMIT) {
+      inviteCode = await this.prisma.invitationCode.update({
+        where: { id: inviteCode.id },
+        data: { maxUses: REFERRAL_REWARD_LIMIT },
+      });
+    }
+
     if (!inviteCode) {
       // 创建新的邀请码
       const code = this.generateInviteCode(userId);
@@ -45,7 +53,7 @@ export class ReferralService {
         data: {
           code: finalCode,
           inviterUserId: userId,
-          maxUses: 9999, // 无限使用
+          maxUses: REFERRAL_REWARD_LIMIT,
           status: 'active',
         },
       });
@@ -252,6 +260,11 @@ export class ReferralService {
 
     if (inviteCode.status !== 'active') {
       throw new BadRequestException('邀请码已失效');
+    }
+
+    const effectiveMaxUses = Math.min(inviteCode.maxUses, REFERRAL_REWARD_LIMIT);
+    if (inviteCode.usedCount >= effectiveMaxUses) {
+      throw new BadRequestException('邀请码奖励次数已达上限');
     }
 
     // 不能使用自己的邀请码

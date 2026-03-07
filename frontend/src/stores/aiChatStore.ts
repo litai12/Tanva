@@ -6897,10 +6897,6 @@ export const useAIChatStore = create<AIChatState>()(
               // 🖼️ 多图强制使用融合模式，避免 AI 误选 editImage
               selectedTool = "blendImages";
               console.log("🎯 [工具选择] 检测到多图输入，强制使用融合模式");
-            } else if (state.sourceImageForEditing) {
-              // 🖼️ 单图强制使用编辑模式
-              selectedTool = "editImage";
-              console.log("🎯 [工具选择] 检测到单图输入，强制使用编辑模式");
             } else {
               // 调用 AI 进行工具选择
               const cachedImage = contextManager.getCachedImage();
@@ -6919,20 +6915,29 @@ export const useAIChatStore = create<AIChatState>()(
               const toolSelectionContext =
                 contextManager.buildContextPrompt(input);
 
+              const isSingleExplicitImage =
+                explicitImageCount === 1 &&
+                state.sourceImagesForBlending.length === 0;
+
+              const availableToolsForSelection: AvailableTool[] =
+                isSingleExplicitImage
+                  ? ["editImage", "analyzeImage"]
+                  : [
+                      "generateImage",
+                      "editImage",
+                      "blendImages",
+                      "analyzeImage",
+                      "chatResponse",
+                      "generateVideo",
+                      "generatePaperJS",
+                    ];
+
               const toolSelectionRequest = {
                 userInput: input,
                 hasImages: totalImageCount > 0,
                 imageCount: explicitImageCount,
                 hasCachedImage: !!cachedImage,
-                availableTools: [
-                  "generateImage",
-                  "editImage",
-                  "blendImages",
-                  "analyzeImage",
-                  "chatResponse",
-                  "generateVideo",
-                  "generatePaperJS",
-                ],
+                availableTools: availableToolsForSelection,
                 aiProvider: state.aiProvider,
                 context: toolSelectionContext,
               };
@@ -6947,14 +6952,22 @@ export const useAIChatStore = create<AIChatState>()(
                   parameters = {
                     prompt: toolSelectionResult.data.parameters?.prompt || input,
                   };
-                  console.log(`🎯 [工具选择] AI 选择了: ${selectedTool}`);
+                  console.log(
+                    `🎯 [工具选择] AI 选择了: ${selectedTool} (singleImage=${isSingleExplicitImage})`
+                  );
                 } else {
-                  console.warn("⚠️ 工具选择失败，默认使用 chatResponse");
-                  selectedTool = "chatResponse";
+                  selectedTool = isSingleExplicitImage
+                    ? "editImage"
+                    : "chatResponse";
+                  console.warn(
+                    `⚠️ 工具选择失败，默认使用 ${selectedTool} (singleImage=${isSingleExplicitImage})`
+                  );
                 }
               } catch (error) {
                 console.error("❌ 工具选择异常:", error);
-                selectedTool = "chatResponse";
+                selectedTool = isSingleExplicitImage
+                  ? "editImage"
+                  : "chatResponse";
               }
             }
           }
