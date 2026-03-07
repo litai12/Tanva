@@ -1315,6 +1315,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         fileName,
         selectedImageBounds,
         smartPosition,
+        anchorClient,
         operationType,
         sourceImageId,
         sourceImages,
@@ -1331,6 +1332,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         fileName,
         hasSelectedBounds: !!selectedImageBounds,
         hasSmartPosition: !!smartPosition,
+        hasAnchorClient: !!anchorClient,
         operationType,
         sourceImageId,
         sourceImages: sourceImages?.length,
@@ -1342,12 +1344,28 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
 	      if (imageData && quickImageUpload.handleQuickImageUploaded) {
 	        const handle = () => {
+          let resolvedSmartPosition = smartPosition;
+          if (
+            (!resolvedSmartPosition ||
+              !Number.isFinite(resolvedSmartPosition.x) ||
+              !Number.isFinite(resolvedSmartPosition.y)) &&
+            anchorClient &&
+            Number.isFinite(anchorClient.x) &&
+            Number.isFinite(anchorClient.y)
+          ) {
+            const canvas = canvasRef.current;
+            if (canvas) {
+              const point = clientToProject(canvas, anchorClient.x, anchorClient.y);
+              resolvedSmartPosition = { x: point.x, y: point.y };
+            }
+          }
+
 	          // 直接调用快速上传的处理函数，传递智能排版相关参数
 	          quickImageUpload.handleQuickImageUploaded(
 	            imageData,
 	            fileName,
 	            selectedImageBounds,
-	            smartPosition,
+	            resolvedSmartPosition,
 	            operationType,
 	            sourceImageId,
 	            sourceImages,
@@ -1406,7 +1424,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         handleTriggerQuickUpload as EventListener
       );
     };
-  }, [quickImageUpload]);
+  }, [quickImageUpload, canvasRef]);
 
   // 使用 ref 存储 quickImageUpload 的最新引用，避免 useEffect 重复执行
   const quickImageUploadRef = useRef(quickImageUpload);

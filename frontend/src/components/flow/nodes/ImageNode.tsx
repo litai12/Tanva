@@ -907,8 +907,23 @@ function ImageNodeInner({ id, data, selected }: Props) {
     return () => window.removeEventListener("keydown", handler);
   }, [preview]);
 
-  const handleSendToCanvas = React.useCallback(async () => {
+  const handleSendToCanvas = React.useCallback(async (event?: React.MouseEvent<HTMLButtonElement>) => {
     if (!canSend) return;
+
+    const resolveAnchorClient = (triggerTarget?: EventTarget | null) => {
+      const triggerEl =
+        triggerTarget instanceof HTMLElement ? triggerTarget : null;
+      const nodeEl = triggerEl?.closest?.(".react-flow__node") as
+        | HTMLElement
+        | null;
+      const rect = (nodeEl || triggerEl)?.getBoundingClientRect();
+      if (!rect) return undefined;
+      return {
+        x: rect.right + 16,
+        y: rect.top + rect.height / 2,
+      };
+    };
+    const anchorClient = resolveAnchorClient(event?.currentTarget ?? null);
 
     const makeFileName = () => {
       const base = resolvedImageName || `flow_${id}_${Date.now()}`;
@@ -932,6 +947,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
             fileName: makeFileName(),
             operationType: "generate",
             smartPosition: undefined,
+            anchorClient,
             sourceImageId: undefined,
             sourceImages: undefined,
           },

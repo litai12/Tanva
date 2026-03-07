@@ -162,15 +162,30 @@ function CameraNodeInner({ id, data, selected }: Props) {
     }
   };
 
-  const sendToCanvas = () => {
+  const sendToCanvas = (event?: React.MouseEvent<HTMLButtonElement>) => {
     const img = data.imageData || data.imageUrl;
     if (!img) return;
     const trimmed = img.trim();
     const dataUrl = toRenderableImageSrc(trimmed) || trimmed;
     const fileName = `capture_${Date.now()}.png`;
+    const triggerEl =
+      event?.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+    const nodeEl = triggerEl?.closest(".react-flow__node") as HTMLElement | null;
+    const rect = (nodeEl || triggerEl)?.getBoundingClientRect();
+    const anchorClient = rect
+      ? {
+          x: rect.right + 16,
+          y: rect.top + rect.height / 2,
+        }
+      : undefined;
     window.dispatchEvent(
       new CustomEvent("triggerQuickImageUpload", {
-        detail: { imageData: dataUrl, fileName, operationType: "generate" },
+        detail: {
+          imageData: dataUrl,
+          fileName,
+          operationType: "generate",
+          anchorClient,
+        },
       })
     );
   };

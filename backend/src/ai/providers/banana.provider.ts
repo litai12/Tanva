@@ -1514,9 +1514,15 @@ export class BananaProvider implements IAIProvider {
         request.sourceImage,
         "analysis"
       );
-      // 🔥 使用 gemini-3-pro-image-preview 进行文件分析
+      // 根据传入的model选择，如果没有传入则根据provider默认模型选择
+      // Fast模式(banana-2.5)使用gemini-2.5-flash-image-preview，其他使用gemini-3-pro-image-preview
+      const modelName = request.model || "";
+      const isFastModel = modelName.includes('2.5') || modelName.includes('gemini-2.5');
+      const defaultModel = isFastModel
+        ? "gemini-2.5-flash-image-preview"
+        : "gemini-3-pro-image-preview";
       const model = this.normalizeModelName(
-        request.model || "gemini-3-pro-image-preview"
+        request.model || defaultModel
       );
       this.logger.log(`📊 Using model: ${model}, mimeType: ${mimeType}`);
 

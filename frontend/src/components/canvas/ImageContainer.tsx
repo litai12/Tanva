@@ -11,6 +11,7 @@ import { useCanvasStore } from "@/stores";
 import {
   EyeOff,
   Wand2,
+  Zap,
   Layers,
   ArrowRightLeft,
   Rotate3d,
@@ -279,6 +280,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const currentZoom = zoom || 1;
   const showButtonText = currentZoom >= 0.5; // 50%及以上显示文字，稍微放宽一点
   const toolbarScale = 1; // 固定为1，不再跟随缩放
+  const showFastBackgroundRemovalButton = false;
 
   const sharedButtonClass = showButtonText
     ? "px-2 py-1 h-7 rounded-md bg-transparent text-gray-600 text-xs transition-all duration-200 hover:bg-gray-100 hover:text-gray-800 flex items-center gap-1 whitespace-nowrap"
@@ -302,6 +304,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const [showPreview, setShowPreview] = useState(false);
   const [previewImageId, setPreviewImageId] = useState<string | null>(null);
   const [isRemovingBackground, setIsRemovingBackground] = useState(false);
+  const [isFastRemovingBackground, setIsFastRemovingBackground] = useState(false);
   const [isSeparatingLayers, setIsSeparatingLayers] = useState(false);
   const [isConvertingTo3D, setIsConvertingTo3D] = useState(false);
   const [isExpandingImage, setIsExpandingImage] = useState(false);
@@ -1102,13 +1105,18 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
       logger.info("🎯 开始背景移除", { imageId: imageData.id });
 
-      // 使用 Gemini 2.5 Flash 模型进行预处理（速度更快）
-      const BG_REMOVAL_MODEL = "gemini-2.5-flash-image";
+      // 仅用于「一键抠图 / 一键分层(主体层)」的预处理模型优先级
+      // 顺序：2.5 -> 3.1 -> 3 pro
+      const BG_REMOVAL_MODELS = [
+        "gemini-2.5-flash-image",
+        "gemini-3.1-flash-image-preview",
+        "gemini-3-pro-image-preview",
+      ] as const;
       const BG_REMOVAL_PROVIDER = "banana"; // 改用Pro版获得更好的质量
 
-      logger.info("📷 Step 1: Gemini 2.5 预处理 - 背景换成纯色", {
+      logger.info("📷 Step 1: Gemini 预处理 - 背景换成纯色", {
         aiProvider: BG_REMOVAL_PROVIDER,
-        model: BG_REMOVAL_MODEL,
+        modelPriority: BG_REMOVAL_MODELS,
       });
 
       if (showToasts) {
@@ -1119,35 +1127,60 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         );
       }
 
-      const editResult = await aiImageService.editImage({
-        prompt: "只保留完整的主体，背景换成纯色",
-        sourceImage: baseImage,
-        model: BG_REMOVAL_MODEL,
-        aiProvider: BG_REMOVAL_PROVIDER,
-        outputFormat: "png",
-        imageOnly: true,
-      });
+      let preprocessedImage: string | null = null;
+      let selectedModel: string | null = null;
+      let lastError: unknown = null;
 
-      if (!editResult.success || !editResult.data?.imageData) {
-        logger.warn(
-          "⚠️ Gemini 预处理失败，使用原图继续抠图",
-          editResult.error
-        );
-        // 预处理失败时，继续使用原图进行抠图
+      for (const model of BG_REMOVAL_MODELS) {
+        logger.info("📷 尝试预处理模型", {
+          aiProvider: BG_REMOVAL_PROVIDER,
+          model,
+        });
+        const editResult = await aiImageService.editImage({
+          prompt: "只保留完整的主体，背景换成纯色",
+          sourceImage: baseImage,
+          model,
+          aiProvider: BG_REMOVAL_PROVIDER,
+          outputFormat: "png",
+          imageOnly: true,
+        });
+
+        if (editResult.success && editResult.data?.imageData) {
+          selectedModel = model;
+          preprocessedImage = ensureDataUrlString(
+            editResult.data.imageData,
+            "image/png"
+          );
+          break;
+        }
+
+        lastError = editResult.error;
+        logger.warn("⚠️ 预处理模型失败，准备切换下一个模型", {
+          model,
+          error: editResult.error,
+        });
       }
 
-      const imageForRemoval =
-        editResult.success && editResult.data?.imageData
-          ? ensureDataUrlString(editResult.data.imageData, "image/png")
-          : baseImage;
+      if (!preprocessedImage) {
+        logger.warn("⚠️ Gemini 预处理全部失败，使用原图继续抠图", lastError);
+      }
 
-      if (showToasts && editResult.success && editResult.data?.imageData) {
+      const imageForRemoval = preprocessedImage ?? baseImage;
+
+      if (showToasts && preprocessedImage) {
         logger.info("✅ Gemini 预处理完成，开始抠图算法");
         window.dispatchEvent(
           new CustomEvent("toast", {
             detail: { message: "🔄 正在精细抠图...", type: "info" },
           })
         );
+      }
+
+      if (selectedModel) {
+        logger.info("✅ 预处理命中模型", {
+          imageId: imageData.id,
+          model: selectedModel,
+        });
       }
 
       // Step 2: 将预处理后的图片传给抠图算法
@@ -1166,12 +1199,28 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     [imageData.id]
   );
 
+  const runFastBackgroundRemoval = useCallback(
+    async (baseImage: string): Promise<string> => {
+      logger.info("⚡ 开始极速抠图", { imageId: imageData.id });
+      const result = await backgroundRemovalService.removeBackground(
+        baseImage,
+        "image/png",
+        true
+      );
+      if (!result.success || !result.imageData) {
+        throw new Error(result.error || "极速抠图失败");
+      }
+      return result.imageData;
+    },
+    [imageData.id]
+  );
+
   const handleBackgroundRemoval = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
 
-      if (isRemovingBackground || isSeparatingLayers) {
+      if (isRemovingBackground || isFastRemovingBackground || isSeparatingLayers) {
         return;
       }
 
@@ -1240,9 +1289,96 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       imageData.id,
       resolveImageDataUrl,
       isRemovingBackground,
+      isFastRemovingBackground,
       isSeparatingLayers,
       realTimeBounds,
       runBackgroundRemoval,
+    ]
+  );
+
+  const handleFastBackgroundRemoval = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (isRemovingBackground || isFastRemovingBackground || isSeparatingLayers) {
+        return;
+      }
+
+      const execute = async () => {
+        const baseImage = await resolveImageDataUrl();
+        if (!baseImage) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "无法获取原图，无法抠图", type: "error" },
+            })
+          );
+          return;
+        }
+
+        setIsFastRemovingBackground(true);
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "⚡ 正在极速抠图...", type: "info" },
+          })
+        );
+        try {
+          const removedData = await runFastBackgroundRemoval(baseImage);
+
+          const centerPoint = {
+            x: realTimeBounds.x + realTimeBounds.width / 2,
+            y: realTimeBounds.y + realTimeBounds.height / 2,
+          };
+
+          const fileName = `background-removed-fast-${Date.now()}.png`;
+          window.dispatchEvent(
+            new CustomEvent("triggerQuickImageUpload", {
+              detail: {
+                imageData: removedData,
+                fileName,
+                smartPosition: centerPoint,
+                operationType: "background-removal-fast",
+                sourceImageId: imageData.id,
+              },
+            })
+          );
+
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "⚡ 极速抠图完成，已生成新图", type: "success" },
+            })
+          );
+          logger.info("✅ 极速抠图完成", { imageId: imageData.id });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "极速抠图失败";
+          console.error("极速抠图失败:", error);
+          logger.error("❌ 极速抠图失败", error);
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message, type: "error" },
+            })
+          );
+        } finally {
+          setIsFastRemovingBackground(false);
+        }
+      };
+
+      execute().catch((error) => {
+        console.error("极速抠图异常:", error);
+        setIsFastRemovingBackground(false);
+      });
+    },
+    [
+      imageData.id,
+      isFastRemovingBackground,
+      isRemovingBackground,
+      isSeparatingLayers,
+      realTimeBounds.height,
+      realTimeBounds.width,
+      realTimeBounds.x,
+      realTimeBounds.y,
+      resolveImageDataUrl,
+      runFastBackgroundRemoval,
     ]
   );
 
@@ -1337,7 +1473,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       e.preventDefault();
       e.stopPropagation();
 
-      if (isSeparatingLayers || isRemovingBackground) {
+      if (isSeparatingLayers || isRemovingBackground || isFastRemovingBackground) {
         return;
       }
 
@@ -1535,6 +1671,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       detectImageText,
       extractBackgroundLayer,
       extractTextLayer,
+      isFastRemovingBackground,
       imageData.id,
       isRemovingBackground,
       isSeparatingLayers,
@@ -2272,7 +2409,12 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               <Button
                 variant='ghost'
                 size='sm'
-                disabled={isPendingUpload || isRemovingBackground || isSeparatingLayers}
+                disabled={
+                  isPendingUpload ||
+                  isRemovingBackground ||
+                  isFastRemovingBackground ||
+                  isSeparatingLayers
+                }
                 className={sharedButtonClass}
                 onClick={handleBackgroundRemoval}
                 title={
@@ -2289,10 +2431,42 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                 {showButtonText && <span>一键抠图</span>}
               </Button>
 
+              {showFastBackgroundRemovalButton && (
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  disabled={
+                    isPendingUpload ||
+                    isRemovingBackground ||
+                    isFastRemovingBackground ||
+                    isSeparatingLayers
+                  }
+                  className={sharedButtonClass}
+                  onClick={handleFastBackgroundRemoval}
+                  title={
+                    isFastRemovingBackground
+                      ? "正在极速抠图..."
+                      : "极速抠图"
+                  }
+                >
+                  {isFastRemovingBackground ? (
+                    <LoadingSpinner size='sm' className='text-blue-600' />
+                  ) : (
+                    <Zap className={sharedIconClass} />
+                  )}
+                  {showButtonText && <span>极速抠图</span>}
+                </Button>
+              )}
+
               <Button
                 variant='ghost'
                 size='sm'
-                disabled={isPendingUpload || isSeparatingLayers || isRemovingBackground}
+                disabled={
+                  isPendingUpload ||
+                  isSeparatingLayers ||
+                  isRemovingBackground ||
+                  isFastRemovingBackground
+                }
                 className={sharedButtonClass}
                 onClick={handleLayerSeparation}
                 title={isSeparatingLayers ? "正在分层..." : "一键分层"}

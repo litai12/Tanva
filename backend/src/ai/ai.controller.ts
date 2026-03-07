@@ -1461,7 +1461,10 @@ export class AiController {
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
 
-    return this.withCredits(req, 'gemini-image-analyze', model, async () => {
+    // 根据provider判断serviceType：Fast模式使用gemini-2.5-image-analyze
+    const serviceType = providerName === 'banana-2.5' ? 'gemini-2.5-image-analyze' : 'gemini-image-analyze';
+
+    return this.withCredits(req, serviceType as any, model, async () => {
       if (providerName && providerName !== 'gemini-pro') {
         const provider = this.factory.getProvider(dto.model, providerName);
         const result = await provider.analyzeImage({
