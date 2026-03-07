@@ -133,6 +133,47 @@ export class CreditsService {
     return defaultCredits;
   }
 
+  /**
+   * 根据分辨率解析积分定价
+   * 支持按分辨率差异化计费的图像生成服务
+   */
+  private resolveImageResolutionCredits(
+    serviceType: ServiceType,
+    defaultCredits: number,
+    requestParams: any,
+  ): number {
+    // 仅处理图像生成服务（不包括编辑、融合、分析等）
+    const isImageGeneration =
+      serviceType !== 'midjourney-imagine' && serviceType.endsWith('-image');
+    if (!isImageGeneration) {
+      return defaultCredits;
+    }
+
+    const servicePricing = CREDIT_PRICING_CONFIG[serviceType] as any;
+    const resolutionPricing = servicePricing?.resolutionPricing;
+    if (!resolutionPricing || typeof resolutionPricing !== 'object') {
+      return defaultCredits;
+    }
+
+    // 获取请求的分辨率
+    const requestedImageSize = requestParams?.imageSize;
+    if (!requestedImageSize || typeof requestedImageSize !== 'string') {
+      return defaultCredits;
+    }
+
+    // 标准化分辨率格式（支持 '4K', '2K', '1K', '0.5K' 等）
+    const normalizedSize = requestedImageSize.trim().toUpperCase();
+    
+    // 查找匹配的分辨率定价
+    const configuredCredits = Number(resolutionPricing[normalizedSize]);
+    if (Number.isFinite(configuredCredits) && configuredCredits > 0) {
+      return configuredCredits;
+    }
+
+    // 如果没有找到匹配的分辨率，返回默认值
+    return defaultCredits;
+  }
+
   private extractChannelFromApiUsage(apiUsage?: {
     provider?: string | null;
     model?: string | null;
@@ -266,6 +307,29 @@ export class CreditsService {
     return (knownCountAggregate._sum.outputImageCount ?? 0) + unknownCount;
   }
 
+  private async isImageQuotaExemptUser(
+    client: PrismaService | Prisma.TransactionClient,
+    userId: string,
+  ): Promise<boolean> {
+    const [paidOrder, userProfile] = await Promise.all([
+      client.paymentOrder.findFirst({
+        where: {
+          userId,
+          status: 'paid',
+        },
+        select: { id: true },
+      }),
+      client.user.findUnique({
+        where: { id: userId },
+        select: { role: true, noWatermark: true },
+      }),
+    ]);
+
+    if (paidOrder) return true;
+    if (userProfile?.noWatermark === true) return true;
+    return typeof userProfile?.role === 'string' && userProfile.role.toLowerCase() === 'admin';
+  }
+
   private async enforceFreeUserImageQuota(
     client: PrismaService | Prisma.TransactionClient,
     params: {
@@ -281,14 +345,8 @@ export class CreditsService {
     if (monthlyLimit <= 0 && dailyLimit <= 0) return;
     if (!this.isFreeUserImageQuotaService(serviceType)) return;
 
-    const paidOrder = await client.paymentOrder.findFirst({
-      where: {
-        userId,
-        status: 'paid',
-      },
-      select: { id: true },
-    });
-    if (paidOrder) return;
+    const isQuotaExemptUser = await this.isImageQuotaExemptUser(client, userId);
+    if (isQuotaExemptUser) return;
 
     const requestedCount = this.resolveImageQuotaRequestCount(requestedOutputImageCount);
     const now = new Date();
@@ -517,6 +575,8 @@ export class CreditsService {
     }
 
     let creditsToDeduct: number = pricing.creditsPerCall;
+    
+    // 处理Sora视频模型的特殊定价
     creditsToDeduct = this.resolveSoraModelCredits(
       serviceType,
       creditsToDeduct,
@@ -524,13 +584,12 @@ export class CreditsService {
       model,
     );
 
-    const requestedImageSize = params?.requestParams?.imageSize;
-    const isImageGeneration =
-      serviceType !== 'midjourney-imagine' && serviceType.endsWith('-image');
-    const is4KBilling = requestedImageSize === '4K' && isImageGeneration;
-    if (is4KBilling) {
-      creditsToDeduct = 60;
-    }
+    // 处理图像生成服务的分辨率定价
+    creditsToDeduct = this.resolveImageResolutionCredits(
+      serviceType,
+      creditsToDeduct,
+      requestParams,
+    );
 
     return await this.prisma.$transaction(async (tx) => {
       // 获取账户并锁定
@@ -591,7 +650,7 @@ export class CreditsService {
           amount: -creditsToDeduct,
           balanceBefore: account.balance,
           balanceAfter: newBalance,
-          description: `使用 ${pricing.serviceName}${is4KBilling ? '（4K）' : ''}`,
+          description: `使用 ${pricing.serviceName}${requestParams?.imageSize ? `（${requestParams.imageSize}）` : ''}`,
           apiUsageId: apiUsage.id,
         },
       });

@@ -4,20 +4,37 @@ export const CREDIT_PRICING_CONFIG = {
   'gemini-3-pro-image': {
     serviceName: 'Nano banana Pro 生图',
     provider: 'gemini',
-    creditsPerCall: 30,
+    creditsPerCall: 40, // 默认1K分辨率
     description: '使用 Nano banana Pro 模型生成高质量图像',
+    // 按分辨率定价：Pro模式支持1K/2K/4K
+    resolutionPricing: {
+      '1K': 40,
+      '2K': 60,
+      '4K': 120,
+    },
   },
   'gemini-3.1-image': {
     serviceName: 'Nano banana 2 生图',
     provider: 'gemini',
-    creditsPerCall: 30,
+    creditsPerCall: 30, // 默认1K分辨率
     description: '使用 Nano banana 2 模型生成高质量图像',
+    // 按分辨率定价：Ultra模式支持0.5K/1K/2K/4K
+    resolutionPricing: {
+      '0.5K': 20,
+      '1K': 30,
+      '2K': 45,
+      '4K': 60,
+    },
   },
   'gemini-2.5-image': {
     serviceName: 'Nano banana 生图',
     provider: 'gemini',
-    creditsPerCall: 20,
+    creditsPerCall: 60, // 默认1K分辨率
     description: '使用 Nano banana 模型生成图像',
+    // 按分辨率定价：Fast模式仅支持1K
+    resolutionPricing: {
+      '1K': 60,
+    },
   },
   'gemini-image-edit': {
     serviceName: 'Nano banana Pro 图像编辑',
