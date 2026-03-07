@@ -96,6 +96,13 @@ export class AuthService {
     //   }
     // }
 
+    const trimmedName = dto.name.trim();
+    const normalizedEmail = dto.email ? dto.email.trim().toLowerCase() : null;
+
+    if (normalizedEmail && trimmedName.toLowerCase() === normalizedEmail) {
+      throw new BadRequestException("用户名不能与邮箱相同");
+    }
+
     const hash = await bcrypt.hash(dto.password, 10);
 
     const user = await this.prisma.$transaction(async (tx) => {
@@ -103,18 +110,18 @@ export class AuthService {
         where: { phone: dto.phone },
       });
       if (existsByPhone) throw new UnauthorizedException("手机号已注册");
-      if (dto.email) {
+      if (normalizedEmail) {
         const existsByEmail = await tx.user.findUnique({
-          where: { email: dto.email.toLowerCase() },
+          where: { email: normalizedEmail },
         });
         if (existsByEmail) throw new UnauthorizedException("邮箱已存在");
       }
 
       const newUser = await tx.user.create({
         data: {
-          email: dto.email ? dto.email.toLowerCase() : null,
+          email: normalizedEmail,
           passwordHash: hash,
-          name: dto.name.trim(),
+          name: trimmedName,
           phone: dto.phone,
         },
         select: {

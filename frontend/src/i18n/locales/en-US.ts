@@ -115,6 +115,7 @@ const enUS = {
       passwordMismatch: "Passwords do not match",
       invalidInvite: "Invalid invite code. Please check and try again.",
       usernameRequired: "Please enter a username",
+      usernameCannotMatchEmail: "Username cannot be the same as email",
       phoneInvalid: "Please enter a valid phone number",
       sendFailed: "Failed to send",
     },
