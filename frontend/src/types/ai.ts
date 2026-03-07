@@ -111,6 +111,7 @@ export interface AIImageGenerateRequest {
   imageSize?: '0.5K' | '1K' | '2K' | '4K'; // 图像尺寸（高清设置，仅 Gemini 3）
   thinkingLevel?: 'high' | 'low'; // 思考级别（仅 Gemini 3）
   imageOnly?: boolean; // 新增：仅返回图像，不返回文本
+  enableWebSearch?: boolean; // 生图阶段启用联网搜索（用于支持 147 Ultra 等链路）
   imageUrls?: string[]; // Nano2 参考图片 URL 列表
   googleSearch?: boolean; // Nano2 Google 文本搜索增强
   googleImageSearch?: boolean; // Nano2 Google 图片搜索增强

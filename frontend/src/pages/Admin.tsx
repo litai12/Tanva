@@ -20,6 +20,7 @@ import {
   removeFromWatermarkWhitelist,
   getPaidUsers,
   getCreditChangeRecords,
+  getCreditAnomalyRecords,
   getNodeConfigs,
   updateNodeConfig,
   createNodeConfig,
@@ -32,6 +33,7 @@ import {
   type WatermarkWhitelistUser,
   type PaidUser,
   type CreditChangeRecord,
+  type CreditAnomalyRecord,
   type NodeConfig,
 } from "@/services/adminApi";
 import {
@@ -2142,6 +2144,184 @@ function CreditChangeRecordsTab() {
   );
 }
 
+function CreditAnomaliesTab() {
+  const [records, setRecords] = useState<CreditAnomalyRecord[]>([]);
+  const [pagination, setPagination] = useState<Pagination | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [severity, setSeverity] = useState<"" | "yellow" | "red" | "purple">("");
+
+  const loadRecords = async () => {
+    setLoading(true);
+    try {
+      const result = await getCreditAnomalyRecords({
+        page,
+        pageSize: 20,
+        search: search || undefined,
+        severity: severity || undefined,
+      });
+      setRecords(result.records);
+      setPagination(result.pagination);
+    } catch (error) {
+      console.error("加载积分异常记录失败:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadRecords();
+  }, [page, search, severity]);
+
+  const severityText: Record<string, string> = {
+    yellow: "黄色预警",
+    red: "红色预警",
+    purple: "紫色预警",
+  };
+
+  const severityClass: Record<string, string> = {
+    yellow: "bg-yellow-100 text-yellow-800",
+    red: "bg-red-100 text-red-800",
+    purple: "bg-purple-100 text-purple-800",
+  };
+
+  const amountClass: Record<string, string> = {
+    yellow: "text-yellow-700",
+    red: "text-red-700",
+    purple: "text-purple-700",
+  };
+
+  return (
+    <div>
+      <div className='mb-4 flex gap-2 flex-wrap'>
+        <Input
+          placeholder='搜索手机号/邮箱/昵称'
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className='max-w-xs'
+        />
+        <select
+          value={severity}
+          onChange={(e) => {
+            setPage(1);
+            setSeverity(e.target.value as "" | "yellow" | "red" | "purple");
+          }}
+          className='border rounded px-3 py-2 text-sm'
+        >
+          <option value=''>全部等级</option>
+          <option value='yellow'>黄色 (&gt;2000)</option>
+          <option value='red'>红色 (&gt;5000)</option>
+          <option value='purple'>紫色 (&gt;10000)</option>
+        </select>
+        <Button
+          onClick={() => {
+            setPage(1);
+            loadRecords();
+          }}
+        >
+          搜索
+        </Button>
+      </div>
+
+      <div className='bg-white rounded-lg border overflow-hidden'>
+        <div className='max-h-[900px] overflow-auto'>
+          <table className='w-full text-sm'>
+            <thead className='bg-gray-50'>
+              <tr>
+                <th className='px-4 py-3 text-left'>日期</th>
+                <th className='px-4 py-3 text-left'>用户</th>
+                <th className='px-4 py-3 text-left'>预警等级</th>
+                <th className='px-4 py-3 text-right'>当天累计增加</th>
+                <th className='px-4 py-3 text-right'>最大单笔</th>
+                <th className='px-4 py-3 text-right'>笔数</th>
+                <th className='px-4 py-3 text-left'>来源分布</th>
+                <th className='px-4 py-3 text-left'>最后变更</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={8} className='px-4 py-8 text-center text-gray-500'>
+                    加载中...
+                  </td>
+                </tr>
+              ) : records.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className='px-4 py-8 text-center text-gray-500'>
+                    暂无异常记录
+                  </td>
+                </tr>
+              ) : (
+                records.map((record) => (
+                  <tr key={record.id} className='border-t hover:bg-gray-50'>
+                    <td className='px-4 py-3 text-xs text-gray-600 whitespace-nowrap'>
+                      {record.dayLabel}
+                    </td>
+                    <td className='px-4 py-3'>
+                      <div>{record.user.name || "-"}</div>
+                      <div className='text-xs text-gray-400'>{record.user.phone}</div>
+                    </td>
+                    <td className='px-4 py-3'>
+                      <span className={`px-2 py-1 rounded text-xs ${severityClass[record.severity] || "bg-gray-100 text-gray-700"}`}>
+                        {severityText[record.severity] || record.severity}
+                      </span>
+                    </td>
+                    <td className={`px-4 py-3 text-right font-semibold ${amountClass[record.severity] || "text-yellow-700"}`}>
+                      +{record.totalAmount}
+                    </td>
+                    <td className='px-4 py-3 text-right'>{record.maxSingleAmount}</td>
+                    <td className='px-4 py-3 text-right'>{record.transactionCount}</td>
+                    <td className='px-4 py-3 text-xs text-gray-600'>
+                      <div className='space-y-1'>
+                        {record.sourceBreakdown.slice(0, 3).map((item) => (
+                          <div key={item.sourceKey} className='whitespace-nowrap'>
+                            {item.sourceLabel}: +{item.amount} ({item.count}笔)
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                    <td className='px-4 py-3 text-xs text-gray-500 whitespace-nowrap'>
+                      {new Date(record.lastTransactionAt).toLocaleString()}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {pagination && pagination.totalPages > 1 && (
+        <div className='mt-4 flex items-center justify-center gap-4'>
+          <span className='text-sm text-gray-500'>共 {pagination.total} 条记录</span>
+          <div className='flex items-center gap-2'>
+            <Button
+              variant='outline'
+              size='sm'
+              disabled={page === 1}
+              onClick={() => setPage(page - 1)}
+            >
+              上一页
+            </Button>
+            <span className='px-4 py-2 text-sm'>
+              {page} / {pagination.totalPages}
+            </span>
+            <Button
+              variant='outline'
+              size='sm'
+              disabled={page === pagination.totalPages}
+              onClick={() => setPage(page + 1)}
+            >
+              下一页
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // 系统设置 Tab
 function SettingsTab() {
   const [settings, setSettings] = useState<SystemSetting[]>([]);
@@ -2842,6 +3022,7 @@ export default function Admin() {
     | "users"
     | "paid-users"
     | "credit-records"
+    | "credit-anomalies"
     | "api-stats"
     | "api-records"
     | "watermark"
@@ -2915,6 +3096,7 @@ export default function Admin() {
     { key: "users", label: "用户管理" },
     { key: "paid-users", label: "付费用户" },
     { key: "credit-records", label: "积分记录" },
+    { key: "credit-anomalies", label: "异常积分" },
     { key: "api-stats", label: "API统计" },
     { key: "api-records", label: "API记录" },
     { key: "watermark", label: "水印白名单" },
@@ -3011,6 +3193,7 @@ export default function Admin() {
         {activeTab === "users" && <UsersTab />}
         {activeTab === "paid-users" && <PaidUsersTab />}
         {activeTab === "credit-records" && <CreditChangeRecordsTab />}
+        {activeTab === "credit-anomalies" && <CreditAnomaliesTab />}
         {activeTab === "api-stats" && <ApiStatsTab />}
         {activeTab === "api-records" && <ApiRecordsTab />}
         {activeTab === "watermark" && <WatermarkWhitelistTab />}

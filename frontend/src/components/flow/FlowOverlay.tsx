@@ -1,7 +1,7 @@
 // @ts-nocheck
 // Flow 主画布与节点调度入口。
 import React from "react";
-import { Trash2, Plus, Upload, Download } from "lucide-react";
+import { Trash2, Plus, Upload, Download, Group, Ungroup } from "lucide-react";
 import { fetchTemplateCategories } from "@/services/publicTemplateService";
 import { fetchWithAuth } from "@/services/authFetch";
 import SharedTemplateCard from "@/components/template/SharedTemplateCard";
@@ -76,6 +76,7 @@ import VideoFrameExtractNode from "./nodes/VideoFrameExtractNode";
 import ImageGridNode from "./nodes/ImageGridNode";
 import ImageSplitNode from "./nodes/ImageSplitNode";
 import Nano2Node from "./nodes/Nano2Node";
+import NodeGroupNode from "./nodes/NodeGroupNode";
 import { FLOW_IMAGE_ASSET_PREFIX } from "@/services/flowImageAssetStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useFlowStore, FlowBackgroundVariant } from "@/stores/flowStore";
@@ -267,6 +268,79 @@ async function validateAndAdjustImageForWan26(
 
 type RFNode = Node<any>;
 
+const isGroupNode = (node?: RFNode | null): boolean =>
+  !!node && node.type === FLOW_GROUP_NODE_TYPE;
+
+const getGroupChildIds = (node?: RFNode | null): string[] => {
+  if (!isGroupNode(node)) return [];
+  const ids = Array.isArray((node as any)?.data?.childNodeIds)
+    ? ((node as any).data.childNodeIds as string[])
+    : [];
+  return Array.from(new Set(ids.filter((id) => typeof id === "string" && id)));
+};
+
+const getNodeRenderSize = (node: RFNode): { width: number; height: number } => {
+  const fallback = FLOW_NODE_DEFAULT_SIZE[node.type as FlowNodeType] || {
+    w: 220,
+    h: 160,
+  };
+
+  const styleW = Number((node as any)?.style?.width);
+  const styleH = Number((node as any)?.style?.height);
+  const width = Number(
+    node.width ??
+      node.data?.boxW ??
+      (Number.isFinite(styleW) ? styleW : undefined) ??
+      fallback.w
+  );
+  const height = Number(
+    node.height ??
+      node.data?.boxH ??
+      (Number.isFinite(styleH) ? styleH : undefined) ??
+      fallback.h
+  );
+
+  return {
+    width: Number.isFinite(width) && width > 0 ? width : fallback.w,
+    height: Number.isFinite(height) && height > 0 ? height : fallback.h,
+  };
+};
+
+const computeGroupBounds = (
+  nodes: RFNode[],
+  childIds: string[]
+): { x: number; y: number; width: number; height: number } | null => {
+  if (!childIds.length) return null;
+  const nodeMap = new Map(nodes.map((node) => [node.id, node]));
+
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  let found = 0;
+
+  childIds.forEach((id) => {
+    const child = nodeMap.get(id);
+    if (!child || isGroupNode(child)) return;
+    const { width, height } = getNodeRenderSize(child);
+    const x = Number(child.position?.x ?? 0);
+    const y = Number(child.position?.y ?? 0);
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x + width);
+    maxY = Math.max(maxY, y + height);
+    found += 1;
+  });
+
+  if (!found) return null;
+
+  const x = minX - FLOW_GROUP_PADDING;
+  const y = minY - FLOW_GROUP_PADDING;
+  const width = Math.max(FLOW_GROUP_MIN_WIDTH, maxX - minX + FLOW_GROUP_PADDING * 2);
+  const height = Math.max(FLOW_GROUP_MIN_HEIGHT, maxY - minY + FLOW_GROUP_PADDING * 2);
+  return { x, y, width, height };
+};
+
 type EdgeLabelEditorState = {
   visible: boolean;
   edgeId: string | null;
@@ -371,6 +445,7 @@ const FLOW_CLIPBOARD_FALLBACK_TEXT = "Tanva flow selection";
 const FLOW_CLIPBOARD_TYPE = "tanva-flow";
 
 const nodeTypes = {
+  nodeGroup: NodeGroupNode,
   textPrompt: TextPromptNode,
   textPromptPro: TextPromptProNode,
   textChat: TextChatNode,
@@ -494,6 +569,31 @@ const edgeTypes = {
 };
 
 const DEFAULT_REFERENCE_PROMPT = "请参考第二张图的内容";
+const FLOW_GROUP_NODE_TYPE = "nodeGroup";
+const FLOW_GROUP_PADDING = 24;
+const FLOW_GROUP_MIN_WIDTH = 220;
+const FLOW_GROUP_MIN_HEIGHT = 160;
+const FLOW_GROUP_DEFAULT_COLOR = "#3b82f6";
+const FLOW_GROUP_RUNNABLE_TYPES = new Set([
+  "generate",
+  "generate4",
+  "generateRef",
+  "generatePro",
+  "generatePro4",
+  "midjourney",
+  "nano2",
+  "image",
+  "imagePro",
+  "sora2Video",
+  "sora2Character",
+  "wan26",
+  "wan2R2V",
+  "klingVideo",
+  "kling26Video",
+  "klingO1Video",
+  "viduVideo",
+  "doubaoVideo",
+]);
 const SORA2_MAX_REFERENCE_IMAGES = 1;
 const VIDU_MAX_REFERENCE_IMAGES = 7; // Vidu viduq2 模型支持最多 7 张参考图
 const KLING_MAX_REFERENCE_IMAGES = 4; // Kling 支持最多 4 张参考图
@@ -517,7 +617,6 @@ type Sora2VideoHistoryItem = {
 type AddPanelTab = "nodes" | "beta" | "custom" | "templates" | "personal";
 const ALL_ADD_TABS: AddPanelTab[] = [
   "nodes",
-  "beta",
   "custom",
   "templates",
   "personal",
@@ -532,13 +631,18 @@ const getStoredAddPanelTab = (): AddPanelTab => {
     return saved === "templates" ||
       saved === "personal" ||
       saved === "nodes" ||
-      saved === "beta" ||
       saved === "custom"
       ? saved
       : "nodes";
   } catch {
     return "nodes";
   }
+};
+
+const sanitizeAllowedAddTabs = (tabs?: AddPanelTab[]): AddPanelTab[] => {
+  if (!tabs?.length) return ALL_ADD_TABS;
+  const filtered = tabs.filter((tab) => ALL_ADD_TABS.includes(tab));
+  return filtered.length > 0 ? filtered : ALL_ADD_TABS;
 };
 
 // 节点积分消耗映射
@@ -696,6 +800,7 @@ const BETA_NODE_ITEMS = [
 ];
 
 const FLOW_NODE_DEFAULT_SIZE = {
+  nodeGroup: { w: FLOW_GROUP_MIN_WIDTH, h: FLOW_GROUP_MIN_HEIGHT },
   textPrompt: { w: 240, h: 180 },
   textPromptPro: { w: 420, h: 360 },
   textNote: { w: 220, h: 140 },
@@ -1500,23 +1605,24 @@ function FlowInner() {
 
   const onNodesChangeWithHistory = React.useCallback(
     (changes: any) => {
+      let processedChanges = changes;
       const altState = altDragStartRef.current;
       const isAltDragCloning =
         !!altState?.altPressed &&
         !!altState?.cloned &&
         altState?.idMap instanceof Map;
 
-      if (isAltDragCloning && Array.isArray(changes)) {
+      if (isAltDragCloning && Array.isArray(processedChanges)) {
         // ReactFlow 仍会尝试拖拽原节点；这里把“原节点的位置变化”重定向到副本，
         // 并把原节点强制回到起始位置，保证原有连线不被“带走”。
         const posChange =
-          changes.find(
+          processedChanges.find(
             (c: any) =>
               c?.type === "position" &&
               c?.id === altState?.nodeId &&
               altState?.startPositions?.has?.(c.id)
           ) ||
-          changes.find(
+          processedChanges.find(
             (c: any) =>
               c?.type === "position" && altState?.startPositions?.has?.(c.id)
           );
@@ -1528,7 +1634,7 @@ function FlowInner() {
             typeof posChange.position !== "undefined" ||
             typeof posChange.positionAbsolute !== "undefined";
           if (!base) {
-            onNodesChange(changes);
+            onNodesChange(processedChanges);
             return;
           }
 
@@ -1550,7 +1656,7 @@ function FlowInner() {
 
           const remapped: any[] = [];
           // 先保留非 position 变更（如 select/dimensions/remove/add）
-          for (const c of changes) {
+          for (const c of processedChanges) {
             if (c?.type !== "position") remapped.push(c);
           }
 
@@ -1592,11 +1698,62 @@ function FlowInner() {
         }
       }
 
-      onNodesChange(changes);
+      if (Array.isArray(processedChanges) && processedChanges.length > 0) {
+        try {
+          const currentNodes = (rfRef.current.getNodes?.() || []) as RFNode[];
+          if (currentNodes.length) {
+            const nodeMap = new Map(currentNodes.map((node) => [node.id, node]));
+            const extraPositionChanges: any[] = [];
+            const changedIds = new Set(
+              processedChanges
+                .filter((change: any) => change?.type === "position")
+                .map((change: any) => String(change?.id || ""))
+                .filter(Boolean)
+            );
+
+            for (const change of processedChanges) {
+              if (change?.type !== "position") continue;
+              const groupNode = nodeMap.get(change.id);
+              if (!isGroupNode(groupNode)) continue;
+
+              const nextX = Number(change?.position?.x);
+              const nextY = Number(change?.position?.y);
+              if (!Number.isFinite(nextX) || !Number.isFinite(nextY)) continue;
+
+              const prevX = Number(groupNode.position?.x ?? 0);
+              const prevY = Number(groupNode.position?.y ?? 0);
+              const dx = nextX - prevX;
+              const dy = nextY - prevY;
+              if (!dx && !dy) continue;
+
+              const childIds = getGroupChildIds(groupNode);
+              childIds.forEach((childId) => {
+                if (changedIds.has(childId)) return;
+                const childNode = nodeMap.get(childId);
+                if (!childNode || isGroupNode(childNode)) return;
+                const childX = Number(childNode.position?.x ?? 0);
+                const childY = Number(childNode.position?.y ?? 0);
+                extraPositionChanges.push({
+                  id: childId,
+                  type: "position",
+                  position: { x: childX + dx, y: childY + dy },
+                  dragging: change?.dragging,
+                });
+              });
+            }
+
+            if (extraPositionChanges.length > 0) {
+              processedChanges = processedChanges.concat(extraPositionChanges);
+            }
+          }
+        } catch {}
+      }
+
+      onNodesChange(processedChanges);
       try {
         const needCommit =
-          Array.isArray(changes) &&
-          changes.some(
+          Array.isArray(processedChanges) &&
+          processedChanges.some(
             (c: any) =>
               (c?.type === "position" && c?.dragging === false) ||
               c?.type === "remove" ||
@@ -1615,6 +1772,309 @@ function FlowInner() {
   React.useEffect(() => {
     rfRef.current = rf;
   }, [rf]);
+
+  const normalizeGroupNodes = React.useCallback((inputNodes: RFNode[]) => {
+    if (!Array.isArray(inputNodes) || inputNodes.length === 0) {
+      return { changed: false, nodes: inputNodes };
+    }
+
+    const nodeMap = new Map(inputNodes.map((node) => [node.id, node]));
+    const claimedChildIds = new Set<string>();
+    let changed = false;
+
+    const normalized = inputNodes
+      .map((node) => {
+        if (!isGroupNode(node)) return node;
+
+        const originalChildIds = getGroupChildIds(node);
+        const filteredChildIds: string[] = [];
+        for (const childId of originalChildIds) {
+          const child = nodeMap.get(childId);
+          if (!child || isGroupNode(child)) continue;
+          if (claimedChildIds.has(childId)) {
+            changed = true;
+            continue;
+          }
+          claimedChildIds.add(childId);
+          filteredChildIds.push(childId);
+        }
+
+        if (filteredChildIds.length === 0) {
+          changed = true;
+          return null;
+        }
+
+        const bounds = computeGroupBounds(inputNodes, filteredChildIds);
+        if (!bounds) {
+          changed = true;
+          return null;
+        }
+
+        const currentColor =
+          typeof node.data?.groupColor === "string" &&
+          node.data.groupColor.trim().length > 0
+            ? node.data.groupColor
+            : FLOW_GROUP_DEFAULT_COLOR;
+
+        const currentName =
+          typeof node.data?.groupName === "string" &&
+          node.data.groupName.trim().length > 0
+            ? node.data.groupName
+            : "新建分组";
+
+        const sameChildren =
+          originalChildIds.length === filteredChildIds.length &&
+          originalChildIds.every((id, index) => id === filteredChildIds[index]);
+        const samePosition =
+          Math.abs((node.position?.x ?? 0) - bounds.x) < 0.1 &&
+          Math.abs((node.position?.y ?? 0) - bounds.y) < 0.1;
+        const styleW = Number((node as any)?.style?.width);
+        const styleH = Number((node as any)?.style?.height);
+        const sameSize =
+          Math.abs((Number.isFinite(styleW) ? styleW : 0) - bounds.width) < 0.1 &&
+          Math.abs((Number.isFinite(styleH) ? styleH : 0) - bounds.height) < 0.1;
+        const sameColor = node.data?.groupColor === currentColor;
+        const sameName = node.data?.groupName === currentName;
+
+        if (sameChildren && samePosition && sameSize && sameColor && sameName) {
+          return node;
+        }
+
+        changed = true;
+        return {
+          ...node,
+          position: { x: bounds.x, y: bounds.y },
+          data: {
+            ...(node.data || {}),
+            groupName: currentName,
+            groupColor: currentColor,
+            childNodeIds: filteredChildIds,
+          },
+          style: {
+            ...(node.style || {}),
+            width: bounds.width,
+            height: bounds.height,
+            zIndex: 0,
+          },
+        } as RFNode;
+      })
+      .filter(Boolean) as RFNode[];
+
+    return { changed, nodes: normalized };
+  }, []);
+
+  const groupNormalizeLockRef = React.useRef(false);
+  React.useEffect(() => {
+    if (groupNormalizeLockRef.current) {
+      groupNormalizeLockRef.current = false;
+      return;
+    }
+    const result = normalizeGroupNodes(nodes as RFNode[]);
+    if (!result.changed) return;
+    groupNormalizeLockRef.current = true;
+    setNodes(result.nodes as any);
+  }, [nodes, normalizeGroupNodes, setNodes]);
+
+  const updateGroupNodeData = React.useCallback(
+    (groupId: string, patch: Record<string, unknown>) => {
+      let changed = false;
+      setNodes((prev: any[]) =>
+        prev.map((node) => {
+          if (node.id !== groupId || !isGroupNode(node as RFNode)) return node;
+          changed = true;
+          return {
+            ...node,
+            data: { ...(node.data || {}), ...patch },
+          };
+        })
+      );
+      if (!changed) return;
+      try {
+        historyService.commit("flow-group-update").catch(() => {});
+      } catch {}
+    },
+    [setNodes]
+  );
+
+  const dissolveGroups = React.useCallback(
+    (groupIds: string[]) => {
+      const ids = Array.from(
+        new Set(groupIds.filter((id) => typeof id === "string" && id))
+      );
+      if (!ids.length) return false;
+
+      const removeSet = new Set(ids);
+      let changed = false;
+      setNodes((prev: any[]) => {
+        const next = prev.filter((node) => {
+          if (!removeSet.has(node.id)) return true;
+          changed = true;
+          return false;
+        });
+        return next;
+      });
+
+      if (!changed) return false;
+      try {
+        historyService.commit("flow-group-dissolve").catch(() => {});
+      } catch {}
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: "已解组", type: "success" },
+        })
+      );
+      return true;
+    },
+    [setNodes]
+  );
+
+  const getSelectedGroupIds = React.useCallback(
+    (allNodes: RFNode[]) => {
+      const selectedIds = new Set(
+        allNodes
+          .filter((node) => node.selected)
+          .map((node) => String(node.id))
+      );
+      const directGroupIds = allNodes
+        .filter((node) => node.selected && isGroupNode(node))
+        .map((node) => node.id);
+      if (directGroupIds.length) return directGroupIds;
+
+      const inferred = allNodes
+        .filter((node) => isGroupNode(node))
+        .filter((group) =>
+          getGroupChildIds(group).some((childId) => selectedIds.has(childId))
+        )
+        .map((group) => group.id);
+
+      return inferred;
+    },
+    []
+  );
+
+  const createGroupFromSelection = React.useCallback(() => {
+    const allNodes = (rf.getNodes?.() || []) as RFNode[];
+    const selectedNodes = allNodes.filter(
+      (node) => node.selected && !isGroupNode(node)
+    );
+    if (selectedNodes.length < 2) {
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: "请先选择至少两个节点再打组", type: "warning" },
+        })
+      );
+      return false;
+    }
+
+    const selectedIds = selectedNodes.map((node) => node.id);
+    const bounds = computeGroupBounds(allNodes, selectedIds);
+    if (!bounds) return false;
+
+    const groupCount = allNodes.filter((node) => isGroupNode(node)).length;
+    const groupId = generateId("group");
+    const groupNode: RFNode = {
+      id: groupId,
+      type: FLOW_GROUP_NODE_TYPE,
+      position: { x: bounds.x, y: bounds.y },
+      data: {
+        groupName: `分组 ${groupCount + 1}`,
+        groupColor: FLOW_GROUP_DEFAULT_COLOR,
+        childNodeIds: selectedIds,
+      },
+      selected: true,
+      draggable: true,
+      selectable: true,
+      style: {
+        width: bounds.width,
+        height: bounds.height,
+        zIndex: 0,
+      },
+    } as any;
+
+    const selectedSet = new Set(selectedIds);
+    let changed = false;
+    setNodes((prev: any[]) => {
+      const next = prev
+        .map((node) => {
+          if (!isGroupNode(node as RFNode)) {
+            return { ...node, selected: false };
+          }
+          const childIds = getGroupChildIds(node as RFNode);
+          const filtered = childIds.filter((id) => !selectedSet.has(id));
+          if (filtered.length !== childIds.length) {
+            changed = true;
+            if (filtered.length === 0) {
+              return null;
+            }
+            return {
+              ...node,
+              selected: false,
+              data: { ...(node.data || {}), childNodeIds: filtered },
+            };
+          }
+          return { ...node, selected: false };
+        })
+        .filter(Boolean) as RFNode[];
+
+      changed = true;
+      return [groupNode, ...next];
+    });
+
+    if (!changed) return false;
+    try {
+      historyService.commit("flow-group-create").catch(() => {});
+    } catch {}
+    window.dispatchEvent(
+      new CustomEvent("toast", {
+        detail: { message: "已创建分组", type: "success" },
+      })
+    );
+    return true;
+  }, [rf, setNodes]);
+
+  const updateGroupName = React.useCallback(
+    (groupId: string, nextName: string) => {
+      const normalized = typeof nextName === "string" ? nextName.trim() : "";
+      if (!normalized) return;
+      const groupNode = (rf.getNode(groupId) || null) as RFNode | null;
+      if (!groupNode || !isGroupNode(groupNode)) return;
+      const currentName =
+        (typeof groupNode.data?.groupName === "string" &&
+          groupNode.data.groupName.trim()) ||
+        "新建分组";
+      if (normalized === currentName) return;
+      updateGroupNodeData(groupId, { groupName: normalized });
+    },
+    [rf, updateGroupNodeData]
+  );
+
+  const promptGroupName = React.useCallback(
+    (groupId: string) => {
+      const groupNode = (rf.getNode(groupId) || null) as RFNode | null;
+      if (!groupNode || !isGroupNode(groupNode)) return;
+      const currentName =
+        (typeof groupNode.data?.groupName === "string" &&
+          groupNode.data.groupName.trim()) ||
+        "新建分组";
+      const nextName = window.prompt("请输入分组名称", currentName)?.trim();
+      if (!nextName) return;
+      updateGroupName(groupId, nextName);
+    },
+    [rf, updateGroupName]
+  );
+
+  const changeGroupColor = React.useCallback(
+    (groupId: string, color: string) => {
+      const normalized =
+        typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color.trim())
+          ? color.trim()
+          : FLOW_GROUP_DEFAULT_COLOR;
+      updateGroupNodeData(groupId, { groupColor: normalized });
+    },
+    [updateGroupNodeData]
+  );
+
+  const [runningGroupIds, setRunningGroupIds] = React.useState<string[]>([]);
 
   const onEdgesChangeWithHistory = React.useCallback(
     (changes: any) => {
@@ -1835,6 +2295,10 @@ function FlowInner() {
           width: n.width,
           height: n.height,
           style: n.style ? { ...n.style } : undefined,
+          parentNode: (n as any).parentNode,
+          extent: (n as any).extent,
+          selectable: (n as any).selectable,
+          draggable: (n as any).draggable,
         } as ClipboardFlowNode;
       });
     },
@@ -1862,6 +2326,13 @@ function FlowInner() {
         type: (n as any).type || "default",
         position: { x: n.position.x, y: n.position.y },
         data: { ...(n.data || {}) },
+        width: (n as any).width,
+        height: (n as any).height,
+        style: (n as any).style ? { ...(n as any).style } : undefined,
+        parentNode: (n as any).parentNode,
+        extent: (n as any).extent,
+        selectable: (n as any).selectable,
+        draggable: (n as any).draggable,
       })) as any,
     []
   );
@@ -2121,13 +2592,23 @@ function FlowInner() {
 
     const OFFSET = 40;
     const idMap = new Map<string, string>();
+    payload.nodes.forEach((node) => {
+      idMap.set(node.id, generateId(node.type || "n"));
+    });
 
     const newNodes = payload.nodes.map((node) => {
-      const newId = generateId(node.type || "n");
-      idMap.set(node.id, newId);
+      const newId = idMap.get(node.id) || generateId(node.type || "n");
       const data: any = sanitizeNodeData(node.data || {}, {
         preserveImagePayload: true,
       });
+      if (node.type === FLOW_GROUP_NODE_TYPE) {
+        const rawChildren = Array.isArray(data?.childNodeIds)
+          ? data.childNodeIds
+          : [];
+        data.childNodeIds = rawChildren
+          .map((childId: string) => idMap.get(childId) || null)
+          .filter(Boolean);
+      }
       return {
         id: newId,
         type: node.type || "default",
@@ -2140,6 +2621,12 @@ function FlowInner() {
         width: node.width,
         height: node.height,
         style: node.style ? { ...node.style } : undefined,
+        parentNode: (node as any).parentNode
+          ? idMap.get((node as any).parentNode) || undefined
+          : undefined,
+        extent: (node as any).extent,
+        selectable: (node as any).selectable,
+        draggable: (node as any).draggable,
       } as any;
     });
 
@@ -2310,6 +2797,48 @@ function FlowInner() {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [handleCopyFlow, handlePasteFlow]);
+
+  React.useEffect(() => {
+    const handleGroupHotkey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      if (String(event.key || "").toLowerCase() !== "g") return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.repeat) return;
+
+      const active = document.activeElement as Element | null;
+      const tagName = active?.tagName?.toLowerCase();
+      const isEditable =
+        !!active &&
+        (tagName === "input" ||
+          tagName === "textarea" ||
+          (active as any).isContentEditable);
+      if (isEditable) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (event.shiftKey) {
+        const allNodes = (rf.getNodes?.() || []) as RFNode[];
+        const groupIds = getSelectedGroupIds(allNodes);
+        if (!groupIds.length) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "请先选中分组后再解组", type: "warning" },
+            })
+          );
+          return;
+        }
+        dissolveGroups(groupIds);
+        return;
+      }
+
+      createGroupFromSelection();
+    };
+
+    window.addEventListener("keydown", handleGroupHotkey, true);
+    return () =>
+      window.removeEventListener("keydown", handleGroupHotkey, true);
+  }, [rf, createGroupFromSelection, dissolveGroups, getSelectedGroupIds]);
 
   // 只在剪贴板中没有图片/文件时才接管 Flow 的粘贴，避免阻止画布粘贴图片
   React.useEffect(() => {
@@ -2867,10 +3396,7 @@ function FlowInner() {
         allowedTabs?: AddPanelTab[];
       }
     ) => {
-      const allowed =
-        opts?.allowedTabs && opts.allowedTabs.length
-          ? opts.allowedTabs
-          : ALL_ADD_TABS;
+      const allowed = sanitizeAllowedAddTabs(opts?.allowedTabs);
       setAllowedAddTabs(allowed);
       const targetTab = clampAddTab(opts?.tab ?? addTab, allowed);
       setAddTabWithMemory(targetTab, allowed);
@@ -3269,6 +3795,13 @@ function FlowInner() {
             type: n.type,
             position: n.position,
             data,
+            width: (n as any).width,
+            height: (n as any).height,
+            style: (n as any).style ? { ...(n as any).style } : undefined,
+            parentNode: (n as any).parentNode,
+            extent: (n as any).extent,
+            selectable: (n as any).selectable,
+            draggable: (n as any).draggable,
           };
         })
       );
@@ -3338,17 +3871,38 @@ function FlowInner() {
           const idMap = new Map<string, string>();
 
           const now = Date.now();
-          const mappedNodes = rawNodes.map((n: any, idx: number) => {
+          rawNodes.forEach((n: any, idx: number) => {
             const origId = String(n.id || `n_${idx}`);
             let newId = origId;
             if (existing.has(newId) || idMap.has(newId))
               newId = `${origId}_${now}_${idx}`;
             idMap.set(origId, newId);
+          });
+
+          const mappedNodes = rawNodes.map((n: any, idx: number) => {
+            const origId = String(n.id || `n_${idx}`);
+            const newId = idMap.get(origId) || `${origId}_${now}_${idx}`;
+            const data = cleanNodeData(n.data) || {};
+            if (n.type === FLOW_GROUP_NODE_TYPE) {
+              const rawChildIds = Array.isArray((data as any).childNodeIds)
+                ? (data as any).childNodeIds
+                : [];
+              (data as any).childNodeIds = rawChildIds
+                .map((childId: string) => idMap.get(String(childId)) || null)
+                .filter(Boolean);
+            }
             return {
               id: newId,
               type: n.type,
               position: n.position || { x: 0, y: 0 },
-              data: cleanNodeData(n.data) || {},
+              data,
+              width: n.width,
+              height: n.height,
+              style: n.style ? { ...n.style } : undefined,
+              parentNode: n.parentNode ? idMap.get(String(n.parentNode)) || undefined : undefined,
+              extent: n.extent,
+              selectable: n.selectable,
+              draggable: n.draggable,
             } as any;
           });
 
@@ -9706,6 +10260,78 @@ function FlowInner() {
     [rf]
   );
 
+  const runGroupNodes = React.useCallback(
+    async (groupId: string) => {
+      if (!groupId) return;
+
+      let started = false;
+      setRunningGroupIds((prev) => {
+        if (prev.includes(groupId)) return prev;
+        started = true;
+        return prev.concat(groupId);
+      });
+      if (!started) return;
+
+      try {
+        const allNodes = (rf.getNodes?.() || []) as RFNode[];
+        const groupNode = allNodes.find((node) => node.id === groupId);
+        if (!groupNode || !isGroupNode(groupNode)) return;
+
+        const childIds = getGroupChildIds(groupNode);
+        const runnableNodes = childIds
+          .map((childId) => allNodes.find((node) => node.id === childId))
+          .filter((node): node is RFNode => !!node && !isGroupNode(node))
+          .filter((node) => FLOW_GROUP_RUNNABLE_TYPES.has(String(node.type || "")))
+          .sort((a, b) => {
+            const ay = Number(a.position?.y ?? 0);
+            const by = Number(b.position?.y ?? 0);
+            if (Math.abs(ay - by) > 0.01) return ay - by;
+            const ax = Number(a.position?.x ?? 0);
+            const bx = Number(b.position?.x ?? 0);
+            return ax - bx;
+          });
+
+        if (!runnableNodes.length) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "该分组内没有可运行节点", type: "warning" },
+            })
+          );
+          return;
+        }
+
+        let successCount = 0;
+        let failedCount = 0;
+
+        for (const node of runnableNodes) {
+          try {
+            await runNode(node.id);
+            successCount += 1;
+          } catch {
+            failedCount += 1;
+          }
+        }
+
+        const message =
+          failedCount > 0
+            ? `分组运行完成：成功 ${successCount}，失败 ${failedCount}`
+            : `分组运行完成：共执行 ${successCount} 个节点`;
+
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: {
+              message,
+              type: failedCount > 0 ? "warning" : "success",
+            },
+          })
+        );
+      } finally {
+        setRunningGroupIds((prev) => prev.filter((id) => id !== groupId));
+      }
+    },
+    [rf, runNode]
+  );
+
   // 连接状态回调
   const onConnectStart = React.useCallback(
     () => setIsConnecting(true),
@@ -9720,7 +10346,20 @@ function FlowInner() {
   const nodesWithHandlers = React.useMemo(
     () =>
       nodes.map((n) =>
-        n.type === "generate" ||
+        n.type === FLOW_GROUP_NODE_TYPE
+          ? {
+              ...n,
+              data: {
+                ...n.data,
+                onRenameGroup: promptGroupName,
+                onUpdateGroupName: updateGroupName,
+                onChangeGroupColor: changeGroupColor,
+                onUngroup: (groupId: string) => dissolveGroups([groupId]),
+                onRunGroup: runGroupNodes,
+                groupRunning: runningGroupIds.includes(n.id),
+              },
+            }
+          : n.type === "generate" ||
         n.type === "generate4" ||
         n.type === "generateRef" ||
         n.type === "generatePro" ||
@@ -9742,7 +10381,17 @@ function FlowInner() {
           ? { ...n, data: { ...n.data, onRun: runNode } }
           : n
       ),
-    [nodes, runNode, onSendHandler]
+    [
+      nodes,
+      runNode,
+      onSendHandler,
+      promptGroupName,
+      updateGroupName,
+      changeGroupColor,
+      dissolveGroups,
+      runGroupNodes,
+      runningGroupIds,
+    ]
   );
 
   // 简单的全局调试API，便于从控制台添加节点
@@ -10014,6 +10663,18 @@ function FlowInner() {
 
   const showFlowPanel = useUIStore((s) => s.showFlowPanel);
   const flowUIEnabled = useUIStore((s) => s.flowUIEnabled);
+  const selectedNonGroupNodeCount = React.useMemo(
+    () =>
+      nodes.filter((node) => node.selected && !isGroupNode(node as RFNode))
+        .length,
+    [nodes]
+  );
+  const selectedGroupIds = React.useMemo(
+    () => getSelectedGroupIds(nodes as RFNode[]),
+    [nodes, getSelectedGroupIds]
+  );
+  const canCreateGroup = selectedNonGroupNodeCount >= 2;
+  const canDissolveGroup = selectedGroupIds.length > 0;
 
   const FlowToolbar =
     flowUIEnabled && showFlowPanel ? (
@@ -10143,6 +10804,54 @@ function FlowInner() {
           }}
         >
           Multi Generate
+        </button>
+        <div
+          style={{
+            width: 1,
+            height: 20,
+            background: "#e5e7eb",
+            margin: "0 4px",
+          }}
+        />
+        <button
+          onClick={() => createGroupFromSelection()}
+          disabled={!canCreateGroup}
+          title='打组 (G)'
+          style={{
+            padding: "6px 10px",
+            fontSize: 12,
+            borderRadius: 6,
+            border: "1px solid #e5e7eb",
+            background: canCreateGroup ? "#fff" : "#f3f4f6",
+            color: canCreateGroup ? "#111827" : "#9ca3af",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            cursor: canCreateGroup ? "pointer" : "not-allowed",
+          }}
+        >
+          <Group size={14} />
+          打组
+        </button>
+        <button
+          onClick={() => dissolveGroups(selectedGroupIds)}
+          disabled={!canDissolveGroup}
+          title='解组 (Shift + G)'
+          style={{
+            padding: "6px 10px",
+            fontSize: 12,
+            borderRadius: 6,
+            border: "1px solid #e5e7eb",
+            background: canDissolveGroup ? "#fff" : "#f3f4f6",
+            color: canDissolveGroup ? "#111827" : "#9ca3af",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            cursor: canDissolveGroup ? "pointer" : "not-allowed",
+          }}
+        >
+          <Ungroup size={14} />
+          解组
         </button>
         <div
           style={{
@@ -10447,14 +11156,23 @@ function FlowInner() {
       const minX = Math.min(...tpl.nodes.map((n) => n.position?.x || 0));
       const minY = Math.min(...tpl.nodes.map((n) => n.position?.y || 0));
       const idMap = new Map<string, string>();
-      const newNodes = tpl.nodes.map((n) => {
+      tpl.nodes.forEach((n) => {
         const newId = generateId(n.type || "n");
         idMap.set(n.id, newId);
+      });
+      const newNodes = tpl.nodes.map((n) => {
+        const newId = idMap.get(n.id) || generateId(n.type || "n");
         const data: any = { ...(n.data || {}) };
         delete data.onRun;
         delete data.onSend;
         delete data.status;
         delete data.error;
+        if ((n as any).type === FLOW_GROUP_NODE_TYPE) {
+          const childIds = Array.isArray(data.childNodeIds) ? data.childNodeIds : [];
+          data.childNodeIds = childIds
+            .map((childId: string) => idMap.get(childId) || null)
+            .filter(Boolean);
+        }
         return {
           id: newId,
           type: n.type as any,
@@ -10463,6 +11181,15 @@ function FlowInner() {
             y: world.y + (n.position.y - minY),
           },
           data,
+          width: (n as any).width,
+          height: (n as any).height,
+          style: (n as any).style ? { ...(n as any).style } : undefined,
+          parentNode: (n as any).parentNode
+            ? idMap.get((n as any).parentNode) || undefined
+            : undefined,
+          extent: (n as any).extent,
+          selectable: (n as any).selectable,
+          draggable: (n as any).draggable,
         } as any;
       });
       const newEdges = (tpl.edges || []).map((e) => ({
@@ -10675,6 +11402,13 @@ function FlowInner() {
             data,
             boxW: (n as any).data?.boxW,
             boxH: (n as any).data?.boxH,
+            width: (n as any).width,
+            height: (n as any).height,
+            style: (n as any).style ? { ...(n as any).style } : undefined,
+            parentNode: (n as any).parentNode,
+            extent: (n as any).extent,
+            selectable: (n as any).selectable,
+            draggable: (n as any).draggable,
           };
         })
       );

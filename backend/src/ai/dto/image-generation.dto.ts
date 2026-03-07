@@ -87,6 +87,10 @@ export class GenerateImageDto {
   imageOnly?: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  enableWebSearch?: boolean; // 生图阶段启用联网搜索（如 147 Ultra）
+
+  @IsOptional()
   @IsArray()
   @IsString({ each: true })
   imageUrls?: string[]; // Nano2 参考图片 URL 列表

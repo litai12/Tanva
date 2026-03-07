@@ -15,6 +15,8 @@ import { ReferralService } from '../referral/referral.service';
 const DAILY_REWARD_EXPIRE_DAYS = 7;
 const STALE_PENDING_DEFAULT_TIMEOUT_MINUTES = 15;
 const STALE_PENDING_DEFAULT_BATCH_SIZE = 200;
+const DEFAULT_FREE_USER_MONTHLY_IMAGE_LIMIT = 100;
+const DEFAULT_FREE_USER_DAILY_IMAGE_LIMIT = 20;
 const STALE_PENDING_IMAGE_SERVICE_TYPES: ServiceType[] = [
   'gemini-3-pro-image',
   'gemini-3.1-image',
@@ -27,6 +29,11 @@ const STALE_PENDING_IMAGE_SERVICE_TYPES: ServiceType[] = [
   'gemini-2.5-image-blend',
   'midjourney-imagine',
   'midjourney-variation',
+];
+const FREE_USER_IMAGE_LIMITED_SERVICES: ServiceType[] = [
+  ...STALE_PENDING_IMAGE_SERVICE_TYPES,
+  'midjourney-upscale',
+  'expand-image',
 ];
 
 export interface DeductCreditsResult {
@@ -60,6 +67,9 @@ type SoraBillingModel = 'sora-2' | 'sora-2-vip' | 'sora-2-pro';
 @Injectable()
 export class CreditsService {
   private readonly logger = new Logger(CreditsService.name);
+  private readonly freeUserImageQuotaServiceTypes = new Set<ServiceType>(
+    FREE_USER_IMAGE_LIMITED_SERVICES,
+  );
 
   constructor(
     private prisma: PrismaService,
@@ -123,6 +133,47 @@ export class CreditsService {
     return defaultCredits;
   }
 
+  /**
+   * 根据分辨率解析积分定价
+   * 支持按分辨率差异化计费的图像生成服务
+   */
+  private resolveImageResolutionCredits(
+    serviceType: ServiceType,
+    defaultCredits: number,
+    requestParams: any,
+  ): number {
+    // 仅处理图像生成服务（不包括编辑、融合、分析等）
+    const isImageGeneration =
+      serviceType !== 'midjourney-imagine' && serviceType.endsWith('-image');
+    if (!isImageGeneration) {
+      return defaultCredits;
+    }
+
+    const servicePricing = CREDIT_PRICING_CONFIG[serviceType] as any;
+    const resolutionPricing = servicePricing?.resolutionPricing;
+    if (!resolutionPricing || typeof resolutionPricing !== 'object') {
+      return defaultCredits;
+    }
+
+    // 获取请求的分辨率
+    const requestedImageSize = requestParams?.imageSize;
+    if (!requestedImageSize || typeof requestedImageSize !== 'string') {
+      return defaultCredits;
+    }
+
+    // 标准化分辨率格式（支持 '4K', '2K', '1K', '0.5K' 等）
+    const normalizedSize = requestedImageSize.trim().toUpperCase();
+    
+    // 查找匹配的分辨率定价
+    const configuredCredits = Number(resolutionPricing[normalizedSize]);
+    if (Number.isFinite(configuredCredits) && configuredCredits > 0) {
+      return configuredCredits;
+    }
+
+    // 如果没有找到匹配的分辨率，返回默认值
+    return defaultCredits;
+  }
+
   private extractChannelFromApiUsage(apiUsage?: {
     provider?: string | null;
     model?: string | null;
@@ -174,6 +225,188 @@ export class CreditsService {
       'CREDITS_PENDING_TIMEOUT_BATCH_SIZE',
       STALE_PENDING_DEFAULT_BATCH_SIZE,
     );
+  }
+
+  private getFreeUserMonthlyImageLimit(): number {
+    const raw = process.env.FREE_USER_MONTHLY_IMAGE_LIMIT;
+    if (raw === undefined || raw.trim() === '') {
+      return DEFAULT_FREE_USER_MONTHLY_IMAGE_LIMIT;
+    }
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return DEFAULT_FREE_USER_MONTHLY_IMAGE_LIMIT;
+    }
+    return parsed;
+  }
+
+  private getFreeUserDailyImageLimit(): number {
+    const raw = process.env.FREE_USER_DAILY_IMAGE_LIMIT;
+    if (raw === undefined || raw.trim() === '') {
+      return DEFAULT_FREE_USER_DAILY_IMAGE_LIMIT;
+    }
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return DEFAULT_FREE_USER_DAILY_IMAGE_LIMIT;
+    }
+    return parsed;
+  }
+
+  private isFreeUserImageQuotaService(serviceType: ServiceType): boolean {
+    return this.freeUserImageQuotaServiceTypes.has(serviceType);
+  }
+
+  private resolveImageQuotaRequestCount(requestedOutputImageCount?: number): number {
+    if (!Number.isFinite(requestedOutputImageCount)) {
+      return 1;
+    }
+    const normalized = Math.floor(Number(requestedOutputImageCount));
+    return normalized > 0 ? normalized : 1;
+  }
+
+  private getUtcMonthRange(now: Date): { start: Date; end: Date; label: string } {
+    const year = now.getUTCFullYear();
+    const monthIndex = now.getUTCMonth();
+    const start = new Date(Date.UTC(year, monthIndex, 1, 0, 0, 0, 0));
+    const end = new Date(Date.UTC(year, monthIndex + 1, 1, 0, 0, 0, 0));
+    const label = `${year}-${String(monthIndex + 1).padStart(2, '0')}`;
+    return { start, end, label };
+  }
+
+  private getUtcDayRange(now: Date): { start: Date; end: Date; label: string } {
+    const year = now.getUTCFullYear();
+    const monthIndex = now.getUTCMonth();
+    const day = now.getUTCDate();
+    const start = new Date(Date.UTC(year, monthIndex, day, 0, 0, 0, 0));
+    const end = new Date(Date.UTC(year, monthIndex, day + 1, 0, 0, 0, 0));
+    const label = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return { start, end, label };
+  }
+
+  private async countImageQuotaUsage(
+    client: PrismaService | Prisma.TransactionClient,
+    where: Prisma.ApiUsageRecordWhereInput,
+  ): Promise<number> {
+    const [knownCountAggregate, unknownCount] = await Promise.all([
+      client.apiUsageRecord.aggregate({
+        where: {
+          ...where,
+          outputImageCount: { not: null },
+        },
+        _sum: {
+          outputImageCount: true,
+        },
+      }),
+      client.apiUsageRecord.count({
+        where: {
+          ...where,
+          outputImageCount: null,
+        },
+      }),
+    ]);
+
+    return (knownCountAggregate._sum.outputImageCount ?? 0) + unknownCount;
+  }
+
+  private async isImageQuotaExemptUser(
+    client: PrismaService | Prisma.TransactionClient,
+    userId: string,
+  ): Promise<boolean> {
+    const [paidOrder, userProfile] = await Promise.all([
+      client.paymentOrder.findFirst({
+        where: {
+          userId,
+          status: 'paid',
+        },
+        select: { id: true },
+      }),
+      client.user.findUnique({
+        where: { id: userId },
+        select: { role: true, noWatermark: true },
+      }),
+    ]);
+
+    if (paidOrder) return true;
+    if (userProfile?.noWatermark === true) return true;
+    return typeof userProfile?.role === 'string' && userProfile.role.toLowerCase() === 'admin';
+  }
+
+  private async enforceFreeUserImageQuota(
+    client: PrismaService | Prisma.TransactionClient,
+    params: {
+      userId: string;
+      serviceType: ServiceType;
+      requestedOutputImageCount?: number;
+    },
+  ): Promise<void> {
+    const { userId, serviceType, requestedOutputImageCount } = params;
+    const monthlyLimit = this.getFreeUserMonthlyImageLimit();
+    const dailyLimit = this.getFreeUserDailyImageLimit();
+
+    if (monthlyLimit <= 0 && dailyLimit <= 0) return;
+    if (!this.isFreeUserImageQuotaService(serviceType)) return;
+
+    const isQuotaExemptUser = await this.isImageQuotaExemptUser(client, userId);
+    if (isQuotaExemptUser) return;
+
+    const requestedCount = this.resolveImageQuotaRequestCount(requestedOutputImageCount);
+    const now = new Date();
+    const baseWhere: Prisma.ApiUsageRecordWhereInput = {
+      userId,
+      serviceType: { in: FREE_USER_IMAGE_LIMITED_SERVICES },
+      responseStatus: { in: [ApiResponseStatus.PENDING, ApiResponseStatus.SUCCESS] },
+    };
+
+    if (dailyLimit > 0) {
+      const { start, end, label } = this.getUtcDayRange(now);
+      const usedCount = await this.countImageQuotaUsage(client, {
+        ...baseWhere,
+        createdAt: {
+          gte: start,
+          lt: end,
+        },
+      });
+
+      if (usedCount + requestedCount > dailyLimit) {
+        this.logger.warn(
+          `免费用户日生图配额超限 userId=${userId} day=${label} used=${usedCount} requested=${requestedCount} limit=${dailyLimit}`,
+        );
+        throw new BadRequestException(
+          `免费用户每天最多可生图 ${dailyLimit} 张（UTC ${label}）。今日已使用 ${usedCount} 张，本次请求 ${requestedCount} 张。请明天再试或升级付费套餐。`,
+        );
+      }
+    }
+
+    if (monthlyLimit > 0) {
+      const { start, end, label } = this.getUtcMonthRange(now);
+      const usedCount = await this.countImageQuotaUsage(client, {
+        ...baseWhere,
+        createdAt: {
+          gte: start,
+          lt: end,
+        },
+      });
+
+      if (usedCount + requestedCount > monthlyLimit) {
+        this.logger.warn(
+          `免费用户月生图配额超限 userId=${userId} month=${label} used=${usedCount} requested=${requestedCount} limit=${monthlyLimit}`,
+        );
+        throw new BadRequestException(
+          `免费用户每月最多可生图 ${monthlyLimit} 张（UTC ${label}）。本月已使用 ${usedCount} 张，本次请求 ${requestedCount} 张。请下月再试或升级付费套餐。`,
+        );
+      }
+    }
+  }
+
+  async assertFreeUserImageQuota(
+    userId: string,
+    serviceType: ServiceType,
+    requestedOutputImageCount?: number,
+  ): Promise<void> {
+    await this.enforceFreeUserImageQuota(this.prisma, {
+      userId,
+      serviceType,
+      requestedOutputImageCount,
+    });
   }
 
   /**
@@ -342,6 +575,8 @@ export class CreditsService {
     }
 
     let creditsToDeduct: number = pricing.creditsPerCall;
+    
+    // 处理Sora视频模型的特殊定价
     creditsToDeduct = this.resolveSoraModelCredits(
       serviceType,
       creditsToDeduct,
@@ -349,13 +584,12 @@ export class CreditsService {
       model,
     );
 
-    const requestedImageSize = params?.requestParams?.imageSize;
-    const isImageGeneration =
-      serviceType !== 'midjourney-imagine' && serviceType.endsWith('-image');
-    const is4KBilling = requestedImageSize === '4K' && isImageGeneration;
-    if (is4KBilling) {
-      creditsToDeduct = 60;
-    }
+    // 处理图像生成服务的分辨率定价
+    creditsToDeduct = this.resolveImageResolutionCredits(
+      serviceType,
+      creditsToDeduct,
+      requestParams,
+    );
 
     return await this.prisma.$transaction(async (tx) => {
       // 获取账户并锁定
@@ -366,6 +600,12 @@ export class CreditsService {
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
       }
+
+      await this.enforceFreeUserImageQuota(tx, {
+        userId,
+        serviceType,
+        requestedOutputImageCount: outputImageCount,
+      });
 
       if (account.balance < creditsToDeduct) {
         throw new BadRequestException(`积分不足，当前余额: ${account.balance}，需要: ${creditsToDeduct}`);
@@ -410,7 +650,7 @@ export class CreditsService {
           amount: -creditsToDeduct,
           balanceBefore: account.balance,
           balanceAfter: newBalance,
-          description: `使用 ${pricing.serviceName}${is4KBilling ? '（4K）' : ''}`,
+          description: `使用 ${pricing.serviceName}${requestParams?.imageSize ? `（${requestParams.imageSize}）` : ''}`,
           apiUsageId: apiUsage.id,
         },
       });

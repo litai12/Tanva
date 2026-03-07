@@ -27,6 +27,7 @@ model User {
   invitedById                String?
   apiUsageRecords            ApiUsageRecord[]
   creditAccount              CreditAccount?
+  creditAnomalyRecords       CreditAnomalyRecord[]
   globalImageHistory         GlobalImageHistory[]
   invitationCodes            InvitationCode[]
   invitationRedemptions      InvitationRedemption[] @relation("InvitationRedemptionInvitee")
@@ -114,6 +115,7 @@ model CreditAccount {
   lastCheckInDate   DateTime?           // 最后签到日期
   user              User                @relation(fields: [userId], references: [id])
   transactions      CreditTransaction[]
+  anomalyRecords    CreditAnomalyRecord[]
 }
 
 model CreditTransaction {
@@ -136,6 +138,30 @@ model CreditTransaction {
   @@index([accountId, createdAt])
   @@index([type])
   @@index([expiresAt, isExpired]) // 用于定时清理任务查询
+}
+
+model CreditAnomalyRecord {
+  id                 String        @id @default(uuid())
+  accountId          String
+  userId             String
+  dayStart           DateTime
+  dayLabel           String
+  totalAmount        Int
+  maxSingleAmount    Int
+  transactionCount   Int
+  sourceBreakdown    Json
+  severity           String
+  firstTransactionAt DateTime
+  lastTransactionAt  DateTime
+  detectedAt         DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  account            CreditAccount @relation(fields: [accountId], references: [id])
+  user               User          @relation(fields: [userId], references: [id])
+
+  @@unique([accountId, dayStart])
+  @@index([dayStart, severity])
+  @@index([userId, dayStart])
+  @@index([severity, totalAmount])
 }
 
 model ApiUsageRecord {

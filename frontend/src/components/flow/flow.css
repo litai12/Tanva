@@ -17,6 +17,17 @@
   pointer-events: auto;
 }
 
+.tanva-flow-overlay .react-flow__node-nodeGroup {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.tanva-flow-overlay .tanva-node-group-header {
+  user-select: none;
+}
+
 /* ==================== Image 节点缩放体验 ==================== */
 .flow-image-node {
   position: relative;

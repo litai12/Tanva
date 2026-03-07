@@ -3173,11 +3173,19 @@ export const useAIChatStore = create<AIChatState>()(
               });
             }, 1000);
 
-            // 调用后端API生成图像
-            const modelToUse = getImageModelForProvider(state.aiProvider);
+            // 联网开启时，Ultra 强制走 nano2(apimart gemini-3.1) 以对齐 Nano2 节点行为。
+            const effectiveProvider: AIProviderType =
+              state.aiProvider === "banana-3.1" && state.enableWebSearch
+                ? "nano2"
+                : state.aiProvider;
+            // nano2 与 banana-3.1 使用同一 3.1 图像模型名
+            const modelToUse =
+              effectiveProvider === "nano2"
+                ? BANANA_31_IMAGE_MODEL
+                : getImageModelForProvider(effectiveProvider);
             logProcessStep(
               metrics,
-              `generateImage calling API (${modelToUse})`
+              `generateImage calling API (${modelToUse}, provider=${effectiveProvider})`
             );
 
             let providerOptions: AIProviderOptions | undefined;
@@ -3216,25 +3224,30 @@ export const useAIChatStore = create<AIChatState>()(
 
             // 🔍 调试日志：打印实际发送的参数
             console.log("🎨 [Generate Image] 请求参数:", {
-              aiProvider: state.aiProvider,
+              aiProvider: effectiveProvider,
               model: modelToUse,
               imageSize: state.imageSize ?? "1K",
               aspectRatio: state.aspectRatio || "auto",
               thinkingLevel: state.thinkingLevel || "auto",
               imageOnly: state.imageOnly,
+              enableWebSearch: state.enableWebSearch,
               prompt: prompt.substring(0, 50) + "...",
             });
 
             const result = await generateImageViaAPI({
               prompt,
               model: modelToUse,
-              aiProvider: state.aiProvider,
+              aiProvider: effectiveProvider,
               providerOptions,
               outputFormat: "png",
               aspectRatio: state.aspectRatio || undefined,
               imageSize: state.imageSize ?? "1K", // 自动模式下优先使用1K
               thinkingLevel: state.thinkingLevel || undefined,
               imageOnly: state.imageOnly,
+              enableWebSearch: state.enableWebSearch,
+              // 对齐 Nano2：联网开关开启时，同时启用文本检索和图片检索参数
+              googleSearch: state.enableWebSearch,
+              googleImageSearch: state.enableWebSearch,
             });
             logProcessStep(metrics, "generateImage API response received");
 
