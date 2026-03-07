@@ -611,6 +611,58 @@ export async function getCreditChangeRecords(params?: {
   return response.json();
 }
 
+export type CreditAnomalySeverity = "yellow" | "red" | "purple";
+
+export interface CreditAnomalyRecord {
+  id: string;
+  accountId: string;
+  userId: string;
+  dayStart: string;
+  dayLabel: string;
+  totalAmount: number;
+  maxSingleAmount: number;
+  transactionCount: number;
+  severity: CreditAnomalySeverity;
+  sourceBreakdown: Array<{
+    sourceKey: string;
+    sourceLabel: string;
+    amount: number;
+    count: number;
+  }>;
+  firstTransactionAt: string;
+  lastTransactionAt: string;
+  detectedAt: string;
+  updatedAt: string;
+  user: {
+    id: string;
+    phone: string;
+    email: string | null;
+    name: string | null;
+  };
+}
+
+export async function getCreditAnomalyRecords(params?: {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  userId?: string;
+  severity?: CreditAnomalySeverity;
+  startDate?: string;
+  endDate?: string;
+}): Promise<{ records: CreditAnomalyRecord[]; pagination: Pagination }> {
+  const searchParams = new URLSearchParams();
+  if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
+  if (params?.search) searchParams.set("search", params.search);
+  if (params?.userId) searchParams.set("userId", params.userId);
+  if (params?.severity) searchParams.set("severity", params.severity);
+  if (params?.startDate) searchParams.set("startDate", params.startDate);
+  if (params?.endDate) searchParams.set("endDate", params.endDate);
+
+  const response = await request(`/api/admin/credit-anomalies?${searchParams}`);
+  return response.json();
+}
+
 // ==================== 节点配置管理 ====================
 
 export interface NodeConfig {
