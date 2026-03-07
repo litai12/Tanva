@@ -4317,8 +4317,8 @@ const AIChatDialog: React.FC = () => {
                                   <span className='text-sm font-bold text-black'>
                                     Tanvas
                                   </span>
-                                  {message.webSearchResult
-                                    ?.hasSearchResults && (
+                                  {(message.webSearchResult?.hasSearchResults ||
+                                    (message.metadata as any)?.webSearchEnabled) && (
                                     <div className='flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full'>
                                       <MinimalGlobeIcon className='w-3 h-3' />
                                       <span>已联网</span>

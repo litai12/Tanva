@@ -259,6 +259,9 @@ async function performGenerateImageRequest(
     aspectRatio: request.aspectRatio,
     thinkingLevel: request.thinkingLevel,
     imageOnly: request.imageOnly,
+    enableWebSearch: request.enableWebSearch,
+    googleSearch: request.googleSearch,
+    googleImageSearch: request.googleImageSearch,
     prompt: request.prompt?.substring(0, 50) + "...",
   });
   

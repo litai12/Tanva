@@ -84,6 +84,7 @@ export interface ImageGenerationRequest {
   thinkingLevel?: 'high' | 'low';
   outputFormat?: 'jpeg' | 'png' | 'webp';
   imageOnly?: boolean;
+  enableWebSearch?: boolean;
   providerOptions?: ProviderOptionsPayload;
   imageUrls?: string[];
   googleSearch?: boolean;

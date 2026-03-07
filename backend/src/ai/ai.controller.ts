@@ -1048,7 +1048,18 @@ export class AiController {
     const startTime = Date.now();
     const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
 
-    const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+    const requestedProviderName =
+      dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+    // 联网开关开启时，Ultra(147) 自动切换到 Nano2(Apimart) 生图链路。
+    const providerName =
+      requestedProviderName === 'banana-3.1' && dto.enableWebSearch
+        ? 'nano2'
+        : requestedProviderName;
+    if (requestedProviderName !== providerName) {
+      this.logger.log(
+        `[generate-image] provider rerouted by web search: ${requestedProviderName} -> ${providerName}`
+      );
+    }
     const model = this.resolveImageModel(providerName, dto.model);
     const serviceType = this.getImageGenerationServiceType(model, providerName || undefined);
 
@@ -1098,19 +1109,24 @@ export class AiController {
                 thinkingLevel: dto.thinkingLevel,
                 outputFormat: dto.outputFormat,
                 providerOptions: dto.providerOptions,
+                enableWebSearch: dto.enableWebSearch,
                 imageUrls: dto.imageUrls,
-                googleSearch: dto.googleSearch,
-                googleImageSearch: dto.googleImageSearch,
+                googleSearch: dto.googleSearch ?? dto.enableWebSearch,
+                googleImageSearch: dto.googleImageSearch ?? dto.enableWebSearch,
               });
 
               if (result.success && result.data) {
+                const responseMetadata: Record<string, any> = {
+                  ...(result.data.metadata || {}),
+                  ...(dto.enableWebSearch ? { webSearchEnabled: true } : {}),
+                };
                 // Midjourney 已经上传到 OSS，直接使用返回的 URL
-                const existingOssUrl = result.data.metadata?.imageUrl;
+                const existingOssUrl = responseMetadata.imageUrl;
                 if (existingOssUrl && existingOssUrl.includes('oss')) {
                   return {
                     imageUrl: existingOssUrl,
                     textResponse: result.data.textResponse || '',
-                    metadata: result.data.metadata || {},
+                    metadata: responseMetadata,
                   };
                 }
 
@@ -1122,7 +1138,7 @@ export class AiController {
                     imageUrl: upload.url,
                     textResponse: result.data.textResponse || '',
                     metadata: {
-                      ...(result.data.metadata || {}),
+                      ...responseMetadata,
                       imageUrl: upload.url,
                       imageKey: upload.key,
                       mimeType: upload.mimeType,
@@ -1141,7 +1157,7 @@ export class AiController {
                     return {
                       imageUrl,
                       textResponse: result.data.textResponse || '',
-                      metadata: result.data.metadata || {},
+                      metadata: responseMetadata,
                     };
                   }
 
@@ -1154,7 +1170,7 @@ export class AiController {
                       imageUrl: upload.url,
                       textResponse: result.data.textResponse || '',
                       metadata: {
-                        ...(result.data.metadata || {}),
+                        ...responseMetadata,
                         imageUrl: upload.url,
                         imageKey: upload.key,
                         mimeType: upload.mimeType,
@@ -1185,6 +1201,7 @@ export class AiController {
               textResponse: data.textResponse || '',
               metadata: {
                 ...(data.metadata || {}),
+                ...(dto.enableWebSearch ? { webSearchEnabled: true } : {}),
                 imageUrl: upload.url,
                 imageKey: upload.key,
                 mimeType: upload.mimeType,

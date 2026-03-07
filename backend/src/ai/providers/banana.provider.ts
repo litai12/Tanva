@@ -840,6 +840,13 @@ export class BananaProvider implements IAIProvider {
       payload.image_urls = request.imageUrls;
     }
 
+    if (request.googleSearch || request.enableWebSearch) {
+      payload.google_search = true;
+    }
+    if (request.googleImageSearch) {
+      payload.google_image_search = true;
+    }
+
     if (model.includes("2.5") && resolution !== "1K") {
       this.logger.warn(
         `[BananaProvider] ${model} may not support ${resolution}, forcing 1K for compatibility`
@@ -860,6 +867,15 @@ export class BananaProvider implements IAIProvider {
           provider: "apimart",
           model,
           resolution: payload.resolution,
+          webSearchEnabled: Boolean(
+            request.enableWebSearch ||
+            request.googleSearch ||
+            request.googleImageSearch
+          ),
+          googleSearchEnabled: Boolean(
+            request.enableWebSearch || request.googleSearch
+          ),
+          googleImageSearchEnabled: Boolean(request.googleImageSearch),
         },
       },
     };
@@ -992,6 +1008,10 @@ export class BananaProvider implements IAIProvider {
                 config.thinking_level = request.thinkingLevel;
               }
 
+              if (request.enableWebSearch) {
+                config.tools = [{ googleSearch: {} }];
+              }
+
               return await this.makeRequest(
                 currentModel,
                 [{ text: request.prompt }],
@@ -1015,13 +1035,24 @@ export class BananaProvider implements IAIProvider {
             imageData: result.imageBytes || undefined,
             textResponse: result.textResponse || "",
             hasImage: !!result.imageBytes,
-            metadata: usedFallback
-              ? {
-                  fallbackUsed: true,
-                  originalModel,
-                  fallbackModel: currentModel,
-                }
-              : undefined,
+            metadata: {
+              ...(usedFallback
+                ? {
+                    fallbackUsed: true,
+                    originalModel,
+                    fallbackModel: currentModel,
+                  }
+                : {}),
+              webSearchEnabled: Boolean(
+                request.enableWebSearch ||
+                request.googleSearch ||
+                request.googleImageSearch
+              ),
+              googleSearchEnabled: Boolean(
+                request.enableWebSearch || request.googleSearch
+              ),
+              googleImageSearchEnabled: Boolean(request.googleImageSearch),
+            },
           },
         };
       } catch (error) {
