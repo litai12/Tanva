@@ -230,7 +230,7 @@ export class CreditsAnomalyService {
     }
 
     await this.prisma.$transaction(
-      anomalyAggregates.map((item) => {
+      anomalyAggregates.map((item: DailyAggregate) => {
         const sourceBreakdown = Array.from(item.sourceMap.values()).sort((a, b) => b.amount - a.amount);
         const severity = this.resolveSeverity(item.totalAmount);
 
@@ -372,7 +372,7 @@ export class CreditsAnomalyService {
       this.prisma.creditAnomalyRecord.count({ where }),
     ]);
 
-    const normalizedRecords: CreditAnomalyRecordView[] = records.map((record) => ({
+    const normalizedRecords: CreditAnomalyRecordView[] = records.map((record: any) => ({
       id: record.id,
       accountId: record.accountId,
       userId: record.userId,
