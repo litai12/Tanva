@@ -15,6 +15,8 @@ import { ReferralService } from '../referral/referral.service';
 const DAILY_REWARD_EXPIRE_DAYS = 7;
 const STALE_PENDING_DEFAULT_TIMEOUT_MINUTES = 15;
 const STALE_PENDING_DEFAULT_BATCH_SIZE = 200;
+const DEFAULT_FREE_USER_MONTHLY_IMAGE_LIMIT = 100;
+const DEFAULT_FREE_USER_DAILY_IMAGE_LIMIT = 20;
 const STALE_PENDING_IMAGE_SERVICE_TYPES: ServiceType[] = [
   'gemini-3-pro-image',
   'gemini-3.1-image',
@@ -27,6 +29,11 @@ const STALE_PENDING_IMAGE_SERVICE_TYPES: ServiceType[] = [
   'gemini-2.5-image-blend',
   'midjourney-imagine',
   'midjourney-variation',
+];
+const FREE_USER_IMAGE_LIMITED_SERVICES: ServiceType[] = [
+  ...STALE_PENDING_IMAGE_SERVICE_TYPES,
+  'midjourney-upscale',
+  'expand-image',
 ];
 
 export interface DeductCreditsResult {
@@ -60,6 +67,9 @@ type SoraBillingModel = 'sora-2' | 'sora-2-vip' | 'sora-2-pro';
 @Injectable()
 export class CreditsService {
   private readonly logger = new Logger(CreditsService.name);
+  private readonly freeUserImageQuotaServiceTypes = new Set<ServiceType>(
+    FREE_USER_IMAGE_LIMITED_SERVICES,
+  );
 
   constructor(
     private prisma: PrismaService,
@@ -174,6 +184,171 @@ export class CreditsService {
       'CREDITS_PENDING_TIMEOUT_BATCH_SIZE',
       STALE_PENDING_DEFAULT_BATCH_SIZE,
     );
+  }
+
+  private getFreeUserMonthlyImageLimit(): number {
+    const raw = process.env.FREE_USER_MONTHLY_IMAGE_LIMIT;
+    if (raw === undefined || raw.trim() === '') {
+      return DEFAULT_FREE_USER_MONTHLY_IMAGE_LIMIT;
+    }
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return DEFAULT_FREE_USER_MONTHLY_IMAGE_LIMIT;
+    }
+    return parsed;
+  }
+
+  private getFreeUserDailyImageLimit(): number {
+    const raw = process.env.FREE_USER_DAILY_IMAGE_LIMIT;
+    if (raw === undefined || raw.trim() === '') {
+      return DEFAULT_FREE_USER_DAILY_IMAGE_LIMIT;
+    }
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return DEFAULT_FREE_USER_DAILY_IMAGE_LIMIT;
+    }
+    return parsed;
+  }
+
+  private isFreeUserImageQuotaService(serviceType: ServiceType): boolean {
+    return this.freeUserImageQuotaServiceTypes.has(serviceType);
+  }
+
+  private resolveImageQuotaRequestCount(requestedOutputImageCount?: number): number {
+    if (!Number.isFinite(requestedOutputImageCount)) {
+      return 1;
+    }
+    const normalized = Math.floor(Number(requestedOutputImageCount));
+    return normalized > 0 ? normalized : 1;
+  }
+
+  private getUtcMonthRange(now: Date): { start: Date; end: Date; label: string } {
+    const year = now.getUTCFullYear();
+    const monthIndex = now.getUTCMonth();
+    const start = new Date(Date.UTC(year, monthIndex, 1, 0, 0, 0, 0));
+    const end = new Date(Date.UTC(year, monthIndex + 1, 1, 0, 0, 0, 0));
+    const label = `${year}-${String(monthIndex + 1).padStart(2, '0')}`;
+    return { start, end, label };
+  }
+
+  private getUtcDayRange(now: Date): { start: Date; end: Date; label: string } {
+    const year = now.getUTCFullYear();
+    const monthIndex = now.getUTCMonth();
+    const day = now.getUTCDate();
+    const start = new Date(Date.UTC(year, monthIndex, day, 0, 0, 0, 0));
+    const end = new Date(Date.UTC(year, monthIndex, day + 1, 0, 0, 0, 0));
+    const label = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return { start, end, label };
+  }
+
+  private async countImageQuotaUsage(
+    client: PrismaService | Prisma.TransactionClient,
+    where: Prisma.ApiUsageRecordWhereInput,
+  ): Promise<number> {
+    const [knownCountAggregate, unknownCount] = await Promise.all([
+      client.apiUsageRecord.aggregate({
+        where: {
+          ...where,
+          outputImageCount: { not: null },
+        },
+        _sum: {
+          outputImageCount: true,
+        },
+      }),
+      client.apiUsageRecord.count({
+        where: {
+          ...where,
+          outputImageCount: null,
+        },
+      }),
+    ]);
+
+    return (knownCountAggregate._sum.outputImageCount ?? 0) + unknownCount;
+  }
+
+  private async enforceFreeUserImageQuota(
+    client: PrismaService | Prisma.TransactionClient,
+    params: {
+      userId: string;
+      serviceType: ServiceType;
+      requestedOutputImageCount?: number;
+    },
+  ): Promise<void> {
+    const { userId, serviceType, requestedOutputImageCount } = params;
+    const monthlyLimit = this.getFreeUserMonthlyImageLimit();
+    const dailyLimit = this.getFreeUserDailyImageLimit();
+
+    if (monthlyLimit <= 0 && dailyLimit <= 0) return;
+    if (!this.isFreeUserImageQuotaService(serviceType)) return;
+
+    const paidOrder = await client.paymentOrder.findFirst({
+      where: {
+        userId,
+        status: 'paid',
+      },
+      select: { id: true },
+    });
+    if (paidOrder) return;
+
+    const requestedCount = this.resolveImageQuotaRequestCount(requestedOutputImageCount);
+    const now = new Date();
+    const baseWhere: Prisma.ApiUsageRecordWhereInput = {
+      userId,
+      serviceType: { in: FREE_USER_IMAGE_LIMITED_SERVICES },
+      responseStatus: { in: [ApiResponseStatus.PENDING, ApiResponseStatus.SUCCESS] },
+    };
+
+    if (dailyLimit > 0) {
+      const { start, end, label } = this.getUtcDayRange(now);
+      const usedCount = await this.countImageQuotaUsage(client, {
+        ...baseWhere,
+        createdAt: {
+          gte: start,
+          lt: end,
+        },
+      });
+
+      if (usedCount + requestedCount > dailyLimit) {
+        this.logger.warn(
+          `免费用户日生图配额超限 userId=${userId} day=${label} used=${usedCount} requested=${requestedCount} limit=${dailyLimit}`,
+        );
+        throw new BadRequestException(
+          `免费用户每天最多可生图 ${dailyLimit} 张（UTC ${label}）。今日已使用 ${usedCount} 张，本次请求 ${requestedCount} 张。请明天再试或升级付费套餐。`,
+        );
+      }
+    }
+
+    if (monthlyLimit > 0) {
+      const { start, end, label } = this.getUtcMonthRange(now);
+      const usedCount = await this.countImageQuotaUsage(client, {
+        ...baseWhere,
+        createdAt: {
+          gte: start,
+          lt: end,
+        },
+      });
+
+      if (usedCount + requestedCount > monthlyLimit) {
+        this.logger.warn(
+          `免费用户月生图配额超限 userId=${userId} month=${label} used=${usedCount} requested=${requestedCount} limit=${monthlyLimit}`,
+        );
+        throw new BadRequestException(
+          `免费用户每月最多可生图 ${monthlyLimit} 张（UTC ${label}）。本月已使用 ${usedCount} 张，本次请求 ${requestedCount} 张。请下月再试或升级付费套餐。`,
+        );
+      }
+    }
+  }
+
+  async assertFreeUserImageQuota(
+    userId: string,
+    serviceType: ServiceType,
+    requestedOutputImageCount?: number,
+  ): Promise<void> {
+    await this.enforceFreeUserImageQuota(this.prisma, {
+      userId,
+      serviceType,
+      requestedOutputImageCount,
+    });
   }
 
   /**
@@ -366,6 +541,12 @@ export class CreditsService {
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
       }
+
+      await this.enforceFreeUserImageQuota(tx, {
+        userId,
+        serviceType,
+        requestedOutputImageCount: outputImageCount,
+      });
 
       if (account.balance < creditsToDeduct) {
         throw new BadRequestException(`积分不足，当前余额: ${account.balance}，需要: ${creditsToDeduct}`);

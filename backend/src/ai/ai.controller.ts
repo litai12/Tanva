@@ -443,6 +443,11 @@ export class AiController {
     }
 
     if (skipCredits) {
+      await this.creditsService.assertFreeUserImageQuota(
+        userId,
+        serviceType,
+        outputImageCount,
+      );
       this.logger.debug('Using custom API key - skipping credits deduction');
       return operation();
     }
@@ -1420,7 +1425,7 @@ export class AiController {
       throw new ServiceUnavailableException(
         result.error?.message || 'Failed to execute Midjourney action.'
       );
-    });
+    }, 0, 1);
   }
 
   @Post('midjourney/modal')
@@ -1449,7 +1454,7 @@ export class AiController {
       throw new ServiceUnavailableException(
         result.error?.message || 'Failed to execute Midjourney modal action.'
       );
-    });
+    }, 0, 1);
   }
 
   @Post('analyze-image')
