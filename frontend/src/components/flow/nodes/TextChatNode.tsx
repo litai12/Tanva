@@ -1,6 +1,7 @@
 import React from 'react';
 import { Handle, Position, NodeResizer, useReactFlow, useStore, type ReactFlowState, type Edge } from 'reactflow';
 import { aiImageService } from '@/services/aiImageService';
+import { contextManager } from '@/services/contextManager';
 import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 
@@ -27,6 +28,15 @@ const DEFAULT_NODE_HEIGHT = 300;
 const MIN_NODE_HEIGHT = 260;
 const LEGACY_NODE_HEIGHT = 540;
 const NODE_VERTICAL_PADDING = 24;
+const MAX_TEXT_CHAT_PROMPT_LENGTH = 6000;
+
+const buildNodeRequestPrompt = (rawPrompt: string): string => {
+  const contextualPrompt = contextManager.buildContextPrompt(rawPrompt);
+  if (contextualPrompt.length <= MAX_TEXT_CHAT_PROMPT_LENGTH) {
+    return contextualPrompt;
+  }
+  return `${contextualPrompt.slice(0, MAX_TEXT_CHAT_PROMPT_LENGTH)}\n\n[Prompt truncated for stability]`;
+};
 
 const pickTextFromNode = (edge: Edge, rfInstance: ReturnType<typeof useReactFlow>): string | undefined => {
   const source = rfInstance.getNode(edge.source);
@@ -45,6 +55,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
   const rf = useReactFlow();
   const edges = useStore((state: ReactFlowState) => state.edges);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const globalWebSearchEnabled = useAIChatStore((state) => state.enableWebSearch);
   const textModel = React.useMemo(
     () => getTextModelForProvider(aiProvider),
     [aiProvider]
@@ -82,7 +93,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
 
   const status: TextChatStatus = data.status || 'idle';
   const errorText = data.error || '';
-  const enableWebSearch = Boolean(data.enableWebSearch);
+  const enableWebSearch = data.enableWebSearch ?? globalWebSearchEnabled;
   const normalizedHeight = typeof data.boxH === 'number'
     ? (data.boxH === LEGACY_NODE_HEIGHT ? DEFAULT_NODE_HEIGHT : data.boxH)
     : DEFAULT_NODE_HEIGHT;
@@ -133,13 +144,14 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     const sources = [...incomingTexts];
     const typed = manualInput.trim();
     if (typed.length) sources.push(typed);
-    const payload = sources.join('\n\n').trim();
-    if (!payload.length) {
+    const rawPayload = sources.join('\n\n').trim();
+    if (!rawPayload.length) {
       window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
         detail: { id, patch: { status: 'failed', error: '请输入或连接至少一个提示文本' } }
       }));
       return;
     }
+    const requestPrompt = buildNodeRequestPrompt(rawPayload);
 
     window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
       detail: { id, patch: { status: 'running', error: undefined } }
@@ -148,7 +160,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
 
     try {
       const result = await aiImageService.generateTextResponse({
-        prompt: payload,
+        prompt: requestPrompt,
         enableWebSearch,
         aiProvider,
         model: textModel,
@@ -167,7 +179,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
             status: 'succeeded',
             responseText: text,
             text,
-            lastPrompt: payload,
+            lastPrompt: requestPrompt,
             error: undefined,
           }
         }
