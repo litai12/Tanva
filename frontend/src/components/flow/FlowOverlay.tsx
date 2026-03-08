@@ -575,6 +575,10 @@ const FLOW_GROUP_MIN_WIDTH = 220;
 const FLOW_GROUP_MIN_HEIGHT = 160;
 const FLOW_GROUP_DEFAULT_COLOR = "#3b82f6";
 const FLOW_GROUP_RUNNABLE_TYPES = new Set([
+  "textChat",
+  "promptOptimize",
+  "analysis",
+  "videoAnalyze",
   "generate",
   "generate4",
   "generateRef",
@@ -593,6 +597,12 @@ const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "klingO1Video",
   "viduVideo",
   "doubaoVideo",
+]);
+const FLOW_GROUP_LOCAL_RUN_TYPES = new Set([
+  "textChat",
+  "promptOptimize",
+  "analysis",
+  "videoAnalyze",
 ]);
 const SORA2_MAX_REFERENCE_IMAGES = 1;
 const VIDU_MAX_REFERENCE_IMAGES = 7; // Vidu viduq2 模型支持最多 7 张参考图
@@ -10274,22 +10284,78 @@ function FlowInner() {
 
       try {
         const allNodes = (rf.getNodes?.() || []) as RFNode[];
+        const allEdges = (rf.getEdges?.() || []) as Edge[];
         const groupNode = allNodes.find((node) => node.id === groupId);
         if (!groupNode || !isGroupNode(groupNode)) return;
 
         const childIds = getGroupChildIds(groupNode);
-        const runnableNodes = childIds
+        const childNodes = childIds
           .map((childId) => allNodes.find((node) => node.id === childId))
-          .filter((node): node is RFNode => !!node && !isGroupNode(node))
-          .filter((node) => FLOW_GROUP_RUNNABLE_TYPES.has(String(node.type || "")))
-          .sort((a, b) => {
-            const ay = Number(a.position?.y ?? 0);
-            const by = Number(b.position?.y ?? 0);
-            if (Math.abs(ay - by) > 0.01) return ay - by;
-            const ax = Number(a.position?.x ?? 0);
-            const bx = Number(b.position?.x ?? 0);
-            return ax - bx;
+          .filter((node): node is RFNode => !!node && !isGroupNode(node));
+
+        const childSet = new Set(childNodes.map((node) => node.id));
+        const compareNodePosition = (a: RFNode, b: RFNode) => {
+          const ax = Number(a.position?.x ?? 0);
+          const bx = Number(b.position?.x ?? 0);
+          if (Math.abs(ax - bx) > 0.01) return ax - bx;
+          const ay = Number(a.position?.y ?? 0);
+          const by = Number(b.position?.y ?? 0);
+          return ay - by;
+        };
+
+        const indegree = new Map<string, number>();
+        const nextMap = new Map<string, Set<string>>();
+        childNodes.forEach((node) => {
+          indegree.set(node.id, 0);
+          nextMap.set(node.id, new Set<string>());
+        });
+
+        allEdges.forEach((edge) => {
+          if (!childSet.has(edge.source) || !childSet.has(edge.target)) return;
+          if (edge.source === edge.target) return;
+          const next = nextMap.get(edge.source);
+          if (!next || next.has(edge.target)) return;
+          next.add(edge.target);
+          indegree.set(edge.target, (indegree.get(edge.target) || 0) + 1);
+        });
+
+        const childNodeMap = new Map(childNodes.map((node) => [node.id, node]));
+        const queue = childNodes
+          .filter((node) => (indegree.get(node.id) || 0) === 0)
+          .sort(compareNodePosition);
+        const topoOrdered: RFNode[] = [];
+        const visited = new Set<string>();
+
+        while (queue.length > 0) {
+          const current = queue.shift() as RFNode;
+          if (visited.has(current.id)) continue;
+          visited.add(current.id);
+          topoOrdered.push(current);
+
+          const neighbors = Array.from(nextMap.get(current.id) || []);
+          neighbors.forEach((neighborId) => {
+            const nextDeg = (indegree.get(neighborId) || 0) - 1;
+            indegree.set(neighborId, nextDeg);
+            if (nextDeg === 0) {
+              const neighbor = childNodeMap.get(neighborId);
+              if (neighbor && !visited.has(neighbor.id)) {
+                queue.push(neighbor);
+              }
+            }
           });
+          queue.sort(compareNodePosition);
+        }
+
+        if (topoOrdered.length < childNodes.length) {
+          childNodes
+            .filter((node) => !visited.has(node.id))
+            .sort(compareNodePosition)
+            .forEach((node) => topoOrdered.push(node));
+        }
+
+        const runnableNodes = topoOrdered.filter((node) =>
+          FLOW_GROUP_RUNNABLE_TYPES.has(String(node.type || ""))
+        );
 
         if (!runnableNodes.length) {
           window.dispatchEvent(
@@ -10305,8 +10371,39 @@ function FlowInner() {
 
         for (const node of runnableNodes) {
           try {
-            await runNode(node.id);
-            successCount += 1;
+            const nodeType = String(node.type || "");
+            if (FLOW_GROUP_LOCAL_RUN_TYPES.has(nodeType)) {
+              const ok = await new Promise<boolean>((resolve) => {
+                let settled = false;
+                const timeout = window.setTimeout(() => {
+                  if (settled) return;
+                  settled = true;
+                  resolve(false);
+                }, 180000);
+
+                window.dispatchEvent(
+                  new CustomEvent("flow:run-node", {
+                    detail: {
+                      id: node.id,
+                      done: (result?: boolean) => {
+                        if (settled) return;
+                        settled = true;
+                        window.clearTimeout(timeout);
+                        resolve(result !== false);
+                      },
+                    },
+                  })
+                );
+              });
+              if (ok) {
+                successCount += 1;
+              } else {
+                failedCount += 1;
+              }
+            } else {
+              await runNode(node.id);
+              successCount += 1;
+            }
           } catch {
             failedCount += 1;
           }

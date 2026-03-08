@@ -28,6 +28,20 @@
   user-select: none;
 }
 
+.tanva-flow-overlay .tanva-node-group .tanva-node-group-ungroup-button {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tanva-flow-overlay .tanva-node-group:hover .tanva-node-group-ungroup-button {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.tanva-flow-overlay .tanva-node-group .tanva-node-group-footer {
+  transition: opacity 0.15s ease;
+}
+
 /* ==================== Image 节点缩放体验 ==================== */
 .flow-image-node {
   position: relative;

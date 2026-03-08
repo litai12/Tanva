@@ -194,6 +194,26 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     }
   }, [aiProvider, enableWebSearch, id, incomingTexts, manualInput, textModel]);
 
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ id?: string; done?: (result?: boolean) => void }>
+      ).detail;
+      if (!detail || detail.id !== id) return;
+      void (async () => {
+        try {
+          await runChat();
+          detail.done?.(true);
+        } catch {
+          detail.done?.(false);
+        }
+      })();
+    };
+    window.addEventListener('flow:run-node', handler as EventListener);
+    return () =>
+      window.removeEventListener('flow:run-node', handler as EventListener);
+  }, [id, runChat]);
+
   const onManualInputChange = React.useCallback((event: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = event.target.value;
     setManualInput(value);

@@ -722,6 +722,26 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
   }, [aiProvider, data.analysisPrompt, data.imageData, data.imageUrl, hasAnyInput, id, imageModel, incomingEdge, isAnalyzing, rf, status]);
 
   React.useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ id?: string; done?: (result?: boolean) => void }>
+      ).detail;
+      if (!detail || detail.id !== id) return;
+      void (async () => {
+        try {
+          await onAnalyze();
+          detail.done?.(true);
+        } catch {
+          detail.done?.(false);
+        }
+      })();
+    };
+    window.addEventListener('flow:run-node', handler as EventListener);
+    return () =>
+      window.removeEventListener('flow:run-node', handler as EventListener);
+  }, [id, onAnalyze]);
+
+  React.useEffect(() => {
     if (!preview) return;
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setPreview(false); };
     window.addEventListener('keydown', handler);
