@@ -2085,6 +2085,7 @@ function FlowInner() {
   );
 
   const [runningGroupIds, setRunningGroupIds] = React.useState<string[]>([]);
+  const [isGlobalRunning, setIsGlobalRunning] = React.useState(false);
 
   const onEdgesChangeWithHistory = React.useCallback(
     (changes: any) => {
@@ -3069,6 +3070,7 @@ function FlowInner() {
   const [dragLongFrames, setDragLongFrames] = React.useState<number>(0);
   const [dragMaxFrameMs, setDragMaxFrameMs] = React.useState<number>(0);
   const [fpsMode, setFpsMode] = React.useState<"Drag" | "Image" | null>(null);
+  const fpsOverlayRef = React.useRef<HTMLDivElement | null>(null);
 
   // 方便性能排查：开发环境默认打开拖拽 FPS 监控（可在面板里随时关掉）
   React.useEffect(() => {
@@ -3154,6 +3156,61 @@ function FlowInner() {
 
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
+  }, [showFpsOverlay]);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const emitLayout = () => {
+      const el = fpsOverlayRef.current;
+      if (!showFpsOverlay || !el) {
+        window.dispatchEvent(
+          new CustomEvent("tanva:fps-overlay-layout", {
+            detail: { visible: false },
+          })
+        );
+        return;
+      }
+
+      const rect = el.getBoundingClientRect();
+      window.dispatchEvent(
+        new CustomEvent("tanva:fps-overlay-layout", {
+          detail: {
+            visible: true,
+            top: rect.top,
+            left: rect.left,
+            height: rect.height,
+          },
+        })
+      );
+    };
+
+    emitLayout();
+
+    const el = fpsOverlayRef.current;
+    if (!showFpsOverlay || !el || typeof ResizeObserver === "undefined") {
+      return () => {
+        window.dispatchEvent(
+          new CustomEvent("tanva:fps-overlay-layout", {
+            detail: { visible: false },
+          })
+        );
+      };
+    }
+
+    const resizeObserver = new ResizeObserver(() => emitLayout());
+    resizeObserver.observe(el);
+    window.addEventListener("resize", emitLayout);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", emitLayout);
+      window.dispatchEvent(
+        new CustomEvent("tanva:fps-overlay-layout", {
+          detail: { visible: false },
+        })
+      );
+    };
   }, [showFpsOverlay]);
 
   // Flow独立的背景状态管理，不再同步到Canvas
@@ -10429,6 +10486,184 @@ function FlowInner() {
     [rf, runNode]
   );
 
+  const runGlobalNodes = React.useCallback(async () => {
+    let started = false;
+    setIsGlobalRunning((prev) => {
+      if (prev) return prev;
+      started = true;
+      return true;
+    });
+    if (!started) return;
+
+    window.dispatchEvent(
+      new CustomEvent("flow:global-run-state", {
+        detail: { running: true },
+      })
+    );
+
+    try {
+      const allNodes = (rf.getNodes?.() || []) as RFNode[];
+      const allEdges = (rf.getEdges?.() || []) as Edge[];
+      const normalNodes = allNodes.filter((node) => !isGroupNode(node));
+
+      if (!normalNodes.length) {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "当前没有可运行节点", type: "warning" },
+          })
+        );
+        return;
+      }
+
+      const nodeSet = new Set(normalNodes.map((node) => node.id));
+      const compareNodePosition = (a: RFNode, b: RFNode) => {
+        const ax = Number(a.position?.x ?? 0);
+        const bx = Number(b.position?.x ?? 0);
+        if (Math.abs(ax - bx) > 0.01) return ax - bx;
+        const ay = Number(a.position?.y ?? 0);
+        const by = Number(b.position?.y ?? 0);
+        return ay - by;
+      };
+
+      const indegree = new Map<string, number>();
+      const nextMap = new Map<string, Set<string>>();
+      normalNodes.forEach((node) => {
+        indegree.set(node.id, 0);
+        nextMap.set(node.id, new Set<string>());
+      });
+
+      allEdges.forEach((edge) => {
+        if (!nodeSet.has(edge.source) || !nodeSet.has(edge.target)) return;
+        if (edge.source === edge.target) return;
+        const next = nextMap.get(edge.source);
+        if (!next || next.has(edge.target)) return;
+        next.add(edge.target);
+        indegree.set(edge.target, (indegree.get(edge.target) || 0) + 1);
+      });
+
+      const nodeMap = new Map(normalNodes.map((node) => [node.id, node]));
+      const queue = normalNodes
+        .filter((node) => (indegree.get(node.id) || 0) === 0)
+        .sort(compareNodePosition);
+      const topoOrdered: RFNode[] = [];
+      const visited = new Set<string>();
+
+      while (queue.length > 0) {
+        const current = queue.shift() as RFNode;
+        if (visited.has(current.id)) continue;
+        visited.add(current.id);
+        topoOrdered.push(current);
+
+        const neighbors = Array.from(nextMap.get(current.id) || []);
+        neighbors.forEach((neighborId) => {
+          const nextDeg = (indegree.get(neighborId) || 0) - 1;
+          indegree.set(neighborId, nextDeg);
+          if (nextDeg === 0) {
+            const neighbor = nodeMap.get(neighborId);
+            if (neighbor && !visited.has(neighbor.id)) {
+              queue.push(neighbor);
+            }
+          }
+        });
+        queue.sort(compareNodePosition);
+      }
+
+      if (topoOrdered.length < normalNodes.length) {
+        normalNodes
+          .filter((node) => !visited.has(node.id))
+          .sort(compareNodePosition)
+          .forEach((node) => topoOrdered.push(node));
+      }
+
+      const runnableNodes = topoOrdered.filter((node) =>
+        FLOW_GROUP_RUNNABLE_TYPES.has(String(node.type || ""))
+      );
+
+      if (!runnableNodes.length) {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "当前没有可运行节点", type: "warning" },
+          })
+        );
+        return;
+      }
+
+      let successCount = 0;
+      let failedCount = 0;
+
+      for (const node of runnableNodes) {
+        try {
+          const nodeType = String(node.type || "");
+          if (FLOW_GROUP_LOCAL_RUN_TYPES.has(nodeType)) {
+            const ok = await new Promise<boolean>((resolve) => {
+              let settled = false;
+              const timeout = window.setTimeout(() => {
+                if (settled) return;
+                settled = true;
+                resolve(false);
+              }, 180000);
+
+              window.dispatchEvent(
+                new CustomEvent("flow:run-node", {
+                  detail: {
+                    id: node.id,
+                    done: (result?: boolean) => {
+                      if (settled) return;
+                      settled = true;
+                      window.clearTimeout(timeout);
+                      resolve(result !== false);
+                    },
+                  },
+                })
+              );
+            });
+            if (ok) {
+              successCount += 1;
+            } else {
+              failedCount += 1;
+            }
+          } else {
+            await runNode(node.id);
+            successCount += 1;
+          }
+        } catch {
+          failedCount += 1;
+        }
+      }
+
+      const message =
+        failedCount > 0
+          ? `全局运行完成：成功 ${successCount}，失败 ${failedCount}`
+          : `全局运行完成：共执行 ${successCount} 个节点`;
+
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: {
+            message,
+            type: failedCount > 0 ? "warning" : "success",
+          },
+        })
+      );
+    } finally {
+      setIsGlobalRunning(false);
+      window.dispatchEvent(
+        new CustomEvent("flow:global-run-state", {
+          detail: { running: false },
+        })
+      );
+    }
+  }, [rf, runNode]);
+
+  React.useEffect(() => {
+    const handler = () => {
+      void runGlobalNodes();
+    };
+    window.addEventListener("flow:run-global", handler as EventListener);
+    return () => {
+      window.removeEventListener("flow:run-global", handler as EventListener);
+    };
+  }, [runGlobalNodes]);
+
   // 连接状态回调
   const onConnectStart = React.useCallback(
     () => setIsConnecting(true),
@@ -11756,6 +11991,8 @@ function FlowInner() {
 
       {showFpsOverlay && (
         <div
+          ref={fpsOverlayRef}
+          id='tanva-fps-overlay'
           style={{
             position: "fixed",
             top: 12,

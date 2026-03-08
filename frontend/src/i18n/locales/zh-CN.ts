@@ -134,6 +134,8 @@ const zhCN = {
       openLibrary: "打开素材库",
       closeLibrary: "关闭素材库",
       library: "素材库",
+      globalAutoRun: "全局运行",
+      globalAutoRunning: "全局运行中...",
     },
     appearance: {
       languageTitle: "界面语言",

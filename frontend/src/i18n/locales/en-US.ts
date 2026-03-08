@@ -134,6 +134,8 @@ const enUS = {
       openLibrary: "Open Library",
       closeLibrary: "Close Library",
       library: "Library",
+      globalAutoRun: "Global Auto Run",
+      globalAutoRunning: "Global Run in Progress...",
     },
     appearance: {
       languageTitle: "Interface Language",
