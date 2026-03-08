@@ -32,6 +32,7 @@ import {
   type SystemSetting,
   type WatermarkWhitelistUser,
   type PaidUser,
+  type PaidUsersSortBy,
   type CreditChangeRecord,
   type CreditAnomalyRecord,
   type NodeConfig,
@@ -1852,11 +1853,13 @@ function PaidUsersTab() {
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState<PaidUsersSortBy>("amount");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
 
   const loadUsers = async () => {
     setLoading(true);
     try {
-      const result = await getPaidUsers({ page, pageSize: 10, search });
+      const result = await getPaidUsers({ page, pageSize: 10, search, sortBy, sortOrder });
       setUsers(result.users);
       setPagination(result.pagination);
     } catch (error) {
@@ -1868,7 +1871,7 @@ function PaidUsersTab() {
 
   useEffect(() => {
     loadUsers();
-  }, [page, search]);
+  }, [page, search, sortBy, sortOrder]);
 
   return (
     <div>
@@ -1880,6 +1883,27 @@ function PaidUsersTab() {
           className='max-w-xs'
         />
         <Button onClick={() => { setPage(1); loadUsers(); }}>搜索</Button>
+        <select
+          value={sortBy}
+          onChange={(e) => {
+            setSortBy(e.target.value as PaidUsersSortBy);
+            setPage(1);
+          }}
+          className='h-10 rounded-md border border-input bg-background px-3 py-2 text-sm'
+        >
+          <option value='amount'>按金额排序</option>
+          <option value='registeredAt'>按注册时间排序</option>
+          <option value='paidAt'>按支付时间排序</option>
+        </select>
+        <Button
+          variant='outline'
+          onClick={() => {
+            setSortOrder((prev) => (prev === "desc" ? "asc" : "desc"));
+            setPage(1);
+          }}
+        >
+          {sortOrder === "desc" ? "降序" : "升序"}
+        </Button>
       </div>
 
       <div className='bg-white rounded-lg border overflow-hidden'>
@@ -1895,16 +1919,17 @@ function PaidUsersTab() {
                 <th className='px-4 py-3 text-right'>已消费积分</th>
                 <th className='px-4 py-3 text-left'>状态</th>
                 <th className='px-4 py-3 text-left'>注册时间</th>
+                <th className='px-4 py-3 text-left'>支付时间</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className='px-4 py-8 text-center text-gray-500'>加载中...</td>
+                  <td colSpan={9} className='px-4 py-8 text-center text-gray-500'>加载中...</td>
                 </tr>
               ) : users.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className='px-4 py-8 text-center text-gray-500'>暂无付费用户</td>
+                  <td colSpan={9} className='px-4 py-8 text-center text-gray-500'>暂无付费用户</td>
                 </tr>
               ) : (
                 users.map((user) => (
@@ -1931,6 +1956,9 @@ function PaidUsersTab() {
                     </td>
                     <td className='px-4 py-3 text-xs text-gray-500'>
                       {new Date(user.createdAt).toLocaleDateString()}
+                    </td>
+                    <td className='px-4 py-3 text-xs text-gray-500'>
+                      {user.lastPaidAt ? new Date(user.lastPaidAt).toLocaleString() : "-"}
                     </td>
                   </tr>
                 ))

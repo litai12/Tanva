@@ -280,7 +280,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const currentZoom = zoom || 1;
   const showButtonText = currentZoom >= 0.5; // 50%及以上显示文字，稍微放宽一点
   const toolbarScale = 1; // 固定为1，不再跟随缩放
-  const showFastBackgroundRemovalButton = false;
+  const showFastBackgroundRemovalButton = true;
 
   const sharedButtonClass = showButtonText
     ? "px-2 py-1 h-7 rounded-md bg-transparent text-gray-600 text-xs transition-all duration-200 hover:bg-gray-100 hover:text-gray-800 flex items-center gap-1 whitespace-nowrap"
