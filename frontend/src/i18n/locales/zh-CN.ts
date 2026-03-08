@@ -116,6 +116,7 @@ const zhCN = {
       invalidInvite: "邀请码无效，请检查后重试",
       usernameRequired: "请输入用户名",
       usernameCannotMatchEmail: "用户名不能与邮箱相同",
+      usernameCannotMatchPhone: "用户名不能与手机号相同",
       phoneInvalid: "请输入有效的手机号",
       sendFailed: "发送失败",
     },

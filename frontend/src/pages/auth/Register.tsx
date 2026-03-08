@@ -94,6 +94,7 @@ export default function RegisterPage() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedName = name.trim();
+    const trimmedPhone = phone.trim();
     const normalizedEmail = email.trim().toLowerCase();
     if (!trimmedName) {
       alert(t("auth.register.usernameRequired"));
@@ -101,6 +102,10 @@ export default function RegisterPage() {
     }
     if (normalizedEmail && trimmedName.toLowerCase() === normalizedEmail) {
       alert(t("auth.register.usernameCannotMatchEmail"));
+      return;
+    }
+    if (trimmedName === trimmedPhone) {
+      alert(t("auth.register.usernameCannotMatchPhone"));
       return;
     }
     if (!agreeTerms) {

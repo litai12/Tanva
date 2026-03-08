@@ -283,13 +283,21 @@ export const authApi = {
     if (isMock) {
       await delay(300);
       const users = readUsers();
+      const trimmedName = payload.name.trim();
+      if (trimmedName === payload.phone) {
+        throw new Error("用户名不能与手机号相同");
+      }
+      const existsPhoneMatchedByName = users.find((u) => u.phone === trimmedName);
+      if (existsPhoneMatchedByName) {
+        throw new Error("用户名不能与手机号相同");
+      }
       const exists = users.find((u) => u.phone === payload.phone);
       if (exists) throw new Error("用户已存在");
       const user: UserInfo = {
         id: `u_${Date.now()}`,
         email: payload.email || `${payload.phone}@mock.local`,
         phone: payload.phone,
-        name: payload.name,
+        name: trimmedName,
         role: "user",
       };
       // persist optional phone for strict SMS login
