@@ -18,6 +18,8 @@ import {
   Crop,
   ImageUp,
   Type,
+  Lock,
+  Unlock,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import ImagePreviewModal, { type ImageItem } from "../ui/ImagePreviewModal";
@@ -219,6 +221,7 @@ interface ImageData {
   localDataUrl?: string;
   width?: number; // 图片原始宽度
   height?: number; // 图片原始高度
+  locked?: boolean;
 }
 
 interface ImageContainerProps {
@@ -240,6 +243,7 @@ interface ImageContainerProps {
   }) => void; // Paper.js坐标
   onDelete?: (imageId: string) => void;
   onToggleVisibility?: (imageId: string) => void; // 切换图层可见性回调
+  onToggleLock?: (imageId: string, nextLocked: boolean) => void;
   getImageDataForEditing?: (imageId: string) => string | null; // 获取高质量图像数据的函数
   showIndividualTools?: boolean;
 }
@@ -258,6 +262,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   onResize: _onResize,
   onDelete: _onDelete,
   onToggleVisibility,
+  onToggleLock,
   getImageDataForEditing,
   showIndividualTools = true,
 }) => {
@@ -317,6 +322,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   >([]);
   const [textEditExtraInstruction, setTextEditExtraInstruction] = useState("");
   const [showExpandSelector, setShowExpandSelector] = useState(false);
+  const isImageLocked = Boolean(imageData.locked);
   const [projectHistoryItems, setProjectHistoryItems] = useState<
     GlobalImageHistoryItem[]
   >([]);
@@ -2325,20 +2331,47 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           }}
         >
           {/* 左侧：图片名称 */}
-          <span
+          <div
             style={{
-              fontWeight: 500,
-              fontSize: 10 * toolbarScale,
-              color: "#fff",
-              padding: `${2 * toolbarScale}px ${4 * toolbarScale}px`,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
+              display: "flex",
+              alignItems: "center",
+              minWidth: 0,
               maxWidth: "60%",
+              gap: 4 * toolbarScale,
             }}
-            title={imageData.fileName || `图片 ${imageData.id}`}
           >
-            {imageData.fileName || `图片 ${imageData.id}`}
-          </span>
+            <Button
+              variant='ghost'
+              size='sm'
+              className='h-5 w-5 p-0 rounded-md bg-black/35 text-white hover:bg-black/55'
+              style={{ pointerEvents: "auto" }}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onToggleLock?.(imageData.id, !isImageLocked);
+              }}
+              title={isImageLocked ? "解锁图片" : "锁定图片"}
+            >
+              {isImageLocked ? (
+                <Lock className='w-3 h-3' />
+              ) : (
+                <Unlock className='w-3 h-3' />
+              )}
+            </Button>
+            <span
+              style={{
+                fontWeight: 500,
+                fontSize: 10 * toolbarScale,
+                color: "#fff",
+                padding: `${2 * toolbarScale}px ${4 * toolbarScale}px`,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+              title={imageData.fileName || `图片 ${imageData.id}`}
+            >
+              {imageData.fileName || `图片 ${imageData.id}`}
+            </span>
+          </div>
           {/* 右侧：分辨率 */}
           {naturalSize && (
             <span
@@ -2375,6 +2408,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
       {/* 图片操作按钮组 - 只在选中时显示，位于图片底部，截图时隐藏 */}
       {isSelected &&
+        !isImageLocked &&
         showIndividualTools &&
         !showExpandSelector &&
         !shouldHideUi && (

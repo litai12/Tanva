@@ -12,6 +12,7 @@ export interface StoredImageAsset {
   id: string;
   url: string;
   key?: string;
+  locked?: boolean;
   /** http(s) 直连（用于需要外链 URL 的能力），不落 data/blob/base64 */
   remoteUrl?: string;
   fileName?: string;
@@ -33,6 +34,7 @@ export interface ImageInstance {
     height: number;
   };
   isSelected: boolean;
+  locked?: boolean;
   visible: boolean;
   layerId?: string;
   selectionRect?: paper.Path;
