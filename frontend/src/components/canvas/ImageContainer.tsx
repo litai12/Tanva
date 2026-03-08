@@ -323,6 +323,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const [textEditExtraInstruction, setTextEditExtraInstruction] = useState("");
   const [showExpandSelector, setShowExpandSelector] = useState(false);
   const isImageLocked = Boolean(imageData.locked);
+  const [isHoveringLockedImage, setIsHoveringLockedImage] = useState(false);
   const [projectHistoryItems, setProjectHistoryItems] = useState<
     GlobalImageHistoryItem[]
   >([]);
@@ -676,6 +677,42 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const screenBounds = useMemo(() => {
     return convertToScreenBounds(realTimeBounds);
   }, [realTimeBounds, convertToScreenBounds, zoom, panX, panY]); // 添加画布状态依赖，确保完全响应画布变化
+
+  useEffect(() => {
+    if (!isImageLocked || typeof window === "undefined") {
+      setIsHoveringLockedImage(false);
+      return;
+    }
+
+    const handleMouseMove = (event: MouseEvent) => {
+      const canvasEl =
+        (paper?.view?.element as HTMLCanvasElement | undefined) || null;
+      if (!canvasEl) {
+        setIsHoveringLockedImage(false);
+        return;
+      }
+
+      const rect = canvasEl.getBoundingClientRect();
+      const localX = event.clientX - rect.left;
+      const localY = event.clientY - rect.top;
+      const inside =
+        localX >= screenBounds.x &&
+        localX <= screenBounds.x + screenBounds.width &&
+        localY >= screenBounds.y &&
+        localY <= screenBounds.y + screenBounds.height;
+
+      setIsHoveringLockedImage(inside);
+    };
+
+    const handleMouseLeave = () => setIsHoveringLockedImage(false);
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseleave", handleMouseLeave);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseleave", handleMouseLeave);
+    };
+  }, [isImageLocked, screenBounds.height, screenBounds.width, screenBounds.x, screenBounds.y]);
 
   const resolveImageDataUrl = useCallback(async (): Promise<string | null> => {
     // 首先检查缓存的 dataUrl
@@ -2388,6 +2425,36 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           )}
         </div>
       )}
+
+      {/* 锁定态 hover 解锁按钮（不依赖选中） */}
+      {isImageLocked &&
+        isHoveringLockedImage &&
+        !showExpandSelector &&
+        !shouldHideUi && (
+          <div
+            style={{
+              position: "absolute",
+              top: 4 * toolbarScale,
+              left: 4 * toolbarScale,
+              zIndex: 35,
+              pointerEvents: "auto",
+            }}
+          >
+            <Button
+              variant='ghost'
+              size='sm'
+              className='h-6 w-6 p-0 rounded-md bg-black/45 text-white hover:bg-black/65 flex items-center justify-center'
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onToggleLock?.(imageData.id, false);
+              }}
+              title='解锁图片'
+            >
+              <Lock className='w-3 h-3' />
+            </Button>
+          </div>
+        )}
 
       {/* 扩图选择器 - 截图时显示，隐藏小工具栏 */}
       {showExpandSelector && (
