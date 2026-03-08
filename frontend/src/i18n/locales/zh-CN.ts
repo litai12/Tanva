@@ -136,6 +136,7 @@ const zhCN = {
       library: "素材库",
       globalAutoRun: "全局运行",
       globalAutoRunning: "全局运行中...",
+      globalAutoStop: "终止",
     },
     appearance: {
       languageTitle: "界面语言",

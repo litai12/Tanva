@@ -33,7 +33,6 @@ import {
   Home,
   Sparkles,
   Trash2,
-  X,
   Cloud,
   Zap,
   Key,
@@ -1802,27 +1801,36 @@ const FloatingHeader: React.FC = () => {
             <Button
               variant='ghost'
               size='sm'
-              disabled={isGlobalFlowRunning}
               className={cn(
                 "h-7 px-2 gap-1.5 rounded-full transition-all duration-200 border",
                 "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border-liquid-glass shadow-liquid-glass",
-                isGlobalFlowRunning
-                  ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-900 cursor-not-allowed"
-                  : "text-slate-700 hover:bg-liquid-glass-hover"
+                "text-slate-700 hover:bg-liquid-glass-hover"
               )}
               title={
                 isGlobalFlowRunning
-                  ? t("workspace.header.globalAutoRunning")
+                  ? t("workspace.header.globalAutoStop")
                   : t("workspace.header.globalAutoRun")
               }
               onClick={() => {
-                if (isGlobalFlowRunning) return;
-                window.dispatchEvent(new CustomEvent("flow:run-global"));
+                if (isGlobalFlowRunning) {
+                  window.dispatchEvent(new CustomEvent("flow:stop-global"));
+                } else {
+                  window.dispatchEvent(new CustomEvent("flow:run-global"));
+                }
               }}
             >
-              <Play className='w-4 h-4' />
+              {isGlobalFlowRunning ? (
+                <span
+                  className='inline-block w-2.5 h-2.5 bg-black rounded-[2px]'
+                  aria-hidden='true'
+                />
+              ) : (
+                <Play className='w-4 h-4' />
+              )}
               <span className='text-[11px] leading-none whitespace-nowrap'>
-                {t("workspace.header.globalAutoRun")}
+                {isGlobalFlowRunning
+                  ? t("workspace.header.globalAutoStop")
+                  : t("workspace.header.globalAutoRun")}
               </span>
             </Button>
 

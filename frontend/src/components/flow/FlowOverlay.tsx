@@ -2086,6 +2086,7 @@ function FlowInner() {
 
   const [runningGroupIds, setRunningGroupIds] = React.useState<string[]>([]);
   const [isGlobalRunning, setIsGlobalRunning] = React.useState(false);
+  const globalRunStopRequestedRef = React.useRef(false);
 
   const onEdgesChangeWithHistory = React.useCallback(
     (changes: any) => {
@@ -10494,6 +10495,7 @@ function FlowInner() {
       return true;
     });
     if (!started) return;
+    globalRunStopRequestedRef.current = false;
 
     window.dispatchEvent(
       new CustomEvent("flow:global-run-state", {
@@ -10590,12 +10592,17 @@ function FlowInner() {
 
       let successCount = 0;
       let failedCount = 0;
+      let stoppedByUser = false;
 
       for (const node of runnableNodes) {
+        if (globalRunStopRequestedRef.current) {
+          stoppedByUser = true;
+          break;
+        }
         try {
           const nodeType = String(node.type || "");
           if (FLOW_GROUP_LOCAL_RUN_TYPES.has(nodeType)) {
-            const ok = await new Promise<boolean>((resolve) => {
+            const localRunPromise = new Promise<boolean>((resolve) => {
               let settled = false;
               const timeout = window.setTimeout(() => {
                 if (settled) return;
@@ -10617,22 +10624,90 @@ function FlowInner() {
                 })
               );
             });
+            const ok = await new Promise<boolean>((resolve) => {
+              let settled = false;
+              const handleStop = () => {
+                if (settled) return;
+                settled = true;
+                globalRunStopRequestedRef.current = true;
+                resolve(false);
+              };
+              window.addEventListener(
+                "flow:stop-global",
+                handleStop as EventListener,
+                { once: true }
+              );
+              void localRunPromise.then((value) => {
+                if (settled) return;
+                settled = true;
+                window.removeEventListener(
+                  "flow:stop-global",
+                  handleStop as EventListener
+                );
+                resolve(value);
+              });
+            });
+            if (globalRunStopRequestedRef.current) {
+              stoppedByUser = true;
+              break;
+            }
             if (ok) {
               successCount += 1;
             } else {
               failedCount += 1;
             }
           } else {
-            await runNode(node.id);
-            successCount += 1;
+            const ok = await new Promise<boolean>((resolve) => {
+              let settled = false;
+              const handleStop = () => {
+                if (settled) return;
+                settled = true;
+                globalRunStopRequestedRef.current = true;
+                resolve(false);
+              };
+              window.addEventListener(
+                "flow:stop-global",
+                handleStop as EventListener,
+                { once: true }
+              );
+              void runNode(node.id)
+                .then(() => {
+                  if (settled) return;
+                  settled = true;
+                  window.removeEventListener(
+                    "flow:stop-global",
+                    handleStop as EventListener
+                  );
+                  resolve(true);
+                })
+                .catch(() => {
+                  if (settled) return;
+                  settled = true;
+                  window.removeEventListener(
+                    "flow:stop-global",
+                    handleStop as EventListener
+                  );
+                  resolve(false);
+                });
+            });
+            if (globalRunStopRequestedRef.current) {
+              stoppedByUser = true;
+              break;
+            }
+            if (ok) successCount += 1;
+            else failedCount += 1;
           }
         } catch {
           failedCount += 1;
         }
       }
 
-      const message =
-        failedCount > 0
+      const executedCount = successCount + failedCount;
+      const message = stoppedByUser
+        ? failedCount > 0
+          ? `全局运行已终止：已执行 ${executedCount} 个节点（成功 ${successCount}，失败 ${failedCount}）`
+          : `全局运行已终止：已执行 ${executedCount} 个节点`
+        : failedCount > 0
           ? `全局运行完成：成功 ${successCount}，失败 ${failedCount}`
           : `全局运行完成：共执行 ${successCount} 个节点`;
 
@@ -10640,12 +10715,13 @@ function FlowInner() {
         new CustomEvent("toast", {
           detail: {
             message,
-            type: failedCount > 0 ? "warning" : "success",
+            type: stoppedByUser || failedCount > 0 ? "warning" : "success",
           },
         })
       );
     } finally {
       setIsGlobalRunning(false);
+      globalRunStopRequestedRef.current = false;
       window.dispatchEvent(
         new CustomEvent("flow:global-run-state", {
           detail: { running: false },
@@ -10663,6 +10739,16 @@ function FlowInner() {
       window.removeEventListener("flow:run-global", handler as EventListener);
     };
   }, [runGlobalNodes]);
+
+  React.useEffect(() => {
+    const handler = () => {
+      globalRunStopRequestedRef.current = true;
+    };
+    window.addEventListener("flow:stop-global", handler as EventListener);
+    return () => {
+      window.removeEventListener("flow:stop-global", handler as EventListener);
+    };
+  }, []);
 
   // 连接状态回调
   const onConnectStart = React.useCallback(

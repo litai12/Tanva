@@ -136,6 +136,7 @@ const enUS = {
       library: "Library",
       globalAutoRun: "Global Auto Run",
       globalAutoRunning: "Global Run in Progress...",
+      globalAutoStop: "Terminate",
     },
     appearance: {
       languageTitle: "Interface Language",
