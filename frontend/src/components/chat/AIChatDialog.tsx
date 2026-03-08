@@ -4022,16 +4022,16 @@ const AIChatDialog: React.FC = () => {
                     <DropdownMenuContent
                       align='start'
                       side='bottom'
-                      sideOffset={8}
-                      className='w-[min(84vw,520px)] overflow-hidden rounded-[24px] border border-white/10 bg-[#2f3035] p-0 text-slate-100 shadow-[0_18px_45px_rgba(0,0,0,0.45)]'
+                      sideOffset={4}
+                      className='w-[min(72vw,392px)] overflow-hidden rounded-[16px] border border-slate-200 bg-white/95 p-0 text-slate-800 shadow-lg backdrop-blur-md'
                     >
-                      <DropdownMenuLabel className='px-6 py-5 text-lg font-semibold tracking-wide text-slate-100'>
+                      <DropdownMenuLabel className='px-4 py-3 text-sm font-semibold tracking-normal text-slate-700'>
                         对话历史
                       </DropdownMenuLabel>
                       {sessions.length === 0 ? (
                         <DropdownMenuItem
                           disabled
-                          className='rounded-none border-t border-white/10 px-6 py-5 text-sm text-slate-400'
+                          className='rounded-none border-t border-slate-200 px-4 py-3 text-[11px] text-slate-400'
                         >
                           暂无会话
                         </DropdownMenuItem>
@@ -4046,22 +4046,22 @@ const AIChatDialog: React.FC = () => {
                               }}
                               title={session.preview || session.name}
                               className={cn(
-                                "rounded-none border-t border-white/10 px-6 py-5 text-left transition-colors",
-                                "flex flex-col items-start gap-2",
-                                "data-[highlighted]:bg-white/5 data-[highlighted]:text-slate-100",
+                                "rounded-none border-t border-slate-200 px-4 py-3 text-left transition-colors",
+                                "flex flex-col items-start gap-1",
+                                "data-[highlighted]:bg-slate-100 data-[highlighted]:text-slate-900",
                                 isActive
-                                  ? "bg-white/[0.04] text-slate-100"
-                                  : "text-slate-200"
+                                  ? "bg-slate-100 text-slate-900"
+                                  : "text-slate-700"
                               )}
                             >
-                              <span className='w-full truncate text-lg font-semibold leading-tight'>
+                              <span className='w-full truncate text-sm font-semibold leading-snug'>
                                 {`${session.name}${
                                   session.messageCount
                                     ? `（${session.messageCount}条）`
                                     : ""
                                 }`}
                               </span>
-                              <span className='text-sm text-slate-400'>
+                              <span className='text-[11px] text-slate-500'>
                                 {formatSessionRelativeTime(session.lastActivity)}
                               </span>
                             </DropdownMenuItem>

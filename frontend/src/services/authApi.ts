@@ -284,6 +284,12 @@ export const authApi = {
       await delay(300);
       const users = readUsers();
       const trimmedName = payload.name.trim();
+      if (!/^\d{6}$/.test(payload.code || "")) {
+        throw new Error("请输入6位验证码");
+      }
+      if (payload.code !== FIXED_SMS_CODE) {
+        throw new Error("验证码错误（使用 336699）");
+      }
       if (trimmedName === payload.phone) {
         throw new Error("用户名不能与手机号相同");
       }

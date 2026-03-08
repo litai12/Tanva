@@ -88,17 +88,15 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto, meta?: { ip?: string; ua?: string }) {
-    // 暂时注释掉验证码验证
-    // if (dto.code) {
-    //   const verify = await this.smsService.verifyCode(dto.phone, dto.code);
-    //   if (!verify.ok) {
-    //     throw new UnauthorizedException(verify.msg || '验证码错误');
-    //   }
-    // }
-
     const trimmedName = dto.name.trim();
     const normalizedPhone = dto.phone.trim();
+    const normalizedCode = dto.code.trim();
     const normalizedEmail = dto.email ? dto.email.trim().toLowerCase() : null;
+
+    const verify = await this.smsService.verifyCode(normalizedPhone, normalizedCode);
+    if (!verify.ok) {
+      throw new UnauthorizedException(verify.msg || "验证码错误");
+    }
 
     if (normalizedEmail && trimmedName.toLowerCase() === normalizedEmail) {
       throw new BadRequestException("用户名不能与邮箱相同");

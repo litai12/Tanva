@@ -118,6 +118,7 @@ const enUS = {
       usernameCannotMatchEmail: "Username cannot be the same as email",
       usernameCannotMatchPhone: "Username cannot be the same as phone number",
       phoneInvalid: "Please enter a valid phone number",
+      codeInvalid: "Please enter a 6-digit verification code",
       sendFailed: "Failed to send",
     },
   },
