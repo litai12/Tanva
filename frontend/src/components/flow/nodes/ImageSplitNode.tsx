@@ -1760,23 +1760,11 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
       let sourceWidth = 0;
       let sourceHeight = 0;
 
-      // 优先使用 Worker + OffscreenCanvas（避免主线程卡顿）
-      if (imageSplitWorkerClient.isSupported()) {
-        const source = ((): { kind: 'blob'; blob: Blob } | { kind: 'url'; url: string } => {
-          if (runtimeBlob) return { kind: 'blob' as const, blob: runtimeBlob };
-          const url = buildImageSrc(runtimeInputRef);
-          if (!url) throw new Error('图片加载失败');
-          return { kind: 'url' as const, url };
-        })();
-
-        const result = await imageSplitWorkerClient.splitImageRects(source, { outputCount: safeCount });
-        if (!result.success || !Array.isArray(result.rects)) {
-          throw new Error(result.error || '分割失败');
-        }
-        rects = result.rects.slice(0, MAX_OUTPUT_COUNT);
-        sourceWidth = result.sourceWidth ?? 0;
-        sourceHeight = result.sourceHeight ?? 0;
-      } else {
+      const splitByMainThread = async (): Promise<{
+        rects: SplitRectItem[];
+        sourceWidth: number;
+        sourceHeight: number;
+      }> => {
         let splitSrc: string | undefined;
         if (runtimeBlob) {
           const objectUrl = URL.createObjectURL(runtimeBlob);
@@ -1804,7 +1792,42 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
           sourceWidth = grid.sourceWidth;
           sourceHeight = grid.sourceHeight;
         }
-        rects = rects.slice(0, MAX_OUTPUT_COUNT);
+        return {
+          rects: rects.slice(0, MAX_OUTPUT_COUNT),
+          sourceWidth,
+          sourceHeight,
+        };
+      };
+
+      // 优先使用 Worker + OffscreenCanvas（避免主线程卡顿）
+      // 但若 Worker 运行失败（例如特性不完整/初始化异常），自动回退主线程逻辑。
+      if (imageSplitWorkerClient.isSupported()) {
+        const source = ((): { kind: 'blob'; blob: Blob } | { kind: 'url'; url: string } => {
+          if (runtimeBlob) return { kind: 'blob' as const, blob: runtimeBlob };
+          const url = buildImageSrc(runtimeInputRef);
+          if (!url) throw new Error('图片加载失败');
+          return { kind: 'url' as const, url };
+        })();
+
+        try {
+          const result = await imageSplitWorkerClient.splitImageRects(source, { outputCount: safeCount });
+          if (!result.success || !Array.isArray(result.rects)) {
+            throw new Error(result.error || '分割失败');
+          }
+          rects = result.rects.slice(0, MAX_OUTPUT_COUNT);
+          sourceWidth = result.sourceWidth ?? 0;
+          sourceHeight = result.sourceHeight ?? 0;
+        } catch {
+          const fallback = await splitByMainThread();
+          rects = fallback.rects;
+          sourceWidth = fallback.sourceWidth;
+          sourceHeight = fallback.sourceHeight;
+        }
+      } else {
+        const fallback = await splitByMainThread();
+        rects = fallback.rects;
+        sourceWidth = fallback.sourceWidth;
+        sourceHeight = fallback.sourceHeight;
       }
 
       setSplitRects(rects);
@@ -1847,7 +1870,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
       setSourceSize({ width: 0, height: 0 });
     } finally {
       try {
-        revokeObjectUrl?.();
+        (revokeObjectUrl as (() => void) | null)?.();
       } catch {}
       setIsProcessing(false);
     }

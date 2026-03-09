@@ -124,12 +124,14 @@ const FloatingHeader: React.FC = () => {
     gridBgColor,
     gridBgEnabled,
     zoomSensitivity,
+    wheelZoomMode,
     setGridStyle,
     setGridSize,
     setGridColor,
     setGridBgColor,
     setGridBgEnabled,
     setZoomSensitivity,
+    setWheelZoomMode,
   } = useCanvasStore();
 
   // AI 配置
@@ -859,6 +861,18 @@ const FloatingHeader: React.FC = () => {
       description: t("workspace.settings.aiTab.shortcuts.modEnterDesc"),
     },
   ];
+  const wheelZoomModeOptions = [
+    {
+      value: "modifier" as const,
+      label: t("workspace.settings.aiTab.wheel.modifierLabel"),
+      description: t("workspace.settings.aiTab.wheel.modifierDesc"),
+    },
+    {
+      value: "direct" as const,
+      label: t("workspace.settings.aiTab.wheel.directLabel"),
+      description: t("workspace.settings.aiTab.wheel.directDesc"),
+    },
+  ];
   const renderSettingsContent = () => {
     switch (activeSettingsSection) {
       case "workspace":
@@ -1252,6 +1266,48 @@ const FloatingHeader: React.FC = () => {
                           {option.label}
                         </div>
                         {active && <Check className='w-4 h-4 text-blue-600' />}
+                      </div>
+                      <div className='mt-1 text-xs text-slate-500'>
+                        {option.description}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className='p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur'>
+              <div className='flex items-start gap-2 mb-3'>
+                <Globe className='w-4 h-4 text-indigo-600' />
+                <div>
+                  <div className='text-sm font-medium text-slate-700'>
+                    {t("workspace.settings.aiTab.wheel.title")}
+                  </div>
+                  <div className='text-xs text-slate-500'>
+                    {t("workspace.settings.aiTab.wheel.desc")}
+                  </div>
+                </div>
+              </div>
+              <div className='grid gap-2 sm:grid-cols-2'>
+                {wheelZoomModeOptions.map((option) => {
+                  const active = wheelZoomMode === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type='button'
+                      onClick={() => setWheelZoomMode(option.value)}
+                      className={cn(
+                        "w-full rounded-xl border px-3 py-3 text-left transition-all",
+                        active
+                          ? "border-indigo-500 bg-indigo-50 shadow-sm"
+                          : "border-slate-200 bg-white hover:border-indigo-300 hover:bg-indigo-50/40"
+                      )}
+                    >
+                      <div className='flex items-center justify-between gap-2'>
+                        <div className='text-sm font-medium text-slate-700'>
+                          {option.label}
+                        </div>
+                        {active && <Check className='w-4 h-4 text-indigo-600' />}
                       </div>
                       <div className='mt-1 text-xs text-slate-500'>
                         {option.description}

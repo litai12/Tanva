@@ -720,13 +720,19 @@ export const useSelectionTool = ({
         if (isImageLocked(image.id)) {
           continue;
         }
+        const paperItem = findImagePaperItem(image.id);
+        const paperBounds = paperItem?.bounds;
+        if (!paperBounds || paperBounds.width <= 0 || paperBounds.height <= 0) {
+          // 兜底命中仅允许真实存在于 Paper 且有有效尺寸的图片，避免“幽灵可点击”。
+          continue;
+        }
         // 🔍 调试：输出每个图片的 bounds
-        logger.tool(`图片[${i}] id=${image.id}, bounds:`, image.bounds);
+        logger.tool(`图片[${i}] id=${image.id}, bounds:`, paperBounds);
 
-        const inBounds = point.x >= image.bounds.x &&
-          point.x <= image.bounds.x + image.bounds.width &&
-          point.y >= image.bounds.y &&
-          point.y <= image.bounds.y + image.bounds.height;
+        const inBounds = point.x >= paperBounds.x &&
+          point.x <= paperBounds.x + paperBounds.width &&
+          point.y >= paperBounds.y &&
+          point.y <= paperBounds.y + paperBounds.height;
 
         logger.tool(`图片[${i}] 点击在范围内:`, inBounds);
 

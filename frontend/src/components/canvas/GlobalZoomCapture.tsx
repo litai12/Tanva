@@ -64,6 +64,14 @@ const GlobalZoomCapture = () => {
     const handleWheel = (event: WheelEvent) => {
       if (isEventInsideModel3DContainer(event)) return;
       if (!(event.ctrlKey || event.metaKey)) return;
+      const store = useCanvasStore.getState();
+
+      // 反转模式下，Ctrl/Cmd + 滚轮不执行缩放，但仍阻止浏览器页面缩放
+      if (store.wheelZoomMode === 'direct') {
+        event.preventDefault();
+        return;
+      }
+
       const focus = getFocusPoint(event.clientX, event.clientY);
       if (!focus) return;
       const delta = normalizeWheelDelta(event.deltaY, event.deltaMode);

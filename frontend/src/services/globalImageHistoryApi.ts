@@ -44,6 +44,7 @@ export const globalImageHistoryApi = {
     cursor?: string;
     sourceType?: string;
     sourceProjectId?: string;
+    search?: string;
   }): Promise<{
     items: GlobalImageHistoryItem[];
     nextCursor?: string;
@@ -55,6 +56,9 @@ export const globalImageHistoryApi = {
     if (params?.sourceType) searchParams.set("sourceType", params.sourceType);
     if (params?.sourceProjectId) {
       searchParams.set("sourceProjectId", params.sourceProjectId);
+    }
+    if (params?.search) {
+      searchParams.set("search", params.search);
     }
 
     const url = `${base}/api/global-image-history?${searchParams.toString()}`;

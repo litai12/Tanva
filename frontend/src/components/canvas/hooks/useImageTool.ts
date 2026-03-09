@@ -42,6 +42,24 @@ const setRasterSourceSafely = (raster: paper.Raster, source: string) => {
   raster.source = value;
 };
 
+const trimString = (value?: string | null): string =>
+  typeof value === 'string' ? value.trim() : '';
+
+const pickRuntimeImageSource = (params: {
+  pendingUpload?: boolean;
+  localDataUrl?: string | null;
+  persistedCandidates: Array<string | null | undefined>;
+}): string => {
+  const local = trimString(params.localDataUrl);
+  const persisted = params.persistedCandidates
+    .map((candidate) => trimString(candidate))
+    .find((candidate) => candidate.length > 0) || '';
+
+  // 上传中优先使用本地预览；否则优先可持久化引用，避免刷新后使用失效 blob: 导致“幽灵图”
+  if (params.pendingUpload && local) return local;
+  return persisted || local;
+};
+
 interface UseImageToolProps {
   context: DrawingContext;
   canvasRef?: React.RefObject<HTMLCanvasElement | null>;
@@ -336,6 +354,12 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       // 添加选择框和控制点
       addImageSelectionElements(raster, finalBounds, imageId, Boolean(asset.locked));
 
+      const preferredDisplaySrc = pickRuntimeImageSource({
+        pendingUpload: asset.pendingUpload,
+        localDataUrl: asset.localDataUrl,
+        persistedCandidates: [persistedSrc, persistedUrl, asset.url],
+      });
+
       // 更新React状态中的bounds为实际尺寸
       setImageInstances(prev => prev.map(img =>
         img.id === imageId ? {
@@ -349,8 +373,8 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
           imageData: {
             ...img.imageData,
             url: asset.url,
-            // 运行时展示优先使用本地 blob/data（上传中 key 可能尚不可用）
-            src: asset.localDataUrl || asset.url,
+            // 上传中优先本地预览；上传完成/恢复时优先可持久化来源
+            src: preferredDisplaySrc || asset.url,
             key: asset.key || img.imageData.key,
             fileName: asset.fileName || img.imageData.fileName,
             width: originalWidth,
@@ -403,7 +427,12 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       (raster.data as any).remoteUrl = persistedSrc;
     }
 
-    const renderable = toRenderableImageSrc(asset.localDataUrl || persistedSrc || persistedUrl) || asset.url;
+    const preferredDisplaySrc = pickRuntimeImageSource({
+      pendingUpload: asset.pendingUpload,
+      localDataUrl: asset.localDataUrl,
+      persistedCandidates: [persistedSrc, persistedUrl, asset.url],
+    });
+    const renderable = toRenderableImageSrc(preferredDisplaySrc) || preferredDisplaySrc || asset.url;
     setRasterSourceSafely(raster, renderable);
 
     // 创建Paper.js组来包含所有相关元素（仅包含Raster，避免“隐形框”扩大边界）
@@ -425,8 +454,8 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       imageData: {
         id: imageId,
         url: persistedUrl || asset.url,
-        // 上传中仍允许 src=blob:（展示/编辑等能力用），持久化用 url/key
-        src: asset.localDataUrl || persistedSrc || persistedUrl || asset.url,
+        // 上传中仍允许 src=blob:；上传完成后优先使用可持久化来源
+        src: preferredDisplaySrc || persistedSrc || persistedUrl || asset.url,
         key: normalizedKey || asset.key,
         fileName: asset.fileName,
         width: asset.width,
@@ -1365,13 +1394,17 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     const seededInstances: ImageInstance[] = snapshots
       .filter((snap) => snap?.id && snap?.bounds)
       .map((snap) => {
-        const source = snap?.url || snap?.src || snap?.key || snap?.localDataUrl;
+        const source = pickRuntimeImageSource({
+          pendingUpload: snap?.pendingUpload,
+          localDataUrl: snap?.localDataUrl,
+          persistedCandidates: [snap?.src, snap?.url, snap?.key],
+        });
         return {
           id: snap.id,
           imageData: {
             id: snap.id,
             url: snap.url ?? snap.key ?? source,
-            src: snap.src ?? snap.url ?? source,
+            src: source || snap.src || snap.url || '',
             key: snap.key,
             fileName: snap.fileName,
             width: snap.width,
@@ -1398,7 +1431,12 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     setSelectedImageIds([]);
 
     snapshots.forEach((snap) => {
-      const resolvedUrl = snap?.url || snap?.src || snap?.key || snap?.localDataUrl;
+      const preferredSource = pickRuntimeImageSource({
+        pendingUpload: snap?.pendingUpload,
+        localDataUrl: snap?.localDataUrl,
+        persistedCandidates: [snap?.src, snap?.url, snap?.key],
+      });
+      const resolvedUrl = preferredSource || snap?.url || snap?.src || snap?.key || snap?.localDataUrl;
       if (!snap || !resolvedUrl || !snap.bounds) return;
       if (snap.layerId) {
         try { useLayerStore.getState().activateLayer(snap.layerId); } catch {}
@@ -1411,7 +1449,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         handleImageUploaded({
           id: snap.id,
           url: snap.url ?? snap.key ?? resolvedUrl,
-          src: snap.src ?? snap.url ?? resolvedUrl,
+          src: preferredSource || snap.src || snap.url || resolvedUrl,
           key: snap.key,
           fileName: snap.fileName,
           width: snap.width,
@@ -1427,6 +1465,11 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     setImageInstances(prev => prev.map((img) => {
       const snap = snapshots.find((s) => s.id === img.id);
       if (!snap) return img;
+      const preferredSource = pickRuntimeImageSource({
+        pendingUpload: snap?.pendingUpload,
+        localDataUrl: snap?.localDataUrl,
+        persistedCandidates: [snap?.src, snap?.url, snap?.key],
+      });
       return {
         ...img,
         layerId: snap.layerId ?? img.layerId,
@@ -1439,7 +1482,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         imageData: {
           ...img.imageData,
           url: snap.url ?? img.imageData.url ?? snap.localDataUrl,
-          src: snap.url ?? snap.localDataUrl ?? img.imageData.src,
+          src: preferredSource || img.imageData.src,
           key: snap.key ?? img.imageData.key,
           fileName: snap.fileName ?? img.imageData.fileName,
           width: snap.width ?? img.imageData.width,
@@ -1463,7 +1506,11 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
   ) => {
     if (!snapshot) return null;
 
-    const source = snapshot.localDataUrl || snapshot.src || snapshot.url || snapshot.key;
+    const source = pickRuntimeImageSource({
+      pendingUpload: snapshot.pendingUpload,
+      localDataUrl: snapshot.localDataUrl,
+      persistedCandidates: [snapshot.src, snapshot.url, snapshot.key],
+    }) || snapshot.localDataUrl || snapshot.src || snapshot.url || snapshot.key;
     if (!source) {
       console.warn('复制的图片缺少有效的资源地址，无法粘贴');
       return null;

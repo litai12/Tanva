@@ -3242,42 +3242,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               paper.view.update();
             } catch {}
           } else if (projectAssets.images?.length) {
-            const seeded: ImageInstance[] = projectAssets.images
-              .filter((snap) => snap?.id && snap?.bounds)
-              .map((snap) => {
-                const source =
-                  snap?.url || snap?.src || snap?.key || snap?.localDataUrl;
-                return {
-                  id: snap.id,
-                  imageData: {
-                    id: snap.id,
-                    url: snap.url ?? snap.key ?? source,
-                    src: snap.src ?? snap.url ?? source,
-                    key: snap.key,
-                    fileName: snap.fileName,
-                    width: snap.width,
-                    height: snap.height,
-                    contentType: snap.contentType,
-                    pendingUpload: snap.pendingUpload,
-                    localDataUrl: snap.localDataUrl,
-                    locked: snap.locked,
-                  },
-                  bounds: {
-                    x: snap.bounds.x,
-                    y: snap.bounds.y,
-                    width: snap.bounds.width,
-                    height: snap.bounds.height,
-                  },
-                  isSelected: false,
-                  locked: snap.locked,
-                  visible: true,
-                  layerId: snap.layerId ?? undefined,
-                };
-              });
-            if (seeded.length > 0) {
-              imageTool.setImageInstances(seeded);
-              imageTool.setSelectedImageIds([]);
-            }
+            // 仅种子化状态会产生“可点击但不可见”的幽灵图，这里改为真正重建 Raster。
+            imageTool.hydrateFromSnapshot(projectAssets.images);
           }
         }
       } catch (error) {

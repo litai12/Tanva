@@ -40,6 +40,7 @@ import {
   resolveImageToObjectUrl,
   isPersistableImageRef,
   normalizeRemoteUrl,
+  requiresManagedImageUpload,
   toRenderableImageSrc,
 } from "@/utils/imageSource";
 import { blobToDataUrl as blobToDataUrlLimited, canvasToDataUrl, responseToBlob } from "@/utils/imageConcurrency";
@@ -953,12 +954,16 @@ const buildImagePayloadForUpload = (
   }
 
   // 远程 URL：包装为资源对象，避免当作 Data URL 处理失败
+  const pendingUpload = requiresManagedImageUpload(trimmed);
+  const remoteUrl = normalizeRemoteUrl(trimmed) ?? undefined;
   return {
-    id: `remote_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    id: `${pendingUpload ? "remote_pending" : "remote"}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     url: trimmed,
     src: trimmed,
+    remoteUrl,
     fileName,
     contentType: "image/png",
+    pendingUpload,
   };
 };
 
@@ -2290,21 +2295,29 @@ export const useAIChatStore = create<AIChatState>()(
         aiProvider: AIProviderType;
         skipPreview?: boolean;
       }): Promise<{ remoteUrl?: string; thumbnail?: string }> => {
-        if (!result.imageData) {
+        const inlineImageData =
+          typeof result.imageData === "string" && result.imageData.trim().length > 0
+            ? result.imageData
+            : undefined;
+        const initialRemoteUrl = getResultImageRemoteUrl(result);
+        if (!inlineImageData && !initialRemoteUrl) {
           return {};
         }
-        const inlineImageData = result.imageData;
 
         return aiChatHistoryLimiter.run(async () => {
-          const dataUrl = ensureDataUrl(inlineImageData);
+          const dataUrl = inlineImageData ? ensureDataUrl(inlineImageData) : undefined;
           const previewDataUrl = skipPreview
             ? null
-            : await buildImagePreviewSafely(dataUrl);
+            : dataUrl
+            ? await buildImagePreviewSafely(dataUrl)
+            : null;
           const projectId = useProjectContentStore.getState().projectId;
-          let remoteUrl: string | undefined;
+          let remoteUrl: string | undefined = initialRemoteUrl;
           try {
             const historyRecord = await recordImageHistoryEntry({
-              dataUrl,
+              ...(initialRemoteUrl
+                ? { remoteUrl: initialRemoteUrl }
+                : { dataUrl }),
               title: prompt,
               nodeId: aiMessageId,
               nodeType: "generate",
@@ -2320,7 +2333,7 @@ export const useAIChatStore = create<AIChatState>()(
                 operationType,
               },
             });
-            remoteUrl = historyRecord.remoteUrl;
+            remoteUrl = historyRecord.remoteUrl || remoteUrl;
           } catch (error) {
             console.warn("⚠️ 记录AI图像历史失败:", error);
           }
@@ -2340,17 +2353,20 @@ export const useAIChatStore = create<AIChatState>()(
           const storedHistory = contextManager.addImageHistory(historyEntry);
 
           try {
-            useImageHistoryStore.getState().addImage({
-              id: storedHistory.id,
-              src: remoteUrl || dataUrl,
-              remoteUrl: remoteUrl ?? undefined,
-              thumbnail,
-              title: prompt,
-              nodeId: aiMessageId,
-              nodeType: "generate",
-              projectId,
-              timestamp: storedHistory.timestamp.getTime(),
-            });
+            const srcForStore = remoteUrl || dataUrl;
+            if (srcForStore) {
+              useImageHistoryStore.getState().addImage({
+                id: storedHistory.id,
+                src: srcForStore,
+                remoteUrl: remoteUrl ?? undefined,
+                thumbnail,
+                title: prompt,
+                nodeId: aiMessageId,
+                nodeType: "generate",
+                projectId,
+                timestamp: storedHistory.timestamp.getTime(),
+              });
+            }
           } catch (error) {
             console.warn("⚠️ 更新图片历史Store失败:", error);
           }
@@ -3472,7 +3488,7 @@ export const useAIChatStore = create<AIChatState>()(
               }, totalDelay); // 递增延迟，避免并行图片同时添加到画布
 
               // 步骤4：异步上传历史记录（后台进行，不阻塞显示）
-              if (inlineImageData) {
+              if (inlineImageData || imageRemoteUrl) {
                 const resultForCache: AIImageResult = {
                   ...result.data,
                   imageData: undefined,
@@ -4189,7 +4205,7 @@ export const useAIChatStore = create<AIChatState>()(
               }, totalDelay);
 
               // 步骤4：异步上传历史记录（后台进行，不阻塞上画布）
-              if (inlineImageData) {
+              if (inlineImageData || imageRemoteUrl) {
                 const resultForCache: AIImageResult = {
                   ...result.data!,
                   imageData: undefined,
@@ -4812,7 +4828,7 @@ export const useAIChatStore = create<AIChatState>()(
               }, totalDelay);
 
               // 步骤4：异步上传历史记录（后台进行，不阻塞上画布）
-              if (inlineImageData) {
+              if (inlineImageData || imageRemoteUrl) {
                 const resultForCache: AIImageResult = {
                   ...result.data!,
                   imageData: undefined,
@@ -5071,7 +5087,7 @@ export const useAIChatStore = create<AIChatState>()(
               let uploadedAssets:
                 | { remoteUrl?: string; thumbnail?: string }
                 | undefined;
-              if (inlineImageData) {
+              if (inlineImageData || imageRemoteUrl) {
                 uploadedAssets = await registerMessageImageHistory({
                   aiMessageId: aiMessage.id,
                   prompt,

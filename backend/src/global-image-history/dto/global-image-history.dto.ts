@@ -44,4 +44,8 @@ export class QueryGlobalImageHistoryDto {
   @IsOptional()
   @IsString()
   sourceProjectId?: string;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
 }

@@ -40,7 +40,11 @@ class ImageSplitWorkerClient {
   private pending = new Map<string, PendingRequest>();
 
   isSupported(): boolean {
-    return typeof Worker !== "undefined";
+    return (
+      typeof Worker !== "undefined" &&
+      typeof createImageBitmap === "function" &&
+      typeof OffscreenCanvas !== "undefined"
+    );
   }
 
   private ensureWorker(): Worker {
@@ -109,7 +113,7 @@ class ImageSplitWorkerClient {
     options: { outputCount: number }
   ): Promise<WorkerSplitImageResult> {
     if (!this.isSupported()) {
-      return { success: false, error: "当前环境不支持 Web Worker" };
+      return { success: false, error: "当前环境不支持 Worker 图像分割能力" };
     }
 
     const worker = this.ensureWorker();
@@ -145,7 +149,7 @@ class ImageSplitWorkerClient {
     options: { outputCount: number }
   ): Promise<WorkerSplitImageRectsResult> {
     if (!this.isSupported()) {
-      return { success: false, error: "当前环境不支持 Web Worker" };
+      return { success: false, error: "当前环境不支持 Worker 图像分割能力" };
     }
 
     const worker = this.ensureWorker();

@@ -124,10 +124,15 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
       }
     };
 
-    // 处理滚轮/触控板事件：支持双指平移，阻止缩放
+    // 处理滚轮/触控板事件：根据设置切换缩放与平移手势
     const handleWheel = (event: WheelEvent) => {
-      // Ctrl/Cmd + 滚轮：缩放（以鼠标位置为中心）
-      if (event.ctrlKey || event.metaKey) {
+      const store = useCanvasStore.getState();
+      const isModifierWheel = event.ctrlKey || event.metaKey;
+      const shouldZoom =
+        store.wheelZoomMode === 'direct' ? !isModifierWheel : isModifierWheel;
+
+      // 缩放（以鼠标位置为中心）
+      if (shouldZoom) {
         event.preventDefault();
         event.stopPropagation();
 
@@ -136,7 +141,6 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
         const sx = (event.clientX - rect.left) * dpr; // 设备像素
         const sy = (event.clientY - rect.top) * dpr;
 
-        const store = useCanvasStore.getState();
         const z1 = zoomRef.current;
         const delta = normalizeWheelDelta(event.deltaY, event.deltaMode);
         if (Math.abs(delta) < 1e-6) return;
@@ -154,7 +158,7 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
         return;
       }
 
-      // 普通滚轮/触控板：平移
+      // 平移
       event.preventDefault(); // 阻止浏览器默认行为（缩放/滚动）
       event.stopPropagation();
 
@@ -163,9 +167,8 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
         const worldDeltaX = (-event.deltaX * dpr) / zoomRef.current;
         const worldDeltaY = (-event.deltaY * dpr) / zoomRef.current;
 
-        const currentState = useCanvasStore.getState();
-        const newPanX = currentState.panX + worldDeltaX;
-        const newPanY = currentState.panY + worldDeltaY;
+        const newPanX = store.panX + worldDeltaX;
+        const newPanY = store.panY + worldDeltaY;
         setPan(newPanX, newPanY);
       }
     };

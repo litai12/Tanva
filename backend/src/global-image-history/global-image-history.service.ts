@@ -22,7 +22,7 @@ export class GlobalImageHistoryService {
   }
 
   async list(userId: string, query: QueryGlobalImageHistoryDto) {
-    const { limit = 20, cursor, sourceType, sourceProjectId } = query;
+    const { limit = 20, cursor, sourceType, sourceProjectId, search } = query;
 
     const where: any = { userId };
     if (sourceType) {
@@ -31,12 +31,30 @@ export class GlobalImageHistoryService {
     if (sourceProjectId) {
       where.sourceProjectId = sourceProjectId;
     }
+    if (typeof search === 'string' && search.trim()) {
+      const keyword = search.trim();
+      where.OR = [
+        {
+          prompt: {
+            contains: keyword,
+            mode: 'insensitive',
+          },
+        },
+        {
+          sourceProjectName: {
+            contains: keyword,
+            mode: 'insensitive',
+          },
+        },
+      ];
+    }
 
     const items = await this.prisma.globalImageHistory.findMany({
       where,
       take: limit + 1,
       cursor: cursor ? { id: cursor } : undefined,
-      orderBy: { createdAt: 'desc' },
+      skip: cursor ? 1 : 0,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
 
     let nextCursor: string | undefined;

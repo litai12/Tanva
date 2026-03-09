@@ -2,7 +2,11 @@ import { useProjectContentStore } from '@/stores/projectContentStore';
 import { getInFlightUploadCount } from '@/stores/uploadTaskStore';
 import { getNonPersistableFlowImageNodeIds, getNonRemoteImageAssetIds } from '@/utils/projectContentValidation';
 import type { PendingUploadSummary } from '@/stores/uploadLeavePromptStore';
-import { isPersistableImageRef, normalizePersistableImageRef } from '@/utils/imageSource';
+import {
+  isPersistableImageRef,
+  normalizePersistableImageRef,
+  requiresManagedImageUpload,
+} from '@/utils/imageSource';
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object') return null;
@@ -47,7 +51,10 @@ function getPendingRuntimeImageIds(): string[] {
 
     const normalizedRef = normalizePersistableImageRef(ref) || ref;
     const pendingUpload = Boolean(data.pendingUpload);
-    const pending = pendingUpload || !isPersistableImageRef(normalizedRef);
+    const pending =
+      pendingUpload ||
+      !isPersistableImageRef(normalizedRef) ||
+      requiresManagedImageUpload(normalizedRef);
     if (pending) ids.push(imageId);
   }
 

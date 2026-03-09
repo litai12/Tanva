@@ -269,6 +269,14 @@ const enUS = {
           enterDesc: "Enter to send, Shift+Enter for newline",
           modEnterDesc: "Enter for newline, Ctrl/Cmd + Enter to send",
         },
+        wheel: {
+          title: "Mouse Wheel",
+          desc: "Swap zoom and pan behavior between wheel and Ctrl/Cmd + wheel.",
+          modifierLabel: "Default Mode",
+          modifierDesc: "Wheel pans, Ctrl/Cmd + wheel zooms",
+          directLabel: "Reversed Mode",
+          directDesc: "Wheel zooms, Ctrl/Cmd + wheel pans",
+        },
         provider: {
           title: "AI Provider",
           banana: "Domestic Pro",

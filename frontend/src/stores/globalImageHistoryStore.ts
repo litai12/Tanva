@@ -5,15 +5,43 @@ import {
   type CreateGlobalImageHistoryDto,
 } from '@/services/globalImageHistoryApi';
 
+interface GlobalImageHistoryQuery {
+  sourceType?: string;
+  sourceProjectId?: string;
+  search?: string;
+}
+
+const normalizeQuery = (query?: GlobalImageHistoryQuery): GlobalImageHistoryQuery => {
+  const sourceType = query?.sourceType?.trim();
+  const sourceProjectId = query?.sourceProjectId?.trim();
+  const search = query?.search?.trim();
+  return {
+    sourceType: sourceType || undefined,
+    sourceProjectId: sourceProjectId || undefined,
+    search: search || undefined,
+  };
+};
+
+const isSameQuery = (a: GlobalImageHistoryQuery, b: GlobalImageHistoryQuery): boolean => {
+  return (
+    (a.sourceType || undefined) === (b.sourceType || undefined) &&
+    (a.sourceProjectId || undefined) === (b.sourceProjectId || undefined) &&
+    (a.search || undefined) === (b.search || undefined)
+  );
+};
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 interface GlobalImageHistoryStore {
   items: GlobalImageHistoryItem[];
   isLoading: boolean;
   hasMore: boolean;
   nextCursor?: string;
   totalCount: number;
+  currentQuery: GlobalImageHistoryQuery;
 
   // Actions
-  fetchItems: (reset?: boolean) => Promise<void>;
+  fetchItems: (options?: { reset?: boolean; query?: GlobalImageHistoryQuery }) => Promise<void>;
   fetchCount: () => Promise<void>;
   addItem: (dto: CreateGlobalImageHistoryDto) => Promise<GlobalImageHistoryItem | null>;
   deleteItem: (id: string) => Promise<boolean>;
@@ -26,20 +54,50 @@ export const useGlobalImageHistoryStore = create<GlobalImageHistoryStore>((set, 
   hasMore: true,
   nextCursor: undefined,
   totalCount: 0,
+  currentQuery: {},
 
-  fetchItems: async (reset = false) => {
+  fetchItems: async (options) => {
+    const reset = options?.reset ?? false;
+    const requestedQuery = normalizeQuery(options?.query);
     const state = get();
-    if (state.isLoading) return;
-    if (!reset && !state.hasMore) return;
+    const nextQuery = Object.keys(requestedQuery).length > 0
+      ? requestedQuery
+      : state.currentQuery;
+    const queryChanged = !isSameQuery(state.currentQuery, nextQuery);
+    const shouldReset = reset || queryChanged;
 
-    set({ isLoading: true });
+    if (state.isLoading) return;
+    if (!shouldReset && !state.hasMore) return;
+
+    set((s) => ({
+      isLoading: true,
+      currentQuery: nextQuery,
+      ...(shouldReset
+        ? {
+            items: [],
+            hasMore: true,
+            nextCursor: undefined,
+          }
+        : {
+            items: s.items,
+            hasMore: s.hasMore,
+            nextCursor: s.nextCursor,
+          }),
+    }));
 
     try {
-      const cursor = reset ? undefined : state.nextCursor;
-      const result = await globalImageHistoryApi.list({ limit: 20, cursor });
+      const latest = get();
+      const cursor = shouldReset ? undefined : latest.nextCursor;
+      const result = await globalImageHistoryApi.list({
+        limit: 20,
+        cursor,
+        sourceType: nextQuery.sourceType,
+        sourceProjectId: nextQuery.sourceProjectId,
+        search: nextQuery.search,
+      });
 
       set((s) => ({
-        items: reset ? result.items : [...s.items, ...result.items],
+        items: shouldReset ? result.items : [...s.items, ...result.items],
         nextCursor: result.nextCursor,
         hasMore: result.hasMore,
         isLoading: false,
@@ -60,17 +118,25 @@ export const useGlobalImageHistoryStore = create<GlobalImageHistoryStore>((set, 
   },
 
   addItem: async (dto) => {
-    try {
-      const item = await globalImageHistoryApi.create(dto);
-      set((s) => ({
-        items: [item, ...s.items],
-        totalCount: s.totalCount + 1,
-      }));
-      return item;
-    } catch (error) {
-      console.error('[GlobalImageHistory] 添加失败:', error);
-      return null;
+    const maxAttempts = 3;
+    const retryDelays = [300, 800];
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const item = await globalImageHistoryApi.create(dto);
+        set((s) => ({
+          items: [item, ...s.items],
+          totalCount: s.totalCount + 1,
+        }));
+        return item;
+      } catch (error) {
+        if (attempt >= maxAttempts) {
+          console.error('[GlobalImageHistory] 添加失败:', error);
+          return null;
+        }
+        await sleep(retryDelays[attempt - 1] ?? 1200);
+      }
     }
+    return null;
   },
 
   deleteItem: async (id) => {
@@ -97,6 +163,7 @@ export const useGlobalImageHistoryStore = create<GlobalImageHistoryStore>((set, 
       hasMore: true,
       nextCursor: undefined,
       totalCount: 0,
+      currentQuery: {},
     });
   },
 }));

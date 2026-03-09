@@ -77,6 +77,42 @@ export const isAssetKeyRef = (value?: string | null): boolean => {
   return /^(templates|projects|uploads|videos)\//i.test(withoutLeading);
 };
 
+const normalizeUrlHost = (value?: string | null): string | null => {
+  if (!value) return null;
+  try {
+    return new URL(value).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+};
+
+const getManagedAssetHosts = (): Set<string> => {
+  const hosts = new Set<string>(["tai-tanva-ai.oss-cn-shenzhen.aliyuncs.com"]);
+  const publicBaseHost = normalizeUrlHost(getPublicAssetBaseUrl());
+  if (publicBaseHost) hosts.add(publicBaseHost);
+  return hosts;
+};
+
+export const looksLikeSignedAssetUrl = (url: string): boolean =>
+  /[?&](?:X-Amz|X-Tos|OSSAccessKeyId|Signature|Expires)=/i.test(url);
+
+export const isLikelyManagedAssetUrl = (url: string): boolean => {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    if (getManagedAssetHosts().has(host)) return true;
+    if (
+      host.endsWith(".aliyuncs.com") &&
+      /^\/(?:projects|uploads|templates|videos)\//i.test(parsed.pathname)
+    ) {
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+};
+
 export const isPersistableImageRef = (value?: string | null): boolean => {
   if (typeof value !== "string") return false;
   const trimmed = value.trim();
@@ -99,6 +135,12 @@ export const isPersistableImageRef = (value?: string | null): boolean => {
     return true;
   }
   return false;
+};
+
+export const requiresManagedImageUpload = (value?: string | null): boolean => {
+  const normalized = normalizePersistableImageRef(value);
+  if (!normalized || !isRemoteUrl(normalized)) return false;
+  return looksLikeSignedAssetUrl(normalized) || !isLikelyManagedAssetUrl(normalized);
 };
 
 /**

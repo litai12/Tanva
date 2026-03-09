@@ -4262,7 +4262,11 @@ function FlowInner() {
       const dpr =
         typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
 
-      if (event.ctrlKey || event.metaKey) {
+      const isModifierWheel = event.ctrlKey || event.metaKey;
+      const shouldZoom =
+        store.wheelZoomMode === "direct" ? !isModifierWheel : isModifierWheel;
+
+      if (shouldZoom) {
         event.preventDefault();
         event.stopPropagation();
 
@@ -4278,7 +4282,9 @@ function FlowInner() {
         if (Math.abs(delta) < 1e-6) return;
 
         const z1 = store.zoom || 1;
-        const z2 = computeSmoothZoom(z1, delta);
+        const z2 = computeSmoothZoom(z1, delta, {
+          sensitivity: store.zoomSensitivity,
+        });
         if (z1 === z2) return;
 
         const pan2x = store.panX + sx * (1 / z2 - 1 / z1);

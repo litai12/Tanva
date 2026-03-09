@@ -1,6 +1,6 @@
 import React, { useEffect, useCallback, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Download, Trash2, Search, Filter, Loader2 } from 'lucide-react';
+import { X, Download, Trash2, Search, Loader2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import SmartImage from '../ui/SmartImage';
 import { useGlobalImageHistoryStore } from '@/stores/globalImageHistoryStore';
@@ -217,14 +217,60 @@ export const GlobalImageHistoryPage: React.FC<GlobalImageHistoryPageProps> = ({
   const [selectedItem, setSelectedItem] = useState<GlobalImageHistoryItem | null>(null);
   const [filterType, setFilterType] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [hiddenItemIds, setHiddenItemIds] = useState<Set<string>>(new Set());
+  const [pendingDelete, setPendingDelete] = useState<{
+    id: string;
+    timer: ReturnType<typeof setTimeout>;
+  } | null>(null);
 
-  // 初始加载
+  const queryOptions = {
+    sourceType: filterType.trim() || undefined,
+    search: searchQuery.trim() || undefined,
+  };
+
+  const clearPendingDelete = useCallback(() => {
+    setPendingDelete((current) => {
+      if (current) {
+        clearTimeout(current.timer);
+      }
+      return null;
+    });
+  }, []);
+
+  const restoreHiddenItem = useCallback((id: string) => {
+    setHiddenItemIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const hideItem = useCallback((id: string) => {
+    setHiddenItemIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }, []);
+
+  // 打开时重置状态
   useEffect(() => {
     if (isOpen) {
+      clearPendingDelete();
+      setHiddenItemIds(new Set());
       reset();
-      fetchItems(true);
     }
-  }, [isOpen, reset, fetchItems]);
+  }, [isOpen, clearPendingDelete, reset]);
+
+  // 搜索/筛选改为服务端查询（防抖）
+  useEffect(() => {
+    if (!isOpen) return;
+    const timer = setTimeout(() => {
+      fetchItems({ reset: true, query: queryOptions }).catch(() => {});
+    }, 280);
+    return () => clearTimeout(timer);
+  }, [isOpen, fetchItems, queryOptions.search, queryOptions.sourceType]);
 
   // 键盘事件
   useEffect(() => {
@@ -252,17 +298,40 @@ export const GlobalImageHistoryPage: React.FC<GlobalImageHistoryPageProps> = ({
   // 加载更多
   const handleLoadMore = useCallback(() => {
     if (!isLoading && hasMore) {
-      fetchItems(false);
+      fetchItems({ reset: false, query: queryOptions });
     }
-  }, [isLoading, hasMore, fetchItems]);
+  }, [isLoading, hasMore, fetchItems, queryOptions.search, queryOptions.sourceType]);
 
-  // 删除图片
+  const undoDelete = useCallback(() => {
+    if (!pendingDelete) return;
+    clearTimeout(pendingDelete.timer);
+    restoreHiddenItem(pendingDelete.id);
+    setPendingDelete(null);
+  }, [pendingDelete, restoreHiddenItem]);
+
+  // 删除图片（5 秒撤销窗口）
   const handleDelete = useCallback(async (id: string) => {
-    if (window.confirm('确定要删除这张图片吗？')) {
-      await deleteItem(id);
-      setSelectedItem(null);
+    if (!window.confirm('确定要删除这张图片吗？')) return;
+
+    if (pendingDelete) {
+      clearTimeout(pendingDelete.timer);
+      restoreHiddenItem(pendingDelete.id);
     }
-  }, [deleteItem]);
+
+    hideItem(id);
+    setSelectedItem(null);
+
+    const timer = setTimeout(async () => {
+      const success = await deleteItem(id);
+      restoreHiddenItem(id);
+      setPendingDelete((current) => (current?.id === id ? null : current));
+      if (!success) {
+        window.alert('删除失败，请稍后重试');
+      }
+    }, 5000);
+
+    setPendingDelete({ id, timer });
+  }, [deleteItem, hideItem, pendingDelete, restoreHiddenItem]);
 
   // 下载图片
   const handleDownload = useCallback((item: GlobalImageHistoryItem) => {
@@ -275,17 +344,13 @@ export const GlobalImageHistoryPage: React.FC<GlobalImageHistoryPageProps> = ({
     document.body.removeChild(link);
   }, []);
 
-  // 过滤后的列表
-  const filteredItems = items.filter((item) => {
-    if (filterType && item.sourceType !== filterType) return false;
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      const matchPrompt = item.prompt?.toLowerCase().includes(query);
-      const matchProject = item.sourceProjectName?.toLowerCase().includes(query);
-      if (!matchPrompt && !matchProject) return false;
-    }
-    return true;
-  });
+  useEffect(() => {
+    return () => {
+      clearPendingDelete();
+    };
+  }, [clearPendingDelete]);
+
+  const visibleItems = items.filter((item) => !hiddenItemIds.has(item.id));
 
   if (!isOpen) return null;
 
@@ -303,9 +368,23 @@ export const GlobalImageHistoryPage: React.FC<GlobalImageHistoryPageProps> = ({
         setSearchQuery={setSearchQuery}
       />
 
+      {pendingDelete ? (
+        <div className="mx-6 mt-4 flex items-center justify-between rounded-lg border border-amber-400/30 bg-amber-500/20 px-4 py-3 text-sm text-amber-100">
+          <span>已标记删除，5 秒内可撤销</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={undoDelete}
+            className="h-8 px-3 text-amber-100 hover:bg-amber-500/30 hover:text-white"
+          >
+            撤销
+          </Button>
+        </div>
+      ) : null}
+
       {/* 图片网格 */}
       <ImageGrid
-        items={filteredItems}
+        items={visibleItems}
         isLoading={isLoading}
         hasMore={hasMore}
         onLoadMore={handleLoadMore}

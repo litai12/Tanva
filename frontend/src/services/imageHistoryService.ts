@@ -2,6 +2,224 @@ import { imageUploadService } from '@/services/imageUploadService';
 import type { ImageHistoryItem } from '@/stores/imageHistoryStore';
 import { useImageHistoryStore } from '@/stores/imageHistoryStore';
 import { useGlobalImageHistoryStore } from '@/stores/globalImageHistoryStore';
+import type { CreateGlobalImageHistoryDto } from '@/services/globalImageHistoryApi';
+import {
+  isLikelyManagedAssetUrl,
+  isRemoteUrl,
+  looksLikeSignedAssetUrl,
+  resolveImageToBlob,
+} from '@/utils/imageSource';
+
+const PENDING_GLOBAL_HISTORY_KEY = 'tanva-global-image-history-pending-v1';
+const MAX_PENDING_GLOBAL_HISTORY = 120;
+
+type PendingGlobalHistoryWrite = {
+  dto: CreateGlobalImageHistoryDto;
+  attempts: number;
+  queuedAt: number;
+};
+
+let pendingGlobalHistoryQueue: PendingGlobalHistoryWrite[] | null = null;
+let pendingFlushTimer: ReturnType<typeof setTimeout> | null = null;
+let isFlushingPendingWrites = false;
+let queueListenersAttached = false;
+
+const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+const parsePendingQueue = (raw: string | null): PendingGlobalHistoryWrite[] => {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => {
+        if (!isObjectRecord(item)) return null;
+        const dto = item.dto;
+        if (!isObjectRecord(dto)) return null;
+        const imageUrl = typeof dto.imageUrl === 'string' ? dto.imageUrl.trim() : '';
+        const sourceType = typeof dto.sourceType === 'string' ? dto.sourceType.trim() : '';
+        if (!imageUrl || !sourceType) return null;
+        return {
+          dto: {
+            imageUrl,
+            sourceType,
+            prompt: typeof dto.prompt === 'string' ? dto.prompt : undefined,
+            sourceProjectId:
+              typeof dto.sourceProjectId === 'string' ? dto.sourceProjectId : undefined,
+            sourceProjectName:
+              typeof dto.sourceProjectName === 'string'
+                ? dto.sourceProjectName
+                : undefined,
+            metadata: isObjectRecord(dto.metadata) ? dto.metadata : undefined,
+          },
+          attempts:
+            typeof item.attempts === 'number' && Number.isFinite(item.attempts)
+              ? Math.max(0, Math.floor(item.attempts))
+              : 0,
+          queuedAt:
+            typeof item.queuedAt === 'number' && Number.isFinite(item.queuedAt)
+              ? item.queuedAt
+              : Date.now(),
+        } satisfies PendingGlobalHistoryWrite;
+      })
+      .filter(Boolean) as PendingGlobalHistoryWrite[];
+  } catch {
+    return [];
+  }
+};
+
+const persistPendingQueue = (queue: PendingGlobalHistoryWrite[]) => {
+  if (typeof window === 'undefined') return;
+  try {
+    if (queue.length === 0) {
+      window.localStorage.removeItem(PENDING_GLOBAL_HISTORY_KEY);
+      return;
+    }
+    window.localStorage.setItem(PENDING_GLOBAL_HISTORY_KEY, JSON.stringify(queue));
+  } catch {
+    // ignore
+  }
+};
+
+const isSamePendingWrite = (
+  a: CreateGlobalImageHistoryDto,
+  b: CreateGlobalImageHistoryDto
+): boolean => {
+  return (
+    a.imageUrl === b.imageUrl &&
+    a.sourceType === b.sourceType &&
+    (a.prompt || '') === (b.prompt || '') &&
+    (a.sourceProjectId || '') === (b.sourceProjectId || '')
+  );
+};
+
+const ensurePendingQueueInitialized = () => {
+  if (!pendingGlobalHistoryQueue) {
+    let raw: string | null = null;
+    if (typeof window !== 'undefined') {
+      try {
+        raw = window.localStorage.getItem(PENDING_GLOBAL_HISTORY_KEY);
+      } catch {
+        raw = null;
+      }
+    }
+    pendingGlobalHistoryQueue = parsePendingQueue(raw);
+  }
+
+  if (typeof window === 'undefined' || queueListenersAttached) return;
+  queueListenersAttached = true;
+
+  const triggerFlush = () => {
+    void flushPendingGlobalHistoryWrites();
+  };
+  window.addEventListener('online', triggerFlush);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      triggerFlush();
+    }
+  });
+};
+
+const schedulePendingFlush = (delayMs: number) => {
+  if (pendingFlushTimer) {
+    clearTimeout(pendingFlushTimer);
+  }
+  pendingFlushTimer = setTimeout(() => {
+    pendingFlushTimer = null;
+    void flushPendingGlobalHistoryWrites();
+  }, Math.max(0, delayMs));
+};
+
+const enqueuePendingGlobalHistoryWrite = (dto: CreateGlobalImageHistoryDto) => {
+  ensurePendingQueueInitialized();
+  const queue = pendingGlobalHistoryQueue || [];
+
+  if (queue.some((item) => isSamePendingWrite(item.dto, dto))) {
+    schedulePendingFlush(200);
+    return;
+  }
+
+  queue.push({
+    dto,
+    attempts: 0,
+    queuedAt: Date.now(),
+  });
+  if (queue.length > MAX_PENDING_GLOBAL_HISTORY) {
+    queue.splice(0, queue.length - MAX_PENDING_GLOBAL_HISTORY);
+  }
+  pendingGlobalHistoryQueue = queue;
+  persistPendingQueue(queue);
+  schedulePendingFlush(80);
+};
+
+async function flushPendingGlobalHistoryWrites(): Promise<void> {
+  ensurePendingQueueInitialized();
+  if (isFlushingPendingWrites) return;
+  const queue = pendingGlobalHistoryQueue || [];
+  if (queue.length === 0) return;
+
+  isFlushingPendingWrites = true;
+  try {
+    while (queue.length > 0) {
+      const current = queue[0];
+      const created = await useGlobalImageHistoryStore.getState().addItem(current.dto);
+      if (created) {
+        queue.shift();
+        persistPendingQueue(queue);
+        continue;
+      }
+
+      current.attempts += 1;
+      persistPendingQueue(queue);
+
+      const backoffMs = Math.min(30_000, 500 * 2 ** Math.max(0, current.attempts - 1));
+      schedulePendingFlush(backoffMs);
+      return;
+    }
+  } finally {
+    isFlushingPendingWrites = false;
+    persistPendingQueue(queue);
+  }
+}
+
+const ensurePersistableRemoteHistoryUrl = async (
+  remoteUrl: string,
+  options: {
+    projectId?: string | null;
+    dir?: string;
+    fileName?: string;
+    nodeType: ImageHistoryItem['nodeType'];
+  }
+): Promise<string> => {
+  const trimmed = remoteUrl.trim();
+  if (!isRemoteUrl(trimmed)) return remoteUrl;
+
+  // 托管 OSS/CDN 的稳定 URL 直接使用；签名链接或第三方外链尝试转存。
+  if (isLikelyManagedAssetUrl(trimmed) && !looksLikeSignedAssetUrl(trimmed)) {
+    return trimmed;
+  }
+
+  try {
+    const blob = await resolveImageToBlob(trimmed, { preferProxy: true });
+    if (!blob) return trimmed;
+    const upload = await imageUploadService.uploadImageSource(blob, {
+      projectId: options.projectId ?? undefined,
+      dir: options.dir ?? 'uploads/history/',
+      fileName:
+        options.fileName ??
+        `${options.nodeType}_${new Date().toISOString().replace(/[:.]/g, '-')}.png`,
+      contentType: blob.type || 'image/png',
+    });
+    if (upload.success && upload.asset?.url && upload.asset.url.startsWith('http')) {
+      return upload.asset.url;
+    }
+  } catch (error) {
+    console.warn('[ImageHistory] 远程 URL 转存失败，保留原链接:', error);
+  }
+
+  return trimmed;
+};
 
 interface RecordImageHistoryOptions {
   id?: string;
@@ -54,19 +272,14 @@ export async function recordImageHistoryEntry(options: RecordImageHistoryOptions
   const enqueueGlobalHistoryWrite = (imageUrl?: string) => {
     if (skipGlobalHistory) return;
     if (!imageUrl || !imageUrl.startsWith('http')) return;
-    const globalStore = useGlobalImageHistoryStore.getState();
-    globalStore
-      .addItem({
-        imageUrl,
-        prompt: options.title,
-        sourceType: nodeType,
-        sourceProjectId: projectId ?? undefined,
-        sourceProjectName: projectName,
-        metadata: options.metadata,
-      })
-      .catch((err) => {
-        console.warn('[ImageHistory] 写入全局历史失败:', err);
-      });
+    enqueuePendingGlobalHistoryWrite({
+      imageUrl,
+      prompt: options.title,
+      sourceType: nodeType,
+      sourceProjectId: projectId ?? undefined,
+      sourceProjectName: projectName,
+      metadata: options.metadata,
+    });
   };
 
   let { id } = options;
@@ -76,6 +289,11 @@ export async function recordImageHistoryEntry(options: RecordImageHistoryOptions
 
   const store = useImageHistoryStore.getState();
   const existing = store.history.find((item) => item.id === id);
+
+  const normalizedRemoteUrl =
+    options.remoteUrl && options.remoteUrl.startsWith('http')
+      ? options.remoteUrl.trim()
+      : undefined;
 
   const dataUrl =
     options.dataUrl ??
@@ -87,15 +305,15 @@ export async function recordImageHistoryEntry(options: RecordImageHistoryOptions
       : undefined);
 
   const initialSrc =
-    options.remoteUrl && options.remoteUrl.startsWith('http')
-      ? options.remoteUrl
+    normalizedRemoteUrl
+      ? normalizedRemoteUrl
       : dataUrl;
 
   if (!skipInitialStoreUpdate && initialSrc) {
     store.addImage({
       id,
       src: initialSrc,
-      remoteUrl: options.remoteUrl,
+      remoteUrl: normalizedRemoteUrl,
       thumbnail: resolvedThumbnail,
       title: options.title ?? '图片',
       nodeId,
@@ -105,15 +323,43 @@ export async function recordImageHistoryEntry(options: RecordImageHistoryOptions
     });
   }
 
-  if (options.remoteUrl && options.remoteUrl.startsWith('http')) {
-    enqueueGlobalHistoryWrite(options.remoteUrl);
-    return { id, remoteUrl: options.remoteUrl, thumbnail: resolvedThumbnail };
+  if (normalizedRemoteUrl) {
+    const persistedRemoteUrl = await ensurePersistableRemoteHistoryUrl(normalizedRemoteUrl, {
+      projectId,
+      dir,
+      fileName: options.fileName,
+      nodeType,
+    });
+    if (!skipInitialStoreUpdate && persistedRemoteUrl !== normalizedRemoteUrl) {
+      store.updateImage(id, {
+        src: persistedRemoteUrl,
+        remoteUrl: persistedRemoteUrl,
+        projectId,
+      });
+    }
+    enqueueGlobalHistoryWrite(persistedRemoteUrl);
+    return { id, remoteUrl: persistedRemoteUrl, thumbnail: resolvedThumbnail };
   }
 
   if (!dataUrl || dataUrl.startsWith('http')) {
     const url = dataUrl?.startsWith('http') ? dataUrl : undefined;
-    enqueueGlobalHistoryWrite(url);
-    return { id, remoteUrl: url, thumbnail: resolvedThumbnail };
+    const persistedRemoteUrl = url
+      ? await ensurePersistableRemoteHistoryUrl(url, {
+          projectId,
+          dir,
+          fileName: options.fileName,
+          nodeType,
+        })
+      : undefined;
+    if (!skipInitialStoreUpdate && persistedRemoteUrl && persistedRemoteUrl !== url) {
+      store.updateImage(id, {
+        src: persistedRemoteUrl,
+        remoteUrl: persistedRemoteUrl,
+        projectId,
+      });
+    }
+    enqueueGlobalHistoryWrite(persistedRemoteUrl);
+    return { id, remoteUrl: persistedRemoteUrl, thumbnail: resolvedThumbnail };
   }
 
   try {
@@ -179,4 +425,11 @@ export async function migrateImageHistoryToRemote(options?: {
       skipInitialStoreUpdate: true,
     });
   }
+}
+
+if (typeof window !== 'undefined') {
+  setTimeout(() => {
+    ensurePendingQueueInitialized();
+    void flushPendingGlobalHistoryWrites();
+  }, 150);
 }

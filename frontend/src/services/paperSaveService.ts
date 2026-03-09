@@ -15,6 +15,7 @@ import {
   isPersistableImageRef,
   isRemoteUrl,
   normalizePersistableImageRef,
+  requiresManagedImageUpload,
   toRenderableImageSrc,
 } from '@/utils/imageSource';
 import { FLOW_IMAGE_ASSET_PREFIX } from '@/services/flowImageAssetStore';
@@ -870,7 +871,10 @@ class PaperSaveService {
 
           const url = persistedRef || data?.localDataUrl || rawUrl || rawSrc;
           if (!url) return;
-          const pendingUpload = !!data?.pendingUpload || !isPersistableImageRef(url);
+          const pendingUpload =
+            !!data?.pendingUpload ||
+            !isPersistableImageRef(url) ||
+            requiresManagedImageUpload(url);
           collectedImageIds.add(instance.id);
           const locked = Boolean(
             instance?.locked ??
@@ -945,7 +949,7 @@ class PaperSaveService {
                 fileName: raster?.data?.fileName,
                 width: raster.width,
                 height: raster.height,
-                pendingUpload: !url,
+                pendingUpload: !url || requiresManagedImageUpload(url || finalUrl),
                 localDataUrl: blobSource || undefined,
                 bounds: {
                   x: bounds?.x ?? 0,

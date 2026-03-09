@@ -47,7 +47,18 @@ export const GridStyle = {
 
 export type GridStyle = typeof GridStyle[keyof typeof GridStyle];
 
-const GRID_SETTINGS_VERSION = 1;
+// 鼠标滚轮缩放模式
+export const WheelZoomMode = {
+  MODIFIER: 'modifier', // 仅 Ctrl/Cmd + 滚轮缩放（默认）
+  DIRECT: 'direct',     // 直接滚轮缩放
+} as const;
+
+export type WheelZoomMode = typeof WheelZoomMode[keyof typeof WheelZoomMode];
+
+const isValidWheelZoomMode = (mode: unknown): mode is WheelZoomMode =>
+  mode === WheelZoomMode.MODIFIER || mode === WheelZoomMode.DIRECT;
+
+const GRID_SETTINGS_VERSION = 2;
 
 interface CanvasState {
   // 网格系统
@@ -75,6 +86,7 @@ interface CanvasState {
 
   // 缩放设置
   zoomSensitivity: number;    // 滚轮缩放灵敏度 (1-10)
+  wheelZoomMode: WheelZoomMode; // 滚轮缩放触发方式
   
   // 操作方法
   setGridSize: (size: number) => void;
@@ -100,6 +112,7 @@ interface CanvasState {
 
   // 缩放设置操作方法
   setZoomSensitivity: (sensitivity: number) => void;
+  setWheelZoomMode: (mode: WheelZoomMode) => void;
 }
 
 export const useCanvasStore = create<CanvasState>()(
@@ -129,6 +142,7 @@ export const useCanvasStore = create<CanvasState>()(
 
       // 缩放设置初始状态
       zoomSensitivity: 3,   // 默认灵敏度3（范围1-10，较低值更平滑）
+      wheelZoomMode: WheelZoomMode.MODIFIER,
       
       // 设置方法
       setGridSize: (size) => set({ gridSize: size }),
@@ -169,6 +183,13 @@ export const useCanvasStore = create<CanvasState>()(
         const validSensitivity = Math.max(1, Math.min(10, Math.round(sensitivity))); // 限制范围 1-10
         set({ zoomSensitivity: validSensitivity });
       },
+      setWheelZoomMode: (mode) => {
+        set({
+          wheelZoomMode: isValidWheelZoomMode(mode)
+            ? mode
+            : WheelZoomMode.MODIFIER,
+        });
+      },
       }),
       {
         name: 'canvas-settings', // localStorage 键名
@@ -181,16 +202,23 @@ export const useCanvasStore = create<CanvasState>()(
           }
           const state = persistedState as Partial<CanvasState>;
 
+          const migratedState: Partial<CanvasState> = { ...state };
+
           // 版本 0 -> 1：将默认网格样式迁移为纯色
-          if (version < GRID_SETTINGS_VERSION) {
-            const migratedState: Partial<CanvasState> = { ...state };
+          if (version < 1) {
             if (!migratedState.gridStyle || migratedState.gridStyle === GridStyle.LINES) {
               migratedState.gridStyle = GridStyle.SOLID;
             }
-            return migratedState;
           }
 
-          return state;
+          // 版本 1 -> 2：新增滚轮缩放模式
+          if (version < 2) {
+            if (!isValidWheelZoomMode(migratedState.wheelZoomMode)) {
+              migratedState.wheelZoomMode = WheelZoomMode.MODIFIER;
+            }
+          }
+
+          return migratedState;
         },
         // 内存优化：只持久化用户偏好设置，不持久化频繁变化的视口状态
         // zoom, panX, panY 会频繁变化（缩放、拖拽时），不应该每次都写入 localStorage
@@ -208,6 +236,7 @@ export const useCanvasStore = create<CanvasState>()(
           showScaleBar: state.showScaleBar,
           // 缩放偏好（不常变化）
           zoomSensitivity: state.zoomSensitivity,
+          wheelZoomMode: state.wheelZoomMode,
           // 注意：不再持久化 zoom, panX, panY, hasInitialCenterApplied
           // 这些值会在每次缩放/拖拽时频繁变化，持久化会导致性能问题
         }) as Partial<CanvasState>,
