@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   CREDIT_PRICING_CONFIG,
   DEFAULT_NEW_USER_CREDITS,
+  INVITED_NEW_USER_BONUS_CREDITS,
   DAILY_LOGIN_REWARD_CREDITS,
   CONSECUTIVE_7_DAY_BONUS_CREDITS,
   ServiceType,
@@ -449,12 +450,19 @@ export class CreditsService {
           return existingAccount;
         }
 
+        const user = await tx.user.findUnique({
+          where: { id: userId },
+          select: { invitedById: true },
+        });
+        const invitedBonus = user?.invitedById ? INVITED_NEW_USER_BONUS_CREDITS : 0;
+        const initialCredits = DEFAULT_NEW_USER_CREDITS + invitedBonus;
+
         // 创建新账户并赠送初始积分
         const newAccount = await tx.creditAccount.create({
           data: {
             userId,
-            balance: DEFAULT_NEW_USER_CREDITS,
-            totalEarned: DEFAULT_NEW_USER_CREDITS,
+            balance: initialCredits,
+            totalEarned: initialCredits,
           },
         });
 
@@ -469,6 +477,20 @@ export class CreditsService {
             description: '新用户注册赠送积分',
           },
         });
+
+        if (invitedBonus > 0) {
+          await tx.creditTransaction.create({
+            data: {
+              accountId: newAccount.id,
+              type: TransactionType.EARN,
+              amount: invitedBonus,
+              balanceBefore: DEFAULT_NEW_USER_CREDITS,
+              balanceAfter: initialCredits,
+              description: '被邀请注册额外赠送积分',
+              metadata: { inviterUserId: user?.invitedById },
+            },
+          });
+        }
 
         return newAccount;
       }, {

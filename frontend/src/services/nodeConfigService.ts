@@ -122,6 +122,7 @@ function getDefaultConfigs(): NodeConfig[] {
     { nodeKey: "storyboardSplit", nameZh: "分镜拆解", nameEn: "Storyboard", category: "other", status: "normal", sortOrder: 35, creditsPerCall: 10 },
     { nodeKey: "imageGrid", nameZh: "图片拼接", nameEn: "Grid", category: "other", status: "normal", sortOrder: 36, creditsPerCall: 0 },
     { nodeKey: "imageSplit", nameZh: "图片拆分", nameEn: "Split", category: "other", status: "normal", sortOrder: 37, creditsPerCall: 0 },
-    { nodeKey: "three", nameZh: "2D转3D", nameEn: "2D to 3D", category: "other", status: "normal", sortOrder: 38, creditsPerCall: 30 },
+    { nodeKey: "imageCompress", nameZh: "图片压缩", nameEn: "Image Compress", category: "other", status: "normal", sortOrder: 38, creditsPerCall: 0 },
+    { nodeKey: "three", nameZh: "2D转3D", nameEn: "2D to 3D", category: "other", status: "normal", sortOrder: 39, creditsPerCall: 30 },
   ];
 }

@@ -1,6 +1,6 @@
 import type { Node, Edge } from 'reactflow';
 
-export type NodeKind = 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generatePro' | 'storyboardSplit' | 'imageSplit';
+export type NodeKind = 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generatePro' | 'storyboardSplit' | 'imageSplit' | 'imageCompress';
 
 export type TextPromptData = {
   text?: string;
@@ -110,7 +110,21 @@ export type ImageSplitData = {
   boxH?: number;
 };
 
-export type AnyNodeData = TextPromptData | PromptOptimizeData | ImageData | GenerateData | GenerateProData | Generate4Data | TextChatData | StoryboardSplitData | ImageSplitData;
+export type ImageCompressData = {
+  status?: 'idle' | 'processing' | 'ready' | 'error';
+  level?: 'light' | 'balanced' | 'strong';
+  inputImage?: string;
+  outputImage?: string;
+  imageData?: string;
+  originalBytes?: number;
+  outputBytes?: number;
+  compressionRatio?: number;
+  error?: string;
+  boxW?: number;
+  boxH?: number;
+};
+
+export type AnyNodeData = TextPromptData | PromptOptimizeData | ImageData | GenerateData | GenerateProData | Generate4Data | TextChatData | StoryboardSplitData | ImageSplitData | ImageCompressData;
 
 export type AnyNode = Node<AnyNodeData>;
 export type AnyEdge = Edge;

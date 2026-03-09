@@ -75,6 +75,7 @@ import VideoAnalyzeNode from "./nodes/VideoAnalyzeNode";
 import VideoFrameExtractNode from "./nodes/VideoFrameExtractNode";
 import ImageGridNode from "./nodes/ImageGridNode";
 import ImageSplitNode from "./nodes/ImageSplitNode";
+import ImageCompressNode from "./nodes/ImageCompressNode";
 import Nano2Node from "./nodes/Nano2Node";
 import NodeGroupNode from "./nodes/NodeGroupNode";
 import { FLOW_IMAGE_ASSET_PREFIX } from "@/services/flowImageAssetStore";
@@ -478,6 +479,7 @@ const nodeTypes = {
   videoFrameExtract: VideoFrameExtractNode,
   imageGrid: ImageGridNode,
   imageSplit: ImageSplitNode,
+  imageCompress: ImageCompressNode,
 };
 
 // 自定义边组件 - 选中时在终点显示删除按钮
@@ -706,6 +708,7 @@ const NODE_PALETTE_ITEMS = [
   { key: "analysis", zh: "图像分析节点", en: "Analysis Node", category: "image" },
   { key: "imageGrid", zh: "图片拼合节点", en: "Image Grid", category: "image" },
   { key: "imageSplit", zh: "图片分割节点", en: "Image Split", category: "image" },
+  { key: "imageCompress", zh: "图片压缩节点", en: "Image Compress", category: "image" },
   { key: "three", zh: "三维节点", en: "3D Node", category: "image" },
   // 视频生成节点
   { key: "sora2Video", zh: "Sora2 Pro视频生成", en: "Sora2 Pro", category: "video" },
@@ -774,6 +777,7 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   analysis: "image",
   imageGrid: "image",
   imageSplit: "image",
+  imageCompress: "image",
 
   three: "three",
 
@@ -843,6 +847,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   videoFrameExtract: { w: 300, h: 420 },
   imageGrid: { w: 300, h: 380 },
   imageSplit: { w: 320, h: 400 },
+  imageCompress: { w: 300, h: 360 },
 } as const;
 
 type FlowNodeType = keyof typeof FLOW_NODE_DEFAULT_SIZE;
@@ -4848,6 +4853,15 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
+          : type === "imageCompress"
+          ? {
+              status: "idle" as const,
+              level: "balanced" as const,
+              outputImage: undefined,
+              imageData: undefined,
+              boxW: size.w,
+              boxH: size.h,
+            }
           : type === "klingVideo" ||
             type === "kling26Video" ||
             type === "viduVideo" ||
@@ -5007,6 +5021,7 @@ function FlowInner() {
           "camera",
           "imageGrid",
           "imageSplit",
+          "imageCompress",
           "midjourney",
           "nano2",
         ];
@@ -5279,11 +5294,18 @@ function FlowInner() {
             "generatePro4",
             "midjourney",
             "imageGrid",
+            "imageCompress",
           ].includes(sourceNode.type || "");
         }
         return false;
       }
       if (targetNode.type === "imageSplit") {
+        if (targetHandle === "img") {
+          return isImageSource(sourceNode, sourceHandle);
+        }
+        return false;
+      }
+      if (targetNode.type === "imageCompress") {
         if (targetHandle === "img") {
           return isImageSource(sourceNode, sourceHandle);
         }
@@ -5420,6 +5442,9 @@ function FlowInner() {
         if (params.targetHandle === "images") return true; // 允许多条图片连接
       }
       if (targetNode?.type === "imageSplit") {
+        if (params.targetHandle === "img") return true; // 仅一条图片连接
+      }
+      if (targetNode?.type === "imageCompress") {
         if (params.targetHandle === "img") return true; // 仅一条图片连接
       }
       if (targetNode?.type === "textChat") {
@@ -7020,6 +7045,14 @@ function FlowInner() {
         if (node.type === "imageGrid") {
           const out =
             typeof d.outputImage === "string" ? d.outputImage.trim() : "";
+          return out ? await resolveImageValueToDataUrlForBackend(out) : null;
+        }
+
+        if (node.type === "imageCompress") {
+          const out =
+            (typeof d.outputImage === "string" && d.outputImage.trim()) ||
+            (typeof d.imageData === "string" && d.imageData.trim()) ||
+            "";
           return out ? await resolveImageValueToDataUrlForBackend(out) : null;
         }
 

@@ -169,6 +169,14 @@ export async function updateUserRole(userId: string, role: string) {
   return response.json();
 }
 
+// 删除用户账号
+export async function deleteUserAccount(userId: string) {
+  const response = await request(`/api/admin/users/${userId}`, {
+    method: "DELETE",
+  });
+  return response.json();
+}
+
 // 为用户添加积分
 export async function addCredits(
   userId: string,

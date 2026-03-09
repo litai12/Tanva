@@ -1,9 +1,15 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 // 邀请奖励配置
-const REFERRAL_REWARD = 1000; // 邀请成功奖励积分
+const REFERRAL_INVITER_REWARD = 500; // 邀请人奖励积分
+const REFERRAL_INVITER_FIRST_RECHARGE_REWARD = 500; // 邀请好友首充额外奖励积分
 const REFERRAL_REWARD_LIMIT = 10; // 邀请奖励次数上限
 const DAILY_CHECK_IN_REWARDS = [50, 50, 50, 50, 50, 50, 50]; // D1-D7 每日签到奖励
 const WEEKLY_BONUS = 150; // 满7天额外奖励
@@ -11,6 +17,32 @@ const WEEKLY_BONUS = 150; // 满7天额外奖励
 @Injectable()
 export class ReferralService {
   constructor(private prisma: PrismaService) {}
+
+  private wait(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async acquireInviteeTxLock(
+    tx: Prisma.TransactionClient,
+    inviteeUserId: string,
+  ): Promise<void> {
+    const lockKey = `invitee:${inviteeUserId}`;
+    const maxAttempts = 40;
+    const retryDelayMs = 50;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const [row] = await tx.$queryRaw<{ locked: boolean }[]>`
+        SELECT pg_try_advisory_xact_lock(hashtext(${lockKey}), 0) AS locked
+      `;
+
+      if (row?.locked) return;
+      if (attempt < maxAttempts) {
+        await this.wait(retryDelayMs);
+      }
+    }
+
+    throw new ConflictException('请求处理中，请稍后重试');
+  }
 
   /**
    * 生成用户专属邀请码（格式：TANVAS-XXXX）
@@ -31,7 +63,7 @@ export class ReferralService {
     normalizedCode: string,
   ) {
     // 基于数据库事务锁，串行化同一被邀请人的并发兑换请求
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`invitee:${inviteeUserId}`}), 0)`;
+    await this.acquireInviteeTxLock(tx, inviteeUserId);
 
     // 查找邀请码
     const inviteCode = await tx.invitationCode.findUnique({
@@ -85,7 +117,7 @@ export class ReferralService {
         inviteeUserId,
         inviterUserId: inviteCode.inviterUserId,
         rewardStatus: 'pending',
-        rewardAmount: REFERRAL_REWARD,
+        rewardAmount: REFERRAL_INVITER_REWARD,
       },
     });
 
@@ -160,8 +192,19 @@ export class ReferralService {
       },
     });
 
+    // 邀请好友首充奖励次数
+    const firstRechargeRewards = await this.prisma.creditTransaction.count({
+      where: {
+        type: 'REFERRAL_REWARD',
+        description: '邀请好友首充奖励',
+        account: { userId },
+      },
+    });
+
     // 计算累计收益
-    const totalEarnings = rewardedInvites * REFERRAL_REWARD;
+    const totalEarnings =
+      rewardedInvites * REFERRAL_INVITER_REWARD +
+      firstRechargeRewards * REFERRAL_INVITER_FIRST_RECHARGE_REWARD;
 
     // 获取邀请记录列表
     const inviteRecords = await this.prisma.invitationRedemption.findMany({
@@ -361,7 +404,7 @@ export class ReferralService {
   ) {
     return this.prisma.$transaction(async (tx) => {
       // 串行化同一被邀请人的奖励核验，避免重复发奖
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`invitee:${inviteeUserId}`}), 0)`;
+      await this.acquireInviteeTxLock(tx, inviteeUserId);
 
       // 若该被邀请人已经发过奖，不再重复发放
       const alreadyRewarded = await tx.invitationRedemption.findFirst({
@@ -408,22 +451,22 @@ export class ReferralService {
         where: { userId: redemption.inviterUserId },
         create: {
           userId: redemption.inviterUserId,
-          balance: REFERRAL_REWARD,
-          totalEarned: REFERRAL_REWARD,
+          balance: REFERRAL_INVITER_REWARD,
+          totalEarned: REFERRAL_INVITER_REWARD,
         },
         update: {
-          balance: { increment: REFERRAL_REWARD },
-          totalEarned: { increment: REFERRAL_REWARD },
+          balance: { increment: REFERRAL_INVITER_REWARD },
+          totalEarned: { increment: REFERRAL_INVITER_REWARD },
         },
       });
 
-      // 创建交易记录
+      // 为邀请人创建交易记录
       await tx.creditTransaction.create({
         data: {
           accountId: inviterAccount.id,
           type: 'REFERRAL_REWARD',
-          amount: REFERRAL_REWARD,
-          balanceBefore: inviterAccount.balance - REFERRAL_REWARD,
+          amount: REFERRAL_INVITER_REWARD,
+          balanceBefore: inviterAccount.balance - REFERRAL_INVITER_REWARD,
           balanceAfter: inviterAccount.balance,
           description: '邀请好友奖励',
           metadata: { inviteeUserId },
@@ -441,9 +484,73 @@ export class ReferralService {
 
       return {
         inviterId: redemption.inviterUserId,
-        reward: REFERRAL_REWARD,
+        inviterReward: REFERRAL_INVITER_REWARD,
       };
     });
+  }
+
+  /**
+   * 被邀请用户首次充值后，额外奖励邀请人
+   */
+  async rewardInviterForInviteeFirstRechargeInTransaction(
+    tx: Prisma.TransactionClient,
+    inviteeUserId: string,
+  ) {
+    await this.acquireInviteeTxLock(tx, inviteeUserId);
+
+    const invitee = await tx.user.findUnique({
+      where: { id: inviteeUserId },
+      select: { invitedById: true },
+    });
+    if (!invitee?.invitedById) {
+      return null;
+    }
+
+    const alreadyRewarded = await tx.creditTransaction.findFirst({
+      where: {
+        type: 'REFERRAL_REWARD',
+        description: '邀请好友首充奖励',
+        account: { userId: invitee.invitedById },
+        metadata: {
+          path: ['inviteeUserId'],
+          equals: inviteeUserId,
+        },
+      },
+      select: { id: true },
+    });
+    if (alreadyRewarded) {
+      return null;
+    }
+
+    const inviterAccount = await tx.creditAccount.upsert({
+      where: { userId: invitee.invitedById },
+      create: {
+        userId: invitee.invitedById,
+        balance: REFERRAL_INVITER_FIRST_RECHARGE_REWARD,
+        totalEarned: REFERRAL_INVITER_FIRST_RECHARGE_REWARD,
+      },
+      update: {
+        balance: { increment: REFERRAL_INVITER_FIRST_RECHARGE_REWARD },
+        totalEarned: { increment: REFERRAL_INVITER_FIRST_RECHARGE_REWARD },
+      },
+    });
+
+    await tx.creditTransaction.create({
+      data: {
+        accountId: inviterAccount.id,
+        type: 'REFERRAL_REWARD',
+        amount: REFERRAL_INVITER_FIRST_RECHARGE_REWARD,
+        balanceBefore: inviterAccount.balance - REFERRAL_INVITER_FIRST_RECHARGE_REWARD,
+        balanceAfter: inviterAccount.balance,
+        description: '邀请好友首充奖励',
+        metadata: { inviteeUserId, rewardType: 'invitee_first_recharge' },
+      },
+    });
+
+    return {
+      inviterId: invitee.invitedById,
+      reward: REFERRAL_INVITER_FIRST_RECHARGE_REWARD,
+    };
   }
 
   /**

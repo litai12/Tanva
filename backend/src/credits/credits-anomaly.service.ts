@@ -94,7 +94,10 @@ export class CreditsAnomalyService {
     if (type === 'REFERRAL_REWARD') {
       return { sourceKey: 'referral_reward', sourceLabel: '邀请奖励' };
     }
-    if (type === 'earn' && description === '新用户注册赠送积分') {
+    if (
+      type === 'earn' &&
+      (description === '新用户注册赠送积分' || description === '被邀请注册额外赠送积分')
+    ) {
       return { sourceKey: 'new_user_bonus', sourceLabel: '新用户赠送' };
     }
 

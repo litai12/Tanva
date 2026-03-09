@@ -233,7 +233,9 @@ export const CREDIT_PRICING_CONFIG = {
 export type ServiceType = keyof typeof CREDIT_PRICING_CONFIG;
 
 // 默认新用户赠送积分
-export const DEFAULT_NEW_USER_CREDITS = 1000;
+export const DEFAULT_NEW_USER_CREDITS = 500;
+// 被邀请用户注册额外赠送积分
+export const INVITED_NEW_USER_BONUS_CREDITS = 500;
 
 // 每日登录奖励积分
 export const DAILY_LOGIN_REWARD_CREDITS = 50;

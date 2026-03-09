@@ -11,6 +11,7 @@ import {
   getApiUsageRecords,
   addCredits,
   deductCredits,
+  deleteUserAccount,
   updateUserStatus,
   updateUserRole,
   getSettings,
@@ -147,11 +148,13 @@ function DashboardTrendChart({
 
 // 用户管理 Tab
 function UsersTab() {
+  const currentUserId = useAuthStore((state) => state.user?.id);
   const [users, setUsers] = useState<UserWithCredits[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
 
   // 积分操作弹窗
   const [creditModal, setCreditModal] = useState<{
@@ -237,6 +240,29 @@ function UsersTab() {
       loadUsers();
     } catch (error) {
       console.error("更新角色失败:", error);
+    }
+  };
+
+  const handleDeleteUser = async (user: UserWithCredits) => {
+    if (user.id === currentUserId) {
+      alert("不能删除当前登录账号");
+      return;
+    }
+
+    const displayName = user.name || user.phone;
+    const confirmed = window.confirm(
+      `确认删除账号「${displayName}」吗？\n手机号：${user.phone}\n此操作不可撤销，并会删除该账号关联数据。`
+    );
+    if (!confirmed) return;
+
+    setDeletingUserId(user.id);
+    try {
+      await deleteUserAccount(user.id);
+      await loadUsers();
+    } catch (error: any) {
+      alert(error.message || "删除账号失败");
+    } finally {
+      setDeletingUserId(null);
     }
   };
 
@@ -399,7 +425,7 @@ function UsersTab() {
                       {new Date(user.createdAt).toLocaleDateString()}
                     </td>
                     <td className='px-4 py-3'>
-                      <div className='flex gap-1'>
+                      <div className='flex flex-wrap gap-1'>
                         <Button
                           size='sm'
                           variant='outline'
@@ -432,6 +458,17 @@ function UsersTab() {
                           onClick={() => loadCreditDetails(user)}
                         >
                           详情
+                        </Button>
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          className='border-red-300 text-red-600 hover:bg-red-50'
+                          disabled={
+                            deletingUserId === user.id || user.id === currentUserId
+                          }
+                          onClick={() => handleDeleteUser(user)}
+                        >
+                          {deletingUserId === user.id ? "删除中..." : "删除"}
                         </Button>
                       </div>
                     </td>

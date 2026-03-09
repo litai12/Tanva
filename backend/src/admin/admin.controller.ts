@@ -118,6 +118,16 @@ export class AdminController {
     return this.adminService.updateUserRole(userId, dto.role);
   }
 
+  @Delete('users/:userId')
+  @ApiOperation({ summary: '删除用户账号' })
+  async deleteUser(
+    @Request() req: AuthenticatedRequest,
+    @Param('userId') userId: string,
+  ) {
+    this.checkAdmin(req);
+    return this.adminService.deleteUserAccount(userId, req.user.id);
+  }
+
   @Post('users/:userId/credits/add')
   @ApiOperation({ summary: '为用户添加积分' })
   async addCredits(

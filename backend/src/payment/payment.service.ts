@@ -11,6 +11,7 @@ import {
   CREDITS_PER_YUAN,
 } from './dto/payment.dto';
 import { TransactionType } from '../credits/dto/credits.dto';
+import { ReferralService } from '../referral/referral.service';
 
 // --- 🛡️ 兼容引用 ---
 const alipayLib = require('alipay-sdk');
@@ -27,6 +28,7 @@ export class PaymentService implements OnModuleInit {
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
+    private referralService: ReferralService,
   ) { }
 
   /**
@@ -344,12 +346,19 @@ export class PaymentService implements OnModuleInit {
     await this.prisma.$transaction(async (tx) => {
       const currentOrder = await tx.paymentOrder.findUnique({ where: { id: orderId } });
       if (!currentOrder || currentOrder.status === PaymentStatus.PAID) return;
+      const paidOrderCount = await tx.paymentOrder.count({
+        where: { userId, status: PaymentStatus.PAID },
+      });
+      const isFirstRecharge = paidOrderCount === 0;
       await tx.paymentOrder.update({ where: { id: orderId }, data: { status: PaymentStatus.PAID, paidAt: new Date() } });
       let account = await tx.creditAccount.findUnique({ where: { userId } });
       if (!account) account = await tx.creditAccount.create({ data: { userId, balance: 0, totalEarned: 0 } });
       const newBalance = account.balance + credits;
       await tx.creditAccount.update({ where: { id: account.id }, data: { balance: newBalance, totalEarned: account.totalEarned + credits } });
       await tx.creditTransaction.create({ data: { accountId: account.id, type: TransactionType.EARN, amount: credits, balanceBefore: account.balance, balanceAfter: newBalance, description: `充值`, metadata: { orderNo: orderId } } });
+      if (isFirstRecharge) {
+        await this.referralService.rewardInviterForInviteeFirstRechargeInTransaction(tx, userId);
+      }
     });
   }
   

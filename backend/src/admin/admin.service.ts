@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ApiResponseStatus } from '../credits/dto/credits.dto';
 
@@ -118,6 +119,20 @@ export class AdminService {
 
   private isUuid(value: string): boolean {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  }
+
+  private async runWithMissingTableTolerance<T>(operation: () => Promise<T>) {
+    try {
+      return await operation();
+    } catch (error: any) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2021'
+      ) {
+        return null;
+      }
+      throw error;
+    }
   }
 
   /**
@@ -826,6 +841,80 @@ export class AdminService {
     return this.prisma.user.update({
       where: { id: userId },
       data: { role },
+    });
+  }
+
+  /**
+   * 删除用户账号及关联数据
+   */
+  async deleteUserAccount(userId: string, operatorId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const targetUser = await tx.user.findUnique({
+        where: { id: userId },
+        select: { id: true, role: true },
+      });
+
+      if (!targetUser) {
+        throw new NotFoundException('用户不存在');
+      }
+
+      if (userId === operatorId) {
+        throw new ForbiddenException('不能删除当前登录管理员账号');
+      }
+
+      if (targetUser.role === 'admin') {
+        const adminCount = await tx.user.count({ where: { role: 'admin' } });
+        if (adminCount <= 1) {
+          throw new BadRequestException('系统至少需要保留一个管理员账号');
+        }
+      }
+
+      await tx.user.updateMany({
+        where: { invitedById: userId },
+        data: { invitedById: null },
+      });
+
+      await tx.refreshToken.deleteMany({ where: { userId } });
+      await tx.workflowHistory.deleteMany({ where: { userId } });
+      await tx.project.deleteMany({ where: { userId } });
+
+      const account = await tx.creditAccount.findUnique({
+        where: { userId },
+        select: { id: true },
+      });
+
+      if (account) {
+        await this.runWithMissingTableTolerance(() =>
+          tx.creditAnomalyRecord.deleteMany({ where: { accountId: account.id } }),
+        );
+        await tx.creditTransaction.deleteMany({ where: { accountId: account.id } });
+        await tx.creditAccount.delete({ where: { id: account.id } });
+      }
+
+      await this.runWithMissingTableTolerance(() =>
+        tx.creditAnomalyRecord.deleteMany({ where: { userId } }),
+      );
+      await tx.apiUsageRecord.deleteMany({ where: { userId } });
+      await tx.globalImageHistory.deleteMany({ where: { userId } });
+
+      await tx.invitationRedemption.deleteMany({
+        where: {
+          OR: [{ inviteeUserId: userId }, { inviterUserId: userId }],
+        },
+      });
+      await tx.invitationCode.updateMany({
+        where: { inviterUserId: userId },
+        data: { inviterUserId: null },
+      });
+
+      await tx.paymentOrder.deleteMany({ where: { userId } });
+      await tx.imageTask.deleteMany({ where: { userId } });
+      await tx.user.delete({ where: { id: userId } });
+
+      return {
+        success: true,
+        deletedUserId: userId,
+      };
     });
   }
 
