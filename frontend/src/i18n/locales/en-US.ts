@@ -353,6 +353,7 @@ const enUS = {
         item: "Item",
         status: "Status",
         amount: "Credits",
+        remaining: "Remaining",
         generatedAt: "Generated At",
         duration: "Duration",
       },

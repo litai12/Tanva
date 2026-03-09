@@ -477,6 +477,7 @@ const MyCredits: React.FC = () => {
                     <tr className="text-xs font-medium text-slate-500">
                       <th className="px-4 py-3 text-left">{t('creditsPage.transactions.columns.item')}</th>
                       <th className="px-4 py-3 text-right">{t('creditsPage.transactions.columns.amount')}</th>
+                      <th className="px-4 py-3 text-right">{t('creditsPage.transactions.columns.remaining')}</th>
                       <th className="px-4 py-3 text-left">{t('creditsPage.transactions.columns.generatedAt')}</th>
                       <th className="px-4 py-3 text-left">{t('creditsPage.transactions.columns.duration')}</th>
                     </tr>
@@ -519,6 +520,9 @@ const MyCredits: React.FC = () => {
                             isPositive ? "text-green-600" : "text-orange-600"
                           )}>
                             {isPositive ? '+' : ''}{tx.amount}
+                          </td>
+                          <td className="px-4 py-3 text-right font-semibold text-blue-600 whitespace-nowrap">
+                            {tx.balanceAfter}
                           </td>
                           <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
                             {new Date(tx.createdAt).toLocaleString(currentLocale)}

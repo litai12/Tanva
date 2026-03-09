@@ -352,6 +352,7 @@ const zhCN = {
         item: "项目",
         status: "状态",
         amount: "积分",
+        remaining: "剩余积分",
         generatedAt: "生成时间",
         duration: "花费时间",
       },

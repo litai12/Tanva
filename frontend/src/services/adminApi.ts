@@ -197,6 +197,39 @@ export async function deductCredits(
   return response.json();
 }
 
+export interface AdminUserCreditTransaction {
+  id: string;
+  type: string;
+  amount: number;
+  balanceBefore: number;
+  balanceAfter: number;
+  description: string;
+  createdAt: string;
+  apiUsageId?: string | null;
+  channel?: string | null;
+  apiResponseStatus?: string | null;
+  processingTime?: number | null;
+}
+
+export async function getAdminUserCreditTransactions(
+  userId: string,
+  params?: {
+    page?: number;
+    pageSize?: number;
+    type?: string;
+  }
+): Promise<{ transactions: AdminUserCreditTransaction[]; pagination: Pagination }> {
+  const searchParams = new URLSearchParams();
+  if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
+  if (params?.type) searchParams.set("type", params.type);
+
+  const response = await request(
+    `/api/admin/users/${userId}/credits/transactions?${searchParams}`
+  );
+  return response.json();
+}
+
 // 获取 API 使用统计
 export async function getApiUsageStats(params?: {
   startDate?: string;

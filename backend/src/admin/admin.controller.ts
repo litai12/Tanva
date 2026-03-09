@@ -18,6 +18,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 import { AdminService } from './admin.service';
 import { CreditsService } from '../credits/credits.service';
 import { CreditsAnomalyService } from '../credits/credits-anomaly.service';
+import { TransactionHistoryQueryDto } from '../credits/dto/credits.dto';
 import { TemplateService } from './services/template.service';
 import { NodeConfigService, NodeConfigDto, UpdateNodeConfigDto } from './services/node-config.service';
 import {
@@ -147,6 +148,21 @@ export class AdminController {
       dto.description,
       req.user.id,
     );
+  }
+
+  @Get('users/:userId/credits/transactions')
+  @ApiOperation({ summary: '获取指定用户积分流水（管理员）' })
+  async getUserCreditTransactions(
+    @Request() req: AuthenticatedRequest,
+    @Param('userId') userId: string,
+    @Query() query: TransactionHistoryQueryDto,
+  ) {
+    this.checkAdmin(req);
+    return this.creditsService.getTransactionHistory(userId, {
+      page: query.page,
+      pageSize: query.pageSize,
+      type: query.type,
+    });
   }
 
   @Get('api-usage/stats')

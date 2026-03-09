@@ -10,6 +10,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 画布与 AI 对话框支持 JSON 复制/导入（右键 + `Ctrl/Cmd+Shift+C/V`），导出内容与 `Project.contentJson` 保持一致。
 
 ### Changed
+- 用户积分页“积分记录”表格新增“剩余积分”列（使用每条交易的 `balanceAfter`），与管理员“积分详情”中的余额展示保持一致（`frontend/src/pages/MyCredits.tsx`，`frontend/src/i18n/locales/zh-CN.ts`，`frontend/src/i18n/locales/en-US.ts`）。
+- 管理后台用户列表的“积分详情”弹窗新增“细分积分明细”模块：对齐用户端积分明细展示（项目/积分/生成时间/花费时间），并新增“剩余积分（变更后余额）”展示；后端新增管理员按用户查询积分流水接口（`GET /api/admin/users/:userId/credits/transactions`）。
 - Canvas：图片预览右侧缩略图改为项目级分页懒加载，不再全量拉取全局历史（`frontend/src/components/canvas/ImageContainer.tsx`）。
 - Canvas：选中图片同步到 AI 对话框时，优先使用 `remoteUrl`，缺失时将 OSS key 转为可访问 URL（`frontend/src/components/canvas/DrawingController.tsx`）。
 - AI 对话框：预览区渲染时将图片 key 转为可访问 URL，避免显示 `/projects/...` 导致图片空白（`frontend/src/components/chat/AIChatDialog.tsx`）。

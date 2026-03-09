@@ -20,6 +20,7 @@ import {
   removeFromWatermarkWhitelist,
   getPaidUsers,
   getCreditChangeRecords,
+  getAdminUserCreditTransactions,
   getCreditAnomalyRecords,
   getNodeConfigs,
   updateNodeConfig,
@@ -34,6 +35,7 @@ import {
   type PaidUser,
   type PaidUsersSortBy,
   type CreditChangeRecord,
+  type AdminUserCreditTransaction,
   type CreditAnomalyRecord,
   type NodeConfig,
 } from "@/services/adminApi";
@@ -173,6 +175,9 @@ function UsersTab() {
     manualAdd: [],
     inviteReward: [],
   });
+  const [creditDetailTransactions, setCreditDetailTransactions] = useState<
+    AdminUserCreditTransaction[]
+  >([]);
 
   const loadUsers = async () => {
     setLoading(true);
@@ -241,33 +246,40 @@ function UsersTab() {
       userName: user.name || user.phone,
     });
     setCreditDetailLoading(true);
+    setCreditDetailTransactions([]);
     try {
-      const [rechargeResult, manualAddResult, inviteResult] = await Promise.all([
-        getCreditChangeRecords({
-          userId: user.id,
-          source: "recharge",
-          page: 1,
-          pageSize: 100,
-        }),
-        getCreditChangeRecords({
-          userId: user.id,
-          source: "admin_add",
-          page: 1,
-          pageSize: 100,
-        }),
-        getCreditChangeRecords({
-          userId: user.id,
-          source: "invite_reward",
-          page: 1,
-          pageSize: 100,
-        }),
-      ]);
+      const [rechargeResult, manualAddResult, inviteResult, transactionResult] =
+        await Promise.all([
+          getCreditChangeRecords({
+            userId: user.id,
+            source: "recharge",
+            page: 1,
+            pageSize: 100,
+          }),
+          getCreditChangeRecords({
+            userId: user.id,
+            source: "admin_add",
+            page: 1,
+            pageSize: 100,
+          }),
+          getCreditChangeRecords({
+            userId: user.id,
+            source: "invite_reward",
+            page: 1,
+            pageSize: 100,
+          }),
+          getAdminUserCreditTransactions(user.id, {
+            page: 1,
+            pageSize: 100,
+          }),
+        ]);
 
       setCreditDetailRecords({
         recharge: rechargeResult.records,
         manualAdd: manualAddResult.records,
         inviteReward: inviteResult.records,
       });
+      setCreditDetailTransactions(transactionResult.transactions || []);
     } catch (error) {
       console.error("加载积分详情失败:", error);
       setCreditDetailRecords({
@@ -275,9 +287,18 @@ function UsersTab() {
         manualAdd: [],
         inviteReward: [],
       });
+      setCreditDetailTransactions([]);
     } finally {
       setCreditDetailLoading(false);
     }
+  };
+
+  const formatChannelLabel = (channel: string | null | undefined): string => {
+    if (!channel) return "-";
+    const normalized = channel.trim().toLowerCase();
+    if (normalized.includes("apimart")) return "M";
+    if (normalized === "legacy" || normalized.includes("147")) return "A";
+    return channel;
   };
 
   return (
@@ -512,92 +533,171 @@ function UsersTab() {
             {creditDetailLoading ? (
               <div className='py-10 text-center text-gray-500'>加载中...</div>
             ) : (
-              <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
-                <div className='border rounded-lg p-4'>
-                  <div className='flex items-center justify-between mb-3'>
-                    <h4 className='font-medium text-gray-800'>充值积分</h4>
-                    <span className='text-xs text-gray-500'>
-                      {creditDetailRecords.recharge.length} 条
-                    </span>
-                  </div>
-                  <div className='space-y-2 max-h-[52vh] overflow-auto pr-1'>
-                    {creditDetailRecords.recharge.length === 0 ? (
-                      <div className='text-xs text-gray-400 py-6 text-center'>
-                        暂无记录
-                      </div>
-                    ) : (
-                      creditDetailRecords.recharge.map((record) => (
-                        <div key={record.id} className='border rounded p-2 text-xs'>
-                          <div className='text-gray-500'>
-                            {new Date(record.createdAt).toLocaleString()}
-                          </div>
-                          <div className='font-medium text-green-600 mt-1'>
-                            +{record.amount} 积分
-                          </div>
-                          <div className='text-gray-600 mt-1'>{record.description}</div>
+              <div className='space-y-4'>
+                <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
+                  <div className='border rounded-lg p-4'>
+                    <div className='flex items-center justify-between mb-3'>
+                      <h4 className='font-medium text-gray-800'>充值积分</h4>
+                      <span className='text-xs text-gray-500'>
+                        {creditDetailRecords.recharge.length} 条
+                      </span>
+                    </div>
+                    <div className='space-y-2 max-h-[52vh] overflow-auto pr-1'>
+                      {creditDetailRecords.recharge.length === 0 ? (
+                        <div className='text-xs text-gray-400 py-6 text-center'>
+                          暂无记录
                         </div>
-                      ))
-                    )}
+                      ) : (
+                        creditDetailRecords.recharge.map((record) => (
+                          <div key={record.id} className='border rounded p-2 text-xs'>
+                            <div className='text-gray-500'>
+                              {new Date(record.createdAt).toLocaleString()}
+                            </div>
+                            <div className='font-medium text-green-600 mt-1'>
+                              +{record.amount} 积分
+                            </div>
+                            <div className='text-gray-600 mt-1'>{record.description}</div>
+                            <div className='text-gray-400 mt-1'>
+                              剩余积分: {record.balanceAfter}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  <div className='border rounded-lg p-4'>
+                    <div className='flex items-center justify-between mb-3'>
+                      <h4 className='font-medium text-gray-800'>手动增加积分</h4>
+                      <span className='text-xs text-gray-500'>
+                        {creditDetailRecords.manualAdd.length} 条
+                      </span>
+                    </div>
+                    <div className='space-y-2 max-h-[52vh] overflow-auto pr-1'>
+                      {creditDetailRecords.manualAdd.length === 0 ? (
+                        <div className='text-xs text-gray-400 py-6 text-center'>
+                          暂无记录
+                        </div>
+                      ) : (
+                        creditDetailRecords.manualAdd.map((record) => (
+                          <div key={record.id} className='border rounded p-2 text-xs'>
+                            <div className='text-gray-500'>
+                              {new Date(record.createdAt).toLocaleString()}
+                            </div>
+                            <div className='font-medium text-blue-600 mt-1'>
+                              +{record.amount} 积分
+                            </div>
+                            <div className='text-gray-600 mt-1'>{record.description}</div>
+                            <div className='text-gray-400 mt-1'>
+                              管理员: {record.admin?.name || record.admin?.phone || "-"}
+                            </div>
+                            <div className='text-gray-400 mt-1'>
+                              剩余积分: {record.balanceAfter}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  <div className='border rounded-lg p-4'>
+                    <div className='flex items-center justify-between mb-3'>
+                      <h4 className='font-medium text-gray-800'>邀请奖励积分</h4>
+                      <span className='text-xs text-gray-500'>
+                        {creditDetailRecords.inviteReward.length} 条
+                      </span>
+                    </div>
+                    <div className='space-y-2 max-h-[52vh] overflow-auto pr-1'>
+                      {creditDetailRecords.inviteReward.length === 0 ? (
+                        <div className='text-xs text-gray-400 py-6 text-center'>
+                          暂无记录
+                        </div>
+                      ) : (
+                        creditDetailRecords.inviteReward.map((record) => (
+                          <div key={record.id} className='border rounded p-2 text-xs'>
+                            <div className='text-gray-500'>
+                              {new Date(record.createdAt).toLocaleString()}
+                            </div>
+                            <div className='font-medium text-emerald-600 mt-1'>
+                              +{record.amount} 积分
+                            </div>
+                            <div className='text-gray-600 mt-1'>{record.description}</div>
+                            <div className='text-gray-400 mt-1'>
+                              剩余积分: {record.balanceAfter}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                <div className='border rounded-lg p-4'>
-                  <div className='flex items-center justify-between mb-3'>
-                    <h4 className='font-medium text-gray-800'>手动增加积分</h4>
+                <div className='border rounded-lg overflow-hidden'>
+                  <div className='px-4 py-3 bg-gray-50 border-b flex items-center justify-between'>
+                    <h4 className='font-medium text-gray-800'>细分积分明细</h4>
                     <span className='text-xs text-gray-500'>
-                      {creditDetailRecords.manualAdd.length} 条
+                      {creditDetailTransactions.length} 条
                     </span>
                   </div>
-                  <div className='space-y-2 max-h-[52vh] overflow-auto pr-1'>
-                    {creditDetailRecords.manualAdd.length === 0 ? (
-                      <div className='text-xs text-gray-400 py-6 text-center'>
-                        暂无记录
-                      </div>
-                    ) : (
-                      creditDetailRecords.manualAdd.map((record) => (
-                        <div key={record.id} className='border rounded p-2 text-xs'>
-                          <div className='text-gray-500'>
-                            {new Date(record.createdAt).toLocaleString()}
-                          </div>
-                          <div className='font-medium text-blue-600 mt-1'>
-                            +{record.amount} 积分
-                          </div>
-                          <div className='text-gray-600 mt-1'>{record.description}</div>
-                          <div className='text-gray-400 mt-1'>
-                            管理员: {record.admin?.name || record.admin?.phone || "-"}
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
 
-                <div className='border rounded-lg p-4'>
-                  <div className='flex items-center justify-between mb-3'>
-                    <h4 className='font-medium text-gray-800'>邀请奖励积分</h4>
-                    <span className='text-xs text-gray-500'>
-                      {creditDetailRecords.inviteReward.length} 条
-                    </span>
-                  </div>
-                  <div className='space-y-2 max-h-[52vh] overflow-auto pr-1'>
-                    {creditDetailRecords.inviteReward.length === 0 ? (
-                      <div className='text-xs text-gray-400 py-6 text-center'>
-                        暂无记录
-                      </div>
-                    ) : (
-                      creditDetailRecords.inviteReward.map((record) => (
-                        <div key={record.id} className='border rounded p-2 text-xs'>
-                          <div className='text-gray-500'>
-                            {new Date(record.createdAt).toLocaleString()}
-                          </div>
-                          <div className='font-medium text-emerald-600 mt-1'>
-                            +{record.amount} 积分
-                          </div>
-                          <div className='text-gray-600 mt-1'>{record.description}</div>
-                        </div>
-                      ))
-                    )}
-                  </div>
+                  {creditDetailTransactions.length === 0 ? (
+                    <div className='py-10 text-center text-gray-500 text-sm'>暂无记录</div>
+                  ) : (
+                    <div className='max-h-[45vh] overflow-auto'>
+                      <table className='w-full text-sm'>
+                        <thead className='sticky top-0 bg-white z-10'>
+                          <tr className='border-b text-gray-500 text-xs bg-gray-50'>
+                            <th className='px-4 py-3 text-left'>项目</th>
+                            <th className='px-4 py-3 text-right'>积分</th>
+                            <th className='px-4 py-3 text-right'>剩余积分</th>
+                            <th className='px-4 py-3 text-left'>生成时间</th>
+                            <th className='px-4 py-3 text-left'>花费时间</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {creditDetailTransactions.map((tx) => {
+                            const durationSeconds =
+                              typeof tx.processingTime === "number"
+                                ? Math.max(0, Math.round(tx.processingTime / 1000))
+                                : null;
+                            const isPositive = tx.amount > 0;
+
+                            return (
+                              <tr key={tx.id} className='border-b hover:bg-gray-50'>
+                                <td className='px-4 py-3'>
+                                  <div className='font-medium text-gray-800'>
+                                    {tx.description}
+                                  </div>
+                                  {tx.channel && (
+                                    <div className='text-xs text-gray-500 mt-0.5'>
+                                      渠道: {formatChannelLabel(tx.channel)}
+                                    </div>
+                                  )}
+                                </td>
+                                <td
+                                  className={`px-4 py-3 text-right font-semibold ${
+                                    isPositive ? "text-green-600" : "text-orange-600"
+                                  }`}
+                                >
+                                  {isPositive ? "+" : ""}
+                                  {tx.amount}
+                                </td>
+                                <td className='px-4 py-3 text-right text-blue-600 font-medium'>
+                                  {tx.balanceAfter}
+                                </td>
+                                <td className='px-4 py-3 text-gray-600 whitespace-nowrap'>
+                                  {new Date(tx.createdAt).toLocaleString()}
+                                </td>
+                                <td className='px-4 py-3 text-gray-600 whitespace-nowrap'>
+                                  {durationSeconds !== null ? `${durationSeconds}秒` : "-"}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
