@@ -9,6 +9,7 @@ import { useProjectContentStore } from "@/stores/projectContentStore";
 import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 import { toRenderableImageSrc } from "@/utils/imageSource";
+import { useLocaleText } from "@/utils/localeText";
 
 type Props = {
   id: string;
@@ -38,6 +39,7 @@ const buildImageSrc = (value?: string): string | undefined => {
 };
 
 function Nano2NodeInner({ id, data, selected }: Props) {
+  const { lt } = useLocaleText();
   const { status, error } = data;
 
   // 参数值
@@ -221,7 +223,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
           <button
             onClick={onSend}
             disabled={!(data.imageData || data.imageUrl)}
-            title={!(data.imageData || data.imageUrl) ? "无可发送的图像" : "发送到画布"}
+            title={!(data.imageData || data.imageUrl) ? lt("无可发送的图像", "No image to send") : lt("发送到画布", "Send to canvas")}
             style={{
               fontSize: 12,
               padding: "4px 8px",
@@ -246,12 +248,12 @@ function Nano2NodeInner({ id, data, selected }: Props) {
             marginBottom: 2,
           }}
         >
-          预设提示词
+          {lt("预设提示词", "Preset prompt")}
         </label>
         <input
           value={presetPromptValue}
           onChange={(event) => updatePresetPrompt(event.target.value)}
-          placeholder="生成时自动拼接在提示词前"
+          placeholder={lt("生成时自动拼接在提示词前", "Auto-prepended before the prompt during generation")}
           style={{
             width: "100%",
             fontSize: 12,
@@ -267,14 +269,14 @@ function Nano2NodeInner({ id, data, selected }: Props) {
           onMouseDown={stopNodeDrag}
         />
         <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>
-          会在 TextPrompt 输入前自动添加
+          {lt("会在 TextPrompt 输入前自动添加", "Will be automatically added before TextPrompt input")}
         </div>
       </div>
 
       {/* 宽高比选择 */}
       <div style={{ marginBottom: 6 }}>
         <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
-          宽高比
+          {lt("宽高比", "Aspect ratio")}
         </label>
         <select
           value={aspectRatioValue}
@@ -291,28 +293,28 @@ function Nano2NodeInner({ id, data, selected }: Props) {
           onPointerDownCapture={stopNodeDrag}
           onMouseDownCapture={stopNodeDrag}
         >
-          <option value="">自动</option>
-          <option value="1:1">1:1 正方形</option>
-          <option value="3:2">3:2 横向照片</option>
-          <option value="2:3">2:3 竖向照片</option>
-          <option value="4:3">4:3 传统横向</option>
-          <option value="3:4">3:4 传统竖向</option>
-          <option value="16:9">16:9 宽屏</option>
-          <option value="9:16">9:16 竖屏</option>
-          <option value="5:4">5:4 Instagram横</option>
-          <option value="4:5">4:5 Instagram竖</option>
-          <option value="21:9">21:9 超宽横幅</option>
-          <option value="4:1">4:1 长横幅</option>
-          <option value="1:4">1:4 长海报</option>
-          <option value="8:1">8:1 极长横幅</option>
-          <option value="1:8">1:8 极长海报</option>
+          <option value="">{lt("自动", "Auto")}</option>
+          <option value="1:1">{lt("1:1 正方形", "1:1 Square")}</option>
+          <option value="3:2">{lt("3:2 横向照片", "3:2 Landscape photo")}</option>
+          <option value="2:3">{lt("2:3 竖向照片", "2:3 Portrait photo")}</option>
+          <option value="4:3">{lt("4:3 传统横向", "4:3 Classic landscape")}</option>
+          <option value="3:4">{lt("3:4 传统竖向", "3:4 Classic portrait")}</option>
+          <option value="16:9">{lt("16:9 宽屏", "16:9 Widescreen")}</option>
+          <option value="9:16">{lt("9:16 竖屏", "9:16 Vertical")}</option>
+          <option value="5:4">{lt("5:4 Instagram横", "5:4 Instagram landscape")}</option>
+          <option value="4:5">{lt("4:5 Instagram竖", "4:5 Instagram portrait")}</option>
+          <option value="21:9">{lt("21:9 超宽横幅", "21:9 Ultra-wide")}</option>
+          <option value="4:1">{lt("4:1 长横幅", "4:1 Panorama")}</option>
+          <option value="1:4">{lt("1:4 长海报", "1:4 Tall poster")}</option>
+          <option value="8:1">{lt("8:1 极长横幅", "8:1 Ultra panorama")}</option>
+          <option value="1:8">{lt("1:8 极长海报", "1:8 Ultra tall poster")}</option>
         </select>
       </div>
 
       {/* 分辨率选择 */}
       <div style={{ marginBottom: 6 }}>
         <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
-          分辨率
+          {lt("分辨率", "Resolution")}
         </label>
         <select
           value={resolutionValue}
@@ -329,10 +331,10 @@ function Nano2NodeInner({ id, data, selected }: Props) {
           onPointerDownCapture={stopNodeDrag}
           onMouseDownCapture={stopNodeDrag}
         >
-          <option value="0.5K">0.5K (~512px) 预览</option>
-          <option value="1K">1K (~1024px) 标准</option>
-          <option value="2K">2K (~2048px) 高清</option>
-          <option value="4K">4K (~4096px) 超清</option>
+          <option value="0.5K">{lt("0.5K (~512px) 预览", "0.5K (~512px) Preview")}</option>
+          <option value="1K">{lt("1K (~1024px) 标准", "1K (~1024px) Standard")}</option>
+          <option value="2K">{lt("2K (~2048px) 高清", "2K (~2048px) HD")}</option>
+          <option value="4K">{lt("4K (~4096px) 超清", "4K (~4096px) Ultra HD")}</option>
         </select>
       </div>
 
@@ -346,7 +348,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
             onPointerDownCapture={stopNodeDrag}
             onMouseDownCapture={stopNodeDrag}
           />
-          文本搜索
+          {lt("文本搜索", "Text search")}
         </label>
         <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "#6b7280", cursor: "pointer" }}>
           <input
@@ -356,7 +358,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
             onPointerDownCapture={stopNodeDrag}
             onMouseDownCapture={stopNodeDrag}
           />
-          图片搜索
+          {lt("图片搜索", "Image search")}
         </label>
       </div>
 
@@ -373,7 +375,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
           overflow: "hidden",
           border: "1px solid #eef0f2",
         }}
-        title={displaySrc ? "双击预览" : undefined}
+        title={displaySrc ? lt("双击预览", "Double click to preview") : undefined}
       >
         {displaySrc ? (
           <SmartImage
@@ -387,7 +389,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
             }}
           />
         ) : (
-          <span style={{ fontSize: 12, color: "#9ca3af" }}>等待生成</span>
+          <span style={{ fontSize: 12, color: "#9ca3af" }}>{lt("等待生成", "Waiting for generation")}</span>
         )}
       </div>
       <GenerationProgressBar status={status} />
@@ -464,7 +466,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
               ""
             : fullSrc || ""
         }
-        imageTitle="全局图片预览"
+        imageTitle={lt("全局图片预览", "Global image preview")}
         onClose={() => setPreview(false)}
         imageCollection={allImages}
         currentImageId={currentImageId}

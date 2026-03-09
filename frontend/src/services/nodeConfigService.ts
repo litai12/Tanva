@@ -3,6 +3,7 @@
  * 从后端获取节点配置，用于动态控制节点面板显示
  */
 import { getApiBaseUrl } from "../utils/assetProxy";
+import { pickLocaleText } from "@/utils/localeText";
 
 export interface NodeConfig {
   nodeKey: string;
@@ -69,11 +70,11 @@ export function clearNodeConfigCache() {
 export function getStatusBadge(status: string): string | undefined {
   switch (status) {
     case "maintenance":
-      return "维护中";
+      return pickLocaleText("维护中", "Maintenance");
     case "coming_soon":
-      return "即将开放";
+      return pickLocaleText("即将开放", "Coming Soon");
     case "disabled":
-      return "已禁用";
+      return pickLocaleText("已禁用", "Disabled");
     default:
       return undefined;
   }

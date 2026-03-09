@@ -5,6 +5,7 @@ import SmartImage from "../../ui/SmartImage";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { fetchWithAuth } from "@/services/authFetch";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
+import { useLocaleText } from "@/utils/localeText";
 
 type VideoHistoryItem = {
   id: string;
@@ -35,6 +36,7 @@ type Props = {
 };
 
 function Wan2R2VNodeInner({ id, data, selected }: Props) {
+  const { lt } = useLocaleText();
   const [hover, setHover] = React.useState<string | null>(null);
   const [previewAspect, setPreviewAspect] = React.useState<string>("16/9");
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
@@ -81,9 +83,9 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
   }, []);
 
   const truncatePrompt = React.useCallback((text: string) => {
-    if (!text) return "（无提示词）";
+    if (!text) return lt("（无提示词）", "(No prompt)");
     return text.length > 80 ? `${text.slice(0, 80)}…` : text;
-  }, []);
+  }, [lt]);
 
   const scheduleFeedbackClear = React.useCallback((delay: number = 3000) => {
     if (downloadFeedbackTimer.current) {
@@ -122,7 +124,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
       videoRef.current.currentTime = 0;
       videoRef.current.load();
     } catch (error) {
-      console.warn("无法重置视频播放器", error);
+      console.warn("Unable to reset video player", error);
     }
   }, [sanitizedVideoUrl]);
 
@@ -179,14 +181,14 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
   const copyVideoLink = React.useCallback(
     async (url?: string) => {
       if (!url) {
-        setDownloadFeedback({ type: "error", message: "没有可复制的视频链接" });
+        setDownloadFeedback({ type: "error", message: lt("没有可复制的视频链接", "No video link to copy") });
         scheduleFeedbackClear(2000);
         return;
       }
       try {
         if (navigator.clipboard && navigator.clipboard.writeText) {
           await navigator.clipboard.writeText(url);
-          setDownloadFeedback({ type: "success", message: "已复制视频链接" });
+          setDownloadFeedback({ type: "success", message: lt("已复制视频链接", "Video link copied") });
           scheduleFeedbackClear(2000);
           return;
         }
@@ -201,19 +203,19 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
         const success = document.execCommand("copy");
         document.body.removeChild(textArea);
         if (success) {
-          setDownloadFeedback({ type: "success", message: "已复制视频链接" });
+          setDownloadFeedback({ type: "success", message: lt("已复制视频链接", "Video link copied") });
         } else {
-          setDownloadFeedback({ type: "error", message: "复制失败" });
-          prompt("请手动复制以下链接：", url);
+          setDownloadFeedback({ type: "error", message: lt("复制失败", "Copy failed") });
+          prompt(lt("请手动复制以下链接：", "Please manually copy this link:"), url);
         }
         scheduleFeedbackClear(2000);
       } catch {
-        setDownloadFeedback({ type: "error", message: "复制失败" });
-        prompt("请手动复制以下链接：", url);
+        setDownloadFeedback({ type: "error", message: lt("复制失败", "Copy failed") });
+        prompt(lt("请手动复制以下链接：", "Please manually copy this link:"), url);
         scheduleFeedbackClear(3000);
       }
     },
-    [scheduleFeedbackClear]
+    [scheduleFeedbackClear, lt]
   );
 
   const triggerDownload = React.useCallback(
@@ -226,21 +228,21 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
       setIsDownloading(true);
       setDownloadFeedback({
         type: "progress",
-        message: "视频下载中，请稍等...",
+        message: lt("视频下载中，请稍等...", "Downloading video, please wait..."),
       });
       try {
         // 检测是否为 OSS URL（阿里云 OSS 支持 CORS，可直接下载）
         const isOssUrl = url.includes('aliyuncs.com');
         // 非 OSS URL 需要代理
         const downloadUrl = isOssUrl ? url : proxifyRemoteAssetUrl(url, { forceProxy: true });
-        console.log(`[Wan2.6 R2V视频下载] 原始URL: ${url}`);
-        console.log(`[Wan2.6 R2V视频下载] 下载URL: ${downloadUrl}, isOSS: ${isOssUrl}`);
+        console.log(`[Wan2.6 R2V download] raw URL: ${url}`);
+        console.log(`[Wan2.6 R2V download] URL: ${downloadUrl}, isOSS: ${isOssUrl}`);
 
         const response = await fetch(downloadUrl, {
           mode: "cors",
           credentials: "omit",
         });
-        console.log(`[Wan2.6 R2V视频下载] 响应状态: ${response.status}`);
+        console.log(`[Wan2.6 R2V download] response status: ${response.status}`);
 
         if (response.ok) {
           const blob = await response.blob();
@@ -256,7 +258,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
           link.click();
           document.body.removeChild(link);
           setTimeout(() => URL.revokeObjectURL(blobUrl), 200);
-          setDownloadFeedback({ type: "success", message: "下载完成" });
+          setDownloadFeedback({ type: "success", message: lt("下载完成", "Download complete") });
           scheduleFeedbackClear(2000);
         } else {
           const link = document.createElement("a");
@@ -267,19 +269,19 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
           document.body.removeChild(link);
           setDownloadFeedback({
             type: "success",
-            message: "已在新标签页打开视频链接",
+            message: lt("已在新标签页打开视频链接", "Opened video link in a new tab"),
           });
           scheduleFeedbackClear(3000);
         }
       } catch (error) {
-        console.error("下载失败:", error);
-        setDownloadFeedback({ type: "error", message: "下载失败，请稍后重试" });
+        console.error("Download failed:", error);
+        setDownloadFeedback({ type: "error", message: lt("下载失败，请稍后重试", "Download failed, please try again later") });
         scheduleFeedbackClear(4000);
       } finally {
         setIsDownloading(false);
       }
     },
-    [isDownloading, scheduleFeedbackClear]
+    [isDownloading, scheduleFeedbackClear, lt]
   );
 
   const renderPreview = () => {
@@ -306,7 +308,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
           }}
         >
           <source src={sanitizedVideoUrl} type='video/mp4' />
-          您的浏览器不支持 video 标签
+          {lt("您的浏览器不支持 video 标签", "Your browser does not support the video tag")}
         </video>
       );
     }
@@ -336,7 +338,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
         }}
       >
         <Video size={24} strokeWidth={2} />
-        <div style={{ fontSize: 11 }}>等待生成...</div>
+        <div style={{ fontSize: 11 }}>{lt("等待生成...", "Waiting for generation...")}</div>
       </div>
     );
   };
@@ -464,7 +466,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
           </button>
           <button
             onClick={() => copyVideoLink((data as any)?.videoUrl)}
-            title='复制链接'
+            title={lt('复制链接', 'Copy link')}
             style={{
               width: 36,
               height: 32,
@@ -484,7 +486,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
           </button>
           <button
             onClick={() => triggerDownload((data as any)?.videoUrl)}
-            title='下载视频'
+            title={lt('下载视频', 'Download video')}
             style={{
               width: 36,
               height: 32,
@@ -528,7 +530,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
       )}
 
       <div className='sora2-dropdown' style={{ marginBottom: 8, position: "relative" }}>
-        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>尺寸</div>
+        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>{lt("尺寸", "Size")}</div>
         <button
           type='button'
           onClick={(event) => {
@@ -601,7 +603,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
       </div>
 
       <div className='sora2-dropdown' style={{ marginBottom: 8, position: "relative" }}>
-        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>时间长度</div>
+        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>{lt("时间长度", "Duration")}</div>
         <button
           type='button'
           onClick={(event) => {
@@ -623,7 +625,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
             cursor: "pointer",
           }}
         >
-          <span>{String(data.duration || 5) + "秒"}</span>
+          <span>{lt(`${String(data.duration || 5)}秒`, `${String(data.duration || 5)}s`)}</span>
           <span style={{ fontSize: 16, lineHeight: 1 }}>{durationMenuOpen ? "▴" : "▾"}</span>
         </button>
         {durationMenuOpen && (
@@ -664,7 +666,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
                       cursor: "pointer",
                     }}
                   >
-                    {opt}秒
+                    {lt(`${opt}秒`, `${opt}s`)}
                   </button>
                 );
               })}
@@ -674,7 +676,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
       </div>
 
       <div className='sora2-dropdown' style={{ marginBottom: 8, position: "relative" }}>
-        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>拍摄类型</div>
+        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>{lt("拍摄类型", "Shot type")}</div>
         <button
           type='button'
           onClick={(event) => {
@@ -696,7 +698,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
             cursor: "pointer",
           }}
         >
-          <span>{data.shotType === "multi" ? "multi（多镜头）" : "single（单镜头）"}</span>
+          <span>{data.shotType === "multi" ? lt("multi（多镜头）", "multi (multi-shot)") : lt("single（单镜头）", "single (single-shot)")}</span>
           <span style={{ fontSize: 16, lineHeight: 1 }}>{shotMenuOpen ? "▴" : "▾"}</span>
         </button>
         {shotMenuOpen && (
@@ -718,8 +720,8 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
           >
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
               {[
-                { label: "single（单镜头）", value: "single" },
-                { label: "multi（多镜头）", value: "multi" },
+                { label: lt("single（单镜头）", "single (single-shot)"), value: "single" },
+                { label: lt("multi（多镜头）", "multi (multi-shot)"), value: "multi" },
               ].map((opt) => {
                 const isActive = opt.value === data.shotType;
                 return (
@@ -795,10 +797,10 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
             }}
           >
             <span style={{ fontSize: 12, fontWeight: 600, color: "#0f172a" }}>
-              历史记录
+              {lt("历史记录", "History")}
             </span>
             <span style={{ fontSize: 11, color: "#94a3b8" }}>
-              {historyItems.length} 条
+              {historyItems.length} {lt("条", "items")}
             </span>
           </div>
           {historyItems.map((item, index) => {
@@ -830,19 +832,19 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
                   </span>
                   {isActive && (
                     <span style={{ fontSize: 10, color: "#1d4ed8", fontWeight: 600 }}>
-                      当前
+                      {lt("当前", "Current")}
                     </span>
                   )}
                 </div>
                 {typeof item.elapsedSeconds === "number" && (
                   <div style={{ fontSize: 11, color: "#475569" }}>
-                    耗时 {item.elapsedSeconds}s
+                    {lt("耗时", "Elapsed")} {item.elapsedSeconds}s
                   </div>
                 )}
                 {item.quality && (
                   <div style={{ fontSize: 11, color: "#475569" }}>
                     {item.quality}
-                    {typeof item.referenceCount === "number" && ` · ${item.referenceCount}个参考视频`}
+                    {typeof item.referenceCount === "number" && lt(` · ${item.referenceCount}个参考视频`, ` · ${item.referenceCount} reference videos`)}
                   </div>
                 )}
                 <div style={{ fontSize: 11, color: "#0f172a" }}>
@@ -862,7 +864,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
                         cursor: "pointer",
                       }}
                     >
-                      设为当前
+                      {lt("设为当前", "Set as current")}
                     </button>
                   )}
                   <button
@@ -877,7 +879,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
                       cursor: "pointer",
                     }}
                   >
-                    复制链接
+                    {lt("复制链接", "Copy link")}
                   </button>
                   <button
                     type="button"
@@ -891,7 +893,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
                       cursor: "pointer",
                     }}
                   >
-                    下载
+                    {lt("下载", "Download")}
                   </button>
                 </div>
               </div>

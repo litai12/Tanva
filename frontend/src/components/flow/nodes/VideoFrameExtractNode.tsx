@@ -4,6 +4,7 @@ import SmartImage from '../../ui/SmartImage';
 import { imageUploadService } from '@/services/imageUploadService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { fetchWithAuth } from '@/services/authFetch';
+import { useLocaleText } from '@/utils/localeText';
 
 type FrameData = {
   index: number;
@@ -108,6 +109,7 @@ const resolveVideoUrlFromNode = (node?: Node<any> | null): string | undefined =>
 };
 
 function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
+  const { lt } = useLocaleText();
   const { status = 'idle', error, frames = [], totalFrames = 0 } = data;
   const [hover, setHover] = React.useState<string | null>(null);
   const [showAllFrames, setShowAllFrames] = React.useState(false);
@@ -181,7 +183,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
 
   // 前端抽帧核心逻辑
   const extractFramesFrontend = React.useCallback(async () => {
-    if (!effectiveVideoUrl) throw new Error('视频 URL 不存在');
+    if (!effectiveVideoUrl) throw new Error(lt('视频 URL 不存在', 'Video URL does not exist'));
 
     let videoSrc = effectiveVideoUrl;
 
@@ -195,10 +197,10 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
       });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
-        throw new Error(err.message || '视频转存失败');
+        throw new Error(err.message || lt('视频转存失败', 'Video transfer failed'));
       }
       const result = await resp.json();
-      if (!result.url) throw new Error('视频转存失败');
+      if (!result.url) throw new Error(lt('视频转存失败', 'Video transfer failed'));
       videoSrc = result.url;
       updateNodeData({ extractProgress: 10 });
     }
@@ -214,7 +216,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
       const timer = window.setTimeout(() => {
         video.onloadedmetadata = null;
         video.onerror = null;
-        reject(new Error('视频加载超时'));
+        reject(new Error(lt('视频加载超时', 'Video loading timed out')));
       }, 30000);
 
       video.onloadedmetadata = () => {
@@ -227,20 +229,20 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
         window.clearTimeout(timer);
         video.onloadedmetadata = null;
         video.onerror = null;
-        reject(new Error('视频加载失败，请确保视频URL可访问'));
+        reject(new Error(lt('视频加载失败，请确保视频URL可访问', 'Video loading failed. Please ensure the video URL is accessible.')));
       };
     });
 
       const duration = video.duration;
       if (!duration || duration <= 0) {
-        throw new Error('无法获取视频时长');
+        throw new Error(lt('无法获取视频时长', 'Unable to get video duration'));
       }
 
       updateNodeData({ videoDuration: duration });
 
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Canvas 不可用');
+      if (!ctx) throw new Error(lt('Canvas 不可用', 'Canvas is not available'));
 
       // 计算要抽取的帧数
       const interval = intervalSeconds;
@@ -264,7 +266,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
         ctx.drawImage(video, 0, 0);
 
         const blob = await new Promise<Blob>((resolve, reject) => {
-          canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('导出帧失败'))), 'image/jpeg', 0.7);
+          canvas.toBlob((b) => (b ? resolve(b) : reject(new Error(lt('导出帧失败', 'Failed to export frame')))), 'image/jpeg', 0.7);
         });
 
         const fileName = `video_frame_${id}_${i + 1}_${Math.round(timestamp * 1000)}.jpg`;
@@ -276,7 +278,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
         });
 
         if (!uploadResult.success || !uploadResult.asset?.url) {
-          throw new Error(uploadResult.error || '帧上传失败');
+          throw new Error(uploadResult.error || lt('帧上传失败', 'Frame upload failed'));
         }
 
         const remoteUrl = uploadResult.asset.url;
@@ -303,8 +305,8 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
         extractProgress: 100,
       });
 
-      console.log(`[Frontend] 抽帧完成: ${extractedFrames.length} 帧`);
-  }, [effectiveVideoUrl, id, intervalSeconds, projectId, updateNodeData]);
+      console.log(`[Frontend] ${lt('抽帧完成', 'Frame extraction completed')}: ${extractedFrames.length}`);
+  }, [effectiveVideoUrl, id, intervalSeconds, lt, projectId, updateNodeData]);
 
   // 统一抽帧入口
   const extractFrames = React.useCallback(async () => {
@@ -321,13 +323,13 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
     try {
       await extractFramesFrontend();
     } catch (err: any) {
-      console.error('抽帧失败:', err);
+      console.error('Frame extraction failed:', err);
       updateNodeData({
         status: 'error',
-        error: err.message || '抽帧失败',
+        error: err.message || lt('抽帧失败', 'Frame extraction failed'),
       });
     }
-  }, [effectiveVideoUrl, status, extractFramesFrontend, updateNodeData]);
+  }, [effectiveVideoUrl, status, extractFramesFrontend, lt, updateNodeData]);
 
   const onIntervalChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const val = parseFloat(e.target.value);
@@ -404,7 +406,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
             cursor: canExtract ? 'pointer' : 'not-allowed',
           }}
         >
-          {status === 'extracting' ? `提取中 ${data.extractProgress || 0}%` : '提取帧'}
+          {status === 'extracting' ? `${lt('提取中', 'Extracting')} ${data.extractProgress || 0}%` : lt('提取帧', 'Extract frames')}
         </button>
       </div>
 
@@ -431,14 +433,14 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
           />
         ) : (
           <span style={{ fontSize: 12, color: '#9ca3af' }}>
-            {hasVideoConnection ? '等待视频输入' : '请连接视频节点'}
+            {hasVideoConnection ? lt('等待视频输入', 'Waiting for video input') : lt('请连接视频节点', 'Please connect a video node')}
           </span>
         )}
       </div>
 
       {/* 抽帧间隔设置 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: 12, color: '#374151' }}>抽帧间隔:</span>
+        <span style={{ fontSize: 12, color: '#374151' }}>{lt('抽帧间隔', 'Frame interval')}:</span>
         <input
           type="number"
           className="nodrag nopan"
@@ -455,14 +457,14 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
             border: '1px solid #d1d5db',
           }}
         />
-        <span style={{ fontSize: 12, color: '#6b7280' }}>秒</span>
+        <span style={{ fontSize: 12, color: '#6b7280' }}>{lt('秒', 's')}</span>
       </div>
 
       {/* 帧预览区 */}
       {frames.length > 0 && (
         <div style={{ background: '#f9fafb', borderRadius: 6, padding: 8 }}>
           <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 6 }}>
-            📷 已提取 {totalFrames} 帧
+            📷 {lt('已提取', 'Extracted')} {totalFrames} {lt('帧', 'frame(s)')}
           </div>
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
             {previewFrames.map((frame) => (
@@ -479,7 +481,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
               >
                 <SmartImage
                   src={frame.thumbnailDataUrl}
-                  alt={`帧 ${frame.index}`}
+                  alt={lt(`帧 ${frame.index}`, `Frame ${frame.index}`)}
                   decoding="async"
                   loading="lazy"
                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
@@ -532,7 +534,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
               width: '100%',
             }}
           >
-            查看全部帧
+            {lt('查看全部帧', 'View all frames')}
           </button>
         </div>
       )}
@@ -540,7 +542,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
       {/* 输出选择 */}
       {frames.length > 0 && (
         <div style={{ background: '#f3f4f6', borderRadius: 6, padding: 8 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6 }}>输出选择</div>
+          <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6 }}>{lt('输出选择', 'Output selection')}</div>
 
           {/* 全部帧 */}
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, cursor: 'pointer' }}>
@@ -551,7 +553,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
               onChange={() => onOutputModeChange('all')}
               className="nodrag"
             />
-            <span style={{ fontSize: 12 }}>全部帧 ({totalFrames}张)</span>
+            <span style={{ fontSize: 12 }}>{lt('全部帧', 'All frames')} ({totalFrames}{lt('张', '')})</span>
           </label>
 
           {/* 指定帧 */}
@@ -563,7 +565,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
               onChange={() => onOutputModeChange('single')}
               className="nodrag"
             />
-            <span style={{ fontSize: 12 }}>指定帧:</span>
+            <span style={{ fontSize: 12 }}>{lt('指定帧', 'Selected frame')}:</span>
             {outputMode === 'single' && (
               <input
                 type="number"
@@ -592,7 +594,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
               onChange={() => onOutputModeChange('range')}
               className="nodrag"
             />
-            <span style={{ fontSize: 12 }}>范围: {rangeStart}-{rangeEnd}帧</span>
+            <span style={{ fontSize: 12 }}>{lt('范围', 'Range')}: {rangeStart}-{rangeEnd}{lt('帧', '')}</span>
           </label>
           {outputMode === 'range' && (
             <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -616,7 +618,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
                   border: '1px solid #d1d5db',
                 }}
               />
-              <span style={{ fontSize: 11 }}>至</span>
+              <span style={{ fontSize: 11 }}>{lt('至', 'to')}</span>
               <input
                 type="number"
                 className="nodrag nopan"
@@ -695,17 +697,17 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
       )}
       {hover === 'images-out' && (
         <div className="flow-tooltip" style={{ right: -8, top: '30%', transform: 'translate(100%, -50%)' }}>
-          images (全部帧)
+          {lt('images (全部帧)', 'images (all frames)')}
         </div>
       )}
       {hover === 'image-out' && (
         <div className="flow-tooltip" style={{ right: -8, top: '50%', transform: 'translate(100%, -50%)' }}>
-          image (单帧)
+          {lt('image (单帧)', 'image (single frame)')}
         </div>
       )}
       {hover === 'images-range-out' && (
         <div className="flow-tooltip" style={{ right: -8, top: '70%', transform: 'translate(100%, -50%)' }}>
-          images (范围帧)
+          {lt('images (范围帧)', 'images (range frames)')}
         </div>
       )}
 
@@ -738,7 +740,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <h3 style={{ margin: 0, fontSize: 16 }}>🎞️ 全部帧预览 ({totalFrames}帧)</h3>
+              <h3 style={{ margin: 0, fontSize: 16 }}>🎞️ {lt('全部帧预览', 'All frame preview')} ({totalFrames}{lt('帧', '')})</h3>
               <button
                 onClick={() => setShowAllFrames(false)}
                 style={{
@@ -769,13 +771,13 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
                 >
                   <SmartImage
                     src={frame.thumbnailDataUrl}
-                    alt={`帧 ${frame.index}`}
+                    alt={lt(`帧 ${frame.index}`, `Frame ${frame.index}`)}
                     decoding="async"
                     loading="lazy"
                     style={{ width: '100%', aspectRatio: '16/9', objectFit: 'cover' }}
                   />
                   <div style={{ padding: '4px 6px', background: '#f9fafb', fontSize: 11 }}>
-                    帧 {frame.index} | {frame.timestamp.toFixed(1)}s
+                    {lt('帧', 'Frame')} {frame.index} | {frame.timestamp.toFixed(1)}s
                   </div>
                 </div>
               ))}

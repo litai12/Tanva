@@ -1,6 +1,7 @@
 import React from "react";
 import { Handle, Position } from "reactflow";
 import { AlertTriangle, UserRound } from "lucide-react";
+import { useLocaleText } from "@/utils/localeText";
 
 type CharacterItem = {
   id?: string;
@@ -26,6 +27,7 @@ type Props = {
 };
 
 function Sora2CharacterNodeInner({ id, data, selected }: Props) {
+  const { lt } = useLocaleText();
   const borderColor = selected ? "#2563eb" : "#e5e7eb";
   const boxShadow = selected
     ? "0 0 0 2px rgba(37,99,235,0.12)"
@@ -122,12 +124,14 @@ function Sora2CharacterNodeInner({ id, data, selected }: Props) {
             opacity: status === "running" ? 0.6 : 1,
           }}
         >
-          {status === "running" ? "运行中" : "Run"}
+          {status === "running" ? lt("运行中", "Running") : lt("运行", "Run")}
         </button>
       </div>
 
       <div style={{ marginBottom: 8 }}>
-        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>模型</div>
+        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+          {lt("模型", "Model")}
+        </div>
         <select
           className="nodrag"
           value={model}
@@ -148,7 +152,9 @@ function Sora2CharacterNodeInner({ id, data, selected }: Props) {
       </div>
 
       <div style={{ marginBottom: 8 }}>
-        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>角色时间戳</div>
+        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+          {lt("角色时间戳", "Character Timestamps")}
+        </div>
         <input
           className="nodrag"
           value={timestamps}
@@ -166,7 +172,9 @@ function Sora2CharacterNodeInner({ id, data, selected }: Props) {
       </div>
 
       <div style={{ marginBottom: 8 }}>
-        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>from_task（可选）</div>
+        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+          {lt("from_task（可选）", "from_task (optional)")}
+        </div>
         <input
           className="nodrag"
           value={fromTask}
@@ -194,14 +202,16 @@ function Sora2CharacterNodeInner({ id, data, selected }: Props) {
           marginBottom: 8,
         }}
       >
-        <div>状态: {status}</div>
-        {typeof progress === "number" && <div>进度: {progress}%</div>}
-        {taskId && <div>任务ID: {taskId}</div>}
+        <div>{lt("状态", "Status")}: {status}</div>
+        {typeof progress === "number" && <div>{lt("进度", "Progress")}: {progress}%</div>}
+        {taskId && <div>{lt("任务ID", "Task ID")}: {taskId}</div>}
       </div>
 
       {characters.length > 0 && (
         <div style={{ marginBottom: 8, display: "flex", flexDirection: "column", gap: 4 }}>
-          <div style={{ fontSize: 12, color: "#0f172a", fontWeight: 600 }}>角色结果</div>
+          <div style={{ fontSize: 12, color: "#0f172a", fontWeight: 600 }}>
+            {lt("角色结果", "Character Results")}
+          </div>
           {characters.map((item, index) => (
             <div
               key={`${item.id || "character"}-${index}`}
@@ -215,7 +225,7 @@ function Sora2CharacterNodeInner({ id, data, selected }: Props) {
               }}
             >
               <div>ID: {item.id || "-"}</div>
-              <div>名称: {item.displayName || "-"}</div>
+              <div>{lt("名称", "Name")}: {item.displayName || "-"}</div>
               <div>@{item.username || "-"}</div>
             </div>
           ))}
@@ -236,14 +246,13 @@ function Sora2CharacterNodeInner({ id, data, selected }: Props) {
             gap: 6,
             alignItems: "center",
           }}
-        >
-          <AlertTriangle size={14} />
-          <span>{data.error}</span>
-        </div>
-      )}
+          >
+            <AlertTriangle size={14} />
+            <span>{data.error}</span>
+          </div>
+        )}
     </div>
   );
 }
 
 export default React.memo(Sora2CharacterNodeInner);
-

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Handle, Position, NodeResizer, useReactFlow, useStore, useUpdateNodeInternals, type ReactFlowState, type Edge } from 'reactflow';
+import { useLocaleText } from '@/utils/localeText';
 
 type Props = {
   id: string;
@@ -104,6 +105,7 @@ function extractSegmentsByMatches(text: string, matches: RegExpMatchArray[]): st
 }
 
 function StoryboardSplitNodeInner({ id, data, selected }: Props) {
+  const { lt } = useLocaleText();
   const rf = useReactFlow();
   const updateNodeInternals = useUpdateNodeInternals();
   const edges = useStore((state: ReactFlowState) => state.edges);
@@ -211,7 +213,7 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
   // 执行拆分
   const handleSplit = React.useCallback(() => {
     if (!inputText.trim()) {
-      updateNodeData({ status: 'failed', error: '输入文本为空', segments: [] });
+      updateNodeData({ status: 'failed', error: lt('输入文本为空', 'Input text is empty'), segments: [] });
       setSegments([]);
       return;
     }
@@ -243,12 +245,12 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
     } catch (err) {
       updateNodeData({
         status: 'failed',
-        error: err instanceof Error ? err.message : '解析失败',
+        error: err instanceof Error ? err.message : lt('解析失败', 'Parse failed'),
         segments: []
       });
       setSegments([]);
     }
-  }, [inputText, outputCount, updateNodeData]);
+  }, [inputText, outputCount, updateNodeData, lt]);
 
   // 更新输出端口数量
   const handleOutputCountChange = React.useCallback((value: number) => {
@@ -323,7 +325,7 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
         position: { x: startX, y },
         data: {
           text: segments[i] || '',
-          title: `分镜 ${i + 1}`,
+          title: lt(`分镜 ${i + 1}`, `Storyboard ${i + 1}`),
           boxW: promptNodeWidth,
           boxH: promptNodeHeight,
         },
@@ -389,9 +391,9 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
               cursor: segments.length > 0 ? 'pointer' : 'not-allowed',
               opacity: segments.length > 0 ? 1 : 0.6,
             }}
-            title="一键生成 Prompt 节点并连接"
+            title={lt("一键生成 Prompt 节点并连接", "Generate Prompt nodes and connect in one click")}
           >
-            生成节点
+            {lt("生成节点", "Generate nodes")}
           </button>
           <button
             onClick={handleSplit}
@@ -412,7 +414,7 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
 
       {/* 输出数量配置 */}
       <div className="nodrag nopan" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <label style={{ fontSize: 12, color: '#6b7280' }}>输出端口</label>
+        <label style={{ fontSize: 12, color: '#6b7280' }}>{lt('输出端口', 'Output ports')}</label>
         <input
           type="number"
           min={MIN_OUTPUT_COUNT}
@@ -446,18 +448,18 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
         maxHeight: 100,
         overflow: 'auto',
       }}>
-        <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>输入预览</div>
+        <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>{lt('输入预览', 'Input preview')}</div>
         <div style={{ fontSize: 12, color: '#374151', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-          {inputText ? inputText.substring(0, 200) + (inputText.length > 200 ? '...' : '') : '等待输入...'}
+          {inputText ? inputText.substring(0, 200) + (inputText.length > 200 ? '...' : '') : lt('等待输入...', 'Waiting for input...')}
         </div>
       </div>
 
       {/* 状态显示 */}
       <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>
-        状态: {data.status === 'succeeded'
-          ? `已拆分 ${segments.length} 个分镜`
+        {lt('状态', 'Status')}: {data.status === 'succeeded'
+          ? lt(`已拆分 ${segments.length} 个分镜`, `Split into ${segments.length} storyboards`)
           : data.status === 'failed'
-            ? `失败`
+            ? lt(`失败`, `Failed`)
             : 'idle'}
       </div>
 
@@ -491,7 +493,7 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
           ))}
           {segments.length > outputCount && (
             <div style={{ color: '#f59e0b', fontStyle: 'italic' }}>
-              还有 {segments.length - outputCount} 个分镜未显示（请增加输出端口数量）
+              {lt(`还有 ${segments.length - outputCount} 个分镜未显示（请增加输出端口数量）`, `${segments.length - outputCount} storyboard items are hidden (increase output ports).`)}
             </div>
           )}
         </div>

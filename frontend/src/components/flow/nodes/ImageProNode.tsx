@@ -13,6 +13,7 @@ import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { deleteFlowImage, parseFlowImageAssetRef, putFlowImageBlobs, toFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import { toRenderableImageSrc } from '@/utils/imageSource';
+import { useLocaleText } from '@/utils/localeText';
 
 type Props = {
   id: string;
@@ -51,7 +52,7 @@ const CORNER_STYLE: React.CSSProperties = {
   zIndex: 20,
 };
 
-const ImageContent = React.memo(({ displaySrc, isDragOver, uploading, uploadError, onDrop, onDragOver, onDragLeave, onDoubleClick }: {
+const ImageContent = React.memo(({ displaySrc, isDragOver, uploading, uploadError, onDrop, onDragOver, onDragLeave, onDoubleClick, lt }: {
   displaySrc?: string;
   isDragOver: boolean;
   uploading?: boolean;
@@ -60,6 +61,7 @@ const ImageContent = React.memo(({ displaySrc, isDragOver, uploading, uploadErro
   onDragOver: (e: React.DragEvent) => void;
   onDragLeave: (e: React.DragEvent) => void;
   onDoubleClick: () => void;
+  lt: (zhText: string, enText: string) => string;
 }) => (
   <div
     onDrop={onDrop}
@@ -76,7 +78,7 @@ const ImageContent = React.memo(({ displaySrc, isDragOver, uploading, uploadErro
       cursor: 'pointer',
       border: isDragOver ? '2px dashed #3b82f6' : 'none',
     }}
-    title='拖拽图片到此或双击上传'
+    title={lt('拖拽图片到此或双击上传', 'Drag image here or double click to upload')}
   >
     {Boolean(uploading) && (
       <div
@@ -93,7 +95,7 @@ const ImageContent = React.memo(({ displaySrc, isDragOver, uploading, uploadErro
           color: '#374151',
         }}
       >
-        正在上传…
+        {lt('正在上传…', 'Uploading...')}
       </div>
     )}
     {!uploading && uploadError ? (
@@ -117,7 +119,7 @@ const ImageContent = React.memo(({ displaySrc, isDragOver, uploading, uploadErro
         }}
         title={uploadError}
       >
-        上传失败：{uploadError}
+        {lt('上传失败', 'Upload failed')}: {uploadError}
       </div>
     ) : null}
     <div
@@ -140,7 +142,7 @@ const ImageContent = React.memo(({ displaySrc, isDragOver, uploading, uploadErro
         />
       ) : (
         <span style={{ fontSize: 12, color: '#9ca3af' }}>
-          {isDragOver ? '释放以上传' : '拖拽图片到此或双击上传'}
+          {isDragOver ? lt('释放以上传', 'Release to upload') : lt('拖拽图片到此或双击上传', 'Drag image here or double click to upload')}
         </span>
       )}
     </div>
@@ -148,6 +150,7 @@ const ImageContent = React.memo(({ displaySrc, isDragOver, uploading, uploadErro
 ));
 
 function ImageProNodeInner({ id, data, selected }: Props) {
+  const { lt } = useLocaleText();
   const rf = useReactFlow();
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
@@ -211,7 +214,7 @@ function ImageProNodeInner({ id, data, selected }: Props) {
     if (!file.type.startsWith('image/')) return;
 
     const normalizedFileName = (file.name || '').trim();
-    const displayName = normalizedFileName || '未命名图片';
+    const displayName = normalizedFileName || lt('未命名图片', 'Untitled image');
 
     const uploadDir = projectId
       ? `projects/${projectId}/images/`
@@ -312,7 +315,7 @@ function ImageProNodeInner({ id, data, selected }: Props) {
               id,
               patch: {
                 uploading: false,
-                uploadError: uploadResult.error || '上传失败',
+                uploadError: uploadResult.error || lt('上传失败', 'Upload failed'),
               },
             },
           }),
@@ -367,13 +370,13 @@ function ImageProNodeInner({ id, data, selected }: Props) {
             id,
             patch: {
               uploading: false,
-              uploadError: err?.message || '上传失败',
+              uploadError: err?.message || lt('上传失败', 'Upload failed'),
             },
           },
         }),
       );
     }
-  }, [id, projectId, rf]);
+  }, [id, lt, projectId, rf]);
 
   // 拖拽处理
   const onDrop = React.useCallback((e: React.DragEvent) => {
@@ -609,6 +612,7 @@ function ImageProNodeInner({ id, data, selected }: Props) {
             onDragOver={onDragOver}
             onDragLeave={onDragLeave}
             onDoubleClick={handleDoubleClick}
+            lt={lt}
           />
         </div>
 
@@ -715,7 +719,7 @@ function ImageProNodeInner({ id, data, selected }: Props) {
             ? allImages.find((item) => item.id === currentImageId)?.src || fullSrc || ''
             : fullSrc || ''
         }
-        imageTitle="全局图片预览"
+        imageTitle={lt("全局图片预览", "Global image preview")}
         onClose={() => setPreview(false)}
         imageCollection={allImages}
         currentImageId={currentImageId}
@@ -730,29 +734,29 @@ function ImageProNodeInner({ id, data, selected }: Props) {
           onClose={closeContextMenu}
           items={[
             {
-              label: '复制节点',
+              label: lt('复制节点', 'Duplicate node'),
               icon: <Copy className="w-4 h-4" />,
               onClick: handleCopy,
             },
             {
-              label: '删除节点',
+              label: lt('删除节点', 'Delete node'),
               icon: <Trash2 className="w-4 h-4" />,
               onClick: handleDelete,
             },
             {
-              label: '添加到库',
+              label: lt('添加到库', 'Add to library'),
               icon: <FolderPlus className="w-4 h-4" />,
               onClick: handleAddToLibrary,
               disabled: !(data.imageData || data.imageUrl),
             },
             {
-              label: '下载图片',
+              label: lt('下载图片', 'Download image'),
               icon: <Download className="w-4 h-4" />,
               onClick: handleDownload,
               disabled: !(data.imageData || data.imageUrl),
             },
             {
-              label: '发送到画板',
+              label: lt('发送到画板', 'Send to canvas'),
               icon: <SendIcon className="w-4 h-4" />,
               onClick: onSend,
               disabled: !(data.imageData || data.imageUrl),

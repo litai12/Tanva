@@ -4,6 +4,7 @@ import { aiImageService } from '@/services/aiImageService';
 import { contextManager } from '@/services/contextManager';
 import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
 import { resolveTextFromSourceNode } from '../utils/textSource';
+import { useLocaleText } from '@/utils/localeText';
 
 type TextChatStatus = 'idle' | 'running' | 'succeeded' | 'failed';
 
@@ -54,6 +55,7 @@ const stopFlowPan = (event: React.SyntheticEvent<Element, Event>) => {
 };
 
 const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
+  const { lt } = useLocaleText();
   const rf = useReactFlow();
   const edges = useStore((state: ReactFlowState) => state.edges);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
@@ -171,7 +173,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     const rawPayload = sources.join('\n\n').trim();
     if (!rawPayload.length) {
       window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
-        detail: { id, patch: { status: 'failed', error: '请输入或连接至少一个提示文本' } }
+        detail: { id, patch: { status: 'failed', error: lt('请输入或连接至少一个提示文本', 'Please enter or connect at least one prompt text') } }
       }));
       return;
     }
@@ -191,7 +193,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
       });
 
       if (!result.success || !result.data) {
-        const message = result.error?.message || '文本生成失败';
+        const message = result.error?.message || lt('文本生成失败', 'Text generation failed');
         throw new Error(message);
       }
 
@@ -216,7 +218,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     } finally {
       setIsInvoking(false);
     }
-  }, [aiProvider, enableWebSearch, id, incomingTexts, manualInput, textModel]);
+  }, [aiProvider, enableWebSearch, id, incomingTexts, lt, manualInput, textModel]);
 
   React.useEffect(() => {
     const handler = (event: Event) => {
@@ -396,7 +398,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
           ) : (
             <div
               onDoubleClick={startTitleEditing}
-              title='双击编辑标题'
+              title={lt('双击编辑标题', 'Double click to edit title')}
               style={{ fontWeight: 600, fontSize: 14, color: '#111827', cursor: 'text', userSelect: 'none', flex: 1, minWidth: 0 }}
             >
               {title}
@@ -421,7 +423,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
           </button>
         </div>
 
-        <div style={{ fontSize: 11, color: '#64748b' }}>已连接提示：{incomingTexts.length} 条</div>
+        <div style={{ fontSize: 11, color: '#64748b' }}>{lt('已连接提示', 'Connected prompts')}: {incomingTexts.length} {lt('条', 'item(s)')}</div>
         <div style={{ ...connectionStyle, display: 'flex', flexDirection: 'column', gap: 8, color: incomingTexts.length ? '#1f2937' : '#94a3b8' }}>
           {incomingTexts.length
             ? incomingTexts.map((text, index) => (
@@ -430,17 +432,17 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
                 <span style={{ flex: 1 }}>{text}</span>
               </div>
             ))
-            : <span>连接多个 Prompt 节点以聚合输入</span>}
+            : <span>{lt('连接多个 Prompt 节点以聚合输入', 'Connect multiple Prompt nodes to aggregate input')}</span>}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <div style={labelStyle}>追加描述</div>
+          <div style={labelStyle}>{lt('追加描述', 'Additional prompt')}</div>
           <textarea
             value={manualInput}
             onChange={onManualInputChange}
             onCompositionStart={handleCompositionStart}
             onCompositionEnd={handleCompositionEnd}
-            placeholder="输入附加提示信息"
+            placeholder={lt("输入附加提示信息", "Enter additional prompt information")}
             style={{
               width: '100%',
               minHeight: 80,
@@ -462,11 +464,11 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
 
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#4b5563' }}>
           <input type="checkbox" checked={enableWebSearch} onChange={toggleWebSearch} />
-          启用联网搜索
+          {lt('启用联网搜索', 'Enable web search')}
         </label>
 
         <div style={statusStyle}>
-          状态：{status}
+          {lt('状态', 'Status')}: {status}
           {status === 'failed' && errorText ? ` - ${errorText}` : ''}
         </div>
       </div>

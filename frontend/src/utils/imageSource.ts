@@ -385,12 +385,21 @@ export const resolveImageToBlob = async (
   } else if (isBlobUrl(trimmed) || isDataUrl(trimmed)) {
     candidates.push(trimmed);
   } else if (isAssetProxyRef(trimmed)) {
-    candidates.push(proxifyRemoteAssetUrl(trimmed));
+    // 先把 proxy 引用还原成真实可持久化引用（key 或 remote url）再递归处理，
+    // 避免在未开启代理时被解包成“裸 key”后直接 fetch 失败。
+    const normalized = normalizePersistableImageRef(trimmed);
+    if (normalized && normalized !== trimmed) {
+      return await resolveImageToBlob(normalized, options);
+    }
+    candidates.push(proxifyRemoteAssetUrl(trimmed, { forceProxy: true }));
   } else if (isAssetKeyRef(trimmed)) {
     const withoutLeading = trimmed.replace(/^\/+/, "");
+    const directOssUrl = `${getOssBaseUrl()}${withoutLeading}`;
+    candidates.push(directOssUrl);
     candidates.push(
       proxifyRemoteAssetUrl(
-        `/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`
+        `/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`,
+        { forceProxy: true }
       )
     );
   } else if (

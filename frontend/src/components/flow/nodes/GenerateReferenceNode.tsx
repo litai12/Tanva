@@ -10,6 +10,7 @@ import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 import { toRenderableImageSrc } from "@/utils/imageSource";
+import { useLocaleText } from "@/utils/localeText";
 
 type Props = {
   id: string;
@@ -34,9 +35,8 @@ const buildImageSrc = (value?: string): string | undefined => {
   return toRenderableImageSrc(trimmed) || undefined;
 };
 
-const DEFAULT_REFERENCE_PROMPT = "请参考第二张图的内容";
-
 function GenerateReferenceNodeInner({ id, data, selected }: Props) {
+  const { lt } = useLocaleText();
   const { status, error } = data;
   const rawFullValue = data.imageData || data.imageUrl;
   const fullAssetId = React.useMemo(() => parseFlowImageAssetRef(rawFullValue), [rawFullValue]);
@@ -78,7 +78,8 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
     [projectHistory]
   );
 
-  const referencePromptValue = data.referencePrompt ?? DEFAULT_REFERENCE_PROMPT;
+  const defaultReferencePrompt = lt("请参考第二张图的内容", "Please follow the content of the second image");
+  const referencePromptValue = data.referencePrompt ?? defaultReferencePrompt;
 
   const onRun = React.useCallback(() => {
     data.onRun?.(id);
@@ -92,11 +93,11 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
     if (typeof data.referencePrompt === "undefined") {
       window.dispatchEvent(
         new CustomEvent("flow:updateNodeData", {
-          detail: { id, patch: { referencePrompt: DEFAULT_REFERENCE_PROMPT } },
+          detail: { id, patch: { referencePrompt: defaultReferencePrompt } },
         })
       );
     }
-  }, [data.referencePrompt, id]);
+  }, [data.referencePrompt, defaultReferencePrompt, id]);
 
   const handleImageChange = React.useCallback(
     (imageId: string) => {
@@ -171,12 +172,12 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
               cursor: status === "running" ? "not-allowed" : "pointer",
             }}
           >
-            {status === "running" ? "Running..." : "Run"}
+            {status === "running" ? lt("运行中...", "Running...") : "Run"}
           </button>
           <button
             onClick={onSend}
             disabled={!(data.imageData || data.imageUrl)}
-            title={!(data.imageData || data.imageUrl) ? "无可发送的图像" : "发送到画布"}
+            title={!(data.imageData || data.imageUrl) ? lt("无可发送的图像", "No image to send") : lt("发送到画布", "Send to canvas")}
             style={{
               fontSize: 12,
               padding: "4px 8px",
@@ -205,7 +206,7 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
           overflow: "hidden",
           border: "1px solid #eef0f2",
         }}
-        title={displaySrc ? "双击预览" : undefined}
+        title={displaySrc ? lt("双击预览", "Double click to preview") : undefined}
       >
         {displaySrc ? (
           <SmartImage
@@ -219,13 +220,13 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
             }}
           />
         ) : (
-          <span style={{ fontSize: 12, color: "#9ca3af" }}>等待生成</span>
+          <span style={{ fontSize: 12, color: "#9ca3af" }}>{lt("等待生成", "Waiting for generation")}</span>
         )}
       </div>
 
       <div>
         <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4 }}>
-          参考提示词
+          {lt("参考提示词", "Reference prompt")}
         </div>
         <textarea
           className="nodrag nopan nowheel"
@@ -246,7 +247,7 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
           onMouseDownCapture={(event) => {
             event.stopPropagation();
           }}
-          placeholder='请输入参考提示词'
+          placeholder={lt('请输入参考提示词', 'Enter reference prompt')}
           style={{
             width: "100%",
             minHeight: 70,
@@ -366,7 +367,7 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
               ""
             : fullSrc || ""
         }
-        imageTitle='全局图片预览'
+        imageTitle={lt('全局图片预览', 'Global image preview')}
         onClose={() => setPreview(false)}
         imageCollection={allImages}
         currentImageId={currentImageId}

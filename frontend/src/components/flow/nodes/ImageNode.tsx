@@ -23,6 +23,7 @@ import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 import { isPersistableImageRef, resolveImageToBlob, toRenderableImageSrc } from "@/utils/imageSource";
 import { blobToDataUrl, canvasToBlob, createImageBitmapLimited } from "@/utils/imageConcurrency";
 import { shallow } from "zustand/shallow";
+import { useLocaleText } from "@/utils/localeText";
 
 const RESIZE_EDGE_THICKNESS = 8;
 
@@ -311,7 +312,7 @@ const CanvasCropPreview = React.memo(({
   );
 });
 
-const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, uploading, uploadError, onDrop, onDragOver, onDoubleClick }: {
+const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, uploading, uploadError, onDrop, onDragOver, onDoubleClick, lt }: {
   displaySrc?: string;
   isResizing?: boolean;
   uploading?: boolean;
@@ -325,6 +326,7 @@ const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, uploading
   onDrop: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDoubleClick: () => void;
+  lt: (zhText: string, enText: string) => string;
 }) => (
   <div
     onDrop={onDrop}
@@ -344,7 +346,7 @@ const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, uploading
       border: "1px solid #e5e7eb",
       cursor: "pointer",
     }}
-    title='拖拽图片到此或双击上传'
+    title={lt('拖拽图片到此或双击上传', 'Drag image here or double click to upload')}
   >
     {Boolean(uploading) && (
       <div
@@ -361,7 +363,7 @@ const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, uploading
           color: "#374151",
         }}
       >
-        正在上传…
+        {lt('正在上传…', 'Uploading...')}
       </div>
     )}
     {!uploading && uploadError ? (
@@ -385,7 +387,7 @@ const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, uploading
         }}
         title={uploadError}
       >
-        上传失败：{uploadError}
+        {lt('上传失败', 'Upload failed')}: {uploadError}
       </div>
     ) : null}
     {canvasCrop ? (
@@ -412,13 +414,14 @@ const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, uploading
       />
     ) : (
       <span style={{ fontSize: 12, color: "#9ca3af" }}>
-        拖拽图片到此或双击上传
+        {lt('拖拽图片到此或双击上传', 'Drag image here or double click to upload')}
       </span>
     )}
   </div>
 ));
 
 function ImageNodeInner({ id, data, selected }: Props) {
+  const { lt } = useLocaleText();
   const rf = useReactFlow();
   const hasInputConnection = useStore(
     React.useCallback(
@@ -953,7 +956,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
           },
         })
       );
-      notify("图片已发送到画板", "success");
+      notify(lt("图片已发送到画板", "Image sent to canvas"), "success");
     };
 
     const resolveRenderableToDataUrl = async (value: string): Promise<string | null> => {
@@ -1057,7 +1060,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
         sourceHeight: cropInfo.sourceHeight,
       });
       if (!cropped) {
-        notify("裁剪失败，未发送图片", "warning");
+        notify(lt("裁剪失败，未发送图片", "Crop failed, image not sent"), "warning");
         return;
       }
       emitSend(cropped);
@@ -1071,13 +1074,13 @@ function ImageNodeInner({ id, data, selected }: Props) {
       fullSrc ||
       "";
     if (!baseRef) {
-      notify("没有可发送的图片", "warning");
+      notify(lt("没有可发送的图片", "No image available to send"), "warning");
       return;
     }
 
     const resolved = await resolveRenderableToDataUrl(baseRef);
     if (!resolved) {
-      notify("没有可发送的图片", "warning");
+      notify(lt("没有可发送的图片", "No image available to send"), "warning");
       return;
     }
     emitSend(resolved);
@@ -1099,7 +1102,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
     const file = files[0];
     if (!file.type.startsWith("image/")) return;
     const normalizedFileName = (file.name || "").trim();
-    const displayName = normalizedFileName || "未命名图片";
+    const displayName = normalizedFileName || lt("未命名图片", "Untitled Image");
 
     const uploadDir = projectId
       ? `projects/${projectId}/images/`
@@ -1201,7 +1204,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
               id,
               patch: {
                 uploading: false,
-                uploadError: uploadResult.error || "上传失败",
+                uploadError: uploadResult.error || lt("上传失败", "Upload failed"),
               },
             },
           })
@@ -1258,7 +1261,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
             id,
             patch: {
               uploading: false,
-              uploadError: err?.message || "上传失败",
+              uploadError: err?.message || lt("上传失败", "Upload failed"),
             },
           },
         })
@@ -1364,7 +1367,11 @@ function ImageNodeInner({ id, data, selected }: Props) {
           <button
             onClick={handleSendToCanvas}
             disabled={!canSend}
-            title={!canSend ? "无可发送的图像" : "发送到画布"}
+            title={
+              !canSend
+                ? lt("无可发送的图像", "No image to send")
+                : lt("发送到画布", "Send to canvas")
+            }
             style={{
               fontSize: 12,
               padding: "4px 8px",
@@ -1397,7 +1404,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
                 cursor: "pointer",
               }}
             >
-              内置
+              {lt("内置", "Detach")}
             </button>
           )}
           {data.imageData && (
@@ -1428,7 +1435,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
                 cursor: "pointer",
               }}
             >
-              清空
+              {lt("清空", "Clear")}
             </button>
           )}
         </div>
@@ -1467,6 +1474,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
         onDrop={onDrop}
         onDragOver={onDragOver}
         onDoubleClick={handleDoubleClick}
+        lt={lt}
       />
 
       <Handle
@@ -1509,7 +1517,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
               ""
             : fullSrc || ""
         }
-        imageTitle='全局图片预览'
+        imageTitle={lt('全局图片预览', 'Global image preview')}
         onClose={() => setPreview(false)}
         imageCollection={allImages}
         currentImageId={currentImageId}

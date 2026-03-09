@@ -30,12 +30,7 @@ import {
   type PersonalSvgAsset,
 } from "@/stores/personalLibraryStore";
 import type { StoredImageAsset } from "@/types/canvas";
-
-const TYPE_TABS: Array<{ value: PersonalAssetType; label: string }> = [
-  { value: "2d", label: "2D 图库" },
-  { value: "3d", label: "3D 模型" },
-  { value: "svg", label: "SVG 线条" },
-];
+import { useLocaleText } from "@/utils/localeText";
 
 interface PersonalLibraryPanelProps {
   padding?: string | number;
@@ -55,6 +50,7 @@ const formatDate = (timestamp: number): string => {
 const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
   padding = "12px 18px 18px",
 }) => {
+  const { lt } = useLocaleText();
   const [activeType, setActiveType] = React.useState<PersonalAssetType>("2d");
   const [isUploading, setUploading] = React.useState(false);
   const addAsset = usePersonalLibraryStore((state) => state.addAsset);
@@ -111,11 +107,19 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
       : activeType === "3d"
       ? ".glb,.gltf"
       : "";
+  const typeTabs = React.useMemo(
+    () => [
+      { value: "2d" as const, label: lt("2D 图库", "2D Library") },
+      { value: "3d" as const, label: lt("3D 模型", "3D Models") },
+      { value: "svg" as const, label: lt("SVG 线条", "SVG Paths") },
+    ],
+    [lt]
+  );
   const uploadLabel =
     activeType === "2d"
-      ? "上传图片"
+      ? lt("上传图片", "Upload Image")
       : activeType === "3d"
-      ? "上传 3D 模型"
+      ? lt("上传 3D 模型", "Upload 3D Model")
       : "";
   const showUploadButton = activeType !== "svg";
 
@@ -139,7 +143,9 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
         id,
         type: "2d",
         name:
-          file.name.replace(/\.[^/.]+$/, "") || asset.fileName || "未命名图片",
+          file.name.replace(/\.[^/.]+$/, "") ||
+          asset.fileName ||
+          lt("未命名图片", "Untitled Image"),
         url: asset.url,
         thumbnail: asset.url,
         width: asset.width,
@@ -155,7 +161,7 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
         console.warn("[PersonalLibrary] 同步图片资源到后端失败:", error);
       });
     },
-    [addAsset]
+    [addAsset, lt]
   );
 
   const upsertModelAsset = React.useCallback(
@@ -173,7 +179,9 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
         id,
         type: "3d",
         name:
-          file.name.replace(/\.[^/.]+$/, "") || asset.fileName || "未命名模型",
+          file.name.replace(/\.[^/.]+$/, "") ||
+          asset.fileName ||
+          lt("未命名模型", "Untitled Model"),
         url: asset.url,
         fileName: asset.fileName ?? file.name,
         fileSize: asset.fileSize ?? file.size,
@@ -199,7 +207,7 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
         console.warn("[PersonalLibrary] 同步 3D 资源到后端失败:", error);
       });
     },
-    [addAsset, handleModelThumbnailUpdate]
+    [addAsset, handleModelThumbnailUpdate, lt]
   );
 
   const handleUploadFiles = async (
@@ -216,7 +224,7 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
           dir: "uploads/personal-library/images/",
         });
         if (!result.success || !result.asset) {
-          alert(result.error || "图片上传失败，请重试");
+          alert(result.error || lt("图片上传失败，请重试", "Image upload failed. Please try again."));
           return;
         }
         upsertImageAsset(file, result.asset);
@@ -225,7 +233,7 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
           dir: "uploads/personal-library/models/",
         });
         if (!result.success || !result.asset) {
-          alert(result.error || "3D 模型上传失败，请重试");
+          alert(result.error || lt("3D 模型上传失败，请重试", "3D model upload failed. Please try again."));
           return;
         }
         upsertModelAsset(file, result.asset);
@@ -252,7 +260,7 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
   };
 
   const handleRemoveAsset = (asset: PersonalLibraryAsset) => {
-    if (!confirm(`确定要删除「${asset.name}」吗？`)) {
+    if (!confirm(lt(`确定要删除「${asset.name}」吗？`, `Delete "${asset.name}"?`))) {
       return;
     }
     removeAsset(asset.id);
@@ -323,7 +331,7 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
 
   const handleSendToCanvas = async (asset: PersonalLibraryAsset) => {
     if (!asset.url) {
-      alert("资源缺少可用的链接，无法发送到画板");
+      alert(lt("资源缺少可用的链接，无法发送到画板", "This asset has no usable URL and cannot be sent to canvas."));
       return;
     }
     if (asset.type === "2d") {
@@ -359,7 +367,7 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
       );
       window.dispatchEvent(
         new CustomEvent("toast", {
-          detail: { message: "图片已发送到画板", type: "success" },
+          detail: { message: lt("图片已发送到画板", "Image sent to canvas"), type: "success" },
         })
       );
       return;
@@ -387,7 +395,7 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
       );
       window.dispatchEvent(
         new CustomEvent("toast", {
-          detail: { message: "3D 模型已发送到画板", type: "success" },
+          detail: { message: lt("3D 模型已发送到画板", "3D model sent to canvas"), type: "success" },
         })
       );
     }
@@ -414,7 +422,7 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
       );
       window.dispatchEvent(
         new CustomEvent("toast", {
-          detail: { message: "SVG 已发送到画板", type: "success" },
+          detail: { message: lt("SVG 已发送到画板", "SVG sent to canvas"), type: "success" },
         })
       );
     }
@@ -439,10 +447,13 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
       >
         <div>
           <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.2 }}>
-            个人库
+            {lt("个人库", "Personal Library")}
           </div>
           <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
-            支持上传 2D 图片与 3D 模型，随时复用与下载
+            {lt(
+              "支持上传 2D 图片与 3D 模型，随时复用与下载",
+              "Upload 2D images and 3D models for quick reuse and download"
+            )}
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
@@ -466,7 +477,7 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
               }}
             >
               <Upload size={16} strokeWidth={2} />
-              {isUploading ? "上传中…" : uploadLabel}
+              {isUploading ? lt("上传中…", "Uploading...") : uploadLabel}
             </button>
           )}
           <input
@@ -485,7 +496,7 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
       <div
         style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}
       >
-        {TYPE_TABS.map((tab) => {
+        {typeTabs.map((tab) => {
           const isActive = tab.value === activeType;
           return (
             <button
@@ -525,15 +536,18 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
         >
           <div style={{ fontSize: 16, fontWeight: 600 }}>
             {activeType === "2d"
-              ? "暂未上传图片"
+              ? lt("暂未上传图片", "No images uploaded yet")
               : activeType === "3d"
-              ? "暂未上传 3D 模型"
-              : "暂无 SVG 线条"}
+              ? lt("暂未上传 3D 模型", "No 3D models uploaded yet")
+              : lt("暂无 SVG 线条", "No SVG assets yet")}
           </div>
           <div style={{ fontSize: 13, marginTop: 8 }}>
             {activeType === "svg"
-              ? "在画布上选中线条后，右键选择「添加到库」即可保存"
-              : "点击右上角上传按钮即可添加资源"}
+              ? lt(
+                  "在画布上选中线条后，右键选择「添加到库」即可保存",
+                  'Select paths on canvas, then right-click and choose "Add to Library"'
+                )
+              : lt("点击右上角上传按钮即可添加资源", "Click the upload button on the top right to add assets")}
           </div>
         </div>
       ) : (
@@ -653,7 +667,8 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
                     <div
                       style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}
                     >
-                      更新时间：{formatDate(asset.updatedAt)}
+                      {lt("更新时间：", "Updated: ")}
+                      {formatDate(asset.updatedAt)}
                     </div>
                   </div>
                   <div
@@ -669,7 +684,7 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
                     <button
                       type='button'
                       onClick={() => void handleSendToCanvas(asset)}
-                      title='发送到画布'
+                      title={lt("发送到画布", "Send to canvas")}
                       className='personal-library-action-button personal-library-action-button--send'
                     >
                       <Send size={16} strokeWidth={2} />
@@ -677,7 +692,7 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
                     <button
                       type='button'
                       onClick={() => handleDownload(asset)}
-                      title='下载'
+                      title={lt("下载", "Download")}
                       className='personal-library-action-button personal-library-action-button--download'
                     >
                       <Download size={16} strokeWidth={2} />
@@ -686,7 +701,7 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
                       type='button'
                       onClick={() => handleRemoveAsset(asset)}
                       className='personal-library-action-button personal-library-action-button--delete'
-                      title='删除资源'
+                      title={lt("删除资源", "Delete asset")}
                     >
                       <Trash2 size={16} strokeWidth={2} />
                     </button>
@@ -775,6 +790,7 @@ const ModelAssetPreview: React.FC<ModelAssetPreviewProps> = ({
   asset,
   onThumbnailReady,
 }) => {
+  const { lt } = useLocaleText();
   const [previewSrc, setPreviewSrc] = React.useState<string | null>(
     asset.thumbnail ?? null
   );
@@ -824,7 +840,7 @@ const ModelAssetPreview: React.FC<ModelAssetPreviewProps> = ({
     return (
       <SmartImage
         src={previewSrc}
-        alt={`${asset.name} 预览`}
+        alt={`${asset.name} ${lt("预览", "Preview")}`}
         style={{ width: "100%", height: "100%", objectFit: "cover" }}
       />
     );
@@ -851,10 +867,14 @@ const ModelAssetPreview: React.FC<ModelAssetPreviewProps> = ({
         {asset.format?.toUpperCase() || "3D"}
       </div>
       {isLoading && (
-        <div style={{ fontSize: 11, opacity: 0.9 }}>预览生成中…</div>
+        <div style={{ fontSize: 11, opacity: 0.9 }}>
+          {lt("预览生成中…", "Preview generating...")}
+        </div>
       )}
       {hasFailed && !isLoading && (
-        <div style={{ fontSize: 11, opacity: 0.75 }}>无法生成预览</div>
+        <div style={{ fontSize: 11, opacity: 0.75 }}>
+          {lt("无法生成预览", "Preview unavailable")}
+        </div>
       )}
     </div>
   );

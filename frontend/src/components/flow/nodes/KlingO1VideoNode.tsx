@@ -5,6 +5,7 @@ import SmartImage from "../../ui/SmartImage";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { useAuthStore } from "@/stores/authStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
+import { useLocaleText } from "@/utils/localeText";
 
 type Props = {
   id: string;
@@ -43,6 +44,7 @@ type DownloadFeedback = {
 };
 
 function KlingO1VideoNode({ id, data, selected }: Props) {
+  const { lt } = useLocaleText();
   const borderColor = selected ? "#2563eb" : "#e5e7eb";
   const boxShadow = selected
     ? "0 0 0 2px rgba(37,99,235,0.12)"
@@ -104,7 +106,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
       videoRef.current.currentTime = 0;
       videoRef.current.load();
     } catch (error) {
-      console.warn("无法重置视频播放器", error);
+      console.warn("Unable to reset video player", error);
     }
   }, [cacheBustedVideoUrl, sanitizedVideoUrl]);
 
@@ -149,27 +151,27 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
 
   // Kling O1 支持 3-10 秒
   const aspectOptions = [
-    { label: "自动", value: "" },
-    { label: "横屏（16:9）", value: "16:9" },
-    { label: "竖屏（9:16）", value: "9:16" },
-    { label: "方形（1:1）", value: "1:1" },
+    { label: lt("自动", "Auto"), value: "" },
+    { label: lt("横屏（16:9）", "Landscape (16:9)"), value: "16:9" },
+    { label: lt("竖屏（9:16）", "Portrait (9:16)"), value: "9:16" },
+    { label: lt("方形（1:1）", "Square (1:1)"), value: "1:1" },
   ];
 
   const durationOptions = [
-    { label: "3秒", value: 3 },
-    { label: "4秒", value: 4 },
-    { label: "5秒", value: 5 },
-    { label: "6秒", value: 6 },
-    { label: "7秒", value: 7 },
-    { label: "8秒", value: 8 },
-    { label: "9秒", value: 9 },
-    { label: "10秒", value: 10 },
+    { label: lt("3秒", "3s"), value: 3 },
+    { label: lt("4秒", "4s"), value: 4 },
+    { label: lt("5秒", "5s"), value: 5 },
+    { label: lt("6秒", "6s"), value: 6 },
+    { label: lt("7秒", "7s"), value: 7 },
+    { label: lt("8秒", "8s"), value: 8 },
+    { label: lt("9秒", "9s"), value: 9 },
+    { label: lt("10秒", "10s"), value: 10 },
   ];
 
   const videoRefTypeOptions = [
-    { label: "特征参考", value: "feature", desc: "风格/色调/画面特征" },
-    { label: "动作参考", value: "motion", desc: "运动轨迹和动作" },
-    { label: "表情参考", value: "expression", desc: "人物表情变化" },
+    { label: lt("特征参考", "Feature reference"), value: "feature", desc: lt("风格/色调/画面特征", "Style / tone / visual features") },
+    { label: lt("动作参考", "Motion reference"), value: "motion", desc: lt("运动轨迹和动作", "Motion trajectory and actions") },
+    { label: lt("表情参考", "Expression reference"), value: "expression", desc: lt("人物表情变化", "Facial expression changes") },
   ];
 
   const handleAspectChange = React.useCallback(
@@ -210,20 +212,20 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
 
   const aspectLabel = React.useMemo(() => {
     const match = aspectOptions.find((opt) => opt.value === aspectRatioValue);
-    return match ? match.label : "自动";
-  }, [aspectRatioValue]);
+    return match ? match.label : lt("自动", "Auto");
+  }, [aspectOptions, aspectRatioValue, lt]);
 
   const durationLabel = React.useMemo(() => {
     const match = durationOptions.find((opt) => opt.value === clipDuration);
     if (match) return match.label;
-    if (clipDuration) return `${clipDuration}秒`;
-    return "5秒";
-  }, [clipDuration]);
+    if (clipDuration) return lt(`${clipDuration}秒`, `${clipDuration}s`);
+    return lt("5秒", "5s");
+  }, [clipDuration, durationOptions, lt]);
 
   const videoRefTypeLabel = React.useMemo(() => {
     const match = videoRefTypeOptions.find((opt) => opt.value === referenceVideoType);
-    return match ? match.label : "特征参考";
-  }, [referenceVideoType]);
+    return match ? match.label : lt("特征参考", "Feature reference");
+  }, [lt, referenceVideoType, videoRefTypeOptions]);
 
   React.useEffect(() => {
     if (!aspectRatioValue) {
@@ -287,13 +289,13 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
 
   const copyVideoLink = React.useCallback(async (url?: string) => {
     if (!url) {
-      alert("没有可复制的视频链接");
+      alert(lt("没有可复制的视频链接", "No video link to copy"));
       return;
     }
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(url);
-        alert("已复制视频链接");
+        alert(lt("已复制视频链接", "Video link copied"));
         return;
       }
       const textArea = document.createElement("textarea");
@@ -307,15 +309,15 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
       const success = document.execCommand("copy");
       document.body.removeChild(textArea);
       if (success) {
-        alert("已复制视频链接");
+        alert(lt("已复制视频链接", "Video link copied"));
       } else {
-        alert("复制失败，请手动复制：\n" + url);
+        alert(lt("复制失败，请手动复制：\n", "Copy failed, please copy manually:\n") + url);
       }
     } catch (error) {
-      console.error("复制失败:", error);
-      prompt("复制失败，请手动复制以下链接：", url);
+      console.error("Copy failed:", error);
+      prompt(lt("复制失败，请手动复制以下链接：", "Copy failed, please manually copy this link:"), url);
     }
-  }, []);
+  }, [lt]);
 
   const triggerDownload = React.useCallback(
     async (url?: string) => {
@@ -325,7 +327,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
         downloadFeedbackTimer.current = undefined;
       }
       setIsDownloading(true);
-      setDownloadFeedback({ type: "progress", message: "视频下载中，请稍等..." });
+      setDownloadFeedback({ type: "progress", message: lt("视频下载中，请稍等...", "Downloading video, please wait...") });
       try {
         const isOssUrl = url.includes("aliyuncs.com");
         const downloadUrl = isOssUrl ? url : proxifyRemoteAssetUrl(url, { forceProxy: true });
@@ -343,23 +345,23 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
           link.click();
           document.body.removeChild(link);
           setTimeout(() => URL.revokeObjectURL(blobUrl), 200);
-          setDownloadFeedback({ type: "success", message: "下载完成" });
+          setDownloadFeedback({ type: "success", message: lt("下载完成", "Download complete") });
           scheduleFeedbackClear(2000);
         } else {
           window.open(url, "_blank");
-          setDownloadFeedback({ type: "success", message: "已在新标签页打开" });
+          setDownloadFeedback({ type: "success", message: lt("已在新标签页打开", "Opened in a new tab") });
           scheduleFeedbackClear(3000);
         }
       } catch (error) {
-        console.error("下载失败:", error);
+        console.error("Download failed:", error);
         window.open(url, "_blank");
-        setDownloadFeedback({ type: "error", message: "下载失败，已在新标签页打开" });
+        setDownloadFeedback({ type: "error", message: lt("下载失败，已在新标签页打开", "Download failed, opened in a new tab") });
         scheduleFeedbackClear(4000);
       } finally {
         setIsDownloading(false);
       }
     },
-    [isDownloading, scheduleFeedbackClear]
+    [isDownloading, lt, scheduleFeedbackClear]
   );
 
   const handleMediaPointerDown = (event: React.PointerEvent | React.MouseEvent) => {
@@ -408,7 +410,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
           onError={handleMediaError}
         >
           <source src={videoSrc} type="video/mp4" />
-          您的浏览器不支持 video 标签
+          {lt("您的浏览器不支持 video 标签", "Your browser does not support the video tag")}
         </video>
       );
     }
@@ -442,7 +444,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
         }}
       >
         <Video size={24} strokeWidth={2} />
-        <div style={{ fontSize: 11 }}>等待生成...</div>
+        <div style={{ fontSize: 11 }}>{lt("等待生成...", "Waiting for generation...")}</div>
       </div>
     );
   };
@@ -498,12 +500,12 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
       )}
       {hover === "image-in" && (
         <div className="flow-tooltip" style={{ left: -8, top: "50%", transform: "translate(-100%, -50%)" }}>
-          image (参考图/首尾帧)
+          {lt("image (参考图/首尾帧)", "image (reference / first-last frame)")}
         </div>
       )}
       {hover === "video-in" && (
         <div className="flow-tooltip" style={{ left: -8, top: "75%", transform: "translate(-100%, -50%)" }}>
-          video (参考视频)
+          {lt("video (参考视频)", "video (reference video)")}
         </div>
       )}
       {hover === "video-out" && (
@@ -549,7 +551,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
           <button
             onClick={() => copyVideoLink(data.videoUrl)}
             onMouseDown={handleButtonMouseDown}
-            title="复制链接"
+            title={lt("复制链接", "Copy link")}
             style={{
               width: 36,
               height: 32,
@@ -570,7 +572,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
           <button
             onClick={() => triggerDownload(data.videoUrl)}
             onMouseDown={handleButtonMouseDown}
-            title="下载视频"
+            title={lt("下载视频", "Download video")}
             style={{
               width: 36,
               height: 32,
@@ -613,7 +615,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
 
       {/* 尺寸选择 */}
       <div className="video-dropdown" style={{ marginBottom: 8, position: "relative" }}>
-        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>尺寸</div>
+        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>{lt("尺寸", "Aspect")}</div>
         <button
           type="button"
           onClick={(event) => {
@@ -686,7 +688,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
 
       {/* 时长选择 */}
       <div className="video-dropdown" style={{ marginBottom: 8, position: "relative" }}>
-        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>时长</div>
+        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>{lt("时长", "Duration")}</div>
         <button
           type="button"
           onClick={(event) => {
@@ -759,11 +761,11 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
 
       {/* 模式选择 */}
       <div style={{ marginBottom: 8 }}>
-        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>模式</div>
+        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>{lt("模式", "Mode")}</div>
         <div style={{ display: "flex", gap: 6 }}>
           {[
-            { label: "标准 (std)", value: "std" },
-            { label: "专业 (pro)", value: "pro" },
+            { label: lt("标准 (std)", "Standard (std)"), value: "std" },
+            { label: lt("专业 (pro)", "Pro (pro)"), value: "pro" },
           ].map((opt) => {
             const isActive = (data.mode || "pro") === opt.value;
             return (
@@ -799,7 +801,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
       {/* 视频参考类型选择 - 仅在有视频输入时显示 */}
       {hasVideoInput && (
         <div className="video-dropdown" style={{ marginBottom: 8, position: "relative" }}>
-          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>视频参考类型</div>
+          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>{lt("视频参考类型", "Video reference type")}</div>
           <button
             type="button"
             onClick={(event) => {
@@ -914,8 +916,8 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
           }}
         >
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: "#0f172a" }}>历史记录</span>
-            <span style={{ fontSize: 11, color: "#94a3b8" }}>{historyItems.length} 条</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#0f172a" }}>{lt("历史记录", "History")}</span>
+            <span style={{ fontSize: 11, color: "#94a3b8" }}>{historyItems.length} {lt("条", "items")}</span>
           </div>
           {historyItems.map((item, index) => {
             const isActive = item.videoUrl === data.videoUrl;
@@ -945,11 +947,11 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                     #{index + 1} · {formatHistoryTime(item.createdAt)}
                   </span>
                   {isActive && (
-                    <span style={{ fontSize: 10, color: "#1d4ed8", fontWeight: 600 }}>当前</span>
+                    <span style={{ fontSize: 10, color: "#1d4ed8", fontWeight: 600 }}>{lt("当前", "Current")}</span>
                   )}
                 </div>
                 {typeof item.elapsedSeconds === "number" && (
-                  <div style={{ fontSize: 11, color: "#475569" }}>耗时 {item.elapsedSeconds}s</div>
+                  <div style={{ fontSize: 11, color: "#475569" }}>{lt("耗时", "Elapsed")} {item.elapsedSeconds}s</div>
                 )}
                 <div style={{ fontSize: 11, color: "#0f172a" }}>{truncatePrompt(item.prompt)}</div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -967,7 +969,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                         cursor: "pointer",
                       }}
                     >
-                      应用
+                      {lt("应用", "Apply")}
                     </button>
                   )}
                   <button
@@ -983,7 +985,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                       cursor: "pointer",
                     }}
                   >
-                    复制链接
+                    {lt("复制链接", "Copy link")}
                   </button>
                   <button
                     type="button"
@@ -998,7 +1000,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                       cursor: "pointer",
                     }}
                   >
-                    下载
+                    {lt("下载", "Download")}
                   </button>
                 </div>
               </div>
@@ -1019,7 +1021,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
           color: "#166534",
         }}
       >
-        支持：文生视频、图片参考、首尾帧、视频编辑
+        {lt("支持：文生视频、图片参考、首尾帧、视频编辑", "Supports: text-to-video, image reference, first-last frame, video editing")}
       </div>
 
       {data.error && (

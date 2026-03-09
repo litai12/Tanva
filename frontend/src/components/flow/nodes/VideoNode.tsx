@@ -2,6 +2,7 @@
 import React from "react";
 import { Handle, Position, useReactFlow } from "reactflow";
 import { useProjectContentStore } from "@/stores/projectContentStore";
+import { useLocaleText } from "@/utils/localeText";
 
 const MIN_WIDTH = 320;
 const MIN_HEIGHT = 240;
@@ -42,6 +43,7 @@ const VideoContent = React.memo(({
   onDoubleClick,
   status,
   error,
+  lt,
 }: {
   videoUrl?: string;
   onDrop: (e: React.DragEvent) => void;
@@ -49,6 +51,7 @@ const VideoContent = React.memo(({
   onDoubleClick: () => void;
   status?: string;
   error?: string;
+  lt: (zhText: string, enText: string) => string;
 }) => (
   <div
     onDrop={onDrop}
@@ -66,17 +69,17 @@ const VideoContent = React.memo(({
       border: "1px solid #e5e7eb",
       cursor: "pointer",
     }}
-    title="拖拽视频到此或双击上传"
+    title={lt("拖拽视频到此或双击上传", "Drag video here or double click to upload")}
   >
     {status === 'uploading' ? (
       <div style={{ textAlign: "center", color: "#9ca3af" }}>
         <div style={{ fontSize: 24, marginBottom: 8 }}>⏳</div>
-        <span style={{ fontSize: 12 }}>上传中...</span>
+        <span style={{ fontSize: 12 }}>{lt("上传中...", "Uploading...")}</span>
       </div>
     ) : status === 'error' ? (
       <div style={{ textAlign: "center", color: "#ef4444", padding: 12 }}>
         <div style={{ fontSize: 24, marginBottom: 8 }}>❌</div>
-        <span style={{ fontSize: 11 }}>{error || '上传失败'}</span>
+        <span style={{ fontSize: 11 }}>{error || lt('上传失败', 'Upload failed')}</span>
       </div>
     ) : videoUrl ? (
       <video
@@ -93,9 +96,9 @@ const VideoContent = React.memo(({
     ) : (
       <div style={{ textAlign: "center", color: "#9ca3af" }}>
         <div style={{ fontSize: 24, marginBottom: 8 }}>🎬</div>
-        <span style={{ fontSize: 12 }}>拖拽视频到此或双击上传</span>
+        <span style={{ fontSize: 12 }}>{lt("拖拽视频到此或双击上传", "Drag video here or double click to upload")}</span>
         <div style={{ fontSize: 10, marginTop: 4, color: "#6b7280" }}>
-          支持 MP4, MOV, AVI, MPEG, 3GP, FLV
+          {lt("支持 MP4, MOV, AVI, MPEG, 3GP, FLV", "Supports MP4, MOV, AVI, MPEG, 3GP, FLV")}
         </div>
       </div>
     )}
@@ -103,6 +106,7 @@ const VideoContent = React.memo(({
 ));
 
 function VideoNodeInner({ id, data, selected }: Props) {
+  const { lt } = useLocaleText();
   const rf = useReactFlow();
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   const projectId = useProjectContentStore((state) => state.projectId);
@@ -142,10 +146,10 @@ function VideoNodeInner({ id, data, selected }: Props) {
     });
 
     if (!result.success || !result.url) {
-      throw new Error(result.error || "上传失败");
+      throw new Error(result.error || lt("上传失败", "Upload failed"));
     }
     return result.url;
-  }, [projectId]);
+  }, [lt, projectId]);
 
   const handleFiles = React.useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -155,12 +159,12 @@ function VideoNodeInner({ id, data, selected }: Props) {
     if (!SUPPORTED_VIDEO_TYPES.includes(file.type) && !file.name.match(/\.(mp4|mov|avi|mpeg|mpg|3gp|flv)$/i)) {
       updateNodeData({
         status: 'error',
-        error: '不支持的视频格式'
+        error: lt('不支持的视频格式', 'Unsupported video format')
       });
       return;
     }
 
-    const videoName = file.name || "未命名视频";
+    const videoName = file.name || lt("未命名视频", "Untitled video");
 
     // 设置上传状态
     updateNodeData({
@@ -186,10 +190,10 @@ function VideoNodeInner({ id, data, selected }: Props) {
       console.error("❌ Video upload failed:", err);
       updateNodeData({
         status: 'error',
-        error: err.message || '上传失败',
+        error: err.message || lt('上传失败', 'Upload failed'),
       });
     }
-  }, [updateNodeData, uploadVideoToOSS]);
+  }, [lt, updateNodeData, uploadVideoToOSS]);
 
   const onDrop = React.useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -257,7 +261,7 @@ function VideoNodeInner({ id, data, selected }: Props) {
                 cursor: "pointer",
               }}
             >
-              清空
+              {lt("清空", "Clear")}
             </button>
           )}
         </div>
@@ -297,6 +301,7 @@ function VideoNodeInner({ id, data, selected }: Props) {
         onDoubleClick={handleDoubleClick}
         status={data.status}
         error={data.error}
+        lt={lt}
       />
 
       {/* 连接点 */}

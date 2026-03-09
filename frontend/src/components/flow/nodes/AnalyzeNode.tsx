@@ -9,6 +9,7 @@ import { canvasToBlob, createImageBitmapLimited, blobToDataUrl } from '@/utils/i
 import { parseFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import { resolveImageToBlob, resolveImageToDataUrl, toRenderableImageSrc } from '@/utils/imageSource';
+import { useLocaleText } from '@/utils/localeText';
 
 type Props = {
   id: string;
@@ -22,9 +23,6 @@ type Props = {
   };
   selected?: boolean;
 };
-
-// 默认提示词
-const DEFAULT_ANALYSIS_PROMPT = '分析一下这张图的内容，尽可能描述出来场景中的物体和特点，用一段提示词的方式输出';
 
 // 构建图片 src - 优先使用 OSS URL，避免 proxy 降级
 const buildImageSrc = (value?: string): string | undefined => {
@@ -200,6 +198,7 @@ const CanvasCropPreview = React.memo(({
 });
 
 function AnalysisNodeInner({ id, data, selected = false }: Props) {
+  const { lt } = useLocaleText();
   const rf = useReactFlow();
   const { status, error } = data;
   const incomingEdge = useStore(
@@ -423,7 +422,11 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
 
-  const promptInput = data.analysisPrompt ?? DEFAULT_ANALYSIS_PROMPT;
+  const defaultAnalysisPrompt = lt(
+    '分析一下这张图的内容，尽可能描述出来场景中的物体和特点，用一段提示词的方式输出',
+    'Analyze this image. Describe the scene objects and characteristics in one prompt-style paragraph.'
+  );
+  const promptInput = data.analysisPrompt ?? defaultAnalysisPrompt;
 
   // 用于追踪分析进行中的状态
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
@@ -432,15 +435,15 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
   React.useEffect(() => {
     if (typeof data.analysisPrompt === 'undefined') {
       window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
-        detail: { id, patch: { analysisPrompt: DEFAULT_ANALYSIS_PROMPT } }
+        detail: { id, patch: { analysisPrompt: defaultAnalysisPrompt } }
       }));
     }
-  }, [data.analysisPrompt, id]);
+  }, [data.analysisPrompt, defaultAnalysisPrompt, id]);
 
   const onAnalyze = React.useCallback(async () => {
     if (!hasAnyInput || status === 'running' || isAnalyzing) return;
 
-    const promptToUse = (data.analysisPrompt ?? DEFAULT_ANALYSIS_PROMPT).trim();
+    const promptToUse = (data.analysisPrompt ?? defaultAnalysisPrompt).trim();
     if (!promptToUse.length) {
       window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
         detail: { id, patch: { status: 'failed', error: 'Prompt cannot be empty' } }
@@ -525,7 +528,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
           const img = new Image();
           await new Promise<void>((resolve, reject) => {
             img.onload = () => resolve();
-            img.onerror = () => reject(new Error('图片解码失败'));
+            img.onerror = () => reject(new Error(lt('图片解码失败', 'Image decode failed')));
             img.src = objectUrl;
           });
 
@@ -679,9 +682,9 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
         }
 
         const raw = (data.imageData || data.imageUrl)?.trim() || '';
-        if (!raw) throw new Error('缺少图片输入');
+        if (!raw) throw new Error(lt('缺少图片输入', 'Missing image input'));
         const dataUrl = await resolveImageToDataUrl(raw, { preferProxy: true });
-        if (!dataUrl) throw new Error('图片加载失败');
+        if (!dataUrl) throw new Error(lt('图片加载失败', 'Image load failed'));
         return dataUrl;
       };
 
@@ -719,7 +722,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [aiProvider, data.analysisPrompt, data.imageData, data.imageUrl, hasAnyInput, id, imageModel, incomingEdge, isAnalyzing, rf, status]);
+  }, [aiProvider, data.analysisPrompt, data.imageData, data.imageUrl, defaultAnalysisPrompt, hasAnyInput, id, imageModel, incomingEdge, isAnalyzing, lt, rf, status]);
 
   React.useEffect(() => {
     const handler = (event: Event) => {

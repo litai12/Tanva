@@ -9,6 +9,7 @@ import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { toRenderableImageSrc } from "@/utils/imageSource";
+import { useLocaleText } from "@/utils/localeText";
 
 type Props = {
   id: string;
@@ -17,6 +18,7 @@ type Props = {
 };
 
 function CameraNodeInner({ id, data, selected }: Props) {
+  const { lt } = useLocaleText();
   const rf = useReactFlow();
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
@@ -84,7 +86,7 @@ function CameraNodeInner({ id, data, selected }: Props) {
         void recordImageHistoryEntry({
           id: newImageId,
           base64,
-          title: `Camera节点截图 ${new Date().toLocaleTimeString()}`,
+          title: `${lt("Camera节点截图", "Camera screenshot")} ${new Date().toLocaleTimeString()}`,
           nodeId: id,
           nodeType: "camera",
           fileName: `camera_capture_${newImageId}.png`,
@@ -275,7 +277,7 @@ function CameraNodeInner({ id, data, selected }: Props) {
           <button
             onClick={sendToCanvas}
             disabled={!(data.imageData || data.imageUrl)}
-            title={!(data.imageData || data.imageUrl) ? "无可发送的图像" : "发送到画布"}
+            title={!(data.imageData || data.imageUrl) ? lt("无可发送的图像", "No image to send") : lt("发送到画布", "Send to canvas")}
             style={{
               fontSize: 12,
               padding: "4px 8px",
@@ -309,7 +311,7 @@ function CameraNodeInner({ id, data, selected }: Props) {
           />
         ) : (
           <span style={{ fontSize: 12, color: "#9ca3af" }}>
-            点击 Capture 拍摄
+            {lt("点击 Capture 拍摄", "Click Capture to shoot")}
           </span>
         )}
       </div>
@@ -337,7 +339,7 @@ function CameraNodeInner({ id, data, selected }: Props) {
               ""
             : src || ""
         }
-        imageTitle='全局图片预览'
+        imageTitle={lt('全局图片预览', 'Global image preview')}
         onClose={() => setPreview(false)}
         imageCollection={allImages}
         currentImageId={currentImageId}

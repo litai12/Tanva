@@ -5,6 +5,7 @@ import SmartImage from "../../ui/SmartImage";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { useAuthStore } from "@/stores/authStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
+import { useLocaleText } from "@/utils/localeText";
 
 export type VideoProvider = "kling" | "kling-2.6" | "vidu" | "doubao";
 
@@ -49,6 +50,7 @@ const PROVIDER_CONFIG: Record<VideoProvider, { name: string; zh: string }> = {
 };
 
 function GenericVideoNodeInner({ id, data, selected }: Props) {
+  const { lt, isZh } = useLocaleText();
   const borderColor = selected ? "#2563eb" : "#e5e7eb";
   const boxShadow = selected
     ? "0 0 0 2px rgba(37,99,235,0.12)"
@@ -122,9 +124,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       videoRef.current.currentTime = 0;
       videoRef.current.load();
     } catch (error) {
-      console.warn("无法重置视频播放器", error);
+      console.warn(lt("无法重置视频播放器", "Failed to reset video player"), error);
     }
-  }, [cacheBustedVideoUrl, sanitizedVideoUrl]);
+  }, [cacheBustedVideoUrl, lt, sanitizedVideoUrl]);
 
   // 全屏时强制设置 object-fit: contain，确保视频按原比例显示
   React.useEffect(() => {
@@ -208,54 +210,54 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const getAspectOptions = () => {
     if (provider === "kling" || provider === "kling-2.6") {
       return [
-        { label: "自动", value: "" },
-        { label: "横屏（16:9）", value: "16:9" },
-        { label: "竖屏（9:16）", value: "9:16" },
-        { label: "方形（1:1）", value: "1:1" },
+        { label: lt("自动", "Auto"), value: "" },
+        { label: lt("横屏（16:9）", "Landscape (16:9)"), value: "16:9" },
+        { label: lt("竖屏（9:16）", "Portrait (9:16)"), value: "9:16" },
+        { label: lt("方形（1:1）", "Square (1:1)"), value: "1:1" },
       ];
     }
     return [
-      { label: "自动", value: "" },
-      { label: "横屏（16:9）", value: "16:9" },
-      { label: "竖屏（9:16）", value: "9:16" },
+      { label: lt("自动", "Auto"), value: "" },
+      { label: lt("横屏（16:9）", "Landscape (16:9)"), value: "16:9" },
+      { label: lt("竖屏（9:16）", "Portrait (9:16)"), value: "9:16" },
     ];
   };
 
   const getDurationOptions = () => {
     if (provider === "kling" || provider === "kling-2.6") {
       return [
-        { label: "5秒", value: 5 },
-        { label: "10秒", value: 10 },
+        { label: lt("5秒", "5s"), value: 5 },
+        { label: lt("10秒", "10s"), value: 10 },
       ];
     }
     if (provider === "vidu") {
       return [
-        { label: "1秒", value: 1 },
-        { label: "2秒", value: 2 },
-        { label: "3秒", value: 3 },
-        { label: "4秒", value: 4 },
-        { label: "5秒", value: 5 },
-        { label: "6秒", value: 6 },
-        { label: "7秒", value: 7 },
-        { label: "8秒", value: 8 },
-        { label: "9秒", value: 9 },
-        { label: "10秒", value: 10 },
+        { label: lt("1秒", "1s"), value: 1 },
+        { label: lt("2秒", "2s"), value: 2 },
+        { label: lt("3秒", "3s"), value: 3 },
+        { label: lt("4秒", "4s"), value: 4 },
+        { label: lt("5秒", "5s"), value: 5 },
+        { label: lt("6秒", "6s"), value: 6 },
+        { label: lt("7秒", "7s"), value: 7 },
+        { label: lt("8秒", "8s"), value: 8 },
+        { label: lt("9秒", "9s"), value: 9 },
+        { label: lt("10秒", "10s"), value: 10 },
       ];
     }
     if (provider === "doubao") {
       return [
-        { label: "3秒", value: 3 },
-        { label: "4秒", value: 4 },
-        { label: "5秒", value: 5 },
-        { label: "6秒", value: 6 },
-        { label: "8秒", value: 8 },
+        { label: lt("3秒", "3s"), value: 3 },
+        { label: lt("4秒", "4s"), value: 4 },
+        { label: lt("5秒", "5s"), value: 5 },
+        { label: lt("6秒", "6s"), value: 6 },
+        { label: lt("8秒", "8s"), value: 8 },
       ];
     }
     return [];
   };
 
-  const aspectOptions = React.useMemo(() => getAspectOptions(), [provider]);
-  const durationOptions = React.useMemo(() => getDurationOptions(), [provider]);
+  const aspectOptions = React.useMemo(() => getAspectOptions(), [provider, lt]);
+  const durationOptions = React.useMemo(() => getDurationOptions(), [provider, lt]);
 
   const handleAspectChange = React.useCallback(
     (value: string) => {
@@ -283,15 +285,15 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
 
   const aspectLabel = React.useMemo(() => {
     const match = aspectOptions.find((opt) => opt.value === aspectRatioValue);
-    return match ? match.label : "自动";
-  }, [aspectOptions, aspectRatioValue]);
+    return match ? match.label : lt("自动", "Auto");
+  }, [aspectOptions, aspectRatioValue, lt]);
 
   const durationLabel = React.useMemo(() => {
     const match = durationOptions.find((opt) => opt.value === clipDuration);
     if (match) return match.label;
-    if (clipDuration) return `${clipDuration}秒`;
-    return "未设置";
-  }, [clipDuration, durationOptions]);
+    if (clipDuration) return lt(`${clipDuration}秒`, `${clipDuration}s`);
+    return lt("未设置", "Not set");
+  }, [clipDuration, durationOptions, lt]);
 
   React.useEffect(() => {
     if (!aspectRatioValue) {
@@ -331,14 +333,14 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
 
   const copyVideoLink = React.useCallback(async (url?: string) => {
     if (!url) {
-      alert("没有可复制的视频链接");
+      alert(lt("没有可复制的视频链接", "No video link to copy"));
       return;
     }
     try {
       // 优先使用 Clipboard API
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(url);
-        alert("已复制视频链接");
+        alert(lt("已复制视频链接", "Video link copied"));
         return;
       }
       // 备用方案：使用 execCommand
@@ -353,16 +355,16 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       const success = document.execCommand("copy");
       document.body.removeChild(textArea);
       if (success) {
-        alert("已复制视频链接");
+        alert(lt("已复制视频链接", "Video link copied"));
       } else {
-        alert("复制失败，请手动复制：\n" + url);
+        alert(lt("复制失败，请手动复制：\n", "Copy failed. Please copy manually:\n") + url);
       }
     } catch (error) {
-      console.error("复制失败:", error);
+      console.error(lt("复制失败:", "Copy failed:"), error);
       // 最后的备用方案：显示链接让用户手动复制
-      prompt("复制失败，请手动复制以下链接：", url);
+      prompt(lt("复制失败，请手动复制以下链接：", "Copy failed. Please copy this link manually:"), url);
     }
-  }, []);
+  }, [lt]);
 
   const triggerDownload = React.useCallback(
     async (url?: string) => {
@@ -374,25 +376,25 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       setIsDownloading(true);
       setDownloadFeedback({
         type: "progress",
-        message: "视频下载中，请稍等...",
+        message: lt("视频下载中，请稍等...", "Downloading video..."),
       });
       try {
         // 检测是否为 OSS URL（阿里云 OSS 支持 CORS，可直接下载）
         const isOssUrl = url.includes('aliyuncs.com');
         // 非 OSS URL 需要代理
         const downloadUrl = isOssUrl ? url : proxifyRemoteAssetUrl(url, { forceProxy: true });
-        console.log(`[视频下载] 原始URL: ${url}`);
-        console.log(`[视频下载] 下载URL: ${downloadUrl}, isOSS: ${isOssUrl}`);
+        console.log(`[Video Download] Source URL: ${url}`);
+        console.log(`[Video Download] Download URL: ${downloadUrl}, isOSS: ${isOssUrl}`);
 
         const response = await fetch(downloadUrl, {
           mode: "cors",
           credentials: "omit",
         });
-        console.log(`[视频下载] 响应状态: ${response.status}, Content-Type: ${response.headers.get('content-type')}`);
+        console.log(`[Video Download] Response: ${response.status}, Content-Type: ${response.headers.get('content-type')}`);
 
         if (response.ok) {
           const blob = await response.blob();
-          console.log(`[视频下载] Blob类型: ${blob.type}, 大小: ${blob.size}`);
+          console.log(`[Video Download] Blob type: ${blob.type}, size: ${blob.size}`);
           // 确保 blob 类型正确
           const videoBlob = blob.type.startsWith('video/')
             ? blob
@@ -407,7 +409,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           setTimeout(() => URL.revokeObjectURL(blobUrl), 200);
           setDownloadFeedback({
             type: "success",
-            message: "下载完成，稍后可再次下载",
+            message: lt("下载完成，稍后可再次下载", "Download completed"),
           });
           scheduleFeedbackClear(2000);
         } else {
@@ -420,21 +422,24 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           document.body.removeChild(link);
           setDownloadFeedback({
             type: "success",
-            message: "已在新标签页打开视频链接",
+            message: lt("已在新标签页打开视频链接", "Opened video link in new tab"),
           });
           scheduleFeedbackClear(3000);
         }
       } catch (error) {
-        console.error("下载失败:", error);
+        console.error(lt("下载失败:", "Download failed:"), error);
         // 下载失败时，尝试直接打开链接
         window.open(url, "_blank");
-        setDownloadFeedback({ type: "error", message: "下载失败，已在新标签页打开" });
+        setDownloadFeedback({
+          type: "error",
+          message: lt("下载失败，已在新标签页打开", "Download failed, opened in new tab"),
+        });
         scheduleFeedbackClear(4000);
       } finally {
         setIsDownloading(false);
       }
     },
-    [isDownloading, scheduleFeedbackClear]
+    [isDownloading, lt, scheduleFeedbackClear]
   );
 
   const handleApplyHistory = React.useCallback(
@@ -469,9 +474,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   }, []);
 
   const truncatePrompt = React.useCallback((text: string) => {
-    if (!text) return "（无提示词）";
+    if (!text) return lt("（无提示词）", "(No prompt)");
     return text.length > 80 ? `${text.slice(0, 80)}…` : text;
-  }, []);
+  }, [lt]);
 
   const handleMediaPointerDown = (
     event: React.PointerEvent | React.MouseEvent
@@ -522,7 +527,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           onError={handleMediaError}
         >
           <source src={videoSrc} type='video/mp4' />
-          您的浏览器不支持 video 标签
+          {lt("您的浏览器不支持 video 标签", "Your browser does not support video tag")}
         </video>
       );
     }
@@ -556,7 +561,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         }}
       >
         <Video size={24} strokeWidth={2} />
-        <div style={{ fontSize: 11 }}>等待生成...</div>
+        <div style={{ fontSize: 11 }}>{lt("等待生成...", "Waiting...")}</div>
       </div>
     );
   };
@@ -639,7 +644,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           }}
         >
           <Video size={18} />
-          <span>{providerInfo.zh}</span>
+          <span>{isZh ? providerInfo.zh : providerInfo.name}</span>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
           <button
@@ -661,12 +666,12 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               opacity: data.status === "running" ? 0.6 : 1,
             }}
           >
-            Run
+            {lt("运行", "Run")}
           </button>
           <button
             onClick={() => copyVideoLink(data.videoUrl)}
             onMouseDown={handleButtonMouseDown}
-            title='复制链接'
+            title={lt("复制链接", "Copy link")}
             style={{
               width: 36,
               height: 32,
@@ -687,7 +692,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           <button
             onClick={() => triggerDownload(data.videoUrl)}
             onMouseDown={handleButtonMouseDown}
-            title='下载视频'
+            title={lt("下载视频", "Download video")}
             style={{
               width: 36,
               height: 32,
@@ -737,7 +742,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           style={{ marginBottom: 8, position: "relative" }}
         >
           <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
-            尺寸
+            {lt("尺寸", "Size")}
           </div>
           <button
             type='button'
@@ -817,7 +822,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         style={{ marginBottom: 8, position: "relative" }}
       >
         <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
-          时间长度
+          {lt("时间长度", "Duration")}
         </div>
         <button
           type='button'
@@ -869,7 +874,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                   <button
                     key={option.value}
                     type='button'
-                    title={isLocked ? "仅管理员可用" : undefined}
+                    title={isLocked ? lt("仅管理员可用", "Admin only") : undefined}
                     onClick={() => {
                       if (isLocked) return;
                       handleDurationChange(option.value);
@@ -904,12 +909,12 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       {(provider === "kling" || provider === "kling-2.6") && (
         <div style={{ marginBottom: 8 }}>
           <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
-            模式
+            {lt("模式", "Mode")}
           </div>
           <div style={{ display: "flex", gap: 6 }}>
             {[
-              { label: "标准 (std)", value: "std" },
-              { label: "专业 (pro)", value: "pro" },
+              { label: lt("标准 (std)", "Standard (std)"), value: "std" },
+              { label: lt("专业 (pro)", "Pro (pro)"), value: "pro" },
             ].map((opt) => {
               const isActive = (data as any).mode === opt.value;
               return (
@@ -952,7 +957,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             style={{ marginBottom: 8, position: "relative" }}
           >
             <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
-              分辨率
+              {lt("分辨率", "Resolution")}
             </div>
             <button
               type='button'
@@ -1019,7 +1024,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                 cursor: "pointer",
               }}
             >
-              风格: {(data as any).style === "anime" ? "动漫" : "通用"}
+              {lt("风格", "Style")}: {(data as any).style === "anime" ? lt("动漫", "Anime") : lt("通用", "General")}
             </button>
             <button
               type='button'
@@ -1042,7 +1047,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                 cursor: "pointer",
               }}
             >
-              错峰: {(data as any).offPeak ? "开启" : "关闭"}
+              {lt("错峰", "Off-peak")}: {(data as any).offPeak ? lt("开启", "On") : lt("关闭", "Off")}
             </button>
           </div>
         </>
@@ -1072,7 +1077,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               cursor: "pointer",
             }}
           >
-            镜头: {(data as any).camerafixed ? "固定" : "运动"}
+            {lt("镜头", "Camera")}: {(data as any).camerafixed ? lt("固定", "Fixed") : lt("运动", "Dynamic")}
           </button>
           <button
             type='button'
@@ -1095,7 +1100,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               cursor: "pointer",
             }}
           >
-            水印: {(data as any).watermark ? "开启" : "关闭"}
+            {lt("水印", "Watermark")}: {(data as any).watermark ? lt("开启", "On") : lt("关闭", "Off")}
           </button>
         </div>
       )}
@@ -1145,10 +1150,10 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             }}
           >
             <span style={{ fontSize: 12, fontWeight: 600, color: "#0f172a" }}>
-              历史记录
+              {lt("历史记录", "History")}
             </span>
             <span style={{ fontSize: 11, color: "#94a3b8" }}>
-              {historyItems.length} 条
+              {historyItems.length} {lt("条", "items")}
             </span>
           </div>
           {historyItems.map((item, index) => {
@@ -1192,7 +1197,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                           color: "#94a3b8",
                           fontFamily: "monospace",
                         }}
-                        title={`视频ID: ${videoId}`}
+                        title={`${lt("视频ID", "Video ID")}: ${videoId}`}
                       >
                         {videoId}
                       </span>
@@ -1205,14 +1210,14 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                           fontWeight: 600,
                         }}
                       >
-                        当前
+                        {lt("当前", "Current")}
                       </span>
                     )}
                   </div>
                 </div>
                 {typeof item.elapsedSeconds === "number" && (
                   <div style={{ fontSize: 11, color: "#475569" }}>
-                    耗时 {item.elapsedSeconds}s
+                    {lt("耗时", "Elapsed")} {item.elapsedSeconds}s
                   </div>
                 )}
                 <div style={{ fontSize: 11, color: "#0f172a" }}>
@@ -1232,7 +1237,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                         cursor: "pointer",
                       }}
                     >
-                      设为当前
+                      {lt("设为当前", "Set current")}
                     </button>
                   )}
                   <button
@@ -1247,7 +1252,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                       cursor: "pointer",
                     }}
                   >
-                    复制链接
+                    {lt("复制链接", "Copy link")}
                   </button>
                   <button
                     type='button'
@@ -1261,7 +1266,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                       cursor: "pointer",
                     }}
                   >
-                    下载
+                    {lt("下载", "Download")}
                   </button>
                 </div>
               </div>

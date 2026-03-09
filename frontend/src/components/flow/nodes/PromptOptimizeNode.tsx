@@ -6,6 +6,7 @@ import usePromptOptimization from '@/hooks/usePromptOptimization';
 import type { PromptOptimizationRequest } from '@/services/promptOptimizationService';
 import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
 import { resolveTextFromSourceNode } from '../utils/textSource';
+import { useLocaleText } from '@/utils/localeText';
 
 // 已去除可视化设置面板，采用内部默认参数
 
@@ -21,6 +22,7 @@ type Props = {
 };
 
 function PromptOptimizeNodeInner({ id, data, selected }: Props) {
+  const { lt, isZh } = useLocaleText();
   const rf = useReactFlow();
   const [upstreamText, setUpstreamText] = React.useState<string>('');
   const [hover, setHover] = React.useState<string | null>(null);
@@ -97,7 +99,7 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
     reset();
     await optimize({
       input: text,
-      language: '中文',
+      language: isZh ? '中文' : 'English',
       tone: undefined,
       focus: undefined,
       lengthPreference: 'balanced',
@@ -180,7 +182,7 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
               cursor: loading ? 'not-allowed' : 'pointer'
             }}
           >
-            {loading ? '生成中...' : 'Run'}
+            {loading ? lt('生成中...', 'Generating...') : 'Run'}
           </button>
         </div>
       </div>
@@ -190,7 +192,7 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
 
       {/* 预览输出 */}
       <div style={{ marginBottom: 12, flex: 1, display: 'flex', flexDirection: 'column' }}>
-        <label style={{ fontSize: 11, color: '#6b7280', marginBottom: 4, display: 'block' }}>优化预览</label>
+        <label style={{ fontSize: 11, color: '#6b7280', marginBottom: 4, display: 'block' }}>{lt('优化预览', 'Optimized preview')}</label>
         <div style={{ position: 'relative', flex: 1 }}>
           <textarea
             className="nodrag nopan nowheel"
@@ -216,7 +218,7 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
                 event.nativeEvent.stopImmediatePropagation();
               }
             }}
-            placeholder={loading ? '' : '生成预览后将在此处展示扩写结果'}
+            placeholder={loading ? '' : lt('生成预览后将在此处展示扩写结果', 'Expanded result will appear here after generation')}
             style={{
               width: '100%',
               height: '100%',
@@ -281,12 +283,12 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
       {/* 工具提示 */}
       {hover === 'text-in' && (
         <div className="flow-tooltip" style={{ left: -8, top: '50%', transform: 'translate(-100%, -50%)' }}>
-          文本输入
+          {lt('文本输入', 'Text input')}
         </div>
       )}
       {hover === 'text-out' && (
         <div className="flow-tooltip" style={{ right: -8, top: '50%', transform: 'translate(100%, -50%)' }}>
-          优化文本
+          {lt('优化文本', 'Optimized text')}
         </div>
       )}
     </div>

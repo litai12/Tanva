@@ -1,5 +1,6 @@
 import React from 'react';
 import { Play } from 'lucide-react';
+import { useLocaleText } from '@/utils/localeText';
 
 type NodeGroupData = {
   groupName?: string;
@@ -19,7 +20,6 @@ type Props = {
   selected?: boolean;
 };
 
-const DEFAULT_GROUP_NAME = '新建分组';
 const DEFAULT_GROUP_COLOR = '#3b82f6';
 
 const toRgba = (hexColor: string, alpha: number): string => {
@@ -34,7 +34,9 @@ const toRgba = (hexColor: string, alpha: number): string => {
 };
 
 export default function NodeGroupNode({ id, data, selected }: Props) {
+  const { lt } = useLocaleText();
   const [isEditingName, setIsEditingName] = React.useState(false);
+  const defaultGroupName = lt('新建分组', 'New Group');
   const color =
     typeof data?.groupColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(data.groupColor)
       ? data.groupColor
@@ -42,7 +44,7 @@ export default function NodeGroupNode({ id, data, selected }: Props) {
   const name =
     typeof data?.groupName === 'string' && data.groupName.trim().length > 0
       ? data.groupName.trim()
-      : DEFAULT_GROUP_NAME;
+      : defaultGroupName;
   const running = data?.groupRunning === true;
   const [editingName, setEditingName] = React.useState(name);
 
@@ -150,7 +152,7 @@ export default function NodeGroupNode({ id, data, selected }: Props) {
               event.stopPropagation();
               setIsEditingName(true);
             }}
-            title='双击修改分组名称'
+            title={lt('双击修改分组名称', 'Double click to rename group')}
             style={{
               border: 'none',
               background: 'transparent',
@@ -168,7 +170,7 @@ export default function NodeGroupNode({ id, data, selected }: Props) {
         <label
           className='nodrag nopan'
           onMouseDown={(event) => event.stopPropagation()}
-          title='修改分组颜色'
+          title={lt('修改分组颜色', 'Change group color')}
           style={{
             width: 16,
             height: 16,
@@ -205,7 +207,7 @@ export default function NodeGroupNode({ id, data, selected }: Props) {
             event.stopPropagation();
             data?.onUngroup?.(id);
           }}
-          title='解组'
+          title={lt('解组', 'Ungroup')}
           style={{
             border: '1px solid rgba(239, 68, 68, 0.35)',
             background: 'rgba(239, 68, 68, 0.08)',
@@ -223,7 +225,7 @@ export default function NodeGroupNode({ id, data, selected }: Props) {
             whiteSpace: 'nowrap',
           }}
         >
-          解组
+          {lt('解组', 'Ungroup')}
         </button>
       </div>
 
@@ -249,7 +251,7 @@ export default function NodeGroupNode({ id, data, selected }: Props) {
             if (running) return;
             data?.onRunGroup?.(id);
           }}
-          title='依次运行组内节点'
+          title={lt('依次运行组内节点', 'Run nodes in this group in order')}
           style={{
             width: 32,
             height: 32,

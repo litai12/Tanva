@@ -5,6 +5,7 @@ import ImagePreviewModal from "../../ui/ImagePreviewModal";
 import SmartImage from "../../ui/SmartImage";
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import { useAIChatStore } from "@/stores/aiChatStore";
+import { useLocaleText } from "@/utils/localeText";
 
 type Props = {
   id: string;
@@ -34,6 +35,7 @@ const buildImageSrc = (value?: string): string => {
 };
 
 function Generate4NodeInner({ id, data, selected }: Props) {
+  const { lt } = useLocaleText();
   const { status, error } = data;
   const images = data.images || [];
   const imageUrls = data.imageUrls || [];
@@ -110,7 +112,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
           border: "1px solid #eef0f2",
           position: "relative",
         }}
-        title={img ? "双击全屏预览" : undefined}
+        title={img ? lt("双击全屏预览", "Double click for full-screen preview") : undefined}
       >
         {displaySrc ? (
           <SmartImage
@@ -125,7 +127,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
           />
         ) : (
           <span style={{ fontSize: 12, color: "#9ca3af" }}>
-            {isLoading ? "生成中…" : "空槽"}
+            {isLoading ? lt("生成中…", "Generating...") : lt("空槽", "Empty")}
           </span>
         )}
         <div
@@ -152,9 +154,9 @@ function Generate4NodeInner({ id, data, selected }: Props) {
       (imageUrls.length ? imageUrls : images).map((value, i) => ({
         id: `${id}-${i}`,
         src: buildImageSrc(value),
-        title: `第 ${i + 1} 张`,
+        title: lt(`第 ${i + 1} 张`, `Image ${i + 1}`),
       })),
-    [images, imageUrls, id]
+    [id, images, imageUrls, lt]
   );
 
   const boxW = data.boxW || 300;
@@ -163,7 +165,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
   const imageSizeValue = data.imageSize ?? "";
   const aspectOptions = React.useMemo(
     () => [
-      { label: "自动", value: "" },
+      { label: lt("自动", "Auto"), value: "" },
       { label: "1:1", value: "1:1" },
       { label: "3:4", value: "3:4" },
       { label: "4:3", value: "4:3" },
@@ -175,7 +177,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
       { label: "16:9", value: "16:9" },
       { label: "21:9", value: "21:9" },
     ],
-    []
+    [lt]
   );
   const aiProvider = useAIChatStore((state) => state.aiProvider);
   const providerMode = React.useMemo<"fast" | "pro" | "ultra" | "other">(() => {
@@ -198,7 +200,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
 
   const imageSizeOptions: Array<{ label: string; value: string }> = React.useMemo(() => {
     const base = [
-      { label: "自动", value: "" },
+      { label: lt("自动", "Auto"), value: "" },
       { label: "1K", value: "1K" },
       { label: "2K", value: "2K" },
       { label: "4K", value: "4K" },
@@ -207,7 +209,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
       return [base[0], { label: "0.5K", value: "0.5K" }, ...base.slice(1)];
     }
     return base;
-  }, [providerMode]);
+  }, [lt, providerMode]);
 
   const updateImageSize = React.useCallback(
     (size: string) => {
@@ -259,7 +261,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
               background: providerMode === "ultra" ? "#e2e8f0" : "#f1f5f9",
               border: "1px solid #e2e8f0",
             }}
-            title={`当前全局模型模式: ${providerModeLabel}`}
+            title={`${lt("当前全局模型模式", "Current global model mode")}: ${providerModeLabel}`}
           >
             {providerModeLabel}
           </div>
@@ -283,7 +285,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
           <button
             onClick={onSend}
             disabled={!(images.length || imageUrls.length)}
-            title={!(images.length || imageUrls.length) ? "无可发送的图像" : "发送全部到画布"}
+            title={!(images.length || imageUrls.length) ? lt("无可发送的图像", "No image to send") : lt("发送全部到画布", "Send all to canvas")}
             style={{
               fontSize: 12,
               padding: "4px 8px",
@@ -319,7 +321,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
             color: "#6b7280",
           }}
         >
-          数量
+          {lt("数量", "Count")}
           <input
             type='number'
             min={1}
@@ -366,7 +368,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
                 color: "#6b7280",
               }}
             >
-              尺寸
+              {lt("尺寸", "Aspect")}
               <select
                 value={aspectRatioValue}
                 onChange={(e) => updateAspectRatio(e.target.value)}
@@ -405,7 +407,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
                 color: "#6b7280",
               }}
             >
-              分辨率
+              {lt("分辨率", "Resolution")}
               <select
                 value={imageSizeValue}
                 onChange={(e) => updateImageSize(e.target.value)}
@@ -557,7 +559,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
       <ImagePreviewModal
         isOpen={preview}
         imageSrc={previewCollection[previewIndex]?.src || ""}
-        imageTitle='四图预览'
+        imageTitle={lt('四图预览', '4-image preview')}
         onClose={() => setPreview(false)}
         imageCollection={previewCollection}
         currentImageId={previewCollection[previewIndex]?.id}

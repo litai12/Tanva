@@ -11,6 +11,7 @@ import { useProjectContentStore } from '@/stores/projectContentStore';
 import { imageUploadService } from '@/services/imageUploadService';
 import { canvasToBlob } from '@/utils/imageConcurrency';
 import { toRenderableImageSrc } from '@/utils/imageSource';
+import { useLocaleText } from '@/utils/localeText';
 
 type ImageItem = {
   id: string;
@@ -163,6 +164,7 @@ function FlowImagePreview({ item, alt }: { item: ImageItem; alt: string }) {
 }
 
 function ImageGridNodeInner({ id, data, selected = false }: Props) {
+  const { lt } = useLocaleText();
   const { status = 'idle', error, images = [], outputImage } = data;
   const [hover, setHover] = React.useState<string | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
@@ -509,7 +511,7 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
   // 拼合图片核心逻辑
   const combineImages = React.useCallback(async () => {
     if (allImages.length === 0) {
-      updateNodeData({ error: '没有图片可拼合', status: 'error' });
+      updateNodeData({ error: lt('没有图片可拼合', 'No images available to combine'), status: 'error' });
       return;
     }
 
@@ -534,11 +536,11 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
           const assetId = parseFlowImageAssetRef(value);
           const ephemeral = assetId ? await createEphemeralFlowImageObjectUrl(assetId) : null;
           const src = assetId ? (ephemeral?.url || '') : buildImageSrc(value);
-          if (!src) throw new Error(`图片加载失败: ${item.id}`);
+          if (!src) throw new Error(`${lt('图片加载失败', 'Failed to load image')}: ${item.id}`);
 
           await new Promise<void>((resolve, reject) => {
             img.onload = () => resolve();
-            img.onerror = () => reject(new Error(`图片加载失败: ${item.id}`));
+            img.onerror = () => reject(new Error(`${lt('图片加载失败', 'Failed to load image')}: ${item.id}`));
             img.src = src;
           });
 
@@ -601,7 +603,7 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
       canvas.width = canvasWidth;
       canvas.height = canvasHeight;
       const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Canvas 不可用');
+      if (!ctx) throw new Error(lt('Canvas 不可用', 'Canvas is not available'));
 
       // 填充背景色
       ctx.fillStyle = backgroundColor;
@@ -645,7 +647,7 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
         contentType: 'image/png',
       });
       if (!uploadResult.success || !uploadResult.asset?.url) {
-        throw new Error(uploadResult.error || '图片上传失败');
+        throw new Error(uploadResult.error || lt('图片上传失败', 'Image upload failed'));
       }
 
       updateNodeData({
@@ -654,20 +656,20 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
         gridSize: grid,
       });
 
-      console.log(`✅ 图片拼合完成: ${loadedImages.length} 张图片 -> ${grid}x${grid} 网格`);
+      console.log(`[ImageGrid] ${lt('图片拼合完成', 'Combine completed')}: ${loadedImages.length} -> ${grid}x${grid}`);
 
     } catch (err: any) {
-      console.error('❌ 图片拼合失败:', err);
+      console.error('[ImageGrid] combine failed:', err);
       updateNodeData({
         status: 'error',
-        error: err.message || '拼合失败',
+        error: err.message || lt('拼合失败', 'Combine failed'),
       });
     } finally {
       try {
         loadedImages.forEach((it) => it.revoke?.());
       } catch {}
     }
-  }, [allImages, backgroundColor, padding, gap, calculateGridSize, updateNodeData, projectId, id]);
+  }, [allImages, backgroundColor, padding, gap, calculateGridSize, updateNodeData, projectId, id, lt]);
 
   const canCombine = allImages.length > 0 && status !== 'processing';
 
@@ -706,14 +708,14 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
             cursor: canCombine ? 'pointer' : 'not-allowed',
           }}
         >
-          {status === 'processing' ? '拼合中...' : '拼合'}
+          {status === 'processing' ? lt('拼合中...', 'Combining...') : lt('拼合', 'Combine')}
         </button>
       </div>
 
       {/* 输入图片预览 */}
       <div style={{ background: '#f9fafb', borderRadius: 6, padding: 8 }}>
         <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 6 }}>
-          📥 输入图片 ({allImages.length} 张)
+          📥 {lt('输入图片', 'Input images')} ({allImages.length} {lt('张', '')})
         </div>
         {allImages.length > 0 ? (
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
@@ -729,7 +731,7 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
                   position: 'relative',
                 }}
               >
-                <FlowImagePreview item={item} alt={`图片 ${index + 1}`} />
+                <FlowImagePreview item={item} alt={lt(`图片 ${index + 1}`, `Image ${index + 1}`)} />
                 <div
                   style={{
                     position: 'absolute',
@@ -767,7 +769,7 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
           </div>
         ) : (
           <div style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center', padding: 8 }}>
-            支持单图、多图、图集：连接 image / images 输出即可
+            {lt('支持单图、多图、图集：连接 image / images 输出即可', 'Supports single/multi/image-set input: connect image/images output')}
           </div>
         )}
       </div>
@@ -775,9 +777,9 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
       {/* 网格信息 */}
       {allImages.length > 0 && (
         <div style={{ fontSize: 11, color: '#6b7280', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span>📐 网格: {gridSize}×{gridSize}</span>
+          <span>📐 {lt('网格', 'Grid')}: {gridSize}×{gridSize}</span>
           <span>|</span>
-          <span>空位: {gridSize * gridSize - allImages.length}</span>
+          <span>{lt('空位', 'Empty slots')}: {gridSize * gridSize - allImages.length}</span>
         </div>
       )}
 
@@ -785,7 +787,7 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
       {outputImage && (
         <div style={{ background: '#f3f4f6', borderRadius: 6, padding: 8 }}>
           <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 6 }}>
-            📤 输出结果
+            📤 {lt('输出结果', 'Output')}
           </div>
           <div
             style={{
@@ -798,7 +800,7 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
           >
             <SmartImage
               src={outputPreviewSrc}
-              alt="拼合结果"
+              alt={lt("拼合结果", "Combined result")}
               style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff' }}
             />
           </div>
@@ -835,12 +837,12 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
       {/* 工具提示 */}
       {hover === 'images-in' && (
         <div className="flow-tooltip" style={{ left: -8, top: '50%', transform: 'translate(-100%, -50%)' }}>
-          images（支持单图/多图/图集）
+          {lt('images（支持单图/多图/图集）', 'images (single/multi/set supported)')}
         </div>
       )}
       {hover === 'img-out' && (
         <div className="flow-tooltip" style={{ right: -8, top: '50%', transform: 'translate(100%, -50%)' }}>
-          拼合图片
+          {lt('拼合图片', 'Combined image')}
         </div>
       )}
 

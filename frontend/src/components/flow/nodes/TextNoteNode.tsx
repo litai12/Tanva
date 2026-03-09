@@ -1,5 +1,6 @@
 import React from 'react';
 import { Handle, Position, NodeResizer, useReactFlow } from 'reactflow';
+import { useLocaleText } from '@/utils/localeText';
 
 type Props = {
   id: string;
@@ -15,6 +16,7 @@ const handleConfigs = [
 ] as const;
 
 function TextNoteNodeInner({ id, data, selected }: Props) {
+  const { lt } = useLocaleText();
   const rf = useReactFlow();
   const [value, setValue] = React.useState<string>(data.text || '');
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
@@ -145,7 +147,7 @@ function TextNoteNodeInner({ id, data, selected }: Props) {
         className="tanva-textnote-editor nodrag nowheel"
         contentEditable={isEditing}
         suppressContentEditableWarning
-        data-placeholder="输入文本"
+        data-placeholder={lt("输入文本", "Enter text")}
         onInput={onEditorInput}
         onWheelCapture={isEditing ? stopPropagation : undefined}
         onMouseDown={stopPropagation}

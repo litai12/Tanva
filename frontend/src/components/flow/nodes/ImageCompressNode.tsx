@@ -5,6 +5,7 @@ import { resolveImageToBlob, toRenderableImageSrc } from '@/utils/imageSource';
 import { canvasToBlob, createImageBitmapLimited } from '@/utils/imageConcurrency';
 import { imageUploadService } from '@/services/imageUploadService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
+import { pickLocaleText, useLocaleText } from '@/utils/localeText';
 
 type CompressionLevel = 'light' | 'balanced' | 'strong';
 
@@ -41,10 +42,10 @@ type Props = {
   selected?: boolean;
 };
 
-const PRESET_CONFIG: Record<CompressionLevel, { label: string; scale: number; quality: number }> = {
-  light: { label: '轻度', scale: 1, quality: 0.88 },
-  balanced: { label: '均衡', scale: 0.84, quality: 0.76 },
-  strong: { label: '强压缩', scale: 0.7, quality: 0.62 },
+const PRESET_CONFIG: Record<CompressionLevel, { scale: number; quality: number }> = {
+  light: { scale: 1, quality: 0.88 },
+  balanced: { scale: 0.84, quality: 0.76 },
+  strong: { scale: 0.7, quality: 0.62 },
 };
 
 const MAX_OUTPUT_PIXELS = 20_000_000; // 20MP safeguard
@@ -187,7 +188,7 @@ const cropImageToBlob = async (crop: CropSpec): Promise<Blob | null> => {
     const img = new Image();
     await new Promise<void>((resolve, reject) => {
       img.onload = () => resolve();
-      img.onerror = () => reject(new Error('图片解码失败'));
+      img.onerror = () => reject(new Error(pickLocaleText('图片解码失败', 'Image decode failed')));
       img.src = objectUrl;
     });
 
@@ -240,7 +241,7 @@ const compressBlob = async (
 
     const canvas = makeCanvas(outW, outH);
     const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Canvas 不可用');
+    if (!ctx) throw new Error(pickLocaleText('Canvas 不可用', 'Canvas is not available'));
 
     if ('imageSmoothingEnabled' in ctx) {
       try {
@@ -276,13 +277,13 @@ const compressBlob = async (
     const image = await new Promise<HTMLImageElement>((resolve, reject) => {
       const img = new Image();
       img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error('图片解码失败'));
+      img.onerror = () => reject(new Error(pickLocaleText('图片解码失败', 'Image decode failed')));
       img.src = objectUrl;
     });
 
     const w = image.naturalWidth || image.width;
     const h = image.naturalHeight || image.height;
-    if (!w || !h) throw new Error('图片尺寸无效');
+    if (!w || !h) throw new Error(pickLocaleText('图片尺寸无效', 'Invalid image dimensions'));
 
     return await renderToCanvas(
       (ctx, width, height) => ctx.drawImage(image, 0, 0, width, height),
@@ -295,8 +296,17 @@ const compressBlob = async (
 };
 
 function ImageCompressNodeInner({ id, data, selected = false }: Props) {
+  const { lt } = useLocaleText();
   const projectId = useProjectContentStore((s) => s.projectId);
   const [isProcessing, setIsProcessing] = React.useState(false);
+  const levelLabels = React.useMemo(
+    () => ({
+      light: lt('轻度', 'Light'),
+      balanced: lt('均衡', 'Balanced'),
+      strong: lt('强压缩', 'Strong'),
+    }),
+    [lt]
+  );
 
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
   const boxShadow = selected
@@ -448,7 +458,7 @@ function ImageCompressNodeInner({ id, data, selected = false }: Props) {
   const handleCompress = React.useCallback(async () => {
     if (!connectedInput || isProcessing) {
       if (!connectedInput) {
-        updateNodeData({ status: 'error', error: '没有输入图片，请先连接图片节点' });
+        updateNodeData({ status: 'error', error: lt('没有输入图片，请先连接图片节点', 'No input image, please connect an image node first') });
       }
       return;
     }
@@ -462,12 +472,12 @@ function ImageCompressNodeInner({ id, data, selected = false }: Props) {
         : await resolveImageToBlob(connectedInput.baseRef, { preferProxy: true });
 
       if (!sourceBlob) {
-        throw new Error('无法读取输入图片');
+        throw new Error(lt('无法读取输入图片', 'Failed to read input image'));
       }
 
       const compressedBlob = await compressBlob(sourceBlob, level);
       if (!compressedBlob || compressedBlob.size <= 0) {
-        throw new Error('压缩结果为空');
+        throw new Error(lt('压缩结果为空', 'Compression result is empty'));
       }
 
       const uploadResult = await imageUploadService.uploadImageSource(compressedBlob, {
@@ -478,12 +488,12 @@ function ImageCompressNodeInner({ id, data, selected = false }: Props) {
       });
 
       if (!uploadResult.success || !uploadResult.asset?.url) {
-        throw new Error(uploadResult.error || '压缩图片上传失败');
+        throw new Error(uploadResult.error || lt('压缩图片上传失败', 'Failed to upload compressed image'));
       }
 
       const outputImage = (uploadResult.asset.key || uploadResult.asset.url).trim();
       if (!outputImage) {
-        throw new Error('上传后未返回可用图片引用');
+        throw new Error(lt('上传后未返回可用图片引用', 'No usable image reference returned after upload'));
       }
 
       const inputIdentity = connectedInput.kind === 'crop'
@@ -504,7 +514,7 @@ function ImageCompressNodeInner({ id, data, selected = false }: Props) {
         compressionRatio: Number(ratio.toFixed(4)),
       });
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : '压缩失败';
+      const message = err instanceof Error ? err.message : lt('压缩失败', 'Compression failed');
       updateNodeData({
         status: 'error',
         error: message,
@@ -512,11 +522,20 @@ function ImageCompressNodeInner({ id, data, selected = false }: Props) {
     } finally {
       setIsProcessing(false);
     }
-  }, [connectedInput, id, isProcessing, level, projectId, updateNodeData]);
+  }, [connectedInput, id, isProcessing, level, lt, projectId, updateNodeData]);
 
   const handleLevelChange = React.useCallback((value: CompressionLevel) => {
     updateNodeData({ level: value });
   }, [updateNodeData]);
+
+  const handleSelectPointerDown = React.useCallback(
+    (event: React.SyntheticEvent<HTMLElement>) => {
+      event.stopPropagation();
+      const nativeEvent = event.nativeEvent;
+      nativeEvent?.stopImmediatePropagation?.();
+    },
+    []
+  );
 
   const displayRatio =
     typeof data.compressionRatio === 'number' && Number.isFinite(data.compressionRatio)
@@ -554,18 +573,23 @@ function ImageCompressNodeInner({ id, data, selected = false }: Props) {
             cursor: !connectedInput || isProcessing || data.status === 'processing' ? 'not-allowed' : 'pointer',
           }}
         >
-          {isProcessing || data.status === 'processing' ? '压缩中...' : '压缩'}
+          {isProcessing || data.status === 'processing' ? lt('压缩中...', 'Compressing...') : lt('压缩', 'Compress')}
         </button>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <label htmlFor={`compress-level-${id}`} style={{ fontSize: 12, color: '#4b5563', whiteSpace: 'nowrap' }}>
-          压缩档位
+          {lt('压缩档位', 'Compression Level')}
         </label>
         <select
+          className='nodrag nopan nowheel'
           id={`compress-level-${id}`}
           value={level}
           onChange={(e) => handleLevelChange(e.target.value as CompressionLevel)}
+          onPointerDownCapture={handleSelectPointerDown}
+          onMouseDownCapture={handleSelectPointerDown}
+          onTouchStartCapture={handleSelectPointerDown}
+          onClick={(e) => e.stopPropagation()}
           style={{
             flex: 1,
             fontSize: 12,
@@ -578,7 +602,7 @@ function ImageCompressNodeInner({ id, data, selected = false }: Props) {
         >
           {(Object.keys(PRESET_CONFIG) as CompressionLevel[]).map((key) => (
             <option key={key} value={key}>
-              {PRESET_CONFIG[key].label}
+              {levelLabels[key]}
             </option>
           ))}
         </select>
@@ -613,19 +637,19 @@ function ImageCompressNodeInner({ id, data, selected = false }: Props) {
               fontSize: 12,
             }}
           >
-            连接图片后可预览
+            {lt('连接图片后可预览', 'Connect an image to preview')}
           </div>
         )}
       </div>
 
       <div style={{ fontSize: 12, color: '#4b5563', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-        <div>状态: {data.status || 'idle'}</div>
-        <div>体积比: {displayRatio}</div>
+        <div>{lt('状态', 'Status')}: {data.status || 'idle'}</div>
+        <div>{lt('体积比', 'Size Ratio')}: {displayRatio}</div>
         <div>
-          原始: {typeof data.originalBytes === 'number' ? `${Math.round(data.originalBytes / 1024)} KB` : '--'}
+          {lt('原始', 'Original')}: {typeof data.originalBytes === 'number' ? `${Math.round(data.originalBytes / 1024)} KB` : '--'}
         </div>
         <div>
-          输出: {typeof data.outputBytes === 'number' ? `${Math.round(data.outputBytes / 1024)} KB` : '--'}
+          {lt('输出', 'Output')}: {typeof data.outputBytes === 'number' ? `${Math.round(data.outputBytes / 1024)} KB` : '--'}
         </div>
       </div>
 
@@ -645,8 +669,8 @@ function ImageCompressNodeInner({ id, data, selected = false }: Props) {
         </div>
       )}
 
-      <Handle type='target' position={Position.Left} id='img' style={{ background: '#16a34a' }} />
-      <Handle type='source' position={Position.Right} id='image' style={{ background: '#2563eb' }} />
+      <Handle type='target' position={Position.Left} id='img' />
+      <Handle type='source' position={Position.Right} id='image' />
     </div>
   );
 }

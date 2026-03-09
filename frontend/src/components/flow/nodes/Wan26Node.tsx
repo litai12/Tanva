@@ -6,6 +6,7 @@ import { uploadAudioToOSS } from "@/stores/aiChatStore";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { fetchWithAuth } from "@/services/authFetch";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
+import { useLocaleText } from "@/utils/localeText";
 
 type VideoHistoryItem = {
   id: string;
@@ -38,6 +39,7 @@ type Props = {
 };
 
 function Wan26Node({ id, data, selected }: Props) {
+  const { lt } = useLocaleText();
   const projectId = useProjectContentStore((s) => s.projectId);
   const rf = useReactFlow();
   const borderColor = selected ? "#2563eb" : "#e5e7eb";
@@ -166,13 +168,13 @@ function Wan26Node({ id, data, selected }: Props) {
 
   const copyVideoLink = React.useCallback(async (url?: string) => {
     if (!url) {
-      alert("没有可复制的视频链接");
+      alert(lt("没有可复制的视频链接", "No video link to copy"));
       return;
     }
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(url);
-        alert("已复制视频链接");
+        alert(lt("已复制视频链接", "Video link copied"));
         return;
       }
       const textArea = document.createElement("textarea");
@@ -186,14 +188,14 @@ function Wan26Node({ id, data, selected }: Props) {
       const success = document.execCommand("copy");
       document.body.removeChild(textArea);
       if (success) {
-        alert("已复制视频链接");
+        alert(lt("已复制视频链接", "Video link copied"));
       } else {
-        prompt("请手动复制以下链接：", url);
+        prompt(lt("请手动复制以下链接：", "Please manually copy this link:"), url);
       }
     } catch {
-      prompt("复制失败，请手动复制以下链接：", url);
+      prompt(lt("复制失败，请手动复制以下链接：", "Copy failed, please manually copy this link:"), url);
     }
-  }, []);
+  }, [lt]);
 
   const triggerDownload = React.useCallback(
     async (url?: string) => {
@@ -203,7 +205,7 @@ function Wan26Node({ id, data, selected }: Props) {
         downloadFeedbackTimer.current = undefined;
       }
       setIsDownloading(true);
-      setDownloadFeedback({ type: "progress", message: "视频下载中，请稍等..." });
+      setDownloadFeedback({ type: "progress", message: lt("视频下载中，请稍等...", "Downloading video, please wait...") });
       try {
         // DashScope OSS 加速域名不支持 CORS，需要通过代理下载
         const isDashScopeOss = url.includes('dashscope') && url.includes('aliyuncs.com');
@@ -211,14 +213,14 @@ function Wan26Node({ id, data, selected }: Props) {
         const isOssUrl = url.includes('aliyuncs.com') && !isDashScopeOss;
         // DashScope OSS 或非 OSS URL 需要代理
         const downloadUrl = (isDashScopeOss || !isOssUrl) ? proxifyRemoteAssetUrl(url, { forceProxy: true }) : url;
-        console.log(`[Wan2.6视频下载] 原始URL: ${url}`);
-        console.log(`[Wan2.6视频下载] 下载URL: ${downloadUrl}, isOSS: ${isOssUrl}, isDashScope: ${isDashScopeOss}`);
+        console.log(`[Wan2.6 download] raw URL: ${url}`);
+        console.log(`[Wan2.6 download] URL: ${downloadUrl}, isOSS: ${isOssUrl}, isDashScope: ${isDashScopeOss}`);
 
         const response = await fetch(downloadUrl, {
           mode: "cors",
           credentials: "omit",
         });
-        console.log(`[Wan2.6视频下载] 响应状态: ${response.status}`);
+        console.log(`[Wan2.6 download] response status: ${response.status}`);
 
         if (response.ok) {
           const blob = await response.blob();
@@ -234,7 +236,7 @@ function Wan26Node({ id, data, selected }: Props) {
           link.click();
           document.body.removeChild(link);
           setTimeout(() => URL.revokeObjectURL(blobUrl), 200);
-          setDownloadFeedback({ type: "success", message: "下载完成" });
+          setDownloadFeedback({ type: "success", message: lt("下载完成", "Download complete") });
           scheduleFeedbackClear(2000);
         } else {
           const link = document.createElement("a");
@@ -243,18 +245,18 @@ function Wan26Node({ id, data, selected }: Props) {
           document.body.appendChild(link);
           link.click();
           document.body.removeChild(link);
-          setDownloadFeedback({ type: "success", message: "已在新标签页打开视频链接" });
+          setDownloadFeedback({ type: "success", message: lt("已在新标签页打开视频链接", "Opened video link in a new tab") });
           scheduleFeedbackClear(3000);
         }
       } catch (error) {
-        console.error("下载失败:", error);
-        setDownloadFeedback({ type: "error", message: "下载失败，请稍后重试" });
+        console.error("Download failed:", error);
+        setDownloadFeedback({ type: "error", message: lt("下载失败，请稍后重试", "Download failed, please try again later") });
         scheduleFeedbackClear(4000);
       } finally {
         setIsDownloading(false);
       }
     },
-    [isDownloading, scheduleFeedbackClear]
+    [isDownloading, scheduleFeedbackClear, lt]
   );
 
   const handleButtonMouseDown = (event: React.MouseEvent) => {
@@ -277,11 +279,11 @@ function Wan26Node({ id, data, selected }: Props) {
       const name = file.name || "";
       const ext = (name.split(".").pop() || "").toLowerCase();
       if (!["mp3", "wav"].includes(ext) && !file.type.startsWith("audio/")) {
-        setMessage("仅支持 mp3/wav 音频");
+        setMessage(lt("仅支持 mp3/wav 音频", "Only mp3/wav audio is supported"));
         return;
       }
       if (file.size > maxSize) {
-        setMessage("文件大小不能超过 15MB");
+        setMessage(lt("文件大小不能超过 15MB", "File size cannot exceed 15MB"));
         return;
       }
 
@@ -292,7 +294,7 @@ function Wan26Node({ id, data, selected }: Props) {
       try {
         audio.src = objectUrl;
         await new Promise<void>((resolve, reject) => {
-          const t = setTimeout(() => reject(new Error("无法读取音频时长")), 5000);
+          const t = setTimeout(() => reject(new Error(lt("无法读取音频时长", "Unable to read audio duration"))), 5000);
           audio.addEventListener("loadedmetadata", () => {
             clearTimeout(t);
             const d = audio.duration || 0;
@@ -301,17 +303,17 @@ function Wan26Node({ id, data, selected }: Props) {
           });
           audio.addEventListener("error", () => {
             clearTimeout(t);
-            reject(new Error("音频加载失败"));
+            reject(new Error(lt("音频加载失败", "Audio load failed")));
           });
         });
       } catch {
-        setMessage("无法读取音频文件，请确认格式正确");
+        setMessage(lt("无法读取音频文件，请确认格式正确", "Unable to read audio file, please verify the format"));
         URL.revokeObjectURL(objectUrl);
         return;
       }
       URL.revokeObjectURL(objectUrl);
       if (!durationOk) {
-        setMessage("音频时长需在 3 到 30 秒之间");
+        setMessage(lt("音频时长需在 3 到 30 秒之间", "Audio duration must be between 3 and 30 seconds"));
         return;
       }
 
@@ -319,15 +321,15 @@ function Wan26Node({ id, data, selected }: Props) {
       reader.onload = async () => {
         const dataUrl = typeof reader.result === "string" ? reader.result : null;
         if (!dataUrl) {
-          setMessage("无法读取音频数据");
+          setMessage(lt("无法读取音频数据", "Unable to read audio data"));
           return;
         }
         try {
           setUploading(true);
-          setMessage("上传中...");
+          setMessage(lt("上传中...", "Uploading..."));
           const uploaded = await uploadAudioToOSS(dataUrl, projectId);
           if (!uploaded) {
-            setMessage("上传失败，请重试");
+            setMessage(lt("上传失败，请重试", "Upload failed, please retry"));
             setUploading(false);
             return;
           }
@@ -336,16 +338,16 @@ function Wan26Node({ id, data, selected }: Props) {
               detail: { id, patch: { audioUrl: uploaded } },
             })
           );
-          setMessage("上传成功");
+          setMessage(lt("上传成功", "Upload successful"));
         } catch {
-          setMessage("上传出错，请稍后重试");
+          setMessage(lt("上传出错，请稍后重试", "Upload error, please retry later"));
         } finally {
           setUploading(false);
         }
       };
       reader.readAsDataURL(file);
     },
-    [id, projectId]
+    [id, lt, projectId]
   );
 
   const handleClearAudio = React.useCallback(() => {
@@ -427,9 +429,9 @@ function Wan26Node({ id, data, selected }: Props) {
   }, []);
 
   const truncatePrompt = React.useCallback((text: string) => {
-    if (!text) return "（无提示词）";
+    if (!text) return lt("（无提示词）", "(No prompt)");
     return text.length > 80 ? `${text.slice(0, 80)}…` : text;
-  }, []);
+  }, [lt]);
 
   return (
     <div
@@ -532,7 +534,7 @@ function Wan26Node({ id, data, selected }: Props) {
           <button
             onClick={() => copyVideoLink(data.videoUrl)}
             onMouseDown={handleButtonMouseDown}
-            title="复制链接"
+            title={lt("复制链接", "Copy link")}
             style={{
               width: 36,
               height: 32,
@@ -553,7 +555,7 @@ function Wan26Node({ id, data, selected }: Props) {
           <button
             onClick={() => triggerDownload(data.videoUrl)}
             onMouseDown={handleButtonMouseDown}
-            title="下载视频"
+            title={lt("下载视频", "Download video")}
             style={{
               width: 36,
               height: 32,
@@ -597,7 +599,7 @@ function Wan26Node({ id, data, selected }: Props) {
       {/* 尺寸比例（仅 T2V 模式显示，即没有接入 image 时） */}
       {!isI2VMode && (
         <div className="wan26-dropdown" style={{ marginBottom: 8, position: "relative" }}>
-          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>尺寸比例</div>
+          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>{lt("尺寸比例", "Aspect ratio")}</div>
           <button
             type="button"
             onClick={(e) => {
@@ -677,7 +679,7 @@ function Wan26Node({ id, data, selected }: Props) {
 
       {/* 分辨率（T2V 和 I2V 都有） */}
       <div className="wan26-dropdown" style={{ marginBottom: 8, position: "relative" }}>
-        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>分辨率</div>
+        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>{lt("分辨率", "Resolution")}</div>
         <button
           type="button"
           onClick={(e) => {
@@ -756,7 +758,7 @@ function Wan26Node({ id, data, selected }: Props) {
 
       {/* Duration 参数（T2V 和 I2V 都有） */}
       <div className="wan26-dropdown" style={{ marginBottom: 8, position: "relative" }}>
-        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>时长</div>
+        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>{lt("时长", "Duration")}</div>
         <button
           type="button"
           onClick={(e) => {
@@ -779,7 +781,7 @@ function Wan26Node({ id, data, selected }: Props) {
             cursor: "pointer",
           }}
         >
-          <span>{data.duration ? `${data.duration}秒` : "5秒"}</span>
+          <span>{data.duration ? lt(`${data.duration}秒`, `${data.duration}s`) : lt("5秒", "5s")}</span>
           <span style={{ fontSize: 16, lineHeight: 1 }}>{durationMenuOpen ? "▴" : "▾"}</span>
         </button>
         {durationMenuOpen && (
@@ -824,7 +826,7 @@ function Wan26Node({ id, data, selected }: Props) {
                       cursor: "pointer",
                     }}
                   >
-                    {opt}秒
+                    {lt(`${opt}秒`, `${opt}s`)}
                   </button>
                 );
               })}
@@ -835,7 +837,7 @@ function Wan26Node({ id, data, selected }: Props) {
 
       {/* Shot Type 参数（T2V 和 I2V 都有） */}
       <div className="wan26-dropdown" style={{ marginBottom: 8, position: "relative" }}>
-        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>镜头类型</div>
+        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>{lt("镜头类型", "Shot type")}</div>
         <button
           type="button"
           onClick={(e) => {
@@ -858,7 +860,7 @@ function Wan26Node({ id, data, selected }: Props) {
             cursor: "pointer",
           }}
         >
-          <span>{data.shotType === "multi" ? "multi（多镜头）" : "single（单镜头）"}</span>
+          <span>{data.shotType === "multi" ? lt("multi（多镜头）", "multi (multi-shot)") : lt("single（单镜头）", "single (single-shot)")}</span>
           <span style={{ fontSize: 16, lineHeight: 1 }}>{shotMenuOpen ? "▴" : "▾"}</span>
         </button>
         {shotMenuOpen && (
@@ -880,8 +882,8 @@ function Wan26Node({ id, data, selected }: Props) {
           >
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
               {[
-                { label: "single（单镜头）", value: "single" },
-                { label: "multi（多镜头）", value: "multi" },
+                { label: lt("single（单镜头）", "single (single-shot)"), value: "single" },
+                { label: lt("multi（多镜头）", "multi (multi-shot)"), value: "multi" },
               ].map((opt) => {
                 const isActive = opt.value === data.shotType;
                 return (
@@ -936,7 +938,7 @@ function Wan26Node({ id, data, selected }: Props) {
         >
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#0f172a" }}>
-              音频（可选）
+              {lt("音频（可选）", "Audio (optional)")}
             </div>
             {data.audioUrl && (
               <div
@@ -974,7 +976,7 @@ function Wan26Node({ id, data, selected }: Props) {
               opacity: uploading ? 0.6 : 1,
             }}
           >
-            {uploading ? "上传中..." : data.audioUrl ? "重选" : "选择"}
+            {uploading ? lt("上传中...", "Uploading...") : data.audioUrl ? lt("重选", "Reselect") : lt("选择", "Choose")}
           </button>
           {data.audioUrl && (
             <button
@@ -992,7 +994,7 @@ function Wan26Node({ id, data, selected }: Props) {
                 opacity: uploading ? 0.6 : 1,
               }}
             >
-              清除
+              {lt("清除", "Clear")}
             </button>
           )}
         </div>
@@ -1001,7 +1003,7 @@ function Wan26Node({ id, data, selected }: Props) {
             style={{
               marginTop: 4,
               fontSize: 10,
-              color: message.includes("成功") ? "#15803d" : "#dc2626",
+              color: /成功|success/i.test(message) ? "#15803d" : "#dc2626",
             }}
           >
             {message}
@@ -1052,7 +1054,7 @@ function Wan26Node({ id, data, selected }: Props) {
             }}
           >
             <source src={sanitizedVideoUrl} type="video/mp4" />
-            您的浏览器不支持 video 标签
+            {lt("您的浏览器不支持 video 标签", "Your browser does not support the video tag")}
           </video>
         ) : (
           <div
@@ -1065,7 +1067,7 @@ function Wan26Node({ id, data, selected }: Props) {
             }}
           >
             <Video size={24} strokeWidth={2} />
-            <div style={{ fontSize: 11 }}>等待生成...</div>
+            <div style={{ fontSize: 11 }}>{lt("等待生成...", "Waiting for generation...")}</div>
           </div>
         )}
       </div>
@@ -1097,10 +1099,10 @@ function Wan26Node({ id, data, selected }: Props) {
             }}
           >
             <span style={{ fontSize: 12, fontWeight: 600, color: "#0f172a" }}>
-              历史记录
+              {lt("历史记录", "History")}
             </span>
             <span style={{ fontSize: 11, color: "#94a3b8" }}>
-              {historyItems.length} 条
+              {historyItems.length} {lt("条", "items")}
             </span>
           </div>
           {historyItems.map((item, index) => {
@@ -1138,18 +1140,18 @@ function Wan26Node({ id, data, selected }: Props) {
                         fontWeight: 600,
                       }}
                     >
-                      当前
+                      {lt("当前", "Current")}
                     </span>
                   )}
                 </div>
                 {typeof item.elapsedSeconds === "number" && (
                   <div style={{ fontSize: 11, color: "#475569" }}>
-                    耗时 {item.elapsedSeconds}s
+                    {lt("耗时", "Elapsed")} {item.elapsedSeconds}s
                   </div>
                 )}
                 {item.quality && (
                   <div style={{ fontSize: 11, color: "#475569" }}>
-                    {item.quality === "I2V" ? "图生视频" : item.quality === "T2V" ? "文生视频" : item.quality}
+                    {item.quality === "I2V" ? lt("图生视频", "Image-to-video") : item.quality === "T2V" ? lt("文生视频", "Text-to-video") : item.quality}
                   </div>
                 )}
                 <div style={{ fontSize: 11, color: "#0f172a" }}>
@@ -1169,7 +1171,7 @@ function Wan26Node({ id, data, selected }: Props) {
                         cursor: "pointer",
                       }}
                     >
-                      设为当前
+                      {lt("设为当前", "Set as current")}
                     </button>
                   )}
                   <button
@@ -1184,7 +1186,7 @@ function Wan26Node({ id, data, selected }: Props) {
                       cursor: "pointer",
                     }}
                   >
-                    复制链接
+                    {lt("复制链接", "Copy link")}
                   </button>
                   <button
                     type='button'
@@ -1198,7 +1200,7 @@ function Wan26Node({ id, data, selected }: Props) {
                       cursor: "pointer",
                     }}
                   >
-                    下载
+                    {lt("下载", "Download")}
                   </button>
                 </div>
               </div>

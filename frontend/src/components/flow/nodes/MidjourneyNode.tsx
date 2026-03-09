@@ -10,6 +10,7 @@ import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { parseFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import { toRenderableImageSrc } from '@/utils/imageSource';
+import { useLocaleText } from '@/utils/localeText';
 
 type MidjourneyMode = 'FAST' | 'RELAX';
 
@@ -52,6 +53,7 @@ const buildImageSrc = (value?: string): string | undefined => {
 };
 
 function MidjourneyNodeInner({ id, data, selected }: Props) {
+  const { lt } = useLocaleText();
   const { status, error } = data;
   const rawFullValue = data.imageData || data.imageUrl;
   const fullAssetId = React.useMemo(() => parseFlowImageAssetRef(rawFullValue), [rawFullValue]);
@@ -108,7 +110,7 @@ function MidjourneyNodeInner({ id, data, selected }: Props) {
   const aspectRatioValue = data.aspectRatio ?? '';
   const aspectOptions = React.useMemo(
     () => [
-      { label: '自动', value: '' },
+      { label: lt('自动', 'Auto'), value: '' },
       { label: '1:1', value: '1:1' },
       { label: '3:4', value: '3:4' },
       { label: '4:3', value: '4:3' },
@@ -120,7 +122,7 @@ function MidjourneyNodeInner({ id, data, selected }: Props) {
       { label: '16:9', value: '16:9' },
       { label: '21:9', value: '21:9' },
     ],
-    []
+    [lt]
   );
 
   const updateAspectRatio = React.useCallback(
@@ -265,7 +267,7 @@ function MidjourneyNodeInner({ id, data, selected }: Props) {
         }}
       >
         <div style={{ fontSize: 11, color: '#7c3aed', marginBottom: 8, fontWeight: 600 }}>
-          Midjourney 操作
+          {lt('Midjourney 操作', 'Midjourney actions')}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {upscaleButtons.length > 0 && (
@@ -397,7 +399,7 @@ function MidjourneyNodeInner({ id, data, selected }: Props) {
           <button
             onClick={onSend}
             disabled={!(data.imageData || data.imageUrl)}
-            title={!(data.imageData || data.imageUrl) ? '无可发送的图像' : '发送到画布'}
+            title={!(data.imageData || data.imageUrl) ? lt('无可发送的图像', 'No image to send') : lt('发送到画布', 'Send to canvas')}
             style={{
               fontSize: 12,
               padding: '4px 8px',
@@ -423,12 +425,12 @@ function MidjourneyNodeInner({ id, data, selected }: Props) {
             marginBottom: 2,
           }}
         >
-          预设提示词
+          {lt('预设提示词', 'Preset prompt')}
         </label>
         <input
           value={presetPromptValue}
           onChange={(event) => updatePresetPrompt(event.target.value)}
-          placeholder="生成时自动拼接在提示词前"
+          placeholder={lt("生成时自动拼接在提示词前", "Auto-prepended before the prompt during generation")}
           style={{
             width: '100%',
             fontSize: 12,
@@ -463,7 +465,7 @@ function MidjourneyNodeInner({ id, data, selected }: Props) {
             color: '#6b7280',
           }}
         >
-          尺寸
+          {lt('尺寸', 'Aspect')}
           <select
             value={aspectRatioValue}
             onChange={(e) => updateAspectRatio(e.target.value)}
@@ -506,7 +508,7 @@ function MidjourneyNodeInner({ id, data, selected }: Props) {
           overflow: 'hidden',
           border: '1px solid #e9d5ff',
         }}
-        title={displaySrc ? '双击预览' : undefined}
+        title={displaySrc ? lt('双击预览', 'Double click to preview') : undefined}
       >
         {displaySrc ? (
           <SmartImage
@@ -522,7 +524,7 @@ function MidjourneyNodeInner({ id, data, selected }: Props) {
         ) : (
           <div style={{ textAlign: 'center' }}>
             <Sparkles size={24} color="#c4b5fd" />
-            <div style={{ fontSize: 12, color: '#a78bfa', marginTop: 4 }}>等待生成</div>
+            <div style={{ fontSize: 12, color: '#a78bfa', marginTop: 4 }}>{lt('等待生成', 'Waiting for generation')}</div>
           </div>
         )}
       </div>
@@ -590,7 +592,7 @@ function MidjourneyNodeInner({ id, data, selected }: Props) {
             ? allImages.find((item) => item.id === currentImageId)?.src || fullSrc || ''
             : fullSrc || ''
         }
-        imageTitle="Midjourney 图片预览"
+        imageTitle={lt("Midjourney 图片预览", "Midjourney image preview")}
         onClose={() => setPreview(false)}
         imageCollection={allImages}
         currentImageId={currentImageId}

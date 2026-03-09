@@ -147,6 +147,7 @@ import type { AIImageGenerateRequest, AIImageResult } from "@/types/ai";
 import MiniMapImageOverlay from "./MiniMapImageOverlay";
 import PersonalLibraryPanel from "./PersonalLibraryPanel";
 import { resolveTextFromSourceNode } from "./utils/textSource";
+import { useLocaleText } from "@/utils/localeText";
 
 // 兼容历史多图输入句柄：将 targetHandle img1/img2/... 归一化到 img
 const normalizeFlowTargetHandle = (
@@ -748,12 +749,40 @@ const NODE_PANEL_GROUP_ORDER: NodePanelGroupKey[] = [
   "three",
 ];
 
-const NODE_PANEL_GROUP_META: Record<NodePanelGroupKey, { title: string; subtitle: string }> = {
-  text: { title: "文字类节点", subtitle: "提示词、文本处理与拆分" },
-  image: { title: "图像类节点", subtitle: "图像输入、生成与编辑" },
-  three: { title: "3D 类节点", subtitle: "三维相关节点" },
-  other: { title: "其他节点", subtitle: "辅助能力节点" },
-  video: { title: "视频类节点", subtitle: "视频输入、生成与分析" },
+const NODE_PANEL_GROUP_META: Record<
+  NodePanelGroupKey,
+  { titleZh: string; titleEn: string; subtitleZh: string; subtitleEn: string }
+> = {
+  text: {
+    titleZh: "文字类节点",
+    titleEn: "Text Nodes",
+    subtitleZh: "提示词、文本处理与拆分",
+    subtitleEn: "Prompts, text processing, and splitting",
+  },
+  image: {
+    titleZh: "图像类节点",
+    titleEn: "Image Nodes",
+    subtitleZh: "图像输入、生成与编辑",
+    subtitleEn: "Image input, generation, and editing",
+  },
+  three: {
+    titleZh: "3D 类节点",
+    titleEn: "3D Nodes",
+    subtitleZh: "三维相关节点",
+    subtitleEn: "3D-related nodes",
+  },
+  other: {
+    titleZh: "其他节点",
+    titleEn: "Other Nodes",
+    subtitleZh: "辅助能力节点",
+    subtitleEn: "Utility nodes",
+  },
+  video: {
+    titleZh: "视频类节点",
+    titleEn: "Video Nodes",
+    subtitleZh: "视频输入、生成与分析",
+    subtitleEn: "Video input, generation, and analysis",
+  },
 };
 
 const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
@@ -1094,10 +1123,11 @@ const NodePaletteButton: React.FC<{
   zh: string;
   en: string;
   badge?: string;
+  status?: string;
   credits?: number | string;
   disabled?: boolean;
   onClick: () => void;
-}> = ({ zh, en, badge, credits, disabled, onClick }) => {
+}> = ({ zh, en, badge, status, credits, disabled, onClick }) => {
   const creditsDisplay =
     credits !== undefined && credits !== 0
       ? typeof credits === "string"
@@ -1105,8 +1135,8 @@ const NodePaletteButton: React.FC<{
         : credits.toString()
       : null;
 
-  const getBadgeStyle = (badgeText?: string): React.CSSProperties => {
-    if (badgeText === "维护中") {
+  const getBadgeStyle = (statusCode?: string): React.CSSProperties => {
+    if (statusCode === "maintenance") {
       return {
         ...nodePaletteBadgeStyle,
         color: "#dc2626",
@@ -1114,7 +1144,7 @@ const NodePaletteButton: React.FC<{
         border: "1px solid #fca5a5",
       };
     }
-    if (badgeText === "即将开放") {
+    if (statusCode === "coming_soon") {
       return {
         ...nodePaletteBadgeStyle,
         color: "#d97706",
@@ -1144,7 +1174,7 @@ const NodePaletteButton: React.FC<{
     >
       <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}>
         <span style={nodePaletteEnCodeStyle}>{en}</span>
-        {badge ? <span style={getBadgeStyle(badge)}>{badge}</span> : null}
+        {badge ? <span style={getBadgeStyle(status)}>{badge}</span> : null}
         {/* {creditsDisplay && (
           <span style={nodePaletteCreditsStyle}>消耗{creditsDisplay}积分</span>
         )} */}
@@ -1485,6 +1515,7 @@ function useFlowViewport() {
 // ];
 
 function FlowInner() {
+  const { lt } = useLocaleText();
   const [nodes, setNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   // Alt+拖拽复制相关状态（在 onNodesChange 中做位置重映射，让“副本在动、原节点不动”）
@@ -1616,13 +1647,19 @@ function FlowInner() {
 
         return {
           key: groupKey,
-          title: NODE_PANEL_GROUP_META[groupKey].title,
-          subtitle: NODE_PANEL_GROUP_META[groupKey].subtitle,
+          title: lt(
+            NODE_PANEL_GROUP_META[groupKey].titleZh,
+            NODE_PANEL_GROUP_META[groupKey].titleEn
+          ),
+          subtitle: lt(
+            NODE_PANEL_GROUP_META[groupKey].subtitleZh,
+            NODE_PANEL_GROUP_META[groupKey].subtitleEn
+          ),
           items,
         };
       })
       .filter(Boolean);
-  }, [nodePaletteConfigs]);
+  }, [lt, nodePaletteConfigs]);
 
   const onNodesChangeWithHistory = React.useCallback(
     (changes: any) => {
@@ -12164,7 +12201,7 @@ function FlowInner() {
             onChange={handleEdgeLabelChange}
             onKeyDown={handleEdgeLabelKeyDown}
             onBlur={handleEdgeLabelBlur}
-            placeholder='输入文本'
+            placeholder={lt("输入文本", "Enter text")}
           />
         </div>
       )}
@@ -12214,7 +12251,7 @@ function FlowInner() {
                       cursor: "pointer",
                     }}
                   >
-                    节点
+                    {lt("节点", "Nodes")}
                   </button>
                 )}
                 {allowedAddTabs.includes("beta") && (
@@ -12233,7 +12270,7 @@ function FlowInner() {
                       cursor: "pointer",
                     }}
                   >
-                    Beta节点
+                    {lt("Beta节点", "Beta Nodes")}
                   </button>
                 )}
                 {allowedAddTabs.includes("custom") && (
@@ -12254,7 +12291,7 @@ function FlowInner() {
                       cursor: "pointer",
                     }}
                   >
-                    定制化节点
+                    {lt("定制化节点", "Custom Nodes")}
                   </button>
                 )}
                 {allowedAddTabs.includes("templates") && (
@@ -12286,7 +12323,7 @@ function FlowInner() {
                         cursor: "pointer",
                       }}
                     >
-                      公共模板
+                      {lt("公共模板", "Public Templates")}
                     </button>
                     <button
                       onClick={() => {
@@ -12315,7 +12352,7 @@ function FlowInner() {
                         cursor: "pointer",
                       }}
                     >
-                      我的模板
+                      {lt("我的模板", "My Templates")}
                     </button>
                   </>
                 )}
@@ -12339,7 +12376,7 @@ function FlowInner() {
                       cursor: "pointer",
                     }}
                   >
-                    个人库
+                    {lt("个人库", "Personal Library")}
                   </button>
                 )}
               </div>
@@ -12366,7 +12403,7 @@ function FlowInner() {
                           </div>
                         </div>
                         <span style={nodePaletteSectionCountStyle}>
-                          {group.items.length} 个
+                          {group.items.length} {lt("个", "items")}
                         </span>
                       </div>
                       <div
@@ -12387,6 +12424,7 @@ function FlowInner() {
                               zh={config.nameZh}
                               en={config.nameEn}
                               badge={badge}
+                              status={config.status}
                               credits={config.creditsPerCall}
                               disabled={isDisabled}
                               onClick={() =>
@@ -12416,10 +12454,10 @@ function FlowInner() {
                   <div
                     style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.2 }}
                   >
-                    Beta 节点
+                    {lt("Beta 节点", "Beta Nodes")}
                   </div>
                   <div style={{ fontSize: 13, color: "#6b7280", marginTop: 6 }}>
-                    实验性功能节点
+                    {lt("实验性功能节点", "Experimental feature nodes")}
                   </div>
                 </div>
                 <div

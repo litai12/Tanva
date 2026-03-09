@@ -1,5 +1,6 @@
 import React from 'react';
 import { Handle, Position, NodeResizer, useReactFlow } from 'reactflow';
+import { useLocaleText } from '@/utils/localeText';
 
 type Props = {
   id: string;
@@ -8,6 +9,7 @@ type Props = {
 };
 
 function AnalysisOutputNodeInner({ id, data, selected }: Props) {
+  const { lt } = useLocaleText();
   const rf = useReactFlow();
   const [hover, setHover] = React.useState<string | null>(null);
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
@@ -49,7 +51,7 @@ function AnalysisOutputNodeInner({ id, data, selected }: Props) {
         }}
       />
 
-      <div style={{ fontWeight: 600 }}>提示词输出</div>
+      <div style={{ fontWeight: 600 }}>{lt('提示词输出', 'Prompt output')}</div>
       <div
         style={{
           flex: 1,
@@ -63,7 +65,7 @@ function AnalysisOutputNodeInner({ id, data, selected }: Props) {
           whiteSpace: 'pre-wrap',
         }}
       >
-        {data.prompt && data.prompt.trim().length ? data.prompt : '分析结果将显示在这里'}
+        {data.prompt && data.prompt.trim().length ? data.prompt : lt('分析结果将显示在这里', 'Analysis result will appear here')}
       </div>
 
       <Handle

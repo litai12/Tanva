@@ -12,6 +12,7 @@ import { useProjectContentStore } from '@/stores/projectContentStore';
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { toRenderableImageSrc } from '@/utils/imageSource';
 import { canvasToDataUrl } from '@/utils/imageConcurrency';
+import { useLocaleText } from '@/utils/localeText';
 
 type Props = {
   id: string;
@@ -27,6 +28,7 @@ type Props = {
 };
 
 function ThreeNodeInner({ id, data, selected }: Props) {
+  const { lt } = useLocaleText();
   const rf = useReactFlow();
   const containerRef = React.useRef<HTMLDivElement>(null);
   const rendererRef = React.useRef<THREE.WebGLRenderer | null>(null);
@@ -383,9 +385,9 @@ function ThreeNodeInner({ id, data, selected }: Props) {
   }, []);
 
   const handleLoadError = React.useCallback((error: unknown) => {
-    console.error('加载 3D 模型失败:', error);
-    setErr('加载模型失败，可能需要开启 Draco/KTX2 解码或检查链接是否可访问');
-  }, []);
+    console.error('Failed to load 3D model:', error);
+    setErr(lt('加载模型失败，可能需要开启 Draco/KTX2 解码或检查链接是否可访问', 'Failed to load model. Enable Draco/KTX2 decoding or check whether the URL is reachable.'));
+  }, [lt]);
 
   const uploadModelAndPersist = React.useCallback(async (file: File) => {
     setIsModelUploading(true);
@@ -395,7 +397,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
         projectId: projectId ?? undefined,
       });
       if (!result.success || !result.asset?.url) {
-        throw new Error(result.error || '3D模型上传失败');
+        throw new Error(result.error || lt('3D模型上传失败', '3D model upload failed'));
       }
       updateNodeData({
         modelUrl: result.asset.url,
@@ -403,11 +405,11 @@ function ThreeNodeInner({ id, data, selected }: Props) {
       });
     } catch (e: any) {
       console.error('❌ 3D model upload failed:', e);
-      setErr(e?.message || '3D模型上传失败，请重试');
+      setErr(e?.message || lt('3D模型上传失败，请重试', '3D model upload failed, please retry.'));
     } finally {
       setIsModelUploading(false);
     }
-  }, [projectId, updateNodeData]);
+  }, [lt, projectId, updateNodeData]);
 
   const loadModelFromFile = React.useCallback((file: File) => {
     initIfNeeded();
@@ -474,7 +476,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
       void recordImageHistoryEntry({
         id: newImageId,
         base64,
-        title: `3D节点截图 ${new Date().toLocaleTimeString()}`,
+        title: `${lt('3D节点截图', '3D node screenshot')} ${new Date().toLocaleTimeString()}`,
         nodeId: id,
         nodeType: '3d',
         fileName: `three_capture_${newImageId}.png`,
@@ -600,7 +602,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
           </button>
           <button onClick={addTestCube} style={{ fontSize: 12, padding: '4px 8px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6 }}>Cube</button>
           <button onClick={capture} style={{ fontSize: 12, padding: '4px 8px', background: '#111827', color: '#fff', borderRadius: 6 }}>Capture</button>
-          <button onClick={sendToCanvas} disabled={!data.imageData && !data.imageUrl} title={!data.imageData && !data.imageUrl ? '无可发送的图像' : '发送到画布'} style={{ fontSize: 12, padding: '4px 8px', background: !data.imageData && !data.imageUrl ? '#e5e7eb' : '#111827', color: '#fff', borderRadius: 6 }}>
+          <button onClick={sendToCanvas} disabled={!data.imageData && !data.imageUrl} title={!data.imageData && !data.imageUrl ? lt('无可发送的图像', 'No image to send') : lt('发送到画布', 'Send to canvas')} style={{ fontSize: 12, padding: '4px 8px', background: !data.imageData && !data.imageUrl ? '#e5e7eb' : '#111827', color: '#fff', borderRadius: 6 }}>
             <SendIcon size={14} />
           </button>
         </div>
@@ -637,7 +639,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
             ? allImages.find(item => item.id === currentImageId)?.src || src || ''
             : src || ''
         }
-        imageTitle="全局图片预览"
+        imageTitle={lt("全局图片预览", "Global image preview")}
         onClose={() => setPreview(false)}
         imageCollection={allImages}
         currentImageId={currentImageId}

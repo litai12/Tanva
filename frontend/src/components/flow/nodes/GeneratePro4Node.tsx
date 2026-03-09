@@ -9,6 +9,7 @@ import { resolveTextFromSourceNode } from "../utils/textSource";
 import ContextMenu from "../../ui/context-menu";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { toRenderableImageSrc } from "@/utils/imageSource";
+import { useLocaleText } from "@/utils/localeText";
 
 // 长宽比图标
 const AspectRatioIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -62,6 +63,7 @@ const buildImageSrc = (value?: string): string => {
 };
 
 function GeneratePro4NodeInner({ id, data, selected }: Props) {
+  const { lt } = useLocaleText();
   const { status, error } = data;
   const images = React.useMemo(() => data.images || [], [data.images]);
   const imageUrls = React.useMemo(() => data.imageUrls || [], [data.imageUrls]);
@@ -243,7 +245,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
   // 长宽比选项
   const aspectOptions: Array<{ label: string; value: string }> = React.useMemo(
     () => [
-      { label: "自动", value: "" },
+      { label: lt("自动", "Auto"), value: "" },
       { label: "1:1", value: "1:1" },
       { label: "3:4", value: "3:4" },
       { label: "4:3", value: "4:3" },
@@ -255,7 +257,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
       { label: "16:9", value: "16:9" },
       { label: "21:9", value: "21:9" },
     ],
-    []
+    [lt]
   );
 
   // 更新长宽比
@@ -280,11 +282,11 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
 
   // 图像尺寸选项
   const imageSizeOptions: Array<{ label: string; value: '1K' | '2K' | '4K' | null }> = React.useMemo(() => ([
-    { label: '自动', value: null },
+    { label: lt('自动', 'Auto'), value: null },
     { label: '1K', value: '1K' },
     { label: '2K', value: '2K' },
     { label: '4K', value: '4K' },
-  ]), []);
+  ]), [lt]);
 
   const updateImageSize = React.useCallback((size: '1K' | '2K' | '4K' | null) => {
     window.dispatchEvent(
@@ -398,9 +400,9 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
       (imageUrls.length ? imageUrls : images).map((value, i) => ({
         id: `${id}-${i}`,
         src: buildImageSrc(value),
-        title: `第 ${i + 1} 张`,
+        title: lt(`第 ${i + 1} 张`, `Image ${i + 1}`),
       })),
-    [images, imageUrls, id]
+    [id, imageUrls, images, lt]
   );
 
   // 2x2 网格渲染单元
@@ -431,7 +433,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
           position: "relative",
           cursor: img ? "pointer" : "default",
         }}
-        title={img ? "双击预览" : undefined}
+        title={img ? lt("双击预览", "Double click to preview") : undefined}
       >
         {displaySrc ? (
           <SmartImage
@@ -444,7 +446,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
           />
         ) : (
           <span style={{ fontSize: 12, color: "#9ca3af" }}>
-            {isGenerating ? "生成中..." : "空"}
+            {isGenerating ? lt("生成中...", "Generating...") : lt("空", "Empty")}
           </span>
         )}
         {/* 图片序号标签 */}
@@ -775,9 +777,9 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
               placeholder={
                 index === 0
                   ? externalPrompts.length > 0
-                    ? "输入额外提示词（可选）..."
-                    : "输入提示词..."
-                  : "输入额外提示词（可选）..."
+                    ? lt("输入额外提示词（可选）...", "Enter additional prompt (optional)...")
+                    : lt("输入提示词...", "Enter prompt...")
+                  : lt("输入额外提示词（可选）...", "Enter additional prompt (optional)...")
               }
               rows={2}
               style={{
@@ -826,7 +828,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
                 onClick={() => removePrompt(index)}
                 onPointerDownCapture={stopNodeDrag}
                 className='absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100'
-                title='删除此提示词'
+                title={lt('删除此提示词', 'Delete this prompt')}
               >
                 <X style={{ width: 12, height: 12 }} />
               </button>
@@ -920,7 +922,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
               onClick={addPrompt}
               onPointerDownCapture={stopNodeDrag}
               className='text-gray-400 hover:text-gray-600 flex items-center justify-center transition-colors cursor-pointer'
-              title='添加提示词'
+              title={lt('添加提示词', 'Add prompt')}
               style={{
                 padding: 0,
                 background: "transparent",
@@ -960,7 +962,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
                     "p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center",
                     aspectRatioValue ? "bg-gray-800 text-white border-gray-800" : ""
                   )}
-                  title={aspectRatioValue ? `长宽比: ${aspectRatioValue}` : "选择长宽比"}
+                  title={aspectRatioValue ? `${lt('长宽比', 'Aspect ratio')}: ${aspectRatioValue}` : lt("选择长宽比", "Select aspect ratio")}
                 >
                   <AspectRatioIcon style={{ width: 14, height: 14 }} />
                 </button>
@@ -985,7 +987,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
                     "p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center",
                     imageSizeValue ? "bg-gray-800 text-white border-gray-800" : ""
                   )}
-                  title={imageSizeValue ? `分辨率: ${imageSizeValue}` : '选择分辨率'}
+                  title={imageSizeValue ? `${lt('分辨率', 'Resolution')}: ${imageSizeValue}` : lt('选择分辨率', 'Select resolution')}
                 >
                   <span className="font-medium text-[10px] leading-none">
                     {imageSizeValue || 'HD'}
@@ -1008,7 +1010,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
               disabled={status === "running"}
               onPointerDownCapture={stopNodeDrag}
               className='p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed'
-              title={status === "running" ? "生成中..." : "运行生成"}
+              title={status === "running" ? lt("生成中...", "Generating...") : lt("运行生成", "Run generation")}
             >
               <Play style={{ width: 14, height: 14 }} />
             </button>
@@ -1088,7 +1090,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
       <ImagePreviewModal
         isOpen={preview}
         imageSrc={previewCollection[previewIndex]?.src || ""}
-        imageTitle='四图预览'
+        imageTitle={lt('四图预览', '4-image preview')}
         onClose={() => setPreview(false)}
         imageCollection={previewCollection}
         currentImageId={previewCollection[previewIndex]?.id}
@@ -1106,29 +1108,29 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
           onClose={closeContextMenu}
           items={[
             {
-              label: '复制节点',
+              label: lt('复制节点', 'Duplicate node'),
               icon: <Copy className="w-4 h-4" />,
               onClick: handleCopy,
             },
             {
-              label: '删除节点',
+              label: lt('删除节点', 'Delete node'),
               icon: <Trash2 className="w-4 h-4" />,
               onClick: handleDelete,
             },
             {
-              label: '添加到库',
+              label: lt('添加到库', 'Add to library'),
               icon: <FolderPlus className="w-4 h-4" />,
               onClick: handleAddToLibrary,
               disabled: !(images.length || imageUrls.length),
             },
             {
-              label: '下载图片',
+              label: lt('下载图片', 'Download image'),
               icon: <Download className="w-4 h-4" />,
               onClick: () => handleDownload(0),
               disabled: !(images.length || imageUrls.length),
             },
             {
-              label: '发送到画板',
+              label: lt('发送到画板', 'Send to canvas'),
               icon: <SendIcon className="w-4 h-4" />,
               onClick: onSend,
               disabled: !(images.length || imageUrls.length),

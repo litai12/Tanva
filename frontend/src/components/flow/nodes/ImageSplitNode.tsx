@@ -20,6 +20,7 @@ import { isPersistableImageRef, normalizePersistableImageRef, resolveImageToBlob
 import { canvasToBlob, createImageBitmapLimited } from '@/utils/imageConcurrency';
 import SmartImage from '../../ui/SmartImage';
 import { shallow } from 'zustand/shallow';
+import { pickLocaleText, useLocaleText } from '@/utils/localeText';
 
 // 类型定义
 type SplitRectItem = {
@@ -289,7 +290,7 @@ const cropImageToBlob = async (params: CropInfo): Promise<Blob | null> => {
     const img = new Image();
     await new Promise<void>((resolve, reject) => {
       img.onload = () => resolve();
-      img.onerror = () => reject(new Error('图片解码失败'));
+      img.onerror = () => reject(new Error(pickLocaleText('图片解码失败', 'Image decode failed')));
       img.src = objectUrl;
     });
 
@@ -710,7 +711,7 @@ const splitRectsByGrid = async (imageSrc: string, count: number): Promise<SplitR
       }
     };
 
-    img.onerror = () => reject(new Error('图片加载失败'));
+    img.onerror = () => reject(new Error(pickLocaleText('图片加载失败', 'Image load failed')));
     img.src = imageSrc;
   });
 };
@@ -738,7 +739,7 @@ const detectAndSplitRects = async (imageSrc: string): Promise<SplitRectsResult> 
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         if (!ctx) {
-          reject(new Error('无法创建 canvas context'));
+          reject(new Error(pickLocaleText('无法创建 canvas context', 'Unable to create canvas context')));
           return;
         }
 
@@ -796,7 +797,7 @@ const detectAndSplitRects = async (imageSrc: string): Promise<SplitRectsResult> 
       }
     };
 
-    img.onerror = () => reject(new Error('图片加载失败'));
+    img.onerror = () => reject(new Error(pickLocaleText('图片加载失败', 'Image load failed')));
     img.src = imageSrc;
   });
 };
@@ -1016,6 +1017,7 @@ function SplitRectPreview({
 }
 
 function ImageSplitNodeInner({ id, data, selected }: Props) {
+  const { lt } = useLocaleText();
   const rf = useReactFlow();
   const updateNodeInternals = useUpdateNodeInternals();
   const edges = useStore((state: ReactFlowState) => state.edges);
@@ -1692,7 +1694,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
   // 执行分割
   const handleSplit = React.useCallback(async () => {
     if (!normalizeString(effectiveInputImage)) {
-      updateNodeData({ status: 'failed', error: '没有输入图片', splitRects: [] });
+      updateNodeData({ status: 'failed', error: lt('没有输入图片', 'No input image'), splitRects: [] });
       setSplitRects([]);
       setSourceSize({ width: 0, height: 0 });
       return;
@@ -1735,7 +1737,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
 
       if (!isPersistableImageRef(normalizedInputRef)) {
         const blob = await resolveImageToBlob(rawInput, { preferProxy: true });
-        if (!blob) throw new Error('无法读取图片数据');
+        if (!blob) throw new Error(lt('无法读取图片数据', 'Unable to read image data'));
         const normalizedBlob = await normalizeBlobForRuntime(blob);
         runtimeBlob = normalizedBlob;
 
@@ -1744,7 +1746,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
           projectId: projectId ?? null,
           nodeId: id,
         }]);
-        if (!assetId) throw new Error('图片暂存失败');
+        if (!assetId) throw new Error(lt('图片暂存失败', 'Image temporary storage failed'));
         runtimeInputRef = toFlowImageAssetRef(assetId);
       }
 
@@ -1775,7 +1777,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
         } else {
           splitSrc = buildImageSrc(runtimeInputRef) || inputImageSrc;
         }
-        if (!splitSrc) throw new Error('图片加载失败');
+        if (!splitSrc) throw new Error(lt('图片加载失败', 'Image load failed'));
         const detected = await detectAndSplitRects(splitSrc);
         rects = detected.rects;
         sourceWidth = detected.sourceWidth;
@@ -1805,14 +1807,14 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
         const source = ((): { kind: 'blob'; blob: Blob } | { kind: 'url'; url: string } => {
           if (runtimeBlob) return { kind: 'blob' as const, blob: runtimeBlob };
           const url = buildImageSrc(runtimeInputRef);
-          if (!url) throw new Error('图片加载失败');
+          if (!url) throw new Error(lt('图片加载失败', 'Image load failed'));
           return { kind: 'url' as const, url };
         })();
 
         try {
           const result = await imageSplitWorkerClient.splitImageRects(source, { outputCount: safeCount });
           if (!result.success || !Array.isArray(result.rects)) {
-            throw new Error(result.error || '分割失败');
+            throw new Error(result.error || lt('分割失败', 'Split failed'));
           }
           rects = result.rects.slice(0, MAX_OUTPUT_COUNT);
           sourceWidth = result.sourceWidth ?? 0;
@@ -1862,7 +1864,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
     } catch (err) {
       updateNodeData({
         status: 'failed',
-        error: err instanceof Error ? err.message : '分割失败',
+        error: err instanceof Error ? err.message : lt('分割失败', 'Split failed'),
         splitRects: [],
         splitImages: undefined
       });
@@ -1874,7 +1876,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
       } catch {}
       setIsProcessing(false);
     }
-  }, [id, inputAssetId, inputImageSrc, outputCount, projectId, rawInputImage, updateNodeData, upstreamImageGridInputs]);
+  }, [id, inputAssetId, inputImageSrc, outputCount, projectId, rawInputImage, updateNodeData, upstreamImageGridInputs, lt]);
 
   // 更新输出端口数量
   const handleOutputCountChange = React.useCallback((value: number) => {
@@ -1912,7 +1914,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
       window.dispatchEvent(
         new CustomEvent('toast', {
           detail: {
-            message: '没有可用的输入图片，无法生成节点（请先连接输入并完成 Split）。',
+            message: lt('没有可用的输入图片，无法生成节点（请先连接输入并完成 Split）。', 'No input image available, cannot generate nodes (connect input and run Split first).'),
             type: 'info',
           },
         })
@@ -1923,7 +1925,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
       window.dispatchEvent(
         new CustomEvent('toast', {
           detail: {
-            message: '未发现分割结果：请先点击 Split 再生成节点。',
+            message: lt('未发现分割结果：请先点击 Split 再生成节点。', 'No split results found: click Split before generating nodes.'),
             type: 'info',
           },
         })
@@ -1992,7 +1994,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
         type: 'image',
         position: { x: startX, y },
         data: {
-          label: `图片 ${i + 1}`,
+          label: lt(`图片 ${i + 1}`, `Image ${i + 1}`),
           boxW: imageNodeWidth,
           boxH: imageNodeHeight,
         },
@@ -2030,7 +2032,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
 
     rf.setNodes((nodes) => [...nodes, ...newNodes]);
     rf.setEdges((edges) => [...edges, ...newEdges]);
-  }, [rf, id, data.inputImage, data.inputImageUrl, data.splitImages, outputCount, splitRects, boxW, boxH, canSplit, connectedImage, rawInputImage, sourceSize.height, sourceSize.width]);
+  }, [rf, id, data.inputImage, data.inputImageUrl, data.splitImages, outputCount, splitRects, boxW, boxH, canSplit, connectedImage, rawInputImage, sourceSize.height, sourceSize.width, lt]);
 
   return (
     <div style={{
@@ -2080,23 +2082,23 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
             }}
             title={
               !canGenerateNodes
-                ? (canSplit ? '请先完成 Split 再生成节点' : '请先连接输入图片并完成 Split')
+                ? (canSplit ? lt('请先完成 Split 再生成节点', 'Finish Split before generating nodes') : lt('请先连接输入图片并完成 Split', 'Connect input image and finish Split first'))
                 : hasLegacySplitImages
-                  ? '一键生成 Image 节点并连接（legacy：使用 splitImages）'
-                  : '一键生成 Image 节点并连接（方案A：基于 splitRects，运行时裁图，不落库）'
+                  ? lt('一键生成 Image 节点并连接（legacy：使用 splitImages）', 'Generate and connect Image nodes in one click (legacy: splitImages)')
+                  : lt('一键生成 Image 节点并连接（方案A：基于 splitRects，运行时裁图，不落库）', 'Generate and connect Image nodes in one click (Plan A: runtime crop with splitRects)')
             }
           >
-            生成节点
+            {lt('生成节点', 'Generate nodes')}
           </button>
           <button
             onClick={handleSplit}
             disabled={isProcessing || !canSplit}
             title={
               isProcessing
-                ? '处理中...'
+                ? lt('处理中...', 'Processing...')
                 : !canSplit
-                  ? (hasInputConnection ? '已连接但未读取到图片（检查上游输出/连线句柄）' : '请先连接输入图片')
-                  : '开始分割'
+                  ? (hasInputConnection ? lt('已连接但未读取到图片（检查上游输出/连线句柄）', 'Connected but no image was read (check upstream output/handle)') : lt('请先连接输入图片', 'Please connect an input image'))
+                  : lt('开始分割', 'Start split')
             }
             style={{
               fontSize: 12,
@@ -2108,14 +2110,14 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
               cursor: (isProcessing || !canSplit) ? 'not-allowed' : 'pointer',
             }}
           >
-            {isProcessing ? '处理中...' : 'Split'}
+            {isProcessing ? lt('处理中...', 'Processing...') : 'Split'}
           </button>
         </div>
       </div>
 
       {/* 输出数量配置 */}
       <div className="nodrag nopan" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <label style={{ fontSize: 12, color: '#6b7280' }}>输出端口</label>
+        <label style={{ fontSize: 12, color: '#6b7280' }}>{lt('输出端口', 'Output ports')}</label>
         <input
           type="number"
           min={MIN_OUTPUT_COUNT}
@@ -2163,14 +2165,14 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
         ) : inputImageSrc ? (
           <SmartImage
             src={inputImageSrc}
-            alt="输入图片"
+            alt={lt("输入图片", "Input image")}
             style={{ maxWidth: '100%', maxHeight: 120, objectFit: 'contain' }}
           />
         ) : (
           <>
-            <span style={{ fontSize: 12, color: '#9ca3af' }}>等待输入图片...</span>
+            <span style={{ fontSize: 12, color: '#9ca3af' }}>{lt('等待输入图片...', 'Waiting for input image...')}</span>
             <span style={{ fontSize: 11, color: '#9ca3af' }}>
-              {hasInputConnection ? '已连接：是（但未读取到图片）' : '已连接：否'}
+              {hasInputConnection ? lt('已连接：是（但未读取到图片）', 'Connected: yes (but no image read)') : lt('已连接：否', 'Connected: no')}
             </span>
           </>
         )}
@@ -2178,12 +2180,12 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
 
       {/* 状态显示 */}
       <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>
-        状态: {isProcessing
-          ? '处理中...'
+        {lt('状态', 'Status')}: {isProcessing
+          ? lt('处理中...', 'Processing...')
           : data.status === 'failed'
-            ? '失败'
+            ? lt('失败', 'Failed')
             : splitRects.length > 0
-              ? `已分割 ${splitRects.length} 张图片`
+              ? lt(`已分割 ${splitRects.length} 张图片`, `Split into ${splitRects.length} images`)
               : 'idle'}
       </div>
 
@@ -2249,7 +2251,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
       {/* 工具提示 */}
       {hover === 'img-in' && (
         <div className="flow-tooltip" style={{ left: -8, top: '50%', transform: 'translate(-100%, -50%)' }}>
-          输入图片
+          {lt('输入图片', 'Input image')}
         </div>
       )}
       {hover?.endsWith('-out') && (
@@ -2258,7 +2260,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
           top: `${getHandleTopPercent(parseInt(hover.replace('image', '').replace('-out', '')) - 1)}%`,
           transform: 'translate(100%, -50%)'
         }}>
-          图片 #{hover.replace('image', '').replace('-out', '')}
+          {lt('图片', 'Image')} #{hover.replace('image', '').replace('-out', '')}
         </div>
       )}
     </div>

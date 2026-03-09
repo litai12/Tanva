@@ -1,6 +1,7 @@
 import React from 'react';
 import { Handle, Position, NodeResizer, useReactFlow, useStore, type ReactFlowState, type Edge } from 'reactflow';
 import { resolveTextFromSourceNode } from '../utils/textSource';
+import { useLocaleText } from '@/utils/localeText';
 
 type Props = {
   id: string;
@@ -11,6 +12,7 @@ type Props = {
 const DEFAULT_TITLE = 'Prompt';
 
 function TextPromptNodeInner({ id, data, selected }: Props) {
+  const { lt } = useLocaleText();
   const rf = useReactFlow();
   const edges = useStore((state: ReactFlowState) => state.edges);
   const [value, setValue] = React.useState<string>(data.text || '');
@@ -228,7 +230,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
         ) : (
           <span
             onDoubleClick={startTitleEditing}
-            title="双击编辑标题"
+            title={lt("双击编辑标题", "Double-click to edit title")}
             style={{ cursor: 'text', userSelect: 'none' }}
           >
             {title}
@@ -236,7 +238,9 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
         )}
         {hasIncoming && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 11, color: '#6b7280' }}>已拼接 {incomingCount} 条输入</span>
+            <span style={{ fontSize: 11, color: '#6b7280' }}>
+              {lt(`已拼接 ${incomingCount} 条输入`, `${incomingCount} inputs merged`)}
+            </span>
             <button
               onClick={handleDisconnectInputs}
               style={{
@@ -249,7 +253,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
                 cursor: 'pointer'
               }}
             >
-              内置
+              {lt("内置", "Builtin")}
             </button>
           </div>
         )}
@@ -279,7 +283,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
         onMouseDownCapture={(event) => {
           event.stopPropagation();
         }}
-        placeholder="输入提示词"
+        placeholder={lt("输入提示词", "Enter prompt")}
         style={{
           width: '100%',
           flex: 1,

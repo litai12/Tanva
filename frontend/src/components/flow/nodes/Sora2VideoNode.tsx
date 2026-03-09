@@ -7,6 +7,7 @@ import { type Sora2VideoQuality } from '@/stores/aiChatStore';
 import { useAuthStore } from '@/stores/authStore';
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { fetchWithAuth } from '@/services/authFetch';
+import { useLocaleText } from '@/utils/localeText';
 
 type Props = {
   id: string;
@@ -57,17 +58,8 @@ const sora2ModelOptions: Array<{ label: string; value: 'sora-2' | 'sora-2-vip' |
   { label: 'sora-2', value: 'sora-2' },
 ];
 
-const styleOptions: Array<{ label: string; value: string }> = [
-  { label: '无（默认）', value: '' },
-  { label: '动漫（anime）', value: 'anime' },
-  { label: '漫画（comic）', value: 'comic' },
-  { label: '新闻（news）', value: 'news' },
-  { label: '自拍（selfie）', value: 'selfie' },
-  { label: '复古（nostalgic）', value: 'nostalgic' },
-  { label: '感恩节（thanksgiving）', value: 'thanksgiving' },
-];
-
 function Sora2VideoNodeInner({ id, data, selected }: Props) {
+  const { lt } = useLocaleText();
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
   const [hover, setHover] = React.useState<string | null>(null);
@@ -124,9 +116,9 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
       videoRef.current.currentTime = 0;
       videoRef.current.load();
     } catch (error) {
-      console.warn('无法重置视频播放器', error);
+      console.warn(lt('无法重置视频播放器', 'Failed to reset video player'), error);
     }
-  }, [cacheBustedVideoUrl, sanitizedVideoUrl]);
+  }, [cacheBustedVideoUrl, lt, sanitizedVideoUrl]);
 
   // 全屏时强制设置 object-fit: contain，确保视频按原比例显示
   React.useEffect(() => {
@@ -217,6 +209,15 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
       detail: { id, patch: { model: value } }
     }));
   }, [id, selectedModel]);
+  const styleOptions = React.useMemo<Array<{ label: string; value: string }>>(() => ([
+    { label: lt('无（默认）', 'None (default)'), value: '' },
+    { label: lt('动漫（anime）', 'Anime (anime)'), value: 'anime' },
+    { label: lt('漫画（comic）', 'Comic (comic)'), value: 'comic' },
+    { label: lt('新闻（news）', 'News (news)'), value: 'news' },
+    { label: lt('自拍（selfie）', 'Selfie (selfie)'), value: 'selfie' },
+    { label: lt('复古（nostalgic）', 'Nostalgic (nostalgic)'), value: 'nostalgic' },
+    { label: lt('感恩节（thanksgiving）', 'Thanksgiving (thanksgiving)'), value: 'thanksgiving' },
+  ]), [lt]);
   const handleStyleChange = React.useCallback((value: string) => {
     if (value === styleValue) return;
     window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
@@ -234,10 +235,10 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
     }));
   }, [id]);
   const aspectOptions = React.useMemo(() => ([
-    { label: '自动', value: '' },
-    { label: '横屏（16:9）', value: '16:9', suffix: '横屏 16:9' },
-    { label: '竖屏（9:16）', value: '9:16', suffix: '竖屏 9:16' },
-  ]), []);
+    { label: lt('自动', 'Auto'), value: '' },
+    { label: lt('横屏（16:9）', 'Landscape (16:9)'), value: '16:9', suffix: lt('横屏 16:9', 'Landscape 16:9') },
+    { label: lt('竖屏（9:16）', 'Portrait (9:16)'), value: '9:16', suffix: lt('竖屏 9:16', 'Portrait 9:16') },
+  ]), [lt]);
   const handleAspectChange = React.useCallback((value: string) => {
     if (value === aspectRatioValue) return;
     window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
@@ -245,10 +246,10 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
     }));
   }, [aspectRatioValue, id]);
   const durationOptions = React.useMemo(() => ([
-    { label: '10秒', value: 10 },
-    { label: '15秒', value: 15 },
-    { label: '25秒', value: 25, locked: !isAdmin }
-  ]), [isAdmin]);
+    { label: lt('10秒', '10s'), value: 10 },
+    { label: lt('15秒', '15s'), value: 15 },
+    { label: lt('25秒', '25s'), value: 25, locked: !isAdmin }
+  ]), [isAdmin, lt]);
   const handleDurationChange = React.useCallback((value: number) => {
     if (value === clipDuration) return;
     window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
@@ -264,14 +265,14 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
   }, [clipDuration, aspectRatioValue, aspectOptions]);
   const aspectLabel = React.useMemo(() => {
     const match = aspectOptions.find(opt => opt.value === aspectRatioValue);
-    return match ? match.label : '自动';
-  }, [aspectOptions, aspectRatioValue]);
+    return match ? match.label : lt('自动', 'Auto');
+  }, [aspectOptions, aspectRatioValue, lt]);
   const durationLabel = React.useMemo(() => {
     const match = durationOptions.find(opt => opt.value === clipDuration);
     if (match) return match.label;
-    if (clipDuration) return `${clipDuration}秒`;
-    return '未设置';
-  }, [clipDuration, durationOptions]);
+    if (clipDuration) return lt(`${clipDuration}秒`, `${clipDuration}s`);
+    return lt('未设置', 'Not set');
+  }, [clipDuration, durationOptions, lt]);
 
   React.useEffect(() => {
     if (!aspectRatioValue) {
@@ -300,13 +301,13 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
   );
   const copyVideoLink = React.useCallback(async (url?: string) => {
     if (!url) {
-      alert('没有可复制的视频链接');
+      alert(lt('没有可复制的视频链接', 'No video link to copy'));
       return;
     }
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(url);
-        alert('已复制视频链接');
+        alert(lt('已复制视频链接', 'Video link copied'));
         return;
       }
       const textArea = document.createElement('textarea');
@@ -320,15 +321,15 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
       const success = document.execCommand('copy');
       document.body.removeChild(textArea);
       if (success) {
-        alert('已复制视频链接');
+        alert(lt('已复制视频链接', 'Video link copied'));
       } else {
-        prompt('请手动复制以下链接：', url);
+        prompt(lt('请手动复制以下链接：', 'Please copy this link manually:'), url);
       }
     } catch (error) {
-      console.error('复制失败:', error);
-      prompt('复制失败，请手动复制以下链接：', url);
+      console.error(lt('复制失败:', 'Copy failed:'), error);
+      prompt(lt('复制失败，请手动复制以下链接：', 'Copy failed. Please copy this link manually:'), url);
     }
-  }, []);
+  }, [lt]);
   const triggerDownload = React.useCallback(async (url?: string) => {
     if (!url || isDownloading) return;
     if (downloadFeedbackTimer.current) {
@@ -336,7 +337,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
       downloadFeedbackTimer.current = undefined;
     }
     setIsDownloading(true);
-    setDownloadFeedback({ type: 'progress', message: '视频下载中，请稍等...' });
+    setDownloadFeedback({ type: 'progress', message: lt('视频下载中，请稍等...', 'Downloading video...') });
     try {
       const proxiedUrl = proxifyRemoteAssetUrl(url);
       const response = await fetchWithAuth(proxiedUrl, {
@@ -355,7 +356,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
         link.click();
         document.body.removeChild(link);
         setTimeout(() => URL.revokeObjectURL(downloadUrl), 200);
-        setDownloadFeedback({ type: 'success', message: '下载完成，稍后可再次下载' });
+        setDownloadFeedback({ type: 'success', message: lt('下载完成，稍后可再次下载', 'Download completed') });
         scheduleFeedbackClear(2000);
       } else {
         const link = document.createElement('a');
@@ -364,18 +365,18 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        setDownloadFeedback({ type: 'success', message: '已在新标签页打开视频链接' });
+        setDownloadFeedback({ type: 'success', message: lt('已在新标签页打开视频链接', 'Opened video link in new tab') });
         scheduleFeedbackClear(3000);
       }
     } catch (error) {
-      console.error('下载失败:', error);
-      alert('下载失败，请尝试在浏览器中打开链接');
-      setDownloadFeedback({ type: 'error', message: '下载失败，请稍后重试' });
+      console.error(lt('下载失败:', 'Download failed:'), error);
+      alert(lt('下载失败，请尝试在浏览器中打开链接', 'Download failed. Please try opening the link in browser.'));
+      setDownloadFeedback({ type: 'error', message: lt('下载失败，请稍后重试', 'Download failed. Please try again later.') });
       scheduleFeedbackClear(4000);
     } finally {
       setIsDownloading(false);
     }
-  }, [isDownloading, scheduleFeedbackClear]);
+  }, [isDownloading, lt, scheduleFeedbackClear]);
   const handleApplyHistory = React.useCallback((item: Sora2VideoHistoryItem) => {
     const patch: Record<string, any> = {
       videoUrl: item.videoUrl,
@@ -402,9 +403,9 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
     }
   }, []);
   const truncatePrompt = React.useCallback((text: string) => {
-    if (!text) return '（无提示词）';
+    if (!text) return lt('（无提示词）', '(No prompt)');
     return text.length > 80 ? `${text.slice(0, 80)}…` : text;
-  }, []);
+  }, [lt]);
 
   const handleMediaPointerDown = (event: React.PointerEvent | React.MouseEvent) => {
     event.stopPropagation();
@@ -452,7 +453,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
           onError={handleMediaError}
         >
           <source src={videoSrc} type="video/mp4" />
-          您的浏览器不支持 video 标签
+          {lt('您的浏览器不支持 video 标签', 'Your browser does not support video tag')}
         </video>
       );
     }
@@ -478,7 +479,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, color: '#94a3b8' }}>
         <Video size={24} strokeWidth={2} />
-        <div style={{ fontSize: 11 }}>等待生成...</div>
+        <div style={{ fontSize: 11 }}>{lt('等待生成...', 'Waiting...')}</div>
       </div>
     );
   };
@@ -563,12 +564,12 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
               opacity: data.status === 'running' ? 0.6 : 1
             }}
           >
-            Run
+            {lt('运行', 'Run')}
           </button>
           <button
             onClick={() => copyVideoLink(data.videoUrl)}
             onMouseDown={handleButtonMouseDown}
-            title="复制链接"
+            title={lt('复制链接', 'Copy link')}
             style={{
               width: 36,
               height: 32,
@@ -589,7 +590,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
           <button
             onClick={() => triggerDownload(data.videoUrl)}
             onMouseDown={handleButtonMouseDown}
-            title="下载视频"
+            title={lt('下载视频', 'Download video')}
             style={{
               width: 36,
               height: 32,
@@ -631,7 +632,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
       )}
 
       <div style={{ marginBottom: 8 }}>
-        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>模型</div>
+        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>{lt('模型', 'Model')}</div>
         <select
           className='nodrag'
           value={selectedModel}
@@ -652,7 +653,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
         </select>
       </div>
       <div style={{ marginBottom: 8 }}>
-        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>视频风格</div>
+        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>{lt('视频风格', 'Video Style')}</div>
         <select
           className='nodrag'
           value={styleValue}
@@ -687,7 +688,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
             cursor: 'pointer'
           }}
         >
-          水印 {watermarkEnabled ? '开' : '关'}
+          {lt('水印', 'Watermark')} {watermarkEnabled ? lt('开', 'On') : lt('关', 'Off')}
         </button>
         <button
           type='button'
@@ -703,7 +704,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
             cursor: 'pointer'
           }}
         >
-          缩略图 {thumbnailEnabled ? '开' : '关'}
+          {lt('缩略图', 'Thumbnail')} {thumbnailEnabled ? lt('开', 'On') : lt('关', 'Off')}
         </button>
         <button
           type='button'
@@ -719,7 +720,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
             cursor: 'pointer'
           }}
         >
-          隐私 {privateModeEnabled ? '开' : '关'}
+          {lt('隐私', 'Private')} {privateModeEnabled ? lt('开', 'On') : lt('关', 'Off')}
         </button>
         <button
           type='button'
@@ -735,11 +736,11 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
             cursor: 'pointer'
           }}
         >
-          故事板 {storyboardEnabled ? '开' : '关'}
+          {lt('故事板', 'Storyboard')} {storyboardEnabled ? lt('开', 'On') : lt('关', 'Off')}
         </button>
       </div>
       <div style={{ marginBottom: 8 }}>
-        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>角色任务ID（可选）</div>
+        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>{lt('角色任务ID（可选）', 'Character Task ID (optional)')}</div>
         <input
           className='nodrag'
           value={characterTaskId}
@@ -755,16 +756,19 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
           }}
         />
         <div style={{ marginTop: 4, fontSize: 10, color: '#94a3b8' }}>
-          运行时会自动解析角色并补全 @username / 角色ID
+          {lt(
+            '运行时会自动解析角色并补全 @username / 角色ID',
+            'Character info will be auto-resolved at runtime and fill @username / character ID'
+          )}
         </div>
       </div>
       <div style={{ marginBottom: 8 }}>
-        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>角色ID/URL（可选）</div>
+        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>{lt('角色ID/URL（可选）', 'Character ID/URL (optional)')}</div>
         <input
           className='nodrag'
           value={characterUrl}
           onChange={(event) => updateTextField('characterUrl', event.target.value)}
-          placeholder='ch_xxx 或 URL'
+          placeholder={lt('ch_xxx 或 URL', 'ch_xxx or URL')}
           style={{
             width: '100%',
             height: 32,
@@ -776,7 +780,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
         />
       </div>
       <div style={{ marginBottom: 8 }}>
-        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>角色时间戳（可选）</div>
+        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>{lt('角色时间戳（可选）', 'Character Timestamps (optional)')}</div>
         <input
           className='nodrag'
           value={characterTimestamps}
@@ -793,7 +797,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
         />
       </div>
       <div className="sora2-dropdown" style={{ marginBottom: 8, position: 'relative' }}>
-        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>尺寸</div>
+        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>{lt('尺寸', 'Size')}</div>
         <button
           type="button"
           onClick={(event) => {
@@ -864,7 +868,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
         )}
       </div>
       <div className="sora2-dropdown" style={{ marginBottom: 8, position: 'relative' }}>
-        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>时间长度</div>
+        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>{lt('时间长度', 'Duration')}</div>
         <button
           type="button"
           onClick={(event) => {
@@ -913,7 +917,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
                   <button
                     key={option.value}
                     type="button"
-                    title={isLocked ? '仅管理员可用' : undefined}
+                    title={isLocked ? lt('仅管理员可用', 'Admin only') : undefined}
                     onClick={() => {
                       if (isLocked) return;
                       handleDurationChange(option.value);
@@ -946,7 +950,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
 
       {promptSuffixPreview && (
         <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8 }}>
-          当前生成参数：{promptSuffixPreview}
+          {lt('当前生成参数：', 'Current params: ')}{promptSuffixPreview}
         </div>
       )}
 
@@ -984,8 +988,8 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
           gap: 6
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#0f172a' }}>历史记录</span>
-            <span style={{ fontSize: 11, color: '#94a3b8' }}>{historyItems.length} 条</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: '#0f172a' }}>{lt('历史记录', 'History')}</span>
+            <span style={{ fontSize: 11, color: '#94a3b8' }}>{historyItems.length} {lt('条', 'items')}</span>
           </div>
           {historyItems.map((item, index) => {
             const isActive = item.videoUrl === data.videoUrl;
@@ -1007,12 +1011,12 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
                     #{index + 1} · {formatHistoryTime(item.createdAt)}
                   </span>
                   {isActive && (
-                    <span style={{ fontSize: 10, color: '#1d4ed8', fontWeight: 600 }}>当前</span>
+                    <span style={{ fontSize: 10, color: '#1d4ed8', fontWeight: 600 }}>{lt('当前', 'Current')}</span>
                   )}
                 </div>
                 {typeof item.elapsedSeconds === 'number' && (
                   <div style={{ fontSize: 11, color: '#475569' }}>
-                    耗时 {item.elapsedSeconds}s
+                    {lt('耗时', 'Elapsed')} {item.elapsedSeconds}s
                   </div>
                 )}
                 <div style={{ fontSize: 11, color: '#0f172a' }}>
@@ -1032,7 +1036,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
                         cursor: 'pointer'
                       }}
                     >
-                      设为当前
+                      {lt('设为当前', 'Set current')}
                     </button>
                   )}
                   <button
@@ -1047,7 +1051,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
                       cursor: 'pointer'
                     }}
                   >
-                    复制链接
+                    {lt('复制链接', 'Copy link')}
                   </button>
                   <button
                     type="button"
@@ -1061,7 +1065,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
                       cursor: 'pointer'
                     }}
                   >
-                    下载
+                    {lt('下载', 'Download')}
                   </button>
                 </div>
               </div>

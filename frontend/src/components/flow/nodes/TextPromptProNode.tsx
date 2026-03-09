@@ -2,6 +2,7 @@ import React from 'react';
 import { Handle, Position, useReactFlow } from 'reactflow';
 import { Link } from 'lucide-react';
 import { resolveTextFromSourceNode } from '../utils/textSource';
+import { useLocaleText } from '@/utils/localeText';
 
 type Props = {
   id: string;
@@ -29,6 +30,7 @@ const stopNodeDrag = (event: React.SyntheticEvent) => {
 };
 
 function TextPromptProNodeInner({ id, data, selected }: Props) {
+  const { lt } = useLocaleText();
   const rf = useReactFlow();
   const [hover, setHover] = React.useState<string | null>(null);
   const [isTextFocused, setIsTextFocused] = React.useState(false);
@@ -300,7 +302,7 @@ function TextPromptProNodeInner({ id, data, selected }: Props) {
             className="nodrag nopan nowheel"
             value={prompts[0] || ''}
             onChange={(event) => updatePrompt(0, event.target.value)}
-            placeholder={externalPrompts.length > 0 ? '输入额外提示词...' : '输入提示词...'}
+            placeholder={externalPrompts.length > 0 ? lt('输入额外提示词...', 'Enter additional prompt...') : lt('输入提示词...', 'Enter prompt...')}
             style={{
               width: '100%',
               flex: 1,

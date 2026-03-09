@@ -3,6 +3,7 @@ import { type Node } from 'reactflow';
 import { Send as SendIcon, Play, Plus, X, Ungroup } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { NodeGroup } from './types';
+import { useLocaleText } from '@/utils/localeText';
 
 // 长宽比图标
 const AspectRatioIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -37,6 +38,7 @@ export default function NodeGroupWrapper({
   onSend,
   onDissolve,
 }: NodeGroupWrapperProps) {
+  const { lt } = useLocaleText();
   const [isTextFocused, setIsTextFocused] = React.useState(false);
   const [isAspectMenuOpen, setIsAspectMenuOpen] = React.useState(false);
   const aspectMenuRef = React.useRef<HTMLDivElement>(null);
@@ -103,7 +105,7 @@ export default function NodeGroupWrapper({
   // 长宽比选项
   const aspectOptions = React.useMemo(
     () => [
-      { label: '自动', value: '' },
+      { label: lt('自动', 'Auto'), value: '' },
       { label: '1:1', value: '1:1' },
       { label: '3:4', value: '3:4' },
       { label: '4:3', value: '4:3' },
@@ -115,7 +117,7 @@ export default function NodeGroupWrapper({
       { label: '16:9', value: '16:9' },
       { label: '21:9', value: '21:9' },
     ],
-    []
+    [lt]
   );
 
   const aspectRatioValue = group.aspectRatio ?? '';
@@ -193,12 +195,12 @@ export default function NodeGroupWrapper({
             boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
           }}
         >
-          组 ({group.nodeIds.length}个节点)
+          {lt('组', 'Group')} ({group.nodeIds.length} {lt('个节点', 'nodes')})
         </span>
         <button
           onClick={() => onDissolve(group.id)}
           className="p-1.5 rounded-md hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
-          title="解散组 (Shift + G)"
+          title={lt('解散组 (Shift + G)', 'Ungroup (Shift + G)')}
           style={{ background: 'rgba(255, 255, 255, 0.95)', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}
         >
           <Ungroup style={{ width: 12, height: 12 }} />
@@ -240,7 +242,11 @@ export default function NodeGroupWrapper({
                 <textarea
                   value={prompt}
                   onChange={(e) => updatePrompt(index, e.target.value)}
-                  placeholder={index === 0 ? '输入组的统一提示词...' : '输入额外提示词...'}
+                  placeholder={
+                    index === 0
+                      ? lt('输入组的统一提示词...', 'Enter shared prompt for this group...')
+                      : lt('输入额外提示词...', 'Enter additional prompt...')
+                  }
                   rows={2}
                   style={{
                     width: '100%',
@@ -261,7 +267,7 @@ export default function NodeGroupWrapper({
                   <button
                     onClick={() => removePrompt(index)}
                     className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100"
-                    title="删除此提示词"
+                    title={lt('删除此提示词', 'Remove this prompt')}
                   >
                     <X style={{ width: 12, height: 12 }} />
                   </button>
@@ -275,7 +281,7 @@ export default function NodeGroupWrapper({
             <button
               onClick={addPrompt}
               className="text-gray-400 hover:text-gray-600 flex items-center justify-center transition-colors cursor-pointer"
-              title="添加提示词"
+              title={lt('添加提示词', 'Add prompt')}
               style={{ padding: 0, background: 'transparent', border: 'none' }}
             >
               <Plus style={{ width: 12, height: 12 }} />
@@ -302,7 +308,11 @@ export default function NodeGroupWrapper({
                   'p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center',
                   aspectRatioValue ? 'bg-gray-800 text-white border-gray-800' : ''
                 )}
-                title={aspectRatioValue ? `长宽比: ${aspectRatioValue}` : '选择长宽比'}
+                title={
+                  aspectRatioValue
+                    ? lt(`长宽比: ${aspectRatioValue}`, `Aspect Ratio: ${aspectRatioValue}`)
+                    : lt('选择长宽比', 'Select aspect ratio')
+                }
               >
                 <AspectRatioIcon style={{ width: 14, height: 14 }} />
               </button>
@@ -320,7 +330,7 @@ export default function NodeGroupWrapper({
                 e.stopPropagation();
               }}
               className="p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center"
-              title="运行组内所有节点生成"
+              title={lt('运行组内所有节点生成', 'Run all generation nodes in this group')}
             >
               <Play style={{ width: 14, height: 14 }} />
             </button>
@@ -337,7 +347,7 @@ export default function NodeGroupWrapper({
                 e.stopPropagation();
               }}
               className="p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center"
-              title="发送组内所有图像到画布"
+              title={lt('发送组内所有图像到画布', 'Send all group images to canvas')}
             >
               <SendIcon style={{ width: 14, height: 14 }} />
             </button>

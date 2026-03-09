@@ -14,6 +14,7 @@ import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { parseFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import { toRenderableImageSrc } from '@/utils/imageSource';
+import { useLocaleText } from '@/utils/localeText';
 
 // 长宽比图标
 const AspectRatioIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -62,6 +63,7 @@ const MAX_PROMPT_HEIGHT = 400;
 const DEFAULT_PROMPT_HEIGHT = 80;
 
 function GenerateProNodeInner({ id, data, selected }: Props) {
+  const { lt } = useLocaleText();
   const { status, error } = data;
 
   // 原图用于预览和下载
@@ -293,7 +295,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
 
   // 长宽比选项
   const aspectOptions: Array<{ label: string; value: string }> = React.useMemo(() => ([
-    { label: '自动', value: '' },
+    { label: lt('自动', 'Auto'), value: '' },
     { label: '1:1', value: '1:1' },
     { label: '3:4', value: '3:4' },
     { label: '4:3', value: '4:3' },
@@ -304,7 +306,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
     { label: '9:16', value: '9:16' },
     { label: '16:9', value: '16:9' },
     { label: '21:9', value: '21:9' },
-  ]), []);
+  ]), [lt]);
 
   // 更新长宽比
   const updateAspectRatio = React.useCallback((ratio: string) => {
@@ -325,11 +327,11 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
 
   // 图像尺寸选项
   const imageSizeOptions: Array<{ label: string; value: '1K' | '2K' | '4K' | null }> = React.useMemo(() => ([
-    { label: '自动', value: null },
+    { label: lt('自动', 'Auto'), value: null },
     { label: '1K', value: '1K' },
     { label: '2K', value: '2K' },
     { label: '4K', value: '4K' },
-  ]), []);
+  ]), [lt]);
 
   // 更新图像尺寸
   const updateImageSize = React.useCallback((size: '1K' | '2K' | '4K' | null) => {
@@ -538,7 +540,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
             overflow: 'hidden',
             cursor: displaySrc ? 'pointer' : 'default',
           }}
-          title={displaySrc ? '双击预览' : undefined}
+          title={displaySrc ? lt('双击预览', 'Double click to preview') : undefined}
         >
           <div style={{
             position: 'absolute',
@@ -553,7 +555,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
             {displaySrc ? (
               <SmartImage src={displaySrc} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
             ) : (
-              <span style={{ fontSize: 12, color: '#9ca3af' }}>等待生成</span>
+              <span style={{ fontSize: 12, color: '#9ca3af' }}>{lt('等待生成', 'Waiting for generation')}</span>
             )}
           </div>
         </div>
@@ -731,8 +733,8 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
                 }
               }}
               placeholder={index === 0
-                ? (externalPrompts.length > 0 ? "输入额外提示词..." : "输入提示词...")
-                : "输入额外提示词..."}
+                ? (externalPrompts.length > 0 ? lt("输入额外提示词...", "Enter additional prompt...") : lt("输入提示词...", "Enter prompt..."))
+                : lt("输入额外提示词...", "Enter additional prompt...")}
               style={{
                 width: '100%',
                 flex: 1,
@@ -767,7 +769,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
                 onClick={() => removePrompt(index)}
                 onPointerDownCapture={stopNodeDrag}
                 className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100"
-                title="删除此提示词"
+                title={lt("删除此提示词", "Delete this prompt")}
               >
                 <X style={{ width: 12, height: 12 }} />
               </button>
@@ -881,7 +883,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
               onClick={addPrompt}
               onPointerDownCapture={stopNodeDrag}
               className="text-gray-400 hover:text-gray-600 flex items-center justify-center transition-colors cursor-pointer"
-              title="添加提示词"
+              title={lt("添加提示词", "Add prompt")}
               style={{
                 padding: 0,
                 background: 'transparent',
@@ -915,7 +917,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
                       "p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center",
                       aspectRatioValue ? "bg-gray-800 text-white border-gray-800" : ""
                     )}
-                    title={aspectRatioValue ? `长宽比: ${aspectRatioValue}` : '选择长宽比'}
+                    title={aspectRatioValue ? `${lt('长宽比', 'Aspect ratio')}: ${aspectRatioValue}` : lt('选择长宽比', 'Select aspect ratio')}
                   >
                     <AspectRatioIcon style={{ width: 14, height: 14 }} />
                   </button>
@@ -940,7 +942,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
                       "p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center",
                       imageSizeValue ? "bg-gray-800 text-white border-gray-800" : ""
                     )}
-                    title={imageSizeValue ? `分辨率: ${imageSizeValue}` : '选择分辨率'}
+                    title={imageSizeValue ? `${lt('分辨率', 'Resolution')}: ${imageSizeValue}` : lt('选择分辨率', 'Select resolution')}
                   >
                     <span className="font-medium text-[10px] leading-none">
                       {imageSizeValue || 'HD'}
@@ -964,7 +966,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
                 disabled={status === 'running'}
                 onPointerDownCapture={stopNodeDrag}
                 className="p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-                title={status === 'running' ? '生成中...' : '运行生成'}
+                title={status === 'running' ? lt('生成中...', 'Generating...') : lt('运行生成', 'Run generation')}
               >
                 <Play style={{ width: 14, height: 14 }} />
               </button>
@@ -1049,7 +1051,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
             ? allImages.find(item => item.id === currentImageId)?.src || fullSrc || ''
             : fullSrc || ''
         }
-        imageTitle="全局图片预览"
+        imageTitle={lt("全局图片预览", "Global image preview")}
         onClose={() => setPreview(false)}
         imageCollection={allImages}
         currentImageId={currentImageId}
@@ -1064,29 +1066,29 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
           onClose={closeContextMenu}
           items={[
             {
-              label: '复制节点',
+              label: lt('复制节点', 'Duplicate node'),
               icon: <Copy className="w-4 h-4" />,
               onClick: handleCopy,
             },
             {
-              label: '删除节点',
+              label: lt('删除节点', 'Delete node'),
               icon: <Trash2 className="w-4 h-4" />,
               onClick: handleDelete,
             },
             {
-              label: '添加到库',
+              label: lt('添加到库', 'Add to library'),
               icon: <FolderPlus className="w-4 h-4" />,
               onClick: handleAddToLibrary,
               disabled: !(data.imageData || data.imageUrl),
             },
             {
-              label: '下载图片',
+              label: lt('下载图片', 'Download image'),
               icon: <Download className="w-4 h-4" />,
               onClick: handleDownload,
               disabled: !(data.imageData || data.imageUrl),
             },
             {
-              label: '发送到画板',
+              label: lt('发送到画板', 'Send to canvas'),
               icon: <SendIcon className="w-4 h-4" />,
               onClick: onSend,
               disabled: !(data.imageData || data.imageUrl),

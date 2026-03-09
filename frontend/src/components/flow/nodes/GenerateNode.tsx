@@ -11,6 +11,7 @@ import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import { useAIChatStore } from "@/stores/aiChatStore";
+import { useLocaleText } from "@/utils/localeText";
 
 type Props = {
   id: string;
@@ -52,6 +53,7 @@ const buildImageSrc = (value?: string): string | undefined => {
 };
 
 function GenerateNodeInner({ id, data, selected }: Props) {
+  const { lt } = useLocaleText();
   const { status, error } = data;
   const aiProvider = useAIChatStore((state) => state.aiProvider);
   const rawFullValue = data.imageData || data.imageUrl;
@@ -115,7 +117,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
   const imageSizeValue = data.imageSize ?? "";
   const aspectOptions: Array<{ label: string; value: string }> = React.useMemo(
     () => [
-      { label: "自动", value: "" },
+      { label: lt("自动", "Auto"), value: "" },
       { label: "1:1", value: "1:1" },
       { label: "3:4", value: "3:4" },
       { label: "4:3", value: "4:3" },
@@ -127,7 +129,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
       { label: "16:9", value: "16:9" },
       { label: "21:9", value: "21:9" },
     ],
-    []
+    [lt]
   );
 
   const providerMode = React.useMemo<"fast" | "pro" | "ultra" | "other">(() => {
@@ -150,7 +152,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
 
   const imageSizeOptions: Array<{ label: string; value: string }> = React.useMemo(() => {
     const base = [
-      { label: "自动", value: "" },
+      { label: lt("自动", "Auto"), value: "" },
       { label: "1K", value: "1K" },
       { label: "2K", value: "2K" },
       { label: "4K", value: "4K" },
@@ -159,7 +161,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
       return [base[0], { label: "0.5K", value: "0.5K" }, ...base.slice(1)];
     }
     return base;
-  }, [providerMode]);
+  }, [lt, providerMode]);
 
   const stopNodeDrag = React.useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
@@ -259,7 +261,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
               background: providerMode === "ultra" ? "#e2e8f0" : "#f1f5f9",
               border: "1px solid #e2e8f0",
             }}
-            title={`当前全局模型模式: ${providerModeLabel}`}
+            title={`${lt("当前全局模型模式", "Current global model mode")}: ${providerModeLabel}`}
           >
             {providerModeLabel}
           </div>
@@ -283,7 +285,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
           <button
             onClick={onSend}
             disabled={!(data.imageData || data.imageUrl)}
-            title={!(data.imageData || data.imageUrl) ? "无可发送的图像" : "发送到画布"}
+            title={!(data.imageData || data.imageUrl) ? lt("无可发送的图像", "No image to send") : lt("发送到画布", "Send to canvas")}
             style={{
               fontSize: 12,
               padding: "4px 8px",
@@ -307,12 +309,12 @@ function GenerateNodeInner({ id, data, selected }: Props) {
             marginBottom: 2,
           }}
         >
-          预设提示词
+          {lt("预设提示词", "Preset prompt")}
         </label>
         <input
           value={presetPromptValue}
           onChange={(event) => updatePresetPrompt(event.target.value)}
-          placeholder='生成时自动拼接在提示词前'
+          placeholder={lt('生成时自动拼接在提示词前', 'Auto-prepended before the prompt during generation')}
           style={{
             width: "100%",
             fontSize: 12,
@@ -328,7 +330,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
           onMouseDown={stopNodeDrag}
         />
         <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>
-          会在 TextPrompt 输入前自动添加
+          {lt("会在 TextPrompt 输入前自动添加", "Will be automatically added before TextPrompt input")}
         </div>
       </div>
       {showSizeControls && (
@@ -354,7 +356,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
                 color: "#6b7280",
               }}
             >
-              尺寸
+              {lt("尺寸", "Aspect")}
               <select
                 value={aspectRatioValue}
                 onChange={(e) => updateAspectRatio(e.target.value)}
@@ -393,7 +395,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
                 color: "#6b7280",
               }}
             >
-              分辨率
+              {lt("分辨率", "Resolution")}
               <select
                 value={imageSizeValue}
                 onChange={(e) => updateImageSize(e.target.value)}
@@ -436,7 +438,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
           overflow: "hidden",
           border: "1px solid #eef0f2",
         }}
-        title={displaySrc ? "双击预览" : undefined}
+        title={displaySrc ? lt("双击预览", "Double click to preview") : undefined}
       >
         {displaySrc ? (
           <SmartImage
@@ -450,7 +452,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
             }}
           />
         ) : (
-          <span style={{ fontSize: 12, color: "#9ca3af" }}>等待生成</span>
+          <span style={{ fontSize: 12, color: "#9ca3af" }}>{lt("等待生成", "Waiting for generation")}</span>
         )}
       </div>
       <GenerationProgressBar status={status} />
@@ -545,7 +547,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
               ""
             : fullSrc || ""
         }
-        imageTitle='全局图片预览'
+        imageTitle={lt('全局图片预览', 'Global image preview')}
         onClose={() => setPreview(false)}
         imageCollection={allImages}
         currentImageId={currentImageId}

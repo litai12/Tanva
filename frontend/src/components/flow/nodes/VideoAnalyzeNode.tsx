@@ -1,6 +1,7 @@
 import React from 'react';
 import { Handle, Position, useStore, type ReactFlowState, type Node } from 'reactflow';
 import { fetchWithAuth } from '@/services/authFetch';
+import { useLocaleText } from '@/utils/localeText';
 
 type Props = {
   id: string;
@@ -15,11 +16,11 @@ type Props = {
   selected?: boolean;
 };
 
-const DEFAULT_ANALYSIS_PROMPT = '分析一下这个视频的内容，描述视频中的场景、动作和关键信息';
 const DEFAULT_VIDEO_MODEL = 'gemini-3-flash-preview';
 const DEFAULT_VIDEO_PROVIDER = 'banana';
 
 function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
+  const { lt } = useLocaleText();
   const { status, error } = data;
   const [hover, setHover] = React.useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
@@ -58,24 +59,28 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
     ? '0 0 0 2px rgba(37,99,235,0.12)'
     : '0 1px 2px rgba(0,0,0,0.04)';
 
-  const promptInput = data.analysisPrompt ?? DEFAULT_ANALYSIS_PROMPT;
+  const defaultAnalysisPrompt = lt(
+    '分析一下这个视频的内容，描述视频中的场景、动作和关键信息',
+    'Analyze this video and describe the scenes, actions, and key information.'
+  );
+  const promptInput = data.analysisPrompt ?? defaultAnalysisPrompt;
 
   // 初始化节点提示词
   React.useEffect(() => {
     if (typeof data.analysisPrompt === 'undefined') {
       window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
-        detail: { id, patch: { analysisPrompt: DEFAULT_ANALYSIS_PROMPT } }
+        detail: { id, patch: { analysisPrompt: defaultAnalysisPrompt } }
       }));
     }
-  }, [data.analysisPrompt, id]);
+  }, [data.analysisPrompt, defaultAnalysisPrompt, id]);
 
   const onAnalyze = React.useCallback(async () => {
     if (!effectiveVideoUrl || status === 'running' || isAnalyzing) return;
 
-    const promptToUse = (data.analysisPrompt ?? DEFAULT_ANALYSIS_PROMPT).trim();
+    const promptToUse = (data.analysisPrompt ?? defaultAnalysisPrompt).trim();
     if (!promptToUse.length) {
       window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
-        detail: { id, patch: { status: 'failed', error: '提示词不能为空' } }
+        detail: { id, patch: { status: 'failed', error: lt('提示词不能为空', 'Prompt cannot be empty') } }
       }));
       return;
     }
@@ -134,7 +139,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [data.analysisPrompt, effectiveVideoUrl, id, isAnalyzing, status]);
+  }, [data.analysisPrompt, defaultAnalysisPrompt, effectiveVideoUrl, id, isAnalyzing, lt, status]);
 
   React.useEffect(() => {
     const handler = (event: Event) => {
@@ -196,7 +201,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
             cursor: canRun ? 'pointer' : 'not-allowed',
           }}
         >
-          {status === 'running' || isAnalyzing ? '分析中...' : '分析'}
+          {status === 'running' || isAnalyzing ? lt('分析中...', 'Analyzing...') : lt('分析', 'Analyze')}
         </button>
       </div>
 
@@ -223,21 +228,21 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
           />
         ) : (
           <span style={{ fontSize: 12, color: '#9ca3af' }}>
-            {hasVideoConnection ? '等待视频输入' : '请连接视频节点'}
+            {hasVideoConnection ? lt('等待视频输入', 'Waiting for video input') : lt('请连接视频节点', 'Please connect a video node')}
           </span>
         )}
       </div>
 
       {/* 分析提示词 */}
       <div>
-        <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4 }}>分析提示词</div>
+        <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4 }}>{lt('分析提示词', 'Analysis prompt')}</div>
         <textarea
           className="nodrag nopan nowheel"
           value={promptInput}
           onChange={onPromptChange}
           onWheelCapture={(e) => e.stopPropagation()}
           onPointerDownCapture={(e) => e.stopPropagation()}
-          placeholder="输入分析提示词"
+          placeholder={lt('输入分析提示词', 'Enter analysis prompt')}
           style={{
             width: '100%',
             minHeight: 60,
@@ -272,7 +277,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
         {data.prompt || data.text ? (
           data.prompt || data.text
         ) : (
-          <span style={{ color: '#9ca3af' }}>分析结果将显示在这里</span>
+          <span style={{ color: '#9ca3af' }}>{lt('分析结果将显示在这里', 'Analysis result will appear here')}</span>
         )}
       </div>
 
