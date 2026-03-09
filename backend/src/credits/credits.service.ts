@@ -667,6 +667,21 @@ export class CreditsService {
   /**
    * 更新 API 使用记录状态
    */
+  async verifyAndRewardInviterSafely(
+    inviteeUserId: string,
+    options?: { skipApiUsageCheck?: boolean },
+  ): Promise<void> {
+    if (!inviteeUserId) return;
+
+    try {
+      await this.referralService.verifyAndRewardInviter(inviteeUserId, options);
+    } catch (e) {
+      this.logger.warn(
+        `[Credits] 邀请奖励核验失败 userId=${inviteeUserId}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
   async updateApiUsageStatus(
     apiUsageId: string,
     status: ApiResponseStatus,
@@ -684,12 +699,7 @@ export class CreditsService {
 
     // 如果 API 调用成功，检查是否需要核验邀请奖励
     if (status === ApiResponseStatus.SUCCESS && apiUsage.userId) {
-      try {
-        await this.referralService.verifyAndRewardInviter(apiUsage.userId);
-      } catch (e) {
-        // 核验失败不影响主流程，只记录日志
-        console.warn(`[Credits] 邀请奖励核验失败: ${e instanceof Error ? e.message : e}`);
-      }
+      await this.verifyAndRewardInviterSafely(apiUsage.userId);
     }
   }
 

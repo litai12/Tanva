@@ -1,9 +1,10 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 // 邀请奖励配置
 const REFERRAL_REWARD = 1000; // 邀请成功奖励积分
-const REFERRAL_REWARD_LIMIT = 5; // 邀请奖励次数上限
+const REFERRAL_REWARD_LIMIT = 10; // 邀请奖励次数上限
 const DAILY_CHECK_IN_REWARDS = [50, 50, 50, 50, 50, 50, 50]; // D1-D7 每日签到奖励
 const WEEKLY_BONUS = 150; // 满7天额外奖励
 
@@ -18,6 +19,83 @@ export class ReferralService {
     // 使用用户ID的后4位作为邀请码后缀
     const suffix = userId.slice(-4).toUpperCase();
     return `TANVAS-${suffix}`;
+  }
+
+  private normalizeInviteCode(code: string): string {
+    return code.trim().toUpperCase();
+  }
+
+  private async applyInviteCodeWithTx(
+    tx: Prisma.TransactionClient,
+    inviteeUserId: string,
+    normalizedCode: string,
+  ) {
+    // 基于数据库事务锁，串行化同一被邀请人的并发兑换请求
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`invitee:${inviteeUserId}`}), 0)`;
+
+    // 查找邀请码
+    const inviteCode = await tx.invitationCode.findUnique({
+      where: { code: normalizedCode },
+    });
+
+    if (!inviteCode) {
+      throw new NotFoundException('邀请码不存在');
+    }
+
+    if (inviteCode.status !== 'active') {
+      throw new BadRequestException('邀请码已失效');
+    }
+
+    // 不能使用自己的邀请码
+    if (inviteCode.inviterUserId === inviteeUserId) {
+      throw new BadRequestException('不能使用自己的邀请码');
+    }
+
+    // 检查是否已经使用过邀请码（任意状态都视为已使用）
+    const existingRedemption = await tx.invitationRedemption.findFirst({
+      where: { inviteeUserId },
+    });
+
+    if (existingRedemption) {
+      throw new BadRequestException('您已使用过邀请码');
+    }
+
+    const effectiveMaxUses = Math.min(inviteCode.maxUses, REFERRAL_REWARD_LIMIT);
+
+    // 原子化占用邀请码次数，避免并发绕过上限
+    const updated = await tx.invitationCode.updateMany({
+      where: {
+        id: inviteCode.id,
+        status: 'active',
+        usedCount: { lt: effectiveMaxUses },
+      },
+      data: {
+        usedCount: { increment: 1 },
+      },
+    });
+
+    if (updated.count === 0) {
+      throw new BadRequestException('邀请码奖励次数已达上限');
+    }
+
+    // 创建邀请兑换记录
+    const redemption = await tx.invitationRedemption.create({
+      data: {
+        codeId: inviteCode.id,
+        inviteeUserId,
+        inviterUserId: inviteCode.inviterUserId,
+        rewardStatus: 'pending',
+        rewardAmount: REFERRAL_REWARD,
+      },
+    });
+
+    // 更新被邀请用户的 invitedById
+    await tx.user.update({
+      where: { id: inviteeUserId },
+      data: { invitedById: inviteCode.inviterUserId },
+    });
+
+    return redemption;
   }
 
   /**
@@ -249,83 +327,41 @@ export class ReferralService {
    * 使用邀请码注册
    */
   async useInviteCode(inviteeUserId: string, code: string) {
-    return this.prisma.$transaction(async (tx) => {
-      // 基于数据库事务锁，串行化同一被邀请人的并发兑换请求
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`invitee:${inviteeUserId}`}), 0)`;
+    const normalizedCode = this.normalizeInviteCode(code);
+    if (!normalizedCode) {
+      throw new BadRequestException('邀请码不能为空');
+    }
 
-      // 查找邀请码
-      const inviteCode = await tx.invitationCode.findUnique({
-        where: { code },
-      });
+    return this.prisma.$transaction(async (tx) =>
+      this.applyInviteCodeWithTx(tx, inviteeUserId, normalizedCode),
+    );
+  }
 
-      if (!inviteCode) {
-        throw new NotFoundException('邀请码不存在');
-      }
-
-      if (inviteCode.status !== 'active') {
-        throw new BadRequestException('邀请码已失效');
-      }
-
-      // 不能使用自己的邀请码
-      if (inviteCode.inviterUserId === inviteeUserId) {
-        throw new BadRequestException('不能使用自己的邀请码');
-      }
-
-      // 检查是否已经使用过邀请码（任意状态都视为已使用）
-      const existingRedemption = await tx.invitationRedemption.findFirst({
-        where: { inviteeUserId },
-      });
-
-      if (existingRedemption) {
-        throw new BadRequestException('您已使用过邀请码');
-      }
-
-      const effectiveMaxUses = Math.min(inviteCode.maxUses, REFERRAL_REWARD_LIMIT);
-
-      // 原子化占用邀请码次数，避免并发绕过上限
-      const updated = await tx.invitationCode.updateMany({
-        where: {
-          id: inviteCode.id,
-          status: 'active',
-          usedCount: { lt: effectiveMaxUses },
-        },
-        data: {
-          usedCount: { increment: 1 },
-        },
-      });
-
-      if (updated.count === 0) {
-        throw new BadRequestException('邀请码奖励次数已达上限');
-      }
-
-      // 创建邀请兑换记录
-      const redemption = await tx.invitationRedemption.create({
-        data: {
-          codeId: inviteCode.id,
-          inviteeUserId,
-          inviterUserId: inviteCode.inviterUserId,
-          rewardStatus: 'pending',
-          rewardAmount: REFERRAL_REWARD,
-        },
-      });
-
-      // 更新被邀请用户的 invitedById
-      await tx.user.update({
-        where: { id: inviteeUserId },
-        data: { invitedById: inviteCode.inviterUserId },
-      });
-
-      return redemption;
-    });
+  /**
+   * 在外部事务中使用邀请码（用于注册事务内绑定）
+   */
+  async useInviteCodeInTransaction(
+    tx: Prisma.TransactionClient,
+    inviteeUserId: string,
+    code: string,
+  ) {
+    const normalizedCode = this.normalizeInviteCode(code);
+    if (!normalizedCode) {
+      throw new BadRequestException('邀请码不能为空');
+    }
+    return this.applyInviteCodeWithTx(tx, inviteeUserId, normalizedCode);
   }
 
   /**
    * 核验并发放邀请奖励（当被邀请用户完成首图生成时调用）
    */
-  async verifyAndRewardInviter(inviteeUserId: string) {
+  async verifyAndRewardInviter(
+    inviteeUserId: string,
+    options?: { skipApiUsageCheck?: boolean },
+  ) {
     return this.prisma.$transaction(async (tx) => {
       // 串行化同一被邀请人的奖励核验，避免重复发奖
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`invitee:${inviteeUserId}`}), 0)`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`invitee:${inviteeUserId}`}), 0)`;
 
       // 若该被邀请人已经发过奖，不再重复发放
       const alreadyRewarded = await tx.invitationRedemption.findFirst({
@@ -353,16 +389,18 @@ export class ReferralService {
         return null;
       }
 
-      // 检查被邀请用户是否已完成首图生成
-      const hasGeneratedImage = await tx.apiUsageRecord.findFirst({
-        where: {
-          userId: inviteeUserId,
-          responseStatus: 'success',
-        },
-      });
+      if (!options?.skipApiUsageCheck) {
+        // 检查被邀请用户是否已完成首次成功创作
+        const hasGeneratedImage = await tx.apiUsageRecord.findFirst({
+          where: {
+            userId: inviteeUserId,
+            responseStatus: 'success',
+          },
+        });
 
-      if (!hasGeneratedImage) {
-        return null;
+        if (!hasGeneratedImage) {
+          return null;
+        }
       }
 
       // 发放奖励给邀请人
@@ -412,8 +450,13 @@ export class ReferralService {
    * 验证邀请码是否有效
    */
   async validateInviteCode(code: string) {
+    const normalizedCode = this.normalizeInviteCode(code);
+    if (!normalizedCode) {
+      return { valid: false, message: '邀请码不能为空' };
+    }
+
     const inviteCode = await this.prisma.invitationCode.findUnique({
-      where: { code },
+      where: { code: normalizedCode },
       include: {
         inviter: {
           select: {
@@ -432,9 +475,15 @@ export class ReferralService {
       return { valid: false, message: '邀请码已失效' };
     }
 
+    const effectiveMaxUses = Math.min(inviteCode.maxUses, REFERRAL_REWARD_LIMIT);
+    if (inviteCode.usedCount >= effectiveMaxUses) {
+      return { valid: false, message: '邀请码奖励次数已达上限' };
+    }
+
     return {
       valid: true,
       inviterName: inviteCode.inviter?.name || '用户',
+      remainingUses: effectiveMaxUses - inviteCode.usedCount,
     };
   }
 }

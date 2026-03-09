@@ -449,7 +449,9 @@ export class AiController {
         outputImageCount,
       );
       this.logger.debug('Using custom API key - skipping credits deduction');
-      return operation();
+      const result = await operation();
+      await this.creditsService.verifyAndRewardInviterSafely(userId, { skipApiUsageCheck: true });
+      return result;
     }
 
     // 确保用户有积分账户

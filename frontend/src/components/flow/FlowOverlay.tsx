@@ -693,7 +693,7 @@ const NODE_PALETTE_ITEMS = [
   // 输入节点
   { key: "textPrompt", zh: "提示词节点", en: "Prompt Node", category: "input" },
   { key: "textChat", zh: "纯文本交互节点", en: "Text Chat Node", category: "input" },
-  { key: "textNote", zh: "纯文本节点", en: "Text Note Node", category: "input" },
+  { key: "textNote", zh: "纯文本节点", en: "Note Node", category: "input" },
   { key: "promptOptimize", zh: "提示词优化节点", en: "Prompt Optimizer", category: "input" },
   { key: "image", zh: "图片节点", en: "Image Node", category: "input" },
   { key: "video", zh: "视频节点", en: "Video Node", category: "input" },
@@ -1551,6 +1551,12 @@ function FlowInner() {
 
     return merged
       .map((config) => {
+        if (config.nodeKey === "textNote") {
+          return {
+            ...config,
+            nameEn: "Note Node",
+          };
+        }
         if (config.nodeKey === "sora2Video") {
           return {
             ...config,
@@ -4650,6 +4656,7 @@ function FlowInner() {
           ? { text: "", boxW: size.w, boxH: size.h }
           : type === "textChat"
           ? {
+              title: "Text Chat",
               status: "idle" as const,
               manualInput: "",
               responseText: "",
@@ -11051,6 +11058,7 @@ function FlowInner() {
             ? { text: "" }
             : type === "textChat"
             ? {
+                title: "Text Chat",
                 status: "idle" as const,
                 manualInput: "",
                 responseText: "",

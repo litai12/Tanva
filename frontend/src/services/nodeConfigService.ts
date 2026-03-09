@@ -90,7 +90,7 @@ function getDefaultConfigs(): NodeConfig[] {
     { nodeKey: "image", nameZh: "图片节点", nameEn: "Image", category: "input", status: "normal", sortOrder: 3, creditsPerCall: 0 },
     { nodeKey: "imagePro", nameZh: "高级图片节点", nameEn: "Image Pro", category: "input", status: "normal", sortOrder: 4, creditsPerCall: 0 },
     { nodeKey: "video", nameZh: "视频节点", nameEn: "Video", category: "input", status: "normal", sortOrder: 5, creditsPerCall: 0 },
-    { nodeKey: "textNote", nameZh: "文本便签", nameEn: "Note", category: "input", status: "normal", sortOrder: 6, creditsPerCall: 0 },
+    { nodeKey: "textNote", nameZh: "文本便签", nameEn: "Note Node", category: "input", status: "normal", sortOrder: 6, creditsPerCall: 0 },
     { nodeKey: "camera", nameZh: "相机节点", nameEn: "Camera", category: "input", status: "normal", sortOrder: 7, creditsPerCall: 0 },
 
     // 生图节点

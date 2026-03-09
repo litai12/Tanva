@@ -10,6 +10,7 @@ type TextChatStatus = 'idle' | 'running' | 'succeeded' | 'failed';
 type Props = {
   id: string;
   data: {
+    title?: string;
     status?: TextChatStatus;
     error?: string;
     responseText?: string;
@@ -24,6 +25,7 @@ type Props = {
 };
 
 const TEXT_CHAT_NODE_SIZE_VERSION = 2;
+const DEFAULT_TITLE = 'Text Chat';
 const DEFAULT_NODE_HEIGHT = 300;
 const MIN_NODE_HEIGHT = 260;
 const LEGACY_NODE_HEIGHT = 540;
@@ -63,6 +65,13 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
 
+  const normalizedTitle = typeof data.title === 'string' && data.title.trim().length
+    ? data.title.trim()
+    : DEFAULT_TITLE;
+  const [title, setTitle] = React.useState<string>(normalizedTitle);
+  const [titleDraft, setTitleDraft] = React.useState<string>(normalizedTitle);
+  const [isEditingTitle, setIsEditingTitle] = React.useState(false);
+  const titleInputRef = React.useRef<HTMLInputElement | null>(null);
   const [manualInput, setManualInput] = React.useState<string>(data.manualInput || '');
   const [isInvoking, setIsInvoking] = React.useState(false);
   const [hover, setHover] = React.useState<string | null>(null);
@@ -73,6 +82,21 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     const next = data.manualInput || '';
     setManualInput((prev) => (prev === next ? prev : next));
   }, [data.manualInput]);
+
+  React.useEffect(() => {
+    setTitle(normalizedTitle);
+    if (!isEditingTitle) {
+      setTitleDraft(normalizedTitle);
+    }
+  }, [normalizedTitle, isEditingTitle]);
+
+  React.useEffect(() => {
+    if (!isEditingTitle) return;
+    requestAnimationFrame(() => {
+      titleInputRef.current?.focus();
+      titleInputRef.current?.select();
+    });
+  }, [isEditingTitle]);
 
   React.useEffect(() => {
     if (data.sizeVersion === TEXT_CHAT_NODE_SIZE_VERSION) return;
@@ -239,6 +263,29 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     }));
   }, [id]);
 
+  const startTitleEditing = React.useCallback((event: React.MouseEvent) => {
+    event.stopPropagation();
+    event.preventDefault();
+    setTitleDraft(title);
+    setIsEditingTitle(true);
+  }, [title]);
+
+  const commitTitle = React.useCallback((raw: string) => {
+    const trimmed = raw.trim();
+    const nextTitle = trimmed.length ? trimmed : DEFAULT_TITLE;
+    setTitle(nextTitle);
+    setTitleDraft(nextTitle);
+    setIsEditingTitle(false);
+    window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
+      detail: { id, patch: { title: nextTitle } }
+    }));
+  }, [id]);
+
+  const cancelTitleEditing = React.useCallback(() => {
+    setIsEditingTitle(false);
+    setTitleDraft(title);
+  }, [title]);
+
   const contentStyle: React.CSSProperties = {
     flex: 1,
     display: 'flex',
@@ -316,8 +363,45 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
         }}
       />
       <div style={contentStyle} ref={contentRef}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontWeight: 600, fontSize: 14, color: '#111827' }}>Text Chat</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+          {isEditingTitle ? (
+            <input
+              ref={titleInputRef}
+              value={titleDraft}
+              onChange={(event) => setTitleDraft(event.target.value)}
+              onBlur={() => commitTitle(titleDraft)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  commitTitle(titleDraft);
+                } else if (event.key === 'Escape') {
+                  event.preventDefault();
+                  cancelTitleEditing();
+                }
+              }}
+              onPointerDownCapture={stopFlowPan}
+              onMouseDownCapture={stopFlowPan}
+              style={{
+                fontWeight: 600,
+                fontSize: 14,
+                color: '#111827',
+                border: '1px solid #d1d5db',
+                borderRadius: 6,
+                padding: '2px 6px',
+                outline: 'none',
+                flex: 1,
+                minWidth: 0,
+              }}
+            />
+          ) : (
+            <div
+              onDoubleClick={startTitleEditing}
+              title='双击编辑标题'
+              style={{ fontWeight: 600, fontSize: 14, color: '#111827', cursor: 'text', userSelect: 'none', flex: 1, minWidth: 0 }}
+            >
+              {title}
+            </div>
+          )}
           <button
             onClick={runChat}
             disabled={status === 'running' || isInvoking}
@@ -330,6 +414,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
               border: 'none',
               cursor: status === 'running' || isInvoking ? 'not-allowed' : 'pointer',
               fontWeight: 500,
+              flexShrink: 0,
             }}
           >
             {status === 'running' || isInvoking ? 'Running...' : 'Run'}

@@ -28,7 +28,6 @@ export default function RegisterPage() {
   const navigate = useNavigate();
   const { register, login, loading, error } = useAuthStore();
 
-  // 发送验证码
   const handleSendCode = async () => {
     if (!phone.trim() || !/^1[3-9]\d{9}$/.test(phone)) {
       window.dispatchEvent(
@@ -38,9 +37,9 @@ export default function RegisterPage() {
       );
       return;
     }
+
     try {
       await authApi.sendSms({ phone });
-      // 开始倒计时
       setCodeCountdown(60);
       const timer = setInterval(() => {
         setCodeCountdown((prev) => {

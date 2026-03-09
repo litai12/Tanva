@@ -144,18 +144,12 @@ export class AuthService {
         },
       });
 
+      if (dto.inviteCode?.trim()) {
+        await this.referralService.useInviteCodeInTransaction(tx, newUser.id, dto.inviteCode);
+      }
+
       return newUser;
     });
-
-    // 处理邀请码（在事务外执行，避免影响注册流程）
-    if (dto.inviteCode) {
-      try {
-        await this.referralService.useInviteCode(user.id, dto.inviteCode);
-      } catch (e) {
-        // 邀请码处理失败不影响注册，只记录日志
-        console.warn(`[Register] 邀请码处理失败: ${e instanceof Error ? e.message : e}`);
-      }
-    }
 
     // 创建积分账户并赠送新用户初始积分
     try {

@@ -213,7 +213,7 @@ const enUS = {
           title: "Invite Status",
           subtitle: "INVITE STATUS",
           ruleLabel: "Reward rule:",
-          ruleDesc: "Earn referral credits when an invited friend completes their first creation.",
+          ruleDesc: "Earn referral credits when an invited friend completes their first creation (up to 10 rewards).",
           invited: "Invited",
           rewarded: "Rewarded",
           pendingFirstGeneration: "Pending first creation",
