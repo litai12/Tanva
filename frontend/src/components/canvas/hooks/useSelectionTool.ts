@@ -7,6 +7,7 @@ import { useCallback, useRef, useState } from 'react';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
 import type { ImageInstance, Model3DInstance, VideoInstance } from '@/types/canvas';
+import { findImagePaperItem } from '@/utils/paperImageGroupBlock';
 
 interface UseSelectionToolProps {
   zoom: number;
@@ -190,6 +191,23 @@ export const useSelectionTool = ({
     return true; // 默认可见（兜底）
   }, []);
 
+  const isImageLocked = useCallback((imageId: string) => {
+    const imageItem = findImagePaperItem(imageId);
+    if (imageItem) {
+      try {
+        if ((imageItem as any).locked === true) return true;
+        const lockedInData = (imageItem as any)?.data?.imageLocked;
+        if (typeof lockedInData === 'boolean' && lockedInData) return true;
+      } catch {}
+    }
+
+    const runtime = imageInstances.find((img) => img.id === imageId);
+    if (runtime && typeof runtime.locked === 'boolean') {
+      return runtime.locked;
+    }
+    return false;
+  }, [imageInstances]);
+
   // 开始选择框绘制
   const startSelectionBox = useCallback((point: paper.Point) => {
     setIsSelectionDragging(true);
@@ -255,6 +273,9 @@ export const useSelectionTool = ({
     // 检查图片实例是否与选择框相交
     if (selectImages) {
       for (const image of imageInstances) {
+        if (isImageLocked(image.id)) {
+          continue;
+        }
         const imageBounds = new paper.Rectangle(image.bounds.x, image.bounds.y, image.bounds.width, image.bounds.height);
         if (selectionRect.intersects(imageBounds)) {
           // 检查图层是否可见，只有可见的图层才能被选中
@@ -436,7 +457,7 @@ export const useSelectionTool = ({
     // 重置状态
     setIsSelectionDragging(false);
     setSelectionStartPoint(null);
-  }, [isSelectionDragging, selectionStartPoint, selectedPaths, onImageMultiSelect, onModel3DMultiSelect, onTextMultiSelect, onImageDeselect, onModel3DDeselect, onTextDeselect, imageInstances, model3DInstances, isLayerVisible]);
+  }, [isSelectionDragging, selectionStartPoint, selectedPaths, onImageMultiSelect, onModel3DMultiSelect, onTextMultiSelect, onImageDeselect, onModel3DDeselect, onTextDeselect, imageInstances, model3DInstances, isImageLocked, isLayerVisible]);
 
   // ========== 清除所有选择 ==========
   const clearAllSelections = useCallback(() => {
@@ -516,7 +537,11 @@ export const useSelectionTool = ({
     // 选择所有图片
     if (selectImages && imageInstances.length > 0) {
       try {
-        onImageMultiSelect(imageInstances.map((img) => img.id));
+        onImageMultiSelect(
+          imageInstances
+            .filter((img) => !isImageLocked(img.id))
+            .map((img) => img.id)
+        );
       } catch {}
     }
 
@@ -559,6 +584,7 @@ export const useSelectionTool = ({
     onModel3DMultiSelect,
     onTextMultiSelect,
     textItems,
+    isImageLocked,
   ]);
 
   // ========== 点击检测功能 ==========
@@ -593,9 +619,15 @@ export const useSelectionTool = ({
         }
 
         if (type === 'image' && typeof data.imageId === 'string') {
+          if ((current as any).locked === true || data.imageLocked === true) {
+            return null;
+          }
           return { type: 'image' as const, id: data.imageId as string };
         }
         if (type === 'image-selection-area' && typeof data.imageId === 'string') {
+          if ((current as any).locked === true || data.imageLocked === true) {
+            return null;
+          }
           return { type: 'image' as const, id: data.imageId as string };
         }
         if (type === '3d-model' && typeof data.modelId === 'string') {
@@ -607,6 +639,9 @@ export const useSelectionTool = ({
 
         // 一些辅助元素（如 resize handle）只携带 imageId/modelId
         if (typeof data.imageId === 'string') {
+          if ((current as any).locked === true || data.imageLocked === true) {
+            return null;
+          }
           return { type: 'image' as const, id: data.imageId as string };
         }
         if (typeof data.modelId === 'string') {
@@ -624,7 +659,7 @@ export const useSelectionTool = ({
 
     const resolvedFromHit = resolveTargetFromHitItem(hitResult?.item);
     if (resolvedFromHit?.type === 'image') {
-      if (isLayerVisible(resolvedFromHit.id)) {
+      if (isLayerVisible(resolvedFromHit.id) && !isImageLocked(resolvedFromHit.id)) {
         imageClicked = resolvedFromHit.id;
       }
     } else if (resolvedFromHit?.type === '3d-model') {
@@ -665,7 +700,7 @@ export const useSelectionTool = ({
 
       const resolvedFromFiltered = resolveTargetFromHitItem(filteredHitResult?.item);
       if (resolvedFromFiltered?.type === 'image') {
-        if (isLayerVisible(resolvedFromFiltered.id)) {
+        if (isLayerVisible(resolvedFromFiltered.id) && !isImageLocked(resolvedFromFiltered.id)) {
           imageClicked = resolvedFromFiltered.id;
         }
       } else if (resolvedFromFiltered?.type === '3d-model') {
@@ -682,6 +717,9 @@ export const useSelectionTool = ({
       // 检查图片实例 - 反向遍历以选择最上层的图片
       for (let i = imageInstances.length - 1; i >= 0; i--) {
         const image = imageInstances[i];
+        if (isImageLocked(image.id)) {
+          continue;
+        }
         // 🔍 调试：输出每个图片的 bounds
         logger.tool(`图片[${i}] id=${image.id}, bounds:`, image.bounds);
 
@@ -727,7 +765,7 @@ export const useSelectionTool = ({
       imageClicked,
       modelClicked
     };
-  }, [zoom, imageInstances, model3DInstances, isLayerVisible]);
+  }, [zoom, imageInstances, model3DInstances, isImageLocked, isLayerVisible]);
 
   // 处理选择模式下的点击
   const handleSelectionClick = useCallback((point: paper.Point, ctrlPressed: boolean = false) => {

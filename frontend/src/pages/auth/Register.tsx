@@ -7,8 +7,10 @@ import { useAuthStore } from "@/stores/authStore";
 import { Eye, EyeOff, Check, X } from "lucide-react";
 import { validateInviteCode } from "@/services/referralApi";
 import { authApi } from "@/services/authApi";
+import { useTranslation } from "react-i18next";
 
 export default function RegisterPage() {
+  const { t } = useTranslation();
   const [searchParams] = useSearchParams();
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
@@ -31,7 +33,7 @@ export default function RegisterPage() {
     if (!phone.trim() || !/^1[3-9]\d{9}$/.test(phone)) {
       window.dispatchEvent(
         new CustomEvent("toast", {
-          detail: { message: "请输入有效的手机号", type: "error" },
+          detail: { message: t("auth.register.phoneInvalid"), type: "error" },
         })
       );
       return;
@@ -49,10 +51,15 @@ export default function RegisterPage() {
           return prev - 1;
         });
       }, 1000);
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: t("auth.login.smsSent"), type: "success" },
+        })
+      );
     } catch (err: any) {
       window.dispatchEvent(
         new CustomEvent("toast", {
-          detail: { message: err?.message || "发送失败", type: "error" },
+          detail: { message: err?.message || t("auth.register.sendFailed"), type: "error" },
         })
       );
     }
@@ -91,12 +98,32 @@ export default function RegisterPage() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const trimmedName = name.trim();
+    const trimmedPhone = phone.trim();
+    const trimmedCode = code.trim();
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!trimmedName) {
+      alert(t("auth.register.usernameRequired"));
+      return;
+    }
+    if (normalizedEmail && trimmedName.toLowerCase() === normalizedEmail) {
+      alert(t("auth.register.usernameCannotMatchEmail"));
+      return;
+    }
+    if (trimmedName === trimmedPhone) {
+      alert(t("auth.register.usernameCannotMatchPhone"));
+      return;
+    }
     if (!agreeTerms) {
-      alert("请先同意用户协议和隐私政策");
+      alert(t("auth.agreements.mustAgree"));
+      return;
+    }
+    if (!/^\d{6}$/.test(trimmedCode)) {
+      alert(t("auth.register.codeInvalid"));
       return;
     }
     if (password !== confirm) {
-      alert("两次输入的密码不一致");
+      alert(t("auth.register.passwordMismatch"));
       return;
     }
     // 如果填写了邀请码，必须验证有效性
@@ -106,25 +133,25 @@ export default function RegisterPage() {
         const result = await validateInviteCode(inviteCode.trim());
         setInviteCodeValid(result.valid);
         if (!result.valid) {
-          alert("邀请码无效，请检查后重试");
+          alert(t("auth.register.invalidInvite"));
           return;
         }
       } else if (inviteCodeValid === false) {
-        alert("邀请码无效，请检查后重试");
+        alert(t("auth.register.invalidInvite"));
         return;
       }
     }
     try {
       await register(
-        phone,
+        trimmedPhone,
         password,
-        code || "336699", // 暂时使用默认验证码，因为验证码输入框已隐藏
-        name || undefined,
-        email || undefined,
+        trimmedCode,
+        trimmedName,
+        normalizedEmail || undefined,
         inviteCode.trim() || undefined
       );
       // 注册成功后自动登录
-      await login(phone, password);
+      await login(trimmedPhone, password);
       navigate("/");
     } catch (err) {
       // 错误已在 store 中处理
@@ -142,7 +169,7 @@ export default function RegisterPage() {
         className='absolute inset-0 w-full h-full object-cover z-[1]'
       >
         <source src='/OpenVideo.mp4' type='video/mp4' />
-        您的浏览器不支持视频播放。
+        {t("auth.videoUnsupported")}
       </video>
 
       {/* 黑色透明蒙版 */}
@@ -151,23 +178,24 @@ export default function RegisterPage() {
       <Card className='w-full max-w-xl p-8 relative z-10 backdrop-blur-md bg-white/10 border border-white/20 shadow-2xl'>
         <div className='flex items-center justify-center mb-8'>
           {/* <img src='/LogoText.svg' className='h-8 w-auto brightness-0 invert drop-shadow-lg mr-3' /> */}
-                  <div className='text-2xl font-semibold text-white drop-shadow-md'>注册账号</div>
+          <div className='text-2xl font-semibold text-white drop-shadow-md'>
+            {t("auth.register.title")}
+          </div>
         </div>
 
         <form onSubmit={onSubmit} className='space-y-6'>
           <Input
-            placeholder='请输入手机号（必填）'
+            placeholder={t("auth.register.phonePlaceholder")}
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             required
             className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12'
           />
-          {/* 验证码输入框 - 暂时隐藏 */}
-          {/* <div className='flex gap-2'>
+          <div className='flex gap-3'>
             <Input
-              placeholder='请输入验证码'
+              placeholder={t("auth.login.codePlaceholder")}
               value={code}
-              onChange={(e) => setCode(e.target.value)}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
               required
               maxLength={6}
               className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12 flex-1'
@@ -176,27 +204,30 @@ export default function RegisterPage() {
               type='button'
               onClick={handleSendCode}
               disabled={codeCountdown > 0 || !phone.trim()}
-              className='bg-white/20 border border-white/30 text-white hover:bg-white/30 rounded-xl h-12 px-4 whitespace-nowrap disabled:opacity-50'
+              className='whitespace-nowrap flex-shrink-0 min-w-[80px] rounded-xl bg-white/20 hover:bg-white/30 text-white border-white/30 backdrop-blur-sm transition-all duration-200 h-12 disabled:opacity-50'
             >
-              {codeCountdown > 0 ? `${codeCountdown}s` : '获取验证码'}
+              {codeCountdown > 0
+                ? t("auth.login.resendCode", { seconds: codeCountdown })
+                : t("auth.login.sendCode")}
             </Button>
-          </div> */}
+          </div>
           <Input
-            placeholder='邮箱（选填）'
+            placeholder={t("auth.register.emailPlaceholder")}
             type='email'
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12'
           />
           <Input
-            placeholder='昵称（选填）'
+            placeholder={t("auth.register.namePlaceholder")}
             value={name}
             onChange={(e) => setName(e.target.value)}
+            required
             className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12'
           />
           <div className='relative'>
             <Input
-              placeholder='设置密码（至少10位，含大小写与数字）'
+              placeholder={t("auth.register.passwordPlaceholder")}
               type={showPassword ? 'text' : 'password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -213,7 +244,7 @@ export default function RegisterPage() {
           </div>
           <div className='relative'>
             <Input
-              placeholder='确认密码'
+              placeholder={t("auth.register.confirmPlaceholder")}
               type={showConfirm ? 'text' : 'password'}
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
@@ -230,7 +261,7 @@ export default function RegisterPage() {
           </div>
           <div className='relative'>
             <Input
-              placeholder='邀请码（选填）'
+              placeholder={t("auth.register.invitePlaceholder")}
               value={inviteCode}
               onChange={(e) => {
                 setInviteCode(e.target.value);
@@ -251,7 +282,7 @@ export default function RegisterPage() {
             )}
             {inviteCodeValid && inviterName && (
               <div className='text-xs text-green-400 mt-1 ml-1'>
-                来自 {inviterName} 的邀请
+                {t("auth.register.inviteFrom", { name: inviterName })}
               </div>
             )}
           </div>
@@ -274,12 +305,15 @@ export default function RegisterPage() {
               onClick={() => setAgreeTerms(!agreeTerms)}
               className='text-xs text-white/70 cursor-pointer'
             >
-              我已阅读并同意
-              <Link to='/legal/terms' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>用户协议</Link>
-              、
-              <Link to='/legal/privacy' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>隐私政策</Link>
-              和
-              <Link to='/legal/community' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>社区自律公约</Link>
+              {t("auth.agreements.prefix")}
+              {" "}
+              <Link to='/legal/terms' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>{t("auth.agreements.terms")}</Link>
+              {t("auth.agreements.comma")}
+              <Link to='/legal/privacy' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>{t("auth.agreements.privacy")}</Link>
+              {" "}
+              {t("auth.agreements.and")}
+              {" "}
+              <Link to='/legal/community' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>{t("auth.agreements.community")}</Link>
             </label>
           </div>
 
@@ -288,12 +322,12 @@ export default function RegisterPage() {
             className='w-full bg-white/20 hover:bg-white/30 text-white border border-white/30 rounded-xl h-12 font-medium backdrop-blur-sm transition-all duration-200 disabled:opacity-70 hover:shadow-lg'
             disabled={loading || !agreeTerms}
           >
-            {loading ? "提交中..." : "注册"}
+            {loading ? t("auth.register.submitting") : t("auth.register.submit")}
           </Button>
           <div className='text-center text-sm'>
-            <span className='text-white/80 drop-shadow-md'>已有账号？</span>
+            <span className='text-white/80 drop-shadow-md'>{t("auth.register.hasAccount")}</span>
             <Link to='/auth/login' className='text-white hover:text-white/90 transition-all duration-200 font-medium ml-1'>
-              去登录
+              {t("auth.register.goLogin")}
             </Link>
           </div>
         </form>

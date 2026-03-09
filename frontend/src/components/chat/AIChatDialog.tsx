@@ -13,6 +13,7 @@ import React, {
   useMemo,
 } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import { fetchWithAuth } from "@/services/authFetch";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -46,6 +47,8 @@ import {
   Share2,
   Download,
   Brain,
+  Clock,
+  ChevronDown,
   Copy,
   FileText,
   Play,
@@ -104,6 +107,7 @@ const PROVIDER_MODE_OPTIONS: Partial<
   "gemini-pro": BASE_MANUAL_MODE_OPTIONS,
   banana: BASE_MANUAL_MODE_OPTIONS,
   "banana-2.5": BASE_MANUAL_MODE_OPTIONS,
+  "banana-3.1": BASE_MANUAL_MODE_OPTIONS,
   runninghub: BASE_MANUAL_MODE_OPTIONS,
   midjourney: BASE_MANUAL_MODE_OPTIONS,
 };
@@ -255,6 +259,7 @@ const getResendInfoFromMessage = (message: ChatMessage): ResendInfo | null => {
 };
 
 const AIChatDialog: React.FC = () => {
+  const { t } = useTranslation();
   const {
     isVisible,
     isMaximized,
@@ -269,6 +274,8 @@ const AIChatDialog: React.FC = () => {
     aspectRatio,
     imageSize,
     thinkingLevel,
+    videoAspectRatio,
+    videoDurationSeconds,
     sessions,
     currentSessionId,
     createSession,
@@ -295,8 +302,11 @@ const AIChatDialog: React.FC = () => {
     setAspectRatio,
     setImageSize,
     setThinkingLevel,
+    setVideoAspectRatio,
+    setVideoDurationSeconds,
     manualAIMode,
     setManualAIMode,
+    autoSelectedTool,
     aiProvider,
     setAIProvider,
     autoModeMultiplier,
@@ -383,6 +393,26 @@ const AIChatDialog: React.FC = () => {
     left: 0,
   });
 
+  // 视频尺寸面板
+  const [isVideoAspectOpen, setIsVideoAspectOpen] = useState(false);
+  const videoAspectPanelRef = useRef<HTMLDivElement | null>(null);
+  const videoAspectButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [videoAspectPos, setVideoAspectPos] = useState<{
+    top: number;
+    left: number;
+  }>({ top: 0, left: 0 });
+  const [videoAspectReady, setVideoAspectReady] = useState(false);
+
+  // 视频时长面板
+  const [isVideoDurationOpen, setIsVideoDurationOpen] = useState(false);
+  const videoDurationPanelRef = useRef<HTMLDivElement | null>(null);
+  const videoDurationButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [videoDurationPos, setVideoDurationPos] = useState<{
+    top: number;
+    left: number;
+  }>({ top: 0, left: 0 });
+  const [videoDurationReady, setVideoDurationReady] = useState(false);
+
   // 图像尺寸状态
   const [isImageSizeOpen, setIsImageSizeOpen] = useState(false);
   const imageSizePanelRef = useRef<HTMLDivElement | null>(null);
@@ -435,32 +465,87 @@ const AIChatDialog: React.FC = () => {
     value: SupportedAIProvider;
     label: string;
     description: string;
-  }[] = [
-    {
-      value: "banana-2.5",
-      label: "Fast",
-      description: "国内极速版",
-    },
-    {
-      value: "banana",
-      label: "Pro",
-      description: "国内Pro版",
-    },
-  ];
+  }[] = useMemo(
+    () => [
+      {
+        value: "banana-2.5",
+        label: "Fast",
+        description: t("chat.provider.fastDesc"),
+      },
+      {
+        value: "banana",
+        label: "Pro",
+        description: t("chat.provider.proDesc"),
+      },
+      {
+        value: "banana-3.1",
+        label: "Ultra",
+        description: t("chat.provider.ultraDesc"),
+      },
+    ],
+    [t]
+  );
+  const currentProviderOption =
+    providerToggleOptions.find((option) => option.value === aiProvider) ?? null;
   const isDomesticProvider = providerToggleOptions.some(
     (option) => option.value === aiProvider
   );
   const isFastMode = aiProvider === "banana-2.5";
+  const isUltraMode = aiProvider === "banana-3.1";
+  const isVideoMode =
+    manualAIMode === "video" ||
+    (manualAIMode === "auto" && autoSelectedTool === "generateVideo");
+  const isVectorMode =
+    manualAIMode === "vector" ||
+    (manualAIMode === "auto" && autoSelectedTool === "generatePaperJS");
+  const shouldHideImageParamControls = isVideoMode || isVectorMode;
   const showImageSizeControls =
     !isFastMode &&
+    !shouldHideImageParamControls &&
     (aiProvider === "gemini-pro" ||
       aiProvider === "banana" ||
-      aiProvider === "banana-2.5");
+      aiProvider === "banana-2.5" ||
+      aiProvider === "banana-3.1");
   const showThinkingLevelControls =
     !isFastMode &&
+    !shouldHideImageParamControls &&
     (aiProvider === "gemini-pro" ||
       aiProvider === "banana" ||
-      aiProvider === "banana-2.5");
+      aiProvider === "banana-2.5" ||
+      aiProvider === "banana-3.1");
+
+  const aspectRatioOptions = useMemo(() => {
+    const baseRatios = [
+      "1:1",
+      "2:3",
+      "3:2",
+      "3:4",
+      "4:3",
+      "4:5",
+      "5:4",
+      "9:16",
+      "16:9",
+      "21:9",
+    ] as const;
+    const ultraExtraRatios = ["4:1", "1:4", "8:1", "1:8"] as const;
+    const ratios = isUltraMode
+      ? [...baseRatios, ...ultraExtraRatios]
+      : baseRatios;
+    return [
+      { label: t("chat.common.auto"), value: null },
+      ...ratios.map((ratio) => ({ label: ratio, value: ratio })),
+    ];
+  }, [isUltraMode, t]);
+
+  const imageSizeOptions = useMemo(() => {
+    const sizes = [
+      ...(isUltraMode ? [{ label: "0.5K", value: "0.5K" }] : []),
+      { label: "1K", value: "1K" },
+      { label: "2K", value: "2K" },
+      { label: "4K", value: "4K" },
+    ];
+    return [{ label: t("chat.common.auto"), value: null }, ...sizes];
+  }, [isUltraMode, t]);
 
   // 记录最新的最大化状态，供原生事件监听使用
   useEffect(() => {
@@ -475,7 +560,9 @@ const AIChatDialog: React.FC = () => {
   const manualButtonLabel =
     currentManualMode?.label ??
     availableManualModeOptions[0]?.label ??
-    "选择模式";
+    t("chat.labels.selectMode");
+  const providerButtonLabel =
+    currentProviderOption?.label ?? t("chat.labels.domesticModel");
   // 统一向上展开（最大化时避免溢出，紧凑模式保持原有行为）
   const dropdownSide: "top" | "bottom" = "top";
 
@@ -924,9 +1011,8 @@ const AIChatDialog: React.FC = () => {
     });
   }, [setHistoryVisibility, setMaximizedSafely]);
 
-  const handleSessionChange = useCallback(
-    async (event: React.ChangeEvent<HTMLSelectElement>) => {
-      const nextSessionId = event.target.value;
+  const handleSwitchSession = useCallback(
+    async (nextSessionId?: string) => {
       if (!nextSessionId || nextSessionId === currentSessionId) return;
       try {
         await switchSession(nextSessionId);
@@ -961,7 +1047,32 @@ const AIChatDialog: React.FC = () => {
 
   const currentSession =
     sessions.find((session) => session.sessionId === currentSessionId) ?? null;
-  const sessionSelectValue = currentSessionId ?? sessions[0]?.sessionId ?? "";
+
+  const formatSessionRelativeTime = useCallback(
+    (value?: Date | string | number | null) => {
+      if (!value) return "";
+      const date = value instanceof Date ? value : new Date(value);
+      if (Number.isNaN(date.getTime())) return "";
+
+      const diffMs = Date.now() - date.getTime();
+      if (diffMs < 60 * 1000) return "刚刚";
+
+      const minuteMs = 60 * 1000;
+      const hourMs = 60 * minuteMs;
+      const dayMs = 24 * hourMs;
+      const weekMs = 7 * dayMs;
+      const monthMs = 30 * dayMs;
+      const yearMs = 365 * dayMs;
+
+      if (diffMs < hourMs) return `${Math.floor(diffMs / minuteMs)} 分钟前`;
+      if (diffMs < dayMs) return `${Math.floor(diffMs / hourMs)} 小时前`;
+      if (diffMs < weekMs) return `${Math.floor(diffMs / dayMs)} 天前`;
+      if (diffMs < monthMs) return `${Math.floor(diffMs / weekMs)} 周前`;
+      if (diffMs < yearMs) return `${Math.floor(diffMs / monthMs)} 个月前`;
+      return `${Math.floor(diffMs / yearMs)} 年前`;
+    },
+    []
+  );
 
   // 面板外点击关闭
   useEffect(() => {
@@ -1816,13 +1927,84 @@ const AIChatDialog: React.FC = () => {
     };
   }, [isAspectOpen, isMaximized]);
 
+  // 计算视频尺寸面板定位
+  useLayoutEffect(() => {
+    if (!isVideoAspectOpen) return;
+    const update = () => {
+      const panelEl = videoAspectPanelRef.current;
+      const anchorEl = inputAreaRef.current || dialogRef.current;
+      if (!panelEl || !anchorEl) return;
+
+      const w = panelEl.offsetWidth;
+      const h = panelEl.offsetHeight;
+      const offset = isMaximized ? 12 : 20;
+
+      const anchorRect = anchorEl.getBoundingClientRect();
+      let top = anchorRect.bottom + offset;
+      let left = anchorRect.left + anchorRect.width / 2 - w / 2;
+
+      if (top + h > window.innerHeight - 8) {
+        top = Math.max(8, anchorRect.top - h - offset);
+      }
+
+      top = Math.min(top, window.innerHeight - h - 8);
+      left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+      setVideoAspectPos({ top, left });
+      setVideoAspectReady(true);
+    };
+    const r = requestAnimationFrame(update);
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      cancelAnimationFrame(r);
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [isVideoAspectOpen, isMaximized]);
+
+  // 计算视频时长面板定位
+  useLayoutEffect(() => {
+    if (!isVideoDurationOpen) return;
+    const update = () => {
+      const panelEl = videoDurationPanelRef.current;
+      const anchorEl = inputAreaRef.current || dialogRef.current;
+      if (!panelEl || !anchorEl) return;
+
+      const w = panelEl.offsetWidth;
+      const h = panelEl.offsetHeight;
+      const offset = isMaximized ? 12 : 20;
+
+      const anchorRect = anchorEl.getBoundingClientRect();
+      let top = anchorRect.bottom + offset;
+      let left = anchorRect.left + anchorRect.width / 2 - w / 2;
+
+      if (top + h > window.innerHeight - 8) {
+        top = Math.max(8, anchorRect.top - h - offset);
+      }
+
+      top = Math.min(top, window.innerHeight - h - 8);
+      left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+      setVideoDurationPos({ top, left });
+      setVideoDurationReady(true);
+    };
+    const r = requestAnimationFrame(update);
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      cancelAnimationFrame(r);
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [isVideoDurationOpen, isMaximized]);
+
   // 计算图像尺寸面板定位：以输入区域为锚点，优先显示在输入框下方，空间不足时放在上方
   useLayoutEffect(() => {
     if (
       !isImageSizeOpen ||
       (aiProvider !== "gemini-pro" &&
         aiProvider !== "banana" &&
-        aiProvider !== "banana-2.5")
+        aiProvider !== "banana-2.5" &&
+        aiProvider !== "banana-3.1")
     )
       return;
     const update = () => {
@@ -1865,7 +2047,8 @@ const AIChatDialog: React.FC = () => {
       !isThinkingLevelOpen ||
       (aiProvider !== "gemini-pro" &&
         aiProvider !== "banana" &&
-        aiProvider !== "banana-2.5")
+        aiProvider !== "banana-2.5" &&
+        aiProvider !== "banana-3.1")
     )
       return;
     const update = () => {
@@ -1916,6 +2099,32 @@ const AIChatDialog: React.FC = () => {
     return () => document.removeEventListener("mousedown", onDown, true);
   }, [isAspectOpen]);
 
+  // 点击外部关闭视频尺寸面板
+  useEffect(() => {
+    if (!isVideoAspectOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (videoAspectPanelRef.current?.contains(t)) return;
+      if (videoAspectButtonRef.current?.contains(t as Node)) return;
+      setIsVideoAspectOpen(false);
+    };
+    document.addEventListener("mousedown", onDown, true);
+    return () => document.removeEventListener("mousedown", onDown, true);
+  }, [isVideoAspectOpen]);
+
+  // 点击外部关闭视频时长面板
+  useEffect(() => {
+    if (!isVideoDurationOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (videoDurationPanelRef.current?.contains(t)) return;
+      if (videoDurationButtonRef.current?.contains(t as Node)) return;
+      setIsVideoDurationOpen(false);
+    };
+    document.addEventListener("mousedown", onDown, true);
+    return () => document.removeEventListener("mousedown", onDown, true);
+  }, [isVideoDurationOpen]);
+
   // 点击外部关闭图像尺寸面板
   useEffect(() => {
     if (!isImageSizeOpen) return;
@@ -1941,6 +2150,17 @@ const AIChatDialog: React.FC = () => {
     document.addEventListener("mousedown", onDown, true);
     return () => document.removeEventListener("mousedown", onDown, true);
   }, [isThinkingLevelOpen]);
+
+  useEffect(() => {
+    if (shouldHideImageParamControls) {
+      setIsAspectOpen(false);
+      setIsImageSizeOpen(false);
+      setIsThinkingLevelOpen(false);
+      return;
+    }
+    setIsVideoAspectOpen(false);
+    setIsVideoDurationOpen(false);
+  }, [shouldHideImageParamControls]);
 
   const handlePromptSettingsChange = (next: PromptOptimizationSettings) => {
     setPromptSettings(next);
@@ -2146,24 +2366,26 @@ const AIChatDialog: React.FC = () => {
     const mode = getAIMode();
     switch (mode) {
       case "text":
-        return "直接输入问题或开始聊天，AI将即时回复。";
+        return t("chat.placeholder.text");
       case "blend":
-        return `描述如何融合这${sourceImagesForBlending.length}张图像...`;
+        return t("chat.placeholder.blend", {
+          count: sourceImagesForBlending.length,
+        });
       case "edit":
-        return "描述你想要做什么，AI会智能判断是编辑还是分析...";
+        return t("chat.placeholder.edit");
       case "analyze":
-        return "询问关于这张图片的问题，或留空进行全面分析...";
+        return t("chat.placeholder.analyze");
       case "video":
         return sourceImageForEditing
-          ? "描述要生成的视频效果，AI将基于上传的图像生成视频..."
-          : "描述要生成的视频场景、风格和动作...";
+          ? t("chat.placeholder.videoWithSource")
+          : t("chat.placeholder.video");
       case "vector":
-        return "描述你想生成的矢量图形，如：'一个蓝色的五角星' 或 '同心圆图案'...";
+        return t("chat.placeholder.vector");
       default:
         if (manualAIMode === "generate") {
-          return "描述你想生成的图像场景、风格或细节...";
+          return t("chat.placeholder.generate");
         }
-        return "输入任何内容，AI会智能判断是生图、对话或视频...";
+        return t("chat.placeholder.default");
     }
   };
 
@@ -2935,46 +3157,11 @@ const AIChatDialog: React.FC = () => {
                 className={cn(
                   "resize-none px-4 pb-12 min-h-[80px] max-h-[260px] text-sm bg-transparent border-gray-300 focus:ring-0 transition-colors duration-200 overflow-y-auto"
                 )}
-                rows={2}
+                rows={1}
               />
 
               {/* 左侧按钮组 */}
               <div className='absolute flex items-center gap-2 left-2 bottom-2'>
-                <div
-                  className={cn(
-                    "flex h-7 items-center gap-0.5 rounded-full border border-liquid-glass bg-liquid-glass px-1 shadow-liquid-glass backdrop-blur-liquid backdrop-saturate-125",
-                    generationStatus.isGenerating && "opacity-90"
-                  )}
-                  title='快速切换国内模型'
-                >
-                  {providerToggleOptions.map((option) => {
-                    const isActive = aiProvider === option.value;
-                    return (
-                      <button
-                        key={option.value}
-                        type='button'
-                        className={cn(
-                          "flex h-[20px] items-center justify-center rounded-full px-3 text-[12px] font-semibold transition-colors duration-150",
-                          isActive
-                            ? "bg-slate-900 text-white shadow-sm"
-                            : "text-slate-700",
-                          generationStatus.isGenerating && "cursor-pointer"
-                        )}
-                        onClick={() => {
-                          if (aiProvider !== option.value) {
-                            console.log("🤖 切换 AI 提供商:", option.value);
-                            setAIProvider(option.value);
-                          }
-                        }}
-                        aria-pressed={isActive}
-                        title={`${option.label} · ${option.description}`}
-                      >
-                        {option.label}
-                      </button>
-                    );
-                  })}
-                </div>
-
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -3034,7 +3221,10 @@ const AIChatDialog: React.FC = () => {
                               {option.label}
                             </div>
                             <div className='text-[11px] text-slate-400 leading-snug'>
-                              {option.description}
+                              {t(
+                                `chat.manualMode.${option.value}Desc`,
+                                option.description
+                              )}
                             </div>
                           </div>
                           {isActive && (
@@ -3045,19 +3235,101 @@ const AIChatDialog: React.FC = () => {
                     })}
                   </DropdownMenuContent>
                 </DropdownMenu>
+
+                {!shouldHideImageParamControls && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        disabled={false}
+                        data-dropdown-trigger='true'
+                        className={cn(
+                          "h-7 pl-2 pr-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
+                          "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                          !generationStatus.isGenerating
+                            ? "hover:bg-gray-100 text-gray-700"
+                            : "opacity-50 cursor-not-allowed text-gray-400"
+                        )}
+                        title={t("chat.labels.quickSwitchDomesticModel")}
+                      >
+                        <span className='font-medium'>{providerButtonLabel}</span>
+                        <ChevronDown className='h-3.5 w-3.5 opacity-60' />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align='start'
+                      side={dropdownSide}
+                      sideOffset={8}
+                      className='dropdown-menu-root min-w-[220px] rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md'
+                    >
+                      <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
+                        {t("chat.labels.quickSwitchModel")}
+                      </DropdownMenuLabel>
+                      {providerToggleOptions.map((option) => {
+                        const isActive = aiProvider === option.value;
+                        return (
+                          <DropdownMenuItem
+                            key={option.value}
+                            onClick={(event) => {
+                              if (aiProvider !== option.value) {
+                                console.log(
+                                  "🤖 切换 AI 提供商:",
+                                  option.value
+                                );
+                                setAIProvider(option.value);
+                              }
+                              const root = (
+                                event.currentTarget as HTMLElement
+                              ).closest(".dropdown-menu-root");
+                              const trigger = root?.querySelector(
+                                '[data-dropdown-trigger="true"]'
+                              ) as HTMLButtonElement | null;
+                              if (trigger && !trigger.disabled) {
+                                trigger.click();
+                              }
+                            }}
+                            className={cn(
+                              "flex items-start gap-2 px-3 py-2 text-xs",
+                              isActive
+                                ? "bg-gray-100 text-gray-800"
+                                : "text-slate-600"
+                            )}
+                          >
+                            <div className='flex-1 space-y-0.5'>
+                              <div className='font-medium leading-none'>
+                                {option.label}
+                              </div>
+                              <div className='text-[11px] text-slate-400 leading-snug'>
+                                {option.description}
+                              </div>
+                            </div>
+                            {isActive && (
+                              <Check className='h-3.5 w-3.5 text-white' />
+                            )}
+                          </DropdownMenuItem>
+                        );
+                      })}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+
                 {MULTIPLIER_ENABLED_MODES.includes(manualAIMode) && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <button
                         type='button'
                         className={cn(
-                          "h-7 px-2 text-[11px] font-semibold text-slate-700 transition-colors duration-150",
+                          "h-7 px-2 text-[11px] font-normal text-slate-700 transition-colors duration-150",
                           "hover:text-slate-900 active:translate-y-[0.5px]"
                         )}
                         title='选择生成倍数'
-                        aria-label={`倍数 X${autoModeMultiplier}`}
+                        aria-label={`倍数 ${autoModeMultiplier}X`}
                       >
-                        X{autoModeMultiplier}
+                        <span className='inline-flex items-baseline'>
+                          <span className='text-sm leading-none'>{autoModeMultiplier}</span>
+                          <span className='ml-0.5 text-[9px] leading-none'>X</span>
+                        </span>
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent
@@ -3082,7 +3354,10 @@ const AIChatDialog: React.FC = () => {
                                 : "text-slate-600"
                             )}
                           >
-                            <span className='font-medium'>X{multiplier}</span>
+                            <span className='inline-flex items-baseline'>
+                              <span className='text-sm leading-none'>{multiplier}</span>
+                              <span className='ml-0.5 text-[9px] leading-none'>X</span>
+                            </span>
                             {isActive && (
                               <Check className='h-3.5 w-3.5 text-gray-600' />
                             )}
@@ -3095,7 +3370,7 @@ const AIChatDialog: React.FC = () => {
               </div>
 
               {/* 长宽比选择按钮 */}
-              {!isFastMode && (
+              {!isFastMode && !shouldHideImageParamControls && (
                 <Button
                   ref={aspectButtonRef}
                   onClick={() => setIsAspectOpen((v) => !v)}
@@ -3118,6 +3393,73 @@ const AIChatDialog: React.FC = () => {
                     <span className='text-[10px] font-medium leading-none'>{aspectRatio}</span>
                   ) : (
                     <AspectRatioIcon className='h-3.5 w-3.5' />
+                  )}
+                </Button>
+              )}
+
+              {/* 视频尺寸选择按钮 */}
+              {isVideoMode && (
+                <Button
+                  ref={videoAspectButtonRef}
+                  onClick={() => setIsVideoAspectOpen((v) => !v)}
+                  disabled={false}
+                  size='sm'
+                  variant='outline'
+                  className={cn(
+                    "absolute right-28 bottom-2 h-7 p-0 rounded-full transition-all duration-200",
+                    "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                    videoAspectRatio
+                      ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-900 px-2"
+                      : "w-7",
+                    !generationStatus.isGenerating
+                      ? "text-slate-700"
+                      : "opacity-50 cursor-not-allowed text-gray-400"
+                  )}
+                  title={
+                    videoAspectRatio
+                      ? `尺寸: ${videoAspectRatio}`
+                      : "选择尺寸"
+                  }
+                >
+                  {videoAspectRatio ? (
+                    <span className='text-[10px] font-medium leading-none text-white'>
+                      {videoAspectRatio}
+                    </span>
+                  ) : (
+                    <AspectRatioIcon className='h-3.5 w-3.5' />
+                  )}
+                </Button>
+              )}
+
+              {/* 视频时长选择按钮 */}
+              {isVideoMode && (
+                <Button
+                  ref={videoDurationButtonRef}
+                  onClick={() => setIsVideoDurationOpen((v) => !v)}
+                  disabled={false}
+                  size='sm'
+                  variant='outline'
+                  className={cn(
+                    "absolute right-20 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200 text-xs",
+                    "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                    videoDurationSeconds
+                      ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
+                      : !generationStatus.isGenerating
+                      ? "text-slate-700"
+                      : "opacity-50 cursor-not-allowed text-gray-400"
+                  )}
+                  title={
+                    videoDurationSeconds
+                      ? `时长: ${videoDurationSeconds}秒`
+                      : "选择时长"
+                  }
+                >
+                  {videoDurationSeconds ? (
+                    <span className='font-medium text-[10px] leading-none text-white'>
+                      {videoDurationSeconds}s
+                    </span>
+                  ) : (
+                    <Clock className='h-3.5 w-3.5' />
                   )}
                 </Button>
               )}
@@ -3190,23 +3532,7 @@ const AIChatDialog: React.FC = () => {
                     }}
                   >
                     <div className='flex items-center gap-1 p-2'>
-                      {[
-                        { label: "自动", value: null },
-                        ...(
-                          [
-                            "1:1",
-                            "2:3",
-                            "3:2",
-                            "3:4",
-                            "4:3",
-                            "4:5",
-                            "5:4",
-                            "9:16",
-                            "16:9",
-                            "21:9",
-                          ] as const
-                        ).map((r) => ({ label: r, value: r })),
-                      ].map((opt) => (
+                      {aspectRatioOptions.map((opt) => (
                         <button
                           key={opt.label}
                           className={cn(
@@ -3220,6 +3546,107 @@ const AIChatDialog: React.FC = () => {
                             console.log("🎚️ 选择长宽比:", opt.value || "自动");
                             setAspectRatio(opt.value as any);
                             setIsAspectOpen(false);
+                          }}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>,
+                  document.body
+                )}
+
+              {/* 视频尺寸下拉菜单 */}
+              {isVideoMode &&
+                isVideoAspectOpen &&
+                typeof document !== "undefined" &&
+                createPortal(
+                  <div
+                    ref={videoAspectPanelRef}
+                    className='border rounded-xl bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border-liquid-glass shadow-liquid-glass'
+                    style={{
+                      position: "fixed",
+                      top: videoAspectPos.top,
+                      left: videoAspectPos.left,
+                      zIndex: 9999,
+                      visibility: videoAspectReady ? "visible" : "hidden",
+                    }}
+                  >
+                    <div className='px-3 pt-2 text-[11px] uppercase tracking-wide text-slate-400'>
+                      尺寸
+                    </div>
+                    <div className='flex items-center gap-1 p-2'>
+                      {[
+                        { label: "自动", value: null },
+                        { label: "横屏 (16:9)", value: "16:9" },
+                        { label: "竖屏 (9:16)", value: "9:16" },
+                      ].map((opt) => (
+                        <button
+                          key={opt.label}
+                          className={cn(
+                            "px-2 py-1 text-xs rounded-md whitespace-nowrap",
+                            videoAspectRatio === opt.value ||
+                              (!videoAspectRatio && opt.value === null)
+                              ? "bg-gray-100 text-gray-800 border border-gray-200"
+                              : "hover:bg-gray-100 text-gray-700 border border-transparent"
+                          )}
+                          onClick={() => {
+                            setVideoAspectRatio(
+                              opt.value as "16:9" | "9:16" | null
+                            );
+                            setIsVideoAspectOpen(false);
+                          }}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>,
+                  document.body
+                )}
+
+              {/* 视频时长下拉菜单 */}
+              {isVideoMode &&
+                isVideoDurationOpen &&
+                typeof document !== "undefined" &&
+                createPortal(
+                  <div
+                    ref={videoDurationPanelRef}
+                    className='border rounded-xl bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border-liquid-glass shadow-liquid-glass'
+                    style={{
+                      position: "fixed",
+                      top: videoDurationPos.top,
+                      left: videoDurationPos.left,
+                      zIndex: 9999,
+                      visibility: videoDurationReady ? "visible" : "hidden",
+                    }}
+                  >
+                    <div className='px-3 pt-2 text-[11px] uppercase tracking-wide text-slate-400'>
+                      时间长度
+                    </div>
+                    <div className='flex items-center gap-1 p-2'>
+                      {[
+                        { label: "默认", value: null },
+                        { label: "3秒", value: 3 },
+                        { label: "4秒", value: 4 },
+                        { label: "5秒", value: 5 },
+                        { label: "6秒", value: 6 },
+                        { label: "8秒", value: 8 },
+                      ].map((opt) => (
+                        <button
+                          key={opt.label}
+                          className={cn(
+                            "px-2 py-1 text-xs rounded-md whitespace-nowrap",
+                            videoDurationSeconds === opt.value ||
+                              (!videoDurationSeconds && opt.value === null)
+                              ? "bg-gray-100 text-gray-800 border border-gray-200"
+                              : "hover:bg-gray-100 text-gray-700 border border-transparent"
+                          )}
+                          onClick={() => {
+                            setVideoDurationSeconds(
+                              opt.value as 3 | 4 | 5 | 6 | 8 | null
+                            );
+                            setIsVideoDurationOpen(false);
                           }}
                         >
                           {opt.label}
@@ -3247,12 +3674,7 @@ const AIChatDialog: React.FC = () => {
                     }}
                   >
                     <div className='flex items-center gap-1 p-2'>
-                      {[
-                        { label: "自动", value: null },
-                        { label: "1K", value: "1K" },
-                        { label: "2K", value: "2K" },
-                        { label: "4K", value: "4K" },
-                      ].map((opt) => (
+                      {imageSizeOptions.map((opt) => (
                         <button
                           key={opt.label}
                           className={cn(
@@ -3328,59 +3750,63 @@ const AIChatDialog: React.FC = () => {
                 )}
 
               {/* 联网搜索开关 */}
-              <Button
-                onClick={toggleWebSearch}
-                disabled={false}
-                size='sm'
-                variant='outline'
-                className={cn(
-                  "absolute right-28 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
-                  "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
-                  !generationStatus.isGenerating
-                    ? enableWebSearch
-                      ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
-                      : "text-slate-700"
-                    : "opacity-50 cursor-not-allowed text-gray-400"
-                )}
-                title={`联网搜索: ${
-                  enableWebSearch ? "开启" : "关闭"
-                } - 让AI获取实时信息`}
-              >
-                <MinimalGlobeIcon className='h-3.5 w-3.5' />
-              </Button>
+              {!shouldHideImageParamControls && (
+                <Button
+                  onClick={toggleWebSearch}
+                  disabled={false}
+                  size='sm'
+                  variant='outline'
+                  className={cn(
+                    "absolute right-28 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
+                    "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                    !generationStatus.isGenerating
+                      ? enableWebSearch
+                        ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
+                        : "text-slate-700"
+                      : "opacity-50 cursor-not-allowed text-gray-400"
+                  )}
+                  title={`联网搜索: ${
+                    enableWebSearch ? "开启" : "关闭"
+                  } - 让AI获取实时信息`}
+                >
+                  <MinimalGlobeIcon className='h-3.5 w-3.5' />
+                </Button>
+              )}
 
               {/* 提示词扩写按钮：单击切换自动扩写，长按打开配置面板 */}
-              <Button
-                ref={promptButtonRef}
-                size='sm'
-                variant='outline'
-                disabled={autoOptimizing}
-                className={cn(
-                  "absolute right-20 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
-                  "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
-                  autoOptimizeEnabled
-                    ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
-                    : !generationStatus.isGenerating && !autoOptimizing
-                    ? "text-slate-700"
-                    : "opacity-50 cursor-not-allowed text-gray-400"
-                )}
-                title={
-                  autoOptimizeEnabled
-                    ? "自动扩写已开启（单击关闭，长按打开设置面板）"
-                    : "单击开启自动扩写，长按打开扩写设置面板"
-                }
-                onPointerDown={handlePromptButtonPointerDown}
-                onPointerUp={handlePromptButtonPointerUp}
-                onPointerLeave={handlePromptButtonPointerLeave}
-                onPointerCancel={handlePromptButtonPointerCancel}
-                aria-pressed={autoOptimizeEnabled}
-              >
-                {autoOptimizing ? (
-                  <LoadingSpinner size='sm' />
-                ) : (
-                  <BookOpen className='h-3.5 w-3.5' />
-                )}
-              </Button>
+              {!shouldHideImageParamControls && (
+                <Button
+                  ref={promptButtonRef}
+                  size='sm'
+                  variant='outline'
+                  disabled={autoOptimizing}
+                  className={cn(
+                    "absolute right-20 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
+                    "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                    autoOptimizeEnabled
+                      ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
+                      : !generationStatus.isGenerating && !autoOptimizing
+                      ? "text-slate-700"
+                      : "opacity-50 cursor-not-allowed text-gray-400"
+                  )}
+                  title={
+                    autoOptimizeEnabled
+                      ? "自动扩写已开启（单击关闭，长按打开设置面板）"
+                      : "单击开启自动扩写，长按打开扩写设置面板"
+                  }
+                  onPointerDown={handlePromptButtonPointerDown}
+                  onPointerUp={handlePromptButtonPointerUp}
+                  onPointerLeave={handlePromptButtonPointerLeave}
+                  onPointerCancel={handlePromptButtonPointerCancel}
+                  aria-pressed={autoOptimizeEnabled}
+                >
+                  {autoOptimizing ? (
+                    <LoadingSpinner size='sm' />
+                  ) : (
+                    <BookOpen className='h-3.5 w-3.5' />
+                  )}
+                </Button>
+              )}
 
               {/* +号上传按钮 - 替换原来的上传图片按钮位置 */}
               <DropdownMenu
@@ -3544,113 +3970,158 @@ const AIChatDialog: React.FC = () => {
           {/* 消息历史（点击对话框时显示，最大化时始终显示） */}
           {shouldShowHistoryPanel && (
             <div
-              ref={historyRef}
               data-history-ignore-toggle
               className={cn(
-                "mb-2 overflow-y-auto scrollbar-hidden order-1",
-                hasImagePreview ? "mt-2" : "-mt-1",
-                isMaximized
-                  ? "max-h-screen"
-                  : showHistory
-                  ? "flex-1 min-h-0"
-                  : customHeight
-                  ? "flex-1 min-h-0"
-                  : "max-h-80"
+                "order-1 mb-2 flex min-h-0 flex-col",
+                hasImagePreview ? "mt-2" : "-mt-1"
               )}
-              style={{
-                overflowY: "auto",
-                // 展开模式下不限制最大高度，让 flex-1 生效
-                // 最大化模式下留出输入框空间
-                maxHeight: isMaximized
-                  ? "calc(100vh - 200px)"
-                  : showHistory && !customHeight
-                  ? undefined
-                  : customHeight
-                  ? undefined
-                  : "320px",
-                minHeight: customHeight ? "100px" : historyPanelMinHeight,
-                // 隐藏滚动条
-                scrollbarWidth: "none",
-                msOverflowStyle: "none",
-              }}
-              onClick={(e) => e.stopPropagation()}
             >
-              <div className='space-y-1.5 mr-1 pb-6'>
-                <div className='flex flex-wrap items-center justify-between gap-2 mb-1'>
-                  <div className='flex flex-wrap items-center gap-2'>
-                    <span className='text-xs font-medium text-gray-500'>
-                      聊天历史记录
-                    </span>
-                    <div className='flex items-center gap-2'>
-                      <label
-                        htmlFor='chat-session-select'
-                        className='text-xs text-gray-400'
-                      >
-                        会话
-                      </label>
-                      <select
-                        id='chat-session-select'
-                        value={sessionSelectValue}
-                        onChange={handleSessionChange}
-                        disabled={
-                          sessions.length === 0 || generationStatus.isGenerating
-                        }
-                        className='px-2 py-0 text-xs border border-gray-200 rounded-md h-7 bg-white/90 focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-50'
-                      >
-                        {sessions.length === 0 ? (
-                          <option value=''>暂无会话</option>
-                        ) : (
-                          sessions.map((session) => (
-                            <option
-                              key={session.sessionId}
-                              value={session.sessionId}
-                              title={session.preview || session.name}
-                            >
-                              {`${session.name}${
-                                session.messageCount
-                                  ? `（${session.messageCount}条）`
-                                  : ""
-                              }`}
-                            </option>
-                          ))
-                        )}
-                      </select>
+              <div className='mb-2 flex flex-wrap items-center justify-between gap-2'>
+                <div className='flex min-w-0 items-center gap-2'>
+                  <Button
+                    type='button'
+                    size='sm'
+                    variant='ghost'
+                    data-history-ignore-toggle
+                    className='h-8 w-8 rounded-lg bg-transparent p-0 text-slate-700 hover:bg-slate-100/80'
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCreateSession();
+                    }}
+                    disabled={creatingSession || generationStatus.isGenerating}
+                    title='新建一个独立的聊天会话'
+                    aria-label='新建聊天会话'
+                  >
+                    {creatingSession ? (
+                      <Loader2 className='h-4 w-4 animate-spin' />
+                    ) : (
+                      <Plus className='h-4 w-4' />
+                    )}
+                  </Button>
+
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
                       <Button
                         type='button'
                         size='sm'
-                        variant='outline'
-                        className='gap-1'
-                        onClick={handleCreateSession}
+                        variant='ghost'
+                        data-history-ignore-toggle
+                        className='h-8 w-8 rounded-lg bg-transparent p-0 text-slate-700 hover:bg-slate-100/80 disabled:opacity-40'
+                        onClick={(e) => e.stopPropagation()}
                         disabled={
-                          creatingSession || generationStatus.isGenerating
+                          sessions.length === 0 ||
+                          generationStatus.isGenerating ||
+                          (isHistoryLocked && !showHistory)
                         }
-                        title='新建一个独立的聊天会话'
+                        title='历史会话列表'
+                        aria-label='历史会话列表'
                       >
-                        <Plus className='w-3.5 h-3.5' />
-                        新建
+                        <History className='h-4 w-4' />
                       </Button>
-                    </div>
-                  </div>
-                  {/* 🧠 上下文状态指示器 */}
-                  <div className='flex items-center space-x-2'>
-                    {isIterativeMode() && (
-                      <span className='px-2 py-1 text-xs text-blue-800 bg-blue-100 rounded-full'>
-                        🔄 迭代模式
-                      </span>
-                    )}
-                    {currentSession && (
-                      <span className='text-xs text-gray-400'>
-                        {currentSession.name}
-                        {currentSession.messageCount
-                          ? ` · ${currentSession.messageCount}条`
-                          : ""}
-                      </span>
-                    )}
-                    <span className='text-xs text-gray-400'>
-                      {getContextSummary()}
-                    </span>
-                  </div>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align='start'
+                      side='bottom'
+                      sideOffset={4}
+                      className='w-[min(72vw,392px)] overflow-hidden rounded-[16px] border border-slate-200 bg-white/95 p-0 text-slate-800 shadow-lg backdrop-blur-md'
+                    >
+                      <DropdownMenuLabel className='px-4 py-3 text-sm font-semibold tracking-normal text-slate-700'>
+                        对话历史
+                      </DropdownMenuLabel>
+                      {sessions.length === 0 ? (
+                        <DropdownMenuItem
+                          disabled
+                          className='rounded-none border-t border-slate-200 px-4 py-3 text-[11px] text-slate-400'
+                        >
+                          暂无会话
+                        </DropdownMenuItem>
+                      ) : (
+                        sessions.map((session) => {
+                          const isActive = session.sessionId === currentSessionId;
+                          return (
+                            <DropdownMenuItem
+                              key={session.sessionId}
+                              onClick={() => {
+                                void handleSwitchSession(session.sessionId);
+                              }}
+                              title={session.preview || session.name}
+                              className={cn(
+                                "rounded-none border-t border-slate-200 px-4 py-3 text-left transition-colors",
+                                "flex flex-col items-start gap-1",
+                                "data-[highlighted]:bg-slate-100 data-[highlighted]:text-slate-900",
+                                isActive
+                                  ? "bg-slate-100 text-slate-900"
+                                  : "text-slate-700"
+                              )}
+                            >
+                              <span className='w-full truncate text-sm font-semibold leading-snug'>
+                                {`${session.name}${
+                                  session.messageCount
+                                    ? `（${session.messageCount}条）`
+                                    : ""
+                                }`}
+                              </span>
+                              <span className='text-[11px] text-slate-500'>
+                                {formatSessionRelativeTime(session.lastActivity)}
+                              </span>
+                            </DropdownMenuItem>
+                          );
+                        })
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
+                {/* 🧠 上下文状态指示器 */}
+                <div className='flex items-center space-x-2'>
+                  {isIterativeMode() && (
+                    <span className='px-2 py-1 text-xs text-blue-800 bg-blue-100 rounded-full'>
+                      🔄 迭代模式
+                    </span>
+                  )}
+                  {currentSession && (
+                    <span className='text-xs text-gray-400'>
+                      {currentSession.name}
+                      {currentSession.messageCount
+                        ? ` · ${currentSession.messageCount}条`
+                        : ""}
+                    </span>
+                  )}
+                  <span className='text-xs text-gray-400'>
+                    {getContextSummary()}
+                  </span>
+                </div>
+              </div>
+              <div
+                ref={historyRef}
+                className={cn(
+                  "overflow-y-auto scrollbar-hidden",
+                  isMaximized
+                    ? "max-h-screen"
+                    : showHistory
+                    ? "flex-1 min-h-0"
+                    : customHeight
+                    ? "flex-1 min-h-0"
+                    : "max-h-80"
+                )}
+                style={{
+                  overflowY: "auto",
+                  // 展开模式下不限制最大高度，让 flex-1 生效
+                  // 最大化模式下留出输入框和顶部工具栏空间
+                  maxHeight: isMaximized
+                    ? "calc(100vh - 248px)"
+                    : showHistory && !customHeight
+                    ? undefined
+                    : customHeight
+                    ? undefined
+                    : "320px",
+                  minHeight: customHeight ? "100px" : historyPanelMinHeight,
+                  // 隐藏滚动条
+                  scrollbarWidth: "none",
+                  msOverflowStyle: "none",
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className='space-y-1.5 mr-1 pb-6'>
                 {/* 🔥 使用分组渲染，支持并行生成的横向布局 */}
                 {groupedMessages.map((group) => {
                   // 渲染用户消息
@@ -3687,6 +4158,7 @@ const AIChatDialog: React.FC = () => {
                     const msgExpectsImageOutput = Boolean(
                       message.expectsImageOutput
                     );
+                    const hasTextContent = Boolean(message.content?.trim());
 
                     const rawImageSrc =
                       message.imageRemoteUrl ||
@@ -3696,6 +4168,13 @@ const AIChatDialog: React.FC = () => {
                     const imageSrc = normalizeDataUrl(rawImageSrc);
 
                     const imageSize = isCompact ? "w-28 h-28" : "w-32 h-32";
+                    const shouldHideUltraTextOnlyPlaceholder = Boolean(
+                      isUltraMode &&
+                        msgExpectsImageOutput &&
+                        hasTextContent &&
+                        !imageSrc &&
+                        !msgGenerationStatus?.isGenerating
+                    );
 
                     if (imageSrc) {
                       return (
@@ -3716,10 +4195,7 @@ const AIChatDialog: React.FC = () => {
                       );
                     }
 
-                    if (
-                      msgExpectsImageOutput ||
-                      msgGenerationStatus?.isGenerating
-                    ) {
+                    if (msgExpectsImageOutput && !shouldHideUltraTextOnlyPlaceholder) {
                       return (
                         <div
                           className={`ai-image-placeholder ${imageSize}`}
@@ -3832,15 +4308,16 @@ const AIChatDialog: React.FC = () => {
                             group.aiMessages.map((message) => {
                               const midjourneyMeta = message.metadata
                                 ?.midjourney as MidjourneyMetadata | undefined;
-                              const generationStatus = message.generationStatus;
-                              const expectsImageOutput = Boolean(
-                                message.expectsImageOutput
-                              );
-                              const hasGeneratedImage = Boolean(
-                                message.imageData ||
-                                  message.imageRemoteUrl ||
-                                  message.thumbnail
-                              );
+                    const generationStatus = message.generationStatus;
+                    const expectsImageOutput = Boolean(
+                      message.expectsImageOutput
+                    );
+                    const hasTextContent = Boolean(message.content?.trim());
+                    const hasGeneratedImage = Boolean(
+                      message.imageData ||
+                        message.imageRemoteUrl ||
+                        message.thumbnail
+                    );
                               const hasReferenceImages =
                                 Boolean(message.sourceImageData) ||
                                 Boolean(
@@ -3855,35 +4332,50 @@ const AIChatDialog: React.FC = () => {
                                 message.videoUrl
                               );
                               const isAiMessage = message.type === "ai";
-                              const isImageTaskInFlight = Boolean(
+                              const isReferenceOnlyAiMessage = Boolean(
                                 isAiMessage &&
-                                  generationStatus?.isGenerating &&
-                                  (expectsImageOutput ||
-                                    hasGeneratedImage ||
-                                    hasReferenceImages)
+                                  hasReferenceImages &&
+                                  !expectsImageOutput &&
+                                  !hasGeneratedImage
                               );
-                              const isVideoTaskInFlight = Boolean(
+                    const isImageTaskInFlight = Boolean(
+                      isAiMessage &&
+                        generationStatus?.isGenerating &&
+                        (expectsImageOutput || hasGeneratedImage)
+                    );
+                    const shouldExpectImageOutput = Boolean(
+                      expectsImageOutput &&
+                        !(
+                          isUltraMode &&
+                          hasTextContent &&
+                          !hasGeneratedImage &&
+                          !generationStatus?.isGenerating
+                        )
+                    );
+                    const isVideoTaskInFlight = Boolean(
+                      isAiMessage &&
+                        generationStatus?.isGenerating &&
+                        (expectsVideoOutput || hasGeneratedVideo)
+                    );
+                    const showImageLayout =
+                      !isReferenceOnlyAiMessage &&
+                      (hasGeneratedImage ||
+                        hasReferenceImages ||
+                        shouldExpectImageOutput ||
+                        isImageTaskInFlight);
+                    const showVideoLayout =
+                      hasGeneratedVideo ||
+                      expectsVideoOutput ||
+                      isVideoTaskInFlight;
+                    const shouldUseVerticalLayout =
                                 isAiMessage &&
-                                  generationStatus?.isGenerating &&
-                                  (expectsVideoOutput || hasGeneratedVideo)
-                              );
-                              const showImageLayout =
-                                hasGeneratedImage ||
-                                hasReferenceImages ||
-                                expectsImageOutput ||
-                                isImageTaskInFlight;
-                              const showVideoLayout =
-                                hasGeneratedVideo ||
-                                expectsVideoOutput ||
-                                isVideoTaskInFlight;
-                              const shouldUseVerticalLayout =
-                                isAiMessage &&
-                                (hasGeneratedImage ||
-                                  expectsImageOutput ||
-                                  isImageTaskInFlight ||
-                                  hasGeneratedVideo ||
-                                  expectsVideoOutput ||
-                                  isVideoTaskInFlight);
+                        !isReferenceOnlyAiMessage &&
+                        (hasGeneratedImage ||
+                          shouldExpectImageOutput ||
+                          isImageTaskInFlight ||
+                          hasGeneratedVideo ||
+                          expectsVideoOutput ||
+                          isVideoTaskInFlight);
                               const aiHeader = isAiMessage ? (
                                 <div className='flex items-center gap-2 mb-2'>
                                   <SmartImage
@@ -3894,8 +4386,8 @@ const AIChatDialog: React.FC = () => {
                                   <span className='text-sm font-bold text-black'>
                                     Tanvas
                                   </span>
-                                  {message.webSearchResult
-                                    ?.hasSearchResults && (
+                                  {(message.webSearchResult?.hasSearchResults ||
+                                    (message.metadata as any)?.webSearchEnabled) && (
                                     <div className='flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full'>
                                       <MinimalGlobeIcon className='w-3 h-3' />
                                       <span>已联网</span>
@@ -4017,6 +4509,12 @@ const AIChatDialog: React.FC = () => {
                                 getResendInfoFromMessage(message);
                               const userActionButtons =
                                 renderUserMessageActions(message, resendInfo);
+                              const videoPlaybackUrl =
+                                message.videoLocalUrl || message.videoUrl;
+                              const videoShareUrl =
+                                message.videoSourceUrl ||
+                                message.videoUrl ||
+                                message.videoLocalUrl;
                               return (
                                 <div
                                   key={message.id}
@@ -4046,7 +4544,7 @@ const AIChatDialog: React.FC = () => {
                                         <div className='mt-3'>
                                           <div className='inline-block p-3 border rounded-lg bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border-liquid-glass-light shadow-liquid-glass'>
                                             <div className='flex flex-col items-center gap-3'>
-                                              {message.videoUrl ? (
+                                              {videoPlaybackUrl ? (
                                                 <>
                                                   <video
                                                     controls
@@ -4058,7 +4556,11 @@ const AIChatDialog: React.FC = () => {
                                                       message.videoThumbnail
                                                     }
                                                     onError={(e) => {
-                                                      console.error('视频加载失败:', message.videoUrl, e);
+                                                      console.error('视频加载失败:', {
+                                                        playback: videoPlaybackUrl,
+                                                        remote: message.videoSourceUrl || message.videoUrl,
+                                                        error: e,
+                                                      });
                                                       const target = e.target as HTMLVideoElement;
                                                       target.style.display = 'none';
                                                       const errorDiv = target.nextElementSibling as HTMLElement;
@@ -4068,7 +4570,7 @@ const AIChatDialog: React.FC = () => {
                                                     }}
                                                   >
                                                     <source
-                                                      src={message.videoUrl}
+                                                      src={videoPlaybackUrl}
                                                       type='video/mp4'
                                                     />
                                                     您的浏览器不支持 HTML5 video
@@ -4104,11 +4606,11 @@ const AIChatDialog: React.FC = () => {
                                                     {/* 分享/复制 */}
                                                     <button
                                                       onClick={async () => {
-                                                        if (!message.videoUrl)
+                                                        if (!videoShareUrl)
                                                           return;
                                                         try {
                                                           await navigator.clipboard.writeText(
-                                                            message.videoUrl
+                                                            videoShareUrl
                                                           );
                                                           console.log(
                                                             "✅ 视频链接已复制，可直接粘贴分享"
@@ -4136,16 +4638,36 @@ const AIChatDialog: React.FC = () => {
                                                     <button
                                                       onClick={async () => {
                                                         try {
+                                                          if (!videoPlaybackUrl && !videoShareUrl) {
+                                                            return;
+                                                          }
+                                                          const downloadTargetUrl =
+                                                            videoShareUrl || videoPlaybackUrl!;
                                                           console.log(
                                                             "📥 开始下载视频:",
-                                                            message.videoUrl
+                                                            downloadTargetUrl
                                                           );
+
+                                                          if (downloadTargetUrl.startsWith("blob:")) {
+                                                            const link =
+                                                              document.createElement("a");
+                                                            link.href = downloadTargetUrl;
+                                                            link.download = `video-${
+                                                              new Date()
+                                                                .toISOString()
+                                                                .split("T")[0]
+                                                            }.mp4`;
+                                                            document.body.appendChild(link);
+                                                            link.click();
+                                                            document.body.removeChild(link);
+                                                            return;
+                                                          }
 
                                                           // 方案 1: 尝试直接 fetch 下载
                                                           try {
                                                             const response =
                                                               await fetchWithAuth(
-                                                                message.videoUrl!,
+                                                                downloadTargetUrl,
                                                                 {
                                                                   mode: "cors",
                                                                   credentials:
@@ -4214,7 +4736,7 @@ const AIChatDialog: React.FC = () => {
                                                               "a"
                                                             );
                                                           link.href =
-                                                            message.videoUrl!;
+                                                            downloadTargetUrl;
                                                           link.download = `video-${
                                                             new Date()
                                                               .toISOString()
@@ -4238,7 +4760,7 @@ const AIChatDialog: React.FC = () => {
                                                           );
                                                           try {
                                                             await navigator.clipboard.writeText(
-                                                              message.videoUrl!
+                                                              downloadTargetUrl
                                                             );
                                                           } catch {}
                                                         }
@@ -4348,7 +4870,7 @@ const AIChatDialog: React.FC = () => {
                                                         />
                                                       );
                                                     }
-                                                    if (!expectsImageOutput)
+                                                    if (!shouldExpectImageOutput)
                                                       return null;
                                                     return (
                                                       <div className='w-32 h-32 ai-image-placeholder'>
@@ -4804,6 +5326,7 @@ const AIChatDialog: React.FC = () => {
                   </div>
                 )}
               </div>
+            </div>
             </div>
           )}
         </div>

@@ -44,6 +44,7 @@ import { CreditsService } from '../credits/credits.service';
 import { ServiceType } from '../credits/credits.config';
 import { ApiResponseStatus } from '../credits/dto/credits.dto';
 import { GenerateVideoDto } from './dto/video-generation.dto';
+import { CreateSora2CharacterDto } from './dto/sora2-character.dto';
 import { VeoGenerateVideoDto, VeoVideoResponseDto, VeoModelsResponseDto } from './dto/veo-video.dto';
 import { Sora2VideoService } from './services/sora2-video.service';
 import { VeoVideoService } from './services/veo-video.service';
@@ -57,6 +58,7 @@ import { GoogleGenAI } from '@google/genai';
 import { spawn } from 'child_process';
 import crypto from 'crypto';
 import { Readable } from 'stream';
+import { verify } from 'jsonwebtoken';
 
 type GenerateImageUrlResult = {
   imageUrl: string;
@@ -65,7 +67,7 @@ type GenerateImageUrlResult = {
 };
 
 @ApiTags('ai')
-// @UseGuards(ApiKeyOrJwtGuard) // 已注释：绕过登录验证用于测试
+@UseGuards(ApiKeyOrJwtGuard)
 @Controller('ai')
 export class AiController {
   private readonly logger = new Logger(AiController.name);
@@ -73,7 +75,8 @@ export class AiController {
     gemini: 'gemini-3-pro-image-preview',
     'gemini-pro': 'gemini-3-pro-image-preview',
     banana: 'gemini-3-pro-image-preview',
-    'banana-2.5': 'gemini-2.5-flash-image',
+    'banana-2.5': 'gemini-2.5-flash-image-preview',
+    'banana-3.1': 'gemini-3.1-flash-image-preview',
     runninghub: 'runninghub-su-effect',
     midjourney: 'midjourney-fast',
     nano2: 'gemini-3.1-flash-image-preview',
@@ -83,6 +86,7 @@ export class AiController {
     'gemini-pro': 'gemini-3-flash-preview',
     banana: 'gemini-3-flash-preview',
     'banana-2.5': 'gemini-3-flash-preview',
+    'banana-3.1': 'gemini-3-flash-preview',
     runninghub: 'gemini-3-flash-preview',
     midjourney: 'gemini-3-flash-preview',
     nano2: 'gemini-3-flash-preview',
@@ -105,32 +109,59 @@ export class AiController {
     @Optional() private readonly imageTaskService?: ImageTaskService,
   ) {}
 
+  private extractAccessToken(req: any): string | null {
+    const cookieToken = req?.cookies?.access_token;
+    if (typeof cookieToken === 'string' && cookieToken.trim()) {
+      return cookieToken.trim();
+    }
+
+    const authHeader = req?.headers?.authorization ?? req?.headers?.Authorization;
+    if (typeof authHeader === 'string') {
+      const match = authHeader.match(/^Bearer\s+(.+)$/i);
+      if (match?.[1]) {
+        return match[1].trim();
+      }
+    }
+
+    return null;
+  }
+
   /**
-   * 判断是否管理员：管理员可跳过水印
+   * 兼容无守卫场景：优先读取 req.user，其次尝试校验 access token 提取 userId。
    */
-  private isAdminUser(req: any): boolean {
-    const role =
-      req?.user?.role ??
-      (Array.isArray(req?.user?.roles) ? req.user.roles.find((r: any) => r) : null);
-    return typeof role === 'string' && role.toLowerCase() === 'admin';
+  private resolveRequestUserId(req: any): string | null {
+    const fromUser = req?.user?.id || req?.user?.sub;
+    if (typeof fromUser === 'string' && fromUser.length > 0) {
+      return fromUser;
+    }
+
+    const token = this.extractAccessToken(req);
+    if (!token) {
+      return null;
+    }
+
+    const secret = process.env.JWT_ACCESS_SECRET || 'dev-access-secret';
+    try {
+      const payload = verify(token, secret) as { sub?: string; id?: string };
+      const fromToken = payload?.sub || payload?.id;
+      return typeof fromToken === 'string' && fromToken.length > 0 ? fromToken : null;
+    } catch {
+      return null;
+    }
   }
 
   /**
    * 检查用户是否可以跳过水印（管理员或水印白名单用户）
    */
   private async canSkipWatermark(req: any): Promise<boolean> {
-    // 管理员直接跳过
-    if (this.isAdminUser(req)) {
-      return true;
-    }
-    // 检查水印白名单
-    const userId = req?.user?.id || req?.user?.sub;
+    const userId = this.resolveRequestUserId(req);
     if (!userId) {
       return false;
     }
     try {
       const user = await this.usersService.findById(userId);
-      return user?.noWatermark === true;
+      const isAdmin = typeof user?.role === 'string' && user.role.toLowerCase() === 'admin';
+      return isAdmin || user?.noWatermark === true;
     } catch (e) {
       this.logger.warn('检查水印白名单失败', e);
       return false;
@@ -329,12 +360,64 @@ export class AiController {
       return 'midjourney-imagine';
     }
 
+    if (model?.includes('gemini-3.1')) {
+      return 'gemini-3.1-image';
+    }
+
     // Gemini 模型
     if (model?.includes('gemini-3') || model?.includes('imagen-3')) {
       return 'gemini-3-pro-image';
     }
 
     return 'gemini-2.5-image';
+  }
+
+  private normalizeChannelName(channel: string | null | undefined): string | null {
+    if (!channel) return null;
+    const value = channel.trim().toLowerCase();
+    if (!value) return null;
+    if (value.includes('apimart')) return 'apimart';
+    if (value === 'legacy' || value.includes('147')) return '147';
+    return value;
+  }
+
+  private asRecord(value: unknown): Record<string, any> | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    return value as Record<string, any>;
+  }
+
+  private extractExecutionChannel(result: unknown): string | null {
+    const payload = this.asRecord(result);
+    if (!payload) return null;
+
+    const metadata = this.asRecord(payload.metadata);
+    if (metadata && typeof metadata.provider === 'string') {
+      return this.normalizeChannelName(metadata.provider);
+    }
+
+    if (typeof payload.provider === 'string') {
+      return this.normalizeChannelName(payload.provider);
+    }
+
+    return null;
+  }
+
+  private buildCreditRequestParams(
+    providerName: string | null,
+    extraParams?: Record<string, any>,
+  ): Record<string, any> {
+    const aiProvider = providerName || 'gemini';
+    const channelHint = aiProvider === 'nano2'
+      ? 'apimart'
+      : aiProvider.startsWith('banana')
+      ? '147'
+      : undefined;
+
+    return {
+      ...(extraParams || {}),
+      aiProvider,
+      channelHint,
+    };
   }
 
   /**
@@ -349,6 +432,7 @@ export class AiController {
     inputImageCount?: number,
     outputImageCount?: number,
     skipCredits?: boolean,
+    requestParams?: Record<string, any>,
   ): Promise<T> {
     const userId = this.getUserId(req);
 
@@ -359,6 +443,11 @@ export class AiController {
     }
 
     if (skipCredits) {
+      await this.creditsService.assertFreeUserImageQuota(
+        userId,
+        serviceType,
+        outputImageCount,
+      );
       this.logger.debug('Using custom API key - skipping credits deduction');
       return operation();
     }
@@ -368,6 +457,11 @@ export class AiController {
 
     const startTime = Date.now();
     let apiUsageId: string | null = null;
+    const sanitizedRequestParams = requestParams
+      ? Object.fromEntries(
+          Object.entries(requestParams).filter(([_, value]) => value !== undefined),
+        )
+      : undefined;
 
     try {
       // 预扣积分
@@ -377,6 +471,7 @@ export class AiController {
         model,
         inputImageCount,
         outputImageCount,
+        requestParams: sanitizedRequestParams,
         ipAddress: req.ip,
         userAgent: req.headers?.['user-agent'],
       });
@@ -386,6 +481,19 @@ export class AiController {
 
       // 执行实际操作
       const result = await operation();
+      const executionChannel = this.extractExecutionChannel(result);
+
+      if (apiUsageId) {
+        try {
+          await this.creditsService.updateApiUsageRequestParams(apiUsageId, {
+            channel: executionChannel,
+          });
+        } catch (error) {
+          this.logger.warn(
+            `Failed to update apiUsage request params: ${this.summarizeError(error)}`,
+          );
+        }
+      }
 
       // 更新状态为成功
       const processingTime = Date.now() - startTime;
@@ -403,19 +511,49 @@ export class AiController {
       const errorMessage = error instanceof Error ? error.message : String(error);
 
       if (apiUsageId) {
-        await this.creditsService.updateApiUsageStatus(
-          apiUsageId,
-          ApiResponseStatus.FAILED,
-          errorMessage,
-          processingTime,
-        );
-
-        // 退还积分
+        let failedMarked = false;
         try {
-          await this.creditsService.refundCredits(userId, apiUsageId);
-          this.logger.debug(`Credits refunded for failed operation: ${apiUsageId}`);
-        } catch (refundError) {
-          this.logger.error('Failed to refund credits:', refundError);
+          await this.creditsService.updateApiUsageStatus(
+            apiUsageId,
+            ApiResponseStatus.FAILED,
+            errorMessage,
+            processingTime,
+          );
+          failedMarked = true;
+        } catch (statusError) {
+          this.logger.error(
+            `Failed to update api usage status to failed, fallback to markApiUsageFailedForUser: ${this.summarizeError(statusError)}`,
+          );
+        }
+
+        if (!failedMarked) {
+          try {
+            await this.creditsService.markApiUsageFailedForUser(
+              userId,
+              apiUsageId,
+              errorMessage,
+              processingTime,
+            );
+            failedMarked = true;
+          } catch (markError) {
+            this.logger.error(
+              `Failed to mark api usage as failed for refund fallback: ${this.summarizeError(markError)}`,
+            );
+          }
+        }
+
+        if (failedMarked) {
+          // 退还积分
+          try {
+            await this.creditsService.refundCredits(userId, apiUsageId);
+            this.logger.debug(`Credits refunded for failed operation: ${apiUsageId}`);
+          } catch (refundError) {
+            this.logger.error('Failed to refund credits:', refundError);
+          }
+        } else {
+          this.logger.error(
+            `Skip refund because api usage cannot be marked failed. apiUsageId=${apiUsageId}`,
+          );
         }
       }
 
@@ -735,7 +873,7 @@ export class AiController {
         throw new BadRequestException('imageUrl is not an image');
       }
 
-      const maxBytes = 15 * 1024 * 1024;
+      const maxBytes = 30 * 1024 * 1024;
       const contentLength = Number(response.headers.get('content-length') || 0);
       if (contentLength && contentLength > maxBytes) {
         throw new BadRequestException('imageUrl is too large');
@@ -902,7 +1040,7 @@ export class AiController {
         reasoning: result.reasoning,
         confidence: result.confidence,
       };
-    });
+    }, undefined, undefined, undefined, this.buildCreditRequestParams(providerName));
   }
 
   @Post('generate-image')
@@ -910,7 +1048,18 @@ export class AiController {
     const startTime = Date.now();
     const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
 
-    const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+    const requestedProviderName =
+      dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+    // 联网开关开启时，Ultra(147) 自动切换到 Nano2(Apimart) 生图链路。
+    const providerName =
+      requestedProviderName === 'banana-3.1' && dto.enableWebSearch
+        ? 'nano2'
+        : requestedProviderName;
+    if (requestedProviderName !== providerName) {
+      this.logger.log(
+        `[generate-image] provider rerouted by web search: ${requestedProviderName} -> ${providerName}`
+      );
+    }
     const model = this.resolveImageModel(providerName, dto.model);
     const serviceType = this.getImageGenerationServiceType(model, providerName || undefined);
 
@@ -960,19 +1109,24 @@ export class AiController {
                 thinkingLevel: dto.thinkingLevel,
                 outputFormat: dto.outputFormat,
                 providerOptions: dto.providerOptions,
+                enableWebSearch: dto.enableWebSearch,
                 imageUrls: dto.imageUrls,
-                googleSearch: dto.googleSearch,
-                googleImageSearch: dto.googleImageSearch,
+                googleSearch: dto.googleSearch ?? dto.enableWebSearch,
+                googleImageSearch: dto.googleImageSearch ?? dto.enableWebSearch,
               });
 
               if (result.success && result.data) {
+                const responseMetadata: Record<string, any> = {
+                  ...(result.data.metadata || {}),
+                  ...(dto.enableWebSearch ? { webSearchEnabled: true } : {}),
+                };
                 // Midjourney 已经上传到 OSS，直接使用返回的 URL
-                const existingOssUrl = result.data.metadata?.imageUrl;
+                const existingOssUrl = responseMetadata.imageUrl;
                 if (existingOssUrl && existingOssUrl.includes('oss')) {
                   return {
                     imageUrl: existingOssUrl,
                     textResponse: result.data.textResponse || '',
-                    metadata: result.data.metadata || {},
+                    metadata: responseMetadata,
                   };
                 }
 
@@ -984,7 +1138,7 @@ export class AiController {
                     imageUrl: upload.url,
                     textResponse: result.data.textResponse || '',
                     metadata: {
-                      ...(result.data.metadata || {}),
+                      ...responseMetadata,
                       imageUrl: upload.url,
                       imageKey: upload.key,
                       mimeType: upload.mimeType,
@@ -993,14 +1147,45 @@ export class AiController {
                   };
                 }
 
-                // 如果只有外部 imageUrl（如 Nano2），直接返回
+                // 如果只有外部 imageUrl（如 Nano2）
                 if (result.data.imageUrl || result.data.metadata?.imageUrl) {
                   const imageUrl = result.data.imageUrl || result.data.metadata?.imageUrl;
-                  return {
-                    imageUrl,
-                    textResponse: result.data.textResponse || '',
-                    metadata: result.data.metadata || {},
-                  };
+
+                  // 白名单用户可跳过水印，保留外链直返
+                  const skipWatermark = await this.canSkipWatermark(req);
+                  if (skipWatermark) {
+                    return {
+                      imageUrl,
+                      textResponse: result.data.textResponse || '',
+                      metadata: responseMetadata,
+                    };
+                  }
+
+                  try {
+                    // 普通用户：下载外链图片 -> 加水印 -> 上传 OSS 后返回
+                    const sourceImageDataUrl = await this.fetchImageAsDataUrl(imageUrl);
+                    const watermarked = await this.watermarkIfNeeded(sourceImageDataUrl, req);
+                    const upload = await this.uploadGeneratedImageToOss(watermarked || '', { userId });
+                    return {
+                      imageUrl: upload.url,
+                      textResponse: result.data.textResponse || '',
+                      metadata: {
+                        ...responseMetadata,
+                        imageUrl: upload.url,
+                        imageKey: upload.key,
+                        mimeType: upload.mimeType,
+                        bytes: upload.size,
+                        sourceImageUrl: imageUrl,
+                      },
+                    };
+                  } catch (error) {
+                    this.logger.error(
+                      `[generate-image] 外链图片加水印失败: ${this.summarizeError(error)}`
+                    );
+                    throw new BadGatewayException(
+                      'Nano2 图片水印处理失败，请稍后重试（必要时请配置 ALLOWED_PROXY_HOSTS）'
+                    );
+                  }
                 }
               }
               throw new Error(result.error?.message || 'Failed to generate image');
@@ -1016,6 +1201,7 @@ export class AiController {
               textResponse: data.textResponse || '',
               metadata: {
                 ...(data.metadata || {}),
+                ...(dto.enableWebSearch ? { webSearchEnabled: true } : {}),
                 imageUrl: upload.url,
                 imageKey: upload.key,
                 mimeType: upload.mimeType,
@@ -1041,7 +1227,7 @@ export class AiController {
         }
 
         throw new InternalServerErrorException('Image generation retry loop exhausted unexpectedly');
-      }, 0, 1, skipCredits);
+      }, 0, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }));
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(`[generate-image] 失败: ${errorMessage}`);
@@ -1058,8 +1244,12 @@ export class AiController {
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
 
-    // 根据模型选择服务类型：Fast (2.5) 或 Pro
-    const serviceType = model?.includes('2.5') ? 'gemini-2.5-image-edit' : 'gemini-image-edit';
+    // 根据模型选择服务类型：Fast (2.5) / Nano banana 2 (3.1) / Pro
+    const serviceType = model?.includes('2.5')
+      ? 'gemini-2.5-image-edit'
+      : model?.includes('3.1')
+      ? 'gemini-3.1-image-edit'
+      : 'gemini-image-edit';
     console.log(`\n========== [editImage] ==========`);
     console.log(`dto.model: ${dto.model}`);
     console.log(`resolved model: ${model}`);
@@ -1108,11 +1298,29 @@ export class AiController {
           providerOptions: dto.providerOptions,
         });
         if (result.success && result.data) {
-          const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
+          if (result.data.imageData) {
+            const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
+            return {
+              imageData: watermarked,
+              textResponse: result.data.textResponse || '',
+              metadata: result.data.metadata,
+            };
+          }
+
+          const providerImageUrl = result.data.imageUrl || result.data.metadata?.imageUrl;
+          if (!providerImageUrl) {
+            throw new BadGatewayException('编辑成功但未返回图片数据');
+          }
+
+          const sourceImageDataUrl = await this.fetchImageAsDataUrl(providerImageUrl);
+          const watermarked = await this.watermarkIfNeeded(sourceImageDataUrl, req);
           return {
             imageData: watermarked,
             textResponse: result.data.textResponse || '',
-            metadata: result.data.metadata,
+            metadata: {
+              ...(result.data.metadata || {}),
+              sourceImageUrl: providerImageUrl,
+            },
           };
         }
         throw new Error(result.error?.message || 'Failed to edit image');
@@ -1122,7 +1330,7 @@ export class AiController {
       const data = await this.imageGeneration.editImage({ ...dto, sourceImage, customApiKey });
       const watermarked = await this.watermarkIfNeeded(data.imageData, req);
       return { ...data, imageData: watermarked };
-    }, 1, 1, skipCredits);
+    }, 1, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }));
   }
 
   @Post('blend-images')
@@ -1134,8 +1342,12 @@ export class AiController {
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
 
-    // 根据模型选择服务类型：Fast (2.5) 或 Pro
-    const serviceType = model?.includes('2.5') ? 'gemini-2.5-image-blend' : 'gemini-image-blend';
+    // 根据模型选择服务类型：Fast (2.5) / Nano banana 2 (3.1) / Pro
+    const serviceType = model?.includes('2.5')
+      ? 'gemini-2.5-image-blend'
+      : model?.includes('3.1')
+      ? 'gemini-3.1-image-blend'
+      : 'gemini-image-blend';
 
     return this.withCredits(req, serviceType as any, model, async () => {
       const sourceImages = dto.sourceImages?.length
@@ -1166,11 +1378,29 @@ export class AiController {
           providerOptions: dto.providerOptions,
         });
         if (result.success && result.data) {
-          const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
+          if (result.data.imageData) {
+            const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
+            return {
+              imageData: watermarked,
+              textResponse: result.data.textResponse || '',
+              metadata: result.data.metadata,
+            };
+          }
+
+          const providerImageUrl = result.data.imageUrl || result.data.metadata?.imageUrl;
+          if (!providerImageUrl) {
+            throw new BadGatewayException('融合成功但未返回图片数据');
+          }
+
+          const sourceImageDataUrl = await this.fetchImageAsDataUrl(providerImageUrl);
+          const watermarked = await this.watermarkIfNeeded(sourceImageDataUrl, req);
           return {
             imageData: watermarked,
             textResponse: result.data.textResponse || '',
-            metadata: result.data.metadata,
+            metadata: {
+              ...(result.data.metadata || {}),
+              sourceImageUrl: providerImageUrl,
+            },
           };
         }
         throw new Error(result.error?.message || 'Failed to blend images');
@@ -1180,7 +1410,7 @@ export class AiController {
       const data = await this.imageGeneration.blendImages({ ...dto, sourceImages, customApiKey });
       const watermarked = await this.watermarkIfNeeded(data.imageData, req);
       return { ...data, imageData: watermarked };
-    }, dto.sourceImages?.length || 0, 1, skipCredits);
+    }, dto.sourceImages?.length || 0, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }));
   }
 
   @Post('midjourney/action')
@@ -1212,7 +1442,7 @@ export class AiController {
       throw new ServiceUnavailableException(
         result.error?.message || 'Failed to execute Midjourney action.'
       );
-    });
+    }, 0, 1);
   }
 
   @Post('midjourney/modal')
@@ -1241,7 +1471,7 @@ export class AiController {
       throw new ServiceUnavailableException(
         result.error?.message || 'Failed to execute Midjourney modal action.'
       );
-    });
+    }, 0, 1);
   }
 
   @Post('analyze-image')
@@ -1253,7 +1483,10 @@ export class AiController {
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
 
-    return this.withCredits(req, 'gemini-image-analyze', model, async () => {
+    // 根据provider判断serviceType：Fast模式使用gemini-2.5-image-analyze
+    const serviceType = providerName === 'banana-2.5' ? 'gemini-2.5-image-analyze' : 'gemini-image-analyze';
+
+    return this.withCredits(req, serviceType as any, model, async () => {
       if (providerName && providerName !== 'gemini-pro') {
         const provider = this.factory.getProvider(dto.model, providerName);
         const result = await provider.analyzeImage({
@@ -1418,7 +1651,12 @@ export class AiController {
   async generateVideo(@Body() dto: GenerateVideoDto, @Req() req: any) {
     const quality = dto.quality === 'sd' ? 'sd' : 'hd';
     const serviceType: ServiceType = quality === 'sd' ? 'sora-sd' : 'sora-hd';
-    const model = this.sora2VideoService.getModelForQuality(quality);
+    const selectedSoraModel =
+      dto.model === 'sora-2' || dto.model === 'sora-2-vip' || dto.model === 'sora-2-pro'
+        ? dto.model
+        : quality === 'hd'
+        ? 'sora-2-pro'
+        : 'sora-2';
     const normalizedArray =
       dto.referenceImageUrls?.filter((url) => typeof url === 'string' && url.trim().length > 0) ||
       [];
@@ -1433,7 +1671,7 @@ export class AiController {
     return this.withCredits(
       req,
       serviceType,
-      model,
+      selectedSoraModel,
       async () => {
         const result = await this.sora2VideoService.generateVideo({
           prompt: dto.prompt,
@@ -1441,10 +1679,21 @@ export class AiController {
           quality,
           aspectRatio: dto.aspectRatio,
           duration: dto.duration,
+          model: dto.model,
+          watermark: dto.watermark,
+          thumbnail: dto.thumbnail,
+          privateMode: dto.privateMode,
+          style: dto.style,
+          storyboard: dto.storyboard,
+          characterUrl: dto.characterUrl,
+          characterTimestamps: dto.characterTimestamps,
+          characterTaskId: dto.characterTaskId,
         });
 
         if (!result?.videoUrl) {
-          return result;
+          throw new ServiceUnavailableException(
+            result?.fallbackMessage || result?.content || '视频生成失败：未返回可用的视频链接',
+          );
         }
 
         const skipWatermark = await this.canSkipWatermark(req);
@@ -1497,7 +1746,35 @@ export class AiController {
       },
       inputImageCount,
       0,
+      undefined,
+      {
+        quality,
+        soraModel: selectedSoraModel,
+        aspectRatio: dto.aspectRatio,
+        duration: dto.duration,
+      },
     );
+  }
+
+  @Post('sora2/character/create')
+  async createSora2Character(@Body() dto: CreateSora2CharacterDto) {
+    if (!dto.url && !dto.fromTask) {
+      throw new BadRequestException('参数 url 和 fromTask 需二选一');
+    }
+    return this.sora2VideoService.createCharacterTask({
+      model: dto.model,
+      timestamps: dto.timestamps,
+      url: dto.url,
+      fromTask: dto.fromTask,
+    });
+  }
+
+  @Get('sora2/character/:taskId')
+  async querySora2Character(@Param('taskId') taskId: string) {
+    if (!taskId || !taskId.trim()) {
+      throw new BadRequestException('taskId 不能为空');
+    }
+    return this.sora2VideoService.queryCharacterTask(taskId.trim());
   }
 
   /**
@@ -1508,11 +1785,20 @@ export class AiController {
   async generateVideoProvider(@Body() dto: VideoProviderRequestDto, @Req() req: any) {
     const serviceType: ServiceType = `${dto.provider}-video` as ServiceType;
     const userId = this.getUserId(req);
+    const effectiveDto: VideoProviderRequestDto = { ...dto };
+
+    // 白名单/管理员兜底：豆包链路即使前端传入 watermark=true，也强制关闭水印。
+    if (effectiveDto.provider === 'doubao') {
+      const skipWatermark = await this.canSkipWatermark(req);
+      if (skipWatermark) {
+        effectiveDto.watermark = false;
+      }
+    }
 
     // 如果没有用户ID（API Key认证），直接执行操作
     if (!userId) {
       this.logger.debug('API Key authentication - skipping credits deduction');
-      const result = await this.videoProviderService.generateVideo(dto);
+      const result = await this.videoProviderService.generateVideo(effectiveDto);
       return { ...result, apiUsageId: null };
     }
 
@@ -1523,8 +1809,8 @@ export class AiController {
     const deductResult = await this.creditsService.preDeductCredits({
       userId,
       serviceType,
-      model: dto.provider,
-      inputImageCount: dto.referenceImages?.length || undefined,
+      model: effectiveDto.provider,
+      inputImageCount: effectiveDto.referenceImages?.length || undefined,
       outputImageCount: 0,
       ipAddress: req.ip,
       userAgent: req.headers?.['user-agent'],
@@ -1534,7 +1820,27 @@ export class AiController {
     this.logger.debug(`Credits pre-deducted for video: ${serviceType}, apiUsageId: ${apiUsageId}`);
 
     try {
-      const result = await this.videoProviderService.generateVideo(dto);
+      const result = await this.videoProviderService.generateVideo(effectiveDto);
+      const normalizedStatus = String(result?.status || '').toLowerCase();
+
+      if (normalizedStatus === 'failed' || normalizedStatus === 'failure') {
+        throw new ServiceUnavailableException((result as any)?.error || '视频任务创建失败');
+      }
+
+      if (!result?.taskId && !result?.videoUrl) {
+        throw new ServiceUnavailableException('视频任务创建失败：未返回 taskId 或 videoUrl');
+      }
+
+      // 兼容“立即出片”供应商：直接标记成功；异步任务维持 pending，交由轮询结果决定是否退款
+      if (result.videoUrl) {
+        await this.creditsService.updateApiUsageStatus(
+          apiUsageId,
+          ApiResponseStatus.SUCCESS,
+          undefined,
+          0,
+        );
+      }
+
       // 返回 apiUsageId，前端在任务失败时可请求退款
       return { ...result, apiUsageId };
     } catch (error) {
@@ -1575,16 +1881,17 @@ export class AiController {
     }
 
     try {
-      // 先更新状态为失败
-      await this.creditsService.updateApiUsageStatus(
+      // 先校验归属并标记失败（仅允许当前用户操作自己的记录）
+      await this.creditsService.markApiUsageFailedForUser(
+        userId,
         apiUsageId,
-        ApiResponseStatus.FAILED,
         '视频生成任务失败',
         0,
       );
+
       // 退还积分
       const result = await this.creditsService.refundCredits(userId, apiUsageId);
-      this.logger.log(`✅ 视频任务积分已退还: apiUsageId=${apiUsageId}, refunded=${result.newBalance}`);
+      this.logger.log(`✅ 视频任务积分已处理退款: apiUsageId=${apiUsageId}, balance=${result.newBalance}`);
       return { success: true, newBalance: result.newBalance };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -2239,7 +2546,7 @@ export class AiController {
         // 147(Banana) 直接视频理解：优先走 /v1/chat/completions + image_url=videoUrl，不需要先下载视频
         // 若失败（不支持该 URL/格式/模型），再降级到抽帧方案（需要下载+ffmpeg）。
         if (providerName && providerName !== 'gemini-pro') {
-          if (providerName === 'banana' || providerName === 'banana-2.5') {
+          if (providerName === 'banana' || providerName === 'banana-2.5' || providerName === 'banana-3.1') {
             stage = 'direct_video_understanding';
             try {
               const analysisText = await this.analyzeVideoVia147ChatCompletions({

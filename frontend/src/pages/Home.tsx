@@ -1,13 +1,15 @@
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import AccountBadge from "@/components/AccountBadge";
-import { useRef, useState, useEffect, useCallback, useMemo } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import GlassButton from "@/components/GlassButton";
 import { useAuthStore } from "@/stores/authStore";
-import { MessageCircle, X } from "lucide-react";
+import { MessageCircle } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import LanguageSwitcher from "@/components/LanguageSwitcher";
 
 // 微信咨询悬浮按钮组件
 const WeChatFloatingButton = () => {
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [qrCodes, setQrCodes] = useState<{ officialAccount: string; wechatGroup: string }>({
     officialAccount: '/qrcode-official.png',
@@ -46,27 +48,27 @@ const WeChatFloatingButton = () => {
               <div className="w-32 h-32 bg-white rounded-lg p-2 mb-2">
                 <img
                   src={qrCodes.officialAccount}
-                  alt="公众号二维码"
+                  alt={t("home.wechat.followOfficial")}
                   className="w-full h-full object-contain"
                   onError={(e) => {
-                    (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="%23f0f0f0" width="100" height="100"/><text x="50" y="55" text-anchor="middle" fill="%23999" font-size="12">暂无图片</text></svg>';
+                    (e.target as HTMLImageElement).src = `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="%23f0f0f0" width="100" height="100"/><text x="50" y="55" text-anchor="middle" fill="%23999" font-size="12">${encodeURIComponent(t("home.wechat.noImage"))}</text></svg>`;
                   }}
                 />
               </div>
-              <span className="text-xs text-white/80">关注公众号</span>
+              <span className="text-xs text-white/80">{t("home.wechat.followOfficial")}</span>
             </div>
             <div className="flex flex-col items-center">
               <div className="w-32 h-32 bg-white rounded-lg p-2 mb-2">
                 <img
                   src={qrCodes.wechatGroup}
-                  alt="微信群二维码"
+                  alt={t("home.wechat.joinGroup")}
                   className="w-full h-full object-contain"
                   onError={(e) => {
-                    (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="%23f0f0f0" width="100" height="100"/><text x="50" y="55" text-anchor="middle" fill="%23999" font-size="12">暂无图片</text></svg>';
+                    (e.target as HTMLImageElement).src = `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="%23f0f0f0" width="100" height="100"/><text x="50" y="55" text-anchor="middle" fill="%23999" font-size="12">${encodeURIComponent(t("home.wechat.noImage"))}</text></svg>`;
                   }}
                 />
               </div>
-              <span className="text-xs text-white/80">加入交流群</span>
+              <span className="text-xs text-white/80">{t("home.wechat.joinGroup")}</span>
             </div>
           </div>
         </div>
@@ -83,6 +85,7 @@ const WeChatFloatingButton = () => {
 };
 
 export default function Home() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { user, logout, connection } = useAuthStore();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -90,10 +93,6 @@ export default function Home() {
   const [isAnimating, setIsAnimating] = useState(false);
   const touchStartY = useRef(0);
   const lastScrollTime = useRef(0);
-  const iridescenceColor = useMemo(
-    () => [0.6, 0.8, 1.2] as [number, number, number],
-    []
-  );
 
   // 暂时只允许第一页，禁用后两页
   const maxPage = 0;
@@ -202,18 +201,19 @@ export default function Home() {
 
           {/* 右侧：用户信息或登录/注册按钮（与设置弹窗使用相同的 connection 状态） */}
           <div className='flex items-center gap-3'>
+            <LanguageSwitcher tone='dark' style='simple' />
             {user && connection ? (
               (() => {
                 const status = (() => {
                   switch (connection) {
                     case "server":
-                      return { label: "在线", color: "#16a34a" };
+                      return { label: t("common.status.online"), color: "#16a34a" };
                     case "refresh":
-                      return { label: "已续期", color: "#f59e0b" };
+                      return { label: t("common.status.refreshed"), color: "#f59e0b" };
                     case "local":
-                      return { label: "在线", color: "#16a34a" };
+                      return { label: t("common.status.online"), color: "#16a34a" };
                     case "mock":
-                      return { label: "Mock", color: "#8b5cf6" };
+                      return { label: t("common.status.mock"), color: "#8b5cf6" };
                     default:
                       return null;
                   }
@@ -222,16 +222,18 @@ export default function Home() {
                 return (
                   <div className='flex items-center gap-3 text-sm text-white'>
                     <span>
-                      你好，
-                      {user.name ||
-                        user.phone?.slice(-4) ||
-                        user.email ||
-                        user.id?.slice(-4) ||
-                        "用户"}
+                      {t("home.header.greeting", {
+                        name:
+                          user.name ||
+                          user.phone?.slice(-4) ||
+                          user.email ||
+                          user.id?.slice(-4) ||
+                          t("common.user"),
+                      })}
                     </span>
                     <span
                       className='inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border border-white/30 text-white bg-green-500/20 backdrop-blur-sm'
-                      title={`认证来源：${status?.label || "未知"}`}
+                      title={`${status?.label || t("common.status.unknown")}`}
                     >
                       <span
                         className='w-2 h-2 rounded-full'
@@ -251,7 +253,7 @@ export default function Home() {
                         }
                       }}
                     >
-                      退出登录
+                      {t("home.header.actions.logout")}
                     </Button>
                   </div>
                 );
@@ -263,13 +265,13 @@ export default function Home() {
                   className='text-white hover:text-white/80 hover:bg-white/10 rounded-full h-9 px-4 text-sm font-medium'
                   onClick={() => navigate("/auth/login")}
                 >
-                  登录
+                  {t("home.header.actions.login")}
                 </Button>
                 <Button
                   className='bg-white/20 hover:bg-white/30 text-white border border-white/20 rounded-full h-9 px-4 text-sm font-medium'
                   onClick={() => navigate("/auth/register")}
                 >
-                  注册
+                  {t("home.header.actions.register")}
                 </Button>
               </>
             )}
@@ -308,14 +310,14 @@ export default function Home() {
             className='absolute inset-0 w-full h-full object-cover z-[1]'
           >
             <source src='/OpenVideo.mp4' type='video/mp4' />
-            您的浏览器不支持视频播放。
+            {t("home.videoUnsupported")}
           </video>
 
           <div className='text-center relative z-10'>
             <h1 className='mb-10'>
               <img
                 src='/TanvasText.png'
-                alt='探索创作之境'
+                alt={t("home.hero.logoAlt")}
                 draggable='false'
                 className='mx-auto h-[5rem] sm:h-[5.7rem] object-contain drop-shadow-lg'
                 style={{
@@ -325,9 +327,9 @@ export default function Home() {
               />
             </h1>
             <p className='text-xl text-slate-200 mb-12 drop-shadow-md'>
-              专业绘图与 AI 创作平台，轻松开启你的灵感旅程
+              {t("home.hero.subtitle")}
             </p>
-            <GlassButton onClick={() => navigate("/app")}>立即体验</GlassButton>
+            <GlassButton onClick={() => navigate("/app")}>{t("home.hero.startNow")}</GlassButton>
           </div>
           {/* 向下滚动提示 */}
           <div className='absolute bottom-12 animate-bounce z-10'>
@@ -354,7 +356,7 @@ export default function Home() {
               rel='noopener noreferrer'
               className='text-xs text-white/60 hover:text-white/80 transition-colors'
             >
-              粤ICP备2026004877号-1
+              {t("home.icp")}
             </a>
           </div>
         </section>
@@ -362,7 +364,7 @@ export default function Home() {
         {/* 第二页 - 功能介绍 */}
         <section className='h-screen w-full flex flex-col items-center justify-center px-4 bg-gradient-to-b from-sky-50 to-white'>
           <div className='max-w-4xl mx-auto text-center'>
-            <h2 className='text-4xl font-bold mb-12'>强大的创作工具</h2>
+            <h2 className='text-4xl font-bold mb-12'>{t("home.features.title")}</h2>
             <div className='grid grid-cols-1 md:grid-cols-3 gap-8'>
               <div className='p-6 rounded-2xl bg-white shadow-lg'>
                 <div className='w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center mx-auto mb-4'>
@@ -380,9 +382,9 @@ export default function Home() {
                     />
                   </svg>
                 </div>
-                <h3 className='text-lg font-semibold mb-2'>AI 智能创作</h3>
+                <h3 className='text-lg font-semibold mb-2'>{t("home.features.aiTitle")}</h3>
                 <p className='text-slate-600 text-sm'>
-                  借助 AI 的力量，快速生成创意内容
+                  {t("home.features.aiDesc")}
                 </p>
               </div>
               <div className='p-6 rounded-2xl bg-white shadow-lg'>
@@ -401,9 +403,9 @@ export default function Home() {
                     />
                   </svg>
                 </div>
-                <h3 className='text-lg font-semibold mb-2'>专业绘图</h3>
+                <h3 className='text-lg font-semibold mb-2'>{t("home.features.drawingTitle")}</h3>
                 <p className='text-slate-600 text-sm'>
-                  节点式工作流，灵活组合各种工具
+                  {t("home.features.drawingDesc")}
                 </p>
               </div>
               <div className='p-6 rounded-2xl bg-white shadow-lg'>
@@ -422,9 +424,9 @@ export default function Home() {
                     />
                   </svg>
                 </div>
-                <h3 className='text-lg font-semibold mb-2'>多样风格</h3>
+                <h3 className='text-lg font-semibold mb-2'>{t("home.features.styleTitle")}</h3>
                 <p className='text-slate-600 text-sm'>
-                  支持多种艺术风格，满足不同需求
+                  {t("home.features.styleDesc")}
                 </p>
               </div>
             </div>
@@ -441,16 +443,16 @@ export default function Home() {
               <div className='w-full border rounded-xl py-16 px-12 hover:shadow transition text-center mist-card'>
                 <div className='mist-content'>
                   <h3 className='text-2xl font-semibold mb-4'>
-                    准备好开始了吗？
+                    {t("home.cta.ready")}
                   </h3>
                   <p className='text-slate-600 mb-8'>
-                    立即体验 AI 助手，开启你的创作之旅
+                    {t("home.cta.desc")}
                   </p>
                   <Button
                     className='bg-gray-700 hover:bg-gray-500 text-white rounded-2xl h-12 px-8 text-lg'
                     onClick={() => navigate("/app")}
                   >
-                    开始创作
+                    {t("home.cta.start")}
                   </Button>
                 </div>
               </div>

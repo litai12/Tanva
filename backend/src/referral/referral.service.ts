@@ -3,8 +3,9 @@ import { PrismaService } from '../prisma/prisma.service';
 
 // 邀请奖励配置
 const REFERRAL_REWARD = 1000; // 邀请成功奖励积分
-const DAILY_CHECK_IN_REWARDS = [100, 100, 100, 100, 100, 100, 100]; // D1-D7 每日签到奖励
-const WEEKLY_BONUS = 500; // 满7天额外奖励
+const REFERRAL_REWARD_LIMIT = 5; // 邀请奖励次数上限
+const DAILY_CHECK_IN_REWARDS = [50, 50, 50, 50, 50, 50, 50]; // D1-D7 每日签到奖励
+const WEEKLY_BONUS = 150; // 满7天额外奖励
 
 @Injectable()
 export class ReferralService {
@@ -28,6 +29,13 @@ export class ReferralService {
       where: { inviterUserId: userId },
     });
 
+    if (inviteCode && inviteCode.maxUses !== REFERRAL_REWARD_LIMIT) {
+      inviteCode = await this.prisma.invitationCode.update({
+        where: { id: inviteCode.id },
+        data: { maxUses: REFERRAL_REWARD_LIMIT },
+      });
+    }
+
     if (!inviteCode) {
       // 创建新的邀请码
       const code = this.generateInviteCode(userId);
@@ -45,7 +53,7 @@ export class ReferralService {
         data: {
           code: finalCode,
           inviterUserId: userId,
-          maxUses: 9999, // 无限使用
+          maxUses: REFERRAL_REWARD_LIMIT,
           status: 'active',
         },
       });
@@ -241,127 +249,163 @@ export class ReferralService {
    * 使用邀请码注册
    */
   async useInviteCode(inviteeUserId: string, code: string) {
-    // 查找邀请码
-    const inviteCode = await this.prisma.invitationCode.findUnique({
-      where: { code },
+    return this.prisma.$transaction(async (tx) => {
+      // 基于数据库事务锁，串行化同一被邀请人的并发兑换请求
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`invitee:${inviteeUserId}`}), 0)`;
+
+      // 查找邀请码
+      const inviteCode = await tx.invitationCode.findUnique({
+        where: { code },
+      });
+
+      if (!inviteCode) {
+        throw new NotFoundException('邀请码不存在');
+      }
+
+      if (inviteCode.status !== 'active') {
+        throw new BadRequestException('邀请码已失效');
+      }
+
+      // 不能使用自己的邀请码
+      if (inviteCode.inviterUserId === inviteeUserId) {
+        throw new BadRequestException('不能使用自己的邀请码');
+      }
+
+      // 检查是否已经使用过邀请码（任意状态都视为已使用）
+      const existingRedemption = await tx.invitationRedemption.findFirst({
+        where: { inviteeUserId },
+      });
+
+      if (existingRedemption) {
+        throw new BadRequestException('您已使用过邀请码');
+      }
+
+      const effectiveMaxUses = Math.min(inviteCode.maxUses, REFERRAL_REWARD_LIMIT);
+
+      // 原子化占用邀请码次数，避免并发绕过上限
+      const updated = await tx.invitationCode.updateMany({
+        where: {
+          id: inviteCode.id,
+          status: 'active',
+          usedCount: { lt: effectiveMaxUses },
+        },
+        data: {
+          usedCount: { increment: 1 },
+        },
+      });
+
+      if (updated.count === 0) {
+        throw new BadRequestException('邀请码奖励次数已达上限');
+      }
+
+      // 创建邀请兑换记录
+      const redemption = await tx.invitationRedemption.create({
+        data: {
+          codeId: inviteCode.id,
+          inviteeUserId,
+          inviterUserId: inviteCode.inviterUserId,
+          rewardStatus: 'pending',
+          rewardAmount: REFERRAL_REWARD,
+        },
+      });
+
+      // 更新被邀请用户的 invitedById
+      await tx.user.update({
+        where: { id: inviteeUserId },
+        data: { invitedById: inviteCode.inviterUserId },
+      });
+
+      return redemption;
     });
-
-    if (!inviteCode) {
-      throw new NotFoundException('邀请码不存在');
-    }
-
-    if (inviteCode.status !== 'active') {
-      throw new BadRequestException('邀请码已失效');
-    }
-
-    // 不能使用自己的邀请码
-    if (inviteCode.inviterUserId === inviteeUserId) {
-      throw new BadRequestException('不能使用自己的邀请码');
-    }
-
-    // 检查是否已经使用过邀请码
-    const existingRedemption = await this.prisma.invitationRedemption.findFirst({
-      where: { inviteeUserId },
-    });
-
-    if (existingRedemption) {
-      throw new BadRequestException('您已使用过邀请码');
-    }
-
-    // 创建邀请兑换记录
-    const redemption = await this.prisma.invitationRedemption.create({
-      data: {
-        codeId: inviteCode.id,
-        inviteeUserId,
-        inviterUserId: inviteCode.inviterUserId,
-        rewardStatus: 'pending',
-        rewardAmount: REFERRAL_REWARD,
-      },
-    });
-
-    // 更新邀请码使用次数
-    await this.prisma.invitationCode.update({
-      where: { id: inviteCode.id },
-      data: { usedCount: { increment: 1 } },
-    });
-
-    // 更新被邀请用户的 invitedById
-    await this.prisma.user.update({
-      where: { id: inviteeUserId },
-      data: { invitedById: inviteCode.inviterUserId },
-    });
-
-    return redemption;
   }
 
   /**
    * 核验并发放邀请奖励（当被邀请用户完成首图生成时调用）
    */
   async verifyAndRewardInviter(inviteeUserId: string) {
-    // 查找待核验的邀请记录
-    const redemption = await this.prisma.invitationRedemption.findFirst({
-      where: {
-        inviteeUserId,
-        rewardStatus: 'pending',
-      },
+    return this.prisma.$transaction(async (tx) => {
+      // 串行化同一被邀请人的奖励核验，避免重复发奖
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`invitee:${inviteeUserId}`}), 0)`;
+
+      // 若该被邀请人已经发过奖，不再重复发放
+      const alreadyRewarded = await tx.invitationRedemption.findFirst({
+        where: {
+          inviteeUserId,
+          rewardStatus: 'rewarded',
+        },
+        select: { id: true },
+      });
+
+      if (alreadyRewarded) {
+        return null;
+      }
+
+      // 查找待核验的邀请记录
+      const redemption = await tx.invitationRedemption.findFirst({
+        where: {
+          inviteeUserId,
+          rewardStatus: 'pending',
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      if (!redemption || !redemption.inviterUserId) {
+        return null;
+      }
+
+      // 检查被邀请用户是否已完成首图生成
+      const hasGeneratedImage = await tx.apiUsageRecord.findFirst({
+        where: {
+          userId: inviteeUserId,
+          responseStatus: 'success',
+        },
+      });
+
+      if (!hasGeneratedImage) {
+        return null;
+      }
+
+      // 发放奖励给邀请人
+      const inviterAccount = await tx.creditAccount.upsert({
+        where: { userId: redemption.inviterUserId },
+        create: {
+          userId: redemption.inviterUserId,
+          balance: REFERRAL_REWARD,
+          totalEarned: REFERRAL_REWARD,
+        },
+        update: {
+          balance: { increment: REFERRAL_REWARD },
+          totalEarned: { increment: REFERRAL_REWARD },
+        },
+      });
+
+      // 创建交易记录
+      await tx.creditTransaction.create({
+        data: {
+          accountId: inviterAccount.id,
+          type: 'REFERRAL_REWARD',
+          amount: REFERRAL_REWARD,
+          balanceBefore: inviterAccount.balance - REFERRAL_REWARD,
+          balanceAfter: inviterAccount.balance,
+          description: '邀请好友奖励',
+          metadata: { inviteeUserId },
+        },
+      });
+
+      // 更新邀请记录状态
+      await tx.invitationRedemption.update({
+        where: { id: redemption.id },
+        data: {
+          rewardStatus: 'rewarded',
+          rewardedAt: new Date(),
+        },
+      });
+
+      return {
+        inviterId: redemption.inviterUserId,
+        reward: REFERRAL_REWARD,
+      };
     });
-
-    if (!redemption || !redemption.inviterUserId) {
-      return null;
-    }
-
-    // 检查被邀请用户是否已完成首图生成
-    const hasGeneratedImage = await this.prisma.apiUsageRecord.findFirst({
-      where: {
-        userId: inviteeUserId,
-        responseStatus: 'success',
-      },
-    });
-
-    if (!hasGeneratedImage) {
-      return null;
-    }
-
-    // 发放奖励给邀请人
-    const inviterAccount = await this.prisma.creditAccount.upsert({
-      where: { userId: redemption.inviterUserId },
-      create: {
-        userId: redemption.inviterUserId,
-        balance: REFERRAL_REWARD,
-        totalEarned: REFERRAL_REWARD,
-      },
-      update: {
-        balance: { increment: REFERRAL_REWARD },
-        totalEarned: { increment: REFERRAL_REWARD },
-      },
-    });
-
-    // 创建交易记录
-    await this.prisma.creditTransaction.create({
-      data: {
-        accountId: inviterAccount.id,
-        type: 'REFERRAL_REWARD',
-        amount: REFERRAL_REWARD,
-        balanceBefore: inviterAccount.balance - REFERRAL_REWARD,
-        balanceAfter: inviterAccount.balance,
-        description: '邀请好友奖励',
-        metadata: { inviteeUserId },
-      },
-    });
-
-    // 更新邀请记录状态
-    await this.prisma.invitationRedemption.update({
-      where: { id: redemption.id },
-      data: {
-        rewardStatus: 'rewarded',
-        rewardedAt: new Date(),
-      },
-    });
-
-    return {
-      inviterId: redemption.inviterUserId,
-      reward: REFERRAL_REWARD,
-    };
   }
 
   /**

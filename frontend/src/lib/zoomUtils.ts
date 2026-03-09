@@ -1,5 +1,5 @@
 const DEFAULT_MIN_ZOOM = 0.1;
-const DEFAULT_MAX_ZOOM = 3;
+const DEFAULT_MAX_ZOOM = 4;
 const DEFAULT_SMOOTHING = 0.55;
 const DEFAULT_MAX_SMOOTHING = 0.85;
 const DEFAULT_SENSITIVITY = 3; // 默认灵敏度（1-10范围，较低值更平滑）

@@ -36,6 +36,7 @@ export class AIProviderFactory implements OnModuleInit {
     // 注册 Banana API 提供商
     this.providers.set('banana', this.bananaProvider);
     this.providers.set('banana-2.5', this.bananaProvider);
+    this.providers.set('banana-3.1', this.bananaProvider);
     await this.bananaProvider.initialize();
 
     // 注册 RunningHub 提供商

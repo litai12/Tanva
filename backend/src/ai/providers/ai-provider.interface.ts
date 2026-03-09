@@ -80,10 +80,11 @@ export interface ImageGenerationRequest {
   prompt: string;
   model?: string;
   aspectRatio?: string;
-  imageSize?: '1K' | '2K' | '4K';
+  imageSize?: '0.5K' | '1K' | '2K' | '4K';
   thinkingLevel?: 'high' | 'low';
   outputFormat?: 'jpeg' | 'png' | 'webp';
   imageOnly?: boolean;
+  enableWebSearch?: boolean;
   providerOptions?: ProviderOptionsPayload;
   imageUrls?: string[];
   googleSearch?: boolean;
@@ -95,7 +96,7 @@ export interface ImageEditRequest {
   sourceImage: string; // base64
   model?: string;
   aspectRatio?: string;
-  imageSize?: '1K' | '2K' | '4K';
+  imageSize?: '0.5K' | '1K' | '2K' | '4K';
   thinkingLevel?: 'high' | 'low';
   outputFormat?: 'jpeg' | 'png' | 'webp';
   imageOnly?: boolean;
@@ -107,7 +108,7 @@ export interface ImageBlendRequest {
   sourceImages: string[]; // base64 array
   model?: string;
   aspectRatio?: string;
-  imageSize?: '1K' | '2K' | '4K';
+  imageSize?: '0.5K' | '1K' | '2K' | '4K';
   thinkingLevel?: 'high' | 'low';
   outputFormat?: 'jpeg' | 'png' | 'webp';
   imageOnly?: boolean;

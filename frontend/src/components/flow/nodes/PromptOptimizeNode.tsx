@@ -106,6 +106,26 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
     } satisfies PromptOptimizationRequest);
   };
 
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ id?: string; done?: (result?: boolean) => void }>
+      ).detail;
+      if (!detail || detail.id !== id) return;
+      void (async () => {
+        try {
+          await handleOptimize();
+          detail.done?.(true);
+        } catch {
+          detail.done?.(false);
+        }
+      })();
+    };
+    window.addEventListener('flow:run-node', handler as EventListener);
+    return () =>
+      window.removeEventListener('flow:run-node', handler as EventListener);
+  }, [id, handleOptimize]);
+
   // 不需要中间激活按钮；Run 后即写入 expandedText 与 text
 
   return (

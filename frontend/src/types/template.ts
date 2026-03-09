@@ -14,6 +14,13 @@ export interface TemplateNode {
   data: any;
   boxW?: number;
   boxH?: number;
+  width?: number;
+  height?: number;
+  style?: Record<string, unknown>;
+  parentNode?: string;
+  extent?: unknown;
+  selectable?: boolean;
+  draggable?: boolean;
 }
 
 export interface TemplateEdge {

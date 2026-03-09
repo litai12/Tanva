@@ -332,6 +332,7 @@ function TextPromptProNodeInner({ id, data, selected }: Props) {
 
         {/* Handle - 与 GenerateProNode 样式一致 */}
         <Handle
+          className="tanva-beta-handle tanva-beta-handle-text"
           type="target"
           position={Position.Left}
           id="text"
@@ -340,14 +341,15 @@ function TextPromptProNodeInner({ id, data, selected }: Props) {
             left: -12,
             width: 8,
             height: 8,
-            background: '#6b7280',
-            border: '2px solid #fff',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+            background: '#22c55e',
+            border: 'none',
+            boxShadow: 'none',
           }}
           onMouseEnter={() => setHover('prompt-in')}
           onMouseLeave={() => setHover(null)}
         />
         <Handle
+          className="tanva-beta-handle tanva-beta-handle-text"
           type="source"
           position={Position.Right}
           id="text"
@@ -356,9 +358,9 @@ function TextPromptProNodeInner({ id, data, selected }: Props) {
             right: -12,
             width: 8,
             height: 8,
-            background: '#6b7280',
-            border: '2px solid #fff',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+            background: '#22c55e',
+            border: 'none',
+            boxShadow: 'none',
           }}
           onMouseEnter={() => setHover('prompt-out')}
           onMouseLeave={() => setHover(null)}

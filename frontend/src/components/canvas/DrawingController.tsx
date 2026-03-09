@@ -375,6 +375,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   >({});
   const [contextMenuState, setContextMenuState] =
     useState<CanvasContextMenuState | null>(null);
+  const canvasJsonImportInputRef = useRef<HTMLInputElement | null>(null);
   const handleCanvasPasteRef = useRef<() => boolean>(() => false);
   const canvasToChatSyncTokenRef = useRef(0);
   const canvasBlobToFlowAssetRefCacheRef = useRef<Map<string, string>>(
@@ -813,6 +814,26 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           const active = document.activeElement as Element | null;
           if (isEditableElement(active)) return;
 
+          // Flow 区域优先处理粘贴，避免画布层拦截导致 Flow 节点无法粘贴
+          const zone = clipboardService.getZone();
+          const flowPayload = clipboardService.getFlowData();
+          const path =
+            typeof e.composedPath === "function" ? e.composedPath() : [];
+          const fromFlowOverlay = path.some(
+            (el) =>
+              el instanceof Element &&
+              el.classList?.contains("tanva-flow-overlay")
+          );
+          if (
+            fromFlowOverlay ||
+            (zone === "flow" &&
+              flowPayload &&
+              Array.isArray(flowPayload.nodes) &&
+              flowPayload.nodes.length > 0)
+          ) {
+            return;
+          }
+
           const clipboardData = e.clipboardData;
           if (!clipboardData) return;
 
@@ -820,6 +841,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           const rawCanvasData =
             clipboardData.getData(CANVAS_CLIPBOARD_MIME) ||
             clipboardData.getData("application/json");
+          let hasStructuredCanvasPayload = false;
           if (rawCanvasData) {
             try {
               const parsed = JSON.parse(rawCanvasData);
@@ -830,6 +852,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                   ? parsed
                   : null;
               if (payload) {
+                hasStructuredCanvasPayload = true;
                 clipboardService.setCanvasData(payload);
                 const handled = handleCanvasPasteRef.current();
                 if (handled) {
@@ -925,7 +948,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
           // 兜底：若系统剪贴板没有图片/URL/结构化数据，但内存中存在画布剪贴板数据，则执行画布内粘贴
           const canUseInMemoryCanvasPaste =
-            !rawCanvasData &&
+            !hasStructuredCanvasPayload &&
             (!text || text === CANVAS_CLIPBOARD_FALLBACK_TEXT) &&
             !!clipboardService.getCanvasData();
           if (canUseInMemoryCanvasPaste) {
@@ -1293,6 +1316,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         fileName,
         selectedImageBounds,
         smartPosition,
+        anchorClient,
         operationType,
         sourceImageId,
         sourceImages,
@@ -1309,6 +1333,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         fileName,
         hasSelectedBounds: !!selectedImageBounds,
         hasSmartPosition: !!smartPosition,
+        hasAnchorClient: !!anchorClient,
         operationType,
         sourceImageId,
         sourceImages: sourceImages?.length,
@@ -1320,12 +1345,28 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
 	      if (imageData && quickImageUpload.handleQuickImageUploaded) {
 	        const handle = () => {
+          let resolvedSmartPosition = smartPosition;
+          if (
+            (!resolvedSmartPosition ||
+              !Number.isFinite(resolvedSmartPosition.x) ||
+              !Number.isFinite(resolvedSmartPosition.y)) &&
+            anchorClient &&
+            Number.isFinite(anchorClient.x) &&
+            Number.isFinite(anchorClient.y)
+          ) {
+            const canvas = canvasRef.current;
+            if (canvas) {
+              const point = clientToProject(canvas, anchorClient.x, anchorClient.y);
+              resolvedSmartPosition = { x: point.x, y: point.y };
+            }
+          }
+
 	          // 直接调用快速上传的处理函数，传递智能排版相关参数
 	          quickImageUpload.handleQuickImageUploaded(
 	            imageData,
 	            fileName,
 	            selectedImageBounds,
-	            smartPosition,
+	            resolvedSmartPosition,
 	            operationType,
 	            sourceImageId,
 	            sourceImages,
@@ -1384,7 +1425,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         handleTriggerQuickUpload as EventListener
       );
     };
-  }, [quickImageUpload]);
+  }, [quickImageUpload, canvasRef]);
 
   // 使用 ref 存储 quickImageUpload 的最新引用，避免 useEffect 重复执行
   const quickImageUploadRef = useRef(quickImageUpload);
@@ -2207,7 +2248,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       let resolvedCenter = center;
       if (
-        (preferSmartLayout || !resolvedCenter) &&
+        !resolvedCenter &&
         typeof quickImageUploadRef.current.calculateSmartPosition === "function"
       ) {
         const smart =
@@ -2744,6 +2785,37 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     simpleTextTool.selectedTextId,
   ]);
 
+  useEffect(() => {
+    try {
+      const selectedPaths = [
+        ...(selectionTool.selectedPath ? [selectionTool.selectedPath] : []),
+        ...((selectionTool.selectedPaths ?? []) as paper.Path[]),
+      ].filter((path): path is paper.Path => !!path);
+      const selectedTextIds = (simpleTextTool.textItems ?? [])
+        .filter((item) => item?.isSelected)
+        .map((item) => item.id);
+
+      (window as any).tanvaCanvasSelection = {
+        imageIds: [...(imageTool.selectedImageIds ?? [])],
+        modelIds: [...(model3DTool.selectedModel3DIds ?? [])],
+        textIds: selectedTextIds,
+        paths: selectedPaths,
+      };
+    } catch {}
+
+    return () => {
+      try {
+        delete (window as any).tanvaCanvasSelection;
+      } catch {}
+    };
+  }, [
+    imageTool.selectedImageIds,
+    model3DTool.selectedModel3DIds,
+    selectionTool.selectedPath,
+    selectionTool.selectedPaths,
+    simpleTextTool.textItems,
+  ]);
+
   const {
     createImageFromSnapshot,
     handleImageMultiSelect,
@@ -3128,6 +3200,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               typeof layerName === "string" && layerName.startsWith("layer_")
                 ? layerName.replace("layer_", "")
                 : undefined;
+            const reconstructedLocked = Boolean(
+              snapshot?.locked ??
+                (item as any)?.locked ??
+                (item as any)?.data?.imageLocked ??
+                (raster as any)?.data?.imageLocked
+            );
 
             reconstructed.push({
               id: imageId,
@@ -3142,6 +3220,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 contentType: snapshot?.contentType,
                 pendingUpload: snapshot?.pendingUpload,
                 localDataUrl: snapshot?.localDataUrl,
+                locked: reconstructedLocked,
               },
               bounds: {
                 x: resolvedBounds.x,
@@ -3150,6 +3229,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 height: resolvedBounds.height,
               },
               isSelected: false,
+              locked: reconstructedLocked,
               visible: item.visible !== false,
               layerId: snapshot?.layerId ?? derivedLayerId,
             });
@@ -3180,6 +3260,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                     contentType: snap.contentType,
                     pendingUpload: snap.pendingUpload,
                     localDataUrl: snap.localDataUrl,
+                    locked: snap.locked,
                   },
                   bounds: {
                     x: snap.bounds.x,
@@ -3188,6 +3269,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                     height: snap.bounds.height,
                   },
                   isSelected: false,
+                  locked: snap.locked,
                   visible: true,
                   layerId: snap.layerId ?? undefined,
                 };
@@ -3594,7 +3676,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     async (options?: { sendToDialog?: boolean }) => {
       const hasCaptureTarget =
         isGroupSelection || selectedGroupBlocks.length > 0;
-      if (hasPendingSelection) return;
       if (!hasCaptureTarget || !groupPaperBounds) return;
       if (isGroupCapturePending) return;
       setIsGroupCapturePending(true);
@@ -3695,7 +3776,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       }
     },
     [
-      hasPendingSelection,
       isGroupSelection,
       selectedGroupBlocks.length,
       selectedGroupImageIds,
@@ -3992,6 +4072,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             contentType: img.imageData.contentType,
             pendingUpload: img.imageData.pendingUpload,
             localDataUrl: img.imageData.localDataUrl,
+            locked: img.locked ?? img.imageData.locked,
             bounds: { ...img.bounds },
             layerId: img.layerId ?? null,
           } as ImageAssetSnapshot;
@@ -4431,6 +4512,18 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         const active = document.activeElement as Element | null;
         if (isEditableElement(active) || editingTextId) return;
 
+        const selection = window.getSelection();
+        const selectedText = selection?.toString()?.trim();
+        if (selectedText) {
+          const nodes = [selection?.anchorNode, selection?.focusNode].filter(
+            Boolean
+          ) as Node[];
+          const canvas = canvasRef.current;
+          const fromCanvasSelection =
+            !!canvas && nodes.some((node) => canvas.contains(node));
+          if (!fromCanvasSelection) return;
+        }
+
         // 若当前剪贴板激活区为 Flow，且事件不是从画布冒泡上来，则让 Flow 处理
         const path =
           typeof event.composedPath === "function" ? event.composedPath() : [];
@@ -4651,6 +4744,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       }
     },
     [toggleVisibility]
+  );
+
+  const handleImageToggleLock = useCallback(
+    (imageId: string, nextLocked?: boolean) => {
+      imageTool.toggleImageLocked?.(imageId, nextLocked);
+    },
+    [imageTool.toggleImageLocked]
   );
 
   const handleDownloadImage = useCallback(
@@ -5075,6 +5175,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         }
 
         if (data.type === "image" && data.imageId) {
+          if (imageTool.isImageLocked?.(data.imageId)) {
+            return null;
+          }
           return { type: "image", id: data.imageId };
         }
         if (data.type === "3d-model" && data.modelId) {
@@ -5101,7 +5204,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       return null;
     },
-    [canvasRef]
+    [canvasRef, imageTool.isImageLocked]
   );
 
   const ensureSelectionForTarget = useCallback(
@@ -5355,15 +5458,54 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     }
   }, [showToast]);
 
-  const handleImportCanvasJson = useCallback(async () => {
+  const handleImportCanvasJson = useCallback(() => {
     try {
-      await clipboardJsonService.importProjectContentFromClipboard();
-      showToast("已导入画布 JSON");
+      const input = canvasJsonImportInputRef.current;
+      if (!input) {
+        showToast("无法打开文件选择器", "error");
+        return;
+      }
+      input.value = "";
+      input.click();
     } catch (error) {
-      console.error("导入画布 JSON 失败:", error);
-      showToast("导入失败，请检查剪贴板内容", "error");
+      console.error("打开 JSON 文件选择器失败:", error);
+      showToast("无法打开文件选择器", "error");
     }
   }, [showToast]);
+
+  const handleCanvasJsonFileSelected = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const input = event.currentTarget;
+      const file = input.files?.[0];
+      if (!file) {
+        input.value = "";
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onerror = () => {
+        console.error("读取画布 JSON 文件失败:", reader.error);
+        showToast("读取 JSON 文件失败", "error");
+        input.value = "";
+      };
+      reader.onload = () => {
+        void (async () => {
+          try {
+            const text = String(reader.result ?? "");
+            await clipboardJsonService.importProjectContentFromText(text);
+            showToast("已导入画布 JSON");
+          } catch (error) {
+            console.error("导入画布 JSON 文件失败:", error);
+            showToast("导入失败，请检查 JSON 文件内容", "error");
+          } finally {
+            input.value = "";
+          }
+        })();
+      };
+      reader.readAsText(file);
+    },
+    [showToast]
+  );
 
   const contextMenuItems = useMemo(() => {
     if (!contextMenuState) return [];
@@ -5404,7 +5546,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         label: "导入画布 JSON",
         icon: <FileInput className='w-4 h-4' />,
         onClick: () => {
-          void handleImportCanvasJson().finally(() => closeContextMenu());
+          handleImportCanvasJson();
+          closeContextMenu();
         },
       },
     ];
@@ -5528,7 +5671,18 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           )[0];
 
           if (paperGroup) {
-            return { ...image, visible: paperGroup.visible };
+            const locked = Boolean(
+              paperGroup.locked || (paperGroup.data as any)?.imageLocked
+            );
+            return {
+              ...image,
+              visible: paperGroup.visible,
+              locked,
+              imageData: {
+                ...image.imageData,
+                locked,
+              },
+            };
           }
           return image;
         })
@@ -5557,16 +5711,32 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     const handleVisibilitySync = () => {
       syncVisibilityStates();
     };
+    const handleImageLockSync = (event: Event) => {
+      const detail = (event as CustomEvent<{ imageId?: string; locked?: boolean }>)
+        ?.detail;
+      const imageId = detail?.imageId;
+      const locked = Boolean(detail?.locked);
+      if (!imageId) {
+        syncVisibilityStates();
+        return;
+      }
+      imageTool.toggleImageLocked?.(imageId, locked);
+    };
 
     window.addEventListener("layerVisibilityChanged", handleVisibilitySync);
+    window.addEventListener("canvas:image-lock-changed", handleImageLockSync);
 
     return () => {
       window.removeEventListener(
         "layerVisibilityChanged",
         handleVisibilitySync
       );
+      window.removeEventListener(
+        "canvas:image-lock-changed",
+        handleImageLockSync
+      );
     };
-  }, [dcSetImageInstances, dcSetModel3DInstances]);
+  }, [dcSetImageInstances, dcSetModel3DInstances, imageTool.toggleImageLocked]);
 
   // 将图片和3D模型实例暴露给图层面板使用
   useEffect(() => {
@@ -5764,11 +5934,31 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
         logger.drawing("🔄 rebuildFromPaper 开始执行...");
 
+        const isRasterContentReady = (raster: any): boolean => {
+          if (!raster) return false;
+          try {
+            if (raster.loaded === true) return true;
+          } catch {}
+          try {
+            const imageLike = (raster as any).image;
+            if (imageLike) {
+              const naturalWidth = Number((imageLike as any).naturalWidth ?? 0);
+              const naturalHeight = Number((imageLike as any).naturalHeight ?? 0);
+              if (naturalWidth > 0 && naturalHeight > 0) return true;
+              const width = Number((imageLike as any).width ?? 0);
+              const height = Number((imageLike as any).height ?? 0);
+              const complete = Boolean((imageLike as any).complete);
+              if (complete && width > 0 && height > 0) return true;
+            }
+          } catch {}
+          return false;
+        };
+
         // 🔍 调试：检查 Raster 加载状态
         const rasterClass = (paper as any).Raster;
         const allRasters = rasterClass ? (paper.project as any).getItems?.({ class: rasterClass }) as any[] : [];
         const rasterCount = allRasters?.length || 0;
-        const loadedCount = allRasters?.filter((r: any) => r?.bounds?.width > 0)?.length || 0;
+        const loadedCount = allRasters?.filter((r: any) => isRasterContentReady(r))?.length || 0;
         console.log(`🔍 [rebuildFromPaper] Raster 状态: 总数=${rasterCount}, 已加载=${loadedCount}, 未加载=${rasterCount - loadedCount}`);
 
         // 避免重复包裹 Raster.onLoad（多次 rebuild 可能导致链式闭包与内存增长）
@@ -5780,11 +5970,27 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           const anyRaster = raster as any;
           anyRaster.__tanvaRebuildOnLoadCallback = callback;
 
+          const runCallbackIfReady = () => {
+            if (!isRasterContentReady(raster)) return;
+            setTimeout(() => {
+              try {
+                const cb = anyRaster.__tanvaRebuildOnLoadCallback;
+                if (typeof cb === "function") {
+                  anyRaster.__tanvaRebuildOnLoadCallback = null;
+                  cb();
+                }
+              } catch (err) {
+                console.warn("Raster rebuild ready callback failed:", err);
+              }
+            }, 0);
+          };
+
           const existingWrapper = anyRaster.__tanvaRebuildOnLoadWrapper as any;
           const currentOnLoad = raster.onLoad;
 
           // 已安装 wrapper：只更新 callback，避免链式包裹
           if (existingWrapper && currentOnLoad === existingWrapper) {
+            runCallbackIfReady();
             return;
           }
 
@@ -5823,6 +6029,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
           anyRaster.__tanvaRebuildOnLoadWrapper = wrapper;
           raster.onLoad = wrapper;
+          runCallbackIfReady();
         };
 
         // 🔥 修复：在重建前清理所有孤儿选择框和无效图片组
@@ -6147,6 +6354,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	                    ? toRenderableImageSrc(persistedRef) || persistedRef
 	                    : inlineDataUrl ?? resolvedUrl;
 	                  const pendingUpload = !persistedRef;
+                    const locked = Boolean(
+                      imageGroup.locked ||
+                        (imageGroup.data as any)?.imageLocked ||
+                        (raster.data as any)?.imageLocked
+                    );
 
                   // 获取图片原始尺寸（优先使用元数据中的原始尺寸，否则使用 raster 的原始尺寸）
                   const originalWidth =
@@ -6169,14 +6381,16 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	                      pendingUpload,
 	                      width: Math.round(originalWidth),
 	                      height: Math.round(originalHeight),
+                        locked,
                     },
 	                    bounds: {
 	                      x: boundsRect.x,
 	                      y: boundsRect.y,
 	                      width: boundsRect.width,
 	                      height: boundsRect.height
-	                    },
+                    },
                     isSelected: false,
+                    locked,
                     visible: imageGroup.visible !== false,
                     layerId: layer?.name
 	                  };
@@ -6186,42 +6400,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	                  const b = ensureRasterHasBounds();
 	                  return !!b && b.width > 0 && b.height > 0;
 	                })();
+	                const rasterReady = isRasterContentReady(raster);
 
-	                if (hasValidBounds) {
-	                  const imageInstance = buildImageInstance();
-	                  if (imageInstance) {
-	                    imageInstances.push(imageInstance);
-                  }
-                } else {
-                  // 尚未加载完成的Raster：先记录占位实例，待onLoad完成后再补齐尺寸与辅助元素
-	                  const resolvedUrl = persistedRef ?? inlineDataUrl ?? "";
-	                  const resolvedSrc = persistedRef
-	                    ? toRenderableImageSrc(persistedRef) || persistedRef
-	                    : inlineDataUrl ?? resolvedUrl;
-	                  const pendingUpload = !persistedRef;
-
-                  imageInstances.push({
-                    id: ensuredImageId,
-	                    imageData: {
-	                      id: ensuredImageId,
-	                      url: resolvedUrl,
-	                      key,
-	                      src: resolvedSrc,
-	                      fileName: metadataFromRaster.fileName,
-	                      pendingUpload,
-	                    },
-                    bounds: {
-                      x: raster.position?.x ?? 0,
-                      y: raster.position?.y ?? 0,
-                      width: 0,
-                      height: 0,
-                    },
-                    isSelected: false,
-                    visible: imageGroup.visible !== false,
-                    layerId: layer?.name,
-                  });
-
-                  ensureRasterRebuildOnLoad(raster, () => {
+                  const applyLoadedInstance = () => {
                     const loadedInstance = buildImageInstance();
                     if (!loadedInstance) return;
 
@@ -6250,7 +6431,54 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                     try {
                       paper.view?.update();
                     } catch {}
-                  });
+                  };
+
+	                if (hasValidBounds) {
+	                  const imageInstance = buildImageInstance();
+	                  if (imageInstance) {
+	                    imageInstances.push(imageInstance);
+                  }
+                  // 仅有 bounds 并不代表像素已完成解码；未就绪时仍需等待 onLoad 后再补一次重建/重绘
+                  if (!rasterReady) {
+                    ensureRasterRebuildOnLoad(raster, applyLoadedInstance);
+                  }
+                } else {
+                  // 尚未加载完成的Raster：先记录占位实例，待onLoad完成后再补齐尺寸与辅助元素
+	                  const resolvedUrl = persistedRef ?? inlineDataUrl ?? "";
+	                  const resolvedSrc = persistedRef
+	                    ? toRenderableImageSrc(persistedRef) || persistedRef
+	                    : inlineDataUrl ?? resolvedUrl;
+	                  const pendingUpload = !persistedRef;
+                  const locked = Boolean(
+                    imageGroup.locked ||
+                      (imageGroup.data as any)?.imageLocked ||
+                      (raster.data as any)?.imageLocked
+                  );
+
+                  imageInstances.push({
+                    id: ensuredImageId,
+	                    imageData: {
+	                      id: ensuredImageId,
+	                      url: resolvedUrl,
+	                      key,
+	                      src: resolvedSrc,
+	                      fileName: metadataFromRaster.fileName,
+	                      pendingUpload,
+                        locked,
+	                    },
+                    bounds: {
+                      x: raster.position?.x ?? 0,
+                      y: raster.position?.y ?? 0,
+                      width: 0,
+                      height: 0,
+                    },
+                    isSelected: false,
+                    locked,
+	                    visible: imageGroup.visible !== false,
+	                    layerId: layer?.name,
+	                  });
+
+                  ensureRasterRebuildOnLoad(raster, applyLoadedInstance);
                 }
               }
             }
@@ -6469,8 +6697,18 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               imageData: {
                 ...(instance.imageData || {}),
                 ...(previous?.imageData || {}),
+                locked:
+                  instance.locked ??
+                  instance.imageData?.locked ??
+                  previous?.locked ??
+                  previous?.imageData?.locked,
               },
               isSelected: false,
+              locked:
+                instance.locked ??
+                instance.imageData?.locked ??
+                previous?.locked ??
+                previous?.imageData?.locked,
               visible: instance.visible,
             });
           });
@@ -6708,6 +6946,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   return (
     <>
+      <input
+        ref={canvasJsonImportInputRef}
+        type='file'
+        accept='application/json,.json,text/json'
+        style={{ display: "none" }}
+        onChange={handleCanvasJsonFileSelected}
+      />
+
       {/* 图片上传组件 */}
       <ImageUploadComponent
         onImageUploaded={imageTool.handleImageUploaded}
@@ -6753,6 +6999,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           pendingUpload: img.imageData?.pendingUpload,
           width: img.imageData?.width,
           height: img.imageData?.height,
+          locked: img.locked ?? img.imageData?.locked,
         }));
         return (
           <ImageContainer
@@ -6766,6 +7013,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               pendingUpload: image.imageData?.pendingUpload,
               width: image.imageData?.width,
               height: image.imageData?.height,
+              locked: image.locked ?? image.imageData?.locked,
             }}
             bounds={image.bounds}
             isSelected={imageTool.selectedImageIds.includes(image.id)}
@@ -6783,6 +7031,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             onDelete={(imageId) => imageTool.handleImageDelete?.(imageId)}
             onToggleVisibility={(imageId) =>
               handleImageToggleVisibility(imageId)
+            }
+            onToggleLock={(imageId, nextLocked) =>
+              handleImageToggleLock(imageId, nextLocked)
             }
             getImageDataForEditing={imageTool.getImageDataForEditing}
             showIndividualTools={!isGroupSelection}
@@ -6827,7 +7078,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         <SelectionGroupToolbar
           bounds={groupScreenBounds}
           selectedCount={groupSelectionCount}
-          onCapture={hasPendingSelection ? undefined : handleGroupCapture}
+          onCapture={handleGroupCapture}
           onGroupImages={hasPendingSelection ? undefined : handleGroupImages}
           canGroupImages={canGroupImages}
           onUngroupImages={hasPendingSelection ? undefined : handleUngroupImages}

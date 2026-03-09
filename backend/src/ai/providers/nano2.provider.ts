@@ -75,6 +75,9 @@ export class Nano2Provider implements IAIProvider {
               metadata: {
                 taskId: result.taskId,
                 imageUrl: taskResult.imageUrl,
+                provider: 'nano2',
+                aiProvider: 'nano2',
+                model: 'gemini-3.1-flash-image-preview',
               },
             },
           };

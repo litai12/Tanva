@@ -13,29 +13,21 @@ export class RegisterDto {
   @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/, { message: '密码需包含大小写字母和数字' })
   password!: string;
 
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsString({ message: '昵称必须是字符串' })
-  @Length(1, 50, { message: '昵称长度必须在1到50位之间' })
-  name?: string;
+  @ApiProperty({ description: '用户名（必填）', minLength: 1, maxLength: 50 })
+  @IsString({ message: '用户名必须是字符串' })
+  @Length(1, 50, { message: '用户名长度必须在1到50位之间' })
+  @Matches(/\S/, { message: '用户名不能为空' })
+  name!: string;
 
   @ApiProperty({ description: '手机号（必填），国内 11 位' })
   @IsString({ message: '手机号必须是字符串' })
   @Matches(/^1[3-9]\d{9}$/, { message: '手机号格式不正确，请输入有效的11位手机号' })
   phone!: string;
 
-  // 暂时注释掉验证码必填验证
-  @ApiProperty({ description: '手机验证码（暂时选填）', required: false })
-  @IsOptional()
+  @ApiProperty({ description: '手机验证码（必填）' })
   @IsString({ message: '验证码必须是字符串' })
-  @Length(6, 6, { message: '验证码必须是6位数字' })
-  code?: string;
-
-  // 原始必填验证（已注释）
-  // @ApiProperty({ description: '手机验证码（必填）' })
-  // @IsString({ message: '验证码必须是字符串' })
-  // @Length(6, 6, { message: '验证码必须是6位数字' })
-  // code!: string;
+  @Matches(/^\d{6}$/, { message: '验证码必须是6位数字' })
+  code!: string;
 
   @ApiProperty({ required: false, description: '邀请码（选填）' })
   @IsOptional()

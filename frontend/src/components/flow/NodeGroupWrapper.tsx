@@ -198,7 +198,7 @@ export default function NodeGroupWrapper({
         <button
           onClick={() => onDissolve(group.id)}
           className="p-1.5 rounded-md hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
-          title="解散组 (Ctrl/Cmd + Shift + G)"
+          title="解散组 (Shift + G)"
           style={{ background: 'rgba(255, 255, 255, 0.95)', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}
         >
           <Ungroup style={{ width: 12, height: 12 }} />

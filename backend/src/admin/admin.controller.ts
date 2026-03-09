@@ -17,6 +17,7 @@ import { FastifyRequest } from 'fastify';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 import { AdminService } from './admin.service';
 import { CreditsService } from '../credits/credits.service';
+import { CreditsAnomalyService } from '../credits/credits-anomaly.service';
 import { TemplateService } from './services/template.service';
 import { NodeConfigService, NodeConfigDto, UpdateNodeConfigDto } from './services/node-config.service';
 import {
@@ -25,6 +26,8 @@ import {
   ApiUsageRecordsQueryDto,
   UpdateUserStatusDto,
   UpdateUserRoleDto,
+  CreditChangeRecordsQueryDto,
+  CreditAnomalyRecordsQueryDto,
 } from './dto/admin.dto';
 import {
   CreateTemplateDto,
@@ -47,6 +50,7 @@ export class AdminController {
   constructor(
     private readonly adminService: AdminService,
     private readonly creditsService: CreditsService,
+    private readonly creditsAnomalyService: CreditsAnomalyService,
     private readonly templateService: TemplateService,
     private readonly nodeConfigService: NodeConfigService,
   ) {}
@@ -374,16 +378,60 @@ export class AdminController {
   // ==================== 付费用户管理 ====================
 
   @Get('paid-users')
-  @ApiOperation({ summary: '获取付费用户列表（按总支付金额排序）' })
+  @ApiOperation({ summary: '获取付费用户列表（支持金额/注册时间/支付时间排序）' })
   async getPaidUsers(
     @Request() req: AuthenticatedRequest,
-    @Query() query: { page?: string; pageSize?: string; search?: string },
+    @Query() query: {
+      page?: string;
+      pageSize?: string;
+      search?: string;
+      sortBy?: 'amount' | 'registeredAt' | 'paidAt';
+      sortOrder?: 'asc' | 'desc';
+    },
   ) {
     this.checkAdmin(req);
     return this.adminService.getPaidUsers({
       page: query.page ? parseInt(query.page) : 1,
       pageSize: query.pageSize ? parseInt(query.pageSize) : 10,
       search: query.search,
+      sortBy: query.sortBy,
+      sortOrder: query.sortOrder,
+    });
+  }
+
+  @Get('credit-change-records')
+  @ApiOperation({ summary: '获取积分变更记录（充值 + 后台手动调整）' })
+  async getCreditChangeRecords(
+    @Request() req: AuthenticatedRequest,
+    @Query() query: CreditChangeRecordsQueryDto,
+  ) {
+    this.checkAdmin(req);
+    return this.adminService.getCreditChangeRecords({
+      page: query.page,
+      pageSize: query.pageSize,
+      search: query.search,
+      userId: query.userId,
+      source: query.source,
+      startDate: query.startDate ? new Date(query.startDate) : undefined,
+      endDate: query.endDate ? new Date(query.endDate) : undefined,
+    });
+  }
+
+  @Get('credit-anomalies')
+  @ApiOperation({ summary: '获取积分异常检测记录（当天增量超过2000）' })
+  async getCreditAnomalyRecords(
+    @Request() req: AuthenticatedRequest,
+    @Query() query: CreditAnomalyRecordsQueryDto,
+  ) {
+    this.checkAdmin(req);
+    return this.creditsAnomalyService.getCreditAnomalyRecords({
+      page: query.page,
+      pageSize: query.pageSize,
+      search: query.search,
+      userId: query.userId,
+      severity: query.severity,
+      startDate: query.startDate ? new Date(query.startDate) : undefined,
+      endDate: query.endDate ? new Date(query.endDate) : undefined,
     });
   }
 

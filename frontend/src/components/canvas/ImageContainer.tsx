@@ -9,13 +9,17 @@ import React, {
 import paper from "paper";
 import { useCanvasStore } from "@/stores";
 import {
-  Sparkles,
   EyeOff,
   Wand2,
+  Zap,
+  Layers,
   ArrowRightLeft,
   Rotate3d,
   Crop,
   ImageUp,
+  Type,
+  Lock,
+  Unlock,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import ImagePreviewModal, { type ImageItem } from "../ui/ImagePreviewModal";
@@ -45,7 +49,16 @@ import {
 } from "@/utils/imageSource";
 import { canvasToDataUrl, dataUrlToBlob } from "@/utils/imageConcurrency";
 
-const EXPAND_PRESET_PROMPT = "不改变图片比例，填充白色部分";
+const EXPAND_PRESET_PROMPT =
+  "请智能填充图像中的黑色区域，使其与原始图像内容完美融合，保持原图的高宽比不变";
+const TEXT_RECOGNITION_PROMPT =
+  '请识别图片中所有可见文字，并仅返回 JSON 数组，例如：["文字1","文字2"]。不要返回其他解释。';
+
+type TextReplacementItem = {
+  id: string;
+  originalText: string;
+  nextText: string;
+};
 
 type Bounds = { x: number; y: number; width: number; height: number };
 const ensureDataUrlString = (
@@ -60,6 +73,92 @@ const ensureDataUrlString = (
 
 const normalizeImageSrc = (value?: string | null): string => {
   return toRenderableImageSrc(value) || "";
+};
+
+const dedupeTexts = (items: string[]): string[] => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const item of items) {
+    const text = item.trim();
+    if (!text) continue;
+    if (seen.has(text)) continue;
+    seen.add(text);
+    result.push(text);
+  }
+  return result;
+};
+
+const parseRecognizedTexts = (analysis: string): string[] => {
+  const normalized = analysis.trim();
+  if (!normalized) return [];
+
+  const parseJsonTexts = (raw: string): string[] => {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed.filter((item): item is string => typeof item === "string");
+      }
+      if (parsed && typeof parsed === "object") {
+        const maybeTexts = (parsed as { texts?: unknown }).texts;
+        if (Array.isArray(maybeTexts)) {
+          return maybeTexts.filter(
+            (item): item is string => typeof item === "string"
+          );
+        }
+      }
+    } catch {
+      return [];
+    }
+    return [];
+  };
+
+  const fenced = normalized.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1];
+  const fromJson = dedupeTexts([
+    ...parseJsonTexts(fenced ?? ""),
+    ...parseJsonTexts(normalized),
+  ]);
+  if (fromJson.length > 0) {
+    return fromJson.slice(0, 20);
+  }
+
+  const lines = normalized
+    .split(/\r?\n/)
+    .map((line) =>
+      line
+        .replace(/^[\s\-*•\d.)["'`]+/, "")
+        .replace(/[\]"'`]+$/, "")
+        .trim()
+    )
+    .filter(Boolean);
+
+  return dedupeTexts(lines).slice(0, 20);
+};
+
+const buildTextEditPrompt = (
+  replacements: Array<{ originalText: string; nextText: string }>,
+  extraInstruction?: string
+): string => {
+  const lines: string[] = [
+    "请仅修改图片中的文字，保持主体、背景、构图、颜色、光影和风格不变。",
+    "请严格按以下规则替换文字：",
+  ];
+
+  replacements.forEach((item, index) => {
+    lines.push(
+      `${index + 1}. 将“${item.originalText}”替换为“${item.nextText}”。`
+    );
+  });
+
+  if (extraInstruction?.trim()) {
+    lines.push(`补充要求：${extraInstruction.trim()}`);
+  }
+
+  lines.push(
+    "如果某条原文字在图中不存在，请忽略该条，不要新增无关文字。",
+    "除文字替换外，不要改动任何图像内容。"
+  );
+
+  return lines.join("\n");
 };
 
 const _composeExpandedImage = async (
@@ -100,7 +199,7 @@ const _composeExpandedImage = async (
   }
 
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = "#000000";
   ctx.fillRect(0, 0, canvasWidth, canvasHeight);
   ctx.drawImage(image, offsetX, offsetY, image.width, image.height);
 
@@ -122,6 +221,7 @@ interface ImageData {
   localDataUrl?: string;
   width?: number; // 图片原始宽度
   height?: number; // 图片原始高度
+  locked?: boolean;
 }
 
 interface ImageContainerProps {
@@ -143,6 +243,7 @@ interface ImageContainerProps {
   }) => void; // Paper.js坐标
   onDelete?: (imageId: string) => void;
   onToggleVisibility?: (imageId: string) => void; // 切换图层可见性回调
+  onToggleLock?: (imageId: string, nextLocked: boolean) => void;
   getImageDataForEditing?: (imageId: string) => string | null; // 获取高质量图像数据的函数
   showIndividualTools?: boolean;
 }
@@ -161,6 +262,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   onResize: _onResize,
   onDelete: _onDelete,
   onToggleVisibility,
+  onToggleLock,
   getImageDataForEditing,
   showIndividualTools = true,
 }) => {
@@ -183,6 +285,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const currentZoom = zoom || 1;
   const showButtonText = currentZoom >= 0.5; // 50%及以上显示文字，稍微放宽一点
   const toolbarScale = 1; // 固定为1，不再跟随缩放
+  const showFastBackgroundRemovalButton = true;
 
   const sharedButtonClass = showButtonText
     ? "px-2 py-1 h-7 rounded-md bg-transparent text-gray-600 text-xs transition-all duration-200 hover:bg-gray-100 hover:text-gray-800 flex items-center gap-1 whitespace-nowrap"
@@ -206,10 +309,21 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const [showPreview, setShowPreview] = useState(false);
   const [previewImageId, setPreviewImageId] = useState<string | null>(null);
   const [isRemovingBackground, setIsRemovingBackground] = useState(false);
+  const [isFastRemovingBackground, setIsFastRemovingBackground] = useState(false);
+  const [isSeparatingLayers, setIsSeparatingLayers] = useState(false);
   const [isConvertingTo3D, setIsConvertingTo3D] = useState(false);
   const [isExpandingImage, setIsExpandingImage] = useState(false);
   const [isOptimizingHd, setIsOptimizingHd] = useState(false);
+  const [isRecognizingText, setIsRecognizingText] = useState(false);
+  const [isApplyingTextEdit, setIsApplyingTextEdit] = useState(false);
+  const [showTextEditPanel, setShowTextEditPanel] = useState(false);
+  const [textReplacementItems, setTextReplacementItems] = useState<
+    TextReplacementItem[]
+  >([]);
+  const [textEditExtraInstruction, setTextEditExtraInstruction] = useState("");
   const [showExpandSelector, setShowExpandSelector] = useState(false);
+  const isImageLocked = Boolean(imageData.locked);
+  const [isHoveringLockedImage, setIsHoveringLockedImage] = useState(false);
   const [projectHistoryItems, setProjectHistoryItems] = useState<
     GlobalImageHistoryItem[]
   >([]);
@@ -564,6 +678,42 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     return convertToScreenBounds(realTimeBounds);
   }, [realTimeBounds, convertToScreenBounds, zoom, panX, panY]); // 添加画布状态依赖，确保完全响应画布变化
 
+  useEffect(() => {
+    if (!isImageLocked || typeof window === "undefined") {
+      setIsHoveringLockedImage(false);
+      return;
+    }
+
+    const handleMouseMove = (event: MouseEvent) => {
+      const canvasEl =
+        (paper?.view?.element as HTMLCanvasElement | undefined) || null;
+      if (!canvasEl) {
+        setIsHoveringLockedImage(false);
+        return;
+      }
+
+      const rect = canvasEl.getBoundingClientRect();
+      const localX = event.clientX - rect.left;
+      const localY = event.clientY - rect.top;
+      const inside =
+        localX >= screenBounds.x &&
+        localX <= screenBounds.x + screenBounds.width &&
+        localY >= screenBounds.y &&
+        localY <= screenBounds.y + screenBounds.height;
+
+      setIsHoveringLockedImage(inside);
+    };
+
+    const handleMouseLeave = () => setIsHoveringLockedImage(false);
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseleave", handleMouseLeave);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseleave", handleMouseLeave);
+    };
+  }, [isImageLocked, screenBounds.height, screenBounds.width, screenBounds.x, screenBounds.y]);
+
   const resolveImageDataUrl = useCallback(async (): Promise<string | null> => {
     // 首先检查缓存的 dataUrl
     const cachedDataUrl = await imageUrlCache.getCachedDataUrl(
@@ -794,12 +944,326 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     ]
   );
 
+  const handleRecognizeImageText = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (isRecognizingText || isApplyingTextEdit) {
+        return;
+      }
+
+      const run = async () => {
+        setShowTextEditPanel(true);
+        setTextReplacementItems([]);
+        setTextEditExtraInstruction("");
+        setIsRecognizingText(true);
+
+        try {
+          const sourceImage = await resolveImageDataUrl();
+          if (!sourceImage) {
+            throw new Error("无法获取原图，无法识别文字");
+          }
+
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message: "🔎 正在识别图片文字...",
+                type: "info",
+              },
+            })
+          );
+
+          const bananaProvider = "banana";
+          const bananaModel = getImageModelForProvider(bananaProvider);
+          const result = await aiImageService.analyzeImage({
+            prompt: TEXT_RECOGNITION_PROMPT,
+            sourceImage,
+            aiProvider: bananaProvider,
+            model: bananaModel,
+          });
+
+          if (!result.success || !result.data?.analysis) {
+            throw new Error(result.error?.message || "文字识别失败");
+          }
+
+          const recognized = parseRecognizedTexts(result.data.analysis);
+          const mapped = recognized.map((text, index) => ({
+            id: `${Date.now()}-${index}`,
+            originalText: text,
+            nextText: "",
+          }));
+
+          setTextReplacementItems(mapped);
+
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message:
+                  mapped.length > 0
+                    ? `✅ 识别到 ${mapped.length} 条文字`
+                    : "⚠️ 未识别到明确文字，请补充替换说明后尝试修改",
+                type: mapped.length > 0 ? "success" : "warning",
+              },
+            })
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "文字识别失败";
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message, type: "error" },
+            })
+          );
+          setShowTextEditPanel(false);
+        } finally {
+          setIsRecognizingText(false);
+        }
+      };
+
+      run().catch(() => {
+        setIsRecognizingText(false);
+      });
+    },
+    [isApplyingTextEdit, isRecognizingText, resolveImageDataUrl]
+  );
+
+  const handleApplyTextEdit = useCallback(
+    async (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (isApplyingTextEdit || isRecognizingText) {
+        return;
+      }
+
+      const replacements = textReplacementItems
+        .map((item) => ({
+          originalText: item.originalText.trim(),
+          nextText: item.nextText.trim(),
+        }))
+        .filter(
+          (item) =>
+            item.originalText.length > 0 &&
+            item.nextText.length > 0 &&
+            item.originalText !== item.nextText
+        );
+
+      if (replacements.length === 0 && !textEditExtraInstruction.trim()) {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: {
+              message: "请先填写需要替换的新文字或补充修改说明",
+              type: "warning",
+            },
+          })
+        );
+        return;
+      }
+
+      setIsApplyingTextEdit(true);
+      try {
+        const sourceImage = await resolveImageDataUrl();
+        if (!sourceImage) {
+          throw new Error("无法获取原图");
+        }
+
+        const prompt = buildTextEditPrompt(
+          replacements,
+          textEditExtraInstruction
+        );
+        const bananaProvider = "banana";
+        const bananaModel = getImageModelForProvider(bananaProvider);
+
+        const result = await aiImageService.editImage({
+          prompt,
+          sourceImage,
+          aiProvider: bananaProvider,
+          model: bananaModel,
+          outputFormat: "png",
+          imageOnly: true,
+        });
+
+        if (!result.success || !result.data?.imageData) {
+          throw new Error(result.error?.message || "图片文字修改失败");
+        }
+
+        const editedImageData = ensureDataUrlString(result.data.imageData);
+        const centerPoint = {
+          x: realTimeBounds.x + realTimeBounds.width / 2,
+          y: realTimeBounds.y + realTimeBounds.height / 2,
+        };
+
+        window.dispatchEvent(
+          new CustomEvent("triggerQuickImageUpload", {
+            detail: {
+              imageData: editedImageData,
+              fileName: `text-edited-${Date.now()}.png`,
+              smartPosition: centerPoint,
+              operationType: "text-edit",
+              sourceImageId: imageData.id,
+            },
+          })
+        );
+
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "✨ 文字修改完成，已生成新图", type: "success" },
+          })
+        );
+
+        setShowTextEditPanel(false);
+        setTextReplacementItems([]);
+        setTextEditExtraInstruction("");
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "图片文字修改失败";
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message, type: "error" },
+          })
+        );
+      } finally {
+        setIsApplyingTextEdit(false);
+      }
+    },
+    [
+      imageData.id,
+      isApplyingTextEdit,
+      isRecognizingText,
+      realTimeBounds.height,
+      realTimeBounds.width,
+      realTimeBounds.x,
+      realTimeBounds.y,
+      resolveImageDataUrl,
+      textEditExtraInstruction,
+      textReplacementItems,
+    ]
+  );
+
+  const runBackgroundRemoval = useCallback(
+    async (
+      baseImage: string,
+      options?: { showToasts?: boolean }
+    ): Promise<string> => {
+      const showToasts = options?.showToasts ?? true;
+
+      logger.info("🎯 开始背景移除", { imageId: imageData.id });
+
+      // 仅用于「一键抠图 / 一键分层(主体层)」的预处理模型优先级
+      // 顺序：2.5 -> 3.1 -> 3 pro
+      const BG_REMOVAL_MODELS = [
+        "gemini-2.5-flash-image",
+        "gemini-3.1-flash-image-preview",
+        "gemini-3-pro-image-preview",
+      ] as const;
+      const BG_REMOVAL_PROVIDER = "banana"; // 改用Pro版获得更好的质量
+
+      logger.info("📷 Step 1: Gemini 预处理 - 背景换成纯色", {
+        aiProvider: BG_REMOVAL_PROVIDER,
+        modelPriority: BG_REMOVAL_MODELS,
+      });
+
+      if (showToasts) {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "🔄 正在预处理图片...", type: "info" },
+          })
+        );
+      }
+
+      let preprocessedImage: string | null = null;
+      let selectedModel: string | null = null;
+      let lastError: unknown = null;
+
+      for (const model of BG_REMOVAL_MODELS) {
+        logger.info("📷 尝试预处理模型", {
+          aiProvider: BG_REMOVAL_PROVIDER,
+          model,
+        });
+        const editResult = await aiImageService.editImage({
+          prompt: "只保留完整的主体，背景换成纯色",
+          sourceImage: baseImage,
+          model,
+          aiProvider: BG_REMOVAL_PROVIDER,
+          outputFormat: "png",
+          imageOnly: true,
+        });
+
+        if (editResult.success && editResult.data?.imageData) {
+          selectedModel = model;
+          preprocessedImage = ensureDataUrlString(
+            editResult.data.imageData,
+            "image/png"
+          );
+          break;
+        }
+
+        lastError = editResult.error;
+        logger.warn("⚠️ 预处理模型失败，准备切换下一个模型", {
+          model,
+          error: editResult.error,
+        });
+      }
+
+      if (!preprocessedImage) {
+        logger.warn("⚠️ Gemini 预处理全部失败，使用原图继续抠图", lastError);
+      }
+
+      const imageForRemoval = preprocessedImage ?? baseImage;
+
+      if (showToasts && preprocessedImage) {
+        logger.info("✅ Gemini 预处理完成，开始抠图算法");
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "🔄 正在精细抠图...", type: "info" },
+          })
+        );
+      }
+
+      if (selectedModel) {
+        logger.info("✅ 预处理命中模型", {
+          imageId: imageData.id,
+          model: selectedModel,
+        });
+      }
+
+      // Step 2: 将预处理后的图片传给抠图算法
+      logger.info("📷 Step 2: 抠图算法处理");
+      const result = await backgroundRemovalService.removeBackground(
+        imageForRemoval,
+        "image/png",
+        true
+      );
+      if (!result.success || !result.imageData) {
+        throw new Error(result.error || "背景移除失败");
+      }
+
+      return result.imageData;
+    },
+    [imageData.id]
+  );
+
+  const runFastBackgroundRemoval = useCallback(
+    async (baseImage: string): Promise<string> => {
+      logger.info("⚡ 开始极速抠图", { imageId: imageData.id });
+      const result = await backgroundRemovalService.removeBackground(
+        baseImage,
+        "image/png",
+        true
+      );
+      if (!result.success || !result.imageData) {
+        throw new Error(result.error || "极速抠图失败");
+      }
+      return result.imageData;
+    },
+    [imageData.id]
+  );
+
   const handleBackgroundRemoval = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
 
-      if (isRemovingBackground) {
+      if (isRemovingBackground || isFastRemovingBackground || isSeparatingLayers) {
         return;
       }
 
@@ -816,63 +1280,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
         setIsRemovingBackground(true);
         try {
-          logger.info("🎯 开始背景移除", { imageId: imageData.id });
-
-          // 使用 Gemini 2.5 Flash 模型进行预处理（速度更快）
-          const BG_REMOVAL_MODEL = "gemini-2.5-flash-image";
-          const BG_REMOVAL_PROVIDER = "banana"; // 改用Pro版获得更好的质量
-
-          logger.info("📷 Step 1: Gemini 2.5 预处理 - 背景换成纯色", {
-            aiProvider: BG_REMOVAL_PROVIDER,
-            model: BG_REMOVAL_MODEL,
+          const removedData = await runBackgroundRemoval(baseImage, {
+            showToasts: true,
           });
-          window.dispatchEvent(
-            new CustomEvent("toast", {
-              detail: { message: "🔄 正在预处理图片...", type: "info" },
-            })
-          );
-
-          const editResult = await aiImageService.editImage({
-            prompt: "只保留完整的主体，背景换成纯色",
-            sourceImage: baseImage,
-            model: BG_REMOVAL_MODEL,
-            aiProvider: BG_REMOVAL_PROVIDER,
-            outputFormat: "png",
-            imageOnly: true,
-          });
-
-          if (!editResult.success || !editResult.data?.imageData) {
-            logger.warn(
-              "⚠️ Gemini 预处理失败，使用原图继续抠图",
-              editResult.error
-            );
-            // 预处理失败时，继续使用原图进行抠图
-          }
-
-          const imageForRemoval =
-            editResult.success && editResult.data?.imageData
-              ? ensureDataUrlString(editResult.data.imageData, "image/png")
-              : baseImage;
-
-          if (editResult.success && editResult.data?.imageData) {
-            logger.info("✅ Gemini 预处理完成，开始抠图算法");
-            window.dispatchEvent(
-              new CustomEvent("toast", {
-                detail: { message: "🔄 正在精细抠图...", type: "info" },
-              })
-            );
-          }
-
-          // Step 2: 将预处理后的图片传给抠图算法
-          logger.info("📷 Step 2: 抠图算法处理");
-          const result = await backgroundRemovalService.removeBackground(
-            imageForRemoval,
-            "image/png",
-            true
-          );
-          if (!result.success || !result.imageData) {
-            throw new Error(result.error || "背景移除失败");
-          }
 
           const centerPoint = {
             x: realTimeBounds.x + realTimeBounds.width / 2,
@@ -883,7 +1293,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           window.dispatchEvent(
             new CustomEvent("triggerQuickImageUpload", {
               detail: {
-                imageData: result.imageData,
+                imageData: removedData,
                 fileName,
                 smartPosition: centerPoint,
                 operationType: "background-removal",
@@ -918,7 +1328,404 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         setIsRemovingBackground(false);
       });
     },
-    [imageData.id, resolveImageDataUrl, isRemovingBackground, realTimeBounds]
+    [
+      imageData.id,
+      resolveImageDataUrl,
+      isRemovingBackground,
+      isFastRemovingBackground,
+      isSeparatingLayers,
+      realTimeBounds,
+      runBackgroundRemoval,
+    ]
+  );
+
+  const handleFastBackgroundRemoval = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (isRemovingBackground || isFastRemovingBackground || isSeparatingLayers) {
+        return;
+      }
+
+      const execute = async () => {
+        const baseImage = await resolveImageDataUrl();
+        if (!baseImage) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "无法获取原图，无法抠图", type: "error" },
+            })
+          );
+          return;
+        }
+
+        setIsFastRemovingBackground(true);
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "⚡ 正在极速抠图...", type: "info" },
+          })
+        );
+        try {
+          const removedData = await runFastBackgroundRemoval(baseImage);
+
+          const centerPoint = {
+            x: realTimeBounds.x + realTimeBounds.width / 2,
+            y: realTimeBounds.y + realTimeBounds.height / 2,
+          };
+
+          const fileName = `background-removed-fast-${Date.now()}.png`;
+          window.dispatchEvent(
+            new CustomEvent("triggerQuickImageUpload", {
+              detail: {
+                imageData: removedData,
+                fileName,
+                smartPosition: centerPoint,
+                operationType: "background-removal-fast",
+                sourceImageId: imageData.id,
+              },
+            })
+          );
+
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "⚡ 极速抠图完成，已生成新图", type: "success" },
+            })
+          );
+          logger.info("✅ 极速抠图完成", { imageId: imageData.id });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "极速抠图失败";
+          console.error("极速抠图失败:", error);
+          logger.error("❌ 极速抠图失败", error);
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message, type: "error" },
+            })
+          );
+        } finally {
+          setIsFastRemovingBackground(false);
+        }
+      };
+
+      execute().catch((error) => {
+        console.error("极速抠图异常:", error);
+        setIsFastRemovingBackground(false);
+      });
+    },
+    [
+      imageData.id,
+      isFastRemovingBackground,
+      isRemovingBackground,
+      isSeparatingLayers,
+      realTimeBounds.height,
+      realTimeBounds.width,
+      realTimeBounds.x,
+      realTimeBounds.y,
+      resolveImageDataUrl,
+      runFastBackgroundRemoval,
+    ]
+  );
+
+  const extractBackgroundLayer = useCallback(
+    async (baseImage: string): Promise<string> => {
+      const BG_EXTRACT_MODEL = "gemini-2.5-flash-image";
+      const BG_EXTRACT_PROVIDER = "banana";
+      const prompt =
+        "去掉画面中的主体，只保留背景。保持背景内容、颜色、光影和风格不变，并自然补全被遮挡的区域。";
+
+      const result = await aiImageService.editImage({
+        prompt,
+        sourceImage: baseImage,
+        model: BG_EXTRACT_MODEL,
+        aiProvider: BG_EXTRACT_PROVIDER,
+        outputFormat: "png",
+        imageOnly: true,
+      });
+
+      if (!result.success || !result.data?.imageData) {
+        throw new Error(result.error?.message || "背景提取失败");
+      }
+
+      return ensureDataUrlString(result.data.imageData, "image/png");
+    },
+    []
+  );
+
+  const detectImageText = useCallback(async (baseImage: string): Promise<string[]> => {
+    const bananaProvider = "banana";
+    const bananaModel = getImageModelForProvider(bananaProvider);
+    const result = await aiImageService.analyzeImage({
+      prompt: TEXT_RECOGNITION_PROMPT,
+      sourceImage: baseImage,
+      aiProvider: bananaProvider,
+      model: bananaModel,
+    });
+
+    if (!result.success || !result.data?.analysis) {
+      throw new Error(result.error?.message || "文字识别失败");
+    }
+
+    return parseRecognizedTexts(result.data.analysis);
+  }, []);
+
+  const extractTextLayer = useCallback(async (baseImage: string): Promise<string> => {
+    const TEXT_LAYER_MODEL = "gemini-2.5-flash-image";
+    const TEXT_LAYER_PROVIDER = "banana";
+    const prompt =
+      "提取出来图中的文字，保留文字和文字本身的颜色样式，图形都不要，背景留白色。";
+
+    const result = await aiImageService.editImage({
+      prompt,
+      sourceImage: baseImage,
+      model: TEXT_LAYER_MODEL,
+      aiProvider: TEXT_LAYER_PROVIDER,
+      outputFormat: "png",
+      imageOnly: true,
+    });
+
+    if (!result.success || !result.data?.imageData) {
+      throw new Error(result.error?.message || "文字层提取失败");
+    }
+
+    return ensureDataUrlString(result.data.imageData, "image/png");
+  }, []);
+
+  const removeTextLayer = useCallback(async (baseImage: string): Promise<string> => {
+    const TEXT_REMOVE_MODEL = "gemini-2.5-flash-image";
+    const TEXT_REMOVE_PROVIDER = "banana";
+    const prompt =
+      "去掉画面中的所有文字与文字相关图形元素，保留主体、背景、构图、颜色和光影不变，并自然补全被遮挡的区域。";
+
+    const result = await aiImageService.editImage({
+      prompt,
+      sourceImage: baseImage,
+      model: TEXT_REMOVE_MODEL,
+      aiProvider: TEXT_REMOVE_PROVIDER,
+      outputFormat: "png",
+      imageOnly: true,
+    });
+
+    if (!result.success || !result.data?.imageData) {
+      throw new Error(result.error?.message || "去文字处理失败");
+    }
+
+    return ensureDataUrlString(result.data.imageData, "image/png");
+  }, []);
+
+  const handleLayerSeparation = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (isSeparatingLayers || isRemovingBackground || isFastRemovingBackground) {
+        return;
+      }
+
+      const execute = async () => {
+        const baseImage = await resolveImageDataUrl();
+        if (!baseImage) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "无法获取原图，无法分层", type: "error" },
+            })
+          );
+          return;
+        }
+
+        setIsSeparatingLayers(true);
+        const batchId = Date.now();
+        const groupId = `layer-split-${imageData.id}-${batchId}`;
+        const centerPoint = {
+          x: realTimeBounds.x + realTimeBounds.width / 2,
+          y: realTimeBounds.y + realTimeBounds.height / 2,
+        };
+        const placementGap = Math.max(
+          32,
+          Math.min(120, realTimeBounds.width * 0.1)
+        );
+        const anchorPoint = {
+          x: centerPoint.x + realTimeBounds.width + placementGap,
+          y: centerPoint.y,
+        };
+
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "🔄 正在分离主体和背景...", type: "info" },
+          })
+        );
+
+        let workingImage = baseImage;
+        const outputs: Array<{ label: string; imageData: string }> = [];
+
+        let detectedTexts: string[] = [];
+        try {
+          detectedTexts = await detectImageText(baseImage);
+        } catch (error) {
+          logger.warn("文字识别失败，跳过文字分离", error);
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message: "⚠️ 文字识别失败，将直接分层",
+                type: "warning",
+              },
+            })
+          );
+        }
+
+        if (detectedTexts.length > 0) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "📝 检测到文字，正在分离文字...", type: "info" },
+            })
+          );
+
+          const [textLayerResult, textlessResult] = await Promise.allSettled([
+            extractTextLayer(baseImage),
+            removeTextLayer(baseImage),
+          ]);
+
+          if (textLayerResult.status === "fulfilled") {
+            outputs.push({ label: "text-layer", imageData: textLayerResult.value });
+          } else {
+            logger.error("文字层生成失败", textLayerResult.reason);
+          }
+
+          if (textlessResult.status === "fulfilled") {
+            outputs.push({ label: "textless-image", imageData: textlessResult.value });
+            workingImage = textlessResult.value;
+          } else {
+            logger.error("去文字处理失败", textlessResult.reason);
+            window.dispatchEvent(
+              new CustomEvent("toast", {
+                detail: {
+                  message: "⚠️ 去文字失败，将使用原图继续分层",
+                  type: "warning",
+                },
+              })
+            );
+          }
+        }
+
+        const [subjectResult, backgroundResult] = await Promise.allSettled([
+          runBackgroundRemoval(workingImage, { showToasts: false }),
+          extractBackgroundLayer(workingImage),
+        ]);
+
+        if (subjectResult.status === "fulfilled") {
+          outputs.push({ label: "subject-layer", imageData: subjectResult.value });
+        } else {
+          logger.error("主体层生成失败", subjectResult.reason);
+        }
+
+        if (backgroundResult.status === "fulfilled") {
+          outputs.push({ label: "background-layer", imageData: backgroundResult.value });
+        } else {
+          logger.error("背景层生成失败", backgroundResult.reason);
+          // 如果是基于去文字图失败，尝试回退到原图再生成一次背景层
+          if (workingImage !== baseImage) {
+            try {
+              const fallbackBackground = await extractBackgroundLayer(baseImage);
+              outputs.push({ label: "background-layer", imageData: fallbackBackground });
+              window.dispatchEvent(
+                new CustomEvent("toast", {
+                  detail: {
+                    message: "⚠️ 背景层回退使用原图生成",
+                    type: "warning",
+                  },
+                })
+              );
+            } catch (fallbackError) {
+              logger.error("背景层回退生成失败", fallbackError);
+            }
+          }
+        }
+
+        const totalCount = outputs.length;
+        if (totalCount === 0) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "分层失败，请稍后重试", type: "error" },
+            })
+          );
+          return;
+        }
+
+        outputs.forEach((item, index) => {
+          const fileName = `layer-${item.label}-${batchId}.png`;
+          window.dispatchEvent(
+            new CustomEvent("triggerQuickImageUpload", {
+              detail: {
+                imageData: item.imageData,
+                fileName,
+                smartPosition: anchorPoint,
+                operationType: "layer-split",
+                sourceImageId: imageData.id,
+                parallelGroupId: groupId,
+                parallelGroupIndex: index,
+                parallelGroupTotal: totalCount,
+              },
+            })
+          );
+        });
+
+        if (totalCount >= 4) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message: "✨ 分层完成，已生成文字层、去文字图、主体层和背景层",
+                type: "success",
+              },
+            })
+          );
+        } else if (totalCount >= 2) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message: "✨ 分层完成，已生成主体层和背景层",
+                type: "success",
+              },
+            })
+          );
+        } else {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message: "分层部分完成，已生成部分结果",
+                type: "warning",
+              },
+            })
+          );
+        }
+      };
+
+      execute()
+        .catch((error) => {
+          logger.error("分层异常", error);
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "分层失败，请稍后重试", type: "error" },
+            })
+          );
+        })
+        .finally(() => {
+          setIsSeparatingLayers(false);
+        });
+    },
+    [
+      detectImageText,
+      extractBackgroundLayer,
+      extractTextLayer,
+      isFastRemovingBackground,
+      imageData.id,
+      isRemovingBackground,
+      isSeparatingLayers,
+      removeTextLayer,
+      realTimeBounds.height,
+      realTimeBounds.width,
+      realTimeBounds.x,
+      realTimeBounds.y,
+      resolveImageDataUrl,
+      runBackgroundRemoval,
+    ]
   );
 
   // 处理2D转3D按钮点击
@@ -1114,6 +1921,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     ) => {
       setShowExpandSelector(false);
       setIsExpandingImage(true);
+      let expandPlaceholderId: string | null = null;
 
       try {
         const selectedRight = selectedBounds.x + selectedBounds.width;
@@ -1148,6 +1956,35 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           })
         );
 
+        const expandPlacementGap = Math.max(
+          32,
+          Math.min(120, selectedBounds.width * 0.1)
+        );
+        const expandedCenter = {
+          x: selectedBounds.x + selectedBounds.width / 2,
+          y: selectedBounds.y + selectedBounds.height / 2,
+        };
+        const expandResultCenter = {
+          x: expandedCenter.x - selectedBounds.width - expandPlacementGap,
+          y: expandedCenter.y,
+        };
+        expandPlaceholderId = `expand_${imageData.id}_${Date.now()}_${Math.random()
+          .toString(36)
+          .slice(2, 8)}`;
+        window.dispatchEvent(
+          new CustomEvent("predictImagePlaceholder", {
+            detail: {
+              action: "add",
+              placeholderId: expandPlaceholderId,
+              center: expandResultCenter,
+              width: selectedBounds.width,
+              height: selectedBounds.height,
+              operationType: "expand-image",
+              sourceImageId: imageData.id,
+            },
+          })
+        );
+
         const baseImageDataUrl = await resolveImageDataUrl();
         if (!baseImageDataUrl) {
           throw new Error("无法获取当前图片数据");
@@ -1157,6 +1994,29 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           baseImageDataUrl,
           realTimeBounds,
           selectedBounds
+        );
+
+        // 同步输出合成黑底图到画布，便于对比与调试
+        const previewGap = Math.max(
+          32,
+          Math.min(120, selectedBounds.width * 0.1)
+        );
+        const previewCenter = {
+          x: selectedBounds.x + selectedBounds.width / 2 + selectedBounds.width + previewGap,
+          y: selectedBounds.y + selectedBounds.height / 2,
+        };
+        window.dispatchEvent(
+          new CustomEvent("triggerQuickImageUpload", {
+            detail: {
+              imageData: composed.dataUrl,
+              fileName: `expanded-composed-${Date.now()}.png`,
+              selectedImageBounds: selectedBounds,
+              smartPosition: previewCenter,
+              operationType: "expand-image-composed",
+              sourceImageId: imageData.id,
+              preferHorizontal: true,
+            },
+          })
         );
 
         // 调试：在控制台查看合成图片信息
@@ -1173,7 +2033,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                 <p>尺寸: ${composed.width} x ${composed.height} 像素</p>
                 <img src="${composed.dataUrl}" style="max-width:100%; border:1px solid #ccc;" />
                 <p style="margin-top:20px; color:#666;">
-                  这就是发送给Gemini进行扩图的原始图片（包含白色扩展区域）
+                  这就是发送给Gemini进行扩图的原始图片（包含黑色扩展区域）
                 </p>
               </body>
             </html>
@@ -1216,20 +2076,6 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           "image/png"
         );
 
-        // 使用扩展后的边界尺寸来计算放置位置，避免错位
-        const expandedCenter = {
-          x: selectedBounds.x + selectedBounds.width / 2,
-          y: selectedBounds.y + selectedBounds.height / 2,
-        };
-        const expandPlacementGap = Math.max(
-          32,
-          Math.min(120, selectedBounds.width * 0.1)
-        );
-        const expandResultCenter = {
-          x: expandedCenter.x - selectedBounds.width - expandPlacementGap,
-          y: expandedCenter.y,
-        };
-
         window.dispatchEvent(
           new CustomEvent("triggerQuickImageUpload", {
             detail: {
@@ -1239,6 +2085,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               smartPosition: expandResultCenter,
               operationType: "expand-image",
               sourceImageId: imageData.id,
+              placeholderId: expandPlaceholderId,
             },
           })
         );
@@ -1251,6 +2098,13 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       } catch (error) {
         const message = error instanceof Error ? error.message : "扩图失败";
         logger.error("扩图失败", error);
+        if (expandPlaceholderId) {
+          window.dispatchEvent(
+            new CustomEvent("predictImagePlaceholder", {
+              detail: { action: "remove", placeholderId: expandPlaceholderId },
+            })
+          );
+        }
         window.dispatchEvent(
           new CustomEvent("toast", {
             detail: { message, type: "error" },
@@ -1496,30 +2350,6 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         }}
       />
 
-      {/* 上传状态提示：本地 blob 预览上传中 */}
-      {imageData.pendingUpload && (
-        <div
-          style={{
-            position: "absolute",
-            top: 6,
-            left: 6,
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "4px 8px",
-            borderRadius: 999,
-            background: "rgba(0,0,0,0.45)",
-            color: "#fff",
-            fontSize: 12,
-            lineHeight: "16px",
-            pointerEvents: "none",
-          }}
-        >
-          <LoadingSpinner size="sm" className="text-white" />
-          <span>上传中…</span>
-        </div>
-      )}
-
       {/* 图片信息条 - 选中时显示在图片内部顶部，左上角显示名称，右上角显示分辨率 */}
       {isSelected && !showExpandSelector && !shouldHideUi && (
         <div
@@ -1538,20 +2368,47 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           }}
         >
           {/* 左侧：图片名称 */}
-          <span
+          <div
             style={{
-              fontWeight: 500,
-              fontSize: 10 * toolbarScale,
-              color: "#fff",
-              padding: `${2 * toolbarScale}px ${4 * toolbarScale}px`,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
+              display: "flex",
+              alignItems: "center",
+              minWidth: 0,
               maxWidth: "60%",
+              gap: 4 * toolbarScale,
             }}
-            title={imageData.fileName || `图片 ${imageData.id}`}
           >
-            {imageData.fileName || `图片 ${imageData.id}`}
-          </span>
+            <Button
+              variant='ghost'
+              size='sm'
+              className='h-5 w-5 p-0 rounded-md bg-black/35 text-white hover:bg-black/55'
+              style={{ pointerEvents: "auto" }}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onToggleLock?.(imageData.id, !isImageLocked);
+              }}
+              title={isImageLocked ? "解锁图片" : "锁定图片"}
+            >
+              {isImageLocked ? (
+                <Lock className='w-3 h-3' />
+              ) : (
+                <Unlock className='w-3 h-3' />
+              )}
+            </Button>
+            <span
+              style={{
+                fontWeight: 500,
+                fontSize: 10 * toolbarScale,
+                color: "#fff",
+                padding: `${2 * toolbarScale}px ${4 * toolbarScale}px`,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+              title={imageData.fileName || `图片 ${imageData.id}`}
+            >
+              {imageData.fileName || `图片 ${imageData.id}`}
+            </span>
+          </div>
           {/* 右侧：分辨率 */}
           {naturalSize && (
             <span
@@ -1568,6 +2425,36 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           )}
         </div>
       )}
+
+      {/* 锁定态 hover 解锁按钮（不依赖选中） */}
+      {isImageLocked &&
+        isHoveringLockedImage &&
+        !showExpandSelector &&
+        !shouldHideUi && (
+          <div
+            style={{
+              position: "absolute",
+              top: 4 * toolbarScale,
+              left: 4 * toolbarScale,
+              zIndex: 35,
+              pointerEvents: "auto",
+            }}
+          >
+            <Button
+              variant='ghost'
+              size='sm'
+              className='h-6 w-6 p-0 rounded-md bg-black/45 text-white hover:bg-black/65 flex items-center justify-center'
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onToggleLock?.(imageData.id, false);
+              }}
+              title='解锁图片'
+            >
+              <Lock className='w-3 h-3' />
+            </Button>
+          </div>
+        )}
 
       {/* 扩图选择器 - 截图时显示，隐藏小工具栏 */}
       {showExpandSelector && (
@@ -1588,6 +2475,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
       {/* 图片操作按钮组 - 只在选中时显示，位于图片底部，截图时隐藏 */}
       {isSelected &&
+        !isImageLocked &&
         showIndividualTools &&
         !showExpandSelector &&
         !shouldHideUi && (
@@ -1622,13 +2510,16 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               <Button
                 variant='ghost'
                 size='sm'
-                disabled={isPendingUpload || isRemovingBackground}
+                disabled={
+                  isPendingUpload ||
+                  isRemovingBackground ||
+                  isFastRemovingBackground ||
+                  isSeparatingLayers
+                }
                 className={sharedButtonClass}
                 onClick={handleBackgroundRemoval}
                 title={
-                  isPendingUpload
-                    ? "上传中暂不可操作"
-                    : isRemovingBackground
+                  isRemovingBackground
                     ? "正在抠图..."
                     : "一键抠图"
                 }
@@ -1641,6 +2532,54 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                 {showButtonText && <span>一键抠图</span>}
               </Button>
 
+              {showFastBackgroundRemovalButton && (
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  disabled={
+                    isPendingUpload ||
+                    isRemovingBackground ||
+                    isFastRemovingBackground ||
+                    isSeparatingLayers
+                  }
+                  className={sharedButtonClass}
+                  onClick={handleFastBackgroundRemoval}
+                  title={
+                    isFastRemovingBackground
+                      ? "正在极速抠图..."
+                      : "极速抠图"
+                  }
+                >
+                  {isFastRemovingBackground ? (
+                    <LoadingSpinner size='sm' className='text-blue-600' />
+                  ) : (
+                    <Zap className={sharedIconClass} />
+                  )}
+                  {showButtonText && <span>极速抠图</span>}
+                </Button>
+              )}
+
+              <Button
+                variant='ghost'
+                size='sm'
+                disabled={
+                  isPendingUpload ||
+                  isSeparatingLayers ||
+                  isRemovingBackground ||
+                  isFastRemovingBackground
+                }
+                className={sharedButtonClass}
+                onClick={handleLayerSeparation}
+                title={isSeparatingLayers ? "正在分层..." : "一键分层"}
+              >
+                {isSeparatingLayers ? (
+                  <LoadingSpinner size='sm' className='text-blue-600' />
+                ) : (
+                  <Layers className={sharedIconClass} />
+                )}
+                {showButtonText && <span>一键分层</span>}
+              </Button>
+
               <Button
                 variant='ghost'
                 size='sm'
@@ -1648,9 +2587,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                 className={sharedButtonClass}
                 onClick={handleConvertTo3D}
                 title={
-                  isPendingUpload
-                    ? "上传中暂不可操作"
-                    : isConvertingTo3D
+                  isConvertingTo3D
                     ? "正在转换3D..."
                     : "2D转3D"
                 }
@@ -1670,9 +2607,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                 className={sharedButtonClass}
                 onClick={handleOptimizeHdImage}
                 title={
-                  isPendingUpload
-                    ? "上传中暂不可操作"
-                    : isOptimizingHd
+                  isOptimizingHd
                     ? "正在高清放大..."
                     : "高清放大"
                 }
@@ -1692,9 +2627,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                 className={sharedButtonClass}
                 onClick={handleExpandImage}
                 title={
-                  isPendingUpload
-                    ? "上传中暂不可操作"
-                    : isExpandingImage
+                  isExpandingImage
                     ? "正在扩图..."
                     : showExpandSelector
                     ? "请选择扩图区域"
@@ -1707,6 +2640,30 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                   <Crop className={sharedIconClass} />
                 )}
                 {showButtonText && <span>图片拓展</span>}
+              </Button>
+
+              <Button
+                variant='ghost'
+                size='sm'
+                disabled={
+                  isPendingUpload || isRecognizingText || isApplyingTextEdit
+                }
+                className={sharedButtonClass}
+                onClick={handleRecognizeImageText}
+                title={
+                  isRecognizingText
+                    ? "正在识别文字..."
+                    : isApplyingTextEdit
+                    ? "正在修改文字..."
+                    : "修改图片中的文字"
+                }
+              >
+                {isRecognizingText || isApplyingTextEdit ? (
+                  <LoadingSpinner size='sm' className='text-blue-600' />
+                ) : (
+                  <Type className={sharedIconClass} />
+                )}
+                {showButtonText && <span>改文字</span>}
               </Button>
 
               {enableVisibilityToggle && (
@@ -1727,12 +2684,121 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                 className={sharedButtonClass}
                 onClick={handleCreateFlowImageNode}
                 disabled={isPendingUpload}
-                title={isPendingUpload ? "上传中暂不可操作" : "生成节点"}
+                title='生成节点'
               >
                 <ArrowRightLeft className={sharedIconClass} />
                 {showButtonText && <span>生成节点</span>}
               </Button>
             </div>
+
+            {showTextEditPanel && (
+              <div className='mt-2 w-[460px] max-w-[80vw] mx-auto rounded-xl border border-liquid-glass bg-white/95 p-3 shadow-liquid-glass-lg backdrop-blur-md'>
+                <div className='mb-2 flex items-center justify-between'>
+                  <div className='text-sm font-medium text-gray-800'>
+                    修改图片中的文字
+                  </div>
+                  <div className='text-xs text-gray-500'>
+                    {isRecognizingText
+                      ? "识别中..."
+                      : `共 ${textReplacementItems.length} 条`}
+                  </div>
+                </div>
+
+                {isRecognizingText ? (
+                  <div className='rounded-md border border-gray-200 bg-gray-50 px-3 py-6 text-center text-sm text-gray-600'>
+                    正在识别图片文字，请稍候...
+                  </div>
+                ) : (
+                  <div className='space-y-2'>
+                    {textReplacementItems.length > 0 ? (
+                      <div className='max-h-52 space-y-2 overflow-y-auto pr-1'>
+                        {textReplacementItems.map((item) => (
+                          <div
+                            key={item.id}
+                            className='grid grid-cols-[1fr_1fr] gap-2'
+                          >
+                            <input
+                              readOnly
+                              value={item.originalText}
+                              className='h-8 rounded-md border border-gray-200 bg-gray-50 px-2 text-xs text-gray-600'
+                            />
+                            <input
+                              value={item.nextText}
+                              onChange={(event) => {
+                                const value = event.target.value;
+                                setTextReplacementItems((current) =>
+                                  current.map((row) =>
+                                    row.id === item.id
+                                      ? { ...row, nextText: value }
+                                      : row
+                                  )
+                                );
+                              }}
+                              placeholder='输入替换文字'
+                              className='h-8 rounded-md border border-gray-300 bg-white px-2 text-xs text-gray-800 focus:border-blue-400 focus:outline-none'
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className='rounded-md border border-amber-200 bg-amber-50 px-2 py-2 text-xs text-amber-700'>
+                        未识别到明确文字，可在下方输入补充说明后尝试修改。
+                      </div>
+                    )}
+
+                    <textarea
+                      value={textEditExtraInstruction}
+                      onChange={(event) =>
+                        setTextEditExtraInstruction(event.target.value)
+                      }
+                      placeholder='补充说明（可选），例如：将标题改为“春日上新”并保持字体风格一致'
+                      className='min-h-[64px] w-full rounded-md border border-gray-300 bg-white px-2 py-2 text-xs text-gray-800 focus:border-blue-400 focus:outline-none'
+                    />
+
+                    <div className='flex items-center justify-between gap-2 pt-1'>
+                      <Button
+                        variant='ghost'
+                        size='sm'
+                        className={sharedButtonClass}
+                        disabled={isApplyingTextEdit || isRecognizingText}
+                        onClick={handleRecognizeImageText}
+                        title='重新识别图片文字'
+                      >
+                        重新识别
+                      </Button>
+                      <div className='flex items-center gap-2'>
+                        <Button
+                          variant='ghost'
+                          size='sm'
+                          className={sharedButtonClass}
+                          disabled={isApplyingTextEdit || isRecognizingText}
+                          onClick={() => {
+                            setShowTextEditPanel(false);
+                            setTextReplacementItems([]);
+                            setTextEditExtraInstruction("");
+                          }}
+                          title='取消文字修改'
+                        >
+                          取消
+                        </Button>
+                        <Button
+                          variant='ghost'
+                          size='sm'
+                          className={sharedButtonClass}
+                          disabled={isApplyingTextEdit || isRecognizingText}
+                          onClick={(event) => {
+                            void handleApplyTextEdit(event);
+                          }}
+                          title='确认并修改图片文字'
+                        >
+                          {isApplyingTextEdit ? "修改中..." : "确认修改"}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

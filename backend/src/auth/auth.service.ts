@@ -30,6 +30,14 @@ export class AuthService {
     private readonly creditsService: CreditsService
   ) {}
 
+  private async touchUserLastLoginAt(userId: string) {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { lastLoginAt: new Date() },
+      select: { id: true },
+    });
+  }
+
   private async signTokens(user: {
     id: string;
     email: string;
@@ -80,34 +88,49 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto, meta?: { ip?: string; ua?: string }) {
-    // 暂时注释掉验证码验证
-    // if (dto.code) {
-    //   const verify = await this.smsService.verifyCode(dto.phone, dto.code);
-    //   if (!verify.ok) {
-    //     throw new UnauthorizedException(verify.msg || '验证码错误');
-    //   }
-    // }
+    const trimmedName = dto.name.trim();
+    const normalizedPhone = dto.phone.trim();
+    const normalizedCode = dto.code.trim();
+    const normalizedEmail = dto.email ? dto.email.trim().toLowerCase() : null;
+
+    const verify = await this.smsService.verifyCode(normalizedPhone, normalizedCode);
+    if (!verify.ok) {
+      throw new UnauthorizedException(verify.msg || "验证码错误");
+    }
+
+    if (normalizedEmail && trimmedName.toLowerCase() === normalizedEmail) {
+      throw new BadRequestException("用户名不能与邮箱相同");
+    }
+    if (trimmedName === normalizedPhone) {
+      throw new BadRequestException("用户名不能与手机号相同");
+    }
 
     const hash = await bcrypt.hash(dto.password, 10);
 
     const user = await this.prisma.$transaction(async (tx) => {
       const existsByPhone = await tx.user.findUnique({
-        where: { phone: dto.phone },
+        where: { phone: normalizedPhone },
       });
       if (existsByPhone) throw new UnauthorizedException("手机号已注册");
-      if (dto.email) {
+      const existsPhoneMatchedByName = await tx.user.findUnique({
+        where: { phone: trimmedName },
+      });
+      if (existsPhoneMatchedByName) {
+        throw new BadRequestException("用户名不能与手机号相同");
+      }
+      if (normalizedEmail) {
         const existsByEmail = await tx.user.findUnique({
-          where: { email: dto.email.toLowerCase() },
+          where: { email: normalizedEmail },
         });
         if (existsByEmail) throw new UnauthorizedException("邮箱已存在");
       }
 
       const newUser = await tx.user.create({
         data: {
-          email: dto.email ? dto.email.toLowerCase() : null,
+          email: normalizedEmail,
           passwordHash: hash,
-          name: dto.name || dto.phone.slice(-4),
-          phone: dto.phone,
+          name: trimmedName,
+          phone: normalizedPhone,
         },
         select: {
           id: true,
@@ -170,6 +193,7 @@ export class AuthService {
         expiresAt,
       },
     });
+    await this.touchUserLastLoginAt(user.id);
     return tokens;
   }
 
@@ -235,6 +259,7 @@ export class AuthService {
     await this.prisma.refreshToken.create({
       data: { userId: userPayload.sub, tokenHash: refreshHash, expiresAt },
     });
+    await this.touchUserLastLoginAt(userPayload.sub);
     return tokens;
   }
 

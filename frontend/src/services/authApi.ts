@@ -276,20 +276,34 @@ export const authApi = {
     phone: string;
     password: string;
     code: string;
-    name?: string;
+    name: string;
     email?: string;
     inviteCode?: string;
   }) {
     if (isMock) {
       await delay(300);
       const users = readUsers();
+      const trimmedName = payload.name.trim();
+      if (!/^\d{6}$/.test(payload.code || "")) {
+        throw new Error("请输入6位验证码");
+      }
+      if (payload.code !== FIXED_SMS_CODE) {
+        throw new Error("验证码错误（使用 336699）");
+      }
+      if (trimmedName === payload.phone) {
+        throw new Error("用户名不能与手机号相同");
+      }
+      const existsPhoneMatchedByName = users.find((u) => u.phone === trimmedName);
+      if (existsPhoneMatchedByName) {
+        throw new Error("用户名不能与手机号相同");
+      }
       const exists = users.find((u) => u.phone === payload.phone);
       if (exists) throw new Error("用户已存在");
       const user: UserInfo = {
         id: `u_${Date.now()}`,
         email: payload.email || `${payload.phone}@mock.local`,
         phone: payload.phone,
-        name: payload.name || `用户${payload.phone.slice(-4)}`,
+        name: trimmedName,
         role: "user",
       };
       // persist optional phone for strict SMS login

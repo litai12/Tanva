@@ -51,6 +51,7 @@ import { Nano2Service } from './services/nano2.service';
     VideoProviderService,
     VideoWatermarkService,
     Nano2Service,
+    ImageTaskService, // 添加图像任务服务
     ApiKeyOrJwtGuard,
   ],
   controllers: [AiController],

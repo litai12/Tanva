@@ -18,6 +18,12 @@ import {
   midjourneyActionViaAPI,
   generateVideoViaAPI,
 } from "@/services/aiBackendAPI";
+import {
+  generateVideoByProvider,
+  queryVideoTask,
+  refundVideoTask,
+  type VideoProvider,
+} from "@/services/videoProviderAPI";
 import { useUIStore } from "@/stores/uiStore";
 import { contextManager } from "@/services/contextManager";
 import { useProjectContentStore } from "@/stores/projectContentStore";
@@ -41,6 +47,7 @@ import {
   STORE_NAMES,
   idbGet,
   idbPut,
+  idbEnforceLimit,
   isMigrationDone,
   markMigrationDone,
   isIndexedDBAvailable,
@@ -67,6 +74,7 @@ const LOCAL_SESSIONS_KEY = "tanva_aiChat_sessions";
 const LOCAL_ACTIVE_KEY = "tanva_aiChat_activeSessionId";
 const IDB_SESSIONS_KEY = "local_sessions";
 const AI_CHAT_STORE_NAME = STORE_NAMES.AI_CHAT_SESSIONS;
+const AI_CHAT_VIDEO_CACHE_STORE_NAME = STORE_NAMES.AI_CHAT_VIDEO_CACHE;
 
 // 🔥 全局待生成图片计数器（防止连续快速生成时重叠）
 let generatingImageCount = 0;
@@ -98,6 +106,82 @@ interface IDBSessionsData {
   activeSessionId: string | null;
   updatedAt: number;
 }
+
+interface IDBVideoCacheData {
+  id: string;
+  sessionId: string;
+  messageId: string;
+  sourceUrl: string;
+  blob: Blob;
+  contentType: string;
+  size: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+const videoObjectUrlByAssetId = new Map<string, string>();
+const videoObjectUrlByMessageId = new Map<string, string>();
+
+const buildVideoCacheAssetId = (sessionId: string, messageId: string): string =>
+  `${sessionId}::${messageId}`;
+
+const resolveSessionIdByMessageId = (messageId: string): string | null => {
+  const contexts = contextManager.getAllSessions();
+  for (const context of contexts) {
+    if (context.messages.some((message) => message.id === messageId)) {
+      return context.sessionId;
+    }
+  }
+  return null;
+};
+
+const revokeVideoObjectUrlForMessage = (messageId: string): void => {
+  const currentUrl = videoObjectUrlByMessageId.get(messageId);
+  if (!currentUrl) return;
+  videoObjectUrlByMessageId.delete(messageId);
+  const keepByOtherMessage = Array.from(videoObjectUrlByMessageId.values()).some(
+    (url) => url === currentUrl
+  );
+  if (keepByOtherMessage) return;
+
+  for (const [assetId, mappedUrl] of videoObjectUrlByAssetId.entries()) {
+    if (mappedUrl === currentUrl) {
+      videoObjectUrlByAssetId.delete(assetId);
+      break;
+    }
+  }
+  try {
+    URL.revokeObjectURL(currentUrl);
+  } catch {}
+};
+
+const revokeAllVideoObjectUrls = (): void => {
+  for (const objectUrl of videoObjectUrlByAssetId.values()) {
+    try {
+      URL.revokeObjectURL(objectUrl);
+    } catch {}
+  }
+  videoObjectUrlByAssetId.clear();
+  videoObjectUrlByMessageId.clear();
+};
+
+const bindVideoObjectUrlToMessage = (
+  assetId: string,
+  messageId: string,
+  objectUrl: string
+): void => {
+  revokeVideoObjectUrlForMessage(messageId);
+
+  const previousAssetUrl = videoObjectUrlByAssetId.get(assetId);
+  if (previousAssetUrl && previousAssetUrl !== objectUrl) {
+    try {
+      URL.revokeObjectURL(previousAssetUrl);
+    } catch {}
+  }
+
+  videoObjectUrlByAssetId.set(assetId, objectUrl);
+  videoObjectUrlByMessageId.set(messageId, objectUrl);
+};
 
 // 内存优化常量 (P0 修复)
 const MAX_MESSAGES_PER_SESSION = 100;
@@ -279,6 +363,9 @@ export interface ChatMessage {
   videoTaskId?: string | null;
   videoStatus?: string | null;
   videoSourceUrl?: string;
+  // 本地视频缓存（IndexedDB）信息：videoLocalUrl 仅运行时有效，不参与持久化
+  videoLocalAssetId?: string;
+  videoLocalUrl?: string;
   videoMetadata?: Record<string, any>;
   sourceImageData?: string;
   sourceImagesData?: string[];
@@ -297,6 +384,7 @@ export interface ChatMessage {
   groupIndex?: number; // 在组内的位置 (0-based)
   groupTotal?: number; // 组内总数量
 }
+
 
 const formatMessageContentForLog = (content: string): string => {
   if (!content) return "";
@@ -400,8 +488,9 @@ const GEMINI_FLASH_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
 const DEFAULT_TEXT_MODEL = "gemini-3-flash-preview";
 const GEMINI_PRO_TEXT_MODEL = "gemini-3-flash-preview";
 const BANANA_TEXT_MODEL = "gemini-3-flash-preview";
-const BANANA_25_IMAGE_MODEL = "gemini-2.5-flash-image";
+const BANANA_25_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
 const BANANA_25_TEXT_MODEL = "gemini-3-flash-preview";
+const BANANA_31_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
 export const SORA2_VIDEO_MODELS = {
   hd: "sora-2-pro-reverse",
   sd: "sora-2-reverse",
@@ -591,6 +680,9 @@ export const getImageModelForProvider = (provider: AIProviderType): string => {
   if (provider === "banana-2.5") {
     return BANANA_25_IMAGE_MODEL;
   }
+  if (provider === "banana-3.1") {
+    return BANANA_31_IMAGE_MODEL;
+  }
   return DEFAULT_IMAGE_MODEL;
 };
 
@@ -599,8 +691,10 @@ const TEXT_MODEL_BY_PROVIDER: Record<AIProviderType, string> = {
   "gemini-pro": GEMINI_PRO_TEXT_MODEL,
   banana: BANANA_TEXT_MODEL,
   "banana-2.5": BANANA_25_TEXT_MODEL,
+  "banana-3.1": BANANA_TEXT_MODEL,
   runninghub: DEFAULT_TEXT_MODEL,
   midjourney: DEFAULT_TEXT_MODEL,
+  nano2: DEFAULT_TEXT_MODEL,
 };
 
 export const getTextModelForProvider = (provider: AIProviderType): string => {
@@ -1031,10 +1125,19 @@ const migrateLegacySessions = async (
 export type Sora2VideoGenerationOptions = {
   onProgress?: (stage: string, progress: number) => void;
   quality?: Sora2VideoQuality;
+  model?: "sora-2" | "sora-2-vip" | "sora-2-pro";
   /** 画面比例，仅极速 Sora2 支持。例如 '16:9' | '9:16' */
   aspectRatio?: "16:9" | "9:16";
   /** 时长（秒），仅极速 Sora2 支持。例如 10 / 15 / 25 */
   durationSeconds?: 10 | 15 | 25;
+  watermark?: boolean;
+  thumbnail?: boolean;
+  privateMode?: boolean;
+  style?: string;
+  storyboard?: boolean;
+  characterUrl?: string;
+  characterTimestamps?: string;
+  characterTaskId?: string;
 };
 
 export async function requestSora2VideoGeneration(
@@ -1068,8 +1171,17 @@ export async function requestSora2VideoGeneration(
     prompt,
     referenceImageUrls: cleanedImageUrls.length ? cleanedImageUrls : undefined,
     quality: options?.quality,
+    model: options?.model,
     aspectRatio: options?.aspectRatio,
     duration,
+    watermark: options?.watermark,
+    thumbnail: options?.thumbnail,
+    privateMode: options?.privateMode,
+    style: options?.style,
+    storyboard: options?.storyboard,
+    characterUrl: options?.characterUrl,
+    characterTimestamps: options?.characterTimestamps,
+    characterTaskId: options?.characterTaskId,
   });
 
   if (!response.success || !response.data) {
@@ -1127,6 +1239,139 @@ const fetchVideoBlob = async (url: string): Promise<Blob | null> => {
     console.warn("⚠️ 无法下载视频:", url, error);
     return null;
   }
+};
+
+const ensureVideoBlobMime = (blob: Blob): Blob => {
+  if (blob.type && blob.type.startsWith("video/")) {
+    return blob;
+  }
+  return new Blob([blob], { type: "video/mp4" });
+};
+
+const cacheVideoBlobForMessage = async (params: {
+  sessionId: string;
+  messageId: string;
+  videoUrl: string;
+}): Promise<{ assetId: string; objectUrl: string } | null> => {
+  const { sessionId, messageId, videoUrl } = params;
+  if (!sessionId || !messageId || !/^https?:\/\//i.test(videoUrl)) {
+    return null;
+  }
+
+  const blob = await fetchVideoBlob(videoUrl);
+  if (!blob || blob.size <= 0) {
+    return null;
+  }
+
+  const safeBlob = ensureVideoBlobMime(blob);
+  const assetId = buildVideoCacheAssetId(sessionId, messageId);
+  const now = Date.now();
+  const record: IDBVideoCacheData = {
+    id: assetId,
+    sessionId,
+    messageId,
+    sourceUrl: videoUrl,
+    blob: safeBlob,
+    contentType: safeBlob.type || "video/mp4",
+    size: safeBlob.size,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  try {
+    await idbPut(AI_CHAT_VIDEO_CACHE_STORE_NAME, record);
+    await idbEnforceLimit(AI_CHAT_VIDEO_CACHE_STORE_NAME);
+  } catch (error) {
+    console.warn("⚠️ 缓存视频到 IndexedDB 失败:", error);
+    return null;
+  }
+
+  const cachedUrl = videoObjectUrlByAssetId.get(assetId);
+  if (cachedUrl) {
+    bindVideoObjectUrlToMessage(assetId, messageId, cachedUrl);
+    return { assetId, objectUrl: cachedUrl };
+  }
+
+  const objectUrl = URL.createObjectURL(safeBlob);
+  bindVideoObjectUrlToMessage(assetId, messageId, objectUrl);
+  return { assetId, objectUrl };
+};
+
+const loadCachedVideoObjectUrl = async (
+  sessionId: string,
+  messageId: string
+): Promise<{ assetId: string; objectUrl: string } | null> => {
+  if (!sessionId || !messageId) return null;
+  const assetId = buildVideoCacheAssetId(sessionId, messageId);
+  const existing = videoObjectUrlByAssetId.get(assetId);
+  if (existing) {
+    bindVideoObjectUrlToMessage(assetId, messageId, existing);
+    return { assetId, objectUrl: existing };
+  }
+
+  try {
+    const record = await idbGet<IDBVideoCacheData>(
+      AI_CHAT_VIDEO_CACHE_STORE_NAME,
+      assetId
+    );
+    if (!record?.blob) return null;
+
+    const safeBlob =
+      record.blob instanceof Blob
+        ? ensureVideoBlobMime(record.blob)
+        : ensureVideoBlobMime(new Blob([record.blob as any]));
+    const objectUrl = URL.createObjectURL(safeBlob);
+    bindVideoObjectUrlToMessage(assetId, messageId, objectUrl);
+    return { assetId, objectUrl };
+  } catch (error) {
+    console.warn("⚠️ 从 IndexedDB 恢复视频缓存失败:", error);
+    return null;
+  }
+};
+
+const hydrateSessionLocalVideoUrls = async (
+  sessionId: string
+): Promise<boolean> => {
+  const context = contextManager.getSession(sessionId);
+  if (!context || !Array.isArray(context.messages)) {
+    return false;
+  }
+
+  let changed = false;
+  for (const message of context.messages) {
+    const remoteVideoUrl =
+      typeof message.videoUrl === "string" && message.videoUrl.trim()
+        ? message.videoUrl.trim()
+        : typeof message.videoSourceUrl === "string" &&
+          message.videoSourceUrl.trim()
+        ? message.videoSourceUrl.trim()
+        : "";
+    if (!remoteVideoUrl) continue;
+
+    const expectedAssetId = buildVideoCacheAssetId(sessionId, message.id);
+    if (message.videoLocalAssetId !== expectedAssetId) {
+      message.videoLocalAssetId = expectedAssetId;
+      changed = true;
+    }
+    if (message.videoLocalUrl) {
+      message.videoLocalUrl = undefined;
+      changed = true;
+    }
+
+    const local = await loadCachedVideoObjectUrl(sessionId, message.id);
+    if (!local) continue;
+
+    if (
+      message.videoLocalAssetId !== local.assetId ||
+      message.videoLocalUrl !== local.objectUrl
+    ) {
+      message.videoLocalAssetId = local.assetId;
+      message.videoLocalUrl = local.objectUrl;
+      changed = true;
+    }
+  }
+
+  return changed;
 };
 
 const captureVideoPosterFromBlob = async (
@@ -1667,6 +1912,22 @@ const deserializeConversation = (
         (message as any).imageRemoteUrl || (message as any).imageUrl;
       const baseImage = message.imageData;
       const thumbnail = message.thumbnail;
+      const persistedVideoUrl =
+        typeof message.videoUrl === "string" ? message.videoUrl.trim() : "";
+      const persistedVideoSourceUrl =
+        typeof message.videoSourceUrl === "string"
+          ? message.videoSourceUrl.trim()
+          : "";
+      const normalizedVideoUrl = persistedVideoUrl.startsWith("blob:")
+        ? ""
+        : persistedVideoUrl;
+      const normalizedVideoSourceUrl = persistedVideoSourceUrl.startsWith(
+        "blob:"
+      )
+        ? ""
+        : persistedVideoSourceUrl;
+      const effectiveVideoUrl =
+        normalizedVideoUrl || normalizedVideoSourceUrl || undefined;
       return hydrateMessageGenerationState({
         id: message.id,
         type: message.type,
@@ -1693,8 +1954,12 @@ const deserializeConversation = (
               stage: message.generationStatus.stage,
             }
           : undefined,
-        videoUrl: message.videoUrl,
-        videoSourceUrl: message.videoSourceUrl,
+        videoUrl: effectiveVideoUrl,
+        videoSourceUrl: normalizedVideoSourceUrl || normalizedVideoUrl || undefined,
+        videoLocalAssetId: effectiveVideoUrl
+          ? buildVideoCacheAssetId(data.sessionId, message.id)
+          : undefined,
+        videoLocalUrl: undefined,
         videoThumbnail: message.videoThumbnail,
         videoDuration: message.videoDuration,
         videoReferencedUrls: message.videoReferencedUrls,
@@ -1810,7 +2075,10 @@ interface AIChatState {
     | null; // 图像长宽比
   imageSize: "1K" | "2K" | "4K" | null; // 图像尺寸（高清设置，仅 Gemini 3）
   thinkingLevel: "high" | "low" | null; // 思考级别（仅 Gemini 3）
+  videoAspectRatio: "16:9" | "9:16" | null; // 视频画面比例（Seedance）
+  videoDurationSeconds: 3 | 4 | 5 | 6 | 8 | null; // 视频时长（秒）
   manualAIMode: ManualAIMode;
+  autoSelectedTool: AvailableTool | null; // Auto 模式最近一次选择的工具
   aiProvider: AIProviderType; // AI提供商选择 (gemini: Google Gemini, banana: 147 API, runninghub: SU截图转效果, midjourney: 147 Midjourney)
   autoModeMultiplier: AutoModeMultiplier;
   sendShortcut: SendShortcut;
@@ -1840,6 +2108,7 @@ interface AIChatState {
   refreshSessions: (options?: {
     persistToLocal?: boolean;
     markProjectDirty?: boolean;
+    immediate?: boolean;
   }) => Promise<void>;
   createSession: (name?: string) => Promise<string>;
   switchSession: (sessionId: string) => Promise<void>;
@@ -1984,6 +2253,8 @@ interface AIChatState {
   ) => void; // 设置长宽比
   setImageSize: (size: "1K" | "2K" | "4K" | null) => void; // 设置图像尺寸
   setThinkingLevel: (level: "high" | "low" | null) => void; // 设置思考级别
+  setVideoAspectRatio: (ratio: "16:9" | "9:16" | null) => void;
+  setVideoDurationSeconds: (seconds: 3 | 4 | 5 | 6 | 8 | null) => void;
   setManualAIMode: (mode: ManualAIMode) => void;
   setAIProvider: (provider: AIProviderType) => void; // 设置AI提供商
   setAutoModeMultiplier: (multiplier: AutoModeMultiplier) => void;
@@ -2009,12 +2280,14 @@ export const useAIChatStore = create<AIChatState>()(
         prompt,
         result,
         operationType,
+        aiProvider,
         skipPreview,
       }: {
         aiMessageId: string;
         prompt: string;
         result: AIImageResult;
         operationType: "generate" | "edit" | "blend";
+        aiProvider: AIProviderType;
         skipPreview?: boolean;
       }): Promise<{ remoteUrl?: string; thumbnail?: string }> => {
         if (!result.imageData) {
@@ -2039,6 +2312,13 @@ export const useAIChatStore = create<AIChatState>()(
               dir: "ai-chat-history/",
               keepThumbnail: Boolean(previewDataUrl),
               thumbnailDataUrl: previewDataUrl ?? undefined,
+              metadata: {
+                ...(result.metadata || {}),
+                model: result.model,
+                aiProvider,
+                provider: aiProvider,
+                operationType,
+              },
             });
             remoteUrl = historyRecord.remoteUrl;
           } catch (error) {
@@ -2169,6 +2449,21 @@ export const useAIChatStore = create<AIChatState>()(
         return sessionId;
       };
 
+      const rehydrateActiveSessionLocalVideos = async (
+        sessionId: string | null
+      ): Promise<void> => {
+        if (!sessionId) return;
+        revokeAllVideoObjectUrls();
+        const changed = await hydrateSessionLocalVideoUrls(sessionId);
+        if (!changed) return;
+        const currentSessionId =
+          get().currentSessionId || contextManager.getCurrentSessionId();
+        if (currentSessionId !== sessionId) return;
+        const context = contextManager.getSession(sessionId);
+        if (!context) return;
+        set({ messages: [...context.messages] });
+      };
+
       const sanitizeImageInput = (value?: string | null): string | null => {
         if (!value) return null;
         // 先尝试标准化为 data URL
@@ -2221,7 +2516,10 @@ export const useAIChatStore = create<AIChatState>()(
         aspectRatio: null, // 默认不指定长宽比
         imageSize: null, // 默认图像尺寸为自动（自动模式下优先使用1K）
         thinkingLevel: null, // 默认不指定思考级别
+        videoAspectRatio: null,
+        videoDurationSeconds: null,
         manualAIMode: "auto",
+        autoSelectedTool: null,
         aiProvider: "banana-2.5", // 默认国内极速版
         autoModeMultiplier: 1,
         sendShortcut: "enter",
@@ -2286,10 +2584,18 @@ export const useAIChatStore = create<AIChatState>()(
 
             return { messages: nextMessages };
           });
+          // 新消息（用户输入/占位消息）立即写入持久层，避免“刚发出就刷新导致丢失”
+          void get().refreshSessions({ immediate: true });
           return storedMessage!;
         },
 
         clearMessages: () => {
+          const currentMessages = get().messages;
+          currentMessages.forEach((msg) => {
+            if (msg.videoLocalUrl) {
+              revokeVideoObjectUrlForMessage(msg.id);
+            }
+          });
           const state = get();
           const sessionId =
             state.currentSessionId || contextManager.getCurrentSessionId();
@@ -2382,6 +2688,74 @@ export const useAIChatStore = create<AIChatState>()(
             return;
           }
 
+          const executePersist = async (): Promise<void> => {
+            const { markProjectDirty = true } = options ?? {};
+            const listedSessions = contextManager.listSessions();
+            const sessionSummaries = listedSessions.map((session) => ({
+              sessionId: session.sessionId,
+              name: session.name,
+              lastActivity: session.lastActivity,
+              messageCount: session.messageCount,
+              preview: session.preview,
+            }));
+
+            // 🔥 异步序列化会话（上传图片到 OSS）
+            const serializedSessionsPromises = listedSessions
+              .map((session) =>
+                contextManager.getSession(session.sessionId)
+              )
+              .filter(
+                (context): context is ConversationContext => !!context
+              )
+              .map((context) => serializeConversation(context));
+
+            const serializedSessions = await Promise.all(
+              serializedSessionsPromises
+            );
+
+            set({ sessions: sessionSummaries });
+
+            const activeSessionId =
+              get().currentSessionId ??
+              contextManager.getCurrentSessionId() ??
+              null;
+
+            if (markProjectDirty) {
+              const projectStore = useProjectContentStore.getState();
+              if (projectStore.projectId && projectStore.hydrated) {
+                const previousSessions =
+                  projectStore.content?.aiChatSessions ?? [];
+                const previousActive =
+                  projectStore.content?.aiChatActiveSessionId ?? null;
+                if (
+                  !sessionsEqual(previousSessions, serializedSessions) ||
+                  (previousActive ?? null) !== (activeSessionId ?? null)
+                ) {
+                  projectStore.updatePartial(
+                    {
+                      aiChatSessions: serializedSessions,
+                      aiChatActiveSessionId: activeSessionId ?? null,
+                    },
+                    { markDirty: true }
+                  );
+                }
+              } else {
+                // 无项目场景：把会话持久化到 IndexedDB
+                writeSessionsToIDB(serializedSessions, activeSessionId);
+              }
+            }
+          };
+
+          const immediate = options?.immediate === true;
+          if (immediate) {
+            if (refreshSessionsTimeout) {
+              clearTimeout(refreshSessionsTimeout);
+              refreshSessionsTimeout = null;
+            }
+            await executePersist();
+            return;
+          }
+
           // 🔥 实现防抖：清除之前的定时器，300ms后执行
           if (refreshSessionsTimeout) {
             clearTimeout(refreshSessionsTimeout);
@@ -2390,61 +2764,7 @@ export const useAIChatStore = create<AIChatState>()(
           return new Promise<void>((resolve) => {
             refreshSessionsTimeout = setTimeout(async () => {
               try {
-                const { markProjectDirty = true } = options ?? {};
-                const listedSessions = contextManager.listSessions();
-                const sessionSummaries = listedSessions.map((session) => ({
-                  sessionId: session.sessionId,
-                  name: session.name,
-                  lastActivity: session.lastActivity,
-                  messageCount: session.messageCount,
-                  preview: session.preview,
-                }));
-
-                // 🔥 异步序列化会话（上传图片到 OSS）
-                const serializedSessionsPromises = listedSessions
-                  .map((session) =>
-                    contextManager.getSession(session.sessionId)
-                  )
-                  .filter(
-                    (context): context is ConversationContext => !!context
-                  )
-                  .map((context) => serializeConversation(context));
-
-                const serializedSessions = await Promise.all(
-                  serializedSessionsPromises
-                );
-
-                set({ sessions: sessionSummaries });
-
-                const activeSessionId =
-                  get().currentSessionId ??
-                  contextManager.getCurrentSessionId() ??
-                  null;
-
-                if (markProjectDirty) {
-                  const projectStore = useProjectContentStore.getState();
-                  if (projectStore.projectId && projectStore.hydrated) {
-                    const previousSessions =
-                      projectStore.content?.aiChatSessions ?? [];
-                    const previousActive =
-                      projectStore.content?.aiChatActiveSessionId ?? null;
-                    if (
-                      !sessionsEqual(previousSessions, serializedSessions) ||
-                      (previousActive ?? null) !== (activeSessionId ?? null)
-                    ) {
-                      projectStore.updatePartial(
-                        {
-                          aiChatSessions: serializedSessions,
-                          aiChatActiveSessionId: activeSessionId ?? null,
-                        },
-                        { markDirty: true }
-                      );
-                    }
-                  } else {
-                    // 无项目场景：把会话持久化到 IndexedDB
-                    writeSessionsToIDB(serializedSessions, activeSessionId);
-                  }
-                }
+                await executePersist();
               } finally {
                 refreshSessionsTimeout = null;
                 resolve();
@@ -2460,6 +2780,7 @@ export const useAIChatStore = create<AIChatState>()(
             currentSessionId: sessionId,
             messages: context ? [...context.messages] : [],
           });
+          void rehydrateActiveSessionLocalVideos(sessionId);
           get().refreshSessions();
           return sessionId;
         },
@@ -2472,6 +2793,7 @@ export const useAIChatStore = create<AIChatState>()(
             currentSessionId: sessionId,
             messages: context ? [...context.messages] : [],
           });
+          void rehydrateActiveSessionLocalVideos(sessionId);
           get().refreshSessions();
         },
 
@@ -2500,6 +2822,7 @@ export const useAIChatStore = create<AIChatState>()(
             currentSessionId: activeId || null,
             messages: nextMessages,
           });
+          void rehydrateActiveSessionLocalVideos(activeId || null);
           get().refreshSessions();
         },
 
@@ -2516,6 +2839,7 @@ export const useAIChatStore = create<AIChatState>()(
           try {
             hasHydratedSessions = true;
 
+            revokeAllVideoObjectUrls();
             contextManager.resetSessions();
             try {
               useImageHistoryStore.getState().clearHistory();
@@ -2584,6 +2908,7 @@ export const useAIChatStore = create<AIChatState>()(
               currentSessionId: targetSessionId,
               messages: context ? [...context.messages] : [],
             });
+            void rehydrateActiveSessionLocalVideos(targetSessionId);
 
             triggerLegacyMigration(
               "hydratePersistedSessions",
@@ -2604,6 +2929,7 @@ export const useAIChatStore = create<AIChatState>()(
             return;
           }
 
+          revokeAllVideoObjectUrls();
           contextManager.resetSessions();
 
           const sessionId = contextManager.createSession();
@@ -2847,11 +3173,23 @@ export const useAIChatStore = create<AIChatState>()(
               });
             }, 1000);
 
-            // 调用后端API生成图像
-            const modelToUse = getImageModelForProvider(state.aiProvider);
+            // 联网开启时，Ultra 强制走 nano2(apimart gemini-3.1) 以对齐 Nano2 节点行为。
+            const effectiveProvider: AIProviderType =
+              state.aiProvider === "banana-3.1" && state.enableWebSearch
+                ? "nano2"
+                : state.aiProvider;
+            // nano2 与 banana-3.1 使用同一 3.1 图像模型名
+            const modelToUse =
+              effectiveProvider === "nano2"
+                ? BANANA_31_IMAGE_MODEL
+                : getImageModelForProvider(effectiveProvider);
+            const enableWebSearchForRequest =
+              effectiveProvider === "nano2"
+                ? undefined
+                : state.enableWebSearch;
             logProcessStep(
               metrics,
-              `generateImage calling API (${modelToUse})`
+              `generateImage calling API (${modelToUse}, provider=${effectiveProvider})`
             );
 
             let providerOptions: AIProviderOptions | undefined;
@@ -2890,36 +3228,61 @@ export const useAIChatStore = create<AIChatState>()(
 
             // 🔍 调试日志：打印实际发送的参数
             console.log("🎨 [Generate Image] 请求参数:", {
-              aiProvider: state.aiProvider,
+              aiProvider: effectiveProvider,
               model: modelToUse,
               imageSize: state.imageSize ?? "1K",
               aspectRatio: state.aspectRatio || "auto",
               thinkingLevel: state.thinkingLevel || "auto",
               imageOnly: state.imageOnly,
+              enableWebSearch: enableWebSearchForRequest,
               prompt: prompt.substring(0, 50) + "...",
             });
 
-            const result = await generateImageViaAPI({
-              prompt,
-              model: modelToUse,
-              aiProvider: state.aiProvider,
-              providerOptions,
-              outputFormat: "png",
-              aspectRatio: state.aspectRatio || undefined,
-              imageSize: state.imageSize ?? "1K", // 自动模式下优先使用1K
-              thinkingLevel: state.thinkingLevel || undefined,
-              imageOnly: state.imageOnly,
-            });
+            const generateRequest =
+              effectiveProvider === "nano2"
+                ? {
+                    // 与 Nano2 节点保持同一请求字段集合
+                    prompt,
+                    aiProvider: "nano2" as const,
+                    aspectRatio: state.aspectRatio || undefined,
+                    imageSize: state.imageSize ?? "1K",
+                    googleSearch: state.enableWebSearch,
+                    googleImageSearch: state.enableWebSearch,
+                  }
+                : {
+                    prompt,
+                    model: modelToUse,
+                    aiProvider: effectiveProvider,
+                    providerOptions,
+                    outputFormat: "png" as const,
+                    aspectRatio: state.aspectRatio || undefined,
+                    imageSize: state.imageSize ?? "1K", // 自动模式下优先使用1K
+                    thinkingLevel: state.thinkingLevel || undefined,
+                    imageOnly: state.imageOnly,
+                    ...(enableWebSearchForRequest !== undefined
+                      ? { enableWebSearch: enableWebSearchForRequest }
+                      : {}),
+                    // 对齐 Nano2：联网开关开启时，同时启用文本检索和图片检索参数
+                    googleSearch: state.enableWebSearch,
+                    googleImageSearch: state.enableWebSearch,
+                  };
+
+            const result = await generateImageViaAPI(generateRequest);
             logProcessStep(metrics, "generateImage API response received");
 
             if (progressInterval) clearInterval(progressInterval);
 
             if (result.success && result.data) {
               // 生成成功 - 更新消息内容和状态
-              const rawTextResponse = result.data.textResponse || "";
+              const rawTextResponse = (result.data.textResponse || "").trim();
+              const normalizedTextResponse = rawTextResponse.toLowerCase();
+              const isPlaceholderText =
+                normalizedTextResponse === "image generated successfully" ||
+                normalizedTextResponse === "generated successfully";
               const shouldUseTextResponse =
                 typeof rawTextResponse === "string" &&
-                /[\u4e00-\u9fff]/.test(rawTextResponse);
+                rawTextResponse.length > 0 &&
+                !isPlaceholderText;
               const messageContent = shouldUseTextResponse
                 ? rawTextResponse
                 : result.data.hasImage
@@ -3120,6 +3483,7 @@ export const useAIChatStore = create<AIChatState>()(
                   prompt,
                   result: result.data,
                   operationType: "generate",
+                  aiProvider: state.aiProvider,
                   skipPreview: isParallel || state.imageSize === "4K",
                 })
                   .then((assets) => {
@@ -3417,6 +3781,7 @@ export const useAIChatStore = create<AIChatState>()(
               width: number;
               height: number;
             } | null = null;
+            let selectedImageId: string | null = null;
             try {
               if ((window as any).tanvaImageInstances) {
                 const selectedImage = (window as any).tanvaImageInstances.find(
@@ -3424,6 +3789,9 @@ export const useAIChatStore = create<AIChatState>()(
                 );
                 if (selectedImage?.bounds) {
                   selectedImageBounds = selectedImage.bounds;
+                  if (typeof selectedImage.id === "string" && selectedImage.id) {
+                    selectedImageId = selectedImage.id;
+                  }
                 }
               }
             } catch {}
@@ -3433,18 +3801,19 @@ export const useAIChatStore = create<AIChatState>()(
               useUIStore.getState().smartPlacementOffsetHorizontal || 522;
             let center: { x: number; y: number } | null = null;
 
-            if (cached?.bounds) {
-              center = {
-                x: cached.bounds.x + cached.bounds.width / 2 + offsetHorizontal,
-                y: cached.bounds.y + cached.bounds.height / 2,
-              };
-            } else if (selectedImageBounds) {
+            // 编辑锚点优先使用“当前选中图”，避免误用缓存图导致向右下偏移
+            if (selectedImageBounds) {
               center = {
                 x:
                   selectedImageBounds.x +
                   selectedImageBounds.width / 2 +
                   offsetHorizontal,
                 y: selectedImageBounds.y + selectedImageBounds.height / 2,
+              };
+            } else if (cached?.bounds) {
+              center = {
+                x: cached.bounds.x + cached.bounds.width / 2 + offsetHorizontal,
+                y: cached.bounds.y + cached.bounds.height / 2,
               };
             } else {
               center = getViewCenter();
@@ -3464,7 +3833,7 @@ export const useAIChatStore = create<AIChatState>()(
                 height: size.height,
                 operationType: "edit",
                 preferSmartLayout: true,
-                sourceImageId: cached?.imageId,
+                sourceImageId: selectedImageId || cached?.imageId,
                 smartPosition: center ? { ...center } : undefined,
                 groupId,
                 groupIndex,
@@ -3830,6 +4199,7 @@ export const useAIChatStore = create<AIChatState>()(
                   prompt,
                   result: result.data,
                   operationType: "edit",
+                  aiProvider: state.aiProvider,
                   skipPreview: isParallelEdit || state.imageSize === "4K",
                 })
                   .then((assets) => {
@@ -4452,6 +4822,7 @@ export const useAIChatStore = create<AIChatState>()(
                   prompt,
                   result: result.data,
                   operationType: "blend",
+                  aiProvider: state.aiProvider,
                   skipPreview: isParallelBlend || state.imageSize === "4K",
                 })
                   .then((assets) => {
@@ -4706,6 +5077,7 @@ export const useAIChatStore = create<AIChatState>()(
                   prompt,
                   result: result.data,
                   operationType: "generate",
+                  aiProvider: "midjourney",
                   skipPreview: true,
                 });
               }
@@ -5342,7 +5714,11 @@ export const useAIChatStore = create<AIChatState>()(
           logProcessStep(metrics, "generateVideo message prepared");
 
           try {
-            // 处理参考图像上传（如果有）
+            const state = get();
+            const provider: VideoProvider = "doubao";
+            const aspectRatio = state.videoAspectRatio ?? undefined;
+            const durationSeconds = state.videoDurationSeconds ?? undefined;
+
             const referenceImageList = Array.isArray(referenceImages)
               ? referenceImages
               : referenceImages
@@ -5355,93 +5731,111 @@ export const useAIChatStore = create<AIChatState>()(
                 isGenerating: true,
                 progress: 15,
                 error: null,
-                stage: "上传参考图像",
+                stage: "处理参考图像",
               });
 
-              const projectId = useProjectContentStore.getState().projectId;
               for (const img of referenceImageList) {
                 if (!img) continue;
                 try {
-                  const uploadInput = toRenderableImageSrc(img) ?? img;
-                  const uploadedUrl = await uploadImageToOSS(uploadInput, projectId);
-                  if (uploadedUrl) {
-                    referenceImageUrls.push(uploadedUrl);
+                  const input = toRenderableImageSrc(img) ?? img;
+                  const dataUrl = await resolveImageToDataUrl(input, {
+                    preferProxy: true,
+                  });
+                  if (dataUrl) {
+                    referenceImageUrls.push(dataUrl);
                   } else {
-                    console.warn("⚠️ 参考图像上传失败，继续生成视频");
+                    console.warn("⚠️ 参考图像转换失败，继续生成视频");
                   }
                 } catch (error) {
-                  console.warn("⚠️ 参考图像上传失败，继续生成视频", error);
+                  console.warn("⚠️ 参考图像转换失败，继续生成视频", error);
                 }
               }
             }
 
-            // 🔥 使用消息级别的进度更新
             get().updateMessageStatus(aiMessageId, {
               isGenerating: true,
               progress: 30,
               error: null,
-              stage: "发送请求到视频服务",
+              stage: "发送请求到 Seedance",
             });
 
-            // 调用视频生成函数
-            logProcessStep(metrics, "generateVideo calling backend video API");
-            const videoResult = await requestSora2VideoGeneration(
+            logProcessStep(metrics, "generateVideo calling video provider API");
+            const createResult = await generateVideoByProvider({
               prompt,
-              referenceImageUrls,
-              {
-                quality: DEFAULT_SORA2_VIDEO_QUALITY,
-                onProgress: (stage, progress) => {
-                  get().updateMessageStatus(aiMessageId!, {
-                    isGenerating: true,
-                    progress: Math.min(95, progress),
-                    error: null,
-                    stage,
-                  });
-                },
-              }
-            );
+              referenceImages: referenceImageUrls.length
+                ? referenceImageUrls
+                : undefined,
+              duration: durationSeconds,
+              aspectRatio,
+              provider,
+            });
 
             logProcessStep(metrics, "generateVideo API response received");
 
-            // 更新消息，包含视频信息
-            const contentWithFallback = (videoResult as any).fallbackMessage
-              ? `${videoResult.content}\n\nℹ️ ${
-                  (videoResult as any).fallbackMessage
-                }`
-              : videoResult.content;
+            if (!createResult.taskId && !createResult.videoUrl) {
+              throw new Error("视频任务创建失败");
+            }
 
-            get().updateMessage(aiMessageId, (msg) => ({
-              ...msg,
-              type: "ai",
-              content: contentWithFallback,
-              videoUrl: videoResult.videoUrl,
-              videoSourceUrl: videoResult.videoUrl,
-              videoReferencedUrls: videoResult.referencedUrls,
-              videoTaskId: videoResult.taskId ?? null,
-              videoStatus: videoResult.status ?? null,
-              videoThumbnail: msg.videoThumbnail || videoResult.thumbnailUrl,
-              videoMetadata: {
-                ...(msg.videoMetadata || {}),
-                taskInfo: videoResult.taskInfo,
-                referencedUrls: videoResult.referencedUrls,
-                fallbackMessage: (videoResult as any).fallbackMessage,
-              },
-              expectsVideoOutput: false,
-              generationStatus: {
-                isGenerating: false,
-                progress: 100,
-                error: null,
-                stage: "完成",
-              },
-            }));
-            logProcessStep(metrics, "generateVideo finished");
+            const finalizeSuccess = async (
+              videoUrl: string,
+              thumbnailUrl?: string,
+              status?: string
+            ) => {
+              const remoteVideoUrl = videoUrl;
+              get().updateMessage(aiMessageId, (msg) => ({
+                ...msg,
+                type: "ai",
+                content: "Seedance 视频生成完成",
+                videoUrl: remoteVideoUrl,
+                videoSourceUrl: remoteVideoUrl,
+                videoTaskId: createResult.taskId ?? msg.videoTaskId ?? null,
+                videoStatus: status ?? "succeeded",
+                videoThumbnail: msg.videoThumbnail || thumbnailUrl,
+                videoMetadata: {
+                  ...(msg.videoMetadata || {}),
+                  provider,
+                  aspectRatio,
+                  durationSeconds,
+                  apiUsageId: createResult.apiUsageId,
+                },
+                expectsVideoOutput: false,
+                generationStatus: {
+                  isGenerating: false,
+                  progress: 100,
+                  error: null,
+                  stage: "完成",
+                },
+              }));
 
-            if (ENABLE_VIDEO_CANVAS_PLACEMENT) {
-              void (async () => {
+              const sessionId =
+                resolveSessionIdByMessageId(aiMessageId) ||
+                get().currentSessionId ||
+                contextManager.getCurrentSessionId();
+              if (sessionId) {
+                try {
+                  const localCached = await cacheVideoBlobForMessage({
+                    sessionId,
+                    messageId: aiMessageId,
+                    videoUrl: remoteVideoUrl,
+                  });
+                  if (localCached) {
+                    get().updateMessage(aiMessageId, (msg) => ({
+                      ...msg,
+                      videoSourceUrl: remoteVideoUrl,
+                      videoLocalAssetId: localCached.assetId,
+                      videoLocalUrl: localCached.objectUrl,
+                    }));
+                  }
+                } catch (cacheError) {
+                  console.warn("⚠️ 视频本地缓存失败，继续使用远程 URL:", cacheError);
+                }
+              }
+
+              if (ENABLE_VIDEO_CANVAS_PLACEMENT) {
                 const placedPoster = await autoPlaceVideoOnCanvas({
                   prompt,
-                  videoUrl: videoResult.videoUrl,
-                  thumbnailUrl: videoResult.thumbnailUrl,
+                  videoUrl,
+                  thumbnailUrl,
                 });
                 if (placedPoster && aiMessageId) {
                   get().updateMessage(aiMessageId, (msg) => ({
@@ -5449,21 +5843,131 @@ export const useAIChatStore = create<AIChatState>()(
                     videoThumbnail: msg.videoThumbnail || placedPoster,
                   }));
                 }
-              })();
+              }
+
+              contextManager.recordOperation({
+                type: "generateVideo",
+                input: prompt,
+                output: videoUrl,
+                success: true,
+                metadata: {
+                  provider,
+                  taskId: createResult.taskId,
+                  status: status ?? "succeeded",
+                  aspectRatio,
+                  durationSeconds,
+                },
+              });
+
+              await get().refreshSessions();
+            };
+
+            get().updateMessage(aiMessageId, (msg) => ({
+              ...msg,
+              videoTaskId: createResult.taskId ?? null,
+              videoStatus: createResult.status ?? null,
+              videoMetadata: {
+                ...(msg.videoMetadata || {}),
+                provider,
+                aspectRatio,
+                durationSeconds,
+                apiUsageId: createResult.apiUsageId,
+              },
+            }));
+
+            if (createResult.videoUrl) {
+              await finalizeSuccess(
+                createResult.videoUrl,
+                createResult.thumbnailUrl,
+                createResult.status
+              );
+              logProcessStep(metrics, "generateVideo finished (immediate)");
+              return;
             }
 
-            // 🧠 记录到上下文
-            contextManager.recordOperation({
-              type: "generateVideo",
-              input: prompt,
-              output: videoResult.videoUrl,
-              success: true,
-              metadata: {
-                referencedUrls: videoResult.referencedUrls,
-                taskId: videoResult.taskId,
-                status: videoResult.status,
-              },
-            });
+            const taskId = createResult.taskId!;
+            const pollIntervalMs = 5000;
+            const maxAttempts = 180;
+
+            for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+              if (attempt > 1) {
+                await new Promise((resolve) =>
+                  setTimeout(resolve, pollIntervalMs)
+                );
+              }
+
+              let queryResult:
+                | {
+                    status: string;
+                    videoUrl?: string;
+                    thumbnailUrl?: string;
+                    error?: string;
+                  }
+                | undefined;
+              try {
+                queryResult = await queryVideoTask(provider, taskId);
+              } catch (error) {
+                console.warn("❌ Seedance 任务查询失败，继续重试", error);
+                continue;
+              }
+
+              if (!queryResult) continue;
+              const rawStatus = queryResult.status || "queued";
+              const normalized = String(rawStatus).toLowerCase();
+
+              get().updateMessage(aiMessageId, (msg) => ({
+                ...msg,
+                videoStatus: rawStatus,
+              }));
+
+              if (
+                normalized === "succeeded" ||
+                normalized === "success" ||
+                normalized === "succeed"
+              ) {
+                if (!queryResult.videoUrl) {
+                  throw new Error("Seedance 返回空视频链接");
+                }
+                await finalizeSuccess(
+                  queryResult.videoUrl,
+                  queryResult.thumbnailUrl,
+                  rawStatus
+                );
+                logProcessStep(metrics, "generateVideo finished (polled)");
+                return;
+              }
+
+              if (normalized === "failed" || normalized === "failure") {
+                if (createResult.apiUsageId) {
+                  try {
+                    await refundVideoTask(createResult.apiUsageId);
+                  } catch (refundError) {
+                    console.warn("❌ Seedance 退款失败", refundError);
+                  }
+                }
+                throw new Error(queryResult.error || "任务生成失败");
+              }
+
+              const progress = Math.min(
+                95,
+                35 + Math.round((attempt / maxAttempts) * 60)
+              );
+              get().updateMessageStatus(aiMessageId, {
+                isGenerating: true,
+                progress,
+                error: null,
+                stage: "视频生成中",
+              });
+            }
+
+            if (createResult.apiUsageId) {
+              try {
+                await refundVideoTask(createResult.apiUsageId);
+              } catch (refundError) {
+                console.warn("❌ Seedance 退款失败", refundError);
+              }
+            }
+            throw new Error("任务查询超时");
           } catch (error) {
             const errorMessage =
               error instanceof Error ? error.message : "视频生成失败";
@@ -6088,6 +6592,12 @@ export const useAIChatStore = create<AIChatState>()(
             throw new Error("未选择执行工具");
           }
 
+          if (manualMode === "auto") {
+            set({ autoSelectedTool: selectedTool });
+          } else {
+            set({ autoSelectedTool: null });
+          }
+
           // 根据选择的工具执行相应操作
           // 获取最新的 store 实例来调用方法
           const store = get();
@@ -6419,10 +6929,6 @@ export const useAIChatStore = create<AIChatState>()(
               // 🖼️ 多图强制使用融合模式，避免 AI 误选 editImage
               selectedTool = "blendImages";
               console.log("🎯 [工具选择] 检测到多图输入，强制使用融合模式");
-            } else if (state.sourceImageForEditing) {
-              // 🖼️ 单图强制使用编辑模式
-              selectedTool = "editImage";
-              console.log("🎯 [工具选择] 检测到单图输入，强制使用编辑模式");
             } else {
               // 调用 AI 进行工具选择
               const cachedImage = contextManager.getCachedImage();
@@ -6441,20 +6947,29 @@ export const useAIChatStore = create<AIChatState>()(
               const toolSelectionContext =
                 contextManager.buildContextPrompt(input);
 
+              const isSingleExplicitImage =
+                explicitImageCount === 1 &&
+                state.sourceImagesForBlending.length === 0;
+
+              const availableToolsForSelection: AvailableTool[] =
+                isSingleExplicitImage
+                  ? ["editImage", "analyzeImage"]
+                  : [
+                      "generateImage",
+                      "editImage",
+                      "blendImages",
+                      "analyzeImage",
+                      "chatResponse",
+                      "generateVideo",
+                      "generatePaperJS",
+                    ];
+
               const toolSelectionRequest = {
                 userInput: input,
                 hasImages: totalImageCount > 0,
                 imageCount: explicitImageCount,
                 hasCachedImage: !!cachedImage,
-                availableTools: [
-                  "generateImage",
-                  "editImage",
-                  "blendImages",
-                  "analyzeImage",
-                  "chatResponse",
-                  "generateVideo",
-                  "generatePaperJS",
-                ],
+                availableTools: availableToolsForSelection,
                 aiProvider: state.aiProvider,
                 context: toolSelectionContext,
               };
@@ -6469,14 +6984,22 @@ export const useAIChatStore = create<AIChatState>()(
                   parameters = {
                     prompt: toolSelectionResult.data.parameters?.prompt || input,
                   };
-                  console.log(`🎯 [工具选择] AI 选择了: ${selectedTool}`);
+                  console.log(
+                    `🎯 [工具选择] AI 选择了: ${selectedTool} (singleImage=${isSingleExplicitImage})`
+                  );
                 } else {
-                  console.warn("⚠️ 工具选择失败，默认使用 chatResponse");
-                  selectedTool = "chatResponse";
+                  selectedTool = isSingleExplicitImage
+                    ? "editImage"
+                    : "chatResponse";
+                  console.warn(
+                    `⚠️ 工具选择失败，默认使用 ${selectedTool} (singleImage=${isSingleExplicitImage})`
+                  );
                 }
               } catch (error) {
                 console.error("❌ 工具选择异常:", error);
-                selectedTool = "chatResponse";
+                selectedTool = isSingleExplicitImage
+                  ? "editImage"
+                  : "chatResponse";
               }
             }
           }
@@ -6793,6 +7316,7 @@ export const useAIChatStore = create<AIChatState>()(
             if (state.manualAIMode === "text") return "text";
             return state.manualAIMode;
           }
+          if (state.autoSelectedTool === "generateVideo") return "video";
           if (state.sourceImagesForBlending.length >= 2) return "blend";
           if (state.sourceImageForEditing) return "edit";
           if (state.sourcePdfForAnalysis) return "analyzePdf";
@@ -6816,17 +7340,31 @@ export const useAIChatStore = create<AIChatState>()(
             from: get().imageSize || "自动(1K)",
             to: size || "自动(1K)",
             currentProvider: get().aiProvider,
-            warning: size === "4K" && get().aiProvider === "banana-2.5" ? "⚠️ Fast模式不支持4K，建议切换到Pro" : null,
+            warning:
+              size === "4K" && get().aiProvider === "banana-2.5"
+                ? "⚠️ Fast模式不支持4K，建议切换到Pro/Ultra"
+                : null,
           });
           set({ imageSize: size });
         },
         setThinkingLevel: (level) => set({ thinkingLevel: level }),
-        setManualAIMode: (mode) => set({ manualAIMode: mode }),
+        setVideoAspectRatio: (ratio) => set({ videoAspectRatio: ratio }),
+        setVideoDurationSeconds: (seconds) =>
+          set({ videoDurationSeconds: seconds }),
+        setManualAIMode: (mode) =>
+          set({ manualAIMode: mode, autoSelectedTool: null }),
         setAIProvider: (provider) => {
           console.log("🔄 [AI Provider] 切换模式:", {
             from: get().aiProvider,
             to: provider,
-            label: provider === "banana-2.5" ? "Fast (极速版)" : provider === "banana" ? "Pro (Pro版)" : provider,
+            label:
+              provider === "banana-2.5"
+                ? "Fast (极速版)"
+                : provider === "banana"
+                ? "Pro (Pro版)"
+                : provider === "banana-3.1"
+                ? "Ultra (Ultra版)"
+                : provider,
           });
           set({ aiProvider: provider });
         },
@@ -6846,6 +7384,7 @@ export const useAIChatStore = create<AIChatState>()(
 
         // 重置状态
         resetState: () => {
+          revokeAllVideoObjectUrls();
           set({
             isVisible: false,
             isMaximized: false,
@@ -6870,11 +7409,7 @@ export const useAIChatStore = create<AIChatState>()(
           // 异步加载本地会话（IndexedDB 优先，兼容 localStorage）
           if (!hasHydratedSessions) {
             loadLocalSessions().then((stored) => {
-              if (
-                stored &&
-                stored.sessions.length > 0 &&
-                !hasHydratedSessions
-              ) {
+              if (stored && stored.sessions.length > 0) {
                 get().hydratePersistedSessions(
                   stored.sessions,
                   stored.activeSessionId,
@@ -6902,6 +7437,7 @@ export const useAIChatStore = create<AIChatState>()(
             currentSessionId: sessionId,
             messages: context ? [...context.messages] : [],
           });
+          void rehydrateActiveSessionLocalVideos(sessionId);
           hasHydratedSessions = true;
           get().refreshSessions({ markProjectDirty: false });
         },
@@ -6934,10 +7470,11 @@ export const useAIChatStore = create<AIChatState>()(
         aiProvider: state.aiProvider,
         autoDownload: state.autoDownload,
         enableWebSearch: state.enableWebSearch,
-        imageOnly: state.imageOnly,
         aspectRatio: state.aspectRatio,
         imageSize: state.imageSize,
         thinkingLevel: state.thinkingLevel,
+        videoAspectRatio: state.videoAspectRatio,
+        videoDurationSeconds: state.videoDurationSeconds,
         autoModeMultiplier: state.autoModeMultiplier,
         sendShortcut: state.sendShortcut,
         expandedPanelStyle: state.expandedPanelStyle,
@@ -6946,6 +7483,8 @@ export const useAIChatStore = create<AIChatState>()(
       merge: (persistedState, currentState) => ({
         ...currentState,
         ...(persistedState as Partial<AIChatState>),
+        // imageOnly 开关已不在对话框中暴露，避免历史持久化把用户锁在“仅图片”模式
+        imageOnly: currentState.imageOnly,
       }),
     }
   )

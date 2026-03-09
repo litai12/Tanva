@@ -10,6 +10,7 @@ import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 import { toRenderableImageSrc } from "@/utils/imageSource";
+import { useAIChatStore } from "@/stores/aiChatStore";
 
 type Props = {
   id: string;
@@ -19,7 +20,22 @@ type Props = {
     imageUrl?: string;
     thumbnail?: string;
     error?: string;
-    aspectRatio?: "1:1" | "2:3" | "3:2" | "3:4" | "4:3" | "4:5" | "5:4" | "9:16" | "16:9" | "21:9";
+    aspectRatio?:
+      | "1:1"
+      | "2:3"
+      | "3:2"
+      | "3:4"
+      | "4:3"
+      | "4:5"
+      | "5:4"
+      | "9:16"
+      | "16:9"
+      | "21:9"
+      | "4:1"
+      | "1:4"
+      | "8:1"
+      | "1:8";
+    imageSize?: "0.5K" | "1K" | "2K" | "4K";
     presetPrompt?: string;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
@@ -37,6 +53,7 @@ const buildImageSrc = (value?: string): string | undefined => {
 
 function GenerateNodeInner({ id, data, selected }: Props) {
   const { status, error } = data;
+  const aiProvider = useAIChatStore((state) => state.aiProvider);
   const rawFullValue = data.imageData || data.imageUrl;
   const fullAssetId = React.useMemo(() => parseFlowImageAssetRef(rawFullValue), [rawFullValue]);
   const fullAssetUrl = useFlowImageAssetUrl(fullAssetId);
@@ -95,6 +112,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
   );
 
   const aspectRatioValue = data.aspectRatio ?? "";
+  const imageSizeValue = data.imageSize ?? "";
   const aspectOptions: Array<{ label: string; value: string }> = React.useMemo(
     () => [
       { label: "自动", value: "" },
@@ -112,12 +130,59 @@ function GenerateNodeInner({ id, data, selected }: Props) {
     []
   );
 
+  const providerMode = React.useMemo<"fast" | "pro" | "ultra" | "other">(() => {
+    if (aiProvider === "banana-2.5") return "fast";
+    if (aiProvider === "banana-3.1") return "ultra";
+    if (aiProvider === "banana" || aiProvider === "gemini-pro") return "pro";
+    return "other";
+  }, [aiProvider]);
+
+  const providerModeLabel = React.useMemo(() => {
+    if (providerMode === "fast") return "Fast";
+    if (providerMode === "pro") return "Pro";
+    if (providerMode === "ultra") return "Ultra";
+    return aiProvider;
+  }, [aiProvider, providerMode]);
+
+  const showAspectRatioSelector = providerMode !== "fast";
+  const showImageSizeSelector = providerMode === "pro" || providerMode === "ultra";
+  const showSizeControls = showAspectRatioSelector || showImageSizeSelector;
+
+  const imageSizeOptions: Array<{ label: string; value: string }> = React.useMemo(() => {
+    const base = [
+      { label: "自动", value: "" },
+      { label: "1K", value: "1K" },
+      { label: "2K", value: "2K" },
+      { label: "4K", value: "4K" },
+    ];
+    if (providerMode === "ultra") {
+      return [base[0], { label: "0.5K", value: "0.5K" }, ...base.slice(1)];
+    }
+    return base;
+  }, [providerMode]);
+
   const stopNodeDrag = React.useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
     const nativeEvent = (event as React.SyntheticEvent<any, Event>)
       .nativeEvent as Event & { stopImmediatePropagation?: () => void };
     nativeEvent.stopImmediatePropagation?.();
   }, []);
+
+  const updateImageSize = React.useCallback(
+    (size: string) => {
+      window.dispatchEvent(
+        new CustomEvent("flow:updateNodeData", {
+          detail: {
+            id,
+            patch: {
+              imageSize: size || undefined,
+            },
+          },
+        })
+      );
+    },
+    [id]
+  );
 
   const presetPromptValue = data.presetPrompt ?? "";
   const updatePresetPrompt = React.useCallback(
@@ -182,7 +247,23 @@ function GenerateNodeInner({ id, data, selected }: Props) {
           marginBottom: 6,
         }}
       >
-        <div style={{ fontWeight: 600 }}>Generate</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ fontWeight: 600 }}>Generate</div>
+          <div
+            style={{
+              padding: "1px 8px",
+              borderRadius: 999,
+              fontSize: 11,
+              fontWeight: 600,
+              color: providerMode === "ultra" ? "#0f172a" : "#475569",
+              background: providerMode === "ultra" ? "#e2e8f0" : "#f1f5f9",
+              border: "1px solid #e2e8f0",
+            }}
+            title={`当前全局模型模式: ${providerModeLabel}`}
+          >
+            {providerModeLabel}
+          </div>
+        </div>
         <div style={{ display: "flex", gap: 6 }}>
           <button
             onClick={onRun}
@@ -250,52 +331,98 @@ function GenerateNodeInner({ id, data, selected }: Props) {
           会在 TextPrompt 输入前自动添加
         </div>
       </div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: 6,
-        }}
-      >
-        <label
-          className='nodrag nopan'
+      {showSizeControls && (
+        <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 6,
-            fontSize: 12,
-            color: "#6b7280",
+            justifyContent:
+              showAspectRatioSelector && showImageSizeSelector
+                ? "space-between"
+                : "flex-start",
+            marginBottom: 6,
           }}
         >
-          尺寸
-          <select
-            value={aspectRatioValue}
-            onChange={(e) => updateAspectRatio(e.target.value)}
-            onPointerDown={stopNodeDrag}
-            onPointerDownCapture={stopNodeDrag}
-            onMouseDown={stopNodeDrag}
-            onMouseDownCapture={stopNodeDrag}
-            onClick={stopNodeDrag}
-            onClickCapture={stopNodeDrag}
-            className='nodrag nopan'
-            style={{
-              fontSize: 12,
-              padding: "2px 6px",
-              borderRadius: 6,
-              border: "1px solid #e5e7eb",
-              background: "#fff",
-              color: "#111827",
-            }}
-          >
-            {aspectOptions.map((opt) => (
-              <option key={opt.value || "auto"} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+          {showAspectRatioSelector && (
+            <label
+              className='nodrag nopan'
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 12,
+                color: "#6b7280",
+              }}
+            >
+              尺寸
+              <select
+                value={aspectRatioValue}
+                onChange={(e) => updateAspectRatio(e.target.value)}
+                onPointerDown={stopNodeDrag}
+                onPointerDownCapture={stopNodeDrag}
+                onMouseDown={stopNodeDrag}
+                onMouseDownCapture={stopNodeDrag}
+                onClick={stopNodeDrag}
+                onClickCapture={stopNodeDrag}
+                className='nodrag nopan'
+                style={{
+                  fontSize: 12,
+                  padding: "2px 6px",
+                  borderRadius: 6,
+                  border: "1px solid #e5e7eb",
+                  background: "#fff",
+                  color: "#111827",
+                }}
+              >
+                {aspectOptions.map((opt) => (
+                  <option key={opt.value || "auto"} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {showImageSizeSelector && (
+            <label
+              className='nodrag nopan'
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 12,
+                color: "#6b7280",
+              }}
+            >
+              分辨率
+              <select
+                value={imageSizeValue}
+                onChange={(e) => updateImageSize(e.target.value)}
+                onPointerDown={stopNodeDrag}
+                onPointerDownCapture={stopNodeDrag}
+                onMouseDown={stopNodeDrag}
+                onMouseDownCapture={stopNodeDrag}
+                onClick={stopNodeDrag}
+                onClickCapture={stopNodeDrag}
+                className='nodrag nopan'
+                style={{
+                  fontSize: 12,
+                  padding: "2px 6px",
+                  borderRadius: 6,
+                  border: "1px solid #e5e7eb",
+                  background: "#fff",
+                  color: "#111827",
+                }}
+              >
+                {imageSizeOptions.map((opt) => (
+                  <option key={opt.value || "auto"} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
+      )}
       <div
         onDoubleClick={() => fullSrc && setPreview(true)}
         style={{
@@ -349,6 +476,24 @@ function GenerateNodeInner({ id, data, selected }: Props) {
         onMouseEnter={() => setHover("img-in")}
         onMouseLeave={() => setHover(null)}
       />
+      {/* 兼容历史多图输入句柄，避免旧连线 targetHandle=img2/img3... 报错 */}
+      {["img2", "img3", "img4", "img5", "img6"].map((legacyHandleId) => (
+        <Handle
+          key={legacyHandleId}
+          type='target'
+          position={Position.Left}
+          id={legacyHandleId}
+          style={{
+            top: "35%",
+            width: 1,
+            height: 1,
+            opacity: 0,
+            border: "none",
+            background: "transparent",
+            pointerEvents: "none",
+          }}
+        />
+      ))}
       <Handle
         type='target'
         position={Position.Left}

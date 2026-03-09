@@ -26,11 +26,20 @@ async function request(path: string, options: RequestInit = {}) {
 export interface DashboardStats {
   totalUsers: number;
   activeUsers: number;
+  dailyActiveUsers: number;
+  onlineUsers: number;
+  todayRegisteredUsers: number;
   totalCreditsInCirculation: number;
   totalCreditsSpent: number;
   totalApiCalls: number;
   successfulApiCalls: number;
   failedApiCalls: number;
+  generatedAt: string;
+  userTrend: Array<{
+    date: string;
+    registeredUsers: number;
+    dailyActiveUsers: number;
+  }>;
 }
 
 export interface UserWithCredits {
@@ -526,20 +535,138 @@ export interface PaidUser {
   totalEarned: number;
   totalPaid: number;
   orderCount: number;
+  lastPaidAt: string | null;
 }
+
+export type PaidUsersSortBy = "amount" | "registeredAt" | "paidAt";
 
 // 获取付费用户列表
 export async function getPaidUsers(params?: {
   page?: number;
   pageSize?: number;
   search?: string;
+  sortBy?: PaidUsersSortBy;
+  sortOrder?: "asc" | "desc";
 }): Promise<{ users: PaidUser[]; pagination: Pagination }> {
   const searchParams = new URLSearchParams();
   if (params?.page) searchParams.set("page", String(params.page));
   if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
   if (params?.search) searchParams.set("search", params.search);
+  if (params?.sortBy) searchParams.set("sortBy", params.sortBy);
+  if (params?.sortOrder) searchParams.set("sortOrder", params.sortOrder);
 
   const response = await request(`/api/admin/paid-users?${searchParams}`);
+  return response.json();
+}
+
+export type CreditRecordSource = "recharge" | "admin_add" | "admin_deduct";
+export type CreditRecordFilterSource =
+  | "all"
+  | CreditRecordSource
+  | "invite_reward"
+  | "all_earned";
+
+export interface CreditChangeRecord {
+  id: string;
+  source: CreditRecordSource;
+  amount: number;
+  balanceBefore: number;
+  balanceAfter: number;
+  description: string;
+  createdAt: string;
+  user: {
+    id: string;
+    phone: string;
+    email: string | null;
+    name: string | null;
+  };
+  admin: {
+    id: string;
+    phone: string;
+    email: string | null;
+    name: string | null;
+  } | null;
+  payment: {
+    id: string;
+    orderNo: string;
+    amount: number;
+    paymentMethod: string;
+    paidAt: string | null;
+  } | null;
+}
+
+// 获取积分变更记录（充值 + 后台手动调整）
+export async function getCreditChangeRecords(params?: {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  userId?: string;
+  source?: CreditRecordFilterSource;
+  startDate?: string;
+  endDate?: string;
+}): Promise<{ records: CreditChangeRecord[]; pagination: Pagination }> {
+  const searchParams = new URLSearchParams();
+  if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
+  if (params?.search) searchParams.set("search", params.search);
+  if (params?.userId) searchParams.set("userId", params.userId);
+  if (params?.source) searchParams.set("source", params.source);
+  if (params?.startDate) searchParams.set("startDate", params.startDate);
+  if (params?.endDate) searchParams.set("endDate", params.endDate);
+
+  const response = await request(`/api/admin/credit-change-records?${searchParams}`);
+  return response.json();
+}
+
+export type CreditAnomalySeverity = "yellow" | "red" | "purple";
+
+export interface CreditAnomalyRecord {
+  id: string;
+  accountId: string;
+  userId: string;
+  dayStart: string;
+  dayLabel: string;
+  totalAmount: number;
+  maxSingleAmount: number;
+  transactionCount: number;
+  severity: CreditAnomalySeverity;
+  sourceBreakdown: Array<{
+    sourceKey: string;
+    sourceLabel: string;
+    amount: number;
+    count: number;
+  }>;
+  firstTransactionAt: string;
+  lastTransactionAt: string;
+  detectedAt: string;
+  updatedAt: string;
+  user: {
+    id: string;
+    phone: string;
+    email: string | null;
+    name: string | null;
+  };
+}
+
+export async function getCreditAnomalyRecords(params?: {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  userId?: string;
+  severity?: CreditAnomalySeverity;
+  startDate?: string;
+  endDate?: string;
+}): Promise<{ records: CreditAnomalyRecord[]; pagination: Pagination }> {
+  const searchParams = new URLSearchParams();
+  if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
+  if (params?.search) searchParams.set("search", params.search);
+  if (params?.userId) searchParams.set("userId", params.userId);
+  if (params?.severity) searchParams.set("severity", params.severity);
+  if (params?.startDate) searchParams.set("startDate", params.startDate);
+  if (params?.endDate) searchParams.set("endDate", params.endDate);
+
+  const response = await request(`/api/admin/credit-anomalies?${searchParams}`);
   return response.json();
 }
 

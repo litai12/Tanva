@@ -106,25 +106,151 @@ const readClipboardText = async () => {
   throw new Error("当前环境不支持读取剪贴板");
 };
 
-const parseEnvelope = (rawText: string): ClipboardJsonEnvelope<any> | null => {
-  const trimmed = rawText.trim();
-  if (!trimmed) return null;
-  let parsed: any;
+const isRecord = (value: unknown): value is Record<string, any> =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+const parseJsonSafely = (value: string): unknown | null => {
   try {
-    parsed = JSON.parse(trimmed);
+    return JSON.parse(value);
   } catch {
     return null;
   }
-  if (parsed && typeof parsed === "object" && typeof parsed.type === "string") {
-    if (
-      (parsed.type === "tanva.projectContent" ||
-        parsed.type === "tanva.aiChatSessions") &&
-      typeof parsed.version === "number"
-    ) {
-      return parsed as ClipboardJsonEnvelope<any>;
-    }
+};
+
+const decodeMaybeStringifiedJson = (value: unknown): unknown => {
+  let current = value;
+  for (let i = 0; i < 2; i += 1) {
+    if (typeof current !== "string") break;
+    const trimmed = current.trim();
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) break;
+    const parsed = parseJsonSafely(trimmed);
+    if (parsed === null) break;
+    current = parsed;
   }
-  return null;
+  return current;
+};
+
+const isPaperProjectJson = (value: unknown): value is unknown[] =>
+  Array.isArray(value) && value[0] === "Project";
+
+const hasProjectContentSignal = (value: Record<string, any>) =>
+  Array.isArray(value.layers) ||
+  typeof value.paperJson === "string" ||
+  isRecord(value.canvas) ||
+  isRecord(value.assets) ||
+  isRecord(value.flow) ||
+  Array.isArray(value.aiChatSessions);
+
+const normalizeProjectContentSnapshot = (
+  candidate: unknown
+): ProjectContentSnapshot | null => {
+  const decoded = decodeMaybeStringifiedJson(candidate);
+  const base = createEmptyProjectContent();
+  const baseAssets = base.assets ?? {
+    images: [],
+    models: [],
+    texts: [],
+    videos: [],
+  };
+  const baseFlow = base.flow ?? { nodes: [], edges: [] };
+
+  if (isPaperProjectJson(decoded)) {
+    return {
+      ...base,
+      paperJson: JSON.stringify(decoded),
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  if (!isRecord(decoded)) return null;
+
+  const source =
+    isRecord(decoded.content) && hasProjectContentSignal(decoded.content)
+      ? decoded.content
+      : decoded;
+  if (!hasProjectContentSignal(source)) return null;
+
+  const rawCanvas = isRecord(source.canvas) ? source.canvas : null;
+  const rawAssets = isRecord(source.assets) ? source.assets : null;
+  const rawFlow = isRecord(source.flow) ? source.flow : null;
+
+  return {
+    ...base,
+    ...source,
+    layers: Array.isArray(source.layers) ? source.layers : base.layers,
+    activeLayerId:
+      typeof source.activeLayerId === "string" || source.activeLayerId === null
+        ? source.activeLayerId
+        : base.activeLayerId,
+    canvas: {
+      zoom:
+        typeof rawCanvas?.zoom === "number" && Number.isFinite(rawCanvas.zoom)
+          ? rawCanvas.zoom
+          : base.canvas.zoom,
+      panX:
+        typeof rawCanvas?.panX === "number" && Number.isFinite(rawCanvas.panX)
+          ? rawCanvas.panX
+          : base.canvas.panX,
+      panY:
+        typeof rawCanvas?.panY === "number" && Number.isFinite(rawCanvas.panY)
+          ? rawCanvas.panY
+          : base.canvas.panY,
+    },
+    assets: {
+      images: Array.isArray(rawAssets?.images) ? rawAssets.images : baseAssets.images,
+      models: Array.isArray(rawAssets?.models) ? rawAssets.models : baseAssets.models,
+      texts: Array.isArray(rawAssets?.texts) ? rawAssets.texts : baseAssets.texts,
+      videos: Array.isArray(rawAssets?.videos) ? rawAssets.videos : baseAssets.videos,
+    },
+    flow: {
+      nodes: Array.isArray(rawFlow?.nodes) ? rawFlow.nodes : baseFlow.nodes,
+      edges: Array.isArray(rawFlow?.edges) ? rawFlow.edges : baseFlow.edges,
+    },
+    aiChatSessions: Array.isArray(source.aiChatSessions)
+      ? source.aiChatSessions
+      : base.aiChatSessions,
+    aiChatActiveSessionId:
+      typeof source.aiChatActiveSessionId === "string" ||
+      source.aiChatActiveSessionId === null
+        ? source.aiChatActiveSessionId
+        : base.aiChatActiveSessionId,
+    updatedAt:
+      typeof source.updatedAt === "string" && source.updatedAt.trim().length > 0
+        ? source.updatedAt
+        : new Date().toISOString(),
+  };
+};
+
+const parseEnvelope = (rawText: string): ClipboardJsonEnvelope<any> | null => {
+  const trimmed = rawText.trim();
+  if (!trimmed) return null;
+  const parsed = parseJsonSafely(trimmed);
+  if (!isRecord(parsed) || typeof parsed.type !== "string") {
+    return null;
+  }
+  if (
+    parsed.type !== "tanva.projectContent" &&
+    parsed.type !== "tanva.aiChatSessions"
+  ) {
+    return null;
+  }
+  const version =
+    typeof parsed.version === "number"
+      ? parsed.version
+      : typeof parsed.version === "string"
+        ? Number(parsed.version)
+        : CLIPBOARD_VERSION;
+  if (!Number.isFinite(version) || version !== CLIPBOARD_VERSION) {
+    return null;
+  }
+  if (!Object.prototype.hasOwnProperty.call(parsed, "payload")) {
+    return null;
+  }
+  return {
+    type: parsed.type,
+    version: CLIPBOARD_VERSION,
+    payload: parsed.payload,
+  } as ClipboardJsonEnvelope<any>;
 };
 
 const toEnvelope = <T,>(type: ClipboardJsonEnvelope<T>["type"], payload: T) =>
@@ -393,7 +519,10 @@ const mergeProjectContent = async (
     (paper.project?.layers ?? []) as paper.Layer[]
   );
   if (sanitizedIncoming.paperJson) {
-    paperSaveService.appendPaperJson(sanitizedIncoming.paperJson);
+    const appended = paperSaveService.appendPaperJson(sanitizedIncoming.paperJson);
+    if (!appended) {
+      throw new Error("画布 JSON 中的 Paper 内容无法导入");
+    }
   }
   const nextLayers = (paper.project?.layers ?? []) as paper.Layer[];
   const addedLayers = nextLayers.filter((layer) => !existingLayers.has(layer));
@@ -519,6 +648,25 @@ const buildChatText = (messages: Array<{ type?: string; content?: string | null 
     .filter((line): line is string => Boolean(line))
     .join("\n");
 
+const importProjectContentFromRawText = async (rawText: string) => {
+  const envelope = parseEnvelope(rawText);
+  if (envelope?.type === "tanva.projectContent") {
+    const normalized = normalizeProjectContentSnapshot(envelope.payload);
+    if (!normalized) {
+      throw new Error("画布 JSON payload 结构无效");
+    }
+    return mergeProjectContent(normalized);
+  }
+
+  const fallback = parseJsonSafely(rawText);
+  const normalized = normalizeProjectContentSnapshot(fallback);
+  if (normalized) {
+    return mergeProjectContent(normalized);
+  }
+
+  throw new Error("内容不是有效的画布 JSON");
+};
+
 export const clipboardJsonService = {
   async copyProjectContentToClipboard() {
     const content = getProjectContentSnapshot();
@@ -552,22 +700,11 @@ export const clipboardJsonService = {
 
   async importProjectContentFromClipboard() {
     const rawText = await readClipboardText();
-    const envelope = parseEnvelope(rawText);
-    if (envelope?.type === "tanva.projectContent") {
-      return mergeProjectContent(envelope.payload as ProjectContentSnapshot);
-    }
+    return importProjectContentFromRawText(rawText);
+  },
 
-    const fallback = (() => {
-      try {
-        return JSON.parse(rawText) as ProjectContentSnapshot;
-      } catch {
-        return null;
-      }
-    })();
-    if (fallback?.layers && fallback?.canvas) {
-      return mergeProjectContent(fallback);
-    }
-    throw new Error("剪贴板内容不是有效的画布 JSON");
+  async importProjectContentFromText(rawText: string) {
+    return importProjectContentFromRawText(rawText);
   },
 
   async importChatSessionsFromClipboard() {

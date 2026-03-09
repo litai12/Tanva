@@ -5,6 +5,7 @@
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import { canvasToBlob } from "@/utils/imageConcurrency";
 import { fetchWithAuth } from "@/services/authFetch";
+import { requestSkipNextBeforeUnloadPrompt } from "@/utils/beforeUnloadGuard";
 
 /**
  * 下载图片文件
@@ -24,6 +25,7 @@ export const downloadImage = (imageData: string, fileName: string = 'image') => 
     link.download = fileName.includes('.') ? fileName : `${fileName}.png`;
     
     // 添加到DOM，触发下载，然后移除
+    requestSkipNextBeforeUnloadPrompt();
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -102,6 +104,7 @@ export const downloadFile = async (url: string, fileName: string = 'download') =
       const link = document.createElement('a');
       link.href = resolvedUrl;
       link.download = fileName;
+      requestSkipNextBeforeUnloadPrompt();
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -125,6 +128,7 @@ export const downloadFile = async (url: string, fileName: string = 'download') =
     const link = document.createElement('a');
     link.href = blobUrl;
     link.download = fileName;
+    requestSkipNextBeforeUnloadPrompt();
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

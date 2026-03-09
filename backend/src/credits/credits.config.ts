@@ -4,20 +4,49 @@ export const CREDIT_PRICING_CONFIG = {
   'gemini-3-pro-image': {
     serviceName: 'Nano banana Pro 生图',
     provider: 'gemini',
-    creditsPerCall: 30,
+    creditsPerCall: 40, // 默认1K分辨率
     description: '使用 Nano banana Pro 模型生成高质量图像',
+    // 按分辨率定价：Pro模式支持1K/2K/4K
+    resolutionPricing: {
+      '1K': 40,
+      '2K': 60,
+      '4K': 120,
+    },
+  },
+  'gemini-3.1-image': {
+    serviceName: 'Nano banana 2 生图',
+    provider: 'gemini',
+    creditsPerCall: 30, // 默认1K分辨率
+    description: '使用 Nano banana 2 模型生成高质量图像',
+    // 按分辨率定价：Ultra模式支持0.5K/1K/2K/4K
+    resolutionPricing: {
+      '0.5K': 20,
+      '1K': 30,
+      '2K': 45,
+      '4K': 60,
+    },
   },
   'gemini-2.5-image': {
     serviceName: 'Nano banana 生图',
     provider: 'gemini',
-    creditsPerCall: 10,
+    creditsPerCall: 60, // 默认1K分辨率
     description: '使用 Nano banana 模型生成图像',
+    // 按分辨率定价：Fast模式仅支持1K
+    resolutionPricing: {
+      '1K': 60,
+    },
   },
   'gemini-image-edit': {
     serviceName: 'Nano banana Pro 图像编辑',
     provider: 'gemini',
     creditsPerCall: 30,
     description: '使用 Nano banana Pro 编辑图像',
+  },
+  'gemini-3.1-image-edit': {
+    serviceName: 'Nano banana 2 图像编辑',
+    provider: 'gemini',
+    creditsPerCall: 30,
+    description: '使用 Nano banana 2 编辑图像',
   },
   'gemini-2.5-image-edit': {
     serviceName: 'Nano banana-2.5 图像编辑',
@@ -31,6 +60,12 @@ export const CREDIT_PRICING_CONFIG = {
     creditsPerCall: 30,
     description: '使用 Nano banana Pro 融合多张图像',
   },
+  'gemini-3.1-image-blend': {
+    serviceName: 'Nano banana 2 融合',
+    provider: 'gemini',
+    creditsPerCall: 30,
+    description: '使用 Nano banana 2 融合多张图像',
+  },
   'gemini-2.5-image-blend': {
     serviceName: 'Nano banana-2.5 融合',
     provider: 'gemini',
@@ -40,15 +75,21 @@ export const CREDIT_PRICING_CONFIG = {
   'gemini-image-analyze': {
     serviceName: 'Gemini 图像分析',
     provider: 'gemini',
-    creditsPerCall: 6,
+    creditsPerCall: 20,
     description: '使用 Gemini 分析图像内容',
+  },
+  'gemini-2.5-image-analyze': {
+    serviceName: 'Nano banana 图像分析',
+    provider: 'gemini',
+    creditsPerCall: 20,
+    description: '使用 Nano banana 模型分析图像内容',
   },
 
   // Gemini 文字服务
   'gemini-text': {
     serviceName: 'Gemini 文字对话',
     provider: 'gemini',
-    creditsPerCall: 2,
+    creditsPerCall: 10,
     description: '使用 Gemini 进行文字对话',
     maxInputTokens: 8000,
     maxContextLength: 32000,
@@ -82,14 +123,24 @@ export const CREDIT_PRICING_CONFIG = {
   'sora-sd': {
     serviceName: 'Sora 普清视频',
     provider: 'sora',
-    creditsPerCall: 40,
-    description: '使用 Sora 生成普清视频',
+    creditsPerCall: 900,
+    description: '使用 Sora 生成视频（统一计费）',
+    modelPricing: {
+      'sora-2': { creditsPerCall: 900, description: 'Sora2 标准模型（占位）' },
+      'sora-2-vip': { creditsPerCall: 900, description: 'Sora2 VIP 模型（占位）' },
+      'sora-2-pro': { creditsPerCall: 900, description: 'Sora2 Pro 模型（占位）' },
+    },
   },
   'sora-hd': {
     serviceName: 'Sora 高清视频',
     provider: 'sora',
-    creditsPerCall: 400,
-    description: '使用 Sora 生成高清视频',
+    creditsPerCall: 900,
+    description: '使用 Sora 生成视频（统一计费）',
+    modelPricing: {
+      'sora-2': { creditsPerCall: 900, description: 'Sora2 标准模型（占位）' },
+      'sora-2-vip': { creditsPerCall: 900, description: 'Sora2 VIP 模型（占位）' },
+      'sora-2-pro': { creditsPerCall: 900, description: 'Sora2 Pro 模型（占位）' },
+    },
   },
 
   // Wan2.6 视频服务
@@ -110,19 +161,19 @@ export const CREDIT_PRICING_CONFIG = {
   'midjourney-imagine': {
     serviceName: 'Midjourney 生图',
     provider: 'midjourney',
-    creditsPerCall: 20,
+    creditsPerCall: 50,
     description: '使用 Midjourney 生成图像',
   },
   'midjourney-variation': {
     serviceName: 'Midjourney 变体',
     provider: 'midjourney',
-    creditsPerCall: 10,
+    creditsPerCall: 25,
     description: '生成 Midjourney 图像变体',
   },
   'midjourney-upscale': {
     serviceName: 'Midjourney 放大',
     provider: 'midjourney',
-    creditsPerCall: 6,
+    creditsPerCall: 25,
     description: '放大 Midjourney 图像',
   },
 
@@ -150,31 +201,31 @@ export const CREDIT_PRICING_CONFIG = {
   'kling-video': {
     serviceName: '可灵 Kling 视频',
     provider: 'kling',
-    creditsPerCall: 60,
+    creditsPerCall: 600,
     description: '使用可灵 Kling 生成视频',
   },
   'kling-2.6-video': {
     serviceName: '可灵 Kling 2.6 视频',
     provider: 'kling',
-    creditsPerCall: 100,
+    creditsPerCall: 600,
     description: '使用可灵 Kling 2.6 生成视频',
   },
   'kling-o1-video': {
     serviceName: '可灵 Kling O1 视频',
     provider: 'kling',
-    creditsPerCall: 100,
+    creditsPerCall: 1600,
     description: '使用可灵 Kling O1 (Omni Video) 生成视频',
   },
   'vidu-video': {
     serviceName: 'Vidu 视频',
     provider: 'vidu',
-    creditsPerCall: 60,
+    creditsPerCall: 600,
     description: '使用 Vidu 生成视频',
   },
   'doubao-video': {
     serviceName: '豆包 Seedance 视频',
     provider: 'doubao',
-    creditsPerCall: 60,
+    creditsPerCall: 600,
     description: '使用豆包 Seedance 生成视频',
   },
 } as const;
@@ -185,7 +236,7 @@ export type ServiceType = keyof typeof CREDIT_PRICING_CONFIG;
 export const DEFAULT_NEW_USER_CREDITS = 1000;
 
 // 每日登录奖励积分
-export const DAILY_LOGIN_REWARD_CREDITS = 100;
+export const DAILY_LOGIN_REWARD_CREDITS = 50;
 
 // 连续签到7天额外奖励积分
-export const CONSECUTIVE_7_DAY_BONUS_CREDITS = 500;
+export const CONSECUTIVE_7_DAY_BONUS_CREDITS = 150;

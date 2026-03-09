@@ -126,6 +126,9 @@ class BackgroundRemovalService {
       }
 
       const result = await response.json();
+      if (!result?.success || typeof result?.imageData !== "string" || !result.imageData) {
+        throw new Error(result?.error || "Background removal failed");
+      }
       const endTime = performance.now();
       const processingTime = Math.round(endTime - startTime);
 
@@ -212,6 +215,9 @@ class BackgroundRemovalService {
       }
 
       const result = await response.json();
+      if (!result?.success || typeof result?.imageData !== "string" || !result.imageData) {
+        throw new Error(result?.error || "Background removal failed");
+      }
 
       logger.info("✅ Background removal from URL completed");
 

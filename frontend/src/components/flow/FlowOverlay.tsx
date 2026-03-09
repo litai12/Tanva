@@ -1,7 +1,7 @@
 // @ts-nocheck
 // Flow 主画布与节点调度入口。
 import React from "react";
-import { Trash2, Plus, Upload, Download } from "lucide-react";
+import { Trash2, Plus, Upload, Download, Group, Ungroup } from "lucide-react";
 import { fetchTemplateCategories } from "@/services/publicTemplateService";
 import { fetchWithAuth } from "@/services/authFetch";
 import SharedTemplateCard from "@/components/template/SharedTemplateCard";
@@ -56,6 +56,7 @@ import CameraNode from "./nodes/CameraNode";
 import PromptOptimizeNode from "./nodes/PromptOptimizeNode";
 import AnalysisNode from "./nodes/AnalyzeNode";
 import Sora2VideoNode from "./nodes/Sora2VideoNode";
+import Sora2CharacterNode from "./nodes/Sora2CharacterNode";
 import Wan26Node from "./nodes/Wan26Node";
 import Wan2R2VNode from "./nodes/Wan2R2VNode";
 import TextNoteNode from "./nodes/TextNoteNode";
@@ -75,6 +76,7 @@ import VideoFrameExtractNode from "./nodes/VideoFrameExtractNode";
 import ImageGridNode from "./nodes/ImageGridNode";
 import ImageSplitNode from "./nodes/ImageSplitNode";
 import Nano2Node from "./nodes/Nano2Node";
+import NodeGroupNode from "./nodes/NodeGroupNode";
 import { FLOW_IMAGE_ASSET_PREFIX } from "@/services/flowImageAssetStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useFlowStore, FlowBackgroundVariant } from "@/stores/flowStore";
@@ -114,9 +116,11 @@ import {
   generateImageViaAPI,
   editImageViaAPI,
   blendImagesViaAPI,
+  createSora2CharacterViaAPI,
   generateWan26ViaAPI,
   generateWan26R2VViaAPI,
   midjourneyActionViaAPI,
+  querySora2CharacterTaskViaAPI,
   queryDashscopeTask,
 } from "@/services/aiBackendAPI";
 import {
@@ -142,6 +146,14 @@ import type { AIImageGenerateRequest, AIImageResult } from "@/types/ai";
 import MiniMapImageOverlay from "./MiniMapImageOverlay";
 import PersonalLibraryPanel from "./PersonalLibraryPanel";
 import { resolveTextFromSourceNode } from "./utils/textSource";
+
+// 兼容历史多图输入句柄：将 targetHandle img1/img2/... 归一化到 img
+const normalizeFlowTargetHandle = (
+  handle?: string | null
+): string | undefined => {
+  if (typeof handle !== "string") return handle ?? undefined;
+  return /^img\d+$/.test(handle) ? "img" : handle;
+};
 
 /**
  * 调整图片尺寸以满足 Wan2.6 I2V 的要求（宽高必须是 16 的倍数）
@@ -256,6 +268,79 @@ async function validateAndAdjustImageForWan26(
 
 type RFNode = Node<any>;
 
+const isGroupNode = (node?: RFNode | null): boolean =>
+  !!node && node.type === FLOW_GROUP_NODE_TYPE;
+
+const getGroupChildIds = (node?: RFNode | null): string[] => {
+  if (!isGroupNode(node)) return [];
+  const ids = Array.isArray((node as any)?.data?.childNodeIds)
+    ? ((node as any).data.childNodeIds as string[])
+    : [];
+  return Array.from(new Set(ids.filter((id) => typeof id === "string" && id)));
+};
+
+const getNodeRenderSize = (node: RFNode): { width: number; height: number } => {
+  const fallback = FLOW_NODE_DEFAULT_SIZE[node.type as FlowNodeType] || {
+    w: 220,
+    h: 160,
+  };
+
+  const styleW = Number((node as any)?.style?.width);
+  const styleH = Number((node as any)?.style?.height);
+  const width = Number(
+    node.width ??
+      node.data?.boxW ??
+      (Number.isFinite(styleW) ? styleW : undefined) ??
+      fallback.w
+  );
+  const height = Number(
+    node.height ??
+      node.data?.boxH ??
+      (Number.isFinite(styleH) ? styleH : undefined) ??
+      fallback.h
+  );
+
+  return {
+    width: Number.isFinite(width) && width > 0 ? width : fallback.w,
+    height: Number.isFinite(height) && height > 0 ? height : fallback.h,
+  };
+};
+
+const computeGroupBounds = (
+  nodes: RFNode[],
+  childIds: string[]
+): { x: number; y: number; width: number; height: number } | null => {
+  if (!childIds.length) return null;
+  const nodeMap = new Map(nodes.map((node) => [node.id, node]));
+
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  let found = 0;
+
+  childIds.forEach((id) => {
+    const child = nodeMap.get(id);
+    if (!child || isGroupNode(child)) return;
+    const { width, height } = getNodeRenderSize(child);
+    const x = Number(child.position?.x ?? 0);
+    const y = Number(child.position?.y ?? 0);
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x + width);
+    maxY = Math.max(maxY, y + height);
+    found += 1;
+  });
+
+  if (!found) return null;
+
+  const x = minX - FLOW_GROUP_PADDING;
+  const y = minY - FLOW_GROUP_PADDING;
+  const width = Math.max(FLOW_GROUP_MIN_WIDTH, maxX - minX + FLOW_GROUP_PADDING * 2);
+  const height = Math.max(FLOW_GROUP_MIN_HEIGHT, maxY - minY + FLOW_GROUP_PADDING * 2);
+  return { x, y, width, height };
+};
+
 type EdgeLabelEditorState = {
   visible: boolean;
   edgeId: string | null;
@@ -360,6 +445,7 @@ const FLOW_CLIPBOARD_FALLBACK_TEXT = "Tanva flow selection";
 const FLOW_CLIPBOARD_TYPE = "tanva-flow";
 
 const nodeTypes = {
+  nodeGroup: NodeGroupNode,
   textPrompt: TextPromptNode,
   textPromptPro: TextPromptProNode,
   textChat: TextChatNode,
@@ -376,6 +462,7 @@ const nodeTypes = {
   camera: CameraNode,
   analysis: AnalysisNode,
   sora2Video: Sora2VideoNode,
+  sora2Character: Sora2CharacterNode,
   wan26: Wan26Node,
   wan2R2V: Wan2R2VNode,
   klingVideo: KlingVideoNode,
@@ -391,34 +478,6 @@ const nodeTypes = {
   videoFrameExtract: VideoFrameExtractNode,
   imageGrid: ImageGridNode,
   imageSplit: ImageSplitNode,
-};
-
-type FlowNodeTypeKey = keyof typeof nodeTypes;
-
-const normalizeNodeTypeToken = (value: string): string =>
-  String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
-
-const NODE_TYPE_TOKEN_MAP = Object.keys(nodeTypes).reduce(
-  (acc, key) => {
-    acc[normalizeNodeTypeToken(key)] = key as FlowNodeTypeKey;
-    return acc;
-  },
-  {} as Record<string, FlowNodeTypeKey>
-);
-
-const NODE_TYPE_ALIAS_MAP: Record<string, FlowNodeTypeKey> = {
-  // Admin defaults / common aliases
-  generatereference: "generateRef",
-  reference: "generateRef",
-};
-
-const normalizeNodeTypeKey = (rawType: string): FlowNodeTypeKey | null => {
-  const token = normalizeNodeTypeToken(rawType);
-  if (!token) return null;
-  return NODE_TYPE_TOKEN_MAP[token] || NODE_TYPE_ALIAS_MAP[token] || null;
 };
 
 // 自定义边组件 - 选中时在终点显示删除按钮
@@ -510,6 +569,41 @@ const edgeTypes = {
 };
 
 const DEFAULT_REFERENCE_PROMPT = "请参考第二张图的内容";
+const FLOW_GROUP_NODE_TYPE = "nodeGroup";
+const FLOW_GROUP_PADDING = 24;
+const FLOW_GROUP_MIN_WIDTH = 220;
+const FLOW_GROUP_MIN_HEIGHT = 160;
+const FLOW_GROUP_DEFAULT_COLOR = "#3b82f6";
+const FLOW_GROUP_RUNNABLE_TYPES = new Set([
+  "textChat",
+  "promptOptimize",
+  "analysis",
+  "videoAnalyze",
+  "generate",
+  "generate4",
+  "generateRef",
+  "generatePro",
+  "generatePro4",
+  "midjourney",
+  "nano2",
+  "image",
+  "imagePro",
+  "sora2Video",
+  "sora2Character",
+  "wan26",
+  "wan2R2V",
+  "klingVideo",
+  "kling26Video",
+  "klingO1Video",
+  "viduVideo",
+  "doubaoVideo",
+]);
+const FLOW_GROUP_LOCAL_RUN_TYPES = new Set([
+  "textChat",
+  "promptOptimize",
+  "analysis",
+  "videoAnalyze",
+]);
 const SORA2_MAX_REFERENCE_IMAGES = 1;
 const VIDU_MAX_REFERENCE_IMAGES = 7; // Vidu viduq2 模型支持最多 7 张参考图
 const KLING_MAX_REFERENCE_IMAGES = 4; // Kling 支持最多 4 张参考图
@@ -533,7 +627,6 @@ type Sora2VideoHistoryItem = {
 type AddPanelTab = "nodes" | "beta" | "custom" | "templates" | "personal";
 const ALL_ADD_TABS: AddPanelTab[] = [
   "nodes",
-  "beta",
   "custom",
   "templates",
   "personal",
@@ -548,7 +641,6 @@ const getStoredAddPanelTab = (): AddPanelTab => {
     return saved === "templates" ||
       saved === "personal" ||
       saved === "nodes" ||
-      saved === "beta" ||
       saved === "custom"
       ? saved
       : "nodes";
@@ -557,33 +649,40 @@ const getStoredAddPanelTab = (): AddPanelTab => {
   }
 };
 
+const sanitizeAllowedAddTabs = (tabs?: AddPanelTab[]): AddPanelTab[] => {
+  if (!tabs?.length) return ALL_ADD_TABS;
+  const filtered = tabs.filter((tab) => ALL_ADD_TABS.includes(tab));
+  return filtered.length > 0 ? filtered : ALL_ADD_TABS;
+};
+
 // 节点积分消耗映射
 const NODE_CREDITS_MAP: Record<string, number | string> = {
   // 普通节点
   textPrompt: 0, // 提示词节点 - 不消耗积分
-  textChat: 2, // 纯文本交互节点 - gemini-text
+  textChat: 10, // 纯文本交互节点 - gemini-text
   textNote: 0, // 纯文本节点 - 不消耗积分
-  promptOptimize: 2, // 提示词优化节点 - gemini-text
-  analysis: 6, // 图像分析节点 - gemini-image-analyze
+  promptOptimize: 10, // 提示词优化节点 - gemini-text
+  analysis: 20, // 图像分析节点 - gemini-image-analyze
   image: 0, // 图片节点 - 不消耗积分
   generate: "10-30", // 生成节点 - gemini-2.5-image (10) 或 gemini-3-pro-image (30)
   generateRef: 30, // 参考图生成节点 - gemini-image-edit 或 gemini-image-blend
-  generate4: 40, // 生成多张图片节点 - 4次 × 10积分
-  midjourney: 20, // Midjourney生成 - midjourney-imagine
+  generate4: 120, // 生成多张图片节点 - 4次 × 30积分
+  midjourney: 50, // Midjourney生成 - midjourney-imagine
   three: 30, // 三维节点 - convert-2d-to-3d
   sora2Video: "40-400", // 视频生成节点 - sora-sd (40) 或 sora-hd (400)
+  sora2Character: 0, // 角色生成节点 - 当前不单独计费
   wan26: 600, // Wan2.6生成视频 - wan26-video
   wan2R2V: 600, // 视频融合 - wan26-r2v
-  klingVideo: "40-400", // 可灵视频生成 - 可能使用 sora-sd 或 sora-hd
-  kling26Video: 100, // 可灵2.6视频生成 - kling-v2-6
-  klingO1Video: "40-400", // 可灵O1视频生成 - Omni Video
-  viduVideo: "40-400", // Vidu视频生成 - 可能使用 sora-sd 或 sora-hd
-  doubaoVideo: "40-400", // 豆包视频生成 - 可能使用 sora-sd 或 sora-hd
+  klingVideo: 600, // 可灵视频生成
+  kling26Video: 600, // 可灵2.6视频生成 - kling-v2-6
+  klingO1Video: 1600, // 可灵O1视频生成 - Omni Video
+  viduVideo: 600, // Vidu视频生成
+  doubaoVideo: 600, // 豆包视频生成
   camera: 0, // 截图节点 - 不消耗积分
   storyboardSplit: 0, // 分镜拆分节点 - 不消耗积分
 
   // Beta 节点
-  textPromptPro: 2, // 专业提示词节点 - gemini-text
+  textPromptPro: 0, // 专业提示词节点 - 输入节点，不消耗积分
   imagePro: 0, // 专业图片节点 - 不消耗积分
   generatePro: 30, // 专业生成节点 - gemini-3-pro-image
   generatePro4: 120, // 四图专业生成节点 - 4次 × 30积分
@@ -609,7 +708,8 @@ const NODE_PALETTE_ITEMS = [
   { key: "imageSplit", zh: "图片分割节点", en: "Image Split", category: "image" },
   { key: "three", zh: "三维节点", en: "3D Node", category: "image" },
   // 视频生成节点
-  { key: "sora2Video", zh: "Sora2视频生成", en: "Sora2", category: "video" },
+  { key: "sora2Video", zh: "Sora2 Pro视频生成", en: "Sora2 Pro", category: "video" },
+  { key: "sora2Character", zh: "Sora2角色生成", en: "Sora2 Character", category: "video" },
   { key: "wan26", zh: "Wan2.6生成视频", en: "Wan2.6", category: "video" },
   { key: "wan2R2V", zh: "视频融合", en: "Wan2.6 R2V", category: "video" },
   { key: "klingVideo", zh: "Kling视频生成", en: "Kling", category: "video", badge: "维护中" },
@@ -628,6 +728,69 @@ const NODE_PALETTE_ITEMS = [
   { key: "storyboardSplit", zh: "分镜拆分节点", en: "Storyboard Split", category: "other" },
 ];
 
+const BETA_NODE_KEYS = new Set([
+  "textPromptPro",
+  "imagePro",
+  "generatePro",
+  "generatePro4",
+]);
+
+type NodePanelGroupKey = "text" | "image" | "three" | "other" | "video";
+
+const NODE_PANEL_GROUP_ORDER: NodePanelGroupKey[] = [
+  "text",
+  "image",
+  "other",
+  "video",
+  "three",
+];
+
+const NODE_PANEL_GROUP_META: Record<NodePanelGroupKey, { title: string; subtitle: string }> = {
+  text: { title: "文字类节点", subtitle: "提示词、文本处理与拆分" },
+  image: { title: "图像类节点", subtitle: "图像输入、生成与编辑" },
+  three: { title: "3D 类节点", subtitle: "三维相关节点" },
+  other: { title: "其他节点", subtitle: "辅助能力节点" },
+  video: { title: "视频类节点", subtitle: "视频输入、生成与分析" },
+};
+
+const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
+  textPrompt: "text",
+  textPromptPro: "text",
+  textChat: "text",
+  textNote: "text",
+  promptOptimize: "text",
+  storyboardSplit: "text",
+
+  image: "image",
+  imagePro: "image",
+  camera: "image",
+  generate: "image",
+  generateRef: "image",
+  generate4: "image",
+  generatePro: "image",
+  generatePro4: "image",
+  midjourney: "image",
+  nano2: "image",
+  analysis: "image",
+  imageGrid: "image",
+  imageSplit: "image",
+
+  three: "three",
+
+  video: "video",
+  sora2Video: "video",
+  sora2Character: "video",
+  wan26: "video",
+  wan2R2V: "video",
+  klingVideo: "video",
+  kling26Video: "video",
+  klingO1Video: "video",
+  viduVideo: "video",
+  doubaoVideo: "video",
+  videoAnalyze: "video",
+  videoFrameExtract: "video",
+};
+
 // Beta 节点列表（实验性功能）
 const BETA_NODE_ITEMS = [
   {
@@ -645,6 +808,126 @@ const BETA_NODE_ITEMS = [
     badge: "Beta",
   },
 ];
+
+const FLOW_NODE_DEFAULT_SIZE = {
+  nodeGroup: { w: FLOW_GROUP_MIN_WIDTH, h: FLOW_GROUP_MIN_HEIGHT },
+  textPrompt: { w: 240, h: 180 },
+  textPromptPro: { w: 420, h: 360 },
+  textNote: { w: 220, h: 140 },
+  textChat: { w: 320, h: 540 },
+  promptOptimize: { w: 360, h: 300 },
+  image: { w: 260, h: 240 },
+  imagePro: { w: 320, h: 240 },
+  generate: { w: 260, h: 200 },
+  generatePro: { w: 320, h: 400 },
+  generatePro4: { w: 380, h: 480 },
+  generate4: { w: 300, h: 240 },
+  generateRef: { w: 260, h: 240 },
+  three: { w: 280, h: 260 },
+  camera: { w: 260, h: 220 },
+  analysis: { w: 260, h: 280 },
+  sora2Video: { w: 280, h: 260 },
+  sora2Character: { w: 300, h: 320 },
+  wan26: { w: 300, h: 320 },
+  wan2R2V: { w: 300, h: 360 },
+  klingVideo: { w: 280, h: 260 },
+  kling26Video: { w: 280, h: 260 },
+  klingO1Video: { w: 280, h: 380 },
+  viduVideo: { w: 280, h: 260 },
+  doubaoVideo: { w: 280, h: 260 },
+  storyboardSplit: { w: 320, h: 400 },
+  midjourney: { w: 280, h: 320 },
+  nano2: { w: 260, h: 200 },
+  video: { w: 320, h: 280 },
+  videoAnalyze: { w: 280, h: 360 },
+  videoFrameExtract: { w: 300, h: 420 },
+  imageGrid: { w: 300, h: 380 },
+  imageSplit: { w: 320, h: 400 },
+} as const;
+
+type FlowNodeType = keyof typeof FLOW_NODE_DEFAULT_SIZE;
+
+const FLOW_NODE_KEY_ALIASES: Record<string, FlowNodeType> = {
+  generatereference: "generateRef",
+  "generate-reference": "generateRef",
+  generate_reference: "generateRef",
+};
+
+const canonicalizeNodeTypeKey = (value: string): string =>
+  value.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+const FLOW_NODE_CANONICAL_MAP: Record<string, FlowNodeType> = (() => {
+  const map: Record<string, FlowNodeType> = {};
+
+  (Object.keys(FLOW_NODE_DEFAULT_SIZE) as FlowNodeType[]).forEach((key) => {
+    map[canonicalizeNodeTypeKey(key)] = key;
+  });
+
+  Object.entries(FLOW_NODE_KEY_ALIASES).forEach(([alias, type]) => {
+    map[canonicalizeNodeTypeKey(alias)] = type;
+  });
+
+  return map;
+})();
+
+const FLOW_NODE_CANONICAL_ENTRIES = Object.entries(FLOW_NODE_CANONICAL_MAP).sort(
+  (a, b) => b[0].length - a[0].length
+);
+
+const normalizeFlowNodeType = (rawType?: string): FlowNodeType | null => {
+  if (typeof rawType !== "string") return null;
+  const trimmed = rawType.trim();
+  if (!trimmed) return null;
+
+  if (trimmed in FLOW_NODE_DEFAULT_SIZE) {
+    return trimmed as FlowNodeType;
+  }
+
+  const lowered = trimmed.toLowerCase();
+  const caseInsensitive = (Object.keys(FLOW_NODE_DEFAULT_SIZE) as FlowNodeType[])
+    .find((key) => key.toLowerCase() === lowered);
+  if (caseInsensitive) return caseInsensitive;
+
+  const aliasMatched = FLOW_NODE_KEY_ALIASES[lowered];
+  if (aliasMatched) return aliasMatched;
+
+  const canonical = canonicalizeNodeTypeKey(trimmed);
+  const canonicalMatched = FLOW_NODE_CANONICAL_MAP[canonical];
+  if (canonicalMatched) return canonicalMatched;
+
+  const fuzzyMatched = FLOW_NODE_CANONICAL_ENTRIES.find(([candidate]) =>
+    canonical.includes(candidate)
+  );
+  if (fuzzyMatched) return fuzzyMatched[1];
+
+  return null;
+};
+
+const resolveFlowNodeTypeFromConfig = (config: Partial<NodeConfig>): string => {
+  const metadata = (config.metadata ?? {}) as Record<string, unknown>;
+  const candidates = [
+    config.nodeKey,
+    config.nameEn,
+    config.nameZh,
+    config.serviceType,
+    typeof metadata.nodeKey === "string" ? metadata.nodeKey : undefined,
+    typeof metadata.type === "string" ? metadata.type : undefined,
+    typeof metadata.provider === "string" ? metadata.provider : undefined,
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeFlowNodeType(candidate);
+    if (normalized) return normalized;
+  }
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  return "";
+};
 
 const nodePaletteButtonStyle: React.CSSProperties = {
   display: "flex",
@@ -714,6 +997,83 @@ const nodePaletteCreditsStyle: React.CSSProperties = {
   borderRadius: 4,
   letterSpacing: "0.01em",
   whiteSpace: "nowrap",
+};
+
+const nodePaletteSectionStyle: React.CSSProperties = {
+  marginTop: 16,
+};
+
+const nodePaletteSectionHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+  marginBottom: 10,
+};
+
+const nodePaletteSectionTitleStyle: React.CSSProperties = {
+  fontSize: 16,
+  fontWeight: 700,
+  color: "#111827",
+  lineHeight: 1.2,
+};
+
+const nodePaletteSectionSubtitleStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: "#6b7280",
+  marginTop: 2,
+};
+
+const nodePaletteSectionCountStyle: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 600,
+  color: "#4b5563",
+  background: "#f3f4f6",
+  border: "1px solid #e5e7eb",
+  borderRadius: 999,
+  padding: "4px 10px",
+  whiteSpace: "nowrap",
+};
+
+const getNodePaletteGroupKey = (
+  config: Partial<NodeConfig> & { nodeKey?: string; category?: string }
+): NodePanelGroupKey => {
+  const resolvedType = resolveFlowNodeTypeFromConfig(config).trim();
+  if (resolvedType && NODE_PANEL_GROUP_BY_TYPE[resolvedType]) {
+    return NODE_PANEL_GROUP_BY_TYPE[resolvedType];
+  }
+
+  const key = (config.nodeKey ?? "").trim();
+  if (key && NODE_PANEL_GROUP_BY_TYPE[key]) {
+    return NODE_PANEL_GROUP_BY_TYPE[key];
+  }
+
+  const mergedName = `${config.nameZh ?? ""} ${config.nameEn ?? ""}`.toLowerCase();
+  if (mergedName.includes("3d") || mergedName.includes("三维")) return "three";
+  if (mergedName.includes("视频") || mergedName.includes("video")) return "video";
+  if (
+    mergedName.includes("文本") ||
+    mergedName.includes("文字") ||
+    mergedName.includes("提示词") ||
+    mergedName.includes("prompt") ||
+    mergedName.includes("text")
+  ) {
+    return "text";
+  }
+  if (
+    mergedName.includes("图像") ||
+    mergedName.includes("图片") ||
+    mergedName.includes("生成") ||
+    mergedName.includes("image")
+  ) {
+    return "image";
+  }
+
+  if (config.category === "video") return "video";
+  if (config.category === "image") return "image";
+  if (config.category === "input") return "text";
+
+  return "other";
 };
 
 const setNodePaletteHover = (target: HTMLElement, hovered: boolean) => {
@@ -1161,25 +1521,118 @@ function FlowInner() {
     });
   }, [nodeConfigs]);
 
+  const nodePaletteConfigs = React.useMemo(() => {
+    const fallbackConfigs = NODE_PALETTE_ITEMS.map((item) => ({
+      nodeKey: item.key,
+      nameZh: item.zh,
+      nameEn: item.en,
+      category: item.category as "input" | "image" | "video" | "other",
+      status: (item.badge === "维护中" ? "maintenance" : "normal") as
+        | "normal"
+        | "maintenance"
+        | "coming_soon"
+        | "disabled",
+      creditsPerCall: NODE_CREDITS_MAP[item.key] || 0,
+      sortOrder: 0,
+    }));
+
+    const base =
+      sortedNodeConfigs && sortedNodeConfigs.length > 0
+        ? [...sortedNodeConfigs]
+        : [...fallbackConfigs];
+
+    const existingKeys = new Set(base.map((item) => item.nodeKey));
+    const merged = [...base];
+    for (const fallback of fallbackConfigs) {
+      if (!existingKeys.has(fallback.nodeKey)) {
+        merged.push(fallback);
+      }
+    }
+
+    return merged
+      .map((config) => {
+        if (config.nodeKey === "sora2Video") {
+          return {
+            ...config,
+            nameZh: "Sora2 Pro视频生成",
+            nameEn: "Sora2 Pro",
+            status: "coming_soon",
+          };
+        }
+        if (config.nodeKey === "sora2Character") {
+          return {
+            ...config,
+            status: "coming_soon",
+          };
+        }
+        return config;
+      })
+      .filter((config) => !BETA_NODE_KEYS.has(config.nodeKey))
+      .filter((config) => config.status !== "disabled");
+  }, [sortedNodeConfigs]);
+
+  const groupedNodePaletteConfigs = React.useMemo(() => {
+    const grouped: Record<
+      NodePanelGroupKey,
+      Array<NodeConfig & { _index: number; _inactive: number }>
+    > = {
+      text: [],
+      image: [],
+      three: [],
+      other: [],
+      video: [],
+    };
+
+    nodePaletteConfigs.forEach((config, index) => {
+      const groupKey = getNodePaletteGroupKey(config);
+      const inactive =
+        config.status === "maintenance" || config.status === "coming_soon"
+          ? 1
+          : 0;
+      grouped[groupKey].push({ ...config, _index: index, _inactive: inactive });
+    });
+
+    return NODE_PANEL_GROUP_ORDER
+      .map((groupKey) => {
+        const items = grouped[groupKey]
+          .sort((a, b) => {
+            if (a._inactive !== b._inactive) return a._inactive - b._inactive;
+            return a._index - b._index;
+          })
+          .map(({ _index: _ignoredIndex, _inactive: _ignoredInactive, ...item }) => item);
+
+        if (items.length === 0) return null;
+
+        return {
+          key: groupKey,
+          title: NODE_PANEL_GROUP_META[groupKey].title,
+          subtitle: NODE_PANEL_GROUP_META[groupKey].subtitle,
+          items,
+        };
+      })
+      .filter(Boolean);
+  }, [nodePaletteConfigs]);
+
   const onNodesChangeWithHistory = React.useCallback(
     (changes: any) => {
+      let processedChanges = changes;
       const altState = altDragStartRef.current;
       const isAltDragCloning =
         !!altState?.altPressed &&
         !!altState?.cloned &&
         altState?.idMap instanceof Map;
 
-      if (isAltDragCloning && Array.isArray(changes)) {
+      if (isAltDragCloning && Array.isArray(processedChanges)) {
         // ReactFlow 仍会尝试拖拽原节点；这里把“原节点的位置变化”重定向到副本，
         // 并把原节点强制回到起始位置，保证原有连线不被“带走”。
         const posChange =
-          changes.find(
+          processedChanges.find(
             (c: any) =>
               c?.type === "position" &&
               c?.id === altState?.nodeId &&
               altState?.startPositions?.has?.(c.id)
           ) ||
-          changes.find(
+          processedChanges.find(
             (c: any) =>
               c?.type === "position" && altState?.startPositions?.has?.(c.id)
           );
@@ -1191,7 +1644,7 @@ function FlowInner() {
             typeof posChange.position !== "undefined" ||
             typeof posChange.positionAbsolute !== "undefined";
           if (!base) {
-            onNodesChange(changes);
+            onNodesChange(processedChanges);
             return;
           }
 
@@ -1213,7 +1666,7 @@ function FlowInner() {
 
           const remapped: any[] = [];
           // 先保留非 position 变更（如 select/dimensions/remove/add）
-          for (const c of changes) {
+          for (const c of processedChanges) {
             if (c?.type !== "position") remapped.push(c);
           }
 
@@ -1255,11 +1708,62 @@ function FlowInner() {
         }
       }
 
-      onNodesChange(changes);
+      if (Array.isArray(processedChanges) && processedChanges.length > 0) {
+        try {
+          const currentNodes = (rfRef.current.getNodes?.() || []) as RFNode[];
+          if (currentNodes.length) {
+            const nodeMap = new Map(currentNodes.map((node) => [node.id, node]));
+            const extraPositionChanges: any[] = [];
+            const changedIds = new Set(
+              processedChanges
+                .filter((change: any) => change?.type === "position")
+                .map((change: any) => String(change?.id || ""))
+                .filter(Boolean)
+            );
+
+            for (const change of processedChanges) {
+              if (change?.type !== "position") continue;
+              const groupNode = nodeMap.get(change.id);
+              if (!isGroupNode(groupNode)) continue;
+
+              const nextX = Number(change?.position?.x);
+              const nextY = Number(change?.position?.y);
+              if (!Number.isFinite(nextX) || !Number.isFinite(nextY)) continue;
+
+              const prevX = Number(groupNode.position?.x ?? 0);
+              const prevY = Number(groupNode.position?.y ?? 0);
+              const dx = nextX - prevX;
+              const dy = nextY - prevY;
+              if (!dx && !dy) continue;
+
+              const childIds = getGroupChildIds(groupNode);
+              childIds.forEach((childId) => {
+                if (changedIds.has(childId)) return;
+                const childNode = nodeMap.get(childId);
+                if (!childNode || isGroupNode(childNode)) return;
+                const childX = Number(childNode.position?.x ?? 0);
+                const childY = Number(childNode.position?.y ?? 0);
+                extraPositionChanges.push({
+                  id: childId,
+                  type: "position",
+                  position: { x: childX + dx, y: childY + dy },
+                  dragging: change?.dragging,
+                });
+              });
+            }
+
+            if (extraPositionChanges.length > 0) {
+              processedChanges = processedChanges.concat(extraPositionChanges);
+            }
+          }
+        } catch {}
+      }
+
+      onNodesChange(processedChanges);
       try {
         const needCommit =
-          Array.isArray(changes) &&
-          changes.some(
+          Array.isArray(processedChanges) &&
+          processedChanges.some(
             (c: any) =>
               (c?.type === "position" && c?.dragging === false) ||
               c?.type === "remove" ||
@@ -1278,6 +1782,311 @@ function FlowInner() {
   React.useEffect(() => {
     rfRef.current = rf;
   }, [rf]);
+
+  const normalizeGroupNodes = React.useCallback((inputNodes: RFNode[]) => {
+    if (!Array.isArray(inputNodes) || inputNodes.length === 0) {
+      return { changed: false, nodes: inputNodes };
+    }
+
+    const nodeMap = new Map(inputNodes.map((node) => [node.id, node]));
+    const claimedChildIds = new Set<string>();
+    let changed = false;
+
+    const normalized = inputNodes
+      .map((node) => {
+        if (!isGroupNode(node)) return node;
+
+        const originalChildIds = getGroupChildIds(node);
+        const filteredChildIds: string[] = [];
+        for (const childId of originalChildIds) {
+          const child = nodeMap.get(childId);
+          if (!child || isGroupNode(child)) continue;
+          if (claimedChildIds.has(childId)) {
+            changed = true;
+            continue;
+          }
+          claimedChildIds.add(childId);
+          filteredChildIds.push(childId);
+        }
+
+        if (filteredChildIds.length === 0) {
+          changed = true;
+          return null;
+        }
+
+        const bounds = computeGroupBounds(inputNodes, filteredChildIds);
+        if (!bounds) {
+          changed = true;
+          return null;
+        }
+
+        const currentColor =
+          typeof node.data?.groupColor === "string" &&
+          node.data.groupColor.trim().length > 0
+            ? node.data.groupColor
+            : FLOW_GROUP_DEFAULT_COLOR;
+
+        const currentName =
+          typeof node.data?.groupName === "string" &&
+          node.data.groupName.trim().length > 0
+            ? node.data.groupName
+            : "新建分组";
+
+        const sameChildren =
+          originalChildIds.length === filteredChildIds.length &&
+          originalChildIds.every((id, index) => id === filteredChildIds[index]);
+        const samePosition =
+          Math.abs((node.position?.x ?? 0) - bounds.x) < 0.1 &&
+          Math.abs((node.position?.y ?? 0) - bounds.y) < 0.1;
+        const styleW = Number((node as any)?.style?.width);
+        const styleH = Number((node as any)?.style?.height);
+        const sameSize =
+          Math.abs((Number.isFinite(styleW) ? styleW : 0) - bounds.width) < 0.1 &&
+          Math.abs((Number.isFinite(styleH) ? styleH : 0) - bounds.height) < 0.1;
+        const sameColor = node.data?.groupColor === currentColor;
+        const sameName = node.data?.groupName === currentName;
+
+        if (sameChildren && samePosition && sameSize && sameColor && sameName) {
+          return node;
+        }
+
+        changed = true;
+        return {
+          ...node,
+          position: { x: bounds.x, y: bounds.y },
+          data: {
+            ...(node.data || {}),
+            groupName: currentName,
+            groupColor: currentColor,
+            childNodeIds: filteredChildIds,
+          },
+          style: {
+            ...(node.style || {}),
+            width: bounds.width,
+            height: bounds.height,
+            zIndex: 0,
+          },
+        } as RFNode;
+      })
+      .filter(Boolean) as RFNode[];
+
+    return { changed, nodes: normalized };
+  }, []);
+
+  const groupNormalizeLockRef = React.useRef(false);
+  React.useEffect(() => {
+    if (groupNormalizeLockRef.current) {
+      groupNormalizeLockRef.current = false;
+      return;
+    }
+    const result = normalizeGroupNodes(nodes as RFNode[]);
+    if (!result.changed) return;
+    groupNormalizeLockRef.current = true;
+    setNodes(result.nodes as any);
+  }, [nodes, normalizeGroupNodes, setNodes]);
+
+  const updateGroupNodeData = React.useCallback(
+    (groupId: string, patch: Record<string, unknown>) => {
+      let changed = false;
+      setNodes((prev: any[]) =>
+        prev.map((node) => {
+          if (node.id !== groupId || !isGroupNode(node as RFNode)) return node;
+          changed = true;
+          return {
+            ...node,
+            data: { ...(node.data || {}), ...patch },
+          };
+        })
+      );
+      if (!changed) return;
+      try {
+        historyService.commit("flow-group-update").catch(() => {});
+      } catch {}
+    },
+    [setNodes]
+  );
+
+  const dissolveGroups = React.useCallback(
+    (groupIds: string[]) => {
+      const ids = Array.from(
+        new Set(groupIds.filter((id) => typeof id === "string" && id))
+      );
+      if (!ids.length) return false;
+
+      const removeSet = new Set(ids);
+      let changed = false;
+      setNodes((prev: any[]) => {
+        const next = prev.filter((node) => {
+          if (!removeSet.has(node.id)) return true;
+          changed = true;
+          return false;
+        });
+        return next;
+      });
+
+      if (!changed) return false;
+      try {
+        historyService.commit("flow-group-dissolve").catch(() => {});
+      } catch {}
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: "已解组", type: "success" },
+        })
+      );
+      return true;
+    },
+    [setNodes]
+  );
+
+  const getSelectedGroupIds = React.useCallback(
+    (allNodes: RFNode[]) => {
+      const selectedIds = new Set(
+        allNodes
+          .filter((node) => node.selected)
+          .map((node) => String(node.id))
+      );
+      const directGroupIds = allNodes
+        .filter((node) => node.selected && isGroupNode(node))
+        .map((node) => node.id);
+      if (directGroupIds.length) return directGroupIds;
+
+      const inferred = allNodes
+        .filter((node) => isGroupNode(node))
+        .filter((group) =>
+          getGroupChildIds(group).some((childId) => selectedIds.has(childId))
+        )
+        .map((group) => group.id);
+
+      return inferred;
+    },
+    []
+  );
+
+  const createGroupFromSelection = React.useCallback(() => {
+    const allNodes = (rf.getNodes?.() || []) as RFNode[];
+    const selectedNodes = allNodes.filter(
+      (node) => node.selected && !isGroupNode(node)
+    );
+    if (selectedNodes.length < 2) {
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: "请先选择至少两个节点再打组", type: "warning" },
+        })
+      );
+      return false;
+    }
+
+    const selectedIds = selectedNodes.map((node) => node.id);
+    const bounds = computeGroupBounds(allNodes, selectedIds);
+    if (!bounds) return false;
+
+    const groupCount = allNodes.filter((node) => isGroupNode(node)).length;
+    const groupId = generateId("group");
+    const groupNode: RFNode = {
+      id: groupId,
+      type: FLOW_GROUP_NODE_TYPE,
+      position: { x: bounds.x, y: bounds.y },
+      data: {
+        groupName: `分组 ${groupCount + 1}`,
+        groupColor: FLOW_GROUP_DEFAULT_COLOR,
+        childNodeIds: selectedIds,
+      },
+      selected: true,
+      draggable: true,
+      selectable: true,
+      style: {
+        width: bounds.width,
+        height: bounds.height,
+        zIndex: 0,
+      },
+    } as any;
+
+    const selectedSet = new Set(selectedIds);
+    let changed = false;
+    setNodes((prev: any[]) => {
+      const next = prev
+        .map((node) => {
+          if (!isGroupNode(node as RFNode)) {
+            return { ...node, selected: false };
+          }
+          const childIds = getGroupChildIds(node as RFNode);
+          const filtered = childIds.filter((id) => !selectedSet.has(id));
+          if (filtered.length !== childIds.length) {
+            changed = true;
+            if (filtered.length === 0) {
+              return null;
+            }
+            return {
+              ...node,
+              selected: false,
+              data: { ...(node.data || {}), childNodeIds: filtered },
+            };
+          }
+          return { ...node, selected: false };
+        })
+        .filter(Boolean) as RFNode[];
+
+      changed = true;
+      return [groupNode, ...next];
+    });
+
+    if (!changed) return false;
+    try {
+      historyService.commit("flow-group-create").catch(() => {});
+    } catch {}
+    window.dispatchEvent(
+      new CustomEvent("toast", {
+        detail: { message: "已创建分组", type: "success" },
+      })
+    );
+    return true;
+  }, [rf, setNodes]);
+
+  const updateGroupName = React.useCallback(
+    (groupId: string, nextName: string) => {
+      const normalized = typeof nextName === "string" ? nextName.trim() : "";
+      if (!normalized) return;
+      const groupNode = (rf.getNode(groupId) || null) as RFNode | null;
+      if (!groupNode || !isGroupNode(groupNode)) return;
+      const currentName =
+        (typeof groupNode.data?.groupName === "string" &&
+          groupNode.data.groupName.trim()) ||
+        "新建分组";
+      if (normalized === currentName) return;
+      updateGroupNodeData(groupId, { groupName: normalized });
+    },
+    [rf, updateGroupNodeData]
+  );
+
+  const promptGroupName = React.useCallback(
+    (groupId: string) => {
+      const groupNode = (rf.getNode(groupId) || null) as RFNode | null;
+      if (!groupNode || !isGroupNode(groupNode)) return;
+      const currentName =
+        (typeof groupNode.data?.groupName === "string" &&
+          groupNode.data.groupName.trim()) ||
+        "新建分组";
+      const nextName = window.prompt("请输入分组名称", currentName)?.trim();
+      if (!nextName) return;
+      updateGroupName(groupId, nextName);
+    },
+    [rf, updateGroupName]
+  );
+
+  const changeGroupColor = React.useCallback(
+    (groupId: string, color: string) => {
+      const normalized =
+        typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color.trim())
+          ? color.trim()
+          : FLOW_GROUP_DEFAULT_COLOR;
+      updateGroupNodeData(groupId, { groupColor: normalized });
+    },
+    [updateGroupNodeData]
+  );
+
+  const [runningGroupIds, setRunningGroupIds] = React.useState<string[]>([]);
+  const [isGlobalRunning, setIsGlobalRunning] = React.useState(false);
+  const globalRunStopRequestedRef = React.useRef(false);
 
   const onEdgesChangeWithHistory = React.useCallback(
     (changes: any) => {
@@ -1394,88 +2203,96 @@ function FlowInner() {
     []
   );
 
-  const sanitizeNodeData = React.useCallback((input: any) => {
-    const BASE64_IMAGE_MAGIC_PREFIXES = [
-      "iVBORw0KGgo", // png
-      "/9j/", // jpeg
-      "R0lGOD", // gif
-      "UklGR", // webp
-      "PHN2Zy", // svg
-    ];
+  const sanitizeNodeData = React.useCallback(
+    (input: any, options?: { preserveImagePayload?: boolean }) => {
+      const preserveImagePayload = options?.preserveImagePayload === true;
+      const BASE64_IMAGE_MAGIC_PREFIXES = [
+        "iVBORw0KGgo", // png
+        "/9j/", // jpeg
+        "R0lGOD", // gif
+        "UklGR", // webp
+        "PHN2Zy", // svg
+      ];
 
-    const looksLikeBase64 = (value: string): boolean => {
-      const compact = value.replace(/\s+/g, "");
-      if (compact.length < 4096) return false;
-      if (compact.length % 4 !== 0) return false;
-      return /^[A-Za-z0-9+/]+={0,2}$/.test(compact);
-    };
+      const looksLikeBase64 = (value: string): boolean => {
+        const compact = value.replace(/\s+/g, "");
+        if (compact.length < 4096) return false;
+        if (compact.length % 4 !== 0) return false;
+        return /^[A-Za-z0-9+/]+={0,2}$/.test(compact);
+      };
 
-    const shouldDropPersistedString = (value: string): boolean => {
-      const trimmed = value?.trim?.() || "";
-      if (!trimmed) return false;
-      if (/^data:/i.test(trimmed)) return true;
-      if (/^blob:/i.test(trimmed)) return true;
-      if (
-        typeof FLOW_IMAGE_ASSET_PREFIX === "string" &&
-        trimmed.startsWith(FLOW_IMAGE_ASSET_PREFIX)
-      ) {
-        return true;
-      }
-      const compact = trimmed.replace(/\s+/g, "");
-      if (
-        BASE64_IMAGE_MAGIC_PREFIXES.some((p) => compact.startsWith(p)) &&
-        compact.length >= 32
-      ) {
-        return true;
-      }
-      return looksLikeBase64(compact);
-    };
-
-    const seen = new WeakMap<object, any>();
-
-    const walk = (value: any): any => {
-      if (typeof value === "function") return undefined;
-      if (!value || typeof value !== "object") {
-        if (typeof value === "string" && shouldDropPersistedString(value))
-          return undefined;
-        return value;
-      }
-
-      // 兼容 JSON.stringify(Date) 的行为
-      if (value instanceof Date) return value.toISOString();
-
-      if (Array.isArray(value)) {
-        const arr = new Array(value.length);
-        for (let i = 0; i < value.length; i += 1) {
-          arr[i] = walk(value[i]);
+      const shouldDropPersistedString = (value: string): boolean => {
+        if (preserveImagePayload) return false;
+        const trimmed = value?.trim?.() || "";
+        if (!trimmed) return false;
+        if (/^data:/i.test(trimmed)) return true;
+        if (/^blob:/i.test(trimmed)) return true;
+        if (
+          typeof FLOW_IMAGE_ASSET_PREFIX === "string" &&
+          trimmed.startsWith(FLOW_IMAGE_ASSET_PREFIX)
+        ) {
+          return true;
         }
-        return arr;
-      }
+        const compact = trimmed.replace(/\s+/g, "");
+        if (
+          BASE64_IMAGE_MAGIC_PREFIXES.some((p) => compact.startsWith(p)) &&
+          compact.length >= 32
+        ) {
+          return true;
+        }
+        return looksLikeBase64(compact);
+      };
 
-      const cached = seen.get(value as object);
-      if (cached) return cached;
+      const seen = new WeakMap<object, any>();
 
-      const result: Record<string, any> = {};
-      seen.set(value as object, result);
-      Object.entries(value).forEach(([key, child]) => {
-        if (typeof child === "function") return;
-        const sanitized = walk(child);
-        if (sanitized === undefined) return;
-        result[key] = sanitized;
-      });
-      return result;
-    };
+      const walk = (value: any): any => {
+        if (typeof value === "function") return undefined;
+        if (!value || typeof value !== "object") {
+          if (typeof value === "string" && shouldDropPersistedString(value))
+            return undefined;
+          return value;
+        }
 
-    return walk(input);
-  }, []);
+        // 兼容 JSON.stringify(Date) 的行为
+        if (value instanceof Date) return value.toISOString();
+
+        if (Array.isArray(value)) {
+          const arr = new Array(value.length);
+          for (let i = 0; i < value.length; i += 1) {
+            arr[i] = walk(value[i]);
+          }
+          return arr;
+        }
+
+        const cached = seen.get(value as object);
+        if (cached) return cached;
+
+        const result: Record<string, any> = {};
+        seen.set(value as object, result);
+        Object.entries(value).forEach(([key, child]) => {
+          if (typeof child === "function") return;
+          const sanitized = walk(child);
+          if (sanitized === undefined) return;
+          result[key] = sanitized;
+        });
+        return result;
+      };
+
+      return walk(input);
+    },
+    []
+  );
 
   const rfNodesToTplNodes = React.useCallback(
-    (ns: RFNode[]): ClipboardFlowNode[] => {
+    (
+      ns: RFNode[],
+      options?: { preserveImagePayload?: boolean }
+    ): ClipboardFlowNode[] => {
       return ns.map((n: any) => {
         const rawData = { ...(n.data || {}) } as any;
         delete rawData.onRun;
         delete rawData.onSend;
-        const data = sanitizeNodeData(rawData);
+        const data = sanitizeNodeData(rawData, options);
         if (data) {
           delete data.status;
           delete data.error;
@@ -1490,6 +2307,10 @@ function FlowInner() {
           width: n.width,
           height: n.height,
           style: n.style ? { ...n.style } : undefined,
+          parentNode: (n as any).parentNode,
+          extent: (n as any).extent,
+          selectable: (n as any).selectable,
+          draggable: (n as any).draggable,
         } as ClipboardFlowNode;
       });
     },
@@ -1503,7 +2324,7 @@ function FlowInner() {
         source: e.source,
         target: e.target,
         sourceHandle: e.sourceHandle,
-        targetHandle: e.targetHandle,
+        targetHandle: normalizeFlowTargetHandle(e.targetHandle),
         type: e.type || "default",
         label: typeof e.label === "string" ? e.label : undefined,
       })),
@@ -1517,6 +2338,13 @@ function FlowInner() {
         type: (n as any).type || "default",
         position: { x: n.position.x, y: n.position.y },
         data: { ...(n.data || {}) },
+        width: (n as any).width,
+        height: (n as any).height,
+        style: (n as any).style ? { ...(n as any).style } : undefined,
+        parentNode: (n as any).parentNode,
+        extent: (n as any).extent,
+        selectable: (n as any).selectable,
+        draggable: (n as any).draggable,
       })) as any,
     []
   );
@@ -1528,7 +2356,7 @@ function FlowInner() {
         source: e.source,
         target: e.target,
         sourceHandle: e.sourceHandle,
-        targetHandle: e.targetHandle,
+        targetHandle: normalizeFlowTargetHandle(e.targetHandle),
         type: e.type || "default",
         label: e.label,
       })) as any,
@@ -1737,7 +2565,9 @@ function FlowInner() {
       if (canvasPayload) clipboardService.setCanvasData(canvasPayload);
     } catch {}
 
-    const nodeSnapshots = rfNodesToTplNodes(selectedNodes as any);
+    const nodeSnapshots = rfNodesToTplNodes(selectedNodes as any, {
+      preserveImagePayload: true,
+    });
     const selectedIds = new Set(selectedNodes.map((node: any) => node.id));
     const relatedEdges = rf
       .getEdges()
@@ -1774,11 +2604,23 @@ function FlowInner() {
 
     const OFFSET = 40;
     const idMap = new Map<string, string>();
+    payload.nodes.forEach((node) => {
+      idMap.set(node.id, generateId(node.type || "n"));
+    });
 
     const newNodes = payload.nodes.map((node) => {
-      const newId = generateId(node.type || "n");
-      idMap.set(node.id, newId);
-      const data: any = sanitizeNodeData(node.data || {});
+      const newId = idMap.get(node.id) || generateId(node.type || "n");
+      const data: any = sanitizeNodeData(node.data || {}, {
+        preserveImagePayload: true,
+      });
+      if (node.type === FLOW_GROUP_NODE_TYPE) {
+        const rawChildren = Array.isArray(data?.childNodeIds)
+          ? data.childNodeIds
+          : [];
+        data.childNodeIds = rawChildren
+          .map((childId: string) => idMap.get(childId) || null)
+          .filter(Boolean);
+      }
       return {
         id: newId,
         type: node.type || "default",
@@ -1791,6 +2633,12 @@ function FlowInner() {
         width: node.width,
         height: node.height,
         style: node.style ? { ...node.style } : undefined,
+        parentNode: (node as any).parentNode
+          ? idMap.get((node as any).parentNode) || undefined
+          : undefined,
+        extent: (node as any).extent,
+        selectable: (node as any).selectable,
+        draggable: (node as any).draggable,
       } as any;
     });
 
@@ -1806,7 +2654,7 @@ function FlowInner() {
           source,
           target,
           sourceHandle: edge.sourceHandle,
-          targetHandle: edge.targetHandle,
+          targetHandle: normalizeFlowTargetHandle(edge.targetHandle),
           type: edge.type || "default",
           label: edge.label,
         } as any;
@@ -1838,6 +2686,20 @@ function FlowInner() {
             tagName === "textarea" ||
             (active as any).isContentEditable);
         if (isEditable) return;
+
+        const selection = window.getSelection();
+        const selectedText = selection?.toString()?.trim();
+        if (selectedText) {
+          const nodes = [selection?.anchorNode, selection?.focusNode].filter(
+            Boolean
+          ) as Node[];
+          const fromFlowSelection = nodes.some((node) => {
+            const el =
+              node instanceof Element ? node : node.parentElement ?? null;
+            return !!el?.closest?.(".tanva-flow-overlay");
+          });
+          if (!fromFlowSelection) return;
+        }
 
         // 仅在 Flow 区域或当前 zone 为 Flow 时接管 copy，避免影响画布复制
         const path =
@@ -1918,6 +2780,7 @@ function FlowInner() {
 
       if (isCopy) {
         if (!anySelected) return;
+        if (currentZone === "canvas" && !fromFlowOverlay) return;
         clipboardService.setActiveZone("flow");
         // 让浏览器触发原生 copy 事件（由上面的 copy 监听器写入系统剪贴板）
         handleCopyFlow();
@@ -1926,7 +2789,12 @@ function FlowInner() {
 
       if (isPaste) {
         // 仅在 Flow 区域或当前 zone 为 Flow 时切换，避免抢占画布粘贴图片
-        if (fromFlowOverlay || currentZone === "flow") {
+        if (
+          fromFlowOverlay ||
+          currentZone === "flow" ||
+          (anySelected && currentZone !== "canvas") ||
+          (canPasteFlow && currentZone !== "canvas")
+        ) {
           clipboardService.setActiveZone("flow");
         } else {
           return;
@@ -1942,6 +2810,48 @@ function FlowInner() {
     };
   }, [handleCopyFlow, handlePasteFlow]);
 
+  React.useEffect(() => {
+    const handleGroupHotkey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      if (String(event.key || "").toLowerCase() !== "g") return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.repeat) return;
+
+      const active = document.activeElement as Element | null;
+      const tagName = active?.tagName?.toLowerCase();
+      const isEditable =
+        !!active &&
+        (tagName === "input" ||
+          tagName === "textarea" ||
+          (active as any).isContentEditable);
+      if (isEditable) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (event.shiftKey) {
+        const allNodes = (rf.getNodes?.() || []) as RFNode[];
+        const groupIds = getSelectedGroupIds(allNodes);
+        if (!groupIds.length) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "请先选中分组后再解组", type: "warning" },
+            })
+          );
+          return;
+        }
+        dissolveGroups(groupIds);
+        return;
+      }
+
+      createGroupFromSelection();
+    };
+
+    window.addEventListener("keydown", handleGroupHotkey, true);
+    return () =>
+      window.removeEventListener("keydown", handleGroupHotkey, true);
+  }, [rf, createGroupFromSelection, dissolveGroups, getSelectedGroupIds]);
+
   // 只在剪贴板中没有图片/文件时才接管 Flow 的粘贴，避免阻止画布粘贴图片
   React.useEffect(() => {
     const handlePaste = (event: ClipboardEvent) => {
@@ -1956,7 +2866,13 @@ function FlowInner() {
           (active as any).isContentEditable);
       if (isEditable) return;
 
-      if (clipboardService.getZone() !== "flow") return;
+      const path =
+        typeof event.composedPath === "function" ? event.composedPath() : [];
+      const fromFlowOverlay = path.some(
+        (el) =>
+          el instanceof Element && el.classList?.contains("tanva-flow-overlay")
+      );
+      if (clipboardService.getZone() !== "flow" && !fromFlowOverlay) return;
       const clipboardData = event.clipboardData;
 
       // 先尝试解析系统剪贴板中的 Flow 数据（支持跨页面/跨实例粘贴）
@@ -1991,6 +2907,16 @@ function FlowInner() {
         payload.nodes.length === 0
       )
         return;
+
+      // 优先粘贴 Flow 内部剪贴板数据；避免被系统 image/file 项拦截
+      {
+        const handled = handlePasteFlow();
+        if (handled) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+      }
 
       const items = clipboardData?.items;
       const hasFileOrImage = items
@@ -2145,6 +3071,7 @@ function FlowInner() {
   const [dragLongFrames, setDragLongFrames] = React.useState<number>(0);
   const [dragMaxFrameMs, setDragMaxFrameMs] = React.useState<number>(0);
   const [fpsMode, setFpsMode] = React.useState<"Drag" | "Image" | null>(null);
+  const fpsOverlayRef = React.useRef<HTMLDivElement | null>(null);
 
   // 方便性能排查：开发环境默认打开拖拽 FPS 监控（可在面板里随时关掉）
   React.useEffect(() => {
@@ -2230,6 +3157,61 @@ function FlowInner() {
 
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
+  }, [showFpsOverlay]);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const emitLayout = () => {
+      const el = fpsOverlayRef.current;
+      if (!showFpsOverlay || !el) {
+        window.dispatchEvent(
+          new CustomEvent("tanva:fps-overlay-layout", {
+            detail: { visible: false },
+          })
+        );
+        return;
+      }
+
+      const rect = el.getBoundingClientRect();
+      window.dispatchEvent(
+        new CustomEvent("tanva:fps-overlay-layout", {
+          detail: {
+            visible: true,
+            top: rect.top,
+            left: rect.left,
+            height: rect.height,
+          },
+        })
+      );
+    };
+
+    emitLayout();
+
+    const el = fpsOverlayRef.current;
+    if (!showFpsOverlay || !el || typeof ResizeObserver === "undefined") {
+      return () => {
+        window.dispatchEvent(
+          new CustomEvent("tanva:fps-overlay-layout", {
+            detail: { visible: false },
+          })
+        );
+      };
+    }
+
+    const resizeObserver = new ResizeObserver(() => emitLayout());
+    resizeObserver.observe(el);
+    window.addEventListener("resize", emitLayout);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", emitLayout);
+      window.dispatchEvent(
+        new CustomEvent("tanva:fps-overlay-layout", {
+          detail: { visible: false },
+        })
+      );
+    };
   }, [showFpsOverlay]);
 
   // Flow独立的背景状态管理，不再同步到Canvas
@@ -2482,10 +3464,7 @@ function FlowInner() {
         allowedTabs?: AddPanelTab[];
       }
     ) => {
-      const allowed =
-        opts?.allowedTabs && opts.allowedTabs.length
-          ? opts.allowedTabs
-          : ALL_ADD_TABS;
+      const allowed = sanitizeAllowedAddTabs(opts?.allowedTabs);
       setAllowedAddTabs(allowed);
       const targetTab = clampAddTab(opts?.tab ?? addTab, allowed);
       setAddTabWithMemory(targetTab, allowed);
@@ -2884,6 +3863,13 @@ function FlowInner() {
             type: n.type,
             position: n.position,
             data,
+            width: (n as any).width,
+            height: (n as any).height,
+            style: (n as any).style ? { ...(n as any).style } : undefined,
+            parentNode: (n as any).parentNode,
+            extent: (n as any).extent,
+            selectable: (n as any).selectable,
+            draggable: (n as any).draggable,
           };
         })
       );
@@ -2953,17 +3939,38 @@ function FlowInner() {
           const idMap = new Map<string, string>();
 
           const now = Date.now();
-          const mappedNodes = rawNodes.map((n: any, idx: number) => {
+          rawNodes.forEach((n: any, idx: number) => {
             const origId = String(n.id || `n_${idx}`);
             let newId = origId;
             if (existing.has(newId) || idMap.has(newId))
               newId = `${origId}_${now}_${idx}`;
             idMap.set(origId, newId);
+          });
+
+          const mappedNodes = rawNodes.map((n: any, idx: number) => {
+            const origId = String(n.id || `n_${idx}`);
+            const newId = idMap.get(origId) || `${origId}_${now}_${idx}`;
+            const data = cleanNodeData(n.data) || {};
+            if (n.type === FLOW_GROUP_NODE_TYPE) {
+              const rawChildIds = Array.isArray((data as any).childNodeIds)
+                ? (data as any).childNodeIds
+                : [];
+              (data as any).childNodeIds = rawChildIds
+                .map((childId: string) => idMap.get(String(childId)) || null)
+                .filter(Boolean);
+            }
             return {
               id: newId,
               type: n.type,
               position: n.position || { x: 0, y: 0 },
-              data: cleanNodeData(n.data) || {},
+              data,
+              width: n.width,
+              height: n.height,
+              style: n.style ? { ...n.style } : undefined,
+              parentNode: n.parentNode ? idMap.get(String(n.parentNode)) || undefined : undefined,
+              extent: n.extent,
+              selectable: n.selectable,
+              draggable: n.draggable,
             } as any;
           });
 
@@ -3612,55 +4619,20 @@ function FlowInner() {
       rawType: string,
       world: { x: number; y: number }
     ) => {
-      const type = normalizeNodeTypeKey(rawType);
-      if (!type) {
-        console.warn("[FlowOverlay] Unsupported node key from panel:", rawType);
-        try {
-          window.dispatchEvent(
-            new CustomEvent("toast", {
-              detail: {
-                message: `Unsupported node type: ${rawType || "unknown"}`,
-                type: "error",
-              },
-            })
-          );
-        } catch {}
-        return;
-      }
       // 以默认尺寸中心对齐放置
-      const size = {
-        textPrompt: { w: 240, h: 180 },
-        textPromptPro: { w: 420, h: 360 },
-        textNote: { w: 220, h: 140 },
-        textChat: { w: 320, h: 540 },
-        promptOptimize: { w: 360, h: 300 },
-        image: { w: 260, h: 240 },
-        imagePro: { w: 320, h: 240 },
-        generate: { w: 260, h: 200 },
-        generatePro: { w: 320, h: 400 },
-        generatePro4: { w: 380, h: 480 },
-        generate4: { w: 300, h: 240 },
-        generateRef: { w: 260, h: 240 },
-        three: { w: 280, h: 260 },
-        camera: { w: 260, h: 220 },
-        analysis: { w: 260, h: 280 },
-        sora2Video: { w: 280, h: 260 },
-        wan26: { w: 300, h: 320 },
-        wan2R2V: { w: 300, h: 360 },
-        klingVideo: { w: 280, h: 260 },
-        kling26Video: { w: 280, h: 260 },
-        klingO1Video: { w: 280, h: 380 },
-        viduVideo: { w: 280, h: 260 },
-        doubaoVideo: { w: 280, h: 260 },
-        storyboardSplit: { w: 320, h: 400 },
-        midjourney: { w: 280, h: 320 },
-        nano2: { w: 260, h: 200 },
-        video: { w: 320, h: 280 },
-        videoAnalyze: { w: 280, h: 360 },
-        videoFrameExtract: { w: 300, h: 420 },
-        imageGrid: { w: 300, h: 380 },
-        imageSplit: { w: 320, h: 400 },
-      }[type] || { w: 260, h: 200 };
+      const type = normalizeFlowNodeType(rawType);
+      if (!type) {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: {
+              message: `节点类型未接入：${rawType || "unknown"}`,
+              type: "error",
+            },
+          })
+        );
+        return null;
+      }
+      const size = FLOW_NODE_DEFAULT_SIZE[type];
       const id = `${type}_${Date.now()}`;
       const pos = { x: world.x - size.w / 2, y: world.y - size.h / 2 };
       const data =
@@ -3742,10 +4714,31 @@ function FlowInner() {
               videoUrl: undefined,
               thumbnail: undefined,
               videoQuality: DEFAULT_SORA2_VIDEO_QUALITY,
+              model: "sora-2-pro",
+              style: undefined,
+              watermark: false,
+              thumbnailEnabled: false,
+              privateMode: false,
+              storyboard: false,
+              characterTaskId: undefined,
+              characterUrl: undefined,
+              characterTimestamps: undefined,
               videoVersion: 0,
               history: [],
               clipDuration: undefined,
               aspectRatio: undefined,
+              boxW: size.w,
+              boxH: size.h,
+            }
+          : type === "sora2Character"
+          ? {
+              status: "idle" as const,
+              model: "sora-2-pro",
+              timestamps: "1,3",
+              fromTask: undefined,
+              taskId: undefined,
+              progress: undefined,
+              characters: [],
               boxW: size.w,
               boxH: size.h,
             }
@@ -3940,6 +4933,39 @@ function FlowInner() {
     []
   );
 
+  const getVideoHistoryKey = React.useCallback(
+    (videoUrl?: string | null): string => {
+      if (typeof videoUrl !== "string") return "";
+      const normalized = normalizeStableRemoteUrl(videoUrl);
+      const trimmed = normalized.trim();
+      if (!trimmed) return "";
+      try {
+        const parsed = new URL(
+          trimmed,
+          typeof window !== "undefined" ? window.location.origin : "http://localhost"
+        );
+        return `${parsed.origin}${parsed.pathname}`;
+      } catch {
+        const withoutHash = trimmed.split("#")[0] || trimmed;
+        return withoutHash.split("?")[0] || withoutHash;
+      }
+    },
+    [normalizeStableRemoteUrl]
+  );
+
+  const appendVideoHistory = React.useCallback(
+    (history: Array<Record<string, any>> | undefined, entry: Record<string, any>) => {
+      const base = Array.isArray(history) ? history : [];
+      const entryKey = getVideoHistoryKey(entry?.videoUrl);
+      if (!entryKey) return [entry, ...base];
+      const deduped = base.filter(
+        (item) => getVideoHistoryKey(item?.videoUrl) !== entryKey
+      );
+      return [entry, ...deduped];
+    },
+    [getVideoHistoryKey]
+  );
+
   // 允许 TextPrompt -> Generate(text); Image/Generate(img) -> Generate(img)
   const isValidConnection = React.useCallback(
     (connection: Connection) => {
@@ -4027,6 +5053,30 @@ function FlowInner() {
         if (targetHandle === "text") {
           return textSourceTypes.includes(sourceNode.type || "");
         }
+        if (targetHandle === "character") {
+          return (
+            sourceNode.type === "sora2Character" &&
+            sourceHandle === "character"
+          );
+        }
+        return false;
+      }
+
+      if (targetNode.type === "sora2Character") {
+        if (targetHandle === "video") {
+          if (sourceHandle !== "video") return false;
+          return [
+            "video",
+            "sora2Video",
+            "wan26",
+            "wan2R2V",
+            "klingVideo",
+            "kling26Video",
+            "klingO1Video",
+            "viduVideo",
+            "doubaoVideo",
+          ].includes(sourceNode.type || "");
+        }
         return false;
       }
 
@@ -4111,6 +5161,13 @@ function FlowInner() {
         }
         if (targetHandle === "img") {
           return isImageSource(sourceNode, sourceHandle);
+        }
+        return false;
+      }
+      // Midjourney 节点连接验证 - 仅支持文本输入
+      if (targetNode.type === "midjourney") {
+        if (targetHandle === "text") {
+          return textSourceTypes.includes(sourceNode.type || "");
         }
         return false;
       }
@@ -4288,6 +5345,10 @@ function FlowInner() {
         // 类型校验由 isValidConnection 负责；这里仅做容量/替换策略控制
         if (isImageHandle(params.targetHandle)) return true;
         if (params.targetHandle === "text") return true;
+        if (params.targetHandle === "character") return true;
+      }
+      if (targetNode?.type === "sora2Character") {
+        if (params.targetHandle === "video") return true;
       }
       if (targetNode?.type === "wan26") {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
@@ -4327,7 +5388,6 @@ function FlowInner() {
       // Midjourney 节点连接容量控制 - 只支持文本输入
       if (targetNode?.type === "midjourney") {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
-        if (params.targetHandle === "img") return incoming.length < 6; // 最多6张图片输入
       }
       // Nano2 节点连接容量控制 - 支持文本和图片输入
       if (targetNode?.type === "nano2") {
@@ -4425,6 +5485,24 @@ function FlowInner() {
               !(
                 e.target === params.target &&
                 e.targetHandle === params.targetHandle
+              )
+          );
+        }
+        if (tgt?.type === "sora2Video" && params.targetHandle === "character") {
+          next = next.filter(
+            (e) =>
+              !(
+                e.target === params.target &&
+                e.targetHandle === "character"
+              )
+          );
+        }
+        if (tgt?.type === "sora2Character" && params.targetHandle === "video") {
+          next = next.filter(
+            (e) =>
+              !(
+                e.target === params.target &&
+                e.targetHandle === "video"
               )
           );
         }
@@ -4872,7 +5950,9 @@ function FlowInner() {
       } catch {}
 
       const idSet = new Set(nodesToCopy.map((n: any) => n.id));
-      const nodeSnapshots = rfNodesToTplNodes(nodesToCopy as any);
+      const nodeSnapshots = rfNodesToTplNodes(nodesToCopy as any, {
+        preserveImagePayload: true,
+      });
       const relatedEdges = rf
         .getEdges()
         .filter(
@@ -4956,7 +6036,9 @@ function FlowInner() {
 
       const OFFSET = 40;
       const newId = generateId(targetNode.type || "n");
-      const data: any = sanitizeNodeData((targetNode.data as any) || {});
+      const data: any = sanitizeNodeData((targetNode.data as any) || {}, {
+        preserveImagePayload: true,
+      });
 
       const newNode = {
         id: newId,
@@ -5511,6 +6593,10 @@ function FlowInner() {
       const node = rf.getNode(nodeId);
       if (!node) {
         console.log('[runNode] 节点不存在');
+        return;
+      }
+      if ((node.data as any)?.status === "running") {
+        console.log("[runNode] 节点正在运行，忽略重复触发");
         return;
       }
       console.log('[runNode] 节点类型:', node.type);
@@ -6313,21 +7399,24 @@ function FlowInner() {
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: "succeeded",
-                      videoUrl,
-                      thumbnail,
-                      error: undefined,
-                      videoVersion:
-                        Number((n.data as any).videoVersion || 0) + 1,
-                      history: Array.isArray((n.data as any).history)
-                        ? [historyEntry, ...(n.data as any).history]
-                        : [historyEntry],
-                    },
-                  }
+                ? (() => {
+                    const previousData = (n.data as any) || {};
+                    return {
+                      ...n,
+                      data: {
+                        ...previousData,
+                        status: "succeeded",
+                        videoUrl,
+                        thumbnail,
+                        error: undefined,
+                        videoVersion: Number(previousData.videoVersion || 0) + 1,
+                        history: appendVideoHistory(
+                          previousData.history as Array<Record<string, any>> | undefined,
+                          historyEntry
+                        ),
+                      },
+                    };
+                  })()
                 : n
             )
           );
@@ -6523,26 +7612,220 @@ function FlowInner() {
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: "succeeded",
-                      videoUrl,
-                      thumbnail,
-                      error: undefined,
-                      videoVersion:
-                        Number((n.data as any).videoVersion || 0) + 1,
-                      history: Array.isArray((n.data as any).history)
-                        ? [historyEntry, ...(n.data as any).history]
-                        : [historyEntry],
-                    },
-                  }
+                ? (() => {
+                    const previousData = (n.data as any) || {};
+                    return {
+                      ...n,
+                      data: {
+                        ...previousData,
+                        status: "succeeded",
+                        videoUrl,
+                        thumbnail,
+                        error: undefined,
+                        videoVersion: Number(previousData.videoVersion || 0) + 1,
+                        history: appendVideoHistory(
+                          previousData.history as Array<Record<string, any>> | undefined,
+                          historyEntry
+                        ),
+                      },
+                    };
+                  })()
                 : n
             )
           );
         } catch (error) {
           const msg = error instanceof Error ? error.message : "任务提交失败";
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? { ...n, data: { ...n.data, status: "failed", error: msg } }
+                : n
+            )
+          );
+        }
+        return;
+      }
+
+      if (node.type === "sora2Character") {
+        const model =
+          (node.data as any)?.model === "sora-2"
+            ? "sora-2"
+            : "sora-2-pro";
+        const timestampsRaw =
+          typeof (node.data as any)?.timestamps === "string"
+            ? (node.data as any).timestamps.trim()
+            : "";
+        const timestamps = timestampsRaw || "1,3";
+        const fromTaskRaw =
+          typeof (node.data as any)?.fromTask === "string"
+            ? (node.data as any).fromTask.trim()
+            : "";
+
+        const sanitizeMediaUrl = (url?: string | null) => {
+          if (!url || typeof url !== "string") return undefined;
+          const trimmed = url.trim();
+          if (!trimmed) return undefined;
+          const markdownSplit = trimmed.split("](");
+          const candidate = markdownSplit.length > 1 ? markdownSplit[0] : trimmed;
+          const spaceIdx = candidate.indexOf(" ");
+          return spaceIdx > 0 ? candidate.slice(0, spaceIdx) : candidate;
+        };
+
+        const resolveVideoUrl = (edge: Edge): string | undefined => {
+          const srcNode = rf.getNode(edge.source);
+          if (!srcNode) return undefined;
+          const data = (srcNode.data as any) || {};
+          const direct =
+            data.videoUrl ||
+            data.video_url ||
+            data.output?.video_url ||
+            (Array.isArray(data.output) ? data.output[0]?.video_url : undefined) ||
+            data.raw?.output?.video_url ||
+            data.raw?.video_url;
+          const fromHistory = Array.isArray(data.history)
+            ? data.history[0]?.videoUrl
+            : undefined;
+          return sanitizeMediaUrl(direct) || sanitizeMediaUrl(fromHistory);
+        };
+
+        const videoEdge = currentEdges.find(
+          (e) => e.target === nodeId && e.targetHandle === "video"
+        );
+        const inputVideoUrl = videoEdge ? resolveVideoUrl(videoEdge) : undefined;
+        if (!fromTaskRaw && !inputVideoUrl) {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "failed",
+                      error: "缺少视频输入或 from_task",
+                    },
+                  }
+                : n
+            )
+          );
+          return;
+        }
+
+        setNodes((ns) =>
+          ns.map((n) =>
+            n.id === nodeId
+              ? {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    status: "running",
+                    error: undefined,
+                    timestamps,
+                    model,
+                  },
+                }
+              : n
+          )
+        );
+
+        try {
+          const createResult = await createSora2CharacterViaAPI({
+            model,
+            timestamps,
+            url: inputVideoUrl,
+            fromTask: fromTaskRaw || undefined,
+          });
+          if (!createResult.success || !createResult.data?.taskId) {
+            throw new Error(createResult.error?.message || "创建角色任务失败");
+          }
+          const taskId = createResult.data.taskId;
+
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      taskId,
+                      status: "running",
+                      progress: 0,
+                      error: undefined,
+                    },
+                  }
+                : n
+            )
+          );
+
+          let completed = false;
+          for (let attempt = 0; attempt < 90; attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 5000));
+            const taskResult = await querySora2CharacterTaskViaAPI(taskId);
+            if (!taskResult.success || !taskResult.data) {
+              continue;
+            }
+            const status = String(taskResult.data.status || "").toLowerCase();
+            const progress =
+              typeof taskResult.data.progress === "number"
+                ? taskResult.data.progress
+                : undefined;
+            const characters = Array.isArray(taskResult.data.characters)
+              ? taskResult.data.characters
+              : [];
+
+            if (status === "completed" || status === "succeeded") {
+              const firstCharacterId = characters.find(
+                (item) => typeof item?.id === "string" && item.id.trim().length > 0
+              )?.id;
+              setNodes((ns) =>
+                ns.map((n) =>
+                  n.id === nodeId
+                    ? {
+                        ...n,
+                        data: {
+                          ...n.data,
+                          status: "succeeded",
+                          progress: 100,
+                          taskId,
+                          characters,
+                          characterUrl: firstCharacterId,
+                          error: undefined,
+                        },
+                      }
+                    : n
+                )
+              );
+              completed = true;
+              break;
+            }
+
+            if (["failed", "error", "cancelled", "terminated"].includes(status)) {
+              throw new Error("角色任务执行失败");
+            }
+
+            setNodes((ns) =>
+              ns.map((n) =>
+                n.id === nodeId
+                  ? {
+                      ...n,
+                      data: {
+                        ...n.data,
+                        status: "running",
+                        progress,
+                        taskId,
+                        characters,
+                        error: undefined,
+                      },
+                    }
+                  : n
+              )
+            );
+          }
+
+          if (!completed) {
+            throw new Error("角色任务轮询超时");
+          }
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : "角色任务失败";
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
@@ -6597,26 +7880,93 @@ function FlowInner() {
           typeof (node.data as any)?.aspectRatio === "string"
             ? (node.data as any).aspectRatio
             : "";
-        const provider = (node.data as any)?.provider || "sora2";
-        const suffixPieces: string[] = [];
-        if (clipDuration) suffixPieces.push(`${clipDuration}s`);
-        if (aspectSetting) {
-          suffixPieces.push(
-            aspectSetting === "9:16" ? "竖屏 9:16" : "横屏 16:9"
-          );
+        const modelSetting = (() => {
+          const raw = (node.data as any)?.model;
+          return raw === "sora-2" || raw === "sora-2-vip" || raw === "sora-2-pro"
+            ? raw
+            : "sora-2-pro";
+        })();
+        const styleSetting =
+          typeof (node.data as any)?.style === "string"
+            ? (node.data as any).style.trim()
+            : "";
+        const watermarkSetting = (node.data as any)?.watermark === true;
+        const thumbnailSetting = (node.data as any)?.thumbnailEnabled === true;
+        const privateModeSetting = (node.data as any)?.privateMode === true;
+        const storyboardSetting = (node.data as any)?.storyboard === true;
+        const characterEdge = currentEdges.find(
+          (e) => e.target === nodeId && e.targetHandle === "character"
+        );
+        const characterSourceNode = characterEdge
+          ? rf.getNode(characterEdge.source)
+          : undefined;
+        const characterTaskIdFromEdge =
+          typeof (characterSourceNode?.data as any)?.taskId === "string"
+            ? String((characterSourceNode?.data as any).taskId).trim()
+            : "";
+        const characterTaskIdManual =
+          typeof (node.data as any)?.characterTaskId === "string"
+            ? (node.data as any).characterTaskId.trim()
+            : "";
+        const characterTaskIdSetting = characterTaskIdFromEdge || characterTaskIdManual;
+        const characterTimestampsSetting =
+          typeof (node.data as any)?.characterTimestamps === "string"
+            ? (node.data as any).characterTimestamps.trim()
+            : "";
+        let characterUrlSetting =
+          typeof (characterSourceNode?.data as any)?.characterUrl === "string"
+            ? String((characterSourceNode?.data as any).characterUrl).trim()
+            : typeof (node.data as any)?.characterUrl === "string"
+            ? (node.data as any).characterUrl.trim()
+            : "";
+        let finalPromptText = promptText;
+
+        if (characterTaskIdSetting) {
+          try {
+            const characterTaskRes = await querySora2CharacterTaskViaAPI(characterTaskIdSetting);
+            if (!characterTaskRes.success || !characterTaskRes.data) {
+              throw new Error(characterTaskRes.error?.message || "角色任务查询失败");
+            }
+            const characters = Array.isArray(characterTaskRes.data.characters)
+              ? characterTaskRes.data.characters
+              : [];
+            const usernames = characters
+              .map((item) =>
+                typeof item?.username === "string" ? item.username.trim() : ""
+              )
+              .filter((item) => item.length > 0);
+            if (usernames.length) {
+              const missingMentions = usernames
+                .map((name) => `@${name}`)
+                .filter((mention) => !finalPromptText.includes(mention));
+              if (missingMentions.length) {
+                finalPromptText = `${finalPromptText} ${missingMentions.join(" ")}`.trim();
+              }
+            }
+            if (!characterUrlSetting) {
+              const firstCharacterId = characters.find(
+                (item) => typeof item?.id === "string" && item.id.trim().length > 0
+              )?.id;
+              if (firstCharacterId) {
+                characterUrlSetting = firstCharacterId;
+              }
+            }
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : "角色任务查询失败";
+            setNodes((ns) =>
+              ns.map((n) =>
+                n.id === nodeId
+                  ? { ...n, data: { ...n.data, status: "failed", error: msg } }
+                  : n
+              )
+            );
+            return;
+          }
         }
-        const finalPromptText = suffixPieces.length
-          ? `${promptText} ${suffixPieces.join(" ")}`
-          : promptText;
 
         const imageEdges = currentEdges
           .filter((e) => e.target === nodeId && e.targetHandle === "image")
-          .slice(
-            0,
-            provider === "vidu"
-              ? VIDU_MAX_REFERENCE_IMAGES
-              : SORA2_MAX_REFERENCE_IMAGES
-          );
+          .slice(0, SORA2_MAX_REFERENCE_IMAGES);
         const referenceImages = await resolveEdgesAsDataUrls(imageEdges);
 
         const generationStartMs = Date.now();
@@ -6675,10 +8025,7 @@ function FlowInner() {
               : n
           )
         );
-        const videoQuality =
-          (node.data as any)?.videoQuality === "sd"
-            ? "sd"
-            : DEFAULT_SORA2_VIDEO_QUALITY;
+        const videoQuality: Sora2VideoQuality = "sd";
 
         // 仅将受支持的取值传给后端（避免非法值导致请求失败）
         const aspectRatioForAPI =
@@ -6694,6 +8041,7 @@ function FlowInner() {
           console.log("🎬 [Flow] Sending Sora2 video request", {
             nodeId,
             quality: videoQuality,
+            model: modelSetting,
             aspectRatio: aspectRatioForAPI,
             duration: durationSecondsForAPI,
             referenceCount: referenceImageUrls.length,
@@ -6704,8 +8052,17 @@ function FlowInner() {
             referenceImageUrls,
             {
               quality: videoQuality,
+              model: modelSetting,
               aspectRatio: aspectRatioForAPI,
               durationSeconds: durationSecondsForAPI,
+              watermark: watermarkSetting,
+              thumbnail: thumbnailSetting,
+              privateMode: privateModeSetting,
+              style: styleSetting || undefined,
+              storyboard: storyboardSetting,
+              characterUrl: characterUrlSetting || undefined,
+              characterTimestamps: characterTimestampsSetting || undefined,
+              characterTaskId: characterTaskIdSetting || undefined,
             }
           );
           console.log("✅ [Flow] Sora2 video response received", {
@@ -7115,47 +8472,66 @@ function FlowInner() {
           const maxAttempts = 180; // 最多180次（15分钟）
           let attempts = 0;
           let pollTimer: number | undefined;
+          let settled = false;
+          let polling = false;
+
+          const stopPolling = () => {
+            settled = true;
+            if (typeof pollTimer === "number") {
+              window.clearTimeout(pollTimer);
+              pollTimer = undefined;
+            }
+          };
+
+          const scheduleNextPoll = () => {
+            if (settled) return;
+            pollTimer = window.setTimeout(() => {
+              void pollTask();
+            }, pollInterval);
+          };
 
           const pollTask = async () => {
+            if (settled || polling) return;
+            polling = true;
             attempts++;
-            if (attempts > maxAttempts) {
-              clearInterval(pollTimer);
-              // 超时也尝试退还积分
-              if (createResult.apiUsageId) {
-                try {
-                  await refundVideoTask(createResult.apiUsageId);
-                  console.log("✅ [Flow] Video task credits refunded (timeout)", {
-                    nodeId,
-                    provider,
-                    apiUsageId: createResult.apiUsageId,
-                  });
-                } catch (refundError) {
-                  console.warn("❌ [Flow] Failed to refund credits (timeout)", {
-                    nodeId,
-                    provider,
-                    apiUsageId: createResult.apiUsageId,
-                    error: refundError instanceof Error ? refundError.message : String(refundError),
-                  });
-                }
-              }
-              setNodes((ns) =>
-                ns.map((n) =>
-                  n.id === nodeId
-                    ? {
-                        ...n,
-                        data: {
-                          ...n.data,
-                          status: "failed",
-                          error: "任务查询超时",
-                        },
-                      }
-                    : n
-                )
-              );
-              return;
-            }
-
             try {
+              if (attempts > maxAttempts) {
+                stopPolling();
+                // 超时也尝试退还积分
+                if (createResult.apiUsageId) {
+                  try {
+                    await refundVideoTask(createResult.apiUsageId);
+                    console.log("✅ [Flow] Video task credits refunded (timeout)", {
+                      nodeId,
+                      provider,
+                      apiUsageId: createResult.apiUsageId,
+                    });
+                  } catch (refundError) {
+                    console.warn("❌ [Flow] Failed to refund credits (timeout)", {
+                      nodeId,
+                      provider,
+                      apiUsageId: createResult.apiUsageId,
+                      error: refundError instanceof Error ? refundError.message : String(refundError),
+                    });
+                  }
+                }
+                setNodes((ns) =>
+                  ns.map((n) =>
+                    n.id === nodeId
+                      ? {
+                          ...n,
+                          data: {
+                            ...n.data,
+                            status: "failed",
+                            error: "任务查询超时",
+                          },
+                        }
+                      : n
+                  )
+                );
+                return;
+              }
+
               const queryResult = await queryVideoTask(
                 provider as VideoProvider,
                 createResult.taskId
@@ -7166,7 +8542,7 @@ function FlowInner() {
                 queryResult.status === "SUCCESS" ||
                 queryResult.status === "succeed"
               ) {
-                clearInterval(pollTimer);
+                stopPolling();
                 const elapsedSeconds = Math.max(
                   1,
                   Math.round((Date.now() - generationStartMs) / 1000)
@@ -7193,18 +8569,20 @@ function FlowInner() {
                         error: undefined,
                         videoVersion:
                           Number(previousData.videoVersion || 0) + 1,
-                        history: Array.isArray(previousData.history)
-                          ? [historyEntry, ...previousData.history]
-                          : [historyEntry],
+                        history: appendVideoHistory(
+                          previousData.history as Array<Record<string, any>> | undefined,
+                          historyEntry
+                        ),
                       },
                     };
                   })
                 );
+                return;
               } else if (
                 queryResult.status === "failed" ||
                 queryResult.status === "FAILURE"
               ) {
-                clearInterval(pollTimer);
+                stopPolling();
                 // 任务失败，尝试退还积分
                 if (createResult.apiUsageId) {
                   try {
@@ -7233,10 +8611,11 @@ function FlowInner() {
                             status: "failed",
                             error: (queryResult as any).error || "任务生成失败",
                           },
-                        }
-                      : n
+                      }
+                    : n
                   )
                 );
+                return;
               }
               // 其他状态继续轮询
             } catch (error) {
@@ -7247,13 +8626,15 @@ function FlowInner() {
                 error: error instanceof Error ? error.message : String(error),
               });
               // 继续轮询，不中断
+            } finally {
+              polling = false;
             }
+
+            scheduleNextPoll();
           };
 
-          // 开始轮询
-          pollTimer = window.setInterval(pollTask, pollInterval);
-          // 立即执行一次
-          pollTask();
+          // 立即执行一次，后续按 setTimeout 串行轮询，避免并发 poll 导致重复写 history
+          void pollTask();
         } catch (error) {
           console.warn("❌ [Flow] Video request failed", {
             nodeId,
@@ -7414,6 +8795,12 @@ function FlowInner() {
               fileName: `flow_midjourney_${historyId}.png`,
               projectId,
               keepThumbnail: false,
+              metadata: {
+                ...mjMetadata,
+                model: "midjourney-fast",
+                aiProvider: "midjourney",
+                provider: "midjourney",
+              },
             })
               .then(({ remoteUrl }) => {
                 if (!remoteUrl) return;
@@ -7527,10 +8914,14 @@ function FlowInner() {
         );
 
         try {
+          const nano2AspectRatio = (() => {
+            const raw = (node.data as any)?.aspectRatio;
+            return typeof raw === "string" && raw.trim().length ? raw.trim() : undefined;
+          })();
           const result = await generateImageViaAPI({
             prompt: promptText,
             aiProvider: "nano2",
-            aspectRatio: (node.data as any)?.aspectRatio || "16:9",
+            aspectRatio: nano2AspectRatio,
             imageSize: (node.data as any)?.resolution || "1K",
             imageUrls: imageDatas.length > 0 ? imageDatas : undefined,
             googleSearch: (node.data as any)?.googleSearch,
@@ -7549,14 +8940,54 @@ function FlowInner() {
             return;
           }
 
-          const imageData = result.data.imageData || result.data.imageUrl;
+          const resolvedImageUrl =
+            result.data.imageUrl || result.data.metadata?.imageUrl;
+          const imageData =
+            resolvedImageUrl || result.data.imageData || result.data.imageUrl;
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
-                ? { ...n, data: { ...n.data, status: "succeeded", imageData, error: undefined } }
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "succeeded",
+                      imageUrl: resolvedImageUrl || undefined,
+                      imageData: resolvedImageUrl ? undefined : imageData,
+                      error: undefined,
+                    },
+                  }
                 : n
             )
           );
+
+          if (imageData) {
+            try {
+              const projectId = useProjectContentStore.getState().projectId;
+              const historyId = `${nodeId}-${Date.now()}`;
+              const isRemoteHistoryImage =
+                typeof resolvedImageUrl === "string" &&
+                /^https?:\/\//i.test(resolvedImageUrl);
+              void recordImageHistoryEntry({
+                id: historyId,
+                base64: isRemoteHistoryImage ? undefined : imageData,
+                remoteUrl: isRemoteHistoryImage ? resolvedImageUrl : undefined,
+                title: `Nano2 ${new Date().toLocaleTimeString()}`,
+                nodeId,
+                nodeType: "generate",
+                fileName: `flow_nano2_${historyId}.png`,
+                projectId,
+                keepThumbnail: false,
+                metadata: {
+                  ...(result.data.metadata || {}),
+                  model:
+                    result.data.model || "gemini-3.1-flash-image-preview",
+                  aiProvider: "nano2",
+                  provider: "nano2",
+                },
+              }).catch(() => {});
+            } catch {}
+          }
         } catch (error) {
           const msg = error instanceof Error ? error.message : "Nano2 生成失败";
           setNodes((ns) =>
@@ -7699,14 +9130,22 @@ function FlowInner() {
           ? (raw.trim() as AIImageGenerateRequest["aspectRatio"])
           : undefined;
       })();
+      const effectiveAspectRatio =
+        node.type === "generate" && aiProvider === "banana-2.5"
+          ? undefined
+          : aspectRatioValue;
 
       // 优先使用节点本地的 imageSize，否则使用全局设置
       const nodeSizeValue = (() => {
         const raw = (node.data as any)?.imageSize;
-        if (raw === "1K" || raw === "2K" || raw === "4K") return raw;
+        if (raw === "0.5K" || raw === "1K" || raw === "2K" || raw === "4K")
+          return raw;
         return undefined;
       })();
-      const effectiveImageSize = nodeSizeValue || imageSize || undefined;
+      const effectiveImageSize =
+        node.type === "generate" && aiProvider === "banana-2.5"
+          ? undefined
+          : nodeSizeValue || imageSize || undefined;
 
       // 根据节点类型和全局模式选择模型
       const nodeSpecificModel = (() => {
@@ -7755,6 +9194,8 @@ function FlowInner() {
 
         for (let i = 0; i < total; i++) {
           let generatedImage: string | undefined;
+          let generatedModel: string | undefined;
+          let generatedMetadata: Record<string, any> | undefined;
           try {
             let result: {
               success: boolean;
@@ -7770,7 +9211,7 @@ function FlowInner() {
                 outputFormat: "png",
                 aiProvider,
                 model: nodeSpecificModel,
-                aspectRatio: aspectRatioValue,
+                aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
               });
             } else if (imageDatas.length === 1) {
@@ -7782,7 +9223,7 @@ function FlowInner() {
                 outputFormat: "png",
                 aiProvider,
                 model: nodeSpecificModel,
-                aspectRatio: aspectRatioValue,
+                aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
               });
             } else {
@@ -7794,7 +9235,7 @@ function FlowInner() {
                 outputFormat: "png",
                 aiProvider,
                 model: nodeSpecificModel,
-                aspectRatio: aspectRatioValue,
+                aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
               });
             }
@@ -7820,6 +9261,8 @@ function FlowInner() {
               }
             } else {
               generatedImage = generatedSrc;
+              generatedModel = result.data.model || nodeSpecificModel;
+              generatedMetadata = result.data.metadata as Record<string, any> | undefined;
             }
           } catch {
             // 忽略单张失败，继续下一张
@@ -7871,6 +9314,12 @@ function FlowInner() {
                 fileName: `flow_generate4_${historyId}.png`,
                 projectId,
                 keepThumbnail: false,
+                metadata: {
+                  ...(generatedMetadata || {}),
+                  model: generatedModel || nodeSpecificModel,
+                  aiProvider,
+                  provider: aiProvider,
+                },
               })
                 .then(({ remoteUrl }) => {
                   if (!remoteUrl) return;
@@ -7979,7 +9428,13 @@ function FlowInner() {
         // 并发生成4张图片
         const generateSingleImage = async (
           index: number
-        ): Promise<{ index: number; image?: string; error?: string }> => {
+        ): Promise<{
+          index: number;
+          image?: string;
+          error?: string;
+          model?: string;
+          metadata?: Record<string, any>;
+        }> => {
           try {
             let result: {
               success: boolean;
@@ -7995,7 +9450,7 @@ function FlowInner() {
                 outputFormat: "png",
                 aiProvider,
                 model: nodeSpecificModel,
-                aspectRatio: aspectRatioValue,
+                aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
               });
             } else if (imageDatas.length === 1) {
@@ -8007,7 +9462,7 @@ function FlowInner() {
                 outputFormat: "png",
                 aiProvider,
                 model: nodeSpecificModel,
-                aspectRatio: aspectRatioValue,
+                aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
               });
             } else {
@@ -8019,7 +9474,7 @@ function FlowInner() {
                 outputFormat: "png",
                 aiProvider,
                 model: nodeSpecificModel,
-                aspectRatio: aspectRatioValue,
+                aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
               });
             }
@@ -8029,7 +9484,12 @@ function FlowInner() {
               result.data?.metadata?.imageUrl ||
               result.data?.imageData;
             if (result.success && generatedSrc) {
-              return { index, image: generatedSrc };
+              return {
+                index,
+                image: generatedSrc,
+                model: result.data?.model || nodeSpecificModel,
+                metadata: result.data?.metadata as Record<string, any> | undefined,
+              };
             }
             // 返回错误信息
             return { index, error: result.error?.message || "生成失败" };
@@ -8116,6 +9576,12 @@ function FlowInner() {
                   fileName: `flow_generatepro4_${historyId}.png`,
                   projectId,
                   keepThumbnail: false,
+                  metadata: {
+                    ...(result.metadata || {}),
+                    model: result.model || nodeSpecificModel,
+                    aiProvider,
+                    provider: aiProvider,
+                  },
                 })
                   .then(({ remoteUrl }) => {
                     if (!remoteUrl) return;
@@ -8229,7 +9695,7 @@ function FlowInner() {
             outputFormat: "png",
             aiProvider,
             model: nodeSpecificModel,
-            aspectRatio: aspectRatioValue,
+            aspectRatio: effectiveAspectRatio,
             imageSize: effectiveImageSize,
           });
         } else if (imageDatas.length === 1) {
@@ -8242,7 +9708,7 @@ function FlowInner() {
             outputFormat: "png",
             aiProvider,
             model: nodeSpecificModel,
-            aspectRatio: aspectRatioValue,
+            aspectRatio: effectiveAspectRatio,
             imageSize: effectiveImageSize,
           });
         } else {
@@ -8254,7 +9720,7 @@ function FlowInner() {
             outputFormat: "png",
             aiProvider,
             model: nodeSpecificModel,
-            aspectRatio: aspectRatioValue,
+            aspectRatio: effectiveAspectRatio,
             imageSize: effectiveImageSize,
           });
         }
@@ -8345,6 +9811,12 @@ function FlowInner() {
               fileName: `flow_${node.type || "generate"}_${historyId}.png`,
               projectId,
               keepThumbnail: false,
+              metadata: {
+                ...(out.metadata || {}),
+                model: out.model || nodeSpecificModel,
+                aiProvider,
+                provider: aiProvider,
+              },
             })
               .then(({ remoteUrl }) => {
                 if (!remoteUrl) return;
@@ -8402,7 +9874,7 @@ function FlowInner() {
         );
       }
     },
-    [aiProvider, imageModel, rf, setNodes, appendSora2History]
+    [aiProvider, imageModel, rf, setNodes, appendSora2History, appendVideoHistory]
   );
 
   // 定义稳定的onSend回调
@@ -8856,6 +10328,428 @@ function FlowInner() {
     [rf]
   );
 
+  const runGroupNodes = React.useCallback(
+    async (groupId: string) => {
+      if (!groupId) return;
+
+      let started = false;
+      setRunningGroupIds((prev) => {
+        if (prev.includes(groupId)) return prev;
+        started = true;
+        return prev.concat(groupId);
+      });
+      if (!started) return;
+
+      try {
+        const allNodes = (rf.getNodes?.() || []) as RFNode[];
+        const allEdges = (rf.getEdges?.() || []) as Edge[];
+        const groupNode = allNodes.find((node) => node.id === groupId);
+        if (!groupNode || !isGroupNode(groupNode)) return;
+
+        const childIds = getGroupChildIds(groupNode);
+        const childNodes = childIds
+          .map((childId) => allNodes.find((node) => node.id === childId))
+          .filter((node): node is RFNode => !!node && !isGroupNode(node));
+
+        const childSet = new Set(childNodes.map((node) => node.id));
+        const compareNodePosition = (a: RFNode, b: RFNode) => {
+          const ax = Number(a.position?.x ?? 0);
+          const bx = Number(b.position?.x ?? 0);
+          if (Math.abs(ax - bx) > 0.01) return ax - bx;
+          const ay = Number(a.position?.y ?? 0);
+          const by = Number(b.position?.y ?? 0);
+          return ay - by;
+        };
+
+        const indegree = new Map<string, number>();
+        const nextMap = new Map<string, Set<string>>();
+        childNodes.forEach((node) => {
+          indegree.set(node.id, 0);
+          nextMap.set(node.id, new Set<string>());
+        });
+
+        allEdges.forEach((edge) => {
+          if (!childSet.has(edge.source) || !childSet.has(edge.target)) return;
+          if (edge.source === edge.target) return;
+          const next = nextMap.get(edge.source);
+          if (!next || next.has(edge.target)) return;
+          next.add(edge.target);
+          indegree.set(edge.target, (indegree.get(edge.target) || 0) + 1);
+        });
+
+        const childNodeMap = new Map(childNodes.map((node) => [node.id, node]));
+        const queue = childNodes
+          .filter((node) => (indegree.get(node.id) || 0) === 0)
+          .sort(compareNodePosition);
+        const topoOrdered: RFNode[] = [];
+        const visited = new Set<string>();
+
+        while (queue.length > 0) {
+          const current = queue.shift() as RFNode;
+          if (visited.has(current.id)) continue;
+          visited.add(current.id);
+          topoOrdered.push(current);
+
+          const neighbors = Array.from(nextMap.get(current.id) || []);
+          neighbors.forEach((neighborId) => {
+            const nextDeg = (indegree.get(neighborId) || 0) - 1;
+            indegree.set(neighborId, nextDeg);
+            if (nextDeg === 0) {
+              const neighbor = childNodeMap.get(neighborId);
+              if (neighbor && !visited.has(neighbor.id)) {
+                queue.push(neighbor);
+              }
+            }
+          });
+          queue.sort(compareNodePosition);
+        }
+
+        if (topoOrdered.length < childNodes.length) {
+          childNodes
+            .filter((node) => !visited.has(node.id))
+            .sort(compareNodePosition)
+            .forEach((node) => topoOrdered.push(node));
+        }
+
+        const runnableNodes = topoOrdered.filter((node) =>
+          FLOW_GROUP_RUNNABLE_TYPES.has(String(node.type || ""))
+        );
+
+        if (!runnableNodes.length) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "该分组内没有可运行节点", type: "warning" },
+            })
+          );
+          return;
+        }
+
+        let successCount = 0;
+        let failedCount = 0;
+
+        for (const node of runnableNodes) {
+          try {
+            const nodeType = String(node.type || "");
+            if (FLOW_GROUP_LOCAL_RUN_TYPES.has(nodeType)) {
+              const ok = await new Promise<boolean>((resolve) => {
+                let settled = false;
+                const timeout = window.setTimeout(() => {
+                  if (settled) return;
+                  settled = true;
+                  resolve(false);
+                }, 180000);
+
+                window.dispatchEvent(
+                  new CustomEvent("flow:run-node", {
+                    detail: {
+                      id: node.id,
+                      done: (result?: boolean) => {
+                        if (settled) return;
+                        settled = true;
+                        window.clearTimeout(timeout);
+                        resolve(result !== false);
+                      },
+                    },
+                  })
+                );
+              });
+              if (ok) {
+                successCount += 1;
+              } else {
+                failedCount += 1;
+              }
+            } else {
+              await runNode(node.id);
+              successCount += 1;
+            }
+          } catch {
+            failedCount += 1;
+          }
+        }
+
+        const message =
+          failedCount > 0
+            ? `分组运行完成：成功 ${successCount}，失败 ${failedCount}`
+            : `分组运行完成：共执行 ${successCount} 个节点`;
+
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: {
+              message,
+              type: failedCount > 0 ? "warning" : "success",
+            },
+          })
+        );
+      } finally {
+        setRunningGroupIds((prev) => prev.filter((id) => id !== groupId));
+      }
+    },
+    [rf, runNode]
+  );
+
+  const runGlobalNodes = React.useCallback(async () => {
+    let started = false;
+    setIsGlobalRunning((prev) => {
+      if (prev) return prev;
+      started = true;
+      return true;
+    });
+    if (!started) return;
+    globalRunStopRequestedRef.current = false;
+
+    window.dispatchEvent(
+      new CustomEvent("flow:global-run-state", {
+        detail: { running: true },
+      })
+    );
+
+    try {
+      const allNodes = (rf.getNodes?.() || []) as RFNode[];
+      const allEdges = (rf.getEdges?.() || []) as Edge[];
+      const normalNodes = allNodes.filter((node) => !isGroupNode(node));
+
+      if (!normalNodes.length) {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "当前没有可运行节点", type: "warning" },
+          })
+        );
+        return;
+      }
+
+      const nodeSet = new Set(normalNodes.map((node) => node.id));
+      const compareNodePosition = (a: RFNode, b: RFNode) => {
+        const ax = Number(a.position?.x ?? 0);
+        const bx = Number(b.position?.x ?? 0);
+        if (Math.abs(ax - bx) > 0.01) return ax - bx;
+        const ay = Number(a.position?.y ?? 0);
+        const by = Number(b.position?.y ?? 0);
+        return ay - by;
+      };
+
+      const indegree = new Map<string, number>();
+      const nextMap = new Map<string, Set<string>>();
+      normalNodes.forEach((node) => {
+        indegree.set(node.id, 0);
+        nextMap.set(node.id, new Set<string>());
+      });
+
+      allEdges.forEach((edge) => {
+        if (!nodeSet.has(edge.source) || !nodeSet.has(edge.target)) return;
+        if (edge.source === edge.target) return;
+        const next = nextMap.get(edge.source);
+        if (!next || next.has(edge.target)) return;
+        next.add(edge.target);
+        indegree.set(edge.target, (indegree.get(edge.target) || 0) + 1);
+      });
+
+      const nodeMap = new Map(normalNodes.map((node) => [node.id, node]));
+      const queue = normalNodes
+        .filter((node) => (indegree.get(node.id) || 0) === 0)
+        .sort(compareNodePosition);
+      const topoOrdered: RFNode[] = [];
+      const visited = new Set<string>();
+
+      while (queue.length > 0) {
+        const current = queue.shift() as RFNode;
+        if (visited.has(current.id)) continue;
+        visited.add(current.id);
+        topoOrdered.push(current);
+
+        const neighbors = Array.from(nextMap.get(current.id) || []);
+        neighbors.forEach((neighborId) => {
+          const nextDeg = (indegree.get(neighborId) || 0) - 1;
+          indegree.set(neighborId, nextDeg);
+          if (nextDeg === 0) {
+            const neighbor = nodeMap.get(neighborId);
+            if (neighbor && !visited.has(neighbor.id)) {
+              queue.push(neighbor);
+            }
+          }
+        });
+        queue.sort(compareNodePosition);
+      }
+
+      if (topoOrdered.length < normalNodes.length) {
+        normalNodes
+          .filter((node) => !visited.has(node.id))
+          .sort(compareNodePosition)
+          .forEach((node) => topoOrdered.push(node));
+      }
+
+      const runnableNodes = topoOrdered.filter((node) =>
+        FLOW_GROUP_RUNNABLE_TYPES.has(String(node.type || ""))
+      );
+
+      if (!runnableNodes.length) {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "当前没有可运行节点", type: "warning" },
+          })
+        );
+        return;
+      }
+
+      let successCount = 0;
+      let failedCount = 0;
+      let stoppedByUser = false;
+
+      for (const node of runnableNodes) {
+        if (globalRunStopRequestedRef.current) {
+          stoppedByUser = true;
+          break;
+        }
+        try {
+          const nodeType = String(node.type || "");
+          if (FLOW_GROUP_LOCAL_RUN_TYPES.has(nodeType)) {
+            const localRunPromise = new Promise<boolean>((resolve) => {
+              let settled = false;
+              const timeout = window.setTimeout(() => {
+                if (settled) return;
+                settled = true;
+                resolve(false);
+              }, 180000);
+
+              window.dispatchEvent(
+                new CustomEvent("flow:run-node", {
+                  detail: {
+                    id: node.id,
+                    done: (result?: boolean) => {
+                      if (settled) return;
+                      settled = true;
+                      window.clearTimeout(timeout);
+                      resolve(result !== false);
+                    },
+                  },
+                })
+              );
+            });
+            const ok = await new Promise<boolean>((resolve) => {
+              let settled = false;
+              const handleStop = () => {
+                if (settled) return;
+                settled = true;
+                globalRunStopRequestedRef.current = true;
+                resolve(false);
+              };
+              window.addEventListener(
+                "flow:stop-global",
+                handleStop as EventListener,
+                { once: true }
+              );
+              void localRunPromise.then((value) => {
+                if (settled) return;
+                settled = true;
+                window.removeEventListener(
+                  "flow:stop-global",
+                  handleStop as EventListener
+                );
+                resolve(value);
+              });
+            });
+            if (globalRunStopRequestedRef.current) {
+              stoppedByUser = true;
+              break;
+            }
+            if (ok) {
+              successCount += 1;
+            } else {
+              failedCount += 1;
+            }
+          } else {
+            const ok = await new Promise<boolean>((resolve) => {
+              let settled = false;
+              const handleStop = () => {
+                if (settled) return;
+                settled = true;
+                globalRunStopRequestedRef.current = true;
+                resolve(false);
+              };
+              window.addEventListener(
+                "flow:stop-global",
+                handleStop as EventListener,
+                { once: true }
+              );
+              void runNode(node.id)
+                .then(() => {
+                  if (settled) return;
+                  settled = true;
+                  window.removeEventListener(
+                    "flow:stop-global",
+                    handleStop as EventListener
+                  );
+                  resolve(true);
+                })
+                .catch(() => {
+                  if (settled) return;
+                  settled = true;
+                  window.removeEventListener(
+                    "flow:stop-global",
+                    handleStop as EventListener
+                  );
+                  resolve(false);
+                });
+            });
+            if (globalRunStopRequestedRef.current) {
+              stoppedByUser = true;
+              break;
+            }
+            if (ok) successCount += 1;
+            else failedCount += 1;
+          }
+        } catch {
+          failedCount += 1;
+        }
+      }
+
+      const executedCount = successCount + failedCount;
+      const message = stoppedByUser
+        ? failedCount > 0
+          ? `全局运行已终止：已执行 ${executedCount} 个节点（成功 ${successCount}，失败 ${failedCount}）`
+          : `全局运行已终止：已执行 ${executedCount} 个节点`
+        : failedCount > 0
+          ? `全局运行完成：成功 ${successCount}，失败 ${failedCount}`
+          : `全局运行完成：共执行 ${successCount} 个节点`;
+
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: {
+            message,
+            type: stoppedByUser || failedCount > 0 ? "warning" : "success",
+          },
+        })
+      );
+    } finally {
+      setIsGlobalRunning(false);
+      globalRunStopRequestedRef.current = false;
+      window.dispatchEvent(
+        new CustomEvent("flow:global-run-state", {
+          detail: { running: false },
+        })
+      );
+    }
+  }, [rf, runNode]);
+
+  React.useEffect(() => {
+    const handler = () => {
+      void runGlobalNodes();
+    };
+    window.addEventListener("flow:run-global", handler as EventListener);
+    return () => {
+      window.removeEventListener("flow:run-global", handler as EventListener);
+    };
+  }, [runGlobalNodes]);
+
+  React.useEffect(() => {
+    const handler = () => {
+      globalRunStopRequestedRef.current = true;
+    };
+    window.addEventListener("flow:stop-global", handler as EventListener);
+    return () => {
+      window.removeEventListener("flow:stop-global", handler as EventListener);
+    };
+  }, []);
+
   // 连接状态回调
   const onConnectStart = React.useCallback(
     () => setIsConnecting(true),
@@ -8870,7 +10764,20 @@ function FlowInner() {
   const nodesWithHandlers = React.useMemo(
     () =>
       nodes.map((n) =>
-        n.type === "generate" ||
+        n.type === FLOW_GROUP_NODE_TYPE
+          ? {
+              ...n,
+              data: {
+                ...n.data,
+                onRenameGroup: promptGroupName,
+                onUpdateGroupName: updateGroupName,
+                onChangeGroupColor: changeGroupColor,
+                onUngroup: (groupId: string) => dissolveGroups([groupId]),
+                onRunGroup: runGroupNodes,
+                groupRunning: runningGroupIds.includes(n.id),
+              },
+            }
+          : n.type === "generate" ||
         n.type === "generate4" ||
         n.type === "generateRef" ||
         n.type === "generatePro" ||
@@ -8881,6 +10788,7 @@ function FlowInner() {
           : n.type === "image" || n.type === "imagePro"
           ? { ...n, data: { ...n.data, onRun: runNode, onSend: onSendHandler } }
           : n.type === "sora2Video" ||
+            n.type === "sora2Character" ||
             n.type === "wan26" ||
             n.type === "wan2R2V" ||
             n.type === "klingVideo" ||
@@ -8891,7 +10799,17 @@ function FlowInner() {
           ? { ...n, data: { ...n.data, onRun: runNode } }
           : n
       ),
-    [nodes, runNode, onSendHandler]
+    [
+      nodes,
+      runNode,
+      onSendHandler,
+      promptGroupName,
+      updateGroupName,
+      changeGroupColor,
+      dissolveGroups,
+      runGroupNodes,
+      runningGroupIds,
+    ]
   );
 
   // 简单的全局调试API，便于从控制台添加节点
@@ -9163,7 +11081,18 @@ function FlowInner() {
 
   const showFlowPanel = useUIStore((s) => s.showFlowPanel);
   const flowUIEnabled = useUIStore((s) => s.flowUIEnabled);
-  const focusMode = useUIStore((s) => s.focusMode);
+  const selectedNonGroupNodeCount = React.useMemo(
+    () =>
+      nodes.filter((node) => node.selected && !isGroupNode(node as RFNode))
+        .length,
+    [nodes]
+  );
+  const selectedGroupIds = React.useMemo(
+    () => getSelectedGroupIds(nodes as RFNode[]),
+    [nodes, getSelectedGroupIds]
+  );
+  const canCreateGroup = selectedNonGroupNodeCount >= 2;
+  const canDissolveGroup = selectedGroupIds.length > 0;
 
   const FlowToolbar =
     flowUIEnabled && showFlowPanel ? (
@@ -9293,6 +11222,54 @@ function FlowInner() {
           }}
         >
           Multi Generate
+        </button>
+        <div
+          style={{
+            width: 1,
+            height: 20,
+            background: "#e5e7eb",
+            margin: "0 4px",
+          }}
+        />
+        <button
+          onClick={() => createGroupFromSelection()}
+          disabled={!canCreateGroup}
+          title='打组 (G)'
+          style={{
+            padding: "6px 10px",
+            fontSize: 12,
+            borderRadius: 6,
+            border: "1px solid #e5e7eb",
+            background: canCreateGroup ? "#fff" : "#f3f4f6",
+            color: canCreateGroup ? "#111827" : "#9ca3af",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            cursor: canCreateGroup ? "pointer" : "not-allowed",
+          }}
+        >
+          <Group size={14} />
+          打组
+        </button>
+        <button
+          onClick={() => dissolveGroups(selectedGroupIds)}
+          disabled={!canDissolveGroup}
+          title='解组 (Shift + G)'
+          style={{
+            padding: "6px 10px",
+            fontSize: 12,
+            borderRadius: 6,
+            border: "1px solid #e5e7eb",
+            background: canDissolveGroup ? "#fff" : "#f3f4f6",
+            color: canDissolveGroup ? "#111827" : "#9ca3af",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            cursor: canDissolveGroup ? "pointer" : "not-allowed",
+          }}
+        >
+          <Ungroup size={14} />
+          解组
         </button>
         <div
           style={{
@@ -9597,14 +11574,23 @@ function FlowInner() {
       const minX = Math.min(...tpl.nodes.map((n) => n.position?.x || 0));
       const minY = Math.min(...tpl.nodes.map((n) => n.position?.y || 0));
       const idMap = new Map<string, string>();
-      const newNodes = tpl.nodes.map((n) => {
+      tpl.nodes.forEach((n) => {
         const newId = generateId(n.type || "n");
         idMap.set(n.id, newId);
+      });
+      const newNodes = tpl.nodes.map((n) => {
+        const newId = idMap.get(n.id) || generateId(n.type || "n");
         const data: any = { ...(n.data || {}) };
         delete data.onRun;
         delete data.onSend;
         delete data.status;
         delete data.error;
+        if ((n as any).type === FLOW_GROUP_NODE_TYPE) {
+          const childIds = Array.isArray(data.childNodeIds) ? data.childNodeIds : [];
+          data.childNodeIds = childIds
+            .map((childId: string) => idMap.get(childId) || null)
+            .filter(Boolean);
+        }
         return {
           id: newId,
           type: n.type as any,
@@ -9613,6 +11599,15 @@ function FlowInner() {
             y: world.y + (n.position.y - minY),
           },
           data,
+          width: (n as any).width,
+          height: (n as any).height,
+          style: (n as any).style ? { ...(n as any).style } : undefined,
+          parentNode: (n as any).parentNode
+            ? idMap.get((n as any).parentNode) || undefined
+            : undefined,
+          extent: (n as any).extent,
+          selectable: (n as any).selectable,
+          draggable: (n as any).draggable,
         } as any;
       });
       const newEdges = (tpl.edges || []).map((e) => ({
@@ -9825,6 +11820,13 @@ function FlowInner() {
             data,
             boxW: (n as any).data?.boxW,
             boxH: (n as any).data?.boxH,
+            width: (n as any).width,
+            height: (n as any).height,
+            style: (n as any).style ? { ...(n as any).style } : undefined,
+            parentNode: (n as any).parentNode,
+            extent: (n as any).extent,
+            selectable: (n as any).selectable,
+            draggable: (n as any).draggable,
           };
         })
       );
@@ -9912,7 +11914,9 @@ function FlowInner() {
                 const rawData = { ...(n.data || {}) };
                 delete rawData.onRun;
                 delete rawData.onSend;
-                const data = sanitizeNodeData(rawData);
+                const data = sanitizeNodeData(rawData, {
+                  preserveImagePayload: true,
+                });
                 if (data) {
                   delete data.status;
                   delete data.error;
@@ -10065,14 +12069,16 @@ function FlowInner() {
             style={{ opacity: backgroundOpacity }}
           />
         )}
-        {/* 视口由 Canvas 驱动，禁用 MiniMap 交互避免竞态 - 专注模式下隐藏 */}
-        {!focusMode && <MiniMap pannable={false} zoomable={false} />}
-        {/* 将画布上的图片以绿色块显示在 MiniMap 内 - 专注模式下隐藏 */}
-        {!focusMode && <MiniMapImageOverlay />}
+        {/* 视口由 Canvas 驱动，禁用 MiniMap 交互避免竞态 */}
+        <MiniMap pannable={false} zoomable={false} />
+        {/* 将画布上的图片以绿色块显示在 MiniMap 内 */}
+        <MiniMapImageOverlay />
       </ReactFlow>
 
       {showFpsOverlay && (
         <div
+          ref={fpsOverlayRef}
+          id='tanva-fps-overlay'
           style={{
             position: "fixed",
             top: 12,
@@ -10301,35 +12307,53 @@ function FlowInner() {
                 }}
               >
                 <div style={{ padding: "0 20px 20px" }}>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
-                  {(sortedNodeConfigs && sortedNodeConfigs.length > 0 ? sortedNodeConfigs : NODE_PALETTE_ITEMS.map(item => ({
-                      nodeKey: item.key,
-                      nameZh: item.zh,
-                      nameEn: item.en,
-                      category: item.category as "input" | "image" | "video" | "other",
-                      status: (item.badge === "维护中" ? "maintenance" : "normal") as "normal" | "maintenance" | "coming_soon" | "disabled",
-                      creditsPerCall: NODE_CREDITS_MAP[item.key] || 0,
-                      sortOrder: 0,
-                    })))
-                      // 过滤掉 Pro/Beta 节点（它们在 Beta 节点分类中显示）
-                      .filter(config => !['textPromptPro', 'imagePro', 'generatePro', 'generatePro4'].includes(config.nodeKey))
-                      .filter(config => config.status !== "disabled")
-                      .map((config) => {
-                      const isDisabled = config.status === "maintenance" || config.status === "coming_soon";
-                      const badge = getStatusBadge(config.status);
-                      return (
-                        <NodePaletteButton
-                          key={config.nodeKey}
-                          zh={config.nameZh}
-                          en={config.nameEn}
-                          badge={badge}
-                          credits={config.creditsPerCall}
-                          disabled={isDisabled}
-                          onClick={() => createNodeAtWorldCenter(config.nodeKey, addPanel.world)}
-                        />
-                      );
-                    })}
-                  </div>
+                  {groupedNodePaletteConfigs.map((group) => (
+                    <section key={group.key} style={nodePaletteSectionStyle}>
+                      <div style={nodePaletteSectionHeaderStyle}>
+                        <div>
+                          <div style={nodePaletteSectionTitleStyle}>
+                            {group.title}
+                          </div>
+                          <div style={nodePaletteSectionSubtitleStyle}>
+                            {group.subtitle}
+                          </div>
+                        </div>
+                        <span style={nodePaletteSectionCountStyle}>
+                          {group.items.length} 个
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                          gap: 12,
+                        }}
+                      >
+                        {group.items.map((config) => {
+                          const isDisabled =
+                            config.status === "maintenance" ||
+                            config.status === "coming_soon";
+                          const badge = getStatusBadge(config.status);
+                          return (
+                            <NodePaletteButton
+                              key={config.nodeKey}
+                              zh={config.nameZh}
+                              en={config.nameEn}
+                              badge={badge}
+                              credits={config.creditsPerCall}
+                              disabled={isDisabled}
+                              onClick={() =>
+                                createNodeAtWorldCenter(
+                                  resolveFlowNodeTypeFromConfig(config),
+                                  addPanel.world
+                                )
+                              }
+                            />
+                          );
+                        })}
+                      </div>
+                    </section>
+                  ))}
                 </div>
               </div>
             ) : addTab === "beta" ? (

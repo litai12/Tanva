@@ -65,8 +65,18 @@ export class NodeConfigService {
 
     return sorted.map((config) => ({
       nodeKey: config.nodeKey,
-      nameZh: config.nameZh,
-      nameEn: config.nameEn,
+      nameZh:
+        config.nodeKey === 'sora2Video'
+          ? 'Sora2 Pro视频生成'
+          : config.nodeKey === 'sora2Character'
+          ? 'Sora2角色生成'
+          : config.nameZh,
+      nameEn:
+        config.nodeKey === 'sora2Video'
+          ? 'Sora2 Pro'
+          : config.nodeKey === 'sora2Character'
+          ? 'Sora2 Character'
+          : config.nameEn,
       category: config.category,
       status: config.status,
       statusMessage: config.statusMessage,
@@ -105,8 +115,18 @@ export class NodeConfigService {
     return sorted.map((config) => ({
       id: config.id,
       nodeKey: config.nodeKey,
-      nameZh: config.nameZh,
-      nameEn: config.nameEn,
+      nameZh:
+        config.nodeKey === 'sora2Video'
+          ? 'Sora2 Pro视频生成'
+          : config.nodeKey === 'sora2Character'
+          ? 'Sora2角色生成'
+          : config.nameZh,
+      nameEn:
+        config.nodeKey === 'sora2Video'
+          ? 'Sora2 Pro'
+          : config.nodeKey === 'sora2Character'
+          ? 'Sora2 Character'
+          : config.nameEn,
       category: config.category,
       status: config.status,
       statusMessage: config.statusMessage,
@@ -256,7 +276,7 @@ export class NodeConfigService {
       { nodeKey: 'generatePro', nameZh: '高级生成', nameEn: 'Generate Pro', category: 'image', sortOrder: 12, creditsPerCall: 30, serviceType: 'gemini-3-pro-image', priceYuan: 0.3, description: '高质量文生图' },
       { nodeKey: 'generatePro4', nameZh: '高级四图', nameEn: 'Generate Pro 4', category: 'image', sortOrder: 13, creditsPerCall: 120, serviceType: 'gemini-3-pro-image', priceYuan: 1.2, description: '高质量一次4张' },
       { nodeKey: 'generateReference', nameZh: '参考生成', nameEn: 'Reference', category: 'image', sortOrder: 14, creditsPerCall: 30, serviceType: 'gemini-image-blend', priceYuan: 0.3, description: '参考图生成' },
-      { nodeKey: 'midjourney', nameZh: 'Midjourney', nameEn: 'Midjourney', category: 'image', sortOrder: 15, creditsPerCall: 20, serviceType: 'midjourney-imagine', priceYuan: 0.2, description: 'Midjourney生图' },
+      { nodeKey: 'midjourney', nameZh: 'Midjourney', nameEn: 'Midjourney', category: 'image', sortOrder: 15, creditsPerCall: 50, serviceType: 'midjourney-imagine', priceYuan: 0.5, description: 'Midjourney生图' },
 
       // 视频生成节点
       {
@@ -265,9 +285,9 @@ export class NodeConfigService {
         nameEn: 'Kling',
         category: 'video',
         sortOrder: 20,
-        creditsPerCall: 60,
+        creditsPerCall: 600,
         serviceType: 'kling-video',
-        priceYuan: 0.6,
+        priceYuan: 6,
         status: 'maintenance',
         statusMessage: '接口维护中',
         description: '可灵视频生成，按次计费',
@@ -278,9 +298,9 @@ export class NodeConfigService {
         nameEn: 'Kling 2.6',
         category: 'video',
         sortOrder: 21,
-        creditsPerCall: 100,
+        creditsPerCall: 600,
         serviceType: 'kling-2.6-video',
-        priceYuan: 1,
+        priceYuan: 6,
         description: '可灵Kling 2.6视频生成，使用kling-v2-6模型',
       },
       {
@@ -289,13 +309,13 @@ export class NodeConfigService {
         nameEn: 'Kling O1',
         category: 'video',
         sortOrder: 22,
-        creditsPerCall: 100,
+        creditsPerCall: 1600,
         serviceType: 'kling-o1-video',
-        priceYuan: 1,
+        priceYuan: 16,
         description: '可灵O1全能视频，支持文生视频/图生视频/视频编辑',
         metadata: {
           billingType: 'per_call',
-          billingNote: '按次计费，1元/次',
+          billingNote: '按次计费，16元/次',
           supportedModes: ['text2video', 'image2video', 'video_edit'],
           durationRange: { min: 3, max: 10 },
         },
@@ -306,9 +326,9 @@ export class NodeConfigService {
         nameEn: 'Vidu',
         category: 'video',
         sortOrder: 23,
-        creditsPerCall: 60,
+        creditsPerCall: 600,
         serviceType: 'vidu-video',
-        priceYuan: 0.6,
+        priceYuan: 6,
         description: 'Vidu视频生成',
       },
       {
@@ -317,35 +337,47 @@ export class NodeConfigService {
         nameEn: 'Seedance',
         category: 'video',
         sortOrder: 24,
-        creditsPerCall: 60,
+        creditsPerCall: 600,
         serviceType: 'doubao-video',
-        priceYuan: 0.6,
+        priceYuan: 6,
         description: '豆包Seedance 1.5 Pro视频',
       },
       {
         nodeKey: 'sora2Video',
-        nameZh: 'Sora视频生成',
-        nameEn: 'Sora',
+        nameZh: 'Sora2 Pro视频生成',
+        nameEn: 'Sora2 Pro',
         category: 'video',
+        status: 'coming_soon',
         sortOrder: 25,
-        creditsPerCall: 40,
+        creditsPerCall: 900,
         serviceType: 'sora-sd',
-        priceYuan: 0.4,
-        description: 'OpenAI Sora视频',
+        priceYuan: 9,
+        description: 'OpenAI Sora2 Pro 视频',
         metadata: {
-          billingType: 'by_quality',
-          pricing: {
-            sd: { credits: 40, priceYuan: 0.4 },
-            hd: { credits: 400, priceYuan: 4 },
+          billingType: 'by_model',
+          modelPricing: {
+            'sora-2': { credits: 900, priceYuan: 9 },
+            'sora-2-vip': { credits: 900, priceYuan: 9 },
+            'sora-2-pro': { credits: 900, priceYuan: 9 },
           },
         },
+      },
+      {
+        nodeKey: 'sora2Character',
+        nameZh: 'Sora2角色生成',
+        nameEn: 'Sora2 Character',
+        category: 'video',
+        status: 'coming_soon',
+        sortOrder: 26,
+        creditsPerCall: 0,
+        description: '从视频中提取角色，供 Sora2 Pro 复用',
       },
       {
         nodeKey: 'wan26',
         nameZh: 'Wan2.6视频',
         nameEn: 'Wan2.6',
         category: 'video',
-        sortOrder: 26,
+        sortOrder: 27,
         creditsPerCall: 600,
         serviceType: 'wan26-video',
         priceYuan: 6,
@@ -356,7 +388,7 @@ export class NodeConfigService {
         nameZh: 'Wan2参考视频',
         nameEn: 'Wan2 R2V',
         category: 'video',
-        sortOrder: 27,
+        sortOrder: 28,
         creditsPerCall: 600,
         serviceType: 'wan26-r2v',
         priceYuan: 6,
@@ -458,7 +490,7 @@ export class NodeConfigService {
       { nodeKey: 'generatePro', nameZh: '高级生成', nameEn: 'Generate Pro', category: 'image', sortOrder: 12, creditsPerCall: 30, serviceType: 'gemini-3-pro-image', priceYuan: 0.3, description: '高质量文生图' },
       { nodeKey: 'generatePro4', nameZh: '高级四图', nameEn: 'Generate Pro 4', category: 'image', sortOrder: 13, creditsPerCall: 120, serviceType: 'gemini-3-pro-image', priceYuan: 1.2, description: '高质量一次4张' },
       { nodeKey: 'generateReference', nameZh: '参考生成', nameEn: 'Reference', category: 'image', sortOrder: 14, creditsPerCall: 30, serviceType: 'gemini-image-blend', priceYuan: 0.3, description: '参考图生成' },
-      { nodeKey: 'midjourney', nameZh: 'Midjourney', nameEn: 'Midjourney', category: 'image', sortOrder: 15, creditsPerCall: 20, serviceType: 'midjourney-imagine', priceYuan: 0.2, description: 'Midjourney生图' },
+      { nodeKey: 'midjourney', nameZh: 'Midjourney', nameEn: 'Midjourney', category: 'image', sortOrder: 15, creditsPerCall: 50, serviceType: 'midjourney-imagine', priceYuan: 0.5, description: 'Midjourney生图' },
 
       // 视频生成节点
       {
@@ -467,9 +499,9 @@ export class NodeConfigService {
         nameEn: 'Kling',
         category: 'video',
         sortOrder: 20,
-        creditsPerCall: 60,
+        creditsPerCall: 600,
         serviceType: 'kling-video',
-        priceYuan: 0.6,
+        priceYuan: 6,
         status: 'maintenance',
         statusMessage: '接口维护中',
         description: '可灵视频生成，按次计费',
@@ -480,9 +512,9 @@ export class NodeConfigService {
         nameEn: 'Kling 2.6',
         category: 'video',
         sortOrder: 21,
-        creditsPerCall: 100,
+        creditsPerCall: 600,
         serviceType: 'kling-2.6-video',
-        priceYuan: 1,
+        priceYuan: 6,
         description: '可灵Kling 2.6视频生成，使用kling-v2-6模型',
       },
       {
@@ -491,13 +523,13 @@ export class NodeConfigService {
         nameEn: 'Kling O1',
         category: 'video',
         sortOrder: 22,
-        creditsPerCall: 100,
+        creditsPerCall: 1600,
         serviceType: 'kling-o1-video',
-        priceYuan: 1,
+        priceYuan: 16,
         description: '可灵O1全能视频，支持文生视频/图生视频/视频编辑',
         metadata: {
           billingType: 'per_call',
-          billingNote: '按次计费，1元/次',
+          billingNote: '按次计费，16元/次',
           supportedModes: ['text2video', 'image2video', 'video_edit'],
           durationRange: { min: 3, max: 10 },
         },
@@ -508,9 +540,9 @@ export class NodeConfigService {
         nameEn: 'Vidu',
         category: 'video',
         sortOrder: 23,
-        creditsPerCall: 60,
+        creditsPerCall: 600,
         serviceType: 'vidu-video',
-        priceYuan: 0.6,
+        priceYuan: 6,
         description: 'Vidu视频生成',
       },
       {
@@ -519,35 +551,47 @@ export class NodeConfigService {
         nameEn: 'Seedance',
         category: 'video',
         sortOrder: 24,
-        creditsPerCall: 60,
+        creditsPerCall: 600,
         serviceType: 'doubao-video',
-        priceYuan: 0.6,
+        priceYuan: 6,
         description: '豆包Seedance 1.5 Pro视频',
       },
       {
         nodeKey: 'sora2Video',
-        nameZh: 'Sora视频生成',
-        nameEn: 'Sora',
+        nameZh: 'Sora2 Pro视频生成',
+        nameEn: 'Sora2 Pro',
         category: 'video',
+        status: 'coming_soon',
         sortOrder: 25,
-        creditsPerCall: 40,
+        creditsPerCall: 900,
         serviceType: 'sora-sd',
-        priceYuan: 0.4,
-        description: 'OpenAI Sora视频',
+        priceYuan: 9,
+        description: 'OpenAI Sora2 Pro 视频',
         metadata: {
-          billingType: 'by_quality',
-          pricing: {
-            sd: { credits: 40, priceYuan: 0.4 },
-            hd: { credits: 400, priceYuan: 4 },
+          billingType: 'by_model',
+          modelPricing: {
+            'sora-2': { credits: 900, priceYuan: 9 },
+            'sora-2-vip': { credits: 900, priceYuan: 9 },
+            'sora-2-pro': { credits: 900, priceYuan: 9 },
           },
         },
+      },
+      {
+        nodeKey: 'sora2Character',
+        nameZh: 'Sora2角色生成',
+        nameEn: 'Sora2 Character',
+        category: 'video',
+        status: 'coming_soon',
+        sortOrder: 26,
+        creditsPerCall: 0,
+        description: '从视频中提取角色，供 Sora2 Pro 复用',
       },
       {
         nodeKey: 'wan26',
         nameZh: 'Wan2.6视频',
         nameEn: 'Wan2.6',
         category: 'video',
-        sortOrder: 26,
+        sortOrder: 27,
         creditsPerCall: 600,
         serviceType: 'wan26-video',
         priceYuan: 6,
@@ -558,7 +602,7 @@ export class NodeConfigService {
         nameZh: 'Wan2参考视频',
         nameEn: 'Wan2 R2V',
         category: 'video',
-        sortOrder: 27,
+        sortOrder: 28,
         creditsPerCall: 600,
         serviceType: 'wan26-r2v',
         priceYuan: 6,

@@ -4,6 +4,7 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { PrismaService } from "../../prisma/prisma.service";
 import {
   IAIProvider,
   ImageGenerationRequest,
@@ -59,6 +60,13 @@ const VECTOR_KEYWORDS = [
   "vectorgraphics",
 ];
 
+export type BananaImageProvider =
+  | "auto"
+  | "legacy_auto"
+  | "apimart"
+  | "legacy";
+export const BANANA_PROVIDER_SETTING_KEY = "banana_provider";
+
 /**
  * Banana API Provider - 使用HTTP直接调用Google Gemini API的代理
  * 文档: https://147api.apifox.cn/
@@ -67,32 +75,47 @@ const VECTOR_KEYWORDS = [
 @Injectable()
 export class BananaProvider implements IAIProvider {
   private readonly logger = new Logger(BananaProvider.name);
-  private apiKey: string | null = null;
+  private apiKey: string | null = null; // 147 legacy key
+  private apimartApiKey: string | null = null;
   private readonly apiBaseUrl = "https://api1.147ai.com/v1beta/models";
+  private readonly apimartGenerateUrl = "https://api.apimart.ai/v1/images/generations";
+  private readonly apimartTaskBaseUrl = "https://api.apimart.ai/v1/tasks";
   private readonly DEFAULT_MODEL = "gemini-3-pro-image-preview";
   private readonly DEFAULT_TIMEOUT = 300000; // 5分钟
   private readonly MAX_RETRIES = 3;
+  private readonly MAX_MODEL_ATTEMPTS = 3; // 主模型 + 两级降级（Ultra -> Pro -> Fast）
   private readonly RETRY_DELAYS = [2000, 5000, 10000]; // 递增延迟: 2s, 5s, 10s
+  private readonly APIMART_INITIAL_DELAY_MS = 8000;
+  private readonly APIMART_POLL_INTERVAL_MS = 3000;
+  private readonly APIMART_POLL_MAX_ATTEMPTS = 120;
 
-  // 降级模型映射：Pro 文本模型 -> Flash（避免走 Pro）
+  // 降级模型映射：优先同代/同能力降级，再降到更保守模型
   private readonly FALLBACK_MODELS: Record<string, string> = {
     "gemini-3-pro-image-preview": "gemini-2.5-flash-image",
+    "gemini-3.1-flash-image-preview": "gemini-3-pro-image-preview",
+    "banana-gemini-3.1-flash-image-preview": "gemini-3-pro-image-preview",
     "gemini-3-pro-preview": "gemini-3-flash-preview",
     "banana-gemini-3-pro-preview": "gemini-3-flash-preview",
     "banana-gemini-3-pro-image-preview": "gemini-2.5-flash-image",
   };
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly prisma: PrismaService
+  ) {}
 
   async initialize(): Promise<void> {
     this.apiKey = this.config.get<string>("BANANA_API_KEY") ?? null;
+    this.apimartApiKey = this.config.get<string>("NANO2_API_KEY") ?? null;
 
-    if (!this.apiKey) {
-      this.logger.warn("Banana API key not configured.");
+    if (!this.apiKey && !this.apimartApiKey) {
+      this.logger.warn("Banana API keys not configured.");
       return;
     }
 
-    this.logger.log("Banana API provider initialized successfully");
+    this.logger.log(
+      `Banana provider initialized (legacy=${!!this.apiKey}, apimart=${!!this.apimartApiKey})`
+    );
   }
 
   private ensureApiKey(): string {
@@ -104,10 +127,62 @@ export class BananaProvider implements IAIProvider {
     return this.apiKey;
   }
 
+  private ensureApimartApiKey(): string {
+    if (!this.apimartApiKey) {
+      throw new ServiceUnavailableException(
+        "Apimart API key not configured on the server."
+      );
+    }
+    return this.apimartApiKey;
+  }
+
+  private async getConfiguredImageProvider(): Promise<BananaImageProvider> {
+    try {
+      const setting = await this.prisma.systemSetting.findUnique({
+        where: { key: BANANA_PROVIDER_SETTING_KEY },
+      });
+      if (
+        setting &&
+        ["auto", "legacy_auto", "apimart", "legacy"].includes(setting.value)
+      ) {
+        return setting.value as BananaImageProvider;
+      }
+    } catch (error) {
+      this.logger.warn(
+        `读取 banana provider 设置失败: ${
+          error instanceof Error ? error.message : error
+        }`
+      );
+    }
+    return "auto";
+  }
+
   private normalizeModelName(model: string): string {
     // 移除banana-前缀，确保API能识别模型名称
     // banana-gemini-3-pro-image-preview -> gemini-3-pro-image-preview
     return model.startsWith("banana-") ? model.substring(7) : model;
+  }
+
+  private normalizeLegacyImageModel(model: string): string {
+    const normalized = this.normalizeModelName(model);
+    if (normalized === "gemini-2.5-flash-image-preview") {
+      return "gemini-2.5-flash-image";
+    }
+    return normalized;
+  }
+
+  private normalizeApimartImageModel(model: string): string {
+    const normalized = this.normalizeModelName(model);
+    if (normalized === "gemini-2.5-flash-image") {
+      return "gemini-2.5-flash-image-preview";
+    }
+    return normalized;
+  }
+
+  private toApimartResolution(imageSize?: ImageGenerationRequest["imageSize"]): "1K" | "2K" | "4K" {
+    if (imageSize === "2K") return "2K";
+    if (imageSize === "4K") return "4K";
+    return "1K";
   }
 
   /**
@@ -624,21 +699,283 @@ export class BananaProvider implements IAIProvider {
     }
   }
 
-  async generateImage(
+  private async submitApimartTask(payload: Record<string, any>): Promise<string> {
+    const apiKey = this.ensureApimartApiKey();
+    const response = await fetch(this.apimartGenerateUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.text();
+      throw new Error(
+        `Apimart submit failed: ${response.status} ${response.statusText} - ${errorData}`
+      );
+    }
+
+    const data = (await response.json()) as any;
+    const taskId = data?.data?.[0]?.task_id || data?.data?.task_id;
+    if (!taskId) {
+      throw new Error("Apimart submit response missing task_id");
+    }
+    return taskId;
+  }
+
+  private extractApimartImageUrl(taskPayload: any): string | undefined {
+    const data = taskPayload?.data ?? taskPayload;
+    const directCandidates = [
+      data?.image_url,
+      data?.imageUrl,
+      data?.result?.image_url,
+      data?.result?.imageUrl,
+    ];
+    for (const candidate of directCandidates) {
+      if (typeof candidate === "string" && candidate.trim().length > 0) {
+        return candidate.trim();
+      }
+    }
+
+    const images = data?.result?.images;
+    if (Array.isArray(images) && images.length > 0) {
+      const first = images[0];
+      const urlField = first?.url;
+      if (typeof urlField === "string" && urlField.trim().length > 0) {
+        return urlField.trim();
+      }
+      if (Array.isArray(urlField) && typeof urlField[0] === "string") {
+        return urlField[0].trim();
+      }
+    }
+
+    return undefined;
+  }
+
+  private async queryApimartTask(taskId: string): Promise<{ status: string; imageUrl?: string }> {
+    const apiKey = this.ensureApimartApiKey();
+    const response = await fetch(`${this.apimartTaskBaseUrl}/${taskId}`, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Apimart task query failed: HTTP ${response.status}`);
+    }
+
+    const data = (await response.json()) as any;
+    const payload = data?.data ?? data;
+    const statusRaw = payload?.status ?? "processing";
+    const status = typeof statusRaw === "string" ? statusRaw.toLowerCase() : "processing";
+    const imageUrl = this.extractApimartImageUrl(data);
+    return { status, imageUrl };
+  }
+
+  private async waitForApimartTask(
+    taskId: string
+  ): Promise<{ imageUrl: string }> {
+    await new Promise((resolve) => setTimeout(resolve, this.APIMART_INITIAL_DELAY_MS));
+
+    for (let attempt = 1; attempt <= this.APIMART_POLL_MAX_ATTEMPTS; attempt++) {
+      const result = await this.queryApimartTask(taskId);
+      const status = result.status;
+
+      if (status === "succeeded" || status === "completed" || status === "success") {
+        if (result.imageUrl) {
+          return { imageUrl: result.imageUrl };
+        }
+        throw new Error(`Apimart task ${taskId} completed but image url missing`);
+      }
+
+      if (status === "failed" || status === "error" || status === "cancelled") {
+        throw new Error(`Apimart task ${taskId} failed with status: ${status}`);
+      }
+
+      await new Promise((resolve) =>
+        setTimeout(resolve, this.APIMART_POLL_INTERVAL_MS)
+      );
+    }
+
+    throw new Error(`Apimart task ${taskId} polling timeout`);
+  }
+
+  private async toApimartImageUrls(sourceImages: string[]): Promise<string[]> {
+    const normalized = await Promise.all(
+      sourceImages.map((source, index) =>
+        this.normalizeFileInputAsync(source, `apimart source #${index + 1}`)
+      )
+    );
+    return normalized.map((item) => `data:${item.mimeType};base64,${item.data}`);
+  }
+
+  private buildApimartError(code: string, error: unknown): AIProviderResponse<ImageResult> {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      success: false,
+      error: {
+        code,
+        message,
+        details: error,
+      },
+    };
+  }
+
+  private async generateImageViaApimart(
     request: ImageGenerationRequest
   ): Promise<AIProviderResponse<ImageResult>> {
-    this.logger.log(
-      `Generating image with prompt: ${request.prompt.substring(0, 50)}...`
-    );
+    const model = this.normalizeApimartImageModel(request.model || this.DEFAULT_MODEL);
+    const resolution = this.toApimartResolution(request.imageSize);
+    const payload: Record<string, any> = {
+      model,
+      prompt: request.prompt,
+      size: request.aspectRatio || "16:9",
+      n: 1,
+      resolution,
+    };
 
-    const originalModel = this.normalizeModelName(
+    if (Array.isArray(request.imageUrls) && request.imageUrls.length > 0) {
+      payload.image_urls = request.imageUrls;
+    }
+
+    if (request.googleSearch || request.enableWebSearch) {
+      payload.google_search = true;
+    }
+    if (request.googleImageSearch) {
+      payload.google_image_search = true;
+    }
+
+    if (model.includes("2.5") && resolution !== "1K") {
+      this.logger.warn(
+        `[BananaProvider] ${model} may not support ${resolution}, forcing 1K for compatibility`
+      );
+      payload.resolution = "1K";
+    }
+
+    const taskId = await this.submitApimartTask(payload);
+    const { imageUrl } = await this.waitForApimartTask(taskId);
+    return {
+      success: true,
+      data: {
+        imageUrl,
+        textResponse: "Image generated successfully",
+        hasImage: true,
+        metadata: {
+          taskId,
+          provider: "apimart",
+          model,
+          resolution: payload.resolution,
+          webSearchEnabled: Boolean(
+            request.enableWebSearch ||
+            request.googleSearch ||
+            request.googleImageSearch
+          ),
+          googleSearchEnabled: Boolean(
+            request.enableWebSearch || request.googleSearch
+          ),
+          googleImageSearchEnabled: Boolean(request.googleImageSearch),
+        },
+      },
+    };
+  }
+
+  private async editImageViaApimart(
+    request: ImageEditRequest
+  ): Promise<AIProviderResponse<ImageResult>> {
+    const model = this.normalizeApimartImageModel(request.model || this.DEFAULT_MODEL);
+    const resolution = this.toApimartResolution(request.imageSize);
+    const imageUrls = await this.toApimartImageUrls([request.sourceImage]);
+    const payload: Record<string, any> = {
+      model,
+      prompt: request.prompt,
+      size: request.aspectRatio || "16:9",
+      n: 1,
+      resolution,
+      image_urls: imageUrls,
+    };
+
+    if (model.includes("2.5") && resolution !== "1K") {
+      payload.resolution = "1K";
+    }
+
+    const taskId = await this.submitApimartTask(payload);
+    const { imageUrl } = await this.waitForApimartTask(taskId);
+    return {
+      success: true,
+      data: {
+        imageUrl,
+        textResponse: "Image edited successfully",
+        hasImage: true,
+        metadata: {
+          taskId,
+          provider: "apimart",
+          model,
+          resolution: payload.resolution,
+        },
+      },
+    };
+  }
+
+  private async blendImagesViaApimart(
+    request: ImageBlendRequest
+  ): Promise<AIProviderResponse<ImageResult>> {
+    const model = this.normalizeApimartImageModel(request.model || this.DEFAULT_MODEL);
+    const resolution = this.toApimartResolution(request.imageSize);
+    const imageUrls = await this.toApimartImageUrls(request.sourceImages);
+    const payload: Record<string, any> = {
+      model,
+      prompt: request.prompt,
+      size: request.aspectRatio || "16:9",
+      n: 1,
+      resolution,
+      image_urls: imageUrls,
+    };
+
+    if (model.includes("2.5") && resolution !== "1K") {
+      payload.resolution = "1K";
+    }
+
+    const taskId = await this.submitApimartTask(payload);
+    const { imageUrl } = await this.waitForApimartTask(taskId);
+    return {
+      success: true,
+      data: {
+        imageUrl,
+        textResponse: "Image blended successfully",
+        hasImage: true,
+        metadata: {
+          taskId,
+          provider: "apimart",
+          model,
+          resolution: payload.resolution,
+        },
+      },
+    };
+  }
+
+  private getProviderFailureMessage(
+    result: AIProviderResponse<ImageResult> | null,
+    error: unknown
+  ): string {
+    if (result?.error?.message) return result.error.message;
+    if (error instanceof Error && error.message) return error.message;
+    if (typeof error === "string" && error.trim()) return error;
+    return "unknown error";
+  }
+
+  private async generateImageViaLegacy(
+    request: ImageGenerationRequest
+  ): Promise<AIProviderResponse<ImageResult>> {
+    const originalModel = this.normalizeLegacyImageModel(
       request.model || this.DEFAULT_MODEL
     );
     let currentModel = originalModel;
     let usedFallback = false;
 
     // 尝试使用主模型，失败后降级
-    for (let round = 0; round < 2; round++) {
+    for (let round = 0; round < this.MAX_MODEL_ATTEMPTS; round++) {
       try {
         this.logger.debug(
           `Using model: ${currentModel}${usedFallback ? " (fallback)" : ""}`
@@ -660,7 +997,7 @@ export class BananaProvider implements IAIProvider {
                   config.imageConfig.aspectRatio = request.aspectRatio;
                 }
                 if (request.imageSize) {
-                  // 根据官方文档，imageSize 必须是字符串 "1K"、"2K" 或 "4K"（大写K）
+                  // 根据官方文档，imageSize 必须是字符串 "0.5K"、"1K"、"2K" 或 "4K"（大写K）
                   // 不需要转换，直接使用原始值
                   config.imageConfig.imageSize = request.imageSize;
                 }
@@ -669,6 +1006,10 @@ export class BananaProvider implements IAIProvider {
               // 配置 thinking_level（Gemini 3 特性，降级后不使用）
               if (request.thinkingLevel && !usedFallback) {
                 config.thinking_level = request.thinkingLevel;
+              }
+
+              if (request.enableWebSearch) {
+                config.tools = [{ googleSearch: {} }];
               }
 
               return await this.makeRequest(
@@ -694,20 +1035,31 @@ export class BananaProvider implements IAIProvider {
             imageData: result.imageBytes || undefined,
             textResponse: result.textResponse || "",
             hasImage: !!result.imageBytes,
-            metadata: usedFallback
-              ? {
-                  fallbackUsed: true,
-                  originalModel,
-                  fallbackModel: currentModel,
-                }
-              : undefined,
+            metadata: {
+              ...(usedFallback
+                ? {
+                    fallbackUsed: true,
+                    originalModel,
+                    fallbackModel: currentModel,
+                  }
+                : {}),
+              webSearchEnabled: Boolean(
+                request.enableWebSearch ||
+                request.googleSearch ||
+                request.googleImageSearch
+              ),
+              googleSearchEnabled: Boolean(
+                request.enableWebSearch || request.googleSearch
+              ),
+              googleImageSearchEnabled: Boolean(request.googleImageSearch),
+            },
           },
         };
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
 
         // 检查是否应该降级
-        if (!usedFallback && this.shouldFallback(err)) {
+        if (this.shouldFallback(err)) {
           const fallbackModel = this.getFallbackModel(currentModel);
           if (fallbackModel) {
             this.logger.warn(
@@ -742,26 +1094,83 @@ export class BananaProvider implements IAIProvider {
     };
   }
 
-  async editImage(
-    request: ImageEditRequest
+  async generateImage(
+    request: ImageGenerationRequest
   ): Promise<AIProviderResponse<ImageResult>> {
     this.logger.log(
-      `Editing image with prompt: ${request.prompt.substring(0, 50)}...`
+      `Generating image with prompt: ${request.prompt.substring(0, 50)}...`
     );
 
+    const providerMode = await this.getConfiguredImageProvider();
+    if (providerMode === "legacy_auto") {
+      let legacyResult: AIProviderResponse<ImageResult> | null = null;
+      let legacyError: unknown = null;
+
+      try {
+        legacyResult = await this.generateImageViaLegacy(request);
+      } catch (error) {
+        legacyError = error;
+      }
+
+      if (legacyResult?.success) return legacyResult;
+
+      this.logger.warn(
+        `147 image generation failed in 147-first mode, fallback to Apimart: ${this.getProviderFailureMessage(
+          legacyResult,
+          legacyError
+        )}`
+      );
+      try {
+        return await this.withTimeout(
+          this.generateImageViaApimart(request),
+          this.DEFAULT_TIMEOUT,
+          "Apimart image generation"
+        );
+      } catch (error) {
+        return this.buildApimartError("GENERATION_FAILED", error);
+      }
+    }
+
+    if (providerMode !== "legacy") {
+      try {
+        const result = await this.withTimeout(
+          this.generateImageViaApimart(request),
+          this.DEFAULT_TIMEOUT,
+          "Apimart image generation"
+        );
+        if (result.success) return result;
+        if (providerMode === "apimart") return result;
+      } catch (error) {
+        if (providerMode === "apimart") {
+          return this.buildApimartError("GENERATION_FAILED", error);
+        }
+        this.logger.warn(
+          `Apimart image generation failed in auto mode, fallback to legacy: ${
+            error instanceof Error ? error.message : error
+          }`
+        );
+      }
+    }
+
+    return this.generateImageViaLegacy(request);
+  }
+
+  private async editImageViaLegacy(
+    request: ImageEditRequest
+  ): Promise<AIProviderResponse<ImageResult>> {
     // 使用异步版本支持 HTTP URL
     const { data: imageData, mimeType } = await this.normalizeFileInputAsync(
       request.sourceImage,
       "edit"
     );
-    const originalModel = this.normalizeModelName(
+    const originalModel = this.normalizeLegacyImageModel(
       request.model || this.DEFAULT_MODEL
     );
     let currentModel = originalModel;
     let usedFallback = false;
 
     // 尝试使用主模型，失败后降级
-    for (let round = 0; round < 2; round++) {
+    for (let round = 0; round < this.MAX_MODEL_ATTEMPTS; round++) {
       try {
         this.logger.debug(
           `Using model: ${currentModel}${usedFallback ? " (fallback)" : ""}`
@@ -783,7 +1192,7 @@ export class BananaProvider implements IAIProvider {
                   config.imageConfig.aspectRatio = request.aspectRatio;
                 }
                 if (request.imageSize) {
-                  // 根据官方文档，imageSize 必须是字符串 "1K"、"2K" 或 "4K"（大写K）
+                  // 根据官方文档，imageSize 必须是字符串 "0.5K"、"1K"、"2K" 或 "4K"（大写K）
                   // 不需要转换，直接使用原始值
                   config.imageConfig.imageSize = request.imageSize;
                 }
@@ -838,7 +1247,7 @@ export class BananaProvider implements IAIProvider {
         const err = error instanceof Error ? error : new Error(String(error));
 
         // 检查是否应该降级
-        if (!usedFallback && this.shouldFallback(err)) {
+        if (this.shouldFallback(err)) {
           const fallbackModel = this.getFallbackModel(currentModel);
           if (fallbackModel) {
             this.logger.warn(
@@ -873,15 +1282,70 @@ export class BananaProvider implements IAIProvider {
     };
   }
 
-  async blendImages(
-    request: ImageBlendRequest
+  async editImage(
+    request: ImageEditRequest
   ): Promise<AIProviderResponse<ImageResult>> {
     this.logger.log(
-      `Blending ${
-        request.sourceImages.length
-      } images with prompt: ${request.prompt.substring(0, 50)}...`
+      `Editing image with prompt: ${request.prompt.substring(0, 50)}...`
     );
 
+    const providerMode = await this.getConfiguredImageProvider();
+    if (providerMode === "legacy_auto") {
+      let legacyResult: AIProviderResponse<ImageResult> | null = null;
+      let legacyError: unknown = null;
+
+      try {
+        legacyResult = await this.editImageViaLegacy(request);
+      } catch (error) {
+        legacyError = error;
+      }
+
+      if (legacyResult?.success) return legacyResult;
+
+      this.logger.warn(
+        `147 image edit failed in 147-first mode, fallback to Apimart: ${this.getProviderFailureMessage(
+          legacyResult,
+          legacyError
+        )}`
+      );
+      try {
+        return await this.withTimeout(
+          this.editImageViaApimart(request),
+          this.DEFAULT_TIMEOUT,
+          "Apimart image edit"
+        );
+      } catch (error) {
+        return this.buildApimartError("EDIT_FAILED", error);
+      }
+    }
+
+    if (providerMode !== "legacy") {
+      try {
+        const result = await this.withTimeout(
+          this.editImageViaApimart(request),
+          this.DEFAULT_TIMEOUT,
+          "Apimart image edit"
+        );
+        if (result.success) return result;
+        if (providerMode === "apimart") return result;
+      } catch (error) {
+        if (providerMode === "apimart") {
+          return this.buildApimartError("EDIT_FAILED", error);
+        }
+        this.logger.warn(
+          `Apimart image edit failed in auto mode, fallback to legacy: ${
+            error instanceof Error ? error.message : error
+          }`
+        );
+      }
+    }
+
+    return this.editImageViaLegacy(request);
+  }
+
+  private async blendImagesViaLegacy(
+    request: ImageBlendRequest
+  ): Promise<AIProviderResponse<ImageResult>> {
     // 使用异步版本支持 HTTP URL
     const normalizedImages = await Promise.all(
       request.sourceImages.map((imageData, index) =>
@@ -896,14 +1360,14 @@ export class BananaProvider implements IAIProvider {
       },
     }));
 
-    const originalModel = this.normalizeModelName(
+    const originalModel = this.normalizeLegacyImageModel(
       request.model || this.DEFAULT_MODEL
     );
     let currentModel = originalModel;
     let usedFallback = false;
 
     // 尝试使用主模型，失败后降级
-    for (let round = 0; round < 2; round++) {
+    for (let round = 0; round < this.MAX_MODEL_ATTEMPTS; round++) {
       try {
         this.logger.debug(
           `Using model: ${currentModel}${usedFallback ? " (fallback)" : ""}`
@@ -925,7 +1389,7 @@ export class BananaProvider implements IAIProvider {
                   config.imageConfig.aspectRatio = request.aspectRatio;
                 }
                 if (request.imageSize) {
-                  // 根据官方文档，imageSize 必须是字符串 "1K"、"2K" 或 "4K"（大写K）
+                  // 根据官方文档，imageSize 必须是字符串 "0.5K"、"1K"、"2K" 或 "4K"（大写K）
                   // 不需要转换，直接使用原始值
                   config.imageConfig.imageSize = request.imageSize;
                 }
@@ -972,7 +1436,7 @@ export class BananaProvider implements IAIProvider {
         const err = error instanceof Error ? error : new Error(String(error));
 
         // 检查是否应该降级
-        if (!usedFallback && this.shouldFallback(err)) {
+        if (this.shouldFallback(err)) {
           const fallbackModel = this.getFallbackModel(currentModel);
           if (fallbackModel) {
             this.logger.warn(
@@ -1007,6 +1471,69 @@ export class BananaProvider implements IAIProvider {
     };
   }
 
+  async blendImages(
+    request: ImageBlendRequest
+  ): Promise<AIProviderResponse<ImageResult>> {
+    this.logger.log(
+      `Blending ${
+        request.sourceImages.length
+      } images with prompt: ${request.prompt.substring(0, 50)}...`
+    );
+
+    const providerMode = await this.getConfiguredImageProvider();
+    if (providerMode === "legacy_auto") {
+      let legacyResult: AIProviderResponse<ImageResult> | null = null;
+      let legacyError: unknown = null;
+
+      try {
+        legacyResult = await this.blendImagesViaLegacy(request);
+      } catch (error) {
+        legacyError = error;
+      }
+
+      if (legacyResult?.success) return legacyResult;
+
+      this.logger.warn(
+        `147 image blend failed in 147-first mode, fallback to Apimart: ${this.getProviderFailureMessage(
+          legacyResult,
+          legacyError
+        )}`
+      );
+      try {
+        return await this.withTimeout(
+          this.blendImagesViaApimart(request),
+          this.DEFAULT_TIMEOUT,
+          "Apimart image blend"
+        );
+      } catch (error) {
+        return this.buildApimartError("BLEND_FAILED", error);
+      }
+    }
+
+    if (providerMode !== "legacy") {
+      try {
+        const result = await this.withTimeout(
+          this.blendImagesViaApimart(request),
+          this.DEFAULT_TIMEOUT,
+          "Apimart image blend"
+        );
+        if (result.success) return result;
+        if (providerMode === "apimart") return result;
+      } catch (error) {
+        if (providerMode === "apimart") {
+          return this.buildApimartError("BLEND_FAILED", error);
+        }
+        this.logger.warn(
+          `Apimart image blend failed in auto mode, fallback to legacy: ${
+            error instanceof Error ? error.message : error
+          }`
+        );
+      }
+    }
+
+    return this.blendImagesViaLegacy(request);
+  }
+
   async analyzeImage(
     request: ImageAnalysisRequest
   ): Promise<AIProviderResponse<AnalysisResult>> {
@@ -1018,9 +1545,15 @@ export class BananaProvider implements IAIProvider {
         request.sourceImage,
         "analysis"
       );
-      // 🔥 使用 gemini-3-pro-image-preview 进行文件分析
+      // 根据传入的model选择，如果没有传入则根据provider默认模型选择
+      // Fast模式(banana-2.5)使用gemini-2.5-flash-image-preview，其他使用gemini-3-pro-image-preview
+      const modelName = request.model || "";
+      const isFastModel = modelName.includes('2.5') || modelName.includes('gemini-2.5');
+      const defaultModel = isFastModel
+        ? "gemini-2.5-flash-image-preview"
+        : "gemini-3-pro-image-preview";
       const model = this.normalizeModelName(
-        request.model || "gemini-3-pro-image-preview"
+        request.model || defaultModel
       );
       this.logger.log(`📊 Using model: ${model}, mimeType: ${mimeType}`);
 
@@ -1095,7 +1628,7 @@ export class BananaProvider implements IAIProvider {
     let usedFallback = false;
 
     // 尝试使用主模型，失败后降级
-    for (let round = 0; round < 2; round++) {
+    for (let round = 0; round < this.MAX_MODEL_ATTEMPTS; round++) {
       try {
         this.logger.log(
           `📝 Using model: ${currentModel}${usedFallback ? " (fallback)" : ""}`
@@ -1151,7 +1684,7 @@ export class BananaProvider implements IAIProvider {
         const err = error instanceof Error ? error : new Error(String(error));
 
         // 检查是否应该降级
-        if (!usedFallback && this.shouldFallback(err)) {
+        if (this.shouldFallback(err)) {
           const fallbackModel = this.getFallbackModel(currentModel);
           if (fallbackModel) {
             this.logger.warn(
@@ -1378,14 +1911,18 @@ ${
   }
 
   isAvailable(): boolean {
-    return !!this.apiKey;
+    return !!this.apiKey || !!this.apimartApiKey;
   }
 
   getProviderInfo() {
     return {
       name: "Banana API",
       version: "1.0",
-      supportedModels: ["gemini-3-pro-image-preview", "gemini-3-flash-preview"],
+      supportedModels: [
+        "gemini-3-pro-image-preview",
+        "gemini-3.1-flash-image-preview",
+        "gemini-3-flash-preview",
+      ],
     };
   }
 
@@ -1420,7 +1957,7 @@ ${
       let usedFallback = false;
 
       // 尝试主模型，失败时按降级模型重试
-      for (let round = 0; round < 2; round++) {
+      for (let round = 0; round < this.MAX_MODEL_ATTEMPTS; round++) {
         try {
           this.logger.debug(
             `Using model: ${currentModel}${usedFallback ? " (fallback)" : ""}`
@@ -1519,7 +2056,7 @@ ${imageAnalysis}
         } catch (error) {
           const err = error instanceof Error ? error : new Error(String(error));
 
-          if (!usedFallback && this.shouldFallback(err)) {
+          if (this.shouldFallback(err)) {
             const fallbackModel = this.getFallbackModel(currentModel);
             if (fallbackModel) {
               this.logger.warn(
@@ -1629,7 +2166,7 @@ ${imageAnalysis}
     let usedFallback = false;
 
     // 尝试使用主模型，失败后降级
-    for (let round = 0; round < 2; round++) {
+    for (let round = 0; round < this.MAX_MODEL_ATTEMPTS; round++) {
       try {
         this.logger.log(
           `📝 Using model: ${currentModel}${usedFallback ? " (fallback)" : ""}`
@@ -1692,7 +2229,7 @@ ${imageAnalysis}
         const err = error instanceof Error ? error : new Error(String(error));
 
         // 检查是否应该降级
-        if (!usedFallback && this.shouldFallback(err)) {
+        if (this.shouldFallback(err)) {
           const fallbackModel = this.getFallbackModel(currentModel);
           if (fallbackModel) {
             this.logger.warn(

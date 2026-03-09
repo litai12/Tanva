@@ -617,6 +617,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
 
         {/* 左侧图片输入 Handle - 放在图像框中间 */}
         <Handle
+          className='tanva-beta-handle tanva-beta-handle-image'
           type='target'
           position={Position.Left}
           id='img'
@@ -625,9 +626,9 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
             left: -12,
             width: 8,
             height: 8,
-            background: "#6b7280",
-            border: "2px solid #fff",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+            background: "#f97316",
+            border: "none",
+            boxShadow: "none",
           }}
           onMouseEnter={() => setHover("img-in")}
           onMouseLeave={() => setHover(null)}
@@ -636,6 +637,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
         {/* 右侧4个输出 Handle，分别对应4张图片 */}
         {[1, 2, 3, 4].map((num, idx) => (
           <Handle
+            className='tanva-beta-handle tanva-beta-handle-image'
             key={`img${num}`}
             type='source'
             position={Position.Right}
@@ -645,9 +647,9 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
               right: -12,
               width: 8,
               height: 8,
-              background: "#6b7280",
-              border: "2px solid #fff",
-              boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+              background: "#f97316",
+              border: "none",
+              boxShadow: "none",
             }}
             onMouseEnter={() => setHover(`img${num}-out`)}
             onMouseLeave={() => setHover(null)}
@@ -835,6 +837,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
           {index === 0 && (
             <>
               <Handle
+                className='tanva-beta-handle tanva-beta-handle-text'
                 type='target'
                 position={Position.Left}
                 id='text'
@@ -843,14 +846,15 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
                   left: -12,
                   width: 8,
                   height: 8,
-                  background: "#6b7280",
-                  border: "2px solid #fff",
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                  background: "#22c55e",
+                  border: "none",
+                  boxShadow: "none",
                 }}
                 onMouseEnter={() => setHover("text-in")}
                 onMouseLeave={() => setHover(null)}
               />
               <Handle
+                className='tanva-beta-handle tanva-beta-handle-text'
                 type='source'
                 position={Position.Right}
                 id='text'
@@ -859,9 +863,9 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
                   right: -12,
                   width: 8,
                   height: 8,
-                  background: "#6b7280",
-                  border: "2px solid #fff",
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                  background: "#22c55e",
+                  border: "none",
+                  boxShadow: "none",
                 }}
                 onMouseEnter={() => setHover("text-out")}
                 onMouseLeave={() => setHover(null)}

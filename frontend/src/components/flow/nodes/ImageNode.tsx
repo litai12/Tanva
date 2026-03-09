@@ -907,8 +907,23 @@ function ImageNodeInner({ id, data, selected }: Props) {
     return () => window.removeEventListener("keydown", handler);
   }, [preview]);
 
-  const handleSendToCanvas = React.useCallback(async () => {
+  const handleSendToCanvas = React.useCallback(async (event?: React.MouseEvent<HTMLButtonElement>) => {
     if (!canSend) return;
+
+    const resolveAnchorClient = (triggerTarget?: EventTarget | null) => {
+      const triggerEl =
+        triggerTarget instanceof HTMLElement ? triggerTarget : null;
+      const nodeEl = triggerEl?.closest?.(".react-flow__node") as
+        | HTMLElement
+        | null;
+      const rect = (nodeEl || triggerEl)?.getBoundingClientRect();
+      if (!rect) return undefined;
+      return {
+        x: rect.right + 16,
+        y: rect.top + rect.height / 2,
+      };
+    };
+    const anchorClient = resolveAnchorClient(event?.currentTarget ?? null);
 
     const makeFileName = () => {
       const base = resolvedImageName || `flow_${id}_${Date.now()}`;
@@ -932,6 +947,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
             fileName: makeFileName(),
             operationType: "generate",
             smartPosition: undefined,
+            anchorClient,
             sourceImageId: undefined,
             sourceImages: undefined,
           },
@@ -1264,27 +1280,27 @@ function ImageNodeInner({ id, data, selected }: Props) {
     inputRef.current?.click();
   }, []);
 
-  const onPaste = React.useCallback((e: React.ClipboardEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const onPaste = React.useCallback(
+    (e: React.ClipboardEvent<HTMLDivElement>) => {
+      const items = e.clipboardData?.items;
+      if (!items || items.length === 0) return;
 
-    const items = e.clipboardData?.items;
-    if (!items) return;
-
-    // 遍历剪贴板项，查找图片
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      if (item.type.startsWith("image/")) {
+      // 仅当剪贴板里有图片时才拦截，避免吃掉全局 Flow 粘贴（节点复制）
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (!item || !item.type.startsWith("image/")) continue;
         const file = item.getAsFile();
-        if (file) {
-          const fileList = new DataTransfer();
-          fileList.items.add(file);
-          handleFiles(fileList.files);
-          return;
-        }
+        if (!file) continue;
+        e.preventDefault();
+        e.stopPropagation();
+        const fileList = new DataTransfer();
+        fileList.items.add(file);
+        handleFiles(fileList.files);
+        return;
       }
-    }
-  }, [handleFiles]);
+    },
+    [handleFiles]
+  );
 
   return (
     <div

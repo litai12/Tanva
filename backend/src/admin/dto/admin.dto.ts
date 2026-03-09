@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsNumber, IsEnum, IsDateString, Min, Max } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsDateString, Min, Max, IsIn } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UsersQueryDto {
@@ -97,4 +97,92 @@ export class UpdateUserRoleDto {
   @ApiProperty({ description: '用户角色', enum: ['user', 'admin'] })
   @IsString()
   role!: string;
+}
+
+export class CreditChangeRecordsQueryDto {
+  @ApiPropertyOptional({ description: '页码', default: 1 })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  page?: number = 1;
+
+  @ApiPropertyOptional({ description: '每页数量', default: 20 })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(200)
+  pageSize?: number = 20;
+
+  @ApiPropertyOptional({ description: '搜索关键词（手机号/邮箱/昵称）' })
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @ApiPropertyOptional({ description: '用户ID（精确筛选）' })
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @ApiPropertyOptional({
+    description: '来源筛选',
+    enum: ['all', 'recharge', 'admin_add', 'admin_deduct', 'invite_reward', 'all_earned'],
+    default: 'all',
+  })
+  @IsOptional()
+  @IsString()
+  source?: 'all' | 'recharge' | 'admin_add' | 'admin_deduct' | 'invite_reward' | 'all_earned' = 'all';
+
+  @ApiPropertyOptional({ description: '开始日期' })
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @ApiPropertyOptional({ description: '结束日期' })
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
+}
+
+export class CreditAnomalyRecordsQueryDto {
+  @ApiPropertyOptional({ description: '页码', default: 1 })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  page?: number = 1;
+
+  @ApiPropertyOptional({ description: '每页数量', default: 20 })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(200)
+  pageSize?: number = 20;
+
+  @ApiPropertyOptional({ description: '搜索关键词（手机号/邮箱/昵称）' })
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @ApiPropertyOptional({ description: '用户ID（精确筛选）' })
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @ApiPropertyOptional({
+    description: '异常等级',
+    enum: ['yellow', 'red', 'purple'],
+  })
+  @IsOptional()
+  @IsString()
+  @IsIn(['yellow', 'red', 'purple'])
+  severity?: 'yellow' | 'red' | 'purple';
+
+  @ApiPropertyOptional({ description: '开始日期（默认今天）' })
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @ApiPropertyOptional({ description: '结束日期（默认明天）' })
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
 }

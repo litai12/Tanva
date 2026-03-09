@@ -400,23 +400,21 @@ function ImageProNodeInner({ id, data, selected }: Props) {
 
   // 粘贴处理
   const onPaste = React.useCallback((e: React.ClipboardEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-
     const items = e.clipboardData?.items;
-    if (!items) return;
+    if (!items || items.length === 0) return;
 
+    // 仅在检测到图片时拦截，保证全局 Flow 粘贴可继续冒泡
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
-      if (item.type.startsWith('image/')) {
-        const file = item.getAsFile();
-        if (file) {
-          const fileList = new DataTransfer();
-          fileList.items.add(file);
-          handleFiles(fileList.files);
-          return;
-        }
-      }
+      if (!item || !item.type.startsWith('image/')) continue;
+      const file = item.getAsFile();
+      if (!file) continue;
+      e.preventDefault();
+      e.stopPropagation();
+      const fileList = new DataTransfer();
+      fileList.items.add(file);
+      handleFiles(fileList.files);
+      return;
     }
   }, [handleFiles]);
 
@@ -642,6 +640,7 @@ function ImageProNodeInner({ id, data, selected }: Props) {
 
         {/* Handle - 左侧输入 */}
         <Handle
+          className="tanva-beta-handle tanva-beta-handle-image"
           type="target"
           position={Position.Left}
           id="img"
@@ -650,9 +649,9 @@ function ImageProNodeInner({ id, data, selected }: Props) {
             left: -12,
             width: 8,
             height: 8,
-            background: '#6b7280',
-            border: '2px solid #fff',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+            background: '#f97316',
+            border: 'none',
+            boxShadow: 'none',
           }}
           onMouseEnter={() => setHover('img-in')}
           onMouseLeave={() => setHover(null)}
@@ -660,6 +659,7 @@ function ImageProNodeInner({ id, data, selected }: Props) {
 
         {/* Handle - 右侧输出 */}
         <Handle
+          className="tanva-beta-handle tanva-beta-handle-image"
           type="source"
           position={Position.Right}
           id="img"
@@ -668,9 +668,9 @@ function ImageProNodeInner({ id, data, selected }: Props) {
             right: -12,
             width: 8,
             height: 8,
-            background: '#6b7280',
-            border: '2px solid #fff',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+            background: '#f97316',
+            border: 'none',
+            boxShadow: 'none',
           }}
           onMouseEnter={() => setHover('img-out')}
           onMouseLeave={() => setHover(null)}

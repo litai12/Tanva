@@ -697,10 +697,15 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
         throw new Error(message);
       }
 
+      const finalAnalysis = (result.data.analysis || '').trim();
+      if (!finalAnalysis) {
+        throw new Error('Analysis returned empty response, please try again later');
+      }
+
       window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
-        detail: { id, patch: { status: 'succeeded', error: undefined, prompt: result.data.analysis, text: result.data.analysis } }
+        detail: { id, patch: { status: 'succeeded', error: undefined, prompt: finalAnalysis, text: finalAnalysis } }
       }));
-      console.log('✅ Analysis finished. Result synced to node:', result.data.analysis.substring(0, 50) + '...');
+      console.log('✅ Analysis finished. Result synced to node:', finalAnalysis.substring(0, 50) + '...');
 
     } catch (err: any) {
       const msg = err?.message || String(err);
@@ -715,6 +720,26 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
       setIsAnalyzing(false);
     }
   }, [aiProvider, data.analysisPrompt, data.imageData, data.imageUrl, hasAnyInput, id, imageModel, incomingEdge, isAnalyzing, rf, status]);
+
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ id?: string; done?: (result?: boolean) => void }>
+      ).detail;
+      if (!detail || detail.id !== id) return;
+      void (async () => {
+        try {
+          await onAnalyze();
+          detail.done?.(true);
+        } catch {
+          detail.done?.(false);
+        }
+      })();
+    };
+    window.addEventListener('flow:run-node', handler as EventListener);
+    return () =>
+      window.removeEventListener('flow:run-node', handler as EventListener);
+  }, [id, onAnalyze]);
 
   React.useEffect(() => {
     if (!preview) return;

@@ -278,6 +278,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         ...(raster.data || {}),
         type: 'image',
         imageId,
+        imageLocked: Boolean(asset.locked),
         originalWidth,
         originalHeight,
         aspectRatio
@@ -333,7 +334,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       raster.bounds = finalBounds;
 
       // 添加选择框和控制点
-      addImageSelectionElements(raster, finalBounds, imageId);
+      addImageSelectionElements(raster, finalBounds, imageId, Boolean(asset.locked));
 
       // 更新React状态中的bounds为实际尺寸
       setImageInstances(prev => prev.map(img =>
@@ -410,8 +411,13 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     imageGroup.data = {
       type: 'image',
       imageId: imageId,
+      imageLocked: Boolean(asset.locked),
       isHelper: false
     };
+    if (asset.locked) {
+      try { imageGroup.locked = true; } catch {}
+      try { raster.locked = true; } catch {}
+    }
 
     // 创建图片实例
     const newImageInstance: ImageInstance = {
@@ -428,6 +434,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         contentType: asset.contentType,
         pendingUpload: asset.pendingUpload,
         localDataUrl: asset.localDataUrl,
+        locked: Boolean(asset.locked),
       },
       bounds: {
         x: paperBounds.x,
@@ -436,6 +443,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         height: paperBounds.height
       },
       isSelected: false,  // 默认不选中，避免显示选择框
+      locked: Boolean(asset.locked),
       visible: true,
       layerId: paper.project.activeLayer.name
     };
@@ -476,7 +484,12 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
   }, [ensureDrawingLayer, eventHandlers.onImageSelect]);
 
   // ========== 添加图片选择元素 ==========
-  const addImageSelectionElements = useCallback((raster: paper.Raster, bounds: paper.Rectangle, imageId: string) => {
+  const addImageSelectionElements = useCallback((
+    raster: paper.Raster,
+    bounds: paper.Rectangle,
+    imageId: string,
+    locked: boolean = false
+  ) => {
     const parentGroup = raster.parent;
     if (!isGroup(parentGroup)) return;
 
@@ -502,8 +515,10 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     selectionArea.data = {
       type: 'image-selection-area',
       imageId,
+      imageLocked: locked,
       isHelper: true,
     };
+    try { selectionArea.locked = locked; } catch {}
     try { selectionArea.insertAbove(raster); } catch { parentGroup.addChild(selectionArea); }
 
     // 添加选择框（默认隐藏）
@@ -516,9 +531,12 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       visible: false  // 默认隐藏选择框
     });
     selectionBorder.data = {
+      imageId,
+      imageLocked: locked,
       isSelectionBorder: true,
       isHelper: true  // 标记为辅助元素
     };
+    try { selectionBorder.locked = locked; } catch {}
     parentGroup.addChild(selectionBorder);
 
     // 添加四个角的调整控制点
@@ -547,8 +565,10 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         isResizeHandle: true,
         direction,
         imageId,
+        imageLocked: locked,
         isHelper: true  // 标记为辅助元素
       };
+      try { handle.locked = locked; } catch {}
       parentGroup.addChild(handle);
     });
   }, []);
@@ -595,11 +615,54 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     return true; // 默认可见（兜底）
   }, []);
 
+  const readPaperImageLockState = useCallback((imageId: string): boolean => {
+    const imageGroup = findImagePaperItem(imageId);
+    if (!imageGroup) return false;
+    const data = (imageGroup as any)?.data || {};
+    if (typeof data.imageLocked === 'boolean') return data.imageLocked;
+    try {
+      if ((imageGroup as any).locked === true) return true;
+    } catch {}
+    return false;
+  }, []);
+
+  const isImageLocked = useCallback((imageId: string): boolean => {
+    const paperLocked = readPaperImageLockState(imageId);
+    if (paperLocked) return true;
+    const runtime = imageInstances.find((img) => img.id === imageId);
+    if (runtime && typeof runtime.locked === 'boolean') {
+      return runtime.locked;
+    }
+    return false;
+  }, [imageInstances, readPaperImageLockState]);
+
+  const setPaperImageLocked = useCallback((imageId: string, locked: boolean) => {
+    const imageGroup = findImagePaperItem(imageId);
+    if (!imageGroup) return;
+
+    try { (imageGroup as any).locked = locked; } catch {}
+    try {
+      if (!(imageGroup as any).data) (imageGroup as any).data = {};
+      (imageGroup as any).data.imageLocked = locked;
+    } catch {}
+
+    if (isGroup(imageGroup)) {
+      imageGroup.children.forEach((child) => {
+        try { (child as any).locked = locked; } catch {}
+        try {
+          if (!(child as any).data) (child as any).data = {};
+          (child as any).data.imageLocked = locked;
+        } catch {}
+      });
+    }
+  }, []);
+
   // ========== 图片选择/取消选择 ==========
   // 更新图片选择视觉效果
   const updateImageSelectionVisuals = useCallback((selectedIds: string[]) => {
     setImageInstances(prev => prev.map(img => {
-      const isSelected = selectedIds.includes(img.id);
+      const isLocked = Boolean(img.locked || readPaperImageLockState(img.id));
+      const isSelected = !isLocked && selectedIds.includes(img.id);
 
       // 控制选择框和控制点的可见性
       // 🔥 使用 findImagePaperItem 进行深度搜索
@@ -615,16 +678,25 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
       return {
         ...img,
-        isSelected
+        isSelected,
+        locked: isLocked,
+        imageData: {
+          ...img.imageData,
+          locked: isLocked,
+        },
       };
     }));
     paper.view.update();
-  }, []);
+  }, [readPaperImageLockState]);
 
   const handleImageSelect = useCallback((imageId: string, addToSelection: boolean = false) => {
     // 检查图层是否可见，只有可见的图层才能被选中
     if (!isLayerVisible(imageId)) {
       logger.debug('图层不可见，无法选中图片:', imageId);
+      return;
+    }
+    if (isImageLocked(imageId)) {
+      logger.debug('图片已锁定，无法选中:', imageId);
       return;
     }
 
@@ -651,12 +723,12 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     }
     
     eventHandlers.onImageSelect?.(imageId);
-  }, [eventHandlers.onImageSelect, isLayerVisible, updateImageSelectionVisuals]);
+  }, [eventHandlers.onImageSelect, isLayerVisible, isImageLocked, updateImageSelectionVisuals]);
 
   // 批量选择图片
   const handleImageMultiSelect = useCallback((imageIds: string[]) => {
     // 过滤出可见图层的图片
-    const visibleImageIds = imageIds.filter(id => isLayerVisible(id));
+    const visibleImageIds = imageIds.filter((id) => isLayerVisible(id) && !isImageLocked(id));
     
     logger.upload(`批量选中图片: ${visibleImageIds.join(', ')}`);
     setSelectedImageIds(visibleImageIds);
@@ -666,7 +738,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     if (eventHandlers.onImageMultiSelect) {
       eventHandlers.onImageMultiSelect(visibleImageIds);
     }
-  }, [eventHandlers.onImageMultiSelect, isLayerVisible, updateImageSelectionVisuals]);
+  }, [eventHandlers.onImageMultiSelect, isImageLocked, isLayerVisible, updateImageSelectionVisuals]);
 
   const handleImageDeselect = useCallback(() => {
     setSelectedImageIds([]);
@@ -941,7 +1013,10 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     skipPaperUpdate = false
   ) => {
     const validMoves = Array.isArray(moves)
-      ? moves.filter((m): m is { id: string; position: { x: number; y: number } } => !!m?.id && !!m?.position)
+      ? moves.filter((m): m is { id: string; position: { x: number; y: number } } => {
+          if (!m?.id || !m?.position) return false;
+          return !isImageLocked(m.id);
+        })
       : [];
     if (validMoves.length === 0) return;
 
@@ -969,7 +1044,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     validMoves.forEach(({ id, position }) => {
       eventHandlers.onImageMove?.(id, position);
     });
-  }, [applyPaperMoveToImage, eventHandlers.onImageMove]);
+  }, [applyPaperMoveToImage, eventHandlers.onImageMove, isImageLocked]);
 
   // ========== 图片移动 ==========
   const handleImageMove = useCallback((imageId: string, newPosition: { x: number; y: number }, skipPaperUpdate = false) => {
@@ -1006,10 +1081,49 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     );
   }, [isRasterItem]);
 
+  const toggleImageLocked = useCallback((imageId: string, nextLocked?: boolean) => {
+    const currentLocked = isImageLocked(imageId);
+    const locked = typeof nextLocked === 'boolean' ? nextLocked : !currentLocked;
+
+    setPaperImageLocked(imageId, locked);
+
+    setImageInstances((prev) =>
+      prev.map((img) => {
+        if (img.id !== imageId) return img;
+        return {
+          ...img,
+          locked,
+          isSelected: locked ? false : img.isSelected,
+          imageData: {
+            ...img.imageData,
+            locked,
+          },
+        };
+      })
+    );
+
+    if (locked) {
+      setSelectedImageIds((prev) => {
+        const next = prev.filter((id) => id !== imageId);
+        updateImageSelectionVisuals(next);
+        return next;
+      });
+    }
+
+    try { paper.view.update(); } catch {}
+    try { paperSaveService.triggerAutoSave('toggle-image-lock'); } catch {}
+    historyService.commit('toggle-image-lock').catch(() => {});
+    return locked;
+  }, [isImageLocked, setPaperImageLocked, updateImageSelectionVisuals]);
+
   // 直接更新，避免复杂的节流逻辑
 
   // ========== 图片调整大小 ==========
   const handleImageResize = useCallback((imageId: string, newBounds: { x: number; y: number; width: number; height: number }) => {
+    if (isImageLocked(imageId)) {
+      logger.debug('图片已锁定，忽略缩放操作:', imageId);
+      return;
+    }
     // 立即更新Paper.js对象，不等待React状态
     // 🔥 使用 findImagePaperItem 进行深度搜索
     const imageGroup = findImagePaperItem(imageId);
@@ -1107,7 +1221,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       return img;
     }));
     eventHandlers.onImageResize?.(imageId, newBounds);
-  }, [eventHandlers.onImageResize, isRasterItem]);
+  }, [eventHandlers.onImageResize, isImageLocked, isRasterItem]);
 
   // ========== 图片删除 ==========
   const handleImageDelete = useCallback((imageId: string) => {
@@ -1155,17 +1269,20 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       return filtered;
     });
 
-    // 如果删除的是当前选中的图片，清除选中状态
-    if (selectedImageIds.includes(imageId)) {
-      setSelectedImageIds(prev => prev.filter(id => id !== imageId));
-      logger.debug('🗑️ 已清除选中状态');
-    }
+    // 清理选中状态（使用函数式更新，避免闭包捕获旧 selectedImageIds）
+    setSelectedImageIds(prev => {
+      const next = prev.filter(id => id !== imageId);
+      if (next.length !== prev.length) {
+        logger.debug('🗑️ 已清除选中状态');
+      }
+      return next;
+    });
 
     // 调用删除回调
     eventHandlers.onImageDelete?.(imageId);
     try { paperSaveService.triggerAutoSave(); } catch {}
     historyService.commit('delete-image').catch(() => {});
-  }, [selectedImageIds[0], eventHandlers.onImageDelete]);
+  }, [eventHandlers.onImageDelete]);
 
   // ========== 图片上传错误处理 ==========
   const handleImageUploadError = useCallback((error: string) => {
@@ -1262,6 +1379,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
             contentType: snap.contentType,
             pendingUpload: snap.pendingUpload,
             localDataUrl: snap.localDataUrl,
+            locked: Boolean(snap.locked),
           },
           bounds: {
             x: snap.bounds.x,
@@ -1270,6 +1388,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
             height: snap.bounds.height,
           },
           isSelected: false,
+          locked: Boolean(snap.locked),
           visible: true,
           layerId: snap.layerId ?? undefined,
         };
@@ -1300,6 +1419,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
           contentType: snap.contentType,
           pendingUpload: snap.pendingUpload,
           localDataUrl: snap.localDataUrl,
+          locked: Boolean(snap.locked),
         }, { suppressAutoSave: true });
       }
     });
@@ -1327,7 +1447,9 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
           contentType: snap.contentType ?? img.imageData.contentType,
           pendingUpload: snap.pendingUpload ?? img.imageData.pendingUpload,
           localDataUrl: snap.localDataUrl ?? img.imageData.localDataUrl,
+          locked: snap.locked ?? img.imageData.locked,
         },
+        locked: snap.locked ?? img.locked,
       };
     }));
   }, [createImagePlaceholder, handleImageUploaded, setImageInstances, setSelectedImageIds]);
@@ -1374,6 +1496,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     raster.data = {
       type: 'image',
       imageId,
+      imageLocked: Boolean(snapshot.locked),
       originalWidth: snapshot.width ?? snapshot.bounds.width,
       originalHeight: snapshot.height ?? snapshot.bounds.height,
       aspectRatio: (snapshot.width ?? snapshot.bounds.width) / (snapshot.height ?? snapshot.bounds.height),
@@ -1398,8 +1521,13 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     imageGroup.data = {
       type: 'image',
       imageId: imageId,
+      imageLocked: Boolean(snapshot.locked),
       isHelper: false
     };
+    if (snapshot.locked) {
+      try { imageGroup.locked = true; } catch {}
+      try { raster.locked = true; } catch {}
+    }
 
     // 图片加载完成后的处理
     raster.onLoad = () => {
@@ -1434,7 +1562,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       };
 
       // 添加选择框和控制点
-      addImageSelectionElements(raster, finalBounds, imageId);
+      addImageSelectionElements(raster, finalBounds, imageId, Boolean(snapshot.locked));
 
       // 标记初始化完成
       (raster.data as any).__tanvaImageInitialized = true;
@@ -1502,9 +1630,11 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         contentType: snapshot.contentType,
         pendingUpload: snapshot.pendingUpload,
         localDataUrl: snapshot.localDataUrl,
+        locked: Boolean(snapshot.locked),
       },
       bounds: targetBounds,
       isSelected: false,
+      locked: Boolean(snapshot.locked),
       visible: true,
       layerId: snapshot.layerId ?? paper.project.activeLayer.name
     };
@@ -1560,6 +1690,8 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     hydrateFromSnapshot,
     createImageFromSnapshot,
     setImagesVisibility,
+    isImageLocked,
+    toggleImageLocked,
     applyBoundsFromSnapshot,
   };
 };

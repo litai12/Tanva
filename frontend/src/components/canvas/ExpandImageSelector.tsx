@@ -45,6 +45,11 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
     index: number;
     startBounds: { x: number; y: number; width: number; height: number };
     startPaper: paper.Point;
+    startAspect: number;
+  } | null>(null);
+  const moveStateRef = useRef<{
+    startBounds: { x: number; y: number; width: number; height: number };
+    startPaper: paper.Point;
   } | null>(null);
   // const { zoom, panX, panY } = useCanvasStore();
 
@@ -165,6 +170,7 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
       index,
       startBounds: { ...frameBounds },
       startPaper,
+      startAspect: frameBounds.width && frameBounds.height ? frameBounds.width / frameBounds.height : 1,
     };
 
     const handlePointerMove = (event: PointerEvent) => {
@@ -172,86 +178,162 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
       const currentPaper = getPaperPointFromClient(event.clientX, event.clientY);
       if (!currentPaper) return;
 
-      const { index: handleIndex, startBounds, startPaper: start } = dragStateRef.current;
-      const delta = currentPaper.subtract(start);
+      const { index: handleIndex, startBounds, startPaper: start, startAspect } = dragStateRef.current;
+      const keepAspect = event.altKey && startAspect > 0;
 
       let newX = startBounds.x;
       let newY = startBounds.y;
       let newWidth = startBounds.width;
       let newHeight = startBounds.height;
 
-      const affectsLeft = handleIndex === 0 || handleIndex === 3;
-      const affectsTop = handleIndex === 0 || handleIndex === 1;
+      if (keepAspect) {
+        const anchor = (() => {
+          switch (handleIndex) {
+            case 0:
+              return { x: startBounds.x + startBounds.width, y: startBounds.y + startBounds.height };
+            case 1:
+              return { x: startBounds.x, y: startBounds.y + startBounds.height };
+            case 2:
+              return { x: startBounds.x, y: startBounds.y };
+            case 3:
+              return { x: startBounds.x + startBounds.width, y: startBounds.y };
+            default:
+              return { x: startBounds.x, y: startBounds.y };
+          }
+        })();
 
-      switch (handleIndex) {
-        case 0: // top-left
-          newX += delta.x;
-          newY += delta.y;
-          newWidth -= delta.x;
-          newHeight -= delta.y;
-          break;
-        case 1: // top-right
-          newY += delta.y;
-          newWidth += delta.x;
-          newHeight -= delta.y;
-          break;
-        case 2: // bottom-right
-          newWidth += delta.x;
-          newHeight += delta.y;
-          break;
-        case 3: // bottom-left
-          newX += delta.x;
-          newWidth -= delta.x;
-          newHeight += delta.y;
-          break;
-      }
+        const signX = handleIndex === 0 || handleIndex === 3 ? -1 : 1;
+        const signY = handleIndex === 0 || handleIndex === 1 ? -1 : 1;
 
-      const minSize = 40;
-      if (newWidth < minSize) {
-        if (affectsLeft) {
-          newX = startBounds.x + (startBounds.width - minSize);
+        let absW = Math.abs(currentPaper.x - anchor.x);
+        let absH = Math.abs(currentPaper.y - anchor.y);
+
+        if (absW / absH > startAspect) {
+          absW = absH * startAspect;
+        } else {
+          absH = absW / startAspect;
         }
-        newWidth = minSize;
-      }
-      if (newHeight < minSize) {
-        if (affectsTop) {
-          newY = startBounds.y + (startBounds.height - minSize);
+
+        const minSize = 40;
+        if (absW < minSize) {
+          absW = minSize;
+          absH = absW / startAspect;
         }
-        newHeight = minSize;
-      }
+        if (absH < minSize) {
+          absH = minSize;
+          absW = absH * startAspect;
+        }
 
-      const imageLeft = imageBounds.x;
-      const imageTop = imageBounds.y;
-      const imageRight = imageBounds.x + imageBounds.width;
-      const imageBottom = imageBounds.y + imageBounds.height;
+        newWidth = absW;
+        newHeight = absH;
 
-      let newRight = newX + newWidth;
-      let newBottom = newY + newHeight;
+        let cornerX = anchor.x + signX * newWidth;
+        let cornerY = anchor.y + signY * newHeight;
+        newX = Math.min(anchor.x, cornerX);
+        newY = Math.min(anchor.y, cornerY);
 
-      if (newX > imageLeft) {
-        newX = imageLeft;
-        newWidth = newRight - newX;
-      }
-      if (newRight < imageRight) {
-        newRight = imageRight;
-        newWidth = newRight - newX;
-      }
-      if (newY > imageTop) {
-        newY = imageTop;
-        newHeight = newBottom - newY;
-      }
-      if (newBottom < imageBottom) {
-        newBottom = imageBottom;
-        newHeight = newBottom - newY;
-      }
+        const requiredWidth = imageBounds.width;
+        const requiredHeight = imageBounds.height;
+        let minWidth = requiredWidth;
+        let minHeight = minWidth / startAspect;
+        if (minHeight < requiredHeight) {
+          minHeight = requiredHeight;
+          minWidth = minHeight * startAspect;
+        }
+        if (newWidth < minWidth || newHeight < minHeight) {
+          newWidth = Math.max(newWidth, minWidth);
+          newHeight = Math.max(newHeight, minHeight);
+          cornerX = anchor.x + signX * newWidth;
+          cornerY = anchor.y + signY * newHeight;
+          newX = Math.min(anchor.x, cornerX);
+          newY = Math.min(anchor.y, cornerY);
+        }
 
-      if (newWidth < imageBounds.width) {
-        newWidth = imageBounds.width;
-        newX = imageBounds.x;
-      }
-      if (newHeight < imageBounds.height) {
-        newHeight = imageBounds.height;
-        newY = imageBounds.y;
+        const imageLeft = imageBounds.x;
+        const imageTop = imageBounds.y;
+        const imageRight = imageBounds.x + imageBounds.width;
+        const imageBottom = imageBounds.y + imageBounds.height;
+
+        if (newX > imageLeft) newX = imageLeft;
+        if (newY > imageTop) newY = imageTop;
+        if (newX + newWidth < imageRight) newX = imageRight - newWidth;
+        if (newY + newHeight < imageBottom) newY = imageBottom - newHeight;
+      } else {
+        const delta = currentPaper.subtract(start);
+
+        const affectsLeft = handleIndex === 0 || handleIndex === 3;
+        const affectsTop = handleIndex === 0 || handleIndex === 1;
+
+        switch (handleIndex) {
+          case 0: // top-left
+            newX += delta.x;
+            newY += delta.y;
+            newWidth -= delta.x;
+            newHeight -= delta.y;
+            break;
+          case 1: // top-right
+            newY += delta.y;
+            newWidth += delta.x;
+            newHeight -= delta.y;
+            break;
+          case 2: // bottom-right
+            newWidth += delta.x;
+            newHeight += delta.y;
+            break;
+          case 3: // bottom-left
+            newX += delta.x;
+            newWidth -= delta.x;
+            newHeight += delta.y;
+            break;
+        }
+
+        const minSize = 40;
+        if (newWidth < minSize) {
+          if (affectsLeft) {
+            newX = startBounds.x + (startBounds.width - minSize);
+          }
+          newWidth = minSize;
+        }
+        if (newHeight < minSize) {
+          if (affectsTop) {
+            newY = startBounds.y + (startBounds.height - minSize);
+          }
+          newHeight = minSize;
+        }
+
+        const imageLeft = imageBounds.x;
+        const imageTop = imageBounds.y;
+        const imageRight = imageBounds.x + imageBounds.width;
+        const imageBottom = imageBounds.y + imageBounds.height;
+
+        let newRight = newX + newWidth;
+        let newBottom = newY + newHeight;
+
+        if (newX > imageLeft) {
+          newX = imageLeft;
+          newWidth = newRight - newX;
+        }
+        if (newRight < imageRight) {
+          newRight = imageRight;
+          newWidth = newRight - newX;
+        }
+        if (newY > imageTop) {
+          newY = imageTop;
+          newHeight = newBottom - newY;
+        }
+        if (newBottom < imageBottom) {
+          newBottom = imageBottom;
+          newHeight = newBottom - newY;
+        }
+
+        if (newWidth < imageBounds.width) {
+          newWidth = imageBounds.width;
+          newX = imageBounds.x;
+        }
+        if (newHeight < imageBounds.height) {
+          newHeight = imageBounds.height;
+          newY = imageBounds.y;
+        }
       }
 
       setFrameBounds({ x: newX, y: newY, width: newWidth, height: newHeight });
@@ -276,6 +358,61 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
     startHandleDrag(index, event.clientX, event.clientY);
   }, [startHandleDrag]);
 
+  const startFrameDrag = useCallback((clientX: number, clientY: number) => {
+    const startPaper = getPaperPointFromClient(clientX, clientY);
+    if (!startPaper) return;
+    isDraggingRef.current = true;
+    hasCustomFrameRef.current = true;
+    moveStateRef.current = {
+      startBounds: { ...frameBounds },
+      startPaper,
+    };
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (!moveStateRef.current) return;
+      const currentPaper = getPaperPointFromClient(event.clientX, event.clientY);
+      if (!currentPaper) return;
+
+      const { startBounds, startPaper: start } = moveStateRef.current;
+      const delta = currentPaper.subtract(start);
+
+      let newX = startBounds.x + delta.x;
+      let newY = startBounds.y + delta.y;
+      const newWidth = startBounds.width;
+      const newHeight = startBounds.height;
+
+      const imageLeft = imageBounds.x;
+      const imageTop = imageBounds.y;
+      const imageRight = imageBounds.x + imageBounds.width;
+      const imageBottom = imageBounds.y + imageBounds.height;
+
+      if (newX > imageLeft) newX = imageLeft;
+      if (newY > imageTop) newY = imageTop;
+      if (newX + newWidth < imageRight) newX = imageRight - newWidth;
+      if (newY + newHeight < imageBottom) newY = imageBottom - newHeight;
+
+      setFrameBounds({ x: newX, y: newY, width: newWidth, height: newHeight });
+    };
+
+    const handlePointerUp = () => {
+      moveStateRef.current = null;
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
+      isDraggingRef.current = false;
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
+  }, [frameBounds, getPaperPointFromClient, imageBounds]);
+
+  const handleFramePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    startFrameDrag(event.clientX, event.clientY);
+  }, [startFrameDrag]);
+
   // Update ratios on frame change
   useEffect(() => {
     if (frameBounds) {
@@ -283,19 +420,26 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
     }
   }, [frameBounds, calculateExpandRatios]);
 
-  // 应用比例
+  // 应用比例（基于当前框）
   const applyAspectRatio = useCallback((ratio: number, label?: string) => {
     if (ratio <= 0) return;
+    if (!frameBounds) return;
     hasCustomFrameRef.current = true;
 
-    const baseWidth = imageBounds.width;
-    const baseHeight = imageBounds.height;
+    const currentWidth = frameBounds.width;
+    const currentHeight = frameBounds.height;
+    const longSide = Math.max(currentWidth, currentHeight);
 
-    let newWidth = baseWidth;
-    let newHeight = newWidth / ratio;
+    let newWidth = currentWidth >= currentHeight ? longSide : longSide * ratio;
+    let newHeight = currentWidth >= currentHeight ? longSide / ratio : longSide;
 
-    if (newHeight < baseHeight) {
-      newHeight = baseHeight;
+    // 保持至少覆盖原图
+    if (newWidth < imageBounds.width) {
+      newWidth = imageBounds.width;
+      newHeight = newWidth / ratio;
+    }
+    if (newHeight < imageBounds.height) {
+      newHeight = imageBounds.height;
       newWidth = newHeight * ratio;
     }
 
@@ -303,12 +447,25 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
     newWidth = Math.max(newWidth, MIN_SIZE);
     newHeight = Math.max(newHeight, MIN_SIZE);
 
-    const centerX = imageBounds.x + imageBounds.width / 2;
-    const centerY = imageBounds.y + imageBounds.height / 2;
+    const centerX = frameBounds.x + frameBounds.width / 2;
+    const centerY = frameBounds.y + frameBounds.height / 2;
+
+    let newX = centerX - newWidth / 2;
+    let newY = centerY - newHeight / 2;
+    const imageLeft = imageBounds.x;
+    const imageTop = imageBounds.y;
+    const imageRight = imageBounds.x + imageBounds.width;
+    const imageBottom = imageBounds.y + imageBounds.height;
+
+    // 确保新框始终包住原图（只平移，不缩回原图尺寸）
+    if (newX > imageLeft) newX = imageLeft;
+    if (newY > imageTop) newY = imageTop;
+    if (newX + newWidth < imageRight) newX = imageRight - newWidth;
+    if (newY + newHeight < imageBottom) newY = imageBottom - newHeight;
 
     const newBounds = {
-      x: centerX - newWidth / 2,
-      y: centerY - newHeight / 2,
+      x: newX,
+      y: newY,
       width: newWidth,
       height: newHeight,
     };
@@ -320,7 +477,7 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
     if (label) {
       setSelectedSizeLabel(label);
     }
-  }, [imageBounds, calculateExpandRatios]);
+  }, [frameBounds, imageBounds, calculateExpandRatios]);
 
   // 确认选择并发送
   const handleConfirm = useCallback(() => {
@@ -477,6 +634,17 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
                 background: '#fff',
                 boxShadow: '0 30px 70px rgba(15,23,42,0.25)',
                 pointerEvents: 'none',
+              }}
+            />
+            <div
+              onPointerDown={handleFramePointerDown}
+              style={{
+                position: 'absolute',
+                inset: 0,
+                cursor: 'move',
+                background: 'transparent',
+                pointerEvents: 'auto',
+                zIndex: 2,
               }}
             />
             {imageUrl && previewImagePosition && (

@@ -22,6 +22,18 @@ export class UsersService {
     return this.prisma.user.findUnique({ where: { id } });
   }
 
+  async touchLastLoginAt(userId: string, throttleMs = 60 * 1000) {
+    const now = new Date();
+    const threshold = new Date(now.getTime() - throttleMs);
+    await this.prisma.user.updateMany({
+      where: {
+        id: userId,
+        OR: [{ lastLoginAt: null }, { lastLoginAt: { lt: threshold } }],
+      },
+      data: { lastLoginAt: now },
+    });
+  }
+
   async create(data: { phone: string; passwordHash: string; name?: string; email?: string }) {
     return this.prisma.user.create({
       data: {

@@ -1,6 +1,7 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
+import { pathToFileURL } from 'url';
 import { ConfigService } from '@nestjs/config';
 
 /**
@@ -111,10 +112,12 @@ export class BackgroundRemovalService {
 
     // 调用背景移除函数
     const mod = await this.getRemovalModule();
+    const publicPath = this.resolveLocalModelPublicPath();
 
     // 添加超时保护，防止 ONNX 处理卡死
     const timeoutMs = 120000; // 2分钟超时
     const resultPromise = mod.removeBackground(blob, {
+      publicPath,
       output: {
         format: 'image/png',
         quality: 0.8,
@@ -140,6 +143,29 @@ export class BackgroundRemovalService {
 
     // 返回带data URI前缀的base64 (PNG格式)
     return `data:image/png;base64,${resultBase64}`;
+  }
+
+  /**
+   * 解析本地 ONNX 资源路径。
+   * 显式传入 publicPath，避免运行目录(cwd)变化导致资源查找失败。
+   */
+  private resolveLocalModelPublicPath(): string {
+    const candidateDirs = [
+      path.resolve(__dirname, '../../../node_modules/@imgly/background-removal-node/dist'),
+      path.resolve(process.cwd(), 'node_modules/@imgly/background-removal-node/dist'),
+    ];
+
+    for (const dir of candidateDirs) {
+      const resourcesPath = path.join(dir, 'resources.json');
+      if (fs.existsSync(resourcesPath)) {
+        const fileUrl = pathToFileURL(dir).href;
+        return fileUrl.endsWith('/') ? fileUrl : `${fileUrl}/`;
+      }
+    }
+
+    throw new Error(
+      'Local background removal resources not found. Missing @imgly/background-removal-node/dist/resources.json'
+    );
   }
 
   /**
