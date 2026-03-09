@@ -29,11 +29,11 @@ export const CREDIT_PRICING_CONFIG = {
   'gemini-2.5-image': {
     serviceName: 'Nano banana 生图',
     provider: 'gemini',
-    creditsPerCall: 60, // 默认1K分辨率
+    creditsPerCall: 20, // 默认1K分辨率
     description: '使用 Nano banana 模型生成图像',
     // 按分辨率定价：Fast模式仅支持1K
     resolutionPricing: {
-      '1K': 60,
+      '1K': 20,
     },
   },
   'gemini-image-edit': {
