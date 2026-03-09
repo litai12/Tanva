@@ -136,6 +136,26 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
     }
   }, [data.analysisPrompt, effectiveVideoUrl, id, isAnalyzing, status]);
 
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ id?: string; done?: (result?: boolean) => void }>
+      ).detail;
+      if (!detail || detail.id !== id) return;
+      void (async () => {
+        try {
+          await onAnalyze();
+          detail.done?.(true);
+        } catch {
+          detail.done?.(false);
+        }
+      })();
+    };
+    window.addEventListener('flow:run-node', handler as EventListener);
+    return () =>
+      window.removeEventListener('flow:run-node', handler as EventListener);
+  }, [id, onAnalyze]);
+
   const onPromptChange = React.useCallback((event: React.ChangeEvent<HTMLTextAreaElement>) => {
     window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
       detail: { id, patch: { analysisPrompt: event.target.value } }

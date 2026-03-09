@@ -33,7 +33,6 @@ import {
   Home,
   Sparkles,
   Trash2,
-  X,
   Cloud,
   Zap,
   Key,
@@ -44,6 +43,8 @@ import {
   Send,
   Globe,
   Gift,
+  MessageCircle,
+  Play,
 } from "lucide-react";
 import MemoryDebugPanel from "@/components/debug/MemoryDebugPanel";
 import HistoryDebugPanel from "@/components/debug/HistoryDebugPanel";
@@ -215,6 +216,42 @@ const FloatingHeader: React.FC = () => {
     useState<DailyRewardStatus | null>(null);
   const [dailyRewardLoading, setDailyRewardLoading] = useState(false);
   const [dailyRewardClaiming, setDailyRewardClaiming] = useState(false);
+  const [isWechatQrOpen, setIsWechatQrOpen] = useState(false);
+  const [isGlobalFlowRunning, setIsGlobalFlowRunning] = useState(false);
+  const [fpsOverlayAdminButtonLayout, setFpsOverlayAdminButtonLayout] = useState<{
+    top: number;
+    left: number;
+    size: number;
+  } | null>(null);
+  const [wechatQrCodes, setWechatQrCodes] = useState<{
+    officialAccount: string;
+    wechatGroup: string;
+  }>({
+    officialAccount: "/qrcode-official.png",
+    wechatGroup: "/qrcode-group.png",
+  });
+
+  useEffect(() => {
+    const fetchQrCodes = async () => {
+      try {
+        const apiBase =
+          (import.meta.env.VITE_API_BASE_URL as string | undefined) || "http://localhost:4000";
+        const response = await fetch(`${apiBase}/api/settings/wechat-qrcodes`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.officialAccount) {
+            setWechatQrCodes((prev) => ({ ...prev, officialAccount: data.officialAccount }));
+          }
+          if (data.wechatGroup) {
+            setWechatQrCodes((prev) => ({ ...prev, wechatGroup: data.wechatGroup }));
+          }
+        }
+      } catch (_error) {
+        // keep fallback qrcode images
+      }
+    };
+    fetchQrCodes();
+  }, []);
 
   // 清理 Google API Key 反馈计时器
   useEffect(
@@ -653,6 +690,25 @@ const FloatingHeader: React.FC = () => {
     };
   }, [refreshCreditsAndDailyReward]);
 
+  useEffect(() => {
+    const handleGlobalRunState = (
+      event: Event
+    ) => {
+      const detail = (event as CustomEvent<{ running?: boolean }>).detail;
+      setIsGlobalFlowRunning(detail?.running === true);
+    };
+    window.addEventListener(
+      "flow:global-run-state",
+      handleGlobalRunState as EventListener
+    );
+    return () => {
+      window.removeEventListener(
+        "flow:global-run-state",
+        handleGlobalRunState as EventListener
+      );
+    };
+  }, []);
+
   const handleClaimDailyReward = useCallback(async () => {
     if (!user || dailyRewardClaiming) return;
     setDailyRewardClaiming(true);
@@ -700,6 +756,77 @@ const FloatingHeader: React.FC = () => {
         return { label: t("common.status.unknown"), color: "#9ca3af" };
     }
   })();
+  const isAdmin = user?.role === "admin";
+  useEffect(() => {
+    if (!isAdmin || typeof window === "undefined") {
+      setFpsOverlayAdminButtonLayout(null);
+      return;
+    }
+
+    const applyOverlayLayout = (detail?: {
+      visible?: boolean;
+      top?: number;
+      left?: number;
+      height?: number;
+    }) => {
+      if (!detail?.visible) {
+        setFpsOverlayAdminButtonLayout(null);
+        return;
+      }
+
+      const top = Number(detail.top);
+      const left = Number(detail.left);
+      const height = Number(detail.height);
+      if (!Number.isFinite(top) || !Number.isFinite(left) || !Number.isFinite(height)) {
+        setFpsOverlayAdminButtonLayout(null);
+        return;
+      }
+
+      const size = Math.max(24, Math.round(height));
+      const gap = 8;
+      setFpsOverlayAdminButtonLayout({
+        top,
+        left: Math.max(12, left - gap - size),
+        size,
+      });
+    };
+
+    const handleOverlayLayout = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        visible?: boolean;
+        top?: number;
+        left?: number;
+        height?: number;
+      }>).detail;
+      applyOverlayLayout(detail);
+    };
+
+    window.addEventListener(
+      "tanva:fps-overlay-layout",
+      handleOverlayLayout as EventListener
+    );
+
+    const overlayEl = document.getElementById("tanva-fps-overlay");
+    if (overlayEl) {
+      const rect = overlayEl.getBoundingClientRect();
+      applyOverlayLayout({
+        visible: true,
+        top: rect.top,
+        left: rect.left,
+        height: rect.height,
+      });
+    } else {
+      applyOverlayLayout({ visible: false });
+    }
+
+    return () => {
+      window.removeEventListener(
+        "tanva:fps-overlay-layout",
+        handleOverlayLayout as EventListener
+      );
+    };
+  }, [isAdmin]);
+
   const showLibraryButton = false; // 临时关闭素材库入口，后续恢复时改为 true
   const handleLogout = async () => {
     if (loading) return;
@@ -1599,6 +1726,47 @@ const FloatingHeader: React.FC = () => {
           </div>
         </div>
 
+        {isAdmin && !fpsOverlayAdminButtonLayout && (
+          <div className='flex items-center h-[46px] pointer-events-auto'>
+            <Button
+              variant='ghost'
+              size='sm'
+              className='h-8 w-8 p-0 text-slate-600 transition-all duration-200 border rounded-full bg-white/80 border-slate-300 hover:bg-slate-100 hover:text-slate-700'
+              onClick={() => navigate("/admin")}
+              title='Admin 后台'
+              aria-label='打开 Admin 后台'
+            >
+              <Activity className='w-3.5 h-3.5' />
+            </Button>
+          </div>
+        )}
+        {isAdmin && fpsOverlayAdminButtonLayout && (
+          <div
+            className='pointer-events-auto'
+            style={{
+              position: "fixed",
+              top: fpsOverlayAdminButtonLayout.top,
+              left: fpsOverlayAdminButtonLayout.left,
+              zIndex: 1001,
+            }}
+          >
+            <Button
+              variant='ghost'
+              size='sm'
+              className='p-0 text-slate-600 transition-all duration-200 border rounded-full bg-white/80 border-slate-300 hover:bg-slate-100 hover:text-slate-700'
+              style={{
+                width: fpsOverlayAdminButtonLayout.size,
+                height: fpsOverlayAdminButtonLayout.size,
+              }}
+              onClick={() => navigate("/admin")}
+              title='Admin 后台'
+              aria-label='打开 Admin 后台'
+            >
+              <Activity className='w-3.5 h-3.5' />
+            </Button>
+          </div>
+        )}
+
         {/* 空白拉伸 */}
         <div className='flex-1' />
 
@@ -1629,6 +1797,43 @@ const FloatingHeader: React.FC = () => {
               </Button>
             )}
 
+            {/* 全局运行按钮 */}
+            <Button
+              variant='ghost'
+              size='sm'
+              className={cn(
+                "h-7 px-2 gap-1.5 rounded-full transition-all duration-200 border",
+                "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border-liquid-glass shadow-liquid-glass",
+                "text-slate-700 hover:bg-liquid-glass-hover"
+              )}
+              title={
+                isGlobalFlowRunning
+                  ? t("workspace.header.globalAutoStop")
+                  : t("workspace.header.globalAutoRun")
+              }
+              onClick={() => {
+                if (isGlobalFlowRunning) {
+                  window.dispatchEvent(new CustomEvent("flow:stop-global"));
+                } else {
+                  window.dispatchEvent(new CustomEvent("flow:run-global"));
+                }
+              }}
+            >
+              {isGlobalFlowRunning ? (
+                <span
+                  className='inline-block w-2.5 h-2.5 bg-black rounded-[2px]'
+                  aria-hidden='true'
+                />
+              ) : (
+                <Play className='w-4 h-4' />
+              )}
+              <span className='text-[11px] leading-none whitespace-nowrap'>
+                {isGlobalFlowRunning
+                  ? t("workspace.header.globalAutoStop")
+                  : t("workspace.header.globalAutoRun")}
+              </span>
+            </Button>
+
             {/* 帮助按钮 */}
             <Button
               variant='ghost'
@@ -1644,6 +1849,58 @@ const FloatingHeader: React.FC = () => {
             >
               <HelpCircle className='w-4 h-4' />
             </Button>
+
+            <div
+              className='relative'
+              onMouseEnter={() => setIsWechatQrOpen(true)}
+              onMouseLeave={() => setIsWechatQrOpen(false)}
+            >
+              {isWechatQrOpen && (
+                <div className='absolute top-full right-0 mt-2 p-4 rounded-2xl bg-black/80 backdrop-blur-md border border-white/10 shadow-2xl z-[100] animate-in fade-in slide-in-from-top-2 duration-200'>
+                  <div className='flex gap-4'>
+                    <div className='flex flex-col items-center'>
+                      <div className='w-28 h-28 bg-white rounded-lg p-2 mb-2'>
+                        <img
+                          src={wechatQrCodes.officialAccount}
+                          alt={t("home.wechat.followOfficial")}
+                          className='w-full h-full object-contain'
+                          onError={(event) => {
+                            (event.target as HTMLImageElement).src = `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="%23f0f0f0" width="100" height="100"/><text x="50" y="55" text-anchor="middle" fill="%23999" font-size="12">${encodeURIComponent(t("home.wechat.noImage"))}</text></svg>`;
+                          }}
+                        />
+                      </div>
+                      <span className='text-xs text-white/80 whitespace-nowrap'>
+                        {t("home.wechat.followOfficial")}
+                      </span>
+                    </div>
+                    <div className='flex flex-col items-center'>
+                      <div className='w-28 h-28 bg-white rounded-lg p-2 mb-2'>
+                        <img
+                          src={wechatQrCodes.wechatGroup}
+                          alt={t("home.wechat.joinGroup")}
+                          className='w-full h-full object-contain'
+                          onError={(event) => {
+                            (event.target as HTMLImageElement).src = `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="%23f0f0f0" width="100" height="100"/><text x="50" y="55" text-anchor="middle" fill="%23999" font-size="12">${encodeURIComponent(t("home.wechat.noImage"))}</text></svg>`;
+                          }}
+                        />
+                      </div>
+                      <span className='text-xs text-white/80 whitespace-nowrap'>
+                        {t("home.wechat.joinGroup")}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <Button
+                variant='ghost'
+                size='sm'
+                className='p-0 text-gray-600 transition-all duration-200 border rounded-full h-7 w-7 bg-liquid-glass-light backdrop-blur-minimal border-liquid-glass-light hover:bg-liquid-glass-hover'
+                title='WeChat'
+              >
+                <MessageCircle className='w-4 h-4' />
+              </Button>
+            </div>
 
             {/* 设置按钮 */}
             <Button

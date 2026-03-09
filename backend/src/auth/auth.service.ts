@@ -88,28 +88,36 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto, meta?: { ip?: string; ua?: string }) {
-    // 暂时注释掉验证码验证
-    // if (dto.code) {
-    //   const verify = await this.smsService.verifyCode(dto.phone, dto.code);
-    //   if (!verify.ok) {
-    //     throw new UnauthorizedException(verify.msg || '验证码错误');
-    //   }
-    // }
-
     const trimmedName = dto.name.trim();
+    const normalizedPhone = dto.phone.trim();
+    const normalizedCode = dto.code.trim();
     const normalizedEmail = dto.email ? dto.email.trim().toLowerCase() : null;
+
+    const verify = await this.smsService.verifyCode(normalizedPhone, normalizedCode);
+    if (!verify.ok) {
+      throw new UnauthorizedException(verify.msg || "验证码错误");
+    }
 
     if (normalizedEmail && trimmedName.toLowerCase() === normalizedEmail) {
       throw new BadRequestException("用户名不能与邮箱相同");
+    }
+    if (trimmedName === normalizedPhone) {
+      throw new BadRequestException("用户名不能与手机号相同");
     }
 
     const hash = await bcrypt.hash(dto.password, 10);
 
     const user = await this.prisma.$transaction(async (tx) => {
       const existsByPhone = await tx.user.findUnique({
-        where: { phone: dto.phone },
+        where: { phone: normalizedPhone },
       });
       if (existsByPhone) throw new UnauthorizedException("手机号已注册");
+      const existsPhoneMatchedByName = await tx.user.findUnique({
+        where: { phone: trimmedName },
+      });
+      if (existsPhoneMatchedByName) {
+        throw new BadRequestException("用户名不能与手机号相同");
+      }
       if (normalizedEmail) {
         const existsByEmail = await tx.user.findUnique({
           where: { email: normalizedEmail },
@@ -122,7 +130,7 @@ export class AuthService {
           email: normalizedEmail,
           passwordHash: hash,
           name: trimmedName,
-          phone: dto.phone,
+          phone: normalizedPhone,
         },
         select: {
           id: true,

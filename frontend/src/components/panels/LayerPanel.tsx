@@ -831,7 +831,20 @@ const LayerPanel: React.FC = () => {
         e.stopPropagation();
         if (item.paperItem) {
             item.paperItem.locked = !item.paperItem.locked;
+            const nextLocked = item.paperItem.locked;
+            if (item.type === 'image' && item.paperItem.data) {
+                item.paperItem.data.imageLocked = nextLocked;
+            }
             updateAllLayerItems();
+
+            if (item.type === 'image') {
+                const imageId = item.paperItem?.data?.imageId;
+                if (typeof imageId === 'string' && imageId) {
+                    window.dispatchEvent(new CustomEvent('canvas:image-lock-changed', {
+                        detail: { imageId, locked: nextLocked }
+                    }));
+                }
+            }
         }
     };
 

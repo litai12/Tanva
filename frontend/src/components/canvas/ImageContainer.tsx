@@ -18,6 +18,8 @@ import {
   Crop,
   ImageUp,
   Type,
+  Lock,
+  Unlock,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import ImagePreviewModal, { type ImageItem } from "../ui/ImagePreviewModal";
@@ -219,6 +221,7 @@ interface ImageData {
   localDataUrl?: string;
   width?: number; // 图片原始宽度
   height?: number; // 图片原始高度
+  locked?: boolean;
 }
 
 interface ImageContainerProps {
@@ -240,6 +243,7 @@ interface ImageContainerProps {
   }) => void; // Paper.js坐标
   onDelete?: (imageId: string) => void;
   onToggleVisibility?: (imageId: string) => void; // 切换图层可见性回调
+  onToggleLock?: (imageId: string, nextLocked: boolean) => void;
   getImageDataForEditing?: (imageId: string) => string | null; // 获取高质量图像数据的函数
   showIndividualTools?: boolean;
 }
@@ -258,6 +262,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   onResize: _onResize,
   onDelete: _onDelete,
   onToggleVisibility,
+  onToggleLock,
   getImageDataForEditing,
   showIndividualTools = true,
 }) => {
@@ -280,7 +285,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const currentZoom = zoom || 1;
   const showButtonText = currentZoom >= 0.5; // 50%及以上显示文字，稍微放宽一点
   const toolbarScale = 1; // 固定为1，不再跟随缩放
-  const showFastBackgroundRemovalButton = false;
+  const showFastBackgroundRemovalButton = true;
 
   const sharedButtonClass = showButtonText
     ? "px-2 py-1 h-7 rounded-md bg-transparent text-gray-600 text-xs transition-all duration-200 hover:bg-gray-100 hover:text-gray-800 flex items-center gap-1 whitespace-nowrap"
@@ -317,6 +322,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   >([]);
   const [textEditExtraInstruction, setTextEditExtraInstruction] = useState("");
   const [showExpandSelector, setShowExpandSelector] = useState(false);
+  const isImageLocked = Boolean(imageData.locked);
+  const [isHoveringLockedImage, setIsHoveringLockedImage] = useState(false);
   const [projectHistoryItems, setProjectHistoryItems] = useState<
     GlobalImageHistoryItem[]
   >([]);
@@ -670,6 +677,42 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const screenBounds = useMemo(() => {
     return convertToScreenBounds(realTimeBounds);
   }, [realTimeBounds, convertToScreenBounds, zoom, panX, panY]); // 添加画布状态依赖，确保完全响应画布变化
+
+  useEffect(() => {
+    if (!isImageLocked || typeof window === "undefined") {
+      setIsHoveringLockedImage(false);
+      return;
+    }
+
+    const handleMouseMove = (event: MouseEvent) => {
+      const canvasEl =
+        (paper?.view?.element as HTMLCanvasElement | undefined) || null;
+      if (!canvasEl) {
+        setIsHoveringLockedImage(false);
+        return;
+      }
+
+      const rect = canvasEl.getBoundingClientRect();
+      const localX = event.clientX - rect.left;
+      const localY = event.clientY - rect.top;
+      const inside =
+        localX >= screenBounds.x &&
+        localX <= screenBounds.x + screenBounds.width &&
+        localY >= screenBounds.y &&
+        localY <= screenBounds.y + screenBounds.height;
+
+      setIsHoveringLockedImage(inside);
+    };
+
+    const handleMouseLeave = () => setIsHoveringLockedImage(false);
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseleave", handleMouseLeave);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseleave", handleMouseLeave);
+    };
+  }, [isImageLocked, screenBounds.height, screenBounds.width, screenBounds.x, screenBounds.y]);
 
   const resolveImageDataUrl = useCallback(async (): Promise<string | null> => {
     // 首先检查缓存的 dataUrl
@@ -2325,20 +2368,47 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           }}
         >
           {/* 左侧：图片名称 */}
-          <span
+          <div
             style={{
-              fontWeight: 500,
-              fontSize: 10 * toolbarScale,
-              color: "#fff",
-              padding: `${2 * toolbarScale}px ${4 * toolbarScale}px`,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
+              display: "flex",
+              alignItems: "center",
+              minWidth: 0,
               maxWidth: "60%",
+              gap: 4 * toolbarScale,
             }}
-            title={imageData.fileName || `图片 ${imageData.id}`}
           >
-            {imageData.fileName || `图片 ${imageData.id}`}
-          </span>
+            <Button
+              variant='ghost'
+              size='sm'
+              className='h-5 w-5 p-0 rounded-md bg-black/35 text-white hover:bg-black/55'
+              style={{ pointerEvents: "auto" }}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onToggleLock?.(imageData.id, !isImageLocked);
+              }}
+              title={isImageLocked ? "解锁图片" : "锁定图片"}
+            >
+              {isImageLocked ? (
+                <Lock className='w-3 h-3' />
+              ) : (
+                <Unlock className='w-3 h-3' />
+              )}
+            </Button>
+            <span
+              style={{
+                fontWeight: 500,
+                fontSize: 10 * toolbarScale,
+                color: "#fff",
+                padding: `${2 * toolbarScale}px ${4 * toolbarScale}px`,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+              title={imageData.fileName || `图片 ${imageData.id}`}
+            >
+              {imageData.fileName || `图片 ${imageData.id}`}
+            </span>
+          </div>
           {/* 右侧：分辨率 */}
           {naturalSize && (
             <span
@@ -2355,6 +2425,36 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           )}
         </div>
       )}
+
+      {/* 锁定态 hover 解锁按钮（不依赖选中） */}
+      {isImageLocked &&
+        isHoveringLockedImage &&
+        !showExpandSelector &&
+        !shouldHideUi && (
+          <div
+            style={{
+              position: "absolute",
+              top: 4 * toolbarScale,
+              left: 4 * toolbarScale,
+              zIndex: 35,
+              pointerEvents: "auto",
+            }}
+          >
+            <Button
+              variant='ghost'
+              size='sm'
+              className='h-6 w-6 p-0 rounded-md bg-black/45 text-white hover:bg-black/65 flex items-center justify-center'
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onToggleLock?.(imageData.id, false);
+              }}
+              title='解锁图片'
+            >
+              <Lock className='w-3 h-3' />
+            </Button>
+          </div>
+        )}
 
       {/* 扩图选择器 - 截图时显示，隐藏小工具栏 */}
       {showExpandSelector && (
@@ -2375,6 +2475,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
       {/* 图片操作按钮组 - 只在选中时显示，位于图片底部，截图时隐藏 */}
       {isSelected &&
+        !isImageLocked &&
         showIndividualTools &&
         !showExpandSelector &&
         !shouldHideUi && (

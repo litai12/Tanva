@@ -51,6 +51,11 @@ export default function RegisterPage() {
           return prev - 1;
         });
       }, 1000);
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: t("auth.login.smsSent"), type: "success" },
+        })
+      );
     } catch (err: any) {
       window.dispatchEvent(
         new CustomEvent("toast", {
@@ -94,6 +99,8 @@ export default function RegisterPage() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedName = name.trim();
+    const trimmedPhone = phone.trim();
+    const trimmedCode = code.trim();
     const normalizedEmail = email.trim().toLowerCase();
     if (!trimmedName) {
       alert(t("auth.register.usernameRequired"));
@@ -103,8 +110,16 @@ export default function RegisterPage() {
       alert(t("auth.register.usernameCannotMatchEmail"));
       return;
     }
+    if (trimmedName === trimmedPhone) {
+      alert(t("auth.register.usernameCannotMatchPhone"));
+      return;
+    }
     if (!agreeTerms) {
       alert(t("auth.agreements.mustAgree"));
+      return;
+    }
+    if (!/^\d{6}$/.test(trimmedCode)) {
+      alert(t("auth.register.codeInvalid"));
       return;
     }
     if (password !== confirm) {
@@ -128,15 +143,15 @@ export default function RegisterPage() {
     }
     try {
       await register(
-        phone,
+        trimmedPhone,
         password,
-        code || "336699", // 暂时使用默认验证码，因为验证码输入框已隐藏
+        trimmedCode,
         trimmedName,
-        email || undefined,
+        normalizedEmail || undefined,
         inviteCode.trim() || undefined
       );
       // 注册成功后自动登录
-      await login(phone, password);
+      await login(trimmedPhone, password);
       navigate("/");
     } catch (err) {
       // 错误已在 store 中处理
@@ -176,12 +191,11 @@ export default function RegisterPage() {
             required
             className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12'
           />
-          {/* 验证码输入框 - 暂时隐藏 */}
-          {/* <div className='flex gap-2'>
+          <div className='flex gap-3'>
             <Input
               placeholder={t("auth.login.codePlaceholder")}
               value={code}
-              onChange={(e) => setCode(e.target.value)}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
               required
               maxLength={6}
               className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12 flex-1'
@@ -190,13 +204,13 @@ export default function RegisterPage() {
               type='button'
               onClick={handleSendCode}
               disabled={codeCountdown > 0 || !phone.trim()}
-              className='bg-white/20 border border-white/30 text-white hover:bg-white/30 rounded-xl h-12 px-4 whitespace-nowrap disabled:opacity-50'
+              className='whitespace-nowrap flex-shrink-0 min-w-[80px] rounded-xl bg-white/20 hover:bg-white/30 text-white border-white/30 backdrop-blur-sm transition-all duration-200 h-12 disabled:opacity-50'
             >
               {codeCountdown > 0
                 ? t("auth.login.resendCode", { seconds: codeCountdown })
                 : t("auth.login.sendCode")}
             </Button>
-          </div> */}
+          </div>
           <Input
             placeholder={t("auth.register.emailPlaceholder")}
             type='email'

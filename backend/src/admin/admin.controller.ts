@@ -378,16 +378,24 @@ export class AdminController {
   // ==================== 付费用户管理 ====================
 
   @Get('paid-users')
-  @ApiOperation({ summary: '获取付费用户列表（按总支付金额排序）' })
+  @ApiOperation({ summary: '获取付费用户列表（支持金额/注册时间/支付时间排序）' })
   async getPaidUsers(
     @Request() req: AuthenticatedRequest,
-    @Query() query: { page?: string; pageSize?: string; search?: string },
+    @Query() query: {
+      page?: string;
+      pageSize?: string;
+      search?: string;
+      sortBy?: 'amount' | 'registeredAt' | 'paidAt';
+      sortOrder?: 'asc' | 'desc';
+    },
   ) {
     this.checkAdmin(req);
     return this.adminService.getPaidUsers({
       page: query.page ? parseInt(query.page) : 1,
       pageSize: query.pageSize ? parseInt(query.pageSize) : 10,
       search: query.search,
+      sortBy: query.sortBy,
+      sortOrder: query.sortOrder,
     });
   }
 

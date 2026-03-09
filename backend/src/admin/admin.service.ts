@@ -973,14 +973,31 @@ export class AdminService {
   // ==================== 付费用户管理 ====================
 
   /**
-   * 获取付费用户列表（按总支付金额排序）
+   * 获取付费用户列表（支持金额/注册时间/支付时间排序）
    */
   async getPaidUsers(options: {
     page?: number;
     pageSize?: number;
     search?: string;
+    sortBy?: 'amount' | 'registeredAt' | 'paidAt';
+    sortOrder?: 'asc' | 'desc';
   } = {}) {
     const { page = 1, pageSize = 10, search } = options;
+    const sortBy = options.sortBy ?? 'amount';
+    const sortOrder = options.sortOrder === 'asc' ? 'asc' : 'desc';
+    const direction = sortOrder === 'asc' ? 1 : -1;
+
+    const compareWithDirection = (a: number, b: number) => {
+      if (a === b) return 0;
+      return a > b ? direction : -direction;
+    };
+
+    const compareNullableDate = (a: Date | null, b: Date | null) => {
+      if (!a && !b) return 0;
+      if (!a) return 1;
+      if (!b) return -1;
+      return compareWithDirection(a.getTime(), b.getTime());
+    };
 
     // 先获取所有有支付记录的用户及其总支付金额
     const paidUsersQuery = await this.prisma.paymentOrder.groupBy({
@@ -990,6 +1007,10 @@ export class AdminService {
       },
       _sum: {
         amount: true,
+      },
+      _max: {
+        paidAt: true,
+        createdAt: true,
       },
       _count: {
         id: true,
@@ -1052,6 +1073,7 @@ export class AdminService {
         {
           totalPaid: Number(p._sum.amount) || 0,
           orderCount: p._count.id,
+          lastPaidAt: p._max.paidAt ?? p._max.createdAt ?? null,
         },
       ])
     );
@@ -1072,8 +1094,26 @@ export class AdminService {
         totalEarned: user.creditAccount?.totalEarned || 0,
         totalPaid: paymentMap.get(user.id)?.totalPaid || 0,
         orderCount: paymentMap.get(user.id)?.orderCount || 0,
+        lastPaidAt: paymentMap.get(user.id)?.lastPaidAt || null,
       }))
-      .sort((a, b) => b.totalPaid - a.totalPaid);
+      .sort((a, b) => {
+        if (sortBy === 'registeredAt') {
+          const byRegisteredAt = compareWithDirection(
+            a.createdAt.getTime(),
+            b.createdAt.getTime(),
+          );
+          if (byRegisteredAt !== 0) return byRegisteredAt;
+        } else if (sortBy === 'paidAt') {
+          const byPaidAt = compareNullableDate(a.lastPaidAt, b.lastPaidAt);
+          if (byPaidAt !== 0) return byPaidAt;
+        } else {
+          const byAmount = compareWithDirection(a.totalPaid, b.totalPaid);
+          if (byAmount !== 0) return byAmount;
+        }
+
+        // 保持结果稳定，避免分页时同值抖动
+        return a.id.localeCompare(b.id);
+      });
 
     // 分页
     const total = usersWithPayment.length;

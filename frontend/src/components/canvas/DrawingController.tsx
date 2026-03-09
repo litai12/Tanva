@@ -375,6 +375,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   >({});
   const [contextMenuState, setContextMenuState] =
     useState<CanvasContextMenuState | null>(null);
+  const canvasJsonImportInputRef = useRef<HTMLInputElement | null>(null);
   const handleCanvasPasteRef = useRef<() => boolean>(() => false);
   const canvasToChatSyncTokenRef = useRef(0);
   const canvasBlobToFlowAssetRefCacheRef = useRef<Map<string, string>>(
@@ -3199,6 +3200,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               typeof layerName === "string" && layerName.startsWith("layer_")
                 ? layerName.replace("layer_", "")
                 : undefined;
+            const reconstructedLocked = Boolean(
+              snapshot?.locked ??
+                (item as any)?.locked ??
+                (item as any)?.data?.imageLocked ??
+                (raster as any)?.data?.imageLocked
+            );
 
             reconstructed.push({
               id: imageId,
@@ -3213,6 +3220,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 contentType: snapshot?.contentType,
                 pendingUpload: snapshot?.pendingUpload,
                 localDataUrl: snapshot?.localDataUrl,
+                locked: reconstructedLocked,
               },
               bounds: {
                 x: resolvedBounds.x,
@@ -3221,6 +3229,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 height: resolvedBounds.height,
               },
               isSelected: false,
+              locked: reconstructedLocked,
               visible: item.visible !== false,
               layerId: snapshot?.layerId ?? derivedLayerId,
             });
@@ -3251,6 +3260,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                     contentType: snap.contentType,
                     pendingUpload: snap.pendingUpload,
                     localDataUrl: snap.localDataUrl,
+                    locked: snap.locked,
                   },
                   bounds: {
                     x: snap.bounds.x,
@@ -3259,6 +3269,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                     height: snap.bounds.height,
                   },
                   isSelected: false,
+                  locked: snap.locked,
                   visible: true,
                   layerId: snap.layerId ?? undefined,
                 };
@@ -4061,6 +4072,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             contentType: img.imageData.contentType,
             pendingUpload: img.imageData.pendingUpload,
             localDataUrl: img.imageData.localDataUrl,
+            locked: img.locked ?? img.imageData.locked,
             bounds: { ...img.bounds },
             layerId: img.layerId ?? null,
           } as ImageAssetSnapshot;
@@ -4734,6 +4746,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     [toggleVisibility]
   );
 
+  const handleImageToggleLock = useCallback(
+    (imageId: string, nextLocked?: boolean) => {
+      imageTool.toggleImageLocked?.(imageId, nextLocked);
+    },
+    [imageTool.toggleImageLocked]
+  );
+
   const handleDownloadImage = useCallback(
     async (imageId: string) => {
       try {
@@ -5156,6 +5175,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         }
 
         if (data.type === "image" && data.imageId) {
+          if (imageTool.isImageLocked?.(data.imageId)) {
+            return null;
+          }
           return { type: "image", id: data.imageId };
         }
         if (data.type === "3d-model" && data.modelId) {
@@ -5182,7 +5204,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       return null;
     },
-    [canvasRef]
+    [canvasRef, imageTool.isImageLocked]
   );
 
   const ensureSelectionForTarget = useCallback(
@@ -5436,15 +5458,54 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     }
   }, [showToast]);
 
-  const handleImportCanvasJson = useCallback(async () => {
+  const handleImportCanvasJson = useCallback(() => {
     try {
-      await clipboardJsonService.importProjectContentFromClipboard();
-      showToast("已导入画布 JSON");
+      const input = canvasJsonImportInputRef.current;
+      if (!input) {
+        showToast("无法打开文件选择器", "error");
+        return;
+      }
+      input.value = "";
+      input.click();
     } catch (error) {
-      console.error("导入画布 JSON 失败:", error);
-      showToast("导入失败，请检查剪贴板内容", "error");
+      console.error("打开 JSON 文件选择器失败:", error);
+      showToast("无法打开文件选择器", "error");
     }
   }, [showToast]);
+
+  const handleCanvasJsonFileSelected = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const input = event.currentTarget;
+      const file = input.files?.[0];
+      if (!file) {
+        input.value = "";
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onerror = () => {
+        console.error("读取画布 JSON 文件失败:", reader.error);
+        showToast("读取 JSON 文件失败", "error");
+        input.value = "";
+      };
+      reader.onload = () => {
+        void (async () => {
+          try {
+            const text = String(reader.result ?? "");
+            await clipboardJsonService.importProjectContentFromText(text);
+            showToast("已导入画布 JSON");
+          } catch (error) {
+            console.error("导入画布 JSON 文件失败:", error);
+            showToast("导入失败，请检查 JSON 文件内容", "error");
+          } finally {
+            input.value = "";
+          }
+        })();
+      };
+      reader.readAsText(file);
+    },
+    [showToast]
+  );
 
   const contextMenuItems = useMemo(() => {
     if (!contextMenuState) return [];
@@ -5485,7 +5546,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         label: "导入画布 JSON",
         icon: <FileInput className='w-4 h-4' />,
         onClick: () => {
-          void handleImportCanvasJson().finally(() => closeContextMenu());
+          handleImportCanvasJson();
+          closeContextMenu();
         },
       },
     ];
@@ -5609,7 +5671,18 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           )[0];
 
           if (paperGroup) {
-            return { ...image, visible: paperGroup.visible };
+            const locked = Boolean(
+              paperGroup.locked || (paperGroup.data as any)?.imageLocked
+            );
+            return {
+              ...image,
+              visible: paperGroup.visible,
+              locked,
+              imageData: {
+                ...image.imageData,
+                locked,
+              },
+            };
           }
           return image;
         })
@@ -5638,16 +5711,32 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     const handleVisibilitySync = () => {
       syncVisibilityStates();
     };
+    const handleImageLockSync = (event: Event) => {
+      const detail = (event as CustomEvent<{ imageId?: string; locked?: boolean }>)
+        ?.detail;
+      const imageId = detail?.imageId;
+      const locked = Boolean(detail?.locked);
+      if (!imageId) {
+        syncVisibilityStates();
+        return;
+      }
+      imageTool.toggleImageLocked?.(imageId, locked);
+    };
 
     window.addEventListener("layerVisibilityChanged", handleVisibilitySync);
+    window.addEventListener("canvas:image-lock-changed", handleImageLockSync);
 
     return () => {
       window.removeEventListener(
         "layerVisibilityChanged",
         handleVisibilitySync
       );
+      window.removeEventListener(
+        "canvas:image-lock-changed",
+        handleImageLockSync
+      );
     };
-  }, [dcSetImageInstances, dcSetModel3DInstances]);
+  }, [dcSetImageInstances, dcSetModel3DInstances, imageTool.toggleImageLocked]);
 
   // 将图片和3D模型实例暴露给图层面板使用
   useEffect(() => {
@@ -6265,6 +6354,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	                    ? toRenderableImageSrc(persistedRef) || persistedRef
 	                    : inlineDataUrl ?? resolvedUrl;
 	                  const pendingUpload = !persistedRef;
+                    const locked = Boolean(
+                      imageGroup.locked ||
+                        (imageGroup.data as any)?.imageLocked ||
+                        (raster.data as any)?.imageLocked
+                    );
 
                   // 获取图片原始尺寸（优先使用元数据中的原始尺寸，否则使用 raster 的原始尺寸）
                   const originalWidth =
@@ -6287,14 +6381,16 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	                      pendingUpload,
 	                      width: Math.round(originalWidth),
 	                      height: Math.round(originalHeight),
+                        locked,
                     },
 	                    bounds: {
 	                      x: boundsRect.x,
 	                      y: boundsRect.y,
 	                      width: boundsRect.width,
 	                      height: boundsRect.height
-	                    },
+                    },
                     isSelected: false,
+                    locked,
                     visible: imageGroup.visible !== false,
                     layerId: layer?.name
 	                  };
@@ -6353,6 +6449,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	                    ? toRenderableImageSrc(persistedRef) || persistedRef
 	                    : inlineDataUrl ?? resolvedUrl;
 	                  const pendingUpload = !persistedRef;
+                  const locked = Boolean(
+                    imageGroup.locked ||
+                      (imageGroup.data as any)?.imageLocked ||
+                      (raster.data as any)?.imageLocked
+                  );
 
                   imageInstances.push({
                     id: ensuredImageId,
@@ -6363,6 +6464,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	                      src: resolvedSrc,
 	                      fileName: metadataFromRaster.fileName,
 	                      pendingUpload,
+                        locked,
 	                    },
                     bounds: {
                       x: raster.position?.x ?? 0,
@@ -6371,6 +6473,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                       height: 0,
                     },
                     isSelected: false,
+                    locked,
 	                    visible: imageGroup.visible !== false,
 	                    layerId: layer?.name,
 	                  });
@@ -6594,8 +6697,18 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               imageData: {
                 ...(instance.imageData || {}),
                 ...(previous?.imageData || {}),
+                locked:
+                  instance.locked ??
+                  instance.imageData?.locked ??
+                  previous?.locked ??
+                  previous?.imageData?.locked,
               },
               isSelected: false,
+              locked:
+                instance.locked ??
+                instance.imageData?.locked ??
+                previous?.locked ??
+                previous?.imageData?.locked,
               visible: instance.visible,
             });
           });
@@ -6833,6 +6946,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   return (
     <>
+      <input
+        ref={canvasJsonImportInputRef}
+        type='file'
+        accept='application/json,.json,text/json'
+        style={{ display: "none" }}
+        onChange={handleCanvasJsonFileSelected}
+      />
+
       {/* 图片上传组件 */}
       <ImageUploadComponent
         onImageUploaded={imageTool.handleImageUploaded}
@@ -6878,6 +6999,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           pendingUpload: img.imageData?.pendingUpload,
           width: img.imageData?.width,
           height: img.imageData?.height,
+          locked: img.locked ?? img.imageData?.locked,
         }));
         return (
           <ImageContainer
@@ -6891,6 +7013,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               pendingUpload: image.imageData?.pendingUpload,
               width: image.imageData?.width,
               height: image.imageData?.height,
+              locked: image.locked ?? image.imageData?.locked,
             }}
             bounds={image.bounds}
             isSelected={imageTool.selectedImageIds.includes(image.id)}
@@ -6908,6 +7031,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             onDelete={(imageId) => imageTool.handleImageDelete?.(imageId)}
             onToggleVisibility={(imageId) =>
               handleImageToggleVisibility(imageId)
+            }
+            onToggleLock={(imageId, nextLocked) =>
+              handleImageToggleLock(imageId, nextLocked)
             }
             getImageDataForEditing={imageTool.getImageDataForEditing}
             showIndividualTools={!isGroupSelection}

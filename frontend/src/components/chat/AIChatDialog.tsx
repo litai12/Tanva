@@ -1011,9 +1011,8 @@ const AIChatDialog: React.FC = () => {
     });
   }, [setHistoryVisibility, setMaximizedSafely]);
 
-  const handleSessionChange = useCallback(
-    async (event: React.ChangeEvent<HTMLSelectElement>) => {
-      const nextSessionId = event.target.value;
+  const handleSwitchSession = useCallback(
+    async (nextSessionId?: string) => {
       if (!nextSessionId || nextSessionId === currentSessionId) return;
       try {
         await switchSession(nextSessionId);
@@ -1048,7 +1047,32 @@ const AIChatDialog: React.FC = () => {
 
   const currentSession =
     sessions.find((session) => session.sessionId === currentSessionId) ?? null;
-  const sessionSelectValue = currentSessionId ?? sessions[0]?.sessionId ?? "";
+
+  const formatSessionRelativeTime = useCallback(
+    (value?: Date | string | number | null) => {
+      if (!value) return "";
+      const date = value instanceof Date ? value : new Date(value);
+      if (Number.isNaN(date.getTime())) return "";
+
+      const diffMs = Date.now() - date.getTime();
+      if (diffMs < 60 * 1000) return "刚刚";
+
+      const minuteMs = 60 * 1000;
+      const hourMs = 60 * minuteMs;
+      const dayMs = 24 * hourMs;
+      const weekMs = 7 * dayMs;
+      const monthMs = 30 * dayMs;
+      const yearMs = 365 * dayMs;
+
+      if (diffMs < hourMs) return `${Math.floor(diffMs / minuteMs)} 分钟前`;
+      if (diffMs < dayMs) return `${Math.floor(diffMs / hourMs)} 小时前`;
+      if (diffMs < weekMs) return `${Math.floor(diffMs / dayMs)} 天前`;
+      if (diffMs < monthMs) return `${Math.floor(diffMs / weekMs)} 周前`;
+      if (diffMs < yearMs) return `${Math.floor(diffMs / monthMs)} 个月前`;
+      return `${Math.floor(diffMs / yearMs)} 年前`;
+    },
+    []
+  );
 
   // 面板外点击关闭
   useEffect(() => {
@@ -3133,7 +3157,7 @@ const AIChatDialog: React.FC = () => {
                 className={cn(
                   "resize-none px-4 pb-12 min-h-[80px] max-h-[260px] text-sm bg-transparent border-gray-300 focus:ring-0 transition-colors duration-200 overflow-y-auto"
                 )}
-                rows={2}
+                rows={1}
               />
 
               {/* 左侧按钮组 */}
@@ -3946,113 +3970,158 @@ const AIChatDialog: React.FC = () => {
           {/* 消息历史（点击对话框时显示，最大化时始终显示） */}
           {shouldShowHistoryPanel && (
             <div
-              ref={historyRef}
               data-history-ignore-toggle
               className={cn(
-                "mb-2 overflow-y-auto scrollbar-hidden order-1",
-                hasImagePreview ? "mt-2" : "-mt-1",
-                isMaximized
-                  ? "max-h-screen"
-                  : showHistory
-                  ? "flex-1 min-h-0"
-                  : customHeight
-                  ? "flex-1 min-h-0"
-                  : "max-h-80"
+                "order-1 mb-2 flex min-h-0 flex-col",
+                hasImagePreview ? "mt-2" : "-mt-1"
               )}
-              style={{
-                overflowY: "auto",
-                // 展开模式下不限制最大高度，让 flex-1 生效
-                // 最大化模式下留出输入框空间
-                maxHeight: isMaximized
-                  ? "calc(100vh - 200px)"
-                  : showHistory && !customHeight
-                  ? undefined
-                  : customHeight
-                  ? undefined
-                  : "320px",
-                minHeight: customHeight ? "100px" : historyPanelMinHeight,
-                // 隐藏滚动条
-                scrollbarWidth: "none",
-                msOverflowStyle: "none",
-              }}
-              onClick={(e) => e.stopPropagation()}
             >
-              <div className='space-y-1.5 mr-1 pb-6'>
-                <div className='flex flex-wrap items-center justify-between gap-2 mb-1'>
-                  <div className='flex flex-wrap items-center gap-2'>
-                    <span className='text-xs font-medium text-gray-500'>
-                      聊天历史记录
-                    </span>
-                    <div className='flex items-center gap-2'>
-                      <label
-                        htmlFor='chat-session-select'
-                        className='text-xs text-gray-400'
-                      >
-                        会话
-                      </label>
-                      <select
-                        id='chat-session-select'
-                        value={sessionSelectValue}
-                        onChange={handleSessionChange}
-                        disabled={
-                          sessions.length === 0 || generationStatus.isGenerating
-                        }
-                        className='px-2 py-0 text-xs border border-gray-200 rounded-md h-7 bg-white/90 focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-50'
-                      >
-                        {sessions.length === 0 ? (
-                          <option value=''>暂无会话</option>
-                        ) : (
-                          sessions.map((session) => (
-                            <option
-                              key={session.sessionId}
-                              value={session.sessionId}
-                              title={session.preview || session.name}
-                            >
-                              {`${session.name}${
-                                session.messageCount
-                                  ? `（${session.messageCount}条）`
-                                  : ""
-                              }`}
-                            </option>
-                          ))
-                        )}
-                      </select>
+              <div className='mb-2 flex flex-wrap items-center justify-between gap-2'>
+                <div className='flex min-w-0 items-center gap-2'>
+                  <Button
+                    type='button'
+                    size='sm'
+                    variant='ghost'
+                    data-history-ignore-toggle
+                    className='h-8 w-8 rounded-lg bg-transparent p-0 text-slate-700 hover:bg-slate-100/80'
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCreateSession();
+                    }}
+                    disabled={creatingSession || generationStatus.isGenerating}
+                    title='新建一个独立的聊天会话'
+                    aria-label='新建聊天会话'
+                  >
+                    {creatingSession ? (
+                      <Loader2 className='h-4 w-4 animate-spin' />
+                    ) : (
+                      <Plus className='h-4 w-4' />
+                    )}
+                  </Button>
+
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
                       <Button
                         type='button'
                         size='sm'
-                        variant='outline'
-                        className='gap-1'
-                        onClick={handleCreateSession}
+                        variant='ghost'
+                        data-history-ignore-toggle
+                        className='h-8 w-8 rounded-lg bg-transparent p-0 text-slate-700 hover:bg-slate-100/80 disabled:opacity-40'
+                        onClick={(e) => e.stopPropagation()}
                         disabled={
-                          creatingSession || generationStatus.isGenerating
+                          sessions.length === 0 ||
+                          generationStatus.isGenerating ||
+                          (isHistoryLocked && !showHistory)
                         }
-                        title='新建一个独立的聊天会话'
+                        title='历史会话列表'
+                        aria-label='历史会话列表'
                       >
-                        <Plus className='w-3.5 h-3.5' />
-                        新建
+                        <History className='h-4 w-4' />
                       </Button>
-                    </div>
-                  </div>
-                  {/* 🧠 上下文状态指示器 */}
-                  <div className='flex items-center space-x-2'>
-                    {isIterativeMode() && (
-                      <span className='px-2 py-1 text-xs text-blue-800 bg-blue-100 rounded-full'>
-                        🔄 迭代模式
-                      </span>
-                    )}
-                    {currentSession && (
-                      <span className='text-xs text-gray-400'>
-                        {currentSession.name}
-                        {currentSession.messageCount
-                          ? ` · ${currentSession.messageCount}条`
-                          : ""}
-                      </span>
-                    )}
-                    <span className='text-xs text-gray-400'>
-                      {getContextSummary()}
-                    </span>
-                  </div>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align='start'
+                      side='bottom'
+                      sideOffset={4}
+                      className='w-[min(72vw,392px)] overflow-hidden rounded-[16px] border border-slate-200 bg-white/95 p-0 text-slate-800 shadow-lg backdrop-blur-md'
+                    >
+                      <DropdownMenuLabel className='px-4 py-3 text-sm font-semibold tracking-normal text-slate-700'>
+                        对话历史
+                      </DropdownMenuLabel>
+                      {sessions.length === 0 ? (
+                        <DropdownMenuItem
+                          disabled
+                          className='rounded-none border-t border-slate-200 px-4 py-3 text-[11px] text-slate-400'
+                        >
+                          暂无会话
+                        </DropdownMenuItem>
+                      ) : (
+                        sessions.map((session) => {
+                          const isActive = session.sessionId === currentSessionId;
+                          return (
+                            <DropdownMenuItem
+                              key={session.sessionId}
+                              onClick={() => {
+                                void handleSwitchSession(session.sessionId);
+                              }}
+                              title={session.preview || session.name}
+                              className={cn(
+                                "rounded-none border-t border-slate-200 px-4 py-3 text-left transition-colors",
+                                "flex flex-col items-start gap-1",
+                                "data-[highlighted]:bg-slate-100 data-[highlighted]:text-slate-900",
+                                isActive
+                                  ? "bg-slate-100 text-slate-900"
+                                  : "text-slate-700"
+                              )}
+                            >
+                              <span className='w-full truncate text-sm font-semibold leading-snug'>
+                                {`${session.name}${
+                                  session.messageCount
+                                    ? `（${session.messageCount}条）`
+                                    : ""
+                                }`}
+                              </span>
+                              <span className='text-[11px] text-slate-500'>
+                                {formatSessionRelativeTime(session.lastActivity)}
+                              </span>
+                            </DropdownMenuItem>
+                          );
+                        })
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
+                {/* 🧠 上下文状态指示器 */}
+                <div className='flex items-center space-x-2'>
+                  {isIterativeMode() && (
+                    <span className='px-2 py-1 text-xs text-blue-800 bg-blue-100 rounded-full'>
+                      🔄 迭代模式
+                    </span>
+                  )}
+                  {currentSession && (
+                    <span className='text-xs text-gray-400'>
+                      {currentSession.name}
+                      {currentSession.messageCount
+                        ? ` · ${currentSession.messageCount}条`
+                        : ""}
+                    </span>
+                  )}
+                  <span className='text-xs text-gray-400'>
+                    {getContextSummary()}
+                  </span>
+                </div>
+              </div>
+              <div
+                ref={historyRef}
+                className={cn(
+                  "overflow-y-auto scrollbar-hidden",
+                  isMaximized
+                    ? "max-h-screen"
+                    : showHistory
+                    ? "flex-1 min-h-0"
+                    : customHeight
+                    ? "flex-1 min-h-0"
+                    : "max-h-80"
+                )}
+                style={{
+                  overflowY: "auto",
+                  // 展开模式下不限制最大高度，让 flex-1 生效
+                  // 最大化模式下留出输入框和顶部工具栏空间
+                  maxHeight: isMaximized
+                    ? "calc(100vh - 248px)"
+                    : showHistory && !customHeight
+                    ? undefined
+                    : customHeight
+                    ? undefined
+                    : "320px",
+                  minHeight: customHeight ? "100px" : historyPanelMinHeight,
+                  // 隐藏滚动条
+                  scrollbarWidth: "none",
+                  msOverflowStyle: "none",
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className='space-y-1.5 mr-1 pb-6'>
                 {/* 🔥 使用分组渲染，支持并行生成的横向布局 */}
                 {groupedMessages.map((group) => {
                   // 渲染用户消息
@@ -5257,6 +5326,7 @@ const AIChatDialog: React.FC = () => {
                   </div>
                 )}
               </div>
+            </div>
             </div>
           )}
         </div>

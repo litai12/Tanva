@@ -102,6 +102,8 @@ interface ImageTool {
     }
   ) => string | null;
   setImagesVisibility?: (ids: string[], visible: boolean) => void;
+  isImageLocked?: (imageId: string) => boolean;
+  toggleImageLocked?: (imageId: string, nextLocked?: boolean) => boolean;
   // 可选：由图片工具暴露的选中集与删除方法
   selectedImageIds?: string[];
   handleImageDelete?: (id: string) => void;
@@ -288,6 +290,18 @@ export const useInteractionController = ({
     const images = imageToolRef.current?.imageInstances ?? [];
     const match = images.find((img: any) => String(img.id) === String(imageId));
     return Boolean(match?.imageData?.pendingUpload);
+  }, []);
+
+  const isLockedImage = useCallback((imageId?: string | null): boolean => {
+    if (!imageId) return false;
+    const latestImageTool = imageToolRef.current;
+    if (!latestImageTool) return false;
+    if (typeof latestImageTool.isImageLocked === 'function') {
+      return latestImageTool.isImageLocked(imageId);
+    }
+    const images = latestImageTool.imageInstances ?? [];
+    const target = images.find((img: any) => String(img.id) === String(imageId));
+    return Boolean(target?.locked || target?.imageData?.locked);
   }, []);
 
   const collectSelectedPaths = useCallback(() => {
@@ -720,6 +734,10 @@ export const useInteractionController = ({
         // 开始图像调整大小
         const imageId = resizeHandleHit.item.data.imageId;
         const direction = resizeHandleHit.item.data.direction;
+        if (isLockedImage(imageId)) {
+          logger.debug('图片已锁定，忽略缩放命中:', imageId);
+          return;
+        }
 
         if (isPendingUploadImage(imageId)) {
           // 上传中仅允许移动，跳过 resize，继续后续选择逻辑
@@ -774,6 +792,10 @@ export const useInteractionController = ({
       // 🔥 修复：移除 isSelected 检查，因为 handleSelectionClick 已经处理了选中逻辑
       // 第一次点击图片时，isSelected 还是 false（状态更新是异步的），导致无法拖拽
       if (selectionResult?.type === 'image') {
+        if (isLockedImage(selectionResult.id)) {
+          logger.debug('图片已锁定，忽略拖拽启动:', selectionResult.id);
+          return;
+        }
         const clickedImage = latestImageTool.imageInstances.find(img => img.id === selectionResult.id);
 
         // 若当前已选中图片组块，且点击的图片属于该组，则允许直接从组内图片触发“组拖拽”
@@ -814,7 +836,7 @@ export const useInteractionController = ({
             const raw = (path.data as any)?.imageIds;
             if (Array.isArray(raw)) {
               raw.forEach((id) => {
-                if (typeof id === 'string') groupImageIds.push(id);
+                if (typeof id === 'string' && !isLockedImage(id)) groupImageIds.push(id);
               });
             }
           });
@@ -877,7 +899,9 @@ export const useInteractionController = ({
 
         if (selectionResult.path?.data?.type === 'image-group') {
           const rawIds = (selectionResult.path.data as any)?.imageIds;
-          const candidateIds = Array.isArray(rawIds) ? rawIds.filter((id) => typeof id === 'string') : [];
+          const candidateIds = Array.isArray(rawIds)
+            ? rawIds.filter((id) => typeof id === 'string' && !isLockedImage(id))
+            : [];
           if (candidateIds.length > 0) {
             const instanceMap = new Map((latestImageTool.imageInstances || []).map((img) => [img.id, img]));
 
@@ -890,14 +914,14 @@ export const useInteractionController = ({
             // 若组块本来就在选中集里，则把复合选择中其它图片/其它组块的图片也并入拖拽
             if (pathWasSelected) {
               (latestImageTool.selectedImageIds || []).forEach((id) => {
-                if (typeof id === 'string' && instanceMap.has(id)) dragIdSet.add(id);
+                if (typeof id === 'string' && instanceMap.has(id) && !isLockedImage(id)) dragIdSet.add(id);
               });
               previouslySelectedPaths.forEach((path) => {
                 if (path?.data?.type !== 'image-group') return;
                 const raw = (path.data as any)?.imageIds;
                 if (!Array.isArray(raw)) return;
                 raw.forEach((id) => {
-                  if (typeof id === 'string' && instanceMap.has(id)) dragIdSet.add(id);
+                  if (typeof id === 'string' && instanceMap.has(id) && !isLockedImage(id)) dragIdSet.add(id);
                 });
               });
             }
@@ -991,7 +1015,7 @@ export const useInteractionController = ({
     }
 
     latestDrawingTools.isDrawingRef.current = true;
-  }, [canvasRef, beginGroupPathDrag, isSelectionLikeMode]);
+  }, [canvasRef, beginGroupPathDrag, isLockedImage, isSelectionLikeMode, isPendingUploadImage]);
 
   // 更新鼠标光标样式（需在 handleMouseMove 之前定义，避免临时死区）
   function updateCursorStyle(
@@ -1267,9 +1291,9 @@ export const useInteractionController = ({
           // Alt+拖拽：显示占位框，原图保持不动
           if ((isAltPressedRef.current || event.altKey) && !altDragClonedRef.current) {
             altDragClonedRef.current = true;
-            const groupIds = latestImageTool.imageDragState.groupImageIds?.length
+            const groupIds = (latestImageTool.imageDragState.groupImageIds?.length
               ? latestImageTool.imageDragState.groupImageIds
-              : [latestImageTool.imageDragState.dragImageId];
+              : [latestImageTool.imageDragState.dragImageId]).filter((id) => Boolean(id) && !isLockedImage(id as string)) as string[];
 
             // 保存图片快照，用于松开时创建副本
             const snapshots: ImageAssetSnapshot[] = [];
@@ -1368,9 +1392,21 @@ export const useInteractionController = ({
           }
         }
 
-        const groupIds = latestImageTool.imageDragState.groupImageIds?.length
+        const groupIds = (latestImageTool.imageDragState.groupImageIds?.length
           ? latestImageTool.imageDragState.groupImageIds
-          : [latestImageTool.imageDragState.dragImageId];
+          : [latestImageTool.imageDragState.dragImageId]).filter((id) => Boolean(id) && !isLockedImage(id as string)) as string[];
+        if (groupIds.length === 0) {
+          latestImageTool.setImageDragState({
+            isImageDragging: false,
+            dragImageId: null,
+            imageDragStartPoint: null,
+            imageDragStartBounds: null,
+            groupImageIds: undefined,
+            groupStartBounds: undefined,
+          });
+          document.body.classList.remove('tanva-canvas-dragging');
+          return;
+        }
         const groupStart = latestImageTool.imageDragState.groupStartBounds || {};
 
         // Alt+拖拽时检测是否在库区域，添加高亮效果
@@ -1619,7 +1655,8 @@ export const useInteractionController = ({
     applyGroupPathDrag,
     updateLibraryDropHover,
     updateCursorStyle,
-    handleImageResize
+    handleImageResize,
+    isLockedImage,
   ]);
 
   // ========== 鼠标抬起事件处理 ==========
@@ -1912,9 +1949,9 @@ export const useInteractionController = ({
               event.clientY <= rect.bottom
             ) {
               // 拖拽到库区域，添加资源到个人库
-              const groupIds = latestImageTool.imageDragState.groupImageIds?.length
+              const groupIds = (latestImageTool.imageDragState.groupImageIds?.length
                 ? latestImageTool.imageDragState.groupImageIds
-                : [latestImageTool.imageDragState.dragImageId];
+                : [latestImageTool.imageDragState.dragImageId]).filter((id) => Boolean(id) && !isLockedImage(id as string)) as string[];
 
               groupIds.forEach((imageId) => {
                 const imageInstance = latestImageTool.imageInstances.find((img: any) => img.id === imageId);
@@ -2051,7 +2088,7 @@ export const useInteractionController = ({
     }
 
     latestDrawingTools.isDrawingRef.current = false;
-  }, [canvasRef, resetGroupPathDrag, stopSpacePan]);
+  }, [canvasRef, isLockedImage, resetGroupPathDrag, stopSpacePan]);
 
   // ========== 事件监听器绑定 ==========
   useEffect(() => {
@@ -2435,6 +2472,9 @@ export const useInteractionController = ({
             while (current) {
               const data = current.data || {};
               if (data?.imageId) {
+                if (isLockedImage(String(data.imageId))) {
+                  return false;
+                }
                 event.preventDefault();
                 event.stopPropagation();
                 try {

@@ -1,4 +1,5 @@
 import React from 'react';
+import { Play } from 'lucide-react';
 
 type NodeGroupData = {
   groupName?: string;
@@ -33,7 +34,6 @@ const toRgba = (hexColor: string, alpha: number): string => {
 };
 
 export default function NodeGroupNode({ id, data, selected }: Props) {
-  const [isHoveringGroup, setIsHoveringGroup] = React.useState(false);
   const [isEditingName, setIsEditingName] = React.useState(false);
   const color =
     typeof data?.groupColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(data.groupColor)
@@ -69,8 +69,6 @@ export default function NodeGroupNode({ id, data, selected }: Props) {
   return (
     <div
       className='tanva-node-group'
-      onMouseEnter={() => setIsHoveringGroup(true)}
-      onMouseLeave={() => setIsHoveringGroup(false)}
       style={{
         width: '100%',
         height: '100%',
@@ -213,9 +211,7 @@ export default function NodeGroupNode({ id, data, selected }: Props) {
             background: 'rgba(239, 68, 68, 0.08)',
             color: '#dc2626',
             borderRadius: 999,
-            opacity: isHoveringGroup ? 1 : 0,
-            pointerEvents: isHoveringGroup ? 'auto' : 'none',
-            transition: 'opacity 0.15s ease, background-color 0.15s ease',
+            transition: 'opacity 0.15s ease, background-color 0.15s ease, border-color 0.15s ease',
             cursor: 'pointer',
             padding: '1px 7px',
             display: 'inline-flex',
@@ -232,18 +228,21 @@ export default function NodeGroupNode({ id, data, selected }: Props) {
       </div>
 
       <div
-        className='tanva-node-group-footer nodrag nopan'
+        className={`tanva-node-group-footer nodrag nopan${running ? ' is-running' : ''}`}
         style={{
           position: 'absolute',
           left: '50%',
           top: 'calc(100% + 10px)',
           transform: 'translateX(-50%)',
-          pointerEvents: 'auto',
+          opacity: selected || running ? 1 : 0,
+          pointerEvents: selected || running ? 'auto' : 'none',
+          transition: 'opacity 0.15s ease',
         }}
       >
         <button
           type='button'
           className='nodrag nopan'
+          disabled={running}
           onMouseDown={(event) => event.stopPropagation()}
           onClick={(event) => {
             event.stopPropagation();
@@ -252,19 +251,37 @@ export default function NodeGroupNode({ id, data, selected }: Props) {
           }}
           title='依次运行组内节点'
           style={{
-            border: `1px solid ${toRgba(color, 0.4)}`,
-            background: running ? 'rgba(243, 244, 246, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-            color: running ? '#9ca3af' : '#111827',
-            borderRadius: 999,
-            padding: '2px 12px',
-            fontSize: 11,
+            width: 32,
+            height: 32,
+            border: running ? '1px solid #e5e7eb' : '1px solid #d1d5db',
+            background: running ? '#f3f4f6' : 'rgba(255, 255, 255, 0.5)',
+            color: running ? '#9ca3af' : '#4b5563',
+            borderRadius: 9999,
+            padding: 0,
+            fontSize: 12,
             fontWeight: 600,
-            lineHeight: '16px',
             cursor: running ? 'not-allowed' : 'pointer',
-            boxShadow: '0 6px 18px rgba(15, 23, 42, 0.12)',
+            boxShadow: running ? 'none' : '0 1px 2px rgba(15, 23, 42, 0.08)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'all 0.2s ease',
+            opacity: running ? 0.7 : 1,
+          }}
+          onMouseEnter={(event) => {
+            if (running) return;
+            event.currentTarget.style.borderColor = '#9ca3af';
+            event.currentTarget.style.color = '#374151';
+            event.currentTarget.style.background = 'rgba(31, 41, 55, 0.08)';
+          }}
+          onMouseLeave={(event) => {
+            if (running) return;
+            event.currentTarget.style.borderColor = '#d1d5db';
+            event.currentTarget.style.color = '#4b5563';
+            event.currentTarget.style.background = 'rgba(255, 255, 255, 0.5)';
           }}
         >
-          {running ? '运行中…' : '运行'}
+          <Play size={14} strokeWidth={2.2} />
         </button>
       </div>
     </div>

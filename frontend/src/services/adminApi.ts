@@ -535,18 +535,25 @@ export interface PaidUser {
   totalEarned: number;
   totalPaid: number;
   orderCount: number;
+  lastPaidAt: string | null;
 }
+
+export type PaidUsersSortBy = "amount" | "registeredAt" | "paidAt";
 
 // 获取付费用户列表
 export async function getPaidUsers(params?: {
   page?: number;
   pageSize?: number;
   search?: string;
+  sortBy?: PaidUsersSortBy;
+  sortOrder?: "asc" | "desc";
 }): Promise<{ users: PaidUser[]; pagination: Pagination }> {
   const searchParams = new URLSearchParams();
   if (params?.page) searchParams.set("page", String(params.page));
   if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
   if (params?.search) searchParams.set("search", params.search);
+  if (params?.sortBy) searchParams.set("sortBy", params.sortBy);
+  if (params?.sortOrder) searchParams.set("sortOrder", params.sortOrder);
 
   const response = await request(`/api/admin/paid-users?${searchParams}`);
   return response.json();

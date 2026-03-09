@@ -3183,6 +3183,10 @@ export const useAIChatStore = create<AIChatState>()(
               effectiveProvider === "nano2"
                 ? BANANA_31_IMAGE_MODEL
                 : getImageModelForProvider(effectiveProvider);
+            const enableWebSearchForRequest =
+              effectiveProvider === "nano2"
+                ? undefined
+                : state.enableWebSearch;
             logProcessStep(
               metrics,
               `generateImage calling API (${modelToUse}, provider=${effectiveProvider})`
@@ -3230,25 +3234,40 @@ export const useAIChatStore = create<AIChatState>()(
               aspectRatio: state.aspectRatio || "auto",
               thinkingLevel: state.thinkingLevel || "auto",
               imageOnly: state.imageOnly,
-              enableWebSearch: state.enableWebSearch,
+              enableWebSearch: enableWebSearchForRequest,
               prompt: prompt.substring(0, 50) + "...",
             });
 
-            const result = await generateImageViaAPI({
-              prompt,
-              model: modelToUse,
-              aiProvider: effectiveProvider,
-              providerOptions,
-              outputFormat: "png",
-              aspectRatio: state.aspectRatio || undefined,
-              imageSize: state.imageSize ?? "1K", // 自动模式下优先使用1K
-              thinkingLevel: state.thinkingLevel || undefined,
-              imageOnly: state.imageOnly,
-              enableWebSearch: state.enableWebSearch,
-              // 对齐 Nano2：联网开关开启时，同时启用文本检索和图片检索参数
-              googleSearch: state.enableWebSearch,
-              googleImageSearch: state.enableWebSearch,
-            });
+            const generateRequest =
+              effectiveProvider === "nano2"
+                ? {
+                    // 与 Nano2 节点保持同一请求字段集合
+                    prompt,
+                    aiProvider: "nano2" as const,
+                    aspectRatio: state.aspectRatio || undefined,
+                    imageSize: state.imageSize ?? "1K",
+                    googleSearch: state.enableWebSearch,
+                    googleImageSearch: state.enableWebSearch,
+                  }
+                : {
+                    prompt,
+                    model: modelToUse,
+                    aiProvider: effectiveProvider,
+                    providerOptions,
+                    outputFormat: "png" as const,
+                    aspectRatio: state.aspectRatio || undefined,
+                    imageSize: state.imageSize ?? "1K", // 自动模式下优先使用1K
+                    thinkingLevel: state.thinkingLevel || undefined,
+                    imageOnly: state.imageOnly,
+                    ...(enableWebSearchForRequest !== undefined
+                      ? { enableWebSearch: enableWebSearchForRequest }
+                      : {}),
+                    // 对齐 Nano2：联网开关开启时，同时启用文本检索和图片检索参数
+                    googleSearch: state.enableWebSearch,
+                    googleImageSearch: state.enableWebSearch,
+                  };
+
+            const result = await generateImageViaAPI(generateRequest);
             logProcessStep(metrics, "generateImage API response received");
 
             if (progressInterval) clearInterval(progressInterval);

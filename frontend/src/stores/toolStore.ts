@@ -39,7 +39,7 @@ export const useToolStore = create<ToolState>()(
       (set, get) => ({
         // 初始状态
         drawMode: 'select',
-        currentColor: '#000000',
+        currentColor: '#ff0000',
         fillColor: '#ffffff',
         strokeWidth: 2,
         isEraser: false,

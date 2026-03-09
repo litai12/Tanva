@@ -808,6 +808,46 @@ class PaperSaveService {
     const texts: TextAssetSnapshot[] = [];
     const videos: VideoAssetSnapshot[] = [];
     const collectedImageIds = new Set<string>();
+    const paperImageLockMap = new Map<string, boolean>();
+
+    try {
+      if (this.isPaperProjectReady()) {
+        const imageItems = (paper.project as any).getItems?.({
+          match: (item: any) => {
+            if (!item) return false;
+            const data = item.data || {};
+            if (data?.type === 'image' && typeof data?.imageId === 'string') return true;
+            if (
+              (item.className === 'Raster' || item instanceof paper.Raster) &&
+              (typeof data?.imageId === 'string' || typeof item?.parent?.data?.imageId === 'string')
+            ) {
+              return true;
+            }
+            return false;
+          },
+        }) as any[] | undefined;
+
+        (imageItems || []).forEach((item) => {
+          const imageId = item?.data?.imageId || item?.parent?.data?.imageId;
+          if (!imageId) return;
+          const locked = Boolean(
+            item?.locked ||
+              item?.data?.imageLocked ||
+              item?.parent?.locked ||
+              item?.parent?.data?.imageLocked
+          );
+          if (locked) {
+            paperImageLockMap.set(String(imageId), true);
+            return;
+          }
+          if (!paperImageLockMap.has(String(imageId))) {
+            paperImageLockMap.set(String(imageId), false);
+          }
+        });
+      }
+    } catch (error) {
+      console.warn('采集图片锁定状态失败:', error);
+    }
 
     // 1. 从 tanvaImageInstances 收集图片
     try {
@@ -832,10 +872,16 @@ class PaperSaveService {
           if (!url) return;
           const pendingUpload = !!data?.pendingUpload || !isPersistableImageRef(url);
           collectedImageIds.add(instance.id);
+          const locked = Boolean(
+            instance?.locked ??
+              data?.locked ??
+              paperImageLockMap.get(String(instance.id))
+          );
           images.push({
             id: instance.id,
             url,
             key: persistedRef && isAssetKeyRef(persistedRef) ? persistedRef : (data?.key || normalizedKey || undefined),
+            locked,
             fileName: data?.fileName,
             width: data?.width,
             height: data?.height,
@@ -882,6 +928,12 @@ class PaperSaveService {
               const sourceString = typeof source === 'string' ? source.trim() : '';
               const blobSource = sourceString.startsWith('blob:') ? sourceString : '';
               const finalUrl = url || blobSource || '';
+              const locked = Boolean(
+                raster?.parent?.locked ||
+                  raster?.locked ||
+                  raster?.parent?.data?.imageLocked ||
+                  raster?.data?.imageLocked
+              );
 
               const bounds = raster.bounds;
               collectedImageIds.add(imageId);
@@ -889,6 +941,7 @@ class PaperSaveService {
                 id: imageId,
                 url: finalUrl,
                 src: finalUrl,
+                locked,
                 fileName: raster?.data?.fileName,
                 width: raster.width,
                 height: raster.height,
