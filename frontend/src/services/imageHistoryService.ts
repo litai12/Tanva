@@ -5,8 +5,10 @@ import { useGlobalImageHistoryStore } from '@/stores/globalImageHistoryStore';
 import type { CreateGlobalImageHistoryDto } from '@/services/globalImageHistoryApi';
 import {
   isLikelyManagedAssetUrl,
+  isPersistableImageRef,
   isRemoteUrl,
   looksLikeSignedAssetUrl,
+  normalizePersistableImageRef,
   resolveImageToBlob,
 } from '@/utils/imageSource';
 
@@ -221,6 +223,15 @@ const ensurePersistableRemoteHistoryUrl = async (
   return trimmed;
 };
 
+const normalizePersistableHistoryRef = (value?: string): string | undefined => {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const normalized = normalizePersistableImageRef(trimmed);
+  if (!normalized || !isPersistableImageRef(normalized)) return undefined;
+  return normalized;
+};
+
 interface RecordImageHistoryOptions {
   id?: string;
   dataUrl?: string;
@@ -271,7 +282,7 @@ export async function recordImageHistoryEntry(options: RecordImageHistoryOptions
 
   const enqueueGlobalHistoryWrite = (imageUrl?: string) => {
     if (skipGlobalHistory) return;
-    if (!imageUrl || !imageUrl.startsWith('http')) return;
+    if (!imageUrl || !isPersistableImageRef(imageUrl)) return;
     enqueuePendingGlobalHistoryWrite({
       imageUrl,
       prompt: options.title,
@@ -290,10 +301,7 @@ export async function recordImageHistoryEntry(options: RecordImageHistoryOptions
   const store = useImageHistoryStore.getState();
   const existing = store.history.find((item) => item.id === id);
 
-  const normalizedRemoteUrl =
-    options.remoteUrl && options.remoteUrl.startsWith('http')
-      ? options.remoteUrl.trim()
-      : undefined;
+  const normalizedRemoteUrl = normalizePersistableHistoryRef(options.remoteUrl);
 
   const dataUrl =
     options.dataUrl ??
@@ -324,12 +332,14 @@ export async function recordImageHistoryEntry(options: RecordImageHistoryOptions
   }
 
   if (normalizedRemoteUrl) {
-    const persistedRemoteUrl = await ensurePersistableRemoteHistoryUrl(normalizedRemoteUrl, {
-      projectId,
-      dir,
-      fileName: options.fileName,
-      nodeType,
-    });
+    const persistedRemoteUrl = isRemoteUrl(normalizedRemoteUrl)
+      ? await ensurePersistableRemoteHistoryUrl(normalizedRemoteUrl, {
+          projectId,
+          dir,
+          fileName: options.fileName,
+          nodeType,
+        })
+      : normalizedRemoteUrl;
     if (!skipInitialStoreUpdate && persistedRemoteUrl !== normalizedRemoteUrl) {
       store.updateImage(id, {
         src: persistedRemoteUrl,

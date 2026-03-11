@@ -3712,15 +3712,22 @@ function FlowInner() {
         }
         return true;
       });
+      const normalizedRemote = normalizePersistableImageRef(
+        typeof hit?.remoteUrl === "string" ? hit.remoteUrl : ""
+      );
+      const normalizedSrc = normalizePersistableImageRef(
+        typeof hit?.src === "string" ? hit.src : ""
+      );
       const url =
-        (typeof hit?.remoteUrl === "string" && hit.remoteUrl.startsWith("http")
-          ? hit.remoteUrl
+        (normalizedRemote && isPersistableImageRef(normalizedRemote)
+          ? normalizedRemote
           : undefined) ||
-        (typeof hit?.src === "string" && hit.src.startsWith("http")
-          ? hit.src
+        (normalizedSrc && isPersistableImageRef(normalizedSrc)
+          ? normalizedSrc
           : undefined) ||
         null;
-      return url ? normalizeStableRemoteUrl(url) : null;
+      if (!url) return null;
+      return /^https?:\/\//i.test(url) ? normalizeStableRemoteUrl(url) : url;
     },
     [normalizeStableRemoteUrl]
   );
