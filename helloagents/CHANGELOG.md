@@ -44,6 +44,13 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 后端 AI：Seedance（doubao）视频任务成功后自动上传到 OSS，仅返回自有 OSS 公网链接，避免上游 TOS 直链的 CORS/过期问题。
 
 ### Fixed
+- API 节点监测：新增“切换通道”绑定交互，支持将业务节点强制绑定到指定 `ApiConfig`（写入 `metadata.apiHealth.configId`）或清除为自动推断；`GET /api/admin/api-health/nodes` 增加 `bindingStrategy`（`MANUAL`/`METADATA`/`MATCH`/`FALLBACK`）并在前端列表显式标注绑定来源，便于运维定位绑定逻辑（`backend/src/admin/api-health.service.ts`、`backend/src/admin/api-health.controller.ts`、`frontend/src/services/adminApi.ts`、`frontend/src/components/admin/ApiHealthDashboard.tsx`）。
+- API 节点监测：L2 深度拨测 PayloadBuilder 支持按节点配置动态注入 `modelName`（Kling/Vidu/Doubao 等协议），并在日志中输出实际模型；`ApiConfig` schema 与配置 CRUD（前后端）已接入 `modelName`，大盘表格按 `名称 [modelName]` 展示并支持表单编辑；同时监测粒度下沉到 `configId`（单节点 L1 检测、L2 最新结果、历史趋势均按 `ApiConfig.id` 聚合），避免同 provider 多模型互相覆盖（`backend/prisma/schema.prisma`、`backend/src/admin/supplier-test.service.ts`、`backend/src/admin/api-health.service.ts`、`backend/src/admin/api-health.controller.ts`、`frontend/src/services/adminApi.ts`、`frontend/src/components/admin/ApiHealthDashboard.tsx`、`frontend/src/components/admin/ApiHealthChart.tsx`）。
+- 供应商深度拨测（Vidu）：`VIDU_NATIVE` 在代理网关场景新增提交 endpoint 候选回退（`/ent/v2/text2video`、`/vidu/ent/v2/text2video`、`/v2/text2video`），并按实际命中的提交路径动态推导轮询 URL（`/tasks/:taskId/creations`），减少路径不匹配导致的 404（`backend/src/admin/supplier-test.service.ts`）。
+- 供应商深度拨测：修复“最后一个候选 endpoint 失败时直接返回”导致的错误覆盖问题；现在会统一聚合并优先回报高优先级失败（401/403）而非末尾 404（`backend/src/admin/supplier-test.service.ts`）。
+- 供应商深度拨测：多 endpoint 回退后若最终失败，错误信息优先展示高优先级状态（如 401/403 鉴权失败），避免被末尾 404 覆盖造成误判（`backend/src/admin/supplier-test.service.ts`）。
+- 供应商深度拨测（Doubao）：提交候选路径在 base URL 以 `/doubao` 结尾时优先尝试 `/doubao/...` 路由；对 `401/403/404` 支持继续回退后续候选；并统一清洗 API Key（去除误贴 `Bearer ` 与前后空白）以减少“无效令牌”误报（`backend/src/admin/supplier-test.service.ts`）。
+- 管理后台 API 节点监测：深度监测请求改为优先按 `ApiConfig.id` 精确触发（新增 `POST /api/admin/api-health/e2e-by-id/:id`，前端 `streamE2ETest` 传 `configId`），降低“豆包节点误触发 Vidu 节点”类串号风险（`backend/src/admin/api-health.controller.ts`、`backend/src/admin/api-health.service.ts`、`frontend/src/services/adminApi.ts`、`frontend/src/components/admin/ApiHealthDashboard.tsx`）。
 - Flow：返回首页再进入项目时，节点首屏缩放闪烁的 viewport 同步修正（`frontend/src/components/flow/FlowOverlay.tsx`）。
 - Canvas：返回首页再进入项目后，Paper 图片命中/选择偶发失效的恢复逻辑（`frontend/src/components/canvas/DrawingController.tsx`、`frontend/src/utils/paperCoords.ts`）。
 - Flow：生成链路允许传递远程 URL，由后端下载处理，规避前端跨域读取失败（`frontend/src/components/flow/FlowOverlay.tsx`、`backend/src/ai/ai.controller.ts`、`backend/src/ai/dto/image-generation.dto.ts`）。

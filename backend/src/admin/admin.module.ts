@@ -2,16 +2,21 @@ import { Module, OnModuleInit, Logger } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { AdminController } from './admin.controller';
 import { SettingsPublicController } from './settings-public.controller';
+import { ApiHealthController } from './api-health.controller';
+import { SupplierTestController } from './supplier-test.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { CreditsModule } from '../credits/credits.module';
 import { OssModule } from '../oss/oss.module';
+import { AiModule } from '../ai/ai.module';
 import { TemplateService } from './services/template.service';
 import { NodeConfigService } from './services/node-config.service';
+import { ApiHealthService } from './api-health.service';
+import { SupplierTestService } from './supplier-test.service';
 
 @Module({
-  imports: [PrismaModule, CreditsModule, OssModule],
-  controllers: [AdminController, SettingsPublicController],
-  providers: [AdminService, TemplateService, NodeConfigService],
+  imports: [PrismaModule, CreditsModule, OssModule, AiModule],
+  controllers: [AdminController, SettingsPublicController, ApiHealthController, SupplierTestController],
+  providers: [AdminService, TemplateService, NodeConfigService, ApiHealthService, SupplierTestService],
   exports: [AdminService, TemplateService, NodeConfigService],
 })
 export class AdminModule implements OnModuleInit {

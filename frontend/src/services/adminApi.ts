@@ -771,3 +771,297 @@ export async function deleteNodeConfig(nodeKey: string): Promise<{ success: bool
   });
   return response.json();
 }
+
+// API 健康检查类型（与后端 ApiHealthStatus 对齐）
+export interface ApiHealthStatus {
+  nodeKey: string;
+  configId?: string;
+  name: string;
+  provider: string;
+  channelName?: string;
+  channelType?: string;
+  modelName?: string;
+  serviceType?: string;
+  status: "healthy" | "unhealthy" | "unknown";
+  latencyMs?: number;
+  error?: string;
+  lastChecked: string;
+  endpoint?: string;
+  hasApiKey: boolean;
+}
+
+export interface HealthCheckResult {
+  timestamp: string;
+  totalApis: number;
+  healthyCount: number;
+  unhealthyCount: number;
+  unknownCount: number;
+  apis: ApiHealthStatus[];
+}
+
+export interface ApiConfig {
+  id: string;
+  name: string;
+  provider: string;
+  apiKey: string;
+  endpoint?: string;
+  enabled: boolean;
+  category?: string;
+  apiProtocol?: string;
+  modelName?: string;
+}
+
+export interface ApiHealthNode {
+  nodeKey: string;
+  name: string;
+  serviceType?: string | null;
+  modelName?: string | null;
+  provider?: string | null;
+  channelName?: string | null;
+  channelType?: string | null;
+  configId?: string | null;
+  apiProtocol?: string | null;
+  endpoint?: string | null;
+  hasApiKey: boolean;
+  nodeStatus: string;
+  nodeVisible: boolean;
+  configEnabled?: boolean | null;
+  monitorable: boolean;
+  monitorDisabledReason?: string | null;
+  bindingStrategy: "MANUAL" | "METADATA" | "MATCH" | "FALLBACK";
+}
+
+export interface CreateApiConfigDto {
+  name: string;
+  provider: string;
+  apiKey: string;
+  endpoint?: string;
+  category?: string;
+  apiProtocol?: string;
+  modelName?: string;
+}
+
+export interface UpdateApiConfigDto {
+  name?: string;
+  apiKey?: string;
+  endpoint?: string;
+  enabled?: boolean;
+  category?: string;
+  apiProtocol?: string;
+  modelName?: string;
+}
+
+export interface E2EScheduleConfig {
+  enabled: boolean;
+  cronExpression: string;
+  timezone?: string;
+  prompt?: string;
+}
+
+export interface ScheduleConfig {
+  enabled: boolean;
+  cronExpression: string;
+  timezone?: string;
+  webhookUrl?: string;
+}
+
+// API 健康检查
+export async function getApiHealthStatus(): Promise<HealthCheckResult> {
+  const response = await request("/api/admin/api-health/status");
+  return response.json();
+}
+
+// 检查所有 API
+export async function checkAllApis(): Promise<HealthCheckResult> {
+  const response = await request("/api/admin/api-health/check", {
+    method: "POST",
+  });
+  return response.json();
+}
+
+// 检查单个节点
+export async function checkSingleNode(nodeKey: string): Promise<ApiHealthStatus> {
+  const response = await request(`/api/admin/api-health/check-by-node/${encodeURIComponent(nodeKey)}`, {
+    method: "POST",
+  });
+  return response.json();
+}
+
+// 获取业务节点监测列表
+export async function getApiHealthNodes(): Promise<ApiHealthNode[]> {
+  const response = await request("/api/admin/api-health/nodes");
+  return response.json();
+}
+
+export async function setApiHealthNodeBinding(nodeKey: string, configId: string | null): Promise<ApiHealthNode> {
+  const response = await request(`/api/admin/api-health/nodes/${encodeURIComponent(nodeKey)}/binding`, {
+    method: "PATCH",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ configId }),
+  });
+  return response.json();
+}
+
+// 获取 API 配置列表
+export async function getApiConfigs(): Promise<ApiConfig[]> {
+  const response = await request("/api/admin/api-health/configs");
+  return response.json();
+}
+
+// 创建 API 配置
+export async function createApiConfig(data: CreateApiConfigDto): Promise<ApiConfig> {
+  const response = await request("/api/admin/api-health/configs", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  return response.json();
+}
+
+// 更新 API 配置
+export async function updateApiConfig(id: string, data: UpdateApiConfigDto): Promise<ApiConfig> {
+  const response = await request(`/api/admin/api-health/configs/${id}`, {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  return response.json();
+}
+
+// 删除 API 配置
+export async function deleteApiConfig(id: string): Promise<void> {
+  await request(`/api/admin/api-health/configs/${id}`, {
+    method: "DELETE",
+  });
+}
+
+// 获取调度配置
+export async function getScheduleConfig(): Promise<ScheduleConfig> {
+  const response = await request("/api/admin/api-health/schedule");
+  return response.json();
+}
+
+// 更新调度配置
+export async function updateScheduleConfig(data: ScheduleConfig): Promise<ScheduleConfig> {
+  const response = await request("/api/admin/api-health/schedule", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  return response.json();
+}
+
+export async function testWebhook(): Promise<{ success: boolean; message: string }> {
+  const response = await request("/api/admin/api-health/test-webhook", { method: "POST" });
+  return response.json();
+}
+
+export async function getE2EScheduleConfig(): Promise<E2EScheduleConfig> {
+  const response = await request("/api/admin/api-health/e2e-schedule");
+  return response.json();
+}
+
+export async function updateE2EScheduleConfig(data: E2EScheduleConfig): Promise<void> {
+  await request("/api/admin/api-health/e2e-schedule", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+}
+
+export interface E2ETestTarget {
+  provider: string;
+  nodeKey?: string;
+  configId?: string;
+}
+
+export function streamE2ETest(target: E2ETestTarget, signal?: AbortSignal): Promise<Response> {
+  const path = target.nodeKey
+    ? `/api/admin/api-health/e2e-by-node/${encodeURIComponent(target.nodeKey)}`
+    : target.configId
+    ? `/api/admin/api-health/e2e-by-id/${encodeURIComponent(target.configId)}`
+    : `/api/admin/api-health/e2e/${encodeURIComponent(target.provider)}`;
+  return fetchWithAuth(buildUrl(path), {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ provider: target.provider }),
+    signal,
+  });
+}
+
+export interface LatestE2ELog {
+  status: string;
+  e2eDuration: number | null;
+  e2eMediaUrl: string | null;
+  createdAt: string;
+  errorDetail: string | null;
+}
+
+export async function getLatestE2ELogs(): Promise<Record<string, LatestE2ELog>> {
+  const response = await request("/api/admin/api-health/e2e-latest");
+  return response.json();
+}
+
+// ==================== 供应商试炼场 ====================
+
+export type SupplierProvider = 'kling' | 'vidu' | 'doubao' | 'apimart' | 'xin147' | 'zhenzhen';
+
+export interface SupplierTestRequest {
+  provider: SupplierProvider;
+  baseUrl: string;
+  apiKey: string;
+  prompt: string;
+}
+
+export interface SupplierTestResult {
+  success: boolean;
+  provider: SupplierProvider;
+  taskId?: string;
+  resultUrl?: string;
+  elapsedMs?: number;
+  error?: string;
+}
+
+export async function runSupplierTest(data: SupplierTestRequest): Promise<SupplierTestResult> {
+  const response = await request("/api/admin/supplier-test/run", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  return response.json();
+}
+
+// ==================== 健康历史趋势 ====================
+
+export interface HealthDataPoint {
+  timestamp: string;
+  latencyMs: number | null;
+  status: "online" | "offline";
+  errorDetail: string | null;
+}
+
+export interface HealthHistorySeries {
+  nodeKey: string;
+  configId: string;
+  label: string;
+  provider: string;
+  points: HealthDataPoint[];
+}
+
+export interface HealthHistoryResult {
+  timeRange: string;
+  bucketMinutes: number;
+  series: HealthHistorySeries[];
+}
+
+export async function getHealthHistory(
+  timeRange: "24h" | "7d" | "30d",
+  provider?: string,
+  configId?: string
+): Promise<HealthHistoryResult> {
+  const params = new URLSearchParams({ timeRange });
+  if (provider) params.set("provider", provider);
+  if (configId) params.set("configId", configId);
+  const response = await request(`/api/admin/api-health/history?${params}`);
+  return response.json();
+}

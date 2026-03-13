@@ -55,6 +55,6 @@ import { Nano2Service } from './services/nano2.service';
     ApiKeyOrJwtGuard,
   ],
   controllers: [AiController],
-  exports: [AIProviderFactory, CostCalculatorService, BackgroundRemovalService, VeoVideoService], // 导出工厂和成本计算器供其他模块使用
+  exports: [AIProviderFactory, CostCalculatorService, BackgroundRemovalService, VeoVideoService, VideoProviderService], // 导出工厂和成本计算器供其他模块使用
 })
 export class AiModule {}

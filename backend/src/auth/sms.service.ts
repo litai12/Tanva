@@ -110,6 +110,7 @@ export class SmsService {
 
     // If Ali SMS client is available and keys exist, try to call it.
     if (AliSmsClient && this.config.get('ALI_ACCESS_KEY_ID') && this.config.get('ALI_ACCESS_KEY_SECRET')) {
+      this.logger.log(`📱 发送短信到 ${phone}, 验证码: ${code}`);
       // @alicloud/sms-sdk usage
       const client = new AliSmsClient({
         accessKeyId: this.config.get('ALI_ACCESS_KEY_ID'),
@@ -124,6 +125,7 @@ export class SmsService {
       try {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         const res = await client.sendSMS(params);
+        this.logger.log(`阿里云短信响应: ${JSON.stringify(res)}`);
         if (res?.Code !== 'OK') {
           this.logger.warn(`Ali SMS send failed: ${res?.Message || JSON.stringify(res)}`);
           // 发送失败，释放 Redis 限流键或内存锁，允许立即重试

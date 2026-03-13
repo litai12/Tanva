@@ -172,14 +172,14 @@ model ApiUsageRecord {
   provider         String
   model            String?
   creditsUsed      Int
-  inputTokens      Int?
-  outputTokens     Int?
+  inputTokens      BigInt?
+  outputTokens     BigInt?
   inputImageCount  Int?
   outputImageCount Int?
   requestParams    Json?
   responseStatus   String
   errorMessage     String?
-  processingTime   Int?
+  processingTime   BigInt?
   ipAddress        String?
   userAgent        String?
   createdAt        DateTime @default(now())
@@ -323,6 +323,46 @@ model NodeConfig {
 
   @@index([category, sortOrder])
   @@index([status])
+}
+
+// API 配置管理 - 存储各 AI 服务的 API Key 和端点
+model ApiConfig {
+  id          String   @id @default(uuid())
+  name        String
+  provider    String
+  apiKey      String
+  endpoint    String?
+  modelName   String?  // 监测/调用目标模型标识（如 kling-2.6-video / viduq2 / doubao-seedance-*）
+  enabled     Boolean  @default(true)
+  category    String   @default("other")
+  apiProtocol String?  // 底层协议类型，对应 ApiProtocolType 枚举，如 KLING_NATIVE / ASYNC_PROXY_STANDARD
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  healthLogs  ApiHealthLog[]
+
+  @@index([provider])
+  @@index([enabled])
+}
+
+// API 健康检查历史日志
+model ApiHealthLog {
+  id          Int      @id @default(autoincrement())
+  configId    String?
+  provider    String
+  status      String   // 'online' | 'offline'
+  latencyMs   Int?
+  errorDetail String?
+  createdAt   DateTime @default(now())
+  checkType   String   @default("PING")  // 'PING'(L1 免费探活) | 'E2E'(L2 深度拨测)
+  e2eDuration Int?                        // E2E 真实生成总耗时（秒）
+  e2eMediaUrl String?                     // E2E 生成的媒体资源链接
+  config      ApiConfig? @relation(fields: [configId], references: [id], onDelete: SetNull)
+
+  @@index([provider, createdAt])
+  @@index([configId, createdAt])
+  @@index([createdAt])
+  @@index([checkType])
 }
 
 model PaymentOrder {
