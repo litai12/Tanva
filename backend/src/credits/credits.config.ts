@@ -222,6 +222,12 @@ export const CREDIT_PRICING_CONFIG = {
     creditsPerCall: 600,
     description: '使用 Vidu 生成视频',
   },
+  'viduq3-pro-video': {
+    serviceName: 'Vidu Q3 Pro 视频',
+    provider: 'viduq3-pro',
+    creditsPerCall: 800,
+    description: '使用 Vidu Q3 Pro 生成视频',
+  },
   'doubao-video': {
     serviceName: '豆包 Seedance 视频',
     provider: 'doubao',

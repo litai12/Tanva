@@ -204,6 +204,7 @@ export class VideoProviderService {
     "kling-2.6": process.env.KLING_API_KEY || "sk-kling-xxx",
     "kling-o1": process.env.KLING_API_KEY || "sk-kling-xxx",
     vidu: process.env.VIDU_API_KEY || "sk-vidu-xxx",
+    "viduq3-pro": process.env.VIDU_API_KEY || "sk-vidu-xxx",
     doubao:
       process.env.DOUBAO_API_KEY || "0ac5fae84-f299-4db4-8d7e-3f7fc355c6ac",
   };
@@ -239,6 +240,8 @@ export class VideoProviderService {
         return this.generateKlingO1(options, apiKey);
       case "vidu":
         return this.generateVidu(options, apiKey);
+      case "viduq3-pro":
+        return this.generateViduQ3Pro(options, apiKey);
       default:
         throw new Error(`不支持的供应商: ${provider}`);
     }
@@ -248,7 +251,7 @@ export class VideoProviderService {
    * 查询任务状态
    */
   async queryTask(
-    provider: "kling" | "kling-2.6" | "kling-o1" | "vidu" | "doubao",
+    provider: "kling" | "kling-2.6" | "kling-o1" | "vidu" | "viduq3-pro" | "doubao",
     taskId: string
   ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string }> {
     const apiKey = this.apiKeys[provider];
@@ -265,6 +268,8 @@ export class VideoProviderService {
         return this.queryKlingO1(taskId, apiKey);
       case "vidu":
         return this.queryVidu(taskId, apiKey);
+      case "viduq3-pro":
+        return this.queryViduQ3Pro(taskId, apiKey);
       default:
         throw new Error(`不支持的供应商: ${provider}`);
     }
@@ -1067,6 +1072,139 @@ export class VideoProviderService {
         }，将继续轮询`
       );
       // 返回 processing 状态，让前端继续轮询而不是报错
+      return { status: "processing" };
+    }
+  }
+
+  /**
+   * Vidu Q3 Pro 视频生成
+   */
+  private async generateViduQ3Pro(
+    options: VideoProviderRequestDto,
+    apiKey: string
+  ): Promise<VideoGenerationResult> {
+    // 确定视频生成模式
+    let videoMode = options.videoMode;
+    const imageCount = options.referenceImages?.length || 0;
+    const hasPrompt = !!options.prompt;
+
+    // 智能判断模式
+    if (!videoMode) {
+      if (imageCount === 0) {
+        videoMode = "text2video";
+      } else if (imageCount === 1) {
+        videoMode = "img2video";
+      } else if (imageCount === 2) {
+        videoMode = "start-end2video";
+      } else {
+        throw new Error("viduq3-pro 最多支持2张图片");
+      }
+    }
+
+    const endpointMap: Record<string, string> = {
+      "img2video": "https://models.kapon.cloud/vidu/ent/v2/img2video",
+      "start-end2video": "https://models.kapon.cloud/vidu/ent/v2/start-end2video",
+      "text2video": "https://models.kapon.cloud/vidu/ent/v2/text2video",
+    };
+    const endpoint = endpointMap[videoMode] || endpointMap["text2video"];
+    const payload: any = {};
+
+    if (videoMode === "text2video") {
+      if (!options.prompt) {
+        throw new Error("文生视频模式需要提供 prompt 参数");
+      }
+      payload.model = "viduq3-pro";
+      payload.prompt = options.prompt;
+      payload.duration = options.duration || 5;
+      payload.resolution = options.resolution || "720p";
+      payload.style = options.style || "general";
+    } else if (videoMode === "img2video") {
+      payload.model = "viduq3-pro";
+      payload.images = [options.referenceImages![0]];
+      payload.duration = options.duration || 5;
+      payload.resolution = options.resolution || "720p";
+    } else if (videoMode === "start-end2video") {
+      payload.model = "viduq3-pro";
+      payload.images = [options.referenceImages![0], options.referenceImages![1]];
+      payload.duration = options.duration || 5;
+      payload.resolution = options.resolution || "720p";
+    }
+
+    this.logProviderPayload("viduq3-pro", payload);
+    this.logger.log(`🎬 Vidu Q3 Pro: mode=${videoMode}, images=${imageCount}, endpoint=${endpoint}`);
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(`Vidu Q3 Pro API 错误: ${JSON.stringify(error)}`);
+    }
+
+    const data = await response.json();
+    this.logger.log(`✅ Vidu Q3 Pro 任务创建成功: taskId=${data.id}`);
+
+    return {
+      taskId: data.id,
+      status: "queued",
+    };
+  }
+
+  /**
+   * Vidu Q3 Pro 任务查询
+   */
+  private async queryViduQ3Pro(taskId: string, apiKey: string) {
+    try {
+      const response = await fetch(
+        `https://models.kapon.cloud/vidu/ent/v2/tasks/${taskId}/creations`,
+        {
+          headers: { Authorization: `Bearer ${apiKey}` },
+        }
+      );
+      const data = await response.json();
+
+      this.logger.log(
+        `🔍 Vidu Q3 Pro 任务状态查询: taskId=${taskId}, state=${data.state}`
+      );
+
+      if (data.state === "success") {
+        const upstreamUrl: string | undefined = data.creations?.[0]?.url;
+        if (!upstreamUrl) {
+          throw new ServiceUnavailableException("Vidu Q3 Pro 返回空视频链接");
+        }
+        if (this.isOssPublicUrl(upstreamUrl)) {
+          return { status: "succeeded", videoUrl: upstreamUrl };
+        }
+        const ossUrl = await this.uploadRemoteVideoToOss(upstreamUrl, `viduq3-pro-${taskId}`);
+        this.logger.log(`📤 Vidu Q3 Pro 视频已上传到 OSS: ${ossUrl}`);
+        return { status: "succeeded", videoUrl: ossUrl };
+      }
+
+      if (data.state === "failed") {
+        this.logger.error(
+          `❌ Vidu Q3 Pro 任务失败: taskId=${taskId}, error=${JSON.stringify(
+            data.error || data
+          )}`
+        );
+        return {
+          status: "failed",
+          error: data.error?.message || "生成失败",
+        };
+      }
+
+      return { status: data.state === "processing" ? "processing" : "queued" };
+    } catch (error) {
+      this.logger.warn(
+        `⚠️ Vidu Q3 Pro 查询异常: taskId=${taskId}, error=${
+          error instanceof Error ? error.message : error
+        }，将继续轮询`
+      );
       return { status: "processing" };
     }
   }

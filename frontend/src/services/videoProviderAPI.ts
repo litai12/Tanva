@@ -5,7 +5,7 @@
 import { fetchWithAuth } from "./authFetch";
 import { getApiBaseUrl } from "../utils/assetProxy";
 
-export type VideoProvider = "kling" | "kling-2.6" | "kling-o1" | "vidu" | "doubao";
+export type VideoProvider = "kling" | "kling-2.6" | "kling-o1" | "vidu" | "viduq3-pro" | "doubao";
 
 export interface VideoGenerationRequest {
   prompt: string;

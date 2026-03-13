@@ -69,6 +69,7 @@ import KlingVideoNode from "./nodes/KlingVideoNode";
 import Kling26VideoNode from "./nodes/Kling26VideoNode";
 import KlingO1VideoNode from "./nodes/KlingO1VideoNode";
 import ViduVideoNode from "./nodes/ViduVideoNode";
+import ViduQ3ProVideoNode from "./nodes/ViduQ3ProVideoNode";
 import DoubaoVideoNode from "./nodes/DoubaoVideoNode";
 import VideoNode from "./nodes/VideoNode";
 import VideoAnalyzeNode from "./nodes/VideoAnalyzeNode";
@@ -471,6 +472,7 @@ const nodeTypes = {
   kling26Video: Kling26VideoNode,
   klingO1Video: KlingO1VideoNode,
   viduVideo: ViduVideoNode,
+  viduQ3: ViduQ3ProVideoNode,
   doubaoVideo: DoubaoVideoNode,
   storyboardSplit: StoryboardSplitNode,
   midjourney: MidjourneyNode,
@@ -599,6 +601,7 @@ const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "kling26Video",
   "klingO1Video",
   "viduVideo",
+  "viduQ3",
   "doubaoVideo",
 ]);
 const FLOW_GROUP_LOCAL_RUN_TYPES = new Set([
@@ -680,6 +683,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   kling26Video: 600, // 可灵2.6视频生成 - kling-v2-6
   klingO1Video: 1600, // 可灵O1视频生成 - Omni Video
   viduVideo: 600, // Vidu视频生成
+  viduQ3: 800, // Vidu Q3 Pro视频生成
   doubaoVideo: 600, // 豆包视频生成
   camera: 0, // 截图节点 - 不消耗积分
   storyboardSplit: 0, // 分镜拆分节点 - 不消耗积分
@@ -718,7 +722,6 @@ const NODE_PALETTE_ITEMS = [
   { key: "wan2R2V", zh: "视频融合", en: "Wan2.6 R2V", category: "video" },
   { key: "klingVideo", zh: "Kling视频生成", en: "Kling", category: "video", badge: "维护中" },
   { key: "kling26Video", zh: "Kling 2.6视频生成", en: "Kling 2.6", category: "video" },
-  { key: "klingO1Video", zh: "Kling O1视频生成", en: "Kling O1", category: "video" },
   { key: "viduVideo", zh: "Vidu视频生成", en: "Vidu", category: "video" },
   {
     key: "doubaoVideo",
@@ -819,6 +822,7 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   kling26Video: "video",
   klingO1Video: "video",
   viduVideo: "video",
+  viduQ3: "video",
   doubaoVideo: "video",
   videoAnalyze: "video",
   videoFrameExtract: "video",
@@ -867,6 +871,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   kling26Video: { w: 280, h: 260 },
   klingO1Video: { w: 280, h: 380 },
   viduVideo: { w: 280, h: 260 },
+  viduQ3: { w: 280, h: 260 },
   doubaoVideo: { w: 280, h: 260 },
   storyboardSplit: { w: 320, h: 400 },
   midjourney: { w: 280, h: 320 },
@@ -4902,6 +4907,7 @@ function FlowInner() {
           : type === "klingVideo" ||
             type === "kling26Video" ||
             type === "viduVideo" ||
+            type === "viduQ3" ||
             type === "doubaoVideo"
           ? {
               status: "idle" as const,
@@ -4918,11 +4924,13 @@ function FlowInner() {
                   ? "kling-2.6"
                   : type === "viduVideo"
                   ? "vidu"
+                  : type === "viduQ3"
+                  ? "viduq3-pro"
                   : "doubao",
               // Vidu 专用参数
-              resolution: type === "viduVideo" ? ("720p" as const) : undefined,
-              style: type === "viduVideo" ? ("general" as const) : undefined,
-              offPeak: type === "viduVideo" ? false : undefined,
+              resolution: type === "viduVideo" || type === "viduQ3" ? ("720p" as const) : undefined,
+              style: type === "viduVideo" || type === "viduQ3" ? ("general" as const) : undefined,
+              offPeak: type === "viduVideo" || type === "viduQ3" ? false : undefined,
               // 豆包专用参数
               camerafixed: type === "doubaoVideo" ? false : undefined,
               watermark: type === "doubaoVideo" ? false : undefined,
@@ -5139,6 +5147,7 @@ function FlowInner() {
             "kling26Video",
             "klingO1Video",
             "viduVideo",
+            "viduQ3",
             "doubaoVideo",
           ].includes(sourceNode.type || "");
         }
@@ -5174,6 +5183,7 @@ function FlowInner() {
             "kling26Video",
             "klingO1Video",
             "viduVideo",
+            "viduQ3",
             "doubaoVideo",
           ].includes(sourceNode.type || "");
         }
@@ -5181,7 +5191,7 @@ function FlowInner() {
       }
 
       if (
-        ["klingVideo", "kling26Video", "viduVideo", "doubaoVideo"].includes(
+        ["klingVideo", "kling26Video", "viduVideo", "viduQ3", "doubaoVideo"].includes(
           targetNode.type || ""
         )
       ) {
@@ -5213,6 +5223,7 @@ function FlowInner() {
             "kling26Video",
             "klingO1Video",
             "viduVideo",
+            "viduQ3",
             "doubaoVideo",
           ].includes(sourceNode.type || "");
         }
@@ -5276,6 +5287,7 @@ function FlowInner() {
             "kling26Video",
             "klingO1Video",
             "viduVideo",
+            "viduQ3",
             "doubaoVideo",
             "wan26",
             "wan2R2V",
@@ -5294,6 +5306,7 @@ function FlowInner() {
             "kling26Video",
             "klingO1Video",
             "viduVideo",
+            "viduQ3",
             "doubaoVideo",
             "genericVideo",
             "seedanceVideo",
@@ -5431,7 +5444,7 @@ function FlowInner() {
         if (params.targetHandle.startsWith("video-")) return true; // 每个 video-* 句柄最多一个，onConnect 会替换
       }
       // Vidu 视频节点：支持最多 7 张参考图
-      if (targetNode?.type === "viduVideo") {
+      if (targetNode?.type === "viduVideo" || targetNode?.type === "viduQ3") {
         if (params.targetHandle === "image") {
           return incoming.length < VIDU_MAX_REFERENCE_IMAGES;
         }
@@ -5582,7 +5595,7 @@ function FlowInner() {
           );
         }
         // Vidu 视频节点：支持最多 7 张参考图
-        if (tgt?.type === "viduVideo" && params.targetHandle === "image") {
+        if ((tgt?.type === "viduVideo" || tgt?.type === "viduQ3") && params.targetHandle === "image") {
           let remainingToDrop = Math.max(
             0,
             next.filter(
@@ -8227,7 +8240,7 @@ function FlowInner() {
       }
 
       // 新的视频生成节点处理逻辑（可灵 Kling、Kling O1、Vidu、豆包 Seedance）
-      const newVideoNodeTypes = ["klingVideo", "kling26Video", "klingO1Video", "viduVideo", "doubaoVideo"];
+      const newVideoNodeTypes = ["klingVideo", "kling26Video", "klingO1Video", "viduVideo", "viduQ3", "doubaoVideo"];
       if (newVideoNodeTypes.includes(node.type || "")) {
         const projectId = useProjectContentStore.getState().projectId;
         // 根据节点类型确定 provider
@@ -10878,6 +10891,7 @@ function FlowInner() {
             n.type === "kling26Video" ||
             n.type === "klingO1Video" ||
             n.type === "viduVideo" ||
+            n.type === "viduQ3" ||
             n.type === "doubaoVideo"
           ? { ...n, data: { ...n.data, onRun: runNode } }
           : n

@@ -7,7 +7,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
 
-export type VideoProvider = "kling" | "kling-2.6" | "vidu" | "doubao";
+export type VideoProvider = "kling" | "kling-2.6" | "kling-o1" | "vidu" | "viduq3-pro" | "doubao";
 
 type Props = {
   id: string;
@@ -45,7 +45,9 @@ type DownloadFeedback = {
 const PROVIDER_CONFIG: Record<VideoProvider, { name: string; zh: string }> = {
   kling: { name: "Kling", zh: "Kling" },
   "kling-2.6": { name: "Kling 2.6", zh: "Kling 2.6" },
+  "kling-o1": { name: "Kling O1", zh: "Kling O1" },
   vidu: { name: "Vidu", zh: "Vidu" },
+  "viduq3-pro": { name: "Vidu Q3", zh: "Vidu Q3" },
   doubao: { name: "Seedance", zh: "Seedance" },
 };
 
@@ -666,7 +668,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               opacity: data.status === "running" ? 0.6 : 1,
             }}
           >
-            {lt("运行", "Run")}
+            Run
           </button>
           <button
             onClick={() => copyVideoLink(data.videoUrl)}
