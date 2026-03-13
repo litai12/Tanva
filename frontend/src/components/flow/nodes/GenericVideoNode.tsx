@@ -232,7 +232,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         { label: lt("10秒", "10s"), value: 10 },
       ];
     }
-    if (provider === "vidu") {
+    if (provider === "vidu" || provider === "viduq3-pro") {
       return [
         { label: lt("1秒", "1s"), value: 1 },
         { label: lt("2秒", "2s"), value: 2 },
@@ -952,7 +952,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       )}
 
       {/* Vidu 专用参数 */}
-      {provider === "vidu" && (
+      {(provider === "vidu" || provider === "viduq3-pro") && (
         <>
           <div
             className='video-dropdown'

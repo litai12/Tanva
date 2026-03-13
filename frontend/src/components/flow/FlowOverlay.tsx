@@ -8249,13 +8249,15 @@ function FlowInner() {
           provider = "kling-o1";
         } else if (node.type === "kling26Video") {
           provider = "kling-2.6";
+        } else if (node.type === "viduQ3") {
+          provider = "viduq3-pro";
         } else {
           provider = (node.data as any)?.provider || "kling";
         }
 
         // 先获取图片数量，判断是否需要 prompt
         const maxImages =
-          provider === "vidu"
+          provider === "vidu" || provider === "viduq3-pro"
             ? VIDU_MAX_REFERENCE_IMAGES
             : provider === "kling" || provider === "kling-2.6" || provider === "kling-o1"
             ? KLING_MAX_REFERENCE_IMAGES
@@ -8276,7 +8278,7 @@ function FlowInner() {
         // - 3-7张图：使用reference2video（必须有prompt，无prompt时使用默认）
         let finalPrompt = promptText;
 
-        if (provider === "vidu") {
+        if (provider === "vidu" || provider === "viduq3-pro") {
           if (imageCount === 0 && !hasText) {
             // 0张图必须有prompt
             setNodes((ns) =>
@@ -8427,7 +8429,7 @@ function FlowInner() {
               if (!trimmed) continue;
 
               // 根据供应商处理图片格式
-              if (provider === "vidu" || provider === "kling" || provider === "kling-o1") {
+              if (provider === "vidu" || provider === "viduq3-pro" || provider === "kling" || provider === "kling-o1") {
                 // Vidu 和 Kling 需要可访问的 URL，必须上传到 OSS
                 if (isRemoteUrl(trimmed)) {
                   referenceImageUrls.push(normalizeStableRemoteUrl(trimmed));
@@ -8513,7 +8515,7 @@ function FlowInner() {
             // Kling O1 支持 3-10 秒
             durationForAPI = clipDuration;
           } else if (
-            provider === "vidu" &&
+            (provider === "vidu" || provider === "viduq3-pro") &&
             clipDuration >= 1 &&
             clipDuration <= 10
           ) {
