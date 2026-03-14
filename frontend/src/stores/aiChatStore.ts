@@ -43,7 +43,12 @@ import {
   requiresManagedImageUpload,
   toRenderableImageSrc,
 } from "@/utils/imageSource";
-import { blobToDataUrl as blobToDataUrlLimited, canvasToDataUrl, responseToBlob } from "@/utils/imageConcurrency";
+import {
+  blobToDataUrl as blobToDataUrlLimited,
+  canvasToBlob,
+  canvasToDataUrl,
+  responseToBlob,
+} from "@/utils/imageConcurrency";
 import {
   STORE_NAMES,
   idbGet,
@@ -425,6 +430,18 @@ type ExecuteProcessFlowOptions = {
   parameters?: { prompt: string };
 };
 
+export type PreciseEditContext = {
+  targetImageId: string;
+  targetImageSource: string;
+  cropRectNormalized: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  createdAt: number;
+};
+
 export interface GenerationStatus {
   isGenerating: boolean;
   progress: number;
@@ -613,6 +630,88 @@ const getViewCenter = (): { x: number; y: number } | null => {
     }
   } catch {}
   return null;
+};
+
+const clampToUnit = (value: number): number => {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(1, Math.max(0, value));
+};
+
+const loadImageElementFromBlob = async (blob: Blob): Promise<HTMLImageElement> => {
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    return await new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error("图片解码失败"));
+      image.src = objectUrl;
+    });
+  } finally {
+    try {
+      URL.revokeObjectURL(objectUrl);
+    } catch {}
+  }
+};
+
+const mergePrecisePatchIntoImage = async (params: {
+  baseImageSource: string;
+  patchImageSource: string;
+  cropRectNormalized: PreciseEditContext["cropRectNormalized"];
+}): Promise<Blob | null> => {
+  const baseBlob = await resolveImageToBlob(params.baseImageSource);
+  const patchBlob = await resolveImageToBlob(params.patchImageSource);
+  if (!baseBlob || !patchBlob) return null;
+
+  const [baseImage, patchImage] = await Promise.all([
+    loadImageElementFromBlob(baseBlob),
+    loadImageElementFromBlob(patchBlob),
+  ]);
+
+  const baseWidth = Math.max(
+    1,
+    Math.round(baseImage.naturalWidth || baseImage.width || 1)
+  );
+  const baseHeight = Math.max(
+    1,
+    Math.round(baseImage.naturalHeight || baseImage.height || 1)
+  );
+
+  const canvas = document.createElement("canvas");
+  canvas.width = baseWidth;
+  canvas.height = baseHeight;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  ctx.clearRect(0, 0, baseWidth, baseHeight);
+  ctx.drawImage(baseImage, 0, 0, baseWidth, baseHeight);
+
+  const nx = clampToUnit(params.cropRectNormalized.x);
+  const ny = clampToUnit(params.cropRectNormalized.y);
+  const nw = clampToUnit(params.cropRectNormalized.width);
+  const nh = clampToUnit(params.cropRectNormalized.height);
+  if (nw <= 0 || nh <= 0) return null;
+
+  const cropX = Math.min(baseWidth - 1, Math.max(0, Math.round(nx * baseWidth)));
+  const cropY = Math.min(
+    baseHeight - 1,
+    Math.max(0, Math.round(ny * baseHeight))
+  );
+  const cropWidth = Math.max(
+    1,
+    Math.min(baseWidth - cropX, Math.round(nw * baseWidth))
+  );
+  const cropHeight = Math.max(
+    1,
+    Math.min(baseHeight - cropY, Math.round(nh * baseHeight))
+  );
+
+  ctx.drawImage(patchImage, cropX, cropY, cropWidth, cropHeight);
+
+  try {
+    return await canvasToBlob(canvas, { type: "image/png", quality: 0.92 });
+  } catch {
+    return null;
+  }
 };
 
 const dispatchPlaceholderEvent = (
@@ -2051,6 +2150,7 @@ interface AIChatState {
 
   // 图生图状态
   sourceImageForEditing: string | null; // 当前用于编辑的源图像
+  preciseEditContext: PreciseEditContext | null; // 精准微调上下文（局部编辑回贴）
 
   // 多图融合状态
   sourceImagesForBlending: string[]; // 当前用于融合的多张图像
@@ -2140,6 +2240,7 @@ interface AIChatState {
     options?: { override?: MessageOverride; metrics?: ProcessMetrics }
   ) => Promise<void>;
   setSourceImageForEditing: (imageData: string | null) => void;
+  setPreciseEditContext: (context: PreciseEditContext | null) => void;
 
   // 画布选中图片同步到AI对话框
   setSourceImagesFromCanvas: (images: string[]) => void;
@@ -2522,6 +2623,7 @@ export const useAIChatStore = create<AIChatState>()(
         messages: [],
         lastGeneratedImage: null,
         sourceImageForEditing: null, // 图生图源图像
+        preciseEditContext: null,
         sourceImagesForBlending: [], // 多图融合源图像数组
         sourceImageForAnalysis: null, // 图像分析源图像
         sourcePdfForAnalysis: null, // PDF 分析源文件
@@ -3692,6 +3794,7 @@ export const useAIChatStore = create<AIChatState>()(
           options?: { override?: MessageOverride; metrics?: ProcessMetrics }
         ) => {
           const state = get();
+          const preciseEditContext = state.preciseEditContext;
           const metrics = options?.metrics;
           logProcessStep(metrics, "editImage entered");
 
@@ -4175,34 +4278,79 @@ export const useAIChatStore = create<AIChatState>()(
                 );
               };
 
-              // 🔥 传递并行编辑分组信息，用于自动打组
-              const editParallelGroupInfo =
-                isParallelEdit && groupId
-                  ? {
-                      groupId,
-                      groupIndex,
-                      groupTotal,
-                    }
-                  : undefined;
+	              // 🔥 传递并行编辑分组信息，用于自动打组
+	              const editParallelGroupInfo =
+	                isParallelEdit && groupId
+	                  ? {
+	                      groupId,
+	                      groupIndex,
+	                      groupTotal,
+	                    }
+	                  : undefined;
 
-              // 并行编辑：为每张图加递增延迟，避免同时上画布导致冲突
-              const baseDelay = 100;
-              const perImageDelay = 300;
-              const totalDelay = baseDelay + groupIndex * perImageDelay;
+	              // 并行编辑：为每张图加递增延迟，避免同时上画布导致冲突
+	              const baseDelay = 100;
+	              const perImageDelay = 300;
+	              const totalDelay = baseDelay + groupIndex * perImageDelay;
+	              let usedPreciseOverlay = false;
 
-              setTimeout(() => {
-                if (result.data) {
-                  console.log(
-                    `✅ [editImage] 步骤3执行：发送图片到画布 (延迟${totalDelay}ms, 并行模式: ${isParallelEdit})`
-                  );
-                  addImageToCanvas(
-                    result.data,
-                    placementImageData,
-                    isParallelEdit,
-                    editParallelGroupInfo
-                  );
-                }
-              }, totalDelay);
+	              if (
+	                preciseEditContext &&
+	                preciseEditContext.targetImageId &&
+	                preciseEditContext.targetImageSource
+	              ) {
+	                try {
+	                  const mergedBlob = await mergePrecisePatchIntoImage({
+	                    baseImageSource: preciseEditContext.targetImageSource,
+	                    patchImageSource: placementImageData,
+	                    cropRectNormalized: preciseEditContext.cropRectNormalized,
+	                  });
+	                  if (mergedBlob) {
+	                    const mergedObjectUrl = URL.createObjectURL(mergedBlob);
+	                    try {
+	                      window.dispatchEvent(
+	                        new CustomEvent("canvas:replace-image-source", {
+	                          detail: {
+	                            imageId: preciseEditContext.targetImageId,
+	                            source: mergedObjectUrl,
+	                            contentType: "image/png",
+	                            fileName: `${prompt.substring(0, 20) || "precise"}_merged.png`,
+	                            historyLabel: "precise-edit",
+	                          },
+	                        })
+	                      );
+	                      usedPreciseOverlay = true;
+	                    } catch {
+	                      // ignore
+	                    }
+	                  }
+	                } catch (error) {
+	                  console.warn("⚠️ 精准微调回贴失败，回退普通上画布:", error);
+	                }
+	              }
+
+	              // 精准微调上下文只消费一次，避免后续请求误用
+	              if (preciseEditContext) {
+	                set({ preciseEditContext: null });
+	              }
+
+	              if (usedPreciseOverlay) {
+	                removePredictivePlaceholder();
+	              } else {
+	                setTimeout(() => {
+	                  if (result.data) {
+	                    console.log(
+	                      `✅ [editImage] 步骤3执行：发送图片到画布 (延迟${totalDelay}ms, 并行模式: ${isParallelEdit})`
+	                    );
+	                    addImageToCanvas(
+	                      result.data,
+	                      placementImageData,
+	                      isParallelEdit,
+	                      editParallelGroupInfo
+	                    );
+	                  }
+	                }, totalDelay);
+	              }
 
               // 步骤4：异步上传历史记录（后台进行，不阻塞上画布）
               if (inlineImageData || imageRemoteUrl) {
@@ -4358,6 +4506,18 @@ export const useAIChatStore = create<AIChatState>()(
           );
         },
 
+        setPreciseEditContext: (context: PreciseEditContext | null) => {
+          if (!context) {
+            set({ preciseEditContext: null });
+            return;
+          }
+          if (!context.targetImageId || !context.targetImageSource) {
+            set({ preciseEditContext: null });
+            return;
+          }
+          set({ preciseEditContext: context });
+        },
+
         // 画布选中图片同步到AI对话框
         setSourceImagesFromCanvas: (images: string[]) => {
           const normalizedImages = images
@@ -4369,6 +4529,7 @@ export const useAIChatStore = create<AIChatState>()(
             set({
               sourceImageForEditing: null,
               sourceImagesForBlending: [],
+              preciseEditContext: null,
             });
             return;
           }
@@ -4381,6 +4542,7 @@ export const useAIChatStore = create<AIChatState>()(
             set({
               sourceImageForEditing: singleImage,
               sourceImagesForBlending: [],
+              preciseEditContext: null,
             });
             // 🔥 不再调用 cacheLatestImage，避免覆盖 DrawingController 设置的带 bounds 的缓存
           } else {
@@ -4388,6 +4550,7 @@ export const useAIChatStore = create<AIChatState>()(
             set({
               sourceImageForEditing: null,
               sourceImagesForBlending: normalizedImages,
+              preciseEditContext: null,
             });
             // 🔥 不再调用 cacheLatestImage，避免覆盖 DrawingController 设置的带 bounds 的缓存
           }
@@ -7413,6 +7576,7 @@ export const useAIChatStore = create<AIChatState>()(
             messages: [],
             lastGeneratedImage: null,
             sourceImageForEditing: null,
+            preciseEditContext: null,
             sourceImagesForBlending: [],
             sourceImageForAnalysis: null,
             sourcePdfForAnalysis: null,
@@ -7673,6 +7837,7 @@ if (typeof window !== "undefined") {
       try {
         const store = useAIChatStore.getState();
         store.setSourceImageForEditing(null);
+        store.setPreciseEditContext(null);
         store.clearImagesForBlending();
         store.setSourceImageForAnalysis(null);
         store.setSourcePdfForAnalysis(null);

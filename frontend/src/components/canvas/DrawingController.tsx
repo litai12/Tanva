@@ -15,7 +15,7 @@ import {
   FileInput,
 } from 'lucide-react';
 import { useToolStore, useCanvasStore, useLayerStore } from '@/stores';
-import { useAIChatStore } from '@/stores/aiChatStore';
+import { useAIChatStore, type PreciseEditContext } from '@/stores/aiChatStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import ImageUploadComponent from './ImageUploadComponent';
 import Model3DUploadComponent from './Model3DUploadComponent';
@@ -68,7 +68,7 @@ import {
   resolveImageToBlob,
   toRenderableImageSrc,
 } from "@/utils/imageSource";
-import { responseToBlob } from "@/utils/imageConcurrency";
+import { canvasToBlob, responseToBlob } from "@/utils/imageConcurrency";
 import {
   usePersonalLibraryStore,
   createPersonalAssetId,
@@ -247,6 +247,77 @@ const extractAnyImageSource = (imageData: unknown): string | null => {
   return null;
 };
 
+const clamp01 = (value: number): number => {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(1, Math.max(0, value));
+};
+
+const loadImageFromBlob = async (blob: Blob): Promise<HTMLImageElement> => {
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    return await new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error("图片解码失败"));
+      image.src = objectUrl;
+    });
+  } finally {
+    try {
+      URL.revokeObjectURL(objectUrl);
+    } catch {}
+  }
+};
+
+const cropImageByNormalizedRect = async (params: {
+  source: string;
+  rect: { x: number; y: number; width: number; height: number };
+}): Promise<Blob | null> => {
+  const sourceBlob = await resolveImageToBlob(params.source);
+  if (!sourceBlob) return null;
+  const sourceImage = await loadImageFromBlob(sourceBlob);
+
+  const sourceWidth = Math.max(
+    1,
+    Math.round(sourceImage.naturalWidth || sourceImage.width || 1)
+  );
+  const sourceHeight = Math.max(
+    1,
+    Math.round(sourceImage.naturalHeight || sourceImage.height || 1)
+  );
+
+  const x = clamp01(params.rect.x);
+  const y = clamp01(params.rect.y);
+  const width = clamp01(params.rect.width);
+  const height = clamp01(params.rect.height);
+  if (width <= 0 || height <= 0) return null;
+
+  const sx = Math.min(sourceWidth - 1, Math.max(0, Math.round(x * sourceWidth)));
+  const sy = Math.min(
+    sourceHeight - 1,
+    Math.max(0, Math.round(y * sourceHeight))
+  );
+  const sw = Math.max(1, Math.min(sourceWidth - sx, Math.round(width * sourceWidth)));
+  const sh = Math.max(
+    1,
+    Math.min(sourceHeight - sy, Math.round(height * sourceHeight))
+  );
+
+  const canvas = document.createElement("canvas");
+  canvas.width = sw;
+  canvas.height = sh;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  ctx.clearRect(0, 0, sw, sh);
+  ctx.drawImage(sourceImage, sx, sy, sw, sh, 0, 0, sw, sh);
+
+  try {
+    return await canvasToBlob(canvas, { type: "image/png", quality: 0.92 });
+  } catch {
+    return null;
+  }
+};
+
 const isEditableElement = (el: Element | null): boolean => {
   if (!el) return false;
   const tag = el.tagName?.toLowerCase();
@@ -363,8 +434,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const panX = useCanvasStore((state) => state.panX);
   const panY = useCanvasStore((state) => state.panY);
   const { toggleVisibility } = useLayerStore();
-  const { setSourceImageForEditing, showDialog: showAIDialog } =
-    useAIChatStore();
+  const {
+    setSourceImageForEditing,
+    setPreciseEditContext,
+    showDialog: showAIDialog,
+  } = useAIChatStore();
   const projectId = useProjectContentStore((s) => s.projectId);
   const projectAssets = useProjectContentStore((s) => s.content?.assets);
   const drawingLayerManagerRef = useRef<DrawingLayerManager | null>(null);
@@ -567,6 +641,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   // 内存优化：使用 ref 存储实例数组，避免大型闭包
   const imageInstancesRef = useRef<ImageInstance[]>([]);
+  const preciseShiftPressedRef = useRef(false);
 
   // ========== 初始化图片工具Hook ==========
   const imageTool = useImageTool({
@@ -658,6 +733,60 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       scheduleRebuildRef.current?.();
     },
     [shouldRecoverPaperImages]
+  );
+
+  const startPreciseLocalRefine = useCallback(
+    async (params: {
+      imageId: string;
+      imageSource: string;
+      cropRectNormalized: { x: number; y: number; width: number; height: number };
+    }) => {
+      let stableTargetSource = params.imageSource;
+      try {
+        stableTargetSource =
+          (await ensureChatStableImageRef(params.imageSource, params.imageId)) ||
+          params.imageSource;
+      } catch {}
+      const cropBlob = await cropImageByNormalizedRect({
+        source: stableTargetSource,
+        rect: params.cropRectNormalized,
+      });
+      if (!cropBlob) {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "局部裁剪失败，请重试", type: "error" },
+          })
+        );
+        return;
+      }
+
+      const cropObjectUrl = URL.createObjectURL(cropBlob);
+      const preciseContext: PreciseEditContext = {
+        targetImageId: params.imageId,
+        targetImageSource: stableTargetSource,
+        cropRectNormalized: params.cropRectNormalized,
+        createdAt: Date.now(),
+      };
+
+      setPreciseEditContext(preciseContext);
+      setSourceImageForEditing(cropObjectUrl);
+      showAIDialog();
+
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: {
+            message: "已发送局部区域到对话框，生成后将原位覆盖",
+            type: "success",
+          },
+        })
+      );
+    },
+    [
+      ensureChatStableImageRef,
+      setPreciseEditContext,
+      setSourceImageForEditing,
+      showAIDialog,
+    ]
   );
 
   // ========== 初始化快速图片上传Hook ==========
@@ -2191,6 +2320,208 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     return () => {
       window.removeEventListener(
         "tanva:upgradeImageSource",
+        handler as EventListener
+      );
+    };
+  }, []);
+
+  useEffect(() => {
+    const applySourceToRaster = (raster: paper.Raster, source: string) => {
+      const trimmed = typeof source === "string" ? source.trim() : "";
+      if (!trimmed) return;
+      try {
+        (raster as any).__tanvaSourceRef = trimmed;
+      } catch {}
+
+      if (trimmed.startsWith("blob:") || trimmed.startsWith("data:image/")) {
+        try {
+          const image = new Image();
+          image.src = trimmed;
+          (raster as any).setImage(image);
+          return;
+        } catch {}
+      }
+
+      try {
+        raster.source = trimmed;
+      } catch {}
+    };
+
+    const updateSelectionHelpers = (
+      raster: any,
+      rect: { x: number; y: number; width: number; height: number }
+    ) => {
+      const bounds = new paper.Rectangle(rect.x, rect.y, rect.width, rect.height);
+      try {
+        raster.bounds = bounds.clone();
+      } catch {}
+      try {
+        const parent: any = raster.parent;
+        if (!parent || parent.className !== "Group" || !Array.isArray(parent.children)) {
+          return;
+        }
+        parent.children.forEach((child: any) => {
+          if (!child || child === raster) return;
+          const data = child.data || {};
+          if (
+            data.type === "image-selection-area" ||
+            data.isSelectionBorder ||
+            data.isImageHitRect
+          ) {
+            try {
+              child.bounds = bounds.clone();
+            } catch {}
+            return;
+          }
+          if (data.isResizeHandle) {
+            const direction = data.direction;
+            let x = bounds.x;
+            let y = bounds.y;
+            if (direction === "ne" || direction === "se") x = bounds.x + bounds.width;
+            if (direction === "sw" || direction === "se") y = bounds.y + bounds.height;
+            try {
+              child.position = new paper.Point(x, y);
+            } catch {}
+          }
+        });
+      } catch {}
+    };
+
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<any>)?.detail || {};
+      const imageId = String(detail.imageId || "").trim();
+      const rawSource = typeof detail.source === "string" ? detail.source : "";
+      if (!imageId || !rawSource.trim()) return;
+
+      const renderableSource = toRenderableImageSrc(rawSource) || rawSource;
+      const contentType =
+        typeof detail.contentType === "string" && detail.contentType.trim()
+          ? detail.contentType.trim()
+          : "image/png";
+      const fileName =
+        typeof detail.fileName === "string" && detail.fileName.trim()
+          ? detail.fileName.trim()
+          : `precise_${Date.now()}.png`;
+      const historyLabel =
+        typeof detail.historyLabel === "string" && detail.historyLabel.trim()
+          ? detail.historyLabel.trim()
+          : "replace-image-source";
+
+      let didUpdate = false;
+
+      try {
+        imageToolSetInstancesRef.current((prev: any[]) => {
+          if (!Array.isArray(prev) || prev.length === 0) return prev;
+          const idx = prev.findIndex((item) => item?.id === imageId);
+          if (idx < 0) return prev;
+          const current = prev[idx];
+          const next = prev.slice();
+          next[idx] = {
+            ...current,
+            imageData: {
+              ...(current?.imageData || {}),
+              src: renderableSource,
+              url: renderableSource,
+              localDataUrl: renderableSource,
+              pendingUpload: true,
+              fileName,
+              contentType,
+            },
+          };
+          didUpdate = true;
+          return next;
+        });
+      } catch {}
+
+      try {
+        const runtime = (window as any).tanvaImageInstances as any[] | undefined;
+        if (Array.isArray(runtime) && runtime.length > 0) {
+          const next = runtime.map((item) => {
+            if (!item || item.id !== imageId) return item;
+            didUpdate = true;
+            return {
+              ...item,
+              imageData: {
+                ...(item.imageData || {}),
+                src: renderableSource,
+                url: renderableSource,
+                localDataUrl: renderableSource,
+                pendingUpload: true,
+                fileName,
+                contentType,
+              },
+            };
+          });
+          (window as any).tanvaImageInstances = next;
+        }
+      } catch {}
+
+      try {
+        const project = paper?.project as any;
+        const rasterClass = (paper as any).Raster;
+        if (project?.getItems && rasterClass) {
+          const rasters = project.getItems({ class: rasterClass }) as any[];
+          rasters.forEach((raster) => {
+            if (!raster) return;
+            const rid =
+              raster?.data?.imageId ||
+              raster?.parent?.data?.imageId ||
+              raster?.data?.id ||
+              raster?.id;
+            if (String(rid) !== imageId) return;
+
+            const stored = (raster as any)?.data?.__tanvaBounds as
+              | { x: number; y: number; width: number; height: number }
+              | undefined;
+            const fallbackBounds = raster.bounds as paper.Rectangle | undefined;
+            const rect = stored &&
+              Number.isFinite(stored.x) &&
+              Number.isFinite(stored.y) &&
+              Number.isFinite(stored.width) &&
+              Number.isFinite(stored.height) &&
+              stored.width > 0 &&
+              stored.height > 0
+                ? stored
+                : fallbackBounds
+                ? {
+                    x: fallbackBounds.x,
+                    y: fallbackBounds.y,
+                    width: fallbackBounds.width,
+                    height: fallbackBounds.height,
+                  }
+                : null;
+
+            applySourceToRaster(raster as paper.Raster, renderableSource);
+            if (rect) {
+              updateSelectionHelpers(raster, rect);
+              try {
+                raster.data = {
+                  ...(raster.data || {}),
+                  __tanvaBounds: { ...rect },
+                };
+              } catch {}
+            }
+            didUpdate = true;
+          });
+        }
+      } catch {}
+
+      if (!didUpdate) return;
+      try {
+        paper.view?.update();
+      } catch {}
+      try {
+        historyService.commit(historyLabel).catch(() => {});
+      } catch {}
+      try {
+        paperSaveService.triggerAutoSave("replace-image-source");
+      } catch {}
+    };
+
+    window.addEventListener("canvas:replace-image-source", handler as EventListener);
+    return () => {
+      window.removeEventListener(
+        "canvas:replace-image-source",
         handler as EventListener
       );
     };
@@ -4006,6 +4337,298 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     isEraser,
     snapAlignment,
   });
+
+  const preciseSelectedImageIdsKey = useMemo(
+    () => (imageTool.selectedImageIds ?? []).join("|"),
+    [imageTool.selectedImageIds]
+  );
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    type DragState = {
+      imageId: string;
+      imageSource: string;
+      imageBounds: { x: number; y: number; width: number; height: number };
+      startPoint: paper.Point;
+      currentPoint: paper.Point;
+      overlayRect: paper.Path.Rectangle;
+    };
+
+    let dragState: DragState | null = null;
+    let shiftPressed = preciseShiftPressedRef.current;
+
+    const isSelectionMode =
+      drawMode === "select" || drawMode === "marquee" || drawMode === "pointer";
+
+    const resolveSingleSelectedImage = (): ImageInstance | null => {
+      const instances = imageInstancesRef.current || [];
+      const selectedImageIds =
+        Array.isArray(imageTool.selectedImageIds) &&
+        imageTool.selectedImageIds.length > 0
+          ? imageTool.selectedImageIds
+          : instances.filter((img) => img.isSelected).map((img) => img.id);
+      if (selectedImageIds.length !== 1) return null;
+      return instances.find((img) => img.id === selectedImageIds[0]) ?? null;
+    };
+
+    const canStartPreciseDrag = () => {
+      if (!isSelectionMode) return false;
+      const selectedImage = resolveSingleSelectedImage();
+      if (!selectedImage) return false;
+      const bounds = selectedImage.bounds;
+      if (!bounds) return false;
+      return bounds.width > 0 && bounds.height > 0;
+    };
+
+    const updatePreciseReadyCursor = () => {
+      if (typeof document === "undefined" || !document.body) return;
+      const shouldShow =
+        shiftPressed && !dragState && canStartPreciseDrag();
+      document.body.classList.toggle("tanva-precise-edit-ready", shouldShow);
+    };
+
+    const emitSelectionOverlayUpdate = (
+      startPoint: paper.Point,
+      currentPoint: paper.Point
+    ) => {
+      window.dispatchEvent(
+        new CustomEvent("selection-box-update", {
+          detail: { startPoint, currentPoint },
+        })
+      );
+    };
+
+    const clampPointToImageBounds = (
+      point: paper.Point,
+      bounds: { x: number; y: number; width: number; height: number }
+    ): paper.Point =>
+      new paper.Point(
+        Math.min(Math.max(point.x, bounds.x), bounds.x + bounds.width),
+        Math.min(Math.max(point.y, bounds.y), bounds.y + bounds.height)
+      );
+
+    const resolveClampedSelection = (
+      start: paper.Point,
+      current: paper.Point,
+      bounds: { x: number; y: number; width: number; height: number }
+    ) => {
+      const left = Math.min(start.x, current.x);
+      const top = Math.min(start.y, current.y);
+      const right = Math.max(start.x, current.x);
+      const bottom = Math.max(start.y, current.y);
+      const x = Math.max(left, bounds.x);
+      const y = Math.max(top, bounds.y);
+      const maxRight = Math.min(right, bounds.x + bounds.width);
+      const maxBottom = Math.min(bottom, bounds.y + bounds.height);
+      const width = Math.max(0, maxRight - x);
+      const height = Math.max(0, maxBottom - y);
+      return { x, y, width, height };
+    };
+
+    const clearDragState = () => {
+      if (dragState?.overlayRect) {
+        try {
+          dragState.overlayRect.remove();
+        } catch {}
+      }
+      dragState = null;
+      document.body.classList.remove("tanva-selection-dragging");
+      window.dispatchEvent(new CustomEvent("selection-box-clear"));
+      updatePreciseReadyCursor();
+      try {
+        paper.view?.update();
+      } catch {}
+    };
+
+    const handleMouseDown = (event: MouseEvent) => {
+      if (!isSelectionMode) {
+        return;
+      }
+      if (event.button !== 0 || !event.shiftKey) return;
+      const path =
+        typeof event.composedPath === "function" ? event.composedPath() : [];
+      const fromCanvas =
+        path.length > 0
+          ? path.includes(canvas)
+          : event.target === canvas ||
+            (event.target instanceof Node && canvas.contains(event.target));
+      if (!fromCanvas) return;
+
+      const selectedImage = resolveSingleSelectedImage();
+      if (!selectedImage) return;
+      const bounds = selectedImage.bounds;
+      if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
+
+      const point = clientToProject(canvas, event.clientX, event.clientY);
+      const inBounds =
+        point.x >= bounds.x &&
+        point.x <= bounds.x + bounds.width &&
+        point.y >= bounds.y &&
+        point.y <= bounds.y + bounds.height;
+      if (!inBounds) return;
+
+      const imageSource =
+        resolveCanvasImageRefForChat(selectedImage.id, selectedImage.imageData) ||
+        extractAnyImageSource(selectedImage.imageData);
+      if (!imageSource) {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "当前图片缺少可编辑源，无法局部微调", type: "error" },
+          })
+        );
+        return;
+      }
+
+      const clampedStart = clampPointToImageBounds(point, bounds);
+      const overlayRect = new paper.Path.Rectangle({
+        rectangle: new paper.Rectangle(clampedStart, clampedStart),
+        strokeColor: new paper.Color("#3b82f6"),
+        strokeWidth: Math.max(1, 1 / Math.max(zoomRef.current || 1, 0.0001)),
+        dashArray: [
+          8 / Math.max(zoomRef.current || 1, 0.0001),
+          6 / Math.max(zoomRef.current || 1, 0.0001),
+        ],
+        fillColor: new paper.Color(0.23, 0.51, 0.96, 0.18),
+      });
+      overlayRect.data = {
+        ...(overlayRect.data || {}),
+        type: "precise-edit-selection",
+        isHelper: true,
+        isSelectionHelper: true,
+      };
+      try {
+        overlayRect.bringToFront();
+      } catch {}
+
+      dragState = {
+        imageId: selectedImage.id,
+        imageSource,
+        imageBounds: bounds,
+        startPoint: clampedStart,
+        currentPoint: clampedStart,
+        overlayRect,
+      };
+      document.body.classList.add("tanva-selection-dragging");
+      updatePreciseReadyCursor();
+      emitSelectionOverlayUpdate(clampedStart, clampedStart);
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+    };
+
+    const handleMouseMove = (event: MouseEvent) => {
+      if (!dragState) return;
+      const point = clientToProject(canvas, event.clientX, event.clientY);
+      const clamped = clampPointToImageBounds(point, dragState.imageBounds);
+      dragState.currentPoint = clamped;
+      const rect = resolveClampedSelection(
+        dragState.startPoint,
+        clamped,
+        dragState.imageBounds
+      );
+      emitSelectionOverlayUpdate(dragState.startPoint, clamped);
+      try {
+        dragState.overlayRect.bounds = new paper.Rectangle(
+          rect.x,
+          rect.y,
+          Math.max(1, rect.width),
+          Math.max(1, rect.height)
+        );
+      } catch {}
+      try {
+        paper.view?.update();
+      } catch {}
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+    };
+
+    const handleMouseUp = (event: MouseEvent) => {
+      if (!dragState) return;
+      const active = dragState;
+      const rect = resolveClampedSelection(
+        active.startPoint,
+        active.currentPoint,
+        active.imageBounds
+      );
+      const minSize = 6;
+      clearDragState();
+      if (rect.width < minSize || rect.height < minSize) {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "选区太小，请重新框选", type: "warning" },
+          })
+        );
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        return;
+      }
+
+      const normalizedRect = {
+        x: clamp01((rect.x - active.imageBounds.x) / active.imageBounds.width),
+        y: clamp01((rect.y - active.imageBounds.y) / active.imageBounds.height),
+        width: clamp01(rect.width / active.imageBounds.width),
+        height: clamp01(rect.height / active.imageBounds.height),
+      };
+      void startPreciseLocalRefine({
+        imageId: active.imageId,
+        imageSource: active.imageSource,
+        cropRectNormalized: normalizedRect,
+      });
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+    };
+
+    const syncShift = (next: boolean) => {
+      if (shiftPressed === next) return;
+      shiftPressed = next;
+      preciseShiftPressedRef.current = next;
+      updatePreciseReadyCursor();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Shift") syncShift(true);
+    };
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.key === "Shift") syncShift(false);
+    };
+    const handleWindowBlur = () => syncShift(false);
+    const handleVisibilityChange = () => {
+      if (typeof document === "undefined") return;
+      if (document.visibilityState !== "visible") syncShift(false);
+    };
+
+    updatePreciseReadyCursor();
+
+    window.addEventListener("mousedown", handleMouseDown, { capture: true });
+    window.addEventListener("mousemove", handleMouseMove, { capture: true });
+    window.addEventListener("mouseup", handleMouseUp, { capture: true });
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    window.addEventListener("keyup", handleKeyUp, { capture: true });
+    window.addEventListener("blur", handleWindowBlur);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      clearDragState();
+      document.body.classList.remove("tanva-precise-edit-ready");
+      window.removeEventListener("mousedown", handleMouseDown, true);
+      window.removeEventListener("mousemove", handleMouseMove, true);
+      window.removeEventListener("mouseup", handleMouseUp, true);
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("keyup", handleKeyUp, true);
+      window.removeEventListener("blur", handleWindowBlur);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [
+    canvasRef,
+    drawMode,
+    imageTool.selectedImageIds,
+    preciseSelectedImageIdsKey,
+    startPreciseLocalRefine,
+  ]);
 
   const collectCanvasClipboardData =
     useCallback((): CanvasClipboardData | null => {

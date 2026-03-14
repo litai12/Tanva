@@ -61,7 +61,7 @@ const Canvas: React.FC = () => {
             <GlobalZoomCapture />
             <canvas
                 ref={canvasRef}
-                className="absolute inset-0 w-full h-full"
+                className="tanva-main-canvas absolute inset-0 w-full h-full"
                 style={{ background: 'white' }}
             />
 
