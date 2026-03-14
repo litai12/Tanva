@@ -283,6 +283,91 @@ const getGroupChildIds = (node?: RFNode | null): string[] => {
   return Array.from(new Set(ids.filter((id) => typeof id === "string" && id)));
 };
 
+type GroupBounds = { x: number; y: number; width: number; height: number };
+const GROUP_PREVIEW_IMAGE_LIMIT = 3;
+
+const isGroupCollapsed = (node?: RFNode | null): boolean =>
+  Boolean(node && (node as any)?.data?.collapsed === true);
+
+const normalizeGroupBounds = (value: any): GroupBounds | null => {
+  if (!value || typeof value !== "object") return null;
+  const x = Number(value.x);
+  const y = Number(value.y);
+  const width = Number(value.width);
+  const height = Number(value.height);
+  if (
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return null;
+  }
+  return { x, y, width, height };
+};
+
+const areGroupBoundsEqual = (
+  a: GroupBounds | null,
+  b: GroupBounds | null,
+  epsilon = 0.1
+): boolean => {
+  if (!a || !b) return false;
+  return (
+    Math.abs(a.x - b.x) < epsilon &&
+    Math.abs(a.y - b.y) < epsilon &&
+    Math.abs(a.width - b.width) < epsilon &&
+    Math.abs(a.height - b.height) < epsilon
+  );
+};
+
+const collectPreviewImagesFromNode = (node?: RFNode | null): string[] => {
+  if (!node || isGroupNode(node)) return [];
+  const data = (node.data || {}) as Record<string, unknown>;
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  const push = (value: unknown) => {
+    if (typeof value !== "string") return;
+    const normalized = value.trim();
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    out.push(normalized);
+  };
+
+  push(data.thumbnailDataUrl);
+  push(data.thumbnail);
+  push(data.imageUrl);
+  push(data.imageData);
+  push(data.outputImage);
+
+  const multiKeys = ["thumbnails", "imageUrls", "images"];
+  multiKeys.forEach((key) => {
+    const values = data[key];
+    if (!Array.isArray(values)) return;
+    values.forEach((value) => push(value));
+  });
+
+  const frames = Array.isArray(data.frames)
+    ? (data.frames as Array<Record<string, unknown>>)
+    : [];
+  frames.forEach((frame) => {
+    push(frame?.thumbnailDataUrl);
+    push(frame?.imageUrl);
+  });
+
+  const splitImages = Array.isArray(data.splitImages)
+    ? (data.splitImages as Array<Record<string, unknown>>)
+    : [];
+  splitImages.forEach((item) => {
+    push(item?.thumbnailDataUrl);
+    push(item?.imageData);
+  });
+
+  return out;
+};
+
 const getNodeRenderSize = (node: RFNode): { width: number; height: number } => {
   const fallback = FLOW_NODE_DEFAULT_SIZE[node.type as FlowNodeType] || {
     w: 220,
@@ -543,7 +628,7 @@ const CustomEdge = React.memo(function CustomEdge({
   return (
     <>
       <BaseEdge path={edgePath} markerEnd={markerEnd} style={style} />
-      {selected && (
+      {!data?.collapsedProxy && selected && (
         <EdgeLabelRenderer>
           <div
             style={{
@@ -580,6 +665,8 @@ const FLOW_GROUP_NODE_TYPE = "nodeGroup";
 const FLOW_GROUP_PADDING = 24;
 const FLOW_GROUP_MIN_WIDTH = 220;
 const FLOW_GROUP_MIN_HEIGHT = 160;
+const FLOW_GROUP_COLLAPSED_WIDTH = 260;
+const FLOW_GROUP_COLLAPSED_HEIGHT = 128;
 const FLOW_GROUP_DEFAULT_COLOR = "#3b82f6";
 const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "textChat",
@@ -2040,6 +2127,13 @@ function FlowInner() {
           return null;
         }
 
+        const collapsed = isGroupCollapsed(node);
+        const prevExpandedBounds = normalizeGroupBounds(
+          (node as any)?.data?.expandedBounds
+        );
+        const expandedBounds = bounds;
+        const resolvedExpandedBounds = expandedBounds || prevExpandedBounds;
+
         const currentColor =
           typeof node.data?.groupColor === "string" &&
           node.data.groupColor.trim().length > 0
@@ -2055,35 +2149,66 @@ function FlowInner() {
         const sameChildren =
           originalChildIds.length === filteredChildIds.length &&
           originalChildIds.every((id, index) => id === filteredChildIds[index]);
-        const samePosition =
-          Math.abs((node.position?.x ?? 0) - bounds.x) < 0.1 &&
-          Math.abs((node.position?.y ?? 0) - bounds.y) < 0.1;
         const styleW = Number((node as any)?.style?.width);
         const styleH = Number((node as any)?.style?.height);
+        const targetX = collapsed
+          ? Number.isFinite(Number(node.position?.x))
+            ? Number(node.position?.x)
+            : resolvedExpandedBounds?.x ?? 0
+          : bounds.x;
+        const targetY = collapsed
+          ? Number.isFinite(Number(node.position?.y))
+            ? Number(node.position?.y)
+            : resolvedExpandedBounds?.y ?? 0
+          : bounds.y;
+        const targetWidth = collapsed
+          ? FLOW_GROUP_COLLAPSED_WIDTH
+          : bounds.width;
+        const targetHeight = collapsed
+          ? FLOW_GROUP_COLLAPSED_HEIGHT
+          : bounds.height;
+        const samePosition =
+          Math.abs((node.position?.x ?? 0) - targetX) < 0.1 &&
+          Math.abs((node.position?.y ?? 0) - targetY) < 0.1;
         const sameSize =
-          Math.abs((Number.isFinite(styleW) ? styleW : 0) - bounds.width) < 0.1 &&
-          Math.abs((Number.isFinite(styleH) ? styleH : 0) - bounds.height) < 0.1;
+          Math.abs((Number.isFinite(styleW) ? styleW : 0) - targetWidth) < 0.1 &&
+          Math.abs((Number.isFinite(styleH) ? styleH : 0) - targetHeight) < 0.1;
         const sameColor = node.data?.groupColor === currentColor;
         const sameName = node.data?.groupName === currentName;
+        const sameCollapsed = Boolean(node.data?.collapsed) === collapsed;
+        const sameExpandedBounds = areGroupBoundsEqual(
+          prevExpandedBounds,
+          resolvedExpandedBounds
+        );
 
-        if (sameChildren && samePosition && sameSize && sameColor && sameName) {
+        if (
+          sameChildren &&
+          samePosition &&
+          sameSize &&
+          sameColor &&
+          sameName &&
+          sameCollapsed &&
+          sameExpandedBounds
+        ) {
           return node;
         }
 
         changed = true;
         return {
           ...node,
-          position: { x: bounds.x, y: bounds.y },
+          position: { x: targetX, y: targetY },
           data: {
             ...(node.data || {}),
             groupName: currentName,
             groupColor: currentColor,
             childNodeIds: filteredChildIds,
+            collapsed,
+            expandedBounds: resolvedExpandedBounds,
           },
           style: {
             ...(node.style || {}),
-            width: bounds.width,
-            height: bounds.height,
+            width: targetWidth,
+            height: targetHeight,
             zIndex: 0,
           },
         } as RFNode;
@@ -2124,6 +2249,91 @@ function FlowInner() {
       } catch {}
     },
     [setNodes]
+  );
+
+  const toggleGroupCollapsed = React.useCallback(
+    (groupId: string, nextCollapsed?: boolean) => {
+      if (!groupId) return;
+
+      const allNodes = (rf.getNodes?.() || []) as RFNode[];
+      const groupNode = allNodes.find((node) => node.id === groupId);
+      if (!groupNode || !isGroupNode(groupNode)) return;
+
+      const collapsed =
+        typeof nextCollapsed === "boolean"
+          ? nextCollapsed
+          : !isGroupCollapsed(groupNode);
+      const childIds = getGroupChildIds(groupNode);
+      const computedBounds = computeGroupBounds(allNodes, childIds);
+      const fallbackBounds =
+        normalizeGroupBounds((groupNode.data as any)?.expandedBounds) || {
+          x: Number(groupNode.position?.x ?? 0),
+          y: Number(groupNode.position?.y ?? 0),
+          width: Math.max(
+            FLOW_GROUP_MIN_WIDTH,
+            Number((groupNode as any)?.style?.width || 0) || FLOW_GROUP_MIN_WIDTH
+          ),
+          height: Math.max(
+            FLOW_GROUP_MIN_HEIGHT,
+            Number((groupNode as any)?.style?.height || 0) ||
+              FLOW_GROUP_MIN_HEIGHT
+          ),
+        };
+      const expandedBounds = computedBounds || fallbackBounds;
+      const childSet = new Set(childIds);
+
+      let changed = false;
+      setNodes((prev: any[]) =>
+        prev.map((node) => {
+          if (node.id === groupId && isGroupNode(node as RFNode)) {
+            const prevCollapsed = isGroupCollapsed(node as RFNode);
+            const prevExpandedBounds = normalizeGroupBounds(
+              (node.data as any)?.expandedBounds
+            );
+            const sameCollapsed = prevCollapsed === collapsed;
+            const sameExpandedBounds = areGroupBoundsEqual(
+              prevExpandedBounds,
+              expandedBounds
+            );
+            if (sameCollapsed && sameExpandedBounds) {
+              return node;
+            }
+            changed = true;
+            return {
+              ...node,
+              data: {
+                ...(node.data || {}),
+                collapsed,
+                expandedBounds,
+              },
+            };
+          }
+
+          if (collapsed && childSet.has(node.id) && node.selected) {
+            changed = true;
+            return { ...node, selected: false };
+          }
+
+          return node;
+        })
+      );
+
+      if (!changed) return;
+      try {
+        historyService
+          .commit(collapsed ? "flow-group-collapse" : "flow-group-expand")
+          .catch(() => {});
+      } catch {}
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: {
+            message: collapsed ? "分组已折叠" : "分组已展开",
+            type: "success",
+          },
+        })
+      );
+    },
+    [rf, setNodes]
   );
 
   const dissolveGroups = React.useCallback(
@@ -2210,6 +2420,8 @@ function FlowInner() {
         groupName: `分组 ${groupCount + 1}`,
         groupColor: FLOW_GROUP_DEFAULT_COLOR,
         childNodeIds: selectedIds,
+        collapsed: false,
+        expandedBounds: bounds,
       },
       selected: true,
       draggable: true,
@@ -11818,6 +12030,56 @@ function FlowInner() {
     [clearConnectHoverTimer, setIsConnecting]
   );
 
+  const collapsedChildToGroupId = React.useMemo(() => {
+    const hidden = new Map<string, string>();
+    nodes.forEach((node) => {
+      if (!isGroupNode(node as RFNode) || !isGroupCollapsed(node as RFNode)) {
+        return;
+      }
+      const groupId = String(node.id);
+      getGroupChildIds(node as RFNode).forEach((childId) => {
+        if (!hidden.has(childId)) {
+          hidden.set(childId, groupId);
+        }
+      });
+    });
+    return hidden;
+  }, [nodes]);
+
+  const collapsedChildNodeIds = React.useMemo(
+    () => new Set(Array.from(collapsedChildToGroupId.keys())),
+    [collapsedChildToGroupId]
+  );
+
+  const groupPreviewImagesByGroupId = React.useMemo(() => {
+    const nodeById = new Map(nodes.map((node) => [node.id, node as RFNode]));
+    const previews = new Map<string, string[]>();
+
+    nodes.forEach((node) => {
+      if (!isGroupNode(node as RFNode)) return;
+      const childIds = getGroupChildIds(node as RFNode);
+      const images: string[] = [];
+      const seen = new Set<string>();
+
+      for (const childId of childIds) {
+        const childNode = nodeById.get(childId);
+        if (!childNode || isGroupNode(childNode)) continue;
+        const candidates = collectPreviewImagesFromNode(childNode);
+        for (const value of candidates) {
+          if (seen.has(value)) continue;
+          seen.add(value);
+          images.push(value);
+          if (images.length >= GROUP_PREVIEW_IMAGE_LIMIT) break;
+        }
+        if (images.length >= GROUP_PREVIEW_IMAGE_LIMIT) break;
+      }
+
+      previews.set(String(node.id), images);
+    });
+
+    return previews;
+  }, [nodes]);
+
   // 在 node 渲染前为 Generate 节点注入 onRun 回调
   const nodesWithHandlers = React.useMemo(
     () =>
@@ -11833,6 +12095,10 @@ function FlowInner() {
                 onUngroup: (groupId: string) => dissolveGroups([groupId]),
                 onRunGroup: runGroupNodes,
                 groupRunning: runningGroupIds.includes(n.id),
+                onToggleCollapse: toggleGroupCollapsed,
+                groupCollapsed: isGroupCollapsed(n as RFNode),
+                groupChildCount: getGroupChildIds(n as RFNode).length,
+                groupPreviewImages: groupPreviewImagesByGroupId.get(String(n.id)) || [],
               },
             }
           : n.type === "generate" ||
@@ -11869,7 +12135,93 @@ function FlowInner() {
       dissolveGroups,
       runGroupNodes,
       runningGroupIds,
+      toggleGroupCollapsed,
+      groupPreviewImagesByGroupId,
     ]
+  );
+
+  const nodesForRender = React.useMemo(
+    () =>
+      nodesWithHandlers.map((node) => {
+        if (!collapsedChildNodeIds.has(node.id)) return node;
+        return {
+          ...node,
+          hidden: true,
+          selected: false,
+          draggable: false,
+          selectable: false,
+        };
+      }),
+    [nodesWithHandlers, collapsedChildNodeIds]
+  );
+
+  const edgesForRender = React.useMemo(
+    () => {
+      const mapped: Edge[] = [];
+      edges.forEach((edge) => {
+        const sourceGroupId = collapsedChildToGroupId.get(edge.source);
+        const targetGroupId = collapsedChildToGroupId.get(edge.target);
+        const baseData =
+          edge.data && typeof edge.data === "object"
+            ? (edge.data as Record<string, unknown>)
+            : {};
+
+        if (!sourceGroupId && !targetGroupId) {
+          mapped.push({
+            ...edge,
+            hidden: false,
+            data: {
+              ...baseData,
+              collapsedProxy: false,
+              originalEdgeId: edge.id,
+              sourceGroupId: undefined,
+              targetGroupId: undefined,
+            },
+          });
+          return;
+        }
+
+        if (sourceGroupId && targetGroupId && sourceGroupId === targetGroupId) {
+          mapped.push({
+            ...edge,
+            hidden: true,
+            selected: false,
+            data: {
+              ...baseData,
+              collapsedProxy: true,
+              collapsedInternal: true,
+              originalEdgeId: edge.id,
+              sourceGroupId,
+              targetGroupId,
+            },
+          });
+          return;
+        }
+
+        mapped.push({
+          ...edge,
+          hidden: false,
+          source: sourceGroupId || edge.source,
+          target: targetGroupId || edge.target,
+          sourceHandle: sourceGroupId
+            ? "group-proxy-source"
+            : edge.sourceHandle,
+          targetHandle: targetGroupId
+            ? "group-proxy-target"
+            : edge.targetHandle,
+          selected: false,
+          data: {
+            ...baseData,
+            collapsedProxy: true,
+            originalEdgeId: edge.id,
+            sourceGroupId,
+            targetGroupId,
+          },
+        });
+      });
+      return mapped;
+    },
+    [edges, collapsedChildToGroupId]
   );
 
   // 简单的全局调试API，便于从控制台添加节点
@@ -12144,9 +12496,13 @@ function FlowInner() {
   const flowUIEnabled = useUIStore((s) => s.flowUIEnabled);
   const selectedNonGroupNodeCount = React.useMemo(
     () =>
-      nodes.filter((node) => node.selected && !isGroupNode(node as RFNode))
-        .length,
-    [nodes]
+      nodes.filter(
+        (node) =>
+          node.selected &&
+          !isGroupNode(node as RFNode) &&
+          !collapsedChildNodeIds.has(node.id)
+      ).length,
+    [nodes, collapsedChildNodeIds]
   );
   const selectedGroupIds = React.useMemo(
     () => getSelectedGroupIds(nodes as RFNode[]),
@@ -12974,8 +13330,8 @@ function FlowInner() {
     >
       {FlowToolbar}
       <ReactFlow
-        nodes={nodesWithHandlers}
-        edges={edges}
+        nodes={nodesForRender}
+        edges={edgesForRender}
         onNodesChange={onNodesChangeWithHistory}
         onEdgesChange={onEdgesChangeWithHistory}
         defaultViewport={initialViewport}
