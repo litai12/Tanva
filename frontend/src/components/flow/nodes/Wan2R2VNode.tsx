@@ -49,6 +49,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
   const [sizeMenuOpen, setSizeMenuOpen] = React.useState(false);
   const [durationMenuOpen, setDurationMenuOpen] = React.useState(false);
   const [shotMenuOpen, setShotMenuOpen] = React.useState(false);
+  const [showHistory, setShowHistory] = React.useState(false);
 
   const historyItems = React.useMemo<VideoHistoryItem[]>(
     () => (Array.isArray(data.history) ? data.history : []),
@@ -794,16 +795,21 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
+              cursor: "pointer"
             }}
+            onClick={() => setShowHistory(!showHistory)}
           >
             <span style={{ fontSize: 12, fontWeight: 600, color: "#0f172a" }}>
               {lt("历史记录", "History")}
             </span>
-            <span style={{ fontSize: 11, color: "#94a3b8" }}>
-              {historyItems.length} {lt("条", "items")}
-            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 11, color: "#94a3b8" }}>
+                {historyItems.length} {lt("条", "items")}
+              </span>
+              <span style={{ fontSize: 14, color: "#64748b" }}>{showHistory ? "▴" : "▾"}</span>
+            </div>
           </div>
-          {historyItems.map((item, index) => {
+          {showHistory && historyItems.map((item, index) => {
             const isActive = item.videoUrl === data.videoUrl;
             return (
               <div

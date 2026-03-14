@@ -67,6 +67,7 @@ function Wan26Node({ id, data, selected }: Props) {
     message: string;
   } | null>(null);
   const downloadFeedbackTimer = React.useRef<number | undefined>(undefined);
+  const [showHistory, setShowHistory] = React.useState(false);
 
   // 判断是 T2V 还是 I2V 模式：检查是否有连接到 image 接入点的边
   const [isI2VMode, setIsI2VMode] = React.useState(false);
@@ -1096,16 +1097,21 @@ function Wan26Node({ id, data, selected }: Props) {
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
+              cursor: "pointer"
             }}
+            onClick={() => setShowHistory(!showHistory)}
           >
             <span style={{ fontSize: 12, fontWeight: 600, color: "#0f172a" }}>
               {lt("历史记录", "History")}
             </span>
-            <span style={{ fontSize: 11, color: "#94a3b8" }}>
-              {historyItems.length} {lt("条", "items")}
-            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 11, color: "#94a3b8" }}>
+                {historyItems.length} {lt("条", "items")}
+              </span>
+              <span style={{ fontSize: 14, color: "#64748b" }}>{showHistory ? "▴" : "▾"}</span>
+            </div>
           </div>
-          {historyItems.map((item, index) => {
+          {showHistory && historyItems.map((item, index) => {
             const isActive = item.videoUrl === data.videoUrl;
             return (
               <div

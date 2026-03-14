@@ -78,6 +78,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const downloadFeedbackTimer = React.useRef<number | undefined>(undefined);
   const user = useAuthStore((state) => state.user);
   const projectId = useProjectContentStore((state) => state.projectId);
+  const [showHistory, setShowHistory] = React.useState(false);
 
   // 检测是否有图片输入连接
   const hasImageInput = useStore((state) => {
@@ -1555,20 +1556,16 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           }}
         >
           <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
+            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}
+            onClick={() => setShowHistory(!showHistory)}
           >
-            <span style={{ fontSize: 12, fontWeight: 600, color: "#0f172a" }}>
-              {lt("历史记录", "History")}
-            </span>
-            <span style={{ fontSize: 11, color: "#94a3b8" }}>
-              {historyItems.length} {lt("条", "items")}
-            </span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#0f172a" }}>{lt("历史记录", "History")}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 11, color: "#94a3b8" }}>{historyItems.length} {lt("条", "items")}</span>
+              <span style={{ fontSize: 14, color: "#64748b" }}>{showHistory ? "▴" : "▾"}</span>
+            </div>
           </div>
-          {historyItems.map((item, index) => {
+          {showHistory && historyItems.map((item, index) => {
             const isActive = item.videoUrl === data.videoUrl;
             // 使用组合 key 确保唯一性：id + index
             const uniqueKey = `${item.id}-${index}`;
