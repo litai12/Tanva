@@ -15,10 +15,10 @@
 
 ## 概述
 
-本文档详细说明如何接入阿里云有川 API 的 Midjourney v7 和 Niji 7 两个图像生成模型。
+本文档详细说明如何接入阿里云悠船大模型平台 API 的 Midjourney v7 和 Niji 7 两个图像生成模型。
 
 ### 基本信息
-- **服务商**: 阿里云有川 (Youchuan)
+- **服务商**: 阿里云悠船大模型平台 (Youchuan)
 - **API 文档**: https://tob.youchuan.cn/docs/apis/api_list#文生图-diffusion
 - **参数文档**: https://help.aliyun.com/zh/marketplace/youchuan-api-parameter-details
 - **接口类型**: 文生图 (Text-to-Image)
@@ -30,11 +30,11 @@
 
 ### 1. 获取 API 密钥
 
-访问阿里云悠船大模型平台购买有川 API 服务后，你将获得以下信息：
+访问阿里云市场购买有川 API 服务后，你将获得以下信息：
 
 | 字段名 | 说明 | 示例 | 必填 |
 |--------|------|------|------|
-| `x-youchuan-app` | 应用 ID | `y01kkn4r1w7ebe9m159ec6y5atq` | ✅ 是 |
+| `x-youchuan-app` | 应用id | `y01kkn4r1w7ebe9m159ec6y5atq` | ✅ 是 |
 | `x-youchuan-secret` | 授权码 | `tbNEcj17UN3fzxSJRODhJcDlS4nPakk7QLHdV5t9Dks` | ✅ 是 |
 | `endpoint` | API 端点地址 | `https://api.youchuan.cn` | ✅ 是 |
 
@@ -43,9 +43,8 @@
 在项目的 `.env` 文件中添加：
 
 ```bash
-# 阿里云悠船大模型平台 API 配置
-YOUCHUAN_APP_ID=y01kkn4r1w7ebe9m159ec6y5atq
-YOUCHUAN_SECRET=tbNEcj17UN3fzxSJRODhJcDlS4nPakk7QLHdV5t9Dks
+# 阿里云有川 API 配置
+YOUCHUAN_APPCODE=your_appcode_here
 YOUCHUAN_ENDPOINT=https://api.youchuan.cn
 ```
 
@@ -54,8 +53,7 @@ YOUCHUAN_ENDPOINT=https://api.youchuan.cn
 所有请求需要在 HTTP Header 中携带：
 
 ```http
-x-youchuan-app: y01kkn4r1w7ebe9m159ec6y5atq
-x-youchuan-secret: tbNEcj17UN3fzxSJRODhJcDlS4nPakk7QLHdV5t9Dks
+Authorization: APPCODE {your_appcode}
 Content-Type: application/json
 ```
 
