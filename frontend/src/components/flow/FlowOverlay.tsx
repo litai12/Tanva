@@ -696,7 +696,13 @@ type QuickConnectAnchor =
     };
 
 const QUICK_CONNECT_HOVER_DELAY_MS = 520;
-const QUICK_CONNECT_MAX_ITEMS = 8;
+const QUICK_CONNECT_MAX_ITEMS = 6;
+const QUICK_CONNECT_USAGE_STORAGE_KEY = "tanva-quick-connect-usage-v1";
+
+type QuickConnectUsageEntry = {
+  count: number;
+  lastUsedAt: number;
+};
 
 const QUICK_CONNECT_PRESETS: Record<
   QuickConnectSourceKind,
@@ -2311,6 +2317,9 @@ function FlowInner() {
   const connectQuickMenuRef = React.useRef<HTMLDivElement | null>(null);
   const connectQuickMenuVisibleRef = React.useRef(false);
   const connectHoverTimerRef = React.useRef<number | null>(null);
+  const quickConnectUsageRef = React.useRef<
+    Record<string, QuickConnectUsageEntry>
+  >({});
   const connectHoverAnchorRef = React.useRef<{ x: number; y: number } | null>(
     null
   );
@@ -2353,6 +2362,73 @@ function FlowInner() {
   React.useEffect(() => {
     connectQuickMenuVisibleRef.current = connectQuickMenu.visible;
   }, [connectQuickMenu.visible]);
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(QUICK_CONNECT_USAGE_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Record<string, QuickConnectUsageEntry>;
+      if (!parsed || typeof parsed !== "object") return;
+      const cleaned: Record<string, QuickConnectUsageEntry> = {};
+      Object.entries(parsed).forEach(([key, value]) => {
+        const count =
+          typeof value?.count === "number" && Number.isFinite(value.count)
+            ? Math.max(0, Math.floor(value.count))
+            : 0;
+        const lastUsedAt =
+          typeof value?.lastUsedAt === "number" &&
+          Number.isFinite(value.lastUsedAt)
+            ? Math.max(0, Math.floor(value.lastUsedAt))
+            : 0;
+        if (!key || count <= 0) return;
+        cleaned[key] = { count, lastUsedAt };
+      });
+      quickConnectUsageRef.current = cleaned;
+    } catch {}
+  }, []);
+  const rankQuickConnectOptions = React.useCallback(
+    (items: QuickConnectMenuItem[]): QuickConnectMenuItem[] => {
+      if (items.length <= 1) return items.slice(0, QUICK_CONNECT_MAX_ITEMS);
+      return items
+        .map((item, index) => {
+          const key = getQuickConnectMenuItemKey(item);
+          const usage = quickConnectUsageRef.current[key];
+          return {
+            item,
+            index,
+            count: usage?.count || 0,
+            lastUsedAt: usage?.lastUsedAt || 0,
+          };
+        })
+        .sort((a, b) => {
+          if (b.count !== a.count) return b.count - a.count;
+          if (b.lastUsedAt !== a.lastUsedAt) return b.lastUsedAt - a.lastUsedAt;
+          return a.index - b.index;
+        })
+        .slice(0, QUICK_CONNECT_MAX_ITEMS)
+        .map((entry) => entry.item);
+    },
+    []
+  );
+  const recordQuickConnectUsage = React.useCallback((item: QuickConnectMenuItem) => {
+    const key = getQuickConnectMenuItemKey(item);
+    const current = quickConnectUsageRef.current[key];
+    const next: QuickConnectUsageEntry = {
+      count: Math.min((current?.count || 0) + 1, 9999),
+      lastUsedAt: Date.now(),
+    };
+    quickConnectUsageRef.current = {
+      ...quickConnectUsageRef.current,
+      [key]: next,
+    };
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        QUICK_CONNECT_USAGE_STORAGE_KEY,
+        JSON.stringify(quickConnectUsageRef.current)
+      );
+    } catch {}
+  }, []);
   const [edgeLabelEditor, setEdgeLabelEditor] =
     React.useState<EdgeLabelEditorState>(() => createEdgeLabelEditorState());
   const edgeLabelInputRef = React.useRef<HTMLInputElement | null>(null);
@@ -3667,10 +3743,31 @@ function FlowInner() {
     []
   );
 
+  const resolveAddPanelAnchorScreen = React.useCallback(() => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (rect) {
+      return {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      };
+    }
+    return {
+      x:
+        typeof window !== "undefined" ? window.innerWidth / 2 : 640,
+      y:
+        typeof window !== "undefined" ? window.innerHeight / 2 : 360,
+    };
+  }, []);
+
+  const resolveAddPanelAnchorWorld = React.useCallback(
+    () => rf.screenToFlowPosition(resolveAddPanelAnchorScreen()),
+    [rf, resolveAddPanelAnchorScreen]
+  );
+
   const openAddPanelAt = React.useCallback(
     (
-      clientX: number,
-      clientY: number,
+      _clientX: number,
+      _clientY: number,
       opts?: {
         tab?: AddPanelTab;
         scope?: "public" | "mine";
@@ -3682,10 +3779,18 @@ function FlowInner() {
       const targetTab = clampAddTab(opts?.tab ?? addTab, allowed);
       setAddTabWithMemory(targetTab, allowed);
       if (opts?.scope) setTemplateScope(opts.scope);
-      const world = rf.screenToFlowPosition({ x: clientX, y: clientY });
-      setAddPanel({ visible: true, screen: { x: clientX, y: clientY }, world });
+      const panelScreen = resolveAddPanelAnchorScreen();
+      const world = rf.screenToFlowPosition(panelScreen);
+      setAddPanel({ visible: true, screen: panelScreen, world });
     },
-    [rf, addTab, setAddTabWithMemory, setTemplateScope, clampAddTab]
+    [
+      rf,
+      addTab,
+      setAddTabWithMemory,
+      setTemplateScope,
+      clampAddTab,
+      resolveAddPanelAnchorScreen,
+    ]
   );
 
   // 允许外部（如工具栏按钮）打开添加/模板面板
@@ -5274,12 +5379,11 @@ function FlowInner() {
           targetHandle: preset.targetHandle,
           label: meta?.label || resolvedType,
         });
-        if (picked.length >= QUICK_CONNECT_MAX_ITEMS) break;
       }
 
-      return picked;
+      return rankQuickConnectOptions(picked);
     },
-    [rf, inferQuickConnectSourceKind, quickConnectMetaByType]
+    [rf, inferQuickConnectSourceKind, quickConnectMetaByType, rankQuickConnectOptions]
   );
   const getReverseQuickConnectOptions = React.useCallback(
     (targetId: string, targetHandle: string): QuickConnectMenuItem[] => {
@@ -5318,12 +5422,11 @@ function FlowInner() {
           sourceHandle: preset.sourceHandle,
           label: meta?.label || resolvedType,
         });
-        if (picked.length >= QUICK_CONNECT_MAX_ITEMS) break;
       }
 
-      return picked;
+      return rankQuickConnectOptions(picked);
     },
-    [rf, inferQuickConnectTargetKind, quickConnectMetaByType]
+    [rf, inferQuickConnectTargetKind, quickConnectMetaByType, rankQuickConnectOptions]
   );
   React.useEffect(() => {
     if (!isConnecting) return;
@@ -6340,6 +6443,7 @@ function FlowInner() {
 
       const world = { ...connectQuickMenu.world };
 
+      recordQuickConnectUsage(item);
       closeConnectQuickMenu({ resetSource: true });
       const newNodeId = createNodeAtWorldCenter(item.nodeType, world);
       if (!newNodeId) return;
@@ -6369,7 +6473,13 @@ function FlowInner() {
         } as Connection);
       });
     },
-    [closeConnectQuickMenu, connectQuickMenu.world, createNodeAtWorldCenter, onConnect]
+    [
+      closeConnectQuickMenu,
+      connectQuickMenu.world,
+      createNodeAtWorldCenter,
+      onConnect,
+      recordQuickConnectUsage,
+    ]
   );
 
   React.useEffect(() => {
@@ -12120,11 +12230,7 @@ function FlowInner() {
     const viewportHeight =
       typeof window !== "undefined" ? window.innerHeight : 720;
     const menuWidth = 260;
-    const menuMaxHeight = 48 + QUICK_CONNECT_MAX_ITEMS * 44;
-    const menuEstimatedHeight = Math.min(
-      menuMaxHeight,
-      48 + Math.max(1, connectQuickMenu.options.length) * 44
-    );
+    const menuEstimatedHeight = 48 + Math.max(1, connectQuickMenu.options.length) * 44;
     const maxLeft = Math.max(12, viewportWidth - menuWidth - 12);
     const maxTop = Math.max(12, viewportHeight - menuEstimatedHeight - 12);
     const alignedLeft =
@@ -13153,7 +13259,7 @@ function FlowInner() {
                               onClick={() =>
                                 createNodeAtWorldCenter(
                                   resolveFlowNodeTypeFromConfig(config),
-                                  addPanel.world
+                                  resolveAddPanelAnchorWorld()
                                 )
                               }
                             />
@@ -13198,7 +13304,10 @@ function FlowInner() {
                       badge={item.badge}
                       credits={NODE_CREDITS_MAP[item.key]}
                       onClick={() =>
-                        createNodeAtWorldCenter(item.key, addPanel.world)
+                        createNodeAtWorldCenter(
+                          item.key,
+                          resolveAddPanelAnchorWorld()
+                        )
                       }
                     />
                   ))}
@@ -13361,7 +13470,10 @@ function FlowInner() {
                                 item.id
                               );
                               if (tpl)
-                                instantiateTemplateAt(tpl, addPanel.world);
+                                instantiateTemplateAt(
+                                  tpl,
+                                  resolveAddPanelAnchorWorld()
+                                );
                             })();
                           }}
                         />
@@ -13472,7 +13584,10 @@ function FlowInner() {
                             onInstantiate={async () => {
                               const tpl = await getUserTemplate(item.id);
                               if (tpl)
-                                instantiateTemplateAt(tpl, addPanel.world);
+                                instantiateTemplateAt(
+                                  tpl,
+                                  resolveAddPanelAnchorWorld()
+                                );
                             }}
                             onDelete={async () => {
                               if (

@@ -819,7 +819,7 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
         type="target"
         position={Position.Left}
         id="images"
-        style={{ top: '50%', background: '#eab308', border: '1px solid #ca8a04' }}
+        style={{ top: '50%' }}
         onMouseEnter={() => setHover('images-in')}
         onMouseLeave={() => setHover(null)}
       />
