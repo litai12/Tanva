@@ -80,6 +80,7 @@ export class AiController {
     runninghub: 'runninghub-su-effect',
     midjourney: 'midjourney-fast',
     nano2: 'gemini-3.1-flash-image-preview',
+    seedream5: 'doubao-seedream-5-0-260128',
   };
   private readonly providerDefaultTextModels: Record<string, string> = {
     gemini: 'gemini-3-flash-preview',
@@ -90,6 +91,7 @@ export class AiController {
     runninghub: 'gemini-3-flash-preview',
     midjourney: 'gemini-3-flash-preview',
     nano2: 'gemini-3-flash-preview',
+    seedream5: 'gemini-3-flash-preview',
   };
 
   constructor(
@@ -358,6 +360,10 @@ export class AiController {
     // 根据 provider 和 model 确定服务类型
     if (provider === 'midjourney') {
       return 'midjourney-imagine';
+    }
+
+    if (provider === 'seedream5' || model?.includes('seedream')) {
+      return 'doubao-seedream-5-0-260128';
     }
 
     if (model?.includes('gemini-3.1')) {

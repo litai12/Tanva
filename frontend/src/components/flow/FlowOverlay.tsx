@@ -78,6 +78,7 @@ import ImageGridNode from "./nodes/ImageGridNode";
 import ImageSplitNode from "./nodes/ImageSplitNode";
 import ImageCompressNode from "./nodes/ImageCompressNode";
 import Nano2Node from "./nodes/Nano2Node";
+import Seedream5Node from "./nodes/Seedream5Node";
 import NodeGroupNode from "./nodes/NodeGroupNode";
 import { FLOW_IMAGE_ASSET_PREFIX } from "@/services/flowImageAssetStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
@@ -477,6 +478,7 @@ const nodeTypes = {
   storyboardSplit: StoryboardSplitNode,
   midjourney: MidjourneyNode,
   nano2: Nano2Node,
+  seedream5: Seedream5Node,
   video: VideoNode,
   videoAnalyze: VideoAnalyzeNode,
   videoFrameExtract: VideoFrameExtractNode,
@@ -877,6 +879,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   storyboardSplit: { w: 320, h: 400 },
   midjourney: { w: 280, h: 320 },
   nano2: { w: 260, h: 200 },
+  seedream5: { w: 260, h: 240 },
   video: { w: 320, h: 280 },
   videoAnalyze: { w: 280, h: 360 },
   videoFrameExtract: { w: 300, h: 420 },
@@ -4848,6 +4851,16 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
+          : type === "seedream5"
+          ? {
+              status: "idle" as const,
+              images: [],
+              size: "2K",
+              batchMode: false,
+              batchCount: 4,
+              boxW: size.w,
+              boxH: size.h,
+            }
           : type === "video"
           ? {
               status: "idle" as const,
@@ -5070,6 +5083,7 @@ function FlowInner() {
           "imageCompress",
           "midjourney",
           "nano2",
+          "seedream5",
         ];
         if (imageNodeTypes.includes(node.type || "")) return true;
         // videoFrameExtract 的 image 句柄输出单张图片
@@ -5245,6 +5259,15 @@ function FlowInner() {
       if (targetNode.type === "midjourney") {
         if (targetHandle === "text") {
           return textSourceTypes.includes(sourceNode.type || "");
+        }
+        return false;
+      }
+      if (targetNode.type === "seedream5") {
+        if (targetHandle === "prompt") {
+          return textSourceTypes.includes(sourceNode.type || "");
+        }
+        if (targetHandle === "img") {
+          return isImageSource(sourceNode, sourceHandle);
         }
         return false;
       }
@@ -5482,6 +5505,11 @@ function FlowInner() {
       // Midjourney 节点连接容量控制 - 只支持文本输入
       if (targetNode?.type === "midjourney") {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
+      }
+      // Seedream5 节点连接容量控制
+      if (targetNode?.type === "seedream5") {
+        if (params.targetHandle === "prompt") return true; // 新线会替换旧线
+        if (params.targetHandle === "img") return true; // 图片输入支持多条
       }
       // Nano2 节点连接容量控制 - 支持文本和图片输入
       if (targetNode?.type === "nano2") {
@@ -9154,6 +9182,136 @@ function FlowInner() {
         return;
       }
 
+      // Seedream5 节点处理逻辑
+      if (node.type === "seedream5") {
+        // 获取 prompt 输入（注意句柄名是 "prompt" 不是 "text"）
+        const promptEdge = currentEdges.find(
+          (e) => e.target === nodeId && e.targetHandle === "prompt"
+        );
+        let promptText = "";
+        if (promptEdge) {
+          const promptNode = rf.getNode(promptEdge.source);
+          if (promptNode) {
+            const resolved = resolveTextFromSourceNode(promptNode, promptEdge.sourceHandle);
+            promptText = resolved?.trim() || "";
+          }
+        }
+
+        // 获取输入图片（最多5张）
+        const imgEdges = currentEdges
+          .filter((e) => e.target === nodeId && e.targetHandle === "img")
+          .slice(0, 5);
+        const imageDatas = await resolveEdgesAsDataUrls(imgEdges);
+
+        // 提示超过5张图片
+        const totalImgEdges = currentEdges.filter(
+          (e) => e.target === nodeId && e.targetHandle === "img"
+        );
+        if (totalImgEdges.length > 5) {
+          console.warn(`Seedream5: 最多支持5张参考图，当前连接了${totalImgEdges.length}张，只使用前5张`);
+        }
+
+        // 验证：至少需要提示词或图片之一
+        const hasValidPrompt = promptText && promptText.trim().length > 0;
+        if (!hasValidPrompt && imageDatas.length === 0) {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? { ...n, data: { ...n.data, status: "failed", error: "需要提示词或参考图" } }
+                : n
+            )
+          );
+          return;
+        }
+
+        setNodes((ns) =>
+          ns.map((n) =>
+            n.id === nodeId
+              ? { ...n, data: { ...n.data, status: "running", error: undefined } }
+              : n
+          )
+        );
+
+        try {
+          const result = await generateImageViaAPI({
+            prompt: promptText || "",
+            aiProvider: "seedream5",
+            imageSize: (node.data as any)?.size || "2K",
+            imageUrls: imageDatas.length > 0 ? imageDatas : undefined,
+            batchMode: (node.data as any)?.batchMode || false,
+            batchCount: (node.data as any)?.batchCount || 4,
+          });
+
+          if (!result.success || !result.data) {
+            const msg = result.error?.message || "Seedream 5.0 生成失败";
+            setNodes((ns) =>
+              ns.map((n) =>
+                n.id === nodeId
+                  ? { ...n, data: { ...n.data, status: "failed", error: msg } }
+                  : n
+              )
+            );
+            return;
+          }
+
+          const resolvedImageUrl = result.data.imageUrl || result.data.metadata?.imageUrl;
+          const imageData = resolvedImageUrl || result.data.imageData || result.data.imageUrl;
+
+          // 支持批量返回多张图片
+          const imageUrls = result.data.imageUrls || result.data.metadata?.imageUrls;
+          const finalImages = imageUrls && imageUrls.length > 0 ? imageUrls : [imageData];
+
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "succeeded",
+                      images: finalImages,
+                      imageUrl: finalImages[0],
+                      error: undefined,
+                    },
+                  }
+                : n
+            )
+          );
+
+          if (imageData) {
+            try {
+              const projectId = useProjectContentStore.getState().projectId;
+              const historyId = `${nodeId}-${Date.now()}`;
+              const isRemoteHistoryImage = typeof resolvedImageUrl === "string" && /^https?:\/\//i.test(resolvedImageUrl);
+
+              void recordImageHistoryEntry({
+                id: historyId,
+                base64: isRemoteHistoryImage ? undefined : imageData,
+                remoteUrl: isRemoteHistoryImage ? resolvedImageUrl : undefined,
+                title: `Seedream 5.0 ${new Date().toLocaleTimeString()}`,
+                nodeId,
+                nodeType: "generate",
+                fileName: `flow_seedream5_${historyId}.png`,
+                projectId,
+                keepThumbnail: false,
+                metadata: { provider: "seedream5" },
+              });
+            } catch (err) {
+              console.warn("记录图片历史失败:", err);
+            }
+          }
+        } catch (err: any) {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? { ...n, data: { ...n.data, status: "failed", error: err.message || "生成失败" } }
+                : n
+            )
+          );
+        }
+        return;
+      }
+
       if (
         node.type !== "generate" &&
         node.type !== "generate4" &&
@@ -10936,7 +11094,8 @@ function FlowInner() {
         n.type === "generatePro" ||
         n.type === "generatePro4" ||
         n.type === "midjourney" ||
-        n.type === "nano2"
+        n.type === "nano2" ||
+        n.type === "seedream5"
           ? { ...n, data: { ...n.data, onRun: runNode, onSend: onSendHandler } }
           : n.type === "image" || n.type === "imagePro"
           ? { ...n, data: { ...n.data, onRun: runNode, onSend: onSendHandler } }

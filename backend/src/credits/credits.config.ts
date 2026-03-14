@@ -234,6 +234,17 @@ export const CREDIT_PRICING_CONFIG = {
     creditsPerCall: 600,
     description: '使用Seedance 1.5 Pro 生成视频',
   },
+  'doubao-seedream-5-0-260128': {
+    serviceName: 'Seedream 5.0 图像生成',
+    provider: 'seedream5',
+    creditsPerCall: 30,
+    description: '使用 Seedream 5.0 生成图像',
+    resolutionPricing: {
+      '1K': 30,
+      '2K': 30,
+      '4K': 60,
+    },
+  },
 } as const;
 
 export type ServiceType = keyof typeof CREDIT_PRICING_CONFIG;

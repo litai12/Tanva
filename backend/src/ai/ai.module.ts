@@ -9,6 +9,7 @@ import { BananaProvider } from './providers/banana.provider';
 import { RunningHubProvider } from './providers/runninghub.provider';
 import { MidjourneyProvider } from './providers/midjourney.provider';
 import { Nano2Provider } from './providers/nano2.provider';
+import { Seedream5Provider } from './providers/seedream5.provider';
 import { AIProviderFactory } from './ai-provider.factory';
 import { CostCalculatorService } from './services/cost-calculator.service';
 import { Convert2Dto3DService } from './services/convert-2d-to-3d.service';
@@ -24,6 +25,7 @@ import { OssModule } from '../oss/oss.module';
 import { VideoWatermarkService } from './services/video-watermark.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { Nano2Service } from './services/nano2.service';
+import { Seedream5Service } from './services/seedream5.service';
 
 @Module({
   imports: [
@@ -42,6 +44,7 @@ import { Nano2Service } from './services/nano2.service';
     RunningHubProvider,
     MidjourneyProvider,
     Nano2Provider,
+    Seedream5Provider,
     AIProviderFactory,
     CostCalculatorService, // 添加成本计算器
     Convert2Dto3DService, // 添加2D转3D服务
@@ -51,6 +54,7 @@ import { Nano2Service } from './services/nano2.service';
     VideoProviderService,
     VideoWatermarkService,
     Nano2Service,
+    Seedream5Service,
     ImageTaskService, // 添加图像任务服务
     ApiKeyOrJwtGuard,
   ],
