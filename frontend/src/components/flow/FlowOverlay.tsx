@@ -662,6 +662,119 @@ const sanitizeAllowedAddTabs = (tabs?: AddPanelTab[]): AddPanelTab[] => {
   return filtered.length > 0 ? filtered : ALL_ADD_TABS;
 };
 
+type QuickConnectSourceKind =
+  | "text"
+  | "image"
+  | "video"
+  | "character"
+  | "unknown";
+
+type QuickConnectPreset = {
+  nodeType: string;
+  targetHandle?: string;
+  sourceHandle?: string;
+};
+
+type QuickConnectMenuItem = QuickConnectPreset & {
+  label: string;
+};
+
+const getQuickConnectMenuItemKey = (
+  item: Pick<QuickConnectMenuItem, "nodeType" | "targetHandle" | "sourceHandle">
+): string => `${item.nodeType}::${item.targetHandle || ""}::${item.sourceHandle || ""}`;
+
+type QuickConnectAnchor =
+  | {
+      direction: "forward";
+      sourceId: string;
+      sourceHandle?: string;
+    }
+  | {
+      direction: "reverse";
+      targetId: string;
+      targetHandle: string;
+    };
+
+const QUICK_CONNECT_HOVER_DELAY_MS = 520;
+const QUICK_CONNECT_MAX_ITEMS = 8;
+
+const QUICK_CONNECT_PRESETS: Record<
+  QuickConnectSourceKind,
+  QuickConnectPreset[]
+> = {
+  text: [
+    { nodeType: "generate", targetHandle: "text" },
+    { nodeType: "generateRef", targetHandle: "text" },
+    { nodeType: "midjourney", targetHandle: "text" },
+    { nodeType: "nano2", targetHandle: "text" },
+    { nodeType: "promptOptimize", targetHandle: "text" },
+    { nodeType: "textChat", targetHandle: "text" },
+  ],
+  image: [
+    { nodeType: "generate", targetHandle: "img" },
+    { nodeType: "generate4", targetHandle: "img" },
+    { nodeType: "generatePro", targetHandle: "img" },
+    { nodeType: "generatePro4", targetHandle: "img" },
+    { nodeType: "generateRef", targetHandle: "image2" },
+    { nodeType: "analysis", targetHandle: "img" },
+    { nodeType: "image", targetHandle: "img" },
+    { nodeType: "imagePro", targetHandle: "img" },
+    { nodeType: "nano2", targetHandle: "img" },
+    { nodeType: "imageGrid", targetHandle: "images" },
+    { nodeType: "imageSplit", targetHandle: "img" },
+    { nodeType: "imageCompress", targetHandle: "img" },
+  ],
+  video: [
+    { nodeType: "videoAnalyze", targetHandle: "video" },
+    { nodeType: "videoFrameExtract", targetHandle: "video" },
+    { nodeType: "wan2R2V", targetHandle: "video-1" },
+    { nodeType: "klingO1Video", targetHandle: "video" },
+    { nodeType: "sora2Character", targetHandle: "video" },
+  ],
+  character: [{ nodeType: "sora2Video", targetHandle: "character" }],
+  unknown: [
+    { nodeType: "generate", targetHandle: "text" },
+    { nodeType: "analysis", targetHandle: "img" },
+    { nodeType: "videoAnalyze", targetHandle: "video" },
+  ],
+};
+
+const QUICK_CONNECT_REVERSE_PRESETS: Record<
+  QuickConnectSourceKind,
+  QuickConnectPreset[]
+> = {
+  text: [
+    { nodeType: "textPrompt", sourceHandle: "text" },
+    { nodeType: "textPromptPro", sourceHandle: "text" },
+    { nodeType: "promptOptimize", sourceHandle: "text" },
+    { nodeType: "textChat", sourceHandle: "text" },
+    { nodeType: "textNote", sourceHandle: "text-right-out" },
+    { nodeType: "analysis", sourceHandle: "prompt" },
+  ],
+  image: [
+    { nodeType: "image", sourceHandle: "img" },
+    { nodeType: "generate", sourceHandle: "img" },
+    { nodeType: "generateRef", sourceHandle: "img" },
+    { nodeType: "midjourney", sourceHandle: "img" },
+    { nodeType: "nano2", sourceHandle: "img" },
+    { nodeType: "camera", sourceHandle: "img" },
+  ],
+  video: [
+    { nodeType: "video", sourceHandle: "video" },
+    { nodeType: "sora2Video", sourceHandle: "video" },
+    { nodeType: "wan26", sourceHandle: "video" },
+    { nodeType: "wan2R2V", sourceHandle: "video" },
+    { nodeType: "klingO1Video", sourceHandle: "video-out" },
+    { nodeType: "videoFrameExtract", sourceHandle: "video" },
+  ],
+  character: [{ nodeType: "sora2Character", sourceHandle: "character" }],
+  unknown: [
+    { nodeType: "textPrompt", sourceHandle: "text" },
+    { nodeType: "image", sourceHandle: "img" },
+    { nodeType: "video", sourceHandle: "video" },
+  ],
+};
+
 // 节点积分消耗映射
 const NODE_CREDITS_MAP: Record<string, number | string> = {
   // 普通节点
@@ -2194,6 +2307,52 @@ function FlowInner() {
   );
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [isConnecting, setIsConnecting] = React.useState(false);
+  const connectAnchorRef = React.useRef<QuickConnectAnchor | null>(null);
+  const connectQuickMenuRef = React.useRef<HTMLDivElement | null>(null);
+  const connectQuickMenuVisibleRef = React.useRef(false);
+  const connectHoverTimerRef = React.useRef<number | null>(null);
+  const connectHoverAnchorRef = React.useRef<{ x: number; y: number } | null>(
+    null
+  );
+  const [connectQuickMenu, setConnectQuickMenu] = React.useState<{
+    visible: boolean;
+    screen: { x: number; y: number };
+    world: { x: number; y: number };
+    alignEdge: "left" | "right";
+    options: QuickConnectMenuItem[];
+  }>({
+    visible: false,
+    screen: { x: 0, y: 0 },
+    world: { x: 0, y: 0 },
+    alignEdge: "left",
+    options: [],
+  });
+  const [connectQuickHoverKey, setConnectQuickHoverKey] = React.useState<
+    string | null
+  >(null);
+  const clearConnectHoverTimer = React.useCallback(() => {
+    if (connectHoverTimerRef.current !== null) {
+      window.clearTimeout(connectHoverTimerRef.current);
+      connectHoverTimerRef.current = null;
+    }
+  }, []);
+  const closeConnectQuickMenu = React.useCallback(
+    (options?: { resetSource?: boolean }) => {
+      clearConnectHoverTimer();
+      connectHoverAnchorRef.current = null;
+      setConnectQuickHoverKey(null);
+      setConnectQuickMenu((prev) =>
+        prev.visible ? { ...prev, visible: false, options: [] } : prev
+      );
+      if (options?.resetSource) {
+        connectAnchorRef.current = null;
+      }
+    },
+    [clearConnectHoverTimer]
+  );
+  React.useEffect(() => {
+    connectQuickMenuVisibleRef.current = connectQuickMenu.visible;
+  }, [connectQuickMenu.visible]);
   const [edgeLabelEditor, setEdgeLabelEditor] =
     React.useState<EdgeLabelEditorState>(() => createEdgeLabelEditorState());
   const edgeLabelInputRef = React.useRef<HTMLInputElement | null>(null);
@@ -4985,6 +5144,247 @@ function FlowInner() {
     ],
     []
   );
+  const videoSourceTypes = React.useMemo(
+    () => [
+      "video",
+      "sora2Video",
+      "wan26",
+      "wan2R2V",
+      "klingVideo",
+      "kling26Video",
+      "klingO1Video",
+      "viduVideo",
+      "doubaoVideo",
+      "videoFrameExtract",
+    ],
+    []
+  );
+  const quickConnectMetaByType = React.useMemo(() => {
+    const map = new Map<string, { label: string; status?: string }>();
+
+    nodePaletteConfigs.forEach((config) => {
+      const type = resolveFlowNodeTypeFromConfig(config);
+      if (!type) return;
+      map.set(type, {
+        label: lt(config.nameZh || type, config.nameEn || type),
+        status: config.status,
+      });
+    });
+
+    NODE_PALETTE_ITEMS.forEach((item) => {
+      if (map.has(item.key)) return;
+      map.set(item.key, { label: lt(item.zh, item.en), status: "normal" });
+    });
+
+    BETA_NODE_ITEMS.forEach((item) => {
+      if (map.has(item.key)) return;
+      map.set(item.key, { label: lt(item.zh, item.en), status: "normal" });
+    });
+
+    return map;
+  }, [lt, nodePaletteConfigs]);
+  const inferQuickConnectSourceKind = React.useCallback(
+    (sourceType?: string, sourceHandle?: string): QuickConnectSourceKind => {
+      const handle = typeof sourceHandle === "string" ? sourceHandle.trim() : "";
+
+      if (handle === "character") return "character";
+      if (handle === "video" || handle.startsWith("video")) return "video";
+      if (
+        handle === "img" ||
+        handle === "image" ||
+        handle === "images" ||
+        handle === "images-range" ||
+        /^img\d+$/i.test(handle) ||
+        /^image\d+$/i.test(handle)
+      ) {
+        return "image";
+      }
+      if (handle.startsWith("text") || handle.startsWith("prompt")) {
+        return "text";
+      }
+      if (sourceType && textSourceTypes.includes(sourceType)) return "text";
+      if (sourceType && videoSourceTypes.includes(sourceType)) return "video";
+      return "unknown";
+    },
+    [textSourceTypes, videoSourceTypes]
+  );
+  const inferQuickConnectTargetKind = React.useCallback(
+    (targetType?: string, targetHandle?: string): QuickConnectSourceKind => {
+      const handle = typeof targetHandle === "string" ? targetHandle.trim() : "";
+      if (!handle) return "unknown";
+
+      if (targetType === "sora2Video" && handle === "character") {
+        return "character";
+      }
+      if (handle === "video" || handle.startsWith("video")) {
+        return "video";
+      }
+      if (
+        handle === "img" ||
+        handle === "image" ||
+        handle === "images" ||
+        handle === "images-range" ||
+        handle === "image1" ||
+        handle === "image2" ||
+        handle === "refer" ||
+        /^img\d+$/i.test(handle) ||
+        /^image\d+$/i.test(handle)
+      ) {
+        return "image";
+      }
+      if (handle.startsWith("text") || handle.startsWith("prompt")) {
+        return "text";
+      }
+      return "unknown";
+    },
+    []
+  );
+  const getForwardQuickConnectOptions = React.useCallback(
+    (sourceId: string, sourceHandle?: string): QuickConnectMenuItem[] => {
+      const sourceNode = rf.getNode(sourceId);
+      if (!sourceNode) return [];
+
+      const kind = inferQuickConnectSourceKind(sourceNode.type || "", sourceHandle);
+      const presets = QUICK_CONNECT_PRESETS[kind] || QUICK_CONNECT_PRESETS.unknown;
+      const picked: QuickConnectMenuItem[] = [];
+      const seen = new Set<string>();
+
+      for (const preset of presets) {
+        const normalizedType = normalizeFlowNodeType(preset.nodeType);
+        const resolvedType = normalizedType || preset.nodeType;
+        if (!resolvedType) continue;
+        if (!normalizedType && !(resolvedType in FLOW_NODE_DEFAULT_SIZE)) continue;
+
+        const cacheKey = `${resolvedType}::${preset.targetHandle}`;
+        if (seen.has(cacheKey)) continue;
+        seen.add(cacheKey);
+
+        const meta = quickConnectMetaByType.get(resolvedType);
+        const status = meta?.status;
+        if (
+          status === "maintenance" ||
+          status === "coming_soon" ||
+          status === "disabled"
+        ) {
+          continue;
+        }
+
+        picked.push({
+          nodeType: resolvedType,
+          targetHandle: preset.targetHandle,
+          label: meta?.label || resolvedType,
+        });
+        if (picked.length >= QUICK_CONNECT_MAX_ITEMS) break;
+      }
+
+      return picked;
+    },
+    [rf, inferQuickConnectSourceKind, quickConnectMetaByType]
+  );
+  const getReverseQuickConnectOptions = React.useCallback(
+    (targetId: string, targetHandle: string): QuickConnectMenuItem[] => {
+      const targetNode = rf.getNode(targetId);
+      if (!targetNode) return [];
+
+      const kind = inferQuickConnectTargetKind(targetNode.type || "", targetHandle);
+      const presets =
+        QUICK_CONNECT_REVERSE_PRESETS[kind] || QUICK_CONNECT_REVERSE_PRESETS.unknown;
+      const picked: QuickConnectMenuItem[] = [];
+      const seen = new Set<string>();
+
+      for (const preset of presets) {
+        const normalizedType = normalizeFlowNodeType(preset.nodeType);
+        const resolvedType = normalizedType || preset.nodeType;
+        if (!resolvedType) continue;
+        if (!normalizedType && !(resolvedType in FLOW_NODE_DEFAULT_SIZE)) continue;
+        if (!preset.sourceHandle) continue;
+
+        const cacheKey = `${resolvedType}::${preset.sourceHandle}`;
+        if (seen.has(cacheKey)) continue;
+        seen.add(cacheKey);
+
+        const meta = quickConnectMetaByType.get(resolvedType);
+        const status = meta?.status;
+        if (
+          status === "maintenance" ||
+          status === "coming_soon" ||
+          status === "disabled"
+        ) {
+          continue;
+        }
+
+        picked.push({
+          nodeType: resolvedType,
+          sourceHandle: preset.sourceHandle,
+          label: meta?.label || resolvedType,
+        });
+        if (picked.length >= QUICK_CONNECT_MAX_ITEMS) break;
+      }
+
+      return picked;
+    },
+    [rf, inferQuickConnectTargetKind, quickConnectMetaByType]
+  );
+  React.useEffect(() => {
+    if (!isConnecting) return;
+    const anchor = connectAnchorRef.current;
+    if (!anchor) return;
+
+    const onMouseMove = (event: MouseEvent) => {
+      if (connectQuickMenuVisibleRef.current) return;
+      const x = event.clientX;
+      const y = event.clientY;
+
+      if (!isBlankArea(x, y)) {
+        clearConnectHoverTimer();
+        connectHoverAnchorRef.current = null;
+        return;
+      }
+
+      const anchor = connectHoverAnchorRef.current;
+      if (anchor && Math.hypot(anchor.x - x, anchor.y - y) < 14) {
+        return;
+      }
+      connectHoverAnchorRef.current = { x, y };
+      clearConnectHoverTimer();
+
+      connectHoverTimerRef.current = window.setTimeout(() => {
+        const latest = connectAnchorRef.current;
+        if (!latest) return;
+        if (!isBlankArea(x, y)) return;
+
+        const options =
+          latest.direction === "forward"
+            ? getForwardQuickConnectOptions(latest.sourceId, latest.sourceHandle)
+            : getReverseQuickConnectOptions(latest.targetId, latest.targetHandle);
+        if (!options.length) return;
+        setConnectQuickHoverKey(null);
+
+        setConnectQuickMenu({
+          visible: true,
+          screen: { x, y },
+          world: rf.screenToFlowPosition({ x, y }),
+          alignEdge: latest.direction === "reverse" ? "right" : "left",
+          options,
+        });
+      }, QUICK_CONNECT_HOVER_DELAY_MS);
+    };
+
+    window.addEventListener("mousemove", onMouseMove, true);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove, true);
+      clearConnectHoverTimer();
+      connectHoverAnchorRef.current = null;
+    };
+  }, [
+    isConnecting,
+    isBlankArea,
+    clearConnectHoverTimer,
+    getForwardQuickConnectOptions,
+    getReverseQuickConnectOptions,
+    rf,
+  ]);
+
   const TEXT_PROMPT_MAX_CONNECTIONS = 20;
   const isTextHandle = React.useCallback(
     (handle?: string | null) =>
@@ -5528,6 +5928,7 @@ function FlowInner() {
     (params: Connection) => {
       if (!isValidConnection(params)) return;
       if (!canAcceptConnection(params)) return;
+      closeConnectQuickMenu({ resetSource: true });
 
       setEdges((eds) => {
         let next = eds;
@@ -5928,8 +6329,101 @@ function FlowInner() {
       setNodes,
       isTextHandle,
       setIsConnecting,
+      closeConnectQuickMenu,
     ]
   );
+
+  const handleQuickConnectSelect = React.useCallback(
+    (item: QuickConnectMenuItem) => {
+      const anchor = connectAnchorRef.current;
+      if (!anchor) return;
+
+      const world = { ...connectQuickMenu.world };
+
+      closeConnectQuickMenu({ resetSource: true });
+      const newNodeId = createNodeAtWorldCenter(item.nodeType, world);
+      if (!newNodeId) return;
+
+      window.requestAnimationFrame(() => {
+        if (anchor.direction === "forward") {
+          const sourceHandle =
+            typeof anchor.sourceHandle === "string" && anchor.sourceHandle.trim()
+              ? anchor.sourceHandle
+              : undefined;
+          if (!item.targetHandle) return;
+          onConnect({
+            source: anchor.sourceId,
+            sourceHandle,
+            target: newNodeId,
+            targetHandle: item.targetHandle,
+          } as Connection);
+          return;
+        }
+
+        if (!item.sourceHandle) return;
+        onConnect({
+          source: newNodeId,
+          sourceHandle: item.sourceHandle,
+          target: anchor.targetId,
+          targetHandle: anchor.targetHandle,
+        } as Connection);
+      });
+    },
+    [closeConnectQuickMenu, connectQuickMenu.world, createNodeAtWorldCenter, onConnect]
+  );
+
+  React.useEffect(() => {
+    if (!connectQuickMenu.visible) return;
+
+    const optionByKey = new Map(
+      connectQuickMenu.options.map((item) => [getQuickConnectMenuItemKey(item), item])
+    );
+    const resolveItemByPoint = (
+      clientX: number,
+      clientY: number
+    ): QuickConnectMenuItem | null => {
+      const hit = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+      if (!hit) return null;
+      const optionEl = hit.closest(
+        "[data-connect-quick-key]"
+      ) as HTMLElement | null;
+      const key = optionEl?.dataset?.connectQuickKey;
+      if (!key) return null;
+      return optionByKey.get(key) ?? null;
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeConnectQuickMenu({ resetSource: true });
+      }
+    };
+    const onMouseMove = (event: MouseEvent) => {
+      const item = resolveItemByPoint(event.clientX, event.clientY);
+      setConnectQuickHoverKey(item ? getQuickConnectMenuItemKey(item) : null);
+    };
+    const onMouseUp = (event: MouseEvent) => {
+      const item = resolveItemByPoint(event.clientX, event.clientY);
+      if (item) {
+        handleQuickConnectSelect(item);
+        return;
+      }
+      closeConnectQuickMenu({ resetSource: true });
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("mousemove", onMouseMove, true);
+    window.addEventListener("mouseup", onMouseUp, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("mousemove", onMouseMove, true);
+      window.removeEventListener("mouseup", onMouseUp, true);
+    };
+  }, [
+    connectQuickMenu.visible,
+    connectQuickMenu.options,
+    closeConnectQuickMenu,
+    handleQuickConnectSelect,
+  ]);
 
   // 监听来自节点的本地数据写入（TextPrompt）
   React.useEffect(() => {
@@ -10912,12 +11406,45 @@ function FlowInner() {
 
   // 连接状态回调
   const onConnectStart = React.useCallback(
-    () => setIsConnecting(true),
-    [setIsConnecting]
+    (_event: any, params: any) => {
+      clearConnectHoverTimer();
+      connectHoverAnchorRef.current = null;
+      closeConnectQuickMenu({ resetSource: true });
+
+      const nodeId = typeof params?.nodeId === "string" ? params.nodeId : "";
+      const handleType =
+        typeof params?.handleType === "string" ? params.handleType : "";
+      const handleId =
+        typeof params?.handleId === "string" ? params.handleId.trim() : "";
+      if (nodeId && handleType === "source") {
+        connectAnchorRef.current = {
+          direction: "forward",
+          sourceId: nodeId,
+          sourceHandle: handleId || undefined,
+        };
+      } else if (nodeId && handleType === "target" && handleId) {
+        connectAnchorRef.current = {
+          direction: "reverse",
+          targetId: nodeId,
+          targetHandle: handleId,
+        };
+      } else {
+        connectAnchorRef.current = null;
+      }
+      setIsConnecting(true);
+    },
+    [clearConnectHoverTimer, closeConnectQuickMenu, setIsConnecting]
   );
   const onConnectEnd = React.useCallback(
-    () => setIsConnecting(false),
-    [setIsConnecting]
+    () => {
+      clearConnectHoverTimer();
+      connectHoverAnchorRef.current = null;
+      if (!connectQuickMenuVisibleRef.current) {
+        connectAnchorRef.current = null;
+      }
+      setIsConnecting(false);
+    },
+    [clearConnectHoverTimer, setIsConnecting]
   );
 
   // 在 node 渲染前为 Generate 节点注入 onRun 回调
@@ -11584,6 +12111,47 @@ function FlowInner() {
       </div>
     ) : null;
 
+  const connectQuickMenuStyle = React.useMemo(() => {
+    if (!connectQuickMenu.visible) {
+      return { display: "none" } as React.CSSProperties;
+    }
+    const viewportWidth =
+      typeof window !== "undefined" ? window.innerWidth : 1280;
+    const viewportHeight =
+      typeof window !== "undefined" ? window.innerHeight : 720;
+    const menuWidth = 260;
+    const menuMaxHeight = 48 + QUICK_CONNECT_MAX_ITEMS * 44;
+    const menuEstimatedHeight = Math.min(
+      menuMaxHeight,
+      48 + Math.max(1, connectQuickMenu.options.length) * 44
+    );
+    const maxLeft = Math.max(12, viewportWidth - menuWidth - 12);
+    const maxTop = Math.max(12, viewportHeight - menuEstimatedHeight - 12);
+    const alignedLeft =
+      connectQuickMenu.alignEdge === "right"
+        ? connectQuickMenu.screen.x - menuWidth
+        : connectQuickMenu.screen.x;
+    const left = Math.min(maxLeft, Math.max(12, alignedLeft));
+    const top = Math.min(
+      maxTop,
+      Math.max(12, connectQuickMenu.screen.y - menuEstimatedHeight / 2)
+    );
+    return {
+      position: "fixed",
+      left,
+      top,
+      width: menuWidth,
+      zIndex: 130,
+      pointerEvents: "auto",
+    } as React.CSSProperties;
+  }, [
+    connectQuickMenu.alignEdge,
+    connectQuickMenu.visible,
+    connectQuickMenu.options.length,
+    connectQuickMenu.screen.x,
+    connectQuickMenu.screen.y,
+  ]);
+
   // 计算添加面板的容器内定位
   const addPanelStyle = React.useMemo(() => {
     if (!addPanel.visible) return { display: "none" } as React.CSSProperties;
@@ -12236,6 +12804,83 @@ function FlowInner() {
         {/* 将画布上的图片以绿色块显示在 MiniMap 内 */}
         <MiniMapImageOverlay />
       </ReactFlow>
+
+      <div
+        ref={connectQuickMenuRef}
+        style={connectQuickMenuStyle}
+        data-prevent-add-panel
+      >
+        {connectQuickMenu.visible && (
+          <div
+            style={{
+              background: "#fff",
+              border: "1px solid #e5e7eb",
+              borderRadius: 12,
+              boxShadow: "0 20px 40px rgba(15,23,42,0.2)",
+              overflow: "hidden",
+            }}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "10px 12px",
+                borderBottom: "1px solid #f1f5f9",
+                background: "#f8fafc",
+              }}
+            >
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#111827" }}>
+                {lt("可连接节点", "Connectable Nodes")}
+              </div>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+                padding: 10,
+              }}
+            >
+              {connectQuickMenu.options.map((item) => {
+                const optionKey = getQuickConnectMenuItemKey(item);
+                const hovered = connectQuickHoverKey === optionKey;
+                return (
+                  <button
+                    key={optionKey}
+                    data-connect-quick-key={optionKey}
+                    type='button'
+                    onMouseEnter={() => setConnectQuickHoverKey(optionKey)}
+                    onMouseLeave={() =>
+                      setConnectQuickHoverKey((prev) =>
+                        prev === optionKey ? null : prev
+                      )
+                    }
+                    style={{
+                      border: hovered ? "1px solid #2563eb" : "1px solid #e5e7eb",
+                      borderRadius: 8,
+                      background: hovered ? "#eff6ff" : "#fff",
+                      color: hovered ? "#1d4ed8" : "#0f172a",
+                      fontSize: 13,
+                      fontWeight: 500,
+                      padding: "9px 10px",
+                      textAlign: "left",
+                      cursor: "pointer",
+                      boxShadow: hovered
+                        ? "0 6px 18px rgba(37,99,235,0.16)"
+                        : "none",
+                      transition: "all 0.12s ease",
+                    }}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
 
       {showFpsOverlay && (
         <div
