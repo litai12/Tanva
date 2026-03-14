@@ -8,8 +8,9 @@ import { getApiBaseUrl } from "../utils/assetProxy";
 export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao";
 
 export interface VideoGenerationRequest {
-  prompt: string;
+  prompt?: string;
   referenceImages?: string[]; // Base64 Data URI 数组
+  audioUrls?: string[];
   duration?: number;
   aspectRatio?: string;
   provider: VideoProvider;

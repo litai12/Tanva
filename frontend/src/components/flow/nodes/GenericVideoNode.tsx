@@ -4,6 +4,8 @@ import { AlertTriangle, Video, Share2, Download } from "lucide-react";
 import SmartImage from "../../ui/SmartImage";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { useAuthStore } from "@/stores/authStore";
+import { uploadAudioToOSS } from "@/stores/aiChatStore";
+import { useProjectContentStore } from "@/stores/projectContentStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
 
@@ -22,6 +24,10 @@ type Props = {
     provider: VideoProvider;
     clipDuration?: number;
     aspectRatio?: string;
+    klingModel?: "kling-v2-1" | "kling-v2-6";
+    mode?: "std" | "pro";
+    sound?: boolean;
+    audioUrls?: string[];
     history?: VideoHistoryItem[];
     fallbackMessage?: string;
   };
@@ -59,14 +65,19 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     : "0 1px 2px rgba(0,0,0,0.04)";
   const [hover, setHover] = React.useState<string | null>(null);
   const [previewAspect, setPreviewAspect] = React.useState<string>("16/9");
+  const [modelMenuOpen, setModelMenuOpen] = React.useState(false);
   const [aspectMenuOpen, setAspectMenuOpen] = React.useState(false);
   const [durationMenuOpen, setDurationMenuOpen] = React.useState(false);
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
+  const audioInputRef = React.useRef<HTMLInputElement | null>(null);
   const [isDownloading, setIsDownloading] = React.useState(false);
   const [downloadFeedback, setDownloadFeedback] =
     React.useState<DownloadFeedback | null>(null);
+  const [audioUploading, setAudioUploading] = React.useState(false);
+  const [audioMessage, setAudioMessage] = React.useState<string | null>(null);
   const downloadFeedbackTimer = React.useRef<number | undefined>(undefined);
   const user = useAuthStore((state) => state.user);
+  const projectId = useProjectContentStore((state) => state.projectId);
 
   // 检测是否有图片输入连接
   const hasImageInput = useStore((state) => {
@@ -85,7 +96,14 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   });
 
   const provider = data.provider || "kling";
-  const providerInfo = PROVIDER_CONFIG[provider] || PROVIDER_CONFIG["kling"];
+  const klingModel =
+    data.klingModel ||
+    (provider === "kling-2.6" ? "kling-v2-6" : "kling-v2-1");
+  const isUnifiedKlingNode = provider === "kling" || provider === "kling-2.6";
+  const isKling26Model = isUnifiedKlingNode && klingModel === "kling-v2-6";
+  const providerInfo = isUnifiedKlingNode
+    ? PROVIDER_CONFIG.kling
+    : PROVIDER_CONFIG[provider] || PROVIDER_CONFIG["kling"];
 
   const sanitizeMediaUrl = React.useCallback((url?: string | null) => {
     if (!url || typeof url !== "string") return undefined;
@@ -183,6 +201,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
       if (!target.closest?.(".video-dropdown")) {
+        setModelMenuOpen(false);
         setAspectMenuOpen(false);
         setDurationMenuOpen(false);
       }
@@ -215,6 +234,10 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     typeof data.clipDuration === "number" ? data.clipDuration : undefined;
   const aspectRatioValue =
     typeof data.aspectRatio === "string" ? data.aspectRatio : "";
+  const audioUrls = React.useMemo(
+    () => (Array.isArray(data.audioUrls) ? data.audioUrls.filter(Boolean) : []),
+    [data.audioUrls]
+  );
 
   // 根据供应商配置不同的选项
   const getAspectOptions = () => {
@@ -266,8 +289,28 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     return [];
   };
 
-  const aspectOptions = React.useMemo(() => getAspectOptions(), [provider, lt]);
+  const aspectOptions = React.useMemo(() => {
+    if (provider === "vidu" || provider === "viduq3-pro") {
+      return [
+        { label: lt("自动", "Auto"), value: "" },
+        { label: lt("横屏 (16:9)", "Landscape (16:9)"), value: "16:9" },
+        { label: lt("竖屏 (9:16)", "Portrait (9:16)"), value: "9:16" },
+        { label: lt("竖版 (3:4)", "Vertical (3:4)"), value: "3:4" },
+        { label: lt("横版 (4:3)", "Horizontal (4:3)"), value: "4:3" },
+        { label: lt("方形 (1:1)", "Square (1:1)"), value: "1:1" },
+      ];
+    }
+    return getAspectOptions();
+  }, [getAspectOptions, lt, provider]);
+  const klingModelOptions = React.useMemo(
+    () => [
+      { label: "Kling 2.1", value: "kling-v2-1" as const },
+      { label: "Kling 2.6", value: "kling-v2-6" as const },
+    ],
+    []
+  );
   const durationOptions = React.useMemo(() => getDurationOptions(), [provider, lt]);
+  const shouldShowAspectSelector = !hasImageInput;
 
   const handleAspectChange = React.useCallback(
     (value: string) => {
@@ -293,6 +336,172 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     [clipDuration, id]
   );
 
+  const handleKlingModelChange = React.useCallback(
+    (value: "kling-v2-1" | "kling-v2-6") => {
+      if (value === klingModel) return;
+      window.dispatchEvent(
+        new CustomEvent("flow:updateNodeData", {
+          detail: {
+            id,
+            patch: {
+              klingModel: value,
+              sound: value === "kling-v2-6" ? false : undefined,
+            },
+          },
+        })
+      );
+    },
+    [id, klingModel]
+  );
+
+  React.useEffect(() => {
+    if (!isKling26Model || data.sound === false) return;
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: { id, patch: { sound: false } },
+      })
+    );
+  }, [data.sound, id, isKling26Model]);
+
+  const handleRemoveAudioAt = React.useCallback(
+    (index: number) => {
+      const nextAudioUrls = audioUrls.filter((_, itemIndex) => itemIndex !== index);
+      window.dispatchEvent(
+        new CustomEvent("flow:updateNodeData", {
+          detail: { id, patch: { audioUrls: nextAudioUrls } },
+        })
+      );
+      setAudioMessage(null);
+      if (audioInputRef.current && nextAudioUrls.length === 0) {
+        audioInputRef.current.value = "";
+      }
+    },
+    [audioUrls, id]
+  );
+
+  const handleAudioInputChange = React.useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const fileList = event.target.files;
+      if (!fileList || fileList.length === 0) return;
+
+      const incomingFiles = Array.from(fileList);
+      if (incomingFiles.length + audioUrls.length > 2) {
+        const message = lt("最多只能上传 2 个音频文件", "You can upload up to 2 audio files");
+        setAudioMessage(message);
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message, type: "warning" },
+          })
+        );
+        event.target.value = "";
+        return;
+      }
+
+      try {
+        setAudioUploading(true);
+        setAudioMessage(lt("音频上传中...", "Uploading audio..."));
+        const uploadedUrls: string[] = [];
+
+        for (const file of incomingFiles) {
+          const isSupported =
+            ["mp3", "wav"].includes(file.name.split(".").pop()?.toLowerCase() || "") ||
+            file.type.startsWith("audio/");
+          if (!isSupported) {
+            throw new Error(lt("仅支持 mp3/wav 音频", "Only mp3/wav audio is supported"));
+          }
+
+          const objectUrl = URL.createObjectURL(file);
+          try {
+            const duration = await new Promise<number>((resolve, reject) => {
+              const audio = document.createElement("audio");
+              const timeoutId = window.setTimeout(() => {
+                reject(
+                  new Error(
+                    lt("无法读取音频时长", "Unable to read audio duration")
+                  )
+                );
+              }, 5000);
+
+              audio.preload = "metadata";
+              audio.src = objectUrl;
+              audio.addEventListener("loadedmetadata", () => {
+                window.clearTimeout(timeoutId);
+                resolve(audio.duration || 0);
+              });
+              audio.addEventListener("error", () => {
+                window.clearTimeout(timeoutId);
+                reject(
+                  new Error(
+                    lt("无法读取音频文件，请确认格式正确", "Unable to read audio file, please verify the format")
+                  )
+                );
+              });
+            });
+
+            if (duration < 5 || duration > 30) {
+              throw new Error(
+                lt("每个音频文件时长需在 5 到 30 秒之间", "Each audio file must be between 5 and 30 seconds")
+              );
+            }
+          } finally {
+            URL.revokeObjectURL(objectUrl);
+          }
+
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              if (typeof reader.result === "string") resolve(reader.result);
+              else reject(new Error(lt("无法读取音频数据", "Unable to read audio data")));
+            };
+            reader.onerror = () =>
+              reject(new Error(lt("无法读取音频文件", "Unable to read audio file")));
+            reader.readAsDataURL(file);
+          });
+
+          const uploaded = await uploadAudioToOSS(dataUrl, projectId);
+          if (!uploaded) {
+            throw new Error(lt("音频上传失败，请重试", "Audio upload failed, please retry"));
+          }
+          uploadedUrls.push(uploaded);
+        }
+
+        const nextAudioUrls = [...audioUrls, ...uploadedUrls].slice(0, 2);
+        window.dispatchEvent(
+          new CustomEvent("flow:updateNodeData", {
+            detail: {
+              id,
+              patch: {
+                audioUrls: nextAudioUrls,
+                sound: false,
+              },
+            },
+          })
+        );
+        setAudioMessage(
+          lt(
+            "已上传音频，sound 将自动按 no 提交",
+            "Audio uploaded, sound will be submitted as no automatically"
+          )
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : lt("音频上传失败，请稍后重试", "Audio upload failed, please retry later");
+        setAudioMessage(message);
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message, type: "error" },
+          })
+        );
+      } finally {
+        setAudioUploading(false);
+        event.target.value = "";
+      }
+    },
+    [audioUrls, id, lt, projectId]
+  );
+
   const aspectLabel = React.useMemo(() => {
     const match = aspectOptions.find((opt) => opt.value === aspectRatioValue);
     return match ? match.label : lt("自动", "Auto");
@@ -304,6 +513,10 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     if (clipDuration) return lt(`${clipDuration}秒`, `${clipDuration}s`);
     return lt("未设置", "Not set");
   }, [clipDuration, durationOptions, lt]);
+  const klingModelLabel = React.useMemo(() => {
+    const match = klingModelOptions.find((opt) => opt.value === klingModel);
+    return match?.label || "Kling 2.1";
+  }, [klingModel, klingModelOptions]);
 
   React.useEffect(() => {
     if (!aspectRatioValue) {
@@ -745,8 +958,91 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         </div>
       )}
 
-      {/* 尺寸选择 - Vidu 不支持，有图片输入时也隐藏 */}
-      {provider !== "vidu" && !hasImageInput && (
+      {/* 尺寸选择：接入图片后隐藏，未接图时显示 */}
+      {isUnifiedKlingNode && (
+        <div
+          className='video-dropdown'
+          style={{ marginBottom: 8, position: "relative" }}
+        >
+          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+            {lt("模型", "Model")}
+          </div>
+          <button
+            type='button'
+            onClick={(event) => {
+              event.stopPropagation();
+              setAspectMenuOpen(false);
+              setDurationMenuOpen(false);
+              setModelMenuOpen((open) => !open);
+            }}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "6px 10px",
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              background: "#fff",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            <span>{klingModelLabel}</span>
+            <span style={{ fontSize: 16, lineHeight: 1 }}>
+              {modelMenuOpen ? "▴" : "▾"}
+            </span>
+          </button>
+          {modelMenuOpen && (
+            <div
+              className='video-dropdown-menu'
+              onClick={(event) => event.stopPropagation()}
+              style={{
+                position: "absolute",
+                zIndex: 20,
+                top: "calc(100% + 4px)",
+                left: 0,
+                right: 0,
+                background: "#fff",
+                border: "1px solid #e5e7eb",
+                borderRadius: 8,
+                padding: 8,
+                boxShadow: "0 8px 16px rgba(15,23,42,0.08)",
+              }}
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {klingModelOptions.map((opt) => {
+                  const isActive = klingModel === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type='button'
+                      onClick={() => {
+                        handleKlingModelChange(opt.value);
+                        setModelMenuOpen(false);
+                      }}
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: 8,
+                        border: `1px solid ${isActive ? "#2563eb" : "#e5e7eb"}`,
+                        background: isActive ? "#eff6ff" : "#fff",
+                        color: isActive ? "#1d4ed8" : "#111827",
+                        fontSize: 12,
+                        textAlign: "left",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {shouldShowAspectSelector && (
         <div
           className='video-dropdown'
           style={{ marginBottom: 8, position: "relative" }}
@@ -758,6 +1054,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             type='button'
             onClick={(event) => {
               event.stopPropagation();
+              setModelMenuOpen(false);
               setDurationMenuOpen(false);
               setAspectMenuOpen((open) => !open);
             }}
@@ -838,6 +1135,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           type='button'
           onClick={(event) => {
             event.stopPropagation();
+            setModelMenuOpen(false);
             setAspectMenuOpen(false);
             setDurationMenuOpen((open) => !open);
           }}
@@ -916,17 +1214,17 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       </div>
 
       {/* Kling 专用参数：模式选择 */}
-      {(provider === "kling" || provider === "kling-2.6") && (
+      {isUnifiedKlingNode && (
         <div style={{ marginBottom: 8 }}>
           <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
             {lt("模式", "Mode")}
           </div>
           <div style={{ display: "flex", gap: 6 }}>
             {[
-              { label: lt("标准 (std)", "Standard (std)"), value: "std" },
-              { label: lt("专业 (pro)", "Pro (pro)"), value: "pro" },
+              { label: lt("标准", "Standard"), value: "std" },
+              { label: lt("专业", "Pro"), value: "pro" },
             ].map((opt) => {
-              const isActive = (data as any).mode === opt.value;
+              const isActive = (((data as any).mode || "std") === opt.value);
               return (
                 <button
                   key={opt.value}
@@ -959,35 +1257,107 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         </div>
       )}
 
-      {/* Kling 音效开关 */}
-      {(provider === "kling" || provider === "kling-2.6") && (
+      {isKling26Model && (
         <div style={{ marginBottom: 8 }}>
-          <button
-            type='button'
-            onClick={() => {
-              if (imageInputCount === 2) return; // 首尾帧模式禁用
-              window.dispatchEvent(
-                new CustomEvent("flow:updateNodeData", {
-                  detail: { id, patch: { sound: (data as any).sound === false ? true : false } },
-                })
-              );
-            }}
-            disabled={imageInputCount === 2}
-            style={{
-              width: "100%",
-              padding: "6px 10px",
-              borderRadius: 8,
-              border: `1px solid #e5e7eb`,
-              background: imageInputCount === 2 ? "#f3f4f6" : (data as any).sound !== false ? "#111827" : "#fff",
-              color: imageInputCount === 2 ? "#9ca3af" : (data as any).sound !== false ? "#fff" : "#111827",
-              fontSize: 12,
-              cursor: imageInputCount === 2 ? "not-allowed" : "pointer",
-              opacity: imageInputCount === 2 ? 0.6 : 1,
-            }}
-            title={imageInputCount === 2 ? lt("首尾帧模式不支持音效", "Sound not supported in first-last frame mode") : ""}
-          >
-            {lt("音效", "Sound")}: {imageInputCount === 2 ? lt("不可用", "N/A") : (data as any).sound !== false ? lt("开启", "On") : lt("关闭", "Off")}
-          </button>
+          <div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 4,
+                fontSize: 12,
+                color: "#6b7280",
+              }}
+            >
+              <span>{lt("音频文件（最多 2 个）", "Audio files (max 2)")}</span>
+              <span>{audioUrls.length}/2</span>
+            </div>
+            <input
+              ref={audioInputRef}
+              type='file'
+              accept='audio/mp3,audio/wav,.mp3,.wav'
+              multiple
+              onChange={handleAudioInputChange}
+              style={{ display: "none" }}
+            />
+            <button
+              type='button'
+              onClick={() => audioInputRef.current?.click()}
+              disabled={audioUploading || audioUrls.length >= 2}
+              style={{
+                width: "100%",
+                padding: "6px 10px",
+                borderRadius: 8,
+                border: "1px solid #e5e7eb",
+                background: "#fff",
+                color: "#111827",
+                fontSize: 12,
+                cursor:
+                  audioUploading || audioUrls.length >= 2 ? "not-allowed" : "pointer",
+                opacity: audioUploading || audioUrls.length >= 2 ? 0.6 : 1,
+              }}
+            >
+              {audioUploading
+                ? lt("上传中...", "Uploading...")
+                : audioUrls.length > 0
+                ? lt("继续上传", "Upload more")
+                : lt("上传音频", "Upload audio")}
+            </button>
+            {audioUrls.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+                {audioUrls.map((url, index) => (
+                  <div
+                    key={`${url}-${index}`}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 8,
+                      padding: "6px 8px",
+                      borderRadius: 8,
+                      border: "1px solid #e5e7eb",
+                      background: "#f8fafc",
+                      fontSize: 11,
+                    }}
+                  >
+                    <span style={{ color: "#334155" }}>
+                      {lt("音频", "Audio")} {index + 1}
+                    </span>
+                    <button
+                      type='button'
+                      onClick={() => handleRemoveAudioAt(index)}
+                      style={{
+                        padding: "2px 6px",
+                        borderRadius: 6,
+                        border: "1px solid #cbd5e1",
+                        background: "#fff",
+                        fontSize: 11,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {lt("移除", "Remove")}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {audioMessage && (
+              <div
+                style={{
+                  marginTop: 6,
+                  padding: "6px 8px",
+                  borderRadius: 6,
+                  border: "1px solid #e5e7eb",
+                  background: "#f8fafc",
+                  color: "#475569",
+                  fontSize: 11,
+                }}
+              >
+                {audioMessage}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

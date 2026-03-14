@@ -105,7 +105,7 @@ function getDefaultConfigs(): NodeConfig[] {
 
     // 视频生成节点
     // { nodeKey: "klingVideo", nameZh: "Kling视频生成", nameEn: "Kling", category: "video", status: "maintenance", sortOrder: 20, creditsPerCall: 600 },
-    { nodeKey: "kling26Video", nameZh: "Kling 2.6视频生成", nameEn: "Kling 2.6", category: "video", status: "normal", sortOrder: 21, creditsPerCall: 600 },
+    // { nodeKey: "kling26Video", nameZh: "Kling 2.6视频生成", nameEn: "Kling 2.6", category: "video", status: "normal", sortOrder: 21, creditsPerCall: 600 },
     { nodeKey: "klingO1Video", nameZh: "Kling O1视频生成", nameEn: "Kling O1", category: "video", status: "normal", sortOrder: 22, creditsPerCall: 1600 },
     { nodeKey: "viduVideo", nameZh: "Vidu视频生成", nameEn: "Vidu", category: "video", status: "normal", sortOrder: 23, creditsPerCall: 600 },
     { nodeKey: "viduQ3", nameZh: "Vidu Q3 Pro视频生成", nameEn: "Vidu Q3 Pro", category: "video", status: "normal", sortOrder: 24, creditsPerCall: 800 },

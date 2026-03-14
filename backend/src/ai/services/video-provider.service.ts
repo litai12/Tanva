@@ -430,8 +430,8 @@ export class VideoProviderService {
     const endpoint = endpointMap[videoMode] || endpointMap["text2video"];
 
     const payload: any = {
-      model_name: "kling-v1",  // 使用 v1 以确保兼容性
-      mode: (options as any).mode || "pro",
+      model_name: "kling-v2-1",
+      mode: (options as any).mode || "std",
       duration: options.duration === 10 ? "10" : "5",
     };
 
@@ -450,7 +450,6 @@ export class VideoProviderService {
         payload.prompt = options.prompt;
       }
     } else if (videoMode === "image2video-tail") {
-      payload.model_name = "kling-v1";
       payload.image = await this.uploadBase64ImageToOSS(options.referenceImages![0]);
       payload.image_tail = await this.uploadBase64ImageToOSS(options.referenceImages![1]);
       payload.prompt = options.prompt || KLING_DEFAULT_REFERENCE_PROMPT;
@@ -614,9 +613,12 @@ export class VideoProviderService {
 
     const payload: any = {
       model_name: "kling-v2-6",
-      mode: (options as any).mode || "pro",
+      mode: (options as any).mode || "std",
       duration: Number(options.duration) === 10 ? "10" : "5",
-      sound: options.sound !== false ? "on" : "off",
+      sound:
+        Array.isArray((options as any).audioUrls) && (options as any).audioUrls.length > 0
+          ? "no"
+          : "no",
     };
 
     this.logger.log(`🎬 Kling 2.6 参数: duration=${options.duration}, 转换后=${Number(options.duration) === 10 ? "10" : "5"}`);
@@ -640,7 +642,7 @@ export class VideoProviderService {
       payload.image_tail = await this.uploadBase64ImageToOSS(options.referenceImages![1]);
       payload.prompt = options.prompt || KLING_DEFAULT_REFERENCE_PROMPT;
       // 首尾帧模式不支持音效
-      payload.sound = "off";
+      payload.sound = "no";
     } else if (videoMode === "multi-image2video") {
       const imageUrls = await Promise.all(
         options.referenceImages!.slice(0, 4).map(img => this.uploadBase64ImageToOSS(img))
@@ -837,6 +839,10 @@ export class VideoProviderService {
       payload.resolution = options.resolution || "720p";
     }
 
+    if (!options.referenceImages?.length) {
+      payload.aspect_ratio = options.aspectRatio || "16:9";
+    }
+
     this.logProviderPayload("vidu", payload);
     this.logger.log(`🎬 Vidu: mode=${videoMode}, images=${imageCount}, endpoint=${endpoint}`);
 
@@ -934,8 +940,7 @@ export class VideoProviderService {
 
     const payload: any = {
       model_name: "kling-v3-omni",
-      mode: options.mode || "pro",
-      sound: options.sound !== false ? "on" : "off",
+      mode: options.mode || "std",
     };
 
     // 处理 prompt（Kling O1 要求 prompt 必填）
@@ -959,10 +964,13 @@ export class VideoProviderService {
 
     // 处理画面比例
     // Kling O1 要求：没有首帧图片且不是视频编辑模式时必须指定 aspect_ratio
+    const isVideoEdit = hasVideo && options.referenceVideoType === "base";
+    const hasFirstFrame = imageCount > 0 && !hasVideo; // 只有无视频时才会设置首帧
+
     if (options.aspectRatio) {
       payload.aspect_ratio = options.aspectRatio;
-    } else if (imageCount === 0 && !hasVideo) {
-      // 文生视频模式，默认 16:9
+    } else if (!hasFirstFrame && !isVideoEdit) {
+      // 没有首帧且不是视频编辑模式，默认 16:9
       payload.aspect_ratio = "16:9";
     }
 
@@ -972,11 +980,13 @@ export class VideoProviderService {
       for (let i = 0; i < Math.min(imageCount, 7); i++) {
         const imgUrl = await this.uploadBase64ImageToOSS(options.referenceImages![i]);
         const imgItem: any = { image_url: imgUrl };
-        // 如果是前两张图，可以设置为首帧/尾帧
-        if (i === 0 && imageCount >= 1) {
-          imgItem.type = "first_frame";
-        } else if (i === 1 && imageCount === 2) {
-          imgItem.type = "end_frame";
+        // 只有在无视频输入时，才可以设置首尾帧
+        if (!hasVideo) {
+          if (i === 0 && imageCount >= 1) {
+            imgItem.type = "first_frame";
+          } else if (i === 1 && imageCount === 2) {
+            imgItem.type = "end_frame";
+          }
         }
         imageList.push(imgItem);
       }
@@ -1135,6 +1145,10 @@ export class VideoProviderService {
       payload.images = [options.referenceImages![0], options.referenceImages![1]];
       payload.duration = options.duration || 5;
       payload.resolution = options.resolution || "720p";
+    }
+
+    if (!options.referenceImages?.length) {
+      payload.aspect_ratio = options.aspectRatio || "16:9";
     }
 
     this.logProviderPayload("viduq3-pro", payload);

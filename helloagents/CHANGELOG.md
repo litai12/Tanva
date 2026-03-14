@@ -44,6 +44,10 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 后端 AI：Seedance（doubao）视频任务成功后自动上传到 OSS，仅返回自有 OSS 公网链接，避免上游 TOS 直链的 CORS/过期问题。
 
 ### Fixed
+- Backend：普通 Kling 视频节点对应的供应商模型切换为 kling-v2-1，其余 Kling 2.6 / Kling O3 逻辑保持不变（backend/src/ai/services/video-provider.service.ts）。
+- Flow：节点弹窗在存在后端节点配置时，改为按归一化后的 Flow 节点类型去重并优先使用后端数据，避免前端 fallback 与后端配置叠加后出现重复的 Kling 节点（frontend/src/components/flow/FlowOverlay.tsx）。
+- Flow：隐藏 Kling 2.6 节点入口，不再在节点弹窗与快速连接菜单中显示；前端默认节点配置也同步移除该项（frontend/src/components/flow/FlowOverlay.tsx、frontend/src/services/nodeConfigService.ts）。
+- Flow：修复节点弹窗中 Kling 系列配置名未正确映射到 Flow 节点类型时，点击后无节点创建的问题；新增 Kling / Kling 2.6 / Kling O1 / Kling O3 别名兼容（frontend/src/components/flow/FlowOverlay.tsx）。
 - Flow：修复 `Seedream` 节点左侧 `image` 输入句柄被容量校验错误拦截，现可正常连接图片输出句柄（`frontend/src/components/flow/FlowOverlay.tsx`）。
 - Flow：返回首页再进入项目时，节点首屏缩放闪烁的 viewport 同步修正（`frontend/src/components/flow/FlowOverlay.tsx`）。
 - Canvas：返回首页再进入项目后，Paper 图片命中/选择偶发失效的恢复逻辑（`frontend/src/components/canvas/DrawingController.tsx`、`frontend/src/utils/paperCoords.ts`）。

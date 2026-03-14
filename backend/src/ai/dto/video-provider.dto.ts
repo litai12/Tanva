@@ -22,6 +22,11 @@ export class VideoProviderRequestDto {
   @IsString({ each: true })
   referenceImages?: string[];
 
+  @ApiProperty({ description: 'Audio URL list', required: false, type: [String] })
+  @IsOptional()
+  @IsString({ each: true })
+  audioUrls?: string[];
+
   @ApiProperty({ description: '参考视频 URL', required: false })
   @IsOptional()
   @IsString()

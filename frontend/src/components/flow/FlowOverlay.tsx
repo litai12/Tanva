@@ -599,7 +599,7 @@ const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "sora2Character",
   "wan26",
   "wan2R2V",
-  // "klingVideo",
+  "klingVideo",
   "kling26Video",
   "klingO1Video",
   "viduVideo",
@@ -615,7 +615,7 @@ const FLOW_GROUP_LOCAL_RUN_TYPES = new Set([
 const SORA2_MAX_REFERENCE_IMAGES = 1;
 const VIDU_MAX_REFERENCE_IMAGES = 7; // Vidu viduq2 模型支持最多 7 张参考图
 const VIDUQ3_MAX_REFERENCE_IMAGES = 2; // Vidu Q3 Pro 支持最多 2 张参考图
-const KLING_MAX_REFERENCE_IMAGES = 4; // Kling 支持最多 4 张参考图
+const KLING_MAX_REFERENCE_IMAGES = 2; // Kling 2.1 / 2.6 统一限制最多 2 张参考图
 
 // 模板分类由后端维护，前端会在面板打开时请求；若后端无数据则从 tplIndex 推断或回退到 ['其他']
 
@@ -842,8 +842,8 @@ const NODE_PALETTE_ITEMS = [
   { key: "sora2Character", zh: "Sora2角色生成", en: "Sora2 Character", category: "video" },
   { key: "wan26", zh: "Wan2.6生成视频", en: "Wan2.6", category: "video" },
   { key: "wan2R2V", zh: "视频融合", en: "Wan2.6 R2V", category: "video" },
-  // { key: "klingVideo", zh: "Kling视频生成", en: "Kling", category: "video", badge: "维护中" },
-  { key: "kling26Video", zh: "Kling 2.6视频生成", en: "Kling 2.6", category: "video" },
+  { key: "klingVideo", zh: "Kling视频生成", en: "Kling", category: "video" },
+  // { key: "kling26Video", zh: "Kling 2.6视频生成", en: "Kling 2.6", category: "video" },
   { key: "viduVideo", zh: "Vidu视频生成", en: "Vidu", category: "video" },
   {
     key: "doubaoVideo",
@@ -1009,10 +1009,24 @@ const FLOW_NODE_DEFAULT_SIZE = {
 
 type FlowNodeType = keyof typeof FLOW_NODE_DEFAULT_SIZE;
 
+const HIDDEN_FLOW_NODE_TYPES = new Set<FlowNodeType>(["kling26Video"]);
+
 const FLOW_NODE_KEY_ALIASES: Record<string, FlowNodeType> = {
   generatereference: "generateRef",
   "generate-reference": "generateRef",
   generate_reference: "generateRef",
+  kling: "klingVideo",
+  "kling-video": "klingVideo",
+  kling26: "kling26Video",
+  "kling-26": "kling26Video",
+  "kling-2.6": "kling26Video",
+  "kling-2.6-video": "kling26Video",
+  klingo1: "klingO1Video",
+  "kling-o1": "klingO1Video",
+  "kling-o1-video": "klingO1Video",
+  klingo3: "klingO1Video",
+  "kling-o3": "klingO1Video",
+  "kling-o3-video": "klingO1Video",
 };
 
 const canonicalizeNodeTypeKey = (value: string): string =>
@@ -1079,7 +1093,10 @@ const resolveFlowNodeTypeFromConfig = (config: Partial<NodeConfig>): string => {
 
   for (const candidate of candidates) {
     const normalized = normalizeFlowNodeType(candidate);
-    if (normalized) return normalized;
+    if (normalized) {
+      if (normalized === "kling26Video") return "klingVideo";
+      return normalized;
+    }
   }
 
   for (const candidate of candidates) {
@@ -1700,15 +1717,42 @@ function FlowInner() {
       sortOrder: 0,
     }));
 
-    const base =
-      sortedNodeConfigs && sortedNodeConfigs.length > 0
-        ? [...sortedNodeConfigs]
-        : [...fallbackConfigs];
-
-    const existingKeys = new Set(base.map((item) => item.nodeKey));
+    const hasBackendConfigs = Boolean(sortedNodeConfigs && sortedNodeConfigs.length > 0);
+    const base = hasBackendConfigs
+      ? (() => {
+          const deduped = new Map<string, NodeConfig>();
+          for (const config of sortedNodeConfigs) {
+            const resolvedType = resolveFlowNodeTypeFromConfig(config);
+            const dedupeKey = resolvedType || config.nodeKey;
+            if (!dedupeKey) continue;
+            const existing = deduped.get(dedupeKey);
+            if (!existing) {
+              deduped.set(dedupeKey, config);
+              continue;
+            }
+            if (
+              config.nodeKey === dedupeKey &&
+              existing.nodeKey !== dedupeKey
+            ) {
+              deduped.set(dedupeKey, config);
+            }
+          }
+          return Array.from(deduped.values());
+        })()
+      : [...fallbackConfigs];
     const merged = [...base];
-    for (const fallback of fallbackConfigs) {
-      if (!existingKeys.has(fallback.nodeKey)) {
+
+    if (hasBackendConfigs) {
+      const existingTypes = new Set(
+        base
+          .map((item) => resolveFlowNodeTypeFromConfig(item))
+          .filter((type): type is string => Boolean(type))
+      );
+
+      for (const fallback of fallbackConfigs) {
+        const fallbackType = resolveFlowNodeTypeFromConfig(fallback);
+        if (!fallbackType || existingTypes.has(fallbackType)) continue;
+        existingTypes.add(fallbackType);
         merged.push(fallback);
       }
     }
@@ -5203,15 +5247,21 @@ function FlowInner() {
               clipDuration: undefined,
               aspectRatio: undefined,
               provider:
-                type === "klingVideo"
-                  ? "kling"
-                  : type === "kling26Video"
-                  ? "kling-2.6"
-                  : type === "viduVideo"
+                type === "viduVideo"
                   ? "vidu"
                   : type === "viduQ3"
                   ? "viduq3-pro"
-                  : "doubao",
+                  : type === "doubaoVideo"
+                  ? "doubao"
+                  : "kling",
+              klingModel:
+                type === "kling26Video" ? ("kling-v2-6" as const) : ("kling-v2-1" as const),
+              mode:
+                type === "klingVideo" || type === "kling26Video" ? ("std" as const) : undefined,
+              sound:
+                type === "klingVideo" || type === "kling26Video" ? false : undefined,
+              audioUrls:
+                type === "klingVideo" || type === "kling26Video" ? [] : undefined,
               // Vidu 专用参数
               resolution: type === "viduVideo" || type === "viduQ3" ? ("720p" as const) : undefined,
               style: type === "viduVideo" || type === "viduQ3" ? ("general" as const) : undefined,
@@ -5231,7 +5281,7 @@ function FlowInner() {
               history: [],
               clipDuration: 5,
               aspectRatio: undefined,
-              mode: "pro" as const,
+              mode: "std" as const,
               provider: "kling-o3",
               boxW: size.w,
               boxH: size.h,
@@ -5372,6 +5422,7 @@ function FlowInner() {
         const resolvedType = normalizedType || preset.nodeType;
         if (!resolvedType) continue;
         if (!normalizedType && !(resolvedType in FLOW_NODE_DEFAULT_SIZE)) continue;
+        if (HIDDEN_FLOW_NODE_TYPES.has(resolvedType as FlowNodeType)) continue;
 
         const cacheKey = `${resolvedType}::${preset.targetHandle}`;
         if (seen.has(cacheKey)) continue;
@@ -5415,6 +5466,7 @@ function FlowInner() {
         if (!resolvedType) continue;
         if (!normalizedType && !(resolvedType in FLOW_NODE_DEFAULT_SIZE)) continue;
         if (!preset.sourceHandle) continue;
+        if (HIDDEN_FLOW_NODE_TYPES.has(resolvedType as FlowNodeType)) continue;
 
         const cacheKey = `${resolvedType}::${preset.sourceHandle}`;
         if (seen.has(cacheKey)) continue;
@@ -5731,7 +5783,7 @@ function FlowInner() {
 
       // Kling O1 视频节点连接验证 - 支持文本、图片和视频输入
       if (targetNode.type === "klingO1Video") {
-        if (isImageHandle(targetHandle)) {
+        if (isImageHandle(targetHandle) || targetHandle === "elementImg") {
           return isImageSource(sourceNode, sourceHandle);
         }
         if (targetHandle === "text") {
@@ -6001,8 +6053,12 @@ function FlowInner() {
       }
       // Kling O1 视频节点：支持最多 7 张参考图 + 视频输入
       if (targetNode?.type === "klingO1Video") {
-        if (params.targetHandle === "image") {
-          return incoming.length < 7; // Kling O1 支持最多 7 张图片
+        if (params.targetHandle === "image" || params.targetHandle === "elementImg") {
+          // 计算image和elementImg的总连接数
+          const totalImageConnections = edges.filter(
+            (e) => e.target === params.target && (e.targetHandle === "image" || e.targetHandle === "elementImg")
+          ).length;
+          return totalImageConnections < 7; // 总共最多 7 张图片
         }
         if (params.targetHandle === "text") return true;
         if (params.targetHandle === "video") return incoming.length < 1; // 只支持 1 个视频
@@ -6227,6 +6283,29 @@ function FlowInner() {
               const isImageEdge =
                 e.target === params.target && e.targetHandle === "image";
               if (isImageEdge) {
+                remainingToDrop -= 1;
+                return false;
+              }
+              return true;
+            });
+          }
+        }
+        // Kling O1 视频节点：elementImg 支持最多 7 张参考图
+        if (tgt?.type === "klingO1Video" && params.targetHandle === "elementImg") {
+          let remainingToDrop = Math.max(
+            0,
+            next.filter(
+              (e) => e.target === params.target && e.targetHandle === "elementImg"
+            ).length -
+              7 + // elementImg 支持最多 7 张图片
+              1 // +1 for the incoming edge
+          );
+          if (remainingToDrop > 0) {
+            next = next.filter((e) => {
+              if (remainingToDrop <= 0) return true;
+              const isElementImgEdge =
+                e.target === params.target && e.targetHandle === "elementImg";
+              if (isElementImgEdge) {
                 remainingToDrop -= 1;
                 return false;
               }
@@ -8916,10 +8995,15 @@ function FlowInner() {
         const projectId = useProjectContentStore.getState().projectId;
         // 根据节点类型确定 provider
         let provider: string;
+        const klingModel =
+          (node.data as any)?.klingModel ||
+          (node.type === "kling26Video" || (node.data as any)?.provider === "kling-2.6"
+            ? "kling-v2-6"
+            : "kling-v2-1");
         if (node.type === "klingO1Video") {
           provider = "kling-o3";
-        } else if (node.type === "kling26Video") {
-          provider = "kling-2.6";
+        } else if (node.type === "klingVideo" || node.type === "kling26Video") {
+          provider = klingModel === "kling-v2-6" ? "kling-2.6" : "kling";
         } else if (node.type === "viduQ3") {
           provider = "viduq3-pro";
         } else {
@@ -8936,8 +9020,21 @@ function FlowInner() {
             ? KLING_MAX_REFERENCE_IMAGES
             : SORA2_MAX_REFERENCE_IMAGES;
 
+        // 检查是否有视频输入
+        const hasVideoInput = currentEdges.some(
+          (e) => e.target === nodeId && e.targetHandle === "video"
+        );
+
         const imageEdges = currentEdges
-          .filter((e) => e.target === nodeId && e.targetHandle === "image")
+          .filter((e) => {
+            if (e.target !== nodeId) return false;
+            // 有视频输入时，只收集image句柄，排除elementImg
+            if (hasVideoInput) {
+              return e.targetHandle === "image";
+            }
+            // 无视频输入时，收集image和elementImg
+            return e.targetHandle === "image" || e.targetHandle === "elementImg";
+          })
           .slice(0, maxImages);
         const imageCount = imageEdges.length;
 
@@ -8975,14 +9072,15 @@ function FlowInner() {
           if (imageCount >= 3 && !promptText) {
             finalPrompt = "基于图片生成视频";
           }
-        } else if (provider === "kling" || provider === "kling-o3") {
-          // Kling / Kling O1 智能模式判断逻辑：
-          // - 0张图必须有prompt (text2video)
-          // - 1-2张图：可选prompt (image2video/image2video-tail)
-          // - 3-4张图：使用multi-image2video（必须有prompt，无prompt时使用默认）
-          // Kling O1 支持更灵活的输入组合
-          if (imageCount === 0 && !hasText) {
-            // 0张图必须有prompt
+        } else if (
+          provider === "kling" ||
+          provider === "kling-2.6" ||
+          provider === "kling-o3"
+        ) {
+          // Kling 当前前端最多支持 2 张图：
+          // - 0 张图：必须提供非空 prompt（text2video）
+          // - 1-2 张图：prompt 可选（image2video / image2video-tail）
+          if (imageCount === 0 && !promptText) {
             setNodes((ns) =>
               ns.map((n) =>
                 n.id === nodeId
@@ -8998,11 +9096,6 @@ function FlowInner() {
               )
             );
             return;
-          }
-
-          // 3-4张图且无prompt时，使用默认prompt
-          if (imageCount >= 3 && !promptText) {
-            finalPrompt = "参考图片内容生成视频";
           }
         } else {
           // 其他 provider（doubao）必须有 prompt
@@ -9184,7 +9277,11 @@ function FlowInner() {
         );
 
         // 根据供应商调整参数
-        const aspectRatioForAPI = aspectSetting || undefined;
+        const aspectRatioForAPI =
+          referenceImageUrls.length > 0
+            ? undefined
+            : aspectSetting ||
+              (provider === "vidu" || provider === "viduq3-pro" ? "16:9" : undefined);
 
         // 不同供应商支持的时长不同
         let durationForAPI: number | undefined = undefined;
@@ -9237,6 +9334,12 @@ function FlowInner() {
             prompt: finalPrompt,
             referenceImages:
               referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
+            audioUrls:
+              provider === "kling-2.6" &&
+              Array.isArray((node.data as any)?.audioUrls) &&
+              (node.data as any).audioUrls.length > 0
+                ? (node.data as any).audioUrls
+                : undefined,
             duration: durationForAPI,
             aspectRatio: aspectRatioForAPI,
             provider: provider as VideoProvider,
@@ -9246,7 +9349,7 @@ function FlowInner() {
             camerafixed: (node.data as any)?.camerafixed,
             watermark: (node.data as any)?.watermark,
             mode: (node.data as any)?.mode,
-            sound: (node.data as any)?.sound,
+            sound: provider === "kling-2.6" ? false : undefined,
             // Kling O1 视频编辑参数
             referenceVideo: referenceVideoUrl,
             referenceVideoType: (node.data as any)?.referenceVideoType,

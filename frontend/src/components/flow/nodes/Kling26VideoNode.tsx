@@ -7,7 +7,17 @@ type Props = {
 };
 
 function Kling26VideoNode({ id, data, selected }: Props) {
-  return <GenericVideoNode id={id} data={{ ...data, provider: 'kling-2.6' as VideoProvider }} selected={selected} />;
+  return (
+    <GenericVideoNode
+      id={id}
+      data={{
+        ...data,
+        provider: "kling" as VideoProvider,
+        klingModel: data?.klingModel || "kling-v2-6",
+      }}
+      selected={selected}
+    />
+  );
 }
 
 export default Kling26VideoNode;

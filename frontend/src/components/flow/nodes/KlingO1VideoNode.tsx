@@ -1,6 +1,6 @@
 import React from "react";
-import { Handle, Position } from "reactflow";
-import { AlertTriangle, Video, Share2, Download } from "lucide-react";
+import { Handle, Position, useStore } from "reactflow";
+import { AlertTriangle, Video, Share2, Download, HelpCircle } from "lucide-react";
 import SmartImage from "../../ui/SmartImage";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { useAuthStore } from "@/stores/authStore";
@@ -20,12 +20,13 @@ type Props = {
     clipDuration?: number;
     aspectRatio?: string;
     mode?: "std" | "pro";
-    sound?: boolean;
     history?: VideoHistoryItem[];
     fallbackMessage?: string;
     // 视频编辑参数
     hasVideoInput?: boolean;
-    referenceVideoType?: "feature" | "motion" | "expression";
+    referenceVideoType?: "feature" | "base";
+    keepOriginalSound?: "yes" | "no";
+    imageType?: "frame" | "reference"; // 图片类型：首尾帧 or 图片/主体参考
   };
   selected?: boolean;
 };
@@ -55,6 +56,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
   const [aspectMenuOpen, setAspectMenuOpen] = React.useState(false);
   const [durationMenuOpen, setDurationMenuOpen] = React.useState(false);
   const [videoRefTypeMenuOpen, setVideoRefTypeMenuOpen] = React.useState(false);
+  const [showHelp, setShowHelp] = React.useState(false);
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const [isDownloading, setIsDownloading] = React.useState(false);
   const [downloadFeedback, setDownloadFeedback] =
@@ -147,8 +149,50 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
     typeof data.clipDuration === "number" ? data.clipDuration : undefined;
   const aspectRatioValue =
     typeof data.aspectRatio === "string" ? data.aspectRatio : "";
-  const hasVideoInput = !!data.hasVideoInput;
+  const imageInputCount = useStore((state) => {
+    const edges = state.edges || [];
+    return edges.filter(
+      (edge) => edge.target === id && edge.targetHandle === "image"
+    ).length;
+  });
+  const elementImgInputCount = useStore((state) => {
+    const edges = state.edges || [];
+    return edges.filter(
+      (edge) => edge.target === id && edge.targetHandle === "elementImg"
+    ).length;
+  });
+  const hasVideoInput = useStore((state) => {
+    const edges = state.edges || [];
+    return edges.some(
+      (edge) => edge.target === id && edge.targetHandle === "video"
+    );
+  });
   const referenceVideoType = data.referenceVideoType || "feature";
+  const keepOriginalSound = data.keepOriginalSound || "no";
+  const totalImageCount = imageInputCount + elementImgInputCount;
+
+  // 自动判断图片类型（无需用户选择）
+  const imageType = React.useMemo(() => {
+    // 有elementImg连接 → 图片/主体参考
+    if (elementImgInputCount > 0) return "reference";
+    // image连接3张以上 → 图片/主体参考
+    if (imageInputCount >= 3) return "reference";
+    // image连接1-2张 → 首尾帧
+    if (imageInputCount >= 1 && imageInputCount <= 2) return "frame";
+    // 默认首尾帧
+    return "frame";
+  }, [elementImgInputCount, imageInputCount]);
+
+  // 4种模态场景检测
+  const isTextToVideo = !hasVideoInput && totalImageCount === 0;
+  const isImageToVideo = !hasVideoInput && imageType === "frame" && totalImageCount >= 1 && totalImageCount <= 2;
+  const isImageReference = !hasVideoInput && imageType === "reference" && totalImageCount >= 1 && totalImageCount <= 7;
+  const isVideoReference = hasVideoInput && referenceVideoType === "feature";
+  const isVideoEdit = hasVideoInput && referenceVideoType === "base";
+
+  // 参数显示控制
+  const shouldShowAspectSelector = !isVideoEdit && !isImageToVideo;
+  const shouldShowDurationSelector = !isVideoEdit;
 
   // Kling O3 支持 3-10 秒
   const aspectOptions = [
@@ -158,21 +202,31 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
     { label: lt("方形（1:1）", "Square (1:1)"), value: "1:1" },
   ];
 
-  const durationOptions = [
-    { label: lt("3秒", "3s"), value: 3 },
-    { label: lt("4秒", "4s"), value: 4 },
-    { label: lt("5秒", "5s"), value: 5 },
-    { label: lt("6秒", "6s"), value: 6 },
-    { label: lt("7秒", "7s"), value: 7 },
-    { label: lt("8秒", "8s"), value: 8 },
-    { label: lt("9秒", "9s"), value: 9 },
-    { label: lt("10秒", "10s"), value: 10 },
-  ];
+  // 根据场景动态生成时长选项
+  const durationOptions = React.useMemo(() => {
+    // 文生视频、首帧图生视频：仅支持 5/10
+    if (isTextToVideo || (isImageToVideo && imageInputCount === 1)) {
+      return [
+        { label: lt("5秒", "5s"), value: 5 },
+        { label: lt("10秒", "10s"), value: 10 },
+      ];
+    }
+    // 图片/主体参考或视频参考：支持 3~10
+    return [
+      { label: lt("3秒", "3s"), value: 3 },
+      { label: lt("4秒", "4s"), value: 4 },
+      { label: lt("5秒", "5s"), value: 5 },
+      { label: lt("6秒", "6s"), value: 6 },
+      { label: lt("7秒", "7s"), value: 7 },
+      { label: lt("8秒", "8s"), value: 8 },
+      { label: lt("9秒", "9s"), value: 9 },
+      { label: lt("10秒", "10s"), value: 10 },
+    ];
+  }, [isTextToVideo, isImageToVideo, imageInputCount, lt]);
 
   const videoRefTypeOptions = [
-    { label: lt("特征参考", "Feature reference"), value: "feature", desc: lt("风格/色调/画面特征", "Style / tone / visual features") },
-    { label: lt("动作参考", "Motion reference"), value: "motion", desc: lt("运动轨迹和动作", "Motion trajectory and actions") },
-    { label: lt("表情参考", "Expression reference"), value: "expression", desc: lt("人物表情变化", "Facial expression changes") },
+    { label: lt("视频参考", "Video reference"), value: "feature", desc: lt("保留风格/节奏/镜头感", "Keep style/rhythm/camera feel") },
+    { label: lt("视频编辑", "Video edit"), value: "base", desc: lt("以输入视频为编辑基底", "Use input video as edit base") },
   ];
 
   const handleAspectChange = React.useCallback(
@@ -200,7 +254,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
   );
 
   const handleVideoRefTypeChange = React.useCallback(
-    (value: "feature" | "motion" | "expression") => {
+    (value: "feature" | "base") => {
       if (value === referenceVideoType) return;
       window.dispatchEvent(
         new CustomEvent("flow:updateNodeData", {
@@ -209,6 +263,18 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
       );
     },
     [referenceVideoType, id]
+  );
+
+  const handleKeepOriginalSoundChange = React.useCallback(
+    (value: "yes" | "no") => {
+      if (value === keepOriginalSound) return;
+      window.dispatchEvent(
+        new CustomEvent("flow:updateNodeData", {
+          detail: { id, patch: { keepOriginalSound: value } },
+        })
+      );
+    },
+    [keepOriginalSound, id]
   );
 
   const aspectLabel = React.useMemo(() => {
@@ -466,15 +532,25 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
         type="target"
         position={Position.Left}
         id="text"
-        style={{ top: "25%" }}
+        style={{ top: "20%" }}
         onMouseEnter={() => setHover("text-in")}
         onMouseLeave={() => setHover(null)}
       />
+      {!hasVideoInput && (
+        <Handle
+          type="target"
+          position={Position.Left}
+          id="elementImg"
+          style={{ top: "40%" }}
+          onMouseEnter={() => setHover("elementImg-in")}
+          onMouseLeave={() => setHover(null)}
+        />
+      )}
       <Handle
         type="target"
         position={Position.Left}
         id="image"
-        style={{ top: "50%" }}
+        style={{ top: "60%" }}
         onMouseEnter={() => setHover("image-in")}
         onMouseLeave={() => setHover(null)}
       />
@@ -482,7 +558,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
         type="target"
         position={Position.Left}
         id="video"
-        style={{ top: "75%" }}
+        style={{ top: "80%" }}
         onMouseEnter={() => setHover("video-in")}
         onMouseLeave={() => setHover(null)}
       />
@@ -495,17 +571,22 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
         onMouseLeave={() => setHover(null)}
       />
       {hover === "text-in" && (
-        <div className="flow-tooltip" style={{ left: -8, top: "25%", transform: "translate(-100%, -50%)" }}>
+        <div className="flow-tooltip" style={{ left: -8, top: "20%", transform: "translate(-100%, -50%)" }}>
           prompt
         </div>
       )}
+      {hover === "elementImg-in" && (
+        <div className="flow-tooltip" style={{ left: -8, top: "40%", transform: "translate(-100%, -50%)" }}>
+          {lt("elementImg (图片/主体参考)", "elementImg (image/element reference)")}
+        </div>
+      )}
       {hover === "image-in" && (
-        <div className="flow-tooltip" style={{ left: -8, top: "50%", transform: "translate(-100%, -50%)" }}>
-          {lt("image (参考图/首尾帧)", "image (reference / first-last frame)")}
+        <div className="flow-tooltip" style={{ left: -8, top: "60%", transform: "translate(-100%, -50%)" }}>
+          {lt("image (首尾帧/图片参考)", "image (frame/reference)")}
         </div>
       )}
       {hover === "video-in" && (
-        <div className="flow-tooltip" style={{ left: -8, top: "75%", transform: "translate(-100%, -50%)" }}>
+        <div className="flow-tooltip" style={{ left: -8, top: "80%", transform: "translate(-100%, -50%)" }}>
           {lt("video (参考视频)", "video (reference video)")}
         </div>
       )}
@@ -528,6 +609,23 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
           <span>Kling O3</span>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
+          <button
+            onClick={() => setShowHelp(!showHelp)}
+            style={{
+              fontSize: 12,
+              padding: "4px 8px",
+              background: showHelp ? "#3b82f6" : "#f3f4f6",
+              color: showHelp ? "#fff" : "#6b7280",
+              borderRadius: 6,
+              border: "none",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+            }}
+            title={lt("玩法说明", "Help")}
+          >
+            <HelpCircle size={14} />
+          </button>
           <button
             onClick={onRun}
             onMouseDown={handleButtonMouseDown}
@@ -597,6 +695,116 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
           </button>
         </div>
       </div>
+
+      {/* 玩法说明 */}
+      {showHelp && (
+        <div style={{
+          fontSize: 11,
+          color: "#374151",
+          background: "#f0f9ff",
+          padding: "8px",
+          borderRadius: 6,
+          marginBottom: 8,
+          border: "1px solid #bfdbfe",
+          lineHeight: 1.5,
+        }}>
+          <div style={{ fontWeight: 600, marginBottom: 4, color: "#1e40af" }}>
+            🎬 {lt("可实现效果", "What You Can Do")}
+          </div>
+          <div style={{ marginBottom: 3 }}>
+            <strong>{lt("纯文生视频", "Text to Video")}:</strong> {lt("只用文字描述生成视频", "Generate video from text only")}
+          </div>
+          <div style={{ marginBottom: 3 }}>
+            <strong>{lt("一张图变动态", "Image to Video")}:</strong> {lt("让静态图片动起来", "Animate static image")}
+          </div>
+          <div style={{ marginBottom: 3 }}>
+            <strong>{lt("首尾帧过渡", "Start-End Transition")}:</strong> {lt("两张图控制起止状态", "Control start and end with 2 images")}
+          </div>
+          <div style={{ marginBottom: 3 }}>
+            <strong>{lt("多图参考", "Multi-Image Reference")}:</strong> {lt("3-7张图统一风格", "Unify style with 3-7 images")}
+          </div>
+          <div style={{ marginBottom: 3 }}>
+            <strong>{lt("视频参考", "Video Reference")}:</strong> {lt("保留原视频风格/节奏", "Keep original style/rhythm")}
+          </div>
+          <div style={{ marginBottom: 3 }}>
+            <strong>{lt("视频编辑", "Video Edit")}:</strong> {lt("改造现有视频内容", "Modify existing video")}
+          </div>
+          <div style={{ color: "#6b7280", fontSize: 10, marginTop: 4 }}>
+            💡 {lt("提示：用<<<image_1>>>引用图片，<<<video_1>>>引用视频", "Tip: Use <<<image_1>>> for images, <<<video_1>>> for video")}
+          </div>
+        </div>
+      )}
+
+      {/* 场景限制警告 */}
+      {!hasVideoInput && imageType === "frame" && imageInputCount > 2 && (
+        <div style={{
+          fontSize: 11,
+          color: "#b91c1c",
+          background: "#fef2f2",
+          padding: "6px 8px",
+          borderRadius: 6,
+          marginBottom: 8,
+          border: "1px solid #fecaca",
+        }}>
+          ⚠️ {lt(`首尾帧模式最多2张图片，已连接${imageInputCount}张`, `Frame mode max 2 images, ${imageInputCount} connected`)}
+        </div>
+      )}
+
+      {!hasVideoInput && imageType === "reference" && totalImageCount < 1 && (
+        <div style={{
+          fontSize: 11,
+          color: "#b91c1c",
+          background: "#fef2f2",
+          padding: "6px 8px",
+          borderRadius: 6,
+          marginBottom: 8,
+          border: "1px solid #fecaca",
+        }}>
+          ⚠️ {lt("图片/主体参考需要至少1张图片", "Image/element reference needs at least 1 image")}
+        </div>
+      )}
+
+      {!hasVideoInput && imageType === "reference" && totalImageCount > 7 && (
+        <div style={{
+          fontSize: 11,
+          color: "#b91c1c",
+          background: "#fef2f2",
+          padding: "6px 8px",
+          borderRadius: 6,
+          marginBottom: 8,
+          border: "1px solid #fecaca",
+        }}>
+          ⚠️ {lt(`图片/主体参考最多7张，已连接${totalImageCount}张`, `Max 7 images for reference, ${totalImageCount} connected`)}
+        </div>
+      )}
+
+      {hasVideoInput && imageInputCount > 4 && (
+        <div style={{
+          fontSize: 11,
+          color: "#b91c1c",
+          background: "#fef2f2",
+          padding: "6px 8px",
+          borderRadius: 6,
+          marginBottom: 8,
+          border: "1px solid #fecaca",
+        }}>
+          ⚠️ {lt(`视频模式下图片最多4张，已连接${imageInputCount}张`, `Max 4 images with video, ${imageInputCount} connected`)}
+        </div>
+      )}
+
+      {isVideoEdit && imageInputCount === 2 && (
+        <div style={{
+          fontSize: 11,
+          color: "#b91c1c",
+          background: "#fef2f2",
+          padding: "6px 8px",
+          borderRadius: 6,
+          marginBottom: 8,
+          border: "1px solid #fecaca",
+        }}>
+          ⚠️ {lt("视频编辑模式不支持首尾帧（2张图）", "Video edit mode doesn't support start-end frames")}
+        </div>
+      )}
 
       {downloadFeedback && feedbackColors && (
         <div
@@ -765,16 +973,16 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
         <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>{lt("模式", "Mode")}</div>
         <div style={{ display: "flex", gap: 6 }}>
           {[
-            { label: lt("标准 (std)", "Standard (std)"), value: "std" },
-            { label: lt("专业 (pro)", "Pro (pro)"), value: "pro" },
+            { label: lt("标准", "Standard"), value: "std" },
+            { label: lt("专业", "Pro"), value: "pro" },
           ].map((opt) => {
-            const isActive = (data.mode || "pro") === opt.value;
+            const isActive = (data.mode || "std") === opt.value;
             return (
               <button
                 key={opt.value}
                 type="button"
                 onClick={() => {
-                  if ((data.mode || "pro") === opt.value) return;
+                  if ((data.mode || "std") === opt.value) return;
                   window.dispatchEvent(
                     new CustomEvent("flow:updateNodeData", {
                       detail: { id, patch: { mode: opt.value } },
@@ -799,36 +1007,10 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
         </div>
       </div>
 
-      {/* 音效开关 */}
-      <div style={{ marginBottom: 8 }}>
-        <button
-          type="button"
-          onClick={() => {
-            window.dispatchEvent(
-              new CustomEvent("flow:updateNodeData", {
-                detail: { id, patch: { sound: data.sound === false ? true : false } },
-              })
-            );
-          }}
-          style={{
-            width: "100%",
-            padding: "6px 10px",
-            borderRadius: 8,
-            border: `1px solid #e5e7eb`,
-            background: data.sound !== false ? "#111827" : "#fff",
-            color: data.sound !== false ? "#fff" : "#111827",
-            fontSize: 12,
-            cursor: "pointer",
-          }}
-        >
-          {lt("音效", "Sound")}: {data.sound !== false ? lt("开启", "On") : lt("关闭", "Off")}
-        </button>
-      </div>
-
-      {/* 视频参考类型选择 - 仅在有视频输入时显示 */}
+      {/* 视频类型选择 - 仅在有视频输入时显示 */}
       {hasVideoInput && (
         <div className="video-dropdown" style={{ marginBottom: 8, position: "relative" }}>
-          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>{lt("视频参考类型", "Video reference type")}</div>
+          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>{lt("视频类型", "Video type")}</div>
           <button
             type="button"
             onClick={(event) => {
@@ -878,7 +1060,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                       key={option.value}
                       type="button"
                       onClick={() => {
-                        handleVideoRefTypeChange(option.value as "feature" | "motion" | "expression");
+                        handleVideoRefTypeChange(option.value as "feature" | "base");
                         setVideoRefTypeMenuOpen(false);
                       }}
                       style={{
@@ -902,6 +1084,22 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* 保留原声选项 - 仅在有视频输入时显示 */}
+      {hasVideoInput && (
+        <div style={{ marginBottom: 8 }}>
+          <label style={{ display: "flex", alignItems: "center", fontSize: 12, cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={keepOriginalSound === "yes"}
+              onChange={(e) => handleKeepOriginalSoundChange(e.target.checked ? "yes" : "no")}
+              style={{ marginRight: 6 }}
+              onClick={(e) => e.stopPropagation()}
+            />
+            <span>{lt("保留原视频声音", "Keep original sound")}</span>
+          </label>
         </div>
       )}
 
@@ -1035,21 +1233,6 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
           })}
         </div>
       )}
-
-      {/* 提示信息 */}
-      <div
-        style={{
-          marginTop: 6,
-          padding: "6px 8px",
-          background: "#f0fdf4",
-          border: "1px solid #bbf7d0",
-          borderRadius: 6,
-          fontSize: 11,
-          color: "#166534",
-        }}
-      >
-        {lt("支持：文生视频、图片参考、首尾帧、视频编辑", "Supports: text-to-video, image reference, first-last frame, video editing")}
-      </div>
 
       {data.error && (
         <div

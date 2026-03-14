@@ -370,7 +370,9 @@ input[type="text"],
 
 /* Images 类型句柄 (多图) - 黄色 */
 .tanva-flow-overlay .react-flow__handle[data-handleid="images"],
-.tanva-flow-overlay .react-flow__handle[data-handleid^="images-"] {
+.tanva-flow-overlay .react-flow__handle[data-handleid^="images-"],
+.tanva-flow-overlay .react-flow__handle[data-handleid="elementImg"],
+.tanva-flow-overlay .react-flow__handle[data-handleid^="elementImg-"] {
   --handle-bg: #eab308;
   --handle-border: #ca8a04;
 }
