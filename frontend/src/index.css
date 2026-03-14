@@ -264,6 +264,11 @@ body.tanva-selection-dragging [data-model-toolbar] * {
   pointer-events: none !important;
 }
 
+/* Shift + 单图时，提供精准框选就绪光标反馈 */
+body.tanva-precise-edit-ready .tanva-main-canvas {
+  cursor: crosshair !important;
+}
+
 /* 选中组工具栏：拖拽中隐藏，停止后显示 */
 body.tanva-canvas-dragging .tanva-selection-group-toolbar {
   opacity: 0 !important;

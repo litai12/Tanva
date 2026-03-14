@@ -27,10 +27,8 @@ interface PaymentPanelProps {
 
 const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess }) => {
   const [packages, setPackages] = useState<RechargePackage[]>([]);
-  const [creditsPerYuan, setCreditsPerYuan] = useState(100);
   const [packagesLoading, setPackagesLoading] = useState(true);
   const [selectedPackage, setSelectedPackage] = useState<number | null>(null);
-  const [customCredits, setCustomCredits] = useState<string>("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("alipay");
   const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
   const [currentOrderNo, setCurrentOrderNo] = useState<string | null>(null);
@@ -42,7 +40,6 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
   const [countdown, setCountdown] = useState(300);
   const [isExpired, setIsExpired] = useState(false);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
-  const debounceRef = useRef<NodeJS.Timeout | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
   // 当前选中的支付金额和积分
@@ -51,10 +48,8 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
       const pkg = packages[selectedPackage];
       return { amount: pkg.price, credits: pkg.credits };
     }
-    // 自定义充值：输入的是积分，金额 = 积分 / 100
-    const credits = parseInt(customCredits) || 0;
-    return { amount: Math.ceil(credits / creditsPerYuan), credits };
-  }, [selectedPackage, customCredits, packages, creditsPerYuan]);
+    return { amount: 0, credits: 0 };
+  }, [selectedPackage, packages]);
 
   // 筛选后的订单列表
   const filteredOrders = useMemo(() => {
@@ -129,7 +124,6 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
       try {
         const data = await getPaymentPackages();
         setPackages(data.packages);
-        setCreditsPerYuan(data.creditsPerYuan);
         if (data.packages.length > 0) {
           setSelectedPackage(0);
         }
@@ -212,7 +206,6 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
 
   const handlePackageSelect = (index: number) => {
     setSelectedPackage(index);
-    setCustomCredits("");
     setQrCodeUrl(null);
     setCurrentOrderNo(null);
     setIsExpired(false);
@@ -236,41 +229,6 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
           setIsLoading(false);
         }
       }, 100);
-    }
-  };
-
-  const handleCustomInput = (value: string) => {
-    const numValue = value.replace(/\D/g, "");
-    setCustomCredits(numValue);
-    setSelectedPackage(null);
-    setQrCodeUrl(null);
-    setCurrentOrderNo(null);
-    setIsExpired(false);
-    setCountdown(300);
-
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
-    }
-
-    const credits = parseInt(numValue) || 0;
-    if (credits > 0 && (paymentMethod === "alipay" || paymentMethod === "wechat")) {
-      debounceRef.current = setTimeout(async () => {
-        const amount = Math.ceil(credits / creditsPerYuan);
-        setIsLoading(true);
-        try {
-          const order = await createPaymentOrder({
-            amount,
-            credits,
-            paymentMethod: paymentMethod,
-          });
-          setQrCodeUrl(order.qrCodeUrl);
-          setCurrentOrderNo(order.orderNo);
-        } catch (error: any) {
-          showToast(error.message || "创建订单失败", "error");
-        } finally {
-          setIsLoading(false);
-        }
-      }, 800);
     }
   };
 
@@ -441,26 +399,6 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
             ))}
           </div>
 
-          {/* 自定义充值 */}
-          <div className='text-sm font-medium text-slate-700 mb-2'>
-            自定义充值积分
-          </div>
-          <div className='flex items-center gap-3'>
-            <div className='flex-1 relative'>
-              <input
-                type='text'
-                value={customCredits}
-                onChange={(e) => handleCustomInput(e.target.value)}
-                className={cn(
-                  "w-full px-3 py-3 text-xl font-semibold border-2 rounded-xl focus:outline-none transition-colors",
-                  selectedPackage === null && customCredits
-                    ? "border-blue-400 bg-blue-50/30"
-                    : "border-slate-200 focus:border-blue-400"
-                )}
-                placeholder='输入积分数量'
-              />
-            </div>
-          </div>
         </div>
 
         {/* 右侧：二维码支付 */}

@@ -11,6 +11,15 @@ import {
   markMigrationDone,
   isIndexedDBAvailable,
 } from '@/services/indexedDBService';
+import {
+  isAssetKeyRef,
+  isAssetProxyRef,
+  isBlobUrl,
+  isDataUrl,
+  isPersistableImageRef,
+  isRemoteUrl,
+  normalizePersistableImageRef,
+} from '@/utils/imageSource';
 
 const normalizeValue = (value?: string | null): string | null => {
   if (!value) return null;
@@ -18,8 +27,37 @@ const normalizeValue = (value?: string | null): string | null => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
+const isRenderableHistoryRef = (value?: string | null): boolean => {
+  const normalized = normalizeValue(value);
+  if (!normalized) return false;
+
+  if (
+    isRemoteUrl(normalized) ||
+    isBlobUrl(normalized) ||
+    isDataUrl(normalized) ||
+    isAssetProxyRef(normalized) ||
+    isAssetKeyRef(normalized)
+  ) {
+    return true;
+  }
+
+  return (
+    normalized.startsWith('/') ||
+    normalized.startsWith('./') ||
+    normalized.startsWith('../')
+  );
+};
+
+const toPersistableRef = (value?: string | null): string | null => {
+  const normalized = normalizeValue(value);
+  if (!normalized) return null;
+  const unwrapped = normalizePersistableImageRef(normalized);
+  if (!unwrapped || !isPersistableImageRef(unwrapped)) return null;
+  return unwrapped;
+};
+
 const getCanonicalSrc = (item: { src?: string | null; remoteUrl?: string | null }):
-  string | null => normalizeValue(item.remoteUrl?.startsWith('http') ? item.remoteUrl : item.src);
+  string | null => toPersistableRef(item.remoteUrl) ?? normalizeValue(item.src);
 
 const shouldSkipHistoryItem = (item: { nodeId: string; nodeType: ImageHistoryItem['nodeType'] }) =>
   item.nodeId === 'canvas' && item.nodeType === 'image';
@@ -27,15 +65,15 @@ const shouldSkipHistoryItem = (item: { nodeId: string; nodeType: ImageHistoryIte
 const normalizeLocalImageSrc = (src?: string | null): string | null => {
   const normalized = normalizeValue(src);
   if (!normalized) return null;
-  if (normalized.startsWith('data:') || normalized.startsWith('http')) return normalized;
+  if (isRenderableHistoryRef(normalized)) return normalized;
   // 兼容：若调用方传入原始 base64（无 dataURL 前缀），默认按 png 处理
   return `data:image/png;base64,${normalized}`;
 };
 
 // 获取用于运行时展示/去重的 src（优先 URL；无 URL 时允许 dataURL 作为内存态历史）
 const getStorageFriendlySrc = (item: { src?: string | null; remoteUrl?: string | null }): string | null => {
-  const remote = normalizeValue(item.remoteUrl);
-  if (remote && remote.startsWith('http')) return remote;
+  const remote = toPersistableRef(item.remoteUrl);
+  if (remote) return remote;
 
   const local = normalizeLocalImageSrc(item.src);
   if (!local) return null;
@@ -78,8 +116,8 @@ let writeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 const pendingWrites = new Map<string, ImageHistoryItem>();
 
 const getPersistableHistoryItem = (item: ImageHistoryItem): ImageHistoryItem | null => {
-  const remoteUrl = normalizeValue(item.remoteUrl);
-  if (remoteUrl && remoteUrl.startsWith('http')) {
+  const remoteUrl = toPersistableRef(item.remoteUrl);
+  if (remoteUrl) {
     return {
       ...item,
       src: remoteUrl,
@@ -88,12 +126,12 @@ const getPersistableHistoryItem = (item: ImageHistoryItem): ImageHistoryItem | n
     };
   }
 
-  const src = normalizeValue(item.src);
-  if (src && src.startsWith('http')) {
+  const src = toPersistableRef(item.src);
+  if (src) {
     return {
       ...item,
       src,
-      remoteUrl: item.remoteUrl ?? src,
+      remoteUrl: remoteUrl ?? src,
       thumbnail: undefined,
     };
   }
@@ -176,8 +214,7 @@ export const useImageHistoryStore = create<ImageHistoryStore>()(
           const newItem: ImageHistoryItem = {
             ...item,
             src: storageSrc,
-            remoteUrl:
-              item.remoteUrl || (storageSrc.startsWith('http') ? storageSrc : undefined),
+            remoteUrl: toPersistableRef(item.remoteUrl) ?? toPersistableRef(storageSrc) ?? undefined,
             thumbnail: undefined,
             projectId: projectKey,
             timestamp: item.timestamp ?? Date.now(),
@@ -234,9 +271,10 @@ export const useImageHistoryStore = create<ImageHistoryStore>()(
         const updated = state.history.map((item) => {
           if (item.id !== id) return item;
 
-          const newSrc = patch.src
-            ? getStorageFriendlySrc({ src: patch.src, remoteUrl: patch.remoteUrl })
-            : item.src;
+          const newSrc = getStorageFriendlySrc({
+            src: patch.src ?? item.src,
+            remoteUrl: patch.remoteUrl ?? item.remoteUrl,
+          });
 
           const updatedItem = {
             ...item,
@@ -286,7 +324,11 @@ export const useImageHistoryStore = create<ImageHistoryStore>()(
 
       cleanupInvalidEntries: () => set((state) => {
         const validHistory = state.history.filter(item => {
-          const hasValidUrl = item.src?.startsWith('http') || item.remoteUrl?.startsWith('http');
+          const hasValidUrl =
+            isRenderableHistoryRef(item.src) ||
+            isRenderableHistoryRef(item.remoteUrl) ||
+            !!toPersistableRef(item.src) ||
+            !!toPersistableRef(item.remoteUrl);
           if (!hasValidUrl) {
             // 异步从 IndexedDB 删除无效记录
             idbDelete(STORE_NAME, item.id).catch(() => {});
