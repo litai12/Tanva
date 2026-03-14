@@ -83,7 +83,11 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
 
   // 全局状态
   const aiProvider = useAIChatStore((state) => state.aiProvider);
-  const isProMode = aiProvider === 'gemini-pro' || aiProvider === 'banana';
+  const isProMode =
+    aiProvider === 'gemini-pro' ||
+    aiProvider === 'banana' ||
+    aiProvider === 'banana-3.1' ||
+    aiProvider === 'nano2';
 
   // 检测外部文本连接
   const rf = useReactFlow();

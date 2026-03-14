@@ -273,7 +273,7 @@ export class NodeConfigService {
       // 生图节点
       { nodeKey: 'generate', nameZh: '生成节点', nameEn: 'Generate', category: 'image', sortOrder: 10, creditsPerCall: 10, serviceType: 'gemini-2.5-image', priceYuan: 0.1, description: '文生图，按次计费' },
       { nodeKey: 'generate4', nameZh: '四图生成', nameEn: 'Generate 4', category: 'image', sortOrder: 11, creditsPerCall: 40, serviceType: 'gemini-2.5-image', priceYuan: 0.4, description: '一次生成4张图' },
-      { nodeKey: 'generatePro', nameZh: '高级生成', nameEn: 'Generate Pro', category: 'image', sortOrder: 12, creditsPerCall: 30, serviceType: 'gemini-3-pro-image', priceYuan: 0.3, description: '高质量文生图' },
+      { nodeKey: 'generatePro', nameZh: '自定义节点', nameEn: 'Agent', category: 'image', sortOrder: 12, creditsPerCall: 30, serviceType: 'gemini-3-pro-image', priceYuan: 0.3, description: '高质量文生图' },
       { nodeKey: 'generatePro4', nameZh: '高级四图', nameEn: 'Generate Pro 4', category: 'image', sortOrder: 13, creditsPerCall: 120, serviceType: 'gemini-3-pro-image', priceYuan: 1.2, description: '高质量一次4张' },
       { nodeKey: 'generateReference', nameZh: '参考生成', nameEn: 'Reference', category: 'image', sortOrder: 14, creditsPerCall: 30, serviceType: 'gemini-image-blend', priceYuan: 0.3, description: '参考图生成' },
       { nodeKey: 'midjourney', nameZh: 'Midjourney', nameEn: 'Midjourney', category: 'image', sortOrder: 15, creditsPerCall: 50, serviceType: 'midjourney-imagine', priceYuan: 0.5, description: 'Midjourney生图' },
@@ -499,7 +499,7 @@ export class NodeConfigService {
       // 生图节点
       { nodeKey: 'generate', nameZh: '生成节点', nameEn: 'Generate', category: 'image', sortOrder: 10, creditsPerCall: 10, serviceType: 'gemini-2.5-image', priceYuan: 0.1, description: '文生图，按次计费' },
       { nodeKey: 'generate4', nameZh: '四图生成', nameEn: 'Generate 4', category: 'image', sortOrder: 11, creditsPerCall: 40, serviceType: 'gemini-2.5-image', priceYuan: 0.4, description: '一次生成4张图' },
-      { nodeKey: 'generatePro', nameZh: '高级生成', nameEn: 'Generate Pro', category: 'image', sortOrder: 12, creditsPerCall: 30, serviceType: 'gemini-3-pro-image', priceYuan: 0.3, description: '高质量文生图' },
+      { nodeKey: 'generatePro', nameZh: '自定义节点', nameEn: 'Agent', category: 'image', sortOrder: 12, creditsPerCall: 30, serviceType: 'gemini-3-pro-image', priceYuan: 0.3, description: '高质量文生图' },
       { nodeKey: 'generatePro4', nameZh: '高级四图', nameEn: 'Generate Pro 4', category: 'image', sortOrder: 13, creditsPerCall: 120, serviceType: 'gemini-3-pro-image', priceYuan: 1.2, description: '高质量一次4张' },
       { nodeKey: 'generateReference', nameZh: '参考生成', nameEn: 'Reference', category: 'image', sortOrder: 14, creditsPerCall: 30, serviceType: 'gemini-image-blend', priceYuan: 0.3, description: '参考图生成' },
       { nodeKey: 'midjourney', nameZh: 'Midjourney', nameEn: 'Midjourney', category: 'image', sortOrder: 15, creditsPerCall: 50, serviceType: 'midjourney-imagine', priceYuan: 0.5, description: 'Midjourney生图' },

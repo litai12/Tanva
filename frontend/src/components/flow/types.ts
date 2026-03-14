@@ -35,6 +35,8 @@ export type GenerateProData = {
   imageUrl?: string; // remote URL (preferred for templates)
   error?: string;
   aspectRatio?: string;
+  title?: string;
+  enableWebSearch?: boolean;
   prompts?: string[]; // 多个提示词，依次叠加
 };
 

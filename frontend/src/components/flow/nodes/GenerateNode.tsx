@@ -1,17 +1,17 @@
 import React from "react";
 import { Handle, Position } from "reactflow";
-import { Send as SendIcon } from "lucide-react";
+import { Send as SendIcon, Check } from "lucide-react";
 import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
 import SmartImage from "../../ui/SmartImage";
 import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { useProjectContentStore } from "@/stores/projectContentStore";
-import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import { useAIChatStore } from "@/stores/aiChatStore";
 import { useLocaleText } from "@/utils/localeText";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "../../ui/dropdown-menu";
 
 type Props = {
   id: string;
@@ -56,6 +56,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const { status, error } = data;
   const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const setAIProvider = useAIChatStore((state) => state.setAIProvider);
   const rawFullValue = data.imageData || data.imageUrl;
   const fullAssetId = React.useMemo(() => parseFlowImageAssetRef(rawFullValue), [rawFullValue]);
   const fullAssetUrl = useFlowImageAssetUrl(fullAssetId);
@@ -139,12 +140,44 @@ function GenerateNodeInner({ id, data, selected }: Props) {
     return "other";
   }, [aiProvider]);
 
-  const providerModeLabel = React.useMemo(() => {
-    if (providerMode === "fast") return "Fast";
-    if (providerMode === "pro") return "Pro";
-    if (providerMode === "ultra") return "Ultra";
-    return aiProvider;
-  }, [aiProvider, providerMode]);
+  type ProviderToggleValue = "banana-2.5" | "banana" | "banana-3.1";
+  const providerToggleOptions = React.useMemo<Array<{
+    value: ProviderToggleValue;
+    label: string;
+    description: string;
+  }>>(
+    () => [
+      {
+        value: "banana-2.5",
+        label: "Fast",
+        description: lt("Nano Banana", "Nano Banana"),
+      },
+      {
+        value: "banana",
+        label: "Pro",
+        description: lt("Nano Banana Pro", "Nano Banana Pro"),
+      },
+      {
+        value: "banana-3.1",
+        label: "Ultra",
+        description: lt("Nano Banana 2", "Nano Banana 2"),
+      },
+    ],
+    [lt]
+  );
+
+  const currentProviderValue = React.useMemo<ProviderToggleValue>(() => {
+    if (aiProvider === "banana-2.5") return "banana-2.5";
+    if (aiProvider === "banana-3.1") return "banana-3.1";
+    return "banana";
+  }, [aiProvider]);
+
+  const currentProviderOption = React.useMemo(
+    () =>
+      providerToggleOptions.find((option) => option.value === currentProviderValue) ??
+      providerToggleOptions[1],
+    [currentProviderValue, providerToggleOptions]
+  );
 
   const showAspectRatioSelector = providerMode !== "fast";
   const showImageSizeSelector = providerMode === "pro" || providerMode === "ultra";
@@ -165,7 +198,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
 
   const stopNodeDrag = React.useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
-    const nativeEvent = (event as React.SyntheticEvent<any, Event>)
+    const nativeEvent = (event as React.SyntheticEvent<Element, Event>)
       .nativeEvent as Event & { stopImmediatePropagation?: () => void };
     nativeEvent.stopImmediatePropagation?.();
   }, []);
@@ -251,20 +284,68 @@ function GenerateNodeInner({ id, data, selected }: Props) {
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ fontWeight: 600 }}>Generate</div>
-          <div
-            style={{
-              padding: "1px 8px",
-              borderRadius: 999,
-              fontSize: 11,
-              fontWeight: 600,
-              color: providerMode === "ultra" ? "#0f172a" : "#475569",
-              background: providerMode === "ultra" ? "#e2e8f0" : "#f1f5f9",
-              border: "1px solid #e2e8f0",
-            }}
-            title={`${lt("当前全局模型模式", "Current global model mode")}: ${providerModeLabel}`}
-          >
-            {providerModeLabel}
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                onPointerDownCapture={stopNodeDrag}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                className='nodrag nopan'
+                title={lt("切换模型模式", "Switch model mode")}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "1px 8px",
+                  borderRadius: 999,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: currentProviderValue === "banana-3.1" ? "#0f172a" : "#475569",
+                  background: currentProviderValue === "banana-3.1" ? "#e2e8f0" : "#f1f5f9",
+                  border: "1px solid #e2e8f0",
+                  cursor: "pointer",
+                }}
+              >
+                {currentProviderOption.label}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align='start'
+              side='bottom'
+              sideOffset={8}
+              className='min-w-[200px] rounded-xl border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md'
+            >
+              <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
+                {lt("模型切换", "Model switch")}
+              </DropdownMenuLabel>
+              {providerToggleOptions.map((option) => {
+                const isActive = currentProviderValue === option.value;
+                return (
+                  <DropdownMenuItem
+                    key={option.value}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (aiProvider !== option.value) {
+                        setAIProvider(option.value);
+                      }
+                    }}
+                    onPointerDownCapture={stopNodeDrag}
+                    className={`flex items-start gap-2 rounded-lg px-3 py-2 text-xs ${
+                      isActive ? "bg-gray-100 text-gray-800" : "text-slate-600"
+                    }`}
+                  >
+                    <div className='flex-1 space-y-0.5'>
+                      <div className='font-medium leading-none'>{option.label}</div>
+                      <div className='text-[11px] leading-snug text-slate-400'>{option.description}</div>
+                    </div>
+                    {isActive && <Check className='h-3.5 w-3.5 text-slate-700' />}
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
           <button

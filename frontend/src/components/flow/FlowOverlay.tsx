@@ -809,7 +809,6 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "generate", targetHandle: "img" },
     { nodeType: "generate4", targetHandle: "img" },
     { nodeType: "generatePro", targetHandle: "img" },
-    { nodeType: "generatePro4", targetHandle: "img" },
     { nodeType: "generateRef", targetHandle: "image2" },
     { nodeType: "analysis", targetHandle: "img" },
     { nodeType: "image", targetHandle: "img" },
@@ -918,6 +917,7 @@ const NODE_PALETTE_ITEMS = [
   { key: "generate", zh: "生成节点", en: "Generate Node", category: "image" },
   { key: "generateRef", zh: "参考图生成节点", en: "Generate Refer", category: "image" },
   { key: "generate4", zh: "生成多张图片节点", en: "Multi Generate", category: "image" },
+  { key: "generatePro", zh: "自定义节点", en: "Agent", category: "image" },
   { key: "midjourney", zh: "Midjourney生成", en: "Midjourney", category: "image" },
   { key: "analysis", zh: "图像分析节点", en: "Analysis Node", category: "image" },
   { key: "imageGrid", zh: "图片拼合节点", en: "Image Grid", category: "image" },
@@ -947,8 +947,7 @@ const NODE_PALETTE_ITEMS = [
 const BETA_NODE_KEYS = new Set([
   "textPromptPro",
   "imagePro",
-  "generatePro",
-  "generatePro4",
+  "generatePro4", // 临时隐藏：高级四图
 ]);
 
 type NodePanelGroupKey = "text" | "image" | "three" | "other" | "video";
@@ -1046,13 +1045,6 @@ const BETA_NODE_ITEMS = [
     badge: "Beta",
   },
   { key: "imagePro", zh: "专业图片节点", en: "Image Pro", badge: "Beta" },
-  { key: "generatePro", zh: "专业生成节点", en: "Generate Pro", badge: "Beta" },
-  {
-    key: "generatePro4",
-    zh: "四图专业生成节点",
-    en: "Generate Pro 4",
-    badge: "Beta",
-  },
 ];
 
 const FLOW_NODE_DEFAULT_SIZE = {
@@ -1754,6 +1746,7 @@ function FlowInner() {
   const altDragStartRef = React.useRef<any>(null);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
   const imageSize = useAIChatStore((state) => state.imageSize);
+  const globalWebSearchEnabled = useAIChatStore((state) => state.enableWebSearch);
   const imageModel = React.useMemo(
     () => getImageModelForProvider(aiProvider),
     [aiProvider]
@@ -1846,6 +1839,13 @@ function FlowInner() {
 
     return merged
       .map((config) => {
+        if (config.nodeKey === "generatePro") {
+          return {
+            ...config,
+            nameZh: "自定义节点",
+            nameEn: "Agent",
+          };
+        }
         if (config.nodeKey === "textNote") {
           return {
             ...config,
@@ -5267,6 +5267,8 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
               prompts: [""],
+              title: "Agent",
+              enableWebSearch: false,
             }
           : type === "generatePro4"
           ? {
@@ -5275,6 +5277,7 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
               prompts: [""],
+              enableWebSearch: false,
             }
           : type === "generate4"
           ? {
@@ -7325,7 +7328,13 @@ function FlowInner() {
       // 根据节点类型创建默认数据
       const newData =
         detail.nodeType === "generatePro"
-          ? { status: "idle" as const, prompts: [""], imageWidth: 296 }
+          ? {
+              status: "idle" as const,
+              prompts: [""],
+              imageWidth: 296,
+              title: "Agent",
+              enableWebSearch: false,
+            }
           : { status: "idle" as const };
 
       // 添加新节点
@@ -10383,11 +10392,17 @@ function FlowInner() {
         node.type === "generate" && aiProvider === "banana-2.5"
           ? undefined
           : nodeSizeValue || imageSize || undefined;
+      const enableWebSearchForNode =
+        (node.type === "generatePro" || node.type === "generatePro4") &&
+        Boolean((node.data as any)?.enableWebSearch ?? globalWebSearchEnabled);
 
       // 根据节点类型和全局模式选择模型
       const nodeSpecificModel = (() => {
-        // generatePro/generatePro4 始终使用 pro 模型
+        // 专业生图节点：默认走 Pro；Ultra(3.1) 时切到 3.1 链路
         if (node.type === "generatePro" || node.type === "generatePro4") {
+          if (aiProvider === "banana-3.1" || aiProvider === "nano2") {
+            return "gemini-3.1-flash-image-preview";
+          }
           return "gemini-3-pro-image-preview";
         }
         // 其他节点（包括 generate/generate4/image 等）使用全局模型设置
@@ -10450,6 +10465,11 @@ function FlowInner() {
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
+                ...(enableWebSearchForNode ? {
+                  enableWebSearch: true,
+                  googleSearch: true,
+                  googleImageSearch: true,
+                } : {}),
               });
             } else if (imageDatas.length === 1) {
               result = await editImageViaAPI({
@@ -10689,6 +10709,11 @@ function FlowInner() {
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
+                ...(enableWebSearchForNode ? {
+                  enableWebSearch: true,
+                  googleSearch: true,
+                  googleImageSearch: true,
+                } : {}),
               });
             } else if (imageDatas.length === 1) {
               result = await editImageViaAPI({
@@ -10934,6 +10959,7 @@ function FlowInner() {
             model: nodeSpecificModel,
             aspectRatio: effectiveAspectRatio,
             imageSize: effectiveImageSize,
+            ...(enableWebSearchForNode ? { enableWebSearch: true } : {}),
           });
         } else if (imageDatas.length === 1) {
           console.log('[FlowOverlay] editImage调用参数:', { aiProvider, model: nodeSpecificModel, imageModel });
@@ -11111,7 +11137,7 @@ function FlowInner() {
         );
       }
     },
-    [aiProvider, imageModel, rf, setNodes, appendSora2History, appendVideoHistory]
+    [aiProvider, globalWebSearchEnabled, imageModel, rf, setNodes, appendSora2History, appendVideoHistory]
   );
 
   // 定义稳定的onSend回调
@@ -12474,7 +12500,7 @@ function FlowInner() {
             : type === "generate"
             ? { status: "idle", presetPrompt: "" }
             : type === "generatePro"
-            ? { status: "idle", prompts: [""] }
+            ? { status: "idle", prompts: [""], title: "Agent", enableWebSearch: false }
             : type === "generate4"
             ? { status: "idle", images: [], count: 4 }
             : type === "generateRef"
