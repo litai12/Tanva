@@ -714,6 +714,79 @@ const mergePrecisePatchIntoImage = async (params: {
   }
 };
 
+const appendImageSourceCandidate = (bucket: string[], value: unknown): void => {
+  if (typeof value !== "string") return;
+  const trimmed = value.trim();
+  if (!trimmed) return;
+  if (bucket.includes(trimmed)) return;
+  bucket.push(trimmed);
+};
+
+const collectPreciseBaseSourceCandidates = (
+  imageId: string,
+  preferredSource: string
+): string[] => {
+  const candidates: string[] = [];
+  appendImageSourceCandidate(candidates, preferredSource);
+
+  try {
+    const runtime = (window as any)?.tanvaImageInstances as any[] | undefined;
+    if (Array.isArray(runtime)) {
+      const target = runtime.find((item) => String(item?.id) === String(imageId));
+      if (target) {
+        appendImageSourceCandidate(candidates, target?.imageData?.localDataUrl);
+        appendImageSourceCandidate(candidates, target?.imageData?.src);
+        appendImageSourceCandidate(candidates, target?.imageData?.url);
+        appendImageSourceCandidate(candidates, target?.imageData?.remoteUrl);
+        appendImageSourceCandidate(candidates, target?.imageData?.key);
+      }
+    }
+  } catch {}
+
+  try {
+    const project = paper?.project as any;
+    const rasterClass = (paper as any).Raster;
+    if (project?.getItems && rasterClass) {
+      const rasters = project.getItems({ class: rasterClass }) as any[];
+      rasters.forEach((raster) => {
+        if (!raster) return;
+        const rid =
+          raster?.data?.imageId ||
+          raster?.parent?.data?.imageId ||
+          raster?.data?.id ||
+          raster?.id;
+        if (String(rid) !== String(imageId)) return;
+        appendImageSourceCandidate(candidates, raster?.data?.__tanvaSourceRef);
+        appendImageSourceCandidate(candidates, raster?.data?.remoteUrl);
+        appendImageSourceCandidate(candidates, raster?.source);
+        appendImageSourceCandidate(candidates, raster?.image?.src);
+      });
+    }
+  } catch {}
+
+  return candidates;
+};
+
+const mergePrecisePatchWithFallback = async (params: {
+  baseImageSources: string[];
+  patchImageSources: string[];
+  cropRectNormalized: PreciseEditContext["cropRectNormalized"];
+}): Promise<Blob | null> => {
+  for (const baseImageSource of params.baseImageSources) {
+    for (const patchImageSource of params.patchImageSources) {
+      try {
+        const merged = await mergePrecisePatchIntoImage({
+          baseImageSource,
+          patchImageSource,
+          cropRectNormalized: params.cropRectNormalized,
+        });
+        if (merged) return merged;
+      } catch {}
+    }
+  }
+  return null;
+};
+
 const dispatchPlaceholderEvent = (
   placeholder: PlaceholderSpec,
   action: "add" | "remove" = "add"
@@ -4294,20 +4367,36 @@ export const useAIChatStore = create<AIChatState>()(
 	              const totalDelay = baseDelay + groupIndex * perImageDelay;
 	              let usedPreciseOverlay = false;
 
-	              if (
-	                preciseEditContext &&
-	                preciseEditContext.targetImageId &&
-	                preciseEditContext.targetImageSource
-	              ) {
-	                try {
-	                  const mergedBlob = await mergePrecisePatchIntoImage({
-	                    baseImageSource: preciseEditContext.targetImageSource,
-	                    patchImageSource: placementImageData,
-	                    cropRectNormalized: preciseEditContext.cropRectNormalized,
-	                  });
-	                  if (mergedBlob) {
-	                    const mergedObjectUrl = URL.createObjectURL(mergedBlob);
-	                    try {
+		              if (
+		                preciseEditContext &&
+		                preciseEditContext.targetImageId &&
+		                preciseEditContext.targetImageSource
+		              ) {
+		                try {
+		                  const baseImageSources = collectPreciseBaseSourceCandidates(
+		                    preciseEditContext.targetImageId,
+		                    preciseEditContext.targetImageSource
+		                  );
+		                  const patchImageSources: string[] = [];
+		                  appendImageSourceCandidate(patchImageSources, placementImageData);
+		                  appendImageSourceCandidate(patchImageSources, inlineImageData);
+		                  appendImageSourceCandidate(
+		                    patchImageSources,
+		                    result.data?.imageData
+		                  );
+		                  appendImageSourceCandidate(patchImageSources, imageRemoteUrl);
+		                  appendImageSourceCandidate(
+		                    patchImageSources,
+		                    getResultImageRemoteUrl(result.data)
+		                  );
+		                  const mergedBlob = await mergePrecisePatchWithFallback({
+		                    baseImageSources,
+		                    patchImageSources,
+		                    cropRectNormalized: preciseEditContext.cropRectNormalized,
+		                  });
+		                  if (mergedBlob) {
+		                    const mergedObjectUrl = URL.createObjectURL(mergedBlob);
+		                    try {
 	                      window.dispatchEvent(
 	                        new CustomEvent("canvas:replace-image-source", {
 	                          detail: {
@@ -4323,11 +4412,13 @@ export const useAIChatStore = create<AIChatState>()(
 	                    } catch {
 	                      // ignore
 	                    }
-	                  }
-	                } catch (error) {
-	                  console.warn("⚠️ 精准微调回贴失败，回退普通上画布:", error);
-	                }
-	              }
+		                  } else {
+		                    console.warn("⚠️ 精准微调回贴失败：未能合成局部覆盖图");
+		                  }
+		                } catch (error) {
+		                  console.warn("⚠️ 精准微调回贴失败，回退普通上画布:", error);
+		                }
+		              }
 
 	              // 精准微调上下文只消费一次，避免后续请求误用
 	              if (preciseEditContext) {

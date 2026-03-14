@@ -2336,8 +2336,33 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       if (trimmed.startsWith("blob:") || trimmed.startsWith("data:image/")) {
         try {
           const image = new Image();
+          image.onload = () => {
+            try {
+              (raster as any).setImage(image);
+            } catch {}
+            try {
+              const stored = (raster as any)?.data?.__tanvaBounds as
+                | { x: number; y: number; width: number; height: number }
+                | undefined;
+              if (
+                stored &&
+                Number.isFinite(stored.x) &&
+                Number.isFinite(stored.y) &&
+                Number.isFinite(stored.width) &&
+                Number.isFinite(stored.height) &&
+                stored.width > 0 &&
+                stored.height > 0
+              ) {
+                raster.bounds = new paper.Rectangle(
+                  stored.x,
+                  stored.y,
+                  stored.width,
+                  stored.height
+                );
+              }
+            } catch {}
+          };
           image.src = trimmed;
-          (raster as any).setImage(image);
           return;
         } catch {}
       }
