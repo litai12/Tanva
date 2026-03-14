@@ -20,6 +20,7 @@ type Props = {
     clipDuration?: number;
     aspectRatio?: string;
     mode?: "std" | "pro";
+    sound?: boolean;
     history?: VideoHistoryItem[];
     fallbackMessage?: string;
     // 视频编辑参数
@@ -149,7 +150,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
   const hasVideoInput = !!data.hasVideoInput;
   const referenceVideoType = data.referenceVideoType || "feature";
 
-  // Kling O1 支持 3-10 秒
+  // Kling O3 支持 3-10 秒
   const aspectOptions = [
     { label: lt("自动", "Auto"), value: "" },
     { label: lt("横屏（16:9）", "Landscape (16:9)"), value: "16:9" },
@@ -340,7 +341,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
           const blobUrl = URL.createObjectURL(videoBlob);
           const link = document.createElement("a");
           link.href = blobUrl;
-          link.download = `kling-o1-${new Date().toISOString().split("T")[0]}.mp4`;
+          link.download = `kling-o3-${new Date().toISOString().split("T")[0]}.mp4`;
           document.body.appendChild(link);
           link.click();
           document.body.removeChild(link);
@@ -524,7 +525,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
       >
         <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
           <Video size={18} />
-          <span>Kling O1</span>
+          <span>Kling O3</span>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
           <button
@@ -796,6 +797,32 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
             );
           })}
         </div>
+      </div>
+
+      {/* 音效开关 */}
+      <div style={{ marginBottom: 8 }}>
+        <button
+          type="button"
+          onClick={() => {
+            window.dispatchEvent(
+              new CustomEvent("flow:updateNodeData", {
+                detail: { id, patch: { sound: data.sound === false ? true : false } },
+              })
+            );
+          }}
+          style={{
+            width: "100%",
+            padding: "6px 10px",
+            borderRadius: 8,
+            border: `1px solid #e5e7eb`,
+            background: data.sound !== false ? "#111827" : "#fff",
+            color: data.sound !== false ? "#fff" : "#111827",
+            fontSize: 12,
+            cursor: "pointer",
+          }}
+        >
+          {lt("音效", "Sound")}: {data.sound !== false ? lt("开启", "On") : lt("关闭", "Off")}
+        </button>
       </div>
 
       {/* 视频参考类型选择 - 仅在有视频输入时显示 */}

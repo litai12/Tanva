@@ -597,7 +597,7 @@ const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "sora2Character",
   "wan26",
   "wan2R2V",
-  "klingVideo",
+  // "klingVideo",
   "kling26Video",
   "klingO1Video",
   "viduVideo",
@@ -612,6 +612,7 @@ const FLOW_GROUP_LOCAL_RUN_TYPES = new Set([
 ]);
 const SORA2_MAX_REFERENCE_IMAGES = 1;
 const VIDU_MAX_REFERENCE_IMAGES = 7; // Vidu viduq2 模型支持最多 7 张参考图
+const VIDUQ3_MAX_REFERENCE_IMAGES = 2; // Vidu Q3 Pro 支持最多 2 张参考图
 const KLING_MAX_REFERENCE_IMAGES = 4; // Kling 支持最多 4 张参考图
 
 // 模板分类由后端维护，前端会在面板打开时请求；若后端无数据则从 tplIndex 推断或回退到 ['其他']
@@ -680,11 +681,11 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   wan26: 600, // Wan2.6生成视频 - wan26-video
   wan2R2V: 600, // 视频融合 - wan26-r2v
   klingVideo: 600, // 可灵视频生成
-  kling26Video: 600, // 可灵2.6视频生成 - kling-v2-6
-  klingO1Video: 1600, // 可灵O1视频生成 - Omni Video
+  kling26Video: 500, // 可灵2.6视频生成 - kling-v2-6
+  klingO3Video: 600, // 可灵O3视频生成 - Omni Video
   viduVideo: 600, // Vidu视频生成
-  viduQ3: 800, // Vidu Q3 Pro视频生成
-  doubaoVideo: 600, // 豆包视频生成
+  viduQ3: 600, // Vidu Q3 Pro视频生成
+  doubaoVideo: 600, // Seedance 1.5 Pro包视频生成
   camera: 0, // 截图节点 - 不消耗积分
   storyboardSplit: 0, // 分镜拆分节点 - 不消耗积分
 
@@ -720,7 +721,7 @@ const NODE_PALETTE_ITEMS = [
   { key: "sora2Character", zh: "Sora2角色生成", en: "Sora2 Character", category: "video" },
   { key: "wan26", zh: "Wan2.6生成视频", en: "Wan2.6", category: "video" },
   { key: "wan2R2V", zh: "视频融合", en: "Wan2.6 R2V", category: "video" },
-  { key: "klingVideo", zh: "Kling视频生成", en: "Kling", category: "video", badge: "维护中" },
+  // { key: "klingVideo", zh: "Kling视频生成", en: "Kling", category: "video", badge: "维护中" },
   { key: "kling26Video", zh: "Kling 2.6视频生成", en: "Kling 2.6", category: "video" },
   { key: "viduVideo", zh: "Vidu视频生成", en: "Vidu", category: "video" },
   {
@@ -4931,7 +4932,7 @@ function FlowInner() {
               resolution: type === "viduVideo" || type === "viduQ3" ? ("720p" as const) : undefined,
               style: type === "viduVideo" || type === "viduQ3" ? ("general" as const) : undefined,
               offPeak: type === "viduVideo" || type === "viduQ3" ? false : undefined,
-              // 豆包专用参数
+              // Seedance 1.5 Pro专用参数
               camerafixed: type === "doubaoVideo" ? false : undefined,
               watermark: type === "doubaoVideo" ? false : undefined,
               boxW: size.w,
@@ -4947,7 +4948,7 @@ function FlowInner() {
               clipDuration: 5,
               aspectRatio: undefined,
               mode: "pro" as const,
-              provider: "kling-o1",
+              provider: "kling-o3",
               boxW: size.w,
               boxH: size.h,
             }
@@ -5444,9 +5445,17 @@ function FlowInner() {
         if (params.targetHandle.startsWith("video-")) return true; // 每个 video-* 句柄最多一个，onConnect 会替换
       }
       // Vidu 视频节点：支持最多 7 张参考图
-      if (targetNode?.type === "viduVideo" || targetNode?.type === "viduQ3") {
+      if (targetNode?.type === "viduVideo") {
         if (params.targetHandle === "image") {
           return incoming.length < VIDU_MAX_REFERENCE_IMAGES;
+        }
+        if (params.targetHandle === "text") return true;
+      }
+
+      // Vidu Q3 视频节点：支持最多 2 张参考图
+      if (targetNode?.type === "viduQ3") {
+        if (params.targetHandle === "image") {
+          return incoming.length < VIDUQ3_MAX_REFERENCE_IMAGES;
         }
         if (params.targetHandle === "text") return true;
       }
@@ -5595,13 +5604,36 @@ function FlowInner() {
           );
         }
         // Vidu 视频节点：支持最多 7 张参考图
-        if ((tgt?.type === "viduVideo" || tgt?.type === "viduQ3") && params.targetHandle === "image") {
+        if (tgt?.type === "viduVideo" && params.targetHandle === "image") {
           let remainingToDrop = Math.max(
             0,
             next.filter(
               (e) => e.target === params.target && e.targetHandle === "image"
             ).length -
               VIDU_MAX_REFERENCE_IMAGES +
+              1 // +1 for the incoming edge
+          );
+          if (remainingToDrop > 0) {
+            next = next.filter((e) => {
+              if (remainingToDrop <= 0) return true;
+              const isImageEdge =
+                e.target === params.target && e.targetHandle === "image";
+              if (isImageEdge) {
+                remainingToDrop -= 1;
+                return false;
+              }
+              return true;
+            });
+          }
+        }
+        // Vidu Q3 视频节点：支持最多 2 张参考图
+        if (tgt?.type === "viduQ3" && params.targetHandle === "image") {
+          let remainingToDrop = Math.max(
+            0,
+            next.filter(
+              (e) => e.target === params.target && e.targetHandle === "image"
+            ).length -
+              VIDUQ3_MAX_REFERENCE_IMAGES +
               1 // +1 for the incoming edge
           );
           if (remainingToDrop > 0) {
@@ -8239,14 +8271,14 @@ function FlowInner() {
         return;
       }
 
-      // 新的视频生成节点处理逻辑（可灵 Kling、Kling O1、Vidu、豆包 Seedance）
+      // 新的视频生成节点处理逻辑（可灵 Kling、Kling O1、Vidu、Seedance 1.5 Pro）
       const newVideoNodeTypes = ["klingVideo", "kling26Video", "klingO1Video", "viduVideo", "viduQ3", "doubaoVideo"];
       if (newVideoNodeTypes.includes(node.type || "")) {
         const projectId = useProjectContentStore.getState().projectId;
         // 根据节点类型确定 provider
         let provider: string;
         if (node.type === "klingO1Video") {
-          provider = "kling-o1";
+          provider = "kling-o3";
         } else if (node.type === "kling26Video") {
           provider = "kling-2.6";
         } else if (node.type === "viduQ3") {
@@ -8257,9 +8289,11 @@ function FlowInner() {
 
         // 先获取图片数量，判断是否需要 prompt
         const maxImages =
-          provider === "vidu" || provider === "viduq3-pro"
+          provider === "vidu"
             ? VIDU_MAX_REFERENCE_IMAGES
-            : provider === "kling" || provider === "kling-2.6" || provider === "kling-o1"
+            : provider === "viduq3-pro"
+            ? VIDUQ3_MAX_REFERENCE_IMAGES
+            : provider === "kling" || provider === "kling-2.6" || provider === "kling-o3"
             ? KLING_MAX_REFERENCE_IMAGES
             : SORA2_MAX_REFERENCE_IMAGES;
 
@@ -8302,7 +8336,7 @@ function FlowInner() {
           if (imageCount >= 3 && !promptText) {
             finalPrompt = "基于图片生成视频";
           }
-        } else if (provider === "kling" || provider === "kling-o1") {
+        } else if (provider === "kling" || provider === "kling-o3") {
           // Kling / Kling O1 智能模式判断逻辑：
           // - 0张图必须有prompt (text2video)
           // - 1-2张图：可选prompt (image2video/image2video-tail)
@@ -8376,7 +8410,7 @@ function FlowInner() {
 
         // Kling O1 视频输入处理
         let referenceVideoUrl: string | undefined = undefined;
-        if (provider === "kling-o1") {
+        if (provider === "kling-o3") {
           const videoEdge = currentEdges.find(
             (e) => e.target === nodeId && e.targetHandle === "video"
           );
@@ -8390,6 +8424,26 @@ function FlowInner() {
               if (videoUrl && typeof videoUrl === "string") {
                 referenceVideoUrl = videoUrl.trim();
                 console.log(`🎬 [Kling O1] 检测到视频输入: ${referenceVideoUrl.slice(0, 80)}...`);
+
+                // 验证视频时长（需要从源节点获取）
+                const videoDuration = (sourceNode.data as any)?.duration;
+                if (videoDuration && (videoDuration < 3 || videoDuration > 10)) {
+                  setNodes((ns) =>
+                    ns.map((n) =>
+                      n.id === nodeId
+                        ? {
+                            ...n,
+                            data: {
+                              ...n.data,
+                              status: "failed",
+                              error: `视频时长必须在 3-10 秒之间，当前视频时长为 ${videoDuration} 秒`,
+                            },
+                          }
+                        : n
+                    )
+                  );
+                  return;
+                }
               }
             }
           }
@@ -8429,7 +8483,7 @@ function FlowInner() {
               if (!trimmed) continue;
 
               // 根据供应商处理图片格式
-              if (provider === "vidu" || provider === "viduq3-pro" || provider === "kling" || provider === "kling-o1") {
+              if (provider === "vidu" || provider === "viduq3-pro" || provider === "kling" || provider === "kling-o3") {
                 // Vidu 和 Kling 需要可访问的 URL，必须上传到 OSS
                 if (isRemoteUrl(trimmed)) {
                   referenceImageUrls.push(normalizeStableRemoteUrl(trimmed));
@@ -8508,7 +8562,7 @@ function FlowInner() {
             // Kling 2.6 支持 5 秒或 10 秒
             durationForAPI = clipDuration;
           } else if (
-            provider === "kling-o1" &&
+            provider === "kling-o3" &&
             clipDuration >= 3 &&
             clipDuration <= 10
           ) {
@@ -8553,6 +8607,7 @@ function FlowInner() {
             camerafixed: (node.data as any)?.camerafixed,
             watermark: (node.data as any)?.watermark,
             mode: (node.data as any)?.mode,
+            sound: (node.data as any)?.sound,
             // Kling O1 视频编辑参数
             referenceVideo: referenceVideoUrl,
             referenceVideoType: (node.data as any)?.referenceVideoType,

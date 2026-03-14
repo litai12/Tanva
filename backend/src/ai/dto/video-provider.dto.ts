@@ -3,8 +3,8 @@ import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, MaxLength } from 'cl
 
 export class VideoProviderRequestDto {
   @ApiProperty({ description: '供应商' })
-  @IsEnum(['kling', 'kling-2.6', 'kling-o1', 'vidu', 'viduq3-pro', 'doubao'])
-  provider!: 'kling' | 'kling-2.6' | 'kling-o1' | 'vidu' | 'viduq3-pro' | 'doubao';
+  @IsEnum(['kling', 'kling-2.6', 'kling-o3', 'vidu', 'viduq3-pro', 'doubao'])
+  provider!: 'kling' | 'kling-2.6' | 'kling-o3' | 'vidu' | 'viduq3-pro' | 'doubao';
 
   @ApiProperty({ description: '视频生成模式 (Vidu: text2video/img2video/start-end2video/reference2video; Kling: text2video/image2video/image2video-tail/multi-image2video; Kling-O1: omni-video)', required: false })
   @IsOptional()
@@ -67,13 +67,18 @@ export class VideoProviderRequestDto {
   @IsBoolean()
   offPeak?: boolean;
 
-  @ApiProperty({ description: '镜头固定 (豆包)', required: false })
+  @ApiProperty({ description: '镜头固定 (Seedance 1.5 Pro)', required: false })
   @IsOptional()
   @IsBoolean()
   camerafixed?: boolean;
 
-  @ApiProperty({ description: '添加水印 (豆包)', required: false })
+  @ApiProperty({ description: '添加水印 (Seedance 1.5 Pro)', required: false })
   @IsOptional()
   @IsBoolean()
   watermark?: boolean;
+
+  @ApiProperty({ description: '是否生成音效 (Kling)', required: false })
+  @IsOptional()
+  @IsBoolean()
+  sound?: boolean;
 }

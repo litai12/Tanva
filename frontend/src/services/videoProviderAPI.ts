@@ -5,7 +5,7 @@
 import { fetchWithAuth } from "./authFetch";
 import { getApiBaseUrl } from "../utils/assetProxy";
 
-export type VideoProvider = "kling" | "kling-2.6" | "kling-o1" | "vidu" | "viduq3-pro" | "doubao";
+export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao";
 
 export interface VideoGenerationRequest {
   prompt: string;
@@ -17,11 +17,12 @@ export interface VideoGenerationRequest {
   resolution?: "540p" | "720p" | "1080p";
   style?: "general" | "anime";
   offPeak?: boolean;
-  // 豆包专用参数
+  // Seedance 1.5 Pro专用参数
   camerafixed?: boolean;
   watermark?: boolean;
   // Kling/Kling-O1 专用参数
   mode?: "std" | "pro";
+  sound?: boolean;
   // Kling O1 视频编辑专用参数
   referenceVideo?: string;
   referenceVideoType?: "feature" | "motion" | "expression";

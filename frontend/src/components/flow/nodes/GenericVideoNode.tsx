@@ -7,7 +7,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
 
-export type VideoProvider = "kling" | "kling-2.6" | "kling-o1" | "vidu" | "viduq3-pro" | "doubao";
+export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao";
 
 type Props = {
   id: string;
@@ -45,7 +45,7 @@ type DownloadFeedback = {
 const PROVIDER_CONFIG: Record<VideoProvider, { name: string; zh: string }> = {
   kling: { name: "Kling", zh: "Kling" },
   "kling-2.6": { name: "Kling 2.6", zh: "Kling 2.6" },
-  "kling-o1": { name: "Kling O1", zh: "Kling O1" },
+  "kling-o3": { name: "Kling O3", zh: "Kling O3" },
   vidu: { name: "Vidu", zh: "Vidu" },
   "viduq3-pro": { name: "Vidu Q3", zh: "Vidu Q3" },
   doubao: { name: "Seedance", zh: "Seedance" },
@@ -74,6 +74,14 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     return edges.some(
       (edge) => edge.target === id && edge.targetHandle === "image"
     );
+  });
+
+  // 检测图片输入数量
+  const imageInputCount = useStore((state) => {
+    const edges = state.edges || [];
+    return edges.filter(
+      (edge) => edge.target === id && edge.targetHandle === "image"
+    ).length;
   });
 
   const provider = data.provider || "kling";
@@ -951,6 +959,38 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         </div>
       )}
 
+      {/* Kling 音效开关 */}
+      {(provider === "kling" || provider === "kling-2.6") && (
+        <div style={{ marginBottom: 8 }}>
+          <button
+            type='button'
+            onClick={() => {
+              if (imageInputCount === 2) return; // 首尾帧模式禁用
+              window.dispatchEvent(
+                new CustomEvent("flow:updateNodeData", {
+                  detail: { id, patch: { sound: (data as any).sound === false ? true : false } },
+                })
+              );
+            }}
+            disabled={imageInputCount === 2}
+            style={{
+              width: "100%",
+              padding: "6px 10px",
+              borderRadius: 8,
+              border: `1px solid #e5e7eb`,
+              background: imageInputCount === 2 ? "#f3f4f6" : (data as any).sound !== false ? "#111827" : "#fff",
+              color: imageInputCount === 2 ? "#9ca3af" : (data as any).sound !== false ? "#fff" : "#111827",
+              fontSize: 12,
+              cursor: imageInputCount === 2 ? "not-allowed" : "pointer",
+              opacity: imageInputCount === 2 ? 0.6 : 1,
+            }}
+            title={imageInputCount === 2 ? lt("首尾帧模式不支持音效", "Sound not supported in first-last frame mode") : ""}
+          >
+            {lt("音效", "Sound")}: {imageInputCount === 2 ? lt("不可用", "N/A") : (data as any).sound !== false ? lt("开启", "On") : lt("关闭", "Off")}
+          </button>
+        </div>
+      )}
+
       {/* Vidu 专用参数 */}
       {(provider === "vidu" || provider === "viduq3-pro") && (
         <>
@@ -1055,7 +1095,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         </>
       )}
 
-      {/* 豆包专用参数 */}
+      {/* Seedance 1.5 Pro专用参数 */}
       {provider === "doubao" && (
         <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
           <button

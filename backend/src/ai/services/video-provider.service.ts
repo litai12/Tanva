@@ -202,7 +202,7 @@ export class VideoProviderService {
   private readonly apiKeys = {
     kling: process.env.KLING_API_KEY || "sk-kling-xxx",
     "kling-2.6": process.env.KLING_API_KEY || "sk-kling-xxx",
-    "kling-o1": process.env.KLING_API_KEY || "sk-kling-xxx",
+    "kling-o3": process.env.KLING_API_KEY || "sk-kling-xxx",
     vidu: process.env.VIDU_API_KEY || "sk-vidu-xxx",
     "viduq3-pro": process.env.VIDU_API_KEY || "sk-vidu-xxx",
     doubao:
@@ -236,7 +236,7 @@ export class VideoProviderService {
         return this.generateKling(options, apiKey);
       case "kling-2.6":
         return this.generateKling26(options, apiKey);
-      case "kling-o1":
+      case "kling-o3":
         return this.generateKlingO1(options, apiKey);
       case "vidu":
         return this.generateVidu(options, apiKey);
@@ -251,7 +251,7 @@ export class VideoProviderService {
    * 查询任务状态
    */
   async queryTask(
-    provider: "kling" | "kling-2.6" | "kling-o1" | "vidu" | "viduq3-pro" | "doubao",
+    provider: "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao",
     taskId: string
   ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string }> {
     const apiKey = this.apiKeys[provider];
@@ -264,7 +264,7 @@ export class VideoProviderService {
         return this.queryKling(taskId, apiKey);
       case "kling-2.6":
         return this.queryKling26(taskId, apiKey);
-      case "kling-o1":
+      case "kling-o3":
         return this.queryKlingO1(taskId, apiKey);
       case "vidu":
         return this.queryVidu(taskId, apiKey);
@@ -276,7 +276,7 @@ export class VideoProviderService {
   }
 
   /**
-   * 豆包 Seedance 视频生成
+   * Seedance 1.5 Pro视频生成
    */
   private async generateDoubao(
     options: VideoProviderRequestDto,
@@ -359,7 +359,7 @@ export class VideoProviderService {
 
       const data = await response.json();
       this.logger.log(
-        `🔍 豆包任务状态查询: taskId=${taskId}, status=${data.status}`
+        `🔍 Seedance 1.5 Pro任务状态查询: taskId=${taskId}, status=${data.status}`
       );
 
       if (data.status === "succeeded") {
@@ -376,7 +376,7 @@ export class VideoProviderService {
 
       if (data.status === "failed") {
         this.logger.error(
-          `❌ 豆包任务失败: taskId=${taskId}, error=${JSON.stringify(
+          `❌ Seedance 1.5 Pro任务失败: taskId=${taskId}, error=${JSON.stringify(
             data.error || data.reason || data
           )}`
         );
@@ -389,7 +389,7 @@ export class VideoProviderService {
       return { status: data.status || "queued" };
     } catch (error) {
       this.logger.error(
-        `❌ 豆包查询异常: taskId=${taskId}, error=${
+        `❌ Seedance 1.5 Pro查询异常: taskId=${taskId}, error=${
           error instanceof Error ? error.message : error
         }`
       );
@@ -616,6 +616,7 @@ export class VideoProviderService {
       model_name: "kling-v2-6",
       mode: (options as any).mode || "pro",
       duration: Number(options.duration) === 10 ? "10" : "5",
+      sound: options.sound !== false ? "on" : "off",
     };
 
     this.logger.log(`🎬 Kling 2.6 参数: duration=${options.duration}, 转换后=${Number(options.duration) === 10 ? "10" : "5"}`);
@@ -638,6 +639,8 @@ export class VideoProviderService {
       payload.image = await this.uploadBase64ImageToOSS(options.referenceImages![0]);
       payload.image_tail = await this.uploadBase64ImageToOSS(options.referenceImages![1]);
       payload.prompt = options.prompt || KLING_DEFAULT_REFERENCE_PROMPT;
+      // 首尾帧模式不支持音效
+      payload.sound = "off";
     } else if (videoMode === "multi-image2video") {
       const imageUrls = await Promise.all(
         options.referenceImages!.slice(0, 4).map(img => this.uploadBase64ImageToOSS(img))
@@ -930,8 +933,9 @@ export class VideoProviderService {
     const hasVideo = !!options.referenceVideo;
 
     const payload: any = {
-      model_name: "kling-video-o1",
+      model_name: "kling-v3-omni",
       mode: options.mode || "pro",
+      sound: options.sound !== false ? "on" : "off",
     };
 
     // 处理 prompt（Kling O1 要求 prompt 必填）
@@ -988,7 +992,7 @@ export class VideoProviderService {
       }];
     }
 
-    this.logProviderPayload("kling-o1", payload);
+    this.logProviderPayload("kling-o3", payload);
     this.logger.log(`🎬 Kling O1: images=${imageCount}, hasVideo=${hasVideo}, endpoint=${endpoint}`);
 
     const response = await fetchWithTimeout(endpoint, {
@@ -1045,7 +1049,7 @@ export class VideoProviderService {
         if (this.isOssPublicUrl(upstreamUrl)) {
           return { status: "succeeded", videoUrl: upstreamUrl };
         }
-        const ossUrl = await this.uploadRemoteVideoToOss(upstreamUrl, `kling-o1-${taskId}`);
+        const ossUrl = await this.uploadRemoteVideoToOss(upstreamUrl, `kling-o3-${taskId}`);
         this.logger.log(`📤 Kling O1 视频已上传到 OSS: ${ossUrl}`);
         return { status: "succeeded", videoUrl: ossUrl };
       }
@@ -1096,14 +1100,17 @@ export class VideoProviderService {
         videoMode = "img2video";
       } else if (imageCount === 2) {
         videoMode = "start-end2video";
+      } else if (imageCount === 3) {
+        videoMode = "start-mid-end2video";
       } else {
-        throw new Error("viduq3-pro 最多支持2张图片");
+        throw new Error("viduq3-pro 最多支持3张图片");
       }
     }
 
     const endpointMap: Record<string, string> = {
       "img2video": "https://models.kapon.cloud/vidu/ent/v2/img2video",
       "start-end2video": "https://models.kapon.cloud/vidu/ent/v2/start-end2video",
+      "start-mid-end2video": "https://models.kapon.cloud/vidu/ent/v2/start-mid-end2video",
       "text2video": "https://models.kapon.cloud/vidu/ent/v2/text2video",
     };
     const endpoint = endpointMap[videoMode] || endpointMap["text2video"];

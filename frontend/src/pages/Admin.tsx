@@ -26,6 +26,7 @@ import {
   getNodeConfigs,
   updateNodeConfig,
   createNodeConfig,
+  deleteNodeConfig,
   type DashboardStats,
   type UserWithCredits,
   type ApiUsageStats,
@@ -2916,6 +2917,18 @@ function NodeConfigsTab() {
     }
   };
 
+  const handleDelete = async (nodeKey: string, nameZh: string) => {
+    if (!confirm(`确定要删除节点"${nameZh}"吗？此操作不可恢复。`)) {
+      return;
+    }
+    try {
+      await deleteNodeConfig(nodeKey);
+      loadConfigs();
+    } catch (error: any) {
+      alert(error.message || "删除失败");
+    }
+  };
+
   const statusOptions = [
     { value: "normal", label: "正常" },
     { value: "maintenance", label: "维护中" },
@@ -3021,9 +3034,19 @@ function NodeConfigsTab() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <Button size="sm" variant="outline" onClick={() => handleEdit(config)}>
-                        编辑
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline" onClick={() => handleEdit(config)}>
+                          编辑
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleDelete(config.nodeKey, config.nameZh)}
+                          className="text-red-600 hover:text-red-700 hover:border-red-300"
+                        >
+                          删除
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))

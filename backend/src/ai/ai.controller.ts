@@ -1780,7 +1780,7 @@ export class AiController {
   }
 
   /**
-   * 视频生成（通用供应商：可灵、Vidu、豆包）
+   * 视频生成（通用供应商：可灵、Vidu、Seedance 1.5 Pro）
    * 返回 taskId 和 apiUsageId，前端在任务失败时可请求退款
    */
   @Post('generate-video-provider')
@@ -1789,7 +1789,7 @@ export class AiController {
     const userId = this.getUserId(req);
     const effectiveDto: VideoProviderRequestDto = { ...dto };
 
-    // 白名单/管理员兜底：豆包链路即使前端传入 watermark=true，也强制关闭水印。
+    // 白名单/管理员兜底：Seedance 1.5 Pro链路即使前端传入 watermark=true，也强制关闭水印。
     if (effectiveDto.provider === 'doubao') {
       const skipWatermark = await this.canSkipWatermark(req);
       if (skipWatermark) {
@@ -1907,7 +1907,7 @@ export class AiController {
    */
   @Get('video-task/:provider/:taskId')
   async queryVideoTask(
-    @Param('provider') provider: 'kling' | 'kling-o1' | 'vidu' | 'doubao',
+    @Param('provider') provider: 'kling' | 'kling-2.6' | 'kling-o3' | 'vidu' | 'viduq3-pro' | 'doubao',
     @Param('taskId') taskId: string,
   ) {
     return this.videoProviderService.queryTask(provider, taskId);

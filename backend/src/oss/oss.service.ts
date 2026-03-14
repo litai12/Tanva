@@ -242,7 +242,7 @@ export class OssService {
       'apimart.ai',             // Nano2 / Apimart 图像资源
       'kechuangai.com',         // Kling / 可灵
       'models.kapon.cloud',     // Kapon / Vidu
-      'volces.com',             // 字节/豆包
+      'volces.com',             // 字节/Seedance 1.5 Pro
     ];
 
     defaultAllowed.forEach(h => hosts.push(h));

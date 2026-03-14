@@ -104,12 +104,12 @@ function getDefaultConfigs(): NodeConfig[] {
     { nodeKey: "nano2", nameZh: "Nano2生成", nameEn: "Nano2", category: "image", status: "normal", sortOrder: 16, creditsPerCall: 30 },
 
     // 视频生成节点
-    { nodeKey: "klingVideo", nameZh: "Kling视频生成", nameEn: "Kling", category: "video", status: "maintenance", sortOrder: 20, creditsPerCall: 600 },
+    // { nodeKey: "klingVideo", nameZh: "Kling视频生成", nameEn: "Kling", category: "video", status: "maintenance", sortOrder: 20, creditsPerCall: 600 },
     { nodeKey: "kling26Video", nameZh: "Kling 2.6视频生成", nameEn: "Kling 2.6", category: "video", status: "normal", sortOrder: 21, creditsPerCall: 600 },
     { nodeKey: "klingO1Video", nameZh: "Kling O1视频生成", nameEn: "Kling O1", category: "video", status: "normal", sortOrder: 22, creditsPerCall: 1600 },
     { nodeKey: "viduVideo", nameZh: "Vidu视频生成", nameEn: "Vidu", category: "video", status: "normal", sortOrder: 23, creditsPerCall: 600 },
     { nodeKey: "viduQ3", nameZh: "Vidu Q3 Pro视频生成", nameEn: "Vidu Q3 Pro", category: "video", status: "normal", sortOrder: 24, creditsPerCall: 800 },
-    { nodeKey: "doubaoVideo", nameZh: "豆包视频生成", nameEn: "Doubao", category: "video", status: "normal", sortOrder: 25, creditsPerCall: 600 },
+    { nodeKey: "doubaoVideo", nameZh: "Seedance 1.5 Pro视频生成", nameEn: "Doubao", category: "video", status: "normal", sortOrder: 25, creditsPerCall: 600 },
     { nodeKey: "sora2Video", nameZh: "Sora2 Pro视频生成", nameEn: "Sora2 Pro", category: "video", status: "coming_soon", sortOrder: 26, creditsPerCall: 40 },
     { nodeKey: "sora2Character", nameZh: "Sora2角色生成", nameEn: "Sora2 Character", category: "video", status: "coming_soon", sortOrder: 27, creditsPerCall: 0 },
     { nodeKey: "wan26", nameZh: "Wan2.6视频", nameEn: "Wan2.6", category: "video", status: "normal", sortOrder: 28, creditsPerCall: 600 },
