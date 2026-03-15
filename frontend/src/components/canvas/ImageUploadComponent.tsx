@@ -22,11 +22,19 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
   projectId,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const resetInputValue = useCallback(() => {
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }, []);
 
   // 处理文件选择
   const handleFileSelect = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file) {
+      resetInputValue();
+      return;
+    }
 
     try {
       logger.upload('📸 开始处理图片:', file.name);
@@ -84,11 +92,10 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
           projectId,
           skipInitialStoreUpdate: true,
         });
-        return;
+      } else {
+        console.error('❌ 图片上传失败，已保留本地副本:', result.error);
+        onUploadError(result.error || '图片上传失败，已保留本地副本（可稍后重试上传）');
       }
-
-      console.error('❌ 图片上传失败，已保留本地副本:', result.error);
-      onUploadError(result.error || '图片上传失败，已保留本地副本（可稍后重试上传）');
     } catch (error) {
       console.error('❌ 图片处理异常:', error);
       if (file) {
@@ -112,21 +119,30 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
           onUploadError('图片处理失败，请重试');
         }
       }
+    } finally {
+      // 清空 input 值，确保可重复选择同一文件
+      resetInputValue();
     }
-
-    // 清空input值，允许重复选择同一文件
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  }, [onImageUploaded, onUploadError]);
+  }, [onImageUploaded, onUploadError, projectId, resetInputValue]);
 
   // 处理外部触发
   React.useEffect(() => {
-    if (trigger && fileInputRef.current) {
-      fileInputRef.current.click();
+    if (!trigger) return;
+
+    try {
+      resetInputValue();
+      if (fileInputRef.current) {
+        fileInputRef.current.click();
+      } else {
+        onUploadError('图片上传组件未就绪，请重试');
+      }
+    } catch (error) {
+      console.error('❌ 打开文件选择器失败:', error);
+      onUploadError('无法打开文件选择器，请重试');
+    } finally {
       onTriggerHandled();
     }
-  }, [trigger, onTriggerHandled]);
+  }, [trigger, onTriggerHandled, onUploadError, resetInputValue]);
 
   return (
     <input

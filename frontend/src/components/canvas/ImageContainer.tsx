@@ -20,8 +20,15 @@ import {
   Type,
   Lock,
   Unlock,
+  MoreHorizontal,
 } from "lucide-react";
 import { Button } from "../ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 import ImagePreviewModal, { type ImageItem } from "../ui/ImagePreviewModal";
 import backgroundRemovalService from "@/services/backgroundRemovalService";
 import { LoadingSpinner } from "../ui/loading-spinner";
@@ -60,7 +67,45 @@ type TextReplacementItem = {
   nextText: string;
 };
 
+type ToolbarActionKey =
+  | "removeBackground"
+  | "fastRemoveBackground"
+  | "layerSeparation"
+  | "convertTo3D"
+  | "hdUpscale"
+  | "expandImage"
+  | "cropImage"
+  | "editText"
+  | "generateNode";
+
+type ToolbarAction = {
+  key: ToolbarActionKey;
+  label: string;
+  title: string;
+  icon: React.ComponentType<{ className?: string }>;
+  disabled: boolean;
+  loading?: boolean;
+  onClick: React.MouseEventHandler<HTMLButtonElement>;
+};
+
+const TOOLBAR_USAGE_STORAGE_KEY = "tanva:image-toolbar-usage:v1";
+const FIXED_TOOLBAR_KEYS: readonly ToolbarActionKey[] = [
+  "fastRemoveBackground",
+  "hdUpscale",
+  "generateNode",
+];
+const ROTATABLE_TOOLBAR_KEYS: readonly ToolbarActionKey[] = [
+  "removeBackground",
+  "layerSeparation",
+  "convertTo3D",
+  "expandImage",
+  "cropImage",
+  "editText",
+];
+
 type Bounds = { x: number; y: number; width: number; height: number };
+type CropRect = { x: number; y: number; width: number; height: number };
+type CropHandle = "n" | "e" | "s" | "w" | "nw" | "ne" | "sw" | "se";
 const ensureDataUrlString = (
   imageData: string,
   mime: string = "image/png"
@@ -73,6 +118,11 @@ const ensureDataUrlString = (
 
 const normalizeImageSrc = (value?: string | null): string => {
   return toRenderableImageSrc(value) || "";
+};
+
+const clampNumber = (value: number, min: number, max: number): number => {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, value));
 };
 
 const dedupeTexts = (items: string[]): string[] => {
@@ -241,6 +291,11 @@ interface ImageContainerProps {
     width: number;
     height: number;
   }) => void; // Paper.js坐标
+  onImageUpdate?: (
+    imageId: string,
+    imageData: string,
+    bounds: { x: number; y: number; width: number; height: number }
+  ) => void | Promise<void>;
   onDelete?: (imageId: string) => void;
   onToggleVisibility?: (imageId: string) => void; // 切换图层可见性回调
   onToggleLock?: (imageId: string, nextLocked: boolean) => void;
@@ -259,7 +314,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   allCanvasImages = [],
   onSelect: _onSelect,
   onMove: _onMove,
-  onResize: _onResize,
+  onResize,
+  onImageUpdate,
   onDelete: _onDelete,
   onToggleVisibility,
   onToggleLock,
@@ -317,6 +373,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const [isRecognizingText, setIsRecognizingText] = useState(false);
   const [isApplyingTextEdit, setIsApplyingTextEdit] = useState(false);
   const [showTextEditPanel, setShowTextEditPanel] = useState(false);
+  const [isCropping, setIsCropping] = useState(false);
+  const [isApplyingCrop, setIsApplyingCrop] = useState(false);
+  const [cropRect, setCropRect] = useState<CropRect | null>(null);
   const [textReplacementItems, setTextReplacementItems] = useState<
     TextReplacementItem[]
   >([]);
@@ -334,6 +393,50 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const [projectHistoryLoading, setProjectHistoryLoading] = useState(false);
   const lastLoadedProjectIdRef = useRef<string | null>(null);
   const projectHistoryLoadedRef = useRef(false);
+  const [toolbarUsageCounts, setToolbarUsageCounts] = useState<
+    Partial<Record<ToolbarActionKey, number>>
+  >({});
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(TOOLBAR_USAGE_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const next: Partial<Record<ToolbarActionKey, number>> = {};
+      [...FIXED_TOOLBAR_KEYS, ...ROTATABLE_TOOLBAR_KEYS].forEach((key) => {
+        const value = parsed[key];
+        if (typeof value !== "number" || !Number.isFinite(value)) return;
+        const safeValue = Math.max(0, Math.floor(value));
+        if (safeValue > 0) {
+          next[key] = safeValue;
+        }
+      });
+      setToolbarUsageCounts(next);
+    } catch {
+      // ignore invalid localStorage content
+    }
+  }, []);
+
+  const recordToolbarUsage = useCallback((key: ToolbarActionKey) => {
+    setToolbarUsageCounts((current) => {
+      const next = {
+        ...current,
+        [key]: (current[key] ?? 0) + 1,
+      };
+      if (typeof window !== "undefined") {
+        try {
+          window.localStorage.setItem(
+            TOOLBAR_USAGE_STORAGE_KEY,
+            JSON.stringify(next)
+          );
+        } catch {
+          // ignore storage write failure
+        }
+      }
+      return next;
+    });
+  }, []);
 
   // 获取项目ID用于上传
   const projectId = useProjectContentStore((state) => state.projectId);
@@ -677,6 +780,184 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const screenBounds = useMemo(() => {
     return convertToScreenBounds(realTimeBounds);
   }, [realTimeBounds, convertToScreenBounds, zoom, panX, panY]); // 添加画布状态依赖，确保完全响应画布变化
+
+  const screenPerWorldX =
+    realTimeBounds.width > 0 && screenBounds.width > 0
+      ? screenBounds.width / realTimeBounds.width
+      : 1;
+  const screenPerWorldY =
+    realTimeBounds.height > 0 && screenBounds.height > 0
+      ? screenBounds.height / realTimeBounds.height
+      : 1;
+  const worldPerScreenX =
+    screenBounds.width > 0 && realTimeBounds.width > 0
+      ? realTimeBounds.width / screenBounds.width
+      : 1;
+  const worldPerScreenY =
+    screenBounds.height > 0 && realTimeBounds.height > 0
+      ? realTimeBounds.height / screenBounds.height
+      : 1;
+
+  const clampCropRectToImage = useCallback(
+    (rect: CropRect, minWidthWorld: number, minHeightWorld: number): CropRect => {
+      const imageLeft = realTimeBounds.x;
+      const imageTop = realTimeBounds.y;
+      const imageRight = realTimeBounds.x + realTimeBounds.width;
+      const imageBottom = realTimeBounds.y + realTimeBounds.height;
+      const imageWidth = Math.max(1, imageRight - imageLeft);
+      const imageHeight = Math.max(1, imageBottom - imageTop);
+      const safeMinWidth = Math.max(1, Math.min(minWidthWorld, imageWidth));
+      const safeMinHeight = Math.max(1, Math.min(minHeightWorld, imageHeight));
+
+      let x = Number.isFinite(rect.x) ? rect.x : imageLeft;
+      let y = Number.isFinite(rect.y) ? rect.y : imageTop;
+      let width = Number.isFinite(rect.width) ? rect.width : imageWidth;
+      let height = Number.isFinite(rect.height) ? rect.height : imageHeight;
+
+      width = Math.max(safeMinWidth, Math.min(width, imageWidth));
+      height = Math.max(safeMinHeight, Math.min(height, imageHeight));
+      x = Math.max(imageLeft, Math.min(x, imageRight - safeMinWidth));
+      y = Math.max(imageTop, Math.min(y, imageBottom - safeMinHeight));
+
+      if (x + width > imageRight) {
+        width = imageRight - x;
+      }
+      if (y + height > imageBottom) {
+        height = imageBottom - y;
+      }
+
+      width = Math.max(1, width);
+      height = Math.max(1, height);
+
+      return { x, y, width, height };
+    },
+    [realTimeBounds.height, realTimeBounds.width, realTimeBounds.x, realTimeBounds.y]
+  );
+
+  const cropRectScreen = useMemo(() => {
+    if (!isCropping || !cropRect) return null;
+    return {
+      x: (cropRect.x - realTimeBounds.x) * screenPerWorldX,
+      y: (cropRect.y - realTimeBounds.y) * screenPerWorldY,
+      width: cropRect.width * screenPerWorldX,
+      height: cropRect.height * screenPerWorldY,
+    };
+  }, [
+    cropRect,
+    isCropping,
+    realTimeBounds.x,
+    realTimeBounds.y,
+    screenPerWorldX,
+    screenPerWorldY,
+  ]);
+
+  const cancelCrop = useCallback(() => {
+    setIsApplyingCrop(false);
+    setIsCropping(false);
+    setCropRect(null);
+  }, []);
+
+  useEffect(() => {
+    if (isSelected && visible && !isImageLocked) return;
+    if (!isCropping && !cropRect && !isApplyingCrop) return;
+    cancelCrop();
+  }, [
+    cancelCrop,
+    cropRect,
+    isApplyingCrop,
+    isCropping,
+    isImageLocked,
+    isSelected,
+    visible,
+  ]);
+
+  const handleCropHandleMouseDown = useCallback(
+    (handle: CropHandle) => (e: React.MouseEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!cropRect) return;
+
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startRect = { ...cropRect };
+      const minWidthWorld = Math.max(1, 28 * worldPerScreenX);
+      const minHeightWorld = Math.max(1, 28 * worldPerScreenY);
+
+      const handleMouseMove = (moveEvent: MouseEvent) => {
+        const dxWorld = (moveEvent.clientX - startX) * worldPerScreenX;
+        const dyWorld = (moveEvent.clientY - startY) * worldPerScreenY;
+
+        const imageLeft = realTimeBounds.x;
+        const imageTop = realTimeBounds.y;
+        const imageRight = realTimeBounds.x + realTimeBounds.width;
+        const imageBottom = realTimeBounds.y + realTimeBounds.height;
+
+        const startLeft = startRect.x;
+        const startTop = startRect.y;
+        const startRight = startRect.x + startRect.width;
+        const startBottom = startRect.y + startRect.height;
+
+        // 拖动一条边时，对边固定不动，避免出现“整框联动”。
+        let left = startLeft;
+        let right = startRight;
+        let top = startTop;
+        let bottom = startBottom;
+
+        if (handle.includes("w")) {
+          left = clampNumber(
+            startLeft + dxWorld,
+            imageLeft,
+            startRight - minWidthWorld
+          );
+        }
+        if (handle.includes("e")) {
+          right = clampNumber(
+            startRight + dxWorld,
+            startLeft + minWidthWorld,
+            imageRight
+          );
+        }
+        if (handle.includes("n")) {
+          top = clampNumber(
+            startTop + dyWorld,
+            imageTop,
+            startBottom - minHeightWorld
+          );
+        }
+        if (handle.includes("s")) {
+          bottom = clampNumber(
+            startBottom + dyWorld,
+            startTop + minHeightWorld,
+            imageBottom
+          );
+        }
+
+        setCropRect({
+          x: left,
+          y: top,
+          width: Math.max(1, right - left),
+          height: Math.max(1, bottom - top),
+        });
+      };
+
+      const handleMouseUp = () => {
+        document.removeEventListener("mousemove", handleMouseMove);
+        document.removeEventListener("mouseup", handleMouseUp);
+      };
+
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+    },
+    [
+      cropRect,
+      realTimeBounds.height,
+      realTimeBounds.width,
+      realTimeBounds.x,
+      realTimeBounds.y,
+      worldPerScreenX,
+      worldPerScreenY,
+    ]
+  );
 
   useEffect(() => {
     if (!isImageLocked || typeof window === "undefined") {
@@ -1897,6 +2178,218 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     ]
   );
 
+  // 处理裁切按钮点击
+  const handleCropImage = useCallback(
+    () => {
+      if (isCropping || isApplyingCrop) return;
+
+      const minWidthWorld = Math.max(1, 28 * worldPerScreenX);
+      const minHeightWorld = Math.max(1, 28 * worldPerScreenY);
+
+      const initialRect = clampCropRectToImage(
+        {
+          x: realTimeBounds.x,
+          y: realTimeBounds.y,
+          width: Math.max(1, realTimeBounds.width),
+          height: Math.max(1, realTimeBounds.height),
+        },
+        minWidthWorld,
+        minHeightWorld
+      );
+
+      setCropRect(initialRect);
+      setIsCropping(true);
+    },
+    [
+      clampCropRectToImage,
+      isApplyingCrop,
+      isCropping,
+      realTimeBounds.height,
+      realTimeBounds.width,
+      realTimeBounds.x,
+      realTimeBounds.y,
+      worldPerScreenX,
+      worldPerScreenY,
+    ]
+  );
+
+  const handleConfirmCrop = useCallback(async () => {
+    if (!cropRect || isApplyingCrop) return;
+
+    setIsApplyingCrop(true);
+    try {
+      const sourceDataUrl = await resolveImageDataUrl();
+      if (!sourceDataUrl) {
+        throw new Error("无法获取原图，裁切失败");
+      }
+
+      const image = await loadImageElement(sourceDataUrl);
+      const naturalWidth = image.naturalWidth || image.width;
+      const naturalHeight = image.naturalHeight || image.height;
+      if (naturalWidth <= 0 || naturalHeight <= 0) {
+        throw new Error("原图尺寸无效，裁切失败");
+      }
+
+      const displayWidth = Math.max(1, realTimeBounds.width);
+      const displayHeight = Math.max(1, realTimeBounds.height);
+      const scaleX = naturalWidth / displayWidth;
+      const scaleY = naturalHeight / displayHeight;
+      const displayScaleX = displayWidth / naturalWidth;
+      const displayScaleY = displayHeight / naturalHeight;
+      // 使用单一缩放因子回推裁后显示尺寸，避免 X/Y 不同缩放导致的形变。
+      const uniformDisplayScale =
+        Number.isFinite(displayScaleX) &&
+        Number.isFinite(displayScaleY) &&
+        displayScaleX > 0 &&
+        displayScaleY > 0
+          ? (displayScaleX + displayScaleY) / 2
+          : displayScaleX > 0
+          ? displayScaleX
+          : displayScaleY > 0
+          ? displayScaleY
+          : 1;
+
+      const cropLeftPx = clampNumber(
+        Math.round((cropRect.x - realTimeBounds.x) * scaleX),
+        0,
+        Math.max(0, naturalWidth - 1)
+      );
+      const cropTopPx = clampNumber(
+        Math.round((cropRect.y - realTimeBounds.y) * scaleY),
+        0,
+        Math.max(0, naturalHeight - 1)
+      );
+      const cropRightPx = clampNumber(
+        Math.round((cropRect.x + cropRect.width - realTimeBounds.x) * scaleX),
+        cropLeftPx + 1,
+        naturalWidth
+      );
+      const cropBottomPx = clampNumber(
+        Math.round((cropRect.y + cropRect.height - realTimeBounds.y) * scaleY),
+        cropTopPx + 1,
+        naturalHeight
+      );
+
+      const cropX = cropLeftPx;
+      const cropY = cropTopPx;
+      const cropWidth = Math.max(1, cropRightPx - cropLeftPx);
+      const cropHeight = Math.max(1, cropBottomPx - cropTopPx);
+
+      const canvas = document.createElement("canvas");
+      canvas.width = cropWidth;
+      canvas.height = cropHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        throw new Error("无法创建裁切画布");
+      }
+      ctx.drawImage(
+        image,
+        cropX,
+        cropY,
+        cropWidth,
+        cropHeight,
+        0,
+        0,
+        cropWidth,
+        cropHeight
+      );
+
+      const croppedDataUrl = await canvasToDataUrl(canvas, "image/png");
+      const nextBounds = {
+        x: cropRect.x,
+        y: cropRect.y,
+        width: Math.max(1, cropWidth * uniformDisplayScale),
+        height: Math.max(1, cropHeight * uniformDisplayScale),
+      };
+      void imageUrlCache.updateDataUrl(imageData.id, croppedDataUrl, projectId);
+
+      if (onImageUpdate) {
+        await onImageUpdate(imageData.id, croppedDataUrl, nextBounds);
+      } else {
+        const fileName = `crop-${Date.now()}.png`;
+        onResize?.(nextBounds);
+
+        // 裁切后的图片优先立即上传，避免刷新前仅落地 blob:/data: 引用导致丢图风险。
+        let replaceSource: string = croppedDataUrl;
+        let pendingUpload = true;
+        let uploadedKey: string | undefined;
+        let uploadedRemoteUrl: string | undefined;
+
+        try {
+          const croppedBlob = await dataUrlToBlob(croppedDataUrl);
+          const uploadResult = await uploadToOSS(croppedBlob, {
+            dir: projectId ? `projects/${projectId}/images/` : "uploads/images/",
+            fileName,
+            contentType: "image/png",
+            projectId,
+          });
+
+          if (uploadResult.success && uploadResult.url) {
+            const normalizedKey = normalizePersistableImageRef(uploadResult.key || "");
+            const normalizedRemoteUrl =
+              normalizePersistableImageRef(uploadResult.url) || uploadResult.url;
+            uploadedKey = normalizedKey || undefined;
+            uploadedRemoteUrl = normalizedRemoteUrl || undefined;
+            replaceSource = uploadedKey || uploadedRemoteUrl || croppedDataUrl;
+            pendingUpload = false;
+          } else {
+            logger.warn("裁切图片即时上传失败，回退到本地源并等待自动补传", uploadResult.error);
+          }
+        } catch (uploadError) {
+          logger.warn("裁切图片即时上传异常，回退到本地源并等待自动补传", uploadError);
+        }
+
+        window.dispatchEvent(
+          new CustomEvent("canvas:replace-image-source", {
+            detail: {
+              imageId: imageData.id,
+              source: replaceSource,
+              contentType: "image/png",
+              fileName,
+              width: cropWidth,
+              height: cropHeight,
+              historyLabel: "crop-image",
+              pendingUpload,
+              key: uploadedKey,
+              remoteUrl: uploadedRemoteUrl,
+            },
+          })
+        );
+      }
+
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: "✨ 裁切完成", type: "success" },
+        })
+      );
+
+      setIsCropping(false);
+      setCropRect(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "裁切失败";
+      logger.error("裁切失败", error);
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message, type: "error" },
+        })
+      );
+    } finally {
+      setIsApplyingCrop(false);
+    }
+  }, [
+    cropRect,
+    imageData.id,
+    isApplyingCrop,
+    onImageUpdate,
+    onResize,
+    projectId,
+    realTimeBounds.height,
+    realTimeBounds.width,
+    realTimeBounds.x,
+    realTimeBounds.y,
+    resolveImageDataUrl,
+  ]);
+
   // 处理扩图按钮点击
   const handleExpandImage = useCallback(
     (e: React.MouseEvent) => {
@@ -2322,6 +2815,195 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
   // 已简化 - 移除了所有鼠标事件处理逻辑，让Paper.js完全处理交互
 
+  const toolbarActions: ToolbarAction[] = [
+    {
+      key: "removeBackground",
+      label: "一键抠图",
+      title: isRemovingBackground ? "正在抠图..." : "一键抠图",
+      icon: Wand2,
+      disabled:
+        isPendingUpload ||
+        isRemovingBackground ||
+        isFastRemovingBackground ||
+        isSeparatingLayers,
+      loading: isRemovingBackground,
+      onClick: (event) => {
+        recordToolbarUsage("removeBackground");
+        handleBackgroundRemoval(event);
+      },
+    },
+    {
+      key: "layerSeparation",
+      label: "一键分层",
+      title: isSeparatingLayers ? "正在分层..." : "一键分层",
+      icon: Layers,
+      disabled:
+        isPendingUpload ||
+        isSeparatingLayers ||
+        isRemovingBackground ||
+        isFastRemovingBackground,
+      loading: isSeparatingLayers,
+      onClick: (event) => {
+        recordToolbarUsage("layerSeparation");
+        handleLayerSeparation(event);
+      },
+    },
+    {
+      key: "convertTo3D",
+      label: "2D转3D",
+      title: isConvertingTo3D ? "正在转换3D..." : "2D转3D",
+      icon: Rotate3d,
+      disabled: isPendingUpload || isConvertingTo3D,
+      loading: isConvertingTo3D,
+      onClick: (event) => {
+        recordToolbarUsage("convertTo3D");
+        handleConvertTo3D(event);
+      },
+    },
+    {
+      key: "hdUpscale",
+      label: "高清放大",
+      title: isOptimizingHd ? "正在高清放大..." : "高清放大",
+      icon: ImageUp,
+      disabled: isPendingUpload || isOptimizingHd,
+      loading: isOptimizingHd,
+      onClick: (event) => {
+        recordToolbarUsage("hdUpscale");
+        handleOptimizeHdImage(event);
+      },
+    },
+    {
+      key: "expandImage",
+      label: "图片拓展",
+      title: isExpandingImage
+        ? "正在扩图..."
+        : showExpandSelector
+        ? "请选择扩图区域"
+        : "图片拓展",
+      icon: Crop,
+      disabled: isPendingUpload || isExpandingImage || showExpandSelector,
+      loading: isExpandingImage,
+      onClick: (event) => {
+        recordToolbarUsage("expandImage");
+        handleExpandImage(event);
+      },
+    },
+    {
+      key: "cropImage",
+      label: "裁切",
+      title: isCropping || isApplyingCrop ? "裁切中..." : "裁切图片",
+      icon: Crop,
+      disabled: isPendingUpload || isApplyingCrop,
+      loading: isApplyingCrop,
+      onClick: () => {
+        recordToolbarUsage("cropImage");
+        handleCropImage();
+      },
+    },
+    {
+      key: "editText",
+      label: "改文字",
+      title: isRecognizingText
+        ? "正在识别文字..."
+        : isApplyingTextEdit
+        ? "正在修改文字..."
+        : "修改图片中的文字",
+      icon: Type,
+      disabled: isPendingUpload || isRecognizingText || isApplyingTextEdit,
+      loading: isRecognizingText || isApplyingTextEdit,
+      onClick: (event) => {
+        recordToolbarUsage("editText");
+        handleRecognizeImageText(event);
+      },
+    },
+    {
+      key: "generateNode",
+      label: "生成节点",
+      title: "生成节点",
+      icon: ArrowRightLeft,
+      disabled: isPendingUpload,
+      onClick: (event) => {
+        recordToolbarUsage("generateNode");
+        handleCreateFlowImageNode(event);
+      },
+    },
+  ];
+
+  if (showFastBackgroundRemovalButton) {
+    toolbarActions.push({
+      key: "fastRemoveBackground",
+      label: "极速抠图",
+      title: isFastRemovingBackground ? "正在极速抠图..." : "极速抠图",
+      icon: Zap,
+      disabled:
+        isPendingUpload ||
+        isRemovingBackground ||
+        isFastRemovingBackground ||
+        isSeparatingLayers,
+      loading: isFastRemovingBackground,
+      onClick: (event) => {
+        recordToolbarUsage("fastRemoveBackground");
+        handleFastBackgroundRemoval(event);
+      },
+    });
+  }
+
+  const toolbarActionMap = new Map<ToolbarActionKey, ToolbarAction>(
+    toolbarActions.map((action) => [action.key, action])
+  );
+
+  const fixedToolbarActions = FIXED_TOOLBAR_KEYS.map((key) =>
+    toolbarActionMap.get(key)
+  ).filter((action): action is ToolbarAction => Boolean(action));
+
+  const dynamicToolbarSlots = Math.max(0, 5 - fixedToolbarActions.length);
+  const rotatableToolbarActions = ROTATABLE_TOOLBAR_KEYS.map((key) =>
+    toolbarActionMap.get(key)
+  )
+    .filter((action): action is ToolbarAction => Boolean(action))
+    .sort((left, right) => {
+      const usageDelta =
+        (toolbarUsageCounts[right.key] ?? 0) - (toolbarUsageCounts[left.key] ?? 0);
+      if (usageDelta !== 0) {
+        return usageDelta;
+      }
+      return (
+        ROTATABLE_TOOLBAR_KEYS.indexOf(left.key) -
+        ROTATABLE_TOOLBAR_KEYS.indexOf(right.key)
+      );
+    });
+
+  const rotatingToolbarActions = rotatableToolbarActions.slice(
+    0,
+    dynamicToolbarSlots
+  );
+  const visibleToolbarActions = [...fixedToolbarActions, ...rotatingToolbarActions];
+  const visibleToolbarActionKeys = new Set(
+    visibleToolbarActions.map((action) => action.key)
+  );
+  const moreToolbarActions = rotatableToolbarActions.filter(
+    (action) => !visibleToolbarActionKeys.has(action.key)
+  );
+
+  const renderToolbarActionButton = (action: ToolbarAction) => (
+    <Button
+      key={action.key}
+      variant='ghost'
+      size='sm'
+      disabled={action.disabled}
+      className={sharedButtonClass}
+      onClick={action.onClick}
+      title={action.title}
+    >
+      {action.loading ? (
+        <LoadingSpinner size='sm' className='text-blue-600' />
+      ) : (
+        <action.icon className={sharedIconClass} />
+      )}
+      {showButtonText && <span>{action.label}</span>}
+    </Button>
+  );
+
   return (
     <div
       ref={containerRef}
@@ -2507,188 +3189,61 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             </Button>
             */}
 
-              <Button
-                variant='ghost'
-                size='sm'
-                disabled={
-                  isPendingUpload ||
-                  isRemovingBackground ||
-                  isFastRemovingBackground ||
-                  isSeparatingLayers
-                }
-                className={sharedButtonClass}
-                onClick={handleBackgroundRemoval}
-                title={
-                  isRemovingBackground
-                    ? "正在抠图..."
-                    : "一键抠图"
-                }
-              >
-                {isRemovingBackground ? (
-                  <LoadingSpinner size='sm' className='text-blue-600' />
-                ) : (
-                  <Wand2 className={sharedIconClass} />
-                )}
-                {showButtonText && <span>一键抠图</span>}
-              </Button>
+              {visibleToolbarActions.map((action) =>
+                renderToolbarActionButton(action)
+              )}
 
-              {showFastBackgroundRemovalButton && (
-                <Button
-                  variant='ghost'
-                  size='sm'
-                  disabled={
-                    isPendingUpload ||
-                    isRemovingBackground ||
-                    isFastRemovingBackground ||
-                    isSeparatingLayers
-                  }
-                  className={sharedButtonClass}
-                  onClick={handleFastBackgroundRemoval}
-                  title={
-                    isFastRemovingBackground
-                      ? "正在极速抠图..."
-                      : "极速抠图"
-                  }
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant='ghost'
+                    size='sm'
+                    className={sharedButtonClass}
+                    title='更多功能'
+                  >
+                    <MoreHorizontal className={sharedIconClass} />
+                    {showButtonText && <span>更多</span>}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align='end'
+                  side='bottom'
+                  sideOffset={10}
+                  className='w-auto min-w-[138px] rounded-lg border border-gray-200 bg-white/95 shadow-lg backdrop-blur-md'
                 >
-                  {isFastRemovingBackground ? (
-                    <LoadingSpinner size='sm' className='text-blue-600' />
-                  ) : (
-                    <Zap className={sharedIconClass} />
+                  {moreToolbarActions.map((action) => (
+                    <DropdownMenuItem
+                      key={action.key}
+                      onClick={action.onClick}
+                      disabled={action.disabled}
+                      className='flex items-center gap-2 px-3 py-2 text-sm'
+                    >
+                      {action.loading ? (
+                        <LoadingSpinner size='sm' className='text-blue-600' />
+                      ) : (
+                        <action.icon className='w-4 h-4' />
+                      )}
+                      <span>{action.label}</span>
+                    </DropdownMenuItem>
+                  ))}
+
+                  {enableVisibilityToggle && (
+                    <DropdownMenuItem
+                      onClick={handleToggleVisibility}
+                      className='flex items-center gap-2 px-3 py-2 text-sm'
+                    >
+                      <EyeOff className='w-4 h-4' />
+                      <span>隐藏图层</span>
+                    </DropdownMenuItem>
                   )}
-                  {showButtonText && <span>极速抠图</span>}
-                </Button>
-              )}
 
-              <Button
-                variant='ghost'
-                size='sm'
-                disabled={
-                  isPendingUpload ||
-                  isSeparatingLayers ||
-                  isRemovingBackground ||
-                  isFastRemovingBackground
-                }
-                className={sharedButtonClass}
-                onClick={handleLayerSeparation}
-                title={isSeparatingLayers ? "正在分层..." : "一键分层"}
-              >
-                {isSeparatingLayers ? (
-                  <LoadingSpinner size='sm' className='text-blue-600' />
-                ) : (
-                  <Layers className={sharedIconClass} />
-                )}
-                {showButtonText && <span>一键分层</span>}
-              </Button>
-
-              <Button
-                variant='ghost'
-                size='sm'
-                disabled={isPendingUpload || isConvertingTo3D}
-                className={sharedButtonClass}
-                onClick={handleConvertTo3D}
-                title={
-                  isConvertingTo3D
-                    ? "正在转换3D..."
-                    : "2D转3D"
-                }
-              >
-                {isConvertingTo3D ? (
-                  <LoadingSpinner size='sm' className='text-blue-600' />
-                ) : (
-                  <Rotate3d className={sharedIconClass} />
-                )}
-                {showButtonText && <span>2D转3D</span>}
-              </Button>
-
-              <Button
-                variant='ghost'
-                size='sm'
-                disabled={isPendingUpload || isOptimizingHd}
-                className={sharedButtonClass}
-                onClick={handleOptimizeHdImage}
-                title={
-                  isOptimizingHd
-                    ? "正在高清放大..."
-                    : "高清放大"
-                }
-              >
-                {isOptimizingHd ? (
-                  <LoadingSpinner size='sm' className='text-blue-600' />
-                ) : (
-                  <ImageUp className={sharedIconClass} />
-                )}
-                {showButtonText && <span>高清放大</span>}
-              </Button>
-
-              <Button
-                variant='ghost'
-                size='sm'
-                disabled={isPendingUpload || isExpandingImage || showExpandSelector}
-                className={sharedButtonClass}
-                onClick={handleExpandImage}
-                title={
-                  isExpandingImage
-                    ? "正在扩图..."
-                    : showExpandSelector
-                    ? "请选择扩图区域"
-                    : "图片拓展"
-                }
-              >
-                {isExpandingImage ? (
-                  <LoadingSpinner size='sm' className='text-blue-600' />
-                ) : (
-                  <Crop className={sharedIconClass} />
-                )}
-                {showButtonText && <span>图片拓展</span>}
-              </Button>
-
-              <Button
-                variant='ghost'
-                size='sm'
-                disabled={
-                  isPendingUpload || isRecognizingText || isApplyingTextEdit
-                }
-                className={sharedButtonClass}
-                onClick={handleRecognizeImageText}
-                title={
-                  isRecognizingText
-                    ? "正在识别文字..."
-                    : isApplyingTextEdit
-                    ? "正在修改文字..."
-                    : "修改图片中的文字"
-                }
-              >
-                {isRecognizingText || isApplyingTextEdit ? (
-                  <LoadingSpinner size='sm' className='text-blue-600' />
-                ) : (
-                  <Type className={sharedIconClass} />
-                )}
-                {showButtonText && <span>改文字</span>}
-              </Button>
-
-              {enableVisibilityToggle && (
-                <Button
-                  variant='ghost'
-                  size='sm'
-                  className={sharedButtonClass}
-                  onClick={handleToggleVisibility}
-                  title='隐藏图层（可在图层面板中恢复）'
-                >
-                  <EyeOff className={sharedIconClass} />
-                </Button>
-              )}
-
-              <Button
-                variant='ghost'
-                size='sm'
-                className={sharedButtonClass}
-                onClick={handleCreateFlowImageNode}
-                disabled={isPendingUpload}
-                title='生成节点'
-              >
-                <ArrowRightLeft className={sharedIconClass} />
-                {showButtonText && <span>生成节点</span>}
-              </Button>
+                  {moreToolbarActions.length === 0 && !enableVisibilityToggle && (
+                    <DropdownMenuItem disabled className='px-3 py-2 text-sm'>
+                      暂无更多功能
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
 
             {showTextEditPanel && (
@@ -2801,6 +3356,103 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             )}
           </div>
         )}
+
+      {/* 裁切框 */}
+      {isCropping && cropRect && cropRectScreen && (
+        <div
+          style={{
+            position: "absolute",
+            left: cropRectScreen.x,
+            top: cropRectScreen.y,
+            width: cropRectScreen.width,
+            height: cropRectScreen.height,
+            border: "2px solid #3b82f6",
+            boxShadow: "0 0 0 9999px rgba(15, 23, 42, 0.28)",
+            pointerEvents: "auto",
+            zIndex: 1000,
+          }}
+        >
+          {/* 8个控制点：4角 + 4边 */}
+          {([
+            { key: "nw", cursor: "nw-resize", style: { left: -6, top: -6 } },
+            {
+              key: "n",
+              cursor: "ns-resize",
+              style: { left: "50%", top: -6, transform: "translateX(-50%)" },
+            },
+            { key: "ne", cursor: "ne-resize", style: { right: -6, top: -6 } },
+            {
+              key: "e",
+              cursor: "ew-resize",
+              style: { right: -6, top: "50%", transform: "translateY(-50%)" },
+            },
+            { key: "se", cursor: "se-resize", style: { right: -6, bottom: -6 } },
+            {
+              key: "s",
+              cursor: "ns-resize",
+              style: { left: "50%", bottom: -6, transform: "translateX(-50%)" },
+            },
+            { key: "sw", cursor: "sw-resize", style: { left: -6, bottom: -6 } },
+            {
+              key: "w",
+              cursor: "ew-resize",
+              style: { left: -6, top: "50%", transform: "translateY(-50%)" },
+            },
+          ] as Array<{
+            key: CropHandle;
+            cursor: React.CSSProperties["cursor"];
+            style: React.CSSProperties;
+          }>).map((handle) => (
+            <div
+              key={handle.key}
+              style={{
+                position: "absolute",
+                width: 12,
+                height: 12,
+                backgroundColor: "#3b82f6",
+                border: "2px solid white",
+                borderRadius: "50%",
+                cursor: handle.cursor,
+                ...handle.style,
+              }}
+              onMouseDown={handleCropHandleMouseDown(handle.key)}
+            />
+          ))}
+
+          {/* 操作按钮 */}
+          <div
+            style={{
+              position: "absolute",
+              bottom: -40,
+              left: "50%",
+              transform: "translateX(-50%)",
+              display: "flex",
+              gap: 8,
+            }}
+          >
+            <Button
+              size='sm'
+              variant='outline'
+              className='h-8 w-[100px] whitespace-nowrap px-0 text-sm leading-none'
+              disabled={isApplyingCrop}
+              onClick={() => {
+                void handleConfirmCrop();
+              }}
+            >
+              {isApplyingCrop ? "裁切中..." : "确认裁切"}
+            </Button>
+            <Button
+              size='sm'
+              variant='outline'
+              className='h-8 w-[100px] whitespace-nowrap px-0 text-sm leading-none'
+              disabled={isApplyingCrop}
+              onClick={cancelCrop}
+            >
+              取消
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* 图片预览模态框 */}
       <ImagePreviewModal

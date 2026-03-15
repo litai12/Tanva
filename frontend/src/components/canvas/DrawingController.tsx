@@ -65,6 +65,7 @@ import {
   isPersistableImageRef,
   isRemoteUrl,
   normalizePersistableImageRef,
+  requiresManagedImageUpload,
   resolveImageToBlob,
   toRenderableImageSrc,
 } from "@/utils/imageSource";
@@ -2329,6 +2330,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     const applySourceToRaster = (raster: paper.Raster, source: string) => {
       const trimmed = typeof source === "string" ? source.trim() : "";
       if (!trimmed) return;
+      const refreshView = () => {
+        try {
+          raster.view?.update();
+        } catch {}
+        try {
+          paper.view?.update();
+        } catch {}
+      };
       try {
         (raster as any).__tanvaSourceRef = trimmed;
       } catch {}
@@ -2361,6 +2370,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 );
               }
             } catch {}
+            refreshView();
+          };
+          image.onerror = () => {
+            try {
+              raster.source = trimmed;
+            } catch {}
+            refreshView();
           };
           image.src = trimmed;
           return;
@@ -2370,6 +2386,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       try {
         raster.source = trimmed;
       } catch {}
+      refreshView();
     };
 
     const updateSelectionHelpers = (
@@ -2418,7 +2435,31 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const rawSource = typeof detail.source === "string" ? detail.source : "";
       if (!imageId || !rawSource.trim()) return;
 
+      const normalizedSource = normalizePersistableImageRef(rawSource) || rawSource.trim();
       const renderableSource = toRenderableImageSrc(rawSource) || rawSource;
+      const isPersistableSource = isPersistableImageRef(normalizedSource);
+      const explicitPendingUpload =
+        typeof detail.pendingUpload === "boolean" ? detail.pendingUpload : undefined;
+      const pendingUpload =
+        explicitPendingUpload ??
+        (!isPersistableSource || requiresManagedImageUpload(normalizedSource));
+      const hasInlinePreview =
+        renderableSource.startsWith("data:image/") || renderableSource.startsWith("blob:");
+      const persistedSource = isPersistableSource ? normalizedSource : "";
+      const stateSource = renderableSource;
+      const detailKeyRaw =
+        typeof detail.key === "string" ? normalizePersistableImageRef(detail.key) : "";
+      const detailRemoteUrlRaw =
+        typeof detail.remoteUrl === "string"
+          ? normalizePersistableImageRef(detail.remoteUrl)
+          : "";
+      const persistedKey =
+        (detailKeyRaw && isAssetKeyRef(detailKeyRaw) ? detailKeyRaw : "") ||
+        (isAssetKeyRef(persistedSource) ? persistedSource : "");
+      const persistedRemoteUrl =
+        (detailRemoteUrlRaw && isRemoteUrl(detailRemoteUrlRaw)
+          ? detailRemoteUrlRaw
+          : "") || (isRemoteUrl(persistedSource) ? persistedSource : "");
       const contentType =
         typeof detail.contentType === "string" && detail.contentType.trim()
           ? detail.contentType.trim()
@@ -2431,6 +2472,48 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         typeof detail.historyLabel === "string" && detail.historyLabel.trim()
           ? detail.historyLabel.trim()
           : "replace-image-source";
+      const sourceWidthRaw =
+        typeof detail.width === "number" ? detail.width : Number(detail.width);
+      const sourceHeightRaw =
+        typeof detail.height === "number" ? detail.height : Number(detail.height);
+      const sourceWidth =
+        Number.isFinite(sourceWidthRaw) && sourceWidthRaw > 0
+          ? Math.round(sourceWidthRaw)
+          : undefined;
+      const sourceHeight =
+        Number.isFinite(sourceHeightRaw) && sourceHeightRaw > 0
+          ? Math.round(sourceHeightRaw)
+          : undefined;
+      const buildImageDataUpdates = (currentData: any) => {
+        const updates: any = {
+          src: stateSource,
+          url: stateSource,
+          fileName,
+          contentType,
+          width: sourceWidth ?? currentData?.width,
+          height: sourceHeight ?? currentData?.height,
+        };
+
+        if (pendingUpload) {
+          updates.pendingUpload = true;
+          if (hasInlinePreview) {
+            updates.localDataUrl = renderableSource;
+          }
+          if (persistedKey) {
+            updates.key = persistedKey;
+          }
+          if (persistedRemoteUrl) {
+            updates.remoteUrl = persistedRemoteUrl;
+          }
+        } else {
+          updates.pendingUpload = undefined;
+          updates.localDataUrl = undefined;
+          updates.key = persistedKey || undefined;
+          updates.remoteUrl = persistedRemoteUrl || undefined;
+        }
+
+        return updates;
+      };
 
       let didUpdate = false;
 
@@ -2441,16 +2524,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           if (idx < 0) return prev;
           const current = prev[idx];
           const next = prev.slice();
+          const currentData = current?.imageData || {};
+          const imageDataUpdates = buildImageDataUpdates(currentData);
           next[idx] = {
             ...current,
             imageData: {
-              ...(current?.imageData || {}),
-              src: renderableSource,
-              url: renderableSource,
-              localDataUrl: renderableSource,
-              pendingUpload: true,
-              fileName,
-              contentType,
+              ...currentData,
+              ...imageDataUpdates,
             },
           };
           didUpdate = true;
@@ -2463,17 +2543,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         if (Array.isArray(runtime) && runtime.length > 0) {
           const next = runtime.map((item) => {
             if (!item || item.id !== imageId) return item;
+            const currentData = item.imageData || {};
+            const imageDataUpdates = buildImageDataUpdates(currentData);
             didUpdate = true;
             return {
               ...item,
               imageData: {
-                ...(item.imageData || {}),
-                src: renderableSource,
-                url: renderableSource,
-                localDataUrl: renderableSource,
-                pendingUpload: true,
-                fileName,
-                contentType,
+                ...currentData,
+                ...imageDataUpdates,
               },
             };
           });
@@ -2520,10 +2597,45 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             if (rect) {
               updateSelectionHelpers(raster, rect);
               try {
-                raster.data = {
+                const nextRasterData: any = {
                   ...(raster.data || {}),
+                  ...(sourceWidth && sourceHeight
+                    ? {
+                        originalWidth: sourceWidth,
+                        originalHeight: sourceHeight,
+                        aspectRatio: sourceWidth / sourceHeight,
+                      }
+                    : {}),
                   __tanvaBounds: { ...rect },
                 };
+
+                if (pendingUpload) {
+                  nextRasterData.pendingUpload = true;
+                  if (hasInlinePreview) {
+                    nextRasterData.localDataUrl = renderableSource;
+                  }
+                  if (persistedKey) {
+                    nextRasterData.key = persistedKey;
+                  }
+                  if (persistedRemoteUrl) {
+                    nextRasterData.remoteUrl = persistedRemoteUrl;
+                  }
+                } else {
+                  delete nextRasterData.pendingUpload;
+                  delete nextRasterData.localDataUrl;
+                  if (persistedKey) {
+                    nextRasterData.key = persistedKey;
+                  } else {
+                    delete nextRasterData.key;
+                  }
+                  if (persistedRemoteUrl) {
+                    nextRasterData.remoteUrl = persistedRemoteUrl;
+                  } else {
+                    delete nextRasterData.remoteUrl;
+                  }
+                }
+
+                raster.data = nextRasterData;
               } catch {}
             }
             didUpdate = true;
