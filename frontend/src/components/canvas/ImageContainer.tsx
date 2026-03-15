@@ -2309,52 +2309,59 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         const fileName = `crop-${Date.now()}.png`;
         onResize?.(nextBounds);
 
-        // 裁切后的图片优先立即上传，避免刷新前仅落地 blob:/data: 引用导致丢图风险。
-        let replaceSource: string = croppedDataUrl;
-        let pendingUpload = true;
-        let uploadedKey: string | undefined;
-        let uploadedRemoteUrl: string | undefined;
-
-        try {
-          const croppedBlob = await dataUrlToBlob(croppedDataUrl);
-          const uploadResult = await uploadToOSS(croppedBlob, {
-            dir: projectId ? `projects/${projectId}/images/` : "uploads/images/",
-            fileName,
-            contentType: "image/png",
-            projectId,
-          });
-
-          if (uploadResult.success && uploadResult.url) {
-            const normalizedKey = normalizePersistableImageRef(uploadResult.key || "");
-            const normalizedRemoteUrl =
-              normalizePersistableImageRef(uploadResult.url) || uploadResult.url;
-            uploadedKey = normalizedKey || undefined;
-            uploadedRemoteUrl = normalizedRemoteUrl || undefined;
-            replaceSource = uploadedKey || uploadedRemoteUrl || croppedDataUrl;
-            pendingUpload = false;
-          } else {
-            logger.warn("裁切图片即时上传失败，回退到本地源并等待自动补传", uploadResult.error);
-          }
-        } catch (uploadError) {
-          logger.warn("裁切图片即时上传异常，回退到本地源并等待自动补传", uploadError);
-        }
-
+        // 先用本地 dataURL 立即替换渲染，避免先切远程源导致首帧“幽灵图”。
         window.dispatchEvent(
           new CustomEvent("canvas:replace-image-source", {
             detail: {
               imageId: imageData.id,
-              source: replaceSource,
+              source: croppedDataUrl,
+              bounds: nextBounds,
               contentType: "image/png",
               fileName,
               width: cropWidth,
               height: cropHeight,
               historyLabel: "crop-image",
-              pendingUpload,
-              key: uploadedKey,
-              remoteUrl: uploadedRemoteUrl,
+              pendingUpload: true,
             },
           })
         );
+
+        // 后台上传并回写远程元数据；DrawingController 会在远程资源可用后再无缝切换。
+        void (async () => {
+          try {
+            const croppedBlob = await dataUrlToBlob(croppedDataUrl);
+            const uploadResult = await uploadToOSS(croppedBlob, {
+              dir: projectId ? `projects/${projectId}/images/` : "uploads/images/",
+              fileName,
+              contentType: "image/png",
+              projectId,
+            });
+
+            if (!uploadResult.success || !uploadResult.url) {
+              logger.warn("裁切图片后台上传失败，保持本地源等待自动补传", uploadResult.error);
+              return;
+            }
+
+            const normalizedKey = normalizePersistableImageRef(uploadResult.key || "");
+            const normalizedRemoteUrl =
+              normalizePersistableImageRef(uploadResult.url) || uploadResult.url;
+            if (!normalizedKey && !normalizedRemoteUrl) {
+              return;
+            }
+
+            window.dispatchEvent(
+              new CustomEvent("tanva:upgradeImageSource", {
+                detail: {
+                  placeholderId: imageData.id,
+                  key: normalizedKey || undefined,
+                  remoteUrl: normalizedRemoteUrl || undefined,
+                },
+              })
+            );
+          } catch (uploadError) {
+            logger.warn("裁切图片后台上传异常，保持本地源等待自动补传", uploadError);
+          }
+        })();
       }
 
       window.dispatchEvent(

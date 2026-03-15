@@ -2330,6 +2330,29 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     const applySourceToRaster = (raster: paper.Raster, source: string) => {
       const trimmed = typeof source === "string" ? source.trim() : "";
       if (!trimmed) return;
+      const applyStoredBounds = () => {
+        try {
+          const stored = (raster as any)?.data?.__tanvaBounds as
+            | { x: number; y: number; width: number; height: number }
+            | undefined;
+          if (
+            stored &&
+            Number.isFinite(stored.x) &&
+            Number.isFinite(stored.y) &&
+            Number.isFinite(stored.width) &&
+            Number.isFinite(stored.height) &&
+            stored.width > 0 &&
+            stored.height > 0
+          ) {
+            raster.bounds = new paper.Rectangle(
+              stored.x,
+              stored.y,
+              stored.width,
+              stored.height
+            );
+          }
+        } catch {}
+      };
       const refreshView = () => {
         try {
           raster.view?.update();
@@ -2342,51 +2365,36 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         (raster as any).__tanvaSourceRef = trimmed;
       } catch {}
 
-      if (trimmed.startsWith("blob:") || trimmed.startsWith("data:image/")) {
-        try {
-          const image = new Image();
-          image.onload = () => {
-            try {
-              (raster as any).setImage(image);
-            } catch {}
-            try {
-              const stored = (raster as any)?.data?.__tanvaBounds as
-                | { x: number; y: number; width: number; height: number }
-                | undefined;
-              if (
-                stored &&
-                Number.isFinite(stored.x) &&
-                Number.isFinite(stored.y) &&
-                Number.isFinite(stored.width) &&
-                Number.isFinite(stored.height) &&
-                stored.width > 0 &&
-                stored.height > 0
-              ) {
-                raster.bounds = new paper.Rectangle(
-                  stored.x,
-                  stored.y,
-                  stored.width,
-                  stored.height
-                );
-              }
-            } catch {}
-            refreshView();
-          };
-          image.onerror = () => {
-            try {
-              raster.source = trimmed;
-            } catch {}
-            refreshView();
-          };
-          image.src = trimmed;
-          return;
-        } catch {}
-      }
+      try {
+        const image = new Image();
+        image.onload = () => {
+          try {
+            (raster as any).setImage(image);
+          } catch {}
+          applyStoredBounds();
+          refreshView();
+        };
+        image.onerror = () => {
+          try {
+            raster.source = trimmed;
+          } catch {}
+          applyStoredBounds();
+          refreshView();
+          // fallback 分支可能仍是异步加载，补两次延迟刷新，降低“幽灵图”概率
+          setTimeout(refreshView, 60);
+          setTimeout(refreshView, 220);
+        };
+        image.src = trimmed;
+        return;
+      } catch {}
 
       try {
         raster.source = trimmed;
       } catch {}
+      applyStoredBounds();
       refreshView();
+      setTimeout(refreshView, 60);
+      setTimeout(refreshView, 220);
     };
 
     const updateSelectionHelpers = (
@@ -2484,6 +2492,27 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         Number.isFinite(sourceHeightRaw) && sourceHeightRaw > 0
           ? Math.round(sourceHeightRaw)
           : undefined;
+      const detailBounds = detail.bounds as
+        | { x?: unknown; y?: unknown; width?: unknown; height?: unknown }
+        | undefined;
+      const explicitBounds = (() => {
+        if (!detailBounds || typeof detailBounds !== "object") return null;
+        const x = Number(detailBounds.x);
+        const y = Number(detailBounds.y);
+        const width = Number(detailBounds.width);
+        const height = Number(detailBounds.height);
+        if (
+          !Number.isFinite(x) ||
+          !Number.isFinite(y) ||
+          !Number.isFinite(width) ||
+          !Number.isFinite(height) ||
+          width <= 0 ||
+          height <= 0
+        ) {
+          return null;
+        }
+        return { x, y, width, height };
+      })();
       const buildImageDataUpdates = (currentData: any) => {
         const updates: any = {
           src: stateSource,
@@ -2526,13 +2555,17 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           const next = prev.slice();
           const currentData = current?.imageData || {};
           const imageDataUpdates = buildImageDataUpdates(currentData);
-          next[idx] = {
+          const nextItem: any = {
             ...current,
             imageData: {
               ...currentData,
               ...imageDataUpdates,
             },
           };
+          if (explicitBounds) {
+            nextItem.bounds = { ...explicitBounds };
+          }
+          next[idx] = nextItem;
           didUpdate = true;
           return next;
         });
@@ -2546,13 +2579,17 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             const currentData = item.imageData || {};
             const imageDataUpdates = buildImageDataUpdates(currentData);
             didUpdate = true;
-            return {
+            const nextItem: any = {
               ...item,
               imageData: {
                 ...currentData,
                 ...imageDataUpdates,
               },
             };
+            if (explicitBounds) {
+              nextItem.bounds = { ...explicitBounds };
+            }
+            return nextItem;
           });
           (window as any).tanvaImageInstances = next;
         }
@@ -2576,22 +2613,24 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               | { x: number; y: number; width: number; height: number }
               | undefined;
             const fallbackBounds = raster.bounds as paper.Rectangle | undefined;
-            const rect = stored &&
-              Number.isFinite(stored.x) &&
-              Number.isFinite(stored.y) &&
-              Number.isFinite(stored.width) &&
-              Number.isFinite(stored.height) &&
-              stored.width > 0 &&
-              stored.height > 0
-                ? stored
-                : fallbackBounds
-                ? {
-                    x: fallbackBounds.x,
-                    y: fallbackBounds.y,
-                    width: fallbackBounds.width,
-                    height: fallbackBounds.height,
-                  }
-                : null;
+            const rect = explicitBounds
+              ? { ...explicitBounds }
+              : stored &&
+                Number.isFinite(stored.x) &&
+                Number.isFinite(stored.y) &&
+                Number.isFinite(stored.width) &&
+                Number.isFinite(stored.height) &&
+                stored.width > 0 &&
+                stored.height > 0
+              ? stored
+              : fallbackBounds
+              ? {
+                  x: fallbackBounds.x,
+                  y: fallbackBounds.y,
+                  width: fallbackBounds.width,
+                  height: fallbackBounds.height,
+                }
+              : null;
 
             applySourceToRaster(raster as paper.Raster, renderableSource);
             if (rect) {
