@@ -53,6 +53,7 @@ import Generate4Node from "./nodes/Generate4Node";
 import GenerateReferenceNode from "./nodes/GenerateReferenceNode";
 import ThreeNode from "./nodes/ThreeNode";
 import CameraNode from "./nodes/CameraNode";
+import ViewAngleNode from "./nodes/ViewAngleNode";
 import PromptOptimizeNode from "./nodes/PromptOptimizeNode";
 import AnalysisNode from "./nodes/AnalyzeNode";
 import Sora2VideoNode from "./nodes/Sora2VideoNode";
@@ -549,6 +550,7 @@ const nodeTypes = {
   generateRef: GenerateReferenceNode,
   three: ThreeNode,
   camera: CameraNode,
+  viewAngle: ViewAngleNode,
   analysis: AnalysisNode,
   sora2Video: Sora2VideoNode,
   sora2Character: Sora2CharacterNode,
@@ -676,6 +678,7 @@ const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "generate",
   "generate4",
   "generateRef",
+  "viewAngle",
   "generatePro",
   "generatePro4",
   "midjourney",
@@ -810,6 +813,7 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "generate4", targetHandle: "img" },
     { nodeType: "generatePro", targetHandle: "img" },
     { nodeType: "generateRef", targetHandle: "image2" },
+    { nodeType: "viewAngle", targetHandle: "img" },
     { nodeType: "analysis", targetHandle: "img" },
     { nodeType: "image", targetHandle: "img" },
     { nodeType: "imagePro", targetHandle: "img" },
@@ -849,6 +853,7 @@ const QUICK_CONNECT_REVERSE_PRESETS: Record<
     { nodeType: "image", sourceHandle: "img" },
     { nodeType: "generate", sourceHandle: "img" },
     { nodeType: "generateRef", sourceHandle: "img" },
+    { nodeType: "viewAngle", sourceHandle: "img" },
     { nodeType: "midjourney", sourceHandle: "img" },
     { nodeType: "nano2", sourceHandle: "img" },
     { nodeType: "camera", sourceHandle: "img" },
@@ -880,6 +885,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   image: 0, // 图片节点 - 不消耗积分
   generate: "10-30", // 生成节点 - gemini-2.5-image (10) 或 gemini-3-pro-image (30)
   generateRef: 30, // 参考图生成节点 - gemini-image-edit 或 gemini-image-blend
+  viewAngle: 30, // 视角变换节点 - 基于参考图编辑
   generate4: 120, // 生成多张图片节点 - 4次 × 30积分
   midjourney: 50, // Midjourney生成 - midjourney-imagine
   three: 30, // 三维节点 - convert-2d-to-3d
@@ -924,6 +930,7 @@ const NODE_PALETTE_ITEMS = [
   { key: "imageSplit", zh: "图片分割节点", en: "Image Split", category: "image" },
   { key: "imageCompress", zh: "图片压缩节点", en: "Image Compress", category: "image" },
   { key: "three", zh: "三维节点", en: "3D Node", category: "image" },
+  { key: "viewAngle", zh: "视角变换节点", en: "View Angle", category: "image" },
   // 视频生成节点
   { key: "sora2Video", zh: "Sora2 Pro视频生成", en: "Sora2 Pro", category: "video" },
   { key: "sora2Character", zh: "Sora2角色生成", en: "Sora2 Character", category: "video" },
@@ -1009,6 +1016,7 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   camera: "image",
   generate: "image",
   generateRef: "image",
+  viewAngle: "image",
   generate4: "image",
   generatePro: "image",
   generatePro4: "image",
@@ -1062,6 +1070,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   generate4: { w: 300, h: 240 },
   generateRef: { w: 260, h: 240 },
   three: { w: 280, h: 260 },
+  viewAngle: { w: 420, h: 560 },
   camera: { w: 260, h: 220 },
   analysis: { w: 260, h: 280 },
   sora2Video: { w: 280, h: 260 },
@@ -5294,6 +5303,24 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
+          : type === "viewAngle"
+          ? {
+              status: "idle" as const,
+              generatedPrompt:
+                "Redraw this image and change the perspective, <sks>, right quarter, eye-level, cowboy shot, standard lens",
+              promptSuffix: "",
+              azimuth: 45,
+              elevation: 0,
+              distance: 4,
+              zoom: 1,
+              sceneYaw: 0,
+              directionId: "front-right-quarter",
+              verticalId: "eye-level",
+              shotId: "cowboy-shot",
+              lensId: "standard",
+              boxW: size.w,
+              boxH: size.h,
+            }
           : type === "analysis"
           ? {
               status: "idle" as const,
@@ -5853,6 +5880,7 @@ function FlowInner() {
           "generatePro",
           "generatePro4",
           "generateRef",
+          "viewAngle",
           "three",
           "camera",
           "imageGrid",
@@ -5882,6 +5910,7 @@ function FlowInner() {
             "generatePro",
             "generatePro4",
             "generateRef",
+            "viewAngle",
             "three",
             "camera",
           ].includes(sourceNode.type || "");
@@ -5894,6 +5923,7 @@ function FlowInner() {
             "generatePro",
             "generatePro4",
             "generateRef",
+            "viewAngle",
             "three",
             "camera",
           ].includes(sourceNode.type || "");
@@ -5907,6 +5937,11 @@ function FlowInner() {
       ) {
         if (targetHandle === "text")
           return textSourceTypes.includes(sourceNode.type || "");
+        if (targetHandle === "img")
+          return isImageSource(sourceNode, sourceHandle);
+        return false;
+      }
+      if (targetNode.type === "viewAngle") {
         if (targetHandle === "img")
           return isImageSource(sourceNode, sourceHandle);
         return false;
@@ -6141,6 +6176,7 @@ function FlowInner() {
             "generate",
             "generate4",
             "generateRef",
+            "viewAngle",
             "generatePro",
             "generatePro4",
             "midjourney",
@@ -6211,6 +6247,9 @@ function FlowInner() {
         if (params.targetHandle === "img") return true; // 允许连接，新线会替换旧线
       }
       if (targetNode?.type === "imagePro") {
+        if (params.targetHandle === "img") return true; // 允许连接，新线会替换旧线
+      }
+      if (targetNode?.type === "viewAngle") {
         if (params.targetHandle === "img") return true; // 允许连接，新线会替换旧线
       }
       if (targetNode?.type === "promptOptimize") {
@@ -6340,6 +6379,7 @@ function FlowInner() {
         if (
           (tgt?.type === "image" ||
             tgt?.type === "imagePro" ||
+            tgt?.type === "viewAngle" ||
             tgt?.type === "analysis") &&
           params.targetHandle === "img"
         ) {
@@ -10251,6 +10291,7 @@ function FlowInner() {
         node.type !== "generate" &&
         node.type !== "generate4" &&
         node.type !== "generateRef" &&
+        node.type !== "viewAngle" &&
         node.type !== "generatePro" &&
         node.type !== "generatePro4"
       )
@@ -10284,6 +10325,21 @@ function FlowInner() {
         prompt = pieces.join("，").trim();
         if (!prompt.length) {
           failWithMessage("提示词为空");
+          return;
+        }
+      } else if (node.type === "viewAngle") {
+        const base = (() => {
+          const raw = (node.data as any)?.generatedPrompt;
+          return typeof raw === "string" ? raw.trim() : "";
+        })();
+        const suffix = (() => {
+          const raw = (node.data as any)?.promptSuffix;
+          return typeof raw === "string" ? raw.trim() : "";
+        })();
+        const promptParts = [base, suffix].filter(Boolean);
+        prompt = promptParts.join(", ").trim();
+        if (!prompt.length) {
+          failWithMessage("视角提示词为空");
           return;
         }
       } else if (node.type === "generatePro" || node.type === "generatePro4") {
@@ -10354,6 +10410,15 @@ function FlowInner() {
           ...(await resolveEdgesAsDataUrls(primaryEdges)),
           ...(await resolveEdgesAsDataUrls(referEdges)),
         ];
+      } else if (node.type === "viewAngle") {
+        const inputEdges = currentEdges
+          .filter((e) => e.target === nodeId && e.targetHandle === "img")
+          .slice(0, 1);
+        imageDatas = await resolveEdgesAsDataUrls(inputEdges);
+        if (imageDatas.length === 0) {
+          failWithMessage("缺少图片输入");
+          return;
+        }
       } else {
         const imgEdges = currentEdges
           .filter((e) => e.target === nodeId && e.targetHandle === "img")
@@ -11067,6 +11132,8 @@ function FlowInner() {
                   ? "GeneratePro"
                   : node.type === "generateRef"
                   ? "GenerateRef"
+                  : node.type === "viewAngle"
+                  ? "ViewAngle"
                   : "Generate"
               } ${new Date().toLocaleTimeString()}`,
               nodeId,
@@ -12130,6 +12197,7 @@ function FlowInner() {
           : n.type === "generate" ||
         n.type === "generate4" ||
         n.type === "generateRef" ||
+        n.type === "viewAngle" ||
         n.type === "generatePro" ||
         n.type === "generatePro4" ||
         n.type === "midjourney" ||

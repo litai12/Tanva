@@ -94,6 +94,14 @@ export class AiController {
     seedream5: 'gemini-3-flash-preview',
   };
 
+  private getHttpErrorMessage(status: number): string {
+    const messages: Record<number, string> = {
+      413: '请求数据过大，请压缩图片或减小文件大小',
+      524: '服务器处理超时，请稍后重试或简化请求内容',
+    };
+    return messages[status] || `HTTP ${status}`;
+  }
+
   constructor(
     private readonly ai: AiService,
     private readonly imageGeneration: ImageGenerationService,
@@ -2170,7 +2178,7 @@ export class AiController {
 
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
-          return { success: false, error: { code: `HTTP_${response.status}`, message: data?.message || `DashScope HTTP ${response.status}`, details: data } };
+          return { success: false, error: { code: `HTTP_${response.status}`, message: data?.message || this.getHttpErrorMessage(response.status), details: data } };
         }
 
         const extractVideoUrl = (obj: any) => obj?.output?.video_url || obj?.video_url || obj?.videoUrl || (Array.isArray(obj?.output) && obj.output[0]?.video_url) || undefined;
