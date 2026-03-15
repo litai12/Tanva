@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
+import { CREDIT_PRICING_CONFIG } from '../../credits/credits.config';
 
 export interface NodeConfigDto {
   nodeKey: string;
@@ -105,6 +106,82 @@ export class NodeConfigService {
 
   private serviceTypeToNodeKey(serviceType: string): string {
     return serviceType.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+  }
+
+  private resolveServiceNodeDefaults(serviceType: string) {
+    const pricing = (CREDIT_PRICING_CONFIG as Record<
+      string,
+      {
+        serviceName?: string;
+        provider?: string;
+        creditsPerCall?: number;
+        description?: string;
+      }
+    >)[serviceType];
+
+    const provider =
+      pricing?.provider ||
+      (serviceType.includes('-') ? serviceType.split('-')[0] : 'custom');
+
+    return {
+      provider,
+      serviceName: pricing?.serviceName || serviceType,
+      creditsPerCall:
+        typeof pricing?.creditsPerCall === 'number' ? pricing.creditsPerCall : 0,
+      description: pricing?.description || null,
+    };
+  }
+
+  private async syncServiceNodeFromConfig(
+    tx: Prisma.TransactionClient,
+    params: {
+      nodeKey: string;
+      serviceType?: string | null;
+      nameZh?: string | null;
+      creditsPerCall?: number | null;
+      description?: string | null;
+    },
+  ) {
+    const serviceType =
+      typeof params.serviceType === 'string' ? params.serviceType.trim() : '';
+    if (!serviceType || !serviceType.includes('-')) {
+      return;
+    }
+
+    const defaults = this.resolveServiceNodeDefaults(serviceType);
+    const serviceName =
+      (typeof params.nameZh === 'string' && params.nameZh.trim()) ||
+      defaults.serviceName;
+    const creditsPerCall =
+      typeof params.creditsPerCall === 'number'
+        ? Math.max(0, Math.floor(params.creditsPerCall))
+        : defaults.creditsPerCall;
+    const description =
+      params.description !== undefined
+        ? params.description
+        : defaults.description;
+
+    await tx.serviceNode.upsert({
+      where: { serviceType },
+      update: {
+        serviceName,
+        creditsPerCall,
+        description,
+        enabled: true,
+      },
+      create: {
+        serviceType,
+        serviceName,
+        provider: defaults.provider,
+        creditsPerCall,
+        description,
+        enabled: true,
+      },
+    });
+
+    this.logger.log(
+      `NodeConfig(${params.nodeKey}) 已同步 ServiceNode(${serviceType}) 积分=${creditsPerCall}`,
+    );
   }
 
   /**
@@ -215,22 +292,34 @@ export class NodeConfigService {
    * 创建节点配置
    */
   async createNodeConfig(dto: NodeConfigDto) {
-    const config = await this.prisma.nodeConfig.create({
-      data: {
-        nodeKey: dto.nodeKey,
-        nameZh: dto.nameZh,
-        nameEn: dto.nameEn,
-        category: dto.category || 'other',
-        status: dto.status || 'normal',
-        statusMessage: dto.statusMessage,
-        creditsPerCall: dto.creditsPerCall || 0,
-        priceYuan: dto.priceYuan ? new Prisma.Decimal(dto.priceYuan) : null,
-        serviceType: dto.serviceType,
-        sortOrder: dto.sortOrder || 0,
-        isVisible: dto.isVisible ?? true,
-        description: dto.description,
-        metadata: dto.metadata || {},
-      },
+    const config = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.nodeConfig.create({
+        data: {
+          nodeKey: dto.nodeKey,
+          nameZh: dto.nameZh,
+          nameEn: dto.nameEn,
+          category: dto.category || 'other',
+          status: dto.status || 'normal',
+          statusMessage: dto.statusMessage,
+          creditsPerCall: dto.creditsPerCall || 0,
+          priceYuan: dto.priceYuan ? new Prisma.Decimal(dto.priceYuan) : null,
+          serviceType: dto.serviceType,
+          sortOrder: dto.sortOrder || 0,
+          isVisible: dto.isVisible ?? true,
+          description: dto.description,
+          metadata: dto.metadata || {},
+        },
+      });
+
+      await this.syncServiceNodeFromConfig(tx, {
+        nodeKey: created.nodeKey,
+        serviceType: created.serviceType,
+        nameZh: created.nameZh,
+        creditsPerCall: created.creditsPerCall,
+        description: created.description,
+      });
+
+      return created;
     });
 
     this.logger.log(`创建节点配置: ${dto.nodeKey}`);
@@ -271,31 +360,14 @@ export class NodeConfigService {
         where: { nodeKey },
         data: updateData,
       });
-
-      // 对接积分计费的 ServiceNode（按 serviceType）与 NodeConfig 保持一致，避免管理端显示与实际计费分叉。
-      const serviceType = typeof updated.serviceType === 'string' ? updated.serviceType.trim() : '';
-      if (serviceType && serviceType.includes('-')) {
-        const serviceNodePatch: Prisma.ServiceNodeUpdateInput = {};
-        if (dto.nameZh !== undefined) serviceNodePatch.serviceName = dto.nameZh;
-        if (dto.creditsPerCall !== undefined) serviceNodePatch.creditsPerCall = dto.creditsPerCall;
-        if (dto.description !== undefined) serviceNodePatch.description = dto.description;
-
-        if (Object.keys(serviceNodePatch).length > 0) {
-          const serviceNode = await tx.serviceNode.findUnique({
-            where: { serviceType },
-          });
-          if (serviceNode) {
-            await tx.serviceNode.update({
-              where: { id: serviceNode.id },
-              data: serviceNodePatch,
-            });
-          } else {
-            this.logger.warn(
-              `NodeConfig(${nodeKey}) 更新时未找到对应 ServiceNode(${serviceType})，跳过同步`,
-            );
-          }
-        }
-      }
+      // 对接积分计费的 ServiceNode（按 serviceType）与 NodeConfig 保持一致。
+      await this.syncServiceNodeFromConfig(tx, {
+        nodeKey: updated.nodeKey,
+        serviceType: updated.serviceType,
+        nameZh: updated.nameZh,
+        creditsPerCall: updated.creditsPerCall,
+        description: updated.description,
+      });
 
       return updated;
     });
