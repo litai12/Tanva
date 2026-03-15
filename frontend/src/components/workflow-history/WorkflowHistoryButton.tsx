@@ -140,8 +140,9 @@ export default function WorkflowHistoryButton({ projectId }: WorkflowHistoryButt
       const invalidFlowNodeIds = sanitizeResult?.dropped.flowNodeIds ?? [];
       const contentForCloudSave = sanitizeResult?.sanitized ?? store.content;
       if (invalidCanvasImageIds.length > 0 || invalidFlowNodeIds.length > 0) {
-        const message = `存在未上传到 OSS 的图片（画布 ${invalidCanvasImageIds.length} 张，Flow ${invalidFlowNodeIds.length} 处），已继续保存其它内容；这些图片不会被保存到云端，请重试上传`;
+        const message = `存在未上传到 OSS 的图片（画布 ${invalidCanvasImageIds.length} 张，Flow ${invalidFlowNodeIds.length} 处），已阻止云端保存，请重试上传后再保存`;
         try { store.setWarning(message); } catch {}
+        return;
       } else {
         try { store.setWarning(null); } catch {}
       }

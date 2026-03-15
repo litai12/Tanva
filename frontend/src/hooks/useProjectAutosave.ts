@@ -94,16 +94,16 @@ export function useProjectAutosave(projectId: string | null) {
       const invalidFlowNodeIds = sanitizeResult?.dropped.flowNodeIds ?? [];
       const contentForCloudSave = sanitizeResult?.sanitized ?? contentToSave;
       if (invalidCanvasImageIds.length > 0 || invalidFlowNodeIds.length > 0) {
-        const message = `存在未上传到 OSS 的图片（画布 ${invalidCanvasImageIds.length} 张，Flow ${invalidFlowNodeIds.length} 处），已继续保存其它内容；这些图片不会被保存到云端，请重试上传`;
-        saveMonitor.push(currentProjectId, 'save_warn_local_assets', {
+        const message = `存在未上传到 OSS 的图片（画布 ${invalidCanvasImageIds.length} 张，Flow ${invalidFlowNodeIds.length} 处），已阻止云端保存，请重试上传后再保存`;
+        saveMonitor.push(currentProjectId, 'save_blocked_local_assets', {
           canvasCount: invalidCanvasImageIds.length,
           flowCount: invalidFlowNodeIds.length,
           attempt,
         });
         setWarning(message);
-      } else {
-        setWarning(null);
+        return;
       }
+      setWarning(null);
 
       setSaving(true);
       const result = await projectApi.saveContent(currentProjectId, { content: contentForCloudSave, version: versionToSave });
