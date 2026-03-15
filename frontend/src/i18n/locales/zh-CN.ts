@@ -430,9 +430,9 @@ const zhCN = {
       quickSwitchModel: "快速切换模型",
     },
     provider: {
-      fastDesc: "国内极速版",
-      proDesc: "国内Pro版",
-      ultraDesc: "国内Ultra版",
+      fastDesc: "Nano Banana+Gemini 2.5",
+      proDesc: "Nano Banana Pro+Gemini 3.0",
+      ultraDesc: "Nano Banana 2+Gemini 3.1",
     },
     manualMode: {
       autoDesc: "智能判断并选择最佳工具",
