@@ -44,41 +44,71 @@ export class NodeConfigService {
    * 获取所有节点配置（公开接口，前端使用）
    */
   async getAllNodeConfigs() {
-    const configs = await this.prisma.nodeConfig.findMany({
-      where: { isVisible: true },
-      orderBy: [{ sortOrder: 'asc' }],
+    const [configs, serviceNodes] = await Promise.all([
+      this.prisma.nodeConfig.findMany({
+        where: { isVisible: true },
+        orderBy: [{ sortOrder: 'asc' }],
+      }),
+      this.prisma.serviceNode.findMany({
+        where: { enabled: true },
+      }),
+    ]);
+
+    const serviceNodeMap = new Map(
+      serviceNodes.map((item) => [item.serviceType, item]),
+    );
+    const configuredServiceTypes = new Set<string>();
+
+    // 以 NodeConfig 为主，若存在同 serviceType 的 ServiceNode，则覆盖积分/描述等运行时信息。
+    const mergedConfigs = configs.map((config) => {
+      const serviceType =
+        typeof config.serviceType === 'string' ? config.serviceType.trim() : '';
+      if (serviceType) configuredServiceTypes.add(serviceType);
+      const serviceNode = serviceType ? serviceNodeMap.get(serviceType) : undefined;
+
+      return {
+        nodeKey: config.nodeKey,
+        nameZh: config.nameZh,
+        nameEn: config.nameEn,
+        category: config.category,
+        status: config.status,
+        statusMessage: config.statusMessage,
+        creditsPerCall: serviceNode?.creditsPerCall ?? config.creditsPerCall,
+        priceYuan: config.priceYuan ? Number(config.priceYuan) : null,
+        serviceType: config.serviceType,
+        sortOrder: config.sortOrder,
+        description: serviceNode?.description ?? config.description,
+        metadata: config.metadata,
+      };
     });
 
-    // 从 ServiceNode 表读取动态节点配置
-    const serviceNodes = await this.prisma.serviceNode.findMany({
-      where: { enabled: true },
-    });
+    // 仅补充“没有对应 NodeConfig”的 ServiceNode，避免重复展示同一节点。
+    const dynamicConfigs = serviceNodes
+      .filter((node) => !configuredServiceTypes.has(node.serviceType))
+      .map((node) => ({
+        nodeKey: this.serviceTypeToNodeKey(node.serviceType),
+        nameZh: node.serviceName,
+        nameEn: node.serviceName,
+        category: 'other',
+        status: 'normal',
+        statusMessage: null,
+        creditsPerCall: node.creditsPerCall,
+        priceYuan: node.creditsPerCall * 0.01,
+        serviceType: node.serviceType,
+        sortOrder: 100,
+        description: node.description,
+        metadata: null,
+      }));
 
-    // 将 ServiceNode 转换为 NodeConfig 格式
-    const dynamicConfigs = serviceNodes.map(node => ({
-      nodeKey: this.serviceTypeToNodeKey(node.serviceType),
-      nameZh: node.serviceName,
-      nameEn: node.serviceName,
-      category: 'other',
-      status: 'normal',
-      statusMessage: null,
-      creditsPerCall: node.creditsPerCall,
-      priceYuan: node.creditsPerCall * 0.01,
-      serviceType: node.serviceType,
-      sortOrder: 100,
-      description: node.description,
-      metadata: null,
-    }));
-
-    // 合并配置
-    const allConfigs = [...configs, ...dynamicConfigs];
+    const allConfigs = [...mergedConfigs, ...dynamicConfigs];
 
     // 自定义分类顺序
     const categoryOrder: Record<string, number> = {
       input: 0,
       image: 1,
       video: 2,
-      other: 3,
+      audio: 3,
+      other: 4,
     };
 
     const sorted = allConfigs.sort((a, b) => {
@@ -88,20 +118,7 @@ export class NodeConfigService {
       return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
     });
 
-    return sorted.map((config) => ({
-      nodeKey: config.nodeKey,
-      nameZh: config.nameZh,
-      nameEn: config.nameEn,
-      category: config.category,
-      status: config.status,
-      statusMessage: config.statusMessage,
-      creditsPerCall: config.creditsPerCall,
-      priceYuan: config.priceYuan ? Number(config.priceYuan) : null,
-      serviceType: config.serviceType,
-      sortOrder: config.sortOrder,
-      description: config.description,
-      metadata: config.metadata,
-    }));
+    return sorted;
   }
 
   private serviceTypeToNodeKey(serviceType: string): string {
