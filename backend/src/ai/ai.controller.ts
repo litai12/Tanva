@@ -96,10 +96,20 @@ export class AiController {
 
   private getHttpErrorMessage(status: number): string {
     const messages: Record<number, string> = {
+      400: '请求参数错误，请检查输入内容',
+      401: 'API密钥无效或已过期，请检查配置',
+      403: '权限不足，无法访问该服务',
+      404: '请求的资源不存在',
+      408: '请求超时，请重试',
       413: '请求数据过大，请压缩图片或减小文件大小',
+      429: '请求过于频繁，请稍后重试',
+      500: '服务器内部错误，请稍后重试',
+      502: '网关错误，服务暂时不可用',
+      503: '服务暂时不可用，请稍后重试',
+      504: '网关超时，请稍后重试',
       524: '服务器处理超时，请稍后重试或简化请求内容',
     };
-    return messages[status] || `HTTP ${status}`;
+    return messages[status] || `服务器返回错误 ${status}`;
   }
 
   constructor(
