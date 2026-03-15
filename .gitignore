@@ -28,6 +28,7 @@ server/aliyun-oss-config.json
 server/.env
 backend/.env
 backend/aliyun-oss-config.json
+backend/safe_backup.sql.gz
 frontend/bake/.env
 frontend/bake/.env.local
 frontend/bake/.env.production

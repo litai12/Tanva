@@ -2,17 +2,19 @@ import { Module, OnModuleInit, Logger } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { AdminController } from './admin.controller';
 import { SettingsPublicController } from './settings-public.controller';
+import { ServiceNodeController } from './service-node.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { CreditsModule } from '../credits/credits.module';
 import { OssModule } from '../oss/oss.module';
 import { TemplateService } from './services/template.service';
 import { NodeConfigService } from './services/node-config.service';
+import { ServiceNodeService } from './services/service-node.service';
 
 @Module({
   imports: [PrismaModule, CreditsModule, OssModule],
-  controllers: [AdminController, SettingsPublicController],
-  providers: [AdminService, TemplateService, NodeConfigService],
-  exports: [AdminService, TemplateService, NodeConfigService],
+  controllers: [AdminController, SettingsPublicController, ServiceNodeController],
+  providers: [AdminService, TemplateService, NodeConfigService, ServiceNodeService],
+  exports: [AdminService, TemplateService, NodeConfigService, ServiceNodeService],
 })
 export class AdminModule implements OnModuleInit {
   private readonly logger = new Logger(AdminModule.name);

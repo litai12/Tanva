@@ -22,6 +22,7 @@ import { UsersModule } from '../users/users.module';
 import { CreditsModule } from '../credits/credits.module';
 import { OssModule } from '../oss/oss.module';
 import { VideoWatermarkService } from './services/video-watermark.service';
+import { MinimaxSpeechService } from './services/minimax-speech.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { Nano2Service } from './services/nano2.service';
 
@@ -50,6 +51,7 @@ import { Nano2Service } from './services/nano2.service';
     VeoVideoService, // 添加 VEO 视频服务
     VideoProviderService,
     VideoWatermarkService,
+    MinimaxSpeechService,
     Nano2Service,
     ImageTaskService, // 添加图像任务服务
     ApiKeyOrJwtGuard,

@@ -234,6 +234,14 @@ export const CREDIT_PRICING_CONFIG = {
     creditsPerCall: 600,
     description: '使用豆包 Seedance 生成视频',
   },
+
+  // MiniMax 语音服务
+  'minimax-speech': {
+    serviceName: 'MiniMax 语音合成',
+    provider: 'minimax',
+    creditsPerCall: 10,
+    description: '使用 MiniMax 进行文本转语音合成',
+  },
 } as const;
 
 export type ServiceType = keyof typeof CREDIT_PRICING_CONFIG;

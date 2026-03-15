@@ -72,6 +72,10 @@
 - **根因:** 前端需要将图片转成 dataURL，跨域拉取失败导致输入为空。
 - **修复:** 生成链路允许传递远程 URL，由后端下载转码后处理。
 - **预防:** 对跨域资源优先走后端拉取，避免前端 CORS 限制。
+- **问题现象:** MiniMax Speech 节点执行时报 `speech-01` 模型不可用并返回 500。
+- **根因:** 历史项目里保存了旧模型值 `speech-01`，运行时透传给后端导致上游 `MODEL_NOT_FOUND`。
+- **修复:** Flow 运行时对 MiniMax Speech 模型做兼容归一化（`speech-01`/`speech-01-hd` -> `speech-2.6-hd`），并回写节点数据；同时节点支持配置 `voice alias / emotion / sound effects / output format / audio mode` 并透传后端。
+- **预防:** 节点运行前对历史枚举值做兼容映射；参数面板与后端 DTO 保持同一枚举，避免非法值触发上游错误。
 
 ## 3D 模型节点
 - 三维节点（`frontend/src/components/flow/nodes/ThreeNode.tsx`）选择模型文件后会上传至 OSS，并将 `modelUrl` 持久化为远程引用，避免 `blob:` 等临时 URL 进入 `content.flow`。

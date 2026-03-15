@@ -44,6 +44,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 后端 AI：Seedance（doubao）视频任务成功后自动上传到 OSS，仅返回自有 OSS 公网链接，避免上游 TOS 直链的 CORS/过期问题。
 
 ### Fixed
+- 管理后台节点配置：修复编辑 `serviceType` 节点（如 `minimax-speech`）时“保存后积分仍显示旧值”的问题。原因是此前只更新 `ServiceNode` 而列表读取 `NodeConfig`；现统一走 `node-config` 保存，后端同事务同步 `ServiceNode`，并在管理员列表读取时优先显示 `ServiceNode.creditsPerCall`（`frontend/src/pages/Admin.tsx`、`backend/src/admin/services/node-config.service.ts`）。
+- MiniMax Speech：兼容历史模型值 `speech-01`/`speech-01-hd`，前端运行态自动归一化为 `speech-2.6-hd`；后端在上游返回 `MODEL_NOT_FOUND` 时自动回退重试，避免历史项目执行时报 500。并对齐 kapon TTS 参数（`voice alias`、`emotion`、`sound_effects`、`output_format`、`audio_mode`），兼容 JSON/裸音频流返回，新增异步提交与查询接口；上游 `5xx/429` 时返回明确 502/503 并做一次兜底重试（`frontend/src/components/flow/FlowOverlay.tsx`、`frontend/src/components/flow/nodes/MinimaxSpeechNode.tsx`、`backend/src/ai/services/minimax-speech.service.ts`、`backend/src/ai/dto/minimax-speech.dto.ts`、`backend/src/ai/ai.controller.ts`）。
 - Flow：返回首页再进入项目时，节点首屏缩放闪烁的 viewport 同步修正（`frontend/src/components/flow/FlowOverlay.tsx`）。
 - Canvas：返回首页再进入项目后，Paper 图片命中/选择偶发失效的恢复逻辑（`frontend/src/components/canvas/DrawingController.tsx`、`frontend/src/utils/paperCoords.ts`）。
 - Flow：生成链路允许传递远程 URL，由后端下载处理，规避前端跨域读取失败（`frontend/src/components/flow/FlowOverlay.tsx`、`backend/src/ai/ai.controller.ts`、`backend/src/ai/dto/image-generation.dto.ts`）。

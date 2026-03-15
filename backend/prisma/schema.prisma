@@ -400,3 +400,17 @@ model postgres_log {
 
   @@ignore
 }
+
+model ServiceNode {
+  id            String   @id @default(uuid())
+  serviceType   String   @unique
+  serviceName   String
+  provider      String
+  creditsPerCall Int
+  description   String?
+  enabled       Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([enabled])
+}

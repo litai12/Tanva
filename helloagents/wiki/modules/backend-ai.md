@@ -23,10 +23,17 @@
 - `GET veo/models` / `POST veo/generate`
 - `POST dashscope/generate-wan2-6-*`
 - `POST analyze-video`
+- `POST minimax-speech`
+- `POST minimax-speech/async`
+- `GET minimax-speech/async/:taskId`
 
 ## 注意事项
 - Seedance（doubao）视频任务成功后，后端会将上游视频拉取并上传到 OSS，仅返回自有 OSS 公网链接给前端。
 - `edit-image` / `blend-images` 支持 `sourceImageUrl(s)`，后端会按 OSS 白名单拉取并转换为 dataURL。
+- `minimax-speech` 会将历史模型别名（如 `speech-01`）归一化到当前默认模型，并在 `MODEL_NOT_FOUND` 时自动回退重试，减少历史项目 500。
+- `minimax-speech` 支持 kapon 的 `voice alias`、`emotion`、`sound_effects`、`output_format`、`audio_mode`；并兼容 JSON/裸音频流两种返回。
+- `minimax-speech/async` + `minimax-speech/async/:taskId` 对齐 `t2a_async_v2` 与查询接口，可提交异步任务并轮询结果。
+- `minimax-speech` 对上游 `5xx/429` 会进行一次兜底重试；若仍失败，返回明确的 502/503 提示（避免前端只看到通用 500）。
 
 ## 配置项（以代码与环境为准）
 - Gemini/第三方：`GOOGLE_GEMINI_API_KEY`、`RUNNINGHUB_API_KEY` 等

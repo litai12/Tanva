@@ -126,5 +126,6 @@ function getDefaultConfigs(): NodeConfig[] {
     { nodeKey: "imageSplit", nameZh: "图片拆分", nameEn: "Split", category: "other", status: "normal", sortOrder: 37, creditsPerCall: 0 },
     { nodeKey: "imageCompress", nameZh: "图片压缩", nameEn: "Image Compress", category: "other", status: "normal", sortOrder: 38, creditsPerCall: 0 },
     { nodeKey: "three", nameZh: "2D转3D", nameEn: "2D to 3D", category: "other", status: "normal", sortOrder: 39, creditsPerCall: 30 },
+    { nodeKey: "minimaxSpeech", nameZh: "MiniMax语音合成", nameEn: "MiniMax Speech", category: "other", status: "normal", sortOrder: 40, creditsPerCall: 10, serviceType: "minimax-speech" },
   ];
 }

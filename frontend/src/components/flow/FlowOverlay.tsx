@@ -78,6 +78,7 @@ import ImageGridNode from "./nodes/ImageGridNode";
 import ImageSplitNode from "./nodes/ImageSplitNode";
 import ImageCompressNode from "./nodes/ImageCompressNode";
 import Nano2Node from "./nodes/Nano2Node";
+import MinimaxSpeechNode from "./nodes/MinimaxSpeechNode";
 import NodeGroupNode from "./nodes/NodeGroupNode";
 import { FLOW_IMAGE_ASSET_PREFIX } from "@/services/flowImageAssetStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
@@ -483,6 +484,7 @@ const nodeTypes = {
   imageGrid: ImageGridNode,
   imageSplit: ImageSplitNode,
   imageCompress: ImageCompressNode,
+  minimaxSpeech: MinimaxSpeechNode,
 };
 
 // 自定义边组件 - 选中时在终点显示删除按钮
@@ -742,11 +744,12 @@ const BETA_NODE_KEYS = new Set([
   "generatePro4",
 ]);
 
-type NodePanelGroupKey = "text" | "image" | "three" | "other" | "video";
+type NodePanelGroupKey = "text" | "image" | "three" | "other" | "video" | "audio";
 
 const NODE_PANEL_GROUP_ORDER: NodePanelGroupKey[] = [
   "text",
   "image",
+  "audio",
   "other",
   "video",
   "three",
@@ -785,6 +788,12 @@ const NODE_PANEL_GROUP_META: Record<
     titleEn: "Video Nodes",
     subtitleZh: "视频输入、生成与分析",
     subtitleEn: "Video input, generation, and analysis",
+  },
+  audio: {
+    titleZh: "语音类节点",
+    titleEn: "Audio Nodes",
+    subtitleZh: "音乐生成、语音合成与处理",
+    subtitleEn: "Music generation, voice synthesis, and processing",
   },
 };
 
@@ -826,6 +835,8 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   doubaoVideo: "video",
   videoAnalyze: "video",
   videoFrameExtract: "video",
+
+  minimaxSpeech: "audio",
 };
 
 // Beta 节点列表（实验性功能）
@@ -882,6 +893,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   imageGrid: { w: 300, h: 380 },
   imageSplit: { w: 320, h: 400 },
   imageCompress: { w: 300, h: 360 },
+  minimaxSpeech: { w: 280, h: 240 },
 } as const;
 
 type FlowNodeType = keyof typeof FLOW_NODE_DEFAULT_SIZE;
@@ -1625,6 +1637,7 @@ function FlowInner() {
     > = {
       text: [],
       image: [],
+      audio: [],
       three: [],
       other: [],
       video: [],
@@ -4904,6 +4917,18 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
+          : type === "minimaxSpeech"
+          ? {
+              status: "idle" as const,
+              text: "",
+              voiceId: "male-qn-qingse",
+              model: "speech-2.6-hd",
+              outputFormat: "url" as const,
+              audioMode: "json" as const,
+              soundEffects: [] as Array<
+                "spacious_echo" | "auditorium_echo" | "lofi_telephone" | "robotic"
+              >,
+            }
           : type === "klingVideo" ||
             type === "kling26Video" ||
             type === "viduVideo" ||
@@ -7320,6 +7345,136 @@ function FlowInner() {
 
         return { texts, hasEdge: true };
       };
+
+      // MiniMax Speech 节点处理逻辑
+      if (node.type === "minimaxSpeech") {
+        console.log('[minimaxSpeech] 开始处理');
+        const { text: inputText, hasEdge: hasText } = getTextPromptForNode(nodeId);
+        const nodeText = (node.data as any)?.text || '';
+        const finalText = hasText && inputText ? inputText : nodeText;
+        console.log('[minimaxSpeech] finalText:', finalText);
+
+        if (!finalText?.trim()) {
+          console.log('[minimaxSpeech] 文本为空');
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? { ...n, data: { ...n.data, status: "failed", error: "文本为空" } }
+                : n
+            )
+          );
+          return;
+        }
+
+        setNodes((ns) =>
+          ns.map((n) =>
+            n.id === nodeId
+              ? { ...n, data: { ...n.data, status: "running", error: undefined } }
+              : n
+          )
+        );
+
+        try {
+          const voiceId = (node.data as any)?.voiceId;
+          const rawModel = (node.data as any)?.model;
+          const emotion = (node.data as any)?.emotion;
+          const outputFormatRaw = (node.data as any)?.outputFormat;
+          const outputFormat = outputFormatRaw === "hex" ? "hex" : "url";
+          const audioModeRaw = (node.data as any)?.audioMode;
+          const audioMode = audioModeRaw === "hex" ? "hex" : "json";
+          const soundEffects = Array.isArray((node.data as any)?.soundEffects)
+            ? ((node.data as any).soundEffects as string[]).filter((item) =>
+                [
+                  "spacious_echo",
+                  "auditorium_echo",
+                  "lofi_telephone",
+                  "robotic",
+                ].includes(item)
+              )
+            : [];
+          const model = (() => {
+            const normalized = typeof rawModel === "string" ? rawModel.trim() : "";
+            if (!normalized) return undefined;
+            const lower = normalized.toLowerCase();
+            if (lower === "speech-01" || lower === "speech-01-hd") {
+              return "speech-2.6-hd";
+            }
+            return normalized;
+          })();
+
+          if (model && model !== rawModel) {
+            setNodes((ns) =>
+              ns.map((n) =>
+                n.id === nodeId
+                  ? { ...n, data: { ...n.data, model } }
+                  : n
+              )
+            );
+          }
+          console.log('[minimaxSpeech] 调用 API:', {
+            text: finalText,
+            voiceId,
+            model,
+            emotion,
+            outputFormat,
+            audioMode,
+            soundEffects,
+          });
+
+          const response = await fetchWithAuth('/api/ai/minimax-speech', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              text: finalText,
+              voiceId,
+              model,
+              emotion,
+              outputFormat,
+              audioMode,
+              soundEffects,
+            }),
+          });
+
+          console.log('[minimaxSpeech] API 响应状态:', response.status);
+          const result = await response.json().catch(() => ({} as any));
+          if (!response.ok) {
+            const errorMessage =
+              (typeof result?.message === "string" && result.message) ||
+              (typeof result?.error === "string" && result.error) ||
+              (typeof result?.error?.message === "string" && result.error.message) ||
+              "语音合成失败";
+            throw new Error(errorMessage);
+          }
+          console.log('[minimaxSpeech] API 结果:', result);
+
+          const audioUrl =
+            (typeof result?.audioUrl === "string" && result.audioUrl) ||
+            (typeof result?.audio_url === "string" && result.audio_url) ||
+            "";
+          if (!audioUrl) {
+            throw new Error("语音合成返回缺少音频");
+          }
+
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? { ...n, data: { ...n.data, status: "succeeded", audioUrl, error: undefined } }
+                : n
+            )
+          );
+        } catch (error) {
+          console.error('[minimaxSpeech] 错误:', error);
+          const msg = error instanceof Error ? error.message : "语音合成失败";
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? { ...n, data: { ...n.data, status: "failed", error: msg } }
+                : n
+            )
+          );
+        }
+        return;
+      }
 
       // Wan2.6 节点处理逻辑
       if (node.type === "wan26") {
@@ -10894,7 +11049,8 @@ function FlowInner() {
             n.type === "klingO1Video" ||
             n.type === "viduVideo" ||
             n.type === "viduQ3" ||
-            n.type === "doubaoVideo"
+            n.type === "doubaoVideo" ||
+            n.type === "minimaxSpeech"
           ? { ...n, data: { ...n.data, onRun: runNode } }
           : n
       ),

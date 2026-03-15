@@ -45,10 +45,34 @@ export class NodeConfigService {
   async getAllNodeConfigs() {
     const configs = await this.prisma.nodeConfig.findMany({
       where: { isVisible: true },
-      orderBy: [{ sortOrder: 'asc' }], // 先按 sortOrder 粗排，后面再自定义分类顺序
+      orderBy: [{ sortOrder: 'asc' }],
     });
 
-    // 自定义分类顺序：输入(input) → 图像(image) → 视频(video) → 其他(other)
+    // 从 ServiceNode 表读取动态节点配置
+    const serviceNodes = await this.prisma.serviceNode.findMany({
+      where: { enabled: true },
+    });
+
+    // 将 ServiceNode 转换为 NodeConfig 格式
+    const dynamicConfigs = serviceNodes.map(node => ({
+      nodeKey: this.serviceTypeToNodeKey(node.serviceType),
+      nameZh: node.serviceName,
+      nameEn: node.serviceName,
+      category: 'other',
+      status: 'normal',
+      statusMessage: null,
+      creditsPerCall: node.creditsPerCall,
+      priceYuan: node.creditsPerCall * 0.01,
+      serviceType: node.serviceType,
+      sortOrder: 100,
+      description: node.description,
+      metadata: null,
+    }));
+
+    // 合并配置
+    const allConfigs = [...configs, ...dynamicConfigs];
+
+    // 自定义分类顺序
     const categoryOrder: Record<string, number> = {
       input: 0,
       image: 1,
@@ -56,7 +80,7 @@ export class NodeConfigService {
       other: 3,
     };
 
-    const sorted = configs.sort((a, b) => {
+    const sorted = allConfigs.sort((a, b) => {
       const ca = categoryOrder[a.category ?? 'other'] ?? 99;
       const cb = categoryOrder[b.category ?? 'other'] ?? 99;
       if (ca !== cb) return ca - cb;
@@ -65,18 +89,8 @@ export class NodeConfigService {
 
     return sorted.map((config) => ({
       nodeKey: config.nodeKey,
-      nameZh:
-        config.nodeKey === 'sora2Video'
-          ? 'Sora2 Pro视频生成'
-          : config.nodeKey === 'sora2Character'
-          ? 'Sora2角色生成'
-          : config.nameZh,
-      nameEn:
-        config.nodeKey === 'sora2Video'
-          ? 'Sora2 Pro'
-          : config.nodeKey === 'sora2Character'
-          ? 'Sora2 Character'
-          : config.nameEn,
+      nameZh: config.nameZh,
+      nameEn: config.nameEn,
       category: config.category,
       status: config.status,
       statusMessage: config.statusMessage,
@@ -89,13 +103,24 @@ export class NodeConfigService {
     }));
   }
 
+  private serviceTypeToNodeKey(serviceType: string): string {
+    return serviceType.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+  }
+
   /**
    * 获取所有节点配置（管理接口，包含隐藏的）
    */
   async getAllNodeConfigsAdmin() {
-    const configs = await this.prisma.nodeConfig.findMany({
-      orderBy: [{ sortOrder: 'asc' }],
-    });
+    const [configs, serviceNodes] = await Promise.all([
+      this.prisma.nodeConfig.findMany({
+        orderBy: [{ sortOrder: 'asc' }],
+      }),
+      this.prisma.serviceNode.findMany({
+        where: { enabled: true },
+      }),
+    ]);
+
+    const serviceNodeMap = new Map(serviceNodes.map((item) => [item.serviceType, item]));
 
     // 管理端同样按：输入 → 图像 → 视频 → 其他 排序
     const categoryOrder: Record<string, number> = {
@@ -112,34 +137,41 @@ export class NodeConfigService {
       return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
     });
 
-    return sorted.map((config) => ({
-      id: config.id,
-      nodeKey: config.nodeKey,
-      nameZh:
-        config.nodeKey === 'sora2Video'
-          ? 'Sora2 Pro视频生成'
-          : config.nodeKey === 'sora2Character'
-          ? 'Sora2角色生成'
-          : config.nameZh,
-      nameEn:
-        config.nodeKey === 'sora2Video'
-          ? 'Sora2 Pro'
-          : config.nodeKey === 'sora2Character'
-          ? 'Sora2 Character'
-          : config.nameEn,
-      category: config.category,
-      status: config.status,
-      statusMessage: config.statusMessage,
-      creditsPerCall: config.creditsPerCall,
-      priceYuan: config.priceYuan ? Number(config.priceYuan) : null,
-      serviceType: config.serviceType,
-      sortOrder: config.sortOrder,
-      isVisible: config.isVisible,
-      description: config.description,
-      metadata: config.metadata,
-      createdAt: config.createdAt,
-      updatedAt: config.updatedAt,
-    }));
+    return sorted.map((config) => {
+      const serviceNode =
+        typeof config.serviceType === 'string' && config.serviceType
+          ? serviceNodeMap.get(config.serviceType)
+          : undefined;
+
+      return {
+        id: config.id,
+        nodeKey: config.nodeKey,
+        nameZh:
+          config.nodeKey === 'sora2Video'
+            ? 'Sora2 Pro视频生成'
+            : config.nodeKey === 'sora2Character'
+            ? 'Sora2角色生成'
+            : config.nameZh,
+        nameEn:
+          config.nodeKey === 'sora2Video'
+            ? 'Sora2 Pro'
+            : config.nodeKey === 'sora2Character'
+            ? 'Sora2 Character'
+            : config.nameEn,
+        category: config.category,
+        status: config.status,
+        statusMessage: config.statusMessage,
+        creditsPerCall: serviceNode?.creditsPerCall ?? config.creditsPerCall,
+        priceYuan: config.priceYuan ? Number(config.priceYuan) : null,
+        serviceType: config.serviceType,
+        sortOrder: config.sortOrder,
+        isVisible: config.isVisible,
+        description: config.description,
+        metadata: config.metadata,
+        createdAt: config.createdAt,
+        updatedAt: config.updatedAt,
+      };
+    });
   }
 
   /**
@@ -154,6 +186,13 @@ export class NodeConfigService {
       return null;
     }
 
+    const serviceNode =
+      typeof config.serviceType === 'string' && config.serviceType
+        ? await this.prisma.serviceNode.findUnique({
+            where: { serviceType: config.serviceType },
+          })
+        : null;
+
     return {
       id: config.id,
       nodeKey: config.nodeKey,
@@ -162,7 +201,7 @@ export class NodeConfigService {
       category: config.category,
       status: config.status,
       statusMessage: config.statusMessage,
-      creditsPerCall: config.creditsPerCall,
+      creditsPerCall: serviceNode?.creditsPerCall ?? config.creditsPerCall,
       priceYuan: config.priceYuan ? Number(config.priceYuan) : null,
       serviceType: config.serviceType,
       sortOrder: config.sortOrder,
@@ -227,9 +266,38 @@ export class NodeConfigService {
     if (dto.description !== undefined) updateData.description = dto.description;
     if (dto.metadata !== undefined) updateData.metadata = dto.metadata;
 
-    const config = await this.prisma.nodeConfig.update({
-      where: { nodeKey },
-      data: updateData,
+    const config = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.nodeConfig.update({
+        where: { nodeKey },
+        data: updateData,
+      });
+
+      // 对接积分计费的 ServiceNode（按 serviceType）与 NodeConfig 保持一致，避免管理端显示与实际计费分叉。
+      const serviceType = typeof updated.serviceType === 'string' ? updated.serviceType.trim() : '';
+      if (serviceType && serviceType.includes('-')) {
+        const serviceNodePatch: Prisma.ServiceNodeUpdateInput = {};
+        if (dto.nameZh !== undefined) serviceNodePatch.serviceName = dto.nameZh;
+        if (dto.creditsPerCall !== undefined) serviceNodePatch.creditsPerCall = dto.creditsPerCall;
+        if (dto.description !== undefined) serviceNodePatch.description = dto.description;
+
+        if (Object.keys(serviceNodePatch).length > 0) {
+          const serviceNode = await tx.serviceNode.findUnique({
+            where: { serviceType },
+          });
+          if (serviceNode) {
+            await tx.serviceNode.update({
+              where: { id: serviceNode.id },
+              data: serviceNodePatch,
+            });
+          } else {
+            this.logger.warn(
+              `NodeConfig(${nodeKey}) 更新时未找到对应 ServiceNode(${serviceType})，跳过同步`,
+            );
+          }
+        }
+      }
+
+      return updated;
     });
 
     this.logger.log(`更新节点配置: ${nodeKey}`);
@@ -417,6 +485,9 @@ export class NodeConfigService {
       { nodeKey: 'imageSplit', nameZh: '图片拆分', nameEn: 'Split', category: 'other', sortOrder: 37, creditsPerCall: 0, description: '拆分图片，免费' },
       { nodeKey: 'imageCompress', nameZh: '图片压缩', nameEn: 'Image Compress', category: 'other', sortOrder: 38, creditsPerCall: 0, description: '按档位压缩图片，免费' },
       { nodeKey: 'three', nameZh: '2D转3D', nameEn: '2D to 3D', category: 'other', sortOrder: 39, creditsPerCall: 30, serviceType: 'convert-2d-to-3d', priceYuan: 0.3, description: '图片转3D模型' },
+
+      // 语音节点
+      { nodeKey: 'minimaxSpeech', nameZh: 'MiniMax语音合成', nameEn: 'MiniMax Speech', category: 'audio', sortOrder: 40, creditsPerCall: 5, serviceType: 'minimax-speech', priceYuan: 0.05, description: 'MiniMax Speech 2.6语音合成' },
     ];
 
     let created = 0;

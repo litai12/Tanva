@@ -34,6 +34,7 @@ import {
   Convert2Dto3DDto,
   ExpandImageDto,
 } from './dto/image-generation.dto';
+import { MinimaxSpeechDto } from './dto/minimax-speech.dto';
 import { PaperJSGenerateRequestDto, PaperJSGenerateResponseDto } from './dto/paperjs-generation.dto';
 import { Img2VectorRequestDto, Img2VectorResponseDto } from './dto/img2vector.dto';
 import { Convert2Dto3DService } from './services/convert-2d-to-3d.service';
@@ -49,6 +50,7 @@ import { VeoGenerateVideoDto, VeoVideoResponseDto, VeoModelsResponseDto } from '
 import { Sora2VideoService } from './services/sora2-video.service';
 import { VeoVideoService } from './services/veo-video.service';
 import { VideoProviderService } from './services/video-provider.service';
+import { MinimaxSpeechService } from './services/minimax-speech.service';
 import { applyWatermarkToBase64 } from './services/watermark.util';
 import { VideoWatermarkService } from './services/video-watermark.service';
 import { VideoProviderRequestDto } from './dto/video-provider.dto';
@@ -105,6 +107,7 @@ export class AiController {
     private readonly videoWatermarkService: VideoWatermarkService,
     private readonly veoVideoService: VeoVideoService,
     private readonly videoProviderService: VideoProviderService,
+    private readonly minimaxSpeechService: MinimaxSpeechService,
     private readonly oss: OssService,
     @Optional() private readonly imageTaskService?: ImageTaskService,
   ) {}
@@ -2926,5 +2929,37 @@ export class AiController {
       error: task.error,
       progress: task.status === 'processing' ? 50 : task.status === 'succeeded' ? 100 : 0,
     };
+  }
+
+  @Post('minimax-speech')
+  async generateSpeech(@Body() dto: MinimaxSpeechDto, @Req() req: any) {
+    const userId = this.getUserId(req);
+
+    return this.withCredits(
+      req,
+      'minimax-speech',
+      dto.model,
+      async () => {
+        return this.minimaxSpeechService.synthesizeSpeech(dto);
+      },
+      undefined,
+      undefined,
+      false,
+      { text: dto.text, voiceId: dto.voiceId, emotion: dto.emotion }
+    );
+  }
+
+  @Post('minimax-speech/async')
+  async generateSpeechAsync(@Body() dto: MinimaxSpeechDto) {
+    return this.minimaxSpeechService.createAsyncSpeechTask(dto);
+  }
+
+  @Get('minimax-speech/async/:taskId')
+  async querySpeechAsyncTask(@Param('taskId') taskId: string) {
+    const normalizedTaskId = taskId?.trim();
+    if (!normalizedTaskId) {
+      throw new BadRequestException('taskId is required');
+    }
+    return this.minimaxSpeechService.queryAsyncSpeechTask(normalizedTaskId);
   }
 }

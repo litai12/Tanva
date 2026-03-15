@@ -558,10 +558,26 @@ export class CreditsService {
   }
 
   /**
-   * 获取服务定价
+   * 获取服务定价（优先从数据库读取）
    */
-  getServicePricing(serviceType: ServiceType) {
-    const pricing = CREDIT_PRICING_CONFIG[serviceType];
+  async getServicePricing(serviceType: ServiceType | string) {
+    // 先尝试从数据库读取
+    const dbNode = await this.prisma.serviceNode.findUnique({
+      where: { serviceType: serviceType as string, enabled: true },
+    });
+
+    if (dbNode) {
+      return {
+        serviceType: dbNode.serviceType,
+        serviceName: dbNode.serviceName,
+        provider: dbNode.provider,
+        creditsPerCall: dbNode.creditsPerCall,
+        description: dbNode.description,
+      };
+    }
+
+    // 回退到硬编码配置
+    const pricing = CREDIT_PRICING_CONFIG[serviceType as ServiceType];
     if (!pricing) {
       throw new BadRequestException(`未知的服务类型: ${serviceType}`);
     }
@@ -591,27 +607,43 @@ export class CreditsService {
       ? requestParams.aiProvider.trim().toLowerCase()
       : '';
 
-    const pricing = CREDIT_PRICING_CONFIG[serviceType];
-    if (!pricing) {
-      throw new BadRequestException(`未知的服务类型: ${serviceType}`);
+    // 优先从数据库读取配置
+    const dbNode = await this.prisma.serviceNode.findUnique({
+      where: { serviceType: serviceType as string, enabled: true },
+    });
+
+    let creditsToDeduct: number;
+    let serviceName: string;
+    let provider: string;
+
+    if (dbNode) {
+      creditsToDeduct = dbNode.creditsPerCall;
+      serviceName = dbNode.serviceName;
+      provider = requestedProvider || dbNode.provider;
+    } else {
+      const pricing = CREDIT_PRICING_CONFIG[serviceType];
+      if (!pricing) {
+        throw new BadRequestException(`未知的服务类型: ${serviceType}`);
+      }
+      creditsToDeduct = pricing.creditsPerCall;
+      serviceName = pricing.serviceName;
+      provider = requestedProvider || pricing.provider;
+
+      // 处理Sora视频模型的特殊定价
+      creditsToDeduct = this.resolveSoraModelCredits(
+        serviceType,
+        creditsToDeduct,
+        requestParams,
+        model,
+      );
+
+      // 处理图像生成服务的分辨率定价
+      creditsToDeduct = this.resolveImageResolutionCredits(
+        serviceType,
+        creditsToDeduct,
+        requestParams,
+      );
     }
-
-    let creditsToDeduct: number = pricing.creditsPerCall;
-    
-    // 处理Sora视频模型的特殊定价
-    creditsToDeduct = this.resolveSoraModelCredits(
-      serviceType,
-      creditsToDeduct,
-      requestParams,
-      model,
-    );
-
-    // 处理图像生成服务的分辨率定价
-    creditsToDeduct = this.resolveImageResolutionCredits(
-      serviceType,
-      creditsToDeduct,
-      requestParams,
-    );
 
     return await this.prisma.$transaction(async (tx) => {
       // 获取账户并锁定
@@ -649,8 +681,8 @@ export class CreditsService {
         data: {
           userId,
           serviceType,
-          serviceName: pricing.serviceName,
-          provider: requestedProvider || pricing.provider,
+          serviceName,
+          provider,
           model,
           creditsUsed: creditsToDeduct,
           inputTokens,
@@ -672,7 +704,7 @@ export class CreditsService {
           amount: -creditsToDeduct,
           balanceBefore: account.balance,
           balanceAfter: newBalance,
-          description: `使用 ${pricing.serviceName}${requestParams?.imageSize ? `（${requestParams.imageSize}）` : ''}`,
+          description: `使用 ${serviceName}${requestParams?.imageSize ? `（${requestParams.imageSize}）` : ''}`,
           apiUsageId: apiUsage.id,
         },
       });

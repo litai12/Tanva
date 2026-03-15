@@ -22,4 +22,4 @@
 
 ## 注意事项
 - 认证/鉴权细节以 Guard 与具体实现为准（通常依赖 JWT + 用户 role/status）。
-
+- 节点管理存在两套相关数据：`NodeConfig`（管理展示）与 `ServiceNode`（积分计费）。`PATCH /api/admin/node-configs/:nodeKey` 已在后端同步更新对应 `ServiceNode`（按 `serviceType`），并且管理列表读取时会优先显示 `ServiceNode.creditsPerCall`，避免“保存后显示旧值但计费已变化”的分叉。

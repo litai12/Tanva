@@ -2894,6 +2894,7 @@ function NodeConfigsTab() {
       }
     } else {
       try {
+        // 统一通过 NodeConfig API 保存；后端会自动同步关联 ServiceNode，避免两套配置分叉。
         await updateNodeConfig(editingConfig.nodeKey, {
           nameZh: editingConfig.nameZh,
           nameEn: editingConfig.nameEn,
