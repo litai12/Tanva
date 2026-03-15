@@ -10,6 +10,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 画布与 AI 对话框支持 JSON 复制/导入（右键 + `Ctrl/Cmd+Shift+C/V`），导出内容与 `Project.contentJson` 保持一致。
 
 ### Changed
+- Flow：分组节点新增“折叠/展开”能力；折叠后仅保留分组卡片，组内子节点隐藏，并保留与组外节点的连线（端点映射到分组节点）；折叠卡片支持展示组内图片缩略图预览（`frontend/src/components/flow/FlowOverlay.tsx`、`frontend/src/components/flow/nodes/NodeGroupNode.tsx`）。
+- Flow：修复分组在折叠/展开切换后连线异常消失的问题：折叠时组内连线改为 `hidden`（保留原始 edge id），展开后可稳定恢复（`frontend/src/components/flow/FlowOverlay.tsx`）。
 - 用户积分页“积分记录”表格新增“剩余积分”列（使用每条交易的 `balanceAfter`），与管理员“积分详情”中的余额展示保持一致（`frontend/src/pages/MyCredits.tsx`，`frontend/src/i18n/locales/zh-CN.ts`，`frontend/src/i18n/locales/en-US.ts`）。
 - 管理后台用户列表的“积分详情”弹窗新增“细分积分明细”模块：对齐用户端积分明细展示（项目/积分/生成时间/花费时间），并新增“剩余积分（变更后余额）”展示；后端新增管理员按用户查询积分流水接口（`GET /api/admin/users/:userId/credits/transactions`）。
 - Canvas：图片预览右侧缩略图改为项目级分页懒加载，不再全量拉取全局历史（`frontend/src/components/canvas/ImageContainer.tsx`）。

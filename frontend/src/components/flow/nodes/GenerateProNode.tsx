@@ -1,6 +1,6 @@
 import React from 'react';
 import { Handle, Position, useReactFlow } from 'reactflow';
-import { Send as SendIcon, Play, Plus, X, Link, Copy, Trash2, Download, FolderPlus } from 'lucide-react';
+import { Send as SendIcon, Play, Plus, X, Link, Copy, Trash2, Download, FolderPlus, Check, Globe } from 'lucide-react';
 import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
 import SmartImage from '../../ui/SmartImage';
 import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
@@ -10,7 +10,7 @@ import { useAIChatStore } from '@/stores/aiChatStore';
 import { cn } from '@/lib/utils';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import ContextMenu from '../../ui/context-menu';
-import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '../../ui/dropdown-menu';
 import { parseFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import { toRenderableImageSrc } from '@/utils/imageSource';
@@ -35,6 +35,8 @@ type Props = {
     imageData?: string;
     imageUrl?: string;
     thumbnail?: string; // 缩略图，用于节点显示
+    title?: string;
+    enableWebSearch?: boolean;
     error?: string;
     aspectRatio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9';
     imageSize?: '1K' | '2K' | '4K' | null;
@@ -61,6 +63,7 @@ const DEFAULT_IMAGE_WIDTH = 296;
 const MIN_PROMPT_HEIGHT = 60;
 const MAX_PROMPT_HEIGHT = 400;
 const DEFAULT_PROMPT_HEIGHT = 80;
+const DEFAULT_NODE_TITLE = 'Agent';
 
 function GenerateProNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
@@ -87,8 +90,16 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
   const [currentImageId, setCurrentImageId] = React.useState<string>('');
-  const [isResizing, setIsResizing] = React.useState(false);
-  const [resizeCorner, setResizeCorner] = React.useState<string | null>(null);
+  const normalizedTitle = React.useMemo(
+    () =>
+      typeof data.title === 'string' && data.title.trim().length > 0
+        ? data.title.trim()
+        : DEFAULT_NODE_TITLE,
+    [data.title]
+  );
+  const [title, setTitle] = React.useState<string>(normalizedTitle);
+  const [titleDraft, setTitleDraft] = React.useState<string>(normalizedTitle);
+  const [isEditingTitle, setIsEditingTitle] = React.useState(false);
   const [isTextFocused, setIsTextFocused] = React.useState(false); // 文字输入框是否聚焦
   const [isAspectMenuOpen, setIsAspectMenuOpen] = React.useState(false);
   const [isImageSizeMenuOpen, setIsImageSizeMenuOpen] = React.useState(false);
@@ -96,6 +107,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   const aspectMenuRef = React.useRef<HTMLDivElement>(null);
   const imageSizeMenuRef = React.useRef<HTMLDivElement>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
+  const titleInputRef = React.useRef<HTMLInputElement>(null);
 
   // 图片宽度
   const imageWidth = data.imageWidth || DEFAULT_IMAGE_WIDTH;
@@ -111,9 +123,55 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   // 使用全局图片历史记录 - 只在预览时才获取
   const projectId = useProjectContentStore((state) => state.projectId);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const setAIProvider = useAIChatStore((state) => state.setAIProvider);
+  const globalWebSearchEnabled = useAIChatStore((state) => state.enableWebSearch);
+  const enableWebSearch = data.enableWebSearch ?? globalWebSearchEnabled;
 
-  // 判断是否为 Pro 模式（显示尺寸和 HD 按钮）
-  const isProMode = aiProvider === 'gemini-pro' || aiProvider === 'banana';
+  type ProviderToggleValue = 'banana-2.5' | 'banana' | 'banana-3.1';
+  const providerToggleOptions = React.useMemo<Array<{
+    value: ProviderToggleValue;
+    label: string;
+    description: string;
+  }>>(
+    () => [
+      {
+        value: 'banana-2.5',
+        label: 'Fast',
+        description: lt('Nano Banana+Gemini 2.5', 'Nano Banana+Gemini 2.5'),
+      },
+      {
+        value: 'banana',
+        label: 'Pro',
+        description: lt('Nano Banana Pro+Gemini 3.0', 'Nano Banana Pro+Gemini 3.0'),
+      },
+      {
+        value: 'banana-3.1',
+        label: 'Ultra',
+        description: lt('Nano Banana 2+Gemini 3.1', 'Nano Banana 2+Gemini 3.1'),
+      },
+    ],
+    [lt]
+  );
+
+  const currentProviderValue = React.useMemo<ProviderToggleValue>(() => {
+    if (aiProvider === 'banana-2.5') return 'banana-2.5';
+    if (aiProvider === 'banana-3.1') return 'banana-3.1';
+    return 'banana';
+  }, [aiProvider]);
+
+  const currentProviderOption = React.useMemo(
+    () =>
+      providerToggleOptions.find((option) => option.value === currentProviderValue) ??
+      providerToggleOptions[1],
+    [currentProviderValue, providerToggleOptions]
+  );
+
+  // 判断是否为高质量模式（Pro / Ultra）
+  const isProMode =
+    aiProvider === 'gemini-pro' ||
+    aiProvider === 'banana' ||
+    aiProvider === 'banana-3.1' ||
+    aiProvider === 'nano2';
 
   const rf = useReactFlow();
   // 移除 useEdges() - 改用事件监听方式获取外部提示词，避免频繁重渲染
@@ -145,7 +203,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
 
   const stopNodeDrag = React.useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
-    const nativeEvent = (event as React.SyntheticEvent<any, Event>).nativeEvent as Event & { stopImmediatePropagation?: () => void };
+    const nativeEvent = (event as React.SyntheticEvent<Element, Event>).nativeEvent as Event & { stopImmediatePropagation?: () => void };
     nativeEvent.stopImmediatePropagation?.();
   }, []);
 
@@ -201,16 +259,6 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
     window.addEventListener('flow:updateNodeData', handler as EventListener);
     return () => window.removeEventListener('flow:updateNodeData', handler as EventListener);
   }, [externalSourceIds, refreshExternalPrompts]);
-
-  // 更新图片宽度
-  const updateImageWidth = React.useCallback((width: number) => {
-    const clampedWidth = Math.max(MIN_IMAGE_WIDTH, Math.min(MAX_IMAGE_WIDTH, width));
-    window.dispatchEvent(
-      new CustomEvent('flow:updateNodeData', {
-        detail: { id, patch: { imageWidth: clampedWidth } }
-      })
-    );
-  }, [id]);
 
   // 更新单个提示词
   const updatePrompt = React.useCallback((index: number, value: string) => {
@@ -362,6 +410,21 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
     return () => window.removeEventListener('keydown', handler);
   }, [preview]);
 
+  React.useEffect(() => {
+    setTitle(normalizedTitle);
+    if (!isEditingTitle) {
+      setTitleDraft(normalizedTitle);
+    }
+  }, [normalizedTitle, isEditingTitle]);
+
+  React.useEffect(() => {
+    if (!isEditingTitle) return;
+    requestAnimationFrame(() => {
+      titleInputRef.current?.focus();
+      titleInputRef.current?.select();
+    });
+  }, [isEditingTitle]);
+
   // 点击外部关闭长宽比菜单
   React.useEffect(() => {
     if (!isAspectMenuOpen) return;
@@ -390,8 +453,6 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   const handleResizeStart = React.useCallback((corner: string) => (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    setIsResizing(true);
-    setResizeCorner(corner);
 
     const startX = e.clientX;
     const startY = e.clientY;
@@ -446,8 +507,6 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
     };
 
     const handleMouseUp = () => {
-      setIsResizing(false);
-      setResizeCorner(null);
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
@@ -498,6 +557,42 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
     document.addEventListener('mouseup', handleMouseUp);
   }, [promptHeight, id]);
 
+  const startTitleEditing = React.useCallback((event: React.MouseEvent) => {
+    event.stopPropagation();
+    event.preventDefault();
+    setTitleDraft(title);
+    setIsEditingTitle(true);
+  }, [title]);
+
+  const commitTitle = React.useCallback((raw: string) => {
+    const trimmed = raw.trim();
+    const nextTitle = trimmed.length ? trimmed : DEFAULT_NODE_TITLE;
+    setTitle(nextTitle);
+    setTitleDraft(nextTitle);
+    setIsEditingTitle(false);
+    window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
+      detail: { id, patch: { title: nextTitle } }
+    }));
+  }, [id]);
+
+  const cancelTitleEditing = React.useCallback(() => {
+    setIsEditingTitle(false);
+    setTitleDraft(title);
+  }, [title]);
+
+  const toggleWebSearch = React.useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
+      detail: {
+        id,
+        patch: {
+          enableWebSearch: !enableWebSearch,
+        }
+      }
+    }));
+  }, [enableWebSearch, id]);
+
   return (
     <div
       ref={containerRef}
@@ -509,6 +604,126 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
         padding: '0 12px',
       }}
     >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          marginBottom: 6,
+        }}
+      >
+        {isEditingTitle ? (
+          <input
+            ref={titleInputRef}
+            value={titleDraft}
+            onChange={(event) => setTitleDraft(event.target.value)}
+            onBlur={() => commitTitle(titleDraft)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                commitTitle(titleDraft);
+              } else if (event.key === 'Escape') {
+                event.preventDefault();
+                cancelTitleEditing();
+              }
+            }}
+            onPointerDownCapture={stopNodeDrag}
+            onMouseDownCapture={stopNodeDrag}
+            className='nodrag nopan'
+            style={{
+              minWidth: 80,
+              maxWidth: imageWidth * 0.5,
+              fontSize: 16,
+              fontWeight: 600,
+              lineHeight: 1,
+              color: '#111827',
+              border: '1px solid #d1d5db',
+              borderRadius: 8,
+              padding: '2px 8px',
+              background: '#fff',
+              outline: 'none',
+            }}
+          />
+        ) : (
+          <div
+            onDoubleClick={startTitleEditing}
+            title={lt('双击编辑标题', 'Double click to edit title')}
+            style={{
+              fontWeight: 600,
+              lineHeight: 1,
+              color: '#111827',
+              cursor: 'text',
+              userSelect: 'none',
+            }}
+          >
+            {title}
+          </div>
+        )}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              onPointerDownCapture={stopNodeDrag}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              className='nodrag nopan'
+              title={lt('切换模型模式', 'Switch model mode')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '1px 8px',
+                borderRadius: 999,
+                fontSize: 11,
+                fontWeight: 600,
+                color: currentProviderValue === 'banana-3.1' ? '#0f172a' : '#475569',
+                background: currentProviderValue === 'banana-3.1' ? '#e2e8f0' : '#f1f5f9',
+                border: '1px solid #e2e8f0',
+                cursor: 'pointer',
+              }}
+            >
+              <span>{currentProviderOption.label}</span>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align='start'
+            side='bottom'
+            sideOffset={8}
+            className='min-w-[200px] rounded-xl border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md'
+          >
+            <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
+              {lt('模型切换', 'Model switch')}
+            </DropdownMenuLabel>
+            {providerToggleOptions.map((option) => {
+              const isActive = currentProviderValue === option.value;
+              return (
+                <DropdownMenuItem
+                  key={option.value}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (aiProvider !== option.value) {
+                      setAIProvider(option.value);
+                    }
+                  }}
+                  onPointerDownCapture={stopNodeDrag}
+                  className={cn(
+                    'flex items-start gap-2 rounded-lg px-3 py-2 text-xs',
+                    isActive ? 'bg-gray-100 text-gray-800' : 'text-slate-600'
+                  )}
+                >
+                  <div className='flex-1 space-y-0.5'>
+                    <div className='font-medium leading-none'>{option.label}</div>
+                    <div className='text-[11px] leading-snug text-slate-400'>{option.description}</div>
+                  </div>
+                  {isActive && <Check className='h-3.5 w-3.5 text-slate-700' />}
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
       {/* 图片区域容器 */}
       <div style={{ position: 'relative' }}>
         {/* 选中时的蓝色边框 - 标准矩形无圆角 */}
@@ -537,6 +752,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
             height: imageHeight,
             background: displaySrc ? 'transparent' : '#f8f9fa',
             borderRadius: 12,
+            border: '1px solid #e5e7eb',
             overflow: 'hidden',
             cursor: displaySrc ? 'pointer' : 'default',
           }}
@@ -949,6 +1165,24 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
                     </span>
                   </button>
                 </div>
+              )}
+
+              {isProMode && (
+                <button
+                  onClick={toggleWebSearch}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                  onPointerDownCapture={stopNodeDrag}
+                  className={cn(
+                    "p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center",
+                    enableWebSearch ? "bg-gray-800 text-white border-gray-800" : ""
+                  )}
+                  title={enableWebSearch ? lt('联网已开启', 'Web search enabled') : lt('联网已关闭', 'Web search disabled')}
+                >
+                  <Globe style={{ width: 14, height: 14 }} />
+                </button>
               )}
 
               {/* Run 按钮 */}

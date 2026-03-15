@@ -97,11 +97,12 @@ function getDefaultConfigs(): NodeConfig[] {
     // 生图节点
     { nodeKey: "generate", nameZh: "生成节点", nameEn: "Generate", category: "image", status: "normal", sortOrder: 10, creditsPerCall: 10 },
     { nodeKey: "generate4", nameZh: "四图生成", nameEn: "Generate 4", category: "image", status: "normal", sortOrder: 11, creditsPerCall: 120 },
-    { nodeKey: "generatePro", nameZh: "高级生成", nameEn: "Generate Pro", category: "image", status: "normal", sortOrder: 12, creditsPerCall: 30 },
+    { nodeKey: "generatePro", nameZh: "自定义节点", nameEn: "Agent", category: "image", status: "normal", sortOrder: 12, creditsPerCall: 30 },
     { nodeKey: "generatePro4", nameZh: "高级四图", nameEn: "Generate Pro 4", category: "image", status: "normal", sortOrder: 13, creditsPerCall: 120 },
     { nodeKey: "generateReference", nameZh: "参考生成", nameEn: "Reference", category: "image", status: "normal", sortOrder: 14, creditsPerCall: 30 },
-    { nodeKey: "midjourney", nameZh: "Midjourney", nameEn: "Midjourney", category: "image", status: "normal", sortOrder: 15, creditsPerCall: 50 },
-    { nodeKey: "nano2", nameZh: "Nano2生成", nameEn: "Nano2", category: "image", status: "normal", sortOrder: 16, creditsPerCall: 30 },
+    { nodeKey: "viewAngle", nameZh: "视角变换", nameEn: "View Angle", category: "image", status: "normal", sortOrder: 15, creditsPerCall: 30 },
+    { nodeKey: "midjourney", nameZh: "Midjourney", nameEn: "Midjourney", category: "image", status: "normal", sortOrder: 16, creditsPerCall: 50 },
+    { nodeKey: "nano2", nameZh: "Nano2生成", nameEn: "Nano2", category: "image", status: "normal", sortOrder: 17, creditsPerCall: 30 },
 
     // 视频生成节点
     // { nodeKey: "klingVideo", nameZh: "Kling视频生成", nameEn: "Kling", category: "video", status: "maintenance", sortOrder: 20, creditsPerCall: 600 },
@@ -116,15 +117,15 @@ function getDefaultConfigs(): NodeConfig[] {
     { nodeKey: "wan2R2V", nameZh: "Wan2参考视频", nameEn: "Wan2 R2V", category: "video", status: "normal", sortOrder: 29, creditsPerCall: 600 },
 
     // 其他节点
-    { nodeKey: "videoAnalyze", nameZh: "视频分析节点", nameEn: "Video Analysis", category: "other", status: "normal", sortOrder: 30, creditsPerCall: 30 },
-    { nodeKey: "videoFrameExtract", nameZh: "视频帧提取", nameEn: "Frame Extract", category: "other", status: "normal", sortOrder: 31, creditsPerCall: 0 },
-    { nodeKey: "analysis", nameZh: "图像分析节点", nameEn: "Analysis", category: "other", status: "normal", sortOrder: 32, creditsPerCall: 20 },
-    { nodeKey: "promptOptimize", nameZh: "提示词优化", nameEn: "Optimize", category: "other", status: "normal", sortOrder: 33, creditsPerCall: 10 },
-    { nodeKey: "textChat", nameZh: "文字对话", nameEn: "Chat", category: "other", status: "normal", sortOrder: 34, creditsPerCall: 10 },
-    { nodeKey: "storyboardSplit", nameZh: "分镜拆解", nameEn: "Storyboard", category: "other", status: "normal", sortOrder: 35, creditsPerCall: 10 },
-    { nodeKey: "imageGrid", nameZh: "图片拼接", nameEn: "Grid", category: "other", status: "normal", sortOrder: 36, creditsPerCall: 0 },
-    { nodeKey: "imageSplit", nameZh: "图片拆分", nameEn: "Split", category: "other", status: "normal", sortOrder: 37, creditsPerCall: 0 },
-    { nodeKey: "imageCompress", nameZh: "图片压缩", nameEn: "Image Compress", category: "other", status: "normal", sortOrder: 38, creditsPerCall: 0 },
-    { nodeKey: "three", nameZh: "2D转3D", nameEn: "2D to 3D", category: "other", status: "normal", sortOrder: 39, creditsPerCall: 30 },
+    { nodeKey: "videoAnalyze", nameZh: "视频分析节点", nameEn: "Video Analysis", category: "other", status: "normal", sortOrder: 31, creditsPerCall: 30 },
+    { nodeKey: "videoFrameExtract", nameZh: "视频帧提取", nameEn: "Frame Extract", category: "other", status: "normal", sortOrder: 32, creditsPerCall: 0 },
+    { nodeKey: "analysis", nameZh: "图像分析节点", nameEn: "Analysis", category: "other", status: "normal", sortOrder: 33, creditsPerCall: 20 },
+    { nodeKey: "promptOptimize", nameZh: "提示词优化", nameEn: "Optimize", category: "other", status: "normal", sortOrder: 34, creditsPerCall: 10 },
+    { nodeKey: "textChat", nameZh: "文字对话", nameEn: "Chat", category: "other", status: "normal", sortOrder: 35, creditsPerCall: 10 },
+    { nodeKey: "storyboardSplit", nameZh: "分镜拆解", nameEn: "Storyboard", category: "other", status: "normal", sortOrder: 36, creditsPerCall: 10 },
+    { nodeKey: "imageGrid", nameZh: "图片拼接", nameEn: "Grid", category: "other", status: "normal", sortOrder: 37, creditsPerCall: 0 },
+    { nodeKey: "imageSplit", nameZh: "图片拆分", nameEn: "Split", category: "other", status: "normal", sortOrder: 38, creditsPerCall: 0 },
+    { nodeKey: "imageCompress", nameZh: "图片压缩", nameEn: "Image Compress", category: "other", status: "normal", sortOrder: 39, creditsPerCall: 0 },
+    { nodeKey: "three", nameZh: "2D转3D", nameEn: "2D to 3D", category: "other", status: "normal", sortOrder: 40, creditsPerCall: 30 },
   ];
 }

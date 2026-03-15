@@ -53,6 +53,7 @@ import Generate4Node from "./nodes/Generate4Node";
 import GenerateReferenceNode from "./nodes/GenerateReferenceNode";
 import ThreeNode from "./nodes/ThreeNode";
 import CameraNode from "./nodes/CameraNode";
+import ViewAngleNode from "./nodes/ViewAngleNode";
 import PromptOptimizeNode from "./nodes/PromptOptimizeNode";
 import AnalysisNode from "./nodes/AnalyzeNode";
 import Sora2VideoNode from "./nodes/Sora2VideoNode";
@@ -283,6 +284,91 @@ const getGroupChildIds = (node?: RFNode | null): string[] => {
   return Array.from(new Set(ids.filter((id) => typeof id === "string" && id)));
 };
 
+type GroupBounds = { x: number; y: number; width: number; height: number };
+const GROUP_PREVIEW_IMAGE_LIMIT = 3;
+
+const isGroupCollapsed = (node?: RFNode | null): boolean =>
+  Boolean(node && (node as any)?.data?.collapsed === true);
+
+const normalizeGroupBounds = (value: any): GroupBounds | null => {
+  if (!value || typeof value !== "object") return null;
+  const x = Number(value.x);
+  const y = Number(value.y);
+  const width = Number(value.width);
+  const height = Number(value.height);
+  if (
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return null;
+  }
+  return { x, y, width, height };
+};
+
+const areGroupBoundsEqual = (
+  a: GroupBounds | null,
+  b: GroupBounds | null,
+  epsilon = 0.1
+): boolean => {
+  if (!a || !b) return false;
+  return (
+    Math.abs(a.x - b.x) < epsilon &&
+    Math.abs(a.y - b.y) < epsilon &&
+    Math.abs(a.width - b.width) < epsilon &&
+    Math.abs(a.height - b.height) < epsilon
+  );
+};
+
+const collectPreviewImagesFromNode = (node?: RFNode | null): string[] => {
+  if (!node || isGroupNode(node)) return [];
+  const data = (node.data || {}) as Record<string, unknown>;
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  const push = (value: unknown) => {
+    if (typeof value !== "string") return;
+    const normalized = value.trim();
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    out.push(normalized);
+  };
+
+  push(data.thumbnailDataUrl);
+  push(data.thumbnail);
+  push(data.imageUrl);
+  push(data.imageData);
+  push(data.outputImage);
+
+  const multiKeys = ["thumbnails", "imageUrls", "images"];
+  multiKeys.forEach((key) => {
+    const values = data[key];
+    if (!Array.isArray(values)) return;
+    values.forEach((value) => push(value));
+  });
+
+  const frames = Array.isArray(data.frames)
+    ? (data.frames as Array<Record<string, unknown>>)
+    : [];
+  frames.forEach((frame) => {
+    push(frame?.thumbnailDataUrl);
+    push(frame?.imageUrl);
+  });
+
+  const splitImages = Array.isArray(data.splitImages)
+    ? (data.splitImages as Array<Record<string, unknown>>)
+    : [];
+  splitImages.forEach((item) => {
+    push(item?.thumbnailDataUrl);
+    push(item?.imageData);
+  });
+
+  return out;
+};
+
 const getNodeRenderSize = (node: RFNode): { width: number; height: number } => {
   const fallback = FLOW_NODE_DEFAULT_SIZE[node.type as FlowNodeType] || {
     w: 220,
@@ -464,6 +550,7 @@ const nodeTypes = {
   generateRef: GenerateReferenceNode,
   three: ThreeNode,
   camera: CameraNode,
+  viewAngle: ViewAngleNode,
   analysis: AnalysisNode,
   sora2Video: Sora2VideoNode,
   sora2Character: Sora2CharacterNode,
@@ -543,7 +630,7 @@ const CustomEdge = React.memo(function CustomEdge({
   return (
     <>
       <BaseEdge path={edgePath} markerEnd={markerEnd} style={style} />
-      {selected && (
+      {!data?.collapsedProxy && selected && (
         <EdgeLabelRenderer>
           <div
             style={{
@@ -580,6 +667,8 @@ const FLOW_GROUP_NODE_TYPE = "nodeGroup";
 const FLOW_GROUP_PADDING = 24;
 const FLOW_GROUP_MIN_WIDTH = 220;
 const FLOW_GROUP_MIN_HEIGHT = 160;
+const FLOW_GROUP_COLLAPSED_WIDTH = 260;
+const FLOW_GROUP_COLLAPSED_HEIGHT = 128;
 const FLOW_GROUP_DEFAULT_COLOR = "#3b82f6";
 const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "textChat",
@@ -589,6 +678,7 @@ const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "generate",
   "generate4",
   "generateRef",
+  "viewAngle",
   "generatePro",
   "generatePro4",
   "midjourney",
@@ -722,8 +812,8 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "generate", targetHandle: "img" },
     { nodeType: "generate4", targetHandle: "img" },
     { nodeType: "generatePro", targetHandle: "img" },
-    { nodeType: "generatePro4", targetHandle: "img" },
     { nodeType: "generateRef", targetHandle: "image2" },
+    { nodeType: "viewAngle", targetHandle: "img" },
     { nodeType: "analysis", targetHandle: "img" },
     { nodeType: "image", targetHandle: "img" },
     { nodeType: "imagePro", targetHandle: "img" },
@@ -763,6 +853,7 @@ const QUICK_CONNECT_REVERSE_PRESETS: Record<
     { nodeType: "image", sourceHandle: "img" },
     { nodeType: "generate", sourceHandle: "img" },
     { nodeType: "generateRef", sourceHandle: "img" },
+    { nodeType: "viewAngle", sourceHandle: "img" },
     { nodeType: "midjourney", sourceHandle: "img" },
     { nodeType: "nano2", sourceHandle: "img" },
     { nodeType: "camera", sourceHandle: "img" },
@@ -794,6 +885,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   image: 0, // 图片节点 - 不消耗积分
   generate: "10-30", // 生成节点 - gemini-2.5-image (10) 或 gemini-3-pro-image (30)
   generateRef: 30, // 参考图生成节点 - gemini-image-edit 或 gemini-image-blend
+  viewAngle: 30, // 视角变换节点 - 基于参考图编辑
   generate4: 120, // 生成多张图片节点 - 4次 × 30积分
   midjourney: 50, // Midjourney生成 - midjourney-imagine
   three: 30, // 三维节点 - convert-2d-to-3d
@@ -831,12 +923,14 @@ const NODE_PALETTE_ITEMS = [
   { key: "generate", zh: "生成节点", en: "Generate Node", category: "image" },
   { key: "generateRef", zh: "参考图生成节点", en: "Generate Refer", category: "image" },
   { key: "generate4", zh: "生成多张图片节点", en: "Multi Generate", category: "image" },
+  { key: "generatePro", zh: "自定义节点", en: "Agent", category: "image" },
   { key: "midjourney", zh: "Midjourney生成", en: "Midjourney", category: "image" },
   { key: "analysis", zh: "图像分析节点", en: "Analysis Node", category: "image" },
   { key: "imageGrid", zh: "图片拼合节点", en: "Image Grid", category: "image" },
   { key: "imageSplit", zh: "图片分割节点", en: "Image Split", category: "image" },
   { key: "imageCompress", zh: "图片压缩节点", en: "Image Compress", category: "image" },
   { key: "three", zh: "三维节点", en: "3D Node", category: "image" },
+  { key: "viewAngle", zh: "视角变换节点", en: "View Angle", category: "image" },
   // 视频生成节点
   { key: "sora2Video", zh: "Sora2 Pro视频生成", en: "Sora2 Pro", category: "video" },
   { key: "sora2Character", zh: "Sora2角色生成", en: "Sora2 Character", category: "video" },
@@ -860,8 +954,7 @@ const NODE_PALETTE_ITEMS = [
 const BETA_NODE_KEYS = new Set([
   "textPromptPro",
   "imagePro",
-  "generatePro",
-  "generatePro4",
+  "generatePro4", // 临时隐藏：高级四图
 ]);
 
 type NodePanelGroupKey = "text" | "image" | "three" | "other" | "video";
@@ -923,6 +1016,7 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   camera: "image",
   generate: "image",
   generateRef: "image",
+  viewAngle: "image",
   generate4: "image",
   generatePro: "image",
   generatePro4: "image",
@@ -959,13 +1053,6 @@ const BETA_NODE_ITEMS = [
     badge: "Beta",
   },
   { key: "imagePro", zh: "专业图片节点", en: "Image Pro", badge: "Beta" },
-  { key: "generatePro", zh: "专业生成节点", en: "Generate Pro", badge: "Beta" },
-  {
-    key: "generatePro4",
-    zh: "四图专业生成节点",
-    en: "Generate Pro 4",
-    badge: "Beta",
-  },
 ];
 
 const FLOW_NODE_DEFAULT_SIZE = {
@@ -983,6 +1070,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   generate4: { w: 300, h: 240 },
   generateRef: { w: 260, h: 240 },
   three: { w: 280, h: 260 },
+  viewAngle: { w: 420, h: 560 },
   camera: { w: 260, h: 220 },
   analysis: { w: 260, h: 280 },
   sora2Video: { w: 280, h: 260 },
@@ -1667,6 +1755,7 @@ function FlowInner() {
   const altDragStartRef = React.useRef<any>(null);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
   const imageSize = useAIChatStore((state) => state.imageSize);
+  const globalWebSearchEnabled = useAIChatStore((state) => state.enableWebSearch);
   const imageModel = React.useMemo(
     () => getImageModelForProvider(aiProvider),
     [aiProvider]
@@ -1759,6 +1848,13 @@ function FlowInner() {
 
     return merged
       .map((config) => {
+        if (config.nodeKey === "generatePro") {
+          return {
+            ...config,
+            nameZh: "自定义节点",
+            nameEn: "Agent",
+          };
+        }
         if (config.nodeKey === "textNote") {
           return {
             ...config,
@@ -2040,6 +2136,13 @@ function FlowInner() {
           return null;
         }
 
+        const collapsed = isGroupCollapsed(node);
+        const prevExpandedBounds = normalizeGroupBounds(
+          (node as any)?.data?.expandedBounds
+        );
+        const expandedBounds = bounds;
+        const resolvedExpandedBounds = expandedBounds || prevExpandedBounds;
+
         const currentColor =
           typeof node.data?.groupColor === "string" &&
           node.data.groupColor.trim().length > 0
@@ -2055,35 +2158,66 @@ function FlowInner() {
         const sameChildren =
           originalChildIds.length === filteredChildIds.length &&
           originalChildIds.every((id, index) => id === filteredChildIds[index]);
-        const samePosition =
-          Math.abs((node.position?.x ?? 0) - bounds.x) < 0.1 &&
-          Math.abs((node.position?.y ?? 0) - bounds.y) < 0.1;
         const styleW = Number((node as any)?.style?.width);
         const styleH = Number((node as any)?.style?.height);
+        const targetX = collapsed
+          ? Number.isFinite(Number(node.position?.x))
+            ? Number(node.position?.x)
+            : resolvedExpandedBounds?.x ?? 0
+          : bounds.x;
+        const targetY = collapsed
+          ? Number.isFinite(Number(node.position?.y))
+            ? Number(node.position?.y)
+            : resolvedExpandedBounds?.y ?? 0
+          : bounds.y;
+        const targetWidth = collapsed
+          ? FLOW_GROUP_COLLAPSED_WIDTH
+          : bounds.width;
+        const targetHeight = collapsed
+          ? FLOW_GROUP_COLLAPSED_HEIGHT
+          : bounds.height;
+        const samePosition =
+          Math.abs((node.position?.x ?? 0) - targetX) < 0.1 &&
+          Math.abs((node.position?.y ?? 0) - targetY) < 0.1;
         const sameSize =
-          Math.abs((Number.isFinite(styleW) ? styleW : 0) - bounds.width) < 0.1 &&
-          Math.abs((Number.isFinite(styleH) ? styleH : 0) - bounds.height) < 0.1;
+          Math.abs((Number.isFinite(styleW) ? styleW : 0) - targetWidth) < 0.1 &&
+          Math.abs((Number.isFinite(styleH) ? styleH : 0) - targetHeight) < 0.1;
         const sameColor = node.data?.groupColor === currentColor;
         const sameName = node.data?.groupName === currentName;
+        const sameCollapsed = Boolean(node.data?.collapsed) === collapsed;
+        const sameExpandedBounds = areGroupBoundsEqual(
+          prevExpandedBounds,
+          resolvedExpandedBounds
+        );
 
-        if (sameChildren && samePosition && sameSize && sameColor && sameName) {
+        if (
+          sameChildren &&
+          samePosition &&
+          sameSize &&
+          sameColor &&
+          sameName &&
+          sameCollapsed &&
+          sameExpandedBounds
+        ) {
           return node;
         }
 
         changed = true;
         return {
           ...node,
-          position: { x: bounds.x, y: bounds.y },
+          position: { x: targetX, y: targetY },
           data: {
             ...(node.data || {}),
             groupName: currentName,
             groupColor: currentColor,
             childNodeIds: filteredChildIds,
+            collapsed,
+            expandedBounds: resolvedExpandedBounds,
           },
           style: {
             ...(node.style || {}),
-            width: bounds.width,
-            height: bounds.height,
+            width: targetWidth,
+            height: targetHeight,
             zIndex: 0,
           },
         } as RFNode;
@@ -2124,6 +2258,91 @@ function FlowInner() {
       } catch {}
     },
     [setNodes]
+  );
+
+  const toggleGroupCollapsed = React.useCallback(
+    (groupId: string, nextCollapsed?: boolean) => {
+      if (!groupId) return;
+
+      const allNodes = (rf.getNodes?.() || []) as RFNode[];
+      const groupNode = allNodes.find((node) => node.id === groupId);
+      if (!groupNode || !isGroupNode(groupNode)) return;
+
+      const collapsed =
+        typeof nextCollapsed === "boolean"
+          ? nextCollapsed
+          : !isGroupCollapsed(groupNode);
+      const childIds = getGroupChildIds(groupNode);
+      const computedBounds = computeGroupBounds(allNodes, childIds);
+      const fallbackBounds =
+        normalizeGroupBounds((groupNode.data as any)?.expandedBounds) || {
+          x: Number(groupNode.position?.x ?? 0),
+          y: Number(groupNode.position?.y ?? 0),
+          width: Math.max(
+            FLOW_GROUP_MIN_WIDTH,
+            Number((groupNode as any)?.style?.width || 0) || FLOW_GROUP_MIN_WIDTH
+          ),
+          height: Math.max(
+            FLOW_GROUP_MIN_HEIGHT,
+            Number((groupNode as any)?.style?.height || 0) ||
+              FLOW_GROUP_MIN_HEIGHT
+          ),
+        };
+      const expandedBounds = computedBounds || fallbackBounds;
+      const childSet = new Set(childIds);
+
+      let changed = false;
+      setNodes((prev: any[]) =>
+        prev.map((node) => {
+          if (node.id === groupId && isGroupNode(node as RFNode)) {
+            const prevCollapsed = isGroupCollapsed(node as RFNode);
+            const prevExpandedBounds = normalizeGroupBounds(
+              (node.data as any)?.expandedBounds
+            );
+            const sameCollapsed = prevCollapsed === collapsed;
+            const sameExpandedBounds = areGroupBoundsEqual(
+              prevExpandedBounds,
+              expandedBounds
+            );
+            if (sameCollapsed && sameExpandedBounds) {
+              return node;
+            }
+            changed = true;
+            return {
+              ...node,
+              data: {
+                ...(node.data || {}),
+                collapsed,
+                expandedBounds,
+              },
+            };
+          }
+
+          if (collapsed && childSet.has(node.id) && node.selected) {
+            changed = true;
+            return { ...node, selected: false };
+          }
+
+          return node;
+        })
+      );
+
+      if (!changed) return;
+      try {
+        historyService
+          .commit(collapsed ? "flow-group-collapse" : "flow-group-expand")
+          .catch(() => {});
+      } catch {}
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: {
+            message: collapsed ? "分组已折叠" : "分组已展开",
+            type: "success",
+          },
+        })
+      );
+    },
+    [rf, setNodes]
   );
 
   const dissolveGroups = React.useCallback(
@@ -2210,6 +2429,8 @@ function FlowInner() {
         groupName: `分组 ${groupCount + 1}`,
         groupColor: FLOW_GROUP_DEFAULT_COLOR,
         childNodeIds: selectedIds,
+        collapsed: false,
+        expandedBounds: bounds,
       },
       selected: true,
       draggable: true,
@@ -5055,6 +5276,8 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
               prompts: [""],
+              title: "Agent",
+              enableWebSearch: false,
             }
           : type === "generatePro4"
           ? {
@@ -5063,6 +5286,7 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
               prompts: [""],
+              enableWebSearch: false,
             }
           : type === "generate4"
           ? {
@@ -5076,6 +5300,24 @@ function FlowInner() {
           ? {
               status: "idle" as const,
               referencePrompt: undefined,
+              boxW: size.w,
+              boxH: size.h,
+            }
+          : type === "viewAngle"
+          ? {
+              status: "idle" as const,
+              generatedPrompt:
+                "Redraw this image and change the perspective, <sks>, right quarter, eye-level, cowboy shot, standard lens",
+              promptSuffix: "",
+              azimuth: 45,
+              elevation: 0,
+              distance: 4,
+              zoom: 1,
+              sceneYaw: 0,
+              directionId: "front-right-quarter",
+              verticalId: "eye-level",
+              shotId: "cowboy-shot",
+              lensId: "standard",
               boxW: size.w,
               boxH: size.h,
             }
@@ -5638,6 +5880,7 @@ function FlowInner() {
           "generatePro",
           "generatePro4",
           "generateRef",
+          "viewAngle",
           "three",
           "camera",
           "imageGrid",
@@ -5667,6 +5910,7 @@ function FlowInner() {
             "generatePro",
             "generatePro4",
             "generateRef",
+            "viewAngle",
             "three",
             "camera",
           ].includes(sourceNode.type || "");
@@ -5679,6 +5923,7 @@ function FlowInner() {
             "generatePro",
             "generatePro4",
             "generateRef",
+            "viewAngle",
             "three",
             "camera",
           ].includes(sourceNode.type || "");
@@ -5692,6 +5937,11 @@ function FlowInner() {
       ) {
         if (targetHandle === "text")
           return textSourceTypes.includes(sourceNode.type || "");
+        if (targetHandle === "img")
+          return isImageSource(sourceNode, sourceHandle);
+        return false;
+      }
+      if (targetNode.type === "viewAngle") {
         if (targetHandle === "img")
           return isImageSource(sourceNode, sourceHandle);
         return false;
@@ -5926,6 +6176,7 @@ function FlowInner() {
             "generate",
             "generate4",
             "generateRef",
+            "viewAngle",
             "generatePro",
             "generatePro4",
             "midjourney",
@@ -5996,6 +6247,9 @@ function FlowInner() {
         if (params.targetHandle === "img") return true; // 允许连接，新线会替换旧线
       }
       if (targetNode?.type === "imagePro") {
+        if (params.targetHandle === "img") return true; // 允许连接，新线会替换旧线
+      }
+      if (targetNode?.type === "viewAngle") {
         if (params.targetHandle === "img") return true; // 允许连接，新线会替换旧线
       }
       if (targetNode?.type === "promptOptimize") {
@@ -6125,6 +6379,7 @@ function FlowInner() {
         if (
           (tgt?.type === "image" ||
             tgt?.type === "imagePro" ||
+            tgt?.type === "viewAngle" ||
             tgt?.type === "analysis") &&
           params.targetHandle === "img"
         ) {
@@ -7113,7 +7368,13 @@ function FlowInner() {
       // 根据节点类型创建默认数据
       const newData =
         detail.nodeType === "generatePro"
-          ? { status: "idle" as const, prompts: [""], imageWidth: 296 }
+          ? {
+              status: "idle" as const,
+              prompts: [""],
+              imageWidth: 296,
+              title: "Agent",
+              enableWebSearch: false,
+            }
           : { status: "idle" as const };
 
       // 添加新节点
@@ -10031,6 +10292,7 @@ function FlowInner() {
         node.type !== "generate" &&
         node.type !== "generate4" &&
         node.type !== "generateRef" &&
+        node.type !== "viewAngle" &&
         node.type !== "generatePro" &&
         node.type !== "generatePro4"
       )
@@ -10064,6 +10326,21 @@ function FlowInner() {
         prompt = pieces.join("，").trim();
         if (!prompt.length) {
           failWithMessage("提示词为空");
+          return;
+        }
+      } else if (node.type === "viewAngle") {
+        const base = (() => {
+          const raw = (node.data as any)?.generatedPrompt;
+          return typeof raw === "string" ? raw.trim() : "";
+        })();
+        const suffix = (() => {
+          const raw = (node.data as any)?.promptSuffix;
+          return typeof raw === "string" ? raw.trim() : "";
+        })();
+        const promptParts = [base, suffix].filter(Boolean);
+        prompt = promptParts.join(", ").trim();
+        if (!prompt.length) {
+          failWithMessage("视角提示词为空");
           return;
         }
       } else if (node.type === "generatePro" || node.type === "generatePro4") {
@@ -10134,6 +10411,15 @@ function FlowInner() {
           ...(await resolveEdgesAsDataUrls(primaryEdges)),
           ...(await resolveEdgesAsDataUrls(referEdges)),
         ];
+      } else if (node.type === "viewAngle") {
+        const inputEdges = currentEdges
+          .filter((e) => e.target === nodeId && e.targetHandle === "img")
+          .slice(0, 1);
+        imageDatas = await resolveEdgesAsDataUrls(inputEdges);
+        if (imageDatas.length === 0) {
+          failWithMessage("缺少图片输入");
+          return;
+        }
       } else {
         const imgEdges = currentEdges
           .filter((e) => e.target === nodeId && e.targetHandle === "img")
@@ -10172,11 +10458,17 @@ function FlowInner() {
         node.type === "generate" && aiProvider === "banana-2.5"
           ? undefined
           : nodeSizeValue || imageSize || undefined;
+      const enableWebSearchForNode =
+        (node.type === "generatePro" || node.type === "generatePro4") &&
+        Boolean((node.data as any)?.enableWebSearch ?? globalWebSearchEnabled);
 
       // 根据节点类型和全局模式选择模型
       const nodeSpecificModel = (() => {
-        // generatePro/generatePro4 始终使用 pro 模型
+        // 专业生图节点：默认走 Pro；Ultra(3.1) 时切到 3.1 链路
         if (node.type === "generatePro" || node.type === "generatePro4") {
+          if (aiProvider === "banana-3.1" || aiProvider === "nano2") {
+            return "gemini-3.1-flash-image-preview";
+          }
           return "gemini-3-pro-image-preview";
         }
         // 其他节点（包括 generate/generate4/image 等）使用全局模型设置
@@ -10239,6 +10531,11 @@ function FlowInner() {
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
+                ...(enableWebSearchForNode ? {
+                  enableWebSearch: true,
+                  googleSearch: true,
+                  googleImageSearch: true,
+                } : {}),
               });
             } else if (imageDatas.length === 1) {
               result = await editImageViaAPI({
@@ -10478,6 +10775,11 @@ function FlowInner() {
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
+                ...(enableWebSearchForNode ? {
+                  enableWebSearch: true,
+                  googleSearch: true,
+                  googleImageSearch: true,
+                } : {}),
               });
             } else if (imageDatas.length === 1) {
               result = await editImageViaAPI({
@@ -10723,6 +11025,7 @@ function FlowInner() {
             model: nodeSpecificModel,
             aspectRatio: effectiveAspectRatio,
             imageSize: effectiveImageSize,
+            ...(enableWebSearchForNode ? { enableWebSearch: true } : {}),
           });
         } else if (imageDatas.length === 1) {
           console.log('[FlowOverlay] editImage调用参数:', { aiProvider, model: nodeSpecificModel, imageModel });
@@ -10830,6 +11133,8 @@ function FlowInner() {
                   ? "GeneratePro"
                   : node.type === "generateRef"
                   ? "GenerateRef"
+                  : node.type === "viewAngle"
+                  ? "ViewAngle"
                   : "Generate"
               } ${new Date().toLocaleTimeString()}`,
               nodeId,
@@ -10900,7 +11205,7 @@ function FlowInner() {
         );
       }
     },
-    [aiProvider, imageModel, rf, setNodes, appendSora2History, appendVideoHistory]
+    [aiProvider, globalWebSearchEnabled, imageModel, rf, setNodes, appendSora2History, appendVideoHistory]
   );
 
   // 定义稳定的onSend回调
@@ -11819,6 +12124,56 @@ function FlowInner() {
     [clearConnectHoverTimer, setIsConnecting]
   );
 
+  const collapsedChildToGroupId = React.useMemo(() => {
+    const hidden = new Map<string, string>();
+    nodes.forEach((node) => {
+      if (!isGroupNode(node as RFNode) || !isGroupCollapsed(node as RFNode)) {
+        return;
+      }
+      const groupId = String(node.id);
+      getGroupChildIds(node as RFNode).forEach((childId) => {
+        if (!hidden.has(childId)) {
+          hidden.set(childId, groupId);
+        }
+      });
+    });
+    return hidden;
+  }, [nodes]);
+
+  const collapsedChildNodeIds = React.useMemo(
+    () => new Set(Array.from(collapsedChildToGroupId.keys())),
+    [collapsedChildToGroupId]
+  );
+
+  const groupPreviewImagesByGroupId = React.useMemo(() => {
+    const nodeById = new Map(nodes.map((node) => [node.id, node as RFNode]));
+    const previews = new Map<string, string[]>();
+
+    nodes.forEach((node) => {
+      if (!isGroupNode(node as RFNode)) return;
+      const childIds = getGroupChildIds(node as RFNode);
+      const images: string[] = [];
+      const seen = new Set<string>();
+
+      for (const childId of childIds) {
+        const childNode = nodeById.get(childId);
+        if (!childNode || isGroupNode(childNode)) continue;
+        const candidates = collectPreviewImagesFromNode(childNode);
+        for (const value of candidates) {
+          if (seen.has(value)) continue;
+          seen.add(value);
+          images.push(value);
+          if (images.length >= GROUP_PREVIEW_IMAGE_LIMIT) break;
+        }
+        if (images.length >= GROUP_PREVIEW_IMAGE_LIMIT) break;
+      }
+
+      previews.set(String(node.id), images);
+    });
+
+    return previews;
+  }, [nodes]);
+
   // 在 node 渲染前为 Generate 节点注入 onRun 回调
   const nodesWithHandlers = React.useMemo(
     () =>
@@ -11834,11 +12189,16 @@ function FlowInner() {
                 onUngroup: (groupId: string) => dissolveGroups([groupId]),
                 onRunGroup: runGroupNodes,
                 groupRunning: runningGroupIds.includes(n.id),
+                onToggleCollapse: toggleGroupCollapsed,
+                groupCollapsed: isGroupCollapsed(n as RFNode),
+                groupChildCount: getGroupChildIds(n as RFNode).length,
+                groupPreviewImages: groupPreviewImagesByGroupId.get(String(n.id)) || [],
               },
             }
           : n.type === "generate" ||
         n.type === "generate4" ||
         n.type === "generateRef" ||
+        n.type === "viewAngle" ||
         n.type === "generatePro" ||
         n.type === "generatePro4" ||
         n.type === "midjourney" ||
@@ -11870,7 +12230,93 @@ function FlowInner() {
       dissolveGroups,
       runGroupNodes,
       runningGroupIds,
+      toggleGroupCollapsed,
+      groupPreviewImagesByGroupId,
     ]
+  );
+
+  const nodesForRender = React.useMemo(
+    () =>
+      nodesWithHandlers.map((node) => {
+        if (!collapsedChildNodeIds.has(node.id)) return node;
+        return {
+          ...node,
+          hidden: true,
+          selected: false,
+          draggable: false,
+          selectable: false,
+        };
+      }),
+    [nodesWithHandlers, collapsedChildNodeIds]
+  );
+
+  const edgesForRender = React.useMemo(
+    () => {
+      const mapped: Edge[] = [];
+      edges.forEach((edge) => {
+        const sourceGroupId = collapsedChildToGroupId.get(edge.source);
+        const targetGroupId = collapsedChildToGroupId.get(edge.target);
+        const baseData =
+          edge.data && typeof edge.data === "object"
+            ? (edge.data as Record<string, unknown>)
+            : {};
+
+        if (!sourceGroupId && !targetGroupId) {
+          mapped.push({
+            ...edge,
+            hidden: false,
+            data: {
+              ...baseData,
+              collapsedProxy: false,
+              originalEdgeId: edge.id,
+              sourceGroupId: undefined,
+              targetGroupId: undefined,
+            },
+          });
+          return;
+        }
+
+        if (sourceGroupId && targetGroupId && sourceGroupId === targetGroupId) {
+          mapped.push({
+            ...edge,
+            hidden: true,
+            selected: false,
+            data: {
+              ...baseData,
+              collapsedProxy: true,
+              collapsedInternal: true,
+              originalEdgeId: edge.id,
+              sourceGroupId,
+              targetGroupId,
+            },
+          });
+          return;
+        }
+
+        mapped.push({
+          ...edge,
+          hidden: false,
+          source: sourceGroupId || edge.source,
+          target: targetGroupId || edge.target,
+          sourceHandle: sourceGroupId
+            ? "group-proxy-source"
+            : edge.sourceHandle,
+          targetHandle: targetGroupId
+            ? "group-proxy-target"
+            : edge.targetHandle,
+          selected: false,
+          data: {
+            ...baseData,
+            collapsedProxy: true,
+            originalEdgeId: edge.id,
+            sourceGroupId,
+            targetGroupId,
+          },
+        });
+      });
+      return mapped;
+    },
+    [edges, collapsedChildToGroupId]
   );
 
   // 简单的全局调试API，便于从控制台添加节点
@@ -12123,7 +12569,7 @@ function FlowInner() {
             : type === "generate"
             ? { status: "idle", presetPrompt: "" }
             : type === "generatePro"
-            ? { status: "idle", prompts: [""] }
+            ? { status: "idle", prompts: [""], title: "Agent", enableWebSearch: false }
             : type === "generate4"
             ? { status: "idle", images: [], count: 4 }
             : type === "generateRef"
@@ -12145,9 +12591,13 @@ function FlowInner() {
   const flowUIEnabled = useUIStore((s) => s.flowUIEnabled);
   const selectedNonGroupNodeCount = React.useMemo(
     () =>
-      nodes.filter((node) => node.selected && !isGroupNode(node as RFNode))
-        .length,
-    [nodes]
+      nodes.filter(
+        (node) =>
+          node.selected &&
+          !isGroupNode(node as RFNode) &&
+          !collapsedChildNodeIds.has(node.id)
+      ).length,
+    [nodes, collapsedChildNodeIds]
   );
   const selectedGroupIds = React.useMemo(
     () => getSelectedGroupIds(nodes as RFNode[]),
@@ -12975,8 +13425,8 @@ function FlowInner() {
     >
       {FlowToolbar}
       <ReactFlow
-        nodes={nodesWithHandlers}
-        edges={edges}
+        nodes={nodesForRender}
+        edges={edgesForRender}
         onNodesChange={onNodesChangeWithHistory}
         onEdgesChange={onEdgesChangeWithHistory}
         defaultViewport={initialViewport}

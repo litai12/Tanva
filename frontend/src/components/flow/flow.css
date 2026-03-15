@@ -38,6 +38,18 @@
   pointer-events: auto;
 }
 
+.tanva-flow-overlay .tanva-node-group .tanva-node-group-color-control {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.tanva-flow-overlay .tanva-node-group:hover .tanva-node-group-color-control,
+.tanva-flow-overlay .tanva-node-group:focus-within .tanva-node-group-color-control {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .tanva-flow-overlay .tanva-node-group .tanva-node-group-footer {
   transition: opacity 0.15s ease;
 }

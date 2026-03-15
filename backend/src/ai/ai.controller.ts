@@ -94,6 +94,24 @@ export class AiController {
     seedream5: 'gemini-3-flash-preview',
   };
 
+  private getHttpErrorMessage(status: number): string {
+    const messages: Record<number, string> = {
+      400: '请求参数错误，请检查输入内容',
+      401: 'API密钥无效或已过期，请检查配置',
+      403: '权限不足，无法访问该服务',
+      404: '请求的资源不存在',
+      408: '请求超时，请重试',
+      413: '请求数据过大，请压缩图片或减小文件大小',
+      429: '请求过于频繁，请稍后重试',
+      500: '服务器内部错误，请稍后重试',
+      502: '网关错误，服务暂时不可用',
+      503: '服务暂时不可用，请稍后重试',
+      504: '网关超时，请稍后重试',
+      524: '服务器处理超时，请稍后重试或简化请求内容',
+    };
+    return messages[status] || `服务器返回错误 ${status}`;
+  }
+
   constructor(
     private readonly ai: AiService,
     private readonly imageGeneration: ImageGenerationService,
@@ -2170,7 +2188,7 @@ export class AiController {
 
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
-          return { success: false, error: { code: `HTTP_${response.status}`, message: data?.message || `DashScope HTTP ${response.status}`, details: data } };
+          return { success: false, error: { code: `HTTP_${response.status}`, message: data?.message || this.getHttpErrorMessage(response.status), details: data } };
         }
 
         const extractVideoUrl = (obj: any) => obj?.output?.video_url || obj?.video_url || obj?.videoUrl || (Array.isArray(obj?.output) && obj.output[0]?.video_url) || undefined;
@@ -2247,7 +2265,7 @@ export class AiController {
             success: false,
             error: {
               code: `HTTP_${response.status}`,
-              message: data?.message || `DashScope HTTP ${response.status}`,
+              message: data?.message || this.getHttpErrorMessage(response.status),
               details: data,
             },
           };
@@ -2386,7 +2404,7 @@ export class AiController {
             success: false,
             error: {
               code: `HTTP_${response.status}`,
-              message: data?.message || `DashScope HTTP ${response.status}`,
+              message: data?.message || this.getHttpErrorMessage(response.status),
               details: data,
             },
           };
