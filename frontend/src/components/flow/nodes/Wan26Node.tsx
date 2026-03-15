@@ -38,6 +38,38 @@ type Props = {
   selected?: boolean;
 };
 
+const SUPPORTED_AUDIO_EXTENSIONS = [
+  "mp3",
+  "wav",
+  "aac",
+  "m4a",
+  "ogg",
+  "opus",
+  "flac",
+  "webm",
+  "weba",
+  "amr",
+  "aiff",
+  "aif",
+  "wma",
+];
+
+const SUPPORTED_AUDIO_PATTERN = new RegExp(
+  `\\.(${SUPPORTED_AUDIO_EXTENSIONS.join("|")})$`,
+  "i"
+);
+
+const SUPPORTED_AUDIO_ACCEPT = SUPPORTED_AUDIO_EXTENSIONS.map((ext) => `.${ext}`).join(",");
+
+const isSupportedAudioFile = (file: File): boolean => {
+  const mime = (file.type || "").toLowerCase();
+  if (mime.startsWith("audio/")) {
+    return true;
+  }
+  const name = (file.name || "").trim();
+  return SUPPORTED_AUDIO_PATTERN.test(name);
+};
+
 function Wan26Node({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const projectId = useProjectContentStore((s) => s.projectId);
@@ -277,10 +309,13 @@ function Wan26Node({ id, data, selected }: Props) {
       if (!file) return;
       setMessage(null);
       const maxSize = 15 * 1024 * 1024;
-      const name = file.name || "";
-      const ext = (name.split(".").pop() || "").toLowerCase();
-      if (!["mp3", "wav"].includes(ext) && !file.type.startsWith("audio/")) {
-        setMessage(lt("仅支持 mp3/wav 音频", "Only mp3/wav audio is supported"));
+      if (!isSupportedAudioFile(file)) {
+        setMessage(
+          lt(
+            "不支持的音频格式，请上传常见音频文件",
+            "Unsupported audio format, please upload a common audio file"
+          )
+        );
         return;
       }
       if (file.size > maxSize) {
@@ -450,7 +485,7 @@ function Wan26Node({ id, data, selected }: Props) {
         type="target"
         position={Position.Left}
         id="text"
-        style={{ top: "32%" }}
+        style={{ top: "26%" }}
         onMouseEnter={() => setHover("text-in")}
         onMouseLeave={() => setHover(null)}
       />
@@ -458,8 +493,16 @@ function Wan26Node({ id, data, selected }: Props) {
         type="target"
         position={Position.Left}
         id="image"
-        style={{ top: "60%" }}
+        style={{ top: "50%" }}
         onMouseEnter={() => setHover("image-in")}
+        onMouseLeave={() => setHover(null)}
+      />
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="audio"
+        style={{ top: "74%" }}
+        onMouseEnter={() => setHover("audio-in")}
         onMouseLeave={() => setHover(null)}
       />
       <Handle
@@ -475,7 +518,7 @@ function Wan26Node({ id, data, selected }: Props) {
       {hover === "text-in" && (
         <div
           className="flow-tooltip"
-          style={{ left: -8, top: "32%", transform: "translate(-100%, -50%)" }}
+          style={{ left: -8, top: "26%", transform: "translate(-100%, -50%)" }}
         >
           prompt
         </div>
@@ -483,9 +526,17 @@ function Wan26Node({ id, data, selected }: Props) {
       {hover === "image-in" && (
         <div
           className="flow-tooltip"
-          style={{ left: -8, top: "60%", transform: "translate(-100%, -50%)" }}
+          style={{ left: -8, top: "50%", transform: "translate(-100%, -50%)" }}
         >
           image
+        </div>
+      )}
+      {hover === "audio-in" && (
+        <div
+          className="flow-tooltip"
+          style={{ left: -8, top: "74%", transform: "translate(-100%, -50%)" }}
+        >
+          audio
         </div>
       )}
       {hover === "video-out" && (
@@ -957,7 +1008,7 @@ function Wan26Node({ id, data, selected }: Props) {
             )}
           </div>
           <div style={{ fontSize: 10, color: "#94a3b8" }}>
-            mp3/wav · 3-30s
+            {lt("常见音频格式 · 3-30s", "Common audio formats · 3-30s")}
           </div>
         </div>
         <div style={{ display: "flex", gap: 4 }}>
@@ -1013,7 +1064,7 @@ function Wan26Node({ id, data, selected }: Props) {
         <input
           ref={fileInputRef}
           type="file"
-          accept="audio/mp3,audio/wav,.mp3,.wav"
+          accept={SUPPORTED_AUDIO_ACCEPT}
           style={{ display: "none" }}
           onChange={handleFileChange}
         />

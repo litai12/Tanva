@@ -57,6 +57,36 @@ const PROVIDER_CONFIG: Record<VideoProvider, { name: string; zh: string }> = {
   doubao: { name: "Seedance", zh: "Seedance" },
 };
 
+const SUPPORTED_AUDIO_EXTENSIONS = [
+  "mp3",
+  "wav",
+  "aac",
+  "m4a",
+  "ogg",
+  "opus",
+  "flac",
+  "webm",
+  "weba",
+  "amr",
+  "aiff",
+  "aif",
+  "wma",
+];
+
+const SUPPORTED_AUDIO_PATTERN = new RegExp(
+  `\\.(${SUPPORTED_AUDIO_EXTENSIONS.join("|")})$`,
+  "i"
+);
+
+const SUPPORTED_AUDIO_ACCEPT = SUPPORTED_AUDIO_EXTENSIONS.map((ext) => `.${ext}`).join(",");
+
+const isSupportedAudioFile = (file: File): boolean => {
+  const mime = (file.type || "").toLowerCase();
+  if (mime.startsWith("audio/")) return true;
+  const name = (file.name || "").trim();
+  return SUPPORTED_AUDIO_PATTERN.test(name);
+};
+
 function GenericVideoNodeInner({ id, data, selected }: Props) {
   const { lt, isZh } = useLocaleText();
   const borderColor = selected ? "#2563eb" : "#e5e7eb";
@@ -405,11 +435,13 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         const uploadedUrls: string[] = [];
 
         for (const file of incomingFiles) {
-          const isSupported =
-            ["mp3", "wav"].includes(file.name.split(".").pop()?.toLowerCase() || "") ||
-            file.type.startsWith("audio/");
-          if (!isSupported) {
-            throw new Error(lt("仅支持 mp3/wav 音频", "Only mp3/wav audio is supported"));
+          if (!isSupportedAudioFile(file)) {
+            throw new Error(
+              lt(
+                "不支持的音频格式，请上传常见音频文件",
+                "Unsupported audio format, please upload a common audio file"
+              )
+            );
           }
 
           const objectUrl = URL.createObjectURL(file);
@@ -1278,7 +1310,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             <input
               ref={audioInputRef}
               type='file'
-              accept='audio/mp3,audio/wav,.mp3,.wav'
+              accept={SUPPORTED_AUDIO_ACCEPT}
               multiple
               onChange={handleAudioInputChange}
               style={{ display: "none" }}

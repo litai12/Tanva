@@ -26,6 +26,7 @@ import { VideoWatermarkService } from './services/video-watermark.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { Nano2Service } from './services/nano2.service';
 import { Seedream5Service } from './services/seedream5.service';
+import { MinimaxSpeechService } from './services/minimax-speech.service';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { Seedream5Service } from './services/seedream5.service';
     VideoWatermarkService,
     Nano2Service,
     Seedream5Service,
+    MinimaxSpeechService,
     ImageTaskService, // 添加图像任务服务
     ApiKeyOrJwtGuard,
   ],

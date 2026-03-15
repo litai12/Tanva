@@ -9,7 +9,7 @@ export interface NodeConfig {
   nodeKey: string;
   nameZh: string;
   nameEn: string;
-  category: "input" | "image" | "video" | "other";
+  category: "input" | "image" | "video" | "audio" | "other";
   status: "normal" | "maintenance" | "coming_soon" | "disabled";
   statusMessage?: string;
   creditsPerCall: number;
@@ -127,5 +127,7 @@ function getDefaultConfigs(): NodeConfig[] {
     { nodeKey: "imageSplit", nameZh: "图片拆分", nameEn: "Split", category: "other", status: "normal", sortOrder: 38, creditsPerCall: 0 },
     { nodeKey: "imageCompress", nameZh: "图片压缩", nameEn: "Image Compress", category: "other", status: "normal", sortOrder: 39, creditsPerCall: 0 },
     { nodeKey: "three", nameZh: "2D转3D", nameEn: "2D to 3D", category: "other", status: "normal", sortOrder: 40, creditsPerCall: 30 },
+    { nodeKey: "audioUpload", nameZh: "语音节点", nameEn: "Audio Node", category: "audio", status: "normal", sortOrder: 41, creditsPerCall: 0 },
+    { nodeKey: "minimaxSpeech", nameZh: "MiniMax语音合成", nameEn: "MiniMax Speech", category: "audio", status: "normal", sortOrder: 42, creditsPerCall: 10, serviceType: "minimax-speech" },
   ];
 }

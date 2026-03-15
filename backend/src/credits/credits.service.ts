@@ -18,6 +18,7 @@ const STALE_PENDING_DEFAULT_TIMEOUT_MINUTES = 15;
 const STALE_PENDING_DEFAULT_BATCH_SIZE = 200;
 const DEFAULT_FREE_USER_MONTHLY_IMAGE_LIMIT = 100;
 const DEFAULT_FREE_USER_DAILY_IMAGE_LIMIT = 20;
+const DEFAULT_FREE_USER_DAILY_VIDEO_LIMIT = 3;
 const STALE_PENDING_IMAGE_SERVICE_TYPES: ServiceType[] = [
   'gemini-3-pro-image',
   'gemini-3.1-image',
@@ -35,6 +36,18 @@ const FREE_USER_IMAGE_LIMITED_SERVICES: ServiceType[] = [
   ...STALE_PENDING_IMAGE_SERVICE_TYPES,
   'midjourney-upscale',
   'expand-image',
+];
+const FREE_USER_VIDEO_LIMITED_SERVICES: ServiceType[] = [
+  'sora-sd',
+  'sora-hd',
+  'wan26-video',
+  'wan26-r2v',
+  'kling-video',
+  'kling-2.6-video',
+  'kling-o3-video',
+  'vidu-video',
+  'viduq3-pro-video',
+  'doubao-video',
 ];
 
 export interface DeductCreditsResult {
@@ -70,6 +83,9 @@ export class CreditsService {
   private readonly logger = new Logger(CreditsService.name);
   private readonly freeUserImageQuotaServiceTypes = new Set<ServiceType>(
     FREE_USER_IMAGE_LIMITED_SERVICES,
+  );
+  private readonly freeUserVideoQuotaServiceTypes = new Set<ServiceType>(
+    FREE_USER_VIDEO_LIMITED_SERVICES,
   );
 
   constructor(
@@ -252,8 +268,24 @@ export class CreditsService {
     return parsed;
   }
 
+  private getFreeUserDailyVideoLimit(): number {
+    const raw = process.env.FREE_USER_DAILY_VIDEO_LIMIT;
+    if (raw === undefined || raw.trim() === '') {
+      return DEFAULT_FREE_USER_DAILY_VIDEO_LIMIT;
+    }
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return DEFAULT_FREE_USER_DAILY_VIDEO_LIMIT;
+    }
+    return parsed;
+  }
+
   private isFreeUserImageQuotaService(serviceType: ServiceType): boolean {
     return this.freeUserImageQuotaServiceTypes.has(serviceType);
+  }
+
+  private isFreeUserVideoQuotaService(serviceType: ServiceType): boolean {
+    return this.freeUserVideoQuotaServiceTypes.has(serviceType);
   }
 
   private resolveImageQuotaRequestCount(requestedOutputImageCount?: number): number {
@@ -308,7 +340,14 @@ export class CreditsService {
     return (knownCountAggregate._sum.outputImageCount ?? 0) + unknownCount;
   }
 
-  private async isImageQuotaExemptUser(
+  private async countVideoQuotaUsage(
+    client: PrismaService | Prisma.TransactionClient,
+    where: Prisma.ApiUsageRecordWhereInput,
+  ): Promise<number> {
+    return client.apiUsageRecord.count({ where });
+  }
+
+  private async isUsageQuotaExemptUser(
     client: PrismaService | Prisma.TransactionClient,
     userId: string,
   ): Promise<boolean> {
@@ -346,7 +385,7 @@ export class CreditsService {
     if (monthlyLimit <= 0 && dailyLimit <= 0) return;
     if (!this.isFreeUserImageQuotaService(serviceType)) return;
 
-    const isQuotaExemptUser = await this.isImageQuotaExemptUser(client, userId);
+    const isQuotaExemptUser = await this.isUsageQuotaExemptUser(client, userId);
     if (isQuotaExemptUser) return;
 
     const requestedCount = this.resolveImageQuotaRequestCount(requestedOutputImageCount);
@@ -398,7 +437,45 @@ export class CreditsService {
     }
   }
 
-  async assertFreeUserImageQuota(
+  private async enforceFreeUserVideoQuota(
+    client: PrismaService | Prisma.TransactionClient,
+    params: {
+      userId: string;
+      serviceType: ServiceType;
+    },
+  ): Promise<void> {
+    const { userId, serviceType } = params;
+    const dailyLimit = this.getFreeUserDailyVideoLimit();
+
+    if (dailyLimit <= 0) return;
+    if (!this.isFreeUserVideoQuotaService(serviceType)) return;
+
+    const isQuotaExemptUser = await this.isUsageQuotaExemptUser(client, userId);
+    if (isQuotaExemptUser) return;
+
+    const { start, end, label } = this.getUtcDayRange(new Date());
+    const usedCount = await this.countVideoQuotaUsage(client, {
+      userId,
+      serviceType: { in: FREE_USER_VIDEO_LIMITED_SERVICES },
+      responseStatus: { in: [ApiResponseStatus.PENDING, ApiResponseStatus.SUCCESS] },
+      createdAt: {
+        gte: start,
+        lt: end,
+      },
+    });
+    const requestedCount = 1;
+
+    if (usedCount + requestedCount > dailyLimit) {
+      this.logger.warn(
+        `免费用户日生视频配额超限 userId=${userId} day=${label} used=${usedCount} requested=${requestedCount} limit=${dailyLimit}`,
+      );
+      throw new BadRequestException(
+        `免费用户每天最多可生成视频 ${dailyLimit} 个（UTC ${label}）。今日已使用 ${usedCount} 个，本次请求 ${requestedCount} 个。请明天再试或充值解锁。`,
+      );
+    }
+  }
+
+  async assertFreeUserUsageQuota(
     userId: string,
     serviceType: ServiceType,
     requestedOutputImageCount?: number,
@@ -408,6 +485,18 @@ export class CreditsService {
       serviceType,
       requestedOutputImageCount,
     });
+    await this.enforceFreeUserVideoQuota(this.prisma, {
+      userId,
+      serviceType,
+    });
+  }
+
+  async assertFreeUserImageQuota(
+    userId: string,
+    serviceType: ServiceType,
+    requestedOutputImageCount?: number,
+  ): Promise<void> {
+    await this.assertFreeUserUsageQuota(userId, serviceType, requestedOutputImageCount);
   }
 
   /**
@@ -627,6 +716,10 @@ export class CreditsService {
         userId,
         serviceType,
         requestedOutputImageCount: outputImageCount,
+      });
+      await this.enforceFreeUserVideoQuota(tx, {
+        userId,
+        serviceType,
       });
 
       if (account.balance < creditsToDeduct) {

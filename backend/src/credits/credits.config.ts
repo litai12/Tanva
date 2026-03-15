@@ -234,6 +234,12 @@ export const CREDIT_PRICING_CONFIG = {
     creditsPerCall: 600,
     description: '使用Seedance 1.5 Pro 生成视频',
   },
+  'minimax-speech': {
+    serviceName: 'MiniMax 语音合成',
+    provider: 'minimax',
+    creditsPerCall: 10,
+    description: '使用 MiniMax 进行文本转语音合成',
+  },
   'doubao-seedream-5-0-260128': {
     serviceName: 'Seedream 5.0 图像生成',
     provider: 'seedream5',

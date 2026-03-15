@@ -1,6 +1,6 @@
 import type { Node, Edge } from 'reactflow';
 
-export type NodeKind = 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generatePro' | 'storyboardSplit' | 'imageSplit' | 'imageCompress';
+export type NodeKind = 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generatePro' | 'storyboardSplit' | 'imageSplit' | 'imageCompress' | 'audioUpload' | 'minimaxSpeech';
 
 export type TextPromptData = {
   text?: string;
@@ -126,7 +126,58 @@ export type ImageCompressData = {
   boxH?: number;
 };
 
-export type AnyNodeData = TextPromptData | PromptOptimizeData | ImageData | GenerateData | GenerateProData | Generate4Data | TextChatData | StoryboardSplitData | ImageSplitData | ImageCompressData;
+export type MinimaxSpeechData = {
+  status?: 'idle' | 'running' | 'succeeded' | 'failed';
+  audioUrl?: string;
+  error?: string;
+  text?: string;
+  history?: Array<{
+    id: string;
+    prompt: string;
+    audioUrl: string;
+    createdAt: number;
+    voiceId?: string;
+    emotion?:
+      | 'happy'
+      | 'sad'
+      | 'angry'
+      | 'fearful'
+      | 'disgusted'
+      | 'surprised'
+      | 'calm'
+      | 'fluent'
+      | 'whisper';
+  }>;
+  selectedHistoryId?: string;
+  voiceId?: string;
+  model?: string;
+  outputFormat?: 'hex' | 'url';
+  audioMode?: 'json' | 'hex';
+  emotion?:
+    | 'happy'
+    | 'sad'
+    | 'angry'
+    | 'fearful'
+    | 'disgusted'
+    | 'surprised'
+    | 'calm'
+    | 'fluent'
+    | 'whisper';
+  soundEffects?: Array<'spacious_echo' | 'auditorium_echo' | 'lofi_telephone' | 'robotic'>;
+};
+
+export type AudioUploadData = {
+  status?: 'idle' | 'uploading' | 'ready' | 'error';
+  audioUrl?: string;
+  audioName?: string;
+  mimeType?: string;
+  duration?: number;
+  error?: string;
+  boxW?: number;
+  boxH?: number;
+};
+
+export type AnyNodeData = TextPromptData | PromptOptimizeData | ImageData | GenerateData | GenerateProData | Generate4Data | TextChatData | StoryboardSplitData | ImageSplitData | ImageCompressData | AudioUploadData | MinimaxSpeechData;
 
 export type AnyNode = Node<AnyNodeData>;
 export type AnyEdge = Edge;
