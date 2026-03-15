@@ -2255,7 +2255,7 @@ export class AiController {
             success: false,
             error: {
               code: `HTTP_${response.status}`,
-              message: data?.message || `DashScope HTTP ${response.status}`,
+              message: data?.message || this.getHttpErrorMessage(response.status),
               details: data,
             },
           };
@@ -2394,7 +2394,7 @@ export class AiController {
             success: false,
             error: {
               code: `HTTP_${response.status}`,
-              message: data?.message || `DashScope HTTP ${response.status}`,
+              message: data?.message || this.getHttpErrorMessage(response.status),
               details: data,
             },
           };
