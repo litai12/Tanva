@@ -9003,7 +9003,7 @@ function FlowInner() {
         if (node.type === "klingO1Video") {
           provider = "kling-o3";
         } else if (node.type === "klingVideo" || node.type === "kling26Video") {
-          provider = klingModel === "kling-v2-6" ? "kling-2.6" : "kling";
+          provider = klingModel === "kling-v2-6" || klingModel === "kling-v3-0" ? "kling-2.6" : "kling";
         } else if (node.type === "viduQ3") {
           provider = "viduq3-pro";
         } else {
@@ -9349,6 +9349,7 @@ function FlowInner() {
             camerafixed: (node.data as any)?.camerafixed,
             watermark: (node.data as any)?.watermark,
             mode: (node.data as any)?.mode,
+            klingModel: (node.data as any)?.klingModel,
             sound: provider === "kling-2.6" ? false : undefined,
             // Kling O1 视频编辑参数
             referenceVideo: referenceVideoUrl,

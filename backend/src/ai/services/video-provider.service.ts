@@ -150,8 +150,34 @@ export class VideoProviderService {
   ): Promise<string> {
     try {
       if (base64Data.startsWith("http://") || base64Data.startsWith("https://")) {
-        this.logger.log(`📎 Image is already a URL: ${base64Data.substring(0, 100)}...`);
-        return base64Data;
+        this.logger.log(`📎 Image is a URL, downloading: ${base64Data.substring(0, 100)}...`);
+
+        // 如果已经是 OSS URL，直接返回
+        if (this.isOssPublicUrl(base64Data)) {
+          return base64Data;
+        }
+
+        // 下载远程图片并上传到 OSS
+        const response = await fetch(base64Data);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch image: HTTP ${response.status}`);
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+        const imageBuffer = Buffer.from(arrayBuffer);
+        const timestamp = Date.now();
+        const randomId = Math.random().toString(36).substring(2, 8);
+        const contentType = response.headers.get("content-type") || "image/jpeg";
+        const extension = contentType.split("/")[1]?.split(";")[0] || "jpg";
+        const key = `ai/images/kling-inputs/${timestamp}-${randomId}.${extension}`;
+
+        const result = await this.oss.putStream(
+          key,
+          require("stream").Readable.from(imageBuffer)
+        );
+
+        this.logger.log(`📤 Downloaded and uploaded image to OSS: ${result.url}`);
+        return result.url;
       }
 
       const cleanBase64 = base64Data.includes("base64,")
@@ -611,15 +637,18 @@ export class VideoProviderService {
     };
     const endpoint = endpointMap[videoMode] || endpointMap["text2video"];
 
+    const mode = (options as any).mode || "std";
     const payload: any = {
-      model_name: "kling-v2-6",
-      mode: (options as any).mode || "std",
+      model_name: (options as any).klingModel || "kling-v2-6",
+      mode: mode,
       duration: Number(options.duration) === 10 ? "10" : "5",
-      sound:
-        Array.isArray((options as any).audioUrls) && (options as any).audioUrls.length > 0
-          ? "no"
-          : "no",
     };
+
+    // 只有专业模式支持 sound 参数
+    if (mode === "pro") {
+      const hasAudioFiles = Array.isArray((options as any).audioUrls) && (options as any).audioUrls.length > 0;
+      payload.sound = hasAudioFiles ? "off" : "on";
+    }
 
     this.logger.log(`🎬 Kling 2.6 参数: duration=${options.duration}, 转换后=${Number(options.duration) === 10 ? "10" : "5"}`);
 
@@ -735,12 +764,29 @@ export class VideoProviderService {
         if (!upstreamUrl) {
           throw new ServiceUnavailableException("Kling 2.6 返回空视频链接");
         }
+
+        // 处理缩略图
+        let thumbnailUrl: string | undefined;
+        const upstreamThumbnail = data.data.task_result?.videos?.[0]?.cover_image_url;
+        if (upstreamThumbnail) {
+          if (this.isOssPublicUrl(upstreamThumbnail)) {
+            thumbnailUrl = upstreamThumbnail;
+          } else {
+            try {
+              thumbnailUrl = await this.uploadRemoteVideoToOss(upstreamThumbnail, `kling26-thumb-${taskId}`);
+              this.logger.log(`📤 Kling 2.6 缩略图已上传到 OSS: ${thumbnailUrl}`);
+            } catch (error) {
+              this.logger.warn(`⚠️ Kling 2.6 缩略图上传失败: ${error}`);
+            }
+          }
+        }
+
         if (this.isOssPublicUrl(upstreamUrl)) {
-          return { status: "succeeded", videoUrl: upstreamUrl };
+          return { status: "succeeded", videoUrl: upstreamUrl, thumbnailUrl };
         }
         const ossUrl = await this.uploadRemoteVideoToOss(upstreamUrl, `kling26-${taskId}`);
         this.logger.log(`📤 Kling 2.6 视频已上传到 OSS: ${ossUrl}`);
-        return { status: "succeeded", videoUrl: ossUrl };
+        return { status: "succeeded", videoUrl: ossUrl, thumbnailUrl };
       }
 
       if (data.data?.task_status === "failed") {

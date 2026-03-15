@@ -24,7 +24,7 @@ type Props = {
     provider: VideoProvider;
     clipDuration?: number;
     aspectRatio?: string;
-    klingModel?: "kling-v2-1" | "kling-v2-6";
+    klingModel?: "kling-v2-1" | "kling-v2-6" | "kling-v3-0";
     mode?: "std" | "pro";
     sound?: boolean;
     audioUrls?: string[];
@@ -101,7 +101,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     data.klingModel ||
     (provider === "kling-2.6" ? "kling-v2-6" : "kling-v2-1");
   const isUnifiedKlingNode = provider === "kling" || provider === "kling-2.6";
-  const isKling26Model = isUnifiedKlingNode && klingModel === "kling-v2-6";
+  const isKling26Model = isUnifiedKlingNode && (klingModel === "kling-v2-6" || klingModel === "kling-v3-0");
   const providerInfo = isUnifiedKlingNode
     ? PROVIDER_CONFIG.kling
     : PROVIDER_CONFIG[provider] || PROVIDER_CONFIG["kling"];
@@ -307,6 +307,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     () => [
       { label: "Kling 2.1", value: "kling-v2-1" as const },
       { label: "Kling 2.6", value: "kling-v2-6" as const },
+      { label: "Kling 3.0", value: "kling-v3-0" as const },
     ],
     []
   );
@@ -338,7 +339,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   );
 
   const handleKlingModelChange = React.useCallback(
-    (value: "kling-v2-1" | "kling-v2-6") => {
+    (value: "kling-v2-1" | "kling-v2-6" | "kling-v3-0") => {
       if (value === klingModel) return;
       window.dispatchEvent(
         new CustomEvent("flow:updateNodeData", {
