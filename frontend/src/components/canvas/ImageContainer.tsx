@@ -3069,7 +3069,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             <Button
               variant='ghost'
               size='sm'
-              className='h-5 w-5 p-0 rounded-md bg-black/35 text-white hover:bg-black/55'
+              className='h-5 w-5 p-0 rounded-md bg-transparent text-white hover:bg-transparent'
               style={{ pointerEvents: "auto" }}
               onClick={(e) => {
                 e.preventDefault();
@@ -3132,7 +3132,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             <Button
               variant='ghost'
               size='sm'
-              className='h-6 w-6 p-0 rounded-md bg-black/45 text-white hover:bg-black/65 flex items-center justify-center'
+              className='h-6 w-6 p-0 rounded-md bg-transparent text-white hover:bg-transparent flex items-center justify-center'
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
