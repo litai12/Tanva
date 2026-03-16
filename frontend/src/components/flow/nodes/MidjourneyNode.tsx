@@ -42,7 +42,7 @@ type Props = {
     imageUrl?: string;
     promptEn?: string;
     lastHistoryId?: string;
-    speedMode?: 'fast' | 'turbo';
+    speedMode?: 'draft' | 'fast' | 'turbo';
     raw?: boolean;
     chaos?: string | number;
     stylize?: string | number;
@@ -63,7 +63,7 @@ type Props = {
   selected?: boolean;
 };
 
-// 构建图片 src - 优先使用 OSS URL，避免 proxy 降级
+// 构建图片 src - 优先使用 OSS URL，避�?proxy 降级
 const buildImageSrc = (value?: string): string | undefined => {
   if (!value) return undefined;
   const trimmed = value.trim();
@@ -97,6 +97,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
   const [currentImageId, setCurrentImageId] = React.useState<string>('');
   const [actionLoading, setActionLoading] = React.useState<string | null>(null);
   const [showHelp, setShowHelp] = React.useState(false);
+  const [showAdvancedControls, setShowAdvancedControls] = React.useState(false);
 
   const borderColor = selected ? accentColor : '#e5e7eb';
   const boxShadow = selected
@@ -117,7 +118,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
 
   const allImages = React.useMemo(
     () => {
-      // 优先使用 V7/Niji7 的 imageUrls
+      // 优先使用 V7/Niji7 �?imageUrls
       if (data.imageUrls && data.imageUrls.length > 0) {
         return data.imageUrls.map((url, idx) => ({
           id: `mj-${idx}`,
@@ -193,7 +194,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
     [id]
   );
 
-  // 预设提示词
+  // 预设提示�?
   const presetPromptValue = data.presetPrompt ?? '';
   const updatePresetPrompt = React.useCallback(
     (value: string) => {
@@ -241,7 +242,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
     [id, data.taskId, actionLoading]
   );
 
-  // 当节点数据更新时同步最新历史图片 id（历史写入在 FlowOverlay 中统一处理，避免 onlyRenderVisibleElements 时丢失）
+  // 当节点数据更新时同步最新历史图�?id（历史写入在 FlowOverlay 中统一处理，避�?onlyRenderVisibleElements 时丢失）
   React.useEffect(() => {
     if (status === 'succeeded' && data.lastHistoryId) {
       setCurrentImageId(data.lastHistoryId);
@@ -430,13 +431,37 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
   };
 
   const renderAdvancedContent = () => {
-    const speedMode = data.speedMode ?? 'fast';
+    const resolvedSpeedMode =
+      data.speedMode === 'draft' || data.speedMode === 'fast' || data.speedMode === 'turbo'
+        ? data.speedMode
+        : data.draft
+          ? 'draft'
+          : 'fast';
+    const speedMode = isNiji && resolvedSpeedMode === 'draft' ? 'fast' : resolvedSpeedMode;
     const qualityValue = data.quality ?? '1';
     const chaosValue = String(data.chaos ?? '40');
     const stylizeValue = String(data.stylize ?? '100');
     const weirdValue = String(data.weird ?? '');
     const imageWeightValue = String(data.imageWeight ?? '1');
     const expValue = String(data.exp ?? '');
+    const hasAdvancedOverrides =
+      (!isNiji && qualityValue !== '1') ||
+      chaosValue !== '40' ||
+      stylizeValue !== '100' ||
+      weirdValue !== '' ||
+      String(data.seed ?? '') !== '' ||
+      imageWeightValue !== '1' ||
+      Boolean(data.raw) ||
+      speedMode === 'turbo' ||
+      (!isNiji && speedMode === 'draft') ||
+      (!isNiji && Boolean(data.tile)) ||
+      (!isNiji && String(data.noPrompt ?? '').trim() !== '') ||
+      String(data.styleRefs ?? '').trim() !== '' ||
+      String(data.styleVersion ?? '').trim() !== '' ||
+      String(data.styleWeight ?? '').trim() !== '' ||
+      (!isNiji && String(data.omniReference ?? '').trim() !== '') ||
+      (!isNiji && String(data.omniWeight ?? '').trim() !== '') ||
+      (!isNiji && expValue.trim() !== '');
 
     return (
       <>
@@ -540,7 +565,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
               border: '1px solid #fecaca',
             }}
           >
-            {lt(`已连接 ${imageInputCount} 张参考图，最多支持 10 张，运行时只会取前 10 张。`, `Connected ${imageInputCount} references. Only the first 10 will be used.`)}
+            {lt(`已连接 ${imageInputCount} 张参考图，最多支持 10 张，运行时只读取前 10 张。`, `Connected ${imageInputCount} references. Only the first 10 will be used.`)}
           </div>
         )}
 
@@ -565,17 +590,57 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
             <label style={commonLabelStyle}>{lt('速度模式', 'Speed')}</label>
             <select
               value={speedMode}
-              onChange={(e) => updateData({ speedMode: e.target.value as 'fast' | 'turbo' })}
+              onChange={(e) => {
+                const nextSpeedMode = e.target.value as 'draft' | 'fast' | 'turbo';
+                updateData({
+                  speedMode: nextSpeedMode,
+                  // Keep legacy field in sync so old persisted flows behave consistently.
+                  draft: !isNiji && nextSpeedMode === 'draft',
+                });
+              }}
               style={commonInputStyle}
               onPointerDownCapture={stopNodeDrag}
               onMouseDownCapture={stopNodeDrag}
             >
+              {!isNiji && <option value="draft">{lt('草图模式', 'Draft')}</option>}
               <option value="fast">{lt('快速', 'Fast')}</option>
               <option value="turbo">{lt('极速', 'Turbo')}</option>
             </select>
           </div>
         </div>
 
+        <div style={{ marginBottom: 8 }}>
+          <button
+            type="button"
+            onClick={() => setShowAdvancedControls((value) => !value)}
+            style={{
+              width: '100%',
+              border: `1px solid ${accentBorder}`,
+              background: accentSoft,
+              color: accentColor,
+              borderRadius: 8,
+              fontSize: 12,
+              fontWeight: 600,
+              padding: '7px 10px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              cursor: 'pointer',
+            }}
+            onPointerDownCapture={stopNodeDrag}
+            onMouseDownCapture={stopNodeDrag}
+          >
+            <span>{lt('高级控制', 'Advanced controls')}</span>
+            <span>
+              {showAdvancedControls
+                ? lt('收起', 'Hide')
+                : lt('展开', 'Show')}
+            </span>
+          </button>
+        </div>
+
+        {showAdvancedControls && (
+          <>
         <div style={{ display: 'grid', gridTemplateColumns: isNiji ? '1fr 1fr' : '1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
           {!isNiji && (
             <div>
@@ -669,19 +734,6 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
             <label style={{ display: 'flex', alignItems: 'center', fontSize: 12, cursor: 'pointer' }}>
               <input
                 type="checkbox"
-                checked={Boolean(data.draft)}
-                onChange={(e) => updateData({ draft: e.target.checked })}
-                style={{ marginRight: 6 }}
-                onPointerDownCapture={stopNodeDrag}
-                onMouseDownCapture={stopNodeDrag}
-              />
-              <span>{lt('草图模式', 'Draft')}</span>
-            </label>
-          )}
-          {!isNiji && (
-            <label style={{ display: 'flex', alignItems: 'center', fontSize: 12, cursor: 'pointer' }}>
-              <input
-                type="checkbox"
                 checked={Boolean(data.tile)}
                 onChange={(e) => updateData({ tile: e.target.checked })}
                 style={{ marginRight: 6 }}
@@ -707,6 +759,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
           </div>
         )}
 
+        {false && (
         <div style={{ marginBottom: 8 }}>
           <label style={commonLabelStyle}>{lt('风格引用 sref', 'Style refs')}</label>
           <textarea
@@ -718,6 +771,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
             onMouseDownCapture={stopNodeDrag}
           />
         </div>
+        )}
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
           <div>
@@ -746,6 +800,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
 
         {!isNiji && (
           <>
+            {false && (
             <div style={{ marginBottom: 8 }}>
               <label style={commonLabelStyle}>{lt('万物引用 oref', 'Omni reference')}</label>
               <input
@@ -757,6 +812,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
                 onMouseDownCapture={stopNodeDrag}
               />
             </div>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
               <div>
                 <label style={commonLabelStyle}>{lt('万物权重 ow', 'Omni weight')}</label>
@@ -785,6 +841,9 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
         )}
 
         {/* V7/Niji7 多图矩阵显示 */}
+          </>
+        )}
+
         {data.imageUrls && data.imageUrls.length > 0 ? (
           <div
             style={{
@@ -915,7 +974,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
     >
       {isAdvanced ? renderAdvancedContent() : (
         <>
-      {/* 标题栏 */}
+      {/* 标题�?*/}
       <div
         style={{
           display: 'flex',
@@ -963,7 +1022,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
         </div>
       </div>
 
-      {/* 预设提示词 */}
+      {/* 预设提示�?*/}
       <div style={{ marginBottom: 8 }}>
         <label
           style={{
@@ -1096,7 +1155,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
       {/* Midjourney 操作按钮 */}
       {renderActionButtons()}
 
-      {/* 连接点 - MJ 只支持文生图，无 image 输入 */}
+      {/* 连接�?- MJ 只支持文生图，无 image 输入 */}
         </>
       )}
 
@@ -1114,10 +1173,20 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
             type="target"
             position={Position.Left}
             id="img"
-            style={{ top: '68%' }}
+            style={{ top: '58%' }}
             onMouseEnter={() => setHover('img-in')}
             onMouseLeave={() => setHover(null)}
           />
+          {!isNiji && (
+            <Handle
+              type="target"
+              position={Position.Left}
+              id="omniImage"
+              style={{ top: '78%' }}
+              onMouseEnter={() => setHover('omni-image-in')}
+              onMouseLeave={() => setHover(null)}
+            />
+          )}
           <Handle
             type="source"
             position={Position.Right}
@@ -1137,9 +1206,17 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
           {hover === 'img-in' && (
             <div
               className="flow-tooltip"
-              style={{ left: -8, top: '68%', transform: 'translate(-100%, -50%)' }}
+              style={{ left: -8, top: '58%', transform: 'translate(-100%, -50%)' }}
             >
               image
+            </div>
+          )}
+          {!isNiji && hover === 'omni-image-in' && (
+            <div
+              className="flow-tooltip"
+              style={{ left: -8, top: '78%', transform: 'translate(-100%, -50%)' }}
+            >
+              {lt('万物参考图', 'Omni reference image')}
             </div>
           )}
           {hover === 'img-out' && (
@@ -1170,7 +1247,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
         onMouseLeave={() => setHover(null)}
       />
 
-      {/* 连接点提示 */}
+      {/* 连接点提�?*/}
       {hover === 'prompt-in' && (
         <div
           className="flow-tooltip"
@@ -1210,3 +1287,5 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
 }
 
 export default React.memo(MidjourneyNodeInner);
+
+

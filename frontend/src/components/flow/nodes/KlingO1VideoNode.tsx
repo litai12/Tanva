@@ -192,7 +192,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
   const isVideoEdit = hasVideoInput && referenceVideoType === "base";
 
   // 参数显示控制
-  const shouldShowAspectSelector = !isVideoEdit && !isImageToVideo;
+  const shouldShowAspectSelector = totalImageCount === 0 && !hasVideoInput;
   const shouldShowDurationSelector = !isVideoEdit;
 
   // Kling O3 支持 3-10 秒
@@ -824,6 +824,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
       )}
 
       {/* 尺寸选择 */}
+      {shouldShowAspectSelector && (
       <div className="video-dropdown" style={{ marginBottom: 8, position: "relative" }}>
         <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>{lt("尺寸", "Aspect")}</div>
         <button
@@ -895,6 +896,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
           </div>
         )}
       </div>
+      )}
 
       {/* 时长选择 */}
       <div className="video-dropdown" style={{ marginBottom: 8, position: "relative" }}>

@@ -23,7 +23,7 @@ export class Seedream5Service {
       model: 'doubao-seedream-5-0-260128',
       sequential_image_generation: params.batchMode ? 'auto' : 'disabled',
       response_format: 'url',
-      size: params.size || '2K',
+      size: params.size ? params.size.toLowerCase() : '2k',
       stream: false,
       watermark: false,
     };

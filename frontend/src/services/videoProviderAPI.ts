@@ -23,7 +23,7 @@ export interface VideoGenerationRequest {
   watermark?: boolean;
   // Kling/Kling-O1 专用参数
   mode?: "std" | "pro";
-  sound?: boolean;
+  sound?: string;
   // Kling O1 视频编辑专用参数
   referenceVideo?: string;
   referenceVideoType?: "feature" | "motion" | "expression";

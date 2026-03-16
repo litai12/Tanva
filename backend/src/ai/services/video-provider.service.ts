@@ -646,8 +646,8 @@ export class VideoProviderService {
 
     // 只有专业模式支持 sound 参数
     if (mode === "pro") {
-      const hasAudioFiles = Array.isArray((options as any).audioUrls) && (options as any).audioUrls.length > 0;
-      payload.sound = hasAudioFiles ? "off" : "on";
+      payload.sound = "on";
+      this.logger.log(`🎵 Kling 2.6 音频参数: sound=on`);
     }
 
     this.logger.log(`🎬 Kling 2.6 参数: duration=${options.duration}, 转换后=${Number(options.duration) === 10 ? "10" : "5"}`);
@@ -988,6 +988,11 @@ export class VideoProviderService {
       model_name: "kling-v3-omni",
       mode: options.mode || "std",
     };
+
+    // 只有专业模式支持 sound 参数
+    if ((options.mode || "std") === "pro") {
+      payload.sound = "on";
+    }
 
     // 处理 prompt（Kling O1 要求 prompt 必填）
     if (options.prompt) {

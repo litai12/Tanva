@@ -715,6 +715,7 @@ const SORA2_MAX_REFERENCE_IMAGES = 1;
 const VIDU_MAX_REFERENCE_IMAGES = 7; // Vidu viduq2 模型支持最多 7 张参考图
 const VIDUQ3_MAX_REFERENCE_IMAGES = 2; // Vidu Q3 Pro 支持最多 2 张参考图
 const KLING_MAX_REFERENCE_IMAGES = 2; // Kling 2.1 / 2.6 统一限制最多 2 张参考图
+const KLING_MAX_AUDIO_INPUTS = 2;
 
 // 模板分类由后端维护，前端会在面板打开时请求；若后端无数据则从 tplIndex 推断或回退到 ['其他']
 
@@ -5911,6 +5912,21 @@ function FlowInner() {
     []
   );
 
+  const canKlingNodeUseAudioInput = React.useCallback((node?: Node | null) => {
+    if (!node || (node.type !== "klingVideo" && node.type !== "kling26Video")) {
+      return false;
+    }
+    const nodeData = (node.data || {}) as Record<string, any>;
+    const klingModel =
+      nodeData.klingModel ||
+      (node.type === "kling26Video" || nodeData.provider === "kling-2.6"
+        ? "kling-v2-6"
+        : "kling-v2-1");
+    const isKling26Model = klingModel === "kling-v2-6" || klingModel === "kling-v3-0";
+    const mode = typeof nodeData.mode === "string" ? nodeData.mode : "std";
+    return isKling26Model && mode === "pro";
+  }, []);
+
   const appendSora2History = React.useCallback(
     (
       history: Sora2VideoHistoryItem[] | undefined,
@@ -6142,6 +6158,11 @@ function FlowInner() {
         if (targetHandle === "text") {
           return textSourceTypes.includes(sourceNode.type || "");
         }
+        if (targetHandle === "audio") {
+          if (!canKlingNodeUseAudioInput(targetNode)) return false;
+          if (sourceHandle !== "audio") return false;
+          return ["audioUpload", "minimaxSpeech"].includes(sourceNode.type || "");
+        }
         return false;
       }
 
@@ -6346,7 +6367,7 @@ function FlowInner() {
       }
       return false;
     },
-    [rf, isTextHandle, isImageHandle, textSourceTypes]
+    [rf, isTextHandle, isImageHandle, textSourceTypes, canKlingNodeUseAudioInput]
   );
 
   // 限制：Generate(text) 仅一个连接；Generate(img) 最多6条
@@ -6439,6 +6460,10 @@ function FlowInner() {
           return incoming.length < KLING_MAX_REFERENCE_IMAGES;
         }
         if (params.targetHandle === "text") return true;
+        if (params.targetHandle === "audio") {
+          if (!canKlingNodeUseAudioInput(targetNode)) return false;
+          return incoming.length < KLING_MAX_AUDIO_INPUTS;
+        }
       }
       // Kling O1 视频节点：支持最多 7 张参考图 + 视频输入
       if (targetNode?.type === "klingO1Video") {
@@ -6504,13 +6529,41 @@ function FlowInner() {
       }
       return false;
     },
-    [rf, isTextHandle, isImageHandle]
+    [rf, isTextHandle, isImageHandle, canKlingNodeUseAudioInput]
   );
 
   const onConnect = React.useCallback(
     (params: Connection) => {
       if (!isValidConnection(params)) return;
-      if (!canAcceptConnection(params)) return;
+      if (!canAcceptConnection(params)) {
+        const targetNode = params.target ? rf.getNode(params.target) : undefined;
+        if (
+          targetNode &&
+          (targetNode.type === "klingVideo" || targetNode.type === "kling26Video") &&
+          params.targetHandle === "audio"
+        ) {
+          const canUseAudio = canKlingNodeUseAudioInput(targetNode);
+          const incomingAudioCount = rf
+            .getEdges()
+            .filter((e) => e.target === params.target && e.targetHandle === "audio").length;
+          if (!canUseAudio || incomingAudioCount >= KLING_MAX_AUDIO_INPUTS) {
+            window.dispatchEvent(
+              new CustomEvent("toast", {
+                detail: {
+                  message: canUseAudio
+                    ? lt("Kling 音频最多连接 2 条", "Kling audio supports up to 2 connections")
+                    : lt(
+                        "当前仅 Kling 2.6 Pro 模式支持音频输入",
+                        "Audio input is only available in Kling 2.6 Pro mode"
+                      ),
+                  type: "warning",
+                },
+              })
+            );
+          }
+        }
+        return;
+      }
       closeConnectQuickMenu({ resetSource: true });
 
       setEdges((eds) => {
@@ -6948,6 +7001,8 @@ function FlowInner() {
       rf,
       setNodes,
       isTextHandle,
+      canKlingNodeUseAudioInput,
+      lt,
       setIsConnecting,
       closeConnectQuickMenu,
     ]
@@ -9695,6 +9750,197 @@ function FlowInner() {
             : "";
 
         // Kling O1 视频输入处理
+        const resolveAudioUrlFromNodeData = (
+          sourceData: Record<string, any>
+        ): string | undefined => {
+          if (typeof sourceData.audioUrl === "string" && sourceData.audioUrl.trim()) {
+            return sourceData.audioUrl.trim();
+          }
+          if (Array.isArray(sourceData.audioUrls)) {
+            const firstAudio = sourceData.audioUrls.find(
+              (value: unknown) =>
+                typeof value === "string" && value.trim().length > 0
+            );
+            if (typeof firstAudio === "string") return firstAudio.trim();
+          }
+          return undefined;
+        };
+        const resolveAudioFromNodeId = (
+          sourceNodeId: string,
+          visited: Set<string>
+        ): { audioUrl?: string; duration?: number } => {
+          if (!sourceNodeId || visited.has(sourceNodeId)) return {};
+          visited.add(sourceNodeId);
+          const sourceNode = rf.getNode(sourceNodeId);
+          if (!sourceNode) return {};
+          const sourceData = (sourceNode.data || {}) as Record<string, any>;
+          const audioUrl = resolveAudioUrlFromNodeData(sourceData);
+          const duration =
+            typeof sourceData.duration === "number" &&
+            Number.isFinite(sourceData.duration) &&
+            sourceData.duration > 0
+              ? sourceData.duration
+              : undefined;
+          if (audioUrl) return { audioUrl, duration };
+          const upstreamAudioEdges = currentEdges.filter(
+            (e) => e.target === sourceNodeId && e.targetHandle === "audio"
+          );
+          for (const edge of upstreamAudioEdges) {
+            const resolved = resolveAudioFromNodeId(edge.source, visited);
+            if (resolved.audioUrl) return resolved;
+          }
+          return {};
+        };
+        const readAudioDurationFromUrl = async (audioUrl: string): Promise<number> =>
+          await new Promise<number>((resolve, reject) => {
+            const audio = document.createElement("audio");
+            let settled = false;
+            const cleanup = () => {
+              audio.removeAttribute("src");
+              audio.load();
+            };
+            const timeoutId = window.setTimeout(() => {
+              if (settled) return;
+              settled = true;
+              cleanup();
+              reject(
+                new Error(
+                  lt(
+                    "无法读取音频时长，请确认音频可访问",
+                    "Unable to read audio duration, please verify audio URL is accessible"
+                  )
+                )
+              );
+            }, 8000);
+            audio.preload = "metadata";
+            audio.src = audioUrl;
+            audio.addEventListener(
+              "loadedmetadata",
+              () => {
+                if (settled) return;
+                settled = true;
+                window.clearTimeout(timeoutId);
+                const duration = Number(audio.duration || 0);
+                cleanup();
+                if (Number.isFinite(duration) && duration > 0) {
+                  resolve(duration);
+                } else {
+                  reject(
+                    new Error(
+                      lt(
+                        "无法读取音频时长，请确认音频可访问",
+                        "Unable to read audio duration, please verify audio URL is accessible"
+                      )
+                    )
+                  );
+                }
+              },
+              { once: true }
+            );
+            audio.addEventListener(
+              "error",
+              () => {
+                if (settled) return;
+                settled = true;
+                window.clearTimeout(timeoutId);
+                cleanup();
+                reject(
+                  new Error(
+                    lt(
+                      "无法读取音频时长，请确认音频可访问",
+                      "Unable to read audio duration, please verify audio URL is accessible"
+                    )
+                  )
+                );
+              },
+              { once: true }
+            );
+          });
+        const failCurrentVideoNode = (message: string) => {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? { ...n, data: { ...n.data, status: "failed", error: message } }
+                : n
+            )
+          );
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message, type: "warning" },
+            })
+          );
+        };
+        let klingAudioUrlsForAPI: string[] | undefined = undefined;
+        /* 音频处理逻辑已注释
+        if (provider === "kling-2.6" && (node.data as any)?.mode === "pro") {
+          const connectedAudioEdges = currentEdges.filter(
+            (e) => e.target === nodeId && e.targetHandle === "audio"
+          );
+          const resolvedAudioInputs = connectedAudioEdges
+            .map((edge) =>
+              resolveAudioFromNodeId(edge.source, new Set<string>([nodeId]))
+            )
+            .filter(
+              (
+                item
+              ): item is {
+                audioUrl: string;
+                duration?: number;
+              } => typeof item.audioUrl === "string" && item.audioUrl.length > 0
+            );
+          const connectedAudioUrls = Array.from(
+            new Set(resolvedAudioInputs.map((item) => item.audioUrl))
+          );
+          const connectedAudioDurationHints = new Map<string, number>();
+          resolvedAudioInputs.forEach((item) => {
+            if (
+              typeof item.duration === "number" &&
+              Number.isFinite(item.duration) &&
+              item.duration > 0 &&
+              !connectedAudioDurationHints.has(item.audioUrl)
+            ) {
+              connectedAudioDurationHints.set(item.audioUrl, item.duration);
+            }
+          });
+          if (connectedAudioEdges.length > 0 && connectedAudioUrls.length === 0) {
+            failCurrentVideoNode(
+              lt(
+                "音频句柄已连接，但未读取到有效音频",
+                "Audio handle is connected, but no valid audio was found"
+              )
+            );
+            return;
+          }
+          if (connectedAudioUrls.length > KLING_MAX_AUDIO_INPUTS) {
+            failCurrentVideoNode(
+              lt(
+                "Kling 音频最多支持 2 条，请减少后重试",
+                "Kling audio supports up to 2 inputs, please reduce and retry"
+              )
+            );
+            return;
+          }
+          for (const audioUrl of connectedAudioUrls) {
+            const hintedDuration = connectedAudioDurationHints.get(audioUrl);
+            const duration =
+              typeof hintedDuration === "number" && Number.isFinite(hintedDuration)
+                ? hintedDuration
+                : await readAudioDurationFromUrl(audioUrl);
+            if (duration < 5 || duration > 30) {
+              failCurrentVideoNode(
+                `${lt(
+                  "音频时长需在 5-30 秒内，当前约",
+                  "Audio duration must be between 5 and 30 seconds, current"
+                )} ${duration.toFixed(1)}${lt("秒", "s")}`
+              );
+              return;
+            }
+          }
+          klingAudioUrlsForAPI =
+            connectedAudioUrls.length > 0 ? connectedAudioUrls : undefined;
+        }
+        */
+
         let referenceVideoUrl: string | undefined = undefined;
         if (provider === "kling-o3") {
           const videoEdge = currentEdges.find(
@@ -9888,12 +10134,6 @@ function FlowInner() {
             prompt: finalPrompt,
             referenceImages:
               referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
-            audioUrls:
-              provider === "kling-2.6" &&
-              Array.isArray((node.data as any)?.audioUrls) &&
-              (node.data as any).audioUrls.length > 0
-                ? (node.data as any).audioUrls
-                : undefined,
             duration: durationForAPI,
             aspectRatio: aspectRatioForAPI,
             provider: provider as VideoProvider,
@@ -9904,7 +10144,7 @@ function FlowInner() {
             watermark: (node.data as any)?.watermark,
             mode: (node.data as any)?.mode,
             klingModel: (node.data as any)?.klingModel,
-            sound: provider === "kling-2.6" ? false : undefined,
+            sound: (provider === "kling-o3" || provider === "kling-2.6") && (node.data as any)?.mode === "pro" ? "on" : (node.data as any)?.sound,
             // Kling O1 视频编辑参数
             referenceVideo: referenceVideoUrl,
             referenceVideoType: (node.data as any)?.referenceVideoType,

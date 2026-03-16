@@ -13,10 +13,11 @@ type Props = {
   data: {
     status?: "idle" | "running" | "succeeded" | "failed";
     images?: string[];
+    imageUrls?: string[];
     error?: string;
     batchMode?: boolean;
     batchCount?: number;
-    size?: "1K" | "2K" | "4K";
+    size?: "2K" | "3K";
     watermark?: boolean;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
@@ -33,7 +34,22 @@ const buildImageSrc = (value?: string): string | undefined => {
 
 function Seedream5Node({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
-  const { status, error, images = [] } = data;
+  const { status, error } = data;
+
+  const images = React.useMemo(() => {
+    const rawUrls = Array.isArray(data.imageUrls) ? data.imageUrls : [];
+    const rawImages = Array.isArray(data.images) ? data.images : [];
+    const maxLen = Math.max(rawUrls.length, rawImages.length);
+    const merged: string[] = [];
+    for (let i = 0; i < maxLen; i += 1) {
+      const candidate = rawUrls[i] ?? rawImages[i];
+      if (typeof candidate !== "string") continue;
+      const trimmed = candidate.trim();
+      if (!trimmed) continue;
+      merged.push(trimmed);
+    }
+    return merged;
+  }, [data.imageUrls, data.images]);
 
   const sizeValue = data.size ?? "2K";
 
@@ -47,6 +63,18 @@ function Seedream5Node({ id, data, selected }: Props) {
       (edge) => edge.target === id && edge.targetHandle === "img"
     ).length;
   });
+
+  // 检测是否连接了 prompt
+  const hasPromptInput = useStore((state) => {
+    const edges = state.edges || [];
+    return edges.some(
+      (edge) => edge.target === id && edge.targetHandle === "prompt"
+    );
+  });
+
+  // 根据连接类型决定显示的尺寸选项
+  const hasImageInput = imageInputCount > 0;
+  const showCustomSize = hasPromptInput && !hasImageInput;
 
   const borderColor = selected ? "#2563eb" : "#e5e7eb";
   const boxShadow = selected
@@ -212,25 +240,55 @@ function Seedream5Node({ id, data, selected }: Props) {
         <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
           {lt("图像尺寸", "Size")}
         </label>
-        <select
-          value={sizeValue}
-          onChange={(e) => updateData({ size: e.target.value as "1K" | "2K" | "4K" })}
-          style={{
-            width: "100%",
-            fontSize: 12,
-            padding: "4px 6px",
-            borderRadius: 6,
-            border: "1px solid #e5e7eb",
-            outline: "none",
-            background: "#fff",
-          }}
-          onPointerDownCapture={stopNodeDrag}
-          onMouseDownCapture={stopNodeDrag}
-        >
-          <option value="1K">{lt("1K (~1024px) 快速", "1K (~1024px) Fast")}</option>
-          <option value="2K">{lt("2K (~2048px) 推荐", "2K (~2048px) Recommended")}</option>
-          <option value="4K">{lt("4K (~4096px) 高清", "4K (~4096px) HD")}</option>
-        </select>
+        {showCustomSize ? (
+          <input
+            type="text"
+            list="size-options"
+            value={data.size || "2048x2048"}
+            onChange={(e) => updateData({ size: e.target.value as any })}
+            placeholder="2048x2048"
+            style={{
+              width: "100%",
+              fontSize: 12,
+              padding: "4px 6px",
+              borderRadius: 6,
+              border: "1px solid #e5e7eb",
+              outline: "none",
+              background: "#fff",
+            }}
+            onPointerDownCapture={stopNodeDrag}
+            onMouseDownCapture={stopNodeDrag}
+          />
+        ) : (
+          <select
+            value={sizeValue}
+            onChange={(e) => updateData({ size: e.target.value as "2K" | "3K" })}
+            style={{
+              width: "100%",
+              fontSize: 12,
+              padding: "4px 6px",
+              borderRadius: 6,
+              border: "1px solid #e5e7eb",
+              outline: "none",
+              background: "#fff",
+            }}
+            onPointerDownCapture={stopNodeDrag}
+            onMouseDownCapture={stopNodeDrag}
+          >
+            <option value="2K">{lt("2K 高清", "2K HD")}</option>
+            <option value="3K">{lt("3K 超清", "3K Ultra HD")}</option>
+          </select>
+        )}
+        <datalist id="size-options">
+          <option value="2048x2048">1:1</option>
+          <option value="1728x2304">3:4</option>
+          <option value="2304x1728">4:3</option>
+          <option value="2848x1600">16:9</option>
+          <option value="1600x2848">9:16</option>
+          <option value="2496x1664">3:2</option>
+          <option value="1664x2496">2:3</option>
+          <option value="3136x1344">21:9</option>
+        </datalist>
       </div>
 
       {/* 批量模式 */}

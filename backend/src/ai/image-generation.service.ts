@@ -27,7 +27,7 @@ interface GenerateImageRequest {
     | '1:4'
     | '8:1'
     | '1:8';
-  imageSize?: '0.5K' | '1K' | '2K' | '4K';
+  imageSize?: string;
   thinkingLevel?: 'high' | 'low';
   imageOnly?: boolean;
   customApiKey?: string | null; // 用户自定义 API Key
@@ -53,7 +53,7 @@ interface EditImageRequest {
     | '1:4'
     | '8:1'
     | '1:8';
-  imageSize?: '0.5K' | '1K' | '2K' | '4K';
+  imageSize?: string;
   thinkingLevel?: 'high' | 'low';
   imageOnly?: boolean;
   customApiKey?: string | null; // 用户自定义 API Key
@@ -79,7 +79,7 @@ interface BlendImagesRequest {
     | '1:4'
     | '8:1'
     | '1:8';
-  imageSize?: '0.5K' | '1K' | '2K' | '4K';
+  imageSize?: string;
   thinkingLevel?: 'high' | 'low';
   imageOnly?: boolean;
   customApiKey?: string | null; // 用户自定义 API Key

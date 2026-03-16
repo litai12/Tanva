@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsArray, IsBoolean, IsEnum, IsObject, ValidateIf } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsArray, IsBoolean, IsEnum, IsObject, ValidateIf, IsNumber } from 'class-validator';
 
 enum AspectRatio {
   'SQUARE' = '1:1',
@@ -21,13 +21,6 @@ enum OutputFormat {
   JPEG = 'jpeg',
   PNG = 'png',
   WEBP = 'webp',
-}
-
-enum ImageSize {
-  '0_5K' = '0.5K',
-  '1K' = '1K',
-  '2K' = '2K',
-  '4K' = '4K',
 }
 
 enum ThinkingLevel {
@@ -75,8 +68,8 @@ export class GenerateImageDto {
     | '1:8';
 
   @IsOptional()
-  @IsEnum(ImageSize)
-  imageSize?: '0.5K' | '1K' | '2K' | '4K';
+  @IsString()
+  imageSize?: string;
 
   @IsOptional()
   @IsEnum(ThinkingLevel)
@@ -102,6 +95,14 @@ export class GenerateImageDto {
   @IsOptional()
   @IsBoolean()
   googleImageSearch?: boolean; // Nano2 Google 图片搜索增强
+
+  @IsOptional()
+  @IsBoolean()
+  batchMode?: boolean; // Seedream5 批量生成模式
+
+  @IsOptional()
+  @IsNumber()
+  batchCount?: number; // Seedream5 批量生成数量 (2-10)
 }
 
 export class EditImageDto {
@@ -154,8 +155,8 @@ export class EditImageDto {
     | '1:8';
 
   @IsOptional()
-  @IsEnum(ImageSize)
-  imageSize?: '0.5K' | '1K' | '2K' | '4K';
+  @IsString()
+  imageSize?: string;
 
   @IsOptional()
   @IsEnum(ThinkingLevel)
@@ -218,8 +219,8 @@ export class BlendImagesDto {
     | '1:8';
 
   @IsOptional()
-  @IsEnum(ImageSize)
-  imageSize?: '0.5K' | '1K' | '2K' | '4K';
+  @IsString()
+  imageSize?: string;
 
   @IsOptional()
   @IsEnum(ThinkingLevel)

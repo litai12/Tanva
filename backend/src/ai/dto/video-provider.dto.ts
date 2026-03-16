@@ -84,6 +84,6 @@ export class VideoProviderRequestDto {
 
   @ApiProperty({ description: '是否生成音效 (Kling)', required: false })
   @IsOptional()
-  @IsBoolean()
-  sound?: boolean;
+  @IsString()
+  sound?: string;
 }

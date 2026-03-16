@@ -1142,6 +1142,8 @@ export class AiController {
                 imageUrls: dto.imageUrls,
                 googleSearch: dto.googleSearch ?? dto.enableWebSearch,
                 googleImageSearch: dto.googleImageSearch ?? dto.enableWebSearch,
+                batchMode: dto.batchMode,
+                batchCount: dto.batchCount,
               });
 
               if (result.success && result.data) {
