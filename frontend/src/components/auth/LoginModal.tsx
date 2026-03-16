@@ -21,6 +21,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
   const [code, setCode] = useState('');
   const [localError, setLocalError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [sendCooldown, setSendCooldown] = useState(0);
 
   const { login, loginWithSms, error: authError } = useAuthStore();
 
@@ -83,15 +84,15 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
     }
   }, [handleClose, login, loginWithSms, onSuccess, tab, phone, password, code, t]);
 
+  useEffect(() => {
+    if (sendCooldown <= 0) return;
+    const timer = setInterval(() => setSendCooldown((s) => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(timer);
+  }, [sendCooldown]);
+
   if (!isOpen) return null;
 
   const displayError = localError || authError;
-  const [sendCooldown, setSendCooldown] = useState(0);
-  useEffect(() => {
-    if (sendCooldown <= 0) return;
-    const t = setInterval(() => setSendCooldown((s) => Math.max(0, s - 1)), 1000);
-    return () => clearInterval(t);
-  }, [sendCooldown]);
 
   const modalContent = (
     <div className="fixed inset-0 z-[2000] flex items-center justify-center">

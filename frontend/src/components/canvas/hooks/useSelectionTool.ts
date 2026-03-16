@@ -106,14 +106,55 @@ export const useSelectionTool = ({
 
   // ========== 路径选择功能 ==========
 
+  const isPathEditing = useCallback((path: paper.Path | null | undefined): boolean => {
+    if (!path) return false;
+    return Boolean((path.data as any)?.isPathEditing);
+  }, []);
+
+  const applyPathVisualState = useCallback((path: paper.Path, editing: boolean) => {
+    const isImageGroupBlock = path?.data?.type === 'image-group';
+
+    if (isImageGroupBlock) {
+      // 图片组块：始终不显示 Paper.js 默认控制点
+      try {
+        path.selected = false;
+        path.fullySelected = false;
+      } catch {}
+      return;
+    }
+
+    path.selected = true;
+    path.fullySelected = editing;
+    try {
+      path.data = { ...(path.data || {}), isPathEditing: editing };
+    } catch {}
+
+    if (!(path as any).originalStrokeWidth) {
+      (path as any).originalStrokeWidth = path.strokeWidth;
+    }
+    path.strokeWidth = (path as any).originalStrokeWidth + 1;
+  }, []);
+
   // 选择路径并启用编辑模式
-  const handlePathSelect = useCallback((path: paper.Path, preserveExisting: boolean = false) => {
+  const handlePathSelect = useCallback((
+    path: paper.Path,
+    preserveExisting: boolean = false,
+    options?: {
+      enterEditMode?: boolean;
+      keepCurrentEditMode?: boolean;
+    }
+  ) => {
+    const enterEditMode = options?.enterEditMode === true;
+    const keepCurrentEditMode = options?.keepCurrentEditMode !== false;
     const isImageGroupBlock = path?.data?.type === 'image-group';
 
     // 取消之前选中的路径
     if (!preserveExisting && selectedPath && selectedPath !== path) {
       selectedPath.selected = false;
       selectedPath.fullySelected = false;
+      try {
+        selectedPath.data = { ...(selectedPath.data || {}), isPathEditing: false };
+      } catch {}
       // 恢复原始样式
       if ((selectedPath as any).originalStrokeWidth) {
         selectedPath.strokeWidth = (selectedPath as any).originalStrokeWidth;
@@ -125,26 +166,36 @@ export const useSelectionTool = ({
       try {
         path.selected = false;
         path.fullySelected = false;
+        path.data = { ...(path.data || {}), isPathEditing: false };
       } catch {}
       setSelectedPath(path);
       logger.debug('选择图片组块（无控制框）:', path);
       return;
     }
 
-    // 选中新路径并启用编辑模式
-    path.selected = true;
-    path.fullySelected = true; // 显示所有控制点
-
-    // 保存原始线宽并增加选中时的线宽  
-    if (!(path as any).originalStrokeWidth) {
-      (path as any).originalStrokeWidth = path.strokeWidth;
-    }
-    path.strokeWidth = (path as any).originalStrokeWidth + 1; // 稍微加粗但不太明显
+    const nextEditing = enterEditMode
+      ? true
+      : keepCurrentEditMode
+      ? isPathEditing(path)
+      : false;
+    applyPathVisualState(path, nextEditing);
 
     setSelectedPath(path);
-    logger.debug('选择路径并启用编辑模式:', path);
+    logger.debug(
+      nextEditing ? '选择路径并进入编辑模式:' : '选择路径（非编辑模式）:',
+      path
+    );
     logger.debug('路径段数:', path.segments.length);
-  }, [selectedPath]);
+  }, [applyPathVisualState, isPathEditing, selectedPath]);
+
+  const setPathEditingMode = useCallback((path: paper.Path | null, editing: boolean) => {
+    if (!path) return;
+    applyPathVisualState(path, editing);
+    if (selectedPath === path) {
+      setSelectedPath(path);
+    }
+    logger.debug(editing ? '路径进入编辑模式' : '路径退出编辑模式');
+  }, [applyPathVisualState, selectedPath]);
 
   // 取消路径选择
   const handlePathDeselect = useCallback(() => {
@@ -152,6 +203,9 @@ export const useSelectionTool = ({
       const isImageGroupBlock = selectedPath?.data?.type === 'image-group';
       selectedPath.selected = false;
       selectedPath.fullySelected = false;
+      try {
+        selectedPath.data = { ...(selectedPath.data || {}), isPathEditing: false };
+      } catch {}
       // 恢复原始线宽
       if (!isImageGroupBlock && (selectedPath as any).originalStrokeWidth) {
         selectedPath.strokeWidth = (selectedPath as any).originalStrokeWidth;
@@ -357,10 +411,13 @@ export const useSelectionTool = ({
     if (selectPaths) {
       // 如果有新的路径被选中
       if (selectedPathsInBox.length > 0) {
-        // 选择框内的所有路径，启用编辑模式
+        // 选择框内路径仅进入选中态，不直接进入控制点编辑态
         selectedPathsInBox.forEach(path => {
           path.selected = true;
-          path.fullySelected = true; // 显示所有控制点
+          path.fullySelected = false;
+          try {
+            path.data = { ...(path.data || {}), isPathEditing: false };
+          } catch {}
           if (!(path as any).originalStrokeWidth) {
             (path as any).originalStrokeWidth = path.strokeWidth;
           }
@@ -468,6 +525,9 @@ export const useSelectionTool = ({
     selectedPaths.forEach(path => {
       path.selected = false;
       path.fullySelected = false;
+      try {
+        path.data = { ...(path.data || {}), isPathEditing: false };
+      } catch {}
       if ((path as any).originalStrokeWidth) {
         path.strokeWidth = (path as any).originalStrokeWidth;
       }
@@ -522,7 +582,8 @@ export const useSelectionTool = ({
       uniquePaths.forEach((path) => {
         try {
           path.selected = true;
-          path.fullySelected = true;
+          path.fullySelected = false;
+          path.data = { ...(path.data || {}), isPathEditing: false };
           if (!(path as any).originalStrokeWidth) {
             (path as any).originalStrokeWidth = path.strokeWidth;
           }
@@ -807,6 +868,9 @@ export const useSelectionTool = ({
           selectedPaths.forEach(path => {
             path.selected = false;
             path.fullySelected = false;
+            try {
+              path.data = { ...(path.data || {}), isPathEditing: false };
+            } catch {}
             if ((path as any).originalStrokeWidth) {
               path.strokeWidth = (path as any).originalStrokeWidth;
             }
@@ -933,7 +997,7 @@ export const useSelectionTool = ({
             setSelectedPaths(prev => prev.filter(p => p !== path));
           } else {
             // 添加到选择
-            handlePathSelect(path, true);
+            handlePathSelect(path, true, { keepCurrentEditMode: false });
             setSelectedPaths(prev => [...prev, path]);
           }
         } else {
@@ -943,7 +1007,7 @@ export const useSelectionTool = ({
 
           if (!isAlreadySelected) {
             clearAllSelections();
-            handlePathSelect(path);
+            handlePathSelect(path, false, { keepCurrentEditMode: false });
             setSelectedPaths([path]);
           } else {
             handlePathSelect(path, true);
@@ -993,6 +1057,8 @@ export const useSelectionTool = ({
     // 路径选择
     handlePathSelect,
     handlePathDeselect,
+    setPathEditingMode,
+    isPathEditing,
 
     // 选择框功能
     startSelectionBox,
