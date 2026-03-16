@@ -132,11 +132,6 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     (provider === "kling-2.6" ? "kling-v2-6" : "kling-v2-1");
   const isUnifiedKlingNode = provider === "kling" || provider === "kling-2.6";
   const isKling26Model = isUnifiedKlingNode && (klingModel === "kling-v2-6" || klingModel === "kling-v3-0");
-  const shouldShowKlingAudioControls =
-    isKling26Model && (data as any).mode === "pro";
-  const textHandleTop = shouldShowKlingAudioControls ? "28%" : "32%";
-  const imageHandleTop = shouldShowKlingAudioControls ? "50%" : "60%";
-  const audioHandleTop = "72%";
   const providerInfo = isUnifiedKlingNode
     ? PROVIDER_CONFIG.kling
     : PROVIDER_CONFIG[provider] || PROVIDER_CONFIG["kling"];
@@ -478,9 +473,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             });
 
             if (duration < 5 || duration > 30) {
-              const message = lt("每个音频文件时长需在 5 到 30 秒之间", "Each audio file must be between 5 and 30 seconds");
-              setAudioMessage(message);
-              throw new Error(message);
+              throw new Error(
+                lt("每个音频文件时长需在 5 到 30 秒之间", "Each audio file must be between 5 and 30 seconds")
+              );
             }
           } finally {
             URL.revokeObjectURL(objectUrl);
@@ -516,24 +511,23 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             },
           })
         );
-        setAudioMessage(lt("上传成功", "Upload successful"));
-        setTimeout(() => setAudioMessage(null), 2000);
+        setAudioMessage(
+          lt(
+            "已上传音频，sound 将自动按 no 提交",
+            "Audio uploaded, sound will be submitted as no automatically"
+          )
+        );
       } catch (error) {
         const message =
           error instanceof Error
             ? error.message
             : lt("音频上传失败，请稍后重试", "Audio upload failed, please retry later");
-
-        // 只有时长错误才显示在下方，其他错误只显示 toast
-        if (message.includes(lt("每个音频文件时长需在 5 到 30 秒之间", "Each audio file must be between 5 and 30 seconds"))) {
-          // 时长错误已经在上面设置了 audioMessage，这里不需要再设置
-        } else {
-          window.dispatchEvent(
-            new CustomEvent("toast", {
-              detail: { message, type: "error" },
-            })
-          );
-        }
+        setAudioMessage(message);
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message, type: "error" },
+          })
+        );
       } finally {
         setAudioUploading(false);
         event.target.value = "";
@@ -845,7 +839,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         type='target'
         position={Position.Left}
         id='text'
-        style={{ top: textHandleTop }}
+        style={{ top: "32%" }}
         onMouseEnter={() => setHover("text-in")}
         onMouseLeave={() => setHover(null)}
       />
@@ -853,20 +847,10 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         type='target'
         position={Position.Left}
         id='image'
-        style={{ top: imageHandleTop }}
+        style={{ top: "60%" }}
         onMouseEnter={() => setHover("image-in")}
         onMouseLeave={() => setHover(null)}
       />
-      {/* {shouldShowKlingAudioControls && (
-        <Handle
-          type='target'
-          position={Position.Left}
-          id='audio'
-          style={{ top: audioHandleTop }}
-          onMouseEnter={() => setHover("audio-in")}
-          onMouseLeave={() => setHover(null)}
-        />
-      )} */}
       <Handle
         type='source'
         position={Position.Right}
@@ -878,7 +862,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       {hover === "text-in" && (
         <div
           className='flow-tooltip'
-          style={{ left: -8, top: textHandleTop, transform: "translate(-100%, -50%)" }}
+          style={{ left: -8, top: "32%", transform: "translate(-100%, -50%)" }}
         >
           prompt
         </div>
@@ -886,19 +870,11 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       {hover === "image-in" && (
         <div
           className='flow-tooltip'
-          style={{ left: -8, top: imageHandleTop, transform: "translate(-100%, -50%)" }}
+          style={{ left: -8, top: "60%", transform: "translate(-100%, -50%)" }}
         >
           image
         </div>
       )}
-      {/* {hover === "audio-in" && shouldShowKlingAudioControls && (
-        <div
-          className='flow-tooltip'
-          style={{ left: -8, top: audioHandleTop, transform: "translate(-100%, -50%)" }}
-        >
-          audio
-        </div>
-      )} */}
       {hover === "video-out" && (
         <div
           className='flow-tooltip'
@@ -1311,6 +1287,110 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                 </button>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {isKling26Model && (
+        <div style={{ marginBottom: 8 }}>
+          <div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 4,
+                fontSize: 12,
+                color: "#6b7280",
+              }}
+            >
+              <span>{lt("音频文件（最多 2 个）", "Audio files (max 2)")}</span>
+              <span>{audioUrls.length}/2</span>
+            </div>
+            <input
+              ref={audioInputRef}
+              type='file'
+              accept={SUPPORTED_AUDIO_ACCEPT}
+              multiple
+              onChange={handleAudioInputChange}
+              style={{ display: "none" }}
+            />
+            <button
+              type='button'
+              onClick={() => audioInputRef.current?.click()}
+              disabled={audioUploading || audioUrls.length >= 2}
+              style={{
+                width: "100%",
+                padding: "6px 10px",
+                borderRadius: 8,
+                border: "1px solid #e5e7eb",
+                background: "#fff",
+                color: "#111827",
+                fontSize: 12,
+                cursor:
+                  audioUploading || audioUrls.length >= 2 ? "not-allowed" : "pointer",
+                opacity: audioUploading || audioUrls.length >= 2 ? 0.6 : 1,
+              }}
+            >
+              {audioUploading
+                ? lt("上传中...", "Uploading...")
+                : audioUrls.length > 0
+                ? lt("继续上传", "Upload more")
+                : lt("上传音频", "Upload audio")}
+            </button>
+            {audioUrls.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+                {audioUrls.map((url, index) => (
+                  <div
+                    key={`${url}-${index}`}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 8,
+                      padding: "6px 8px",
+                      borderRadius: 8,
+                      border: "1px solid #e5e7eb",
+                      background: "#f8fafc",
+                      fontSize: 11,
+                    }}
+                  >
+                    <span style={{ color: "#334155" }}>
+                      {lt("音频", "Audio")} {index + 1}
+                    </span>
+                    <button
+                      type='button'
+                      onClick={() => handleRemoveAudioAt(index)}
+                      style={{
+                        padding: "2px 6px",
+                        borderRadius: 6,
+                        border: "1px solid #cbd5e1",
+                        background: "#fff",
+                        fontSize: 11,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {lt("移除", "Remove")}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {audioMessage && (
+              <div
+                style={{
+                  marginTop: 6,
+                  padding: "6px 8px",
+                  borderRadius: 6,
+                  border: "1px solid #e5e7eb",
+                  background: "#f8fafc",
+                  color: "#475569",
+                  fontSize: 11,
+                }}
+              >
+                {audioMessage}
+              </div>
+            )}
           </div>
         </div>
       )}
