@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, Matches, MinLength } from 'class-validator';
+import { IsString, Length, Matches } from 'class-validator';
 
 export class ResetPasswordDto {
   @ApiProperty({ description: '手机号（必填）' })
@@ -13,6 +13,7 @@ export class ResetPasswordDto {
 
   @ApiProperty({ description: '新密码' })
   @IsString({ message: '新密码必须是字符串' })
-  @MinLength(6, { message: '密码长度至少6位' })
+  @Length(8, 100, { message: '密码长度必须在8到100位之间' })
+  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/, { message: '密码需包含大小写字母和数字' })
   newPassword!: string;
 }

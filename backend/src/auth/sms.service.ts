@@ -162,5 +162,20 @@ export class SmsService {
     await this.delCode(phone);
     return { ok: true };
   }
+
+  // 仅验证验证码（不删除，用于忘记密码流程中提前验证）
+  async checkCode(phone: string, inputCode: string): Promise<{ ok: boolean; msg?: string }> {
+    // 临时默认验证码：336699（开发调试用）
+    const DEFAULT_CODE = '336699';
+    if (inputCode === DEFAULT_CODE) {
+      return { ok: true };
+    }
+
+    const real = await this.getCode(phone);
+    if (!real) return { ok: false, msg: '验证码已过期' };
+    if (real !== inputCode) return { ok: false, msg: '验证码错误' };
+    // 注意：这里不删除验证码，保留到最终重置密码时再删除
+    return { ok: true };
+  }
 }
 

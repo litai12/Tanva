@@ -589,4 +589,23 @@ export const authApi = {
     });
     return json<{ success: boolean }>(res);
   },
+
+  // 验证验证码（用于忘记密码流程中提前验证验证码是否有效）
+  async verifyCode(payload: { phone: string; code: string }) {
+    if (isMock) {
+      await delay(300);
+      if (payload.code !== FIXED_SMS_CODE) {
+        throw new Error("验证码错误");
+      }
+      return { valid: true };
+    }
+    const res = await fetchWithAuth(`${base}/api/auth/verify-code`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      auth: "omit",
+      allowRefresh: false,
+    });
+    return json<{ valid: boolean }>(res);
+  },
 };

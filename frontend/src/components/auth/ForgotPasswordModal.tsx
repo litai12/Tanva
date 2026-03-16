@@ -87,9 +87,17 @@ export default function ForgotPasswordModal({
     try {
       // 验证验证码并进入重置密码步骤
       setError(null);
+      // 实际调用后端验证验证码
+      await authApi.verifyCode({ phone, code });
       setStep("reset");
     } catch (err: any) {
-      setError(err?.message || "验证码验证失败");
+      const message = err?.message || "";
+      // 如果是验证码过期，给出更友好的提示
+      if (message.includes("过期") || message.includes("expired")) {
+        setError("验证码已过期，请重新获取验证码");
+      } else {
+        setError(err?.message || "验证码验证失败");
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -100,8 +108,13 @@ export default function ForgotPasswordModal({
       setError("请输入新密码");
       return;
     }
-    if (newPassword.length < 6) {
-      setError("密码长度至少6位");
+    // 密码长度8-100位，必须包含大小写字母和数字
+    if (newPassword.length < 8 || newPassword.length > 100) {
+      setError("密码长度必须在8到100位之间");
+      return;
+    }
+    if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(newPassword)) {
+      setError("密码需包含大小写字母和数字");
       return;
     }
     if (newPassword !== confirmPassword) {

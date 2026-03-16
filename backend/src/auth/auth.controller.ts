@@ -76,6 +76,25 @@ export class AuthController {
     return result;
   }
 
+  // 验证验证码（用于忘记密码流程中提前验证验证码是否有效）
+  @Post('verify-code')
+  @HttpCode(HttpStatus.OK)
+  async verifyCode(@Body() body: { phone: string; code: string }) {
+    if (!body?.phone || !body?.code) {
+      return { valid: false, error: '缺少参数' };
+    }
+    try {
+      // 使用 checkCode 只验证不删除，保留到重置密码时再删除
+      const result = await this.sms.checkCode(body.phone, body.code);
+      if (result.ok) {
+        return { valid: true };
+      }
+      return { valid: false, error: result.msg || '验证码错误' };
+    } catch (e: any) {
+      return { valid: false, error: e?.message || '验证码验证失败' };
+    }
+  }
+
   @Get('me')
   @ApiCookieAuth('access_token')
   @UseGuards(JwtAuthGuard)

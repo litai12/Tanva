@@ -564,6 +564,8 @@ const nodeTypes = {
   doubaoVideo: DoubaoVideoNode,
   storyboardSplit: StoryboardSplitNode,
   midjourney: MidjourneyNode,
+  midjourneyV7: MidjourneyNode,
+  niji7: MidjourneyNode,
   nano2: Nano2Node,
   seedream5: Seedream5Node,
   video: VideoNode,
@@ -682,6 +684,8 @@ const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "generatePro",
   "generatePro4",
   "midjourney",
+  "midjourneyV7",
+  "niji7",
   "nano2",
   "image",
   "imagePro",
@@ -1021,6 +1025,8 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   generatePro: "image",
   generatePro4: "image",
   midjourney: "image",
+  midjourneyV7: "image",
+  niji7: "image",
   nano2: "image",
   analysis: "image",
   imageGrid: "image",
@@ -1085,6 +1091,8 @@ const FLOW_NODE_DEFAULT_SIZE = {
   doubaoVideo: { w: 280, h: 260 },
   storyboardSplit: { w: 320, h: 400 },
   midjourney: { w: 280, h: 320 },
+  midjourneyV7: { w: 300, h: 760 },
+  niji7: { w: 300, h: 700 },
   nano2: { w: 260, h: 200 },
   seedream5: { w: 260, h: 240 },
   video: { w: 320, h: 280 },
@@ -5408,6 +5416,30 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
+          : type === "midjourneyV7" || type === "niji7"
+          ? {
+              status: "idle" as const,
+              aspectRatio: "1:1",
+              speedMode: "fast" as const,
+              raw: false,
+              chaos: "40",
+              stylize: "100",
+              weird: "",
+              seed: "",
+              noPrompt: "",
+              imageWeight: "1",
+              styleRefs: "",
+              styleVersion: "",
+              styleWeight: "",
+              quality: "1" as const,
+              draft: false,
+              tile: false,
+              omniReference: "",
+              omniWeight: "",
+              exp: "",
+              boxW: size.w,
+              boxH: size.h,
+            }
           : type === "seedream5"
           ? {
               status: "idle" as const,
@@ -5887,6 +5919,8 @@ function FlowInner() {
           "imageSplit",
           "imageCompress",
           "midjourney",
+          "midjourneyV7",
+          "niji7",
           "nano2",
           "seedream5",
         ];
@@ -6074,6 +6108,15 @@ function FlowInner() {
         }
         return false;
       }
+      if (targetNode.type === "midjourneyV7" || targetNode.type === "niji7") {
+        if (targetHandle === "text") {
+          return textSourceTypes.includes(sourceNode.type || "");
+        }
+        if (targetHandle === "img") {
+          return isImageSource(sourceNode, sourceHandle);
+        }
+        return false;
+      }
       if (targetNode.type === "seedream5") {
         if (targetHandle === "prompt") {
           return textSourceTypes.includes(sourceNode.type || "");
@@ -6180,6 +6223,8 @@ function FlowInner() {
             "generatePro",
             "generatePro4",
             "midjourney",
+            "midjourneyV7",
+            "niji7",
             "imageGrid",
             "imageCompress",
           ].includes(sourceNode.type || "");
@@ -6332,6 +6377,10 @@ function FlowInner() {
         if (params.targetHandle === "img") return true; // 图片输入支持多条
       }
       // Nano2 节点连接容量控制 - 支持文本和图片输入
+      if (targetNode?.type === "midjourneyV7" || targetNode?.type === "niji7") {
+        if (params.targetHandle === "text") return true;
+        if (params.targetHandle === "img") return incoming.length < 10;
+      }
       if (targetNode?.type === "nano2") {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
         if (params.targetHandle === "img") return true; // 图片输入
@@ -6418,6 +6467,8 @@ function FlowInner() {
           "wan2R2V",
           "storyboardSplit",
           "midjourney",
+          "midjourneyV7",
+          "niji7",
           "klingVideo",
           "kling26Video",
           "viduVideo",
@@ -7547,7 +7598,12 @@ function FlowInner() {
       if (!detail?.nodeId || !detail?.taskId || !detail?.customId) return;
 
       const node = rf.getNode(detail.nodeId);
-      if (!node || node.type !== "midjourney") return;
+      if (
+        !node ||
+        !["midjourney", "midjourneyV7", "niji7"].includes(node.type || "")
+      ) {
+        return;
+      }
 
       // 设置节点为运行状态
       setNodes((ns) =>
@@ -7595,6 +7651,10 @@ function FlowInner() {
         const previewSource = hasRemoteUrl
           ? normalizedMidjourneyUrl
           : imgBase64;
+        
+        // 获取所有图片 URLs（用于 V7/Niji7 多图场景）
+        const midjourneyImageUrls = midjourneyMeta.imageUrls || metadata.imageUrls || [];
+        
         const historyId = previewSource
           ? `${detail.nodeId}-${Date.now()}`
           : undefined;
@@ -7615,6 +7675,10 @@ function FlowInner() {
                     imageUrl: hasRemoteUrl
                       ? normalizedMidjourneyUrl
                       : undefined,
+                    // 保存所有图片 URLs（用于 V7/Niji7 多图展示）
+                    imageUrls: midjourneyImageUrls.length > 0
+                      ? midjourneyImageUrls
+                      : undefined,
                     promptEn: midjourneyMeta.promptEn,
                     lastHistoryId: historyId ?? (n.data as any)?.lastHistoryId,
                   },
@@ -7631,12 +7695,12 @@ function FlowInner() {
             id: historyId,
             base64: hasRemoteUrl ? undefined : imgBase64,
             remoteUrl: hasRemoteUrl ? normalizedMidjourneyUrl : undefined,
-            title: `Midjourney ${
+            title: `${node.type === "niji7" ? "Niji 7" : node.type === "midjourneyV7" ? "Midjourney V7" : "Midjourney"} ${
               detail.label || "Action"
             } ${new Date().toLocaleTimeString()}`,
             nodeId: detail.nodeId,
-            nodeType: "midjourney",
-            fileName: `flow_midjourney_${historyId}.png`,
+            nodeType: node.type || "midjourney",
+            fileName: `flow_${node.type || "midjourney"}_${historyId}.png`,
             projectId,
             keepThumbnail: false,
           })
@@ -8333,6 +8397,104 @@ function FlowInner() {
       };
 
       // Wan2.6 节点处理逻辑
+      const parseMidjourneyList = (value: unknown): string[] => {
+        if (typeof value !== "string") return [];
+        return value
+          .split(/[\r\n,]+/)
+          .map((item) => item.trim())
+          .filter(Boolean);
+      };
+
+      const normalizeMidjourneyValue = (value: unknown): string | undefined => {
+        if (typeof value === "number" && Number.isFinite(value)) return String(value);
+        if (typeof value !== "string") return undefined;
+        const trimmed = value.trim();
+        return trimmed.length > 0 ? trimmed : undefined;
+      };
+
+      const buildMidjourneyPrompt = (
+        nodeType: string,
+        nodeData: Record<string, any>,
+        promptText: string,
+        hasImages: boolean
+      ) => {
+        const isNiji = nodeType === "niji7";
+        const errors: string[] = [];
+        const flags: string[] = [];
+        const basePrompt = (promptText || "").trim();
+        const defaultChaos = "40";
+        const defaultStylize = "100";
+        const defaultImageWeight = "1";
+        const defaultQuality = "1";
+
+        if (basePrompt.includes("::")) {
+          errors.push("Midjourney V7 / Niji 7 暂不支持多提示词 ::");
+        }
+
+        const srefList = parseMidjourneyList(nodeData.styleRefs);
+        if (srefList.length > 10) {
+          errors.push("sref 最多支持 10 个");
+        }
+
+        flags.push(isNiji ? "--niji 7" : "--v 7");
+
+        if (nodeData.aspectRatio) flags.push(`--ar ${nodeData.aspectRatio}`);
+        if (nodeData.speedMode === "turbo") flags.push("--turbo");
+        if (nodeData.raw) flags.push("--raw");
+
+        const chaos = normalizeMidjourneyValue(nodeData.chaos) ?? defaultChaos;
+        if (chaos) flags.push(`--chaos ${chaos}`);
+        const stylize = normalizeMidjourneyValue(nodeData.stylize) ?? defaultStylize;
+        if (stylize) flags.push(`--stylize ${stylize}`);
+        const weird = normalizeMidjourneyValue(nodeData.weird);
+        if (weird) flags.push(`--weird ${weird}`);
+        const seed = normalizeMidjourneyValue(nodeData.seed);
+        if (seed) flags.push(`--seed ${seed}`);
+
+        if (!isNiji) {
+          const quality = normalizeMidjourneyValue(nodeData.quality) ?? defaultQuality;
+          if (quality) flags.push(`--q ${quality}`);
+          const noPrompt = normalizeMidjourneyValue(nodeData.noPrompt);
+          if (noPrompt) flags.push(`--no ${noPrompt}`);
+          if (nodeData.draft) flags.push("--draft");
+          if (nodeData.tile) flags.push("--tile");
+
+          const orefList = parseMidjourneyList(nodeData.omniReference);
+          if (orefList.length > 1) {
+            errors.push("oref 仅支持 1 个引用");
+          } else if (orefList.length === 1) {
+            flags.push(`--oref ${orefList[0]}`);
+          }
+
+          const omniWeight = normalizeMidjourneyValue(nodeData.omniWeight);
+          if (omniWeight) flags.push(`--ow ${omniWeight}`);
+          const exp = normalizeMidjourneyValue(nodeData.exp);
+          if (exp) flags.push(`--exp ${exp}`);
+        }
+
+        if (hasImages) {
+          const imageWeight =
+            normalizeMidjourneyValue(nodeData.imageWeight) ?? defaultImageWeight;
+          if (imageWeight) flags.push(`--iw ${imageWeight}`);
+        }
+
+        if (srefList.length > 0) {
+          flags.push(`--sref ${srefList.join(" ")}`);
+        }
+
+        const styleVersion = normalizeMidjourneyValue(nodeData.styleVersion);
+        if (styleVersion) flags.push(`--sv ${styleVersion}`);
+        const styleWeight = normalizeMidjourneyValue(nodeData.styleWeight);
+        if (styleWeight) flags.push(`--sw ${styleWeight}`);
+
+        const finalPrompt = [basePrompt, ...flags].filter(Boolean).join(" ").trim();
+        if (!basePrompt && !hasImages) {
+          errors.push("需要提示词或参考图");
+        }
+
+        return { finalPrompt, errors };
+      };
+
       if (node.type === "wan26") {
         const projectId = useProjectContentStore.getState().projectId;
         const { text: promptText, hasEdge: hasText } =
@@ -10043,6 +10205,230 @@ function FlowInner() {
       }
 
       // Nano2 节点处理逻辑
+      if (node.type === "midjourneyV7" || node.type === "niji7") {
+        const { text: promptText } = getTextPromptForNode(nodeId);
+        const totalImgEdges = currentEdges.filter(
+          (e) => e.target === nodeId && e.targetHandle === "img"
+        );
+        const imgEdges = totalImgEdges.slice(0, 10);
+        const imageDatas = await resolveEdgesAsDataUrls(imgEdges);
+        const { finalPrompt, errors } = buildMidjourneyPrompt(
+          node.type,
+          (node.data || {}) as Record<string, any>,
+          promptText,
+          imageDatas.length > 0
+        );
+
+        if (errors.length > 0) {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "failed",
+                      error: errors.join("\n"),
+                    },
+                  }
+                : n
+            )
+          );
+          return;
+        }
+
+        if (totalImgEdges.length > 10) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message: `Midjourney 仅支持最多 10 张参考图，当前已自动截取前 10 张`,
+                type: "warning",
+              },
+            })
+          );
+        }
+
+        setNodes((ns) =>
+          ns.map((n) =>
+            n.id === nodeId
+              ? {
+                  ...n,
+                  data: { ...n.data, status: "running", error: undefined },
+                }
+              : n
+          )
+        );
+
+        try {
+          const modelName = node.type === "niji7" ? "midjourney-niji-7" : "midjourney-v7";
+          const actionTitle = node.type === "niji7" ? "Niji 7" : "Midjourney V7";
+          const mjResult = await generateImageViaAPI({
+            prompt: finalPrompt,
+            outputFormat: "png",
+            aiProvider: "midjourney",
+            model: modelName,
+            imageUrls: imageDatas.length > 0 ? imageDatas : undefined,
+            providerOptions: {
+              midjourney: { mode: "FAST" },
+            },
+          });
+
+          if (!mjResult.success || !mjResult.data) {
+            const msg = mjResult.error?.message || `${actionTitle} 生成失败`;
+            setNodes((ns) =>
+              ns.map((n) =>
+                n.id === nodeId
+                  ? { ...n, data: { ...n.data, status: "failed", error: msg } }
+                  : n
+              )
+            );
+            return;
+          }
+
+          const mjImgBase64 = mjResult.data.imageData;
+          const mjMetadata = mjResult.data.metadata || {};
+          const midjourneyMeta = mjMetadata.midjourney || {};
+          const midjourneyImageUrl =
+            midjourneyMeta.imageUrl || mjMetadata.imageUrl;
+          const normalizedMidjourneyUrl =
+            typeof midjourneyImageUrl === "string"
+              ? midjourneyImageUrl.trim()
+              : "";
+          const hasRemoteUrl = normalizedMidjourneyUrl.length > 0;
+          const previewSource = hasRemoteUrl
+            ? normalizedMidjourneyUrl
+            : mjImgBase64;
+          const historyId = previewSource
+            ? `${nodeId}-${Date.now()}`
+            : undefined;
+
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "succeeded",
+                      imageData: hasRemoteUrl ? undefined : mjImgBase64,
+                      error: undefined,
+                      taskId: midjourneyMeta.taskId,
+                      buttons: midjourneyMeta.buttons,
+                      imageUrl: hasRemoteUrl
+                        ? normalizedMidjourneyUrl
+                        : undefined,
+                      promptEn: midjourneyMeta.promptEn,
+                      lastHistoryId:
+                        historyId ?? (n.data as any)?.lastHistoryId,
+                    },
+                  }
+                : n
+            )
+          );
+
+          if (historyId) {
+            const projectId = useProjectContentStore.getState().projectId;
+            void recordImageHistoryEntry({
+              id: historyId,
+              base64: hasRemoteUrl ? undefined : mjImgBase64,
+              remoteUrl: hasRemoteUrl ? normalizedMidjourneyUrl : undefined,
+              title: `${actionTitle} ${new Date().toLocaleTimeString()}`,
+              nodeId,
+              nodeType: node.type,
+              fileName: `flow_${node.type}_${historyId}.png`,
+              projectId,
+              keepThumbnail: false,
+              metadata: {
+                ...mjMetadata,
+                model: modelName,
+                aiProvider: "midjourney",
+                provider: "midjourney",
+              },
+            })
+              .then(({ remoteUrl }) => {
+                if (!remoteUrl || hasRemoteUrl) return;
+                const outs = rf.getEdges().filter((e) => e.source === nodeId);
+                setNodes((ns) =>
+                  ns.map((n) => {
+                    if (n.id === nodeId) {
+                      if ((n.data as any)?.imageData !== mjImgBase64) return n;
+                      return {
+                        ...n,
+                        data: {
+                          ...n.data,
+                          imageUrl: remoteUrl,
+                          imageData: undefined,
+                          thumbnail: undefined,
+                        },
+                      };
+                    }
+                    if (
+                      outs.some((e) => e.target === n.id) &&
+                      n.type === "image"
+                    ) {
+                      if ((n.data as any)?.imageData !== mjImgBase64) return n;
+                      return {
+                        ...n,
+                        data: {
+                          ...n.data,
+                          imageUrl: remoteUrl,
+                          imageData: undefined,
+                          thumbnail: undefined,
+                        },
+                      };
+                    }
+                    return n;
+                  })
+                );
+              })
+              .catch(() => {});
+          }
+
+          if (previewSource) {
+            const mjOuts = rf.getEdges().filter((e) => e.source === nodeId);
+            if (mjOuts.length) {
+              setNodes((ns) =>
+                ns.map((n) => {
+                  const hits = mjOuts.filter((e) => e.target === n.id);
+                  if (!hits.length) return n;
+                  if (n.type === "image") {
+                    return {
+                      ...n,
+                      data: {
+                        ...n.data,
+                        ...(hasRemoteUrl
+                          ? {
+                              imageUrl: normalizedMidjourneyUrl,
+                              imageData: undefined,
+                            }
+                          : { imageData: mjImgBase64 }),
+                        thumbnail: undefined,
+                      },
+                    };
+                  }
+                  return n;
+                })
+              );
+            }
+          }
+        } catch (error) {
+          const msg =
+            error instanceof Error
+              ? error.message
+              : node.type === "niji7"
+              ? "Niji 7 生成失败"
+              : "Midjourney V7 生成失败";
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? { ...n, data: { ...n.data, status: "failed", error: msg } }
+                : n
+            )
+          );
+        }
+        return;
+      }
+
       if (node.type === "nano2") {
         const { text: promptText, hasEdge: hasText } = getTextPromptForNode(nodeId);
         if (!hasText || !promptText) {
@@ -12202,6 +12588,8 @@ function FlowInner() {
         n.type === "generatePro" ||
         n.type === "generatePro4" ||
         n.type === "midjourney" ||
+        n.type === "midjourneyV7" ||
+        n.type === "niji7" ||
         n.type === "nano2" ||
         n.type === "seedream5"
           ? { ...n, data: { ...n.data, onRun: runNode, onSend: onSendHandler } }
