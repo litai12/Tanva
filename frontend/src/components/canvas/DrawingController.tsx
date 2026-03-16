@@ -65,6 +65,7 @@ import {
   isPersistableImageRef,
   isRemoteUrl,
   normalizePersistableImageRef,
+  requiresManagedImageUpload,
   resolveImageToBlob,
   toRenderableImageSrc,
 } from "@/utils/imageSource";
@@ -2329,47 +2330,71 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     const applySourceToRaster = (raster: paper.Raster, source: string) => {
       const trimmed = typeof source === "string" ? source.trim() : "";
       if (!trimmed) return;
+      const applyStoredBounds = () => {
+        try {
+          const stored = (raster as any)?.data?.__tanvaBounds as
+            | { x: number; y: number; width: number; height: number }
+            | undefined;
+          if (
+            stored &&
+            Number.isFinite(stored.x) &&
+            Number.isFinite(stored.y) &&
+            Number.isFinite(stored.width) &&
+            Number.isFinite(stored.height) &&
+            stored.width > 0 &&
+            stored.height > 0
+          ) {
+            raster.bounds = new paper.Rectangle(
+              stored.x,
+              stored.y,
+              stored.width,
+              stored.height
+            );
+          }
+        } catch {}
+      };
+      const refreshView = () => {
+        try {
+          raster.view?.update();
+        } catch {}
+        try {
+          paper.view?.update();
+        } catch {}
+      };
       try {
         (raster as any).__tanvaSourceRef = trimmed;
       } catch {}
 
-      if (trimmed.startsWith("blob:") || trimmed.startsWith("data:image/")) {
-        try {
-          const image = new Image();
-          image.onload = () => {
-            try {
-              (raster as any).setImage(image);
-            } catch {}
-            try {
-              const stored = (raster as any)?.data?.__tanvaBounds as
-                | { x: number; y: number; width: number; height: number }
-                | undefined;
-              if (
-                stored &&
-                Number.isFinite(stored.x) &&
-                Number.isFinite(stored.y) &&
-                Number.isFinite(stored.width) &&
-                Number.isFinite(stored.height) &&
-                stored.width > 0 &&
-                stored.height > 0
-              ) {
-                raster.bounds = new paper.Rectangle(
-                  stored.x,
-                  stored.y,
-                  stored.width,
-                  stored.height
-                );
-              }
-            } catch {}
-          };
-          image.src = trimmed;
-          return;
-        } catch {}
-      }
+      try {
+        const image = new Image();
+        image.onload = () => {
+          try {
+            (raster as any).setImage(image);
+          } catch {}
+          applyStoredBounds();
+          refreshView();
+        };
+        image.onerror = () => {
+          try {
+            raster.source = trimmed;
+          } catch {}
+          applyStoredBounds();
+          refreshView();
+          // fallback 分支可能仍是异步加载，补两次延迟刷新，降低“幽灵图”概率
+          setTimeout(refreshView, 60);
+          setTimeout(refreshView, 220);
+        };
+        image.src = trimmed;
+        return;
+      } catch {}
 
       try {
         raster.source = trimmed;
       } catch {}
+      applyStoredBounds();
+      refreshView();
+      setTimeout(refreshView, 60);
+      setTimeout(refreshView, 220);
     };
 
     const updateSelectionHelpers = (
@@ -2418,7 +2443,31 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const rawSource = typeof detail.source === "string" ? detail.source : "";
       if (!imageId || !rawSource.trim()) return;
 
+      const normalizedSource = normalizePersistableImageRef(rawSource) || rawSource.trim();
       const renderableSource = toRenderableImageSrc(rawSource) || rawSource;
+      const isPersistableSource = isPersistableImageRef(normalizedSource);
+      const explicitPendingUpload =
+        typeof detail.pendingUpload === "boolean" ? detail.pendingUpload : undefined;
+      const pendingUpload =
+        explicitPendingUpload ??
+        (!isPersistableSource || requiresManagedImageUpload(normalizedSource));
+      const hasInlinePreview =
+        renderableSource.startsWith("data:image/") || renderableSource.startsWith("blob:");
+      const persistedSource = isPersistableSource ? normalizedSource : "";
+      const stateSource = renderableSource;
+      const detailKeyRaw =
+        typeof detail.key === "string" ? normalizePersistableImageRef(detail.key) : "";
+      const detailRemoteUrlRaw =
+        typeof detail.remoteUrl === "string"
+          ? normalizePersistableImageRef(detail.remoteUrl)
+          : "";
+      const persistedKey =
+        (detailKeyRaw && isAssetKeyRef(detailKeyRaw) ? detailKeyRaw : "") ||
+        (isAssetKeyRef(persistedSource) ? persistedSource : "");
+      const persistedRemoteUrl =
+        (detailRemoteUrlRaw && isRemoteUrl(detailRemoteUrlRaw)
+          ? detailRemoteUrlRaw
+          : "") || (isRemoteUrl(persistedSource) ? persistedSource : "");
       const contentType =
         typeof detail.contentType === "string" && detail.contentType.trim()
           ? detail.contentType.trim()
@@ -2431,6 +2480,69 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         typeof detail.historyLabel === "string" && detail.historyLabel.trim()
           ? detail.historyLabel.trim()
           : "replace-image-source";
+      const sourceWidthRaw =
+        typeof detail.width === "number" ? detail.width : Number(detail.width);
+      const sourceHeightRaw =
+        typeof detail.height === "number" ? detail.height : Number(detail.height);
+      const sourceWidth =
+        Number.isFinite(sourceWidthRaw) && sourceWidthRaw > 0
+          ? Math.round(sourceWidthRaw)
+          : undefined;
+      const sourceHeight =
+        Number.isFinite(sourceHeightRaw) && sourceHeightRaw > 0
+          ? Math.round(sourceHeightRaw)
+          : undefined;
+      const detailBounds = detail.bounds as
+        | { x?: unknown; y?: unknown; width?: unknown; height?: unknown }
+        | undefined;
+      const explicitBounds = (() => {
+        if (!detailBounds || typeof detailBounds !== "object") return null;
+        const x = Number(detailBounds.x);
+        const y = Number(detailBounds.y);
+        const width = Number(detailBounds.width);
+        const height = Number(detailBounds.height);
+        if (
+          !Number.isFinite(x) ||
+          !Number.isFinite(y) ||
+          !Number.isFinite(width) ||
+          !Number.isFinite(height) ||
+          width <= 0 ||
+          height <= 0
+        ) {
+          return null;
+        }
+        return { x, y, width, height };
+      })();
+      const buildImageDataUpdates = (currentData: any) => {
+        const updates: any = {
+          src: stateSource,
+          url: stateSource,
+          fileName,
+          contentType,
+          width: sourceWidth ?? currentData?.width,
+          height: sourceHeight ?? currentData?.height,
+        };
+
+        if (pendingUpload) {
+          updates.pendingUpload = true;
+          if (hasInlinePreview) {
+            updates.localDataUrl = renderableSource;
+          }
+          if (persistedKey) {
+            updates.key = persistedKey;
+          }
+          if (persistedRemoteUrl) {
+            updates.remoteUrl = persistedRemoteUrl;
+          }
+        } else {
+          updates.pendingUpload = undefined;
+          updates.localDataUrl = undefined;
+          updates.key = persistedKey || undefined;
+          updates.remoteUrl = persistedRemoteUrl || undefined;
+        }
+
+        return updates;
+      };
 
       let didUpdate = false;
 
@@ -2441,18 +2553,19 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           if (idx < 0) return prev;
           const current = prev[idx];
           const next = prev.slice();
-          next[idx] = {
+          const currentData = current?.imageData || {};
+          const imageDataUpdates = buildImageDataUpdates(currentData);
+          const nextItem: any = {
             ...current,
             imageData: {
-              ...(current?.imageData || {}),
-              src: renderableSource,
-              url: renderableSource,
-              localDataUrl: renderableSource,
-              pendingUpload: true,
-              fileName,
-              contentType,
+              ...currentData,
+              ...imageDataUpdates,
             },
           };
+          if (explicitBounds) {
+            nextItem.bounds = { ...explicitBounds };
+          }
+          next[idx] = nextItem;
           didUpdate = true;
           return next;
         });
@@ -2463,19 +2576,20 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         if (Array.isArray(runtime) && runtime.length > 0) {
           const next = runtime.map((item) => {
             if (!item || item.id !== imageId) return item;
+            const currentData = item.imageData || {};
+            const imageDataUpdates = buildImageDataUpdates(currentData);
             didUpdate = true;
-            return {
+            const nextItem: any = {
               ...item,
               imageData: {
-                ...(item.imageData || {}),
-                src: renderableSource,
-                url: renderableSource,
-                localDataUrl: renderableSource,
-                pendingUpload: true,
-                fileName,
-                contentType,
+                ...currentData,
+                ...imageDataUpdates,
               },
             };
+            if (explicitBounds) {
+              nextItem.bounds = { ...explicitBounds };
+            }
+            return nextItem;
           });
           (window as any).tanvaImageInstances = next;
         }
@@ -2499,31 +2613,68 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               | { x: number; y: number; width: number; height: number }
               | undefined;
             const fallbackBounds = raster.bounds as paper.Rectangle | undefined;
-            const rect = stored &&
-              Number.isFinite(stored.x) &&
-              Number.isFinite(stored.y) &&
-              Number.isFinite(stored.width) &&
-              Number.isFinite(stored.height) &&
-              stored.width > 0 &&
-              stored.height > 0
-                ? stored
-                : fallbackBounds
-                ? {
-                    x: fallbackBounds.x,
-                    y: fallbackBounds.y,
-                    width: fallbackBounds.width,
-                    height: fallbackBounds.height,
-                  }
-                : null;
+            const rect = explicitBounds
+              ? { ...explicitBounds }
+              : stored &&
+                Number.isFinite(stored.x) &&
+                Number.isFinite(stored.y) &&
+                Number.isFinite(stored.width) &&
+                Number.isFinite(stored.height) &&
+                stored.width > 0 &&
+                stored.height > 0
+              ? stored
+              : fallbackBounds
+              ? {
+                  x: fallbackBounds.x,
+                  y: fallbackBounds.y,
+                  width: fallbackBounds.width,
+                  height: fallbackBounds.height,
+                }
+              : null;
 
             applySourceToRaster(raster as paper.Raster, renderableSource);
             if (rect) {
               updateSelectionHelpers(raster, rect);
               try {
-                raster.data = {
+                const nextRasterData: any = {
                   ...(raster.data || {}),
+                  ...(sourceWidth && sourceHeight
+                    ? {
+                        originalWidth: sourceWidth,
+                        originalHeight: sourceHeight,
+                        aspectRatio: sourceWidth / sourceHeight,
+                      }
+                    : {}),
                   __tanvaBounds: { ...rect },
                 };
+
+                if (pendingUpload) {
+                  nextRasterData.pendingUpload = true;
+                  if (hasInlinePreview) {
+                    nextRasterData.localDataUrl = renderableSource;
+                  }
+                  if (persistedKey) {
+                    nextRasterData.key = persistedKey;
+                  }
+                  if (persistedRemoteUrl) {
+                    nextRasterData.remoteUrl = persistedRemoteUrl;
+                  }
+                } else {
+                  delete nextRasterData.pendingUpload;
+                  delete nextRasterData.localDataUrl;
+                  if (persistedKey) {
+                    nextRasterData.key = persistedKey;
+                  } else {
+                    delete nextRasterData.key;
+                  }
+                  if (persistedRemoteUrl) {
+                    nextRasterData.remoteUrl = persistedRemoteUrl;
+                  } else {
+                    delete nextRasterData.remoteUrl;
+                  }
+                }
+
+                raster.data = nextRasterData;
               } catch {}
             }
             didUpdate = true;

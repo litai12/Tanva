@@ -12,11 +12,11 @@ export type BlobUrl = `blob:${string}`;
 export type DataUrl = `data:${string}`;
 export type DataImageUrl = `data:image/${string}`;
 
-// 优先使用环境变量配置的 OSS URL，否则使用默认值
-const getOssBaseUrl = (): string => {
+// 优先使用环境变量配置的 OSS/CDN 基础地址；未配置则返回 null。
+const getOssBaseUrl = (): string | null => {
   const envBase = getPublicAssetBaseUrl();
   if (envBase) return envBase.endsWith("/") ? envBase : `${envBase}/`;
-  return "https://tai-tanva-ai.oss-cn-shenzhen.aliyuncs.com/";
+  return null;
 };
 
 export const isRemoteUrl = (value?: string | null): value is RemoteUrl =>
@@ -203,7 +203,12 @@ export const toRenderableImageSrc = (value?: string | null): string | null => {
   if (isBlobUrl(trimmed)) return trimmed;
   if (isAssetKeyRef(trimmed)) {
     const withoutLeading = trimmed.replace(/^\/+/, "");
-    return `${getOssBaseUrl()}${withoutLeading}`;
+    const directBase = getOssBaseUrl();
+    if (directBase) return `${directBase}${withoutLeading}`;
+    return proxifyRemoteAssetUrl(
+      `/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`,
+      { forceProxy: true }
+    );
   }
   if (isRemoteUrl(trimmed)) return trimmed;
   if (
@@ -281,14 +286,16 @@ export const resolveImageToDataUrl = async (
   } else if (isAssetKeyRef(trimmed)) {
     console.log(`[resolveImageToDataUrl] asset key 引用`);
     const withoutLeading = trimmed.replace(/^\/+/, "");
-    // 优先直接使用 OSS URL（CORS 已配置），避免走代理
-    const directOssUrl = `${getOssBaseUrl()}${withoutLeading}`;
-    candidates.push(directOssUrl);
-    // 备选：走代理
+    // 优先直接使用环境配置的公共 OSS/CDN URL，缺失时走代理
+    const directBase = getOssBaseUrl();
+    if (directBase) {
+      candidates.push(`${directBase}${withoutLeading}`);
+    }
+    // 兜底：走代理
     candidates.push(
-      proxifyRemoteAssetUrl(
-        `/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`
-      )
+      proxifyRemoteAssetUrl(`/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`, {
+        forceProxy: true,
+      })
     );
   } else if (
     trimmed.startsWith("/") ||
@@ -394,8 +401,10 @@ export const resolveImageToBlob = async (
     candidates.push(proxifyRemoteAssetUrl(trimmed, { forceProxy: true }));
   } else if (isAssetKeyRef(trimmed)) {
     const withoutLeading = trimmed.replace(/^\/+/, "");
-    const directOssUrl = `${getOssBaseUrl()}${withoutLeading}`;
-    candidates.push(directOssUrl);
+    const directBase = getOssBaseUrl();
+    if (directBase) {
+      candidates.push(`${directBase}${withoutLeading}`);
+    }
     candidates.push(
       proxifyRemoteAssetUrl(
         `/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`,

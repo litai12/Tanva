@@ -7830,11 +7830,39 @@ export async function uploadAudioToOSS(
     const blob = dataURLToBlob(audioDataOrUrl);
     const mimeMatch = audioDataOrUrl.match(/^data:([^;]+);/);
     const contentType = mimeMatch ? mimeMatch[1] : "audio/mpeg";
+    const normalizedType = contentType.toLowerCase();
+    const extMap: Record<string, string> = {
+      "audio/mpeg": "mp3",
+      "audio/mp3": "mp3",
+      "audio/wav": "wav",
+      "audio/x-wav": "wav",
+      "audio/aac": "aac",
+      "audio/mp4": "m4a",
+      "audio/x-m4a": "m4a",
+      "audio/ogg": "ogg",
+      "audio/opus": "opus",
+      "audio/flac": "flac",
+      "audio/x-flac": "flac",
+      "audio/webm": "webm",
+      "audio/amr": "amr",
+      "audio/aiff": "aiff",
+      "audio/x-aiff": "aiff",
+      "audio/x-ms-wma": "wma",
+    };
+    const ext =
+      extMap[normalizedType] ||
+      (normalizedType.startsWith("audio/")
+        ? normalizedType
+            .slice(6)
+            .split("+")[0]
+            .replace(/^x-/, "")
+            .replace("mpeg", "mp3")
+        : "mp3");
 
     const result = await ossUploadService.uploadToOSS(blob, {
       dir: "ai-chat-audios/",
       projectId,
-      fileName: `ai-audio-${Date.now()}.mp3`,
+      fileName: `ai-audio-${Date.now()}.${ext || "mp3"}`,
       contentType,
     });
 

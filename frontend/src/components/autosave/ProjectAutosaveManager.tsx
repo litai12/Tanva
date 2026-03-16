@@ -13,6 +13,7 @@ import { useAIChatStore } from '@/stores/aiChatStore';
 import { getProjectCache, setProjectCache, isCacheValid } from '@/services/projectCacheStore';
 import { getPendingUploadSummary } from '@/utils/pendingUploadSummary';
 import { consumeBeforeUnloadPromptSkip } from '@/utils/beforeUnloadGuard';
+import { createEmptyProjectContent } from '@/types/project';
 
 type ProjectAutosaveManagerProps = {
   projectId: string | null;
@@ -202,11 +203,72 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
         const msg = err?.message || '加载项目内容失败';
         setError(msg);
 
+        const isProjectNotFound = typeof msg === 'string' && msg.includes('项目不存在');
+
+        // 云端加载失败时，尝试回退到最近一次本地良好快照（仅恢复 paperJson）
+        if (!isProjectNotFound) {
+          const restored = (() => {
+            try {
+              const raw = localStorage.getItem(`tanva_last_good_snapshot_${projectId}`);
+              if (!raw) return false;
+              const parsed = JSON.parse(raw) as {
+                version?: number;
+                updatedAt?: string | null;
+                paperJson?: string;
+              };
+              const paperJson = typeof parsed?.paperJson === 'string' ? parsed.paperJson.trim() : '';
+              if (!paperJson) return false;
+
+              const state = useProjectContentStore.getState();
+              const baseContent = state.content ?? createEmptyProjectContent();
+              const restoredUpdatedAt =
+                typeof parsed?.updatedAt === 'string' && parsed.updatedAt
+                  ? parsed.updatedAt
+                  : new Date().toISOString();
+              const restoredVersion =
+                Number.isFinite(parsed?.version) && Number(parsed.version) > 0
+                  ? Number(parsed.version)
+                  : Math.max(1, state.version || 1);
+
+              hydrate(
+                {
+                  ...baseContent,
+                  paperJson,
+                  meta: {
+                    ...(baseContent.meta || {}),
+                    paperJsonLen: paperJson.length,
+                  },
+                  updatedAt: restoredUpdatedAt,
+                } as any,
+                restoredVersion,
+                restoredUpdatedAt
+              );
+
+              const ok = paperSaveService.deserializePaperProject(paperJson);
+              if (!ok) return false;
+
+              try { (window as any).tanvaPaperRestored = true; } catch {}
+              try {
+                useProjectContentStore.getState().setWarning('云端加载失败，已从本地快照恢复画布内容（可能不是最新）');
+              } catch {}
+              setError(null);
+              return true;
+            } catch {
+              return false;
+            }
+          })();
+
+          if (restored) {
+            hydrationReadyRef.current = true;
+            return;
+          }
+        }
+
         // 若后端提示项目不存在，做容错处理：
         // - 清理无效的 projectId URL 参数
         // - 重置当前项目内容状态，避免后续保存报错
         // - 打开项目管理器并刷新项目列表，便于用户重新选择
-        if (typeof msg === 'string' && msg.includes('项目不存在')) {
+        if (isProjectNotFound) {
           try {
             // 清理 URL 查询参数中的无效 projectId
             const url = new URL(window.location.href);

@@ -19,6 +19,13 @@ export function getApiBaseUrl(): string {
   return normalizeApiBaseUrl(String(raw));
 }
 
+function getFrontendOrigin(): string {
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return window.location.origin;
+  }
+  return "http://localhost:5173";
+}
+
 function normalizePublicAssetBaseUrl(raw: string): string {
   const trimmed = typeof raw === "string" ? raw.trim() : "";
   if (!trimmed) return "";
@@ -105,8 +112,10 @@ export function proxifyRemoteAssetUrl(
   if (looksLikePresigned) {
     if (forceProxy) {
       // 强制代理：用于下载场景，避免第三方 S3 的 CORS 问题
-      // 生产环境使用当前页面 origin，开发环境使用 apiBase
-      const proxyBase = import.meta.env.DEV ? apiBase : (typeof window !== 'undefined' ? window.location.origin : apiBase);
+      // 开发环境优先走前端 origin（可复用 Vite /api 代理，避免写死 localhost）
+      const proxyBase = import.meta.env.DEV
+        ? getFrontendOrigin()
+        : (typeof window !== "undefined" ? window.location.origin : apiBase);
       return `${proxyBase}/api/assets/proxy?url=${encodeURIComponent(value)}`;
     }
     return value;
@@ -136,7 +145,7 @@ export function proxifyRemoteAssetUrl(
     }
 
     const frontendBase = import.meta.env.DEV
-      ? "http://localhost:5173"
+      ? getFrontendOrigin()
       : apiBase;
     return `${frontendBase}/api/assets/proxy?url=${encodeURIComponent(value)}`;
   }
@@ -150,9 +159,9 @@ export function proxifyRemoteAssetUrl(
       const direct = tryUnwrapAssetProxyUrl(value);
       if (direct) return direct;
     }
-    // 图片资源使用前端 5173 端口（开发模式），其他 API 保持使用后端配置
+    // 开发模式使用当前前端 origin，生产使用后端配置
     const frontendBase = import.meta.env.DEV
-      ? "http://localhost:5173"
+      ? getFrontendOrigin()
       : apiBase;
     return frontendBase ? `${frontendBase}${value}` : value;
   }
@@ -169,7 +178,7 @@ export function proxifyRemoteAssetUrl(
         if (direct) return direct;
       }
       const frontendBase = import.meta.env.DEV
-        ? "http://localhost:5173"
+        ? getFrontendOrigin()
         : apiBase;
       if (frontendBase) return `${frontendBase}${url.pathname}${url.search}`;
       return `${url.pathname}${url.search}`;
@@ -205,7 +214,7 @@ export function proxifyRemoteAssetUrl(
     return input;
   }
 
-  // 图片资源使用前端 5173 端口（开发）或后端 apiBase（生产），通过 proxy 转发
-  const frontendBase = import.meta.env.DEV ? "http://localhost:5173" : apiBase;
+  // 开发使用当前前端 origin（便于局域网/隧道访问），生产使用后端 apiBase
+  const frontendBase = import.meta.env.DEV ? getFrontendOrigin() : apiBase;
   return `${frontendBase}/api/assets/proxy?url=${encodeURIComponent(value)}`;
 }

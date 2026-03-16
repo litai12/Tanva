@@ -38,8 +38,9 @@ export default function ManualSaveButton() {
       const contentForCloudSave = sanitizeResult?.sanitized ?? content;
       if (invalidCanvasImageIds.length > 0 || invalidFlowNodeIds.length > 0) {
         setWarning(
-          `存在未上传到 OSS 的图片（画布 ${invalidCanvasImageIds.length} 张，Flow ${invalidFlowNodeIds.length} 处），已继续保存其它内容；这些图片不会被保存到云端，请重试上传`
+          `存在未上传到 OSS 的图片（画布 ${invalidCanvasImageIds.length} 张，Flow ${invalidFlowNodeIds.length} 处），已阻止云端保存，请重试上传后再保存`
         );
+        return;
       } else {
         setWarning(null);
       }

@@ -389,6 +389,13 @@ input[type="text"],
   --handle-border: #ca8a04;
 }
 
+/* Audio 类型句柄 - 粉色 */
+.tanva-flow-overlay .react-flow__handle[data-handleid="audio"],
+.tanva-flow-overlay .react-flow__handle[data-handleid^="audio-"] {
+  --handle-bg: #ec4899;
+  --handle-border: #db2777;
+}
+
 /* 句柄可视核心点（保持视觉尺寸） */
 .tanva-flow-overlay .react-flow__handle::before {
   content: '';
