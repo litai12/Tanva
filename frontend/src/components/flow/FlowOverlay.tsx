@@ -2774,10 +2774,15 @@ function FlowInner() {
   React.useEffect(() => {
     if (isNodeDragging) {
       document.body.classList.add("tanva-flow-node-dragging");
+      document.body.classList.add("tanva-no-select");
     } else {
       document.body.classList.remove("tanva-flow-node-dragging");
+      document.body.classList.remove("tanva-no-select");
     }
-    return () => document.body.classList.remove("tanva-flow-node-dragging");
+    return () => {
+      document.body.classList.remove("tanva-flow-node-dragging");
+      document.body.classList.remove("tanva-no-select");
+    };
   }, [isNodeDragging]);
 
   const getFlowSnapshotSignature = React.useCallback(
@@ -4053,31 +4058,44 @@ function FlowInner() {
     []
   );
 
-  const resolveAddPanelAnchorScreen = React.useCallback(() => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (rect) {
+  const resolveAddPanelAnchorScreen = React.useCallback(
+    (clientX?: number, clientY?: number) => {
+      const hasClientPoint =
+        typeof clientX === "number" &&
+        typeof clientY === "number" &&
+        Number.isFinite(clientX) &&
+        Number.isFinite(clientY);
+      if (hasClientPoint) {
+        const rect = containerRef.current?.getBoundingClientRect();
+        if (rect) {
+          return {
+            x: Math.min(rect.right, Math.max(rect.left, clientX)),
+            y: Math.min(rect.bottom, Math.max(rect.top, clientY)),
+          };
+        }
+        return { x: clientX, y: clientY };
+      }
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (rect) {
+        return {
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+        };
+      }
       return {
-        x: rect.left + rect.width / 2,
-        y: rect.top + rect.height / 2,
+        x:
+          typeof window !== "undefined" ? window.innerWidth / 2 : 640,
+        y:
+          typeof window !== "undefined" ? window.innerHeight / 2 : 360,
       };
-    }
-    return {
-      x:
-        typeof window !== "undefined" ? window.innerWidth / 2 : 640,
-      y:
-        typeof window !== "undefined" ? window.innerHeight / 2 : 360,
-    };
-  }, []);
-
-  const resolveAddPanelAnchorWorld = React.useCallback(
-    () => rf.screenToFlowPosition(resolveAddPanelAnchorScreen()),
-    [rf, resolveAddPanelAnchorScreen]
+    },
+    []
   );
 
   const openAddPanelAt = React.useCallback(
     (
-      _clientX: number,
-      _clientY: number,
+      clientX: number,
+      clientY: number,
       opts?: {
         tab?: AddPanelTab;
         scope?: "public" | "mine";
@@ -4089,7 +4107,7 @@ function FlowInner() {
       const targetTab = clampAddTab(opts?.tab ?? addTab, allowed);
       setAddTabWithMemory(targetTab, allowed);
       if (opts?.scope) setTemplateScope(opts.scope);
-      const panelScreen = resolveAddPanelAnchorScreen();
+      const panelScreen = resolveAddPanelAnchorScreen(clientX, clientY);
       const world = rf.screenToFlowPosition(panelScreen);
       setAddPanel({ visible: true, screen: panelScreen, world });
     },
@@ -13915,10 +13933,8 @@ function FlowInner() {
   const addPanelStyle = React.useMemo(() => {
     if (!addPanel.visible) return { display: "none" } as React.CSSProperties;
     const rect = containerRef.current?.getBoundingClientRect();
-    const left = rect ? rect.width / 2 : window.innerWidth / 2;
-    const top = rect ? rect.height / 2 : window.innerHeight / 2;
-    // 始终在视窗（容器）中心显示：用 translate(-50%, -50%) 校正为居中
-    // z-index 设为 100，确保在 AI 对话框（z-50）之上
+    const left = rect ? addPanel.screen.x - rect.left : addPanel.screen.x;
+    const top = rect ? addPanel.screen.y - rect.top : addPanel.screen.y;
     return {
       position: "absolute",
       left,
@@ -13926,7 +13942,7 @@ function FlowInner() {
       transform: "translate(-50%, -50%)",
       zIndex: 100,
     } as React.CSSProperties;
-  }, [addPanel.visible]);
+  }, [addPanel.visible, addPanel.screen.x, addPanel.screen.y]);
 
   const handleContainerDoubleClick = React.useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -14912,7 +14928,7 @@ function FlowInner() {
                               onClick={() =>
                                 createNodeAtWorldCenter(
                                   resolveFlowNodeTypeFromConfig(config),
-                                  resolveAddPanelAnchorWorld()
+                                  { ...addPanel.world }
                                 )
                               }
                             />
@@ -14959,7 +14975,7 @@ function FlowInner() {
                       onClick={() =>
                         createNodeAtWorldCenter(
                           item.key,
-                          resolveAddPanelAnchorWorld()
+                          { ...addPanel.world }
                         )
                       }
                     />
@@ -15118,6 +15134,7 @@ function FlowInner() {
                           key={item.id}
                           item={item as any}
                           onClick={() => {
+                            const anchorWorld = { ...addPanel.world };
                             (async () => {
                               const tpl = await loadBuiltInTemplateById(
                                 item.id
@@ -15125,7 +15142,7 @@ function FlowInner() {
                               if (tpl)
                                 instantiateTemplateAt(
                                   tpl,
-                                  resolveAddPanelAnchorWorld()
+                                  anchorWorld
                                 );
                             })();
                           }}
@@ -15235,11 +15252,12 @@ function FlowInner() {
                             key={item.id}
                             item={item}
                             onInstantiate={async () => {
+                              const anchorWorld = { ...addPanel.world };
                               const tpl = await getUserTemplate(item.id);
                               if (tpl)
                                 instantiateTemplateAt(
                                   tpl,
-                                  resolveAddPanelAnchorWorld()
+                                  anchorWorld
                                 );
                             }}
                             onDelete={async () => {

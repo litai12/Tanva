@@ -28,6 +28,18 @@ interface SelectionTool {
   isSelectionDragging: boolean;
   selectedPath: paper.Path | null;
   selectedPaths: paper.Path[];
+  handlePathSelect?: (
+    path: paper.Path,
+    preserveExisting?: boolean,
+    options?: {
+      enterEditMode?: boolean;
+      keepCurrentEditMode?: boolean;
+    }
+  ) => void;
+  setSelectedPath?: (path: paper.Path | null) => void;
+  setSelectedPaths?: (paths: paper.Path[]) => void;
+  setPathEditingMode?: (path: paper.Path | null, editing: boolean) => void;
+  isPathEditing?: (path: paper.Path | null | undefined) => boolean;
   startSelectionBox: (point: paper.Point) => void;
   handleSelectionClick: (point: paper.Point, multiSelect?: boolean) => any;
   updateSelectionBox: (point: paper.Point) => void;
@@ -57,9 +69,14 @@ interface PathEditor {
     type: 'mousedown' | 'mousemove' | 'mouseup',
     shiftPressed?: boolean,
     altPressed?: boolean,
-    dropToLibrary?: boolean
+    dropToLibrary?: boolean,
+    allowSegmentEdit?: boolean
   ) => any;
-  getCursorStyle: (point: paper.Point, selectedPath: paper.Path | null) => string;
+  getCursorStyle: (
+    point: paper.Point,
+    selectedPath: paper.Path | null,
+    allowSegmentEdit?: boolean
+  ) => string;
 }
 
 interface DrawingTools {
@@ -763,6 +780,11 @@ export const useInteractionController = ({
       // 处理路径编辑交互
       const selectedPathForEdit = latestSelectionTool.selectedPath;
       const isImageGroupBlockSelected = selectedPathForEdit?.data?.type === 'image-group';
+      const allowSegmentEdit = Boolean(
+        latestSelectionTool?.isPathEditing
+          ? latestSelectionTool.isPathEditing(selectedPathForEdit)
+          : selectedPathForEdit?.data?.isPathEditing
+      );
       if (!hasMultiplePathSelection && !isImageGroupBlockSelected) {
         const pathEditResult = latestPathEditor.handlePathEditInteraction(
           point,
@@ -770,7 +792,8 @@ export const useInteractionController = ({
           'mousedown',
           shiftPressed,
           isAltPressedRef.current || event.altKey,
-          undefined
+          undefined,
+          allowSegmentEdit
         );
         if (pathEditResult) {
           return; // 路径编辑处理了这个事件
@@ -895,6 +918,7 @@ export const useInteractionController = ({
       }
 
       if (selectionResult?.type === 'path') {
+        const pathSelectedByThisClick = selectionResult.path;
         const pathWasSelected = previouslySelectedPaths.has(selectionResult.path);
 
         if (selectionResult.path?.data?.type === 'image-group') {
@@ -971,6 +995,28 @@ export const useInteractionController = ({
               }
               return;
             }
+          }
+        }
+
+        // 未选中的普通路径：首次按下并拖动时，直接进入路径拖拽（无需先点击选中再拖）
+        if (
+          !ctrlPressed &&
+          !pathWasSelected &&
+          pathSelectedByThisClick &&
+          pathSelectedByThisClick?.data?.type !== 'image-group'
+        ) {
+          const startDragResult = latestPathEditor.handlePathEditInteraction(
+            point,
+            pathSelectedByThisClick,
+            'mousedown',
+            shiftPressed,
+            isAltPressedRef.current || event.altKey,
+            undefined,
+            false
+          );
+          if (startDragResult?.type === 'path-drag-start') {
+            document.body.classList.add('tanva-canvas-dragging');
+            return;
           }
         }
 
@@ -1060,7 +1106,16 @@ export const useInteractionController = ({
     }
 
     if (latestSelectionTool?.selectedPath && latestPathEditor) {
-      const baseCursor = latestPathEditor.getCursorStyle(point, latestSelectionTool.selectedPath);
+      const allowSegmentEdit = Boolean(
+        latestSelectionTool?.isPathEditing
+          ? latestSelectionTool.isPathEditing(latestSelectionTool.selectedPath)
+          : latestSelectionTool.selectedPath?.data?.isPathEditing
+      );
+      const baseCursor = latestPathEditor.getCursorStyle(
+        point,
+        latestSelectionTool.selectedPath,
+        allowSegmentEdit
+      );
 
       // Alt 键按下时，鼠标在任意已选路径上显示复制光标（包含开放路径的 stroke 命中）
       if (isAltPressedRef.current && baseCursor !== 'crosshair') {
@@ -1262,7 +1317,12 @@ export const useInteractionController = ({
         'mousemove',
         undefined,
         isAltPressedRef.current || event.altKey,
-        undefined
+        undefined,
+        Boolean(
+          latestSelectionTool?.isPathEditing
+            ? latestSelectionTool.isPathEditing(latestSelectionTool.selectedPath)
+            : latestSelectionTool.selectedPath?.data?.isPathEditing
+        )
       );
       if (pathEditResult) {
         const altPressed = isAltPressedRef.current || event.altKey;
@@ -1711,7 +1771,12 @@ export const useInteractionController = ({
         'mouseup',
         undefined,
         isAltPressed,
-        droppedToLibrary
+        droppedToLibrary,
+        Boolean(
+          latestSelectionTool?.isPathEditing
+            ? latestSelectionTool.isPathEditing(latestSelectionTool.selectedPath)
+            : latestSelectionTool.selectedPath?.data?.isPathEditing
+        )
       );
       if (pathEditResult) {
         clearLibraryDropHover();
@@ -2456,6 +2521,91 @@ export const useInteractionController = ({
 
       // 先检查是否双击了组块标题
       if (tryEditGroupBlockTitle()) return;
+
+      const tryEnterPathEditMode = () => {
+        if (!isSelectionLikeMode()) return false;
+        const latestSelectionTool = selectionToolRef.current as any;
+        if (!latestSelectionTool) return false;
+
+        try {
+          const hit = paper.project.hitTest(point, {
+            segments: true,
+            stroke: true,
+            fill: true,
+            bounds: true,
+            tolerance: 6 / Math.max(zoomRef.current || 1, 0.0001),
+          } as any);
+
+          let current: any = hit?.item;
+          while (current) {
+            const data = current.data || {};
+            const type = data.type;
+
+            if (data.isHelper || data.isSelectionHelper || data.isResizeHandle) {
+              current = current.parent;
+              continue;
+            }
+            if (type === 'image-group-title') return false;
+            if (
+              type === 'selection-box' ||
+              type === 'image-placeholder' ||
+              type === '3d-model-placeholder' ||
+              type === 'image-selection-area' ||
+              type === '3d-model-selection-area' ||
+              type === 'precise-edit-selection'
+            ) {
+              current = current.parent;
+              continue;
+            }
+            if (
+              typeof data.imageId === 'string' ||
+              typeof data.modelId === 'string' ||
+              typeof data.videoId === 'string' ||
+              type === 'image' ||
+              type === '3d-model' ||
+              type === 'video'
+            ) {
+              return false;
+            }
+
+            if (current instanceof paper.Path) {
+              const layerName = current.layer?.name;
+              if (layerName === 'grid' || layerName === 'background') {
+                return false;
+              }
+
+              if (typeof latestSelectionTool.handlePathSelect === 'function') {
+                latestSelectionTool.handlePathSelect(current, false, {
+                  enterEditMode: true,
+                });
+                latestSelectionTool?.setSelectedPath?.(current);
+                latestSelectionTool?.setSelectedPaths?.([current]);
+              } else {
+                try {
+                  current.selected = true;
+                  current.fullySelected = true;
+                  current.data = { ...(current.data || {}), isPathEditing: true };
+                } catch {}
+                latestSelectionTool?.setSelectedPath?.(current);
+                latestSelectionTool?.setSelectedPaths?.([current]);
+              }
+
+              try { paper.view.update(); } catch {}
+              event.preventDefault();
+              event.stopPropagation();
+              logger.debug('✏️ 双击进入路径编辑模式');
+              return true;
+            }
+
+            current = current.parent;
+          }
+        } catch (err) {
+          console.warn('hitTest path on dblclick failed', err);
+        }
+        return false;
+      };
+
+      if (tryEnterPathEditMode()) return;
 
       const tryOpenImagePreview = () => {
         try {

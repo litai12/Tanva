@@ -2711,7 +2711,7 @@ export const useAIChatStore = create<AIChatState>()(
         videoDurationSeconds: null,
         manualAIMode: "auto",
         autoSelectedTool: null,
-        aiProvider: "banana-2.5", // 默认国内极速版
+        aiProvider: "banana-2.5", // 默认Fast版
         autoModeMultiplier: 1,
         sendShortcut: "enter",
         expandedPanelStyle: "transparent", // 默认透明样式
@@ -7629,7 +7629,7 @@ export const useAIChatStore = create<AIChatState>()(
             to: provider,
             label:
               provider === "banana-2.5"
-                ? "Fast (极速版)"
+                ? "Fast (Fast版)"
                 : provider === "banana"
                 ? "Pro (Pro版)"
                 : provider === "banana-3.1"

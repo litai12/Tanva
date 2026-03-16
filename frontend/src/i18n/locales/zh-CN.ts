@@ -279,12 +279,12 @@ const zhCN = {
         },
         provider: {
           title: "AI 提供商",
-          banana: "国内Pro版",
-          bananaDesc: "2代模型 品质最佳 建议避开高峰时段使用",
-          banana31: "国内Ultra版",
-          banana31Desc: "最新模型 性价比更高",
-          banana25: "国内极速版",
-          banana25Desc: "1代模型 高速稳定",
+          banana: "Pro版（Nano Banana Pro+Gemini 3.0）",
+          bananaDesc: "质量最佳",
+          banana31: "Ultra版（Nano Banana 2+Gemini 3.1）",
+          banana31Desc: "性价比优选",
+          banana25: "Fast版（Nano Banana+Gemini 2.5）",
+          banana25Desc: "高速稳定",
         },
         googleKey: {
           clearConfirm: "确定要清除自定义 API Key 吗？系统将恢复使用官方 Key。",
@@ -425,8 +425,8 @@ const zhCN = {
     },
     labels: {
       selectMode: "选择模式",
-      domesticModel: "国内模型",
-      quickSwitchDomesticModel: "快速切换国内模型",
+      domesticModel: "模型",
+      quickSwitchDomesticModel: "快速切换模型",
       quickSwitchModel: "快速切换模型",
     },
     provider: {

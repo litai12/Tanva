@@ -398,6 +398,19 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
 
   // 检测鼠标是否在选中路径上（用于判断是否开始路径拖拽）
   const isPointOnPath = useCallback((point: paper.Point, path: paper.Path): boolean => {
+    // 闭合路径优先使用几何命中，确保“中间区域”也可直接拖动。
+    // 某些路径样式下（无 fill 或 fill 不参与 hitTest），中心点不会被 hitTest 命中。
+    try {
+      if (path.closed) {
+        if (typeof (path as any).contains === 'function' && (path as any).contains(point)) {
+          return true;
+        }
+        if (path.bounds?.contains?.(point)) {
+          return true;
+        }
+      }
+    } catch {}
+
     const hitResult = paper.project.hitTest(point, {
       stroke: true,
       fill: true,
@@ -405,9 +418,7 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
       tolerance: 6 / zoom
     });
 
-    if (!hitResult || !hitResult.item) {
-      return false;
-    }
+    if (!hitResult || !hitResult.item) return false;
 
     // 直接命中当前路径
     if (hitResult.item === path) {
@@ -429,17 +440,20 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
     interactionType: 'mousedown' | 'mousemove' | 'mouseup',
     shiftPressed?: boolean,
     altPressed?: boolean,
-    dropToLibrary?: boolean
+    dropToLibrary?: boolean,
+    allowSegmentEdit: boolean = true
   ) => {
     if (!selectedPath) return null;
 
     if (interactionType === 'mousedown') {
-      // 检查是否点击在控制点上
-      const segment = getSegmentAt(point, selectedPath);
-      if (segment) {
-        // 点击在控制点上，开始控制点拖拽
-        startSegmentDrag(segment, point, shiftPressed);
-        return { type: 'segment-drag-start', segment, isScaling: shiftPressed && isRectanglePath(selectedPath) };
+      if (allowSegmentEdit) {
+        // 检查是否点击在控制点上
+        const segment = getSegmentAt(point, selectedPath);
+        if (segment) {
+          // 点击在控制点上，开始控制点拖拽
+          startSegmentDrag(segment, point, shiftPressed);
+          return { type: 'segment-drag-start', segment, isScaling: shiftPressed && isRectanglePath(selectedPath) };
+        }
       }
 
       // 检查是否点击在路径本身上（非控制点）
@@ -488,12 +502,18 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
   ]);
 
   // 获取鼠标光标样式（基于当前路径编辑状态）
-  const getCursorStyle = useCallback((point: paper.Point, selectedPath: paper.Path | null): string => {
+  const getCursorStyle = useCallback((
+    point: paper.Point,
+    selectedPath: paper.Path | null,
+    allowSegmentEdit: boolean = true
+  ): string => {
     if (!selectedPath) return 'default';
 
-    const segment = getSegmentAt(point, selectedPath);
-    if (segment) {
-      return 'crosshair'; // 控制点上显示十字光标
+    if (allowSegmentEdit) {
+      const segment = getSegmentAt(point, selectedPath);
+      if (segment) {
+        return 'crosshair'; // 控制点上显示十字光标
+      }
     }
 
     if (isPointOnPath(point, selectedPath)) {
