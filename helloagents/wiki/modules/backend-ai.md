@@ -23,10 +23,12 @@
 - `GET veo/models` / `POST veo/generate`
 - `POST dashscope/generate-wan2-6-*`
 - `POST analyze-video`
+- `POST minimax-speech` / `POST minimax-music`
 
 ## 注意事项
 - Seedance（doubao）视频任务成功后，后端会将上游视频拉取并上传到 OSS，仅返回自有 OSS 公网链接给前端。
 - `edit-image` / `blend-images` 支持 `sourceImageUrl(s)`，后端会按 OSS 白名单拉取并转换为 dataURL。
+- `minimax-music` 默认强制 `output_format=url`、`stream=false`，并在上游返回 `status=1`（合成中）或请求超时时返回友好错误提示。
 
 ## 配置项（以代码与环境为准）
 - Gemini/第三方：`GOOGLE_GEMINI_API_KEY`、`RUNNINGHUB_API_KEY` 等

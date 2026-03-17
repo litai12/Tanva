@@ -420,6 +420,7 @@ export class NodeConfigService {
       { nodeKey: 'imageCompress', nameZh: '图片压缩', nameEn: 'Image Compress', category: 'other', sortOrder: 38, creditsPerCall: 0, description: '按档位压缩图片，免费' },
       { nodeKey: 'three', nameZh: '2D转3D', nameEn: '2D to 3D', category: 'other', sortOrder: 39, creditsPerCall: 30, serviceType: 'convert-2d-to-3d', priceYuan: 0.3, description: '图片转3D模型' },
       { nodeKey: 'minimaxSpeech', nameZh: 'MiniMax语音合成', nameEn: 'MiniMax Speech', category: 'audio', sortOrder: 40, creditsPerCall: 10, serviceType: 'minimax-speech', priceYuan: 0.1, description: 'MiniMax Speech 语音合成' },
+      { nodeKey: 'minimaxMusic', nameZh: 'MiniMax音乐生成', nameEn: 'MiniMax Music', category: 'audio', sortOrder: 41, creditsPerCall: 30, serviceType: 'minimax-music', priceYuan: 0.3, description: 'MiniMax 音乐生成' },
     ];
 
     let created = 0;
@@ -647,6 +648,7 @@ export class NodeConfigService {
       { nodeKey: 'imageCompress', nameZh: '图片压缩', nameEn: 'Image Compress', category: 'other', sortOrder: 38, creditsPerCall: 0, description: '按档位压缩图片，免费' },
       { nodeKey: 'three', nameZh: '2D转3D', nameEn: '2D to 3D', category: 'other', sortOrder: 39, creditsPerCall: 30, serviceType: 'convert-2d-to-3d', priceYuan: 0.3, description: '图片转3D模型' },
       { nodeKey: 'minimaxSpeech', nameZh: 'MiniMax语音合成', nameEn: 'MiniMax Speech', category: 'audio', sortOrder: 40, creditsPerCall: 10, serviceType: 'minimax-speech', priceYuan: 0.1, description: 'MiniMax Speech 语音合成' },
+      { nodeKey: 'minimaxMusic', nameZh: 'MiniMax音乐生成', nameEn: 'MiniMax Music', category: 'audio', sortOrder: 41, creditsPerCall: 30, serviceType: 'minimax-music', priceYuan: 0.3, description: 'MiniMax 音乐生成' },
     ];
   }
 

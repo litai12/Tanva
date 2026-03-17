@@ -1,6 +1,6 @@
 import type { Node, Edge } from 'reactflow';
 
-export type NodeKind = 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generatePro' | 'storyboardSplit' | 'imageSplit' | 'imageCompress' | 'audioUpload' | 'minimaxSpeech';
+export type NodeKind = 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generatePro' | 'storyboardSplit' | 'imageSplit' | 'imageCompress' | 'audioUpload' | 'minimaxSpeech' | 'minimaxMusic';
 
 export type TextPromptData = {
   text?: string;
@@ -166,6 +166,27 @@ export type MinimaxSpeechData = {
   soundEffects?: Array<'spacious_echo' | 'auditorium_echo' | 'lofi_telephone' | 'robotic'>;
 };
 
+export type MinimaxMusicData = {
+  status?: 'idle' | 'running' | 'succeeded' | 'failed';
+  audioUrl?: string;
+  error?: string;
+  prompt?: string;
+  lyrics?: string;
+  isInstrumental?: boolean;
+  lyricsOptimizer?: boolean;
+  model?: 'music-2.5+' | 'music-2.5';
+  history?: Array<{
+    id: string;
+    prompt: string;
+    lyrics?: string;
+    isInstrumental: boolean;
+    lyricsOptimizer: boolean;
+    audioUrl: string;
+    createdAt: number;
+  }>;
+  selectedHistoryId?: string;
+};
+
 export type AudioUploadData = {
   status?: 'idle' | 'uploading' | 'ready' | 'error';
   audioUrl?: string;
@@ -177,7 +198,7 @@ export type AudioUploadData = {
   boxH?: number;
 };
 
-export type AnyNodeData = TextPromptData | PromptOptimizeData | ImageData | GenerateData | GenerateProData | Generate4Data | TextChatData | StoryboardSplitData | ImageSplitData | ImageCompressData | AudioUploadData | MinimaxSpeechData;
+export type AnyNodeData = TextPromptData | PromptOptimizeData | ImageData | GenerateData | GenerateProData | Generate4Data | TextChatData | StoryboardSplitData | ImageSplitData | ImageCompressData | AudioUploadData | MinimaxSpeechData | MinimaxMusicData;
 
 export type AnyNode = Node<AnyNodeData>;
 export type AnyEdge = Edge;

@@ -8,6 +8,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Added
 - 工作流历史版本：新增 `WorkflowHistory` 表（按 `userId + projectId + updatedAt` 复合主键），后端提供查询接口；前端右上角增加 n8n 风格历史按钮与“恢复并保存”交互。
 - 画布与 AI 对话框支持 JSON 复制/导入（右键 + `Ctrl/Cmd+Shift+C/V`），导出内容与 `Project.contentJson` 保持一致。
+- Flow 新增 `MiniMax 音乐生成` 节点（`minimaxMusic`）：支持 `prompt`、`lyrics`、`isInstrumental`、`lyricsOptimizer`，输出音频 URL 并支持历史回放/下载；后端新增 `POST /api/ai/minimax-music`，接入 MiniMax `music_generation` 接口并纳入积分服务 `minimax-music`。
 
 ### Changed
 - Flow：分组节点新增“折叠/展开”能力；折叠后仅保留分组卡片，组内子节点隐藏，并保留与组外节点的连线（端点映射到分组节点）；折叠卡片支持展示组内图片缩略图预览（`frontend/src/components/flow/FlowOverlay.tsx`、`frontend/src/components/flow/nodes/NodeGroupNode.tsx`）。

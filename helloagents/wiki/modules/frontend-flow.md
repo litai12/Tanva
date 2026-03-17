@@ -10,6 +10,10 @@
 - `frontend/src/components/flow/utils/`：辅助逻辑
 - `frontend/src/components/flow/PersonalLibraryPanel.tsx`：个人库面板（与后端 personal-library 相关）
 
+## 音频节点
+- `minimaxSpeech`：文本转语音节点，输出 `audio` 句柄。
+- `minimaxMusic`：音乐生成节点，支持 `prompt`、`lyrics`、`isInstrumental`、`lyricsOptimizer`，调用 `/api/ai/minimax-music`，输出 `audio` 句柄，可连接 `wan26` / `audioUpload` / Kling 音频输入。
+
 ## 规范
 ### 需求: 图片节点缩放后刷新尺寸一致
 **模块:** Flow 图片节点
