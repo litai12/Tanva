@@ -203,6 +203,66 @@ export class VideoProviderService {
     }
   }
 
+  private isUpstreamImageFetchFailure(responseText: string): boolean {
+    const raw = (responseText || "").toLowerCase();
+    return (
+      raw.includes("http_request_failed") ||
+      raw.includes("upstream") ||
+      raw.includes("请求上游地址失败")
+    );
+  }
+
+  private isModelNotSupportedError(responseText: string): boolean {
+    const raw = (responseText || "").toLowerCase();
+    return (
+      raw.includes("model is not supported") ||
+      raw.includes("model_not_supported") ||
+      raw.includes("不支持")
+    );
+  }
+
+  private async remoteImageUrlToDataUrl(url: string): Promise<string> {
+    const response = await fetchWithTimeout(url, {
+      method: "GET",
+      timeout: DEFAULT_FETCH_TIMEOUT,
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image url: HTTP ${response.status}`);
+    }
+    const contentType = response.headers.get("content-type") || "image/png";
+    const buf = Buffer.from(await response.arrayBuffer());
+    return `data:${contentType};base64,${buf.toString("base64")}`;
+  }
+
+  private async convertKlingPayloadImagesToDataUrl(payload: any): Promise<any> {
+    const next = JSON.parse(JSON.stringify(payload || {}));
+    const toDataUrlIfRemote = async (
+      value?: string
+    ): Promise<string | undefined> => {
+      if (typeof value !== "string") return value;
+      const trimmed = value.trim();
+      if (!trimmed) return trimmed;
+      if (!/^https?:\/\//i.test(trimmed)) return trimmed;
+      return this.remoteImageUrlToDataUrl(trimmed);
+    };
+
+    if (typeof next.image === "string") {
+      next.image = await toDataUrlIfRemote(next.image);
+    }
+    if (typeof next.image_tail === "string") {
+      next.image_tail = await toDataUrlIfRemote(next.image_tail);
+    }
+    if (Array.isArray(next.image_list)) {
+      for (let i = 0; i < next.image_list.length; i += 1) {
+        const item = next.image_list[i];
+        if (item && typeof item.image === "string") {
+          item.image = await toDataUrlIfRemote(item.image);
+        }
+      }
+    }
+    return next;
+  }
+
   private logProviderPayload(provider: string, payload: any) {
     try {
       const safe = JSON.parse(
@@ -456,7 +516,7 @@ export class VideoProviderService {
     const endpoint = endpointMap[videoMode] || endpointMap["text2video"];
 
     const payload: any = {
-      model_name: "kling-v2-1",
+      model_name: (options as any).klingModel || "kling-v2-6",
       mode: (options as any).mode || "std",
       duration: options.duration === 10 ? "10" : "5",
     };
@@ -491,7 +551,7 @@ export class VideoProviderService {
     this.logProviderPayload("kling", payload);
     this.logger.log(`🎬 Kling: mode=${videoMode}, images=${imageCount}, endpoint=${endpoint}`);
 
-    const response = await fetch(endpoint, {
+    let response = await fetch(endpoint, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -501,7 +561,7 @@ export class VideoProviderService {
     });
 
     if (!response.ok) {
-      const textBody = await response.text().catch(() => "");
+      let textBody = await response.text().catch(() => "");
       const headers: Record<string, string> = {};
       response.headers.forEach((v, k) => (headers[k] = v));
 
@@ -511,6 +571,92 @@ export class VideoProviderService {
           1000
         )}, headers=${JSON.stringify(headers)}`
       );
+
+      const shouldRetryWithModelFallback =
+        this.isModelNotSupportedError(textBody) &&
+        payload.model_name === "kling-v2-1";
+
+      if (shouldRetryWithModelFallback) {
+        try {
+          const fallbackPayload = { ...payload, model_name: "kling-v2-6" };
+          this.logger.warn(
+            `Kling model kling-v2-1 is not supported upstream, retrying with kling-v2-6: mode=${videoMode}`
+          );
+          this.logProviderPayload("kling-retry-model-fallback", fallbackPayload);
+          response = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(fallbackPayload),
+          });
+          if (response.ok) {
+            const data = await response.json();
+            return {
+              taskId: data.data?.task_id,
+              status: "queued",
+            };
+          }
+          textBody = await response.text().catch(() => "");
+          this.logger.error(
+            `Kling model fallback retry failed: HTTP ${response.status}, mode=${videoMode}, response_text=${textBody.slice(
+              0,
+              1000
+            )}`
+          );
+        } catch (retryError) {
+          this.logger.error(
+            `Kling model fallback retry exception: ${
+              retryError instanceof Error ? retryError.message : String(retryError)
+            }`
+          );
+        }
+      }
+
+      const shouldRetryWithDataUrl =
+        this.isUpstreamImageFetchFailure(textBody) &&
+        (videoMode === "image2video" ||
+          videoMode === "image2video-tail" ||
+          videoMode === "multi-image2video");
+
+      if (shouldRetryWithDataUrl) {
+        try {
+          const retryPayload = await this.convertKlingPayloadImagesToDataUrl(payload);
+          this.logger.warn(
+            `Kling upstream failed to fetch image URL, retrying with data-url payload: mode=${videoMode}`
+          );
+          this.logProviderPayload("kling-retry-dataurl", retryPayload);
+          response = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(retryPayload),
+          });
+          if (response.ok) {
+            const data = await response.json();
+            return {
+              taskId: data.data?.task_id,
+              status: "queued",
+            };
+          }
+          textBody = await response.text().catch(() => "");
+          this.logger.error(
+            `Kling data-url retry failed: HTTP ${response.status}, mode=${videoMode}, response_text=${textBody.slice(
+              0,
+              1000
+            )}`
+          );
+        } catch (retryError) {
+          this.logger.error(
+            `Kling data-url retry exception: ${
+              retryError instanceof Error ? retryError.message : String(retryError)
+            }`
+          );
+        }
+      }
 
       let error: any = {};
       if (textBody) {
@@ -683,7 +829,7 @@ export class VideoProviderService {
     this.logProviderPayload("kling-2.6", payload);
     this.logger.log(`🎬 Kling 2.6: mode=${videoMode}, images=${imageCount}, endpoint=${endpoint}`);
 
-    const response = await fetchWithTimeout(endpoint, {
+    let response = await fetchWithTimeout(endpoint, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -694,7 +840,7 @@ export class VideoProviderService {
     });
 
     if (!response.ok) {
-      const textBody = await response.text().catch(() => "");
+      let textBody = await response.text().catch(() => "");
       const headers: Record<string, string> = {};
       response.headers.forEach((v, k) => (headers[k] = v));
 
@@ -704,6 +850,51 @@ export class VideoProviderService {
           1000
         )}, headers=${JSON.stringify(headers)}`
       );
+
+      const shouldRetryWithDataUrl =
+        this.isUpstreamImageFetchFailure(textBody) &&
+        (videoMode === "image2video" ||
+          videoMode === "image2video-tail" ||
+          videoMode === "multi-image2video");
+
+      if (shouldRetryWithDataUrl) {
+        try {
+          const retryPayload = await this.convertKlingPayloadImagesToDataUrl(payload);
+          this.logger.warn(
+            `Kling 2.6 upstream failed to fetch image URL, retrying with data-url payload: mode=${videoMode}`
+          );
+          this.logProviderPayload("kling-2.6-retry-dataurl", retryPayload);
+          response = await fetchWithTimeout(endpoint, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(retryPayload),
+            timeout: DEFAULT_FETCH_TIMEOUT,
+          });
+          if (response.ok) {
+            const data = await response.json();
+            return {
+              taskId: data.data?.task_id,
+              status: "queued",
+            };
+          }
+          textBody = await response.text().catch(() => "");
+          this.logger.error(
+            `Kling 2.6 data-url retry failed: HTTP ${response.status}, mode=${videoMode}, response_text=${textBody.slice(
+              0,
+              1000
+            )}`
+          );
+        } catch (retryError) {
+          this.logger.error(
+            `Kling 2.6 data-url retry exception: ${
+              retryError instanceof Error ? retryError.message : String(retryError)
+            }`
+          );
+        }
+      }
 
       let error: any = {};
       if (textBody) {
@@ -868,12 +1059,14 @@ export class VideoProviderService {
       payload.images = [options.referenceImages![0]];
       payload.duration = options.duration || 5;
       payload.resolution = options.resolution || "720p";
+      payload.aspect_ratio = options.aspectRatio || "16:9";
       payload.off_peak = options.offPeak || false;
     } else if (videoMode === "start-end2video") {
       payload.model = "viduq2-turbo";
       payload.images = [options.referenceImages![0], options.referenceImages![1]];
       payload.duration = options.duration || 5;
       payload.resolution = options.resolution || "720p";
+      payload.aspect_ratio = options.aspectRatio || "16:9";
     } else if (videoMode === "reference2video") {
       if (!options.prompt) {
         throw new Error("参考生视频模式需要提供 prompt 参数");
@@ -885,9 +1078,7 @@ export class VideoProviderService {
       payload.resolution = options.resolution || "720p";
     }
 
-    if (!options.referenceImages?.length) {
-      payload.aspect_ratio = options.aspectRatio || "16:9";
-    }
+    payload.aspect_ratio = options.aspectRatio || "16:9";
 
     this.logProviderPayload("vidu", payload);
     this.logger.log(`🎬 Vidu: mode=${videoMode}, images=${imageCount}, endpoint=${endpoint}`);
@@ -1191,16 +1382,16 @@ export class VideoProviderService {
       payload.images = [options.referenceImages![0]];
       payload.duration = options.duration || 5;
       payload.resolution = options.resolution || "720p";
+      payload.aspect_ratio = options.aspectRatio || "16:9";
     } else if (videoMode === "start-end2video") {
       payload.model = "viduq3-pro";
       payload.images = [options.referenceImages![0], options.referenceImages![1]];
       payload.duration = options.duration || 5;
       payload.resolution = options.resolution || "720p";
-    }
-
-    if (!options.referenceImages?.length) {
       payload.aspect_ratio = options.aspectRatio || "16:9";
     }
+
+    payload.aspect_ratio = options.aspectRatio || "16:9";
 
     this.logProviderPayload("viduq3-pro", payload);
     this.logger.log(`🎬 Vidu Q3 Pro: mode=${videoMode}, images=${imageCount}, endpoint=${endpoint}`);

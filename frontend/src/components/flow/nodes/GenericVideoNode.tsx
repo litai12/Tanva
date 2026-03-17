@@ -129,7 +129,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const provider = data.provider || "kling";
   const klingModel =
     data.klingModel ||
-    (provider === "kling-2.6" ? "kling-v2-6" : "kling-v2-1");
+    (provider === "kling-2.6" ? "kling-v2-6" : "kling-v2-6");
   const isUnifiedKlingNode = provider === "kling" || provider === "kling-2.6";
   const isKling26Model = isUnifiedKlingNode && (klingModel === "kling-v2-6" || klingModel === "kling-v3-0");
   const providerInfo = isUnifiedKlingNode
@@ -294,7 +294,19 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         { label: lt("10秒", "10s"), value: 10 },
       ];
     }
-    if (provider === "vidu" || provider === "viduq3-pro") {
+    if (provider === "vidu") {
+      return [
+        { label: lt("1秒", "1s"), value: 1 },
+        { label: lt("2秒", "2s"), value: 2 },
+        { label: lt("3秒", "3s"), value: 3 },
+        { label: lt("4秒", "4s"), value: 4 },
+        { label: lt("5秒", "5s"), value: 5 },
+        { label: lt("6秒", "6s"), value: 6 },
+        { label: lt("7秒", "7s"), value: 7 },
+        { label: lt("8秒", "8s"), value: 8 },
+      ];
+    }
+    if (provider === "viduq3-pro") {
       return [
         { label: lt("1秒", "1s"), value: 1 },
         { label: lt("2秒", "2s"), value: 2 },
@@ -306,6 +318,12 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         { label: lt("8秒", "8s"), value: 8 },
         { label: lt("9秒", "9s"), value: 9 },
         { label: lt("10秒", "10s"), value: 10 },
+        { label: lt("11秒", "11s"), value: 11 },
+        { label: lt("12秒", "12s"), value: 12 },
+        { label: lt("13秒", "13s"), value: 13 },
+        { label: lt("14秒", "14s"), value: 14 },
+        { label: lt("15秒", "15s"), value: 15 },
+        { label: lt("16秒", "16s"), value: 16 },
       ];
     }
     if (provider === "doubao") {
@@ -335,14 +353,24 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   }, [getAspectOptions, lt, provider]);
   const klingModelOptions = React.useMemo(
     () => [
-      { label: "Kling 2.1", value: "kling-v2-1" as const },
       { label: "Kling 2.6", value: "kling-v2-6" as const },
       { label: "Kling 3.0", value: "kling-v3-0" as const },
     ],
     []
   );
   const durationOptions = React.useMemo(() => getDurationOptions(), [provider, lt]);
-  const shouldShowAspectSelector = !hasImageInput;
+  const shouldShowAspectSelector =
+    provider === "viduq3-pro"
+      ? !hasImageInput
+      : provider === "vidu"
+      ? true
+      : !hasImageInput;
+
+  React.useEffect(() => {
+    if (!shouldShowAspectSelector) {
+      setAspectMenuOpen(false);
+    }
+  }, [shouldShowAspectSelector]);
 
   const handleAspectChange = React.useCallback(
     (value: string) => {
@@ -369,7 +397,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   );
 
   const handleKlingModelChange = React.useCallback(
-    (value: "kling-v2-1" | "kling-v2-6" | "kling-v3-0") => {
+    (value: "kling-v2-6" | "kling-v3-0") => {
       if (value === klingModel) return;
       window.dispatchEvent(
         new CustomEvent("flow:updateNodeData", {
@@ -377,7 +405,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             id,
             patch: {
               klingModel: value,
-              sound: value === "kling-v2-6" ? false : undefined,
+              sound: true,
             },
           },
         })
@@ -387,10 +415,20 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   );
 
   React.useEffect(() => {
-    if (!isKling26Model || data.sound === false) return;
+    if (!isUnifiedKlingNode) return;
+    if (klingModel !== "kling-v2-1") return;
     window.dispatchEvent(
       new CustomEvent("flow:updateNodeData", {
-        detail: { id, patch: { sound: false } },
+        detail: { id, patch: { klingModel: "kling-v2-6" } },
+      })
+    );
+  }, [id, isUnifiedKlingNode, klingModel]);
+
+  React.useEffect(() => {
+    if (!isKling26Model || data.sound === true) return;
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: { id, patch: { sound: true } },
       })
     );
   }, [data.sound, id, isKling26Model]);
@@ -549,7 +587,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   }, [clipDuration, durationOptions, lt]);
   const klingModelLabel = React.useMemo(() => {
     const match = klingModelOptions.find((opt) => opt.value === klingModel);
-    return match?.label || "Kling 2.1";
+    return match?.label || "Kling 2.6";
   }, [klingModel, klingModelOptions]);
 
   React.useEffect(() => {
@@ -1291,7 +1329,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         </div>
       )}
 
-      {isKling26Model && (
+      {false && isKling26Model && (
         <div style={{ marginBottom: 8 }}>
           <div>
             <div

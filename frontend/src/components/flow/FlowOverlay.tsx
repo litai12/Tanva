@@ -5631,11 +5631,11 @@ function FlowInner() {
                   ? "doubao"
                   : "kling",
               klingModel:
-                type === "kling26Video" ? ("kling-v2-6" as const) : ("kling-v2-1" as const),
+                "kling-v2-6" as const,
               mode:
                 type === "klingVideo" || type === "kling26Video" ? ("std" as const) : undefined,
               sound:
-                type === "klingVideo" || type === "kling26Video" ? false : undefined,
+                type === "klingVideo" || type === "kling26Video" ? true : undefined,
               audioUrls:
                 type === "klingVideo" || type === "kling26Video" ? [] : undefined,
               // Vidu 专用参数
@@ -5958,7 +5958,7 @@ function FlowInner() {
       nodeData.klingModel ||
       (node.type === "kling26Video" || nodeData.provider === "kling-2.6"
         ? "kling-v2-6"
-        : "kling-v2-1");
+        : "kling-v2-6");
     const isKling26Model = klingModel === "kling-v2-6" || klingModel === "kling-v3-0";
     const mode = typeof nodeData.mode === "string" ? nodeData.mode : "std";
     return isKling26Model && mode === "pro";
@@ -9354,14 +9354,30 @@ function FlowInner() {
           return;
         }
 
-        const clipDuration =
-          typeof (node.data as any)?.clipDuration === "number"
-            ? (node.data as any).clipDuration
-            : undefined;
-        const aspectSetting =
-          typeof (node.data as any)?.aspectRatio === "string"
-            ? (node.data as any).aspectRatio
-            : "";
+        const clipDuration = (() => {
+          const nextDuration = (node.data as any)?.clipDuration;
+          if (typeof nextDuration === "number" && Number.isFinite(nextDuration)) {
+            return nextDuration;
+          }
+          const legacyDuration = (node.data as any)?.duration;
+          if (typeof legacyDuration === "number" && Number.isFinite(legacyDuration)) {
+            return legacyDuration;
+          }
+          return undefined;
+        })();
+        const aspectSetting = (() => {
+          const nextAspect = (node.data as any)?.aspectRatio;
+          const legacyAspect = (node.data as any)?.size;
+          const raw =
+            typeof nextAspect === "string" && nextAspect.trim()
+              ? nextAspect.trim()
+              : typeof legacyAspect === "string" && legacyAspect.trim()
+              ? legacyAspect.trim()
+              : "";
+          if (!raw) return "";
+          const ratioMatch = raw.match(/(\d{1,2}:\d{1,2})/);
+          return ratioMatch?.[1] || raw;
+        })();
         const modelSetting = (() => {
           const raw = (node.data as any)?.model;
           return raw === "sora-2" || raw === "sora-2-vip" || raw === "sora-2-pro"
@@ -9635,11 +9651,11 @@ function FlowInner() {
           (node.data as any)?.klingModel ||
           (node.type === "kling26Video" || (node.data as any)?.provider === "kling-2.6"
             ? "kling-v2-6"
-            : "kling-v2-1");
+            : "kling-v2-6");
         if (node.type === "klingO1Video") {
           provider = "kling-o3";
         } else if (node.type === "klingVideo" || node.type === "kling26Video") {
-          provider = klingModel === "kling-v2-6" || klingModel === "kling-v3-0" ? "kling-2.6" : "kling";
+          provider = "kling-2.6";
         } else if (node.type === "viduQ3") {
           provider = "viduq3-pro";
         } else {
@@ -10105,10 +10121,15 @@ function FlowInner() {
 
         // 根据供应商调整参数
         const aspectRatioForAPI =
-          referenceImageUrls.length > 0
+          provider === "viduq3-pro"
+            ? referenceImageUrls.length > 0
+              ? undefined
+              : aspectSetting || "16:9"
+            : provider === "vidu"
+            ? aspectSetting || "16:9"
+            : referenceImageUrls.length > 0
             ? undefined
-            : aspectSetting ||
-              (provider === "vidu" || provider === "viduq3-pro" ? "16:9" : undefined);
+            : aspectSetting || undefined;
 
         // 不同供应商支持的时长不同
         let durationForAPI: number | undefined = undefined;
@@ -10132,9 +10153,15 @@ function FlowInner() {
             // Kling O1 支持 3-10 秒
             durationForAPI = clipDuration;
           } else if (
-            (provider === "vidu" || provider === "viduq3-pro") &&
+            provider === "vidu" &&
             clipDuration >= 1 &&
-            clipDuration <= 10
+            clipDuration <= 8
+          ) {
+            durationForAPI = clipDuration;
+          } else if (
+            provider === "viduq3-pro" &&
+            clipDuration >= 1 &&
+            clipDuration <= 16
           ) {
             durationForAPI = clipDuration;
           } else if (
@@ -10171,7 +10198,18 @@ function FlowInner() {
             watermark: (node.data as any)?.watermark,
             mode: (node.data as any)?.mode,
             klingModel: (node.data as any)?.klingModel,
-            sound: (provider === "kling-o3" || provider === "kling-2.6") && (node.data as any)?.mode === "pro" ? "on" : (node.data as any)?.sound,
+            sound:
+              provider === "kling-o3" || provider === "kling-2.6"
+                ? (node.data as any)?.mode === "pro"
+                  ? "on"
+                  : (node.data as any)?.sound === undefined ||
+                    (node.data as any)?.sound === null
+                  ? undefined
+                  : (node.data as any)?.sound === "on" ||
+                    (node.data as any)?.sound === true
+                  ? "on"
+                  : "off"
+                : undefined,
             // Kling O1 视频编辑参数
             referenceVideo: referenceVideoUrl,
             referenceVideoType: (node.data as any)?.referenceVideoType,
@@ -11250,6 +11288,7 @@ function FlowInner() {
                       ...n.data,
                       status: "succeeded",
                       images: finalImages,
+                      imageUrls: finalImages,
                       imageUrl: finalImages[0],
                       error: undefined,
                     },
