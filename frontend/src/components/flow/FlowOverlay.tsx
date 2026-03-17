@@ -869,6 +869,9 @@ const QUICK_CONNECT_REVERSE_PRESETS: Record<
     { nodeType: "generateRef", sourceHandle: "img" },
     { nodeType: "viewAngle", sourceHandle: "img" },
     { nodeType: "midjourney", sourceHandle: "img" },
+    { nodeType: "midjourneyV7", sourceHandle: "img" },
+    { nodeType: "niji7", sourceHandle: "img" },
+    { nodeType: "seedream5", sourceHandle: "img" },
     { nodeType: "nano2", sourceHandle: "img" },
     { nodeType: "camera", sourceHandle: "img" },
   ],
@@ -6054,31 +6057,9 @@ function FlowInner() {
         if (targetHandle === "text")
           return textSourceTypes.includes(sourceNode.type || "");
         if (targetHandle === "image1" || targetHandle === "refer")
-          return [
-            "image",
-            "imagePro",
-            "generate",
-            "generate4",
-            "generatePro",
-            "generatePro4",
-            "generateRef",
-            "viewAngle",
-            "three",
-            "camera",
-          ].includes(sourceNode.type || "");
+          return isImageSource(sourceNode, sourceHandle);
         if (targetHandle === "image2" || targetHandle === "img")
-          return [
-            "image",
-            "imagePro",
-            "generate",
-            "generate4",
-            "generatePro",
-            "generatePro4",
-            "generateRef",
-            "viewAngle",
-            "three",
-            "camera",
-          ].includes(sourceNode.type || "");
+          return isImageSource(sourceNode, sourceHandle);
         return false;
       }
       if (
@@ -6356,23 +6337,7 @@ function FlowInner() {
               /^image\d+$/.test(sourceHandle)
             );
           }
-          return [
-            "image",
-            "imagePro",
-            "camera",
-            "three",
-            "generate",
-            "generate4",
-            "generateRef",
-            "viewAngle",
-            "generatePro",
-            "generatePro4",
-            "midjourney",
-            "midjourneyV7",
-            "niji7",
-            "imageGrid",
-            "imageCompress",
-          ].includes(sourceNode.type || "");
+          return isImageSource(sourceNode, sourceHandle);
         }
         return false;
       }
