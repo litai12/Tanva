@@ -14,7 +14,9 @@ export class Seedream5Provider implements IAIProvider {
   ) {}
 
   async initialize(): Promise<void> {
-    const apiKey = this.config.get<string>('ARK_API_KEY');
+    const apiKey =
+      this.config.get<string>('ARK_API_KEY') ||
+      this.config.get<string>('DOUBAO_API_KEY');
     this.available = !!apiKey;
     this.logger.log(`Seedream5 provider initialized: ${this.available ? 'available' : 'unavailable'}`);
   }

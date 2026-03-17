@@ -10,8 +10,34 @@ export class Seedream5Service {
   private static readonly DIMENSION_PATTERN = /^(\d{3,5})\s*[xX]\s*(\d{3,5})$/;
 
   constructor(private readonly config: ConfigService) {
-    this.apiKey = this.config.get<string>('ARK_API_KEY') || '';
-    this.endpoint = this.config.get<string>('ARK_ENDPOINT') || 'https://ark.cn-beijing.volces.com';
+    const rawKey =
+      this.config.get<string>('ARK_API_KEY') ||
+      this.config.get<string>('DOUBAO_API_KEY') ||
+      '';
+    this.apiKey = this.normalizeApiKey(rawKey);
+    this.endpoint =
+      this.config.get<string>('ARK_ENDPOINT') || 'https://ark.cn-beijing.volces.com';
+
+    if (!this.apiKey) {
+      this.logger.warn(
+        'Seedream5 API key missing. Please set ARK_API_KEY (or DOUBAO_API_KEY).',
+      );
+    }
+  }
+
+  private normalizeApiKey(value?: string): string {
+    if (!value) return '';
+    let key = value.trim();
+    if (
+      (key.startsWith('"') && key.endsWith('"')) ||
+      (key.startsWith("'") && key.endsWith("'"))
+    ) {
+      key = key.slice(1, -1).trim();
+    }
+    if (/^Bearer\s+/i.test(key)) {
+      key = key.replace(/^Bearer\s+/i, '').trim();
+    }
+    return key;
   }
 
   private normalizeSize(size?: string): string {
@@ -44,6 +70,10 @@ export class Seedream5Service {
     batchMode?: boolean;
     batchCount?: number;
   }): Promise<{ imageUrl?: string; imageUrls?: string[] }> {
+    if (!this.apiKey) {
+      throw new Error('Seedream5 API key not configured (ARK_API_KEY or DOUBAO_API_KEY)');
+    }
+
     const normalizedSize = this.normalizeSize(params.size);
     const payload: any = {
       model: 'doubao-seedream-5-0-260128',
@@ -105,6 +135,10 @@ export class Seedream5Service {
   }
 
   async queryTask(taskId: string): Promise<{ status: string; imageUrl?: string; imageUrls?: string[] }> {
+    if (!this.apiKey) {
+      throw new Error('Seedream5 API key not configured (ARK_API_KEY or DOUBAO_API_KEY)');
+    }
+
     const response = await fetch(`${this.endpoint}/api/v3/images/generations/${taskId}`, {
       headers: { 'Authorization': `Bearer ${this.apiKey}` },
     });
