@@ -4919,6 +4919,49 @@ function FlowInner() {
     };
   }, [allowNativeScroll]);
 
+  React.useEffect(() => {
+    const clearFlowSelectionDragging = () => {
+      document.body.classList.remove("tanva-flow-selection-dragging");
+    };
+
+    const handleMouseDown = (event: MouseEvent) => {
+      const container = containerRef.current;
+      if (!container) return;
+      if (!(isPointerMode || isMarqueeMode || drawMode === "select")) return;
+      if (event.button !== 0) return;
+
+      const rect = container.getBoundingClientRect();
+      if (
+        event.clientX < rect.left ||
+        event.clientX > rect.right ||
+        event.clientY < rect.top ||
+        event.clientY > rect.bottom
+      ) {
+        return;
+      }
+
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.closest(
+          ".react-flow__node, .react-flow__handle, .react-flow__controls, .react-flow__minimap, .tanva-flow-toolbar, .tanva-add-panel, [data-prevent-add-panel]"
+        )
+      ) {
+        return;
+      }
+      document.body.classList.add("tanva-flow-selection-dragging");
+    };
+
+    window.addEventListener("mousedown", handleMouseDown, true);
+    window.addEventListener("mouseup", clearFlowSelectionDragging, true);
+    window.addEventListener("blur", clearFlowSelectionDragging);
+    return () => {
+      window.removeEventListener("mousedown", handleMouseDown, true);
+      window.removeEventListener("mouseup", clearFlowSelectionDragging, true);
+      window.removeEventListener("blur", clearFlowSelectionDragging);
+      clearFlowSelectionDragging();
+    };
+  }, [drawMode, isPointerMode, isMarqueeMode]);
+
   const handleWheelCapture = React.useCallback(
     (event: WheelEvent | React.WheelEvent<HTMLDivElement>) => {
       if (!containerRef.current) return;
