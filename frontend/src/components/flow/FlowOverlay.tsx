@@ -159,7 +159,9 @@ const normalizeFlowTargetHandle = (
   handle?: string | null
 ): string | undefined => {
   if (typeof handle !== "string") return handle ?? undefined;
-  return /^img\d+$/.test(handle) ? "img" : handle;
+  if (/^img\d+$/.test(handle)) return "img";
+  if (handle.toLowerCase() === "omniimage") return "omniImage";
+  return handle;
 };
 
 /**
@@ -4121,6 +4123,20 @@ function FlowInner() {
     ]
   );
 
+  const openAddPanelAtContainerCenter = React.useCallback(
+    (opts?: {
+      tab?: AddPanelTab;
+      scope?: "public" | "mine";
+      allowedTabs?: AddPanelTab[];
+    }) => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      const centerX = rect ? rect.left + rect.width / 2 : window.innerWidth / 2;
+      const centerY = rect ? rect.top + rect.height / 2 : window.innerHeight / 2;
+      openAddPanelAt(centerX, centerY, opts);
+    },
+    [openAddPanelAt]
+  );
+
   // 允许外部（如工具栏按钮）打开添加/模板面板
   React.useEffect(() => {
     const handleSet = (event: Event) => {
@@ -4983,7 +4999,7 @@ function FlowInner() {
         Math.hypot(last.x - x, last.y - y) < 10
       ) {
         if (isBlankArea(x, y))
-          openAddPanelAt(x, y, {
+          openAddPanelAtContainerCenter({
             tab: "nodes",
             allowedTabs: ["nodes", "beta", "custom"],
           });
@@ -4994,7 +5010,7 @@ function FlowInner() {
         );
       }
     },
-    [openAddPanelAt, isBlankArea, setNodes, isPointerMode]
+    [openAddPanelAtContainerCenter, isBlankArea, setNodes, isPointerMode]
   );
 
   React.useEffect(() => {
@@ -5200,7 +5216,7 @@ function FlowInner() {
         if (isBlankArea(x, y)) {
           e.stopPropagation();
           e.preventDefault();
-          openAddPanelAt(x, y, {
+          openAddPanelAtContainerCenter({
             tab: "nodes",
             allowedTabs: ["nodes", "beta", "custom"],
           });
@@ -5215,7 +5231,7 @@ function FlowInner() {
 
     window.addEventListener("click", onNativeClick, true);
     return () => window.removeEventListener("click", onNativeClick, true);
-  }, [openAddPanelAt, isBlankArea]);
+  }, [openAddPanelAtContainerCenter, isBlankArea]);
 
   // 🔥 备选方案：监听原生 dblclick 事件，解决自定义双击检测在某些模式下失效的问题
   React.useEffect(() => {
@@ -5262,7 +5278,7 @@ function FlowInner() {
       if (isBlankArea(x, y)) {
         e.stopPropagation();
         e.preventDefault();
-        openAddPanelAt(x, y, {
+        openAddPanelAtContainerCenter({
           tab: "nodes",
           allowedTabs: ["nodes", "beta", "custom"],
         });
@@ -5271,7 +5287,7 @@ function FlowInner() {
 
     window.addEventListener("dblclick", onNativeDblClick, true);
     return () => window.removeEventListener("dblclick", onNativeDblClick, true);
-  }, [openAddPanelAt, isBlankArea]);
+  }, [openAddPanelAtContainerCenter, isBlankArea]);
 
   const createNodeAtWorldCenter = React.useCallback(
     (
@@ -6231,7 +6247,11 @@ function FlowInner() {
         if (targetHandle === "text") {
           return textSourceTypes.includes(sourceNode.type || "");
         }
-        if (targetHandle === "img") {
+        if (
+          targetHandle === "img" ||
+          targetHandle === "omniImage" ||
+          targetHandle === "omniimage"
+        ) {
           return isImageSource(sourceNode, sourceHandle);
         }
         return false;
@@ -6513,6 +6533,11 @@ function FlowInner() {
       if (targetNode?.type === "midjourneyV7" || targetNode?.type === "niji7") {
         if (params.targetHandle === "text") return true;
         if (params.targetHandle === "img") return incoming.length < 10;
+        if (
+          params.targetHandle === "omniImage" ||
+          params.targetHandle === "omniimage"
+        )
+          return true;
       }
       if (targetNode?.type === "nano2") {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
@@ -6841,6 +6866,20 @@ function FlowInner() {
         if (tgt?.type === "audioUpload" && params.targetHandle === "audio") {
           next = next.filter(
             (e) => !(e.target === params.target && e.targetHandle === "audio")
+          );
+        }
+        if (
+          (tgt?.type === "midjourneyV7" || tgt?.type === "niji7") &&
+          (params.targetHandle === "omniImage" ||
+            params.targetHandle === "omniimage")
+        ) {
+          next = next.filter(
+            (e) =>
+              !(
+                e.target === params.target &&
+                (e.targetHandle === "omniImage" ||
+                  e.targetHandle === "omniimage")
+              )
           );
         }
         // wan2R2V: 每个 video-* 句柄只保留 1 条输入线
@@ -8593,7 +8632,8 @@ function FlowInner() {
         nodeType: string,
         nodeData: Record<string, any>,
         promptText: string,
-        hasImages: boolean
+        hasImages: boolean,
+        crefFromImageHandle?: string
       ) => {
         const isNiji = nodeType === "niji7";
         const errors: string[] = [];
@@ -8647,6 +8687,10 @@ function FlowInner() {
           if (omniWeight) flags.push(`--ow ${omniWeight}`);
           const exp = normalizeMidjourneyValue(nodeData.exp);
           if (exp) flags.push(`--exp ${exp}`);
+
+          if (crefFromImageHandle) {
+            flags.push(`--cref ${crefFromImageHandle}`);
+          }
         }
 
         if (hasImages) {
@@ -10781,11 +10825,36 @@ function FlowInner() {
         );
         const imgEdges = totalImgEdges.slice(0, 10);
         const imageDatas = await resolveEdgesAsDataUrls(imgEdges);
+
+        const omniImageEdges = currentEdges.filter(
+          (e) =>
+            e.target === nodeId &&
+            (e.targetHandle === "omniImage" || e.targetHandle === "omniimage")
+        );
+        let crefFromImageHandle: string | undefined;
+        if (omniImageEdges.length > 1) {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? { ...n, data: { ...n.data, status: "failed", error: "万物参考（cref）最多支持 1 张图片" } }
+                : n
+            )
+          );
+          return;
+        }
+        if (omniImageEdges.length === 1) {
+          const crefDatas = await resolveEdgesAsDataUrls([omniImageEdges[0]]);
+          if (crefDatas.length > 0) {
+            crefFromImageHandle = crefDatas[0];
+          }
+        }
+
         const { finalPrompt, errors } = buildMidjourneyPrompt(
           node.type,
           (node.data || {}) as Record<string, any>,
           promptText,
-          imageDatas.length > 0
+          imageDatas.length > 0,
+          crefFromImageHandle
         );
 
         if (errors.length > 0) {
@@ -13937,8 +14006,8 @@ function FlowInner() {
     const top = rect ? addPanel.screen.y - rect.top : addPanel.screen.y;
     return {
       position: "absolute",
-      left,
-      top,
+      left: `${left}px`,
+      top: `${top}px`,
       transform: "translate(-50%, -50%)",
       zIndex: 100,
     } as React.CSSProperties;
@@ -13946,13 +14015,14 @@ function FlowInner() {
 
   const handleContainerDoubleClick = React.useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      if (isBlankArea(e.clientX, e.clientY))
-        openAddPanelAt(e.clientX, e.clientY, {
+      if (isBlankArea(e.clientX, e.clientY)) {
+        openAddPanelAtContainerCenter({
           tab: "nodes",
           allowedTabs: ["nodes", "beta", "custom"],
         });
+      }
     },
-    [openAddPanelAt, isBlankArea]
+    [openAddPanelAtContainerCenter, isBlankArea]
   );
 
   const commitEdgeLabelValue = React.useCallback(
