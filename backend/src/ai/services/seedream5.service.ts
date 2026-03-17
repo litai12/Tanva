@@ -6,10 +6,35 @@ export class Seedream5Service {
   private readonly logger = new Logger(Seedream5Service.name);
   private readonly apiKey: string;
   private readonly endpoint: string;
+  private static readonly SIZE_PRESETS = new Set(['1K', '2K', '3K', '4K']);
+  private static readonly DIMENSION_PATTERN = /^(\d{3,5})\s*[xX]\s*(\d{3,5})$/;
 
   constructor(private readonly config: ConfigService) {
     this.apiKey = this.config.get<string>('ARK_API_KEY') || '';
     this.endpoint = this.config.get<string>('ARK_ENDPOINT') || 'https://ark.cn-beijing.volces.com';
+  }
+
+  private normalizeSize(size?: string): string {
+    const raw = typeof size === 'string' ? size.trim() : '';
+    if (!raw) return '2K';
+
+    const compact = raw.replace(/\s+/g, '');
+    const upper = compact.toUpperCase();
+    if (Seedream5Service.SIZE_PRESETS.has(upper)) {
+      return upper;
+    }
+
+    const dimMatch = compact.match(Seedream5Service.DIMENSION_PATTERN);
+    if (dimMatch) {
+      const width = Number.parseInt(dimMatch[1], 10);
+      const height = Number.parseInt(dimMatch[2], 10);
+      if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+        return `${width}x${height}`;
+      }
+    }
+
+    this.logger.warn(`Seedream5 size "${raw}" is invalid, fallback to 2K`);
+    return '2K';
   }
 
   async generateImage(params: {
@@ -19,11 +44,12 @@ export class Seedream5Service {
     batchMode?: boolean;
     batchCount?: number;
   }): Promise<{ imageUrl?: string; imageUrls?: string[] }> {
+    const normalizedSize = this.normalizeSize(params.size);
     const payload: any = {
       model: 'doubao-seedream-5-0-260128',
       sequential_image_generation: params.batchMode ? 'auto' : 'disabled',
       response_format: 'url',
-      size: params.size ? params.size.toLowerCase() : '2k',
+      size: normalizedSize,
       stream: false,
       watermark: false,
     };
@@ -46,6 +72,10 @@ export class Seedream5Service {
         ? params.image_urls[0]
         : params.image_urls.slice(0, 5);
     }
+
+    this.logger.log(
+      `Seedream5 request: size=${normalizedSize}, hasPrompt=${!!params.prompt}, imageCount=${params.image_urls?.length || 0}, batchMode=${!!params.batchMode}, batchCount=${params.batchCount || 0}`
+    );
 
     const response = await fetch(`${this.endpoint}/api/v3/images/generations`, {
       method: 'POST',

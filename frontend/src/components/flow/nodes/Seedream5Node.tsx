@@ -17,7 +17,7 @@ type Props = {
     error?: string;
     batchMode?: boolean;
     batchCount?: number;
-    size?: "2K" | "3K";
+    size?: string;
     watermark?: boolean;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
@@ -30,6 +30,32 @@ const buildImageSrc = (value?: string): string | undefined => {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
   return toRenderableImageSrc(trimmed) || undefined;
+};
+
+const SEEDREAM_PIXEL_SIZE_OPTIONS = [
+  { value: "2048x2048", label: "2K 路 1:1 路 2048x2048" },
+  { value: "1728x2304", label: "2K 路 3:4 路 1728x2304" },
+  { value: "2304x1728", label: "2K 路 4:3 路 2304x1728" },
+  { value: "2848x1600", label: "2K 路 16:9 路 2848x1600" },
+  { value: "1600x2848", label: "2K 路 9:16 路 1600x2848" },
+  { value: "2496x1664", label: "2K 路 3:2 路 2496x1664" },
+  { value: "1664x2496", label: "2K 路 2:3 路 1664x2496" },
+  { value: "3136x1344", label: "2K 路 21:9 路 3136x1344" },
+  { value: "3072x3072", label: "3K 路 1:1 路 3072x3072" },
+  { value: "2592x3456", label: "3K 路 3:4 路 2592x3456" },
+  { value: "3456x2592", label: "3K 路 4:3 路 3456x2592" },
+  { value: "4096x2304", label: "3K 路 16:9 路 4096x2304" },
+  { value: "2304x4096", label: "3K 路 9:16 路 2304x4096" },
+  { value: "3744x2496", label: "3K 路 3:2 路 3744x2496" },
+  { value: "2496x3744", label: "3K 路 2:3 路 2496x3744" },
+  { value: "4704x2016", label: "3K 路 21:9 路 4704x2016" },
+];
+
+const normalizeSeedreamDimensionSize = (value?: string): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  const match = value.trim().match(/^(\d{3,5})\s*[xX]\s*(\d{3,5})$/);
+  if (!match) return undefined;
+  return `${match[1]}x${match[2]}`;
 };
 
 function Seedream5Node({ id, data, selected }: Props) {
@@ -51,12 +77,20 @@ function Seedream5Node({ id, data, selected }: Props) {
     return merged;
   }, [data.imageUrls, data.images]);
 
-  const sizeValue = data.size ?? "2K";
+  const rawSizeValue =
+    typeof data.size === "string" && data.size.trim().length > 0
+      ? data.size.trim()
+      : "2K";
+  const normalizedPixelSize = normalizeSeedreamDimensionSize(rawSizeValue);
+  const sizePresetValue =
+    rawSizeValue.toUpperCase() === "3K" ? "3K" : "2K";
+  const sizePixelValue =
+    normalizedPixelSize || SEEDREAM_PIXEL_SIZE_OPTIONS[0].value;
 
   const [hover, setHover] = React.useState<string | null>(null);
   const [showHelp, setShowHelp] = React.useState(false);
 
-  // 检测连接的图片数量
+  // 妫€娴嬭繛鎺ョ殑鍥剧墖鏁伴噺
   const imageInputCount = useStore((state) => {
     const edges = state.edges || [];
     return edges.filter(
@@ -64,17 +98,15 @@ function Seedream5Node({ id, data, selected }: Props) {
     ).length;
   });
 
-  // 检测是否连接了 prompt
   const hasPromptInput = useStore((state) => {
     const edges = state.edges || [];
     return edges.some(
       (edge) => edge.target === id && edge.targetHandle === "prompt"
     );
   });
-
-  // 根据连接类型决定显示的尺寸选项
   const hasImageInput = imageInputCount > 0;
-  const showCustomSize = hasPromptInput && !hasImageInput;
+  // 鑷姩灏哄妯″紡锛氭湁 image 杈撳叆鏃惰蛋鏂规1锛涗粎 prompt 杈撳叆鏃惰蛋鏂规2
+  const usePixelSizeMode = hasPromptInput && !hasImageInput;
 
   const borderColor = selected ? "#2563eb" : "#e5e7eb";
   const boxShadow = selected
@@ -107,7 +139,7 @@ function Seedream5Node({ id, data, selected }: Props) {
     data.onSend?.(id);
   }, [data, id]);
 
-  // 获取第一张图片用于预览
+  // 鑾峰彇绗竴寮犲浘鐗囩敤浜庨瑙?
   const firstImage = images[0];
   const assetId = React.useMemo(() => parseFlowImageAssetRef(firstImage), [firstImage]);
   const assetUrl = useFlowImageAssetUrl(assetId);
@@ -149,7 +181,7 @@ function Seedream5Node({ id, data, selected }: Props) {
               display: "flex",
               alignItems: "center",
             }}
-            title={lt("玩法说明", "Help")}
+            title={lt("鐜╂硶璇存槑", "Help")}
           >
             <HelpCircle size={14} />
           </button>
@@ -171,7 +203,7 @@ function Seedream5Node({ id, data, selected }: Props) {
           <button
             onClick={onSend}
             disabled={images.length === 0}
-            title={images.length === 0 ? lt("无可发送的图像", "No image to send") : lt("发送到画布", "Send to canvas")}
+            title={images.length === 0 ? lt("鏃犲彲鍙戦€佺殑鍥惧儚", "No image to send") : lt("鍙戦€佸埌鐢诲竷", "Send to canvas")}
             style={{
               fontSize: 12,
               padding: "4px 8px",
@@ -187,7 +219,7 @@ function Seedream5Node({ id, data, selected }: Props) {
         </div>
       </div>
 
-      {/* 玩法说明 */}
+      {/* 鐜╂硶璇存槑 */}
       {showHelp && (
         <div style={{
           fontSize: 11,
@@ -200,27 +232,29 @@ function Seedream5Node({ id, data, selected }: Props) {
           lineHeight: 1.5,
         }}>
           <div style={{ fontWeight: 600, marginBottom: 4, color: "#1e40af" }}>
-            🎨 {lt("可实现效果", "What You Can Do")}
+            {lt("可实现效果", "What You Can Do")}
           </div>
           <div style={{ marginBottom: 3 }}>
-            <strong>{lt("纯文字生图", "Text to Image")}:</strong> {lt("根据描述生成全新图片", "Generate new images from text description")}
+            <strong>{lt("纯文字生图", "Text to Image")}:</strong>{" "}
+            {lt("根据描述生成全新图片", "Generate new images from text description")}
           </div>
           <div style={{ marginBottom: 3 }}>
-            <strong>{lt("单图变体", "Single Image Variation")}:</strong> {lt("基于1张图生成相似风格", "Generate similar style from 1 image")}
+            <strong>{lt("鍗曞浘鍙樹綋", "Single Image Variation")}:</strong> {lt("鍩轰簬1寮犲浘鐢熸垚鐩镐技椋庢牸", "Generate similar style from 1 image")}
           </div>
           <div style={{ marginBottom: 3 }}>
-            <strong>{lt("多图融合", "Multi-Image Fusion")}:</strong> {lt("融合2-5张图的元素和风格", "Blend elements from 2-5 images")}
+            <strong>{lt("澶氬浘铻嶅悎", "Multi-Image Fusion")}:</strong> {lt("铻嶅悎2-5寮犲浘鐨勫厓绱犲拰椋庢牸", "Blend elements from 2-5 images")}
           </div>
           <div style={{ marginBottom: 3 }}>
-            <strong>{lt("服装替换", "Outfit Change")}:</strong> {lt("将图1人物换成图2的服装", "Change person's outfit using reference")}
+            <strong>{lt("服装替换", "Outfit Change")}:</strong>{" "}
+            {lt("将图1人物替换为图2风格服装", "Change person's outfit using reference")}
           </div>
           <div style={{ color: "#6b7280", fontSize: 10, marginTop: 4 }}>
-            💡 {lt("提示：多图输入时可组合不同元素", "Tip: Multiple images can combine different elements")}
+            {lt("提示：多图输入可组合不同元素", "Tip: Multiple images can combine different elements")}
           </div>
         </div>
       )}
 
-      {/* 图片数量警告 */}
+      {/* 鍥剧墖鏁伴噺璀﹀憡 */}
       {imageInputCount > 5 && (
         <div style={{
           fontSize: 11,
@@ -231,38 +265,22 @@ function Seedream5Node({ id, data, selected }: Props) {
           marginBottom: 8,
           border: "1px solid #fecaca",
         }}>
-          ⚠️ {lt(`已连接${imageInputCount}张图片，最多支持5张，只会使用前5张`, `Connected ${imageInputCount} images, max 5 supported, only first 5 will be used`)}
+          {lt(
+            `已连接 ${imageInputCount} 张图片，最多支持 5 张，只会使用前 5 张`,
+            `Connected ${imageInputCount} images, max 5 supported, only first 5 will be used`
+          )}
         </div>
       )}
 
-      {/* 尺寸选择 */}
+      {/* 灏哄閫夋嫨 */}
       <div style={{ marginBottom: 8 }}>
         <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
-          {lt("图像尺寸", "Size")}
+          {lt("鍥惧儚灏哄", "Size")}
         </label>
-        {showCustomSize ? (
-          <input
-            type="text"
-            list="size-options"
-            value={data.size || "2048x2048"}
-            onChange={(e) => updateData({ size: e.target.value as any })}
-            placeholder="2048x2048"
-            style={{
-              width: "100%",
-              fontSize: 12,
-              padding: "4px 6px",
-              borderRadius: 6,
-              border: "1px solid #e5e7eb",
-              outline: "none",
-              background: "#fff",
-            }}
-            onPointerDownCapture={stopNodeDrag}
-            onMouseDownCapture={stopNodeDrag}
-          />
-        ) : (
+        {usePixelSizeMode ? (
           <select
-            value={sizeValue}
-            onChange={(e) => updateData({ size: e.target.value as "2K" | "3K" })}
+            value={sizePixelValue}
+            onChange={(e) => updateData({ size: e.target.value })}
             style={{
               width: "100%",
               fontSize: 12,
@@ -275,49 +293,16 @@ function Seedream5Node({ id, data, selected }: Props) {
             onPointerDownCapture={stopNodeDrag}
             onMouseDownCapture={stopNodeDrag}
           >
-            <option value="2K">{lt("2K 高清", "2K HD")}</option>
-            <option value="3K">{lt("3K 超清", "3K Ultra HD")}</option>
+            {SEEDREAM_PIXEL_SIZE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </select>
-        )}
-        <datalist id="size-options">
-          <option value="2048x2048">1:1</option>
-          <option value="1728x2304">3:4</option>
-          <option value="2304x1728">4:3</option>
-          <option value="2848x1600">16:9</option>
-          <option value="1600x2848">9:16</option>
-          <option value="2496x1664">3:2</option>
-          <option value="1664x2496">2:3</option>
-          <option value="3136x1344">21:9</option>
-        </datalist>
-      </div>
-
-      {/* 批量模式 */}
-      <div style={{ marginBottom: 8 }}>
-        <label style={{ display: "flex", alignItems: "center", fontSize: 12, cursor: "pointer" }}>
-          <input
-            type="checkbox"
-            checked={data.batchMode || false}
-            onChange={(e) => updateData({ batchMode: e.target.checked, batchCount: e.target.checked ? 4 : undefined })}
-            style={{ marginRight: 6 }}
-            onPointerDownCapture={stopNodeDrag}
-            onMouseDownCapture={stopNodeDrag}
-          />
-          <span>{lt("批量生成", "Batch Mode")}</span>
-        </label>
-      </div>
-
-      {/* 批量数量 */}
-      {data.batchMode && (
-        <div style={{ marginBottom: 8 }}>
-          <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
-            {lt("生成数量 (2-10张)", "Count (2-10)")}
-          </label>
-          <input
-            type="number"
-            min={2}
-            max={10}
-            value={data.batchCount || 4}
-            onChange={(e) => updateData({ batchCount: Math.min(Math.max(parseInt(e.target.value) || 4, 2), 10) })}
+        ) : (
+          <select
+            value={sizePresetValue}
+            onChange={(e) => updateData({ size: e.target.value })}
             style={{
               width: "100%",
               fontSize: 12,
@@ -325,14 +310,17 @@ function Seedream5Node({ id, data, selected }: Props) {
               borderRadius: 6,
               border: "1px solid #e5e7eb",
               outline: "none",
+              background: "#fff",
             }}
             onPointerDownCapture={stopNodeDrag}
             onMouseDownCapture={stopNodeDrag}
-          />
+          >
+            <option value="2K">{lt("2K 楂樻竻", "2K HD")}</option>
+            <option value="3K">{lt("3K 瓒呮竻", "3K Ultra HD")}</option>
+          </select>
+        )}
         </div>
-      )}
-
-      {/* 图片预览 */}
+      {/* 鍥剧墖棰勮 */}
       <div
         style={{
           width: "100%",
@@ -376,7 +364,7 @@ function Seedream5Node({ id, data, selected }: Props) {
             }}
           />
         ) : (
-          <span style={{ fontSize: 12, color: "#9ca3af" }}>{lt("等待生成", "Waiting for generation")}</span>
+          <span style={{ fontSize: 12, color: "#9ca3af" }}>{lt("绛夊緟鐢熸垚", "Waiting for generation")}</span>
         )}
       </div>
 
@@ -395,7 +383,7 @@ function Seedream5Node({ id, data, selected }: Props) {
         </div>
       )}
 
-      {/* 输入句柄 */}
+      {/* 杈撳叆鍙ユ焺 */}
       <Handle
         type="target"
         position={Position.Left}
@@ -413,7 +401,7 @@ function Seedream5Node({ id, data, selected }: Props) {
         onMouseLeave={() => setHover(null)}
       />
 
-      {/* 输出句柄 */}
+      {/* 杈撳嚭鍙ユ焺 */}
       <Handle
         type="source"
         position={Position.Right}

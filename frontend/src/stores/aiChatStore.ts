@@ -509,6 +509,7 @@ const BANANA_TEXT_MODEL = "gemini-3-flash-preview";
 const BANANA_25_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
 const BANANA_25_TEXT_MODEL = "gemini-3-flash-preview";
 const BANANA_31_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
+const SEEDREAM5_IMAGE_MODEL = "doubao-seedream-5-0-260128";
 export const SORA2_VIDEO_MODELS = {
   hd: "sora-2-pro-reverse",
   sd: "sora-2-reverse",
@@ -856,6 +857,9 @@ export const getImageModelForProvider = (provider: AIProviderType): string => {
   if (provider === "banana-3.1") {
     return BANANA_31_IMAGE_MODEL;
   }
+  if (provider === "seedream5") {
+    return SEEDREAM5_IMAGE_MODEL;
+  }
   return DEFAULT_IMAGE_MODEL;
 };
 
@@ -868,6 +872,7 @@ const TEXT_MODEL_BY_PROVIDER: Record<AIProviderType, string> = {
   runninghub: DEFAULT_TEXT_MODEL,
   midjourney: DEFAULT_TEXT_MODEL,
   nano2: DEFAULT_TEXT_MODEL,
+  seedream5: DEFAULT_TEXT_MODEL,
 };
 
 export const getTextModelForProvider = (provider: AIProviderType): string => {

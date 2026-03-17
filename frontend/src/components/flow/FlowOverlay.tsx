@@ -11233,13 +11233,28 @@ function FlowInner() {
         );
 
         try {
+          const normalizeSeedreamSizeForAPI = (raw: unknown): string => {
+            const value = typeof raw === "string" ? raw.trim() : "";
+            if (!value) return "2K";
+            const compact = value.replace(/\s+/g, "");
+            const upper = compact.toUpperCase();
+            if (upper === "2K" || upper === "3K") return upper;
+            const dimMatch = compact.match(/^(\d{3,5})[xX](\d{3,5})$/);
+            if (dimMatch) return `${dimMatch[1]}x${dimMatch[2]}`;
+            console.warn(`Seedream5: invalid size "${value}", fallback to 2K`);
+            return "2K";
+          };
+          const seedreamSizeForAPI = normalizeSeedreamSizeForAPI(
+            (node.data as any)?.size
+          );
+
           const result = await generateImageViaAPI({
             prompt: promptText || "",
             aiProvider: "seedream5",
-            imageSize: (node.data as any)?.size || "2K",
+            imageSize: seedreamSizeForAPI,
             imageUrls: imageDatas.length > 0 ? imageDatas : undefined,
-            batchMode: (node.data as any)?.batchMode || false,
-            batchCount: (node.data as any)?.batchCount || 4,
+            batchMode: false,
+            batchCount: 4,
           });
 
           if (!result.success || !result.data) {

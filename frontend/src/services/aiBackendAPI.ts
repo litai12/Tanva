@@ -32,6 +32,7 @@ const BANANA_25_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
 const BANANA_31_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
 const RUNNINGHUB_IMAGE_MODEL = "runninghub-su-effect";
 const MIDJOURNEY_IMAGE_MODEL = "midjourney-fast";
+const SEEDREAM5_IMAGE_MODEL = "doubao-seedream-5-0-260128";
 
 const getTimestamp = () =>
   typeof performance !== "undefined" && typeof performance.now === "function"
@@ -183,6 +184,7 @@ const resolveDefaultModel = (
   }
   if (provider === "runninghub") return RUNNINGHUB_IMAGE_MODEL;
   if (provider === "midjourney") return MIDJOURNEY_IMAGE_MODEL;
+  if (provider === "seedream5") return SEEDREAM5_IMAGE_MODEL;
   return DEFAULT_IMAGE_MODEL;
 };
 

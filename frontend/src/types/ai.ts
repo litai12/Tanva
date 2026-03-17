@@ -85,7 +85,16 @@ export interface MidjourneyModalRequest {
   maskBase64?: string;
 }
 
-export type SupportedAIProvider = 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'banana-3.1' | 'runninghub' | 'midjourney' | 'nano2';
+export type SupportedAIProvider =
+  | 'gemini'
+  | 'gemini-pro'
+  | 'banana'
+  | 'banana-2.5'
+  | 'banana-3.1'
+  | 'runninghub'
+  | 'midjourney'
+  | 'nano2'
+  | 'seedream5';
 
 export interface AIImageGenerateRequest {
   prompt: string;
@@ -108,13 +117,15 @@ export interface AIImageGenerateRequest {
     | '1:4'
     | '8:1'
     | '1:8'; // 长宽比（官方支持枚举）
-  imageSize?: '0.5K' | '1K' | '2K' | '4K'; // 图像尺寸（高清设置，仅 Gemini 3）
+  imageSize?: string; // 图像尺寸，支持 2K/3K 或 2048x2048 这类像素值
   thinkingLevel?: 'high' | 'low'; // 思考级别（仅 Gemini 3）
   imageOnly?: boolean; // 新增：仅返回图像，不返回文本
   enableWebSearch?: boolean; // 生图阶段启用联网搜索（用于支持 147 Ultra 等链路）
   imageUrls?: string[]; // Nano2 参考图片 URL 列表
   googleSearch?: boolean; // Nano2 Google 文本搜索增强
   googleImageSearch?: boolean; // Nano2 Google 图片搜索增强
+  batchMode?: boolean; // Seedream5 批量模式
+  batchCount?: number; // Seedream5 批量数量
 }
 
 // AI图像编辑请求参数
