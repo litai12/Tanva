@@ -1,4 +1,4 @@
-// Renders the image overlay UI and per-image actions on the canvas.
+﻿// Renders the image overlay UI and per-image actions on the canvas.
 import React, {
   useRef,
   useCallback,
@@ -2497,48 +2497,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         );
 
         // 同步输出合成黑底图到画布，便于对比与调试
-        const previewGap = Math.max(
-          32,
-          Math.min(120, selectedBounds.width * 0.1)
-        );
-        const previewCenter = {
-          x: selectedBounds.x + selectedBounds.width / 2 + selectedBounds.width + previewGap,
-          y: selectedBounds.y + selectedBounds.height / 2,
-        };
-        window.dispatchEvent(
-          new CustomEvent("triggerQuickImageUpload", {
-            detail: {
-              imageData: composed.dataUrl,
-              fileName: `expanded-composed-${Date.now()}.png`,
-              selectedImageBounds: selectedBounds,
-              smartPosition: previewCenter,
-              operationType: "expand-image-composed",
-              sourceImageId: imageData.id,
-              preferHorizontal: true,
-            },
-          })
-        );
-
         // 调试：在控制台查看合成图片信息
         console.log("扩展画布合成图片:", composed);
-
-        // 在新标签页打开合成图片
-        const debugWindow = window.open("", "_blank");
-        if (debugWindow) {
-          debugWindow.document.write(`
-            <html>
-              <head><title>扩展画布合成图片预览</title></head>
-              <body style="margin:0; display:flex; flex-direction:column; align-items:center; padding:20px;">
-                <h2>前端合成的扩展画布图片</h2>
-                <p>尺寸: ${composed.width} x ${composed.height} 像素</p>
-                <img src="${composed.dataUrl}" style="max-width:100%; border:1px solid #ccc;" />
-                <p style="margin-top:20px; color:#666;">
-                  这就是发送给Gemini进行扩图的原始图片（包含黑色扩展区域）
-                </p>
-              </body>
-            </html>
-          `);
-        }
 
         // 直接复用聊天框 edit 的参数逻辑（provider/model/尺寸/比例等）
         const chatState = useAIChatStore.getState();
