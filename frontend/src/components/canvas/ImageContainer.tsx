@@ -2107,10 +2107,13 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           const modelUrl = convertResult.modelUrl;
           const fileName =
             modelUrl.split("/").pop() || `model-${Date.now()}.glb`;
+          const format: "glb" | "gltf" = /\.gltf(?:$|\?)/i.test(modelUrl)
+            ? "gltf"
+            : "glb";
 
           const model3DData: Model3DData = {
             url: modelUrl,
-            format: "glb",
+            format,
             fileName,
             fileSize: 0,
             defaultScale: { x: 1, y: 1, z: 1 },

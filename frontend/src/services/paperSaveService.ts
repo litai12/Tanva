@@ -1712,6 +1712,7 @@ class PaperSaveService {
   private async performSave() {
     try {
       const contentStore = useProjectContentStore.getState();
+      let shouldUpdatePaperSnapshot = false;
 
       if (!contentStore.projectId) {
         console.warn('没有活动项目，跳过保存');
@@ -1782,6 +1783,7 @@ class PaperSaveService {
         this.persistableImageRefMap = persistableRefMap;
         try {
           paperJson = this.serializePaperProject(pendingImageIds);
+          shouldUpdatePaperSnapshot = true;
         } finally {
           this.persistableImageRefMap = null;
         }
@@ -1806,16 +1808,20 @@ class PaperSaveService {
         console.warn('⚠️ Paper.js项目状态异常，尝试恢复...');
         this.triggerProjectRecovery();
 
-        // 即使 Paper.js 项目有问题，也要保存其他内容
-        console.log('💾 Paper.js项目异常，但仍保存其他项目内容...');
+        // 保护已有画板快照：Paper 未就绪时不覆盖 paperJson，避免空保存覆盖历史内容
+        console.log('💾 Paper.js项目异常，本次仅更新非画板字段，保留已有 paperJson');
       }
 
-      contentStore.updatePartial({
-        paperJson: paperJson || undefined,
-        meta: paperJson ? { paperJsonLen: paperJson.length } : undefined,
+      const patch: Record<string, any> = {
         assets: normalizedAssets,
-        updatedAt: new Date().toISOString()
-      }, { markDirty: true });
+        updatedAt: new Date().toISOString(),
+      };
+      if (shouldUpdatePaperSnapshot) {
+        patch.paperJson = paperJson || undefined;
+        patch.meta = paperJson ? { paperJsonLen: paperJson.length } : undefined;
+      }
+
+      contentStore.updatePartial(patch, { markDirty: true });
 
     } catch (error) {
       console.error('❌ 更新Paper.js内容失败:', error);

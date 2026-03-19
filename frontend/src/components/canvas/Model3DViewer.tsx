@@ -14,6 +14,7 @@ import type {
   Model3DCameraState,
 } from "@/services/model3DUploadService";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
+import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 
 interface Model3DViewerProps {
   modelData: Model3DData;
@@ -26,8 +27,8 @@ interface Model3DViewerProps {
 }
 
 const TARGET_MODEL_SIZE = 1.0;
-const MAX_MODEL_UPSCALE = 2.5;
-const MODEL_SCALE_MULTIPLIER = 1.0; // 控制模型基础体积，值越大初始尺寸越大
+const MAX_MODEL_UPSCALE = 500;
+const MODEL_SCALE_MULTIPLIER = 4.0; // 控制模型基础体积，值越大初始尺寸越大
 const CONTAINER_SCALE_MULTIPLIER = 8; // 控制容器对缩放的影响，值越大越不受框限制
 const BASELINE_SCALE_MULTIPLIER = 1.0; // 保障最小放大倍数了
 const CAMERA_DISTANCE_MULTIPLIER = 0.7;
@@ -51,6 +52,42 @@ const cameraStatesEqual = (a: Model3DCameraState, b: Model3DCameraState) =>
   arraysAlmostEqual(a.position, b.position) &&
   arraysAlmostEqual(a.target, b.target) &&
   arraysAlmostEqual(a.up, b.up);
+
+type ModelLoadErrorBoundaryProps = {
+  children: React.ReactNode;
+  resetKey: string;
+  onError: (error: Error) => void;
+};
+
+type ModelLoadErrorBoundaryState = {
+  hasError: boolean;
+};
+
+class ModelLoadErrorBoundary extends React.Component<
+  ModelLoadErrorBoundaryProps,
+  ModelLoadErrorBoundaryState
+> {
+  state: ModelLoadErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(): ModelLoadErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    this.props.onError(error);
+  }
+
+  componentDidUpdate(prevProps: ModelLoadErrorBoundaryProps) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({ hasError: false });
+    }
+  }
+
+  render() {
+    if (this.state.hasError) return null;
+    return this.props.children;
+  }
+}
 
 // 3D模型组件
 function Model3D({
@@ -318,8 +355,14 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
   );
   const cameraStateRef = useRef<Model3DCameraState>(cameraState);
   const [isLoading, setIsLoading] = useState(true);
-  const [error] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const hasCustomCameraRef = useRef<boolean>(!!modelData.camera);
+  const modelPath = React.useMemo(() => {
+    const rawPath = typeof modelData.url === "string" ? modelData.url.trim() : "";
+    if (!rawPath) return "";
+    if (!/^https?:\/\//i.test(rawPath)) return rawPath;
+    return proxifyRemoteAssetUrl(rawPath, { forceProxy: true }) || rawPath;
+  }, [modelData.url]);
 
   const onCameraChangeRef = useRef(onCameraChange);
   useEffect(() => {
@@ -377,6 +420,7 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
 
   const handleModelLoaded = (boundingBox: THREE.Box3) => {
     setIsLoading(false);
+    setError(null);
 
     if (!hasCustomCameraRef.current) {
       const size = boundingBox.getSize(new THREE.Vector3());
@@ -407,6 +451,11 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
 
   const pointerEvents = drawMode === "select" || isSelected ? "auto" : "none";
   const controlsEnabled = drawMode === "select" && isSelected;
+
+  useEffect(() => {
+    setError(modelPath ? null : "3D模型地址无效");
+    setIsLoading(Boolean(modelPath));
+  }, [modelPath]);
 
   return (
     <div
@@ -507,10 +556,20 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
                 color='#e8f2ff'
               />
 
-              <Model3D
-                modelPath={modelData.url || ""}
-                onLoaded={handleModelLoaded}
-              />
+              <ModelLoadErrorBoundary
+                resetKey={modelPath}
+                onError={(loadError) => {
+                  setIsLoading(false);
+                  setError(loadError?.message || "3D模型加载失败");
+                }}
+              >
+                {modelPath ? (
+                  <Model3D
+                    modelPath={modelPath}
+                    onLoaded={handleModelLoaded}
+                  />
+                ) : null}
+              </ModelLoadErrorBoundary>
 
               <CameraController
                 cameraState={cameraState}

@@ -6,6 +6,7 @@ import { toRenderableImageSrc } from "@/utils/imageSource";
 import { canvasToBlob } from "@/utils/imageConcurrency";
 import { fetchWithAuth } from "@/services/authFetch";
 import { requestSkipNextBeforeUnloadPrompt } from "@/utils/beforeUnloadGuard";
+import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 
 /**
  * 下载图片文件
@@ -97,12 +98,16 @@ export const getSuggestedFileName = (originalName?: string, prefix: string = 'do
  * @param fileName - 下载的文件名
  */
 export const downloadFile = async (url: string, fileName: string = 'download') => {
+  const resolvedUrl = toRenderableImageSrc(url) || url;
+  const fetchUrl =
+    /^https?:\/\//i.test(resolvedUrl)
+      ? proxifyRemoteAssetUrl(resolvedUrl, { forceProxy: true }) || resolvedUrl
+      : resolvedUrl;
   try {
-    const resolvedUrl = toRenderableImageSrc(url) || url;
     // 如果是data URL或blob URL，直接下载
-    if (resolvedUrl.startsWith('data:') || resolvedUrl.startsWith('blob:')) {
+    if (fetchUrl.startsWith('data:') || fetchUrl.startsWith('blob:')) {
       const link = document.createElement('a');
-      link.href = resolvedUrl;
+      link.href = fetchUrl;
       link.download = fileName;
       requestSkipNextBeforeUnloadPrompt();
       document.body.appendChild(link);
@@ -113,7 +118,7 @@ export const downloadFile = async (url: string, fileName: string = 'download') =
     }
 
     // 如果是HTTP/HTTPS URL，先fetch再下载
-    const response = await fetchWithAuth(resolvedUrl, {
+    const response = await fetchWithAuth(fetchUrl, {
       auth: "omit",
       allowRefresh: false,
       credentials: "omit",
@@ -141,8 +146,7 @@ export const downloadFile = async (url: string, fileName: string = 'download') =
     console.error('❌ 文件下载失败:', error);
     // 如果下载失败，尝试在新窗口打开
     try {
-      const resolvedUrl = toRenderableImageSrc(url) || url;
-      window.open(resolvedUrl, '_blank');
+      window.open(fetchUrl, '_blank');
     } catch (openError) {
       console.error('❌ 无法打开文件:', openError);
       throw error;

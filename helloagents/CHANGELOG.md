@@ -46,6 +46,13 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 后端 AI：Seedance（doubao）视频任务成功后自动上传到 OSS，仅返回自有 OSS 公网链接，避免上游 TOS 直链的 CORS/过期问题。
 
 ### Fixed
+- 2D转3D：修复混元 submit 参数兼容，优先使用 `ImageUrl` 字符串并增加多种 payload 回退，避免 `Code:1001 Invalid param`（`backend/src/ai/services/convert-2d-to-3d.service.ts`）。
+- 2D转3D：将图片工具栏的“2D转3D”后端实现切换为混元生3D（submit/query 轮询），保持原有前端交互与画布3D框插入流程不变，仅将模型生成来源替换为混元接口（`backend/src/ai/services/convert-2d-to-3d.service.ts`）。
+- 2D转3D：修复混元返回模型在画板 3D 容器中加载失败（CORS）问题：`Model3DViewer` 对远程模型 URL 强制走 `/api/assets/proxy`，前后端代理白名单新增腾讯 COS 域名与 `q-sign-*` 预签名参数识别（`frontend/src/components/canvas/Model3DViewer.tsx`、`frontend/src/utils/assetProxy.ts`、`backend/src/oss/oss.service.ts`）。
+- 2D转3D：后端模型 URL 提取改为“按格式优先级选择”（优先 `glb/gltf`，`zip` 最后），减少返回压缩包地址导致的前端模型加载异常（`backend/src/ai/services/convert-2d-to-3d.service.ts`）。
+- Flow：恢复 `klingVideo` 历史连线的 `targetHandle=audio` 兼容句柄，修复旧项目加载时报 React Flow `error#008`（`frontend/src/components/flow/nodes/GenericVideoNode.tsx`）。
+- Canvas 保存：`paperSaveService` 在 Paper 未就绪时不再覆盖 `paperJson`，避免异常时将画板内容“空快照”写回并造成图片丢失（`frontend/src/services/paperSaveService.ts`）。
+- 3D 模型下载：远程模型链接下载时统一强制走 `/api/assets/proxy`，修复混元腾讯 COS `q-sign-*` 直链下载的 CORS 失败（`frontend/src/utils/downloadHelper.ts`）。
 - AI edit-image: stop auto-retrying on `NETWORK_ERROR` for long-running edit requests, preventing repeated long waits and duplicate retry calls after downstream/proxy connection close; also accept `imageUrl` as a valid success result in edit API mapping (`frontend/src/services/aiBackendAPI.ts`, `frontend/src/services/aiImageService.ts`).
 - Canvas: fix refresh-time false image lock that made some images non-draggable/non-deletable; recovery now trusts explicit imageLocked/snapshot.locked only, and Delete gets an imageId-based fallback path (frontend/src/components/canvas/DrawingController.tsx, frontend/src/components/canvas/hooks/useImageTool.ts, frontend/src/components/canvas/hooks/useInteractionController.ts).
 - Flow：恢复连线“点击选中 + Delete 删除”行为：修复 `pointer/marquee/select` 下连线点击被误判为空白框选起点，并新增连线点击显式选中与 Delete/Backspace 删除已选连线的兜底逻辑（`frontend/src/components/flow/FlowOverlay.tsx`）。

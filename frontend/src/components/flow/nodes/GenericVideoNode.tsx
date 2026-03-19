@@ -889,6 +889,17 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         onMouseEnter={() => setHover("image-in")}
         onMouseLeave={() => setHover(null)}
       />
+      {/* 兼容历史数据：旧项目的 klingVideo 可能存在 targetHandle=audio 的连线 */}
+      {isUnifiedKlingNode && (
+        <Handle
+          type='target'
+          position={Position.Left}
+          id='audio'
+          style={{ top: "78%" }}
+          onMouseEnter={() => setHover("audio-in")}
+          onMouseLeave={() => setHover(null)}
+        />
+      )}
       <Handle
         type='source'
         position={Position.Right}
@@ -911,6 +922,14 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           style={{ left: -8, top: "60%", transform: "translate(-100%, -50%)" }}
         >
           image
+        </div>
+      )}
+      {hover === "audio-in" && (
+        <div
+          className='flow-tooltip'
+          style={{ left: -8, top: "78%", transform: "translate(-100%, -50%)" }}
+        >
+          audio
         </div>
       )}
       {hover === "video-out" && (

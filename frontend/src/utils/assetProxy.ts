@@ -106,7 +106,10 @@ export function proxifyRemoteAssetUrl(
   const looksLikePresigned =
     /[?&](?:X-Amz|X-Tos)[^=]*=/i.test(value) ||
     /x-amz-|x-tos-/i.test(value) ||
-    /[?&](?:OSSAccessKeyId|Signature|Expires)=/i.test(value);
+    /[?&](?:OSSAccessKeyId|Signature|Expires)=/i.test(value) ||
+    /[?&](?:q-sign-algorithm|q-signature|q-ak|q-key-time|q-sign-time)=/i.test(
+      value
+    );
 
   // 对 presigned 链接：如果强制代理（下载场景），走后端代理；否则直接返回原始 URL
   if (looksLikePresigned) {
@@ -133,6 +136,8 @@ export function proxifyRemoteAssetUrl(
         "volces.com",
         "volcengine.com",
         "alicdn.com",
+        "tencentcos.cn",
+        "myqcloud.com",
       ];
       const isAllowed = allowedHosts.some(
         (host) => url.hostname === host || url.hostname.endsWith(host)
@@ -195,6 +200,8 @@ export function proxifyRemoteAssetUrl(
       "volces.com",
       "volcengine.com",
       "alicdn.com",
+      "tencentcos.cn",
+      "myqcloud.com",
     ];
 
     const isAllowed = allowedHosts.some(

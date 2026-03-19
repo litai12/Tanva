@@ -243,6 +243,8 @@ export class OssService {
       'kechuangai.com',         // Kling / 可灵
       'models.kapon.cloud',     // Kapon / Vidu
       'volces.com',             // 字节/Seedance 1.5 Pro
+      'tencentcos.cn',          // 腾讯 COS（混元 3D 输出）
+      'myqcloud.com',           // 腾讯云通用域名
     ];
 
     defaultAllowed.forEach(h => hosts.push(h));
