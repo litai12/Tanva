@@ -53,6 +53,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow：恢复 `klingVideo` 历史连线的 `targetHandle=audio` 兼容句柄，修复旧项目加载时报 React Flow `error#008`（`frontend/src/components/flow/nodes/GenericVideoNode.tsx`）。
 - Canvas 保存：`paperSaveService` 在 Paper 未就绪时不再覆盖 `paperJson`，避免异常时将画板内容“空快照”写回并造成图片丢失（`frontend/src/services/paperSaveService.ts`）。
 - 3D 模型下载：远程模型链接下载时统一强制走 `/api/assets/proxy`，修复混元腾讯 COS `q-sign-*` 直链下载的 CORS 失败（`frontend/src/utils/downloadHelper.ts`）。
+- AI 对话框：修复 AUTO 模式工具选择长时间卡在“思考中”问题；Banana 工具选择增加 20s 超时与快速兜底，同时 `tool-selection` 统一走文本模型解析链路（`backend/src/ai/providers/banana.provider.ts`、`backend/src/ai/ai.controller.ts`）。
 - AI edit-image: stop auto-retrying on `NETWORK_ERROR` for long-running edit requests, preventing repeated long waits and duplicate retry calls after downstream/proxy connection close; also accept `imageUrl` as a valid success result in edit API mapping (`frontend/src/services/aiBackendAPI.ts`, `frontend/src/services/aiImageService.ts`).
 - Canvas: fix refresh-time false image lock that made some images non-draggable/non-deletable; recovery now trusts explicit imageLocked/snapshot.locked only, and Delete gets an imageId-based fallback path (frontend/src/components/canvas/DrawingController.tsx, frontend/src/components/canvas/hooks/useImageTool.ts, frontend/src/components/canvas/hooks/useInteractionController.ts).
 - Flow：恢复连线“点击选中 + Delete 删除”行为：修复 `pointer/marquee/select` 下连线点击被误判为空白框选起点，并新增连线点击显式选中与 Delete/Backspace 删除已选连线的兜底逻辑（`frontend/src/components/flow/FlowOverlay.tsx`）。

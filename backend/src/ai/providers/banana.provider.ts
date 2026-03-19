@@ -1753,88 +1753,311 @@ export class BananaProvider implements IAIProvider {
       .join("\n");
   }
 
+  private includesAny(text: string, keywords: readonly string[]): boolean {
+    if (!text) return false;
+    return keywords.some((keyword) => text.includes(keyword));
+  }
+
+  private pickFirstAllowedTool(
+    tools: string[],
+    preferredTools: readonly string[]
+  ): string | null {
+    for (const tool of preferredTools) {
+      if (tools.includes(tool)) {
+        return tool;
+      }
+    }
+    return tools[0] ?? null;
+  }
+
+  private inferToolLocally(
+    request: ToolSelectionRequest,
+    tools: string[],
+    hasVectorIntent: boolean
+  ): ToolSelectionResult | null {
+    const prompt = (request.prompt || "").trim();
+    const lowerPrompt = prompt.toLowerCase();
+    const explicitImageCount = request.imageCount ?? 0;
+    const hasImageInput =
+      !!request.hasImages || !!request.hasCachedImage || explicitImageCount > 0;
+
+    const select = (
+      selectedTool: string,
+      reasoning: string,
+      confidence: number
+    ): ToolSelectionResult | null => {
+      if (!tools.includes(selectedTool)) return null;
+      return { selectedTool, reasoning, confidence };
+    };
+
+    if (hasVectorIntent) {
+      const result = select(
+        "generatePaperJS",
+        "Detected explicit vector intent keywords.",
+        0.98
+      );
+      if (result) return result;
+    }
+
+    if (explicitImageCount >= 2) {
+      const result = select(
+        "blendImages",
+        "Multiple explicit images provided.",
+        0.96
+      );
+      if (result) return result;
+    }
+
+    const videoKeywords = [
+      "\u89c6\u9891",
+      "\u77ed\u7247",
+      "\u52a8\u753b",
+      "\u5f71\u7247",
+      "generate video",
+      "video",
+      "movie",
+      "clip",
+      "veo",
+      "sora",
+      "kling",
+    ] as const;
+    if (this.includesAny(lowerPrompt, videoKeywords)) {
+      const result = select(
+        "generateVideo",
+        "Detected video-generation intent.",
+        0.94
+      );
+      if (result) return result;
+    }
+
+    const blendKeywords = [
+      "\u878d\u5408",
+      "\u6df7\u5408",
+      "\u5408\u6210",
+      "\u62fc\u63a5",
+      "blend",
+      "mix",
+      "merge",
+      "combine",
+      "composite",
+    ] as const;
+    if (explicitImageCount >= 2 && this.includesAny(lowerPrompt, blendKeywords)) {
+      const result = select(
+        "blendImages",
+        "Detected multi-image blending intent.",
+        0.95
+      );
+      if (result) return result;
+    }
+
+    const editKeywords = [
+      "\u7f16\u8f91",
+      "\u4fee\u6539",
+      "\u4fee\u56fe",
+      "\u62a0\u56fe",
+      "\u53bb\u6389",
+      "\u53bb\u9664",
+      "\u66ff\u6362",
+      "\u6269\u56fe",
+      "\u5c40\u90e8",
+      "\u91cd\u7ed8",
+      "inpaint",
+      "outpaint",
+      "edit",
+      "modify",
+      "remove",
+      "replace",
+      "erase",
+      "retouch",
+    ] as const;
+    if (hasImageInput && this.includesAny(lowerPrompt, editKeywords)) {
+      const result = select(
+        "editImage",
+        "Detected image-edit intent with image input.",
+        0.93
+      );
+      if (result) return result;
+    }
+
+    const analyzeKeywords = [
+      "\u5206\u6790",
+      "\u8bc6\u522b",
+      "\u68c0\u6d4b",
+      "\u63cf\u8ff0",
+      "\u770b\u56fe",
+      "\u56fe\u91cc",
+      "\u662f\u4ec0\u4e48",
+      "analyze",
+      "analyse",
+      "describe",
+      "caption",
+      "identify",
+      "detect",
+    ] as const;
+    if (hasImageInput && this.includesAny(lowerPrompt, analyzeKeywords)) {
+      const result = select(
+        "analyzeImage",
+        "Detected image-analysis intent with image input.",
+        0.92
+      );
+      if (result) return result;
+    }
+
+    const imageGenKeywords = [
+      "\u753b",
+      "\u7ed8\u5236",
+      "\u751f\u56fe",
+      "\u751f\u6210\u56fe",
+      "\u56fe\u50cf",
+      "\u56fe\u7247",
+      "\u63d2\u753b",
+      "\u6d77\u62a5",
+      "\u58c1\u7eb8",
+      "draw",
+      "paint",
+      "illustration",
+      "image",
+      "picture",
+      "photo",
+      "render",
+      "artwork",
+      "create an image",
+    ] as const;
+    if (this.includesAny(lowerPrompt, imageGenKeywords)) {
+      const result = select(
+        "generateImage",
+        "Detected image-generation intent.",
+        0.9
+      );
+      if (result) return result;
+    }
+
+    if (hasImageInput && explicitImageCount === 1) {
+      const result = select(
+        "editImage",
+        "Single image context defaults to edit mode.",
+        0.82
+      );
+      if (result) return result;
+    }
+
+    return null;
+  }
+
+  private buildToolSelectionFallback(
+    request: ToolSelectionRequest,
+    tools: string[],
+    reason: string
+  ): ToolSelectionResult {
+    const hasVectorIntent = this.hasVectorIntent(request.prompt || "");
+    const local = this.inferToolLocally(request, tools, hasVectorIntent);
+    if (local) {
+      return {
+        ...local,
+        confidence: Math.min(0.85, Math.max(local.confidence, 0.55)),
+        reasoning: `${local.reasoning} Fallback reason: ${reason}`,
+      };
+    }
+
+    const selectedTool =
+      this.pickFirstAllowedTool(tools, [
+        "chatResponse",
+        "generateImage",
+        "editImage",
+        "analyzeImage",
+        "blendImages",
+        "generateVideo",
+      ]) ?? "chatResponse";
+
+    return {
+      selectedTool,
+      reasoning: `Fallback routing applied: ${reason}`,
+      confidence: 0.45,
+    };
+  }
+
   async selectTool(
     request: ToolSelectionRequest
   ): Promise<AIProviderResponse<ToolSelectionResult>> {
-    this.logger.log(
-      "🎯 Selecting tool with Banana (147) API using gemini-3-flash-preview..."
-    );
+    this.logger.log("Selecting tool with Banana (147) API...");
 
     try {
-      const maxAttempts = 3;
-      const delayMs = 1000;
+      const maxAttempts = 1;
+      const toolSelectionTimeoutMs = 7_000;
       let lastError: unknown;
 
-      const hasVectorIntent = this.hasVectorIntent(request.prompt);
+      const hasVectorIntent = this.hasVectorIntent(request.prompt || "");
       const tools = this.sanitizeAvailableTools(
         request.availableTools,
         hasVectorIntent
       );
+
+      const localResult = this.inferToolLocally(request, tools, hasVectorIntent);
+      if (localResult && localResult.confidence >= 0.8) {
+        this.logger.log(
+          `Tool selected locally: ${localResult.selectedTool}, confidence=${localResult.confidence}`
+        );
+        return {
+          success: true,
+          data: localResult,
+        };
+      }
+
       const toolListText = this.formatToolList(tools);
       const vectorRule = tools.includes("generatePaperJS")
-        ? `只有当用户明确提到以下关键词之一（${VECTOR_KEYWORDS.join(
-            ", "
-          )}）或直接要求输出 SVG/Paper.js 矢量代码时，才选择 generatePaperJS；仅描述形状、几何或线条但未出现这些关键词时，不要选择 generatePaperJS，优先 generateImage 或 chatResponse。`
+        ? "Only choose generatePaperJS when vector/SVG/Paper.js output is explicitly requested."
         : "";
 
-      const systemPrompt = `你是一个AI助手工具选择器。根据用户的输入，选择最合适的工具执行。
+      const systemPrompt = `You are an AI tool router. Choose exactly one best tool from the list.
 
-可用工具:
+Available tools:
 ${toolListText}
 
-${
-  vectorRule ? `${vectorRule}\n\n` : ""
-}请根据用户的实际需求，智能判断最合适的工具。例如：
-- 用户明确提到“矢量”“vector”“svg”“paperjs”等关键词，或要求输出矢量代码 → generatePaperJS
-- 用户要求生成图像、照片、画作等 → generateImage
-- 用户要求编辑、修改现有图像 → editImage
-- 用户要求融合、混合多张图像 → blendImages
-- 用户要求分析、识别图像内容 → analyzeImage
-- 用户要求生成视频 → generateVideo
-- 其他对话、提问、讨论 → chatResponse
-
-请以以下JSON格式回复（仅返回JSON，不要其他文字）:
+${vectorRule ? `${vectorRule}\n\n` : ""}Return strict JSON only:
 {
-  "selectedTool": "工具名称",
-  "reasoning": "选择理由",
+  "selectedTool": "tool_name",
+  "reasoning": "why this tool",
   "confidence": 0.0-1.0
 }`;
 
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         try {
-          // 使用与基础版完全相同的调用方式：两条独立的 contents
-          const result = await this.makeRequest(
-            "gemini-3-flash-preview",
-            [{ text: systemPrompt }, { text: `用户输入: ${request.prompt}` }],
-            { responseModalities: ["Text"] }
+          const toolSelectionModel =
+            typeof request.model === "string" && request.model.trim()
+              ? this.normalizeModelName(request.model.trim())
+              : "gemini-3-flash-preview";
+
+          const result = await this.withTimeout(
+            this.makeRequest(
+              toolSelectionModel,
+              [{ text: systemPrompt }, { text: `User input: ${request.prompt}` }],
+              { responseModalities: ["Text"] }
+            ),
+            toolSelectionTimeoutMs,
+            "Tool selection API call"
           );
 
           if (!result.textResponse) {
-            this.logger.warn("Tool selection response did not contain text.");
-            throw new Error("Empty response");
+            throw new Error("Tool selection response did not contain text.");
           }
 
-          // 解析AI的JSON响应 - 与基础版逻辑一致
           try {
             const parsed = parseToolSelectionJson(result.textResponse);
-
             if (!parsed || typeof parsed !== "object") {
               throw new Error("Invalid tool selection JSON");
             }
 
             const rawSelected =
-              typeof parsed.selectedTool === "string"
-                ? parsed.selectedTool
-                : "chatResponse";
+              typeof parsed.selectedTool === "string" ? parsed.selectedTool : "";
             const selectedTool = tools.includes(rawSelected)
               ? rawSelected
-              : tools.includes("chatResponse")
-              ? "chatResponse"
-              : tools[0];
-
-            this.logger.log(`✅ Tool selected: ${selectedTool}`, {
-              hasVectorIntent,
-            });
+              : localResult?.selectedTool && tools.includes(localResult.selectedTool)
+              ? localResult.selectedTool
+              : this.buildToolSelectionFallback(
+                  request,
+                  tools,
+                  "model selected unavailable tool"
+                ).selectedTool;
 
             return {
               success: true,
@@ -1843,61 +2066,50 @@ ${
                 reasoning:
                   typeof parsed.reasoning === "string"
                     ? parsed.reasoning
-                    : TOOL_DESCRIPTIONS[selectedTool] || "自动选择最合适的工具。",
+                    : TOOL_DESCRIPTIONS[selectedTool] || "Auto-selected tool.",
                 confidence:
                   typeof parsed.confidence === "number"
                     ? parsed.confidence
-                    : 0.85,
+                    : localResult?.confidence ?? 0.82,
               },
             };
-          } catch (parseError) {
-            this.logger.warn(
-              `Failed to parse tool selection JSON: ${result.textResponse}`
+          } catch {
+            const fallback = this.buildToolSelectionFallback(
+              request,
+              tools,
+              "invalid JSON response"
             );
-            // 降级：如果解析失败，默认返回文本对话
             return {
               success: true,
-              data: {
-                selectedTool: tools.includes("chatResponse")
-                  ? "chatResponse"
-                  : tools[0],
-                reasoning: "Fallback due to invalid JSON response",
-                confidence: 0.5,
-              },
+              data: fallback,
             };
           }
         } catch (error) {
           lastError = error;
-          const message =
-            error instanceof Error ? error.message : String(error);
+          const message = error instanceof Error ? error.message : String(error);
           this.logger.warn(
             `Tool selection attempt ${attempt}/${maxAttempts} failed: ${message}`
           );
-          if (attempt < maxAttempts) {
-            await new Promise((resolve) => setTimeout(resolve, delayMs));
-          }
         }
       }
 
       const message =
         lastError instanceof Error
           ? lastError.message
-          : "Unknown error occurred during tool selection.";
+          : "Unknown error during tool selection.";
       this.logger.error(`All tool selection attempts failed: ${message}`);
 
-      // 最后的降级方案：返回文本对话
+      const fallback = this.buildToolSelectionFallback(
+        request,
+        tools,
+        "all attempts failed"
+      );
       return {
         success: true,
-        data: {
-          selectedTool: tools.includes("chatResponse")
-            ? "chatResponse"
-            : tools[0],
-          reasoning: "Fallback due to repeated failures",
-          confidence: 0.4,
-        },
+        data: fallback,
       };
     } catch (error) {
-      this.logger.error("❌ Tool selection failed:", error);
+      this.logger.error("Tool selection failed:", error as any);
       return {
         success: false,
         error: {

@@ -1013,8 +1013,8 @@ export class AiController {
     return this.withCredits(req, 'gemini-tool-selection', dto.model, async () => {
       if (providerName) {
         try {
-          // 🔥 先规范化模型
-          const normalizedModel = this.resolveImageModel(providerName, dto.model);
+          // 工具选择属于文本推理，优先使用文本模型链路
+          const normalizedModel = this.resolveTextModel(providerName, dto.model);
 
           this.logger.log(`[${providerName.toUpperCase()}] Using provider for tool selection`, {
             originalModel: dto.model,
