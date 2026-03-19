@@ -2241,6 +2241,18 @@ export const useInteractionController = ({
             return path?.data?.type === IMAGE_GROUP_BLOCK_TYPE;
           };
 
+          const resolveImageIdFromPath = (path: paper.Path | null | undefined): string | null => {
+            let node: any = path;
+            while (node) {
+              const imageId = node?.data?.imageId;
+              if (typeof imageId === 'string' && imageId) {
+                return imageId;
+              }
+              node = node.parent;
+            }
+            return null;
+          };
+
           // 删除单个路径的处理函数
           const deletePath = (p: paper.Path) => {
             // 检查是否为图片组块，如果是则删除整个组（包括图片）
@@ -2257,6 +2269,21 @@ export const useInteractionController = ({
               if (deletedIds.length > 0 || p.data?.groupId) {
                 didDelete = true;
               }
+              return;
+            }
+
+            const imageIdFromPath = resolveImageIdFromPath(p);
+            if (
+              imageIdFromPath &&
+              !deletedImageIdsFromGroup.has(imageIdFromPath) &&
+              !isPendingUploadImage(imageIdFromPath) &&
+              typeof latestImageTool?.handleImageDelete === 'function'
+            ) {
+              try {
+                latestImageTool.handleImageDelete?.(imageIdFromPath);
+                deletedImageIdsFromGroup.add(imageIdFromPath);
+                didDelete = true;
+              } catch {}
               return;
             }
 

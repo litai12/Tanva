@@ -46,6 +46,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 后端 AI：Seedance（doubao）视频任务成功后自动上传到 OSS，仅返回自有 OSS 公网链接，避免上游 TOS 直链的 CORS/过期问题。
 
 ### Fixed
+- AI edit-image: stop auto-retrying on `NETWORK_ERROR` for long-running edit requests, preventing repeated long waits and duplicate retry calls after downstream/proxy connection close; also accept `imageUrl` as a valid success result in edit API mapping (`frontend/src/services/aiBackendAPI.ts`, `frontend/src/services/aiImageService.ts`).
+- Canvas: fix refresh-time false image lock that made some images non-draggable/non-deletable; recovery now trusts explicit imageLocked/snapshot.locked only, and Delete gets an imageId-based fallback path (frontend/src/components/canvas/DrawingController.tsx, frontend/src/components/canvas/hooks/useImageTool.ts, frontend/src/components/canvas/hooks/useInteractionController.ts).
+- Flow：恢复连线“点击选中 + Delete 删除”行为：修复 `pointer/marquee/select` 下连线点击被误判为空白框选起点，并新增连线点击显式选中与 Delete/Backspace 删除已选连线的兜底逻辑（`frontend/src/components/flow/FlowOverlay.tsx`）。
 - Referral：邀请码在邀请奖励达到 10 人后继续可用并继续记录邀请关系；仅停止新增邀请积分发放，且不再返回“已达上限/无效”类上限提示（`backend/src/referral/referral.service.ts`）。
 - Backend：普通 Kling 视频节点对应的供应商模型切换为 kling-v2-1，其余 Kling 2.6 / Kling O3 逻辑保持不变（backend/src/ai/services/video-provider.service.ts）。
 - Flow：节点弹窗在存在后端节点配置时，改为按归一化后的 Flow 节点类型去重并优先使用后端数据，避免前端 fallback 与后端配置叠加后出现重复的 Kling 节点（frontend/src/components/flow/FlowOverlay.tsx）。

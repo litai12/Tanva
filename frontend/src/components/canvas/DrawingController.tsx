@@ -3707,12 +3707,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               typeof layerName === "string" && layerName.startsWith("layer_")
                 ? layerName.replace("layer_", "")
                 : undefined;
-            const reconstructedLocked = Boolean(
-              snapshot?.locked ??
-                (item as any)?.locked ??
-                (item as any)?.data?.imageLocked ??
-                (raster as any)?.data?.imageLocked
-            );
+            const reconstructedLocked =
+              typeof snapshot?.locked === "boolean"
+                ? snapshot.locked
+                : Boolean(
+                    (item as any)?.data?.imageLocked ??
+                      (raster as any)?.data?.imageLocked
+                  );
 
             reconstructed.push({
               id: imageId,
@@ -6436,9 +6437,20 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           )[0];
 
           if (paperGroup) {
-            const locked = Boolean(
-              paperGroup.locked || (paperGroup.data as any)?.imageLocked
-            );
+            const rasterChild =
+              paperGroup instanceof paper.Group
+                ? (paperGroup.children.find((child) => isRaster(child)) as
+                    | paper.Raster
+                    | undefined)
+                : undefined;
+            const dataLocked = (paperGroup.data as any)?.imageLocked;
+            const rasterLocked = (rasterChild?.data as any)?.imageLocked;
+            const locked =
+              typeof dataLocked === "boolean"
+                ? dataLocked
+                : Boolean(
+                    typeof rasterLocked === "boolean" ? rasterLocked : false
+                  );
             return {
               ...image,
               visible: paperGroup.visible,
@@ -7042,6 +7054,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	                  ...metadataFromRaster
 	                };
 
+	                const resolveImageLocked = (): boolean => {
+	                  const groupLocked = (imageGroup.data as any)?.imageLocked;
+	                  if (typeof groupLocked === "boolean") return groupLocked;
+	                  const rasterLocked = (raster.data as any)?.imageLocked;
+	                  if (typeof rasterLocked === "boolean") return rasterLocked;
+	                  return false;
+	                };
+
 	                const resolveRasterBounds = (): paper.Rectangle | null => {
 	                  try {
 	                    const b = raster.bounds as paper.Rectangle | undefined;
@@ -7119,11 +7139,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	                    ? toRenderableImageSrc(persistedRef) || persistedRef
 	                    : inlineDataUrl ?? resolvedUrl;
 	                  const pendingUpload = !persistedRef;
-                    const locked = Boolean(
-                      imageGroup.locked ||
-                        (imageGroup.data as any)?.imageLocked ||
-                        (raster.data as any)?.imageLocked
-                    );
+                    const locked = resolveImageLocked();
 
                   // 获取图片原始尺寸（优先使用元数据中的原始尺寸，否则使用 raster 的原始尺寸）
                   const originalWidth =
@@ -7214,11 +7230,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	                    ? toRenderableImageSrc(persistedRef) || persistedRef
 	                    : inlineDataUrl ?? resolvedUrl;
 	                  const pendingUpload = !persistedRef;
-                  const locked = Boolean(
-                    imageGroup.locked ||
-                      (imageGroup.data as any)?.imageLocked ||
-                      (raster.data as any)?.imageLocked
-                  );
+                  const locked = resolveImageLocked();
 
                   imageInstances.push({
                     id: ensuredImageId,

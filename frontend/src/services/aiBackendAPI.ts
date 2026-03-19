@@ -514,8 +514,10 @@ export async function editImageViaAPI(
     lastResponse = await performEditImageRequest(request);
 
     if (!lastResponse.success || !lastResponse.data) {
+      const isNetworkFailure = lastResponse.error?.code === "NETWORK_ERROR";
       if (
         attempt < MAX_IMAGE_GENERATION_ATTEMPTS &&
+        !isNetworkFailure &&
         isRetryableImageGenerationError(lastResponse.error)
       ) {
         console.warn("⚠️ edit-image request failed, auto retrying", {
@@ -541,7 +543,10 @@ export async function editImageViaAPI(
       return lastResponse;
     }
 
-    if (lastResponse.data.hasImage && lastResponse.data.imageData) {
+    if (
+      lastResponse.data.hasImage &&
+      (lastResponse.data.imageData || lastResponse.data.imageUrl)
+    ) {
       logApiTiming("edit-image", startedAt, {
         success: true,
         attempts,

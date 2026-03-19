@@ -275,7 +275,7 @@ function Seedream5Node({ id, data, selected }: Props) {
       {/* 灏哄閫夋嫨 */}
       <div style={{ marginBottom: 8 }}>
         <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
-          {lt("鍥惧儚灏哄", "Size")}
+          {lt("尺寸大小", "Size")}
         </label>
         {usePixelSizeMode ? (
           <select
@@ -315,8 +315,8 @@ function Seedream5Node({ id, data, selected }: Props) {
             onPointerDownCapture={stopNodeDrag}
             onMouseDownCapture={stopNodeDrag}
           >
-            <option value="2K">{lt("2K 楂樻竻", "2K HD")}</option>
-            <option value="3K">{lt("3K 瓒呮竻", "3K Ultra HD")}</option>
+            <option value="2K">{lt("2K 超清", "2K HD")}</option>
+            <option value="3K">{lt("3K 高清", "3K Ultra HD")}</option>
           </select>
         )}
         </div>

@@ -649,9 +649,11 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     if (!imageGroup) return false;
     const data = (imageGroup as any)?.data || {};
     if (typeof data.imageLocked === 'boolean') return data.imageLocked;
-    try {
-      if ((imageGroup as any).locked === true) return true;
-    } catch {}
+    if (isGroup(imageGroup)) {
+      const raster = imageGroup.children.find((child) => isRaster(child)) as paper.Raster | undefined;
+      const rasterData = (raster as any)?.data || {};
+      if (typeof rasterData.imageLocked === 'boolean') return rasterData.imageLocked;
+    }
     return false;
   }, []);
 

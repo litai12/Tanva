@@ -113,7 +113,9 @@ class AIImageService {
     const response = await this.callAPI<AIImageResult>(
       `${this.API_BASE}/ai/edit-image`,
       request,
-      "Image editing"
+      "Image editing",
+      0,
+      false
     );
     this.logImageResponse("Image editing", response);
     return response;
@@ -347,7 +349,8 @@ class AIImageService {
     url: string,
     request: any,
     operationType: string,
-    retryCount: number = 0
+    retryCount: number = 0,
+    allowNetworkRetry: boolean = true
   ): Promise<AIServiceResponse<T>> {
     // 创建 AbortController 用于超时控制
     const controller = new AbortController();
@@ -377,7 +380,13 @@ class AIImageService {
         );
         const refreshed = await this.refreshSession();
         if (refreshed) {
-          return this.callAPI<T>(url, request, `${operationType} (retry)`, 0);
+          return this.callAPI<T>(
+            url,
+            request,
+            `${operationType} (retry)`,
+            0,
+            allowNetworkRetry
+          );
         }
 
         // 刷新失败：说明登录态已失效，触发自动退出/弹窗
@@ -427,6 +436,7 @@ class AIImageService {
 
       // 检查是否可以重试（超时也可重试）
       if (
+        allowNetworkRetry &&
         retryCount < MAX_NETWORK_RETRIES &&
         (isTimeout || isRetryableError(err))
       ) {
@@ -438,7 +448,13 @@ class AIImageService {
           }/${MAX_NETWORK_RETRIES})`
         );
         await sleep(RETRY_DELAY_MS);
-        return this.callAPI<T>(url, request, operationType, retryCount + 1);
+        return this.callAPI<T>(
+          url,
+          request,
+          operationType,
+          retryCount + 1,
+          allowNetworkRetry
+        );
       }
 
       console.error(

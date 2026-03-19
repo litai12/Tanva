@@ -4943,7 +4943,7 @@ function FlowInner() {
       const target = event.target as HTMLElement | null;
       if (
         target?.closest(
-          ".react-flow__node, .react-flow__handle, .react-flow__controls, .react-flow__minimap, .tanva-flow-toolbar, .tanva-add-panel, [data-prevent-add-panel]"
+          ".react-flow__node, .react-flow__edge, .react-flow__handle, .react-flow__controls, .react-flow__minimap, .tanva-flow-toolbar, .tanva-add-panel, [data-prevent-add-panel]"
         )
       ) {
         return;
@@ -14204,6 +14204,70 @@ function FlowInner() {
     [rf, edges, commitEdgeLabelValue]
   );
 
+  const handleEdgeClick = React.useCallback(
+    (event: React.MouseEvent, edge: Edge) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const edgeId = edge.id;
+      setNodes((prev: any[]) =>
+        prev.map((node) => (node.selected ? { ...node, selected: false } : node))
+      );
+      setEdges((prev: any[]) =>
+        prev.map((e) => ({ ...e, selected: e.id === edgeId }))
+      );
+    },
+    [setEdges, setNodes]
+  );
+
+  const deleteSelectedEdges = React.useCallback(() => {
+    const selectedEdgeIds = new Set(
+      (rf.getEdges?.() || [])
+        .filter((edge: any) => edge?.selected)
+        .map((edge: any) => edge.id)
+        .filter(Boolean)
+    );
+    if (!selectedEdgeIds.size) return false;
+
+    setEdges((prev: any[]) => prev.filter((e: any) => !selectedEdgeIds.has(e.id)));
+    setEdgeLabelEditor((prev) =>
+      prev.edgeId && selectedEdgeIds.has(prev.edgeId)
+        ? createEdgeLabelEditorState()
+        : prev
+    );
+    try {
+      historyService.commit("flow-delete-edge").catch(() => {});
+    } catch {}
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent("flow:edgesChange"));
+    }, 0);
+    return true;
+  }, [rf, setEdges]);
+
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      if (event.key !== "Delete" && event.key !== "Backspace") return;
+
+      const active = document.activeElement as HTMLElement | null;
+      const tagName = active?.tagName?.toLowerCase();
+      const isEditable =
+        !!active &&
+        (tagName === "input" ||
+          tagName === "textarea" ||
+          (active as any).isContentEditable);
+      if (isEditable) return;
+
+      if (deleteSelectedEdges()) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [deleteSelectedEdges]);
+
   // -------- 模板：实例化与保存 --------
   const instantiateTemplateAt = React.useCallback(
     async (tpl: FlowTemplate, world: { x: number; y: number }) => {
@@ -14670,6 +14734,7 @@ function FlowInner() {
         onConnectStart={onConnectStart}
         onConnectEnd={onConnectEnd}
         onPaneClick={onPaneClick}
+        onEdgeClick={handleEdgeClick}
         onEdgeDoubleClick={handleEdgeDoubleClick}
         isValidConnection={isValidConnection}
         nodeTypes={nodeTypes}
