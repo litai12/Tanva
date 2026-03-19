@@ -74,9 +74,6 @@ export class ReferralService {
       throw new NotFoundException('邀请码不存在');
     }
 
-    if (inviteCode.status !== 'active') {
-      throw new BadRequestException('邀请码已失效');
-    }
 
     // 不能使用自己的邀请码
     if (inviteCode.inviterUserId === inviteeUserId) {
@@ -94,21 +91,17 @@ export class ReferralService {
 
     const effectiveMaxUses = Math.min(inviteCode.maxUses, REFERRAL_REWARD_LIMIT);
 
-    // 原子化占用邀请码次数，避免并发绕过上限
-    const updated = await tx.invitationCode.updateMany({
+    // 原子化占用可发奖次数；超过上限后仍允许使用邀请码，但不再发放邀请积分
+    const rewardReservation = await tx.invitationCode.updateMany({
       where: {
         id: inviteCode.id,
-        status: 'active',
         usedCount: { lt: effectiveMaxUses },
       },
       data: {
         usedCount: { increment: 1 },
       },
     });
-
-    if (updated.count === 0) {
-      throw new BadRequestException('邀请码奖励次数已达上限');
-    }
+    const rewardEligible = rewardReservation.count > 0;
 
     // 创建邀请兑换记录
     const redemption = await tx.invitationRedemption.create({
@@ -116,8 +109,20 @@ export class ReferralService {
         codeId: inviteCode.id,
         inviteeUserId,
         inviterUserId: inviteCode.inviterUserId,
-        rewardStatus: 'pending',
-        rewardAmount: REFERRAL_INVITER_REWARD,
+        ...(rewardEligible
+          ? {
+              rewardStatus: 'pending',
+              rewardAmount: REFERRAL_INVITER_REWARD,
+            }
+          : {
+              rewardStatus: 'rewarded',
+              rewardAmount: 0,
+              rewardedAt: new Date(),
+              metadata: {
+                reason: 'reward_limit_reached',
+                rewardLimit: effectiveMaxUses,
+              },
+            }),
       },
     });
 
@@ -184,11 +189,14 @@ export class ReferralService {
       where: { inviterUserId: userId },
     });
 
-    // 获取已发奖的邀请数量
-    const rewardedInvites = await this.prisma.invitationRedemption.count({
+    // 获取已发奖总额（允许存在 rewardAmount=0 的“超上限记录”）
+    const rewardedSummary = await this.prisma.invitationRedemption.aggregate({
       where: {
         inviterUserId: userId,
         rewardStatus: 'rewarded',
+      },
+      _sum: {
+        rewardAmount: true,
       },
     });
 
@@ -203,7 +211,7 @@ export class ReferralService {
 
     // 计算累计收益
     const totalEarnings =
-      rewardedInvites * REFERRAL_INVITER_REWARD +
+      (rewardedSummary._sum.rewardAmount ?? 0) +
       firstRechargeRewards * REFERRAL_INVITER_FIRST_RECHARGE_REWARD;
 
     // 获取邀请记录列表
@@ -506,6 +514,22 @@ export class ReferralService {
       return null;
     }
 
+    const redemption = await tx.invitationRedemption.findFirst({
+      where: {
+        inviteeUserId,
+        inviterUserId: invitee.invitedById,
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        rewardAmount: true,
+      },
+    });
+
+    // 超过邀请奖励上限的记录（rewardAmount=0）不再发放首充奖励
+    if (!redemption || redemption.rewardAmount <= 0) {
+      return null;
+    }
+
     const alreadyRewarded = await tx.creditTransaction.findFirst({
       where: {
         type: 'REFERRAL_REWARD',
@@ -578,19 +602,13 @@ export class ReferralService {
       return { valid: false, message: '邀请码不存在' };
     }
 
-    if (inviteCode.status !== 'active') {
-      return { valid: false, message: '邀请码已失效' };
-    }
 
     const effectiveMaxUses = Math.min(inviteCode.maxUses, REFERRAL_REWARD_LIMIT);
-    if (inviteCode.usedCount >= effectiveMaxUses) {
-      return { valid: false, message: '邀请码奖励次数已达上限' };
-    }
 
     return {
       valid: true,
       inviterName: inviteCode.inviter?.name || '用户',
-      remainingUses: effectiveMaxUses - inviteCode.usedCount,
+      remainingUses: Math.max(0, effectiveMaxUses - inviteCode.usedCount),
     };
   }
 }
