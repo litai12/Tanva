@@ -37,3 +37,6 @@
 
 
 
+
+- Added Object.hasOwn polyfill at app bootstrap to prevent legacy Edge runtime crash in bundled dependencies.
+
