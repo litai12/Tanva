@@ -826,6 +826,7 @@ const QUICK_CONNECT_PRESETS: Record<
   QuickConnectPreset[]
 > = {
   text: [
+    { nodeType: "textPrompt", targetHandle: "text" },
     { nodeType: "generate", targetHandle: "text" },
     { nodeType: "generateRef", targetHandle: "text" },
     { nodeType: "midjourney", targetHandle: "text" },
@@ -834,13 +835,13 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "textChat", targetHandle: "text" },
   ],
   image: [
+    { nodeType: "image", targetHandle: "img" },
     { nodeType: "generate", targetHandle: "img" },
     { nodeType: "generate4", targetHandle: "img" },
     { nodeType: "generatePro", targetHandle: "img" },
     { nodeType: "generateRef", targetHandle: "image2" },
     { nodeType: "viewAngle", targetHandle: "img" },
     { nodeType: "analysis", targetHandle: "img" },
-    { nodeType: "image", targetHandle: "img" },
     { nodeType: "imagePro", targetHandle: "img" },
     { nodeType: "nano2", targetHandle: "img" },
     { nodeType: "imageGrid", targetHandle: "images" },
@@ -905,6 +906,27 @@ const QUICK_CONNECT_REVERSE_PRESETS: Record<
     { nodeType: "image", sourceHandle: "img" },
     { nodeType: "video", sourceHandle: "video" },
   ],
+};
+
+const QUICK_CONNECT_BASE_PRESET: Record<
+  QuickConnectSourceKind,
+  {
+    forward?: QuickConnectPreset;
+    reverse?: QuickConnectPreset;
+  }
+> = {
+  text: {
+    forward: { nodeType: "textPrompt", targetHandle: "text" },
+    reverse: { nodeType: "textPrompt", sourceHandle: "text" },
+  },
+  image: {
+    forward: { nodeType: "image", targetHandle: "img" },
+    reverse: { nodeType: "image", sourceHandle: "img" },
+  },
+  video: {},
+  audio: {},
+  character: {},
+  unknown: {},
 };
 
 // 节点积分消耗映射
@@ -2719,7 +2741,7 @@ function FlowInner() {
   }, []);
   const rankQuickConnectOptions = React.useCallback(
     (items: QuickConnectMenuItem[]): QuickConnectMenuItem[] => {
-      if (items.length <= 1) return items.slice(0, QUICK_CONNECT_MAX_ITEMS);
+      if (items.length <= 1) return items.slice();
       return items
         .map((item, index) => {
           const key = getQuickConnectMenuItemKey(item);
@@ -2736,8 +2758,37 @@ function FlowInner() {
           if (b.lastUsedAt !== a.lastUsedAt) return b.lastUsedAt - a.lastUsedAt;
           return a.index - b.index;
         })
-        .slice(0, QUICK_CONNECT_MAX_ITEMS)
         .map((entry) => entry.item);
+    },
+    []
+  );
+  const pinQuickConnectBaseOption = React.useCallback(
+    (
+      items: QuickConnectMenuItem[],
+      kind: QuickConnectSourceKind,
+      direction: "forward" | "reverse"
+    ): QuickConnectMenuItem[] => {
+      if (items.length <= 1) return items.slice(0, QUICK_CONNECT_MAX_ITEMS);
+
+      const basePreset = QUICK_CONNECT_BASE_PRESET[kind]?.[direction];
+      if (!basePreset) return items.slice(0, QUICK_CONNECT_MAX_ITEMS);
+
+      const baseType = normalizeFlowNodeType(basePreset.nodeType) || basePreset.nodeType;
+      const baseKey = getQuickConnectMenuItemKey({
+        nodeType: baseType,
+        targetHandle: direction === "forward" ? basePreset.targetHandle : undefined,
+        sourceHandle: direction === "reverse" ? basePreset.sourceHandle : undefined,
+      });
+      const baseItem = items.find(
+        (entry) => getQuickConnectMenuItemKey(entry) === baseKey
+      );
+      if (!baseItem) return items.slice(0, QUICK_CONNECT_MAX_ITEMS);
+
+      const ordered = [
+        baseItem,
+        ...items.filter((entry) => getQuickConnectMenuItemKey(entry) !== baseKey),
+      ];
+      return ordered.slice(0, QUICK_CONNECT_MAX_ITEMS);
     },
     []
   );
@@ -5891,9 +5942,16 @@ function FlowInner() {
         });
       }
 
-      return rankQuickConnectOptions(picked);
+      const ranked = rankQuickConnectOptions(picked);
+      return pinQuickConnectBaseOption(ranked, kind, "forward");
     },
-    [rf, inferQuickConnectSourceKind, quickConnectMetaByType, rankQuickConnectOptions]
+    [
+      rf,
+      inferQuickConnectSourceKind,
+      quickConnectMetaByType,
+      rankQuickConnectOptions,
+      pinQuickConnectBaseOption,
+    ]
   );
   const getReverseQuickConnectOptions = React.useCallback(
     (targetId: string, targetHandle: string): QuickConnectMenuItem[] => {
@@ -5935,9 +5993,16 @@ function FlowInner() {
         });
       }
 
-      return rankQuickConnectOptions(picked);
+      const ranked = rankQuickConnectOptions(picked);
+      return pinQuickConnectBaseOption(ranked, kind, "reverse");
     },
-    [rf, inferQuickConnectTargetKind, quickConnectMetaByType, rankQuickConnectOptions]
+    [
+      rf,
+      inferQuickConnectTargetKind,
+      quickConnectMetaByType,
+      rankQuickConnectOptions,
+      pinQuickConnectBaseOption,
+    ]
   );
   React.useEffect(() => {
     if (!isConnecting) return;

@@ -21,10 +21,6 @@ type Props = {
     imageUrl?: string;
     modelUrl?: string;
     modelName?: string;
-    bgColor?: string;
-    ambientIntensity?: number;
-    hemiIntensity?: number;
-    directionalIntensity?: number;
     pathTracingEnabled?: boolean;
     forcePathTracing?: boolean;
     nodeTitle?: string;
@@ -51,9 +47,12 @@ type PresetModel = {
 };
 
 const DEFAULT_BG_COLOR = '#ffffff';
-const DEFAULT_AMBIENT_INTENSITY = 0.85;
-const DEFAULT_HEMI_INTENSITY = 0.7;
-const DEFAULT_DIRECTIONAL_INTENSITY = 1.0;
+const DEFAULT_AMBIENT_INTENSITY = 0.26;
+const DEFAULT_HEMI_INTENSITY = 0.52;
+const DEFAULT_DIRECTIONAL_INTENSITY = 0.78;
+const DEFAULT_HEMI_SKY_COLOR = 0xf8f7f2;
+const DEFAULT_HEMI_GROUND_COLOR = 0xd7c7b0;
+const DEFAULT_DIRECTIONAL_COLOR = 0xfff3d8;
 
 const PRESET_MODELS: PresetModel[] = [
   {
@@ -81,9 +80,10 @@ function ThreeNodeInner({ id, data, selected }: Props) {
   const modelRef = React.useRef<THREE.Object3D | null>(null);
   const gridRef = React.useRef<THREE.GridHelper | null>(null);
   const axesRef = React.useRef<THREE.AxesHelper | null>(null);
-  const ambientLightRef = React.useRef<THREE.AmbientLight | null>(null);
-  const hemiLightRef = React.useRef<THREE.HemisphereLight | null>(null);
-  const dirLightRef = React.useRef<THREE.DirectionalLight | null>(null);
+  const isInteractingRef = React.useRef(false);
+  const interactionEndTimerRef = React.useRef<number | null>(null);
+  const daylightEnvironmentTextureRef = React.useRef<THREE.Texture | null>(null);
+  const daylightEnvironmentTargetRef = React.useRef<THREE.WebGLRenderTarget | null>(null);
   const resizeObserverRef = React.useRef<ResizeObserver | null>(null);
   const isNodeResizingRef = React.useRef(false);
   const resizeCommitRafRef = React.useRef<number | null>(null);
@@ -95,17 +95,6 @@ function ThreeNodeInner({ id, data, selected }: Props) {
   const [currentImageId, setCurrentImageId] = React.useState<string>('');
   const lastModelUrlRef = React.useRef<string | undefined>(undefined);
   const [isModelUploading, setIsModelUploading] = React.useState(false);
-  const [showTuning, setShowTuning] = React.useState(false);
-  const [bgColor, setBgColor] = React.useState<string>(data.bgColor || DEFAULT_BG_COLOR);
-  const [ambientIntensity, setAmbientIntensity] = React.useState<number>(
-    typeof data.ambientIntensity === 'number' ? data.ambientIntensity : DEFAULT_AMBIENT_INTENSITY
-  );
-  const [hemiIntensity, setHemiIntensity] = React.useState<number>(
-    typeof data.hemiIntensity === 'number' ? data.hemiIntensity : DEFAULT_HEMI_INTENSITY
-  );
-  const [directionalIntensity, setDirectionalIntensity] = React.useState<number>(
-    typeof data.directionalIntensity === 'number' ? data.directionalIntensity : DEFAULT_DIRECTIONAL_INTENSITY
-  );
   const pathTracerRef = React.useRef<WebGLPathTracerLike | null>(null);
   const pathTracerModuleRef = React.useRef<any>(null);
   const pathTracerLoopRef = React.useRef<number | null>(null);
@@ -152,28 +141,6 @@ function ThreeNodeInner({ id, data, selected }: Props) {
   }, [data.boxH, data.boxW, minNodeHeight, minNodeWidth, updateNodeData]);
 
   React.useEffect(() => {
-    setBgColor(data.bgColor || DEFAULT_BG_COLOR);
-  }, [data.bgColor]);
-
-  React.useEffect(() => {
-    if (typeof data.ambientIntensity === 'number') {
-      setAmbientIntensity(data.ambientIntensity);
-    }
-  }, [data.ambientIntensity]);
-
-  React.useEffect(() => {
-    if (typeof data.hemiIntensity === 'number') {
-      setHemiIntensity(data.hemiIntensity);
-    }
-  }, [data.hemiIntensity]);
-
-  React.useEffect(() => {
-    if (typeof data.directionalIntensity === 'number') {
-      setDirectionalIntensity(data.directionalIntensity);
-    }
-  }, [data.directionalIntensity]);
-
-  React.useEffect(() => {
     const nextEnabled = Boolean(data.forcePathTracing) || Boolean(data.pathTracingEnabled);
     pathTracingEnabledRef.current = nextEnabled;
     setPathTracingEnabled((prev) => (prev === nextEnabled ? prev : nextEnabled));
@@ -211,6 +178,75 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     pathTracerRef.current = null;
   }, [stopPathTracerLoop]);
 
+  const ensureDaylightEnvironment = React.useCallback(() => {
+    const renderer = rendererRef.current;
+    const scene = sceneRef.current;
+    if (!renderer || !scene) return false;
+
+    let environmentTexture = daylightEnvironmentTextureRef.current;
+    if (!environmentTexture) {
+      const width = 256;
+      const height = 128;
+      const pixels = new Float32Array(width * height * 4);
+      const topColor = new THREE.Color('#faf9f4');
+      const midColor = new THREE.Color('#f1eadf');
+      const bottomColor = new THREE.Color('#e3d2bd');
+      const rowColor = new THREE.Color();
+      for (let y = 0; y < height; y += 1) {
+        const t = y / (height - 1);
+        if (t < 0.62) {
+          rowColor.copy(topColor).lerp(midColor, t / 0.62);
+        } else {
+          rowColor.copy(midColor).lerp(bottomColor, (t - 0.62) / 0.38);
+        }
+        for (let x = 0; x < width; x += 1) {
+          const i = (y * width + x) * 4;
+          pixels[i + 0] = rowColor.r;
+          pixels[i + 1] = rowColor.g;
+          pixels[i + 2] = rowColor.b;
+          pixels[i + 3] = 1;
+        }
+      }
+
+      const texture = new THREE.DataTexture(
+        pixels,
+        width,
+        height,
+        THREE.RGBAFormat,
+        THREE.FloatType
+      );
+      texture.mapping = THREE.EquirectangularReflectionMapping;
+      texture.generateMipmaps = false;
+      texture.minFilter = THREE.LinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.ClampToEdgeWrapping;
+      texture.needsUpdate = true;
+      daylightEnvironmentTextureRef.current = texture;
+      environmentTexture = texture;
+    }
+
+    let target = daylightEnvironmentTargetRef.current;
+    if (!target) {
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      pmrem.compileEquirectangularShader();
+      target = pmrem.fromEquirectangular(environmentTexture);
+      daylightEnvironmentTargetRef.current = target;
+      pmrem.dispose();
+    }
+
+    const nextEnvironment = pathTracingEnabled
+      ? environmentTexture
+      : target.texture;
+
+    if (scene.environment !== nextEnvironment) {
+      scene.environment = nextEnvironment;
+      return true;
+    }
+
+    return false;
+  }, [pathTracingEnabled]);
+
   const ensurePathTracer = React.useCallback(async () => {
     const renderer = rendererRef.current;
     const scene = sceneRef.current;
@@ -247,12 +283,17 @@ function ThreeNodeInner({ id, data, selected }: Props) {
 
   const enablePathTracingWithFallback = React.useCallback(async () => {
     try {
+      ensureDaylightEnvironment();
       const tracer = await ensurePathTracer();
       if (!tracer) return;
       stopPathTracerLoop();
       const renderTick = () => {
         if (!pathTracingEnabledRef.current) {
           pathTracerLoopRef.current = null;
+          return;
+        }
+        if (isInteractingRef.current) {
+          pathTracerLoopRef.current = requestAnimationFrame(renderTick);
           return;
         }
         const activeTracer = pathTracerRef.current as any;
@@ -289,7 +330,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
         updateNodeData({ pathTracingEnabled: false });
       }
     }
-  }, [ensurePathTracer, isPathTracingForced, lt, stopPathTracerLoop, updateNodeData]);
+  }, [ensureDaylightEnvironment, ensurePathTracer, isPathTracingForced, lt, stopPathTracerLoop, updateNodeData]);
 
   const normalizeModelUrl = React.useCallback((input: string): string => {
     const raw = (input || '').trim();
@@ -314,6 +355,12 @@ function ThreeNodeInner({ id, data, selected }: Props) {
   // 资源释放函数 (High Priority Cleanup)
   const disposeResources = React.useCallback(() => {
     disposePathTracer();
+
+    if (interactionEndTimerRef.current !== null) {
+      clearTimeout(interactionEndTimerRef.current);
+      interactionEndTimerRef.current = null;
+    }
+    isInteractingRef.current = false;
 
     if (resizeCommitRafRef.current !== null) {
       cancelAnimationFrame(resizeCommitRafRef.current);
@@ -349,6 +396,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     // 深度释放场景中的资源 (geometries, materials, textures)
     if (sceneRef.current) {
       const scene = sceneRef.current;
+      scene.environment = null;
       scene.traverse((object: any) => {
         if (object.isMesh) {
           if (object.geometry) {
@@ -364,6 +412,16 @@ function ThreeNodeInner({ id, data, selected }: Props) {
         }
       });
       sceneRef.current = null;
+    }
+
+    if (daylightEnvironmentTextureRef.current) {
+      daylightEnvironmentTextureRef.current.dispose();
+      daylightEnvironmentTextureRef.current = null;
+    }
+
+    if (daylightEnvironmentTargetRef.current) {
+      daylightEnvironmentTargetRef.current.dispose();
+      daylightEnvironmentTargetRef.current = null;
     }
 
     // 释放渲染器资源
@@ -384,9 +442,6 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     modelRef.current = null;
     gridRef.current = null;
     axesRef.current = null;
-    ambientLightRef.current = null;
-    hemiLightRef.current = null;
-    dirLightRef.current = null;
     lastModelUrlRef.current = undefined;
   }, [disposePathTracer]);
   
@@ -415,7 +470,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
   );
 
   // 单帧渲染调度，避免持续 RAF 占用
-  const requestRender = React.useCallback(() => {
+  const requestRender = React.useCallback((syncControls = true) => {
     if (renderPendingRef.current !== null) return;
     renderPendingRef.current = requestAnimationFrame(() => {
       renderPendingRef.current = null;
@@ -424,12 +479,13 @@ function ThreeNodeInner({ id, data, selected }: Props) {
       const camera = cameraRef.current;
       const controls = controlsRef.current;
       if (!renderer || !scene || !camera) return;
-      controls?.update();
-      if (pathTracingEnabledRef.current && pathTracerRef.current) {
+      if (syncControls) {
+        controls?.update();
+      }
+      if (pathTracingEnabledRef.current && pathTracerRef.current && !isInteractingRef.current) {
         const tracer = pathTracerRef.current as any;
         try {
           tracer.updateCamera?.();
-          tracer.reset?.();
           tracer.renderSample?.();
           return;
         } catch (error) {
@@ -444,33 +500,35 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     const scene = sceneRef.current;
     if (!scene) return;
     try {
-      scene.background = new THREE.Color(bgColor || DEFAULT_BG_COLOR);
+      scene.background = new THREE.Color(DEFAULT_BG_COLOR);
     } catch {}
 
-    if (ambientLightRef.current) {
-      ambientLightRef.current.intensity = ambientIntensity;
-    }
-    if (hemiLightRef.current) {
-      hemiLightRef.current.intensity = hemiIntensity;
-    }
-    if (dirLightRef.current) {
-      dirLightRef.current.intensity = directionalIntensity;
+    // PT 和普通 PBR 渲染共用同一套日光环境。
+    let envChanged = false;
+    try {
+      envChanged = ensureDaylightEnvironment();
+    } catch (error) {
+      console.warn('Init daylight environment failed:', error);
     }
 
     if (pathTracingEnabledRef.current && pathTracerRef.current) {
-      const tracer = pathTracerRef.current as any;
-      try {
-        tracer.setScene?.(scene, cameraRef.current);
-        tracer.updateCamera?.();
-        tracer.reset?.();
-      } catch {}
+      if (envChanged) {
+        const tracer = pathTracerRef.current as any;
+        try {
+          tracer.setScene?.(scene, cameraRef.current);
+          tracer.updateEnvironment?.();
+          tracer.reset?.();
+        } catch {}
+      }
       return;
     }
     if (pathTracingEnabledRef.current && !pathTracerRef.current) {
       return;
     }
-    requestRender();
-  }, [ambientIntensity, bgColor, directionalIntensity, hemiIntensity, requestRender]);
+    // Avoid consuming one damping step exactly when switching PT on/off,
+    // otherwise camera can appear to "jump" once after toggle.
+    requestRender(false);
+  }, [ensureDaylightEnvironment, requestRender]);
 
   React.useEffect(() => {
     applySceneVisuals();
@@ -490,7 +548,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     camera.updateProjectionMatrix();
     if (scene) {
       controlsRef.current?.update();
-      if (pathTracingEnabledRef.current && pathTracerRef.current) {
+      if (pathTracingEnabledRef.current && pathTracerRef.current && !isInteractingRef.current) {
         const tracer = pathTracerRef.current as any;
         try {
           tracer.updateCamera?.();
@@ -520,7 +578,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     const w = Math.max(220, Math.floor(containerRef.current.clientWidth || rect.width || fallbackW));
     const h = Math.max(140, Math.floor(containerRef.current.clientHeight || rect.height || fallbackH));
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(bgColor || DEFAULT_BG_COLOR);
+    scene.background = new THREE.Color(DEFAULT_BG_COLOR);
     const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 1000);
     camera.position.set(2.5, 2, 3);
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -529,10 +587,10 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     try {
       (renderer as any).outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.25; // overall a bit brighter
+      renderer.toneMappingExposure = 1.2;
       (renderer as any).physicallyCorrectLights = true;
     } catch {}
-    renderer.setClearColor('#ffffff', 1);
+    renderer.setClearColor(DEFAULT_BG_COLOR, 1);
     (renderer.domElement.style as any).width = '100%';
     (renderer.domElement.style as any).height = '100%';
     (renderer.domElement.style as any).display = 'block';
@@ -543,7 +601,33 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.enablePan = false; // 只允许旋转/缩放，不平移
+    const beginInteraction = () => {
+      if (interactionEndTimerRef.current !== null) {
+        clearTimeout(interactionEndTimerRef.current);
+        interactionEndTimerRef.current = null;
+      }
+      isInteractingRef.current = true;
+    };
+    const endInteraction = () => {
+      if (interactionEndTimerRef.current !== null) {
+        clearTimeout(interactionEndTimerRef.current);
+      }
+      interactionEndTimerRef.current = window.setTimeout(() => {
+        isInteractingRef.current = false;
+        interactionEndTimerRef.current = null;
+        if (pathTracingEnabledRef.current) {
+          void enablePathTracingWithFallback();
+        } else {
+          requestRender();
+        }
+      }, 120);
+    };
+    controls.addEventListener('start', beginInteraction);
     controls.addEventListener('change', () => {
+      if (isInteractingRef.current) {
+        requestRender();
+        return;
+      }
       if (pathTracingEnabledRef.current && pathTracerRef.current) {
         const tracer = pathTracerRef.current as any;
         try {
@@ -554,19 +638,21 @@ function ThreeNodeInner({ id, data, selected }: Props) {
       }
       requestRender();
     });
+    controls.addEventListener('end', endInteraction);
     controlsRef.current = controls;
-    // 更自然的光照组合：环境+半球+主光
-    const ambient = new THREE.AmbientLight(0xffffff, ambientIntensity);
+    // 日光场景：天空填充 + 暖色太阳主光，配合 environment 解决 PT 黑底问题。
+    const ambient = new THREE.AmbientLight(0xfaf8f2, DEFAULT_AMBIENT_INTENSITY);
     scene.add(ambient);
-    ambientLightRef.current = ambient;
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, hemiIntensity);
+    const hemi = new THREE.HemisphereLight(
+      DEFAULT_HEMI_SKY_COLOR,
+      DEFAULT_HEMI_GROUND_COLOR,
+      DEFAULT_HEMI_INTENSITY
+    );
     scene.add(hemi);
-    hemiLightRef.current = hemi;
-    const dir = new THREE.DirectionalLight(0xffffff, directionalIntensity);
-    dir.position.set(5, 10, 7);
+    const dir = new THREE.DirectionalLight(DEFAULT_DIRECTIONAL_COLOR, DEFAULT_DIRECTIONAL_INTENSITY);
+    dir.position.set(-3.8, 6.4, 4.8);
     dir.castShadow = false;
     scene.add(dir);
-    dirLightRef.current = dir;
     // base helpers to ensure something visible
     try {
       const grid = new THREE.GridHelper(10, 10, 0xcccccc, 0xeeeeee);
@@ -579,6 +665,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     sceneRef.current = scene;
     cameraRef.current = camera;
     rendererRef.current = renderer;
+    applySceneVisuals();
     syncRendererSizeToContainer();
     requestRender();
 
@@ -595,7 +682,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     });
     ro.observe(containerRef.current);
     resizeObserverRef.current = ro;
-  }, [ambientIntensity, bgColor, directionalIntensity, hemiIntensity, requestRender, scheduleRendererSizeSync, syncRendererSizeToContainer]);
+  }, [applySceneVisuals, enablePathTracingWithFallback, requestRender, scheduleRendererSizeSync, syncRendererSizeToContainer]);
 
   React.useEffect(() => {
     const t = setTimeout(() => initIfNeeded(), 0); // 等布局稳定再初始化
@@ -932,40 +1019,16 @@ function ThreeNodeInner({ id, data, selected }: Props) {
 
   const togglePathTracing = React.useCallback(() => {
     if (isPathTracingForced) return;
-    setPathTracingEnabled((prev) => {
-      const next = !prev;
-      if (!next) {
-        stopPathTracerLoop();
-        setPathTracerStatus('idle');
-        setPathTracerError(null);
-      }
-      updateNodeData({ pathTracingEnabled: next });
-      return next;
-    });
+    const next = !pathTracingEnabledRef.current;
+    if (!next) {
+      stopPathTracerLoop();
+      setPathTracerStatus('idle');
+      setPathTracerError(null);
+    }
+    pathTracingEnabledRef.current = next;
+    setPathTracingEnabled(next);
+    updateNodeData({ pathTracingEnabled: next });
   }, [isPathTracingForced, stopPathTracerLoop, updateNodeData]);
-
-  const handleBgColorChange = React.useCallback((nextColor: string) => {
-    setBgColor(nextColor);
-    updateNodeData({ bgColor: nextColor });
-  }, [updateNodeData]);
-
-  const handleAmbientChange = React.useCallback((value: number) => {
-    const next = Math.max(0, Math.min(3, value));
-    setAmbientIntensity(next);
-    updateNodeData({ ambientIntensity: Number(next.toFixed(2)) });
-  }, [updateNodeData]);
-
-  const handleHemiChange = React.useCallback((value: number) => {
-    const next = Math.max(0, Math.min(3, value));
-    setHemiIntensity(next);
-    updateNodeData({ hemiIntensity: Number(next.toFixed(2)) });
-  }, [updateNodeData]);
-
-  const handleDirectionalChange = React.useCallback((value: number) => {
-    const next = Math.max(0, Math.min(3, value));
-    setDirectionalIntensity(next);
-    updateNodeData({ directionalIntensity: Number(next.toFixed(2)) });
-  }, [updateNodeData]);
 
   const stopTouchPropagation = React.useCallback((e: React.TouchEvent<HTMLDivElement>) => {
     e.stopPropagation();
@@ -1009,12 +1072,6 @@ function ThreeNodeInner({ id, data, selected }: Props) {
           >
             {pathTracingEnabled ? 'PT On' : 'PT Off'}
           </button>
-          <button
-            onClick={() => setShowTuning((prev) => !prev)}
-            style={{ fontSize: 12, padding: '4px 8px', background: showTuning ? '#0f172a' : '#fff', color: showTuning ? '#fff' : '#111827', border: '1px solid #e5e7eb', borderRadius: 6 }}
-          >
-            Tune
-          </button>
           <button disabled={isModelUploading} onClick={() => fileInput.current?.click()} style={{ fontSize: 12, padding: '4px 8px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6, opacity: isModelUploading ? 0.6 : 1, cursor: isModelUploading ? 'not-allowed' : 'pointer' }}>
             {isModelUploading ? 'Uploading...' : 'Upload'}
           </button>
@@ -1034,35 +1091,6 @@ function ThreeNodeInner({ id, data, selected }: Props) {
           </button>
         </div>
       </div>
-      {showTuning && (
-        <div
-          className="nodrag nowheel nopan"
-          onPointerDown={(e) => e.stopPropagation()}
-          onPointerMove={(e) => e.stopPropagation()}
-          onPointerUp={(e) => e.stopPropagation()}
-          onMouseDown={(e) => e.stopPropagation()}
-          onTouchStart={(e) => e.stopPropagation()}
-          onTouchMove={(e) => e.stopPropagation()}
-          style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6, padding: '6px 8px', border: '1px solid #e5e7eb', borderRadius: 8, background: '#f8fafc' }}
-        >
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#334155' }}>
-            BG
-            <input className="nodrag nowheel nopan" type="color" value={bgColor} onChange={(e) => handleBgColorChange(e.target.value)} onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} />
-          </label>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#334155' }}>
-            Amb
-            <input className="nodrag nowheel nopan" type="range" min={0} max={3} step={0.05} value={ambientIntensity} onChange={(e) => handleAmbientChange(Number(e.target.value))} onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} />
-          </label>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#334155' }}>
-            Fill
-            <input className="nodrag nowheel nopan" type="range" min={0} max={3} step={0.05} value={hemiIntensity} onChange={(e) => handleHemiChange(Number(e.target.value))} onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} />
-          </label>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#334155' }}>
-            Key
-            <input className="nodrag nowheel nopan" type="range" min={0} max={3} step={0.05} value={directionalIntensity} onChange={(e) => handleDirectionalChange(Number(e.target.value))} onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} />
-          </label>
-        </div>
-      )}
       <input
         ref={fileInput}
         type="file"
