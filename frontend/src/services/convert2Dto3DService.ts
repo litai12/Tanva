@@ -18,12 +18,14 @@ const buildUrl = (path: string) => {
 
 export interface Convert2Dto3DRequest {
   imageUrl: string; // OSS原生可访问的图片URL
+  projectId?: string;
 }
 
 export interface Convert2Dto3DResponse {
   success: boolean;
   modelUrl: string; // 3D模型访问URL (https://img.tgtai.com/view/{filename})
   promptId?: string;
+  modelKey?: string;
   error?: string;
 }
 
@@ -63,6 +65,7 @@ export async function convert2Dto3D(
       success: true,
       modelUrl: data.modelUrl,
       promptId: data.promptId,
+      modelKey: data.modelKey,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Network error";

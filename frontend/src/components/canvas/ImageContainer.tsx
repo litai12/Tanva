@@ -2098,7 +2098,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             throw new Error(`无效的图片URL: ${imageUrl}`);
           }
 
-          const convertResult = await convert2Dto3D({ imageUrl });
+          const convertResult = await convert2Dto3D({
+            imageUrl,
+            projectId: projectId ?? undefined,
+          });
 
           if (!convertResult.success || !convertResult.modelUrl) {
             throw new Error(convertResult.error || "2D转3D失败");

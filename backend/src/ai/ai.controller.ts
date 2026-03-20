@@ -1649,12 +1649,17 @@ export class AiController {
     this.logger.log('🎨 2D to 3D conversion request received');
 
     return this.withCredits(req, 'convert-2d-to-3d', undefined, async () => {
-      const result = await this.convert2Dto3DService.convert2Dto3D(dto.imageUrl);
+      const userId = req?.user?.id || req?.user?.userId || req?.user?.sub;
+      const result = await this.convert2Dto3DService.convert2Dto3D(dto.imageUrl, {
+        projectId: dto.projectId,
+        userId: typeof userId === 'string' ? userId : undefined,
+      });
 
       return {
         success: true,
         modelUrl: result.modelUrl,
         promptId: result.promptId,
+        modelKey: result.modelKey,
       };
     }, 1, 1);
   }

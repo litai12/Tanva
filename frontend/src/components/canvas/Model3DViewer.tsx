@@ -14,7 +14,7 @@ import type {
   Model3DCameraState,
 } from "@/services/model3DUploadService";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
+import { getApiBaseUrl, proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 
 interface Model3DViewerProps {
   modelData: Model3DData;
@@ -34,6 +34,7 @@ const BASELINE_SCALE_MULTIPLIER = 1.0; // 保障最小放大倍数了
 const CAMERA_DISTANCE_MULTIPLIER = 0.7;
 const MIN_CAMERA_DISTANCE = 1.5;
 const EPSILON = 1e-4;
+const MODEL_LOAD_FALLBACK_ERROR = "3D模型加载失败，请重试或重新生成。";
 
 const computeScaleFactor = (maxDimension: number) => {
   const safeDimension = Math.max(maxDimension, Number.EPSILON);
@@ -52,6 +53,67 @@ const cameraStatesEqual = (a: Model3DCameraState, b: Model3DCameraState) =>
   arraysAlmostEqual(a.position, b.position) &&
   arraysAlmostEqual(a.target, b.target) &&
   arraysAlmostEqual(a.up, b.up);
+
+const isProxyPath = (value: string): boolean =>
+  value.startsWith("/api/assets/proxy") || value.startsWith("/assets/proxy");
+
+const buildModelPathCandidates = (rawInput: string): string[] => {
+  const raw = typeof rawInput === "string" ? rawInput.trim() : "";
+  if (!raw) return [];
+
+  const candidates: string[] = [];
+  const added = new Set<string>();
+  const apiBase = getApiBaseUrl();
+
+  const add = (value?: string | null) => {
+    const next = typeof value === "string" ? value.trim() : "";
+    if (!next || added.has(next)) return;
+    added.add(next);
+    candidates.push(next);
+  };
+
+  const addProxyUrlsForRemote = (targetUrl: string) => {
+    add(`/api/assets/proxy?url=${encodeURIComponent(targetUrl)}`);
+    if (apiBase) {
+      add(`${apiBase}/api/assets/proxy?url=${encodeURIComponent(targetUrl)}`);
+    }
+  };
+
+  if (isProxyPath(raw)) {
+    add(raw);
+    if (apiBase) add(`${apiBase}${raw}`);
+    return candidates;
+  }
+
+  if (!/^https?:\/\//i.test(raw)) {
+    add(raw);
+    return candidates;
+  }
+
+  try {
+    const url = new URL(raw);
+    if (isProxyPath(url.pathname)) {
+      const relativeProxy = `${url.pathname}${url.search}`;
+      add(relativeProxy);
+      add(raw);
+
+      const nestedUrl = url.searchParams.get("url");
+      if (nestedUrl) {
+        addProxyUrlsForRemote(nestedUrl);
+        add(nestedUrl);
+      }
+      return candidates;
+    }
+  } catch {
+    // ignore and continue
+  }
+
+  addProxyUrlsForRemote(raw);
+  add(proxifyRemoteAssetUrl(raw, { forceProxy: true }) || raw);
+  add(raw);
+
+  return candidates;
+};
 
 type ModelLoadErrorBoundaryProps = {
   children: React.ReactNode;
@@ -356,13 +418,13 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
   const cameraStateRef = useRef<Model3DCameraState>(cameraState);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pathCandidateIndex, setPathCandidateIndex] = useState(0);
   const hasCustomCameraRef = useRef<boolean>(!!modelData.camera);
-  const modelPath = React.useMemo(() => {
+  const modelPathCandidates = React.useMemo(() => {
     const rawPath = typeof modelData.url === "string" ? modelData.url.trim() : "";
-    if (!rawPath) return "";
-    if (!/^https?:\/\//i.test(rawPath)) return rawPath;
-    return proxifyRemoteAssetUrl(rawPath, { forceProxy: true }) || rawPath;
+    return buildModelPathCandidates(rawPath);
   }, [modelData.url]);
+  const modelPath = modelPathCandidates[pathCandidateIndex] || "";
 
   const onCameraChangeRef = useRef(onCameraChange);
   useEffect(() => {
@@ -453,9 +515,10 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
   const controlsEnabled = drawMode === "select" && isSelected;
 
   useEffect(() => {
-    setError(modelPath ? null : "3D模型地址无效");
-    setIsLoading(Boolean(modelPath));
-  }, [modelPath]);
+    setPathCandidateIndex(0);
+    setError(modelPathCandidates.length > 0 ? null : "\u0033D\u6a21\u578b\u5730\u5740\u65e0\u6548");
+    setIsLoading(modelPathCandidates.length > 0);
+  }, [modelData.url, modelPathCandidates.length]);
 
   return (
     <div
@@ -559,8 +622,28 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
               <ModelLoadErrorBoundary
                 resetKey={modelPath}
                 onError={(loadError) => {
+                  const hasMoreCandidate =
+                    pathCandidateIndex < modelPathCandidates.length - 1;
+                  if (hasMoreCandidate) {
+                    const currentPath = modelPathCandidates[pathCandidateIndex];
+                    const nextPath = modelPathCandidates[pathCandidateIndex + 1];
+                    logger.warn("3D model load failed, retrying fallback source", {
+                      currentPath,
+                      nextPath,
+                      error: loadError?.message || String(loadError),
+                    });
+                    setError(null);
+                    setIsLoading(true);
+                    setPathCandidateIndex((prev) => prev + 1);
+                    return;
+                  }
+
+                  logger.error("3D model load failed after all fallback sources", {
+                    modelPathCandidates,
+                    error: loadError?.message || String(loadError),
+                  });
                   setIsLoading(false);
-                  setError(loadError?.message || "3D模型加载失败");
+                  setError(MODEL_LOAD_FALLBACK_ERROR);
                 }}
               >
                 {modelPath ? (

@@ -323,7 +323,13 @@ export class Convert2Dto3DDto {
   @IsString()
   @IsNotEmpty()
   imageUrl!: string; // OSS原生可访问的图片URL
-}export class ExpandImageDto {
+
+  @IsOptional()
+  @IsString()
+  projectId?: string;
+}
+
+export class ExpandImageDto {
   @IsString()
   @IsNotEmpty()
   imageUrl!: string; // OSS原生可访问的图片URL

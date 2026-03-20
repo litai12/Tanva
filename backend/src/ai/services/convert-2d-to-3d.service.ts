@@ -1,5 +1,7 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Readable } from 'node:stream';
+import { OssService } from '../../oss/oss.service';
 
 @Injectable()
 export class Convert2Dto3DService {
@@ -11,7 +13,10 @@ export class Convert2Dto3DService {
   private readonly pollIntervalMs: number;
   private readonly maxWaitMs: number;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly oss: OssService,
+  ) {
     const baseUrl =
       (this.config.get<string>('HUNYUAN_3D_BASE_URL') || 'https://api.ai3d.cloud.tencent.com').replace(
         /\/+$/,
@@ -26,7 +31,10 @@ export class Convert2Dto3DService {
     this.maxWaitMs = Number(this.config.get<string>('HUNYUAN_3D_MAX_WAIT_MS') || 10 * 60 * 1000);
   }
 
-  async convert2Dto3D(imageUrl: string): Promise<{ modelUrl: string; promptId?: string }> {
+  async convert2Dto3D(
+    imageUrl: string,
+    options?: { projectId?: string; userId?: string },
+  ): Promise<{ modelUrl: string; promptId?: string; modelKey?: string }> {
     if (!this.apiKey) {
       throw new ServiceUnavailableException('HUNYUAN_3D_API_KEY is not configured');
     }
@@ -36,12 +44,108 @@ export class Convert2Dto3DService {
     }
 
     const jobId = await this.submitJob(imageUrl);
-    const modelUrl = await this.waitForModelUrl(jobId, imageUrl);
+    const upstreamModelUrl = await this.waitForModelUrl(jobId, imageUrl);
+    const persisted = await this.persistModelToOss(upstreamModelUrl, options);
 
     return {
-      modelUrl,
+      modelUrl: persisted?.url || upstreamModelUrl,
       promptId: jobId,
+      modelKey: persisted?.key,
     };
+  }
+
+  private sanitizePathSegment(value?: string): string {
+    if (!value || typeof value !== 'string') return '';
+    return value.trim().replace(/[^a-zA-Z0-9_-]/g, '');
+  }
+
+  private inferModelExtension(sourceUrl: string, contentType?: string | null): string {
+    const fromContentType = (contentType || '').toLowerCase();
+    if (fromContentType.includes('model/gltf+json')) return 'gltf';
+    if (fromContentType.includes('model/gltf-binary')) return 'glb';
+    if (fromContentType.includes('application/zip')) return 'zip';
+    if (fromContentType.includes('application/octet-stream')) {
+      const lowerUrl = sourceUrl.toLowerCase();
+      if (lowerUrl.includes('.gltf')) return 'gltf';
+      if (lowerUrl.includes('.glb')) return 'glb';
+      if (lowerUrl.includes('.zip')) return 'zip';
+      return 'glb';
+    }
+
+    try {
+      const pathname = new URL(sourceUrl).pathname.toLowerCase();
+      const matched = pathname.match(/\.(glb|gltf|zip|fbx|obj|stl|usdz|ply)$/);
+      if (matched?.[1]) return matched[1];
+    } catch {
+      // ignore
+    }
+
+    return 'glb';
+  }
+
+  private async persistModelToOss(
+    modelUrl: string,
+    options?: { projectId?: string; userId?: string },
+  ): Promise<{ url: string; key: string } | null> {
+    if (!modelUrl || !/^https?:\/\//i.test(modelUrl)) {
+      return null;
+    }
+
+    if (!this.oss.isEnabled()) {
+      this.logger.warn('OSS is disabled, using upstream model URL directly.');
+      return null;
+    }
+
+    const controller = new AbortController();
+    const timeoutMs = 180_000;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(modelUrl, { signal: controller.signal });
+      if (!response.ok) {
+        throw new ServiceUnavailableException(`Failed to fetch 3D model from upstream: HTTP ${response.status}`);
+      }
+
+      const body = response.body;
+      if (!body) {
+        throw new ServiceUnavailableException('Upstream 3D model response body is empty');
+      }
+
+      const contentType = response.headers.get('content-type') || 'model/gltf-binary';
+      const extension = this.inferModelExtension(modelUrl, contentType);
+      const safeProjectId = this.sanitizePathSegment(options?.projectId);
+      const safeUserId = this.sanitizePathSegment(options?.userId);
+      const random = Math.random().toString(36).slice(2, 8);
+      const keyPrefix = safeProjectId
+        ? `projects/${safeProjectId}/models`
+        : safeUserId
+        ? `projects/${safeUserId}/generated-models`
+        : 'ai/models/hunyuan';
+      const key = `${keyPrefix}/2d-to-3d-${Date.now()}-${random}.${extension}`;
+
+      const fromWeb = (Readable as unknown as { fromWeb?: (stream: unknown) => Readable }).fromWeb;
+      const nodeStream =
+        typeof fromWeb === 'function'
+          ? fromWeb(body as unknown)
+          : Readable.from(Buffer.from(await response.arrayBuffer()));
+
+      const uploaded = await this.oss.putStream(key, nodeStream, {
+        headers: { 'Content-Type': contentType },
+      });
+
+      if (!uploaded?.url) {
+        throw new ServiceUnavailableException('Upload 3D model to OSS failed: empty URL');
+      }
+
+      this.logger.log(`2D->3D model persisted to OSS: ${uploaded.url}`);
+      return { url: uploaded.url, key: uploaded.key };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Persist 2D->3D model to OSS failed: ${message}`);
+      throw new ServiceUnavailableException(`Persist 2D->3D model to OSS failed: ${message}`);
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   private async submitJob(imageUrl: string): Promise<string> {
