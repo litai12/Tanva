@@ -4,6 +4,10 @@ import { createSafeStorage } from './storageUtils';
 
 const SMART_PLACEMENT_OFFSET_HORIZONTAL = 522;
 const SMART_PLACEMENT_OFFSET_VERTICAL = 552;
+const UI_PREFERENCES_VERSION = 1;
+
+const isMode = (value: unknown): value is 'chat' | 'node' =>
+  value === 'chat' || value === 'node';
 
 interface UIState {
   // 面板显示状态
@@ -157,6 +161,32 @@ export const useUIStore = create<UIState>()(
     {
       name: 'ui-preferences',
       storage: createJSONStorage<Partial<UIState>>(() => createSafeStorage({ storageName: 'ui-preferences' })),
+      version: UI_PREFERENCES_VERSION,
+      migrate: (persistedState: unknown): Partial<UIState> => {
+        if (!persistedState || typeof persistedState !== 'object') return {};
+        const state = persistedState as Partial<UIState>;
+        return {
+          ...state,
+          mode: isMode(state.mode) ? state.mode : 'chat',
+          showLibraryPanel:
+            typeof state.showLibraryPanel === 'boolean' ? state.showLibraryPanel : false,
+          showLayerPanel:
+            typeof state.showLayerPanel === 'boolean' ? state.showLayerPanel : false,
+          showGrid: typeof state.showGrid === 'boolean' ? state.showGrid : true,
+          showAxis: typeof state.showAxis === 'boolean' ? state.showAxis : false,
+          showBounds: typeof state.showBounds === 'boolean' ? state.showBounds : false,
+          showFlowPanel: typeof state.showFlowPanel === 'boolean' ? state.showFlowPanel : false,
+          flowUIEnabled: typeof state.flowUIEnabled === 'boolean' ? state.flowUIEnabled : false,
+          flowEraserActive:
+            typeof state.flowEraserActive === 'boolean' ? state.flowEraserActive : false,
+          focusMode: typeof state.focusMode === 'boolean' ? state.focusMode : false,
+          showSandboxPanel:
+            typeof state.showSandboxPanel === 'boolean' ? state.showSandboxPanel : false,
+          showDebugPanel: typeof state.showDebugPanel === 'boolean' ? state.showDebugPanel : false,
+          snapAlignmentEnabled:
+            typeof state.snapAlignmentEnabled === 'boolean' ? state.snapAlignmentEnabled : true,
+        };
+      },
       merge: (persistedState, currentState) => {
         const safePersisted = persistedState && typeof persistedState === 'object' ? (persistedState as Partial<UIState>) : {};
         return {

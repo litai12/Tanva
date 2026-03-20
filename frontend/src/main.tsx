@@ -20,6 +20,7 @@ import Workspace from '@/pages/Workspace';
 import RunningHubTest from '@/pages/RunningHubTest';
 import PendingUploadLeavePrompt from '@/components/guards/PendingUploadLeavePrompt';
 import PendingUploadNavigationGuard from '@/components/guards/PendingUploadNavigationGuard';
+import { initializeRuntimeStability } from '@/bootstrap/runtimeStability';
 
 function RootRoutes() {
   const user = useAuthStore((s) => s.user);
@@ -48,6 +49,8 @@ function RootRoutes() {
     </Routes>
   );
 }
+
+initializeRuntimeStability();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

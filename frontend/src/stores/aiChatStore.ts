@@ -81,6 +81,7 @@ const LOCAL_ACTIVE_KEY = "tanva_aiChat_activeSessionId";
 const IDB_SESSIONS_KEY = "local_sessions";
 const AI_CHAT_STORE_NAME = STORE_NAMES.AI_CHAT_SESSIONS;
 const AI_CHAT_VIDEO_CACHE_STORE_NAME = STORE_NAMES.AI_CHAT_VIDEO_CACHE;
+const AI_CHAT_PREFERENCES_VERSION = 1;
 
 // 🔥 全局待生成图片计数器（防止连续快速生成时重叠）
 let generatingImageCount = 0;
@@ -7741,6 +7742,44 @@ export const useAIChatStore = create<AIChatState>()(
       storage: createJSONStorage<Partial<AIChatState>>(() =>
         createSafeStorage({ storageName: "ai-chat-preferences" })
       ),
+      version: AI_CHAT_PREFERENCES_VERSION,
+      migrate: (persistedState: unknown): Partial<AIChatState> => {
+        if (!persistedState || typeof persistedState !== "object") return {};
+        const state = persistedState as Partial<AIChatState>;
+
+        const validManualModes = [
+          "auto",
+          "text",
+          "generate",
+          "edit",
+          "blend",
+          "analyze",
+          "video",
+          "vector",
+        ];
+        const validSendShortcuts = ["enter", "mod-enter"];
+        const validExpandedStyles = ["transparent", "solid"];
+        const validVideoRatios = ["16:9", "9:16"];
+
+        return {
+          ...state,
+          manualAIMode: validManualModes.includes(String(state.manualAIMode))
+            ? (state.manualAIMode as AIChatState["manualAIMode"])
+            : "auto",
+          autoDownload: typeof state.autoDownload === "boolean" ? state.autoDownload : true,
+          enableWebSearch:
+            typeof state.enableWebSearch === "boolean" ? state.enableWebSearch : false,
+          videoAspectRatio: validVideoRatios.includes(String(state.videoAspectRatio))
+            ? (state.videoAspectRatio as AIChatState["videoAspectRatio"])
+            : null,
+          sendShortcut: validSendShortcuts.includes(String(state.sendShortcut))
+            ? (state.sendShortcut as AIChatState["sendShortcut"])
+            : "enter",
+          expandedPanelStyle: validExpandedStyles.includes(String(state.expandedPanelStyle))
+            ? (state.expandedPanelStyle as AIChatState["expandedPanelStyle"])
+            : "transparent",
+        };
+      },
       partialize: (state) => ({
         manualAIMode: state.manualAIMode,
         aiProvider: state.aiProvider,

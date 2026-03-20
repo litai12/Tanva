@@ -16,15 +16,16 @@ import { GlobalImageHistoryModule } from './global-image-history/global-image-hi
 import { TemplatesModule } from './templates/templates.module';
 import { PaymentModule } from './payment/payment.module';
 import { ReferralModule } from './referral/referral.module';
+import { TelemetryModule } from './telemetry/telemetry.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ['.env', '../.env'], // 尝试多个路径
-      expandVariables: true
+      envFilePath: ['.env', '../.env'],
+      expandVariables: true,
     }),
-    ScheduleModule.forRoot(), // 定时任务模块
+    ScheduleModule.forRoot(),
     PrismaModule,
     UsersModule,
     AuthModule,
@@ -32,14 +33,15 @@ import { ReferralModule } from './referral/referral.module';
     OssModule,
     ProjectsModule,
     AiModule,
-    AiPublicModule, // 添加公开 AI API 模块
-    CreditsModule,  // 积分系统模块
-    AdminModule,    // 管理后台模块
-    PersonalLibraryModule, // 个人库资源持久化
-    GlobalImageHistoryModule, // 全局图片历史
-    TemplatesModule, // 公共模板模块
-    PaymentModule,   // 支付模块
-    ReferralModule,  // 推广激励模块
+    AiPublicModule,
+    CreditsModule,
+    AdminModule,
+    PersonalLibraryModule,
+    GlobalImageHistoryModule,
+    TemplatesModule,
+    PaymentModule,
+    ReferralModule,
+    TelemetryModule,
   ],
 })
 export class AppModule {}

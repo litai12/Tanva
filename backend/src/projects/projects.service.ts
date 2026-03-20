@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
+import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { OssService } from '../oss/oss.service';
 import { sanitizeDesignJson } from '../utils/designJsonSanitizer';
@@ -8,6 +9,13 @@ import { sanitizeDesignJson } from '../utils/designJsonSanitizer';
 export class ProjectsService {
   private thumbnailColumnChecked = false;
   private thumbnailColumnAvailable = false;
+  private readonly projectSaveQueue = new Map<string, Promise<void>>();
+  private readonly projectContentFingerprint = new Map<
+    string,
+    { hash: string; version: number; touchedAt: number }
+  >();
+  private readonly projectContentFingerprintTtlMs = 30 * 60 * 1000;
+  private readonly projectContentFingerprintMaxEntries = 1000;
 
   constructor(private prisma: PrismaService, private oss: OssService) {}
 
@@ -191,6 +199,8 @@ export class ProjectsService {
     version?: number,
     options?: { createWorkflowHistory?: boolean }
   ) {
+    void version;
+    return this.runProjectSaveSerialized(id, async () => {
     await this.ensureThumbnailColumn();
     const supportsThumbnailColumn = await this.supportsThumbnailColumn();
     const project = await this.prisma.project.findUnique({
@@ -205,6 +215,20 @@ export class ProjectsService {
     const prefix = project.ossPrefix || `projects/${userId}/${project.id}/`;
     const mainKey = project.mainKey || `${prefix}project.json`;
     const sanitizedContent = sanitizeDesignJson(content);
+    const contentHash = this.hashProjectContent(sanitizedContent);
+    const cachedFingerprint = this.projectContentFingerprint.get(id);
+
+    // Skip duplicate saves that would write exactly the same payload again.
+    if (cachedFingerprint?.hash === contentHash) {
+      const currentVersion = project.contentVersion ?? cachedFingerprint.version;
+      this.rememberProjectContentFingerprint(id, contentHash, currentVersion);
+      return {
+        version: currentVersion,
+        updatedAt: project.updatedAt,
+        mainUrl: project.mainKey ? this.oss.publicUrl(project.mainKey) : undefined,
+        thumbnailUrl: this.extractThumbnail(project) || undefined,
+      };
+    }
 
     try {
       await this.oss.putJSON(mainKey, sanitizedContent);
@@ -252,12 +276,16 @@ export class ProjectsService {
       await this.tryCreateWorkflowHistorySnapshot(userId, id, updated2, sanitizedContent);
     }
 
+    const persistedVersion = updated2.contentVersion ?? newVersion;
+    this.rememberProjectContentFingerprint(id, contentHash, persistedVersion);
+
     return {
-      version: updated2.contentVersion ?? newVersion,
+      version: persistedVersion,
       updatedAt: updated2.updatedAt,
       mainUrl: updated2.mainKey ? this.oss.publicUrl(updated2.mainKey) : undefined,
       thumbnailUrl: this.extractThumbnail(updated2) || undefined,
     };
+    });
   }
 
   async listWorkflowHistory(userId: string, projectId: string, limit?: string) {
@@ -353,6 +381,55 @@ export class ProjectsService {
       message.includes('no such table') ||
       message.includes('The table')
     );
+  }
+
+  private async runProjectSaveSerialized<T>(projectId: string, task: () => Promise<T>): Promise<T> {
+    const previous = this.projectSaveQueue.get(projectId) ?? Promise.resolve();
+    let unlock: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      unlock = () => resolve();
+    });
+    const next = previous.catch(() => undefined).then(() => gate);
+    this.projectSaveQueue.set(projectId, next);
+
+    await previous.catch(() => undefined);
+    try {
+      return await task();
+    } finally {
+      unlock();
+      if (this.projectSaveQueue.get(projectId) === next) {
+        this.projectSaveQueue.delete(projectId);
+      }
+    }
+  }
+
+  private hashProjectContent(content: unknown): string {
+    const serialized = JSON.stringify(content) ?? 'null';
+    return createHash('sha256').update(serialized).digest('hex');
+  }
+
+  private rememberProjectContentFingerprint(projectId: string, hash: string, version: number): void {
+    this.projectContentFingerprint.set(projectId, {
+      hash,
+      version,
+      touchedAt: Date.now(),
+    });
+    this.pruneProjectContentFingerprintCache();
+  }
+
+  private pruneProjectContentFingerprintCache(): void {
+    const now = Date.now();
+    for (const [projectId, item] of this.projectContentFingerprint.entries()) {
+      if (now - item.touchedAt > this.projectContentFingerprintTtlMs) {
+        this.projectContentFingerprint.delete(projectId);
+      }
+    }
+
+    while (this.projectContentFingerprint.size > this.projectContentFingerprintMaxEntries) {
+      const oldestKey = this.projectContentFingerprint.keys().next().value as string | undefined;
+      if (!oldestKey) break;
+      this.projectContentFingerprint.delete(oldestKey);
+    }
   }
 
   private withOptionalContentJson(

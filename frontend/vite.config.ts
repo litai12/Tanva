@@ -1,10 +1,56 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import { fileURLToPath, URL } from 'node:url'
+import { defineConfig, type PluginOption } from 'vite';
+import react from '@vitejs/plugin-react';
+import { fileURLToPath, URL } from 'node:url';
+import { readFileSync } from 'node:fs';
+
+type PackageJson = {
+  version?: string;
+};
+
+const packageJsonPath = fileURLToPath(new URL('./package.json', import.meta.url));
+const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8')) as PackageJson;
+const packageVersion = packageJson.version || '0.0.0';
+const buildTime = new Date().toISOString();
+const commitSha =
+  (process.env.GITHUB_SHA || process.env.CI_COMMIT_SHA || '').trim().slice(0, 12) || null;
+const appVersion =
+  (process.env.VITE_APP_VERSION || process.env.APP_VERSION || `${packageVersion}-${buildTime}`)
+    .trim();
+const storageSchemaVersionRaw = (process.env.VITE_STORAGE_SCHEMA_VERSION || '1').trim();
+const parsedStorageSchemaVersion = Number.parseInt(storageSchemaVersionRaw, 10);
+const storageSchemaVersion = Number.isFinite(parsedStorageSchemaVersion)
+  ? Math.max(1, parsedStorageSchemaVersion)
+  : 1;
+
+const versionManifest = {
+  version: appVersion,
+  buildTime,
+  commitSha,
+  storageSchemaVersion,
+};
+
+function emitVersionManifest(): PluginOption {
+  return {
+    name: 'tanva-version-manifest',
+    apply: 'build',
+    generateBundle() {
+      this.emitFile({
+        type: 'asset',
+        fileName: 'version.json',
+        source: `${JSON.stringify(versionManifest, null, 2)}\n`,
+      });
+    },
+  };
+}
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), emitVersionManifest()],
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+    __BUILD_TIME__: JSON.stringify(buildTime),
+    __STORAGE_SCHEMA_VERSION__: JSON.stringify(String(storageSchemaVersion)),
+  },
   resolve: {
     alias: {
       "@": fileURLToPath(new URL('./src', import.meta.url)),
@@ -36,4 +82,4 @@ export default defineConfig({
       },
     },
   },
-})
+});

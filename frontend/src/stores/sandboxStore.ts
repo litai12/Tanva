@@ -54,6 +54,7 @@ for (let i = 0; i < spokes; i++) {
 `;
 
 const LOG_LIMIT = 40;
+const SANDBOX_PREFERENCES_VERSION = 1;
 
 export const useSandboxStore = create<SandboxState>()(
   persist(
@@ -92,6 +93,20 @@ export const useSandboxStore = create<SandboxState>()(
     {
       name: 'sandbox-preferences',
       storage: createJSONStorage<Partial<SandboxState>>(() => createSafeStorage({ storageName: 'sandbox-preferences' })),
+      version: SANDBOX_PREFERENCES_VERSION,
+      migrate: (persistedState: unknown): Partial<SandboxState> => {
+        if (!persistedState || typeof persistedState !== 'object') return {};
+        const state = persistedState as Partial<SandboxState>;
+        return {
+          ...state,
+          code: typeof state.code === 'string' && state.code.trim() ? state.code : DEFAULT_CODE,
+          autoRun: typeof state.autoRun === 'boolean' ? state.autoRun : false,
+          autoRunDelay:
+            typeof state.autoRunDelay === 'number'
+              ? Math.max(300, Math.min(5000, state.autoRunDelay))
+              : 800,
+        };
+      },
       partialize: (state) =>
         ({
           code: state.code,

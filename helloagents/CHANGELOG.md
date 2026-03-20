@@ -63,6 +63,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow：隐藏 Kling 2.6 节点入口，不再在节点弹窗与快速连接菜单中显示；前端默认节点配置也同步移除该项（frontend/src/components/flow/FlowOverlay.tsx、frontend/src/services/nodeConfigService.ts）。
 - Flow：修复节点弹窗中 Kling 系列配置名未正确映射到 Flow 节点类型时，点击后无节点创建的问题；新增 Kling / Kling 2.6 / Kling O1 / Kling O3 别名兼容（frontend/src/components/flow/FlowOverlay.tsx）。
 - Flow：修复 `Seedream` 节点左侧 `image` 输入句柄被容量校验错误拦截，现可正常连接图片输出句柄（`frontend/src/components/flow/FlowOverlay.tsx`）。
+- Flow：修复 `Seedream` 节点中文文案乱码（帮助说明、按钮提示、等待态与尺寸下拉标签），并将尺寸标签分隔统一为 ASCII 文本，避免异常字符显示（`frontend/src/components/flow/nodes/Seedream5Node.tsx`）。
 - Flow：返回首页再进入项目时，节点首屏缩放闪烁的 viewport 同步修正（`frontend/src/components/flow/FlowOverlay.tsx`）。
 - Canvas：返回首页再进入项目后，Paper 图片命中/选择偶发失效的恢复逻辑（`frontend/src/components/canvas/DrawingController.tsx`、`frontend/src/utils/paperCoords.ts`）。
 - Flow：生成链路允许传递远程 URL，由后端下载处理，规避前端跨域读取失败（`frontend/src/components/flow/FlowOverlay.tsx`、`backend/src/ai/ai.controller.ts`、`backend/src/ai/dto/image-generation.dto.ts`）。
@@ -132,3 +133,12 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ## [0.1.0] - 2026-01-14
 ### Added
 - Initial knowledge base scaffold: `project.md`, `wiki/*`, `history/index.md`, `plan/`.
+
+## [Stability Note - 2026-03-20]
+- Added frontend runtime stability bootstrap with storage schema guard, build version polling, and global runtime error capture/reporting.
+- Added backend telemetry endpoint POST /api/telemetry/frontend-error for collecting frontend runtime failures.
+- Hardened deployment cache behavior for index.html and version.json, and aligned frontend builder dependency installation.
+- Kept autosave debounce at 5 seconds and added a minimum persisted save interval (15s) to reduce high-frequency write pressure.
+- Added backend per-project serialized save execution and duplicate-content hash short-circuit to reduce save write amplification under concurrency.
+
+

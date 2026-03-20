@@ -1,32 +1,30 @@
-# 多阶段构建：前端构建阶段
+# Multi-stage build: frontend builder stage
 FROM node:20-alpine AS builder
 
-# 设置工作目录
 WORKDIR /app
 
-# 复制package.json和package-lock.json
 COPY package*.json ./
 
-# 安装依赖
-RUN npm ci --only=production
+# Build-time version metadata (can be injected by CI)
+ARG APP_VERSION=dev
+ARG STORAGE_SCHEMA_VERSION=1
+ENV VITE_APP_VERSION=$APP_VERSION
+ENV VITE_STORAGE_SCHEMA_VERSION=$STORAGE_SCHEMA_VERSION
 
-# 复制源代码
+# Builder needs devDependencies for vite/tsc
+RUN npm ci
+
 COPY . .
 
-# 构建应用
 RUN npm run build
 
-# 生产阶段：使用nginx服务静态文件
+# Runtime stage: serve static files via nginx
 FROM nginx:alpine
 
-# 复制自定义nginx配置
 COPY nginx.conf /etc/nginx/nginx.conf
 
-# 从构建阶段复制构建产物
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# 暴露端口
 EXPOSE 80
 
-# 启动nginx
 CMD ["nginx", "-g", "daemon off;"]

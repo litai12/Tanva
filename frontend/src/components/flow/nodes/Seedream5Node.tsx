@@ -33,22 +33,22 @@ const buildImageSrc = (value?: string): string | undefined => {
 };
 
 const SEEDREAM_PIXEL_SIZE_OPTIONS = [
-  { value: "2048x2048", label: "2K 路 1:1 路 2048x2048" },
-  { value: "1728x2304", label: "2K 路 3:4 路 1728x2304" },
-  { value: "2304x1728", label: "2K 路 4:3 路 2304x1728" },
-  { value: "2848x1600", label: "2K 路 16:9 路 2848x1600" },
-  { value: "1600x2848", label: "2K 路 9:16 路 1600x2848" },
-  { value: "2496x1664", label: "2K 路 3:2 路 2496x1664" },
-  { value: "1664x2496", label: "2K 路 2:3 路 1664x2496" },
-  { value: "3136x1344", label: "2K 路 21:9 路 3136x1344" },
-  { value: "3072x3072", label: "3K 路 1:1 路 3072x3072" },
-  { value: "2592x3456", label: "3K 路 3:4 路 2592x3456" },
-  { value: "3456x2592", label: "3K 路 4:3 路 3456x2592" },
-  { value: "4096x2304", label: "3K 路 16:9 路 4096x2304" },
-  { value: "2304x4096", label: "3K 路 9:16 路 2304x4096" },
-  { value: "3744x2496", label: "3K 路 3:2 路 3744x2496" },
-  { value: "2496x3744", label: "3K 路 2:3 路 2496x3744" },
-  { value: "4704x2016", label: "3K 路 21:9 路 4704x2016" },
+  { value: "2048x2048", label: "2K / 1:1 / 2048x2048" },
+  { value: "1728x2304", label: "2K / 3:4 / 1728x2304" },
+  { value: "2304x1728", label: "2K / 4:3 / 2304x1728" },
+  { value: "2848x1600", label: "2K / 16:9 / 2848x1600" },
+  { value: "1600x2848", label: "2K / 9:16 / 1600x2848" },
+  { value: "2496x1664", label: "2K / 3:2 / 2496x1664" },
+  { value: "1664x2496", label: "2K / 2:3 / 1664x2496" },
+  { value: "3136x1344", label: "2K / 21:9 / 3136x1344" },
+  { value: "3072x3072", label: "3K / 1:1 / 3072x3072" },
+  { value: "2592x3456", label: "3K / 3:4 / 2592x3456" },
+  { value: "3456x2592", label: "3K / 4:3 / 3456x2592" },
+  { value: "4096x2304", label: "3K / 16:9 / 4096x2304" },
+  { value: "2304x4096", label: "3K / 9:16 / 2304x4096" },
+  { value: "3744x2496", label: "3K / 3:2 / 3744x2496" },
+  { value: "2496x3744", label: "3K / 2:3 / 2496x3744" },
+  { value: "4704x2016", label: "3K / 21:9 / 4704x2016" },
 ];
 
 const normalizeSeedreamDimensionSize = (value?: string): string | undefined => {
@@ -90,7 +90,7 @@ function Seedream5Node({ id, data, selected }: Props) {
   const [hover, setHover] = React.useState<string | null>(null);
   const [showHelp, setShowHelp] = React.useState(false);
 
-  // 妫€娴嬭繛鎺ョ殑鍥剧墖鏁伴噺
+  // 检测连接的图片数量
   const imageInputCount = useStore((state) => {
     const edges = state.edges || [];
     return edges.filter(
@@ -105,7 +105,7 @@ function Seedream5Node({ id, data, selected }: Props) {
     );
   });
   const hasImageInput = imageInputCount > 0;
-  // 鑷姩灏哄妯″紡锛氭湁 image 杈撳叆鏃惰蛋鏂规1锛涗粎 prompt 杈撳叆鏃惰蛋鏂规2
+  // 尺寸模式：有 prompt 且无 image 输入时，支持选择具体像素尺寸
   const usePixelSizeMode = hasPromptInput && !hasImageInput;
 
   const borderColor = selected ? "#2563eb" : "#e5e7eb";
@@ -139,7 +139,7 @@ function Seedream5Node({ id, data, selected }: Props) {
     data.onSend?.(id);
   }, [data, id]);
 
-  // 鑾峰彇绗竴寮犲浘鐗囩敤浜庨瑙?
+  // 获取第一张图片用于预览
   const firstImage = images[0];
   const assetId = React.useMemo(() => parseFlowImageAssetRef(firstImage), [firstImage]);
   const assetUrl = useFlowImageAssetUrl(assetId);
@@ -181,7 +181,7 @@ function Seedream5Node({ id, data, selected }: Props) {
               display: "flex",
               alignItems: "center",
             }}
-            title={lt("鐜╂硶璇存槑", "Help")}
+            title={lt("玩法说明", "Help")}
           >
             <HelpCircle size={14} />
           </button>
@@ -203,7 +203,7 @@ function Seedream5Node({ id, data, selected }: Props) {
           <button
             onClick={onSend}
             disabled={images.length === 0}
-            title={images.length === 0 ? lt("鏃犲彲鍙戦€佺殑鍥惧儚", "No image to send") : lt("鍙戦€佸埌鐢诲竷", "Send to canvas")}
+            title={images.length === 0 ? lt("无可发送的图像", "No image to send") : lt("发送到画板", "Send to canvas")}
             style={{
               fontSize: 12,
               padding: "4px 8px",
@@ -219,7 +219,7 @@ function Seedream5Node({ id, data, selected }: Props) {
         </div>
       </div>
 
-      {/* 鐜╂硶璇存槑 */}
+      {/* 玩法说明 */}
       {showHelp && (
         <div style={{
           fontSize: 11,
@@ -239,10 +239,10 @@ function Seedream5Node({ id, data, selected }: Props) {
             {lt("根据描述生成全新图片", "Generate new images from text description")}
           </div>
           <div style={{ marginBottom: 3 }}>
-            <strong>{lt("鍗曞浘鍙樹綋", "Single Image Variation")}:</strong> {lt("鍩轰簬1寮犲浘鐢熸垚鐩镐技椋庢牸", "Generate similar style from 1 image")}
+            <strong>{lt("单图变体", "Single Image Variation")}:</strong> {lt("基于1张图生成相似风格", "Generate similar style from 1 image")}
           </div>
           <div style={{ marginBottom: 3 }}>
-            <strong>{lt("澶氬浘铻嶅悎", "Multi-Image Fusion")}:</strong> {lt("铻嶅悎2-5寮犲浘鐨勫厓绱犲拰椋庢牸", "Blend elements from 2-5 images")}
+            <strong>{lt("多图融合", "Multi-Image Fusion")}:</strong> {lt("融合2-5张图的元素和风格", "Blend elements from 2-5 images")}
           </div>
           <div style={{ marginBottom: 3 }}>
             <strong>{lt("服装替换", "Outfit Change")}:</strong>{" "}
@@ -254,7 +254,7 @@ function Seedream5Node({ id, data, selected }: Props) {
         </div>
       )}
 
-      {/* 鍥剧墖鏁伴噺璀﹀憡 */}
+      {/* 图片数量警告 */}
       {imageInputCount > 5 && (
         <div style={{
           fontSize: 11,
@@ -272,7 +272,7 @@ function Seedream5Node({ id, data, selected }: Props) {
         </div>
       )}
 
-      {/* 灏哄閫夋嫨 */}
+      {/* 尺寸选择 */}
       <div style={{ marginBottom: 8 }}>
         <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
           {lt("尺寸大小", "Size")}
@@ -320,7 +320,7 @@ function Seedream5Node({ id, data, selected }: Props) {
           </select>
         )}
         </div>
-      {/* 鍥剧墖棰勮 */}
+      {/* 图片预览 */}
       <div
         style={{
           width: "100%",
@@ -364,7 +364,7 @@ function Seedream5Node({ id, data, selected }: Props) {
             }}
           />
         ) : (
-          <span style={{ fontSize: 12, color: "#9ca3af" }}>{lt("绛夊緟鐢熸垚", "Waiting for generation")}</span>
+          <span style={{ fontSize: 12, color: "#9ca3af" }}>{lt("等待生成", "Waiting for generation")}</span>
         )}
       </div>
 
@@ -383,7 +383,7 @@ function Seedream5Node({ id, data, selected }: Props) {
         </div>
       )}
 
-      {/* 杈撳叆鍙ユ焺 */}
+      {/* 输入句柄 */}
       <Handle
         type="target"
         position={Position.Left}
@@ -401,7 +401,7 @@ function Seedream5Node({ id, data, selected }: Props) {
         onMouseLeave={() => setHover(null)}
       />
 
-      {/* 杈撳嚭鍙ユ焺 */}
+      {/* 输出句柄 */}
       <Handle
         type="source"
         position={Position.Right}

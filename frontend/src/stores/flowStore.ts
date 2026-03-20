@@ -12,6 +12,13 @@ export const FlowBackgroundVariant = {
 
 export type FlowBackgroundVariant = typeof FlowBackgroundVariant[keyof typeof FlowBackgroundVariant];
 
+const FLOW_SETTINGS_VERSION = 1;
+
+const isFlowBackgroundVariant = (value: unknown): value is FlowBackgroundVariant =>
+  value === FlowBackgroundVariant.DOTS ||
+  value === FlowBackgroundVariant.LINES ||
+  value === FlowBackgroundVariant.CROSS;
+
 interface FlowState {
   // Flow背景/网格系统
   backgroundEnabled: boolean;
@@ -118,6 +125,35 @@ export const useFlowStore = create<FlowState>()(
       {
         name: 'flow-settings', // localStorage 键名
         storage: createJSONStorage<Partial<FlowState>>(() => createSafeStorage({ storageName: 'flow-settings' })),
+        version: FLOW_SETTINGS_VERSION,
+        migrate: (persistedState: unknown): Partial<FlowState> => {
+          if (!persistedState || typeof persistedState !== 'object') return {};
+          const state = persistedState as Partial<FlowState>;
+          return {
+            ...state,
+            backgroundVariant: isFlowBackgroundVariant(state.backgroundVariant)
+              ? state.backgroundVariant
+              : FlowBackgroundVariant.DOTS,
+            backgroundGap:
+              typeof state.backgroundGap === 'number'
+                ? Math.max(4, Math.min(100, state.backgroundGap))
+                : 20,
+            backgroundSize:
+              typeof state.backgroundSize === 'number'
+                ? Math.max(0.5, Math.min(10, state.backgroundSize))
+                : 1,
+            backgroundOpacity:
+              typeof state.backgroundOpacity === 'number'
+                ? Math.max(0, Math.min(1, state.backgroundOpacity))
+                : 0.4,
+            snapToGrid: typeof state.snapToGrid === 'boolean' ? state.snapToGrid : true,
+            onlyRenderVisibleElements:
+              typeof state.onlyRenderVisibleElements === 'boolean'
+                ? state.onlyRenderVisibleElements
+                : false,
+            showFpsOverlay: typeof state.showFpsOverlay === 'boolean' ? state.showFpsOverlay : false,
+          };
+        },
         // 只持久化配置，不包括视口和交互状态
         partialize: (state) => ({
           backgroundEnabled: state.backgroundEnabled,

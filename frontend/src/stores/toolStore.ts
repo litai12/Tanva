@@ -32,6 +32,25 @@ interface ToolState {
 
 // 绘图工具循环顺序
 const DRAWING_TOOLS: DrawMode[] = ['free', 'line', 'rect', 'circle', 'polyline'];
+const ALL_DRAW_MODES: DrawMode[] = [
+  'select',
+  'marquee',
+  'pointer',
+  'free',
+  'line',
+  'rect',
+  'circle',
+  'polyline',
+  'text',
+  'image',
+  'quick-image',
+  '3d-model',
+  'screenshot',
+];
+const TOOL_SETTINGS_VERSION = 1;
+
+const isDrawMode = (value: unknown): value is DrawMode =>
+  typeof value === 'string' && ALL_DRAW_MODES.includes(value as DrawMode);
 
 export const useToolStore = create<ToolState>()(
   subscribeWithSelector(
@@ -95,6 +114,20 @@ export const useToolStore = create<ToolState>()(
       {
         name: 'tool-settings', // localStorage 键名
         storage: createJSONStorage<Partial<ToolState>>(() => createSafeStorage({ storageName: 'tool-settings' })),
+        version: TOOL_SETTINGS_VERSION,
+        migrate: (persistedState: unknown): Partial<ToolState> => {
+          if (!persistedState || typeof persistedState !== 'object') return {};
+          const state = persistedState as Partial<ToolState>;
+          return {
+            ...state,
+            drawMode: isDrawMode(state.drawMode) ? state.drawMode : 'select',
+            strokeWidth:
+              typeof state.strokeWidth === 'number'
+                ? Math.max(1, Math.min(20, state.strokeWidth))
+                : 2,
+            hasFill: typeof state.hasFill === 'boolean' ? state.hasFill : false,
+          };
+        },
         // 持久化工具设置，但不包括橡皮擦状态（通常是临时的）
         partialize: (state) => ({
           drawMode: state.drawMode,
