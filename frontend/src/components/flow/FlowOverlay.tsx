@@ -103,7 +103,10 @@ import {
   clipboardService,
   type ClipboardFlowNode,
 } from "@/services/clipboardService";
-import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
+import {
+  proxifyRemoteAssetUrl,
+  resolvePublicAssetUrlFromKey,
+} from "@/utils/assetProxy";
 import {
   isPersistableImageRef,
   isRemoteUrl,
@@ -237,7 +240,15 @@ function normalizeStableRemoteUrl(input: string): string {
       value.startsWith("/assets/proxy");
     if (isProxy) {
       const raw = url.searchParams.get("url");
-      if (raw) return decodeURIComponent(raw);
+      if (raw) return raw;
+      const key = url.searchParams.get("key");
+      if (key) {
+        const normalizedKey = key.replace(/^\/+/, "");
+        const direct = resolvePublicAssetUrlFromKey(normalizedKey);
+        if (direct) return direct;
+        // Fallback: return key itself so caller can convert to dataURL instead of passing proxy URL downstream.
+        return normalizedKey;
+      }
     }
   } catch {}
 
@@ -4247,7 +4258,14 @@ function FlowInner() {
           value.startsWith("/assets/proxy");
         if (isProxy) {
           const raw = url.searchParams.get("url");
-          if (raw) return decodeURIComponent(raw);
+          if (raw) return raw;
+          const key = url.searchParams.get("key");
+          if (key) {
+            const normalizedKey = key.replace(/^\/+/, "");
+            const direct = resolvePublicAssetUrlFromKey(normalizedKey);
+            if (direct) return direct;
+            return normalizedKey;
+          }
         }
       } catch {}
 
