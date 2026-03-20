@@ -121,12 +121,7 @@ async function renderPreview(
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setSize(options.width, options.height, false);
   renderer.setClearColor(new THREE.Color(options.background), 1);
-  if ("outputColorSpace" in renderer) {
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-  } else {
-    // @ts-expect-error older three fallback
-    renderer.outputEncoding = THREE.sRGBEncoding;
-  }
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   const scene = new THREE.Scene();
   setupLighting(scene);

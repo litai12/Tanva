@@ -25,7 +25,7 @@
     "@react-three/drei": "^10.6.1",
     "@react-three/fiber": "^9.3.0",
     "@types/paper": "^0.11.14",
-    "@types/three": "^0.179.0",
+    "@types/three": "^0.180.0",
     "@types/uuid": "^10.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -43,9 +43,12 @@
     "reactflow": "^11.11.4",
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.3.1",
-    "three": "^0.179.1",
+    "three": "^0.180.0",
+    "three-gpu-pathtracer": "^0.0.24",
+    "three-mesh-bvh": "^0.8.3",
     "three-stdlib": "^2.36.1",
     "uuid": "^11.1.0",
+    "xatlas-web": "^0.1.0",
     "zustand": "^5.0.7"
   },
   "devDependencies": {

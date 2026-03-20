@@ -145,3 +145,5 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 - Added Object.hasOwn polyfill during frontend bootstrap to avoid white-screen crashes on legacy Edge builds.
 
+
+- Flow: added `threePathTracer` node entry (3D PathTracer) and integrated optional `three-gpu-pathtracer` mode in `ThreeNode` with raster fallback on init/render errors.

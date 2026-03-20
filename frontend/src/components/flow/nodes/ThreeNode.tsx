@@ -21,14 +21,57 @@ type Props = {
     imageUrl?: string;
     modelUrl?: string;
     modelName?: string;
+    bgColor?: string;
+    ambientIntensity?: number;
+    hemiIntensity?: number;
+    directionalIntensity?: number;
+    pathTracingEnabled?: boolean;
+    forcePathTracing?: boolean;
+    nodeTitle?: string;
     boxW?: number; boxH?: number;
     onSend?: (id: string) => void;
   };
   selected?: boolean;
 };
 
+type WebGLPathTracerLike = {
+  setScene?: (scene: THREE.Scene, camera: THREE.Camera) => void;
+  updateCamera?: () => void;
+  reset?: () => void;
+  renderSample?: () => void;
+  dispose?: () => void;
+};
+
+type PresetModel = {
+  key: string;
+  labelZh: string;
+  labelEn: string;
+  url: string;
+  modelName: string;
+};
+
+const DEFAULT_BG_COLOR = '#ffffff';
+const DEFAULT_AMBIENT_INTENSITY = 0.85;
+const DEFAULT_HEMI_INTENSITY = 0.7;
+const DEFAULT_DIRECTIONAL_INTENSITY = 1.0;
+
+const PRESET_MODELS: PresetModel[] = [
+  {
+    key: 'duck',
+    labelZh: 'Duck',
+    labelEn: 'Duck',
+    url: '/models/duck.glb',
+    modelName: 'duck.glb',
+  },
+];
+
 function ThreeNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
+  const isPathTracingForced = Boolean(data.forcePathTracing);
+  const minNodeWidth = 520;
+  const minNodeHeight = 280;
+  const defaultNodeWidth = 560;
+  const defaultNodeHeight = 320;
   const rf = useReactFlow();
   const containerRef = React.useRef<HTMLDivElement>(null);
   const rendererRef = React.useRef<THREE.WebGLRenderer | null>(null);
@@ -38,6 +81,9 @@ function ThreeNodeInner({ id, data, selected }: Props) {
   const modelRef = React.useRef<THREE.Object3D | null>(null);
   const gridRef = React.useRef<THREE.GridHelper | null>(null);
   const axesRef = React.useRef<THREE.AxesHelper | null>(null);
+  const ambientLightRef = React.useRef<THREE.AmbientLight | null>(null);
+  const hemiLightRef = React.useRef<THREE.HemisphereLight | null>(null);
+  const dirLightRef = React.useRef<THREE.DirectionalLight | null>(null);
   const resizeObserverRef = React.useRef<ResizeObserver | null>(null);
   const isNodeResizingRef = React.useRef(false);
   const resizeCommitRafRef = React.useRef<number | null>(null);
@@ -49,6 +95,30 @@ function ThreeNodeInner({ id, data, selected }: Props) {
   const [currentImageId, setCurrentImageId] = React.useState<string>('');
   const lastModelUrlRef = React.useRef<string | undefined>(undefined);
   const [isModelUploading, setIsModelUploading] = React.useState(false);
+  const [showTuning, setShowTuning] = React.useState(false);
+  const [bgColor, setBgColor] = React.useState<string>(data.bgColor || DEFAULT_BG_COLOR);
+  const [ambientIntensity, setAmbientIntensity] = React.useState<number>(
+    typeof data.ambientIntensity === 'number' ? data.ambientIntensity : DEFAULT_AMBIENT_INTENSITY
+  );
+  const [hemiIntensity, setHemiIntensity] = React.useState<number>(
+    typeof data.hemiIntensity === 'number' ? data.hemiIntensity : DEFAULT_HEMI_INTENSITY
+  );
+  const [directionalIntensity, setDirectionalIntensity] = React.useState<number>(
+    typeof data.directionalIntensity === 'number' ? data.directionalIntensity : DEFAULT_DIRECTIONAL_INTENSITY
+  );
+  const pathTracerRef = React.useRef<WebGLPathTracerLike | null>(null);
+  const pathTracerModuleRef = React.useRef<any>(null);
+  const pathTracerLoopRef = React.useRef<number | null>(null);
+  const pathTracingEnabledRef = React.useRef<boolean>(
+    isPathTracingForced || Boolean(data.pathTracingEnabled)
+  );
+  const [pathTracingEnabled, setPathTracingEnabled] = React.useState<boolean>(
+    isPathTracingForced || Boolean(data.pathTracingEnabled)
+  );
+  const [pathTracerStatus, setPathTracerStatus] = React.useState<'idle' | 'loading' | 'ready' | 'error'>(
+    isPathTracingForced || Boolean(data.pathTracingEnabled) ? 'loading' : 'idle'
+  );
+  const [pathTracerError, setPathTracerError] = React.useState<string | null>(null);
   const boxSizeRef = React.useRef<{ boxW?: number; boxH?: number }>({
     boxW: data.boxW,
     boxH: data.boxH,
@@ -67,6 +137,159 @@ function ThreeNodeInner({ id, data, selected }: Props) {
       })
     );
   }, [id]);
+
+  React.useEffect(() => {
+    const patch: Record<string, number> = {};
+    if (typeof data.boxW === 'number' && data.boxW < minNodeWidth) {
+      patch.boxW = minNodeWidth;
+    }
+    if (typeof data.boxH === 'number' && data.boxH < minNodeHeight) {
+      patch.boxH = minNodeHeight;
+    }
+    if (Object.keys(patch).length > 0) {
+      updateNodeData(patch);
+    }
+  }, [data.boxH, data.boxW, minNodeHeight, minNodeWidth, updateNodeData]);
+
+  React.useEffect(() => {
+    setBgColor(data.bgColor || DEFAULT_BG_COLOR);
+  }, [data.bgColor]);
+
+  React.useEffect(() => {
+    if (typeof data.ambientIntensity === 'number') {
+      setAmbientIntensity(data.ambientIntensity);
+    }
+  }, [data.ambientIntensity]);
+
+  React.useEffect(() => {
+    if (typeof data.hemiIntensity === 'number') {
+      setHemiIntensity(data.hemiIntensity);
+    }
+  }, [data.hemiIntensity]);
+
+  React.useEffect(() => {
+    if (typeof data.directionalIntensity === 'number') {
+      setDirectionalIntensity(data.directionalIntensity);
+    }
+  }, [data.directionalIntensity]);
+
+  React.useEffect(() => {
+    const nextEnabled = Boolean(data.forcePathTracing) || Boolean(data.pathTracingEnabled);
+    pathTracingEnabledRef.current = nextEnabled;
+    setPathTracingEnabled((prev) => (prev === nextEnabled ? prev : nextEnabled));
+    if (!nextEnabled) {
+      setPathTracerStatus('idle');
+      setPathTracerError(null);
+    } else if (pathTracerRef.current) {
+      setPathTracerStatus('ready');
+    } else {
+      setPathTracerStatus('loading');
+    }
+  }, [data.forcePathTracing, data.pathTracingEnabled]);
+
+  React.useEffect(() => {
+    pathTracingEnabledRef.current = pathTracingEnabled;
+  }, [pathTracingEnabled]);
+
+  const stopPathTracerLoop = React.useCallback(() => {
+    if (pathTracerLoopRef.current !== null) {
+      cancelAnimationFrame(pathTracerLoopRef.current);
+      pathTracerLoopRef.current = null;
+    }
+  }, []);
+
+  const disposePathTracer = React.useCallback(() => {
+    stopPathTracerLoop();
+    const tracer = pathTracerRef.current as any;
+    if (tracer) {
+      try {
+        tracer.dispose?.();
+      } catch (error) {
+        console.warn('Dispose path tracer error:', error);
+      }
+    }
+    pathTracerRef.current = null;
+  }, [stopPathTracerLoop]);
+
+  const ensurePathTracer = React.useCallback(async () => {
+    const renderer = rendererRef.current;
+    const scene = sceneRef.current;
+    const camera = cameraRef.current;
+    if (!renderer || !scene || !camera || !modelRef.current) return null;
+
+    setPathTracerStatus('loading');
+    setPathTracerError(null);
+
+    if (!pathTracerModuleRef.current) {
+      pathTracerModuleRef.current = await import('three-gpu-pathtracer');
+    }
+
+    const WebGLPathTracerCtor = pathTracerModuleRef.current?.WebGLPathTracer;
+    if (typeof WebGLPathTracerCtor !== 'function') {
+      throw new Error('WebGLPathTracer ctor missing');
+    }
+
+    let tracer = pathTracerRef.current as any;
+    if (!tracer) {
+      tracer = new WebGLPathTracerCtor(renderer);
+      pathTracerRef.current = tracer as WebGLPathTracerLike;
+      try { tracer.minSamples = 1; } catch {}
+      try { tracer.filterGlossyFactor = 0.5; } catch {}
+      try { tracer.tiles?.set?.(2, 2); } catch {}
+    }
+
+    tracer.setScene?.(scene, camera);
+    tracer.updateCamera?.();
+    tracer.reset?.();
+    setPathTracerStatus('ready');
+    return tracer as WebGLPathTracerLike;
+  }, []);
+
+  const enablePathTracingWithFallback = React.useCallback(async () => {
+    try {
+      const tracer = await ensurePathTracer();
+      if (!tracer) return;
+      stopPathTracerLoop();
+      const renderTick = () => {
+        if (!pathTracingEnabledRef.current) {
+          pathTracerLoopRef.current = null;
+          return;
+        }
+        const activeTracer = pathTracerRef.current as any;
+        if (!activeTracer) {
+          pathTracerLoopRef.current = null;
+          return;
+        }
+        try {
+          activeTracer.renderSample?.();
+        } catch (error) {
+          console.error('Path tracing sample failed:', error);
+          setPathTracerStatus('error');
+          setPathTracerError(
+            lt('PathTracer 渲染失败，已回退到普通渲染。', 'Path tracer render failed. Fallback to raster rendering.')
+          );
+          stopPathTracerLoop();
+          if (!isPathTracingForced) {
+            setPathTracingEnabled(false);
+            updateNodeData({ pathTracingEnabled: false });
+          }
+          return;
+        }
+        pathTracerLoopRef.current = requestAnimationFrame(renderTick);
+      };
+      pathTracerLoopRef.current = requestAnimationFrame(renderTick);
+    } catch (error) {
+      console.error('Failed to enable path tracing:', error);
+      setPathTracerStatus('error');
+      setPathTracerError(
+        lt('PathTracer 初始化失败，请检查依赖或浏览器 WebGL2 支持。', 'Path tracer init failed. Check dependencies or WebGL2 support.')
+      );
+      if (!isPathTracingForced) {
+        setPathTracingEnabled(false);
+        updateNodeData({ pathTracingEnabled: false });
+      }
+    }
+  }, [ensurePathTracer, isPathTracingForced, lt, stopPathTracerLoop, updateNodeData]);
 
   const normalizeModelUrl = React.useCallback((input: string): string => {
     const raw = (input || '').trim();
@@ -90,6 +313,8 @@ function ThreeNodeInner({ id, data, selected }: Props) {
 
   // 资源释放函数 (High Priority Cleanup)
   const disposeResources = React.useCallback(() => {
+    disposePathTracer();
+
     if (resizeCommitRafRef.current !== null) {
       cancelAnimationFrame(resizeCommitRafRef.current);
       resizeCommitRafRef.current = null;
@@ -159,8 +384,11 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     modelRef.current = null;
     gridRef.current = null;
     axesRef.current = null;
+    ambientLightRef.current = null;
+    hemiLightRef.current = null;
+    dirLightRef.current = null;
     lastModelUrlRef.current = undefined;
-  }, []);
+  }, [disposePathTracer]);
   
   // 使用全局图片历史记录
   const projectId = useProjectContentStore((state) => state.projectId);
@@ -197,9 +425,56 @@ function ThreeNodeInner({ id, data, selected }: Props) {
       const controls = controlsRef.current;
       if (!renderer || !scene || !camera) return;
       controls?.update();
+      if (pathTracingEnabledRef.current && pathTracerRef.current) {
+        const tracer = pathTracerRef.current as any;
+        try {
+          tracer.updateCamera?.();
+          tracer.reset?.();
+          tracer.renderSample?.();
+          return;
+        } catch (error) {
+          console.error('Path tracer render fallback:', error);
+        }
+      }
       renderer.render(scene, camera);
     });
   }, []);
+
+  const applySceneVisuals = React.useCallback(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    try {
+      scene.background = new THREE.Color(bgColor || DEFAULT_BG_COLOR);
+    } catch {}
+
+    if (ambientLightRef.current) {
+      ambientLightRef.current.intensity = ambientIntensity;
+    }
+    if (hemiLightRef.current) {
+      hemiLightRef.current.intensity = hemiIntensity;
+    }
+    if (dirLightRef.current) {
+      dirLightRef.current.intensity = directionalIntensity;
+    }
+
+    if (pathTracingEnabledRef.current && pathTracerRef.current) {
+      const tracer = pathTracerRef.current as any;
+      try {
+        tracer.setScene?.(scene, cameraRef.current);
+        tracer.updateCamera?.();
+        tracer.reset?.();
+      } catch {}
+      return;
+    }
+    if (pathTracingEnabledRef.current && !pathTracerRef.current) {
+      return;
+    }
+    requestRender();
+  }, [ambientIntensity, bgColor, directionalIntensity, hemiIntensity, requestRender]);
+
+  React.useEffect(() => {
+    applySceneVisuals();
+  }, [applySceneVisuals]);
 
   const syncRendererSizeToContainer = React.useCallback(() => {
     const container = containerRef.current;
@@ -215,6 +490,14 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     camera.updateProjectionMatrix();
     if (scene) {
       controlsRef.current?.update();
+      if (pathTracingEnabledRef.current && pathTracerRef.current) {
+        const tracer = pathTracerRef.current as any;
+        try {
+          tracer.updateCamera?.();
+          tracer.reset?.();
+          return;
+        } catch {}
+      }
       renderer.render(scene, camera);
     }
   }, []);
@@ -237,7 +520,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     const w = Math.max(220, Math.floor(containerRef.current.clientWidth || rect.width || fallbackW));
     const h = Math.max(140, Math.floor(containerRef.current.clientHeight || rect.height || fallbackH));
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#ffffff');
+    scene.background = new THREE.Color(bgColor || DEFAULT_BG_COLOR);
     const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 1000);
     camera.position.set(2.5, 2, 3);
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -253,22 +536,37 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     (renderer.domElement.style as any).width = '100%';
     (renderer.domElement.style as any).height = '100%';
     (renderer.domElement.style as any).display = 'block';
+    (renderer.domElement.style as any).touchAction = 'none';
     renderer.setPixelRatio(1); // 降低像素比提升交互流畅度
     containerRef.current.innerHTML = '';
     containerRef.current.appendChild(renderer.domElement);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.enablePan = false; // 只允许旋转/缩放，不平移
-    controls.addEventListener('change', requestRender);
+    controls.addEventListener('change', () => {
+      if (pathTracingEnabledRef.current && pathTracerRef.current) {
+        const tracer = pathTracerRef.current as any;
+        try {
+          tracer.updateCamera?.();
+          tracer.reset?.();
+        } catch {}
+        return;
+      }
+      requestRender();
+    });
     controlsRef.current = controls;
     // 更自然的光照组合：环境+半球+主光
-    scene.add(new THREE.AmbientLight(0xffffff, 0.85));
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.7);
+    const ambient = new THREE.AmbientLight(0xffffff, ambientIntensity);
+    scene.add(ambient);
+    ambientLightRef.current = ambient;
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, hemiIntensity);
     scene.add(hemi);
-    const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+    hemiLightRef.current = hemi;
+    const dir = new THREE.DirectionalLight(0xffffff, directionalIntensity);
     dir.position.set(5, 10, 7);
     dir.castShadow = false;
     scene.add(dir);
+    dirLightRef.current = dir;
     // base helpers to ensure something visible
     try {
       const grid = new THREE.GridHelper(10, 10, 0xcccccc, 0xeeeeee);
@@ -297,7 +595,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     });
     ro.observe(containerRef.current);
     resizeObserverRef.current = ro;
-  }, [requestRender, scheduleRendererSizeSync, syncRendererSizeToContainer]);
+  }, [ambientIntensity, bgColor, directionalIntensity, hemiIntensity, requestRender, scheduleRendererSizeSync, syncRendererSizeToContainer]);
 
   React.useEffect(() => {
     const t = setTimeout(() => initIfNeeded(), 0); // 等布局稳定再初始化
@@ -306,6 +604,22 @@ function ThreeNodeInner({ id, data, selected }: Props) {
       disposeResources();
     };
   }, [initIfNeeded, disposeResources]);
+
+  React.useEffect(() => {
+    if (!pathTracingEnabled) {
+      disposePathTracer();
+      return;
+    }
+    if (!rendererRef.current || !sceneRef.current || !cameraRef.current || !modelRef.current) {
+      return;
+    }
+    void enablePathTracingWithFallback();
+    return () => {
+      stopPathTracerLoop();
+    };
+    // Intentionally keep dependencies narrow to avoid restarting PT loop on every local state update.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathTracingEnabled, data.modelUrl]);
 
   const onResize = (w: number, h: number) => {
     boxSizeRef.current = { boxW: w, boxH: h };
@@ -318,6 +632,9 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     boxSizeRef.current = { boxW: w, boxH: h };
     isNodeResizingRef.current = false;
     scheduleRendererSizeSync();
+    if (pathTracingEnabledRef.current) {
+      void enablePathTracingWithFallback();
+    }
   };
 
   const fitToObject = (obj: THREE.Object3D) => {
@@ -371,7 +688,10 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     if (gridRef.current) gridRef.current.visible = false;
     if (axesRef.current) axesRef.current.visible = false;
     requestRender();
-  }, [initIfNeeded, requestRender]);
+    if (pathTracingEnabledRef.current) {
+      void enablePathTracingWithFallback();
+    }
+  }, [enablePathTracingWithFallback, initIfNeeded, requestRender]);
 
   const createLoader = React.useCallback(() => {
     const loader = new GLTFLoader();
@@ -446,6 +766,16 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     );
   }, [createLoader, handleLoadError, initIfNeeded, mountModel]);
 
+  const applyPresetModel = React.useCallback((preset: PresetModel) => {
+    updateNodeData({
+      modelUrl: preset.url,
+      modelName: preset.modelName,
+    });
+    lastModelUrlRef.current = normalizeModelUrl(preset.url);
+    setErr(null);
+    loadModelFromUrl(preset.url);
+  }, [loadModelFromUrl, normalizeModelUrl, updateNodeData]);
+
   // Keep effect below loadModelFromUrl so dependency array doesn't hit TDZ
   React.useEffect(() => {
     if (!data.modelUrl) return;
@@ -464,7 +794,16 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     const oldPDB = (renderer as any).preserveDrawingBuffer;
     (renderer as any).preserveDrawingBuffer = true;
     try {
-      renderer.render(scene, camera);
+      if (pathTracingEnabledRef.current && pathTracerRef.current) {
+        const tracer = pathTracerRef.current as any;
+        try {
+          tracer.renderSample?.();
+        } catch {
+          renderer.render(scene, camera);
+        }
+      } else {
+        renderer.render(scene, camera);
+      }
       const canvas = renderer.domElement;
       const dataUrl = await canvasToDataUrl(canvas, 'image/png');
       const base64 = dataUrl.split(',')[1];
@@ -547,6 +886,9 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     try { (fitToObject as any)?.(mesh); } catch {}
     setErr(null);
     requestRender();
+    if (pathTracingEnabledRef.current) {
+      void enablePathTracingWithFallback();
+    }
   };
 
   const sendToCanvas = (event?: React.MouseEvent<HTMLButtonElement>) => {
@@ -588,18 +930,103 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     return toRenderableImageSrc(raw) || undefined;
   })();
 
+  const togglePathTracing = React.useCallback(() => {
+    if (isPathTracingForced) return;
+    setPathTracingEnabled((prev) => {
+      const next = !prev;
+      if (!next) {
+        stopPathTracerLoop();
+        setPathTracerStatus('idle');
+        setPathTracerError(null);
+      }
+      updateNodeData({ pathTracingEnabled: next });
+      return next;
+    });
+  }, [isPathTracingForced, stopPathTracerLoop, updateNodeData]);
+
+  const handleBgColorChange = React.useCallback((nextColor: string) => {
+    setBgColor(nextColor);
+    updateNodeData({ bgColor: nextColor });
+  }, [updateNodeData]);
+
+  const handleAmbientChange = React.useCallback((value: number) => {
+    const next = Math.max(0, Math.min(3, value));
+    setAmbientIntensity(next);
+    updateNodeData({ ambientIntensity: Number(next.toFixed(2)) });
+  }, [updateNodeData]);
+
+  const handleHemiChange = React.useCallback((value: number) => {
+    const next = Math.max(0, Math.min(3, value));
+    setHemiIntensity(next);
+    updateNodeData({ hemiIntensity: Number(next.toFixed(2)) });
+  }, [updateNodeData]);
+
+  const handleDirectionalChange = React.useCallback((value: number) => {
+    const next = Math.max(0, Math.min(3, value));
+    setDirectionalIntensity(next);
+    updateNodeData({ directionalIntensity: Number(next.toFixed(2)) });
+  }, [updateNodeData]);
+
+  const stopTouchPropagation = React.useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    if (e.touches.length >= 2) {
+      e.preventDefault();
+    }
+  }, []);
+
+  const headerTitle = data.nodeTitle || '3D';
+  const pathTracerBadgeText = pathTracerStatus === 'ready'
+    ? 'PT Ready'
+    : pathTracerStatus === 'loading'
+    ? 'PT Loading'
+    : pathTracerStatus === 'error'
+    ? 'PT Error'
+    : 'Raster';
+  const runtimeErr = err || pathTracerError;
+
   return (
-    <div style={{ width: data.boxW || 280, height: data.boxH || 260, padding: 8, background: '#fff', border: `1px solid ${borderColor}`, borderRadius: 8, boxShadow, transition: 'border-color 0.15s ease, box-shadow 0.15s ease', display: 'flex', flexDirection: 'column', position: 'relative' }}>
-      <NodeResizer isVisible={!!selected} minWidth={220} minHeight={200} color="transparent" lineStyle={{ display: 'none' }} handleStyle={{ background: 'transparent', border: 'none', width: 12, height: 12, opacity: 0 }}
+    <div style={{ width: Math.max(data.boxW || defaultNodeWidth, minNodeWidth), height: Math.max(data.boxH || defaultNodeHeight, minNodeHeight), padding: 8, background: '#fff', border: `1px solid ${borderColor}`, borderRadius: 8, boxShadow, transition: 'border-color 0.15s ease, box-shadow 0.15s ease', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+      <NodeResizer isVisible={!!selected} minWidth={minNodeWidth} minHeight={minNodeHeight} color="transparent" lineStyle={{ display: 'none' }} handleStyle={{ background: 'transparent', border: 'none', width: 12, height: 12, opacity: 0 }}
         onResize={(e, p) => { onResize(p.width, p.height); rf.setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, boxW: p.width, boxH: p.height } } : n)); }}
         onResizeEnd={(e, p) => { onResizeEnd(p.width, p.height); rf.setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, boxW: p.width, boxH: p.height } } : n)); }}
       />
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-        <div style={{ fontWeight: 600 }}>3D</div>
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div style={{ fontWeight: 600 }}>{headerTitle}</div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <button
+            onClick={togglePathTracing}
+            title={isPathTracingForced ? lt('该节点固定启用 PathTracer', 'Path tracer is forced for this node') : lt('切换 PathTracer', 'Toggle path tracer')}
+            style={{
+              fontSize: 12,
+              padding: '4px 8px',
+              background: pathTracingEnabled ? '#0f172a' : '#fff',
+              color: pathTracingEnabled ? '#fff' : '#111827',
+              border: '1px solid #e5e7eb',
+              borderRadius: 6,
+              opacity: isPathTracingForced ? 0.9 : 1,
+              cursor: isPathTracingForced ? 'default' : 'pointer',
+            }}
+          >
+            {pathTracingEnabled ? 'PT On' : 'PT Off'}
+          </button>
+          <button
+            onClick={() => setShowTuning((prev) => !prev)}
+            style={{ fontSize: 12, padding: '4px 8px', background: showTuning ? '#0f172a' : '#fff', color: showTuning ? '#fff' : '#111827', border: '1px solid #e5e7eb', borderRadius: 6 }}
+          >
+            Tune
+          </button>
           <button disabled={isModelUploading} onClick={() => fileInput.current?.click()} style={{ fontSize: 12, padding: '4px 8px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6, opacity: isModelUploading ? 0.6 : 1, cursor: isModelUploading ? 'not-allowed' : 'pointer' }}>
             {isModelUploading ? 'Uploading...' : 'Upload'}
           </button>
+          {PRESET_MODELS.map((preset) => (
+            <button
+              key={preset.key}
+              onClick={() => applyPresetModel(preset)}
+              style={{ fontSize: 12, padding: '4px 8px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6 }}
+            >
+              {lt(preset.labelZh, preset.labelEn)}
+            </button>
+          ))}
           <button onClick={addTestCube} style={{ fontSize: 12, padding: '4px 8px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6 }}>Cube</button>
           <button onClick={capture} style={{ fontSize: 12, padding: '4px 8px', background: '#111827', color: '#fff', borderRadius: 6 }}>Capture</button>
           <button onClick={sendToCanvas} disabled={!data.imageData && !data.imageUrl} title={!data.imageData && !data.imageUrl ? lt('无可发送的图像', 'No image to send') : lt('发送到画布', 'Send to canvas')} style={{ fontSize: 12, padding: '4px 8px', background: !data.imageData && !data.imageUrl ? '#e5e7eb' : '#111827', color: '#fff', borderRadius: 6 }}>
@@ -607,6 +1034,35 @@ function ThreeNodeInner({ id, data, selected }: Props) {
           </button>
         </div>
       </div>
+      {showTuning && (
+        <div
+          className="nodrag nowheel nopan"
+          onPointerDown={(e) => e.stopPropagation()}
+          onPointerMove={(e) => e.stopPropagation()}
+          onPointerUp={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+          onTouchMove={(e) => e.stopPropagation()}
+          style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6, padding: '6px 8px', border: '1px solid #e5e7eb', borderRadius: 8, background: '#f8fafc' }}
+        >
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#334155' }}>
+            BG
+            <input className="nodrag nowheel nopan" type="color" value={bgColor} onChange={(e) => handleBgColorChange(e.target.value)} onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} />
+          </label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#334155' }}>
+            Amb
+            <input className="nodrag nowheel nopan" type="range" min={0} max={3} step={0.05} value={ambientIntensity} onChange={(e) => handleAmbientChange(Number(e.target.value))} onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} />
+          </label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#334155' }}>
+            Fill
+            <input className="nodrag nowheel nopan" type="range" min={0} max={3} step={0.05} value={hemiIntensity} onChange={(e) => handleHemiChange(Number(e.target.value))} onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} />
+          </label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#334155' }}>
+            Key
+            <input className="nodrag nowheel nopan" type="range" min={0} max={3} step={0.05} value={directionalIntensity} onChange={(e) => handleDirectionalChange(Number(e.target.value))} onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} />
+          </label>
+        </div>
+      )}
       <input
         ref={fileInput}
         type="file"
@@ -622,13 +1078,21 @@ function ThreeNodeInner({ id, data, selected }: Props) {
       />
       <div
         onDoubleClick={() => src && setPreview(true)}
-        className="nodrag nowheel"
+        className="nodrag nowheel nopan"
         onPointerDown={(e) => e.stopPropagation()}
+        onPointerMove={(e) => e.stopPropagation()}
+        onPointerUp={(e) => e.stopPropagation()}
         onWheel={(e) => e.stopPropagation()}
+        onTouchStart={stopTouchPropagation}
+        onTouchMove={stopTouchPropagation}
+        onTouchEnd={(e) => e.stopPropagation()}
         style={{ flex: 1, minHeight: 120, background: '#fff', borderRadius: 6, border: '1px solid #e5e7eb', display: 'flex', overflow: 'hidden', position: 'relative' }}
       >
-        <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
-        {err && (<div style={{ position: 'absolute', left: 8, bottom: 8, right: 8, background: 'rgba(0,0,0,0.5)', color: '#fff', fontSize: 10, padding: '4px 6px', borderRadius: 4 }}>{err}</div>)}
+        <div ref={containerRef} style={{ width: '100%', height: '100%', touchAction: 'none' }} />
+        <div style={{ position: 'absolute', left: 8, top: 8, background: 'rgba(15,23,42,0.78)', color: '#fff', fontSize: 10, padding: '3px 6px', borderRadius: 999 }}>
+          {pathTracerBadgeText}
+        </div>
+        {runtimeErr && (<div style={{ position: 'absolute', left: 8, bottom: 8, right: 8, background: 'rgba(0,0,0,0.5)', color: '#fff', fontSize: 10, padding: '4px 6px', borderRadius: 4 }}>{runtimeErr}</div>)}
       </div>
       <Handle type="source" position={Position.Right} id="img" onMouseEnter={() => setHover('img-out')} onMouseLeave={() => setHover(null)} />
       {hover === 'img-out' && (<div className="flow-tooltip" style={{ right: -8, top: '50%', transform: 'translate(100%, -50%)' }}>image</div>)}
