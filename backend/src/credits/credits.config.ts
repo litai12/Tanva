@@ -193,7 +193,7 @@ export const CREDIT_PRICING_CONFIG = {
   'convert-2d-to-3d': {
     serviceName: '2D转3D',
     provider: 'runninghub',
-    creditsPerCall: 30,
+    creditsPerCall: 200,
     description: '将2D图像转换为3D模型',
   },
 

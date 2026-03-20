@@ -909,7 +909,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   viewAngle: 30, // 视角变换节点 - 基于参考图编辑
   generate4: 120, // 生成多张图片节点 - 4次 × 30积分
   midjourney: 50, // Midjourney生成 - midjourney-imagine
-  three: 30, // 三维节点 - convert-2d-to-3d
+  three: 200, // 三维节点 - convert-2d-to-3d
   sora2Video: "40-400", // 视频生成节点 - sora-sd (40) 或 sora-hd (400)
   sora2Character: 0, // 角色生成节点 - 当前不单独计费
   wan26: 600, // Wan2.6生成视频 - wan26-video
