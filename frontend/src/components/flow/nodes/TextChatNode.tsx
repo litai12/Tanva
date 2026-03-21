@@ -119,6 +119,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
 
   const status: TextChatStatus = data.status || 'idle';
   const errorText = data.error || '';
+  const responseText = typeof data.responseText === 'string' ? data.responseText : '';
   const enableWebSearch = data.enableWebSearch ?? globalWebSearchEnabled;
   const normalizedHeight = typeof data.boxH === 'number'
     ? (data.boxH === LEGACY_NODE_HEIGHT ? DEFAULT_NODE_HEIGHT : data.boxH)
@@ -460,6 +461,13 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
             onWheelCapture={stopFlowPan}
             onPointerDownCapture={stopFlowPan}
           />
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={labelStyle}>{lt('回复结果', 'Response')}</div>
+          <div style={{ ...panelStyle, minHeight: 64, maxHeight: 180, overflowY: 'auto' }}>
+            {responseText || lt('运行后将在此处展示回复内容', 'Run to see response text here')}
+          </div>
         </div>
 
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#4b5563' }}>

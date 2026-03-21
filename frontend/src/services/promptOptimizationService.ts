@@ -19,10 +19,11 @@ export interface PromptOptimizationResult {
 
 class PromptOptimizationService {
   private readonly DEFAULT_MODEL = 'gemini-3-flash-preview';
+  private readonly REQUEST_TIMEOUT_MS = 25_000;
 
   private async withRetry<T>(
     operation: (attempt: number) => Promise<T>,
-    retryCount: number = 3,
+    retryCount: number = 1,
     baseDelayMs: number = 500
   ): Promise<T> {
     let lastError: unknown;
@@ -32,7 +33,8 @@ class PromptOptimizationService {
         return await operation(attempt);
       } catch (error) {
         lastError = error;
-        if (attempt > retryCount) {
+        const retryable = this.isRetryableError(error);
+        if (attempt > retryCount || !retryable) {
           break;
         }
 
@@ -46,6 +48,36 @@ class PromptOptimizationService {
       throw lastError;
     }
     throw new Error('Prompt optimization failed after retries');
+  }
+
+  private isRetryableError(error: unknown): boolean {
+    if (!(error instanceof Error)) return false;
+    const message = error.message.toLowerCase();
+    if (message.includes('timeout')) return true;
+    if (message.includes('network')) return true;
+    if (message.includes('fetch')) return true;
+    if (message.includes('abort')) return true;
+    if (message.includes('econn')) return true;
+    if (message.includes('etimedout')) return true;
+    return false;
+  }
+
+  private withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        reject(new Error(`Prompt optimization timeout after ${Math.floor(timeoutMs / 1000)}s`));
+      }, timeoutMs);
+
+      promise
+        .then((value) => {
+          clearTimeout(timeoutId);
+          resolve(value);
+        })
+        .catch((error) => {
+          clearTimeout(timeoutId);
+          reject(error);
+        });
+    });
   }
 
   private buildInstruction(request: PromptOptimizationRequest): string {
@@ -104,12 +136,15 @@ class PromptOptimizationService {
       const modelToUse = request.model || this.DEFAULT_MODEL;
 
       const result = await this.withRetry(async () => {
-        const response = await generateTextResponseViaAPI({
-          prompt: instruction,
-          aiProvider: request.aiProvider,
-          model: modelToUse,
-          enableWebSearch: false,
-        });
+        const response = await this.withTimeout(
+          generateTextResponseViaAPI({
+            prompt: instruction,
+            aiProvider: request.aiProvider,
+            model: modelToUse,
+            enableWebSearch: false,
+          }),
+          this.REQUEST_TIMEOUT_MS
+        );
 
         if (!response.success || !response.data?.text) {
           throw new Error(response.error?.message || 'Prompt optimization failed');
