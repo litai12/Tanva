@@ -86,11 +86,66 @@ const normalizeUrlHost = (value?: string | null): string | null => {
   }
 };
 
+const stripProtocolAndPath = (value: string): string => {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const noProtocol = trimmed.replace(/^https?:\/\//i, "");
+  const hostOnly = noProtocol.split("/")[0] || "";
+  return hostOnly.trim().toLowerCase();
+};
+
+const hostMatches = (hostname: string, allowedHost: string): boolean =>
+  hostname === allowedHost || hostname.endsWith(`.${allowedHost}`);
+
+const BACKEND_DEFAULT_ALLOWED_HOSTS = [
+  "aliyuncs.com",
+  "amazonaws.com.cn",
+  "amazonaws.com",
+  "s3.cn-northwest-1.amazonaws.com.cn",
+  "apimart.ai",
+  "kechuangai.com",
+  "models.kapon.cloud",
+  "volces.com",
+  "tencentcos.cn",
+  "myqcloud.com",
+];
+
 const getManagedAssetHosts = (): Set<string> => {
   const hosts = new Set<string>(["tai-tanva-ai.oss-cn-shenzhen.aliyuncs.com"]);
   const publicBaseHost = normalizeUrlHost(getPublicAssetBaseUrl());
   if (publicBaseHost) hosts.add(publicBaseHost);
   return hosts;
+};
+
+const getLikelyBackendAllowedHosts = (): Set<string> => {
+  const hosts = new Set<string>(BACKEND_DEFAULT_ALLOWED_HOSTS);
+  getManagedAssetHosts().forEach((host) => hosts.add(host));
+  const extraHostsRaw = String(
+    (import.meta.env.VITE_ALLOWED_PROXY_HOSTS as string | undefined) || ""
+  );
+  extraHostsRaw
+    .split(",")
+    .map((host) => stripProtocolAndPath(host))
+    .filter(Boolean)
+    .forEach((host) => hosts.add(host));
+  return hosts;
+};
+
+export const isLikelyBackendAllowedRemoteUrl = (
+  value?: string | null
+): value is RemoteUrl => {
+  if (!isRemoteUrl(value)) return false;
+  try {
+    const hostname = new URL(value.trim()).hostname.toLowerCase();
+    if (!hostname) return false;
+    const allowedHosts = getLikelyBackendAllowedHosts();
+    for (const allowedHost of allowedHosts) {
+      if (hostMatches(hostname, allowedHost)) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
 };
 
 export const looksLikeSignedAssetUrl = (url: string): boolean =>

@@ -8330,6 +8330,18 @@ function FlowInner() {
         return ensureDataUrl(trimmed);
       };
 
+      const resolveFirstImageCandidateToDataUrl = async (
+        ...candidates: unknown[]
+      ): Promise<string | null> => {
+        for (const candidate of candidates) {
+          const value = typeof candidate === "string" ? candidate.trim() : "";
+          if (!value) continue;
+          const resolved = await resolveImageValueToDataUrlForBackend(value);
+          if (resolved) return resolved;
+        }
+        return null;
+      };
+
       const cropImageToDataUrl = async (params: {
         baseRef: string;
         rect: { x: number; y: number; width: number; height: number };
@@ -8538,25 +8550,26 @@ function FlowInner() {
 
           // legacy 兜底：有些历史数据可能仍保存了 splitImages
           const splitImages = Array.isArray(d.splitImages) ? d.splitImages : [];
-          const legacy = splitImages?.[idx]?.imageData;
-          if (typeof legacy === "string" && legacy.trim()) {
-            return await resolveImageValueToDataUrlForBackend(legacy);
-          }
-          return null;
+          return await resolveFirstImageCandidateToDataUrl(
+            splitImages?.[idx]?.imageData,
+            splitImages?.[idx]?.imageUrl
+          );
         }
 
         if (node.type === "imageGrid") {
-          const out =
-            typeof d.outputImage === "string" ? d.outputImage.trim() : "";
-          return out ? await resolveImageValueToDataUrlForBackend(out) : null;
+          return await resolveFirstImageCandidateToDataUrl(
+            d.outputImage,
+            d.imageUrl,
+            d.imageData
+          );
         }
 
         if (node.type === "imageCompress") {
-          const out =
-            (typeof d.outputImage === "string" && d.outputImage.trim()) ||
-            (typeof d.imageData === "string" && d.imageData.trim()) ||
-            "";
-          return out ? await resolveImageValueToDataUrlForBackend(out) : null;
+          return await resolveFirstImageCandidateToDataUrl(
+            d.outputImage,
+            d.imageData,
+            d.imageUrl
+          );
         }
 
         if (node.type === "videoFrameExtract" && handle === "image") {
@@ -8564,14 +8577,11 @@ function FlowInner() {
           const selectedFrameIndex = Number(d.selectedFrameIndex ?? 1);
           const idx = Math.max(0, selectedFrameIndex - 1);
           const frame = frames[idx];
-          const value =
-            (typeof frame?.imageUrl === "string" && frame.imageUrl.trim()) ||
-            (typeof frame?.thumbnailDataUrl === "string" &&
-              frame.thumbnailDataUrl.trim()) ||
-            "";
-          return value
-            ? await resolveImageValueToDataUrlForBackend(value)
-            : null;
+          return await resolveFirstImageCandidateToDataUrl(
+            frame?.imageUrl,
+            frame?.thumbnailDataUrl,
+            frame?.imageData
+          );
         }
 
         if (node.type === "generate4" || node.type === "generatePro4") {
@@ -8585,16 +8595,13 @@ function FlowInner() {
           const thumbs = Array.isArray(d?.thumbnails)
             ? (d.thumbnails as string[])
             : [];
-          const candidate =
-            (typeof urls[idx] === "string" && urls[idx].trim()) ||
-            (typeof imgs[idx] === "string" && imgs[idx].trim()) ||
-            (typeof thumbs[idx] === "string" && thumbs[idx].trim()) ||
-            (typeof d?.imageData === "string" && d.imageData.trim()) ||
-            (typeof d?.imageUrl === "string" && d.imageUrl.trim()) ||
-            "";
-          return candidate
-            ? await resolveImageValueToDataUrlForBackend(candidate)
-            : null;
+          return await resolveFirstImageCandidateToDataUrl(
+            urls[idx],
+            imgs[idx],
+            thumbs[idx],
+            d?.imageData,
+            d?.imageUrl
+          );
         }
 
         if (node.type === "image" || node.type === "imagePro") {
@@ -8666,17 +8673,12 @@ function FlowInner() {
             }
           }
 
-          const directRef =
-            (typeof d.imageData === "string" && d.imageData.trim()) ||
-            (typeof d.imageUrl === "string" && d.imageUrl.trim()) ||
-            (typeof d.thumbnail === "string" && d.thumbnail.trim()) ||
-            "";
-          if (directRef) {
-            const resolved = await resolveImageValueToDataUrlForBackend(
-              directRef
-            );
-            if (resolved) return resolved;
-          }
+          const resolvedDirect = await resolveFirstImageCandidateToDataUrl(
+            d.imageData,
+            d.imageUrl,
+            d.thumbnail
+          );
+          if (resolvedDirect) return resolvedDirect;
 
           // Image/ImagePro 作为“显示节点”时，图片可能来自上游连线；优先向上追溯以匹配当前显示内容
           if (upstream) {
@@ -8691,15 +8693,10 @@ function FlowInner() {
           }
         }
 
-        const direct =
-          (typeof d.imageData === "string" && d.imageData.trim()) ||
-          (typeof d.imageUrl === "string" && d.imageUrl.trim()) ||
-          "";
-        if (direct) {
-          return await resolveImageValueToDataUrlForBackend(direct);
-        }
-
-        return null;
+        return await resolveFirstImageCandidateToDataUrl(
+          d.imageData,
+          d.imageUrl
+        );
       };
 
       const resolveEdgeImageToDataUrl = async (

@@ -195,3 +195,19 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Canvas image-drag visual policy refinement: 3D containers and Flow ThreeNode now keep the current frame visible (instead of forcing blank) while other 2D images are dragged; render loops are still gated under `tanva-canvas-dragging`/`tanva-image-dragging` (including PathTracer sample loop), preserving drag FPS while avoiding abrupt blanking (`frontend/src/components/canvas/Model3DViewer.tsx`, `frontend/src/components/flow/nodes/ThreeNode.tsx`, `frontend/src/components/flow/flow.css`, `frontend/src/index.css`).
 - Flow ThreeNode interaction polish: increased `NodeResizer` invisible hit area (22px) to make resize/scale handles easier to grab, removed paint containment clipping on ThreeNode root, and lifted the image output handle to a dedicated high z-layer so it stays visible above node content/resizer overlays (`frontend/src/components/flow/nodes/ThreeNode.tsx`, `frontend/src/components/flow/flow.css`).
 - Canvas 3D white-capture fix: `Model3DViewer` now forces a same-camera render before capture and can fall back to an offscreen renderer for explicit camera captures; runtime snapshot payload now carries `frameDataUrl` and source tag, while `AutoScreenshotService` only consumes runtime snapshots and skips near-blank WebGL fallback frames to avoid inserting white rectangles.
+
+## [Credits Patch - 2026-03-21]
+### Changed
+- Backend credits now apply `resolutionPricing` to any service that defines this pricing block (not only `*-image` service types).
+- Seedream 5.0 (`doubao-seedream-5-0-260128`) now correctly deducts 60 credits when `imageSize=4K`.
+- Added 4K pricing for Pro and Nano banana 2 edit/blend services:
+  - `gemini-image-edit`: 4K -> 60 credits
+  - `gemini-image-blend`: 4K -> 60 credits
+  - `gemini-3.1-image-edit`: 4K -> 60 credits
+  - `gemini-3.1-image-blend`: 4K -> 60 credits
+- Non-4K edit/blend pricing remains unchanged at 30 credits.
+- Correction: Pro mode 4K edit/blend pricing is 120 (not 60): `gemini-image-edit` 4K -> 120, `gemini-image-blend` 4K -> 120.
+
+## [Flow Patch - 2026-03-21]
+### Fixed
+- Flow `runNode` image input resolution now falls back across multiple image candidates (instead of stopping at the first failed value), reducing intermittent `viewAngle` failures with error `缺少图片输入` when a stale temporary image ref exists but a valid `imageUrl` is also present (`frontend/src/components/flow/FlowOverlay.tsx`).

@@ -80,6 +80,10 @@
 - **根因:** 前端需要将图片转成 dataURL，跨域拉取失败导致输入为空。
 - **修复:** 生成链路允许传递远程 URL，由后端下载转码后处理。
 - **预防:** 对跨域资源优先走后端拉取，避免前端 CORS 限制。
+- **问题现象:** `ViewAngle` 节点偶发报错“缺少图片输入”，但上游 `Image` 节点画面可见。
+- **根因:** 输入解析在多个候选字段（`imageData/imageUrl/thumbnail`）中只尝试第一个值；当首个值是失效临时引用（如旧 `blob:`）时，未回退到后续有效 `imageUrl`。
+- **修复:** 在 `FlowOverlay.runNode` 解析链路新增“候选图片逐个回退”逻辑，`resolveNodeImageToDataUrl` 在 `image/imageGrid/imageCompress/videoFrameExtract/generate4` 等分支均改为按候选顺序逐一解析，直到成功。
+- **预防:** 下游取图不应单点依赖某一个字段；应以“多候选 + 可恢复失败”方式解析，避免临时态残留引发误判。
 
 ## 3D 模型节点
 - 三维节点（`frontend/src/components/flow/nodes/ThreeNode.tsx`）选择模型文件后会上传至 OSS，并将 `modelUrl` 持久化为远程引用，避免 `blob:` 等临时 URL 进入 `content.flow`。

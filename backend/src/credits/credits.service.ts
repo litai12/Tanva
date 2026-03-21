@@ -152,20 +152,13 @@ export class CreditsService {
 
   /**
    * 根据分辨率解析积分定价
-   * 支持按分辨率差异化计费的图像生成服务
+   * 支持按分辨率差异化计费的服务（由 pricing.resolutionPricing 控制）
    */
   private resolveImageResolutionCredits(
     serviceType: ServiceType,
     defaultCredits: number,
     requestParams: any,
   ): number {
-    // 仅处理图像生成服务（不包括编辑、融合、分析等）
-    const isImageGeneration =
-      serviceType !== 'midjourney-imagine' && serviceType.endsWith('-image');
-    if (!isImageGeneration) {
-      return defaultCredits;
-    }
-
     const servicePricing = CREDIT_PRICING_CONFIG[serviceType] as any;
     const resolutionPricing = servicePricing?.resolutionPricing;
     if (!resolutionPricing || typeof resolutionPricing !== 'object') {

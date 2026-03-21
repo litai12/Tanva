@@ -40,6 +40,7 @@ import {
   resolveImageToObjectUrl,
   isPersistableImageRef,
   normalizeRemoteUrl,
+  isLikelyBackendAllowedRemoteUrl,
   requiresManagedImageUpload,
   toRenderableImageSrc,
 } from "@/utils/imageSource";
@@ -4056,12 +4057,23 @@ export const useAIChatStore = create<AIChatState>()(
             });
 
             const remoteSourceUrl = normalizeRemoteUrl(sourceImage);
+            const remoteSourceAllowed = Boolean(
+              remoteSourceUrl &&
+                isLikelyBackendAllowedRemoteUrl(remoteSourceUrl)
+            );
             const preferRemoteUrl =
-              Boolean(remoteSourceUrl) && state.aiProvider !== "runninghub";
+              Boolean(remoteSourceUrl) &&
+              remoteSourceAllowed &&
+              state.aiProvider !== "runninghub";
             const normalizedSourceImage = preferRemoteUrl
               ? null
               : await resolveImageToDataUrl(sourceImage);
             if (!normalizedSourceImage && !preferRemoteUrl) {
+              if (remoteSourceUrl && !remoteSourceAllowed) {
+                throw new Error(
+                  "源图 URL 域名不在后端白名单，且浏览器无法读取该图片。请先上传到画布/素材库后重试。"
+                );
+              }
               throw new Error("源图像读取失败，请重新选择图片。");
             }
 
@@ -4844,9 +4856,17 @@ export const useAIChatStore = create<AIChatState>()(
             const sourceImageUrls = hasRemoteSource
               ? await mapWithLimit(sourceImages, 2, async (img) => {
                   const remoteUrl = normalizeRemoteUrl(img);
-                  if (remoteUrl) return remoteUrl;
+                  const remoteAllowed = Boolean(
+                    remoteUrl && isLikelyBackendAllowedRemoteUrl(remoteUrl)
+                  );
+                  if (remoteUrl && remoteAllowed) return remoteUrl;
                   const resolved = await resolveImageToDataUrl(img);
                   if (!resolved) {
+                    if (remoteUrl && !remoteAllowed) {
+                      throw new Error(
+                        "检测到不在后端白名单的图片域名，且浏览器无法读取图片。请先上传到画布/素材库后再融合。"
+                      );
+                    }
                     throw new Error("融合图片读取失败，请重新选择图片。");
                   }
                   const projectId = useProjectContentStore.getState().projectId;
