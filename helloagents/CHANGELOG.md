@@ -164,3 +164,5 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Mapped Prisma connection-pool timeout (`P2024`) to `503 ServiceUnavailable` with retryable message.
 - Reduced stale pending auto-refund default batch size from 200 to 100.
 - Added Prisma index `ApiUsageRecord(responseStatus, serviceType, createdAt)` for stale pending scans.
+
+- Model3D interaction smoothing follow-up: camera persistence now commits only at OrbitControls end (not during onChange), and Model3DViewer uses a lighter light rig to reduce shader cost on dense 2D->3D assets (`frontend/src/components/canvas/Model3DViewer.tsx`).

@@ -36,7 +36,6 @@ const MIN_CAMERA_DISTANCE = 1.5;
 const EPSILON = 1e-4;
 const MODEL_LOAD_FALLBACK_ERROR = "3D模型加载失败，请重试或重新生成。";
 const MAX_INTERACTIVE_DPR = 1;
-const CAMERA_SYNC_MIN_INTERVAL_MS = 160;
 const ORBIT_DAMPING_FACTOR = 0.1;
 const ORBIT_ROTATE_SPEED = 0.6;
 const ORBIT_ZOOM_SPEED = 0.35;
@@ -587,42 +586,23 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
             }}
           >
             <Suspense fallback={null}>
-              {/* 更通透的光照组合：微暖环境光 + 半球光 + 多向主辅光 + 前向聚光 */}
-              <ambientLight color='#fff9ef' intensity={1.0} />
-              {/* 天空偏中性、地面略微冷一点，避免整体发灰 */}
-              <hemisphereLight args={["#ffffff", "#a8b9ce", 1.3]} />
+              {/* 轻量光照方案：降低复杂模型实时交互时的片元着色负载 */}
+              <ambientLight color='#fff9ef' intensity={0.82} />
+              <hemisphereLight args={["#ffffff", "#a8b9ce", 0.9]} />
               <directionalLight
                 position={[6, 8, 6]}
-                // 主光略暖，增强体积感
-                intensity={1.15}
+                intensity={0.95}
                 color='#fff4d6'
-                castShadow
               />
               <directionalLight
                 position={[-6, 6, -4]}
-                // 辅光略冷，增加对比和边缘轮廓
-                intensity={0.55}
+                intensity={0.35}
                 color='#d1e7ff'
-              />
-              <directionalLight
-                position={[0, 5, 10]}
-                intensity={0.7}
-                color='#ffffff'
-              />
-              <pointLight
-                position={[0, 7, 0]}
-                intensity={0.5}
-                color='#ffffff'
               />
               <pointLight
                 position={[2, 3, -3]}
-                intensity={0.35}
+                intensity={0.18}
                 color='#fff6da'
-              />
-              <pointLight
-                position={[-2, 2, 3]}
-                intensity={0.32}
-                color='#e8f2ff'
               />
 
               <ModelLoadErrorBoundary
@@ -715,9 +695,6 @@ const CameraController: React.FC<CameraControllerProps> = ({
   // 使用ref存储最新的cameraState，避免在handleControlChange中依赖它导致无限循环
   const cameraStateRef = useRef<Model3DCameraState>(cameraState);
   const isUpdatingFromPropsRef = useRef(false);
-  const lastControlEmitRef = useRef(0);
-  const pendingUpdateRef = useRef<Model3DCameraState | null>(null);
-  const rafIdRef = useRef<number | null>(null);
   const latestControlStateRef = useRef<Model3DCameraState | null>(null);
   const skipNextApplyRef = useRef(false);
 
@@ -757,37 +734,6 @@ const CameraController: React.FC<CameraControllerProps> = ({
     applyCameraState(cameraState);
   }, [cameraState, applyCameraState]);
 
-  // 清理 RAF
-  useEffect(() => {
-    return () => {
-      if (rafIdRef.current) {
-        cancelAnimationFrame(rafIdRef.current);
-        rafIdRef.current = null;
-      }
-    };
-  }, []);
-
-  // 批量更新：只在 RAF 中执行一次状态更新
-  const flushPendingUpdate = useCallback(() => {
-    rafIdRef.current = null;
-    const pending = pendingUpdateRef.current;
-    if (!pending) return;
-
-    pendingUpdateRef.current = null;
-    const currentState = cameraStateRef.current;
-
-    if (!cameraStatesEqual(pending, currentState)) {
-      latestControlStateRef.current = pending;
-      skipNextApplyRef.current = true;
-      // 使用低优先级更新，避免阻塞主线程
-      if (typeof React.startTransition === "function") {
-        React.startTransition(() => onStateChange(pending));
-      } else {
-        onStateChange(pending);
-      }
-    }
-  }, [onStateChange]);
-
   const handleControlChange = useCallback(() => {
     // 如果正在从props更新，跳过处理，避免循环
     if (isUpdatingFromPropsRef.current) return;
@@ -804,48 +750,14 @@ const CameraController: React.FC<CameraControllerProps> = ({
     };
 
     latestControlStateRef.current = next;
-
-    // 限制同步频率：约 10fps 的状态上报，减少 React 重渲染
-    const now = performance.now();
-    const minInterval = CAMERA_SYNC_MIN_INTERVAL_MS;
-
-    if (now - lastControlEmitRef.current < minInterval) {
-      // 存储待更新的状态，等待下一次 RAF 批量处理
-      pendingUpdateRef.current = next;
-      if (!rafIdRef.current) {
-        rafIdRef.current = requestAnimationFrame(flushPendingUpdate);
-      }
-      return;
-    }
-
-    lastControlEmitRef.current = now;
-    pendingUpdateRef.current = null;
-
-    // 直接更新，不需要额外的 RAF
-    const currentState = cameraStateRef.current;
-    if (!cameraStatesEqual(next, currentState)) {
-      skipNextApplyRef.current = true;
-      if (typeof React.startTransition === "function") {
-        React.startTransition(() => onStateChange(next));
-      } else {
-        onStateChange(next);
-      }
-    }
-  }, [enabled, onStateChange, flushPendingUpdate]);
+  }, [enabled]);
 
   const handleControlStart = useCallback(() => {
-    // 交互开始时，清理上一轮节流残留，避免将过期状态写回
-    if (rafIdRef.current) {
-      cancelAnimationFrame(rafIdRef.current);
-      rafIdRef.current = null;
-    }
-    pendingUpdateRef.current = null;
-    lastControlEmitRef.current = 0;
+    latestControlStateRef.current = null;
   }, []);
 
   const handleControlEnd = useCallback(() => {
-    const pending = pendingUpdateRef.current || latestControlStateRef.current;
-    pendingUpdateRef.current = null;
+    const pending = latestControlStateRef.current;
     if (!pending) return;
 
     const currentState = cameraStateRef.current;
