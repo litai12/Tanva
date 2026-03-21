@@ -1081,8 +1081,21 @@ function ThreeNodeInner({ id, data, selected }: Props) {
   const runtimeErr = err || pathTracerError;
 
   return (
-    <div style={{ width: Math.max(data.boxW || defaultNodeWidth, minNodeWidth), height: Math.max(data.boxH || defaultNodeHeight, minNodeHeight), padding: 8, background: '#fff', border: `1px solid ${borderColor}`, borderRadius: 8, boxShadow, transition: 'border-color 0.15s ease, box-shadow 0.15s ease', display: 'flex', flexDirection: 'column', position: 'relative', contain: 'layout paint' }}>
-      <NodeResizer isVisible={!!selected} minWidth={minNodeWidth} minHeight={minNodeHeight} color="transparent" lineStyle={{ display: 'none' }} handleStyle={{ background: 'transparent', border: 'none', width: 12, height: 12, opacity: 0 }}
+    <div style={{ width: Math.max(data.boxW || defaultNodeWidth, minNodeWidth), height: Math.max(data.boxH || defaultNodeHeight, minNodeHeight), padding: 8, background: '#fff', border: `1px solid ${borderColor}`, borderRadius: 8, boxShadow, transition: 'border-color 0.15s ease, box-shadow 0.15s ease', display: 'flex', flexDirection: 'column', position: 'relative', contain: 'layout' }}>
+      <NodeResizer
+        isVisible={!!selected}
+        minWidth={minNodeWidth}
+        minHeight={minNodeHeight}
+        color="transparent"
+        lineStyle={{ display: 'none' }}
+        handleStyle={{
+          background: 'transparent',
+          border: 'none',
+          width: 22,
+          height: 22,
+          opacity: 0,
+          zIndex: 40,
+        }}
         onResize={(e, p) => { onResize(p.width, p.height); rf.setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, boxW: p.width, boxH: p.height } } : n)); }}
         onResizeEnd={(e, p) => { onResizeEnd(p.width, p.height); rf.setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, boxW: p.width, boxH: p.height } } : n)); }}
       />
@@ -1156,7 +1169,15 @@ function ThreeNodeInner({ id, data, selected }: Props) {
         </div>
         {runtimeErr && (<div style={{ position: 'absolute', left: 8, bottom: 8, right: 8, background: 'rgba(0,0,0,0.5)', color: '#fff', fontSize: 10, padding: '4px 6px', borderRadius: 4 }}>{runtimeErr}</div>)}
       </div>
-      <Handle type="source" position={Position.Right} id="img" onMouseEnter={() => setHover('img-out')} onMouseLeave={() => setHover(null)} />
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="img"
+        className="tanva-three-node-output-handle"
+        style={{ zIndex: 60 }}
+        onMouseEnter={() => setHover('img-out')}
+        onMouseLeave={() => setHover(null)}
+      />
       {hover === 'img-out' && (<div className="flow-tooltip" style={{ right: -8, top: '50%', transform: 'translate(100%, -50%)' }}>image</div>)}
       <ImagePreviewModal
         isOpen={preview}

@@ -434,6 +434,14 @@ input[type="text"],
   bottom: -7px;
 }
 
+.tanva-flow-overlay .react-flow__handle.tanva-three-node-output-handle {
+  z-index: 60 !important;
+}
+
+.tanva-flow-overlay .react-flow__handle.tanva-three-node-output-handle::after {
+  inset: -8px;
+}
+
 .tanva-flow-overlay .react-flow__handle:hover::after,
 .tanva-flow-overlay .react-flow__handle:focus-visible::after {
   /* 热区直接贴着句柄芯，inset: -8px 意味着从句柄边缘向外 8px */
