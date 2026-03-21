@@ -731,27 +731,39 @@ export class AutoScreenshotService {
     const relativeX = modelInstance.bounds.x - bounds.x;
     const relativeY = modelInstance.bounds.y - bounds.y;
 
-    // 查找对应的Canvas元素
-    const modelCanvas = this.find3DCanvas(modelInstance.id);
-    if (modelCanvas) {
-      // 确保Canvas内容是最新的
-      await new Promise(resolve => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(resolve);
-        });
-      });
-      
-      // 绘制3D模型内容
+    // 优先使用组件缓存帧，规避 WebGL drawing buffer 在 demand 模式下被清空导致白图
+    const cachedFrame = this.find3DSnapshotImage(modelInstance.id);
+    if (cachedFrame) {
       ctx.drawImage(
-        modelCanvas,
+        cachedFrame,
         relativeX,
         relativeY,
         modelInstance.bounds.width,
         modelInstance.bounds.height
       );
-    } else {
-      logger.warn(`无法找到3D模型 ${modelInstance.id} 的Canvas元素`);
+      return;
     }
+
+    // 兜底：直接读取 WebGL canvas
+    const modelCanvas = this.find3DCanvas(modelInstance.id);
+    if (!modelCanvas) {
+      logger.warn(`无法找到3D模型 ${modelInstance.id} 的Canvas元素`);
+      return;
+    }
+
+    await new Promise(resolve => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(resolve);
+      });
+    });
+
+    ctx.drawImage(
+      modelCanvas,
+      relativeX,
+      relativeY,
+      modelInstance.bounds.width,
+      modelInstance.bounds.height
+    );
   }
 
   /**
@@ -1471,6 +1483,26 @@ export class AutoScreenshotService {
       return canvasElement as HTMLCanvasElement;
     } catch (error) {
       logger.warn(`查找3D Canvas失败 (${modelId}):`, error);
+      return null;
+    }
+  }
+
+  private static find3DSnapshotImage(modelId: string): HTMLImageElement | null {
+    try {
+      const containerElement = document.querySelector(`[data-model-id="${modelId}"]`);
+      if (!containerElement) return null;
+
+      const snapshotImage = containerElement.querySelector(
+        'img[data-model3d-snapshot-cache="true"]'
+      ) as HTMLImageElement | null;
+      if (!snapshotImage) return null;
+      if (!snapshotImage.src || !snapshotImage.complete) return null;
+      if ((snapshotImage.naturalWidth ?? 0) <= 0 || (snapshotImage.naturalHeight ?? 0) <= 0) {
+        return null;
+      }
+      return snapshotImage;
+    } catch (error) {
+      logger.warn(`查找3D缓存帧失败 (${modelId}):`, error);
       return null;
     }
   }

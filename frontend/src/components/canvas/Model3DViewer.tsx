@@ -15,8 +15,10 @@ import type {
 } from "@/services/model3DUploadService";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { getApiBaseUrl, proxifyRemoteAssetUrl } from "@/utils/assetProxy";
+import { model3DPreviewService } from "@/services/model3DPreviewService";
 
 interface Model3DViewerProps {
+  modelId?: string;
   modelData: Model3DData;
   isSelected?: boolean;
   drawMode?: string; // 当前绘图模式
@@ -40,6 +42,40 @@ const ORBIT_DAMPING_FACTOR = 0.1;
 const ORBIT_ROTATE_SPEED = 0.6;
 const ORBIT_ZOOM_SPEED = 0.35;
 const ORBIT_PAN_SPEED = 0.65;
+const SUSPEND_PREVIEW_WIDTH = 640;
+const SUSPEND_PREVIEW_HEIGHT = 400;
+
+const isLikelyBlankCanvas = (canvas: HTMLCanvasElement): boolean => {
+  try {
+    if (!canvas || canvas.width <= 0 || canvas.height <= 0) return true;
+    const sample = document.createElement("canvas");
+    sample.width = 24;
+    sample.height = 24;
+    const sampleCtx = sample.getContext("2d", { willReadFrequently: true });
+    if (!sampleCtx) return false;
+    sampleCtx.drawImage(canvas, 0, 0, sample.width, sample.height);
+    const pixels = sampleCtx.getImageData(0, 0, sample.width, sample.height).data;
+
+    let opaqueCount = 0;
+    let nonWhiteCount = 0;
+    for (let i = 0; i < pixels.length; i += 4) {
+      const r = pixels[i];
+      const g = pixels[i + 1];
+      const b = pixels[i + 2];
+      const a = pixels[i + 3];
+      if (a <= 10) continue;
+      opaqueCount += 1;
+      if (r < 245 || g < 245 || b < 245) {
+        nonWhiteCount += 1;
+      }
+    }
+
+    if (opaqueCount === 0) return true;
+    return nonWhiteCount / opaqueCount < 0.01;
+  } catch {
+    return false;
+  }
+};
 
 const computeScaleFactor = (maxDimension: number) => {
   const safeDimension = Math.max(maxDimension, Number.EPSILON);
@@ -83,6 +119,7 @@ const viewerPropsEqual = (
   prev: Readonly<Model3DViewerProps>,
   next: Readonly<Model3DViewerProps>
 ) =>
+  prev.modelId === next.modelId &&
   prev.isSelected === next.isSelected &&
   prev.drawMode === next.drawMode &&
   prev.isResizing === next.isResizing &&
@@ -432,6 +469,7 @@ function Model3D({
 }
 
 const Model3DViewer: React.FC<Model3DViewerProps> = ({
+  modelId,
   modelData,
   isSelected = false,
   drawMode = "select",
@@ -556,24 +594,42 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
       const renderer = rendererRef.current as any;
       if (renderer) {
         try { renderer.renderLists?.dispose?.(); } catch {}
+        try {
+          const gl = typeof renderer.getContext === "function"
+            ? (renderer.getContext() as WebGLRenderingContext | WebGL2RenderingContext | null)
+            : null;
+          const alreadyLost = !!(
+            gl &&
+            typeof (gl as any).isContextLost === "function" &&
+            (gl as any).isContextLost()
+          );
+          // 开发态 HMR 会频繁卸载/重建，避免反复触发 "context already lost" 噪音警告
+          if (import.meta.env.PROD && !alreadyLost) {
+            renderer.forceContextLoss?.();
+          }
+        } catch {}
         try { renderer.dispose?.(); } catch {}
-        try { renderer.forceContextLoss?.(); } catch {}
       }
       rendererRef.current = null;
     },
     []
   );
 
-  const shouldSuspendRendering = suspendRendering || isDragging || isResizing;
+  // 对齐 ThreeNode 体验：移动/拉伸 3D 容器时保持模型可见（不切缩略图），
+  // 仅在外部明确要求暂停（如拖拽其他图片）时才挂起渲染视图。
+  const shouldSuspendRendering = suspendRendering;
   const [suspendedFrame, setSuspendedFrame] = useState<string | null>(null);
+  const [modelPreviewFrame, setModelPreviewFrame] = useState<string | null>(null);
   const wasSuspendedRef = useRef(false);
   const canCaptureFrameRef = useRef(true);
-  const fallbackModelTitle = (modelData.fileName || "3D Model").slice(0, 28);
+  const previewRequestedForPathRef = useRef<string | null>(null);
+  const suspendedPreview = suspendedFrame || modelPreviewFrame;
 
   const captureCurrentFrame = useCallback((): boolean => {
     if (!canCaptureFrameRef.current) return false;
     const canvas = rootRef.current?.querySelector("canvas");
     if (!canvas) return false;
+    if (isLikelyBlankCanvas(canvas)) return false;
     try {
       const frame = canvas.toDataURL("image/webp", 0.75);
       if (typeof frame === "string" && frame.startsWith("data:image")) {
@@ -592,7 +648,11 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
       ? "auto"
       : "none";
   const controlsEnabled =
-    !shouldSuspendRendering && drawMode === "select" && isSelected;
+    !shouldSuspendRendering &&
+    !isDragging &&
+    !isResizing &&
+    drawMode === "select" &&
+    isSelected;
 
   useEffect(() => {
     setPathCandidateIndex(0);
@@ -603,18 +663,43 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
   useEffect(() => {
     canCaptureFrameRef.current = true;
     setSuspendedFrame(null);
+    setModelPreviewFrame(null);
+    previewRequestedForPathRef.current = null;
   }, [modelPath]);
 
   useEffect(() => {
+    if (!modelPath || modelPreviewFrame) return;
+    if (previewRequestedForPathRef.current === modelPath) return;
+    previewRequestedForPathRef.current = modelPath;
+
+    let cancelled = false;
+    model3DPreviewService
+      .generatePreviewFromUrl(modelPath, {
+        width: SUSPEND_PREVIEW_WIDTH,
+        height: SUSPEND_PREVIEW_HEIGHT,
+        background: "#f8fafc",
+        padding: 2,
+      })
+      .then((preview) => {
+        if (cancelled) return;
+        if (typeof preview === "string" && preview.startsWith("data:image")) {
+          setModelPreviewFrame((prev) => (prev === preview ? prev : preview));
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [modelPath, modelPreviewFrame]);
+
+  useEffect(() => {
     if (shouldSuspendRendering) {
-      if (!wasSuspendedRef.current && !suspendedFrame) {
-        captureCurrentFrame();
-      }
       wasSuspendedRef.current = true;
       return;
     }
     wasSuspendedRef.current = false;
-  }, [shouldSuspendRendering, suspendedFrame, captureCurrentFrame]);
+  }, [shouldSuspendRendering]);
 
   useEffect(() => {
     if (shouldSuspendRendering || suspendedFrame || isLoading || error) return;
@@ -629,6 +714,31 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
     error,
     captureCurrentFrame,
   ]);
+
+  useEffect(() => {
+    const handleCaptureRequest = (event: Event) => {
+      const customEvent = event as CustomEvent<{ modelId?: string }>;
+      const requestedId = customEvent.detail?.modelId;
+      if (requestedId && modelId && requestedId !== modelId) return;
+      const success = captureCurrentFrame();
+      window.dispatchEvent(
+        new CustomEvent("tanva:model3d-frame-captured", {
+          detail: { modelId, success },
+        })
+      );
+    };
+
+    window.addEventListener(
+      "tanva:model3d-capture-frame",
+      handleCaptureRequest as EventListener
+    );
+    return () => {
+      window.removeEventListener(
+        "tanva:model3d-capture-frame",
+        handleCaptureRequest as EventListener
+      );
+    };
+  }, [modelId, captureCurrentFrame]);
 
   return (
     <div
@@ -781,73 +891,15 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
               </div>
             </div>
           )}
-          {shouldSuspendRendering && (
-            <>
-              {suspendedFrame ? (
-                <img
-                  src={suspendedFrame}
-                  alt='3d-frame'
-                  draggable={false}
-                  style={{
-                    position: "absolute",
-                    inset: 0,
-                    width: "100%",
-                    height: "100%",
-                    objectFit: "contain",
-                    pointerEvents: "none",
-                    userSelect: "none",
-                  }}
-                />
-              ) : (
-                <div
-                  style={{
-                    position: "absolute",
-                    inset: 0,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    background:
-                      "linear-gradient(135deg, rgba(232,241,255,0.95) 0%, rgba(219,234,254,0.95) 100%)",
-                    pointerEvents: "none",
-                    userSelect: "none",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      gap: 6,
-                      color: "#1e3a8a",
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: 46,
-                        fontWeight: 700,
-                        lineHeight: 1,
-                        letterSpacing: "0.02em",
-                      }}
-                    >
-                      3D
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 13,
-                        color: "#334155",
-                        maxWidth: "78%",
-                        textAlign: "center",
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                      }}
-                    >
-                      {fallbackModelTitle}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </>
+          {suspendedPreview && (
+            <img
+              data-model3d-snapshot-cache='true'
+              src={suspendedPreview}
+              alt=''
+              aria-hidden='true'
+              draggable={false}
+              style={{ display: "none" }}
+            />
           )}
         </>
       )}

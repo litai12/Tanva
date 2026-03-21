@@ -3769,6 +3769,45 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       } catch (error) {
         console.warn("paperJson 恢复后重建图片实例失败:", error);
       }
+
+      // paperJson 恢复后补齐 3D 运行时实例：若 Paper 中无可用 3D 组，则回退到 assets.models 兜底恢复
+      try {
+        if (
+          model3DTool.model3DInstances.length === 0 &&
+          Array.isArray(projectAssets.models) &&
+          projectAssets.models.length > 0
+        ) {
+          const hasUsablePaperModels = (() => {
+            try {
+              const modelItems = (paper.project as any).getItems?.({
+                match: (item: any) =>
+                  item?.data?.type === "3d-model" && item?.data?.modelId,
+              }) as paper.Item[] | undefined;
+              return (modelItems || []).some((item: any) => {
+                const itemBounds = item?.bounds;
+                const dataBounds = item?.data?.bounds;
+                const width =
+                  Number(itemBounds?.width ?? dataBounds?.width ?? 0) || 0;
+                const height =
+                  Number(itemBounds?.height ?? dataBounds?.height ?? 0) || 0;
+                const url =
+                  item?.data?.modelData?.url ||
+                  item?.data?.url ||
+                  item?.data?.path;
+                return width > 0 && height > 0 && typeof url === "string" && url.length > 0;
+              });
+            } catch {
+              return false;
+            }
+          })();
+
+          if (!hasUsablePaperModels) {
+            model3DTool.hydrateFromSnapshot(projectAssets.models);
+          }
+        }
+      } catch (error) {
+        console.warn("paperJson 恢复后重建3D实例失败:", error);
+      }
       return;
     }
 
@@ -4413,6 +4452,36 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       }
 
       try {
+        try {
+          await new Promise<void>((resolve) => {
+            let finished = false;
+            const finalize = () => {
+              if (finished) return;
+              finished = true;
+              window.removeEventListener(
+                "tanva:model3d-frame-captured",
+                onCaptured as EventListener
+              );
+              resolve();
+            };
+            const onCaptured = (event: Event) => {
+              const customEvent = event as CustomEvent<{ modelId?: string }>;
+              if (customEvent.detail?.modelId !== modelId) return;
+              finalize();
+            };
+            window.addEventListener(
+              "tanva:model3d-frame-captured",
+              onCaptured as EventListener
+            );
+            window.dispatchEvent(
+              new CustomEvent("tanva:model3d-capture-frame", {
+                detail: { modelId },
+              })
+            );
+            window.setTimeout(finalize, 180);
+          });
+        } catch {}
+
         const selection = {
           paperItems: [] as paper.Item[],
           imageIds: [] as string[],
@@ -7360,9 +7429,41 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               const placeholder = model3DGroup.children?.find(
                 (c: any) => c?.data?.isPlaceholder || c?.className === "Path"
               );
+              const resolvedBounds = (() => {
+                const fromPlaceholder = placeholder?.bounds;
+                if (
+                  fromPlaceholder &&
+                  fromPlaceholder.width > 0 &&
+                  fromPlaceholder.height > 0
+                ) {
+                  return fromPlaceholder;
+                }
 
-              if (placeholder && placeholder.bounds) {
-                const b = placeholder.bounds as any;
+                const fromGroup = model3DGroup?.bounds;
+                if (fromGroup && fromGroup.width > 0 && fromGroup.height > 0) {
+                  return fromGroup;
+                }
+
+                const raw = model3DGroup?.data?.bounds;
+                const x = Number(raw?.x);
+                const y = Number(raw?.y);
+                const width = Number(raw?.width);
+                const height = Number(raw?.height);
+                if (
+                  Number.isFinite(x) &&
+                  Number.isFinite(y) &&
+                  Number.isFinite(width) &&
+                  Number.isFinite(height) &&
+                  width > 0 &&
+                  height > 0
+                ) {
+                  return new (paper as any).Rectangle(x, y, width, height);
+                }
+                return null;
+              })();
+
+              if (resolvedBounds) {
+                const b = resolvedBounds as any;
 
                 // 从data中恢复模型数据
                 const stored = model3DGroup.data?.modelData || {};
@@ -7550,12 +7651,50 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         }
 
         // 更新3D模型实例
+        dcSetModel3DInstances((prev) => {
+          if (model3DInstances.length === 0) {
+            return prev.length > 0 ? [] : prev;
+          }
+
+          if (prev.length === model3DInstances.length) {
+            const unchanged = model3DInstances.every((next, idx) => {
+              const old = prev[idx];
+              if (!old || old.id !== next.id) return false;
+              if (old.visible !== next.visible) return false;
+              if ((old.layerId ?? null) !== (next.layerId ?? null)) return false;
+              const ob = old.bounds;
+              const nb = next.bounds;
+              if (
+                ob.x !== nb.x ||
+                ob.y !== nb.y ||
+                ob.width !== nb.width ||
+                ob.height !== nb.height
+              ) {
+                return false;
+              }
+              const om = old.modelData;
+              const nm = next.modelData;
+              return (
+                om.url === nm.url &&
+                om.path === nm.path &&
+                om.key === nm.key &&
+                om.format === nm.format &&
+                om.fileName === nm.fileName &&
+                om.fileSize === nm.fileSize &&
+                om.timestamp === nm.timestamp
+              );
+            });
+            if (unchanged) return prev;
+          }
+
+          return model3DInstances;
+        });
+
+        dcSetSelectedModel3DIds((prev) => (prev.length > 0 ? [] : prev));
+        try {
+          (window as any).tanvaModel3DInstances = model3DInstances;
+        } catch {}
         if (model3DInstances.length > 0) {
-          dcSetModel3DInstances(model3DInstances);
-          dcSetSelectedModel3DIds((prev) => prev.length > 0 ? [] : prev);
-          try {
-            (window as any).tanvaModel3DInstances = model3DInstances;
-          } catch {}
           logger.debug(
             `🎮 已从 Paper 恢复 ${model3DInstances.length} 个3D模型实例`
           );

@@ -555,6 +555,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
     >
       {/* 3D模型渲染器 - 使用屏幕坐标确保与边框和控制点对齐 */}
       <Model3DViewer
+        modelId={modelId}
         modelData={modelData}
         isSelected={isSelected}
         drawMode={drawMode}
