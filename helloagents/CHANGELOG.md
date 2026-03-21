@@ -211,3 +211,12 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ## [Flow Patch - 2026-03-21]
 ### Fixed
 - Flow `runNode` image input resolution now falls back across multiple image candidates (instead of stopping at the first failed value), reducing intermittent `viewAngle` failures with error `缺少图片输入` when a stale temporary image ref exists but a valid `imageUrl` is also present (`frontend/src/components/flow/FlowOverlay.tsx`).
+
+## [Language Provider Patch - 2026-03-21]
+### Added
+- Admin 设置页新增 `banana_text_provider`（Banana 语言链路供应商切换），支持 `auto`、`legacy_auto`、`apimart`、`legacy`。
+
+### Changed
+- Backend `BananaProvider` 文本链路（`/api/ai/text-chat`、`/api/ai/tool-selection`）接入 Apimart `POST /v1/chat/completions`，并复用 `NANO2_API_KEY`。
+- Banana 文本默认模型切换为 `gemini-3-flash-preview-apimart`；若切回 147 链路会自动归一化为兼容模型。
+- Follow-up: Banana Apimart 文本默认模型调整为 `gemini-2.5-flash`，并对文本链路启用快速失败/快速切换（减少 503/429 场景下的无效重试等待）。

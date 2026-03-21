@@ -1131,6 +1131,29 @@ const BANANA_PROVIDER_OPTIONS = [
   },
 ];
 
+const BANANA_TEXT_PROVIDER_OPTIONS = [
+  {
+    value: "auto",
+    label: "自动切换",
+    description: "优先使用 Apimart 语言接口，失败后自动切换到 147",
+  },
+  {
+    value: "legacy_auto",
+    label: "自动切换（147优先）",
+    description: "优先使用 147 语言接口，失败后自动切换到 Apimart",
+  },
+  {
+    value: "apimart",
+    label: "Apimart",
+    description: "强制使用 Apimart 语言接口 (api.apimart.ai)",
+  },
+  {
+    value: "legacy",
+    label: "147",
+    description: "强制使用 147 语言接口 (api1.147ai.com)",
+  },
+];
+
 // 公共模板管理 Tab
 function TemplatesTab() {
   const [templates, setTemplates] = useState<PublicTemplate[]>([]);
@@ -2495,6 +2518,7 @@ function SettingsTab() {
   const [saving, setSaving] = useState(false);
   const [sora2Provider, setSora2Provider] = useState("auto");
   const [bananaProvider, setBananaProvider] = useState("auto");
+  const [bananaTextProvider, setBananaTextProvider] = useState("auto");
 
   // 微信二维码状态
   const [officialQrCode, setOfficialQrCode] = useState<string>("");
@@ -2515,6 +2539,12 @@ function SettingsTab() {
       const bananaSetting = result.find((s) => s.key === "banana_provider");
       if (bananaSetting) {
         setBananaProvider(bananaSetting.value);
+      }
+      const bananaTextSetting = result.find(
+        (s) => s.key === "banana_text_provider"
+      );
+      if (bananaTextSetting) {
+        setBananaTextProvider(bananaTextSetting.value);
       }
       // 加载微信二维码设置
       const officialSetting = result.find((s) => s.key === "wechat_official_account_qrcode");
@@ -2615,6 +2645,23 @@ function SettingsTab() {
     }
   };
 
+  const handleSaveBananaTextProvider = async () => {
+    setSaving(true);
+    try {
+      await upsertSetting({
+        key: "banana_text_provider",
+        value: bananaTextProvider,
+        description: "Banana 语言底层 API 供应商选择",
+      });
+      alert("保存成功");
+      loadSettings();
+    } catch (error: any) {
+      alert(error.message || "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) {
     return <div className='text-center py-8 text-gray-500'>加载中...</div>;
   }
@@ -2697,6 +2744,46 @@ function SettingsTab() {
         </div>
         <div className='mt-4'>
           <Button onClick={handleSaveBananaProvider} disabled={saving}>
+            {saving ? "保存中..." : "保存设置"}
+          </Button>
+        </div>
+      </div>
+
+      <div className='bg-white rounded-lg border p-6 shadow-sm'>
+        <h3 className='text-lg font-semibold mb-4'>Banana 语言生成设置</h3>
+        <p className='text-sm text-gray-500 mb-4'>
+          选择 Banana 语言类能力（文本对话、工具选择、提示词优化）底层使用的 API
+          供应商。支持两种自动模式：Apimart 优先或 147 优先。
+        </p>
+        <div className='space-y-3'>
+          {BANANA_TEXT_PROVIDER_OPTIONS.map((option) => (
+            <label
+              key={option.value}
+              className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition ${
+                bananaTextProvider === option.value
+                  ? "border-blue-500 bg-blue-50"
+                  : "border-gray-200 hover:border-gray-300"
+              }`}
+            >
+              <input
+                type='radio'
+                name='bananaTextProvider'
+                value={option.value}
+                checked={bananaTextProvider === option.value}
+                onChange={(e) => setBananaTextProvider(e.target.value)}
+                className='mt-1'
+              />
+              <div>
+                <div className='font-medium'>{option.label}</div>
+                <div className='text-sm text-gray-500'>
+                  {option.description}
+                </div>
+              </div>
+            </label>
+          ))}
+        </div>
+        <div className='mt-4'>
+          <Button onClick={handleSaveBananaTextProvider} disabled={saving}>
             {saving ? "保存中..." : "保存设置"}
           </Button>
         </div>

@@ -22,4 +22,7 @@
 
 ## 注意事项
 - 认证/鉴权细节以 Guard 与具体实现为准（通常依赖 JWT + 用户 role/status）。
-
+- 系统设置中与供应商切换相关的 key：
+  - `sora2_provider`：Sora2 视频链路供应商
+  - `banana_provider`：Banana 图像链路供应商
+  - `banana_text_provider`：Banana 文本链路供应商（text-chat/tool-selection）

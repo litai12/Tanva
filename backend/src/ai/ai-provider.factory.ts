@@ -78,6 +78,9 @@ export class AIProviderFactory implements OnModuleInit {
 
     // 如果指定了模型，根据模型名称推断提供商
     if (model) {
+      if (model.includes('apimart')) {
+        return this.providers.get('banana') || this.providers.get('gemini')!;
+      }
       if (model.includes('gemini') || model.includes('google')) {
         // 优先使用 gemini-pro，如果没有则使用 gemini
         return this.providers.get('gemini-pro') || this.providers.get('gemini')!;

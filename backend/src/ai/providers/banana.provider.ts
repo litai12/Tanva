@@ -66,6 +66,12 @@ export type BananaImageProvider =
   | "apimart"
   | "legacy";
 export const BANANA_PROVIDER_SETTING_KEY = "banana_provider";
+export type BananaTextProvider =
+  | "auto"
+  | "legacy_auto"
+  | "apimart"
+  | "legacy";
+export const BANANA_TEXT_PROVIDER_SETTING_KEY = "banana_text_provider";
 
 /**
  * Banana API Provider - 使用HTTP直接调用Google Gemini API的代理
@@ -80,8 +86,12 @@ export class BananaProvider implements IAIProvider {
   private readonly apiBaseUrl = "https://api1.147ai.com/v1beta/models";
   private readonly apimartGenerateUrl = "https://api.apimart.ai/v1/images/generations";
   private readonly apimartTaskBaseUrl = "https://api.apimart.ai/v1/tasks";
+  private readonly apimartTextUrl = "https://api.apimart.ai/v1/chat/completions";
   private readonly DEFAULT_MODEL = "gemini-3-pro-image-preview";
+  private readonly DEFAULT_TEXT_MODEL = "gemini-3-flash-preview";
+  private readonly DEFAULT_APIMART_TEXT_MODEL = "gemini-2.5-flash";
   private readonly DEFAULT_TIMEOUT = 300000; // 5分钟
+  private readonly TEXT_TIMEOUT = 45000; // 文本接口更快失败，便于通道快速切换
   private readonly MAX_RETRIES = 3;
   private readonly MAX_MODEL_ATTEMPTS = 3; // 主模型 + 两级降级（Ultra -> Pro -> Fast）
   private readonly RETRY_DELAYS = [2000, 5000, 10000]; // 递增延迟: 2s, 5s, 10s
@@ -97,6 +107,7 @@ export class BananaProvider implements IAIProvider {
     "gemini-3-pro-preview": "gemini-3-flash-preview",
     "banana-gemini-3-pro-preview": "gemini-3-flash-preview",
     "banana-gemini-3-pro-image-preview": "gemini-2.5-flash-image",
+    "gemini-3-flash-preview-apimart": "gemini-3-flash-preview",
   };
 
   constructor(
@@ -157,6 +168,27 @@ export class BananaProvider implements IAIProvider {
     return "auto";
   }
 
+  private async getConfiguredTextProvider(): Promise<BananaTextProvider> {
+    try {
+      const setting = await this.prisma.systemSetting.findUnique({
+        where: { key: BANANA_TEXT_PROVIDER_SETTING_KEY },
+      });
+      if (
+        setting &&
+        ["auto", "legacy_auto", "apimart", "legacy"].includes(setting.value)
+      ) {
+        return setting.value as BananaTextProvider;
+      }
+    } catch (error) {
+      this.logger.warn(
+        `读取 banana text provider 设置失败: ${
+          error instanceof Error ? error.message : error
+        }`
+      );
+    }
+    return "auto";
+  }
+
   private normalizeModelName(model: string): string {
     // 移除banana-前缀，确保API能识别模型名称
     // banana-gemini-3-pro-image-preview -> gemini-3-pro-image-preview
@@ -177,6 +209,42 @@ export class BananaProvider implements IAIProvider {
       return "gemini-2.5-flash-image-preview";
     }
     return normalized;
+  }
+
+  private normalizeLegacyTextModel(model: string): string {
+    const normalized = this.normalizeModelName(model);
+    if (normalized.endsWith("-apimart")) {
+      return normalized.slice(0, -"-apimart".length);
+    }
+    return normalized;
+  }
+
+  private normalizeApimartTextModel(model: string): string {
+    const normalized = this.normalizeModelName(model);
+    if (normalized === "gemini-3-flash-preview-apimart") {
+      return this.DEFAULT_APIMART_TEXT_MODEL;
+    }
+    if (normalized.endsWith("-apimart")) {
+      return normalized.slice(0, -"-apimart".length);
+    }
+    if (!normalized || normalized === this.DEFAULT_TEXT_MODEL) {
+      return this.DEFAULT_APIMART_TEXT_MODEL;
+    }
+    return normalized;
+  }
+
+  private resolveTextModelForChannel(
+    requestedModel: string | undefined,
+    channel: "legacy" | "apimart"
+  ): string {
+    if (channel === "apimart") {
+      return this.normalizeApimartTextModel(
+        requestedModel || this.DEFAULT_APIMART_TEXT_MODEL
+      );
+    }
+    return this.normalizeLegacyTextModel(
+      requestedModel || this.DEFAULT_TEXT_MODEL
+    );
   }
 
   private toApimartResolution(imageSize?: ImageGenerationRequest["imageSize"]): "1K" | "2K" | "4K" {
@@ -206,6 +274,17 @@ export class BananaProvider implements IAIProvider {
       message.includes("quota") ||
       message.includes("overloaded") ||
       message.includes("capacity")
+    );
+  }
+
+  private isRateLimitedOrQuotaError(error: Error): boolean {
+    const message = error.message.toLowerCase();
+    return (
+      message.includes("429") ||
+      message.includes("quota exceeded") ||
+      message.includes("too many requests") ||
+      message.includes("rate limit") ||
+      message.includes("quota")
     );
   }
 
@@ -699,6 +778,182 @@ export class BananaProvider implements IAIProvider {
     }
   }
 
+  private normalizeTextContentValue(value: unknown): string {
+    if (typeof value === "string") return value;
+    if (value === null || value === undefined) return "";
+    return String(value);
+  }
+
+  private buildApimartChatMessages(contents: any): Array<{
+    role: "system" | "user" | "assistant" | "tool";
+    content: string | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }>;
+  }> {
+    const normalizedContents = this.buildContents(contents);
+    const messages: Array<{
+      role: "system" | "user" | "assistant" | "tool";
+      content: string | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }>;
+    }> = [];
+
+    for (const item of normalizedContents) {
+      const roleRaw =
+        typeof item?.role === "string" && item.role.trim()
+          ? item.role.trim().toLowerCase()
+          : "user";
+      const role =
+        roleRaw === "system" ||
+        roleRaw === "assistant" ||
+        roleRaw === "tool"
+          ? (roleRaw as "system" | "assistant" | "tool")
+          : "user";
+
+      const rawParts = Array.isArray(item?.parts) ? item.parts : [];
+      const transformedParts: Array<
+        { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }
+      > = [];
+
+      for (const part of rawParts) {
+        if (part && typeof part === "object" && typeof part.text === "string") {
+          transformedParts.push({ type: "text", text: part.text });
+          continue;
+        }
+
+        const inlineData = part && typeof part === "object" ? part.inlineData : null;
+        const data = inlineData && typeof inlineData.data === "string" ? inlineData.data.replace(/\s+/g, "") : "";
+        if (data) {
+          const mimeType =
+            inlineData && typeof inlineData.mimeType === "string"
+              ? inlineData.mimeType
+              : this.inferMimeTypeFromBase64(data);
+          transformedParts.push({
+            type: "image_url",
+            image_url: {
+              url: `data:${mimeType};base64,${data}`,
+            },
+          });
+          continue;
+        }
+
+        const fileData = part && typeof part === "object" ? part.fileData : null;
+        if (fileData && typeof fileData.uri === "string" && fileData.uri.trim()) {
+          transformedParts.push({
+            type: "image_url",
+            image_url: { url: fileData.uri.trim() },
+          });
+          continue;
+        }
+
+        if (part !== null && part !== undefined) {
+          transformedParts.push({
+            type: "text",
+            text: this.normalizeTextContentValue(part),
+          });
+        }
+      }
+
+      if (!transformedParts.length) {
+        transformedParts.push({ type: "text", text: "" });
+      }
+
+      if (transformedParts.length === 1 && transformedParts[0].type === "text") {
+        messages.push({
+          role,
+          content: transformedParts[0].text,
+        });
+      } else {
+        messages.push({
+          role,
+          content: transformedParts,
+        });
+      }
+    }
+
+    if (!messages.length) {
+      messages.push({ role: "user", content: "" });
+    }
+
+    return messages;
+  }
+
+  private extractTextFromApimartMessageContent(content: unknown): string {
+    if (typeof content === "string") return content.trim();
+    if (!Array.isArray(content)) return "";
+    return content
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (part && typeof part === "object" && typeof (part as any).text === "string") {
+          return (part as any).text;
+        }
+        return "";
+      })
+      .join("")
+      .trim();
+  }
+
+  private async makeApimartTextRequest(
+    model: string,
+    contents: any,
+    _config?: any
+  ): Promise<{ imageBytes: string | null; textResponse: string }> {
+    const apiKey = this.ensureApimartApiKey();
+    const payload = {
+      model,
+      stream: false,
+      messages: this.buildApimartChatMessages(contents),
+    };
+
+    const response = await fetch(this.apimartTextUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const rawText = await response.text();
+    let parsed: any = null;
+    try {
+      parsed = rawText ? JSON.parse(rawText) : null;
+    } catch {
+      parsed = null;
+    }
+
+    if (!response.ok) {
+      const message =
+        parsed?.error?.message ||
+        parsed?.message ||
+        rawText ||
+        `HTTP ${response.status}`;
+      throw new Error(
+        `Apimart text request failed: ${response.status} ${response.statusText} - ${message}`
+      );
+    }
+
+    const data = parsed?.data ?? parsed;
+    const textResponse = this.extractTextFromApimartMessageContent(
+      data?.choices?.[0]?.message?.content
+    );
+    if (!textResponse) {
+      throw new Error("Apimart text response was empty");
+    }
+    return {
+      imageBytes: null,
+      textResponse,
+    };
+  }
+
+  private async makeTextRequest(
+    model: string,
+    contents: any,
+    config: any,
+    channel: "legacy" | "apimart"
+  ): Promise<{ imageBytes: string | null; textResponse: string }> {
+    if (channel === "apimart") {
+      return this.makeApimartTextRequest(model, contents, config);
+    }
+    return this.makeRequest(model, contents, config);
+  }
+
   private async submitApimartTask(payload: Record<string, any>): Promise<string> {
     const apiKey = this.ensureApimartApiKey();
     const response = await fetch(this.apimartGenerateUrl, {
@@ -956,7 +1211,7 @@ export class BananaProvider implements IAIProvider {
   }
 
   private getProviderFailureMessage(
-    result: AIProviderResponse<ImageResult> | null,
+    result: AIProviderResponse<any> | null,
     error: unknown
   ): string {
     if (result?.error?.message) return result.error.message;
@@ -1615,47 +1870,43 @@ export class BananaProvider implements IAIProvider {
     }
   }
 
-  async generateText(
-    request: TextChatRequest
+  private async generateTextViaChannel(
+    request: TextChatRequest,
+    channel: "legacy" | "apimart"
   ): Promise<AIProviderResponse<TextResult>> {
-    this.logger.log(`🤖 Generating text response using Banana (147) API...`);
-
-    // 文本生成默认使用 gemini-3-flash-preview，如果指定了 Pro 模型则使用降级策略
-    const originalModel = this.normalizeModelName(
-      request.model || "gemini-3-flash-preview"
-    );
+    const originalModel = this.resolveTextModelForChannel(request.model, channel);
     let currentModel = originalModel;
     let usedFallback = false;
 
-    // 尝试使用主模型，失败后降级
     for (let round = 0; round < this.MAX_MODEL_ATTEMPTS; round++) {
       try {
         this.logger.log(
-          `📝 Using model: ${currentModel}${usedFallback ? " (fallback)" : ""}`
+          `📝 [${channel}] Using model: ${currentModel}${
+            usedFallback ? " (fallback)" : ""
+          }`
         );
 
         const apiConfig: any = {
           responseModalities: ["Text"],
         };
 
-        if (request.enableWebSearch) {
+        if (request.enableWebSearch && channel === "legacy") {
           apiConfig.tools = [{ googleSearch: {} }];
           this.logger.log("🔍 Web search enabled");
         }
 
-        const result = await this.withRetry(async () => {
-          return await this.withTimeout(
-            (async () => {
-              return await this.makeRequest(
-                currentModel,
-                request.prompt,
-                apiConfig
-              );
-            })(),
-            this.DEFAULT_TIMEOUT,
-            "Text generation"
-          );
-        }, "Text generation");
+        const result = await this.withTimeout(
+          (async () => {
+            return await this.makeTextRequest(
+              currentModel,
+              request.prompt,
+              apiConfig,
+              channel
+            );
+          })(),
+          this.TEXT_TIMEOUT,
+          `Text generation (${channel})`
+        );
 
         if (usedFallback) {
           this.logger.log(
@@ -1671,32 +1922,71 @@ export class BananaProvider implements IAIProvider {
           success: true,
           data: {
             text: result.textResponse,
-            metadata: usedFallback
-              ? {
-                  fallbackUsed: true,
-                  originalModel,
-                  fallbackModel: currentModel,
-                }
-              : undefined,
+            metadata: {
+              provider: channel === "apimart" ? "apimart" : "147",
+              ...(usedFallback
+                ? {
+                    fallbackUsed: true,
+                    originalModel,
+                    fallbackModel: currentModel,
+                  }
+                : {}),
+            },
           },
         };
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
 
-        // 检查是否应该降级
+        if (this.isRateLimitedOrQuotaError(err)) {
+          this.logger.warn(
+            `⚠️ [FAST-SWITCH] Text generation hit rate/quota limit on ${channel}: ${err.message}`
+          );
+          return {
+            success: false,
+            error: {
+              code: "TEXT_GENERATION_RATE_LIMITED",
+              message: err.message,
+              details: error,
+            },
+          };
+        }
+
+        if (channel === "apimart" && this.shouldFallback(err)) {
+          this.logger.warn(
+            `⚠️ [FAST-SWITCH] Apimart text channel unavailable, skip same-channel retries: ${err.message}`
+          );
+          return {
+            success: false,
+            error: {
+              code: "TEXT_GENERATION_FAILED",
+              message: err.message,
+              details: error,
+            },
+          };
+        }
+
         if (this.shouldFallback(err)) {
           const fallbackModel = this.getFallbackModel(currentModel);
           if (fallbackModel) {
+            const nextModel = this.resolveTextModelForChannel(
+              fallbackModel,
+              channel
+            );
+            if (nextModel === currentModel) {
+              this.logger.warn(
+                `⚠️ [FAST-SWITCH] Fallback model equals current model (${currentModel}), skip redundant retry`
+              );
+            } else {
             this.logger.warn(
               `⚠️ [FALLBACK] Text generation failed with ${currentModel}, falling back to ${fallbackModel}. Error: ${err.message}`
             );
-            currentModel = fallbackModel;
+            currentModel = nextModel;
             usedFallback = true;
-            continue; // 重试使用降级模型
+            continue;
+            }
           }
         }
 
-        // 无法降级或降级后仍然失败
         this.logger.error("❌ Text generation failed:", error);
         return {
           success: false,
@@ -1709,7 +1999,6 @@ export class BananaProvider implements IAIProvider {
       }
     }
 
-    // 不应该到达这里，但为了类型安全
     return {
       success: false,
       error: {
@@ -1717,6 +2006,62 @@ export class BananaProvider implements IAIProvider {
         message: "Unexpected error in text generation",
       },
     };
+  }
+
+  async generateText(
+    request: TextChatRequest
+  ): Promise<AIProviderResponse<TextResult>> {
+    this.logger.log(`🤖 Generating text response using Banana provider...`);
+    const providerMode = await this.getConfiguredTextProvider();
+
+    if (providerMode === "legacy_auto") {
+      let legacyResult: AIProviderResponse<TextResult> | null = null;
+      let legacyError: unknown = null;
+
+      try {
+        legacyResult = await this.generateTextViaChannel(request, "legacy");
+      } catch (error) {
+        legacyError = error;
+      }
+
+      if (legacyResult?.success) return legacyResult;
+
+      this.logger.warn(
+        `147 text generation failed in 147-first mode, fallback to Apimart: ${this.getProviderFailureMessage(
+          legacyResult,
+          legacyError
+        )}`
+      );
+      return this.generateTextViaChannel(request, "apimart");
+    }
+
+    if (providerMode !== "legacy") {
+      try {
+        const result = await this.generateTextViaChannel(request, "apimart");
+        if (result.success || providerMode === "apimart") {
+          return result;
+        }
+      } catch (error) {
+        if (providerMode === "apimart") {
+          const message = error instanceof Error ? error.message : String(error);
+          return {
+            success: false,
+            error: {
+              code: "TEXT_GENERATION_FAILED",
+              message,
+              details: error,
+            },
+          };
+        }
+        this.logger.warn(
+          `Apimart text generation failed in auto mode, fallback to legacy: ${
+            error instanceof Error ? error.message : error
+          }`
+        );
+      }
+    }
+
+    return this.generateTextViaChannel(request, "legacy");
   }
 
   private sanitizeAvailableTools(
@@ -1979,10 +2324,9 @@ export class BananaProvider implements IAIProvider {
   async selectTool(
     request: ToolSelectionRequest
   ): Promise<AIProviderResponse<ToolSelectionResult>> {
-    this.logger.log("Selecting tool with Banana (147) API...");
+    this.logger.log("Selecting tool with Banana provider...");
 
     try {
-      const maxAttempts = 1;
       const toolSelectionTimeoutMs = 7_000;
       let lastError: unknown;
 
@@ -2020,21 +2364,32 @@ ${vectorRule ? `${vectorRule}\n\n` : ""}Return strict JSON only:
   "confidence": 0.0-1.0
 }`;
 
-      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const providerMode = await this.getConfiguredTextProvider();
+      const channelSequence: Array<"legacy" | "apimart"> =
+        providerMode === "legacy"
+          ? ["legacy"]
+          : providerMode === "apimart"
+          ? ["apimart"]
+          : providerMode === "legacy_auto"
+          ? ["legacy", "apimart"]
+          : ["apimart", "legacy"];
+
+      for (const channel of channelSequence) {
         try {
-          const toolSelectionModel =
-            typeof request.model === "string" && request.model.trim()
-              ? this.normalizeModelName(request.model.trim())
-              : "gemini-3-flash-preview";
+          const toolSelectionModel = this.resolveTextModelForChannel(
+            request.model,
+            channel
+          );
 
           const result = await this.withTimeout(
-            this.makeRequest(
+            this.makeTextRequest(
               toolSelectionModel,
               [{ text: systemPrompt }, { text: `User input: ${request.prompt}` }],
-              { responseModalities: ["Text"] }
+              { responseModalities: ["Text"] },
+              channel
             ),
             toolSelectionTimeoutMs,
-            "Tool selection API call"
+            `Tool selection API call (${channel})`
           );
 
           if (!result.textResponse) {
@@ -2087,9 +2442,7 @@ ${vectorRule ? `${vectorRule}\n\n` : ""}Return strict JSON only:
         } catch (error) {
           lastError = error;
           const message = error instanceof Error ? error.message : String(error);
-          this.logger.warn(
-            `Tool selection attempt ${attempt}/${maxAttempts} failed: ${message}`
-          );
+          this.logger.warn(`Tool selection via ${channel} failed: ${message}`);
         }
       }
 
@@ -2134,6 +2487,7 @@ ${vectorRule ? `${vectorRule}\n\n` : ""}Return strict JSON only:
         "gemini-3-pro-image-preview",
         "gemini-3.1-flash-image-preview",
         "gemini-3-flash-preview",
+        "gemini-2.5-flash",
       ],
     };
   }
