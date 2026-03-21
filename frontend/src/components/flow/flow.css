@@ -519,6 +519,16 @@ body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__handle::after {
   pointer-events: none !important;
 }
 
+/* 拖拽 Canvas 图片时，临时冻结 Flow 3D 视口，减少 WebGL 合成负担 */
+body.tanva-canvas-dragging .tanva-flow-overlay .tanva-three-node-viewport {
+  background: #f3f4f6 !important;
+}
+
+body.tanva-canvas-dragging .tanva-flow-overlay .tanva-three-node-viewport .tanva-three-node-canvas,
+body.tanva-canvas-dragging .tanva-flow-overlay .tanva-three-node-viewport canvas[data-flow-three-node-canvas="true"] {
+  visibility: hidden !important;
+}
+
 /* ==================== 视频全屏样式 ==================== */
 /* 视频全屏时保持原始比例，不铺满屏幕 */
 video:fullscreen,

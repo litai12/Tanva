@@ -4,7 +4,7 @@ import { useCanvasStore } from '@/stores';
 import Model3DViewer from './Model3DViewer';
 import type { Model3DData, Model3DCameraState } from '@/services/model3DUploadService';
 import { Button } from '../ui/button';
-import { Camera, Trash2, Download } from 'lucide-react';
+import { Camera, Trash2, Download, ArrowRightLeft } from 'lucide-react';
 import { LoadingSpinner } from '../ui/loading-spinner';
 import { downloadFile } from '@/utils/downloadHelper';
 import { logger } from '@/utils/logger';
@@ -31,7 +31,43 @@ interface Model3DContainerProps {
   onCapture?: (modelId: string) => void;
   isCapturePending?: boolean;
   showIndividualTools?: boolean;
+  isImageDragging?: boolean;
 }
+
+const MODEL3D_EPSILON = 1e-4;
+const arraysAlmostEqual = (a: readonly number[], b: readonly number[]) =>
+  a.length === b.length &&
+  a.every((value, index) => Math.abs(value - b[index]) < MODEL3D_EPSILON);
+
+const cameraStatesEqual = (a?: Model3DCameraState, b?: Model3DCameraState) => {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return (
+    arraysAlmostEqual(a.position, b.position) &&
+    arraysAlmostEqual(a.target, b.target) &&
+    arraysAlmostEqual(a.up, b.up)
+  );
+};
+
+const modelDataEqual = (a: Model3DData, b: Model3DData) =>
+  a === b ||
+  (a.url === b.url &&
+    a.path === b.path &&
+    a.key === b.key &&
+    a.format === b.format &&
+    a.fileName === b.fileName &&
+    a.fileSize === b.fileSize &&
+    a.timestamp === b.timestamp &&
+    cameraStatesEqual(a.camera, b.camera));
+
+const boundsEqual = (
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number }
+) =>
+  Math.abs(a.x - b.x) < MODEL3D_EPSILON &&
+  Math.abs(a.y - b.y) < MODEL3D_EPSILON &&
+  Math.abs(a.width - b.width) < MODEL3D_EPSILON &&
+  Math.abs(a.height - b.height) < MODEL3D_EPSILON;
 
 const Model3DContainer: React.FC<Model3DContainerProps> = ({
   modelData,
@@ -51,6 +87,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   onCapture,
   isCapturePending = false,
   showIndividualTools = true,
+  isImageDragging = false,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -69,8 +106,10 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
     setRealTimeBounds(bounds);
   }, [bounds]);
 
-  // 获取画布状态
-  const { zoom, panX, panY } = useCanvasStore();
+  // 仅订阅视口必要字段，避免被 store 其他高频状态更新牵连重渲
+  const zoom = useCanvasStore((state) => state.zoom);
+  const panX = useCanvasStore((state) => state.panX);
+  const panY = useCanvasStore((state) => state.panY);
 
   // 优化的同步机制 - 使用ref跟踪更新状态，避免强制重渲染循环
   const [renderKey, setRenderKey] = useState(0);
@@ -177,6 +216,77 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
     'p-1.5 h-8 w-8 rounded-full shadow-lg hover:shadow-xl transition-all duration-150 ease-out hover:scale-105';
   const actionIconClass = 'w-4 h-4 text-slate-600';
 
+  const handleConvertToFlowThreeNode = useCallback(() => {
+    const modelUrl = modelData.url || modelData.path;
+    if (!modelUrl) {
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { message: '缺少模型地址，无法转换为3D节点', type: 'error' }
+      }));
+      return;
+    }
+
+    const flowApi = (window as any).tanvaFlow;
+    if (!flowApi) {
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { message: 'Flow 画布未就绪，请先打开节点面板', type: 'error' }
+      }));
+      return;
+    }
+
+    const rect = containerRef.current?.getBoundingClientRect();
+    const screenX = rect ? rect.right + 40 : screenBounds.x + screenBounds.width + 40;
+    const screenY = rect ? rect.top + rect.height / 2 : screenBounds.y + screenBounds.height / 2;
+    let nodeId: string | undefined;
+
+    try {
+      if (typeof flowApi.addThreeFromScreen === 'function') {
+        nodeId = flowApi.addThreeFromScreen(screenX, screenY);
+      } else if (
+        typeof flowApi.addThree === 'function' &&
+        typeof flowApi.rf?.screenToFlowPosition === 'function'
+      ) {
+        const flowPos = flowApi.rf.screenToFlowPosition({
+          x: screenX,
+          y: screenY,
+        });
+        nodeId = flowApi.addThree(flowPos.x, flowPos.y);
+      } else if (typeof flowApi.addThree === 'function') {
+        nodeId = flowApi.addThree();
+      }
+    } catch (error) {
+      logger.error('转换3D节点失败', error);
+    }
+
+    if (!nodeId) {
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { message: '创建3D节点失败，请稍后重试', type: 'error' }
+      }));
+      return;
+    }
+
+    window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
+      detail: {
+        id: nodeId,
+        patch: {
+          modelUrl,
+          modelName: modelData.fileName || undefined,
+        }
+      }
+    }));
+
+    window.dispatchEvent(new CustomEvent('toast', {
+      detail: { message: '已转换为3D节点', type: 'success' }
+    }));
+  }, [
+    modelData.fileName,
+    modelData.path,
+    modelData.url,
+    screenBounds.height,
+    screenBounds.width,
+    screenBounds.x,
+    screenBounds.y,
+  ]);
+
   // 处理wheel事件，防止3D缩放时影响画布缩放
   const handleWheel = useCallback((e: WheelEvent) => {
     if (isSelected && drawMode === 'select') {
@@ -281,11 +391,6 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
         y: paperPosition.y,
       };
       realTimeBoundsRef.current = nextBounds;
-      setRealTimeBounds(prev => ({
-        ...prev,
-        x: paperPosition.x,
-        y: paperPosition.y,
-      }));
     } else if (isResizing && onResize && resizeDirection) {
       const now = Date.now();
       if (now - lastResizeTime.current < RESIZE_THROTTLE) {
@@ -326,7 +431,6 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       const newPaperBounds = convertToPaperBounds(newScreenBounds);
       realTimeBoundsRef.current = newPaperBounds;
       setScreenBounds(newScreenBounds);
-      setRealTimeBounds(newPaperBounds);
     }
   }, [isDragging, isResizing, dragStart, initialBounds, resizeDirection, onMove, onResize, convertToScreenBounds, convertToPaperBounds]);
 
@@ -452,12 +556,12 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       {/* 3D模型渲染器 - 使用屏幕坐标确保与边框和控制点对齐 */}
       <Model3DViewer
         modelData={modelData}
-        width={screenBounds.width}
-        height={screenBounds.height}
         isSelected={isSelected}
         drawMode={drawMode}
         onCameraChange={onCameraChange}
+        isDragging={isDragging}
         isResizing={isResizing}
+        suspendRendering={isImageDragging}
       />
 
       {/* 选中状态的边框线 - 四条独立边框，只在边框上响应拖拽 */}
@@ -654,6 +758,16 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
             size="sm"
             className={actionButtonClass}
             style={actionButtonStyle}
+            title="转换为Flow 3D节点"
+            onClick={handleConvertToFlowThreeNode}
+          >
+            <ArrowRightLeft className={actionIconClass} />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className={actionButtonClass}
+            style={actionButtonStyle}
             title="下载3D模型"
             onClick={async () => {
               try {
@@ -700,4 +814,19 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   );
 };
 
-export default Model3DContainer;
+const model3DContainerPropsEqual = (
+  prev: Readonly<Model3DContainerProps>,
+  next: Readonly<Model3DContainerProps>
+) =>
+  prev.modelId === next.modelId &&
+  prev.isSelected === next.isSelected &&
+  prev.visible === next.visible &&
+  prev.drawMode === next.drawMode &&
+  prev.isSelectionDragging === next.isSelectionDragging &&
+  prev.isCapturePending === next.isCapturePending &&
+  prev.showIndividualTools === next.showIndividualTools &&
+  prev.isImageDragging === next.isImageDragging &&
+  boundsEqual(prev.bounds, next.bounds) &&
+  modelDataEqual(prev.modelData, next.modelData);
+
+export default React.memo(Model3DContainer, model3DContainerPropsEqual);

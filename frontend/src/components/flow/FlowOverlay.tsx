@@ -4926,6 +4926,44 @@ function FlowInner() {
     return false;
   }, []);
 
+  const isInsideThreeViewport = React.useCallback(
+    (event: WheelEvent | React.WheelEvent<HTMLDivElement>) => {
+      const selector =
+        '[data-model3d-container="true"], [data-flow-three-node-viewport="true"], .react-flow__node-three, .react-flow__node-threePathTracer';
+
+      const target = event.target;
+      if (target instanceof Element && target.closest(selector)) return true;
+
+      const composedPath = (event as any)?.composedPath;
+      if (typeof composedPath === "function") {
+        try {
+          const path = composedPath.call(event);
+          if (
+            Array.isArray(path) &&
+            path.some(
+              (node: unknown) =>
+                node instanceof Element && Boolean(node.closest(selector))
+            )
+          ) {
+            return true;
+          }
+        } catch {
+          // ignore path errors
+        }
+      }
+
+      const x = Number((event as any)?.clientX);
+      const y = Number((event as any)?.clientY);
+      if (Number.isFinite(x) && Number.isFinite(y) && typeof document !== "undefined") {
+        const hit = document.elementFromPoint(x, y);
+        if (hit?.closest(selector)) return true;
+      }
+
+      return false;
+    },
+    []
+  );
+
   // 中键拖拽以平移 Flow 视口，阻止浏览器的自动滚动
   const middleDragRef = React.useRef<{
     dragging: boolean;
@@ -5039,6 +5077,7 @@ function FlowInner() {
   const handleWheelCapture = React.useCallback(
     (event: WheelEvent | React.WheelEvent<HTMLDivElement>) => {
       if (!containerRef.current) return;
+      if (isInsideThreeViewport(event)) return;
       if (allowNativeScroll(event.target)) return;
 
       const store = useCanvasStore.getState();
@@ -5089,7 +5128,7 @@ function FlowInner() {
       const worldDeltaY = (-event.deltaY * dpr) / zoom;
       store.setPan(store.panX + worldDeltaX, store.panY + worldDeltaY);
     },
-    [allowNativeScroll]
+    [allowNativeScroll, isInsideThreeViewport]
   );
 
   React.useEffect(() => {
@@ -13537,6 +13576,31 @@ function FlowInner() {
         setNodes((ns) =>
           ns.concat([
             { id, type: "three", position: { x, y }, data: {} },
+          ] as any)
+        );
+        return id;
+      },
+      addThreeFromScreen: (
+        screenX = window.innerWidth / 2,
+        screenY = window.innerHeight / 2,
+        dataPatch?: Record<string, any>
+      ) => {
+        const id = `three_${Date.now()}`;
+        const position = rf.screenToFlowPosition({
+          x: screenX,
+          y: screenY,
+        });
+        setNodes((ns) =>
+          ns.concat([
+            {
+              id,
+              type: "three",
+              position,
+              data:
+                dataPatch && Object.keys(dataPatch).length > 0
+                  ? { ...dataPatch }
+                  : {},
+            },
           ] as any)
         );
         return id;

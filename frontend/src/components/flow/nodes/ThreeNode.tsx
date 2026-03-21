@@ -486,6 +486,12 @@ function ThreeNodeInner({ id, data, selected }: Props) {
       const camera = cameraRef.current;
       const controls = controlsRef.current;
       if (!renderer || !scene || !camera) return;
+      const isCanvasDragging =
+        typeof document !== 'undefined' &&
+        document.body?.classList.contains('tanva-canvas-dragging');
+      if (isCanvasDragging && !isInteractingRef.current) {
+        return;
+      }
       if (syncControls) {
         controls?.update();
       }
@@ -602,6 +608,8 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     (renderer.domElement.style as any).height = '100%';
     (renderer.domElement.style as any).display = 'block';
     (renderer.domElement.style as any).touchAction = 'none';
+    renderer.domElement.classList.add('tanva-three-node-canvas');
+    renderer.domElement.setAttribute('data-flow-three-node-canvas', 'true');
     renderer.setPixelRatio(1); // 降低像素比提升交互流畅度
     containerRef.current.innerHTML = '';
     containerRef.current.appendChild(renderer.domElement);
@@ -632,7 +640,8 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     controls.addEventListener('start', beginInteraction);
     controls.addEventListener('change', () => {
       if (isInteractingRef.current) {
-        requestRender();
+        // controls.change 本身已由 OrbitControls.update 触发，避免在回调中再次 update 导致额外开销
+        requestRender(false);
         return;
       }
       if (pathTracingEnabledRef.current && pathTracerRef.current) {
@@ -643,7 +652,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
         } catch {}
         return;
       }
-      requestRender();
+      requestRender(false);
     });
     controls.addEventListener('end', endInteraction);
     controlsRef.current = controls;
@@ -698,6 +707,14 @@ function ThreeNodeInner({ id, data, selected }: Props) {
       disposeResources();
     };
   }, [initIfNeeded, disposeResources]);
+
+  React.useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      requestRender(false);
+    };
+    window.addEventListener('mouseup', handleGlobalMouseUp, true);
+    return () => window.removeEventListener('mouseup', handleGlobalMouseUp, true);
+  }, [requestRender]);
 
   React.useEffect(() => {
     if (!pathTracingEnabled) {
@@ -1055,7 +1072,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
   const runtimeErr = err || pathTracerError;
 
   return (
-    <div style={{ width: Math.max(data.boxW || defaultNodeWidth, minNodeWidth), height: Math.max(data.boxH || defaultNodeHeight, minNodeHeight), padding: 8, background: '#fff', border: `1px solid ${borderColor}`, borderRadius: 8, boxShadow, transition: 'border-color 0.15s ease, box-shadow 0.15s ease', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+    <div style={{ width: Math.max(data.boxW || defaultNodeWidth, minNodeWidth), height: Math.max(data.boxH || defaultNodeHeight, minNodeHeight), padding: 8, background: '#fff', border: `1px solid ${borderColor}`, borderRadius: 8, boxShadow, transition: 'border-color 0.15s ease, box-shadow 0.15s ease', display: 'flex', flexDirection: 'column', position: 'relative', contain: 'layout paint' }}>
       <NodeResizer isVisible={!!selected} minWidth={minNodeWidth} minHeight={minNodeHeight} color="transparent" lineStyle={{ display: 'none' }} handleStyle={{ background: 'transparent', border: 'none', width: 12, height: 12, opacity: 0 }}
         onResize={(e, p) => { onResize(p.width, p.height); rf.setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, boxW: p.width, boxH: p.height } } : n)); }}
         onResizeEnd={(e, p) => { onResizeEnd(p.width, p.height); rf.setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, boxW: p.width, boxH: p.height } } : n)); }}
@@ -1113,7 +1130,8 @@ function ThreeNodeInner({ id, data, selected }: Props) {
       />
       <div
         onDoubleClick={() => src && setPreview(true)}
-        className="nodrag nowheel nopan"
+        className="nodrag nowheel nopan tanva-three-node-viewport"
+        data-flow-three-node-viewport="true"
         onPointerDown={(e) => e.stopPropagation()}
         onPointerMove={(e) => e.stopPropagation()}
         onPointerUp={(e) => e.stopPropagation()}

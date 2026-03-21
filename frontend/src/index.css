@@ -274,3 +274,12 @@ body.tanva-canvas-dragging .tanva-selection-group-toolbar {
   opacity: 0 !important;
   visibility: hidden !important;
 }
+
+/* 图片拖拽时临时冻结画布 3D 容器，减少 WebGL 合成开销 */
+body.tanva-image-dragging [data-model3d-container="true"] {
+  pointer-events: none !important;
+}
+
+body.tanva-image-dragging .tanva-canvas-model3d-viewport {
+  background: #f3f4f6 !important;
+}

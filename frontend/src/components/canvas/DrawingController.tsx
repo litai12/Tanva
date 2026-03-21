@@ -689,6 +689,18 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   imageInstancesRef.current = imageTool.imageInstances;
 
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    if (imageTool.imageDragState.isImageDragging) {
+      document.body.classList.add("tanva-image-dragging");
+    } else {
+      document.body.classList.remove("tanva-image-dragging");
+    }
+    return () => {
+      document.body.classList.remove("tanva-image-dragging");
+    };
+  }, [imageTool.imageDragState.isImageDragging]);
+
   const shouldRecoverPaperImages = useCallback(() => {
     if (!paper || !paper.project) return false;
 
@@ -7853,6 +7865,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             onCapture={() => handleModelCapture(model.id)}
             isCapturePending={!!modelCapturePending[model.id]}
             showIndividualTools={!isGroupSelection}
+            isImageDragging={imageTool.imageDragState.isImageDragging}
             onSelect={(addToSelection) =>
               handleModelSelectFromOverlay(model.id, !!addToSelection)
             }

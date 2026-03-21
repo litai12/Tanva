@@ -18,12 +18,12 @@ import { getApiBaseUrl, proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 
 interface Model3DViewerProps {
   modelData: Model3DData;
-  width?: number;
-  height?: number;
   isSelected?: boolean;
   drawMode?: string; // 当前绘图模式
   onCameraChange?: (camera: Model3DCameraState) => void;
   isResizing?: boolean;
+  isDragging?: boolean;
+  suspendRendering?: boolean;
 }
 
 const TARGET_MODEL_SIZE = 1.0;
@@ -58,6 +58,37 @@ const cameraStatesEqual = (a: Model3DCameraState, b: Model3DCameraState) =>
   arraysAlmostEqual(a.position, b.position) &&
   arraysAlmostEqual(a.target, b.target) &&
   arraysAlmostEqual(a.up, b.up);
+
+const optionalCameraStatesEqual = (
+  a?: Model3DCameraState,
+  b?: Model3DCameraState
+) => {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return cameraStatesEqual(a, b);
+};
+
+const modelDataEquivalent = (a: Model3DData, b: Model3DData) =>
+  a === b ||
+  (a.url === b.url &&
+    a.path === b.path &&
+    a.key === b.key &&
+    a.format === b.format &&
+    a.fileName === b.fileName &&
+    a.fileSize === b.fileSize &&
+    a.timestamp === b.timestamp &&
+    optionalCameraStatesEqual(a.camera, b.camera));
+
+const viewerPropsEqual = (
+  prev: Readonly<Model3DViewerProps>,
+  next: Readonly<Model3DViewerProps>
+) =>
+  prev.isSelected === next.isSelected &&
+  prev.drawMode === next.drawMode &&
+  prev.isResizing === next.isResizing &&
+  prev.isDragging === next.isDragging &&
+  prev.suspendRendering === next.suspendRendering &&
+  modelDataEquivalent(prev.modelData, next.modelData);
 
 const isProxyPath = (value: string): boolean =>
   value.startsWith("/api/assets/proxy") || value.startsWith("/assets/proxy");
@@ -402,13 +433,14 @@ function Model3D({
 
 const Model3DViewer: React.FC<Model3DViewerProps> = ({
   modelData,
-  width,
-  height,
   isSelected = false,
   drawMode = "select",
   onCameraChange,
   isResizing = false,
+  isDragging = false,
+  suspendRendering = false,
 }) => {
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const devicePixelRatio =
     typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
   const maxDpr = Math.min(devicePixelRatio, MAX_INTERACTIVE_DPR);
@@ -516,8 +548,18 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
     []
   );
 
-  const pointerEvents = drawMode === "select" || isSelected ? "auto" : "none";
-  const controlsEnabled = drawMode === "select" && isSelected;
+  const shouldSuspendRendering = suspendRendering || isDragging || isResizing;
+  const [suspendedFrame, setSuspendedFrame] = useState<string | null>(null);
+  const wasSuspendedRef = useRef(false);
+  const canCaptureFrameRef = useRef(true);
+  const pointerEvents =
+    shouldSuspendRendering
+      ? "none"
+      : drawMode === "select" || isSelected
+      ? "auto"
+      : "none";
+  const controlsEnabled =
+    !shouldSuspendRendering && drawMode === "select" && isSelected;
 
   useEffect(() => {
     setPathCandidateIndex(0);
@@ -525,8 +567,36 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
     setIsLoading(modelPathCandidates.length > 0);
   }, [modelData.url, modelPathCandidates.length]);
 
+  useEffect(() => {
+    canCaptureFrameRef.current = true;
+    setSuspendedFrame(null);
+  }, [modelPath]);
+
+  useEffect(() => {
+    if (shouldSuspendRendering) {
+      if (!wasSuspendedRef.current && !suspendedFrame && canCaptureFrameRef.current) {
+        const canvas = rootRef.current?.querySelector("canvas");
+        if (canvas) {
+          try {
+            const frame = canvas.toDataURL("image/webp", 0.75);
+            if (typeof frame === "string" && frame.startsWith("data:image")) {
+              setSuspendedFrame(frame);
+            }
+          } catch {
+            canCaptureFrameRef.current = false;
+          }
+        }
+      }
+      wasSuspendedRef.current = true;
+      return;
+    }
+    wasSuspendedRef.current = false;
+  }, [shouldSuspendRendering, suspendedFrame]);
+
   return (
     <div
+      ref={rootRef}
+      className="tanva-canvas-model3d-viewport"
       style={{
         width: "100%",
         height: "100%",
@@ -563,6 +633,7 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
       ) : (
         <>
           <Canvas
+            className="tanva-canvas-model3d-webgl"
             camera={{
               position: cameraState.position,
               fov: 45,
@@ -583,6 +654,8 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
             style={{
               background: "transparent",
               pointerEvents,
+              visibility:
+                shouldSuspendRendering && suspendedFrame ? "hidden" : "visible",
             }}
           >
             <Suspense fallback={null}>
@@ -669,6 +742,22 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
               </div>
             </div>
           )}
+          {shouldSuspendRendering && suspendedFrame && (
+            <img
+              src={suspendedFrame}
+              alt='3d-frame'
+              draggable={false}
+              style={{
+                position: "absolute",
+                inset: 0,
+                width: "100%",
+                height: "100%",
+                objectFit: "contain",
+                pointerEvents: "none",
+                userSelect: "none",
+              }}
+            />
+          )}
         </>
       )}
 
@@ -677,7 +766,8 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
   );
 };
 
-export default Model3DViewer;
+const MemoizedModel3DViewer = React.memo(Model3DViewer, viewerPropsEqual);
+export default MemoizedModel3DViewer;
 
 type CameraControllerProps = {
   cameraState: Model3DCameraState;

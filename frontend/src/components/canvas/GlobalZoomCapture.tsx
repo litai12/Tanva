@@ -12,10 +12,71 @@ interface GestureLikeEvent extends Event {
   clientY?: number;
 }
 
-const isEventInsideModel3DContainer = (event: Event) => {
-  const target = event.target;
-  if (!(target instanceof Element)) return false;
-  return Boolean(target.closest('[data-model3d-container="true"]'));
+const MODEL3D_CONTAINER_SELECTOR = '[data-model3d-container="true"]';
+const FLOW_THREE_NODE_SELECTOR =
+  '[data-flow-three-node-viewport="true"], .react-flow__node-three, .react-flow__node-threePathTracer';
+
+const getEventPath = (event: Event): EventTarget[] => {
+  const composedPath = (event as Event & { composedPath?: () => EventTarget[] })
+    .composedPath;
+  if (typeof composedPath !== 'function') return [];
+  try {
+    const path = composedPath.call(event);
+    return Array.isArray(path) ? path : [];
+  } catch {
+    return [];
+  }
+};
+
+const pathContainsSelector = (path: EventTarget[], selector: string) =>
+  path.some((node) => node instanceof Element && Boolean(node.closest(selector)));
+
+const resolveEventElement = (event: Event): Element | null => {
+  if (event.target instanceof Element) return event.target;
+  const path = getEventPath(event);
+  const pathElement = path.find((node) => node instanceof Element);
+  if (pathElement instanceof Element) return pathElement;
+  const anyEvent = event as Event & { clientX?: number; clientY?: number };
+  const x = Number(anyEvent.clientX);
+  const y = Number(anyEvent.clientY);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || typeof document === 'undefined') {
+    return null;
+  }
+  return document.elementFromPoint(x, y);
+};
+
+const pointHitsSelector = (event: Event, selector: string): boolean => {
+  const anyEvent = event as Event & { clientX?: number; clientY?: number };
+  const x = Number(anyEvent.clientX);
+  const y = Number(anyEvent.clientY);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || typeof document === 'undefined') {
+    return false;
+  }
+  const element = document.elementFromPoint(x, y);
+  return Boolean(element?.closest(selector));
+};
+
+const shouldBypassCanvasZoom = (event: Event) => {
+  const path = getEventPath(event);
+  if (
+    pathContainsSelector(path, MODEL3D_CONTAINER_SELECTOR) ||
+    pathContainsSelector(path, FLOW_THREE_NODE_SELECTOR)
+  ) {
+    return true;
+  }
+
+  const element = resolveEventElement(event);
+  if (
+    element?.closest(MODEL3D_CONTAINER_SELECTOR) ||
+    element?.closest(FLOW_THREE_NODE_SELECTOR)
+  ) {
+    return true;
+  }
+
+  return (
+    pointHitsSelector(event, MODEL3D_CONTAINER_SELECTOR) ||
+    pointHitsSelector(event, FLOW_THREE_NODE_SELECTOR)
+  );
 };
 
 /**
@@ -62,7 +123,7 @@ const GlobalZoomCapture = () => {
     };
 
     const handleWheel = (event: WheelEvent) => {
-      if (isEventInsideModel3DContainer(event)) return;
+      if (shouldBypassCanvasZoom(event)) return;
       if (!(event.ctrlKey || event.metaKey)) return;
       const store = useCanvasStore.getState();
 
@@ -82,7 +143,7 @@ const GlobalZoomCapture = () => {
     };
 
     const handleGestureStart = (event: GestureLikeEvent) => {
-      if (isEventInsideModel3DContainer(event)) return;
+      if (shouldBypassCanvasZoom(event)) return;
       if (event.scale == null || event.clientX == null || event.clientY == null) return;
       const focus = getFocusPoint(event.clientX, event.clientY);
       if (!focus) return;
@@ -93,7 +154,7 @@ const GlobalZoomCapture = () => {
     };
 
     const handleGestureChange = (event: GestureLikeEvent) => {
-      if (isEventInsideModel3DContainer(event)) return;
+      if (shouldBypassCanvasZoom(event)) return;
       if (gestureStartZoomRef.current == null) return;
       if (event.scale == null || event.clientX == null || event.clientY == null) return;
       const focus = getFocusPoint(event.clientX, event.clientY);
