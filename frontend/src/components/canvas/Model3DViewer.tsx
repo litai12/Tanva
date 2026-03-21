@@ -71,10 +71,15 @@ const isLikelyBlankCanvas = (canvas: HTMLCanvasElement): boolean => {
     }
 
     if (opaqueCount === 0) return true;
-    return nonWhiteCount / opaqueCount < 0.01;
+    return nonWhiteCount / opaqueCount < 0.001;
   } catch {
     return false;
   }
+};
+
+type FrameCaptureResult = {
+  success: boolean;
+  frameDataUrl?: string;
 };
 
 const computeScaleFactor = (maxDimension: number) => {
@@ -480,6 +485,9 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
 }) => {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const internalCameraRef = useRef<THREE.Camera | null>(null);
+  const invalidateRef = useRef<(() => void) | null>(null);
   const devicePixelRatio =
     typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
   const maxDpr = Math.min(devicePixelRatio, MAX_INTERACTIVE_DPR);
@@ -611,6 +619,9 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
         try { renderer.dispose?.(); } catch {}
       }
       rendererRef.current = null;
+      sceneRef.current = null;
+      internalCameraRef.current = null;
+      invalidateRef.current = null;
     },
     []
   );
@@ -620,27 +631,119 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
   const shouldSuspendRendering = suspendRendering;
   const [suspendedFrame, setSuspendedFrame] = useState<string | null>(null);
   const [modelPreviewFrame, setModelPreviewFrame] = useState<string | null>(null);
-  const wasSuspendedRef = useRef(false);
   const canCaptureFrameRef = useRef(true);
   const previewRequestedForPathRef = useRef<string | null>(null);
   const suspendedPreview = suspendedFrame || modelPreviewFrame;
+  const suspendedPreviewSource = suspendedFrame
+    ? "runtime"
+    : modelPreviewFrame
+    ? "preview"
+    : null;
 
-  const captureCurrentFrame = useCallback((): boolean => {
-    if (!canCaptureFrameRef.current) return false;
-    const canvas = rootRef.current?.querySelector("canvas");
-    if (!canvas) return false;
-    if (isLikelyBlankCanvas(canvas)) return false;
-    try {
-      const frame = canvas.toDataURL("image/webp", 0.75);
-      if (typeof frame === "string" && frame.startsWith("data:image")) {
-        setSuspendedFrame(frame);
-        return true;
+  const captureFrameFromCanvas = useCallback(
+    (canvas: HTMLCanvasElement | null, strictNonBlank = true): string | null => {
+      if (!canvas) return null;
+      if (strictNonBlank && isLikelyBlankCanvas(canvas)) return null;
+      try {
+        const frame = canvas.toDataURL("image/webp", 0.75);
+        if (typeof frame === "string" && frame.startsWith("data:image")) {
+          return frame;
+        }
+      } catch {
+        return null;
       }
-    } catch {
-      canCaptureFrameRef.current = false;
-    }
-    return false;
-  }, []);
+      return null;
+    },
+    []
+  );
+
+  const captureFrameWithOffscreenRenderer = useCallback(
+    (strictNonBlank = true): string | null => {
+      const scene = sceneRef.current;
+      const camera = internalCameraRef.current;
+      const sourceCanvas = rootRef.current?.querySelector("canvas");
+      const width = sourceCanvas?.width ?? 0;
+      const height = sourceCanvas?.height ?? 0;
+      if (!scene || !camera || width <= 0 || height <= 0) return null;
+
+      let offscreenRenderer: THREE.WebGLRenderer | null = null;
+      try {
+        offscreenRenderer = new THREE.WebGLRenderer({
+          alpha: true,
+          antialias: true,
+          preserveDrawingBuffer: true,
+          powerPreference: "high-performance",
+        });
+        offscreenRenderer.setPixelRatio(1);
+        offscreenRenderer.setSize(width, height, false);
+        offscreenRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+        offscreenRenderer.toneMappingExposure = 1.15;
+        offscreenRenderer.outputColorSpace = THREE.SRGBColorSpace;
+        offscreenRenderer.render(scene, camera);
+        return captureFrameFromCanvas(offscreenRenderer.domElement, strictNonBlank);
+      } catch {
+        return null;
+      } finally {
+        if (offscreenRenderer) {
+          try {
+            (offscreenRenderer as any).renderLists?.dispose?.();
+          } catch {}
+          try {
+            offscreenRenderer.dispose();
+          } catch {}
+        }
+      }
+    },
+    [captureFrameFromCanvas]
+  );
+
+  const captureCurrentFrame = useCallback(
+    async ({
+      strictNonBlank = true,
+      forceRender = false,
+      allowOffscreenFallback = false,
+    }: {
+      strictNonBlank?: boolean;
+      forceRender?: boolean;
+      allowOffscreenFallback?: boolean;
+    } = {}): Promise<FrameCaptureResult> => {
+      if (!canCaptureFrameRef.current) return { success: false };
+
+      if (forceRender) {
+        try {
+          invalidateRef.current?.();
+        } catch {}
+        const renderer = rendererRef.current;
+        const scene = sceneRef.current;
+        const camera = internalCameraRef.current;
+        if (renderer && scene && camera) {
+          try {
+            renderer.render(scene, camera);
+          } catch {}
+        }
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      }
+
+      const visibleCanvas =
+        (rootRef.current?.querySelector("canvas") as HTMLCanvasElement | null) ?? null;
+      const frameFromVisible = captureFrameFromCanvas(visibleCanvas, strictNonBlank);
+      if (frameFromVisible) {
+        setSuspendedFrame(frameFromVisible);
+        return { success: true, frameDataUrl: frameFromVisible };
+      }
+
+      if (allowOffscreenFallback) {
+        const frameFromOffscreen = captureFrameWithOffscreenRenderer(strictNonBlank);
+        if (frameFromOffscreen) {
+          setSuspendedFrame(frameFromOffscreen);
+          return { success: true, frameDataUrl: frameFromOffscreen };
+        }
+      }
+
+      return { success: false };
+    },
+    [captureFrameFromCanvas, captureFrameWithOffscreenRenderer]
+  );
   const pointerEvents =
     shouldSuspendRendering
       ? "none"
@@ -694,17 +797,9 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
   }, [modelPath, modelPreviewFrame]);
 
   useEffect(() => {
-    if (shouldSuspendRendering) {
-      wasSuspendedRef.current = true;
-      return;
-    }
-    wasSuspendedRef.current = false;
-  }, [shouldSuspendRendering]);
-
-  useEffect(() => {
     if (shouldSuspendRendering || suspendedFrame || isLoading || error) return;
     const timer = window.setTimeout(() => {
-      captureCurrentFrame();
+      void captureCurrentFrame();
     }, 90);
     return () => window.clearTimeout(timer);
   }, [
@@ -720,12 +815,22 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
       const customEvent = event as CustomEvent<{ modelId?: string }>;
       const requestedId = customEvent.detail?.modelId;
       if (requestedId && modelId && requestedId !== modelId) return;
-      const success = captureCurrentFrame();
-      window.dispatchEvent(
-        new CustomEvent("tanva:model3d-frame-captured", {
-          detail: { modelId, success },
-        })
-      );
+      void (async () => {
+        const result = await captureCurrentFrame({
+          strictNonBlank: true,
+          forceRender: true,
+          allowOffscreenFallback: true,
+        });
+        window.dispatchEvent(
+          new CustomEvent("tanva:model3d-frame-captured", {
+            detail: {
+              modelId,
+              success: result.success,
+              frameDataUrl: result.frameDataUrl,
+            },
+          })
+        );
+      })();
     };
 
     window.addEventListener(
@@ -781,8 +886,11 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
         <>
           <Canvas
             className="tanva-canvas-model3d-webgl"
-            onCreated={({ gl }) => {
+            onCreated={({ gl, scene, camera, invalidate }) => {
               rendererRef.current = gl as unknown as THREE.WebGLRenderer;
+              sceneRef.current = scene;
+              internalCameraRef.current = camera;
+              invalidateRef.current = invalidate;
             }}
             camera={{
               position: cameraState.position,
@@ -895,6 +1003,7 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
           {suspendedPreview && (
             <img
               data-model3d-snapshot-cache='true'
+              data-model3d-snapshot-source={suspendedPreviewSource ?? undefined}
               src={suspendedPreview}
               alt=''
               aria-hidden='true'

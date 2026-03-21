@@ -748,6 +748,12 @@ type Sora2VideoHistoryItem = {
 };
 
 type AddPanelTab = "nodes" | "beta" | "custom" | "templates" | "personal";
+type AddPanelOpenOptions = {
+  tab?: AddPanelTab;
+  scope?: "public" | "mine";
+  allowedTabs?: AddPanelTab[];
+  world?: { x: number; y: number };
+};
 const ALL_ADD_TABS: AddPanelTab[] = [
   "nodes",
   "custom",
@@ -4168,11 +4174,7 @@ function FlowInner() {
     (
       clientX: number,
       clientY: number,
-      opts?: {
-        tab?: AddPanelTab;
-        scope?: "public" | "mine";
-        allowedTabs?: AddPanelTab[];
-      }
+      opts?: AddPanelOpenOptions
     ) => {
       const allowed = sanitizeAllowedAddTabs(opts?.allowedTabs);
       setAllowedAddTabs(allowed);
@@ -4180,7 +4182,15 @@ function FlowInner() {
       setAddTabWithMemory(targetTab, allowed);
       if (opts?.scope) setTemplateScope(opts.scope);
       const panelScreen = resolveAddPanelAnchorScreen(clientX, clientY);
-      const world = rf.screenToFlowPosition(panelScreen);
+      const worldOverride = opts?.world;
+      const hasWorldOverride =
+        typeof worldOverride?.x === "number" &&
+        Number.isFinite(worldOverride.x) &&
+        typeof worldOverride?.y === "number" &&
+        Number.isFinite(worldOverride.y);
+      const world = hasWorldOverride
+        ? { x: worldOverride.x, y: worldOverride.y }
+        : rf.screenToFlowPosition(panelScreen);
       setAddPanel({ visible: true, screen: panelScreen, world });
     },
     [
@@ -4194,11 +4204,7 @@ function FlowInner() {
   );
 
   const openAddPanelAtContainerCenter = React.useCallback(
-    (opts?: {
-      tab?: AddPanelTab;
-      scope?: "public" | "mine";
-      allowedTabs?: AddPanelTab[];
-    }) => {
+    (opts?: AddPanelOpenOptions) => {
       const rect = containerRef.current?.getBoundingClientRect();
       const centerX = rect ? rect.left + rect.width / 2 : window.innerWidth / 2;
       const centerY = rect ? rect.top + rect.height / 2 : window.innerHeight / 2;
@@ -5157,11 +5163,14 @@ function FlowInner() {
         now - last.t < 200 &&
         Math.hypot(last.x - x, last.y - y) < 10
       ) {
-        if (isBlankArea(x, y))
+        if (isBlankArea(x, y)) {
+          const world = rf.screenToFlowPosition({ x, y });
           openAddPanelAtContainerCenter({
             tab: "nodes",
             allowedTabs: ["nodes", "beta", "custom"],
+            world,
           });
+        }
       } else if (!isPointerMode) {
         // 单击空白区域时，取消所有节点的选择（pointer 模式下不自动取消选择）
         setNodes((prev: any[]) =>
@@ -5169,7 +5178,7 @@ function FlowInner() {
         );
       }
     },
-    [openAddPanelAtContainerCenter, isBlankArea, setNodes, isPointerMode]
+    [openAddPanelAtContainerCenter, isBlankArea, setNodes, isPointerMode, rf]
   );
 
   React.useEffect(() => {
@@ -5375,9 +5384,11 @@ function FlowInner() {
         if (isBlankArea(x, y)) {
           e.stopPropagation();
           e.preventDefault();
+          const world = rf.screenToFlowPosition({ x, y });
           openAddPanelAtContainerCenter({
             tab: "nodes",
             allowedTabs: ["nodes", "beta", "custom"],
+            world,
           });
         }
         // 重置记录，避免连续三次点击被识别为两次双击
@@ -5390,7 +5401,7 @@ function FlowInner() {
 
     window.addEventListener("click", onNativeClick, true);
     return () => window.removeEventListener("click", onNativeClick, true);
-  }, [openAddPanelAtContainerCenter, isBlankArea]);
+  }, [openAddPanelAtContainerCenter, isBlankArea, rf]);
 
   // 🔥 备选方案：监听原生 dblclick 事件，解决自定义双击检测在某些模式下失效的问题
   React.useEffect(() => {
@@ -5437,16 +5448,18 @@ function FlowInner() {
       if (isBlankArea(x, y)) {
         e.stopPropagation();
         e.preventDefault();
+        const world = rf.screenToFlowPosition({ x, y });
         openAddPanelAtContainerCenter({
           tab: "nodes",
           allowedTabs: ["nodes", "beta", "custom"],
+          world,
         });
       }
     };
 
     window.addEventListener("dblclick", onNativeDblClick, true);
     return () => window.removeEventListener("dblclick", onNativeDblClick, true);
-  }, [openAddPanelAtContainerCenter, isBlankArea]);
+  }, [openAddPanelAtContainerCenter, isBlankArea, rf]);
 
   const createNodeAtWorldCenter = React.useCallback(
     (
@@ -14244,13 +14257,15 @@ function FlowInner() {
   const handleContainerDoubleClick = React.useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       if (isBlankArea(e.clientX, e.clientY)) {
+        const world = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
         openAddPanelAtContainerCenter({
           tab: "nodes",
           allowedTabs: ["nodes", "beta", "custom"],
+          world,
         });
       }
     },
-    [openAddPanelAtContainerCenter, isBlankArea]
+    [openAddPanelAtContainerCenter, isBlankArea, rf]
   );
 
   const commitEdgeLabelValue = React.useCallback(

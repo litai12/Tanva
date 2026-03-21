@@ -134,6 +134,7 @@ const generateUUID = () => {
 
 const MAX_IMAGE_GENERATION_ATTEMPTS = 3;
 const NO_IMAGE_RETRY_DELAY_MS = 800;
+const TEXT_CHAT_TIMEOUT_MS = 60_000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -966,6 +967,11 @@ export async function generateTextResponseViaAPI(
   request: AITextChatRequest
 ): Promise<AIServiceResponse<AITextChatResult>> {
   const startedAt = getTimestamp();
+  const controller = new AbortController();
+  const timeoutId =
+    typeof window !== "undefined"
+      ? window.setTimeout(() => controller.abort(), TEXT_CHAT_TIMEOUT_MS)
+      : setTimeout(() => controller.abort(), TEXT_CHAT_TIMEOUT_MS);
   try {
     const response = await fetchWithAuth(`${API_BASE_URL}/ai/text-chat`, {
       method: "POST",
@@ -973,6 +979,7 @@ export async function generateTextResponseViaAPI(
         "Content-Type": "application/json",
       },
       body: JSON.stringify(request),
+      signal: controller.signal,
     });
 
     if (!response.ok) {
@@ -1011,20 +1018,35 @@ export async function generateTextResponseViaAPI(
       },
     };
   } catch (error) {
+    const isTimeout = error instanceof Error && error.name === "AbortError";
     logApiTiming("text-chat", startedAt, {
       success: false,
       provider: request.aiProvider,
       model: request.model,
-      error: error instanceof Error ? error.message : "Unknown error",
+      error: isTimeout
+        ? `Request timeout (${TEXT_CHAT_TIMEOUT_MS}ms)`
+        : error instanceof Error
+        ? error.message
+        : "Unknown error",
     });
     return {
       success: false,
       error: {
-        code: "NETWORK_ERROR",
-        message: error instanceof Error ? error.message : "Network error",
+        code: isTimeout ? "TIMEOUT_ERROR" : "NETWORK_ERROR",
+        message: isTimeout
+          ? `文本请求超时（${Math.floor(TEXT_CHAT_TIMEOUT_MS / 1000)}秒）`
+          : error instanceof Error
+          ? error.message
+          : "Network error",
         timestamp: new Date(),
       },
     };
+  } finally {
+    if (typeof window !== "undefined") {
+      window.clearTimeout(timeoutId as number);
+    } else {
+      clearTimeout(timeoutId as ReturnType<typeof setTimeout>);
+    }
   }
 }
 

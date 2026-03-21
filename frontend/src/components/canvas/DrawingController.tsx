@@ -4478,7 +4478,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 detail: { modelId },
               })
             );
-            window.setTimeout(finalize, 180);
+            window.setTimeout(finalize, 520);
           });
         } catch {}
 

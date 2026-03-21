@@ -46,3 +46,9 @@
 ## 画布图片预览
 - 双击画布图片打开预览蒙层，主图优先显示当前双击图片。
 - 右侧缩略图栏展示当前项目的“全局图片历史”列表，支持点击切换预览。
+
+## 3D 拍照白图防护
+- `Model3DViewer` 在处理 `tanva:model3d-capture-frame` 时会先强制渲染当前机位（`invalidate + renderer.render(scene, camera)`），再抓取帧数据。
+- 显式拍照场景下，抓帧支持离屏 renderer 兜底，减少 `frameloop="demand"` + 非保留缓冲导致的白图。
+- 缓存图会标记 `data-model3d-snapshot-source`，截图服务仅使用 `runtime` 来源，不会误用预生成 preview。
+- `AutoScreenshotService` 在 runtime 帧不可用时会检查 WebGL canvas 是否近似空白；若为空则跳过绘制，避免把整块白底写入结果图。

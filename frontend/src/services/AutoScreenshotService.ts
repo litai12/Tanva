@@ -67,6 +67,11 @@ interface SelectionState {
   selectedPaperItemsSet: Set<paper.Item>;
 }
 
+interface Model3DFrameCaptureResult {
+  success: boolean;
+  frameDataUrl?: string;
+}
+
 export class AutoScreenshotService {
   private static readonly DEFAULT_OPTIONS: Required<ScreenshotOptions> = {
     format: 'png',
@@ -731,7 +736,24 @@ export class AutoScreenshotService {
     const relativeX = modelInstance.bounds.x - bounds.x;
     const relativeY = modelInstance.bounds.y - bounds.y;
 
-    // 优先使用组件缓存帧，规避 WebGL drawing buffer 在 demand 模式下被清空导致白图
+    const captureResult = await this.requestModel3DFrameCapture(modelInstance.id);
+    if (captureResult.frameDataUrl) {
+      try {
+        const frameImage = await this.loadImageFromSrc(captureResult.frameDataUrl);
+        ctx.drawImage(
+          frameImage,
+          relativeX,
+          relativeY,
+          modelInstance.bounds.width,
+          modelInstance.bounds.height
+        );
+        return;
+      } catch (error) {
+        logger.warn(`使用3D实时帧数据绘制失败 (${modelInstance.id}):`, error);
+      }
+    }
+
+    // 优先使用 runtime 缓存帧，规避 WebGL drawing buffer 在 demand 模式下被清空导致白图
     const cachedFrame = this.find3DSnapshotImage(modelInstance.id);
     if (cachedFrame) {
       ctx.drawImage(
@@ -757,6 +779,11 @@ export class AutoScreenshotService {
       });
     });
 
+    if (this.isLikelyBlankCanvas(modelCanvas)) {
+      logger.warn(`3D模型 ${modelInstance.id} 的WebGL canvas 看起来是空白帧，跳过绘制以避免白图`);
+      return;
+    }
+
     ctx.drawImage(
       modelCanvas,
       relativeX,
@@ -764,6 +791,100 @@ export class AutoScreenshotService {
       modelInstance.bounds.width,
       modelInstance.bounds.height
     );
+  }
+
+  private static requestModel3DFrameCapture(
+    modelId: string,
+    timeoutMs = 520
+  ): Promise<Model3DFrameCaptureResult> {
+    if (typeof window === 'undefined') {
+      return Promise.resolve({ success: false });
+    }
+    return new Promise<Model3DFrameCaptureResult>((resolve) => {
+      let finished = false;
+      let timerId: number | null = null;
+
+      const cleanup = () => {
+        window.removeEventListener(
+          'tanva:model3d-frame-captured',
+          handleCaptured as EventListener
+        );
+        if (timerId != null) {
+          window.clearTimeout(timerId);
+          timerId = null;
+        }
+      };
+
+      const finalize = (result: Model3DFrameCaptureResult) => {
+        if (finished) return;
+        finished = true;
+        cleanup();
+        resolve(result);
+      };
+
+      const handleCaptured = (event: Event) => {
+        const customEvent = event as CustomEvent<{
+          modelId?: string;
+          success?: boolean;
+          frameDataUrl?: string;
+        }>;
+        if (customEvent.detail?.modelId !== modelId) return;
+        finalize({
+          success: customEvent.detail?.success === true,
+          frameDataUrl: customEvent.detail?.frameDataUrl,
+        });
+      };
+
+      window.addEventListener(
+        'tanva:model3d-frame-captured',
+        handleCaptured as EventListener
+      );
+
+      timerId = window.setTimeout(() => finalize({ success: false }), timeoutMs);
+
+      try {
+        window.dispatchEvent(
+          new CustomEvent('tanva:model3d-capture-frame', {
+            detail: { modelId },
+          })
+        );
+      } catch (error) {
+        logger.warn(`请求3D模型帧缓存失败 (${modelId}):`, error);
+        finalize({ success: false });
+      }
+    });
+  }
+
+  private static isLikelyBlankCanvas(canvas: HTMLCanvasElement): boolean {
+    try {
+      if (!canvas || canvas.width <= 0 || canvas.height <= 0) return true;
+      const sample = document.createElement('canvas');
+      sample.width = 24;
+      sample.height = 24;
+      const sampleCtx = sample.getContext('2d', { willReadFrequently: true });
+      if (!sampleCtx) return false;
+      sampleCtx.drawImage(canvas, 0, 0, sample.width, sample.height);
+      const pixels = sampleCtx.getImageData(0, 0, sample.width, sample.height).data;
+
+      let opaqueCount = 0;
+      let nonWhiteCount = 0;
+      for (let i = 0; i < pixels.length; i += 4) {
+        const r = pixels[i];
+        const g = pixels[i + 1];
+        const b = pixels[i + 2];
+        const a = pixels[i + 3];
+        if (a <= 10) continue;
+        opaqueCount += 1;
+        if (r < 245 || g < 245 || b < 245) {
+          nonWhiteCount += 1;
+        }
+      }
+
+      if (opaqueCount === 0) return true;
+      return nonWhiteCount / opaqueCount < 0.001;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -1498,6 +1619,9 @@ export class AutoScreenshotService {
       if (!snapshotImage) return null;
       if (!snapshotImage.src || !snapshotImage.complete) return null;
       if ((snapshotImage.naturalWidth ?? 0) <= 0 || (snapshotImage.naturalHeight ?? 0) <= 0) {
+        return null;
+      }
+      if (snapshotImage.dataset.model3dSnapshotSource !== 'runtime') {
         return null;
       }
       return snapshotImage;
