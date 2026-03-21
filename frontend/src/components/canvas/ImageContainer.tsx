@@ -2791,8 +2791,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const toolbarActions: ToolbarAction[] = [
     {
       key: "removeBackground",
-      label: "一键抠图",
-      title: isRemovingBackground ? "正在抠图..." : "一键抠图",
+      label: "智能抠图",
+      title: isRemovingBackground ? "正在抠图..." : "智能抠图",
       icon: Wand2,
       disabled:
         isPendingUpload ||

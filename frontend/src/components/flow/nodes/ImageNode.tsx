@@ -1477,6 +1477,21 @@ function ImageNodeInner({ id, data, selected }: Props) {
         lt={lt}
       />
 
+      {/* 兼容历史连线：旧项目可能使用 targetHandle=image */}
+      <Handle
+        type='target'
+        position={Position.Left}
+        id='image'
+        style={{
+          top: "50%",
+          width: 1,
+          height: 1,
+          opacity: 0,
+          border: "none",
+          background: "transparent",
+          pointerEvents: "none",
+        }}
+      />
       <Handle
         type='target'
         position={Position.Left}

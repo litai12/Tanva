@@ -1169,6 +1169,35 @@ function ThreeNodeInner({ id, data, selected }: Props) {
         </div>
         {runtimeErr && (<div style={{ position: 'absolute', left: 8, bottom: 8, right: 8, background: 'rgba(0,0,0,0.5)', color: '#fff', fontSize: 10, padding: '4px 6px', borderRadius: 4 }}>{runtimeErr}</div>)}
       </div>
+      {/* 兼容历史连线：旧流程可能存在 image/img -> Three 的 targetHandle */}
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="image"
+        style={{
+          top: "50%",
+          width: 1,
+          height: 1,
+          opacity: 0,
+          border: "none",
+          background: "transparent",
+          pointerEvents: "none",
+        }}
+      />
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="img"
+        style={{
+          top: "50%",
+          width: 1,
+          height: 1,
+          opacity: 0,
+          border: "none",
+          background: "transparent",
+          pointerEvents: "none",
+        }}
+      />
       <Handle
         type="source"
         position={Position.Right}

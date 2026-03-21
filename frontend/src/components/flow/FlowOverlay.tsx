@@ -7394,11 +7394,24 @@ function FlowInner() {
         })();
       }
 
-      // 若目标是 Image 且设置了 imageData 为空，自动断开输入连线
-      if (
-        Object.prototype.hasOwnProperty.call(detail.patch, "imageData") &&
-        !detail.patch.imageData
-      ) {
+      // 若目标是 Image 且明确清空图片内容，自动断开输入连线。
+      // 注意：当 imageData 从 base64 升级为远程 imageUrl 时，不应断线。
+      const patchData = detail.patch || {};
+      const hasImageDataPatch = Object.prototype.hasOwnProperty.call(
+        patchData,
+        "imageData"
+      );
+      const clearsImageData = hasImageDataPatch && !patchData.imageData;
+      const hasImageUrlPatch = Object.prototype.hasOwnProperty.call(
+        patchData,
+        "imageUrl"
+      );
+      const hasNextImageUrl =
+        hasImageUrlPatch &&
+        (typeof patchData.imageUrl === "string"
+          ? patchData.imageUrl.trim().length > 0
+          : Boolean(patchData.imageUrl));
+      if (clearsImageData && !hasNextImageUrl) {
         setEdges((eds) =>
           eds.filter(
             (e) => !(e.target === detail.id && e.targetHandle === "img")
@@ -7412,7 +7425,7 @@ function FlowInner() {
         "flow:updateNodeData",
         handler as EventListener
       );
-  }, [setNodes]);
+  }, [setEdges, setNodes]);
 
   // 监听节点右键菜单：复制（写入 Flow 内部剪贴板，Ctrl+V 可粘贴）
   React.useEffect(() => {
