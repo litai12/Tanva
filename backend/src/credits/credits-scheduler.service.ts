@@ -6,6 +6,8 @@ import { CreditsAnomalyService } from './credits-anomaly.service';
 @Injectable()
 export class CreditsSchedulerService {
   private readonly logger = new Logger(CreditsSchedulerService.name);
+  private stalePendingAutoRefundRunning = false;
+  private anomalyDetectionRunning = false;
 
   constructor(
     private readonly creditsService: CreditsService,
@@ -34,6 +36,12 @@ export class CreditsSchedulerService {
    */
   @Cron(CronExpression.EVERY_5_MINUTES)
   async handleStalePendingAutoRefund() {
+    if (this.stalePendingAutoRefundRunning) {
+      this.logger.warn('跳过 pending 超时自动退款：上一次任务尚未完成');
+      return;
+    }
+
+    this.stalePendingAutoRefundRunning = true;
     try {
       const result = await this.creditsService.autoRefundStalePendingImageUsages();
 
@@ -44,8 +52,22 @@ export class CreditsSchedulerService {
       }
     } catch (error) {
       this.logger.error('pending超时自动退款任务失败:', error);
+    } finally {
+      this.stalePendingAutoRefundRunning = false;
+    }
+  }
+
+  /**
+   * 每小时执行一次：检测当天积分异常
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async handleCreditAnomalyDetection() {
+    if (this.anomalyDetectionRunning) {
+      this.logger.warn('跳过积分异常检测：上一次任务尚未完成');
+      return;
     }
 
+    this.anomalyDetectionRunning = true;
     try {
       const anomalyResult = await this.creditsAnomalyService.detectDailyCreditAnomalies();
       if (anomalyResult.upsertedRecords > 0) {
@@ -55,6 +77,8 @@ export class CreditsSchedulerService {
       }
     } catch (error) {
       this.logger.error('积分异常检测任务失败:', error);
+    } finally {
+      this.anomalyDetectionRunning = false;
     }
   }
 }

@@ -343,7 +343,6 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
 
   // ========== 3D模型移动 ==========
   const handleModel3DMove = useCallback((modelId: string, newPosition: { x: number; y: number }) => {
-    let didUpdate = false;
     setModel3DInstances(prev => prev.map(model => {
       if (model.id === modelId) {
         const newBounds = { ...model.bounds, x: newPosition.x, y: newPosition.y };
@@ -391,8 +390,6 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
         }
 
         eventHandlers.onModel3DMove?.(modelId, newPosition);
-
-        didUpdate = true;
         return {
           ...model,
           bounds: newBounds
@@ -400,15 +397,12 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
       }
       return model;
     }));
-    if (didUpdate) {
-      try { paperSaveService.triggerAutoSave('model3d-move'); } catch {}
-      try { historyService.commit('move-model3d').catch(() => {}); } catch {}
-    }
+    // 交互结束时再统一提交历史/自动保存（由容器 onTransformEnd 触发），
+    // 避免拖拽过程中每帧写历史导致主线程卡顿。
   }, [eventHandlers.onModel3DMove]);
 
   // ========== 3D模型调整大小 ==========
   const handleModel3DResize = useCallback((modelId: string, newBounds: { x: number; y: number; width: number; height: number }) => {
-    let didUpdate = false;
     setModel3DInstances(prev => prev.map(model => {
       if (model.id === modelId) {
         // 更新对应的Paper.js模型组
@@ -459,8 +453,6 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
         }
 
         eventHandlers.onModel3DResize?.(modelId, newBounds);
-
-        didUpdate = true;
         return {
           ...model,
           bounds: newBounds
@@ -468,10 +460,8 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
       }
       return model;
     }));
-    if (didUpdate) {
-      try { paperSaveService.triggerAutoSave('model3d-resize'); } catch {}
-      try { historyService.commit('resize-model3d').catch(() => {}); } catch {}
-    }
+    // 交互结束时再统一提交历史/自动保存（由容器 onTransformEnd 触发），
+    // 避免缩放过程中每帧写历史导致主线程卡顿。
   }, [eventHandlers.onModel3DResize]);
 
   // ========== 3D模型删除 ==========

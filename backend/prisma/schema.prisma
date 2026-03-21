@@ -189,6 +189,7 @@ model ApiUsageRecord {
   @@index([serviceType])
   @@index([provider])
   @@index([responseStatus])
+  @@index([responseStatus, serviceType, createdAt])
 }
 
 model CreditPricing {

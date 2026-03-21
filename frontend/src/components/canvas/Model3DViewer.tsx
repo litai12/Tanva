@@ -35,6 +35,12 @@ const CAMERA_DISTANCE_MULTIPLIER = 0.7;
 const MIN_CAMERA_DISTANCE = 1.5;
 const EPSILON = 1e-4;
 const MODEL_LOAD_FALLBACK_ERROR = "3D模型加载失败，请重试或重新生成。";
+const MAX_INTERACTIVE_DPR = 1;
+const CAMERA_SYNC_MIN_INTERVAL_MS = 160;
+const ORBIT_DAMPING_FACTOR = 0.1;
+const ORBIT_ROTATE_SPEED = 0.6;
+const ORBIT_ZOOM_SPEED = 0.35;
+const ORBIT_PAN_SPEED = 0.65;
 
 const computeScaleFactor = (maxDimension: number) => {
   const safeDimension = Math.max(maxDimension, Number.EPSILON);
@@ -406,7 +412,7 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
 }) => {
   const devicePixelRatio =
     typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
-  const maxDpr = Math.min(devicePixelRatio, 1.75);
+  const maxDpr = Math.min(devicePixelRatio, MAX_INTERACTIVE_DPR);
   const [cameraState, setCameraState] = useState<Model3DCameraState>(
     () =>
       modelData.camera ?? {
@@ -564,11 +570,11 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
               near: 0.1,
               far: 1000,
             }}
+            frameloop="demand"
             dpr={[1, maxDpr]}
             gl={{
               alpha: true,
               antialias: true,
-              preserveDrawingBuffer: true,
               powerPreference: "high-performance",
               toneMapping: THREE.ACESFilmicToneMapping,
               // 提高曝光，让环境更明亮通透
@@ -801,7 +807,7 @@ const CameraController: React.FC<CameraControllerProps> = ({
 
     // 限制同步频率：约 10fps 的状态上报，减少 React 重渲染
     const now = performance.now();
-    const minInterval = 100; // 100ms = 10fps
+    const minInterval = CAMERA_SYNC_MIN_INTERVAL_MS;
 
     if (now - lastControlEmitRef.current < minInterval) {
       // 存储待更新的状态，等待下一次 RAF 批量处理
@@ -860,13 +866,13 @@ const CameraController: React.FC<CameraControllerProps> = ({
       enableZoom={true}
       enableRotate={true}
       enableDamping
-      dampingFactor={0.08} // 更轻的阻尼，拖拽响应更直接
+      dampingFactor={ORBIT_DAMPING_FACTOR}
       minDistance={0.5}
       maxDistance={50}
       autoRotate={false}
-      rotateSpeed={1.1} // 提升旋转速度，减少“费力”感
-      zoomSpeed={0.9}
-      panSpeed={0.8}
+      rotateSpeed={ORBIT_ROTATE_SPEED}
+      zoomSpeed={ORBIT_ZOOM_SPEED}
+      panSpeed={ORBIT_PAN_SPEED}
       screenSpacePanning={false} // 在3D空间中平移，而不是屏幕空间
       mouseButtons={{
         LEFT: THREE.MOUSE.ROTATE, // 左键旋转

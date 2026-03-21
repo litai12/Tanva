@@ -149,3 +149,18 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow: added `threePathTracer` node entry (3D PathTracer) and integrated optional `three-gpu-pathtracer` mode in `ThreeNode` with raster fallback on init/render errors.
 - Flow: `ThreeNode` ? changing BG / light sliders no longer disposes the whole WebGL context; PathTracer load gap falls back to a raster frame (`requestRender`).
 - Flow: quick-connect pins base targets first (`textPrompt` for text, `image` for image) while keeping usage-based ranking for the rest (`FlowOverlay.tsx`).
+
+
+- 3D canvas interaction tuning for Mac trackpads: reduced OrbitControls rotate/zoom/pan sensitivity, lowered Model3DViewer max DPR to 1.25, and slowed camera-state sync frequency to reduce zoom overshoot and interaction stutter (frontend/src/components/canvas/Model3DViewer.tsx).
+
+- Model3D canvas performance alignment with ThreeNode: switched Model3DViewer to demand-driven rendering (`frameloop="demand"`), removed always-on preserveDrawingBuffer, capped DPR at 1, and changed model move/resize persistence to commit only once at transform end to avoid per-frame history/autosave stalls (`frontend/src/components/canvas/Model3DViewer.tsx`, `frontend/src/components/canvas/Model3DContainer.tsx`, `frontend/src/components/canvas/hooks/useModel3DTool.ts`, `frontend/src/components/canvas/DrawingController.tsx`).
+
+- Model3D drag/resize now uses local preview updates during pointer move and commits to Paper/state/history only on pointer-up, reducing whole-canvas jank during transform (`frontend/src/components/canvas/Model3DContainer.tsx`, `frontend/src/components/canvas/hooks/useModel3DTool.ts`, `frontend/src/components/canvas/DrawingController.tsx`).
+
+## [Stability Note - 2026-03-21]
+- Backend: reduced `/api/ai/text-chat` 500s under DB pressure by hardening credits scheduler and Prisma pool handling.
+- Added non-overlap locks for credits cron jobs to avoid concurrent job pile-ups.
+- Moved credit anomaly detection from every 5 minutes to hourly.
+- Mapped Prisma connection-pool timeout (`P2024`) to `503 ServiceUnavailable` with retryable message.
+- Reduced stale pending auto-refund default batch size from 200 to 100.
+- Added Prisma index `ApiUsageRecord(responseStatus, serviceType, createdAt)` for stale pending scans.

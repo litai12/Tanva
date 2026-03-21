@@ -586,6 +586,13 @@ export class AiController {
         }
       }
 
+      if (this.isPrismaPoolTimeoutError(error)) {
+        this.logger.warn(
+          `Prisma connection pool timeout during ${serviceType}: ${this.summarizeError(error)}`,
+        );
+        throw new ServiceUnavailableException('数据库繁忙，请稍后重试');
+      }
+
       throw error;
     }
   }
@@ -624,6 +631,20 @@ export class AiController {
     const causeMessage = cause?.message ? String(cause.message) : String(cause);
     const causeCode = cause?.code ? ` code=${String(cause.code)}` : '';
     return `${name}: ${message}${code} (cause: ${causeName}: ${causeMessage}${causeCode})`;
+  }
+
+  private isPrismaPoolTimeoutError(error: any): boolean {
+    const candidates = [error, error?.cause];
+    return candidates.some((candidate) => {
+      if (!candidate) return false;
+      const code = candidate?.code ? String(candidate.code) : '';
+      const message = candidate?.message ? String(candidate.message).toLowerCase() : '';
+      return (
+        code === 'P2024' ||
+        message.includes('timed out fetching a new connection from the connection pool') ||
+        message.includes('connection pool timeout')
+      );
+    });
   }
 
   private isLikelyNetworkError(error: any): boolean {

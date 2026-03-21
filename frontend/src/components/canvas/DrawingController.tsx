@@ -7836,6 +7836,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             onResize={(newBounds) =>
               model3DTool.handleModel3DResize(model.id, newBounds)
             }
+            onTransformEnd={(_modelId, transformType) => {
+              if (transformType === 'move') {
+                historyService.commit('move-model3d').catch(() => {});
+                try { paperSaveService.triggerAutoSave('model3d-move'); } catch {}
+                return;
+              }
+              historyService.commit('resize-model3d').catch(() => {});
+              try { paperSaveService.triggerAutoSave('model3d-resize'); } catch {}
+            }}
             onDeselect={() => model3DTool.handleModel3DDeselect()}
             onCameraChange={(camera) =>
               model3DTool.handleModel3DCameraChange(model.id, camera)

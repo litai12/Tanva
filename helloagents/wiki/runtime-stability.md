@@ -40,3 +40,13 @@
 
 - Added Object.hasOwn polyfill at app bootstrap to prevent legacy Edge runtime crash in bundled dependencies.
 
+## Backend DB Pressure Hardening (2026-03-21)
+
+- Added anti-overlap guards for credits scheduler jobs to avoid concurrent runs fighting for Prisma pool connections.
+- Split cron responsibilities:
+  - pending timeout auto-refund keeps `EVERY_5_MINUTES`.
+  - daily credit anomaly detection moved to `EVERY_HOUR`.
+- Added explicit Prisma pool-timeout detection in AI `withCredits` path and map it to `503 ServiceUnavailable` (`数据库繁忙，请稍后重试`) instead of generic 500.
+- Tuned stale-pending auto-refund default batch size from `200` to `100` to lower per-run DB burst pressure.
+- Added Prisma index for stale pending scan:
+  - `ApiUsageRecord @@index([responseStatus, serviceType, createdAt])`

@@ -20,6 +20,11 @@ interface Model3DContainerProps {
   onSelect?: (addToSelection?: boolean) => void;
   onMove?: (newPosition: { x: number; y: number }) => void; // Paper.js坐标
   onResize?: (newBounds: { x: number; y: number; width: number; height: number }) => void; // Paper.js坐标
+  onTransformEnd?: (
+    modelId: string,
+    transformType: 'move' | 'resize',
+    finalBounds: { x: number; y: number; width: number; height: number }
+  ) => void;
   onDeselect?: () => void;
   onCameraChange?: (camera: Model3DCameraState) => void;
   onDelete?: (modelId: string) => void;
@@ -39,6 +44,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   onSelect,
   onMove,
   onResize,
+  onTransformEnd,
   onDeselect,
   onCameraChange,
   onDelete,
@@ -223,6 +229,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       if (direction) {
         setResizeDirection(direction);
       }
+      document.body.classList.add('tanva-canvas-dragging');
       return; // 重要：直接返回，不执行拖拽逻辑
     }
 
@@ -235,6 +242,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
 
       setIsDragging(true);
       setDragStart({ x: e.clientX - screenBounds.x, y: e.clientY - screenBounds.y });
+      document.body.classList.add('tanva-canvas-dragging');
       return;
     }
 
@@ -243,11 +251,19 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   };
 
   // 节流控制
+  const lastDragTime = useRef<number>(0);
   const lastResizeTime = useRef<number>(0);
+  const DRAG_THROTTLE = 16; // 约60fps
   const RESIZE_THROTTLE = 16; // 约60fps
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (isDragging && onMove) {
+      const now = Date.now();
+      if (now - lastDragTime.current < DRAG_THROTTLE) {
+        return;
+      }
+      lastDragTime.current = now;
+
       const newScreenX = e.clientX - dragStart.x;
       const newScreenY = e.clientY - dragStart.y;
       setScreenBounds(prev => ({
@@ -259,12 +275,17 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       // 转换屏幕坐标为Paper.js坐标
       const dpr = window.devicePixelRatio || 1;
       const paperPosition = paper.view ? paper.view.viewToProject(new paper.Point(newScreenX * dpr, newScreenY * dpr)) : { x: newScreenX, y: newScreenY } as any;
+      const nextBounds = {
+        ...realTimeBoundsRef.current,
+        x: paperPosition.x,
+        y: paperPosition.y,
+      };
+      realTimeBoundsRef.current = nextBounds;
       setRealTimeBounds(prev => ({
         ...prev,
         x: paperPosition.x,
         y: paperPosition.y,
       }));
-      onMove({ x: paperPosition.x, y: paperPosition.y });
     } else if (isResizing && onResize && resizeDirection) {
       const now = Date.now();
       if (now - lastResizeTime.current < RESIZE_THROTTLE) {
@@ -303,17 +324,68 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
 
       // 转换屏幕坐标为Paper.js坐标
       const newPaperBounds = convertToPaperBounds(newScreenBounds);
+      realTimeBoundsRef.current = newPaperBounds;
       setScreenBounds(newScreenBounds);
       setRealTimeBounds(newPaperBounds);
-      onResize(newPaperBounds);
     }
   }, [isDragging, isResizing, dragStart, initialBounds, resizeDirection, onMove, onResize, convertToScreenBounds, convertToPaperBounds]);
 
-  const handleMouseUp = useCallback(() => {
+  const handleMouseUp = useCallback((event: MouseEvent) => {
+    let finalBounds = realTimeBoundsRef.current;
+
+    if (isDragging) {
+      const newScreenX = event.clientX - dragStart.x;
+      const newScreenY = event.clientY - dragStart.y;
+      const dpr = window.devicePixelRatio || 1;
+      const paperPosition = paper.view
+        ? paper.view.viewToProject(new paper.Point(newScreenX * dpr, newScreenY * dpr))
+        : ({ x: newScreenX, y: newScreenY } as any);
+
+      finalBounds = {
+        ...realTimeBoundsRef.current,
+        x: paperPosition.x,
+        y: paperPosition.y,
+      };
+      realTimeBoundsRef.current = finalBounds;
+      setScreenBounds((prev) => ({ ...prev, x: newScreenX, y: newScreenY }));
+      setRealTimeBounds(finalBounds);
+      onMove?.({ x: finalBounds.x, y: finalBounds.y });
+      onTransformEnd?.(modelId, 'move', finalBounds);
+    } else if (isResizing) {
+      const mouseX = event.clientX;
+      const mouseY = event.clientY;
+      const initialScreenBounds = convertToScreenBounds(initialBounds);
+      const newScreenBounds = { ...initialScreenBounds };
+
+      if (resizeDirection.includes('e')) {
+        newScreenBounds.width = Math.max(100, mouseX - initialScreenBounds.x);
+      }
+      if (resizeDirection.includes('w')) {
+        const rightEdge = initialScreenBounds.x + initialScreenBounds.width;
+        newScreenBounds.width = Math.max(100, rightEdge - mouseX);
+        newScreenBounds.x = rightEdge - newScreenBounds.width;
+      }
+      if (resizeDirection.includes('s')) {
+        newScreenBounds.height = Math.max(100, mouseY - initialScreenBounds.y);
+      }
+      if (resizeDirection.includes('n')) {
+        const bottomEdge = initialScreenBounds.y + initialScreenBounds.height;
+        newScreenBounds.height = Math.max(100, bottomEdge - mouseY);
+        newScreenBounds.y = bottomEdge - newScreenBounds.height;
+      }
+
+      finalBounds = convertToPaperBounds(newScreenBounds);
+      realTimeBoundsRef.current = finalBounds;
+      setScreenBounds(newScreenBounds);
+      setRealTimeBounds(finalBounds);
+      onResize?.(finalBounds);
+      onTransformEnd?.(modelId, 'resize', finalBounds);
+    }
     setIsDragging(false);
     setIsResizing(false);
     setResizeDirection('');
-  }, []);
+    document.body.classList.remove('tanva-canvas-dragging');
+  }, [isDragging, isResizing, modelId, onMove, onResize, onTransformEnd, dragStart.x, dragStart.y, convertToScreenBounds, convertToPaperBounds, initialBounds, resizeDirection]);
 
   useEffect(() => {
     if (isDragging || isResizing) {
@@ -326,6 +398,12 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       };
     }
   }, [isDragging, isResizing, handleMouseMove, handleMouseUp]);
+
+  useEffect(() => {
+    return () => {
+      document.body.classList.remove('tanva-canvas-dragging');
+    };
+  }, []);
 
   // 添加wheel事件监听
   useEffect(() => {

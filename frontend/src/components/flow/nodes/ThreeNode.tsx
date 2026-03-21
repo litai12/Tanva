@@ -330,7 +330,14 @@ function ThreeNodeInner({ id, data, selected }: Props) {
         updateNodeData({ pathTracingEnabled: false });
       }
     }
-  }, [ensureDaylightEnvironment, ensurePathTracer, isPathTracingForced, lt, stopPathTracerLoop, updateNodeData]);
+  }, [
+    ensureDaylightEnvironment,
+    ensurePathTracer,
+    isPathTracingForced,
+    lt,
+    stopPathTracerLoop,
+    updateNodeData,
+  ]);
 
   const normalizeModelUrl = React.useCallback((input: string): string => {
     const raw = (input || '').trim();
