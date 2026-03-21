@@ -292,6 +292,14 @@ function ThreeNodeInner({ id, data, selected }: Props) {
           pathTracerLoopRef.current = null;
           return;
         }
+        const isCanvasDragging =
+          typeof document !== 'undefined' &&
+          (document.body?.classList.contains('tanva-canvas-dragging') ||
+            document.body?.classList.contains('tanva-image-dragging'));
+        if (isCanvasDragging) {
+          pathTracerLoopRef.current = requestAnimationFrame(renderTick);
+          return;
+        }
         if (isInteractingRef.current) {
           pathTracerLoopRef.current = requestAnimationFrame(renderTick);
           return;
@@ -488,7 +496,8 @@ function ThreeNodeInner({ id, data, selected }: Props) {
       if (!renderer || !scene || !camera) return;
       const isCanvasDragging =
         typeof document !== 'undefined' &&
-        document.body?.classList.contains('tanva-canvas-dragging');
+        (document.body?.classList.contains('tanva-canvas-dragging') ||
+          document.body?.classList.contains('tanva-image-dragging'));
       if (isCanvasDragging && !isInteractingRef.current) {
         return;
       }

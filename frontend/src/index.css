@@ -279,7 +279,3 @@ body.tanva-canvas-dragging .tanva-selection-group-toolbar {
 body.tanva-image-dragging [data-model3d-container="true"] {
   pointer-events: none !important;
 }
-
-body.tanva-image-dragging .tanva-canvas-model3d-viewport {
-  background: #f3f4f6 !important;
-}

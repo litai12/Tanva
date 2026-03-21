@@ -804,7 +804,8 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
             style={{
               background: "transparent",
               pointerEvents,
-              visibility: shouldSuspendRendering ? "hidden" : "visible",
+              // 外部拖拽期间保持最后一帧可见，仅暂停交互与增量渲染
+              visibility: "visible",
             }}
           >
             <Suspense fallback={null}>
