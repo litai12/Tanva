@@ -441,6 +441,7 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
   suspendRendering = false,
 }) => {
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const devicePixelRatio =
     typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
   const maxDpr = Math.min(devicePixelRatio, MAX_INTERACTIVE_DPR);
@@ -469,9 +470,17 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
   }, [onCameraChange]);
 
   const lastCameraStateRef = useRef<Model3DCameraState | null>(null);
+  const didSkipInitialSyncRef = useRef(false);
 
   useEffect(() => {
     cameraStateRef.current = cameraState;
+
+    // 初始状态同步不触发持久化，避免加载/布局阶段误触 autosave
+    if (!didSkipInitialSyncRef.current) {
+      didSkipInitialSyncRef.current = true;
+      lastCameraStateRef.current = cameraState;
+      return;
+    }
 
     // 检查值是否真的改变了，避免不必要的更新
     if (
@@ -544,6 +553,13 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
       if (import.meta.env.DEV) {
         logger.debug("Model3DViewer组件卸载，清理3D资源");
       }
+      const renderer = rendererRef.current as any;
+      if (renderer) {
+        try { renderer.renderLists?.dispose?.(); } catch {}
+        try { renderer.dispose?.(); } catch {}
+        try { renderer.forceContextLoss?.(); } catch {}
+      }
+      rendererRef.current = null;
     },
     []
   );
@@ -552,6 +568,23 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
   const [suspendedFrame, setSuspendedFrame] = useState<string | null>(null);
   const wasSuspendedRef = useRef(false);
   const canCaptureFrameRef = useRef(true);
+  const fallbackModelTitle = (modelData.fileName || "3D Model").slice(0, 28);
+
+  const captureCurrentFrame = useCallback((): boolean => {
+    if (!canCaptureFrameRef.current) return false;
+    const canvas = rootRef.current?.querySelector("canvas");
+    if (!canvas) return false;
+    try {
+      const frame = canvas.toDataURL("image/webp", 0.75);
+      if (typeof frame === "string" && frame.startsWith("data:image")) {
+        setSuspendedFrame(frame);
+        return true;
+      }
+    } catch {
+      canCaptureFrameRef.current = false;
+    }
+    return false;
+  }, []);
   const pointerEvents =
     shouldSuspendRendering
       ? "none"
@@ -574,24 +607,28 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
 
   useEffect(() => {
     if (shouldSuspendRendering) {
-      if (!wasSuspendedRef.current && !suspendedFrame && canCaptureFrameRef.current) {
-        const canvas = rootRef.current?.querySelector("canvas");
-        if (canvas) {
-          try {
-            const frame = canvas.toDataURL("image/webp", 0.75);
-            if (typeof frame === "string" && frame.startsWith("data:image")) {
-              setSuspendedFrame(frame);
-            }
-          } catch {
-            canCaptureFrameRef.current = false;
-          }
-        }
+      if (!wasSuspendedRef.current && !suspendedFrame) {
+        captureCurrentFrame();
       }
       wasSuspendedRef.current = true;
       return;
     }
     wasSuspendedRef.current = false;
-  }, [shouldSuspendRendering, suspendedFrame]);
+  }, [shouldSuspendRendering, suspendedFrame, captureCurrentFrame]);
+
+  useEffect(() => {
+    if (shouldSuspendRendering || suspendedFrame || isLoading || error) return;
+    const timer = window.setTimeout(() => {
+      captureCurrentFrame();
+    }, 90);
+    return () => window.clearTimeout(timer);
+  }, [
+    shouldSuspendRendering,
+    suspendedFrame,
+    isLoading,
+    error,
+    captureCurrentFrame,
+  ]);
 
   return (
     <div
@@ -634,6 +671,9 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
         <>
           <Canvas
             className="tanva-canvas-model3d-webgl"
+            onCreated={({ gl }) => {
+              rendererRef.current = gl as unknown as THREE.WebGLRenderer;
+            }}
             camera={{
               position: cameraState.position,
               fov: 45,
@@ -654,8 +694,7 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
             style={{
               background: "transparent",
               pointerEvents,
-              visibility:
-                shouldSuspendRendering && suspendedFrame ? "hidden" : "visible",
+              visibility: shouldSuspendRendering ? "hidden" : "visible",
             }}
           >
             <Suspense fallback={null}>
@@ -742,21 +781,73 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
               </div>
             </div>
           )}
-          {shouldSuspendRendering && suspendedFrame && (
-            <img
-              src={suspendedFrame}
-              alt='3d-frame'
-              draggable={false}
-              style={{
-                position: "absolute",
-                inset: 0,
-                width: "100%",
-                height: "100%",
-                objectFit: "contain",
-                pointerEvents: "none",
-                userSelect: "none",
-              }}
-            />
+          {shouldSuspendRendering && (
+            <>
+              {suspendedFrame ? (
+                <img
+                  src={suspendedFrame}
+                  alt='3d-frame'
+                  draggable={false}
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "contain",
+                    pointerEvents: "none",
+                    userSelect: "none",
+                  }}
+                />
+              ) : (
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background:
+                      "linear-gradient(135deg, rgba(232,241,255,0.95) 0%, rgba(219,234,254,0.95) 100%)",
+                    pointerEvents: "none",
+                    userSelect: "none",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      gap: 6,
+                      color: "#1e3a8a",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 46,
+                        fontWeight: 700,
+                        lineHeight: 1,
+                        letterSpacing: "0.02em",
+                      }}
+                    >
+                      3D
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        color: "#334155",
+                        maxWidth: "78%",
+                        textAlign: "center",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {fallbackModelTitle}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </>
       )}

@@ -33,10 +33,15 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
   const [triggerModel3DUpload, setTriggerModel3DUpload] = useState(false);
   const currentModel3DPlaceholderRef = useRef<paper.Group | null>(null);
   const [model3DInstances, setModel3DInstances] = useState<Model3DInstance[]>([]);
+  const model3DInstancesRef = useRef<Model3DInstance[]>([]);
   const [selectedModel3DIds, setSelectedModel3DIds] = useState<string[]>([]);  // 支持多选
   const cameraChangeTimersRef = useRef<Record<string, number>>({});
   const [selectedPlaceholderId, setSelectedPlaceholderId] = useState<string | null>(null);  // 占位框选中状态
   const placeholdersRef = useRef<Map<string, paper.Group>>(new Map());  // 存储所有占位框
+
+  useEffect(() => {
+    model3DInstancesRef.current = model3DInstances;
+  }, [model3DInstances]);
 
   // ========== 创建3D模型占位框 ==========
   const create3DModelPlaceholder = useCallback((startPoint: paper.Point, endPoint: paper.Point) => {
@@ -535,43 +540,40 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
   };
 
   const handleModel3DCameraChange = useCallback((modelId: string, camera: Model3DCameraState) => {
+    const currentModel = model3DInstancesRef.current.find((m) => m.id === modelId);
+    if (!currentModel) return;
+
+    // 检查camera是否真的改变了，避免不必要的更新与保存
+    if (currentModel.modelData.camera && cameraStatesEqual(currentModel.modelData.camera, camera)) {
+      return;
+    }
+
     setModel3DInstances(prev => {
-      const model = prev.find(m => m.id === modelId);
-      if (!model) return prev;
-
-      // 检查camera是否真的改变了，避免不必要的更新
-      if (model.modelData.camera && cameraStatesEqual(model.modelData.camera, camera)) {
-        return prev;
-      }
-
-      const updatedData: Model3DData = {
-        ...model.modelData,
-        camera
-      };
-
-      try {
-        const modelGroup = paper.project.layers.flatMap(layer =>
-          layer.children.filter(child =>
-            child.data?.type === '3d-model' && child.data?.modelId === modelId
-          )
-        )[0];
-        if (modelGroup) {
-          if (!modelGroup.data) modelGroup.data = {};
-          modelGroup.data.camera = camera;
-          if (modelGroup.data.modelData) {
-            modelGroup.data.modelData = { ...modelGroup.data.modelData, camera };
-          }
-        }
-      } catch (e) {
-        console.warn('同步3D模型摄像机状态到Paper失败:', e);
-      }
-
-      return prev.map(m => 
-        m.id === modelId 
-          ? { ...m, modelData: updatedData }
+      const next = prev.map(m =>
+        m.id === modelId
+          ? { ...m, modelData: { ...m.modelData, camera } as Model3DData }
           : m
       );
+      model3DInstancesRef.current = next;
+      return next;
     });
+
+    try {
+      const modelGroup = paper.project.layers.flatMap(layer =>
+        layer.children.filter(child =>
+          child.data?.type === '3d-model' && child.data?.modelId === modelId
+        )
+      )[0];
+      if (modelGroup) {
+        if (!modelGroup.data) modelGroup.data = {};
+        modelGroup.data.camera = camera;
+        if (modelGroup.data.modelData) {
+          modelGroup.data.modelData = { ...modelGroup.data.modelData, camera };
+        }
+      }
+    } catch (e) {
+      console.warn('同步3D模型摄像机状态到Paper失败:', e);
+    }
 
     const timers = cameraChangeTimersRef.current;
     if (timers[modelId]) {
