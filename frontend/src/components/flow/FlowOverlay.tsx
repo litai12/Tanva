@@ -705,6 +705,7 @@ const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "midjourneyV7",
   "niji7",
   "nano2",
+  "seedream5",
   "image",
   "imagePro",
   "sora2Video",
@@ -7889,7 +7890,7 @@ function FlowInner() {
               boxW: 260,
               boxH: 240,
             },
-            selected: true,
+            selected: false,
           } as any,
         ])
       );
@@ -8304,8 +8305,14 @@ function FlowInner() {
             fetchable.startsWith(window.location.origin)
           ) {
             try {
+              const isAssetProxyFetch =
+                fetchable.includes("/api/assets/proxy") ||
+                fetchable.includes("/assets/proxy");
               const response = await fetchWithAuth(fetchable, {
-                auth: "auto",
+                auth: isAssetProxyFetch ? "omit" : "auto",
+                ...(isAssetProxyFetch
+                  ? { mode: "cors" as RequestMode, credentials: "omit" as RequestCredentials }
+                  : {}),
                 allowRefresh: false,
               });
               if (!response.ok) {

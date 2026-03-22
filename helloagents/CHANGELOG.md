@@ -220,3 +220,16 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Backend `BananaProvider` 文本链路（`/api/ai/text-chat`、`/api/ai/tool-selection`）接入 Apimart `POST /v1/chat/completions`，并复用 `NANO2_API_KEY`。
 - Banana 文本默认模型切换为 `gemini-3-flash-preview-apimart`；若切回 147 链路会自动归一化为兼容模型。
 - Follow-up: Banana Apimart 文本默认模型调整为 `gemini-2.5-flash`，并对文本链路启用快速失败/快速切换（减少 503/429 场景下的无效重试等待）。
+
+## [Apimart Text Model Patch - 2026-03-22]
+### Changed
+- Switched Banana Apimart text default model from `gemini-2.5-flash` to `gemini-3-flash-preview`.
+- Updated backend text default model mapping for `banana` / `banana-2.5` / `banana-3.1` to `gemini-3-flash-preview`.
+- Updated frontend `aiChatStore` Banana text defaults to `gemini-3-flash-preview` to keep client/server defaults aligned.
+
+## [Canvas Batch Download Patch - 2026-03-22]
+### Added
+- Canvas 组合选择工具栏新增“批量下载”按钮，支持一次性下载当前选中集合（含组块内图片）中的全部图片（`frontend/src/components/canvas/SelectionGroupToolbar.tsx`, `frontend/src/components/canvas/DrawingController.tsx`）。
+
+### Changed
+- `DrawingController` 的单图下载逻辑新增静默模式和布尔返回值，供批量下载复用并在批量完成后统一提示结果（`frontend/src/components/canvas/DrawingController.tsx`）。

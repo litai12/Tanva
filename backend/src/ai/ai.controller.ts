@@ -87,9 +87,9 @@ export class AiController {
   private readonly providerDefaultTextModels: Record<string, string> = {
     gemini: 'gemini-3-flash-preview',
     'gemini-pro': 'gemini-3-flash-preview',
-    banana: 'gemini-2.5-flash',
-    'banana-2.5': 'gemini-2.5-flash',
-    'banana-3.1': 'gemini-2.5-flash',
+    banana: 'gemini-3-flash-preview',
+    'banana-2.5': 'gemini-3-flash-preview',
+    'banana-3.1': 'gemini-3-flash-preview',
     runninghub: 'gemini-3-flash-preview',
     midjourney: 'gemini-3-flash-preview',
     nano2: 'gemini-3-flash-preview',

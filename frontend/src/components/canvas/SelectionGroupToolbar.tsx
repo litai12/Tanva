@@ -1,5 +1,5 @@
 import React from 'react';
-import { Camera, Group, Send, Ungroup } from 'lucide-react';
+import { Camera, Download, Group, Send, Ungroup } from 'lucide-react';
 import { Button } from '../ui/button';
 
 interface SelectionGroupToolbarProps {
@@ -10,18 +10,22 @@ interface SelectionGroupToolbarProps {
   canGroupImages?: boolean;
   onUngroupImages?: () => void;
   canUngroupImages?: boolean;
+  onBatchDownloadImages?: () => void;
+  canBatchDownloadImages?: boolean;
   onSendToDialog?: () => void;
   isCapturing?: boolean;
 }
 
 const SelectionGroupToolbar: React.FC<SelectionGroupToolbarProps> = ({
   bounds,
-  selectedCount,
+  selectedCount: _selectedCount,
   onCapture,
   onGroupImages,
   canGroupImages = false,
   onUngroupImages,
   canUngroupImages = false,
+  onBatchDownloadImages,
+  canBatchDownloadImages = false,
   onSendToDialog,
   isCapturing = false,
 }) => {
@@ -78,6 +82,18 @@ const SelectionGroupToolbar: React.FC<SelectionGroupToolbarProps> = ({
           >
             <Ungroup className="w-4 h-4" />
             解组
+          </Button>
+        )}
+        {onBatchDownloadImages && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1"
+            onClick={onBatchDownloadImages}
+            disabled={isCapturing || !canBatchDownloadImages}
+          >
+            <Download className="w-4 h-4" />
+            批量下载
           </Button>
         )}
         {onSendToDialog && (

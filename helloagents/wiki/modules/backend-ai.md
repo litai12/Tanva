@@ -29,6 +29,7 @@
 - `edit-image` / `blend-images` 支持 `sourceImageUrl(s)`，后端会按 OSS 白名单拉取并转换为 dataURL。
 - Banana 文本链路（`text-chat` / `tool-selection`）支持独立于图像链路的供应商配置键 `banana_text_provider`：`auto`（Apimart→147）、`legacy_auto`（147→Apimart）、`apimart`、`legacy`。
 - Banana 文本走 Apimart 时使用 `https://api.apimart.ai/v1/chat/completions`（OpenAI Chat Completions 兼容格式），鉴权复用 `NANO2_API_KEY`。
+- Banana 文本链路默认模型已统一为 `gemini-3-flash-preview`（包含 Apimart 通道默认值与 controller/provider fallback 默认值）。
 
 ## 配置项（以代码与环境为准）
 - Gemini/第三方：`GOOGLE_GEMINI_API_KEY`、`RUNNINGHUB_API_KEY` 等

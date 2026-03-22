@@ -29,6 +29,39 @@ export interface Convert2Dto3DResponse {
   error?: string;
 }
 
+const extractApiErrorMessage = (errorData: unknown): string | null => {
+  if (!errorData || typeof errorData !== "object") return null;
+  const data = errorData as {
+    message?: unknown;
+    error?: unknown;
+    statusCode?: unknown;
+  };
+
+  if (typeof data.message === "string" && data.message.trim().length > 0) {
+    return data.message.trim();
+  }
+  if (
+    Array.isArray(data.message) &&
+    data.message.length > 0 &&
+    data.message.every((item) => typeof item === "string")
+  ) {
+    return data.message.join("; ");
+  }
+  if (typeof data.error === "string" && data.error.trim().length > 0) {
+    return data.error.trim();
+  }
+  return null;
+};
+
+const isInsufficientCreditsMessage = (message: string): boolean => {
+  if (!message) return false;
+  return (
+    message.includes("积分不足") ||
+    /insufficient\s+credits?/i.test(message) ||
+    /balance.*insufficient/i.test(message)
+  );
+};
+
 /**
  * 将2D图片转换为3D模型
  */
@@ -46,7 +79,11 @@ export async function convert2Dto3D(
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      const errorMessage = errorData?.message || `HTTP ${response.status}`;
+      const rawErrorMessage =
+        extractApiErrorMessage(errorData) || `HTTP ${response.status}`;
+      const errorMessage = isInsufficientCreditsMessage(rawErrorMessage)
+        ? "积分不足，2D转3D 需要 200 积分，请先充值后重试"
+        : rawErrorMessage;
       logger.error("2D to 3D conversion failed", {
         status: response.status,
         error: errorMessage,

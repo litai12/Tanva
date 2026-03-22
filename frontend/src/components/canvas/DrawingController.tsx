@@ -4097,6 +4097,17 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     return Array.from(ids);
   }, [imageTool.selectedImageIds, selectedGroupImageIds]);
 
+  const downloadableSelectionImageIds = useMemo(() => {
+    const ids = new Set<string>();
+    (imageTool.selectedImageIds ?? []).forEach((id) => {
+      if (typeof id === "string" && id.trim()) ids.add(id.trim());
+    });
+    selectedGroupImageIds.forEach((id) => {
+      if (typeof id === "string" && id.trim()) ids.add(id.trim());
+    });
+    return Array.from(ids);
+  }, [imageTool.selectedImageIds, selectedGroupImageIds]);
+
   const pendingImageIds = useMemo(() => {
     return new Set<string>(
       (imageTool.imageInstances ?? [])
@@ -4129,6 +4140,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     selectedNonGroupPaths.length === 0 &&
     !hasPendingSelection;
   const canUngroupImages = selectedGroupBlocks.length > 0 && !hasPendingSelection;
+  const canBatchDownloadSelectionImages =
+    downloadableSelectionImageIds.length > 0;
 
   const groupPaperBounds = useMemo(() => {
     if (!showSelectionGroupToolbar) return null;
@@ -5601,14 +5614,22 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   );
 
   const handleDownloadImage = useCallback(
-    async (imageId: string) => {
+    async (imageId: string, options?: { silent?: boolean }) => {
+      const silent = options?.silent ?? false;
       try {
         const instance = imageTool.imageInstances.find(
           (img) => img.id === imageId
         );
         if (!instance) {
           console.warn("下载失败：未找到图片实例", imageId);
-          return;
+          if (!silent) {
+            window.dispatchEvent(
+              new CustomEvent("toast", {
+                detail: { message: "未找到图像，下载失败", type: "error" },
+              })
+            );
+          }
+          return false;
         }
 
         let dataUrl: string | null = null;
@@ -5630,12 +5651,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
         if (!dataUrl) {
           console.warn("下载失败：缺少可用的图片数据", imageId);
-          window.dispatchEvent(
-            new CustomEvent("toast", {
-              detail: { message: "无法获取图像数据，下载失败", type: "error" },
-            })
-          );
-          return;
+          if (!silent) {
+            window.dispatchEvent(
+              new CustomEvent("toast", {
+                detail: { message: "无法获取图像数据，下载失败", type: "error" },
+              })
+            );
+          }
+          return false;
         }
 
         const fileName = getSuggestedFileName(
@@ -5643,22 +5666,78 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           "image"
         );
         downloadImage(dataUrl, fileName);
-        window.dispatchEvent(
-          new CustomEvent("toast", {
-            detail: { message: "已开始下载图片", type: "success" },
-          })
-        );
+        if (!silent) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "已开始下载图片", type: "success" },
+            })
+          );
+        }
+        return true;
       } catch (error) {
         console.error("下载图片失败:", error);
-        window.dispatchEvent(
-          new CustomEvent("toast", {
-            detail: { message: "下载失败，请稍后再试", type: "error" },
-          })
-        );
+        if (!silent) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "下载失败，请稍后再试", type: "error" },
+            })
+          );
+        }
+        return false;
       }
     },
     [imageTool.imageInstances, imageTool.getImageDataForEditing]
   );
+
+  const handleBatchDownloadSelectionImages = useCallback(async () => {
+    const imageIds = downloadableSelectionImageIds;
+    if (!imageIds.length) {
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: "当前没有可下载的图片", type: "warning" },
+        })
+      );
+      return;
+    }
+
+    let successCount = 0;
+    for (let index = 0; index < imageIds.length; index += 1) {
+      const started = await handleDownloadImage(imageIds[index], {
+        silent: true,
+      });
+      if (started) successCount += 1;
+      if (index < imageIds.length - 1) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 120));
+      }
+    }
+
+    if (successCount <= 0) {
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: "批量下载失败，请稍后再试", type: "error" },
+        })
+      );
+      return;
+    }
+
+    if (successCount < imageIds.length) {
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: {
+            message: `已开始下载 ${successCount}/${imageIds.length} 张图片，其余下载失败`,
+            type: "warning",
+          },
+        })
+      );
+      return;
+    }
+
+    window.dispatchEvent(
+      new CustomEvent("toast", {
+        detail: { message: `已开始批量下载 ${successCount} 张图片`, type: "success" },
+      })
+    );
+  }, [downloadableSelectionImageIds, handleDownloadImage]);
 
   // 添加选中的路径到个人库（转换为SVG）
   const addAsset = usePersonalLibraryStore((state) => state.addAsset);
@@ -8021,6 +8100,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           canGroupImages={canGroupImages}
           onUngroupImages={hasPendingSelection ? undefined : handleUngroupImages}
           canUngroupImages={canUngroupImages}
+          onBatchDownloadImages={handleBatchDownloadSelectionImages}
+          canBatchDownloadImages={canBatchDownloadSelectionImages}
           isCapturing={isGroupCapturePending}
         />
       )}

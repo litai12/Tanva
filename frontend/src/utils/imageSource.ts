@@ -19,6 +19,16 @@ const getOssBaseUrl = (): string | null => {
   return null;
 };
 
+const shouldAvoidSameOriginDirectBase = (baseUrl: string): boolean => {
+  if (typeof window === "undefined" || !window.location?.origin) return false;
+  try {
+    const parsed = new URL(baseUrl);
+    return parsed.origin === window.location.origin;
+  } catch {
+    return false;
+  }
+};
+
 export const isRemoteUrl = (value?: string | null): value is RemoteUrl =>
   typeof value === "string" && /^https?:\/\//i.test(value.trim());
 
@@ -259,7 +269,9 @@ export const toRenderableImageSrc = (value?: string | null): string | null => {
   if (isAssetKeyRef(trimmed)) {
     const withoutLeading = trimmed.replace(/^\/+/, "");
     const directBase = getOssBaseUrl();
-    if (directBase) return `${directBase}${withoutLeading}`;
+    if (directBase && !shouldAvoidSameOriginDirectBase(directBase)) {
+      return `${directBase}${withoutLeading}`;
+    }
     return proxifyRemoteAssetUrl(
       `/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`,
       { forceProxy: true }
@@ -343,7 +355,7 @@ export const resolveImageToDataUrl = async (
     const withoutLeading = trimmed.replace(/^\/+/, "");
     // 优先直接使用环境配置的公共 OSS/CDN URL，缺失时走代理
     const directBase = getOssBaseUrl();
-    if (directBase) {
+    if (directBase && !shouldAvoidSameOriginDirectBase(directBase)) {
       candidates.push(`${directBase}${withoutLeading}`);
     }
     // 兜底：走代理
@@ -380,14 +392,13 @@ export const resolveImageToDataUrl = async (
   for (const url of candidates) {
     console.log(`[resolveImageToDataUrl] 尝试 fetch: ${url.slice(0, 80)}...`);
     try {
-      // 判断是否需要认证：本地 API 代理需要认证
-      const needsAuth = url.includes("/api/assets/proxy") || url.includes("/assets/proxy");
+      // 资产代理是公开读接口，不应携带凭证；否则跨域下会触发 wildcard+credentials 的 CORS 拦截。
       const init: RequestInit = isBlobUrl(url)
         ? {}
-        : { mode: "cors", credentials: needsAuth ? "include" : "omit" };
+        : { mode: "cors", credentials: "omit" };
       const response = await fetchWithAuth(url, {
         ...init,
-        auth: needsAuth ? "auto" : "omit",
+        auth: "omit",
         allowRefresh: false,
       });
       if (!response.ok) {
@@ -457,7 +468,7 @@ export const resolveImageToBlob = async (
   } else if (isAssetKeyRef(trimmed)) {
     const withoutLeading = trimmed.replace(/^\/+/, "");
     const directBase = getOssBaseUrl();
-    if (directBase) {
+    if (directBase && !shouldAvoidSameOriginDirectBase(directBase)) {
       candidates.push(`${directBase}${withoutLeading}`);
     }
     candidates.push(

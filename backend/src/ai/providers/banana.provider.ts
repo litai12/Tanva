@@ -89,7 +89,7 @@ export class BananaProvider implements IAIProvider {
   private readonly apimartTextUrl = "https://api.apimart.ai/v1/chat/completions";
   private readonly DEFAULT_MODEL = "gemini-3-pro-image-preview";
   private readonly DEFAULT_TEXT_MODEL = "gemini-3-flash-preview";
-  private readonly DEFAULT_APIMART_TEXT_MODEL = "gemini-2.5-flash";
+  private readonly DEFAULT_APIMART_TEXT_MODEL = "gemini-3-flash-preview";
   private readonly DEFAULT_TIMEOUT = 300000; // 5分钟
   private readonly TEXT_TIMEOUT = 45000; // 文本接口更快失败，便于通道快速切换
   private readonly MAX_RETRIES = 3;
