@@ -1,6 +1,7 @@
 import React from 'react';
 import { Handle, Position, useStore, type ReactFlowState, type Node } from 'reactflow';
 import { fetchWithAuth } from '@/services/authFetch';
+import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
 import { useLocaleText } from '@/utils/localeText';
 
 type Props = {
@@ -16,11 +17,13 @@ type Props = {
   selected?: boolean;
 };
 
-const DEFAULT_VIDEO_MODEL = 'gemini-3-flash-preview';
-const DEFAULT_VIDEO_PROVIDER = 'banana';
-
 function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
   const { lt } = useLocaleText();
+  const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const textModel = React.useMemo(
+    () => getTextModelForProvider(aiProvider),
+    [aiProvider]
+  );
   const { status, error } = data;
   const [hover, setHover] = React.useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
@@ -95,16 +98,16 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
 
       const apiBase = import.meta.env.VITE_API_BASE_URL?.replace(/\/+$/, '') || 'http://localhost:4000';
 
-	      const response = await fetchWithAuth(`${apiBase}/api/ai/analyze-video`, {
-	        method: 'POST',
-	        headers: { 'Content-Type': 'application/json' },
-	        body: JSON.stringify({
-	          prompt: promptToUse,
-	          videoUrl: effectiveVideoUrl,
-	          aiProvider: DEFAULT_VIDEO_PROVIDER,
-	          model: DEFAULT_VIDEO_MODEL,
-	        }),
-	      });
+      const response = await fetchWithAuth(`${apiBase}/api/ai/analyze-video`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: promptToUse,
+          videoUrl: effectiveVideoUrl,
+          aiProvider,
+          model: textModel,
+        }),
+      });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -139,7 +142,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [data.analysisPrompt, defaultAnalysisPrompt, effectiveVideoUrl, id, isAnalyzing, lt, status]);
+  }, [aiProvider, data.analysisPrompt, defaultAnalysisPrompt, effectiveVideoUrl, id, isAnalyzing, lt, status, textModel]);
 
   React.useEffect(() => {
     const handler = (event: Event) => {
