@@ -151,6 +151,29 @@ export class CreditsService {
   }
 
   /**
+   * Sora 视频服务：Pro 模型（750 积分）显示「Sora 2 Pro 视频生成」，标准/VIP 模型显示「Sora2 视频生成」
+   */
+  private resolveSoraServiceName(
+    serviceType: ServiceType,
+    defaultServiceName: string,
+    requestParams: any,
+    model?: string,
+  ): string {
+    if (serviceType !== 'sora-sd' && serviceType !== 'sora-hd') {
+      return defaultServiceName;
+    }
+
+    const selectedModel =
+      this.normalizeSoraBillingModel(requestParams?.soraModel) ||
+      this.normalizeSoraBillingModel(model);
+    if (selectedModel === 'sora-2-pro') {
+      return serviceType === 'sora-hd' ? 'Sora 2 Pro 高清视频' : 'Sora 2 Pro 视频生成';
+    }
+
+    return defaultServiceName;
+  }
+
+  /**
    * 根据分辨率解析积分定价
    * 支持按分辨率差异化计费的服务（由 pricing.resolutionPricing 控制）
    */
@@ -721,6 +744,14 @@ export class CreditsService {
 
       const newBalance = account.balance - creditsToDeduct;
 
+      // Sora 按模型区分显示名称：Pro 750 积分显示「Sora 2 Pro 视频生成」
+      const effectiveServiceName = this.resolveSoraServiceName(
+        serviceType,
+        pricing.serviceName,
+        requestParams,
+        model,
+      );
+
       // 更新账户余额
       await tx.creditAccount.update({
         where: { id: account.id },
@@ -735,7 +766,7 @@ export class CreditsService {
         data: {
           userId,
           serviceType,
-          serviceName: pricing.serviceName,
+          serviceName: effectiveServiceName,
           provider: requestedProvider || pricing.provider,
           model,
           creditsUsed: creditsToDeduct,
@@ -758,7 +789,7 @@ export class CreditsService {
           amount: -creditsToDeduct,
           balanceBefore: account.balance,
           balanceAfter: newBalance,
-          description: `使用 ${pricing.serviceName}${requestParams?.imageSize ? `（${requestParams.imageSize}）` : ''}`,
+          description: `使用 ${effectiveServiceName}${requestParams?.imageSize ? `（${requestParams.imageSize}）` : ''}`,
           apiUsageId: apiUsage.id,
         },
       });

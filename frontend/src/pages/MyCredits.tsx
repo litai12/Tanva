@@ -229,10 +229,11 @@ const MyCredits: React.FC = () => {
   };
 
   const usageByService = useMemo(() => {
+    // 按 serviceName 分组（后端已按 Sora 模型区分），以正确展示 Sora 标准版 vs Pro 版
     const serviceMap = new Map<string, { count: number; credits: number }>();
 
     apiUsage.forEach(record => {
-      const key = record.serviceType;
+      const key = record.serviceName || record.serviceType;
       const existing = serviceMap.get(key) || { count: 0, credits: 0 };
       serviceMap.set(key, {
         count: existing.count + 1,
@@ -241,13 +242,13 @@ const MyCredits: React.FC = () => {
     });
 
     return Array.from(serviceMap.entries())
-      .map(([serviceType, stats]) => ({
-        serviceType,
-        serviceName: getServiceTypeLabel(serviceType),
+      .map(([serviceName, stats]) => ({
+        serviceType: serviceName,
+        serviceName,
         ...stats,
       }))
       .sort((a, b) => b.credits - a.credits);
-  }, [apiUsage, i18n.resolvedLanguage, t]);
+  }, [apiUsage]);
 
   // 今日消耗
   const todaySpent = useMemo(() => {

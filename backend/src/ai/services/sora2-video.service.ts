@@ -117,7 +117,7 @@ interface CreateCharacterTaskOptions {
   fromTask?: string;
 }
 
-interface Sora2VideoTaskQueryResult {
+export interface Sora2VideoTaskQueryResult {
   id: string;
   status: string;
   progress?: number;
@@ -966,7 +966,6 @@ export class Sora2VideoService {
     this.logger.log(
       `Sora2 Pro 视频生成开始 (model=${model}, duration=${duration}, orientation=${orientation}, quality=${qualityLevel}, isImageToVideo=${!!isImageToVideo})`
     );
-    this.logger.log(`Sora2 Pro 完整请求体: ${JSON.stringify(createPayload)}`);
 
     // 根据文档构建请求体
     // 文生视频: { model, prompt, duration, size }
@@ -979,6 +978,8 @@ export class Sora2VideoService {
       duration: Number(duration),
       size,
     };
+
+    this.logger.log(`Sora2 Pro 完整请求体: ${JSON.stringify(createPayload)}`);
 
     // 图生视频：添加 images 数组
     if (isImageToVideo) {
