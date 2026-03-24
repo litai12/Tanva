@@ -18,7 +18,6 @@ type Props = {
     onRun?: (id: string) => void;
     model?: "sora-2" | "sora-2-pro";
     timestamps?: string;
-    fromTask?: string;
     taskId?: string;
     progress?: number;
     characters?: CharacterItem[];
@@ -37,7 +36,6 @@ function Sora2CharacterNodeInner({ id, data, selected }: Props) {
   const status = data.status || "idle";
   const model = data.model === "sora-2" || data.model === "sora-2-pro" ? data.model : "sora-2-pro";
   const timestamps = typeof data.timestamps === "string" ? data.timestamps : "1,3";
-  const fromTask = typeof data.fromTask === "string" ? data.fromTask : "";
   const taskId = typeof data.taskId === "string" ? data.taskId : "";
   const progress = typeof data.progress === "number" ? data.progress : undefined;
   const characters = Array.isArray(data.characters) ? data.characters : [];
@@ -54,10 +52,6 @@ function Sora2CharacterNodeInner({ id, data, selected }: Props) {
 
   const handleTimestampsChange = React.useCallback((value: string) => {
     updatePatch({ timestamps: value.trim() || undefined });
-  }, [updatePatch]);
-
-  const handleFromTaskChange = React.useCallback((value: string) => {
-    updatePatch({ fromTask: value.trim() || undefined });
   }, [updatePatch]);
 
   const handleButtonMouseDown = (event: React.MouseEvent) => {
@@ -124,7 +118,7 @@ function Sora2CharacterNodeInner({ id, data, selected }: Props) {
             opacity: status === "running" ? 0.6 : 1,
           }}
         >
-          {status === "running" ? lt("运行中", "Running") : lt("运行", "Run")}
+          {status === "running" ? lt("运行中", "Running") : lt("Run", "Run")}
         </button>
       </div>
 
@@ -160,26 +154,6 @@ function Sora2CharacterNodeInner({ id, data, selected }: Props) {
           value={timestamps}
           onChange={(event) => handleTimestampsChange(event.target.value)}
           placeholder="1,3"
-          style={{
-            width: "100%",
-            height: 32,
-            borderRadius: 8,
-            border: "1px solid #e5e7eb",
-            padding: "0 10px",
-            fontSize: 12,
-          }}
-        />
-      </div>
-
-      <div style={{ marginBottom: 8 }}>
-        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
-          {lt("from_task（可选）", "from_task (optional)")}
-        </div>
-        <input
-          className="nodrag"
-          value={fromTask}
-          onChange={(event) => handleFromTaskChange(event.target.value)}
-          placeholder="task_xxx"
           style={{
             width: "100%",
             height: 32,
@@ -256,3 +230,4 @@ function Sora2CharacterNodeInner({ id, data, selected }: Props) {
 }
 
 export default React.memo(Sora2CharacterNodeInner);
+

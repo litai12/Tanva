@@ -382,6 +382,11 @@ input[type="text"],
   --handle-border: #9333ea;
 }
 
+.tanva-flow-overlay .react-flow__handle.tanva-sora2-character-video-handle {
+  --handle-bg: #a855f7;
+  --handle-border: #9333ea;
+}
+
 /* Images 类型句柄 (多图) - 黄色 */
 .tanva-flow-overlay .react-flow__handle[data-handleid="images"],
 .tanva-flow-overlay .react-flow__handle[data-handleid^="images-"],

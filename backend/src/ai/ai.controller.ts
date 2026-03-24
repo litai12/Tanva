@@ -1709,7 +1709,7 @@ export class AiController {
     const quality = dto.quality === 'sd' ? 'sd' : 'hd';
     const serviceType: ServiceType = quality === 'sd' ? 'sora-sd' : 'sora-hd';
     const selectedSoraModel =
-      dto.model === 'sora-2' || dto.model === 'sora-2-vip' || dto.model === 'sora-2-pro'
+      dto.model === 'sora-2' || dto.model === 'sora-2-pro'
         ? dto.model
         : quality === 'hd'
         ? 'sora-2-pro'
@@ -1719,11 +1719,21 @@ export class AiController {
       [];
     const legacySingle = dto.referenceImageUrl?.trim();
     const referenceImageUrls = legacySingle ? [...normalizedArray, legacySingle] : normalizedArray;
-    const inputImageCount = referenceImageUrls.length || undefined;
+    const hasCharacterMode =
+      (typeof dto.characterTaskId === 'string' && dto.characterTaskId.trim().length > 0) ||
+      (typeof dto.characterUrl === 'string' && dto.characterUrl.trim().length > 0);
+    const effectiveReferenceImageUrls = hasCharacterMode ? [] : referenceImageUrls;
+    const inputImageCount = effectiveReferenceImageUrls.length || undefined;
 
     this.logger.log(
-      `🎬 Video generation request received (quality=${quality}, referenceCount=${referenceImageUrls.length})`,
+      `Video generation request received (quality=${quality}, referenceCount=${effectiveReferenceImageUrls.length}, characterMode=${hasCharacterMode})`,
     );
+    this.logger.log(`Video generation full dto: ${JSON.stringify(dto)}`);
+    if (hasCharacterMode && referenceImageUrls.length > 0) {
+      this.logger.warn(
+        `Sora2 character mode detected: ignore ${referenceImageUrls.length} reference image(s)`,
+      );
+    }
 
     return this.withCredits(
       req,
@@ -1732,7 +1742,7 @@ export class AiController {
       async () => {
         const result = await this.sora2VideoService.generateVideo({
           prompt: dto.prompt,
-          referenceImageUrls,
+          referenceImageUrls: effectiveReferenceImageUrls,
           quality,
           aspectRatio: dto.aspectRatio,
           duration: dto.duration,
@@ -1749,7 +1759,7 @@ export class AiController {
 
         if (!result?.videoUrl) {
           throw new ServiceUnavailableException(
-            result?.fallbackMessage || result?.content || '视频生成失败：未返回可用的视频链接',
+            result?.fallbackMessage || result?.content || '视频生成失败：未返回可用视频链接',
           );
         }
 
@@ -1818,11 +1828,16 @@ export class AiController {
     if (!dto.url && !dto.fromTask) {
       throw new BadRequestException('参数 url 和 fromTask 需二选一');
     }
+    // 角色创建链路不支持 prompt/image，这里只保留白名单字段
+    const safeModel = dto.model;
+    const safeTimestamps = typeof dto.timestamps === 'string' ? dto.timestamps.trim() : dto.timestamps;
+    const safeUrl = typeof dto.url === 'string' ? dto.url.trim() : dto.url;
+    const safeFromTask = typeof dto.fromTask === 'string' ? dto.fromTask.trim() : dto.fromTask;
     return this.sora2VideoService.createCharacterTask({
-      model: dto.model,
-      timestamps: dto.timestamps,
-      url: dto.url,
-      fromTask: dto.fromTask,
+      model: safeModel,
+      timestamps: safeTimestamps,
+      url: safeUrl,
+      fromTask: safeFromTask,
     });
   }
 
@@ -1832,6 +1847,14 @@ export class AiController {
       throw new BadRequestException('taskId 不能为空');
     }
     return this.sora2VideoService.queryCharacterTask(taskId.trim());
+  }
+
+  @Get('sora2/video/:taskId')
+  async querySora2VideoTask(@Param('taskId') taskId: string) {
+    if (!taskId || !taskId.trim()) {
+      throw new BadRequestException('taskId 不能为空');
+    }
+    return this.sora2VideoService.queryVideoTask(taskId.trim());
   }
 
   /**
@@ -3011,3 +3034,4 @@ export class AiController {
     return this.minimaxSpeechService.queryAsyncSpeechTask(normalizedTaskId);
   }
 }
+

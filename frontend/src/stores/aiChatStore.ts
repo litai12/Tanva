@@ -1,4 +1,4 @@
-/**
+﻿/**
  * AI聊天对话框状态管理
  * 管理对话框显示、输入内容和生成状态
  */
@@ -1309,7 +1309,7 @@ const migrateLegacySessions = async (
 export type Sora2VideoGenerationOptions = {
   onProgress?: (stage: string, progress: number) => void;
   quality?: Sora2VideoQuality;
-  model?: "sora-2" | "sora-2-vip" | "sora-2-pro";
+  model?: "sora-2" | "sora-2-pro";
   /** 画面比例，仅极速 Sora2 支持。例如 '16:9' | '9:16' */
   aspectRatio?: "16:9" | "9:16";
   /** 时长（秒），仅极速 Sora2 支持。例如 10 / 15 / 25 */

@@ -133,25 +133,25 @@ export const CREDIT_PRICING_CONFIG = {
 
   // Sora 视频服务
   'sora-sd': {
-    serviceName: 'Sora 普清视频',
+    serviceName: 'Sora2 视频生成',
     provider: 'sora',
-    creditsPerCall: 900,
-    description: '使用 Sora 生成视频（统一计费）',
+    creditsPerCall: 200,
+    description: '使用 Sora2 生成视频（按模型计费）',
     modelPricing: {
-      'sora-2': { creditsPerCall: 900, description: 'Sora2 标准模型（占位）' },
-      'sora-2-vip': { creditsPerCall: 900, description: 'Sora2 VIP 模型（占位）' },
-      'sora-2-pro': { creditsPerCall: 900, description: 'Sora2 Pro 模型（占位）' },
+      'sora-2': { creditsPerCall: 200, description: 'Sora2 标准模型' },
+      'sora-2-vip': { creditsPerCall: 200, description: 'Sora2 VIP 模型' },
+      'sora-2-pro': { creditsPerCall: 750, description: 'Sora2 Pro 专业模型' },
     },
   },
   'sora-hd': {
-    serviceName: 'Sora 高清视频',
+    serviceName: 'Sora2 高清视频',
     provider: 'sora',
-    creditsPerCall: 900,
-    description: '使用 Sora 生成视频（统一计费）',
+    creditsPerCall: 200,
+    description: '使用 Sora2 生成高清视频（按模型计费）',
     modelPricing: {
-      'sora-2': { creditsPerCall: 900, description: 'Sora2 标准模型（占位）' },
-      'sora-2-vip': { creditsPerCall: 900, description: 'Sora2 VIP 模型（占位）' },
-      'sora-2-pro': { creditsPerCall: 900, description: 'Sora2 Pro 模型（占位）' },
+      'sora-2': { creditsPerCall: 200, description: 'Sora2 标准模型' },
+      'sora-2-vip': { creditsPerCall: 200, description: 'Sora2 VIP 模型' },
+      'sora-2-pro': { creditsPerCall: 750, description: 'Sora2 Pro 专业模型' },
     },
   },
 

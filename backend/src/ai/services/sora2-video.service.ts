@@ -36,8 +36,18 @@ const SORA2_POLL_STATUSES = ["queued", "processing", "downloading", "pending"];
 // ==================== APIMart Sora2 Pro 配置 ====================
 const SORA2_APIMART_POLL_INTERVAL_MS = 5000;
 const SORA2_APIMART_POLL_MAX_ATTEMPTS = 180;
-const SORA2_APIMART_FETCH_TIMEOUT_MS = 15000;
-const SORA2_APIMART_FAILED_STATUSES = ["failed", "error", "cancelled", "terminated"];
+const SORA2_APIMART_FETCH_TIMEOUT_MS = 30000;
+const SORA2_APIMART_MAX_CONSECUTIVE_TIMEOUTS = 30;
+const SORA2_APIMART_FAILED_STATUSES = [
+  "failed",
+  "failure",
+  "error",
+  "cancelled",
+  "canceled",
+  "terminated",
+  "rejected",
+  "blocked",
+];
 const SORA2_APIMART_ALLOWED_STYLES = new Set([
   "thanksgiving",
   "comic",
@@ -105,6 +115,15 @@ interface CreateCharacterTaskOptions {
   timestamps: string;
   url?: string;
   fromTask?: string;
+}
+
+interface Sora2VideoTaskQueryResult {
+  id: string;
+  status: string;
+  progress?: number;
+  videoUrl?: string;
+  thumbnailUrl?: string;
+  raw?: Record<string, any>;
 }
 
 type Sora2CharacterInfo = {
@@ -351,6 +370,49 @@ export class Sora2VideoService {
     };
   }
 
+  async queryVideoTask(taskId: string): Promise<Sora2VideoTaskQueryResult> {
+    if (!this.apiKeyApimart) {
+      throw new ServiceUnavailableException("APIMart Sora2 API Key 未配置");
+    }
+    if (!taskId || !taskId.trim()) {
+      throw new BadRequestException("taskId 不能为空");
+    }
+
+    const response = await fetch(
+      `${this.apiBaseApimart}/v1/tasks/${encodeURIComponent(taskId.trim())}?language=zh&t=${Date.now()}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${this.apiKeyApimart}`,
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+        },
+      }
+    );
+
+    const dataRaw = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message =
+        dataRaw?.error?.message || dataRaw?.message || `HTTP ${response.status}`;
+      throw new ServiceUnavailableException(`查询视频任务失败: ${message}`);
+    }
+
+    const data = this.normalizeApimartTaskPayload(dataRaw, taskId.trim());
+    const statusRaw = String(data?.status || "unknown");
+    const progress =
+      typeof data?.progress === "number" ? data.progress : undefined;
+    const { videoUrl, thumbnailUrl } = this.extractApimartMedia(data);
+
+    return {
+      id: String(data?.id || data?.task_id || data?.taskId || taskId.trim()),
+      status: statusRaw,
+      progress,
+      videoUrl,
+      thumbnailUrl,
+      raw: dataRaw,
+    };
+  }
+
   private hasApimartOnlyOptions(options: GenerateVideoOptions): boolean {
     return Boolean(
       options.model ||
@@ -475,6 +537,7 @@ export class Sora2VideoService {
         createPayload.aspect_ratio || "default"
       }, refs=${images.length}`
     );
+    this.logger.log(`APIMart Sora2 完整请求体: ${JSON.stringify(createPayload)}`);
 
     const response = await fetch(`${this.apiBaseApimart}/v1/videos/generations`, {
       method: "POST",
@@ -486,6 +549,11 @@ export class Sora2VideoService {
     });
 
     const createResult = await response.json().catch(() => ({}));
+    this.logger.log(
+      `APIMart create response: http=${response.status}, body=${this.toLogSnippet(
+        createResult
+      )}`
+    );
     if (!response.ok) {
       const message =
         createResult?.error?.message ||
@@ -515,18 +583,26 @@ export class Sora2VideoService {
         `Sora2 Pro 未返回任务ID: ${JSON.stringify(createResult)}`
       );
     }
+    this.logger.log(
+      `APIMart task created: taskId=${taskId}, initialStatus=${
+        createResult?.data?.[0]?.status || createResult?.status || "unknown"
+      }`
+    );
 
     const pollResult = await this.pollApimartTaskUntilComplete(taskId);
     if (!pollResult) {
-      throw new ServiceUnavailableException("Sora2 Pro 任务轮询超时，请稍后再试");
+      throw new ServiceUnavailableException(
+        `Sora2 任务仍在处理中（taskId=${taskId}），请稍后重试查询`
+      );
     }
 
     if (
       pollResult.status &&
       SORA2_APIMART_FAILED_STATUSES.includes(pollResult.status.toLowerCase())
     ) {
-      throw new ServiceUnavailableException(
-        pollResult.errorMessage || "Sora2 Pro 任务失败"
+      throw new BadRequestException(
+        pollResult.errorMessage ||
+          `Sora2 任务失败（status=${pollResult.status}）`
       );
     }
 
@@ -560,27 +636,79 @@ export class Sora2VideoService {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), SORA2_APIMART_FETCH_TIMEOUT_MS);
         let response: Response;
+        let endpointLabel = "tasks";
         try {
+          const taskQueryUrl = `${this.apiBaseApimart}/v1/tasks/${encodeURIComponent(
+            taskId
+          )}?language=zh&t=${Date.now()}`;
+          const legacyVideoQueryUrl = `${this.apiBaseApimart}/v1/videos/${encodeURIComponent(
+            taskId
+          )}?t=${Date.now()}`;
+
           response = await fetch(
-            `${this.apiBaseApimart}/v1/videos/${encodeURIComponent(taskId)}`,
+            taskQueryUrl,
             {
               method: "GET",
               headers: {
                 Authorization: `Bearer ${this.apiKeyApimart}`,
+                "Cache-Control": "no-cache",
+                Pragma: "no-cache",
               },
               signal: controller.signal,
             }
           );
+
+          // Backward compatible: some paths still support querying /v1/videos/{taskId}
+          if (!response.ok && [400, 404, 405].includes(response.status)) {
+            endpointLabel = "videos";
+            this.logger.warn(
+              `APIMart poll fallback endpoint: task=${taskId}, attempt=${attempt}, from=/v1/tasks to /v1/videos, http=${response.status}`
+            );
+            response = await fetch(legacyVideoQueryUrl, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${this.apiKeyApimart}`,
+                "Cache-Control": "no-cache",
+                Pragma: "no-cache",
+              },
+              signal: controller.signal,
+            });
+          }
         } finally {
           clearTimeout(timer);
         }
         if (!response.ok) {
           consecutiveTimeoutErrors = 0;
+          const result = await response.json().catch(() => ({}));
+          const data = this.normalizeApimartTaskPayload(result, taskId);
+          const statusRaw = String(data?.status || "");
+          const status = statusRaw.toLowerCase();
+          const providerMessage =
+            data?.error?.message || data?.message || data?.fail_reason;
+
+          if (
+            status &&
+            SORA2_APIMART_FAILED_STATUSES.includes(status)
+          ) {
+            return {
+              status,
+              errorMessage:
+                providerMessage || `Sora2 任务失败（status=${statusRaw}）`,
+              referencedUrls: [],
+              taskInfo: data,
+            };
+          }
+
+          this.logger.warn(
+            `APIMart poll non-OK: task=${taskId}, endpoint=${endpointLabel}, attempt=${attempt}, http=${
+              response.status
+            }, status=${statusRaw || "unknown"}, body=${this.toLogSnippet(data)}`
+          );
           continue;
         }
         consecutiveTimeoutErrors = 0;
         const result = await response.json().catch(() => ({}));
-        const data = result?.data || result;
+        const data = this.normalizeApimartTaskPayload(result, taskId);
         const statusRaw = String(data?.status || "");
         const status = statusRaw.toLowerCase();
 
@@ -595,7 +723,18 @@ export class Sora2VideoService {
         }
 
         const { videoUrl, thumbnailUrl } = this.extractApimartMedia(data);
+        this.logger.log(
+          `APIMart poll: task=${taskId}, endpoint=${endpointLabel}, attempt=${attempt}, status=${
+            statusRaw || "unknown"
+          }, hasVideo=${!!videoUrl}, hasThumbnail=${!!thumbnailUrl}`
+        );
         if (videoUrl) {
+          this.logger.log(
+            `APIMart media resolved: task=${taskId}, attempt=${attempt}, videoUrl=${this.toLogSnippet(
+              videoUrl,
+              220
+            )}, thumbnailUrl=${this.toLogSnippet(thumbnailUrl, 220)}`
+          );
           return {
             videoUrl,
             thumbnailUrl,
@@ -606,11 +745,11 @@ export class Sora2VideoService {
           };
         }
 
-        if (attempt % 10 === 0) {
-          this.logger.log(
-            `APIMart Sora2 任务 ${taskId} 处理中... (${attempt}/${SORA2_APIMART_POLL_MAX_ATTEMPTS}) status=${
-              statusRaw || "unknown"
-            }`
+        if (status === "completed" || status === "succeeded" || status === "success") {
+          this.logger.warn(
+            `APIMart task succeeded but no video URL parsed(task=${taskId}, endpoint=${endpointLabel}, attempt=${attempt}): raw=${JSON.stringify(
+              result
+            ).slice(0, 900)}, normalized=${JSON.stringify(data).slice(0, 900)}`
           );
         }
       } catch (error) {
@@ -632,7 +771,7 @@ export class Sora2VideoService {
         }
         if (effectiveCauseCode === "ETIMEDOUT") {
           consecutiveTimeoutErrors += 1;
-          if (consecutiveTimeoutErrors >= 8) {
+          if (consecutiveTimeoutErrors >= SORA2_APIMART_MAX_CONSECUTIVE_TIMEOUTS) {
             throw new ServiceUnavailableException(
               "APIMart 网络连接连续超时，请稍后重试或检查服务器到 api.apimart.ai 的网络链路"
             );
@@ -644,6 +783,46 @@ export class Sora2VideoService {
     return null;
   }
 
+  private normalizeApimartTaskPayload(
+    payload: any,
+    taskId?: string
+  ): Record<string, any> {
+    if (!payload || typeof payload !== "object") {
+      return {};
+    }
+
+    const root = payload as Record<string, any>;
+    const raw = root.data ?? root;
+
+    if (Array.isArray(raw)) {
+      const objects = raw.filter(
+        (item): item is Record<string, any> =>
+          !!item && typeof item === "object" && !Array.isArray(item)
+      );
+
+      const matched =
+        taskId &&
+        objects.find((item) => {
+          const candidate =
+            item.task_id ?? item.taskId ?? item.id ?? item.video_id ?? item.job_id;
+          if (candidate === undefined || candidate === null) return false;
+          return String(candidate) === taskId;
+        });
+
+      const selected = matched || objects[0];
+      const normalizedRoot = root.data === raw ? { ...root, data: raw } : { ...root };
+      return selected ? { ...normalizedRoot, ...selected } : normalizedRoot;
+    }
+
+    if (raw && typeof raw === "object") {
+      const rawObj = raw as Record<string, any>;
+      if (rawObj === root) return rawObj;
+      return { ...root, ...rawObj };
+    }
+
+    return root;
+  }
+
   private extractApimartMedia(data: any): {
     videoUrl?: string;
     thumbnailUrl?: string;
@@ -653,9 +832,25 @@ export class Sora2VideoService {
       for (const item of candidates) {
         if (typeof item === "string" && item.startsWith("http")) return item;
         if (Array.isArray(item)) {
-          const first = item.find(
-            (entry) => typeof entry === "string" && entry.startsWith("http")
-          );
+          const first = item
+            .map((entry) => {
+              if (typeof entry === "string" && entry.startsWith("http")) return entry;
+              if (entry && typeof entry === "object") {
+                const obj = entry as Record<string, any>;
+                return (
+                  (typeof obj.url === "string" && obj.url.startsWith("http") && obj.url) ||
+                  (typeof obj.video_url === "string" &&
+                    obj.video_url.startsWith("http") &&
+                    obj.video_url) ||
+                  (typeof obj.thumbnail_url === "string" &&
+                    obj.thumbnail_url.startsWith("http") &&
+                    obj.thumbnail_url) ||
+                  undefined
+                );
+              }
+              return undefined;
+            })
+            .find((value) => typeof value === "string");
           if (first) return first;
         }
       }
@@ -663,25 +858,87 @@ export class Sora2VideoService {
     };
 
     const resultObj = data?.result || {};
-    const videoUrl = pickUrl([
+    let videoUrl = pickUrl([
       data?.video_url,
       data?.video,
+      data?.videoUrl,
       data?.url,
+      data?.download_url,
+      data?.file_url,
       data?.output,
+      data?.outputs,
+      data?.videos,
       resultObj?.video_url,
       resultObj?.video,
+      resultObj?.videoUrl,
       resultObj?.url,
+      resultObj?.download_url,
+      resultObj?.file_url,
       resultObj?.output,
+      resultObj?.outputs,
+      resultObj?.videos,
       data?.resource_url,
+      data?.resource?.url,
+      resultObj?.resource_url,
+      resultObj?.resource?.url,
     ]);
 
-    const thumbnailUrl = pickUrl([
+    let thumbnailUrl = pickUrl([
       data?.thumbnail_url,
       data?.thumbnail,
+      data?.thumbnailUrl,
       resultObj?.thumbnail_url,
       resultObj?.thumbnail,
+      resultObj?.thumbnailUrl,
       resultObj?.cover_url,
+      data?.cover_url,
+      resultObj?.poster_url,
+      data?.poster_url,
     ]);
+
+    // Fallback: recursively scan all URLs and infer media type by key/path.
+    if (!videoUrl || !thumbnailUrl) {
+      const discovered: Array<{ url: string; path: string }> = [];
+      const visit = (value: unknown, path: string) => {
+        if (!value) return;
+        if (typeof value === "string") {
+          if (value.startsWith("http")) {
+            discovered.push({ url: value, path: path.toLowerCase() });
+          }
+          return;
+        }
+        if (Array.isArray(value)) {
+          value.forEach((item, index) => visit(item, `${path}[${index}]`));
+          return;
+        }
+        if (typeof value === "object") {
+          Object.entries(value as Record<string, unknown>).forEach(([key, item]) =>
+            visit(item, path ? `${path}.${key}` : key)
+          );
+        }
+      };
+      visit(data, "");
+
+      if (!thumbnailUrl) {
+        thumbnailUrl = discovered.find((item) => {
+          const p = item.path;
+          return (
+            /(thumb|thumbnail|cover|poster|preview|snapshot|image)/i.test(p) ||
+            this.isLikelyImageUrl(item.url)
+          );
+        })?.url;
+      }
+
+      if (!videoUrl) {
+        videoUrl =
+          discovered.find((item) => {
+            const p = item.path;
+            return /(video|resource|output|download|file|result)/i.test(p) && !this.isLikelyImageUrl(item.url);
+          })?.url ||
+          discovered.find((item) => this.isLikelyVideoUrl(item.url))?.url ||
+          discovered.find((item) => !this.isLikelyImageUrl(item.url))?.url;
+      }
+    }
 
     return { videoUrl, thumbnailUrl };
   }
@@ -709,6 +966,7 @@ export class Sora2VideoService {
     this.logger.log(
       `Sora2 Pro 视频生成开始 (model=${model}, duration=${duration}, orientation=${orientation}, quality=${qualityLevel}, isImageToVideo=${!!isImageToVideo})`
     );
+    this.logger.log(`Sora2 Pro 完整请求体: ${JSON.stringify(createPayload)}`);
 
     // 根据文档构建请求体
     // 文生视频: { model, prompt, duration, size }
@@ -862,11 +1120,13 @@ export class Sora2VideoService {
         let response: Response;
         try {
           response = await fetch(
-            `${this.apiBaseV2}/v1/videos/${taskId}`,
+            `${this.apiBaseV2}/v1/videos/${taskId}?t=${Date.now()}`,
             {
               method: "GET",
               headers: {
                 Authorization: `Bearer ${this.apiKeyV2}`,
+                "Cache-Control": "no-cache",
+                Pragma: "no-cache",
               },
               signal: controller.signal,
             }
@@ -886,14 +1146,20 @@ export class Sora2VideoService {
           continue;
         }
 
-        const result = await response.json();
+        const result = await response.json().catch(() => ({}));
         this.logger.debug(`Sora2 Pro 轮询响应: ${JSON.stringify(result)}`);
 
-        const data = result?.data || result;
-        const status = data?.status;
+        const data = this.normalizeApimartTaskPayload(result, taskId);
+        const statusRaw = String(data?.status || result?.status || "");
+        const status = statusRaw.toLowerCase();
 
         // 检查失败状态
-        if (status && SORA2_V2_FAILED_STATUSES.includes(status)) {
+        if (
+          status &&
+          SORA2_V2_FAILED_STATUSES.some(
+            (failedStatus) => failedStatus.toLowerCase() === status
+          )
+        ) {
           return {
             status,
             errorMessage:
@@ -904,11 +1170,23 @@ export class Sora2VideoService {
         }
 
         // 尝试提取视频URL（兼容多种字段名）
-        const videoUrl = this.extractV2VideoUrl(data);
+        const { videoUrl, thumbnailUrl } = this.extractApimartMedia(data);
+        this.logger.log(
+          `Sora2 Pro poll: task=${taskId}, attempt=${attempt}, status=${
+            statusRaw || "unknown"
+          }, hasVideo=${!!videoUrl}, hasThumbnail=${!!thumbnailUrl}`
+        );
 
         if (videoUrl) {
+          this.logger.log(
+            `Sora2 Pro media resolved: task=${taskId}, attempt=${attempt}, videoUrl=${this.toLogSnippet(
+              videoUrl,
+              220
+            )}, thumbnailUrl=${this.toLogSnippet(thumbnailUrl, 220)}`
+          );
           return {
             videoUrl,
+            thumbnailUrl,
             status: status || "completed",
             referencedUrls: [videoUrl],
             taskInfo: data,
@@ -916,12 +1194,11 @@ export class Sora2VideoService {
           };
         }
 
-        // 仍在处理中，每10次输出一次日志
-        if (attempt % 10 === 0) {
-          this.logger.log(
-            `Sora2 Pro 任务 ${taskId} 仍在处理中... (${attempt}/${SORA2_V2_POLL_MAX_ATTEMPTS}) status=${
-              status || "unknown"
-            }`
+        if (status === "completed" || status === "succeeded" || status === "success") {
+          this.logger.warn(
+            `Sora2 Pro task succeeded but no video URL parsed(task=${taskId}, attempt=${attempt}): raw=${JSON.stringify(
+              result
+            ).slice(0, 900)}, normalized=${JSON.stringify(data).slice(0, 900)}`
           );
         }
       } catch (error) {
@@ -1040,6 +1317,7 @@ export class Sora2VideoService {
         this.logger.log(
           `普通Sora2 创建请求: model=${selectedModel}, prompt=${options.prompt.slice(0, 100)}, hasImage=${!!createPayload.image}, imageUrl=${createPayload.image || 'none'}`
         );
+        this.logger.log(`普通Sora2 完整请求体: ${JSON.stringify(createPayload)}`);
 
         const controller = new AbortController();
         const timer = setTimeout(
@@ -1160,10 +1438,14 @@ export class Sora2VideoService {
               statusResp = await fetch(
                 `${this.apiBase}/v1/videos/${encodeURIComponent(
                   String(taskId)
-                )}`,
+                )}?t=${Date.now()}`,
                 {
                   method: "GET",
-                  headers: { Authorization: `Bearer ${this.apiKey}` },
+                  headers: {
+                    Authorization: `Bearer ${this.apiKey}`,
+                    "Cache-Control": "no-cache",
+                    Pragma: "no-cache",
+                  },
                   signal: pollController.signal,
                 }
               );
@@ -1189,13 +1471,23 @@ export class Sora2VideoService {
               continue;
             }
 
-            const statusData = await statusResp.json().catch(() => ({}));
+            const statusDataRaw = await statusResp.json().catch(() => ({}));
+            const statusData = this.normalizeApimartTaskPayload(
+              statusDataRaw,
+              String(taskId)
+            );
             const stat = (statusData?.status || "").toString().toLowerCase();
-            this.logger.debug(
-              `Sora2 status ${taskId} attempt ${pollAttempt}: ${stat}`
+            const {
+              videoUrl: polledVideoUrl,
+              thumbnailUrl: polledThumbnailUrl,
+            } = this.extractApimartMedia(statusData);
+            this.logger.log(
+              `Sora2 legacy poll: task=${taskId}, attempt=${pollAttempt}, status=${
+                stat || "unknown"
+              }, hasVideo=${!!polledVideoUrl}, hasThumbnail=${!!polledThumbnailUrl}`
             );
 
-            if (stat === "completed" || stat === "success") {
+            if (stat === "completed" || stat === "success" || stat === "succeeded") {
               finalResult = statusData;
               break;
             }
@@ -1229,14 +1521,7 @@ export class Sora2VideoService {
           throw new BadRequestException(`Sora2 生成失败: ${msg}`);
         }
 
-        const videoUrl =
-          finalResult?.video_url ||
-          finalResult?.output?.video_url ||
-          finalResult?.result?.video_url ||
-          (typeof finalResult?.output === "string" &&
-          finalResult.output?.startsWith("http")
-            ? finalResult.output
-            : undefined);
+        const { videoUrl, thumbnailUrl } = this.extractApimartMedia(finalResult);
 
         if (!videoUrl) {
           this.logger.error(
@@ -1254,7 +1539,7 @@ export class Sora2VideoService {
         return {
           videoUrl,
           content: `视频已生成（任务 ID: ${taskId}）`,
-          thumbnailUrl: finalResult?.thumbnail_url,
+          thumbnailUrl,
           referencedUrls: videoUrl ? [videoUrl] : [],
           status: statusValue,
           taskId,
@@ -1619,6 +1904,18 @@ export class Sora2VideoService {
 
   private isAsyncTaskUrl(url: string): boolean {
     return SORA2_ASYNC_HOST_HINTS.some((mark) => url.includes(mark));
+  }
+
+  private toLogSnippet(value: unknown, maxLength: number = 1200): string {
+    if (value === undefined || value === null) return "null";
+    try {
+      const text = typeof value === "string" ? value : JSON.stringify(value);
+      return text.length > maxLength
+        ? `${text.slice(0, maxLength)}...(truncated)`
+        : text;
+    } catch {
+      return String(value);
+    }
   }
 
   private isRetryableVideoError(error: unknown): boolean {

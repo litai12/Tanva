@@ -737,6 +737,14 @@ const KLING_MAX_AUDIO_INPUTS = 2;
 const ADD_PANEL_TAB_STORAGE_KEY = "tanva-add-panel-tab";
 
 const SORA2_HISTORY_LIMIT = 5;
+type Sora2GenerationType = "sora2" | "sora2-create-character";
+
+const getSora2GenerationType = (data?: any): Sora2GenerationType => {
+  const value = typeof data?.generationType === "string" ? data.generationType : "";
+  if (value === "sora2-create-character") return "sora2-create-character";
+  // 兼容旧值：`sora2-character` 归并为普通 Sora2 模式
+  return "sora2";
+};
 
 type Sora2VideoHistoryItem = {
   id: string;
@@ -860,6 +868,7 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "videoFrameExtract", targetHandle: "video" },
     { nodeType: "wan2R2V", targetHandle: "video-1" },
     { nodeType: "klingO1Video", targetHandle: "video" },
+    { nodeType: "sora2Video", targetHandle: "character" },
     { nodeType: "sora2Character", targetHandle: "video" },
   ],
   audio: [{ nodeType: "wan26", targetHandle: "audio" }],
@@ -907,7 +916,20 @@ const QUICK_CONNECT_REVERSE_PRESETS: Record<
     { nodeType: "audioUpload", sourceHandle: "audio" },
     { nodeType: "minimaxSpeech", sourceHandle: "audio" },
   ],
-  character: [{ nodeType: "sora2Character", sourceHandle: "character" }],
+  character: [
+    { nodeType: "video", sourceHandle: "video" },
+    { nodeType: "sora2Video", sourceHandle: "character" },
+    { nodeType: "sora2Video", sourceHandle: "video" },
+    { nodeType: "wan26", sourceHandle: "video" },
+    { nodeType: "wan2R2V", sourceHandle: "video" },
+    { nodeType: "klingVideo", sourceHandle: "video" },
+    { nodeType: "kling26Video", sourceHandle: "video" },
+    { nodeType: "klingO1Video", sourceHandle: "video-out" },
+    { nodeType: "viduVideo", sourceHandle: "video" },
+    { nodeType: "viduQ3", sourceHandle: "video" },
+    { nodeType: "doubaoVideo", sourceHandle: "video" },
+    { nodeType: "sora2Character", sourceHandle: "character" },
+  ],
   unknown: [
     { nodeType: "textPrompt", sourceHandle: "text" },
     { nodeType: "image", sourceHandle: "img" },
@@ -1184,6 +1206,12 @@ const FLOW_NODE_KEY_ALIASES: Record<string, FlowNodeType> = {
   generatereference: "generateRef",
   "generate-reference": "generateRef",
   generate_reference: "generateRef",
+  sora2: "sora2Video",
+  "sora-2": "sora2Video",
+  "sora-2-video": "sora2Video",
+  sora2pro: "sora2Video",
+  "sora-2-pro": "sora2Video",
+  "sora-2-pro-video": "sora2Video",
   kling: "klingVideo",
   "kling-video": "klingVideo",
   kling26: "kling26Video",
@@ -1952,20 +1980,6 @@ function FlowInner() {
             nameEn: "Note Node",
           };
         }
-        if (config.nodeKey === "sora2Video") {
-          return {
-            ...config,
-            nameZh: "Sora2 Pro视频生成",
-            nameEn: "Sora2 Pro",
-            status: "coming_soon",
-          };
-        }
-        if (config.nodeKey === "sora2Character") {
-          return {
-            ...config,
-            status: "coming_soon",
-          };
-        }
         return config;
       })
       .filter((config) => !BETA_NODE_KEYS.has(config.nodeKey))
@@ -2671,6 +2685,94 @@ function FlowInner() {
     },
     [onEdgesChange, edges, setNodes]
   );
+
+  React.useEffect(() => {
+    if (!edges.length) return;
+    const sora2ModeById = new Map(
+      nodes
+        .filter((n) => n.type === "sora2Video")
+        .map((n) => [n.id, getSora2GenerationType(n.data)])
+    );
+    if (!sora2ModeById.size) return;
+
+    const shouldPrune = edges.some((e) => {
+      const mode = sora2ModeById.get(e.target);
+      if (!mode) return false;
+      if (mode === "sora2-create-character") {
+        return e.targetHandle !== "video";
+      }
+      return e.targetHandle === "video";
+    });
+    if (!shouldPrune) return;
+
+    setEdges((prev) =>
+      prev.filter((e) => {
+        const mode = sora2ModeById.get(e.target);
+        if (!mode) return true;
+        if (mode === "sora2-create-character") {
+          return e.targetHandle === "video";
+        }
+        return e.targetHandle !== "video";
+      })
+    );
+  }, [edges, nodes, setEdges]);
+
+  React.useEffect(() => {
+    const sora2VideoNodeIds = nodes
+      .filter((n) => n.type === "sora2Video")
+      .map((n) => n.id);
+    if (!sora2VideoNodeIds.length) return;
+    const sora2VideoNodeIdSet = new Set(sora2VideoNodeIds);
+    const connectedTargetIds = new Set(
+      edges
+        .filter(
+          (e) =>
+            e.targetHandle === "character" && sora2VideoNodeIdSet.has(e.target)
+        )
+        .map((e) => e.target)
+    );
+
+    setNodes((prev) => {
+      let changed = false;
+      const next = prev.map((node) => {
+        if (node.type !== "sora2Video") return node;
+        const nextConnected = connectedTargetIds.has(node.id);
+        const currentConnected =
+          Boolean((node.data as any)?.hasCharacterConnection);
+        if (currentConnected === nextConnected) return node;
+        changed = true;
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            hasCharacterConnection: nextConnected,
+          },
+        };
+      });
+      return changed ? next : prev;
+    });
+  }, [edges, nodes, setNodes]);
+
+  React.useEffect(() => {
+    if (!edges.length) return;
+    const sora2CharacterNodeIds = new Set(
+      nodes.filter((n) => n.type === "sora2Character").map((n) => n.id)
+    );
+    if (!sora2CharacterNodeIds.size) return;
+
+    const hasInvalidIncomingEdge = edges.some(
+      (e) => sora2CharacterNodeIds.has(e.target) && e.targetHandle !== "video"
+    );
+    if (!hasInvalidIncomingEdge) return;
+
+    setEdges((prev) =>
+      prev.filter(
+        (e) =>
+          !(sora2CharacterNodeIds.has(e.target) && e.targetHandle !== "video")
+      )
+    );
+  }, [edges, nodes, setEdges]);
+
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [isConnecting, setIsConnecting] = React.useState(false);
   const connectAnchorRef = React.useRef<QuickConnectAnchor | null>(null);
@@ -5584,19 +5686,25 @@ function FlowInner() {
               videoUrl: undefined,
               thumbnail: undefined,
               videoQuality: DEFAULT_SORA2_VIDEO_QUALITY,
+              generationType: "sora2",
               model: "sora-2-pro",
               style: undefined,
               watermark: false,
-              thumbnailEnabled: false,
+              thumbnailEnabled: true,
               privateMode: false,
               storyboard: false,
+              timestamps: "1,3",
+              fromTask: undefined,
+              taskId: undefined,
+              progress: undefined,
+              characters: [],
               characterTaskId: undefined,
               characterUrl: undefined,
               characterTimestamps: undefined,
               videoVersion: 0,
               history: [],
-              clipDuration: undefined,
-              aspectRatio: undefined,
+              clipDuration: 10,
+              aspectRatio: "16:9",
               boxW: size.w,
               boxH: size.h,
             }
@@ -6265,17 +6373,51 @@ function FlowInner() {
         return false;
       }
       if (targetNode.type === "sora2Video") {
+        const sora2GenerationType = getSora2GenerationType(targetNode.data);
+
+        if (sora2GenerationType === "sora2-create-character") {
+          if (targetHandle !== "video") return false;
+          if (sourceHandle !== "video" && sourceHandle !== "video-out") return false;
+          return [
+            "video",
+            "sora2Video",
+            "wan26",
+            "wan2R2V",
+            "klingVideo",
+            "kling26Video",
+            "klingO1Video",
+            "viduVideo",
+            "viduQ3",
+            "doubaoVideo",
+          ].includes(sourceNode.type || "");
+        }
+
+        if (targetHandle === "character") {
+          if (sourceHandle === "character") {
+            return sourceNode.type === "sora2Video" || sourceNode.type === "sora2Character";
+          }
+          if (sourceHandle !== "video" && sourceHandle !== "video-out") {
+            return false;
+          }
+          return [
+            "video",
+            "sora2Video",
+            "wan26",
+            "wan2R2V",
+            "klingVideo",
+            "kling26Video",
+            "klingO1Video",
+            "viduVideo",
+            "viduQ3",
+            "doubaoVideo",
+          ].includes(sourceNode.type || "");
+        }
+
         if (isImageHandle(targetHandle)) {
           return isImageSource(sourceNode, sourceHandle);
         }
         if (targetHandle === "text") {
           return textSourceTypes.includes(sourceNode.type || "");
-        }
-        if (targetHandle === "character") {
-          return (
-            sourceNode.type === "sora2Character" &&
-            sourceHandle === "character"
-          );
         }
         return false;
       }
@@ -6607,6 +6749,13 @@ function FlowInner() {
         if (isTextHandle(params.targetHandle)) return true;
       }
       if (targetNode?.type === "sora2Video") {
+        const sora2GenerationType = getSora2GenerationType(targetNode.data);
+
+        if (sora2GenerationType === "sora2-create-character") {
+          if (params.targetHandle === "video") return true;
+          return false;
+        }
+
         // 类型校验由 isValidConnection 负责；这里仅做容量/替换策略控制
         if (isImageHandle(params.targetHandle)) return true;
         if (params.targetHandle === "text") return true;
@@ -6835,12 +6984,38 @@ function FlowInner() {
               )
           );
         }
+        if (tgt?.type === "sora2Video" && params.targetHandle === "video") {
+          const generationType = getSora2GenerationType(tgt.data);
+          if (generationType === "sora2-create-character") {
+            next = next.filter(
+              (e) =>
+                !(
+                  e.target === params.target &&
+                  e.targetHandle !== undefined
+                )
+            );
+            next = next.filter(
+              (e) =>
+                !(
+                  e.target === params.target &&
+                  e.targetHandle === undefined
+                )
+            );
+          }
+        }
         if (tgt?.type === "sora2Character" && params.targetHandle === "video") {
           next = next.filter(
             (e) =>
               !(
                 e.target === params.target &&
-                e.targetHandle === "video"
+                e.targetHandle !== undefined
+              )
+          );
+          next = next.filter(
+            (e) =>
+              !(
+                e.target === params.target &&
+                e.targetHandle === undefined
               )
           );
         }
@@ -8932,7 +9107,12 @@ function FlowInner() {
             n.id === nodeId
               ? {
                   ...n,
-                  data: { ...n.data, status: "running", error: undefined },
+                  data: {
+                    ...n.data,
+                    status: "running",
+                    error: undefined,
+                    fallbackMessage: undefined,
+                  },
                 }
               : n
           )
@@ -9108,7 +9288,15 @@ function FlowInner() {
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
-                ? { ...n, data: { ...n.data, status: "failed", error: msg } }
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "failed",
+                      error: msg,
+                      fallbackMessage: undefined,
+                    },
+                  }
                 : n
             )
           );
@@ -9339,11 +9527,6 @@ function FlowInner() {
             ? (node.data as any).timestamps.trim()
             : "";
         const timestamps = timestampsRaw || "1,3";
-        const fromTaskRaw =
-          typeof (node.data as any)?.fromTask === "string"
-            ? (node.data as any).fromTask.trim()
-            : "";
-
         const sanitizeMediaUrl = (url?: string | null) => {
           if (!url || typeof url !== "string") return undefined;
           const trimmed = url.trim();
@@ -9375,7 +9558,7 @@ function FlowInner() {
           (e) => e.target === nodeId && e.targetHandle === "video"
         );
         const inputVideoUrl = videoEdge ? resolveVideoUrl(videoEdge) : undefined;
-        if (!fromTaskRaw && !inputVideoUrl) {
+        if (!inputVideoUrl) {
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
@@ -9384,7 +9567,7 @@ function FlowInner() {
                     data: {
                       ...n.data,
                       status: "failed",
-                      error: "缺少视频输入或 from_task",
+                      error: lt("请连接视频输入", "Please connect video input"),
                     },
                   }
                 : n
@@ -9392,6 +9575,13 @@ function FlowInner() {
           );
           return;
         }
+
+        // 创建角色：设置参考视频预览
+        setNodes((ns) =>
+          ns.map((n) =>
+            n.id === nodeId ? { ...n, data: { ...n.data, videoUrl: inputVideoUrl } } : n
+          )
+        );
 
         setNodes((ns) =>
           ns.map((n) =>
@@ -9415,7 +9605,6 @@ function FlowInner() {
             model,
             timestamps,
             url: inputVideoUrl,
-            fromTask: fromTaskRaw || undefined,
           });
           if (!createResult.success || !createResult.data?.taskId) {
             throw new Error(createResult.error?.message || "创建角色任务失败");
@@ -9444,6 +9633,25 @@ function FlowInner() {
             await new Promise((resolve) => setTimeout(resolve, 5000));
             const taskResult = await querySora2CharacterTaskViaAPI(taskId);
             if (!taskResult.success || !taskResult.data) {
+              const errMsg =
+                typeof taskResult.error?.message === "string"
+                  ? taskResult.error.message.trim()
+                  : "";
+              const errCode =
+                typeof taskResult.error?.code === "string"
+                  ? taskResult.error.code
+                  : "";
+              const isClientError = /^HTTP_4\d\d$/.test(errCode);
+              const isRetryableServerError =
+                /^HTTP_5\d\d$/.test(errCode) ||
+                errCode === "NETWORK_ERROR" ||
+                errCode === "TIMEOUT_ERROR";
+              if (isClientError) {
+                throw new Error(errMsg || "角色任务查询失败");
+              }
+              if (errMsg && !isRetryableServerError) {
+                throw new Error(errMsg || "角色任务查询失败");
+              }
               continue;
             }
             const status = String(taskResult.data.status || "").toLowerCase();
@@ -9521,6 +9729,221 @@ function FlowInner() {
       }
 
       if (node.type === "sora2Video") {
+        const generationType = getSora2GenerationType(node.data);
+        const isSora2CreateCharacterMode = generationType === "sora2-create-character";
+
+        if (isSora2CreateCharacterMode) {
+          const model =
+            (node.data as any)?.model === "sora-2"
+              ? "sora-2"
+              : "sora-2-pro";
+          const timestampsRaw =
+            typeof (node.data as any)?.timestamps === "string"
+              ? (node.data as any).timestamps.trim()
+              : "";
+          const timestamps = timestampsRaw || "1,3";
+
+          const sanitizeMediaUrl = (url?: string | null) => {
+            if (!url || typeof url !== "string") return undefined;
+            const trimmed = url.trim();
+            if (!trimmed) return undefined;
+            const markdownSplit = trimmed.split("](");
+            const candidate = markdownSplit.length > 1 ? markdownSplit[0] : trimmed;
+            const spaceIdx = candidate.indexOf(" ");
+            return spaceIdx > 0 ? candidate.slice(0, spaceIdx) : candidate;
+          };
+
+          const resolveVideoUrl = (edge: Edge): string | undefined => {
+            const srcNode = rf.getNode(edge.source);
+            if (!srcNode) return undefined;
+            const data = (srcNode.data as any) || {};
+            const direct =
+              data.videoUrl ||
+              data.video_url ||
+              data.output?.video_url ||
+              (Array.isArray(data.output) ? data.output[0]?.video_url : undefined) ||
+              data.raw?.output?.video_url ||
+              data.raw?.video_url;
+            const fromHistory = Array.isArray(data.history)
+              ? data.history[0]?.videoUrl
+              : undefined;
+            return sanitizeMediaUrl(direct) || sanitizeMediaUrl(fromHistory);
+          };
+
+          const videoEdge = currentEdges.find(
+            (e) => e.target === nodeId && e.targetHandle === "video"
+          );
+          const inputVideoUrl = videoEdge ? resolveVideoUrl(videoEdge) : undefined;
+          if (!inputVideoUrl) {
+            setNodes((ns) =>
+              ns.map((n) =>
+                n.id === nodeId
+                  ? {
+                      ...n,
+                      data: {
+                        ...n.data,
+                        status: "failed",
+                        error: "请连接视频输入",
+                      },
+                    }
+                  : n
+              )
+            );
+            return;
+          }
+
+          // 创建角色：设置参考视频预览
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId ? { ...n, data: { ...n.data, videoUrl: inputVideoUrl } } : n
+            )
+          );
+
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "running",
+                      error: undefined,
+                      timestamps,
+                      model,
+                    },
+                  }
+                : n
+            )
+          );
+
+          try {
+            const createResult = await createSora2CharacterViaAPI({
+              model,
+              timestamps,
+              url: inputVideoUrl,
+            });
+            if (!createResult.success || !createResult.data?.taskId) {
+              throw new Error(createResult.error?.message || "创建角色任务失败");
+            }
+            const taskId = createResult.data.taskId;
+
+            setNodes((ns) =>
+              ns.map((n) =>
+                n.id === nodeId
+                  ? {
+                      ...n,
+                      data: {
+                        ...n.data,
+                        taskId,
+                        status: "running",
+                        progress: 0,
+                        error: undefined,
+                      },
+                    }
+                  : n
+              )
+            );
+
+            let completed = false;
+            for (let attempt = 0; attempt < 90; attempt += 1) {
+              await new Promise((resolve) => setTimeout(resolve, 5000));
+              const taskResult = await querySora2CharacterTaskViaAPI(taskId);
+              if (!taskResult.success || !taskResult.data) {
+                const errMsg =
+                  typeof taskResult.error?.message === "string"
+                    ? taskResult.error.message.trim()
+                    : "";
+                const errCode =
+                  typeof taskResult.error?.code === "string"
+                    ? taskResult.error.code
+                    : "";
+                const isClientError = /^HTTP_4\d\d$/.test(errCode);
+                const isRetryableServerError =
+                  /^HTTP_5\d\d$/.test(errCode) ||
+                  errCode === "NETWORK_ERROR" ||
+                  errCode === "TIMEOUT_ERROR";
+                if (isClientError) {
+                  throw new Error(errMsg || "角色任务查询失败");
+                }
+                if (errMsg && !isRetryableServerError) {
+                  throw new Error(errMsg || "角色任务查询失败");
+                }
+                continue;
+              }
+              const status = String(taskResult.data.status || "").toLowerCase();
+              const progress =
+                typeof taskResult.data.progress === "number"
+                  ? taskResult.data.progress
+                  : undefined;
+              const characters = Array.isArray(taskResult.data.characters)
+                ? taskResult.data.characters
+                : [];
+
+              if (status === "completed" || status === "succeeded") {
+                const firstCharacterId = characters.find(
+                  (item) => typeof item?.id === "string" && item.id.trim().length > 0
+                )?.id;
+                setNodes((ns) =>
+                  ns.map((n) =>
+                    n.id === nodeId
+                      ? {
+                          ...n,
+                          data: {
+                            ...n.data,
+                            status: "succeeded",
+                            progress: 100,
+                            taskId,
+                            characters,
+                            characterUrl: firstCharacterId,
+                            error: undefined,
+                          },
+                        }
+                      : n
+                  )
+                );
+                completed = true;
+                break;
+              }
+
+              if (["failed", "error", "cancelled", "terminated"].includes(status)) {
+                throw new Error("角色任务执行失败");
+              }
+
+              setNodes((ns) =>
+                ns.map((n) =>
+                  n.id === nodeId
+                    ? {
+                        ...n,
+                        data: {
+                          ...n.data,
+                          status: "running",
+                          progress,
+                          taskId,
+                          characters,
+                          error: undefined,
+                        },
+                      }
+                    : n
+                )
+              );
+            }
+
+            if (!completed) {
+              throw new Error("角色任务轮询超时");
+            }
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : "角色任务失败";
+            setNodes((ns) =>
+              ns.map((n) =>
+                n.id === nodeId
+                  ? { ...n, data: { ...n.data, status: "failed", error: msg } }
+                  : n
+              )
+            );
+          }
+          return;
+        }
+
         const projectId = useProjectContentStore.getState().projectId;
         const { text: promptText, hasEdge: hasText } =
           getTextPromptForNode(nodeId);
@@ -9541,7 +9964,9 @@ function FlowInner() {
           );
           return;
         }
-        if (!promptText) {
+        const promptTextNormalized =
+          typeof promptText === "string" ? promptText.trim() : "";
+        if (!promptTextNormalized) {
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
@@ -9564,7 +9989,7 @@ function FlowInner() {
           if (typeof legacyDuration === "number" && Number.isFinite(legacyDuration)) {
             return legacyDuration;
           }
-          return undefined;
+          return 10;
         })();
         const aspectSetting = (() => {
           const nextAspect = (node.data as any)?.aspectRatio;
@@ -9575,13 +10000,13 @@ function FlowInner() {
               : typeof legacyAspect === "string" && legacyAspect.trim()
               ? legacyAspect.trim()
               : "";
-          if (!raw) return "";
+          if (!raw) return "16:9";
           const ratioMatch = raw.match(/(\d{1,2}:\d{1,2})/);
           return ratioMatch?.[1] || raw;
         })();
         const modelSetting = (() => {
           const raw = (node.data as any)?.model;
-          return raw === "sora-2" || raw === "sora-2-vip" || raw === "sora-2-pro"
+          return raw === "sora-2" || raw === "sora-2-pro"
             ? raw
             : "sora-2-pro";
         })();
@@ -9589,36 +10014,76 @@ function FlowInner() {
           typeof (node.data as any)?.style === "string"
             ? (node.data as any).style.trim()
             : "";
-        const watermarkSetting = (node.data as any)?.watermark === true;
-        const thumbnailSetting = (node.data as any)?.thumbnailEnabled === true;
-        const privateModeSetting = (node.data as any)?.privateMode === true;
+        // 内置默认：水印关、缩略图开、隐私关
+        const watermarkSetting = false;
+        const thumbnailSetting = true;
+        const privateModeSetting = false;
         const storyboardSetting = (node.data as any)?.storyboard === true;
         const characterEdge = currentEdges.find(
           (e) => e.target === nodeId && e.targetHandle === "character"
         );
+        const hasCharacterConnection = Boolean(characterEdge);
+        const characterSourceHandle =
+          typeof characterEdge?.sourceHandle === "string"
+            ? characterEdge.sourceHandle
+            : "";
         const characterSourceNode = characterEdge
           ? rf.getNode(characterEdge.source)
           : undefined;
         const characterTaskIdFromEdge =
+          characterSourceHandle === "character" &&
           typeof (characterSourceNode?.data as any)?.taskId === "string"
             ? String((characterSourceNode?.data as any).taskId).trim()
             : "";
-        const characterTaskIdManual =
-          typeof (node.data as any)?.characterTaskId === "string"
-            ? (node.data as any).characterTaskId.trim()
-            : "";
-        const characterTaskIdSetting = characterTaskIdFromEdge || characterTaskIdManual;
+        const characterTaskIdSetting = characterTaskIdFromEdge;
         const characterTimestampsSetting =
+          characterEdge &&
           typeof (node.data as any)?.characterTimestamps === "string"
             ? (node.data as any).characterTimestamps.trim()
             : "";
+        const characterVideoUrlFromEdge = (() => {
+          if (!characterEdge) return "";
+          if (characterSourceHandle !== "video" && characterSourceHandle !== "video-out") {
+            return "";
+          }
+          const sourceData = (characterSourceNode?.data as any) || {};
+          const candidate = [
+            sourceData.characterUrl,
+            sourceData.videoUrl,
+            sourceData.url,
+            sourceData.video,
+            sourceData.video_url,
+          ].find(
+            (item) => typeof item === "string" && item.trim().length > 0
+          ) as string | undefined;
+          if (!candidate) return "";
+          const trimmed = candidate.trim();
+          return isRemoteUrl(trimmed) ? normalizeStableRemoteUrl(trimmed) : trimmed;
+        })();
         let characterUrlSetting =
+          characterSourceHandle === "character" &&
           typeof (characterSourceNode?.data as any)?.characterUrl === "string"
             ? String((characterSourceNode?.data as any).characterUrl).trim()
-            : typeof (node.data as any)?.characterUrl === "string"
-            ? (node.data as any).characterUrl.trim()
-            : "";
-        let finalPromptText = promptText;
+            : characterVideoUrlFromEdge;
+        let finalPromptText = promptTextNormalized;
+
+        if (characterEdge && !characterTaskIdSetting && !characterUrlSetting) {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "failed",
+                      error: "角色视频未就绪，请先生成并连接可用的视频输出",
+                    },
+                  }
+                : n
+            )
+          );
+          return;
+        }
 
         if (characterTaskIdSetting) {
           try {
@@ -9663,10 +10128,14 @@ function FlowInner() {
           }
         }
 
-        const imageEdges = currentEdges
-          .filter((e) => e.target === nodeId && e.targetHandle === "image")
-          .slice(0, SORA2_MAX_REFERENCE_IMAGES);
-        const referenceImages = await resolveEdgesAsDataUrls(imageEdges);
+        const imageEdges = hasCharacterConnection
+          ? []
+          : currentEdges
+              .filter((e) => e.target === nodeId && e.targetHandle === "image")
+              .slice(0, SORA2_MAX_REFERENCE_IMAGES);
+        const referenceImages = hasCharacterConnection
+          ? []
+          : await resolveEdgesAsDataUrls(imageEdges);
 
         const generationStartMs = Date.now();
         const referenceImageUrls: string[] = [];
@@ -9743,12 +10212,13 @@ function FlowInner() {
             model: modelSetting,
             aspectRatio: aspectRatioForAPI,
             duration: durationSecondsForAPI,
+            hasCharacterConnection,
             referenceCount: referenceImageUrls.length,
             promptPreview: finalPromptText.slice(0, 120),
           });
           const videoResult = await requestSora2VideoGeneration(
             finalPromptText,
-            referenceImageUrls,
+            hasCharacterConnection ? undefined : referenceImageUrls,
             {
               quality: videoQuality,
               model: modelSetting,
@@ -15706,3 +16176,4 @@ export default function FlowOverlay() {
     </div>
   );
 }
+

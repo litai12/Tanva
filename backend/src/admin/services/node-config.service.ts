@@ -369,9 +369,9 @@ export class NodeConfigService {
         metadata: {
           billingType: 'by_model',
           modelPricing: {
-            'sora-2': { credits: 900, priceYuan: 9 },
-            'sora-2-vip': { credits: 900, priceYuan: 9 },
-            'sora-2-pro': { credits: 900, priceYuan: 9 },
+            'sora-2': { credits: 200, priceYuan: 2 },
+            'sora-2-vip': { credits: 200, priceYuan: 2 },
+            'sora-2-pro': { credits: 750, priceYuan: 7.5 },
           },
         },
       },
@@ -596,9 +596,9 @@ export class NodeConfigService {
         metadata: {
           billingType: 'by_model',
           modelPricing: {
-            'sora-2': { credits: 900, priceYuan: 9 },
-            'sora-2-vip': { credits: 900, priceYuan: 9 },
-            'sora-2-pro': { credits: 900, priceYuan: 9 },
+            'sora-2': { credits: 200, priceYuan: 2 },
+            'sora-2-vip': { credits: 200, priceYuan: 2 },
+            'sora-2-pro': { credits: 750, priceYuan: 7.5 },
           },
         },
       },

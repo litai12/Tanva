@@ -48,11 +48,11 @@ export class GenerateVideoDto {
   @ApiProperty({
     description: 'Sora2 模型（Pro 节点可选）',
     required: false,
-    enum: ['sora-2', 'sora-2-vip', 'sora-2-pro'],
+    enum: ['sora-2', 'sora-2-pro'],
   })
   @IsOptional()
-  @IsEnum(['sora-2', 'sora-2-vip', 'sora-2-pro'])
-  model?: 'sora-2' | 'sora-2-vip' | 'sora-2-pro';
+  @IsEnum(['sora-2', 'sora-2-pro'])
+  model?: 'sora-2' | 'sora-2-pro';
 
   @ApiProperty({ description: '是否添加官方水印', required: false })
   @IsOptional()

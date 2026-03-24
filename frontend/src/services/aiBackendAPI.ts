@@ -325,7 +325,10 @@ async function performGenerateImageRequest(
       success: false,
       error: {
         code: "NETWORK_ERROR",
-        message: error instanceof Error ? error.message : "Network error",
+        message:
+          error instanceof Error && error.message
+            ? `网络异常：${error.message}`
+            : "网络异常，请检查后端服务是否可用",
         timestamp: new Date(),
       },
     };
@@ -493,7 +496,10 @@ async function performEditImageRequest(
       success: false,
       error: {
         code: "NETWORK_ERROR",
-        message: error instanceof Error ? error.message : "Network error",
+        message:
+          error instanceof Error && error.message
+            ? `网络异常：${error.message}`
+            : "网络异常，请检查后端服务是否可用",
         timestamp: new Date(),
       },
     };
@@ -650,7 +656,10 @@ async function performBlendImagesRequest(
       success: false,
       error: {
         code: "NETWORK_ERROR",
-        message: error instanceof Error ? error.message : "Network error",
+        message:
+          error instanceof Error && error.message
+            ? `网络异常：${error.message}`
+            : "网络异常，请检查后端服务是否可用",
         timestamp: new Date(),
       },
     };
@@ -1054,7 +1063,7 @@ export interface VideoGenerationRequest {
   prompt: string;
   referenceImageUrls?: string[];
   quality?: "hd" | "sd";
-  model?: "sora-2" | "sora-2-vip" | "sora-2-pro";
+  model?: "sora-2" | "sora-2-pro";
   /** 画面比例，仅极速 Sora2 使用。例如 '16:9' | '9:16' */
   aspectRatio?: "16:9" | "9:16";
   /** 时长（秒，仅极速 Sora2 使用）。字符串形式以兼容后端 DTO。 */
@@ -1081,6 +1090,101 @@ export interface VideoGenerationResult {
   fallbackMessage?: string;
 }
 
+const normalizeSora2ErrorMessage = (rawMessage?: string, status?: number): string => {
+  const normalized = typeof rawMessage === "string" ? rawMessage.trim() : "";
+  const lower = normalized.toLowerCase();
+
+  if (
+    lower.includes("content polic") ||
+    lower.includes("moderation") ||
+    lower.includes("safety") ||
+    lower.includes("violate") ||
+    normalized.includes("内容政策") ||
+    normalized.includes("内容安全") ||
+    normalized.includes("违规") ||
+    normalized.includes("违反")
+  ) {
+    return "上传内容可能触发平台内容安全策略，请更换视频或素材后重试。";
+  }
+
+  if (
+    lower.includes("must have audio") ||
+    lower.includes("must contain audio") ||
+    lower.includes("audio track") ||
+    lower.includes("no audio") ||
+    lower.includes("without audio") ||
+    lower.includes("silent")
+  ) {
+    return "上传的视频必须包含音频轨道，请更换带声音的视频后重试。";
+  }
+
+  if (
+    lower.includes("unsupported") &&
+    (lower.includes("format") || lower.includes("codec"))
+  ) {
+    return "视频格式不受支持，请改用 MP4 或 MOV 格式后重试。";
+  }
+
+  if (
+    lower.includes("resolution") ||
+    lower.includes("dimension") ||
+    lower.includes("pixel")
+  ) {
+    return "视频分辨率不符合供应商要求，请调整尺寸后重试。";
+  }
+
+  if (status === 401 || status === 403 || lower.includes("unauthorized") || lower.includes("api key")) {
+    return "供应商鉴权失败，请联系管理员检查 Sora2 Key 配置。";
+  }
+
+  if (status === 429 || lower.includes("rate limit") || lower.includes("too many requests")) {
+    return "供应商请求过于频繁，请稍后重试。";
+  }
+
+  if (
+    lower.includes("in_progress") ||
+    lower.includes("submitted") ||
+    normalized.includes("处理中")
+  ) {
+    return normalized || "任务仍在处理中，请稍后重试查询。";
+  }
+
+  if (status === 500 || status === 502 || status === 503 || status === 504) {
+    if (normalized) {
+      const genericServerMessage =
+        lower === "internal server error" ||
+        lower === "service unavailable" ||
+        lower === "bad gateway" ||
+        lower === "gateway timeout" ||
+        /^http\s*\d+$/.test(lower);
+      if (!genericServerMessage) {
+        return normalized;
+      }
+    }
+    return "Sora2 供应商服务暂时不可用，请稍后重试。";
+  }
+
+  if (lower.includes("timeout") || lower.includes("timed out")) {
+    return "Sora2 供应商处理超时，请稍后重试。";
+  }
+
+  return normalized || (status ? `HTTP ${status}` : "请求失败");
+};
+
+const readBackendErrorMessage = (errorData: any): string => {
+  const message = errorData?.message;
+  if (typeof message === "string") return message;
+  if (Array.isArray(message)) {
+    return message
+      .map((item) => (typeof item === "string" ? item.trim() : ""))
+      .filter(Boolean)
+      .join("；");
+  }
+  if (typeof errorData?.error === "string") return errorData.error;
+  if (typeof errorData?.detail === "string") return errorData.detail;
+  return "";
+};
+
 export async function generateVideoViaAPI(
   request: VideoGenerationRequest
 ): Promise<AIServiceResponse<VideoGenerationResult>> {
@@ -1106,6 +1210,7 @@ export async function generateVideoViaAPI(
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      const rawMessage = readBackendErrorMessage(errorData);
       logApiTiming("generate-video", startedAt, {
         success: false,
         status: response.status,
@@ -1116,7 +1221,7 @@ export async function generateVideoViaAPI(
         success: false,
         error: {
           code: `HTTP_${response.status}`,
-          message: errorData?.message || `HTTP ${response.status}`,
+          message: normalizeSora2ErrorMessage(rawMessage, response.status),
           timestamp: new Date(),
         },
       };
@@ -1180,23 +1285,40 @@ export interface Sora2CharacterTaskResult {
   raw?: Record<string, any>;
 }
 
+export interface Sora2VideoTaskResult {
+  id: string;
+  status: string;
+  progress?: number;
+  videoUrl?: string;
+  thumbnailUrl?: string;
+  raw?: Record<string, any>;
+}
+
 export async function createSora2CharacterViaAPI(
   request: Sora2CharacterCreateRequest
 ): Promise<AIServiceResponse<Sora2CharacterCreateResult>> {
   try {
+    // 角色创建接口只允许这 4 个字段，防止历史数据中的 prompt/image 混入请求
+    const payload: Sora2CharacterCreateRequest = {
+      model: request.model,
+      timestamps: request.timestamps,
+      url: request.url,
+      fromTask: request.fromTask,
+    };
     const response = await fetchWithAuth(`${API_BASE_URL}/ai/sora2/character/create`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(request),
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      const rawMessage = readBackendErrorMessage(errorData);
       return {
         success: false,
         error: {
           code: `HTTP_${response.status}`,
-          message: errorData?.message || `HTTP ${response.status}`,
+          message: normalizeSora2ErrorMessage(rawMessage, response.status),
           timestamp: new Date(),
         },
       };
@@ -1209,7 +1331,10 @@ export async function createSora2CharacterViaAPI(
       success: false,
       error: {
         code: "NETWORK_ERROR",
-        message: error instanceof Error ? error.message : "Network error",
+        message:
+          error instanceof Error && error.message
+            ? `网络异常：${error.message}`
+            : "网络异常，请检查后端服务是否可用",
         timestamp: new Date(),
       },
     };
@@ -1226,17 +1351,53 @@ export async function querySora2CharacterTaskViaAPI(
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      const rawMessage = readBackendErrorMessage(errorData);
       return {
         success: false,
         error: {
           code: `HTTP_${response.status}`,
-          message: errorData?.message || `HTTP ${response.status}`,
+          message: normalizeSora2ErrorMessage(rawMessage, response.status),
           timestamp: new Date(),
         },
       };
     }
 
     const data = (await response.json()) as Sora2CharacterTaskResult;
+    return { success: true, data };
+  } catch (error) {
+    return {
+      success: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "Network error",
+        timestamp: new Date(),
+      },
+    };
+  }
+}
+
+export async function querySora2VideoTaskViaAPI(
+  taskId: string
+): Promise<AIServiceResponse<Sora2VideoTaskResult>> {
+  try {
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/ai/sora2/video/${encodeURIComponent(taskId)}`
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const rawMessage = readBackendErrorMessage(errorData);
+      return {
+        success: false,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: normalizeSora2ErrorMessage(rawMessage, response.status),
+          timestamp: new Date(),
+        },
+      };
+    }
+
+    const data = (await response.json()) as Sora2VideoTaskResult;
     return { success: true, data };
   } catch (error) {
     return {
