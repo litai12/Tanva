@@ -245,3 +245,14 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ## [Flow Patch - 2026-03-24-2]
 ### Changed
 - Flow `videoToGif` node UI: moved GIF download action to top-right button and removed bottom "open original" link row.
+
+## [Flow Patch - 2026-03-24-3]
+### Changed
+- Flow `videoToGif` node removed loop toggle and fixed default GIF playback loop to non-infinite.
+- Flow `videoToGif` node removed right-side output handle; node now acts as a conversion/download terminal.
+- Flow `videoToGif` node credits updated to 30 in frontend fallback config and backend default node config.
+
+## [Flow Patch - 2026-03-24-4]
+### Changed
+- Flow `videoToGif` backend now converts by input video duration by default (no hard `120s` cap in default path), and forces GIF output loop to non-infinite (`-loop 1`) even if loop param is provided by legacy callers (`backend/src/oss/video-gif.controller.ts`).
+- Flow `videoToGif` node helper text updated to reflect duration behavior (`frontend/src/components/flow/nodes/VideoToGifNode.tsx`).

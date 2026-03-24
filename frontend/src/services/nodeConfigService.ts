@@ -119,7 +119,7 @@ function getDefaultConfigs(): NodeConfig[] {
     // 其他节点
     { nodeKey: "videoAnalyze", nameZh: "视频分析节点", nameEn: "Video Analysis", category: "other", status: "normal", sortOrder: 31, creditsPerCall: 30 },
     { nodeKey: "videoFrameExtract", nameZh: "视频帧提取", nameEn: "Frame Extract", category: "other", status: "normal", sortOrder: 32, creditsPerCall: 0 },
-    { nodeKey: "videoToGif", nameZh: "视频转GIF", nameEn: "Video to GIF", category: "other", status: "normal", sortOrder: 33, creditsPerCall: 0 },
+    { nodeKey: "videoToGif", nameZh: "视频转GIF", nameEn: "Video to GIF", category: "other", status: "normal", sortOrder: 33, creditsPerCall: 30 },
     { nodeKey: "analysis", nameZh: "图像分析节点", nameEn: "Analysis", category: "other", status: "normal", sortOrder: 34, creditsPerCall: 20 },
     { nodeKey: "promptOptimize", nameZh: "提示词优化", nameEn: "Optimize", category: "other", status: "normal", sortOrder: 35, creditsPerCall: 10 },
     { nodeKey: "textChat", nameZh: "文字对话", nameEn: "Chat", category: "other", status: "normal", sortOrder: 36, creditsPerCall: 10 },

@@ -965,7 +965,6 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "midjourneyV7", sourceHandle: "img" },
     { nodeType: "niji7", sourceHandle: "img" },
     { nodeType: "seedream5", sourceHandle: "img" },
-    { nodeType: "videoToGif", sourceHandle: "image" },
     { nodeType: "nano2", sourceHandle: "img" },
     { nodeType: "camera", sourceHandle: "img" },
   ],
@@ -1048,6 +1047,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   viduVideo: 600, // Vidu视频生成
   viduQ3: 600, // Vidu Q3 Pro视频生成
   doubaoVideo: 600, // Seedance 1.5 Pro包视频生成
+  videoToGif: 30, // 视频转GIF
   minimaxSpeech: 10, // MiniMax 语音合成
   audioUpload: 0, // 语音上传节点 - 不消耗积分
   camera: 0, // 截图节点 - 不消耗积分
@@ -5916,7 +5916,6 @@ function FlowInner() {
               gifUrl: undefined,
               fps: 10,
               width: 480,
-              loop: 0,
               boxW: size.w,
               boxH: size.h,
             }
@@ -6423,9 +6422,6 @@ function FlowInner() {
         if (imageNodeTypes.includes(node.type || "")) return true;
         // videoFrameExtract 的 image 句柄输出单张图片
         if (node.type === "videoFrameExtract" && handle === "image")
-          return true;
-        // videoToGif 的 image 句柄输出 GIF
-        if (node.type === "videoToGif" && handle === "image")
           return true;
         return false;
       };
@@ -8877,10 +8873,6 @@ function FlowInner() {
             frame?.thumbnailDataUrl,
             frame?.imageData
           );
-        }
-
-        if (node.type === "videoToGif" && handle === "image") {
-          return await resolveFirstImageCandidateToDataUrl(d.gifUrl, d.imageUrl, d.imageData);
         }
 
         if (node.type === "generate4" || node.type === "generatePro4") {

@@ -22,14 +22,12 @@ type ConvertVideoToGifDto = {
   durationSeconds?: number;
   fps?: number;
   width?: number;
-  loop?: number;
 };
 
 const MIN_FPS = 2;
 const MAX_FPS = 20;
 const MIN_WIDTH = 160;
 const MAX_WIDTH = 960;
-const MAX_DURATION_SECONDS = 120;
 
 @ApiTags('video-gif')
 @Controller('video-gif')
@@ -49,16 +47,12 @@ export class VideoGifController {
     durationSeconds: number;
     fps: number;
     width: number;
-    loop: number;
   }> {
     const videoUrl = this.parseAndValidateVideoUrl(dto.videoUrl);
 
     const startSeconds = this.clampNumber(dto.startSeconds, 0, 3600, 0);
     const fps = Math.round(this.clampNumber(dto.fps, MIN_FPS, MAX_FPS, 10));
     const width = Math.round(this.clampNumber(dto.width, MIN_WIDTH, MAX_WIDTH, 480));
-    const loop = Number.isFinite(dto.loop as number)
-      ? Math.max(0, Math.floor(dto.loop as number))
-      : 0;
 
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'video-gif-'));
 
@@ -73,15 +67,9 @@ export class VideoGifController {
       }
 
       const remainingDuration = Math.max(0.5, duration - startSeconds);
-      const requestedDuration = Number.isFinite(dto.durationSeconds as number)
-        ? this.clampNumber(
-            dto.durationSeconds,
-            0.5,
-            MAX_DURATION_SECONDS,
-            remainingDuration
-          )
-        : Math.min(remainingDuration, MAX_DURATION_SECONDS);
-      const durationSeconds = Math.min(requestedDuration, remainingDuration);
+      const durationSeconds = Number.isFinite(dto.durationSeconds as number)
+        ? this.clampNumber(dto.durationSeconds, 0.5, remainingDuration, remainingDuration)
+        : remainingDuration;
 
       const outputPath = path.join(tempDir, 'output.gif');
       await this.convertWithFfmpeg({
@@ -91,7 +79,6 @@ export class VideoGifController {
         durationSeconds,
         fps,
         width,
-        loop,
       });
 
       const key = this.buildOutputKey(dto.projectId);
@@ -112,7 +99,6 @@ export class VideoGifController {
         durationSeconds,
         fps,
         width,
-        loop,
       };
     } catch (err: any) {
       const message = err?.message || 'Video to GIF conversion failed';
@@ -225,7 +211,6 @@ export class VideoGifController {
     durationSeconds: number;
     fps: number;
     width: number;
-    loop: number;
   }): Promise<void> {
     return new Promise((resolve, reject) => {
       const filter = `fps=${params.fps},scale=${params.width}:-1:flags=lanczos,split[s0][s1];` +
@@ -245,7 +230,7 @@ export class VideoGifController {
         '-vf',
         filter,
         '-loop',
-        String(params.loop),
+        '1',
         '-y',
         params.outputPath,
       ]);

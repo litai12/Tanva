@@ -14,7 +14,6 @@ type Props = {
     gifUrl?: string;
     fps?: number;
     width?: number;
-    loop?: number;
   };
   selected?: boolean;
 };
@@ -26,7 +25,6 @@ const API_BASE_URL =
 
 const DEFAULT_FPS = 10;
 const DEFAULT_WIDTH = 480;
-const DEFAULT_LOOP = 0;
 
 const sanitizeMediaUrl = (raw?: string | null | undefined): string | undefined => {
   if (!raw || typeof raw !== 'string') return undefined;
@@ -64,7 +62,7 @@ const resolveVideoUrlFromNode = (node?: Node<any> | null): string | undefined =>
 function VideoToGifNodeInner({ id, data, selected = false }: Props) {
   const { lt } = useLocaleText();
   const projectId = useProjectContentStore((s) => s.projectId);
-  const [hover, setHover] = React.useState<string | null>(null);
+  const [hover, setHover] = React.useState(false);
 
   const connectedVideoUrl = useStore(
     React.useCallback(
@@ -108,7 +106,6 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
 
   const fps = typeof data.fps === 'number' ? data.fps : DEFAULT_FPS;
   const width = typeof data.width === 'number' ? data.width : DEFAULT_WIDTH;
-  const loop = typeof data.loop === 'number' ? data.loop : DEFAULT_LOOP;
 
   const updateNodeData = React.useCallback(
     (patch: Record<string, any>) => {
@@ -125,9 +122,8 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
     const patch: Record<string, any> = {};
     if (typeof data.fps === 'undefined') patch.fps = DEFAULT_FPS;
     if (typeof data.width === 'undefined') patch.width = DEFAULT_WIDTH;
-    if (typeof data.loop === 'undefined') patch.loop = DEFAULT_LOOP;
     if (Object.keys(patch).length > 0) updateNodeData(patch);
-  }, [data.fps, data.loop, data.width, updateNodeData]);
+  }, [data.fps, data.width, updateNodeData]);
 
   const handleConvert = React.useCallback(async () => {
     if (!effectiveVideoUrl || status === 'converting') return;
@@ -143,7 +139,6 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
           projectId: projectId ?? undefined,
           fps,
           width,
-          loop,
         }),
       });
 
@@ -169,7 +164,7 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
         error: err?.message || lt('视频转 GIF 失败', 'Video to GIF conversion failed'),
       });
     }
-  }, [effectiveVideoUrl, fps, loop, lt, projectId, status, updateNodeData, width]);
+  }, [effectiveVideoUrl, fps, lt, projectId, status, updateNodeData, width]);
 
   React.useEffect(() => {
     const handler = (event: Event) => {
@@ -329,18 +324,8 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
       </div>
 
       <div style={{ fontSize: 11, color: '#6b7280' }}>
-        {lt('将自动转换整段视频（最多120秒）', 'Automatically converts the full video (up to 120s)')}
+        {lt('将自动按输入视频时长转换', 'Automatically converts based on input video duration')}
       </div>
-
-      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#374151' }}>
-        <input
-          type='checkbox'
-          className='nodrag nopan'
-          checked={loop === 0}
-          onChange={(e) => updateNodeData({ loop: e.target.checked ? 0 : 1 })}
-        />
-        {lt('循环播放（无限）', 'Loop forever')}
-      </label>
 
       {status === 'error' && error && (
         <div
@@ -361,27 +346,13 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
         position={Position.Left}
         id='video'
         style={{ top: '50%' }}
-        onMouseEnter={() => setHover('video-in')}
-        onMouseLeave={() => setHover(null)}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
       />
 
-      <Handle
-        type='source'
-        position={Position.Right}
-        id='image'
-        style={{ top: '50%' }}
-        onMouseEnter={() => setHover('image-out')}
-        onMouseLeave={() => setHover(null)}
-      />
-
-      {hover === 'video-in' && (
+      {hover && (
         <div className='flow-tooltip' style={{ left: -8, top: '50%', transform: 'translate(-100%, -50%)' }}>
           video
-        </div>
-      )}
-      {hover === 'image-out' && (
-        <div className='flow-tooltip' style={{ right: -8, top: '50%', transform: 'translate(100%, -50%)' }}>
-          image
         </div>
       )}
     </div>
