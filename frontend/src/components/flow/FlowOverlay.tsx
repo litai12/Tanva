@@ -5914,8 +5914,6 @@ function FlowInner() {
               status: "idle" as const,
               videoUrl: undefined,
               gifUrl: undefined,
-              startSeconds: 0,
-              durationSeconds: 5,
               fps: 10,
               width: 480,
               loop: 0,
@@ -16405,4 +16403,3 @@ export default function FlowOverlay() {
     </div>
   );
 }
-

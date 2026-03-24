@@ -12,8 +12,6 @@ type Props = {
     error?: string;
     videoUrl?: string;
     gifUrl?: string;
-    startSeconds?: number;
-    durationSeconds?: number;
     fps?: number;
     width?: number;
     loop?: number;
@@ -26,8 +24,6 @@ const API_BASE_URL =
     ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, '')
     : 'http://localhost:4000') + '/api';
 
-const DEFAULT_START_SECONDS = 0;
-const DEFAULT_DURATION_SECONDS = 5;
 const DEFAULT_FPS = 10;
 const DEFAULT_WIDTH = 480;
 const DEFAULT_LOOP = 0;
@@ -110,9 +106,6 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
     ? '0 0 0 2px rgba(37,99,235,0.12)'
     : '0 1px 2px rgba(0,0,0,0.04)';
 
-  const startSeconds = typeof data.startSeconds === 'number' ? data.startSeconds : DEFAULT_START_SECONDS;
-  const durationSeconds =
-    typeof data.durationSeconds === 'number' ? data.durationSeconds : DEFAULT_DURATION_SECONDS;
   const fps = typeof data.fps === 'number' ? data.fps : DEFAULT_FPS;
   const width = typeof data.width === 'number' ? data.width : DEFAULT_WIDTH;
   const loop = typeof data.loop === 'number' ? data.loop : DEFAULT_LOOP;
@@ -130,13 +123,11 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
 
   React.useEffect(() => {
     const patch: Record<string, any> = {};
-    if (typeof data.startSeconds === 'undefined') patch.startSeconds = DEFAULT_START_SECONDS;
-    if (typeof data.durationSeconds === 'undefined') patch.durationSeconds = DEFAULT_DURATION_SECONDS;
     if (typeof data.fps === 'undefined') patch.fps = DEFAULT_FPS;
     if (typeof data.width === 'undefined') patch.width = DEFAULT_WIDTH;
     if (typeof data.loop === 'undefined') patch.loop = DEFAULT_LOOP;
     if (Object.keys(patch).length > 0) updateNodeData(patch);
-  }, [data.durationSeconds, data.fps, data.loop, data.startSeconds, data.width, updateNodeData]);
+  }, [data.fps, data.loop, data.width, updateNodeData]);
 
   const handleConvert = React.useCallback(async () => {
     if (!effectiveVideoUrl || status === 'converting') return;
@@ -150,8 +141,6 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
         body: JSON.stringify({
           videoUrl: effectiveVideoUrl,
           projectId: projectId ?? undefined,
-          startSeconds,
-          durationSeconds,
           fps,
           width,
           loop,
@@ -180,7 +169,7 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
         error: err?.message || lt('视频转 GIF 失败', 'Video to GIF conversion failed'),
       });
     }
-  }, [durationSeconds, effectiveVideoUrl, fps, loop, lt, projectId, startSeconds, status, updateNodeData, width]);
+  }, [effectiveVideoUrl, fps, loop, lt, projectId, status, updateNodeData, width]);
 
   React.useEffect(() => {
     const handler = (event: Event) => {
@@ -215,21 +204,43 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ fontWeight: 600 }}>Video to GIF</div>
-        <button
-          onClick={handleConvert}
-          disabled={!canConvert}
-          style={{
-            fontSize: 12,
-            padding: '4px 10px',
-            background: canConvert ? '#111827' : '#e5e7eb',
-            color: '#fff',
-            borderRadius: 6,
-            border: 'none',
-            cursor: canConvert ? 'pointer' : 'not-allowed',
-          }}
-        >
-          {status === 'converting' ? lt('转换中...', 'Converting...') : lt('生成 GIF', 'Create GIF')}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {gifUrl && (
+            <a
+              href={gifUrl}
+              download
+              target='_blank'
+              rel='noreferrer'
+              style={{
+                fontSize: 12,
+                padding: '4px 10px',
+                background: '#fff',
+                color: '#111827',
+                borderRadius: 6,
+                border: '1px solid #d1d5db',
+                textDecoration: 'none',
+                cursor: 'pointer',
+              }}
+            >
+              {lt('下载', 'Download')}
+            </a>
+          )}
+          <button
+            onClick={handleConvert}
+            disabled={!canConvert}
+            style={{
+              fontSize: 12,
+              padding: '4px 10px',
+              background: canConvert ? '#111827' : '#e5e7eb',
+              color: '#fff',
+              borderRadius: 6,
+              border: 'none',
+              cursor: canConvert ? 'pointer' : 'not-allowed',
+            }}
+          >
+            {status === 'converting' ? lt('转换中...', 'Converting...') : lt('生成 GIF', 'Create GIF')}
+          </button>
+        </div>
       </div>
 
       <div
@@ -251,6 +262,13 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
             alt={lt('GIF 预览', 'GIF preview')}
             style={{ width: '100%', height: '100%', objectFit: 'contain' }}
           />
+        ) : effectiveVideoUrl ? (
+          <video
+            src={effectiveVideoUrl}
+            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+            preload='metadata'
+            controls
+          />
         ) : (
           <span style={{ fontSize: 12, color: '#9ca3af' }}>
             {hasVideoConnection
@@ -261,53 +279,6 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6 }}>
-        <label style={{ fontSize: 11, color: '#374151' }}>
-          {lt('开始(s)', 'Start(s)')}
-          <input
-            type='number'
-            className='nodrag nopan'
-            value={startSeconds}
-            min={0}
-            step={0.1}
-            onChange={(e) => {
-              const val = Number(e.target.value);
-              if (Number.isFinite(val) && val >= 0) updateNodeData({ startSeconds: val });
-            }}
-            style={{
-              marginTop: 4,
-              width: '100%',
-              fontSize: 12,
-              padding: '4px 6px',
-              borderRadius: 4,
-              border: '1px solid #d1d5db',
-            }}
-          />
-        </label>
-
-        <label style={{ fontSize: 11, color: '#374151' }}>
-          {lt('时长(s)', 'Duration(s)')}
-          <input
-            type='number'
-            className='nodrag nopan'
-            value={durationSeconds}
-            min={0.5}
-            max={15}
-            step={0.5}
-            onChange={(e) => {
-              const val = Number(e.target.value);
-              if (Number.isFinite(val) && val >= 0.5 && val <= 15) updateNodeData({ durationSeconds: val });
-            }}
-            style={{
-              marginTop: 4,
-              width: '100%',
-              fontSize: 12,
-              padding: '4px 6px',
-              borderRadius: 4,
-              border: '1px solid #d1d5db',
-            }}
-          />
-        </label>
-
         <label style={{ fontSize: 11, color: '#374151' }}>
           FPS
           <input
@@ -357,6 +328,10 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
         </label>
       </div>
 
+      <div style={{ fontSize: 11, color: '#6b7280' }}>
+        {lt('将自动转换整段视频（最多120秒）', 'Automatically converts the full video (up to 120s)')}
+      </div>
+
       <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#374151' }}>
         <input
           type='checkbox'
@@ -366,21 +341,6 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
         />
         {lt('循环播放（无限）', 'Loop forever')}
       </label>
-
-      {gifUrl && (
-        <a
-          href={gifUrl}
-          target='_blank'
-          rel='noreferrer'
-          style={{
-            fontSize: 12,
-            color: '#2563eb',
-            textDecoration: 'none',
-          }}
-        >
-          {lt('打开 GIF 原图', 'Open GIF in new tab')}
-        </a>
-      )}
 
       {status === 'error' && error && (
         <div

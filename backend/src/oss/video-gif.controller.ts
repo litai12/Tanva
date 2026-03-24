@@ -29,7 +29,7 @@ const MIN_FPS = 2;
 const MAX_FPS = 20;
 const MIN_WIDTH = 160;
 const MAX_WIDTH = 960;
-const MAX_DURATION_SECONDS = 15;
+const MAX_DURATION_SECONDS = 120;
 
 @ApiTags('video-gif')
 @Controller('video-gif')
@@ -73,12 +73,14 @@ export class VideoGifController {
       }
 
       const remainingDuration = Math.max(0.5, duration - startSeconds);
-      const requestedDuration = this.clampNumber(
-        dto.durationSeconds,
-        0.5,
-        MAX_DURATION_SECONDS,
-        Math.min(5, remainingDuration)
-      );
+      const requestedDuration = Number.isFinite(dto.durationSeconds as number)
+        ? this.clampNumber(
+            dto.durationSeconds,
+            0.5,
+            MAX_DURATION_SECONDS,
+            remainingDuration
+          )
+        : Math.min(remainingDuration, MAX_DURATION_SECONDS);
       const durationSeconds = Math.min(requestedDuration, remainingDuration);
 
       const outputPath = path.join(tempDir, 'output.gif');

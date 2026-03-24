@@ -241,3 +241,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ## [Flow Patch - 2026-03-24]
 ### Changed
 - Flow `Image` node title now supports inline rename on double-click (`Enter`/blur to save, `Escape` to cancel), persisting to `data.label` (`frontend/src/components/flow/nodes/ImageNode.tsx`).
+
+## [Flow Patch - 2026-03-24-2]
+### Changed
+- Flow `videoToGif` node UI: moved GIF download action to top-right button and removed bottom "open original" link row.
