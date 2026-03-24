@@ -29,6 +29,14 @@ export const resolveTextFromSourceNode = (node: Node | null | undefined, handleI
   if (!node) return undefined;
   const data = toNodeData(node);
 
+  if (node.type === 'generate') {
+    const generatedText = data.responseText ?? data.textResponse;
+    if (typeof generatedText === 'string' && generatedText.trim().length > 0) {
+      return generatedText.trim();
+    }
+    return undefined;
+  }
+
   if (node.type === 'storyboardSplit') {
     const segment = getStoryboardSegment(data, handleId);
     if (segment) return segment;

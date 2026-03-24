@@ -251,6 +251,12 @@ const zhCN = {
         gridColor: {
           title: "网格颜色",
         },
+        edgeColorMode: {
+          title: "连线颜色",
+          desc: "设置流程图连线的显示颜色",
+          standard: "标准色",
+          handle: "跟随句柄",
+        },
         chatStyle: {
           title: "AI 对话框样式",
           transparent: "透明",
@@ -389,6 +395,7 @@ const zhCN = {
       gemini31ImageBlend: "Nano banana 2 融合",
       geminiImageAnalyze: "图像分析",
       geminiText: "文字对话",
+      geminiPromptOptimize: "提示词优化",
       geminiPaperJs: "Paper.js 生成",
       midjourneyImagine: "Midjourney 生图",
       midjourneyVariation: "Midjourney 变体",

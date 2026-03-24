@@ -137,6 +137,7 @@ const buildImageSrc = (value?: string): string | undefined => {
 const MIN_WIDTH = 320;
 const MIN_HEIGHT = 200;
 const MAX_IMAGE_NAME_LENGTH = 28;
+const DEFAULT_NODE_LABEL = "Image";
 
 const CanvasCropPreview = React.memo(({
   src,
@@ -423,6 +424,14 @@ const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, uploading
 function ImageNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const rf = useReactFlow();
+  const normalizedNodeLabel =
+    typeof data.label === "string" && data.label.trim().length
+      ? data.label.trim()
+      : DEFAULT_NODE_LABEL;
+  const [nodeLabel, setNodeLabel] = React.useState<string>(normalizedNodeLabel);
+  const [nodeLabelDraft, setNodeLabelDraft] = React.useState<string>(normalizedNodeLabel);
+  const [isEditingNodeLabel, setIsEditingNodeLabel] = React.useState(false);
+  const nodeLabelInputRef = React.useRef<HTMLInputElement | null>(null);
   const hasInputConnection = useStore(
     React.useCallback(
       (state: ReactFlowState) =>
@@ -901,6 +910,52 @@ function ImageNodeInner({ id, data, selected }: Props) {
   }, [resolvedImageName]);
   const shouldShowImageName = Boolean(data.imageData && truncatedImageName);
   const canSend = Boolean(canvasCrop?.src || displaySrc || fullSrc);
+
+  React.useEffect(() => {
+    setNodeLabel(normalizedNodeLabel);
+    if (!isEditingNodeLabel) {
+      setNodeLabelDraft(normalizedNodeLabel);
+    }
+  }, [normalizedNodeLabel, isEditingNodeLabel]);
+
+  React.useEffect(() => {
+    if (!isEditingNodeLabel) return;
+    requestAnimationFrame(() => {
+      nodeLabelInputRef.current?.focus();
+      nodeLabelInputRef.current?.select();
+    });
+  }, [isEditingNodeLabel]);
+
+  const startNodeLabelEditing = React.useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setNodeLabelDraft(nodeLabel);
+    setIsEditingNodeLabel(true);
+  }, [nodeLabel]);
+
+  const commitNodeLabel = React.useCallback((raw: string) => {
+    const trimmed = raw.trim();
+    const nextLabel = trimmed.length ? trimmed : DEFAULT_NODE_LABEL;
+    setNodeLabel(nextLabel);
+    setNodeLabelDraft(nextLabel);
+    setIsEditingNodeLabel(false);
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: {
+          id,
+          patch: {
+            label: nextLabel,
+          },
+        },
+      })
+    );
+  }, [id]);
+
+  const cancelNodeLabelEditing = React.useCallback(() => {
+    setIsEditingNodeLabel(false);
+    setNodeLabelDraft(nodeLabel);
+  }, [nodeLabel]);
+
   React.useEffect(() => {
     if (!preview) return;
     const handler = (e: KeyboardEvent) => {
@@ -1362,7 +1417,48 @@ function ImageNodeInner({ id, data, selected }: Props) {
           marginBottom: 6,
         }}
       >
-        <div style={{ fontWeight: 600 }}>{data.label || "Image"}</div>
+        {isEditingNodeLabel ? (
+          <input
+            ref={nodeLabelInputRef}
+            value={nodeLabelDraft}
+            onChange={(event) => setNodeLabelDraft(event.target.value)}
+            onBlur={() => commitNodeLabel(nodeLabelDraft)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commitNodeLabel(nodeLabelDraft);
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                cancelNodeLabelEditing();
+              }
+            }}
+            onPointerDownCapture={(event) => {
+              event.stopPropagation();
+            }}
+            onMouseDownCapture={(event) => {
+              event.stopPropagation();
+            }}
+            className='nodrag nopan'
+            style={{
+              fontWeight: 600,
+              fontSize: 14,
+              border: "1px solid #d1d5db",
+              borderRadius: 6,
+              padding: "2px 6px",
+              outline: "none",
+              minWidth: 80,
+              maxWidth: 160,
+            }}
+          />
+        ) : (
+          <div
+            onDoubleClick={startNodeLabelEditing}
+            title={lt("双击编辑标题", "Double click to edit title")}
+            style={{ fontWeight: 600, cursor: "text", userSelect: "none" }}
+          >
+            {nodeLabel}
+          </div>
+        )}
         <div style={{ display: "flex", gap: 6 }}>
           <button
             onClick={handleSendToCanvas}

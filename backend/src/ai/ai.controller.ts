@@ -1564,12 +1564,15 @@ export class AiController {
   async textChat(@Body() dto: TextChatDto, @Req() req: any) {
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveTextModel(providerName, dto.model);
+    const billingTag = dto.billingTag === 'prompt_optimize' ? 'prompt_optimize' : 'text_chat';
+    const serviceType: ServiceType =
+      billingTag === 'prompt_optimize' ? 'gemini-prompt-optimize' : 'gemini-text';
 
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
 
-    return this.withCredits(req, 'gemini-text', model, async () => {
+    return this.withCredits(req, serviceType, model, async () => {
       if (providerName && providerName !== 'gemini-pro') {
         const provider = this.factory.getProvider(dto.model, providerName);
         const result = await provider.generateText({
@@ -1588,7 +1591,7 @@ export class AiController {
 
       // gemini 和 gemini-pro 都使用默认的 Gemini 服务
       return this.imageGeneration.generateTextResponse({ ...dto, customApiKey });
-    }, undefined, undefined, skipCredits);
+    }, undefined, undefined, skipCredits, this.buildCreditRequestParams(providerName, { billingTag }));
   }
 
   @Post('remove-background')

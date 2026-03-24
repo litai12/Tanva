@@ -262,6 +262,7 @@ export interface AITextChatRequest {
   model?: string;
   aiProvider?: SupportedAIProvider;
   providerOptions?: AIProviderOptions;
+  billingTag?: 'text_chat' | 'prompt_optimize';
   thinkingLevel?: 'high' | 'low'; // 思考级别（仅 Gemini 3）
   context?: string[];
   enableWebSearch?: boolean; // 是否启用联网搜索

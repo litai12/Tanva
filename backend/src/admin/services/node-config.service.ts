@@ -411,15 +411,16 @@ export class NodeConfigService {
       // 其他节点
       { nodeKey: 'videoAnalyze', nameZh: '视频分析节点', nameEn: 'Video Analysis', category: 'other', sortOrder: 30, creditsPerCall: 30, serviceType: 'gemini-video-analyze', priceYuan: 0.3, description: '分析视频内容' },
       { nodeKey: 'videoFrameExtract', nameZh: '视频帧提取', nameEn: 'Frame Extract', category: 'other', sortOrder: 31, creditsPerCall: 0, description: '从视频提取帧，免费' },
-      { nodeKey: 'analysis', nameZh: '图像分析节点', nameEn: 'Analysis', category: 'other', sortOrder: 32, creditsPerCall: 6, serviceType: 'gemini-image-analyze', priceYuan: 0.06, description: '分析图像内容' },
-      { nodeKey: 'promptOptimize', nameZh: '提示词优化', nameEn: 'Optimize', category: 'other', sortOrder: 33, creditsPerCall: 2, serviceType: 'gemini-text', priceYuan: 0.02, description: 'AI优化提示词' },
-      { nodeKey: 'textChat', nameZh: '文字对话', nameEn: 'Chat', category: 'other', sortOrder: 34, creditsPerCall: 2, serviceType: 'gemini-text', priceYuan: 0.02, description: 'AI文字对话' },
-      { nodeKey: 'storyboardSplit', nameZh: '分镜拆解', nameEn: 'Storyboard', category: 'other', sortOrder: 35, creditsPerCall: 10, serviceType: 'gemini-text', priceYuan: 0.1, description: '拆解分镜脚本' },
-      { nodeKey: 'imageGrid', nameZh: '图片拼接', nameEn: 'Grid', category: 'other', sortOrder: 36, creditsPerCall: 0, description: '拼接多张图片，免费' },
-      { nodeKey: 'imageSplit', nameZh: '图片拆分', nameEn: 'Split', category: 'other', sortOrder: 37, creditsPerCall: 0, description: '拆分图片，免费' },
-      { nodeKey: 'imageCompress', nameZh: '图片压缩', nameEn: 'Image Compress', category: 'other', sortOrder: 38, creditsPerCall: 0, description: '按档位压缩图片，免费' },
-      { nodeKey: 'three', nameZh: '2D转3D', nameEn: '2D to 3D', category: 'other', sortOrder: 39, creditsPerCall: 200, serviceType: 'convert-2d-to-3d', priceYuan: 2, description: '图片转3D模型' },
-      { nodeKey: 'minimaxSpeech', nameZh: 'MiniMax语音合成', nameEn: 'MiniMax Speech', category: 'audio', sortOrder: 40, creditsPerCall: 10, serviceType: 'minimax-speech', priceYuan: 0.1, description: 'MiniMax Speech 语音合成' },
+      { nodeKey: 'videoToGif', nameZh: '视频转GIF', nameEn: 'Video to GIF', category: 'other', sortOrder: 32, creditsPerCall: 0, description: '将视频片段转换为GIF，免费' },
+      { nodeKey: 'analysis', nameZh: '图像分析节点', nameEn: 'Analysis', category: 'other', sortOrder: 33, creditsPerCall: 6, serviceType: 'gemini-image-analyze', priceYuan: 0.06, description: '分析图像内容' },
+      { nodeKey: 'promptOptimize', nameZh: '提示词优化', nameEn: 'Optimize', category: 'other', sortOrder: 34, creditsPerCall: 2, serviceType: 'gemini-text', priceYuan: 0.02, description: 'AI优化提示词' },
+      { nodeKey: 'textChat', nameZh: '文字对话', nameEn: 'Chat', category: 'other', sortOrder: 35, creditsPerCall: 2, serviceType: 'gemini-text', priceYuan: 0.02, description: 'AI文字对话' },
+      { nodeKey: 'storyboardSplit', nameZh: '分镜拆解', nameEn: 'Storyboard', category: 'other', sortOrder: 36, creditsPerCall: 10, serviceType: 'gemini-text', priceYuan: 0.1, description: '拆解分镜脚本' },
+      { nodeKey: 'imageGrid', nameZh: '图片拼接', nameEn: 'Grid', category: 'other', sortOrder: 37, creditsPerCall: 0, description: '拼接多张图片，免费' },
+      { nodeKey: 'imageSplit', nameZh: '图片拆分', nameEn: 'Split', category: 'other', sortOrder: 38, creditsPerCall: 0, description: '拆分图片，免费' },
+      { nodeKey: 'imageCompress', nameZh: '图片压缩', nameEn: 'Image Compress', category: 'other', sortOrder: 39, creditsPerCall: 0, description: '按档位压缩图片，免费' },
+      { nodeKey: 'three', nameZh: '2D转3D', nameEn: '2D to 3D', category: 'other', sortOrder: 40, creditsPerCall: 200, serviceType: 'convert-2d-to-3d', priceYuan: 2, description: '图片转3D模型' },
+      { nodeKey: 'minimaxSpeech', nameZh: 'MiniMax语音合成', nameEn: 'MiniMax Speech', category: 'audio', sortOrder: 41, creditsPerCall: 10, serviceType: 'minimax-speech', priceYuan: 0.1, description: 'MiniMax Speech 语音合成' },
     ];
 
     let created = 0;
@@ -638,15 +639,16 @@ export class NodeConfigService {
       // 其他节点
       { nodeKey: 'videoAnalyze', nameZh: '视频分析节点', nameEn: 'Video Analysis', category: 'other', sortOrder: 30, creditsPerCall: 30, serviceType: 'gemini-video-analyze', priceYuan: 0.3, description: '分析视频内容' },
       { nodeKey: 'videoFrameExtract', nameZh: '视频帧提取', nameEn: 'Frame Extract', category: 'other', sortOrder: 31, creditsPerCall: 0, description: '从视频提取帧，免费' },
-      { nodeKey: 'analysis', nameZh: '图像分析节点', nameEn: 'Analysis', category: 'other', sortOrder: 32, creditsPerCall: 6, serviceType: 'gemini-image-analyze', priceYuan: 0.06, description: '分析图像内容' },
-      { nodeKey: 'promptOptimize', nameZh: '提示词优化', nameEn: 'Optimize', category: 'other', sortOrder: 33, creditsPerCall: 2, serviceType: 'gemini-text', priceYuan: 0.02, description: 'AI优化提示词' },
-      { nodeKey: 'textChat', nameZh: '文字对话', nameEn: 'Chat', category: 'other', sortOrder: 34, creditsPerCall: 2, serviceType: 'gemini-text', priceYuan: 0.02, description: 'AI文字对话' },
-      { nodeKey: 'storyboardSplit', nameZh: '分镜拆解', nameEn: 'Storyboard', category: 'other', sortOrder: 35, creditsPerCall: 10, serviceType: 'gemini-text', priceYuan: 0.1, description: '拆解分镜脚本' },
-      { nodeKey: 'imageGrid', nameZh: '图片拼接', nameEn: 'Grid', category: 'other', sortOrder: 36, creditsPerCall: 0, description: '拼接多张图片，免费' },
-      { nodeKey: 'imageSplit', nameZh: '图片拆分', nameEn: 'Split', category: 'other', sortOrder: 37, creditsPerCall: 0, description: '拆分图片，免费' },
-      { nodeKey: 'imageCompress', nameZh: '图片压缩', nameEn: 'Image Compress', category: 'other', sortOrder: 38, creditsPerCall: 0, description: '按档位压缩图片，免费' },
-      { nodeKey: 'three', nameZh: '2D转3D', nameEn: '2D to 3D', category: 'other', sortOrder: 39, creditsPerCall: 200, serviceType: 'convert-2d-to-3d', priceYuan: 2, description: '图片转3D模型' },
-      { nodeKey: 'minimaxSpeech', nameZh: 'MiniMax语音合成', nameEn: 'MiniMax Speech', category: 'audio', sortOrder: 40, creditsPerCall: 10, serviceType: 'minimax-speech', priceYuan: 0.1, description: 'MiniMax Speech 语音合成' },
+      { nodeKey: 'videoToGif', nameZh: '视频转GIF', nameEn: 'Video to GIF', category: 'other', sortOrder: 32, creditsPerCall: 0, description: '将视频片段转换为GIF，免费' },
+      { nodeKey: 'analysis', nameZh: '图像分析节点', nameEn: 'Analysis', category: 'other', sortOrder: 33, creditsPerCall: 6, serviceType: 'gemini-image-analyze', priceYuan: 0.06, description: '分析图像内容' },
+      { nodeKey: 'promptOptimize', nameZh: '提示词优化', nameEn: 'Optimize', category: 'other', sortOrder: 34, creditsPerCall: 2, serviceType: 'gemini-text', priceYuan: 0.02, description: 'AI优化提示词' },
+      { nodeKey: 'textChat', nameZh: '文字对话', nameEn: 'Chat', category: 'other', sortOrder: 35, creditsPerCall: 2, serviceType: 'gemini-text', priceYuan: 0.02, description: 'AI文字对话' },
+      { nodeKey: 'storyboardSplit', nameZh: '分镜拆解', nameEn: 'Storyboard', category: 'other', sortOrder: 36, creditsPerCall: 10, serviceType: 'gemini-text', priceYuan: 0.1, description: '拆解分镜脚本' },
+      { nodeKey: 'imageGrid', nameZh: '图片拼接', nameEn: 'Grid', category: 'other', sortOrder: 37, creditsPerCall: 0, description: '拼接多张图片，免费' },
+      { nodeKey: 'imageSplit', nameZh: '图片拆分', nameEn: 'Split', category: 'other', sortOrder: 38, creditsPerCall: 0, description: '拆分图片，免费' },
+      { nodeKey: 'imageCompress', nameZh: '图片压缩', nameEn: 'Image Compress', category: 'other', sortOrder: 39, creditsPerCall: 0, description: '按档位压缩图片，免费' },
+      { nodeKey: 'three', nameZh: '2D转3D', nameEn: '2D to 3D', category: 'other', sortOrder: 40, creditsPerCall: 200, serviceType: 'convert-2d-to-3d', priceYuan: 2, description: '图片转3D模型' },
+      { nodeKey: 'minimaxSpeech', nameZh: 'MiniMax语音合成', nameEn: 'MiniMax Speech', category: 'audio', sortOrder: 41, creditsPerCall: 10, serviceType: 'minimax-speech', priceYuan: 0.1, description: 'MiniMax Speech 语音合成' },
     ];
   }
 

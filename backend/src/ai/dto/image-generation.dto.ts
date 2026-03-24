@@ -271,6 +271,10 @@ export class TextChatDto {
   providerOptions?: Record<string, any>;
 
   @IsOptional()
+  @IsString()
+  billingTag?: 'text_chat' | 'prompt_optimize';
+
+  @IsOptional()
   @IsBoolean()
   enableWebSearch?: boolean;
 

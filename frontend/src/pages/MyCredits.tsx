@@ -53,6 +53,7 @@ const SERVICE_TYPE_TRANSLATION_KEYS: Record<string, string> = {
   'gemini-3.1-image-blend': 'gemini31ImageBlend',
   'gemini-image-analyze': 'geminiImageAnalyze',
   'gemini-text': 'geminiText',
+  'gemini-prompt-optimize': 'geminiPromptOptimize',
   'gemini-paperjs': 'geminiPaperJs',
   'midjourney-imagine': 'midjourneyImagine',
   'midjourney-variation': 'midjourneyVariation',

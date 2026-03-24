@@ -233,3 +233,11 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Changed
 - `DrawingController` 的单图下载逻辑新增静默模式和布尔返回值，供批量下载复用并在批量完成后统一提示结果（`frontend/src/components/canvas/DrawingController.tsx`）。
+
+## [Flow Patch - 2026-03-24]
+### Added
+- Flow: added `videoToGif` node and backend `POST /api/video-gif/convert` pipeline (ffprobe + ffmpeg palettegen/paletteuse + OSS upload) to convert connected videos into GIF output URLs.
+
+## [Flow Patch - 2026-03-24]
+### Changed
+- Flow `Image` node title now supports inline rename on double-click (`Enter`/blur to save, `Escape` to cancel), persisting to `data.label` (`frontend/src/components/flow/nodes/ImageNode.tsx`).

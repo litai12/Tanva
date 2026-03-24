@@ -1,5 +1,5 @@
 import React from "react";
-import { Handle, Position } from "reactflow";
+import { Handle, Position, useStore, type Node as FlowNode, type ReactFlowState } from "reactflow";
 import { Send as SendIcon, Check } from "lucide-react";
 import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
 import SmartImage from "../../ui/SmartImage";
@@ -44,6 +44,12 @@ type Props = {
   selected?: boolean;
 };
 
+type ConnectedInputImage = {
+  id: string;
+  imageData: string;
+  thumbnailData?: string;
+};
+
 // 构建图片 src - 优先使用 OSS URL，避免 proxy 降级
 const buildImageSrc = (value?: string): string | undefined => {
   if (!value) return undefined;
@@ -51,6 +57,152 @@ const buildImageSrc = (value?: string): string | undefined => {
   if (!trimmed) return undefined;
   return toRenderableImageSrc(trimmed) || undefined;
 };
+
+const MAX_INPUT_PREVIEWS = 6;
+
+const normalizeImageValue = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+};
+
+const readConnectedImagesFromNode = (
+  node: FlowNode,
+  sourceHandle?: string | null
+): ConnectedInputImage[] => {
+  const d = (node.data ?? {}) as Record<string, unknown>;
+  const getStringAt = (list: unknown, idx: number): string | undefined => {
+    if (!Array.isArray(list)) return undefined;
+    return normalizeImageValue(list[idx]);
+  };
+  const pickAt = (idx: number): ConnectedInputImage[] => {
+    const full =
+      getStringAt(d.imageUrls, idx) ||
+      getStringAt(d.images, idx) ||
+      getStringAt(d.thumbnails, idx);
+    if (!full) return [];
+    const thumb = getStringAt(d.thumbnails, idx);
+    return [{ id: `${node.id}-img${idx + 1}`, imageData: full, thumbnailData: thumb }];
+  };
+
+  if (typeof sourceHandle === "string") {
+    const singleMatch = /^img(\d+)$/.exec(sourceHandle);
+    if (singleMatch) {
+      const idx = Math.max(0, Number(singleMatch[1]) - 1);
+      return pickAt(idx);
+    }
+
+    const splitMatch = /^image(\d+)$/.exec(sourceHandle);
+    if (splitMatch) {
+      const idx = Math.max(0, Number(splitMatch[1]) - 1);
+      const direct = normalizeImageValue(d[`image${idx + 1}`]);
+      const splitImages = Array.isArray(d.splitImages) ? d.splitImages : [];
+      const legacyCandidate = splitImages[idx];
+      const legacy =
+        legacyCandidate && typeof legacyCandidate === "object"
+          ? normalizeImageValue((legacyCandidate as { imageData?: unknown }).imageData)
+          : undefined;
+      const value = direct || legacy;
+      return value
+        ? [{ id: `${node.id}-image${idx + 1}`, imageData: value, thumbnailData: value }]
+        : [];
+    }
+  }
+
+  if (
+    typeof sourceHandle === "string" &&
+    (sourceHandle === "images" || sourceHandle.startsWith("images-"))
+  ) {
+    const max = Math.max(
+      Array.isArray(d.imageUrls) ? d.imageUrls.length : 0,
+      Array.isArray(d.images) ? d.images.length : 0,
+      Array.isArray(d.thumbnails) ? d.thumbnails.length : 0
+    );
+    const out: ConnectedInputImage[] = [];
+    for (let idx = 0; idx < max; idx += 1) {
+      out.push(...pickAt(idx));
+    }
+    return out;
+  }
+
+  const full =
+    normalizeImageValue(d.imageUrl) ||
+    normalizeImageValue(d.imageData) ||
+    normalizeImageValue(d.outputImage) ||
+    normalizeImageValue(d.inputImageUrl) ||
+    normalizeImageValue(d.inputImage) ||
+    normalizeImageValue(d.thumbnailDataUrl) ||
+    normalizeImageValue(d.thumbnail);
+  const thumb =
+    normalizeImageValue(d.thumbnail) || normalizeImageValue(d.thumbnailDataUrl);
+
+  return full ? [{ id: node.id, imageData: full, thumbnailData: thumb }] : [];
+};
+
+function InputImageThumb({ value, order, lt }: { value: string; order: number; lt: (zh: string, en: string) => string }) {
+  const assetId = React.useMemo(() => parseFlowImageAssetRef(value), [value]);
+  const assetUrl = useFlowImageAssetUrl(assetId);
+  const src = assetId ? (assetUrl || undefined) : buildImageSrc(value);
+
+  return (
+    <div
+      style={{
+        position: "relative",
+        width: 44,
+        height: 44,
+        flexShrink: 0,
+      }}
+      title={lt(`输入图 ${order}`, `Input ${order}`)}
+    >
+      <div
+        style={{
+          width: "100%",
+          height: "100%",
+        borderRadius: 8,
+        overflow: "hidden",
+        border: "1px solid #d1d5db",
+        background: "#f8fafc",
+        }}
+      >
+      {src ? (
+        <SmartImage
+          src={src}
+          alt=''
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            background: "#fff",
+          }}
+        />
+      ) : null}
+      </div>
+      <div
+        style={{
+          position: "absolute",
+          left: 4,
+          top: 4,
+          width: 14,
+          height: 14,
+          borderRadius: "999px",
+          background: "#111827",
+          color: "#fff",
+          fontSize: 9,
+          fontWeight: 700,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          border: "1px solid #fff",
+          boxShadow: "0 1px 2px rgba(0,0,0,0.28)",
+          lineHeight: 1,
+          zIndex: 2,
+        }}
+      >
+        {order}
+      </div>
+    </div>
+  );
+}
 
 function GenerateNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
@@ -96,6 +248,53 @@ function GenerateNodeInner({ id, data, selected }: Props) {
           } as ImageItem)
       ),
     [projectHistory]
+  );
+
+  const connectedInputImages = useStore(
+    React.useCallback(
+      (state: ReactFlowState) => {
+        const edgeWithOrder = state.edges
+          .map((edge, index) => ({ edge, index }))
+          .filter(({ edge }) => {
+            if (edge.target !== id) return false;
+            const handle = edge.targetHandle;
+            if (!handle || handle === "img") return true;
+            return /^img\d+$/.test(handle);
+          })
+          .sort((a, b) => {
+            const rank = (handle?: string | null) => {
+              if (!handle || handle === "img") return 0;
+              const match = /^img(\d+)$/.exec(handle);
+              if (!match) return Number.MAX_SAFE_INTEGER;
+              return Math.max(0, Number(match[1]) - 1);
+            };
+            const rankDelta = rank(a.edge.targetHandle) - rank(b.edge.targetHandle);
+            if (rankDelta !== 0) return rankDelta;
+            return a.index - b.index;
+          });
+
+        if (edgeWithOrder.length === 0) return [] as ConnectedInputImage[];
+
+        const nodes = state.getNodes();
+        const nodeById = new Map(nodes.map((node) => [node.id, node]));
+        const out: ConnectedInputImage[] = [];
+
+        edgeWithOrder.forEach(({ edge }, edgeIdx) => {
+          const sourceNode = nodeById.get(edge.source);
+          if (!sourceNode) return;
+          const items = readConnectedImagesFromNode(sourceNode, edge.sourceHandle);
+          items.forEach((item, itemIdx) => {
+            out.push({
+              ...item,
+              id: `${edge.id || edge.source}-${edgeIdx}-${item.id}-${itemIdx}`,
+            });
+          });
+        });
+
+        return out.slice(0, MAX_INPUT_PREVIEWS);
+      },
+      [id]
+    )
   );
 
   const updateAspectRatio = React.useCallback(
@@ -410,9 +609,31 @@ function GenerateNodeInner({ id, data, selected }: Props) {
           onMouseDownCapture={stopNodeDrag}
           onMouseDown={stopNodeDrag}
         />
-        <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>
-          {lt("会在 TextPrompt 输入前自动添加", "Will be automatically added before TextPrompt input")}
-        </div>
+        {connectedInputImages.length > 0 && (
+          <div
+            className='nodrag nopan nowheel'
+            onPointerDownCapture={stopNodeDrag}
+            onMouseDownCapture={stopNodeDrag}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              overflowX: "auto",
+              paddingBottom: 2,
+              marginTop: 8,
+            }}
+            title={lt("输入图顺序会影响融合效果", "Input order affects blending")}
+          >
+            {connectedInputImages.map((item, idx) => (
+              <InputImageThumb
+                key={item.id}
+                value={item.thumbnailData || item.imageData}
+                order={idx + 1}
+                lt={lt}
+              />
+            ))}
+          </div>
+        )}
       </div>
       {showSizeControls && (
         <div
@@ -550,7 +771,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
         </div>
       )}
 
-      {/* 输入：img 在上，text 在下；输出：img */}
+      {/* 输入：img 在上，text 在下；输出：img、text */}
       <Handle
         type='target'
         position={Position.Left}
@@ -589,8 +810,16 @@ function GenerateNodeInner({ id, data, selected }: Props) {
         type='source'
         position={Position.Right}
         id='img'
-        style={{ top: "50%" }}
+        style={{ top: "35%" }}
         onMouseEnter={() => setHover("img-out")}
+        onMouseLeave={() => setHover(null)}
+      />
+      <Handle
+        type='source'
+        position={Position.Right}
+        id='text'
+        style={{ top: "65%" }}
+        onMouseEnter={() => setHover("prompt-out")}
         onMouseLeave={() => setHover(null)}
       />
 
@@ -613,9 +842,17 @@ function GenerateNodeInner({ id, data, selected }: Props) {
       {hover === "img-out" && (
         <div
           className='flow-tooltip'
-          style={{ right: -8, top: "50%", transform: "translate(100%, -50%)" }}
+          style={{ right: -8, top: "35%", transform: "translate(100%, -50%)" }}
         >
           image
+        </div>
+      )}
+      {hover === "prompt-out" && (
+        <div
+          className='flow-tooltip'
+          style={{ right: -8, top: "65%", transform: "translate(100%, -50%)" }}
+        >
+          prompt
         </div>
       )}
 
