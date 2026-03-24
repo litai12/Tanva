@@ -13338,10 +13338,10 @@ function FlowInner() {
       }
 
       // 默认单图（generate / generatePro / generateRef）
-      const dataUrl = normalizeForCanvas(
+      const rawImageUrl =
         ((node.data as any)?.imageUrl as string | undefined) ||
-          ((node.data as any)?.imageData as string | undefined)
-      );
+        ((node.data as any)?.imageData as string | undefined);
+      const dataUrl = normalizeForCanvas(rawImageUrl);
       if (!dataUrl) {
         window.dispatchEvent(
           new CustomEvent("toast", {
@@ -13352,6 +13352,48 @@ function FlowInner() {
       }
 
       const fileName = `flow_${Date.now()}.png`;
+
+      // 🔥 关键修复：当图片源不可直接外发（flow-asset: / blob: / data:image/）
+      // 时，先上传到 OSS，再用远程 URL 派发事件，避免画板保存被阻塞。
+      if (
+        !dataUrl.startsWith("http://") &&
+        !dataUrl.startsWith("https://") &&
+        !dataUrl.startsWith("/api/assets/proxy") &&
+        !dataUrl.startsWith("/assets/proxy") &&
+        !dataUrl.startsWith("/") &&
+        !dataUrl.startsWith("./") &&
+        !dataUrl.startsWith("../") &&
+        !/^(templates|projects|uploads|videos)\//i.test(dataUrl)
+      ) {
+        try {
+          const uploadResult = await imageUploadService.uploadImageSource(dataUrl, {
+            fileName,
+          });
+          if (uploadResult.success && uploadResult.asset?.url) {
+            window.dispatchEvent(
+              new CustomEvent("triggerQuickImageUpload", {
+                detail: {
+                  imageData: uploadResult.asset.url,
+                  fileName,
+                  operationType: "generate",
+                  smartPosition: undefined,
+                  sourceImageId: undefined,
+                  sourceImages: undefined,
+                },
+              })
+            );
+            window.dispatchEvent(
+              new CustomEvent("toast", {
+                detail: { message: "图片已发送到画板", type: "success" },
+              })
+            );
+            return;
+          }
+        } catch {
+          // 上传失败时继续走原有流程（走 blob URL + pendingUpload）
+        }
+      }
+
       window.dispatchEvent(
         new CustomEvent("triggerQuickImageUpload", {
           detail: {
