@@ -266,11 +266,11 @@ export const CREDIT_PRICING_CONFIG = {
     creditsPerCall: 10,
     description: '使用 MiniMax 进行文本转语音合成',
   },
-  'minimax-music': {
-    serviceName: 'MiniMax 音乐生成',
-    provider: 'minimax',
-    creditsPerCall: 30,
-    description: '使用 MiniMax 生成音乐',
+  'tencent-speech': {
+    serviceName: '腾讯语音合成',
+    provider: 'tencent',
+    creditsPerCall: 10,
+    description: '使用腾讯 MPS AI 配音接口进行语音生成',
   },
   'doubao-seedream-5-0-260128': {
     serviceName: 'Seedream 5.0 图像生成',

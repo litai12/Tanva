@@ -1,6 +1,6 @@
 import type { Node, Edge } from 'reactflow';
 
-export type NodeKind = 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generatePro' | 'storyboardSplit' | 'imageSplit' | 'imageCompress' | 'audioUpload' | 'minimaxSpeech' | 'minimaxMusic';
+export type NodeKind = 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generatePro' | 'storyboardSplit' | 'imageSplit' | 'imageCompress' | 'audioUpload' | 'minimaxSpeech' | 'tencentSpeech';
 
 export type TextPromptData = {
   text?: string;
@@ -166,27 +166,6 @@ export type MinimaxSpeechData = {
   soundEffects?: Array<'spacious_echo' | 'auditorium_echo' | 'lofi_telephone' | 'robotic'>;
 };
 
-export type MinimaxMusicData = {
-  status?: 'idle' | 'running' | 'succeeded' | 'failed';
-  audioUrl?: string;
-  error?: string;
-  prompt?: string;
-  lyrics?: string;
-  isInstrumental?: boolean;
-  lyricsOptimizer?: boolean;
-  model?: 'music-2.5+' | 'music-2.5';
-  history?: Array<{
-    id: string;
-    prompt: string;
-    lyrics?: string;
-    isInstrumental: boolean;
-    lyricsOptimizer: boolean;
-    audioUrl: string;
-    createdAt: number;
-  }>;
-  selectedHistoryId?: string;
-};
-
 export type AudioUploadData = {
   status?: 'idle' | 'uploading' | 'ready' | 'error';
   audioUrl?: string;
@@ -198,7 +177,37 @@ export type AudioUploadData = {
   boxH?: number;
 };
 
-export type AnyNodeData = TextPromptData | PromptOptimizeData | ImageData | GenerateData | GenerateProData | Generate4Data | TextChatData | StoryboardSplitData | ImageSplitData | ImageCompressData | AudioUploadData | MinimaxSpeechData | MinimaxMusicData;
+export type TencentSpeechData = {
+  status?: 'idle' | 'running' | 'succeeded' | 'failed';
+  audioUrl?: string;
+  videoUrl?: string;
+  speakerUrl?: string;
+  error?: string;
+  inputVideoUrl?: string;
+  text?: string;
+  speakerUrlInput?: string;
+  voiceId?: string;
+  speakerGender?: 'male' | 'female';
+  srcLang?: string;
+  dstLang?: string;
+  srcSubtitleUrl?: string;
+  dstSubtitleUrl?: string;
+  embedSubtitle?: boolean;
+  font?: string;
+  fontSize?: number;
+  marginV?: number;
+  outputPattern?: string;
+  history?: Array<{
+    id: string;
+    prompt: string;
+    audioUrl: string;
+    videoUrl?: string;
+    createdAt: number;
+  }>;
+  selectedHistoryId?: string;
+};
+
+export type AnyNodeData = TextPromptData | PromptOptimizeData | ImageData | GenerateData | GenerateProData | Generate4Data | TextChatData | StoryboardSplitData | ImageSplitData | ImageCompressData | AudioUploadData | MinimaxSpeechData | TencentSpeechData;
 
 export type AnyNode = Node<AnyNodeData>;
 export type AnyEdge = Edge;
