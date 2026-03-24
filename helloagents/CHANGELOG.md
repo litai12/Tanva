@@ -256,3 +256,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Changed
 - Flow `videoToGif` backend now converts by input video duration by default (no hard `120s` cap in default path), and forces GIF output loop to non-infinite (`-loop 1`) even if loop param is provided by legacy callers (`backend/src/oss/video-gif.controller.ts`).
 - Flow `videoToGif` node helper text updated to reflect duration behavior (`frontend/src/components/flow/nodes/VideoToGifNode.tsx`).
+
+## [Flow Patch - 2026-03-24-5]
+### Changed
+- `videoToGif` conversion endpoint now integrates credits billing: pre-deduct 30 credits on start, mark success/failed status in `ApiUsageRecord`, and auto-refund on conversion failure (`backend/src/oss/video-gif.controller.ts`, `backend/src/credits/credits.config.ts`, `backend/src/oss/oss.module.ts`).
+- Backend/frontend default node config for `videoToGif` now align with `serviceType=video-to-gif` and `priceYuan=0.3` for pricing/config consistency (`backend/src/admin/services/node-config.service.ts`, `frontend/src/services/nodeConfigService.ts`).

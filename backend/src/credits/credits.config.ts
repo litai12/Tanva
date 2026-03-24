@@ -254,6 +254,12 @@ export const CREDIT_PRICING_CONFIG = {
     creditsPerCall: 600,
     description: '使用Seedance 1.5 Pro 生成视频',
   },
+  'video-to-gif': {
+    serviceName: '视频转GIF',
+    provider: 'ffmpeg',
+    creditsPerCall: 30,
+    description: '将视频转换为 GIF',
+  },
   'minimax-speech': {
     serviceName: 'MiniMax 语音合成',
     provider: 'minimax',

@@ -6,6 +6,9 @@ import {
   Body,
   UseGuards,
   ServiceUnavailableException,
+  Req,
+  Logger,
+  HttpException,
 } from '@nestjs/common';
 import { ApiCookieAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard';
@@ -14,6 +17,9 @@ import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { OssService } from './oss.service';
+import { CreditsService } from '../credits/credits.service';
+import { ApiResponseStatus } from '../credits/dto/credits.dto';
+import { ServiceType } from '../credits/credits.config';
 
 type ConvertVideoToGifDto = {
   videoUrl: string;
@@ -32,13 +38,18 @@ const MAX_WIDTH = 960;
 @ApiTags('video-gif')
 @Controller('video-gif')
 export class VideoGifController {
-  constructor(private readonly oss: OssService) {}
+  private readonly logger = new Logger(VideoGifController.name);
+
+  constructor(
+    private readonly oss: OssService,
+    private readonly creditsService: CreditsService,
+  ) {}
 
   @Post('convert')
   @ApiOperation({ summary: 'Convert video to GIF using ffmpeg' })
   @ApiCookieAuth('access_token')
   @UseGuards(JwtAuthGuard)
-  async convert(@Body() dto: ConvertVideoToGifDto): Promise<{
+  async convert(@Body() dto: ConvertVideoToGifDto, @Req() req: any): Promise<{
     success: boolean;
     gifUrl: string;
     gifKey: string;
@@ -53,10 +64,37 @@ export class VideoGifController {
     const startSeconds = this.clampNumber(dto.startSeconds, 0, 3600, 0);
     const fps = Math.round(this.clampNumber(dto.fps, MIN_FPS, MAX_FPS, 10));
     const width = Math.round(this.clampNumber(dto.width, MIN_WIDTH, MAX_WIDTH, 480));
+    const userId = this.getUserId(req);
+    const serviceType: ServiceType = 'video-to-gif';
+    const startTime = Date.now();
+    let apiUsageId: string | null = null;
+    let tempDir: string | null = null;
 
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'video-gif-'));
+    if (!userId) {
+      throw new BadRequestException('需要用户认证');
+    }
 
     try {
+      await this.creditsService.getOrCreateAccount(userId);
+
+      const deductResult = await this.creditsService.preDeductCredits({
+        userId,
+        serviceType,
+        model: 'ffmpeg-gif',
+        outputImageCount: 1,
+        requestParams: {
+          fps,
+          width,
+          startSeconds,
+          durationSeconds: dto.durationSeconds,
+        },
+        ipAddress: req?.ip,
+        userAgent: req?.headers?.['user-agent'],
+      });
+      apiUsageId = deductResult.apiUsageId;
+
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'video-gif-'));
+
       const duration = await this.getVideoDuration(videoUrl);
       if (!duration || duration <= 0) {
         throw new BadRequestException('Cannot get video duration');
@@ -90,6 +128,23 @@ export class VideoGifController {
         headers: { 'Content-Type': 'image/gif' },
       });
 
+      if (apiUsageId) {
+        try {
+          await this.creditsService.updateApiUsageStatus(
+            apiUsageId,
+            ApiResponseStatus.SUCCESS,
+            undefined,
+            Date.now() - startTime,
+          );
+        } catch (statusError) {
+          this.logger.warn(
+            `Failed to mark video-to-gif api usage success: ${
+              statusError instanceof Error ? statusError.message : String(statusError)
+            }`,
+          );
+        }
+      }
+
       return {
         success: true,
         gifUrl: url,
@@ -101,16 +156,83 @@ export class VideoGifController {
         width,
       };
     } catch (err: any) {
+      if (apiUsageId) {
+        await this.failAndRefund(userId, apiUsageId, err?.message || 'Video to GIF conversion failed', Date.now() - startTime);
+      }
+
       const message = err?.message || 'Video to GIF conversion failed';
       if (message.includes('ffmpeg not installed') || message.includes('ffprobe not installed')) {
         throw new ServiceUnavailableException(message);
       }
-      if (err instanceof BadRequestException || err instanceof ServiceUnavailableException) {
+      if (err instanceof HttpException) {
         throw err;
       }
       throw new BadGatewayException(message);
     } finally {
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      if (tempDir) {
+        await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      }
+    }
+  }
+
+  private getUserId(req: any): string | null {
+    return req?.user?.id || req?.user?.sub || null;
+  }
+
+  private async failAndRefund(
+    userId: string,
+    apiUsageId: string,
+    errorMessage: string,
+    processingTime: number,
+  ): Promise<void> {
+    let failedMarked = false;
+    try {
+      await this.creditsService.updateApiUsageStatus(
+        apiUsageId,
+        ApiResponseStatus.FAILED,
+        errorMessage,
+        processingTime,
+      );
+      failedMarked = true;
+    } catch (statusError) {
+      this.logger.error(
+        `Failed to mark video-to-gif api usage failed: ${
+          statusError instanceof Error ? statusError.message : String(statusError)
+        }`,
+      );
+    }
+
+    if (!failedMarked) {
+      try {
+        await this.creditsService.markApiUsageFailedForUser(
+          userId,
+          apiUsageId,
+          errorMessage,
+          processingTime,
+        );
+        failedMarked = true;
+      } catch (markError) {
+        this.logger.error(
+          `Failed to mark video-to-gif api usage failed for refund: ${
+            markError instanceof Error ? markError.message : String(markError)
+          }`,
+        );
+      }
+    }
+
+    if (!failedMarked) {
+      this.logger.error(`Skip refund because failed status cannot be set. apiUsageId=${apiUsageId}`);
+      return;
+    }
+
+    try {
+      await this.creditsService.refundCredits(userId, apiUsageId);
+    } catch (refundError) {
+      this.logger.error(
+        `Failed to refund video-to-gif credits: ${
+          refundError instanceof Error ? refundError.message : String(refundError)
+        }`,
+      );
     }
   }
 
