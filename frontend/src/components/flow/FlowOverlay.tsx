@@ -80,6 +80,7 @@ import ImageGridNode from "./nodes/ImageGridNode";
 import ImageSplitNode from "./nodes/ImageSplitNode";
 import ImageCompressNode from "./nodes/ImageCompressNode";
 import MinimaxSpeechNode from "./nodes/MinimaxSpeechNode";
+import MinimaxMusicNode from "./nodes/MinimaxMusicNode";
 import Nano2Node from "./nodes/Nano2Node";
 import Seedream5Node from "./nodes/Seedream5Node";
 import NodeGroupNode from "./nodes/NodeGroupNode";
@@ -592,6 +593,7 @@ const nodeTypes = {
   imageSplit: ImageSplitNode,
   imageCompress: ImageCompressNode,
   minimaxSpeech: MinimaxSpeechNode,
+  minimaxMusic: MinimaxMusicNode,
 };
 
 // 自定义边组件 - 选中时在终点显示删除按钮
@@ -719,6 +721,7 @@ const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "viduQ3",
   "doubaoVideo",
   "minimaxSpeech",
+  "minimaxMusic",
 ]);
 const FLOW_GROUP_LOCAL_RUN_TYPES = new Set([
   "textChat",
@@ -915,6 +918,7 @@ const QUICK_CONNECT_REVERSE_PRESETS: Record<
   audio: [
     { nodeType: "audioUpload", sourceHandle: "audio" },
     { nodeType: "minimaxSpeech", sourceHandle: "audio" },
+    { nodeType: "minimaxMusic", sourceHandle: "audio" },
   ],
   character: [
     { nodeType: "video", sourceHandle: "video" },
@@ -984,6 +988,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   viduQ3: 600, // Vidu Q3 Pro视频生成
   doubaoVideo: 600, // Seedance 1.5 Pro包视频生成
   minimaxSpeech: 10, // MiniMax 语音合成
+  minimaxMusic: 30, // MiniMax 音乐生成
   audioUpload: 0, // 语音上传节点 - 不消耗积分
   camera: 0, // 截图节点 - 不消耗积分
   storyboardSplit: 0, // 分镜拆分节点 - 不消耗积分
@@ -1037,6 +1042,7 @@ const NODE_PALETTE_ITEMS = [
   { key: "storyboardSplit", zh: "分镜拆分节点", en: "Storyboard Split", category: "other" },
   { key: "audioUpload", zh: "语音节点", en: "Audio Node", category: "audio" },
   { key: "minimaxSpeech", zh: "MiniMax语音合成", en: "MiniMax Speech", category: "audio" },
+  { key: "minimaxMusic", zh: "MiniMax音乐生成", en: "MiniMax Music", category: "audio" },
 ];
 
 const BETA_NODE_KEYS = new Set([
@@ -1141,6 +1147,7 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   videoFrameExtract: "video",
   audioUpload: "audio",
   minimaxSpeech: "audio",
+  minimaxMusic: "audio",
 };
 
 // Beta 节点列表（实验性功能）
@@ -1196,6 +1203,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   imageSplit: { w: 320, h: 400 },
   imageCompress: { w: 300, h: 360 },
   minimaxSpeech: { w: 280, h: 240 },
+  minimaxMusic: { w: 300, h: 460 },
 } as const;
 
 type FlowNodeType = keyof typeof FLOW_NODE_DEFAULT_SIZE;
@@ -1231,6 +1239,8 @@ const FLOW_NODE_KEY_ALIASES: Record<string, FlowNodeType> = {
   audio: "audioUpload",
   audionode: "audioUpload",
   "audio-node": "audioUpload",
+  minimaxmusic: "minimaxMusic",
+  "minimax-music": "minimaxMusic",
 };
 
 const canonicalizeNodeTypeKey = (value: string): string =>
@@ -5887,6 +5897,28 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
+          : type === "minimaxMusic"
+          ? {
+              status: "idle" as const,
+              audioUrl: undefined,
+              prompt: "",
+              lyrics: "",
+              isInstrumental: false,
+              lyricsOptimizer: false,
+              model: "music-2.5+" as const,
+              history: [] as Array<{
+                id: string;
+                prompt: string;
+                lyrics?: string;
+                isInstrumental: boolean;
+                lyricsOptimizer: boolean;
+                audioUrl: string;
+                createdAt: number;
+              }>,
+              selectedHistoryId: undefined,
+              boxW: size.w,
+              boxH: size.h,
+            }
           : type === "klingVideo" ||
             type === "kling26Video" ||
             type === "viduVideo" ||
@@ -6450,7 +6482,9 @@ function FlowInner() {
         }
         if (targetHandle === "audio") {
           if (sourceHandle !== "audio") return false;
-          return ["audioUpload", "minimaxSpeech"].includes(sourceNode.type || "");
+          return ["audioUpload", "minimaxSpeech", "minimaxMusic"].includes(
+            sourceNode.type || ""
+          );
         }
         return false;
       }
@@ -6458,7 +6492,9 @@ function FlowInner() {
       if (targetNode.type === "audioUpload") {
         if (targetHandle === "audio") {
           if (sourceHandle !== "audio") return false;
-          return ["audioUpload", "minimaxSpeech"].includes(sourceNode.type || "");
+          return ["audioUpload", "minimaxSpeech", "minimaxMusic"].includes(
+            sourceNode.type || ""
+          );
         }
         return false;
       }
@@ -6503,7 +6539,9 @@ function FlowInner() {
         if (targetHandle === "audio") {
           if (!canKlingNodeUseAudioInput(targetNode)) return false;
           if (sourceHandle !== "audio") return false;
-          return ["audioUpload", "minimaxSpeech"].includes(sourceNode.type || "");
+          return ["audioUpload", "minimaxSpeech", "minimaxMusic"].includes(
+            sourceNode.type || ""
+          );
         }
         return false;
       }
@@ -6574,6 +6612,12 @@ function FlowInner() {
         return false;
       }
       if (targetNode.type === "minimaxSpeech") {
+        if (targetHandle === "text") {
+          return textSourceTypes.includes(sourceNode.type || "");
+        }
+        return false;
+      }
+      if (targetNode.type === "minimaxMusic") {
         if (targetHandle === "text") {
           return textSourceTypes.includes(sourceNode.type || "");
         }
@@ -6845,6 +6889,9 @@ function FlowInner() {
       if (targetNode?.type === "minimaxSpeech") {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
       }
+      if (targetNode?.type === "minimaxMusic") {
+        if (params.targetHandle === "text") return true; // 新线会替换旧线
+      }
       if (targetNode?.type === "analysis") {
         if (params.targetHandle === "img") return true; // 仅一条连接，后续替换
       }
@@ -6962,6 +7009,7 @@ function FlowInner() {
           "viduVideo",
           "doubaoVideo",
           "minimaxSpeech",
+          "minimaxMusic",
         ];
         if (
           singleTextInputTypes.includes(tgt?.type || "") &&
@@ -11259,6 +11307,200 @@ function FlowInner() {
         return;
       }
 
+      // MiniMax Music 节点处理逻辑
+      if (node.type === "minimaxMusic") {
+        console.log("[minimaxMusic] 开始处理");
+        const { text: upstreamPrompt } = getTextPromptForNode(nodeId);
+        const localPromptRaw =
+          typeof (node.data as any)?.prompt === "string"
+            ? (node.data as any).prompt
+            : "";
+        const localPrompt = localPromptRaw.trim();
+        const finalPrompt = (upstreamPrompt || localPrompt).trim();
+        const lyricsRaw =
+          typeof (node.data as any)?.lyrics === "string"
+            ? (node.data as any).lyrics
+            : "";
+        const lyrics = lyricsRaw.trim();
+        const isInstrumental = (node.data as any)?.isInstrumental === true;
+        const lyricsOptimizer = (node.data as any)?.lyricsOptimizer === true;
+        const modelRaw =
+          typeof (node.data as any)?.model === "string"
+            ? (node.data as any).model.trim()
+            : "";
+        const model = modelRaw === "music-2.5" ? "music-2.5" : "music-2.5+";
+
+        console.log("[minimaxMusic] 输入:", {
+          promptLength: finalPrompt.length,
+          lyricsLength: lyrics.length,
+          isInstrumental,
+          lyricsOptimizer,
+          model,
+        });
+
+        if (isInstrumental && !finalPrompt) {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "failed",
+                      error: "纯音乐模式需要填写 Prompt",
+                    },
+                  }
+                : n
+            )
+          );
+          return;
+        }
+
+        if (!isInstrumental && !lyrics && !lyricsOptimizer) {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "failed",
+                      error: "请填写歌词，或开启 AI 自动填词",
+                    },
+                  }
+                : n
+            )
+          );
+          return;
+        }
+
+        setNodes((ns) =>
+          ns.map((n) =>
+            n.id === nodeId
+              ? {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    status: "running",
+                    error: undefined,
+                    prompt: finalPrompt,
+                    lyrics: lyricsRaw,
+                    isInstrumental,
+                    lyricsOptimizer,
+                    model,
+                  },
+                }
+              : n
+          )
+        );
+
+        try {
+          const requestBody: Record<string, unknown> = {
+            model,
+            prompt: finalPrompt || undefined,
+            isInstrumental,
+            lyricsOptimizer,
+          };
+          if (!isInstrumental && lyrics) {
+            requestBody.lyrics = lyrics;
+          }
+
+          const response = await fetchWithAuth("/api/ai/minimax-music", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requestBody),
+          });
+
+          if (!response.ok) {
+            let message = "音乐生成失败";
+            try {
+              const errorData = await response.json();
+              const messageFromError =
+                typeof errorData?.error === "string" && errorData.error.trim()
+                  ? errorData.error.trim()
+                  : undefined;
+              const messageFromMessage = Array.isArray(errorData?.message)
+                ? errorData.message.join("; ")
+                : typeof errorData?.message === "string"
+                ? errorData.message.trim()
+                : undefined;
+              message = messageFromMessage || messageFromError || message;
+            } catch {}
+            throw new Error(message);
+          }
+
+          const result = await response.json();
+          console.log("[minimaxMusic] API 结果:", result);
+          const synthesisStatus = Number(result?.status ?? result?.data?.status);
+          const audioUrl =
+            (typeof result?.audioUrl === "string" && result.audioUrl) ||
+            (typeof result?.audio_url === "string" && result.audio_url) ||
+            (typeof result?.data?.audio === "string" && result.data.audio);
+
+          if (!audioUrl && synthesisStatus === 1) {
+            throw new Error("音乐仍在合成中，请稍后重试（通常需要 1-3 分钟）");
+          }
+          if (!audioUrl) {
+            throw new Error("音乐生成返回缺少音频地址");
+          }
+
+          const historyItemId = `minimax-music-${Date.now()}-${Math.random()
+            .toString(36)
+            .slice(2, 8)}`;
+          const historyItem = {
+            id: historyItemId,
+            prompt: finalPrompt,
+            lyrics: isInstrumental ? undefined : lyrics,
+            isInstrumental,
+            lyricsOptimizer,
+            audioUrl,
+            createdAt: Date.now(),
+          };
+
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "succeeded",
+                      audioUrl,
+                      selectedHistoryId: historyItemId,
+                      history: [
+                        historyItem,
+                        ...(
+                          Array.isArray((n.data as any)?.history)
+                            ? ((n.data as any).history as Array<Record<string, unknown>>)
+                                .filter(
+                                  (item) =>
+                                    typeof item?.audioUrl === "string" &&
+                                    item.audioUrl.trim().length > 0
+                                )
+                                .slice(0, 29)
+                            : []
+                        ),
+                      ],
+                      error: undefined,
+                    },
+                  }
+                : n
+            )
+          );
+        } catch (error) {
+          console.error("[minimaxMusic] 错误:", error);
+          const msg = error instanceof Error ? error.message : "音乐生成失败";
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? { ...n, data: { ...n.data, status: "failed", error: msg } }
+                : n
+            )
+          );
+        }
+        return;
+      }
+
       // Midjourney 节点处理逻辑
       if (node.type === "midjourney") {
         const { text: promptText, hasEdge: hasText } =
@@ -13962,7 +14204,8 @@ function FlowInner() {
         n.type === "niji7" ||
         n.type === "nano2" ||
         n.type === "seedream5" ||
-        n.type === "minimaxSpeech"
+        n.type === "minimaxSpeech" ||
+        n.type === "minimaxMusic"
           ? { ...n, data: { ...n.data, onRun: runNode, onSend: onSendHandler } }
           : n.type === "image" || n.type === "imagePro"
           ? { ...n, data: { ...n.data, onRun: runNode, onSend: onSendHandler } }

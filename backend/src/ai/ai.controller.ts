@@ -35,6 +35,7 @@ import {
   ExpandImageDto,
 } from './dto/image-generation.dto';
 import { MinimaxSpeechDto } from './dto/minimax-speech.dto';
+import { MinimaxMusicDto } from './dto/minimax-music.dto';
 import { PaperJSGenerateRequestDto, PaperJSGenerateResponseDto } from './dto/paperjs-generation.dto';
 import { Img2VectorRequestDto, Img2VectorResponseDto } from './dto/img2vector.dto';
 import { Convert2Dto3DService } from './services/convert-2d-to-3d.service';
@@ -51,6 +52,7 @@ import { Sora2VideoService } from './services/sora2-video.service';
 import { VeoVideoService } from './services/veo-video.service';
 import { VideoProviderService } from './services/video-provider.service';
 import { MinimaxSpeechService } from './services/minimax-speech.service';
+import { MinimaxMusicService } from './services/minimax-music.service';
 import { applyWatermarkToBase64 } from './services/watermark.util';
 import { VideoWatermarkService } from './services/video-watermark.service';
 import { VideoProviderRequestDto } from './dto/video-provider.dto';
@@ -128,6 +130,7 @@ export class AiController {
     private readonly veoVideoService: VeoVideoService,
     private readonly videoProviderService: VideoProviderService,
     private readonly minimaxSpeechService: MinimaxSpeechService,
+    private readonly minimaxMusicService: MinimaxMusicService,
     private readonly oss: OssService,
     @Optional() private readonly imageTaskService?: ImageTaskService,
   ) {}
@@ -3017,6 +3020,25 @@ export class AiController {
       undefined,
       false,
       { text: dto.text, voiceId: dto.voiceId, emotion: dto.emotion }
+    );
+  }
+
+  @Post('minimax-music')
+  async generateMusic(@Body() dto: MinimaxMusicDto, @Req() req: any) {
+    return this.withCredits(
+      req,
+      'minimax-music',
+      dto.model,
+      async () => this.minimaxMusicService.generateMusic(dto),
+      undefined,
+      undefined,
+      false,
+      {
+        prompt: dto.prompt,
+        hasLyrics: typeof dto.lyrics === 'string' && dto.lyrics.trim().length > 0,
+        isInstrumental: dto.isInstrumental === true,
+        lyricsOptimizer: dto.lyricsOptimizer === true,
+      },
     );
   }
 

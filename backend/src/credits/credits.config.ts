@@ -252,6 +252,12 @@ export const CREDIT_PRICING_CONFIG = {
     creditsPerCall: 10,
     description: '使用 MiniMax 进行文本转语音合成',
   },
+  'minimax-music': {
+    serviceName: 'MiniMax 音乐生成',
+    provider: 'minimax',
+    creditsPerCall: 30,
+    description: '使用 MiniMax 生成音乐',
+  },
   'doubao-seedream-5-0-260128': {
     serviceName: 'Seedream 5.0 图像生成',
     provider: 'seedream5',

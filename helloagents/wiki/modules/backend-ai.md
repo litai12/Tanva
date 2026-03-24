@@ -23,6 +23,7 @@
 - `GET veo/models` / `POST veo/generate`
 - `POST dashscope/generate-wan2-6-*`
 - `POST analyze-video`
+- `POST minimax-speech` / `POST minimax-music`
 
 ## 注意事项
 - Seedance（doubao）视频任务成功后，后端会将上游视频拉取并上传到 OSS，仅返回自有 OSS 公网链接给前端。
@@ -30,6 +31,7 @@
 - Banana 文本链路（`text-chat` / `tool-selection`）支持独立于图像链路的供应商配置键 `banana_text_provider`：`auto`（Apimart→147）、`legacy_auto`（147→Apimart）、`apimart`、`legacy`。
 - Banana 文本走 Apimart 时使用 `https://api.apimart.ai/v1/chat/completions`（OpenAI Chat Completions 兼容格式），鉴权复用 `NANO2_API_KEY`。
 - Banana 文本链路默认模型已统一为 `gemini-3-flash-preview`（包含 Apimart 通道默认值与 controller/provider fallback 默认值）。
+- `minimax-music` 默认强制 `output_format=url`、`stream=false`，并在上游返回 `status=1`（合成中）或请求超时时返回友好错误提示。
 
 ## 配置项（以代码与环境为准）
 - Gemini/第三方：`GOOGLE_GEMINI_API_KEY`、`RUNNINGHUB_API_KEY` 等

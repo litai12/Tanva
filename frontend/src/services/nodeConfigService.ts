@@ -129,5 +129,6 @@ function getDefaultConfigs(): NodeConfig[] {
     { nodeKey: "three", nameZh: "2D转3D", nameEn: "2D to 3D", category: "other", status: "normal", sortOrder: 40, creditsPerCall: 200 },
     { nodeKey: "audioUpload", nameZh: "语音节点", nameEn: "Audio Node", category: "audio", status: "normal", sortOrder: 41, creditsPerCall: 0 },
     { nodeKey: "minimaxSpeech", nameZh: "MiniMax语音合成", nameEn: "MiniMax Speech", category: "audio", status: "normal", sortOrder: 42, creditsPerCall: 10, serviceType: "minimax-speech" },
+    { nodeKey: "minimaxMusic", nameZh: "MiniMax音乐生成", nameEn: "MiniMax Music", category: "audio", status: "normal", sortOrder: 43, creditsPerCall: 30, serviceType: "minimax-music" },
   ];
 }
