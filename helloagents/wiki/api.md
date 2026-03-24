@@ -12,6 +12,7 @@
 - `assets`：素材资源
 - `uploads`：上传
 - `video-frames`：视频帧相关
+- `video-gif`：视频转 GIF
 - `ai`：AI 能力
 - `public/ai`：公开 AI API
 - `credits`：积分/计费
@@ -23,4 +24,3 @@
 - `health`：健康检查
 
 > 具体请求/响应以 Swagger 与 Controller 实现为准。
-

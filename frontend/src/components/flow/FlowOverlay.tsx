@@ -76,6 +76,7 @@ import VideoNode from "./nodes/VideoNode";
 import AudioNode from "./nodes/AudioNode";
 import VideoAnalyzeNode from "./nodes/VideoAnalyzeNode";
 import VideoFrameExtractNode from "./nodes/VideoFrameExtractNode";
+import VideoToGifNode from "./nodes/VideoToGifNode";
 import ImageGridNode from "./nodes/ImageGridNode";
 import ImageSplitNode from "./nodes/ImageSplitNode";
 import ImageCompressNode from "./nodes/ImageCompressNode";
@@ -86,7 +87,11 @@ import Seedream5Node from "./nodes/Seedream5Node";
 import NodeGroupNode from "./nodes/NodeGroupNode";
 import { FLOW_IMAGE_ASSET_PREFIX } from "@/services/flowImageAssetStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
-import { useFlowStore, FlowBackgroundVariant } from "@/stores/flowStore";
+import {
+  useFlowStore,
+  FlowBackgroundVariant,
+  FlowEdgeColorMode,
+} from "@/stores/flowStore";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { useImageHistoryStore } from "@/stores/imageHistoryStore";
 import { useUIStore } from "@/stores";
@@ -166,6 +171,60 @@ const normalizeFlowTargetHandle = (
   if (/^img\d+$/.test(handle)) return "img";
   if (handle.toLowerCase() === "omniimage") return "omniImage";
   return handle;
+};
+
+const FLOW_EDGE_STANDARD_COLOR = "#9ca3af";
+const FLOW_EDGE_COLOR_BY_KIND = {
+  text: "#22c55e",
+  image: "#f97316",
+  video: "#a855f7",
+  images: "#eab308",
+  audio: "#ec4899",
+} as const;
+
+const getEdgeHandleKind = (
+  handle?: string | null
+): keyof typeof FLOW_EDGE_COLOR_BY_KIND | null => {
+  if (typeof handle !== "string") return null;
+  const raw = handle.trim();
+  if (!raw) return null;
+  const value = raw.toLowerCase();
+
+  if (value === "audio" || value.startsWith("audio-")) return "audio";
+  if (value === "video" || value.startsWith("video-")) return "video";
+  if (
+    value === "images" ||
+    value.startsWith("images-") ||
+    value === "elementimg" ||
+    value.startsWith("elementimg-")
+  ) {
+    return "images";
+  }
+  if (
+    value === "img" ||
+    value.startsWith("img") ||
+    value === "image" ||
+    value.startsWith("image") ||
+    value === "refer" ||
+    value === "omniimage" ||
+    value === "cref"
+  ) {
+    return "image";
+  }
+  if (value === "text" || value.startsWith("text-") || value.startsWith("prompt")) {
+    return "text";
+  }
+  return null;
+};
+
+const resolveEdgeStrokeColor = (
+  mode: FlowEdgeColorMode,
+  sourceHandle?: string | null,
+  targetHandle?: string | null
+): string => {
+  if (mode === FlowEdgeColorMode.STANDARD) return FLOW_EDGE_STANDARD_COLOR;
+  const handleKind = getEdgeHandleKind(sourceHandle) || getEdgeHandleKind(targetHandle);
+  return handleKind ? FLOW_EDGE_COLOR_BY_KIND[handleKind] : FLOW_EDGE_STANDARD_COLOR;
 };
 
 /**
@@ -589,6 +648,7 @@ const nodeTypes = {
   audioUpload: AudioNode,
   videoAnalyze: VideoAnalyzeNode,
   videoFrameExtract: VideoFrameExtractNode,
+  videoToGif: VideoToGifNode,
   imageGrid: ImageGridNode,
   imageSplit: ImageSplitNode,
   imageCompress: ImageCompressNode,
@@ -697,6 +757,7 @@ const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "promptOptimize",
   "analysis",
   "videoAnalyze",
+  "videoToGif",
   "generate",
   "generate4",
   "generateRef",
@@ -728,6 +789,7 @@ const FLOW_GROUP_LOCAL_RUN_TYPES = new Set([
   "promptOptimize",
   "analysis",
   "videoAnalyze",
+  "videoToGif",
 ]);
 const SORA2_MAX_REFERENCE_IMAGES = 1;
 const VIDU_MAX_REFERENCE_IMAGES = 7; // Vidu viduq2 模型支持最多 7 张参考图
@@ -869,6 +931,7 @@ const QUICK_CONNECT_PRESETS: Record<
   video: [
     { nodeType: "videoAnalyze", targetHandle: "video" },
     { nodeType: "videoFrameExtract", targetHandle: "video" },
+    { nodeType: "videoToGif", targetHandle: "video" },
     { nodeType: "wan2R2V", targetHandle: "video-1" },
     { nodeType: "klingO1Video", targetHandle: "video" },
     { nodeType: "sora2Video", targetHandle: "character" },
@@ -883,7 +946,7 @@ const QUICK_CONNECT_PRESETS: Record<
   ],
 };
 
-const QUICK_CONNECT_REVERSE_PRESETS: Record<
+  const QUICK_CONNECT_REVERSE_PRESETS: Record<
   QuickConnectSourceKind,
   QuickConnectPreset[]
 > = {
@@ -893,6 +956,7 @@ const QUICK_CONNECT_REVERSE_PRESETS: Record<
     { nodeType: "promptOptimize", sourceHandle: "text" },
     { nodeType: "textChat", sourceHandle: "text" },
     { nodeType: "textNote", sourceHandle: "text-right-out" },
+    { nodeType: "generate", sourceHandle: "text" },
     { nodeType: "analysis", sourceHandle: "prompt" },
   ],
   image: [
@@ -987,6 +1051,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   viduVideo: 600, // Vidu视频生成
   viduQ3: 600, // Vidu Q3 Pro视频生成
   doubaoVideo: 600, // Seedance 1.5 Pro包视频生成
+  videoToGif: 30, // 视频转GIF
   minimaxSpeech: 10, // MiniMax 语音合成
   minimaxMusic: 30, // MiniMax 音乐生成
   audioUpload: 0, // 语音上传节点 - 不消耗积分
@@ -1039,6 +1104,7 @@ const NODE_PALETTE_ITEMS = [
   // 其他节点
   { key: "videoAnalyze", zh: "视频分析节点", en: "Video Analysis", category: "other" },
   { key: "videoFrameExtract", zh: "视频抽帧节点", en: "Video Frame Extract", category: "other" },
+  { key: "videoToGif", zh: "视频转GIF节点", en: "Video to GIF", category: "other" },
   { key: "storyboardSplit", zh: "分镜拆分节点", en: "Storyboard Split", category: "other" },
   { key: "audioUpload", zh: "语音节点", en: "Audio Node", category: "audio" },
   { key: "minimaxSpeech", zh: "MiniMax语音合成", en: "MiniMax Speech", category: "audio" },
@@ -1145,6 +1211,7 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   doubaoVideo: "video",
   videoAnalyze: "video",
   videoFrameExtract: "video",
+  videoToGif: "video",
   audioUpload: "audio",
   minimaxSpeech: "audio",
   minimaxMusic: "audio",
@@ -1199,6 +1266,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   audioUpload: { w: 320, h: 128 },
   videoAnalyze: { w: 280, h: 360 },
   videoFrameExtract: { w: 300, h: 420 },
+  videoToGif: { w: 320, h: 420 },
   imageGrid: { w: 300, h: 380 },
   imageSplit: { w: 320, h: 400 },
   imageCompress: { w: 300, h: 360 },
@@ -3859,6 +3927,8 @@ function FlowInner() {
   const setOnlyRenderVisibleElements = useFlowStore(
     (s) => s.setOnlyRenderVisibleElements
   );
+  const edgeColorMode = useFlowStore((s) => s.edgeColorMode);
+  const setEdgeColorMode = useFlowStore((s) => s.setEdgeColorMode);
   const showFpsOverlay = useFlowStore((s) => s.showFpsOverlay);
   const setShowFpsOverlay = useFlowStore((s) => s.setShowFpsOverlay);
 
@@ -5849,6 +5919,16 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
+          : type === "videoToGif"
+          ? {
+              status: "idle" as const,
+              videoUrl: undefined,
+              gifUrl: undefined,
+              fps: 10,
+              width: 480,
+              boxW: size.w,
+              boxH: size.h,
+            }
           : type === "imageGrid"
           ? {
               status: "idle" as const,
@@ -5993,6 +6073,7 @@ function FlowInner() {
       "videoAnalyze",
       "textNote",
       "storyboardSplit",
+      "generate",
       "generatePro",
       "generatePro4",
     ],
@@ -6691,6 +6772,26 @@ function FlowInner() {
         }
         return false;
       }
+      if (targetNode.type === "videoToGif") {
+        if (targetHandle === "video") {
+          const allowedVideoSourceTypes = [
+            "video",
+            "sora2Video",
+            "wan26",
+            "wan2R2V",
+            "klingVideo",
+            "kling26Video",
+            "klingO1Video",
+            "viduVideo",
+            "viduQ3",
+            "doubaoVideo",
+            "genericVideo",
+            "seedanceVideo",
+          ];
+          return allowedVideoSourceTypes.includes(sourceNode.type || "");
+        }
+        return false;
+      }
       if (targetNode.type === "imageGrid") {
         if (targetHandle === "images") {
           // videoFrameExtract 支持单帧/多帧输出
@@ -6901,6 +7002,9 @@ function FlowInner() {
       if (targetNode?.type === "videoFrameExtract") {
         if (params.targetHandle === "video") return true; // 仅一条视频连接
       }
+      if (targetNode?.type === "videoToGif") {
+        if (params.targetHandle === "video") return true; // 仅一条视频连接
+      }
       if (targetNode?.type === "imageGrid") {
         if (params.targetHandle === "images") return true; // 允许多条图片连接
       }
@@ -6984,6 +7088,11 @@ function FlowInner() {
           tgt?.type === "videoFrameExtract" &&
           params.targetHandle === "video"
         ) {
+          next = next.filter(
+            (e) => !(e.target === params.target && e.targetHandle === "video")
+          );
+        }
+        if (tgt?.type === "videoToGif" && params.targetHandle === "video") {
           next = next.filter(
             (e) => !(e.target === params.target && e.targetHandle === "video")
           );
@@ -12958,7 +13067,15 @@ function FlowInner() {
       setNodes((ns) =>
         ns.map((n) =>
           n.id === nodeId
-            ? { ...n, data: { ...n.data, status: "running", error: undefined } }
+            ? {
+                ...n,
+                data: {
+                  ...n.data,
+                  status: "running",
+                  error: undefined,
+                  responseText: undefined,
+                },
+              }
             : n
         )
       );
@@ -13015,7 +13132,15 @@ function FlowInner() {
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
-                ? { ...n, data: { ...n.data, status: "failed", error: msg } }
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "failed",
+                      error: msg,
+                      responseText: undefined,
+                    },
+                  }
                 : n
             )
           );
@@ -13023,6 +13148,10 @@ function FlowInner() {
         }
 
         const out = result.data;
+        const generatedResponseText =
+          typeof out.textResponse === "string" && out.textResponse.trim().length > 0
+            ? out.textResponse.trim()
+            : undefined;
         const imgBase64 =
           out.imageUrl || out.metadata?.imageUrl || out.imageData;
         if (!imgBase64) {
@@ -13046,11 +13175,23 @@ function FlowInner() {
                     status: "succeeded",
                     imageData: imgBase64,
                     error: undefined,
+                    responseText: generatedResponseText,
                   },
                 }
               : n
           )
         );
+
+        if (generatedResponseText) {
+          window.dispatchEvent(
+            new CustomEvent("flow:updateNodeData", {
+              detail: {
+                id: nodeId,
+                patch: { responseText: generatedResponseText },
+              },
+            })
+          );
+        }
 
         if (imgBase64) {
           const outs = rf.getEdges().filter((e) => e.source === nodeId);
@@ -14258,6 +14399,15 @@ function FlowInner() {
       edges.forEach((edge) => {
         const sourceGroupId = collapsedChildToGroupId.get(edge.source);
         const targetGroupId = collapsedChildToGroupId.get(edge.target);
+        const edgeStrokeColor = resolveEdgeStrokeColor(
+          edgeColorMode,
+          edge.sourceHandle,
+          edge.targetHandle
+        );
+        const edgeStyle = {
+          ...(edge.style || {}),
+          stroke: edgeStrokeColor,
+        };
         const baseData =
           edge.data && typeof edge.data === "object"
             ? (edge.data as Record<string, unknown>)
@@ -14266,6 +14416,7 @@ function FlowInner() {
         if (!sourceGroupId && !targetGroupId) {
           mapped.push({
             ...edge,
+            style: edgeStyle,
             hidden: false,
             data: {
               ...baseData,
@@ -14281,6 +14432,7 @@ function FlowInner() {
         if (sourceGroupId && targetGroupId && sourceGroupId === targetGroupId) {
           mapped.push({
             ...edge,
+            style: edgeStyle,
             hidden: true,
             selected: false,
             data: {
@@ -14297,6 +14449,7 @@ function FlowInner() {
 
         mapped.push({
           ...edge,
+          style: edgeStyle,
           hidden: false,
           source: sourceGroupId || edge.source,
           target: targetGroupId || edge.target,
@@ -14318,7 +14471,7 @@ function FlowInner() {
       });
       return mapped;
     },
-    [edges, collapsedChildToGroupId]
+    [edges, collapsedChildToGroupId, edgeColorMode]
   );
 
   // 简单的全局调试API，便于从控制台添加节点
@@ -14864,6 +15017,30 @@ function FlowInner() {
             onChange={(e) => setShowFpsOverlay(e.target.checked)}
           />{" "}
           FPS
+        </label>
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            fontSize: 12,
+          }}
+        >
+          连线色
+          <select
+            value={edgeColorMode}
+            onChange={(e) => setEdgeColorMode(e.target.value as FlowEdgeColorMode)}
+            style={{
+              fontSize: 12,
+              border: "1px solid #e5e7eb",
+              borderRadius: 6,
+              padding: "4px 6px",
+              background: "#fff",
+            }}
+          >
+            <option value={FlowEdgeColorMode.STANDARD}>标准色</option>
+            <option value={FlowEdgeColorMode.HANDLE}>跟随句柄</option>
+          </select>
         </label>
         {backgroundEnabled && (
           <>
@@ -16461,4 +16638,3 @@ export default function FlowOverlay() {
     </div>
   );
 }
-

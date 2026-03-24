@@ -234,3 +234,31 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Changed
 - `DrawingController` 的单图下载逻辑新增静默模式和布尔返回值，供批量下载复用并在批量完成后统一提示结果（`frontend/src/components/canvas/DrawingController.tsx`）。
+
+## [Flow Patch - 2026-03-24]
+### Added
+- Flow: added `videoToGif` node and backend `POST /api/video-gif/convert` pipeline (ffprobe + ffmpeg palettegen/paletteuse + OSS upload) to convert connected videos into GIF output URLs.
+
+## [Flow Patch - 2026-03-24]
+### Changed
+- Flow `Image` node title now supports inline rename on double-click (`Enter`/blur to save, `Escape` to cancel), persisting to `data.label` (`frontend/src/components/flow/nodes/ImageNode.tsx`).
+
+## [Flow Patch - 2026-03-24-2]
+### Changed
+- Flow `videoToGif` node UI: moved GIF download action to top-right button and removed bottom "open original" link row.
+
+## [Flow Patch - 2026-03-24-3]
+### Changed
+- Flow `videoToGif` node removed loop toggle and fixed default GIF playback loop to non-infinite.
+- Flow `videoToGif` node removed right-side output handle; node now acts as a conversion/download terminal.
+- Flow `videoToGif` node credits updated to 30 in frontend fallback config and backend default node config.
+
+## [Flow Patch - 2026-03-24-4]
+### Changed
+- Flow `videoToGif` backend now converts by input video duration by default (no hard `120s` cap in default path), and forces GIF output loop to non-infinite (`-loop 1`) even if loop param is provided by legacy callers (`backend/src/oss/video-gif.controller.ts`).
+- Flow `videoToGif` node helper text updated to reflect duration behavior (`frontend/src/components/flow/nodes/VideoToGifNode.tsx`).
+
+## [Flow Patch - 2026-03-24-5]
+### Changed
+- `videoToGif` conversion endpoint now integrates credits billing: pre-deduct 30 credits on start, mark success/failed status in `ApiUsageRecord`, and auto-refund on conversion failure (`backend/src/oss/video-gif.controller.ts`, `backend/src/credits/credits.config.ts`, `backend/src/oss/oss.module.ts`).
+- Backend/frontend default node config for `videoToGif` now align with `serviceType=video-to-gif` and `priceYuan=0.3` for pricing/config consistency (`backend/src/admin/services/node-config.service.ts`, `frontend/src/services/nodeConfigService.ts`).

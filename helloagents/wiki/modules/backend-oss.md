@@ -8,6 +8,7 @@
 - `backend/src/oss/uploads.controller.ts`：`/uploads/*`
 - `backend/src/oss/assets.controller.ts`：`/assets/*`
 - `backend/src/oss/video-frames.controller.ts`：`/video-frames/*`
+- `backend/src/oss/video-gif.controller.ts`：`/video-gif/*`
 
 ## 配置项（节选）
 - `OSS_REGION`、`OSS_BUCKET`
@@ -17,4 +18,3 @@
 
 ## 注意事项
 - `allowedPublicHosts()` 内置了部分常见 AI/静态资源域名白名单；是否需要更严格以产品要求为准。
-

@@ -251,6 +251,12 @@ const enUS = {
         gridColor: {
           title: "Grid Color",
         },
+        edgeColorMode: {
+          title: "Edge Color",
+          desc: "Set how flow edge colors are displayed",
+          standard: "Standard",
+          handle: "Follow Handle",
+        },
         chatStyle: {
           title: "AI Chat Style",
           transparent: "Transparent",
@@ -390,6 +396,7 @@ const enUS = {
       gemini31ImageBlend: "Nano banana 2 Blend",
       geminiImageAnalyze: "Image Analysis",
       geminiText: "Text Chat",
+      geminiPromptOptimize: "Prompt Optimization",
       geminiPaperJs: "Paper.js Generation",
       midjourneyImagine: "Midjourney Image",
       midjourneyVariation: "Midjourney Variation",

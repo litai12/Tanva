@@ -106,6 +106,14 @@ export const CREDIT_PRICING_CONFIG = {
     maxInputTokens: 8000,
     maxContextLength: 32000,
   },
+  'gemini-prompt-optimize': {
+    serviceName: 'Gemini 提示词优化',
+    provider: 'gemini',
+    creditsPerCall: 5,
+    description: '使用 Gemini 进行提示词优化',
+    maxInputTokens: 8000,
+    maxContextLength: 32000,
+  },
   'gemini-tool-selection': {
     serviceName: 'Gemini 工具选择',
     provider: 'gemini',
@@ -245,6 +253,12 @@ export const CREDIT_PRICING_CONFIG = {
     provider: 'doubao',
     creditsPerCall: 600,
     description: '使用Seedance 1.5 Pro 生成视频',
+  },
+  'video-to-gif': {
+    serviceName: '视频转GIF',
+    provider: 'ffmpeg',
+    creditsPerCall: 30,
+    description: '将视频转换为 GIF',
   },
   'minimax-speech': {
     serviceName: 'MiniMax 语音合成',

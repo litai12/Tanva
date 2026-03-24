@@ -52,6 +52,7 @@ import PaymentPanel from "@/components/payment/PaymentPanel";
 import { useProjectStore } from "@/stores/projectStore";
 import ProjectManagerModal from "@/components/projects/ProjectManagerModal";
 import { useUIStore, useCanvasStore, GridStyle } from "@/stores";
+import { useFlowStore, FlowEdgeColorMode } from "@/stores/flowStore";
 import { useImageHistoryStore } from "@/stores/imageHistoryStore";
 import { useAIChatStore } from "@/stores/aiChatStore";
 import { logger } from "@/utils/logger";
@@ -133,6 +134,8 @@ const FloatingHeader: React.FC = () => {
     setZoomSensitivity,
     setWheelZoomMode,
   } = useCanvasStore();
+  const edgeColorMode = useFlowStore((s) => s.edgeColorMode);
+  const setEdgeColorMode = useFlowStore((s) => s.setEdgeColorMode);
 
   // AI 配置
   const {
@@ -354,6 +357,7 @@ const FloatingHeader: React.FC = () => {
         gridColor: string;
         gridBgColor: string;
         gridBgEnabled: boolean;
+        edgeColorMode: FlowEdgeColorMode;
       }> | null;
       if (!saved || typeof saved !== "object") return;
 
@@ -387,6 +391,12 @@ const FloatingHeader: React.FC = () => {
       if (typeof saved.gridBgEnabled === "boolean") {
         setGridBgEnabled(saved.gridBgEnabled);
       }
+      if (
+        saved.edgeColorMode === FlowEdgeColorMode.STANDARD ||
+        saved.edgeColorMode === FlowEdgeColorMode.HANDLE
+      ) {
+        setEdgeColorMode(saved.edgeColorMode);
+      }
     } catch (error) {
       console.warn(
         "[FloatingHeader] Failed to load saved appearance settings:",
@@ -400,6 +410,7 @@ const FloatingHeader: React.FC = () => {
     setGridColor,
     setGridBgColor,
     setGridBgEnabled,
+    setEdgeColorMode,
     setGridSizeInput,
   ]);
 
@@ -423,6 +434,7 @@ const FloatingHeader: React.FC = () => {
       gridColor,
       gridBgColor,
       gridBgEnabled,
+      edgeColorMode,
     };
 
     try {
@@ -446,7 +458,15 @@ const FloatingHeader: React.FC = () => {
         2200
       );
     }
-  }, [showGrid, gridStyle, gridSize, gridColor, gridBgColor, gridBgEnabled]);
+  }, [
+    showGrid,
+    gridStyle,
+    gridSize,
+    gridColor,
+    gridBgColor,
+    gridBgEnabled,
+    edgeColorMode,
+  ]);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [activeSettingsSection, setActiveSettingsSection] =
     useState<SettingsSectionId>("workspace");
@@ -1175,6 +1195,45 @@ const FloatingHeader: React.FC = () => {
                   className='w-8 h-8 rounded-full border-0 cursor-pointer overflow-hidden'
                   style={{ WebkitAppearance: "none" }}
                 />
+              </div>
+            </div>
+
+            {/* 分隔线 */}
+            <div className='border-b border-slate-100'></div>
+
+            {/* 连线颜色 */}
+            <div>
+              <div className='text-sm font-medium text-slate-700'>
+                {t("workspace.settings.appearanceTab.edgeColorMode.title")}
+              </div>
+              <div className='text-xs text-slate-400 mt-0.5 mb-3'>
+                {t("workspace.settings.appearanceTab.edgeColorMode.desc")}
+              </div>
+              <div className='inline-flex rounded-full bg-slate-100 p-1'>
+                <button
+                  type='button'
+                  onClick={() => setEdgeColorMode(FlowEdgeColorMode.STANDARD)}
+                  className={cn(
+                    "px-4 py-1 rounded-full text-sm transition-all",
+                    edgeColorMode === FlowEdgeColorMode.STANDARD
+                      ? "bg-white text-slate-700 shadow-sm"
+                      : "text-slate-400 hover:text-slate-600"
+                  )}
+                >
+                  {t("workspace.settings.appearanceTab.edgeColorMode.standard")}
+                </button>
+                <button
+                  type='button'
+                  onClick={() => setEdgeColorMode(FlowEdgeColorMode.HANDLE)}
+                  className={cn(
+                    "px-4 py-1 rounded-full text-sm transition-all",
+                    edgeColorMode === FlowEdgeColorMode.HANDLE
+                      ? "bg-white text-slate-700 shadow-sm"
+                      : "text-slate-400 hover:text-slate-600"
+                  )}
+                >
+                  {t("workspace.settings.appearanceTab.edgeColorMode.handle")}
+                </button>
               </div>
             </div>
 
