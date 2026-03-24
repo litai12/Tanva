@@ -80,7 +80,7 @@ import ImageGridNode from "./nodes/ImageGridNode";
 import ImageSplitNode from "./nodes/ImageSplitNode";
 import ImageCompressNode from "./nodes/ImageCompressNode";
 import MinimaxSpeechNode from "./nodes/MinimaxSpeechNode";
-import MinimaxMusicNode from "./nodes/MinimaxMusicNode";
+import TencentSpeechNode from "./nodes/TencentSpeechNode";
 import Nano2Node from "./nodes/Nano2Node";
 import Seedream5Node from "./nodes/Seedream5Node";
 import NodeGroupNode from "./nodes/NodeGroupNode";
@@ -104,7 +104,10 @@ import {
   clipboardService,
   type ClipboardFlowNode,
 } from "@/services/clipboardService";
-import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
+import {
+  proxifyRemoteAssetUrl,
+  resolvePublicAssetUrlFromKey,
+} from "@/utils/assetProxy";
 import {
   isPersistableImageRef,
   isRemoteUrl,
@@ -160,7 +163,9 @@ const normalizeFlowTargetHandle = (
   handle?: string | null
 ): string | undefined => {
   if (typeof handle !== "string") return handle ?? undefined;
-  return /^img\d+$/.test(handle) ? "img" : handle;
+  if (/^img\d+$/.test(handle)) return "img";
+  if (handle.toLowerCase() === "omniimage") return "omniImage";
+  return handle;
 };
 
 /**
@@ -236,7 +241,15 @@ function normalizeStableRemoteUrl(input: string): string {
       value.startsWith("/assets/proxy");
     if (isProxy) {
       const raw = url.searchParams.get("url");
-      if (raw) return decodeURIComponent(raw);
+      if (raw) return raw;
+      const key = url.searchParams.get("key");
+      if (key) {
+        const normalizedKey = key.replace(/^\/+/, "");
+        const direct = resolvePublicAssetUrlFromKey(normalizedKey);
+        if (direct) return direct;
+        // Fallback: return key itself so caller can convert to dataURL instead of passing proxy URL downstream.
+        return normalizedKey;
+      }
     }
   } catch {}
 
@@ -552,6 +565,7 @@ const nodeTypes = {
   generatePro4: GeneratePro4Node,
   generateRef: GenerateReferenceNode,
   three: ThreeNode,
+  threePathTracer: ThreeNode,
   camera: CameraNode,
   viewAngle: ViewAngleNode,
   analysis: AnalysisNode,
@@ -579,7 +593,7 @@ const nodeTypes = {
   imageSplit: ImageSplitNode,
   imageCompress: ImageCompressNode,
   minimaxSpeech: MinimaxSpeechNode,
-  minimaxMusic: MinimaxMusicNode,
+  tencentSpeech: TencentSpeechNode,
 };
 
 // 自定义边组件 - 选中时在终点显示删除按钮
@@ -693,6 +707,7 @@ const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "midjourneyV7",
   "niji7",
   "nano2",
+  "seedream5",
   "image",
   "imagePro",
   "sora2Video",
@@ -706,7 +721,7 @@ const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "viduQ3",
   "doubaoVideo",
   "minimaxSpeech",
-  "minimaxMusic",
+  "tencentSpeech",
 ]);
 const FLOW_GROUP_LOCAL_RUN_TYPES = new Set([
   "textChat",
@@ -737,6 +752,12 @@ type Sora2VideoHistoryItem = {
 };
 
 type AddPanelTab = "nodes" | "beta" | "custom" | "templates" | "personal";
+type AddPanelOpenOptions = {
+  tab?: AddPanelTab;
+  scope?: "public" | "mine";
+  allowedTabs?: AddPanelTab[];
+  world?: { x: number; y: number };
+};
 const ALL_ADD_TABS: AddPanelTab[] = [
   "nodes",
   "custom",
@@ -815,6 +836,7 @@ const QUICK_CONNECT_PRESETS: Record<
   QuickConnectPreset[]
 > = {
   text: [
+    { nodeType: "textPrompt", targetHandle: "text" },
     { nodeType: "generate", targetHandle: "text" },
     { nodeType: "generateRef", targetHandle: "text" },
     { nodeType: "midjourney", targetHandle: "text" },
@@ -823,13 +845,13 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "textChat", targetHandle: "text" },
   ],
   image: [
+    { nodeType: "image", targetHandle: "img" },
     { nodeType: "generate", targetHandle: "img" },
     { nodeType: "generate4", targetHandle: "img" },
     { nodeType: "generatePro", targetHandle: "img" },
     { nodeType: "generateRef", targetHandle: "image2" },
     { nodeType: "viewAngle", targetHandle: "img" },
     { nodeType: "analysis", targetHandle: "img" },
-    { nodeType: "image", targetHandle: "img" },
     { nodeType: "imagePro", targetHandle: "img" },
     { nodeType: "nano2", targetHandle: "img" },
     { nodeType: "imageGrid", targetHandle: "images" },
@@ -870,6 +892,9 @@ const QUICK_CONNECT_REVERSE_PRESETS: Record<
     { nodeType: "generateRef", sourceHandle: "img" },
     { nodeType: "viewAngle", sourceHandle: "img" },
     { nodeType: "midjourney", sourceHandle: "img" },
+    { nodeType: "midjourneyV7", sourceHandle: "img" },
+    { nodeType: "niji7", sourceHandle: "img" },
+    { nodeType: "seedream5", sourceHandle: "img" },
     { nodeType: "nano2", sourceHandle: "img" },
     { nodeType: "camera", sourceHandle: "img" },
   ],
@@ -878,13 +903,14 @@ const QUICK_CONNECT_REVERSE_PRESETS: Record<
     { nodeType: "sora2Video", sourceHandle: "video" },
     { nodeType: "wan26", sourceHandle: "video" },
     { nodeType: "wan2R2V", sourceHandle: "video" },
+    { nodeType: "tencentSpeech", sourceHandle: "video" },
     { nodeType: "klingO1Video", sourceHandle: "video-out" },
     { nodeType: "videoFrameExtract", sourceHandle: "video" },
   ],
   audio: [
     { nodeType: "audioUpload", sourceHandle: "audio" },
     { nodeType: "minimaxSpeech", sourceHandle: "audio" },
-    { nodeType: "minimaxMusic", sourceHandle: "audio" },
+    { nodeType: "tencentSpeech", sourceHandle: "audio" },
   ],
   character: [{ nodeType: "sora2Character", sourceHandle: "character" }],
   unknown: [
@@ -892,6 +918,27 @@ const QUICK_CONNECT_REVERSE_PRESETS: Record<
     { nodeType: "image", sourceHandle: "img" },
     { nodeType: "video", sourceHandle: "video" },
   ],
+};
+
+const QUICK_CONNECT_BASE_PRESET: Record<
+  QuickConnectSourceKind,
+  {
+    forward?: QuickConnectPreset;
+    reverse?: QuickConnectPreset;
+  }
+> = {
+  text: {
+    forward: { nodeType: "textPrompt", targetHandle: "text" },
+    reverse: { nodeType: "textPrompt", sourceHandle: "text" },
+  },
+  image: {
+    forward: { nodeType: "image", targetHandle: "img" },
+    reverse: { nodeType: "image", sourceHandle: "img" },
+  },
+  video: {},
+  audio: {},
+  character: {},
+  unknown: {},
 };
 
 // 节点积分消耗映射
@@ -908,7 +955,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   viewAngle: 30, // 视角变换节点 - 基于参考图编辑
   generate4: 120, // 生成多张图片节点 - 4次 × 30积分
   midjourney: 50, // Midjourney生成 - midjourney-imagine
-  three: 30, // 三维节点 - convert-2d-to-3d
+  three: 200, // 三维节点 - convert-2d-to-3d
   sora2Video: "40-400", // 视频生成节点 - sora-sd (40) 或 sora-hd (400)
   sora2Character: 0, // 角色生成节点 - 当前不单独计费
   wan26: 600, // Wan2.6生成视频 - wan26-video
@@ -920,7 +967,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   viduQ3: 600, // Vidu Q3 Pro视频生成
   doubaoVideo: 600, // Seedance 1.5 Pro包视频生成
   minimaxSpeech: 10, // MiniMax 语音合成
-  minimaxMusic: 30, // MiniMax 音乐生成
+  tencentSpeech: 10, // 腾讯语音合成
   audioUpload: 0, // 语音上传节点 - 不消耗积分
   camera: 0, // 截图节点 - 不消耗积分
   storyboardSplit: 0, // 分镜拆分节点 - 不消耗积分
@@ -974,7 +1021,7 @@ const NODE_PALETTE_ITEMS = [
   { key: "storyboardSplit", zh: "分镜拆分节点", en: "Storyboard Split", category: "other" },
   { key: "audioUpload", zh: "语音节点", en: "Audio Node", category: "audio" },
   { key: "minimaxSpeech", zh: "MiniMax语音合成", en: "MiniMax Speech", category: "audio" },
-  { key: "minimaxMusic", zh: "MiniMax音乐生成", en: "MiniMax Music", category: "audio" },
+  { key: "tencentSpeech", zh: "腾讯语音合成", en: "Tencent Speech", category: "audio" },
 ];
 
 const BETA_NODE_KEYS = new Set([
@@ -1079,7 +1126,7 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   videoFrameExtract: "video",
   audioUpload: "audio",
   minimaxSpeech: "audio",
-  minimaxMusic: "audio",
+  tencentSpeech: "audio",
 };
 
 // Beta 节点列表（实验性功能）
@@ -1107,7 +1154,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   generatePro4: { w: 380, h: 480 },
   generate4: { w: 300, h: 240 },
   generateRef: { w: 260, h: 240 },
-  three: { w: 280, h: 260 },
+  three: { w: 560, h: 320 },
   viewAngle: { w: 420, h: 560 },
   camera: { w: 260, h: 220 },
   analysis: { w: 260, h: 280 },
@@ -1135,7 +1182,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   imageSplit: { w: 320, h: 400 },
   imageCompress: { w: 300, h: 360 },
   minimaxSpeech: { w: 280, h: 240 },
-  minimaxMusic: { w: 300, h: 460 },
+  tencentSpeech: { w: 300, h: 260 },
 } as const;
 
 type FlowNodeType = keyof typeof FLOW_NODE_DEFAULT_SIZE;
@@ -1152,6 +1199,10 @@ const FLOW_NODE_KEY_ALIASES: Record<string, FlowNodeType> = {
   "kling-26": "kling26Video",
   "kling-2.6": "kling26Video",
   "kling-2.6-video": "kling26Video",
+  pathtracer: "three",
+  "path-tracer": "three",
+  "three-pathtracer": "three",
+  "3d-pathtracer": "three",
   klingo1: "klingO1Video",
   "kling-o1": "klingO1Video",
   "kling-o1-video": "klingO1Video",
@@ -1161,8 +1212,8 @@ const FLOW_NODE_KEY_ALIASES: Record<string, FlowNodeType> = {
   audio: "audioUpload",
   audionode: "audioUpload",
   "audio-node": "audioUpload",
-  minimaxmusic: "minimaxMusic",
-  "minimax-music": "minimaxMusic",
+  tencentspeech: "tencentSpeech",
+  "tencent-speech": "tencentSpeech",
 };
 
 const canonicalizeNodeTypeKey = (value: string): string =>
@@ -2708,7 +2759,7 @@ function FlowInner() {
   }, []);
   const rankQuickConnectOptions = React.useCallback(
     (items: QuickConnectMenuItem[]): QuickConnectMenuItem[] => {
-      if (items.length <= 1) return items.slice(0, QUICK_CONNECT_MAX_ITEMS);
+      if (items.length <= 1) return items.slice();
       return items
         .map((item, index) => {
           const key = getQuickConnectMenuItemKey(item);
@@ -2725,8 +2776,37 @@ function FlowInner() {
           if (b.lastUsedAt !== a.lastUsedAt) return b.lastUsedAt - a.lastUsedAt;
           return a.index - b.index;
         })
-        .slice(0, QUICK_CONNECT_MAX_ITEMS)
         .map((entry) => entry.item);
+    },
+    []
+  );
+  const pinQuickConnectBaseOption = React.useCallback(
+    (
+      items: QuickConnectMenuItem[],
+      kind: QuickConnectSourceKind,
+      direction: "forward" | "reverse"
+    ): QuickConnectMenuItem[] => {
+      if (items.length <= 1) return items.slice(0, QUICK_CONNECT_MAX_ITEMS);
+
+      const basePreset = QUICK_CONNECT_BASE_PRESET[kind]?.[direction];
+      if (!basePreset) return items.slice(0, QUICK_CONNECT_MAX_ITEMS);
+
+      const baseType = normalizeFlowNodeType(basePreset.nodeType) || basePreset.nodeType;
+      const baseKey = getQuickConnectMenuItemKey({
+        nodeType: baseType,
+        targetHandle: direction === "forward" ? basePreset.targetHandle : undefined,
+        sourceHandle: direction === "reverse" ? basePreset.sourceHandle : undefined,
+      });
+      const baseItem = items.find(
+        (entry) => getQuickConnectMenuItemKey(entry) === baseKey
+      );
+      if (!baseItem) return items.slice(0, QUICK_CONNECT_MAX_ITEMS);
+
+      const ordered = [
+        baseItem,
+        ...items.filter((entry) => getQuickConnectMenuItemKey(entry) !== baseKey),
+      ];
+      return ordered.slice(0, QUICK_CONNECT_MAX_ITEMS);
     },
     []
   );
@@ -4106,11 +4186,7 @@ function FlowInner() {
     (
       clientX: number,
       clientY: number,
-      opts?: {
-        tab?: AddPanelTab;
-        scope?: "public" | "mine";
-        allowedTabs?: AddPanelTab[];
-      }
+      opts?: AddPanelOpenOptions
     ) => {
       const allowed = sanitizeAllowedAddTabs(opts?.allowedTabs);
       setAllowedAddTabs(allowed);
@@ -4118,7 +4194,15 @@ function FlowInner() {
       setAddTabWithMemory(targetTab, allowed);
       if (opts?.scope) setTemplateScope(opts.scope);
       const panelScreen = resolveAddPanelAnchorScreen(clientX, clientY);
-      const world = rf.screenToFlowPosition(panelScreen);
+      const worldOverride = opts?.world;
+      const hasWorldOverride =
+        typeof worldOverride?.x === "number" &&
+        Number.isFinite(worldOverride.x) &&
+        typeof worldOverride?.y === "number" &&
+        Number.isFinite(worldOverride.y);
+      const world = hasWorldOverride
+        ? { x: worldOverride.x, y: worldOverride.y }
+        : rf.screenToFlowPosition(panelScreen);
       setAddPanel({ visible: true, screen: panelScreen, world });
     },
     [
@@ -4129,6 +4213,16 @@ function FlowInner() {
       clampAddTab,
       resolveAddPanelAnchorScreen,
     ]
+  );
+
+  const openAddPanelAtContainerCenter = React.useCallback(
+    (opts?: AddPanelOpenOptions) => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      const centerX = rect ? rect.left + rect.width / 2 : window.innerWidth / 2;
+      const centerY = rect ? rect.top + rect.height / 2 : window.innerHeight / 2;
+      openAddPanelAt(centerX, centerY, opts);
+    },
+    [openAddPanelAt]
   );
 
   // 允许外部（如工具栏按钮）打开添加/模板面板
@@ -4238,7 +4332,14 @@ function FlowInner() {
           value.startsWith("/assets/proxy");
         if (isProxy) {
           const raw = url.searchParams.get("url");
-          if (raw) return decodeURIComponent(raw);
+          if (raw) return raw;
+          const key = url.searchParams.get("key");
+          if (key) {
+            const normalizedKey = key.replace(/^\/+/, "");
+            const direct = resolvePublicAssetUrlFromKey(normalizedKey);
+            if (direct) return direct;
+            return normalizedKey;
+          }
         }
       } catch {}
 
@@ -4843,6 +4944,44 @@ function FlowInner() {
     return false;
   }, []);
 
+  const isInsideThreeViewport = React.useCallback(
+    (event: WheelEvent | React.WheelEvent<HTMLDivElement>) => {
+      const selector =
+        '[data-model3d-container="true"], [data-flow-three-node-viewport="true"], .react-flow__node-three, .react-flow__node-threePathTracer';
+
+      const target = event.target;
+      if (target instanceof Element && target.closest(selector)) return true;
+
+      const composedPath = (event as any)?.composedPath;
+      if (typeof composedPath === "function") {
+        try {
+          const path = composedPath.call(event);
+          if (
+            Array.isArray(path) &&
+            path.some(
+              (node: unknown) =>
+                node instanceof Element && Boolean(node.closest(selector))
+            )
+          ) {
+            return true;
+          }
+        } catch {
+          // ignore path errors
+        }
+      }
+
+      const x = Number((event as any)?.clientX);
+      const y = Number((event as any)?.clientY);
+      if (Number.isFinite(x) && Number.isFinite(y) && typeof document !== "undefined") {
+        const hit = document.elementFromPoint(x, y);
+        if (hit?.closest(selector)) return true;
+      }
+
+      return false;
+    },
+    []
+  );
+
   // 中键拖拽以平移 Flow 视口，阻止浏览器的自动滚动
   const middleDragRef = React.useRef<{
     dragging: boolean;
@@ -4910,9 +5049,53 @@ function FlowInner() {
     };
   }, [allowNativeScroll]);
 
+  React.useEffect(() => {
+    const clearFlowSelectionDragging = () => {
+      document.body.classList.remove("tanva-flow-selection-dragging");
+    };
+
+    const handleMouseDown = (event: MouseEvent) => {
+      const container = containerRef.current;
+      if (!container) return;
+      if (!(isPointerMode || isMarqueeMode || drawMode === "select")) return;
+      if (event.button !== 0) return;
+
+      const rect = container.getBoundingClientRect();
+      if (
+        event.clientX < rect.left ||
+        event.clientX > rect.right ||
+        event.clientY < rect.top ||
+        event.clientY > rect.bottom
+      ) {
+        return;
+      }
+
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.closest(
+          ".react-flow__node, .react-flow__edge, .react-flow__handle, .react-flow__controls, .react-flow__minimap, .tanva-flow-toolbar, .tanva-add-panel, [data-prevent-add-panel]"
+        )
+      ) {
+        return;
+      }
+      document.body.classList.add("tanva-flow-selection-dragging");
+    };
+
+    window.addEventListener("mousedown", handleMouseDown, true);
+    window.addEventListener("mouseup", clearFlowSelectionDragging, true);
+    window.addEventListener("blur", clearFlowSelectionDragging);
+    return () => {
+      window.removeEventListener("mousedown", handleMouseDown, true);
+      window.removeEventListener("mouseup", clearFlowSelectionDragging, true);
+      window.removeEventListener("blur", clearFlowSelectionDragging);
+      clearFlowSelectionDragging();
+    };
+  }, [drawMode, isPointerMode, isMarqueeMode]);
+
   const handleWheelCapture = React.useCallback(
     (event: WheelEvent | React.WheelEvent<HTMLDivElement>) => {
       if (!containerRef.current) return;
+      if (isInsideThreeViewport(event)) return;
       if (allowNativeScroll(event.target)) return;
 
       const store = useCanvasStore.getState();
@@ -4963,7 +5146,7 @@ function FlowInner() {
       const worldDeltaY = (-event.deltaY * dpr) / zoom;
       store.setPan(store.panX + worldDeltaX, store.panY + worldDeltaY);
     },
-    [allowNativeScroll]
+    [allowNativeScroll, isInsideThreeViewport]
   );
 
   React.useEffect(() => {
@@ -4992,11 +5175,14 @@ function FlowInner() {
         now - last.t < 200 &&
         Math.hypot(last.x - x, last.y - y) < 10
       ) {
-        if (isBlankArea(x, y))
-          openAddPanelAt(x, y, {
+        if (isBlankArea(x, y)) {
+          const world = rf.screenToFlowPosition({ x, y });
+          openAddPanelAtContainerCenter({
             tab: "nodes",
             allowedTabs: ["nodes", "beta", "custom"],
+            world,
           });
+        }
       } else if (!isPointerMode) {
         // 单击空白区域时，取消所有节点的选择（pointer 模式下不自动取消选择）
         setNodes((prev: any[]) =>
@@ -5004,7 +5190,7 @@ function FlowInner() {
         );
       }
     },
-    [openAddPanelAt, isBlankArea, setNodes, isPointerMode]
+    [openAddPanelAtContainerCenter, isBlankArea, setNodes, isPointerMode, rf]
   );
 
   React.useEffect(() => {
@@ -5210,9 +5396,11 @@ function FlowInner() {
         if (isBlankArea(x, y)) {
           e.stopPropagation();
           e.preventDefault();
-          openAddPanelAt(x, y, {
+          const world = rf.screenToFlowPosition({ x, y });
+          openAddPanelAtContainerCenter({
             tab: "nodes",
             allowedTabs: ["nodes", "beta", "custom"],
+            world,
           });
         }
         // 重置记录，避免连续三次点击被识别为两次双击
@@ -5225,7 +5413,7 @@ function FlowInner() {
 
     window.addEventListener("click", onNativeClick, true);
     return () => window.removeEventListener("click", onNativeClick, true);
-  }, [openAddPanelAt, isBlankArea]);
+  }, [openAddPanelAtContainerCenter, isBlankArea, rf]);
 
   // 🔥 备选方案：监听原生 dblclick 事件，解决自定义双击检测在某些模式下失效的问题
   React.useEffect(() => {
@@ -5272,16 +5460,18 @@ function FlowInner() {
       if (isBlankArea(x, y)) {
         e.stopPropagation();
         e.preventDefault();
-        openAddPanelAt(x, y, {
+        const world = rf.screenToFlowPosition({ x, y });
+        openAddPanelAtContainerCenter({
           tab: "nodes",
           allowedTabs: ["nodes", "beta", "custom"],
+          world,
         });
       }
     };
 
     window.addEventListener("dblclick", onNativeDblClick, true);
     return () => window.removeEventListener("dblclick", onNativeDblClick, true);
-  }, [openAddPanelAt, isBlankArea]);
+  }, [openAddPanelAtContainerCenter, isBlankArea, rf]);
 
   const createNodeAtWorldCenter = React.useCallback(
     (
@@ -5600,23 +5790,31 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
-          : type === "minimaxMusic"
+          : type === "tencentSpeech"
           ? {
               status: "idle" as const,
               audioUrl: undefined,
-              prompt: "",
-              lyrics: "",
-              isInstrumental: false,
-              lyricsOptimizer: false,
-              model: "music-2.5+" as const,
+              videoUrl: undefined,
+              inputVideoUrl: "",
+              text: "",
+              speakerUrlInput: "",
+              voiceId: "",
+              speakerGender: "male" as const,
+              srcLang: "zh",
+              dstLang: "zh",
+              srcSubtitleUrl: "",
+              dstSubtitleUrl: "",
+              embedSubtitle: true,
+              font: "auto",
+              fontSize: 50,
+              marginV: 50,
+              outputPattern: "",
               history: [] as Array<{
                 id: string;
                 prompt: string;
-                lyrics?: string;
-                isInstrumental: boolean;
-                lyricsOptimizer: boolean;
                 audioUrl: string;
                 createdAt: number;
+                videoUrl?: string;
               }>,
               selectedHistoryId: undefined,
               boxW: size.w,
@@ -5644,11 +5842,11 @@ function FlowInner() {
                   ? "doubao"
                   : "kling",
               klingModel:
-                type === "kling26Video" ? ("kling-v2-6" as const) : ("kling-v2-1" as const),
+                "kling-v2-6" as const,
               mode:
                 type === "klingVideo" || type === "kling26Video" ? ("std" as const) : undefined,
               sound:
-                type === "klingVideo" || type === "kling26Video" ? false : undefined,
+                type === "klingVideo" || type === "kling26Video" ? true : undefined,
               audioUrls:
                 type === "klingVideo" || type === "kling26Video" ? [] : undefined,
               // Vidu 专用参数
@@ -5838,9 +6036,16 @@ function FlowInner() {
         });
       }
 
-      return rankQuickConnectOptions(picked);
+      const ranked = rankQuickConnectOptions(picked);
+      return pinQuickConnectBaseOption(ranked, kind, "forward");
     },
-    [rf, inferQuickConnectSourceKind, quickConnectMetaByType, rankQuickConnectOptions]
+    [
+      rf,
+      inferQuickConnectSourceKind,
+      quickConnectMetaByType,
+      rankQuickConnectOptions,
+      pinQuickConnectBaseOption,
+    ]
   );
   const getReverseQuickConnectOptions = React.useCallback(
     (targetId: string, targetHandle: string): QuickConnectMenuItem[] => {
@@ -5882,9 +6087,16 @@ function FlowInner() {
         });
       }
 
-      return rankQuickConnectOptions(picked);
+      const ranked = rankQuickConnectOptions(picked);
+      return pinQuickConnectBaseOption(ranked, kind, "reverse");
     },
-    [rf, inferQuickConnectTargetKind, quickConnectMetaByType, rankQuickConnectOptions]
+    [
+      rf,
+      inferQuickConnectTargetKind,
+      quickConnectMetaByType,
+      rankQuickConnectOptions,
+      pinQuickConnectBaseOption,
+    ]
   );
   React.useEffect(() => {
     if (!isConnecting) return;
@@ -5971,7 +6183,7 @@ function FlowInner() {
       nodeData.klingModel ||
       (node.type === "kling26Video" || nodeData.provider === "kling-2.6"
         ? "kling-v2-6"
-        : "kling-v2-1");
+        : "kling-v2-6");
     const isKling26Model = klingModel === "kling-v2-6" || klingModel === "kling-v3-0";
     const mode = typeof nodeData.mode === "string" ? nodeData.mode : "std";
     return isKling26Model && mode === "pro";
@@ -6048,6 +6260,7 @@ function FlowInner() {
           "generateRef",
           "viewAngle",
           "three",
+          "threePathTracer",
           "camera",
           "imageGrid",
           "imageSplit",
@@ -6070,31 +6283,9 @@ function FlowInner() {
         if (targetHandle === "text")
           return textSourceTypes.includes(sourceNode.type || "");
         if (targetHandle === "image1" || targetHandle === "refer")
-          return [
-            "image",
-            "imagePro",
-            "generate",
-            "generate4",
-            "generatePro",
-            "generatePro4",
-            "generateRef",
-            "viewAngle",
-            "three",
-            "camera",
-          ].includes(sourceNode.type || "");
+          return isImageSource(sourceNode, sourceHandle);
         if (targetHandle === "image2" || targetHandle === "img")
-          return [
-            "image",
-            "imagePro",
-            "generate",
-            "generate4",
-            "generatePro",
-            "generatePro4",
-            "generateRef",
-            "viewAngle",
-            "three",
-            "camera",
-          ].includes(sourceNode.type || "");
+          return isImageSource(sourceNode, sourceHandle);
         return false;
       }
       if (
@@ -6138,6 +6329,7 @@ function FlowInner() {
             "sora2Video",
             "wan26",
             "wan2R2V",
+            "tencentSpeech",
             "klingVideo",
             "kling26Video",
             "klingO1Video",
@@ -6158,9 +6350,7 @@ function FlowInner() {
         }
         if (targetHandle === "audio") {
           if (sourceHandle !== "audio") return false;
-          return ["audioUpload", "minimaxSpeech", "minimaxMusic"].includes(
-            sourceNode.type || ""
-          );
+          return ["audioUpload", "minimaxSpeech", "tencentSpeech"].includes(sourceNode.type || "");
         }
         return false;
       }
@@ -6168,9 +6358,7 @@ function FlowInner() {
       if (targetNode.type === "audioUpload") {
         if (targetHandle === "audio") {
           if (sourceHandle !== "audio") return false;
-          return ["audioUpload", "minimaxSpeech", "minimaxMusic"].includes(
-            sourceNode.type || ""
-          );
+          return ["audioUpload", "minimaxSpeech", "tencentSpeech"].includes(sourceNode.type || "");
         }
         return false;
       }
@@ -6190,6 +6378,7 @@ function FlowInner() {
             "sora2Video",
             "wan2R2V",
             "wan26",
+            "tencentSpeech",
             "klingVideo",
             "kling26Video",
             "klingO1Video",
@@ -6215,9 +6404,7 @@ function FlowInner() {
         if (targetHandle === "audio") {
           if (!canKlingNodeUseAudioInput(targetNode)) return false;
           if (sourceHandle !== "audio") return false;
-          return ["audioUpload", "minimaxSpeech", "minimaxMusic"].includes(
-            sourceNode.type || ""
-          );
+          return ["audioUpload", "minimaxSpeech", "tencentSpeech"].includes(sourceNode.type || "");
         }
         return false;
       }
@@ -6237,6 +6424,7 @@ function FlowInner() {
             "sora2Video",
             "wan26",
             "wan2R2V",
+            "tencentSpeech",
             "klingVideo",
             "kling26Video",
             "klingO1Video",
@@ -6269,7 +6457,11 @@ function FlowInner() {
         if (targetHandle === "text") {
           return textSourceTypes.includes(sourceNode.type || "");
         }
-        if (targetHandle === "img") {
+        if (
+          targetHandle === "img" ||
+          targetHandle === "omniImage" ||
+          targetHandle === "omniimage"
+        ) {
           return isImageSource(sourceNode, sourceHandle);
         }
         return false;
@@ -6289,9 +6481,24 @@ function FlowInner() {
         }
         return false;
       }
-      if (targetNode.type === "minimaxMusic") {
+      if (targetNode.type === "tencentSpeech") {
         if (targetHandle === "text") {
           return textSourceTypes.includes(sourceNode.type || "");
+        }
+        if (targetHandle === "video") {
+          if (sourceHandle !== "video" && sourceHandle !== "video-out") return false;
+          return [
+            "video",
+            "sora2Video",
+            "wan26",
+            "wan2R2V",
+            "klingVideo",
+            "kling26Video",
+            "klingO1Video",
+            "viduVideo",
+            "viduQ3",
+            "doubaoVideo",
+          ].includes(sourceNode.type || "");
         }
         return false;
       }
@@ -6331,6 +6538,7 @@ function FlowInner() {
           return [
             "video", // 上传视频
             "sora2Video",
+            "tencentSpeech",
             "klingVideo",
             "kling26Video",
             "klingO1Video",
@@ -6350,6 +6558,7 @@ function FlowInner() {
             "sora2Video",
             "wan26",
             "wan2R2V",
+            "tencentSpeech",
             "klingVideo",
             "kling26Video",
             "klingO1Video",
@@ -6380,23 +6589,7 @@ function FlowInner() {
               /^image\d+$/.test(sourceHandle)
             );
           }
-          return [
-            "image",
-            "imagePro",
-            "camera",
-            "three",
-            "generate",
-            "generate4",
-            "generateRef",
-            "viewAngle",
-            "generatePro",
-            "generatePro4",
-            "midjourney",
-            "midjourneyV7",
-            "niji7",
-            "imageGrid",
-            "imageCompress",
-          ].includes(sourceNode.type || "");
+          return isImageSource(sourceNode, sourceHandle);
         }
         return false;
       }
@@ -6557,6 +6750,11 @@ function FlowInner() {
       if (targetNode?.type === "midjourneyV7" || targetNode?.type === "niji7") {
         if (params.targetHandle === "text") return true;
         if (params.targetHandle === "img") return incoming.length < 10;
+        if (
+          params.targetHandle === "omniImage" ||
+          params.targetHandle === "omniimage"
+        )
+          return true;
       }
       if (targetNode?.type === "nano2") {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
@@ -6565,8 +6763,9 @@ function FlowInner() {
       if (targetNode?.type === "minimaxSpeech") {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
       }
-      if (targetNode?.type === "minimaxMusic") {
+      if (targetNode?.type === "tencentSpeech") {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
+        if (params.targetHandle === "video") return true; // 新线会替换旧线
       }
       if (targetNode?.type === "analysis") {
         if (params.targetHandle === "img") return true; // 仅一条连接，后续替换
@@ -6665,6 +6864,13 @@ function FlowInner() {
           );
         }
 
+        // 腾讯语音节点视频输入仅保留一条
+        if (tgt?.type === "tencentSpeech" && params.targetHandle === "video") {
+          next = next.filter(
+            (e) => !(e.target === params.target && e.targetHandle === "video")
+          );
+        }
+
         // 如果是连接到 Generate(text) 或 PromptOptimize(text)，先移除旧的输入线，再添加新线
         // 注意：generatePro 和 generatePro4 允许多个 text 输入，不移除旧连接
         const singleTextInputTypes = [
@@ -6685,7 +6891,7 @@ function FlowInner() {
           "viduVideo",
           "doubaoVideo",
           "minimaxSpeech",
-          "minimaxMusic",
+          "tencentSpeech",
         ];
         if (
           singleTextInputTypes.includes(tgt?.type || "") &&
@@ -6889,6 +7095,20 @@ function FlowInner() {
         if (tgt?.type === "audioUpload" && params.targetHandle === "audio") {
           next = next.filter(
             (e) => !(e.target === params.target && e.targetHandle === "audio")
+          );
+        }
+        if (
+          (tgt?.type === "midjourneyV7" || tgt?.type === "niji7") &&
+          (params.targetHandle === "omniImage" ||
+            params.targetHandle === "omniimage")
+        ) {
+          next = next.filter(
+            (e) =>
+              !(
+                e.target === params.target &&
+                (e.targetHandle === "omniImage" ||
+                  e.targetHandle === "omniimage")
+              )
           );
         }
         // wan2R2V: 每个 video-* 句柄只保留 1 条输入线
@@ -7267,11 +7487,24 @@ function FlowInner() {
         })();
       }
 
-      // 若目标是 Image 且设置了 imageData 为空，自动断开输入连线
-      if (
-        Object.prototype.hasOwnProperty.call(detail.patch, "imageData") &&
-        !detail.patch.imageData
-      ) {
+      // 若目标是 Image 且明确清空图片内容，自动断开输入连线。
+      // 注意：当 imageData 从 base64 升级为远程 imageUrl 时，不应断线。
+      const patchData = detail.patch || {};
+      const hasImageDataPatch = Object.prototype.hasOwnProperty.call(
+        patchData,
+        "imageData"
+      );
+      const clearsImageData = hasImageDataPatch && !patchData.imageData;
+      const hasImageUrlPatch = Object.prototype.hasOwnProperty.call(
+        patchData,
+        "imageUrl"
+      );
+      const hasNextImageUrl =
+        hasImageUrlPatch &&
+        (typeof patchData.imageUrl === "string"
+          ? patchData.imageUrl.trim().length > 0
+          : Boolean(patchData.imageUrl));
+      if (clearsImageData && !hasNextImageUrl) {
         setEdges((eds) =>
           eds.filter(
             (e) => !(e.target === detail.id && e.targetHandle === "img")
@@ -7285,7 +7518,7 @@ function FlowInner() {
         "flow:updateNodeData",
         handler as EventListener
       );
-  }, [setNodes]);
+  }, [setEdges, setNodes]);
 
   // 监听节点右键菜单：复制（写入 Flow 内部剪贴板，Ctrl+V 可粘贴）
   React.useEffect(() => {
@@ -7736,7 +7969,7 @@ function FlowInner() {
               boxW: 260,
               boxH: 240,
             },
-            selected: true,
+            selected: false,
           } as any,
         ])
       );
@@ -8151,8 +8384,14 @@ function FlowInner() {
             fetchable.startsWith(window.location.origin)
           ) {
             try {
+              const isAssetProxyFetch =
+                fetchable.includes("/api/assets/proxy") ||
+                fetchable.includes("/assets/proxy");
               const response = await fetchWithAuth(fetchable, {
-                auth: "auto",
+                auth: isAssetProxyFetch ? "omit" : "auto",
+                ...(isAssetProxyFetch
+                  ? { mode: "cors" as RequestMode, credentials: "omit" as RequestCredentials }
+                  : {}),
                 allowRefresh: false,
               });
               if (!response.ok) {
@@ -8175,6 +8414,18 @@ function FlowInner() {
         // 兜底：认为是裸 base64
         console.log("[resolveImageValueToDataUrlForBackend] 兜底处理为裸 base64");
         return ensureDataUrl(trimmed);
+      };
+
+      const resolveFirstImageCandidateToDataUrl = async (
+        ...candidates: unknown[]
+      ): Promise<string | null> => {
+        for (const candidate of candidates) {
+          const value = typeof candidate === "string" ? candidate.trim() : "";
+          if (!value) continue;
+          const resolved = await resolveImageValueToDataUrlForBackend(value);
+          if (resolved) return resolved;
+        }
+        return null;
       };
 
       const cropImageToDataUrl = async (params: {
@@ -8385,25 +8636,26 @@ function FlowInner() {
 
           // legacy 兜底：有些历史数据可能仍保存了 splitImages
           const splitImages = Array.isArray(d.splitImages) ? d.splitImages : [];
-          const legacy = splitImages?.[idx]?.imageData;
-          if (typeof legacy === "string" && legacy.trim()) {
-            return await resolveImageValueToDataUrlForBackend(legacy);
-          }
-          return null;
+          return await resolveFirstImageCandidateToDataUrl(
+            splitImages?.[idx]?.imageData,
+            splitImages?.[idx]?.imageUrl
+          );
         }
 
         if (node.type === "imageGrid") {
-          const out =
-            typeof d.outputImage === "string" ? d.outputImage.trim() : "";
-          return out ? await resolveImageValueToDataUrlForBackend(out) : null;
+          return await resolveFirstImageCandidateToDataUrl(
+            d.outputImage,
+            d.imageUrl,
+            d.imageData
+          );
         }
 
         if (node.type === "imageCompress") {
-          const out =
-            (typeof d.outputImage === "string" && d.outputImage.trim()) ||
-            (typeof d.imageData === "string" && d.imageData.trim()) ||
-            "";
-          return out ? await resolveImageValueToDataUrlForBackend(out) : null;
+          return await resolveFirstImageCandidateToDataUrl(
+            d.outputImage,
+            d.imageData,
+            d.imageUrl
+          );
         }
 
         if (node.type === "videoFrameExtract" && handle === "image") {
@@ -8411,14 +8663,11 @@ function FlowInner() {
           const selectedFrameIndex = Number(d.selectedFrameIndex ?? 1);
           const idx = Math.max(0, selectedFrameIndex - 1);
           const frame = frames[idx];
-          const value =
-            (typeof frame?.imageUrl === "string" && frame.imageUrl.trim()) ||
-            (typeof frame?.thumbnailDataUrl === "string" &&
-              frame.thumbnailDataUrl.trim()) ||
-            "";
-          return value
-            ? await resolveImageValueToDataUrlForBackend(value)
-            : null;
+          return await resolveFirstImageCandidateToDataUrl(
+            frame?.imageUrl,
+            frame?.thumbnailDataUrl,
+            frame?.imageData
+          );
         }
 
         if (node.type === "generate4" || node.type === "generatePro4") {
@@ -8432,16 +8681,13 @@ function FlowInner() {
           const thumbs = Array.isArray(d?.thumbnails)
             ? (d.thumbnails as string[])
             : [];
-          const candidate =
-            (typeof urls[idx] === "string" && urls[idx].trim()) ||
-            (typeof imgs[idx] === "string" && imgs[idx].trim()) ||
-            (typeof thumbs[idx] === "string" && thumbs[idx].trim()) ||
-            (typeof d?.imageData === "string" && d.imageData.trim()) ||
-            (typeof d?.imageUrl === "string" && d.imageUrl.trim()) ||
-            "";
-          return candidate
-            ? await resolveImageValueToDataUrlForBackend(candidate)
-            : null;
+          return await resolveFirstImageCandidateToDataUrl(
+            urls[idx],
+            imgs[idx],
+            thumbs[idx],
+            d?.imageData,
+            d?.imageUrl
+          );
         }
 
         if (node.type === "image" || node.type === "imagePro") {
@@ -8513,17 +8759,12 @@ function FlowInner() {
             }
           }
 
-          const directRef =
-            (typeof d.imageData === "string" && d.imageData.trim()) ||
-            (typeof d.imageUrl === "string" && d.imageUrl.trim()) ||
-            (typeof d.thumbnail === "string" && d.thumbnail.trim()) ||
-            "";
-          if (directRef) {
-            const resolved = await resolveImageValueToDataUrlForBackend(
-              directRef
-            );
-            if (resolved) return resolved;
-          }
+          const resolvedDirect = await resolveFirstImageCandidateToDataUrl(
+            d.imageData,
+            d.imageUrl,
+            d.thumbnail
+          );
+          if (resolvedDirect) return resolvedDirect;
 
           // Image/ImagePro 作为“显示节点”时，图片可能来自上游连线；优先向上追溯以匹配当前显示内容
           if (upstream) {
@@ -8538,15 +8779,10 @@ function FlowInner() {
           }
         }
 
-        const direct =
-          (typeof d.imageData === "string" && d.imageData.trim()) ||
-          (typeof d.imageUrl === "string" && d.imageUrl.trim()) ||
-          "";
-        if (direct) {
-          return await resolveImageValueToDataUrlForBackend(direct);
-        }
-
-        return null;
+        return await resolveFirstImageCandidateToDataUrl(
+          d.imageData,
+          d.imageUrl
+        );
       };
 
       const resolveEdgeImageToDataUrl = async (
@@ -8641,7 +8877,8 @@ function FlowInner() {
         nodeType: string,
         nodeData: Record<string, any>,
         promptText: string,
-        hasImages: boolean
+        hasImages: boolean,
+        crefFromImageHandle?: string
       ) => {
         const isNiji = nodeType === "niji7";
         const errors: string[] = [];
@@ -8695,6 +8932,10 @@ function FlowInner() {
           if (omniWeight) flags.push(`--ow ${omniWeight}`);
           const exp = normalizeMidjourneyValue(nodeData.exp);
           if (exp) flags.push(`--exp ${exp}`);
+
+          if (crefFromImageHandle) {
+            flags.push(`--cref ${crefFromImageHandle}`);
+          }
         }
 
         if (hasImages) {
@@ -9393,14 +9634,30 @@ function FlowInner() {
           return;
         }
 
-        const clipDuration =
-          typeof (node.data as any)?.clipDuration === "number"
-            ? (node.data as any).clipDuration
-            : undefined;
-        const aspectSetting =
-          typeof (node.data as any)?.aspectRatio === "string"
-            ? (node.data as any).aspectRatio
-            : "";
+        const clipDuration = (() => {
+          const nextDuration = (node.data as any)?.clipDuration;
+          if (typeof nextDuration === "number" && Number.isFinite(nextDuration)) {
+            return nextDuration;
+          }
+          const legacyDuration = (node.data as any)?.duration;
+          if (typeof legacyDuration === "number" && Number.isFinite(legacyDuration)) {
+            return legacyDuration;
+          }
+          return undefined;
+        })();
+        const aspectSetting = (() => {
+          const nextAspect = (node.data as any)?.aspectRatio;
+          const legacyAspect = (node.data as any)?.size;
+          const raw =
+            typeof nextAspect === "string" && nextAspect.trim()
+              ? nextAspect.trim()
+              : typeof legacyAspect === "string" && legacyAspect.trim()
+              ? legacyAspect.trim()
+              : "";
+          if (!raw) return "";
+          const ratioMatch = raw.match(/(\d{1,2}:\d{1,2})/);
+          return ratioMatch?.[1] || raw;
+        })();
         const modelSetting = (() => {
           const raw = (node.data as any)?.model;
           return raw === "sora-2" || raw === "sora-2-vip" || raw === "sora-2-pro"
@@ -9674,11 +9931,11 @@ function FlowInner() {
           (node.data as any)?.klingModel ||
           (node.type === "kling26Video" || (node.data as any)?.provider === "kling-2.6"
             ? "kling-v2-6"
-            : "kling-v2-1");
+            : "kling-v2-6");
         if (node.type === "klingO1Video") {
           provider = "kling-o3";
         } else if (node.type === "klingVideo" || node.type === "kling26Video") {
-          provider = klingModel === "kling-v2-6" || klingModel === "kling-v3-0" ? "kling-2.6" : "kling";
+          provider = "kling-2.6";
         } else if (node.type === "viduQ3") {
           provider = "viduq3-pro";
         } else {
@@ -10144,10 +10401,15 @@ function FlowInner() {
 
         // 根据供应商调整参数
         const aspectRatioForAPI =
-          referenceImageUrls.length > 0
+          provider === "viduq3-pro"
+            ? referenceImageUrls.length > 0
+              ? undefined
+              : aspectSetting || "16:9"
+            : provider === "vidu"
+            ? aspectSetting || "16:9"
+            : referenceImageUrls.length > 0
             ? undefined
-            : aspectSetting ||
-              (provider === "vidu" || provider === "viduq3-pro" ? "16:9" : undefined);
+            : aspectSetting || undefined;
 
         // 不同供应商支持的时长不同
         let durationForAPI: number | undefined = undefined;
@@ -10171,9 +10433,15 @@ function FlowInner() {
             // Kling O1 支持 3-10 秒
             durationForAPI = clipDuration;
           } else if (
-            (provider === "vidu" || provider === "viduq3-pro") &&
+            provider === "vidu" &&
             clipDuration >= 1 &&
-            clipDuration <= 10
+            clipDuration <= 8
+          ) {
+            durationForAPI = clipDuration;
+          } else if (
+            provider === "viduq3-pro" &&
+            clipDuration >= 1 &&
+            clipDuration <= 16
           ) {
             durationForAPI = clipDuration;
           } else if (
@@ -10210,7 +10478,18 @@ function FlowInner() {
             watermark: (node.data as any)?.watermark,
             mode: (node.data as any)?.mode,
             klingModel: (node.data as any)?.klingModel,
-            sound: (provider === "kling-o3" || provider === "kling-2.6") && (node.data as any)?.mode === "pro" ? "on" : (node.data as any)?.sound,
+            sound:
+              provider === "kling-o3" || provider === "kling-2.6"
+                ? (node.data as any)?.mode === "pro"
+                  ? "on"
+                  : (node.data as any)?.sound === undefined ||
+                    (node.data as any)?.sound === null
+                  ? undefined
+                  : (node.data as any)?.sound === "on" ||
+                    (node.data as any)?.sound === true
+                  ? "on"
+                  : "off"
+                : undefined,
             // Kling O1 视频编辑参数
             referenceVideo: referenceVideoUrl,
             referenceVideoType: (node.data as any)?.referenceVideoType,
@@ -10409,6 +10688,270 @@ function FlowInner() {
         return;
       }
 
+      // Tencent Speech 节点处理逻辑
+      if (node.type === "tencentSpeech") {
+        const sourceVideoEdge = currentEdges.find(
+          (e) => e.target === nodeId && e.targetHandle === "video"
+        );
+        const { text: promptText, hasEdge: hasTextEdge } = getTextPromptForNode(nodeId);
+        const finalText = promptText.trim();
+        if (!sourceVideoEdge) {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "failed",
+                      error: "请先连接左侧 Video 节点",
+                    },
+                  }
+                : n
+            )
+          );
+          return;
+        }
+
+        const sourceVideoNode = sourceVideoEdge ? rf.getNode(sourceVideoEdge.source) : undefined;
+        const linkedVideoUrl =
+          (sourceVideoNode?.data as any)?.videoUrl ||
+          (sourceVideoNode?.data as any)?.url ||
+          (sourceVideoNode?.data as any)?.src ||
+          (Array.isArray((sourceVideoNode?.data as any)?.history)
+            ? (sourceVideoNode?.data as any).history[0]?.videoUrl
+            : undefined);
+        const inputVideoUrl =
+          typeof linkedVideoUrl === "string" ? linkedVideoUrl.trim() : "";
+        const speakerUrl =
+          typeof (node.data as any)?.speakerUrlInput === "string"
+            ? (node.data as any).speakerUrlInput.trim()
+            : "";
+        const voiceId =
+          typeof (node.data as any)?.voiceId === "string"
+            ? (node.data as any).voiceId.trim()
+            : "";
+        const speakerGenderRaw =
+          typeof (node.data as any)?.speakerGender === "string"
+            ? (node.data as any).speakerGender.trim().toLowerCase()
+            : "";
+        const speakerGender =
+          speakerGenderRaw === "female" || speakerGenderRaw === "male"
+            ? speakerGenderRaw
+            : "male";
+        const srcSubtitleUrl =
+          typeof (node.data as any)?.srcSubtitleUrl === "string"
+            ? (node.data as any).srcSubtitleUrl.trim()
+            : "";
+        const dstSubtitleUrl =
+          typeof (node.data as any)?.dstSubtitleUrl === "string"
+            ? (node.data as any).dstSubtitleUrl.trim()
+            : "";
+        const srcLang =
+          typeof (node.data as any)?.srcLang === "string"
+            ? (node.data as any).srcLang.trim()
+            : "";
+        const dstLang =
+          typeof (node.data as any)?.dstLang === "string"
+            ? (node.data as any).dstLang.trim()
+            : "";
+        const outputPattern =
+          typeof (node.data as any)?.outputPattern === "string"
+            ? (node.data as any).outputPattern.trim()
+            : "";
+        const font =
+          typeof (node.data as any)?.font === "string"
+            ? (node.data as any).font.trim()
+            : "";
+        const fontSize = Number((node.data as any)?.fontSize);
+        const marginV = Number((node.data as any)?.marginV);
+        const embedSubtitle =
+          typeof (node.data as any)?.embedSubtitle === "boolean"
+            ? (node.data as any).embedSubtitle
+            : true;
+
+        if (!inputVideoUrl) {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "failed",
+                      error: "上游 Video 节点暂无可用视频，请先上传视频",
+                    },
+                  }
+                : n
+            )
+          );
+          return;
+        }
+
+        if (hasTextEdge && !finalText && !speakerUrl && (!srcSubtitleUrl || !dstSubtitleUrl)) {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "failed",
+                      error: "Prompt 为空",
+                    },
+                  }
+                : n
+            )
+          );
+          return;
+        }
+
+        if (!hasTextEdge && !speakerUrl && (!srcSubtitleUrl || !dstSubtitleUrl)) {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "failed",
+                      error: "请连接 Prompt 输入，或填写 speakerUrl，或提供源/目标字幕 URL",
+                    },
+                  }
+                : n
+            )
+          );
+          return;
+        }
+
+        setNodes((ns) =>
+          ns.map((n) =>
+            n.id === nodeId
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "running",
+                      text: finalText || undefined,
+                      error: undefined,
+                    },
+                  }
+                : n
+          )
+        );
+
+        try {
+          const payload: Record<string, unknown> = {
+            inputVideoUrl,
+            text: finalText || undefined,
+            speakerUrl: speakerUrl || undefined,
+            voiceId: voiceId || undefined,
+            speakerGender: speakerGender || undefined,
+            srcLang: srcLang || undefined,
+            dstLang: dstLang || undefined,
+            srcSubtitleUrl: srcSubtitleUrl || undefined,
+            dstSubtitleUrl: dstSubtitleUrl || undefined,
+            embedSubtitle,
+            font: font || undefined,
+            outputPattern: outputPattern || undefined,
+          };
+          if (Number.isFinite(fontSize) && fontSize > 0) {
+            payload.fontSize = fontSize;
+          }
+          if (Number.isFinite(marginV) && marginV >= 0) {
+            payload.marginV = marginV;
+          }
+
+          const response = await fetchWithAuth("/api/ai/tencent-speech", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          if (!response.ok) {
+            let message = "腾讯语音生成失败";
+            try {
+              const errorData = await response.json();
+              message = errorData?.message || errorData?.error || message;
+            } catch {}
+            throw new Error(message);
+          }
+
+          const result = await response.json();
+          const audioUrl =
+            (typeof result?.audioUrl === "string" && result.audioUrl) ||
+            (typeof result?.audio_url === "string" && result.audio_url) ||
+            (typeof result?.data?.audioUrl === "string" && result.data.audioUrl) ||
+            "";
+          const videoUrl =
+            (typeof result?.videoUrl === "string" && result.videoUrl) ||
+            (typeof result?.video_url === "string" && result.video_url) ||
+            (typeof result?.data?.videoUrl === "string" && result.data.videoUrl) ||
+            "";
+          const mediaUrl = audioUrl || videoUrl;
+
+          if (!mediaUrl) {
+            throw new Error("腾讯语音返回缺少可播放媒体地址");
+          }
+
+          const historyItemId = `tencent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          const historyItem = {
+            id: historyItemId,
+            prompt: speakerUrl
+              ? "speakerUrl 模式"
+              : voiceId
+              ? `voiceId: ${voiceId}`
+              : finalText
+              ? finalText
+              : `${srcLang || "zh"} -> ${dstLang || "en"} 字幕模式`,
+            audioUrl: mediaUrl,
+            videoUrl: videoUrl || undefined,
+            createdAt: Date.now(),
+          };
+
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "succeeded",
+                      audioUrl: mediaUrl,
+                      videoUrl: videoUrl || undefined,
+                      selectedHistoryId: historyItemId,
+                      history: [
+                        historyItem,
+                        ...(
+                          Array.isArray((n.data as any)?.history)
+                            ? ((n.data as any).history as Array<Record<string, unknown>>)
+                                .filter(
+                                  (item) =>
+                                    typeof item?.audioUrl === "string" &&
+                                    item.audioUrl.trim().length > 0
+                                )
+                                .slice(0, 29)
+                            : []
+                        ),
+                      ],
+                      error: undefined,
+                    },
+                  }
+                : n
+            )
+          );
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : "腾讯语音生成失败";
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? { ...n, data: { ...n.data, status: "failed", error: msg } }
+                : n
+            )
+          );
+        }
+        return;
+      }
+
       // MiniMax Speech 节点处理逻辑
       if (node.type === "minimaxSpeech") {
         console.log("[minimaxSpeech] 开始处理");
@@ -10578,200 +11121,6 @@ function FlowInner() {
         } catch (error) {
           console.error("[minimaxSpeech] 错误:", error);
           const msg = error instanceof Error ? error.message : "语音合成失败";
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? { ...n, data: { ...n.data, status: "failed", error: msg } }
-                : n
-            )
-          );
-        }
-        return;
-      }
-
-      // MiniMax Music 节点处理逻辑
-      if (node.type === "minimaxMusic") {
-        console.log("[minimaxMusic] 开始处理");
-        const { text: upstreamPrompt } = getTextPromptForNode(nodeId);
-        const localPromptRaw =
-          typeof (node.data as any)?.prompt === "string"
-            ? (node.data as any).prompt
-            : "";
-        const localPrompt = localPromptRaw.trim();
-        const finalPrompt = (upstreamPrompt || localPrompt).trim();
-        const lyricsRaw =
-          typeof (node.data as any)?.lyrics === "string"
-            ? (node.data as any).lyrics
-            : "";
-        const lyrics = lyricsRaw.trim();
-        const isInstrumental = (node.data as any)?.isInstrumental === true;
-        const lyricsOptimizer = (node.data as any)?.lyricsOptimizer === true;
-        const modelRaw =
-          typeof (node.data as any)?.model === "string"
-            ? (node.data as any).model.trim()
-            : "";
-        const model = modelRaw === "music-2.5" ? "music-2.5" : "music-2.5+";
-
-        console.log("[minimaxMusic] 输入:", {
-          promptLength: finalPrompt.length,
-          lyricsLength: lyrics.length,
-          isInstrumental,
-          lyricsOptimizer,
-          model,
-        });
-
-        if (isInstrumental && !finalPrompt) {
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: "failed",
-                      error: "纯音乐模式需要填写 Prompt",
-                    },
-                  }
-                : n
-            )
-          );
-          return;
-        }
-
-        if (!isInstrumental && !lyrics && !lyricsOptimizer) {
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: "failed",
-                      error: "请填写歌词，或开启 AI 自动填词",
-                    },
-                  }
-                : n
-            )
-          );
-          return;
-        }
-
-        setNodes((ns) =>
-          ns.map((n) =>
-            n.id === nodeId
-              ? {
-                  ...n,
-                  data: {
-                    ...n.data,
-                    status: "running",
-                    error: undefined,
-                    prompt: finalPrompt,
-                    lyrics: lyricsRaw,
-                    isInstrumental,
-                    lyricsOptimizer,
-                    model,
-                  },
-                }
-              : n
-          )
-        );
-
-        try {
-          const requestBody: Record<string, unknown> = {
-            model,
-            prompt: finalPrompt || undefined,
-            isInstrumental,
-            lyricsOptimizer,
-          };
-          if (!isInstrumental && lyrics) {
-            requestBody.lyrics = lyrics;
-          }
-
-          const response = await fetchWithAuth("/api/ai/minimax-music", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(requestBody),
-          });
-
-          if (!response.ok) {
-            let message = "音乐生成失败";
-            try {
-              const errorData = await response.json();
-              const messageFromError =
-                typeof errorData?.error === "string" && errorData.error.trim()
-                  ? errorData.error.trim()
-                  : undefined;
-              const messageFromMessage = Array.isArray(errorData?.message)
-                ? errorData.message.join("; ")
-                : typeof errorData?.message === "string"
-                ? errorData.message.trim()
-                : undefined;
-              message = messageFromMessage || messageFromError || message;
-            } catch {}
-            throw new Error(message);
-          }
-
-          const result = await response.json();
-          console.log("[minimaxMusic] API 结果:", result);
-          const synthesisStatus = Number(result?.status ?? result?.data?.status);
-          const audioUrl =
-            (typeof result?.audioUrl === "string" && result.audioUrl) ||
-            (typeof result?.audio_url === "string" && result.audio_url) ||
-            (typeof result?.data?.audio === "string" && result.data.audio);
-
-          if (!audioUrl && synthesisStatus === 1) {
-            throw new Error("音乐仍在合成中，请稍后重试（通常需要 1-3 分钟）");
-          }
-          if (!audioUrl) {
-            throw new Error("音乐生成返回缺少音频地址");
-          }
-
-          const historyItemId = `minimax-music-${Date.now()}-${Math.random()
-            .toString(36)
-            .slice(2, 8)}`;
-          const historyItem = {
-            id: historyItemId,
-            prompt: finalPrompt,
-            lyrics: isInstrumental ? undefined : lyrics,
-            isInstrumental,
-            lyricsOptimizer,
-            audioUrl,
-            createdAt: Date.now(),
-          };
-
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: "succeeded",
-                      audioUrl,
-                      selectedHistoryId: historyItemId,
-                      history: [
-                        historyItem,
-                        ...(
-                          Array.isArray((n.data as any)?.history)
-                            ? ((n.data as any).history as Array<Record<string, unknown>>)
-                                .filter(
-                                  (item) =>
-                                    typeof item?.audioUrl === "string" &&
-                                    item.audioUrl.trim().length > 0
-                                )
-                                .slice(0, 29)
-                            : []
-                        ),
-                      ],
-                      error: undefined,
-                    },
-                  }
-                : n
-            )
-          );
-        } catch (error) {
-          console.error("[minimaxMusic] 错误:", error);
-          const msg = error instanceof Error ? error.message : "音乐生成失败";
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
@@ -11023,11 +11372,36 @@ function FlowInner() {
         );
         const imgEdges = totalImgEdges.slice(0, 10);
         const imageDatas = await resolveEdgesAsDataUrls(imgEdges);
+
+        const omniImageEdges = currentEdges.filter(
+          (e) =>
+            e.target === nodeId &&
+            (e.targetHandle === "omniImage" || e.targetHandle === "omniimage")
+        );
+        let crefFromImageHandle: string | undefined;
+        if (omniImageEdges.length > 1) {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? { ...n, data: { ...n.data, status: "failed", error: "万物参考（cref）最多支持 1 张图片" } }
+                : n
+            )
+          );
+          return;
+        }
+        if (omniImageEdges.length === 1) {
+          const crefDatas = await resolveEdgesAsDataUrls([omniImageEdges[0]]);
+          if (crefDatas.length > 0) {
+            crefFromImageHandle = crefDatas[0];
+          }
+        }
+
         const { finalPrompt, errors } = buildMidjourneyPrompt(
           node.type,
           (node.data || {}) as Record<string, any>,
           promptText,
-          imageDatas.length > 0
+          imageDatas.length > 0,
+          crefFromImageHandle
         );
 
         if (errors.length > 0) {
@@ -11406,13 +11780,28 @@ function FlowInner() {
         );
 
         try {
+          const normalizeSeedreamSizeForAPI = (raw: unknown): string => {
+            const value = typeof raw === "string" ? raw.trim() : "";
+            if (!value) return "2K";
+            const compact = value.replace(/\s+/g, "");
+            const upper = compact.toUpperCase();
+            if (upper === "2K" || upper === "3K") return upper;
+            const dimMatch = compact.match(/^(\d{3,5})[xX](\d{3,5})$/);
+            if (dimMatch) return `${dimMatch[1]}x${dimMatch[2]}`;
+            console.warn(`Seedream5: invalid size "${value}", fallback to 2K`);
+            return "2K";
+          };
+          const seedreamSizeForAPI = normalizeSeedreamSizeForAPI(
+            (node.data as any)?.size
+          );
+
           const result = await generateImageViaAPI({
             prompt: promptText || "",
             aiProvider: "seedream5",
-            imageSize: (node.data as any)?.size || "2K",
+            imageSize: seedreamSizeForAPI,
             imageUrls: imageDatas.length > 0 ? imageDatas : undefined,
-            batchMode: (node.data as any)?.batchMode || false,
-            batchCount: (node.data as any)?.batchCount || 4,
+            batchMode: false,
+            batchCount: 4,
           });
 
           if (!result.success || !result.data) {
@@ -11443,6 +11832,7 @@ function FlowInner() {
                       ...n.data,
                       status: "succeeded",
                       images: finalImages,
+                      imageUrls: finalImages,
                       imageUrl: finalImages[0],
                       error: undefined,
                     },
@@ -13404,7 +13794,7 @@ function FlowInner() {
         n.type === "nano2" ||
         n.type === "seedream5" ||
         n.type === "minimaxSpeech" ||
-        n.type === "minimaxMusic"
+        n.type === "tencentSpeech"
           ? { ...n, data: { ...n.data, onRun: runNode, onSend: onSendHandler } }
           : n.type === "image" || n.type === "imagePro"
           ? { ...n, data: { ...n.data, onRun: runNode, onSend: onSendHandler } }
@@ -13560,6 +13950,31 @@ function FlowInner() {
         setNodes((ns) =>
           ns.concat([
             { id, type: "three", position: { x, y }, data: {} },
+          ] as any)
+        );
+        return id;
+      },
+      addThreeFromScreen: (
+        screenX = window.innerWidth / 2,
+        screenY = window.innerHeight / 2,
+        dataPatch?: Record<string, any>
+      ) => {
+        const id = `three_${Date.now()}`;
+        const position = rf.screenToFlowPosition({
+          x: screenX,
+          y: screenY,
+        });
+        setNodes((ns) =>
+          ns.concat([
+            {
+              id,
+              type: "three",
+              position,
+              data:
+                dataPatch && Object.keys(dataPatch).length > 0
+                  ? { ...dataPatch }
+                  : {},
+            },
           ] as any)
         );
         return id;
@@ -14180,8 +14595,8 @@ function FlowInner() {
     const top = rect ? addPanel.screen.y - rect.top : addPanel.screen.y;
     return {
       position: "absolute",
-      left,
-      top,
+      left: `${left}px`,
+      top: `${top}px`,
       transform: "translate(-50%, -50%)",
       zIndex: 100,
     } as React.CSSProperties;
@@ -14189,13 +14604,16 @@ function FlowInner() {
 
   const handleContainerDoubleClick = React.useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      if (isBlankArea(e.clientX, e.clientY))
-        openAddPanelAt(e.clientX, e.clientY, {
+      if (isBlankArea(e.clientX, e.clientY)) {
+        const world = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+        openAddPanelAtContainerCenter({
           tab: "nodes",
           allowedTabs: ["nodes", "beta", "custom"],
+          world,
         });
+      }
     },
-    [openAddPanelAt, isBlankArea]
+    [openAddPanelAtContainerCenter, isBlankArea, rf]
   );
 
   const commitEdgeLabelValue = React.useCallback(
@@ -14314,6 +14732,70 @@ function FlowInner() {
     },
     [rf, edges, commitEdgeLabelValue]
   );
+
+  const handleEdgeClick = React.useCallback(
+    (event: React.MouseEvent, edge: Edge) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const edgeId = edge.id;
+      setNodes((prev: any[]) =>
+        prev.map((node) => (node.selected ? { ...node, selected: false } : node))
+      );
+      setEdges((prev: any[]) =>
+        prev.map((e) => ({ ...e, selected: e.id === edgeId }))
+      );
+    },
+    [setEdges, setNodes]
+  );
+
+  const deleteSelectedEdges = React.useCallback(() => {
+    const selectedEdgeIds = new Set(
+      (rf.getEdges?.() || [])
+        .filter((edge: any) => edge?.selected)
+        .map((edge: any) => edge.id)
+        .filter(Boolean)
+    );
+    if (!selectedEdgeIds.size) return false;
+
+    setEdges((prev: any[]) => prev.filter((e: any) => !selectedEdgeIds.has(e.id)));
+    setEdgeLabelEditor((prev) =>
+      prev.edgeId && selectedEdgeIds.has(prev.edgeId)
+        ? createEdgeLabelEditorState()
+        : prev
+    );
+    try {
+      historyService.commit("flow-delete-edge").catch(() => {});
+    } catch {}
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent("flow:edgesChange"));
+    }, 0);
+    return true;
+  }, [rf, setEdges]);
+
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      if (event.key !== "Delete" && event.key !== "Backspace") return;
+
+      const active = document.activeElement as HTMLElement | null;
+      const tagName = active?.tagName?.toLowerCase();
+      const isEditable =
+        !!active &&
+        (tagName === "input" ||
+          tagName === "textarea" ||
+          (active as any).isContentEditable);
+      if (isEditable) return;
+
+      if (deleteSelectedEdges()) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [deleteSelectedEdges]);
 
   // -------- 模板：实例化与保存 --------
   const instantiateTemplateAt = React.useCallback(
@@ -14781,6 +15263,7 @@ function FlowInner() {
         onConnectStart={onConnectStart}
         onConnectEnd={onConnectEnd}
         onPaneClick={onPaneClick}
+        onEdgeClick={handleEdgeClick}
         onEdgeDoubleClick={handleEdgeDoubleClick}
         isValidConnection={isValidConnection}
         nodeTypes={nodeTypes}

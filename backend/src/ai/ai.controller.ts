@@ -35,7 +35,7 @@ import {
   ExpandImageDto,
 } from './dto/image-generation.dto';
 import { MinimaxSpeechDto } from './dto/minimax-speech.dto';
-import { MinimaxMusicDto } from './dto/minimax-music.dto';
+import { TencentSpeechDto } from './dto/tencent-speech.dto';
 import { PaperJSGenerateRequestDto, PaperJSGenerateResponseDto } from './dto/paperjs-generation.dto';
 import { Img2VectorRequestDto, Img2VectorResponseDto } from './dto/img2vector.dto';
 import { Convert2Dto3DService } from './services/convert-2d-to-3d.service';
@@ -52,7 +52,7 @@ import { Sora2VideoService } from './services/sora2-video.service';
 import { VeoVideoService } from './services/veo-video.service';
 import { VideoProviderService } from './services/video-provider.service';
 import { MinimaxSpeechService } from './services/minimax-speech.service';
-import { MinimaxMusicService } from './services/minimax-music.service';
+import { TencentSpeechService } from './services/tencent-speech.service';
 import { applyWatermarkToBase64 } from './services/watermark.util';
 import { VideoWatermarkService } from './services/video-watermark.service';
 import { VideoProviderRequestDto } from './dto/video-provider.dto';
@@ -130,7 +130,7 @@ export class AiController {
     private readonly veoVideoService: VeoVideoService,
     private readonly videoProviderService: VideoProviderService,
     private readonly minimaxSpeechService: MinimaxSpeechService,
-    private readonly minimaxMusicService: MinimaxMusicService,
+    private readonly tencentSpeechService: TencentSpeechService,
     private readonly oss: OssService,
     @Optional() private readonly imageTaskService?: ImageTaskService,
   ) {}
@@ -589,6 +589,13 @@ export class AiController {
         }
       }
 
+      if (this.isPrismaPoolTimeoutError(error)) {
+        this.logger.warn(
+          `Prisma connection pool timeout during ${serviceType}: ${this.summarizeError(error)}`,
+        );
+        throw new ServiceUnavailableException('数据库繁忙，请稍后重试');
+      }
+
       throw error;
     }
   }
@@ -627,6 +634,20 @@ export class AiController {
     const causeMessage = cause?.message ? String(cause.message) : String(cause);
     const causeCode = cause?.code ? ` code=${String(cause.code)}` : '';
     return `${name}: ${message}${code} (cause: ${causeName}: ${causeMessage}${causeCode})`;
+  }
+
+  private isPrismaPoolTimeoutError(error: any): boolean {
+    const candidates = [error, error?.cause];
+    return candidates.some((candidate) => {
+      if (!candidate) return false;
+      const code = candidate?.code ? String(candidate.code) : '';
+      const message = candidate?.message ? String(candidate.message).toLowerCase() : '';
+      return (
+        code === 'P2024' ||
+        message.includes('timed out fetching a new connection from the connection pool') ||
+        message.includes('connection pool timeout')
+      );
+    });
   }
 
   private isLikelyNetworkError(error: any): boolean {
@@ -1016,8 +1037,8 @@ export class AiController {
     return this.withCredits(req, 'gemini-tool-selection', dto.model, async () => {
       if (providerName) {
         try {
-          // 🔥 先规范化模型
-          const normalizedModel = this.resolveImageModel(providerName, dto.model);
+          // 工具选择属于文本推理，优先使用文本模型链路
+          const normalizedModel = this.resolveTextModel(providerName, dto.model);
 
           this.logger.log(`[${providerName.toUpperCase()}] Using provider for tool selection`, {
             originalModel: dto.model,
@@ -1652,12 +1673,17 @@ export class AiController {
     this.logger.log('🎨 2D to 3D conversion request received');
 
     return this.withCredits(req, 'convert-2d-to-3d', undefined, async () => {
-      const result = await this.convert2Dto3DService.convert2Dto3D(dto.imageUrl);
+      const userId = req?.user?.id || req?.user?.userId || req?.user?.sub;
+      const result = await this.convert2Dto3DService.convert2Dto3D(dto.imageUrl, {
+        projectId: dto.projectId,
+        userId: typeof userId === 'string' ? userId : undefined,
+      });
 
       return {
         success: true,
         modelUrl: result.modelUrl,
         promptId: result.promptId,
+        modelKey: result.modelKey,
       };
     }, 1, 1);
   }
@@ -2960,6 +2986,40 @@ export class AiController {
     };
   }
 
+  @Post('tencent-speech')
+  async generateTencentSpeech(@Body() dto: TencentSpeechDto, @Req() req: any) {
+    return this.withCredits(
+      req,
+      'tencent-speech',
+      undefined,
+      async () => this.tencentSpeechService.synthesizeSpeech(dto),
+      undefined,
+      undefined,
+      false,
+      {
+        inputVideoUrl: dto.inputVideoUrl,
+        textLength: (dto.text || '').trim().length || undefined,
+        speakerUrl: dto.speakerUrl,
+        srcSubtitleUrl: dto.srcSubtitleUrl,
+        dstLangs: dto.dstLangs,
+      },
+    );
+  }
+
+  @Post('tencent-speech/async')
+  async generateTencentSpeechAsync(@Body() dto: TencentSpeechDto) {
+    return this.tencentSpeechService.createAsyncSpeechTask(dto);
+  }
+
+  @Get('tencent-speech/async/:taskId')
+  async queryTencentSpeechAsyncTask(@Param('taskId') taskId: string) {
+    const normalizedTaskId = taskId?.trim();
+    if (!normalizedTaskId) {
+      throw new BadRequestException('taskId is required');
+    }
+    return this.tencentSpeechService.queryAsyncSpeechTask(normalizedTaskId);
+  }
+
   @Post('minimax-speech')
   async generateSpeech(@Body() dto: MinimaxSpeechDto, @Req() req: any) {
     return this.withCredits(
@@ -2971,25 +3031,6 @@ export class AiController {
       undefined,
       false,
       { text: dto.text, voiceId: dto.voiceId, emotion: dto.emotion }
-    );
-  }
-
-  @Post('minimax-music')
-  async generateMusic(@Body() dto: MinimaxMusicDto, @Req() req: any) {
-    return this.withCredits(
-      req,
-      'minimax-music',
-      dto.model,
-      async () => this.minimaxMusicService.generateMusic(dto),
-      undefined,
-      undefined,
-      false,
-      {
-        prompt: dto.prompt,
-        hasLyrics: typeof dto.lyrics === 'string' && dto.lyrics.trim().length > 0,
-        isInstrumental: dto.isInstrumental === true,
-        lyricsOptimizer: dto.lyricsOptimizer === true,
-      },
     );
   }
 

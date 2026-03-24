@@ -418,9 +418,9 @@ export class NodeConfigService {
       { nodeKey: 'imageGrid', nameZh: '图片拼接', nameEn: 'Grid', category: 'other', sortOrder: 36, creditsPerCall: 0, description: '拼接多张图片，免费' },
       { nodeKey: 'imageSplit', nameZh: '图片拆分', nameEn: 'Split', category: 'other', sortOrder: 37, creditsPerCall: 0, description: '拆分图片，免费' },
       { nodeKey: 'imageCompress', nameZh: '图片压缩', nameEn: 'Image Compress', category: 'other', sortOrder: 38, creditsPerCall: 0, description: '按档位压缩图片，免费' },
-      { nodeKey: 'three', nameZh: '2D转3D', nameEn: '2D to 3D', category: 'other', sortOrder: 39, creditsPerCall: 30, serviceType: 'convert-2d-to-3d', priceYuan: 0.3, description: '图片转3D模型' },
+      { nodeKey: 'three', nameZh: '2D转3D', nameEn: '2D to 3D', category: 'other', sortOrder: 39, creditsPerCall: 200, serviceType: 'convert-2d-to-3d', priceYuan: 2, description: '图片转3D模型' },
       { nodeKey: 'minimaxSpeech', nameZh: 'MiniMax语音合成', nameEn: 'MiniMax Speech', category: 'audio', sortOrder: 40, creditsPerCall: 10, serviceType: 'minimax-speech', priceYuan: 0.1, description: 'MiniMax Speech 语音合成' },
-      { nodeKey: 'minimaxMusic', nameZh: 'MiniMax音乐生成', nameEn: 'MiniMax Music', category: 'audio', sortOrder: 41, creditsPerCall: 30, serviceType: 'minimax-music', priceYuan: 0.3, description: 'MiniMax 音乐生成' },
+      { nodeKey: 'tencentSpeech', nameZh: '腾讯语音合成', nameEn: 'Tencent Speech', category: 'audio', sortOrder: 41, creditsPerCall: 10, serviceType: 'tencent-speech', priceYuan: 0.1, description: '腾讯 MPS AI 配音语音合成' },
     ];
 
     let created = 0;
@@ -646,9 +646,9 @@ export class NodeConfigService {
       { nodeKey: 'imageGrid', nameZh: '图片拼接', nameEn: 'Grid', category: 'other', sortOrder: 36, creditsPerCall: 0, description: '拼接多张图片，免费' },
       { nodeKey: 'imageSplit', nameZh: '图片拆分', nameEn: 'Split', category: 'other', sortOrder: 37, creditsPerCall: 0, description: '拆分图片，免费' },
       { nodeKey: 'imageCompress', nameZh: '图片压缩', nameEn: 'Image Compress', category: 'other', sortOrder: 38, creditsPerCall: 0, description: '按档位压缩图片，免费' },
-      { nodeKey: 'three', nameZh: '2D转3D', nameEn: '2D to 3D', category: 'other', sortOrder: 39, creditsPerCall: 30, serviceType: 'convert-2d-to-3d', priceYuan: 0.3, description: '图片转3D模型' },
+      { nodeKey: 'three', nameZh: '2D转3D', nameEn: '2D to 3D', category: 'other', sortOrder: 39, creditsPerCall: 200, serviceType: 'convert-2d-to-3d', priceYuan: 2, description: '图片转3D模型' },
       { nodeKey: 'minimaxSpeech', nameZh: 'MiniMax语音合成', nameEn: 'MiniMax Speech', category: 'audio', sortOrder: 40, creditsPerCall: 10, serviceType: 'minimax-speech', priceYuan: 0.1, description: 'MiniMax Speech 语音合成' },
-      { nodeKey: 'minimaxMusic', nameZh: 'MiniMax音乐生成', nameEn: 'MiniMax Music', category: 'audio', sortOrder: 41, creditsPerCall: 30, serviceType: 'minimax-music', priceYuan: 0.3, description: 'MiniMax 音乐生成' },
+      { nodeKey: 'tencentSpeech', nameZh: '腾讯语音合成', nameEn: 'Tencent Speech', category: 'audio', sortOrder: 41, creditsPerCall: 10, serviceType: 'tencent-speech', priceYuan: 0.1, description: '腾讯 MPS AI 配音语音合成' },
     ];
   }
 

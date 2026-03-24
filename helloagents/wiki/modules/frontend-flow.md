@@ -84,3 +84,22 @@
 
 ## 依赖
 - `reactflow`
+
+## 语音节点补充
+- 新增 `TencentSpeechNode`（`frontend/src/components/flow/nodes/TencentSpeechNode.tsx`），对应节点类型 `tencentSpeech`。
+- 新增系统音色数据源 `frontend/src/components/flow/nodes/tencentSystemVoices.ts`（252 条，来源腾讯云文档 `https://cloud.tencent.com/document/product/862/129151`），用于节点内可检索下拉选择。
+- 该节点对接后端 `POST /api/ai/tencent-speech`，参数按腾讯 MPS AI 配音文档映射：
+  - `text + voiceId` 模式：前端通过 `text` 句柄接入 Prompt 节点文本，并可填写 `voiceId`；后端会优先自动生成 `speaker.json` 并上传 OSS，再发起配音任务（适用于无原音轨视频）。
+  - `text` 模式（回退）：若未提供 `voiceId`（且未配置默认音色），后端自动切分为 SRT 并上传 OSS，再自动发起配音任务。
+  - 跨语种 `srcLang -> dstLang`：当两者不同且使用 `text` 模式时，后端会先做自动翻译，再生成目标字幕/目标配音文本（可通过 `TENCENT_MPS_ENABLE_AUTO_TRANSLATE` 配置开关）。
+  - `speakerUrl` 模式：传 `speakerUrl`。
+  - `subtitleUrls` 模式：传 `srcSubtitleUrl + dstSubtitleUrl`（前端简化单目标语言），并可附带 `srcLang/dstLang`。
+  - 字幕样式：`embedSubtitle/font/fontSize/marginV/outputPattern`。
+- 节点音色交互：
+  - 高级设置中提供“系统音色”搜索 + 下拉，默认按 `srcLang` 过滤（无匹配时回退全量）。
+  - 下拉选中音色后会自动同步 `speakerGender`（男/女）。
+  - 仍保留 `voiceId` 手动输入框，可覆盖下拉结果（兼容自定义/新增音色）。
+- 连接规则：
+  - 输入：左侧 `video` 句柄（必须连接视频节点，不支持手填 URL）。
+  - 输出：右侧 `audio` 与 `video` 双句柄。
+  - `audio` 句柄优先输出音频 URL，若上游仅返回视频 URL 则回退视频 URL；`video` 句柄输出配音后视频，支持继续串到视频分析/抽帧/视频融合等下游节点。

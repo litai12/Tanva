@@ -41,12 +41,18 @@ export const CREDIT_PRICING_CONFIG = {
     provider: 'gemini',
     creditsPerCall: 30,
     description: '使用 Nano banana Pro 编辑图像',
+    resolutionPricing: {
+      '4K': 120,
+    },
   },
   'gemini-3.1-image-edit': {
     serviceName: 'Nano banana 2 图像编辑',
     provider: 'gemini',
     creditsPerCall: 30,
     description: '使用 Nano banana 2 编辑图像',
+    resolutionPricing: {
+      '4K': 60,
+    },
   },
   'gemini-2.5-image-edit': {
     serviceName: 'Nano banana-2.5 图像编辑',
@@ -59,12 +65,18 @@ export const CREDIT_PRICING_CONFIG = {
     provider: 'gemini',
     creditsPerCall: 30,
     description: '使用 Nano banana Pro 融合多张图像',
+    resolutionPricing: {
+      '4K': 120,
+    },
   },
   'gemini-3.1-image-blend': {
     serviceName: 'Nano banana 2 融合',
     provider: 'gemini',
     creditsPerCall: 30,
     description: '使用 Nano banana 2 融合多张图像',
+    resolutionPricing: {
+      '4K': 60,
+    },
   },
   'gemini-2.5-image-blend': {
     serviceName: 'Nano banana-2.5 融合',
@@ -193,7 +205,7 @@ export const CREDIT_PRICING_CONFIG = {
   'convert-2d-to-3d': {
     serviceName: '2D转3D',
     provider: 'runninghub',
-    creditsPerCall: 30,
+    creditsPerCall: 200,
     description: '将2D图像转换为3D模型',
   },
 
@@ -240,11 +252,11 @@ export const CREDIT_PRICING_CONFIG = {
     creditsPerCall: 10,
     description: '使用 MiniMax 进行文本转语音合成',
   },
-  'minimax-music': {
-    serviceName: 'MiniMax 音乐生成',
-    provider: 'minimax',
-    creditsPerCall: 30,
-    description: '使用 MiniMax 生成音乐',
+  'tencent-speech': {
+    serviceName: '腾讯语音合成',
+    provider: 'tencent',
+    creditsPerCall: 10,
+    description: '使用腾讯 MPS AI 配音接口进行语音生成',
   },
   'doubao-seedream-5-0-260128': {
     serviceName: 'Seedream 5.0 图像生成',
