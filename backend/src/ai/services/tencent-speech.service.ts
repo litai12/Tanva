@@ -6,7 +6,11 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import COS from 'cos-nodejs-sdk-v5';
 import { OssService } from '../../oss/oss.service';
 import { AIProviderFactory } from '../ai-provider.factory';
@@ -46,6 +50,9 @@ export class TencentSpeechService {
   private readonly requestTimeoutMs: number;
   private readonly pollIntervalMs: number;
   private readonly maxWaitMs: number;
+  private readonly autoInjectSilentAudio: boolean;
+  private readonly ffprobeTimeoutMs: number;
+  private readonly ffmpegTimeoutMs: number;
 
   constructor(
     private readonly configService: ConfigService,
@@ -105,6 +112,18 @@ export class TencentSpeechService {
       this.configService.get<string>('TENCENT_MPS_MAX_WAIT_MS'),
       600_000,
     );
+    this.autoInjectSilentAudio = this.parseBoolean(
+      this.configService.get<string>('TENCENT_MPS_AUTO_INJECT_SILENT_AUDIO'),
+      true,
+    );
+    this.ffprobeTimeoutMs = this.parsePositiveInt(
+      this.configService.get<string>('TENCENT_MPS_FFPROBE_TIMEOUT_MS'),
+      20_000,
+    );
+    this.ffmpegTimeoutMs = this.parsePositiveInt(
+      this.configService.get<string>('TENCENT_MPS_FFMPEG_TIMEOUT_MS'),
+      180_000,
+    );
     if (this.signOutputUrl && this.secretId && this.secretKey) {
       this.cosClient = new COS({
         SecretId: this.secretId,
@@ -127,11 +146,18 @@ export class TencentSpeechService {
         'TENCENT_MPS_ENABLE_AUTO_TRANSLATE=false，text 模式跨语言时不会自动翻译，请改用 subtitleUrls 模式传入目标字幕。',
       );
     }
+    if (!this.autoInjectSilentAudio) {
+      this.logger.warn(
+        'TENCENT_MPS_AUTO_INJECT_SILENT_AUDIO=false，输入视频无音轨时不会自动补静音轨，腾讯任务可能 FAIL。',
+      );
+    }
   }
 
   async synthesizeSpeech(input: TencentSpeechDto): Promise<TencentSpeechSynthesisResult> {
-    const task = await this.createAsyncSpeechTask(input);
-    const deadline = Date.now() + this.maxWaitMs;
+    let currentInput = input;
+    let task = await this.createAsyncSpeechTask(currentInput);
+    let deadline = Date.now() + this.maxWaitMs;
+    let noAudioRetried = false;
     let lastStatus: string | undefined = task.status;
 
     while (Date.now() < deadline) {
@@ -158,6 +184,32 @@ export class TencentSpeechService {
             // ignore detail query errors, keep original fallback hints
           }
         }
+
+        if (
+          this.autoInjectSilentAudio &&
+          !noAudioRetried &&
+          this.isNoAudioFailureReason(failReason)
+        ) {
+          try {
+            currentInput = await this.forceInjectSilentAudioForInput(currentInput);
+            noAudioRetried = true;
+            const retryTask = await this.createAsyncSpeechTask(currentInput);
+            this.logger.warn(
+              `腾讯语音任务疑似无音轨导致失败，已自动补静音轨并重试: previousTaskId=${
+                queryResult.taskId || task.taskId
+              }, retryTaskId=${retryTask.taskId}`,
+            );
+            task = retryTask;
+            lastStatus = retryTask.status || lastStatus;
+            deadline = Date.now() + this.maxWaitMs;
+            continue;
+          } catch (retryError) {
+            const retryMessage =
+              retryError instanceof Error ? retryError.message : String(retryError);
+            this.logger.warn(`腾讯语音无音轨自动补救重试失败: ${retryMessage}`);
+          }
+        }
+
         const reason = this.resolveFailureHint(failReason);
         this.logger.warn(
           `腾讯语音任务失败 taskId=${queryResult.taskId || task.taskId}, status=${
@@ -185,15 +237,16 @@ export class TencentSpeechService {
 
   async createAsyncSpeechTask(input: TencentSpeechDto): Promise<TencentSpeechAsyncTaskResult> {
     const preparedInput = await this.prepareTextModeInput(input);
+    const mediaReadyInput = await this.ensureInputVideoAudioTrack(preparedInput);
     this.ensureConfigReady();
-    const request = this.buildProcessMediaRequest(preparedInput);
-    const resolvedVoiceId = this.resolveVoiceId(preparedInput.voiceId);
+    const request = this.buildProcessMediaRequest(mediaReadyInput);
+    const resolvedVoiceId = this.resolveVoiceId(mediaReadyInput.voiceId);
     this.logger.debug(
-      `腾讯语音提交任务: inputVideoUrl=${preparedInput.inputVideoUrl}, speakerUrl=${
-        preparedInput.speakerUrl ? 'yes' : 'no'
-      }, srcSubtitleUrl=${preparedInput.srcSubtitleUrl || 'N/A'}, dstSubtitleUrl=${
-        preparedInput.dstSubtitleUrl || 'N/A'
-      }, srcLang=${preparedInput.srcLang || 'N/A'}, dstLang=${preparedInput.dstLang || 'N/A'}, definition=${
+      `腾讯语音提交任务: inputVideoUrl=${mediaReadyInput.inputVideoUrl}, speakerUrl=${
+        mediaReadyInput.speakerUrl ? 'yes' : 'no'
+      }, srcSubtitleUrl=${mediaReadyInput.srcSubtitleUrl || 'N/A'}, dstSubtitleUrl=${
+        mediaReadyInput.dstSubtitleUrl || 'N/A'
+      }, srcLang=${mediaReadyInput.srcLang || 'N/A'}, dstLang=${mediaReadyInput.dstLang || 'N/A'}, definition=${
         this.definition
       }, voiceId=${resolvedVoiceId || 'N/A'}, outputBucket=${this.outputBucket}, outputRegion=${
         this.outputRegion
@@ -453,6 +506,226 @@ export class TencentSpeechService {
     }
 
     return payload;
+  }
+
+  private async forceInjectSilentAudioForInput(input: TencentSpeechDto): Promise<TencentSpeechDto> {
+    const normalizedInputVideoUrl = this.normalizeUrl(input.inputVideoUrl);
+    if (!normalizedInputVideoUrl) {
+      throw new BadRequestException('inputVideoUrl must be a valid http(s) URL');
+    }
+    if (!this.oss.isEnabled()) {
+      throw new ServiceUnavailableException(
+        '检测到输入视频疑似无音轨，但 OSS 未启用，无法自动补静音轨后重试',
+      );
+    }
+    const patched = await this.injectSilentAudioTrackToOss(normalizedInputVideoUrl);
+    this.logger.warn(
+      `腾讯语音自动补救：已补静音轨并准备重试: original=${normalizedInputVideoUrl}, patched=${patched.url}, key=${patched.key}`,
+    );
+    return {
+      ...input,
+      inputVideoUrl: patched.url,
+    };
+  }
+
+  private async ensureInputVideoAudioTrack(input: TencentSpeechDto): Promise<TencentSpeechDto> {
+    const normalizedInputVideoUrl = this.normalizeUrl(input.inputVideoUrl);
+    if (!normalizedInputVideoUrl) {
+      return input;
+    }
+    if (!this.autoInjectSilentAudio) {
+      return {
+        ...input,
+        inputVideoUrl: normalizedInputVideoUrl,
+      };
+    }
+
+    const hasAudio = await this.probeInputVideoAudioStream(normalizedInputVideoUrl);
+    if (hasAudio === undefined || hasAudio) {
+      return {
+        ...input,
+        inputVideoUrl: normalizedInputVideoUrl,
+      };
+    }
+
+    if (!this.oss.isEnabled()) {
+      throw new ServiceUnavailableException(
+        '检测到输入视频无音轨，且 OSS 未启用，无法自动补静音轨后提交腾讯语音任务',
+      );
+    }
+
+    const patched = await this.injectSilentAudioTrackToOss(normalizedInputVideoUrl);
+    this.logger.warn(
+      `检测到输入视频无音轨，已自动补静音轨后重试: original=${normalizedInputVideoUrl}, patched=${patched.url}, key=${patched.key}`,
+    );
+
+    return {
+      ...input,
+      inputVideoUrl: patched.url,
+    };
+  }
+
+  private async probeInputVideoAudioStream(inputVideoUrl: string): Promise<boolean | undefined> {
+    try {
+      const { stdout } = await this.runMediaCommand(
+        'ffprobe',
+        [
+          '-v',
+          'error',
+          '-select_streams',
+          'a',
+          '-show_entries',
+          'stream=index',
+          '-of',
+          'csv=p=0',
+          inputVideoUrl,
+        ],
+        this.ffprobeTimeoutMs,
+      );
+      const lines = stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+      return lines.length > 0;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`音轨探测失败，跳过自动补静音轨预检: ${message}`);
+      return undefined;
+    }
+  }
+
+  private async injectSilentAudioTrackToOss(
+    inputVideoUrl: string,
+  ): Promise<{ key: string; url: string }> {
+    const outputPrefix = this.outputDir.replace(/^\/+|\/+$/g, '');
+    const videoDir = outputPrefix ? `${outputPrefix}/video-inputs` : 'mps/tencent-speech/video-inputs';
+    const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const randomPart = crypto.randomBytes(6).toString('hex');
+    const baseName = `${Date.now()}-${randomPart}`;
+    const key = `${videoDir}/${datePart}/${baseName}-silent-track.mp4`;
+    const tempFile = path.join(os.tmpdir(), `${baseName}-silent-track.mp4`);
+
+    try {
+      await this.runMediaCommand(
+        'ffmpeg',
+        [
+          '-y',
+          '-i',
+          inputVideoUrl,
+          '-f',
+          'lavfi',
+          '-i',
+          'anullsrc=channel_layout=stereo:sample_rate=48000',
+          '-map',
+          '0:v:0',
+          '-map',
+          '1:a:0',
+          '-c:v',
+          'copy',
+          '-c:a',
+          'aac',
+          '-b:a',
+          '128k',
+          '-shortest',
+          '-movflags',
+          '+faststart',
+          tempFile,
+        ],
+        this.ffmpegTimeoutMs,
+      );
+
+      const stat = await fs.promises.stat(tempFile).catch(() => undefined);
+      if (!stat || stat.size <= 0) {
+        throw new ServiceUnavailableException('自动补静音轨失败：ffmpeg 未生成有效输出文件');
+      }
+
+      const fileStream = fs.createReadStream(tempFile);
+      const uploaded = await this.oss.putStream(key, fileStream, { mime: 'video/mp4' });
+      const uploadedUrl = this.normalizeUrl(uploaded.url);
+      if (!uploadedUrl) {
+        throw new ServiceUnavailableException('自动补静音轨失败：上传到 OSS 后未返回可用 URL');
+      }
+
+      return { key: uploaded.key, url: uploadedUrl };
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException) {
+        throw error;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      throw new ServiceUnavailableException(`检测到输入视频无音轨，自动补静音轨失败: ${message}`);
+    } finally {
+      try {
+        if (fs.existsSync(tempFile)) {
+          fs.unlinkSync(tempFile);
+        }
+      } catch {
+        // ignore cleanup errors
+      }
+    }
+  }
+
+  private async runMediaCommand(
+    command: string,
+    args: string[],
+    timeoutMs: number,
+  ): Promise<{ stdout: string; stderr: string }> {
+    return await new Promise((resolve, reject) => {
+      const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      const stdoutChunks: Buffer[] = [];
+      const stderrChunks: Buffer[] = [];
+      const maxCaptureBytes = 512 * 1024;
+      let stdoutBytes = 0;
+      let stderrBytes = 0;
+
+      const appendChunk = (target: Buffer[], chunk: Buffer, currentBytes: number): number => {
+        if (currentBytes >= maxCaptureBytes) {
+          return currentBytes;
+        }
+        const remain = maxCaptureBytes - currentBytes;
+        const sliced = chunk.length > remain ? chunk.subarray(0, remain) : chunk;
+        if (sliced.length > 0) {
+          target.push(sliced);
+          return currentBytes + sliced.length;
+        }
+        return currentBytes;
+      };
+
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL');
+        reject(new ServiceUnavailableException(`${command} timeout`));
+      }, Math.max(1000, timeoutMs));
+
+      child.stdout?.on('data', (chunk) => {
+        stdoutBytes = appendChunk(stdoutChunks, Buffer.from(chunk), stdoutBytes);
+      });
+      child.stderr?.on('data', (chunk) => {
+        stderrBytes = appendChunk(stderrChunks, Buffer.from(chunk), stderrBytes);
+      });
+
+      child.on('error', (error: NodeJS.ErrnoException) => {
+        clearTimeout(timer);
+        if (error?.code === 'ENOENT') {
+          reject(new ServiceUnavailableException(`${command} not installed on the server`));
+          return;
+        }
+        reject(error);
+      });
+
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        const stdout = Buffer.concat(stdoutChunks).toString('utf8');
+        const stderr = Buffer.concat(stderrChunks).toString('utf8');
+        if (code === 0) {
+          resolve({ stdout, stderr });
+          return;
+        }
+        reject(
+          new ServiceUnavailableException(
+            `${command} exited with code ${code}${stderr ? `: ${stderr.slice(-500)}` : ''}`,
+          ),
+        );
+      });
+    });
   }
 
   private buildDubbingParameters(input: TencentSpeechDto): Record<string, any> {
@@ -1552,14 +1825,12 @@ export class TencentSpeechService {
       if (!value) continue;
       const normalized = value.trim();
       if (!normalized) continue;
-      if (
-        ['fail', 'failed', 'error', 'failure', 'unknown'].includes(
-          normalized.toLowerCase(),
-        )
-      ) {
+      const meaningful = this.normalizeFailureReason(normalized);
+      if (!meaningful) continue;
+      if (['fail', 'failed', 'error', 'failure', 'unknown'].includes(meaningful.toLowerCase())) {
         continue;
       }
-      return normalized;
+      return meaningful;
     }
     return undefined;
   }
@@ -1595,11 +1866,26 @@ export class TencentSpeechService {
     if (!this.definitionFromEnv) {
       hints.push('未配置 TENCENT_MPS_DUBBING_DEFINITION（当前默认 32，常见导致 FAIL）');
     }
-    if (!this.defaultVoiceId) {
-      hints.push('若输入视频无原音轨，建议配置 voiceId（节点或 TENCENT_MPS_DEFAULT_VOICE_ID）走 speaker 模式');
+    if (this.autoInjectSilentAudio) {
+      hints.push('若输入视频无原音轨，系统会尝试自动补静音轨；如仍失败请检查 ffmpeg 可用性与 OSS 写权限');
+    } else if (!this.defaultVoiceId) {
+      hints.push('若输入视频无原音轨，建议补充音轨或配置 voiceId（节点或 TENCENT_MPS_DEFAULT_VOICE_ID）');
     }
     hints.push('请确认 TENCENT_MPS_OUTPUT_BUCKET/REGION 可写且与密钥账号匹配');
     hints.push('请确认 inputVideoUrl 与字幕 URL 可被腾讯公网直接访问');
     return hints.join('；');
+  }
+
+  private isNoAudioFailureReason(value?: string): boolean {
+    const normalized = (value || '').trim().toLowerCase();
+    if (!normalized) return false;
+    return (
+      normalized.includes('matches no streams') ||
+      normalized.includes('[0:a]') ||
+      normalized.includes('audio stream') ||
+      normalized.includes('no audio') ||
+      normalized.includes('提取并处理音频失败') ||
+      normalized.includes('无原音轨')
+    );
   }
 }
