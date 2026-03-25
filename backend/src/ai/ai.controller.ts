@@ -35,6 +35,7 @@ import {
   ExpandImageDto,
 } from './dto/image-generation.dto';
 import { MinimaxSpeechDto } from './dto/minimax-speech.dto';
+import { MinimaxMusicDto } from './dto/minimax-music.dto';
 import { TencentSpeechDto } from './dto/tencent-speech.dto';
 import { PaperJSGenerateRequestDto, PaperJSGenerateResponseDto } from './dto/paperjs-generation.dto';
 import { Img2VectorRequestDto, Img2VectorResponseDto } from './dto/img2vector.dto';
@@ -52,9 +53,15 @@ import { Sora2VideoService } from './services/sora2-video.service';
 import { VeoVideoService } from './services/veo-video.service';
 import { VideoProviderService } from './services/video-provider.service';
 import { MinimaxSpeechService } from './services/minimax-speech.service';
+import { MinimaxMusicService } from './services/minimax-music.service';
 import { TencentSpeechService } from './services/tencent-speech.service';
 import { applyWatermarkToBase64 } from './services/watermark.util';
 import { VideoWatermarkService } from './services/video-watermark.service';
+import {
+  createAsyncTask,
+  updateAsyncTask,
+  getAsyncTaskResult,
+} from './services/async-video-task.store';
 import { VideoProviderRequestDto } from './dto/video-provider.dto';
 import { AnalyzeVideoDto } from './dto/video-analysis.dto';
 import { OssService } from '../oss/oss.service';
@@ -131,6 +138,7 @@ export class AiController {
     private readonly videoProviderService: VideoProviderService,
     private readonly minimaxSpeechService: MinimaxSpeechService,
     private readonly tencentSpeechService: TencentSpeechService,
+    private readonly minimaxMusicService: MinimaxMusicService,
     private readonly oss: OssService,
     @Optional() private readonly imageTaskService?: ImageTaskService,
   ) {}
@@ -1829,6 +1837,196 @@ export class AiController {
     );
   }
 
+  /**
+   * 异步视频生成接口
+   * 立即返回 taskId，前端通过轮询 /ai/sora2/video/:taskId 查询进度
+   * 解决线上反向代理超时问题（504 Gateway Timeout）
+   */
+  @Post('generate-video-async')
+  async generateVideoAsync(@Body() dto: GenerateVideoDto, @Req() req: any) {
+    const quality = dto.quality === 'sd' ? 'sd' : 'hd';
+    const serviceType: ServiceType = quality === 'sd' ? 'sora-sd' : 'sora-hd';
+    const selectedSoraModel =
+      dto.model === 'sora-2' || dto.model === 'sora-2-pro'
+        ? dto.model
+        : quality === 'hd'
+        ? 'sora-2-pro'
+        : 'sora-2';
+    const normalizedArray =
+      dto.referenceImageUrls?.filter((url) => typeof url === 'string' && url.trim().length > 0) ||
+      [];
+    const legacySingle = dto.referenceImageUrl?.trim();
+    const referenceImageUrls = legacySingle ? [...normalizedArray, legacySingle] : normalizedArray;
+    const hasCharacterMode =
+      (typeof dto.characterTaskId === 'string' && dto.characterTaskId.trim().length > 0) ||
+      (typeof dto.characterUrl === 'string' && dto.characterUrl.trim().length > 0);
+    const effectiveReferenceImageUrls = hasCharacterMode ? [] : referenceImageUrls;
+    const inputImageCount = effectiveReferenceImageUrls.length || undefined;
+
+    this.logger.log(
+      `[Async] Video generation request received (quality=${quality}, referenceCount=${effectiveReferenceImageUrls.length}, characterMode=${hasCharacterMode})`,
+    );
+
+    // 创建异步任务并写入内存存储
+    const taskId = `async-sora2-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+    createAsyncTask(taskId);
+
+    // 在后台执行实际任务（不阻塞请求）
+    this.executeVideoGenerationAsync(
+      taskId,
+      req,
+      serviceType,
+      selectedSoraModel,
+      {
+        prompt: dto.prompt,
+        referenceImageUrls: effectiveReferenceImageUrls,
+        quality,
+        aspectRatio: dto.aspectRatio,
+        duration: dto.duration,
+        model: dto.model,
+        watermark: dto.watermark,
+        thumbnail: dto.thumbnail,
+        privateMode: dto.privateMode,
+        style: dto.style,
+        storyboard: dto.storyboard,
+        characterUrl: dto.characterUrl,
+        characterTimestamps: dto.characterTimestamps,
+        characterTaskId: dto.characterTaskId,
+      },
+      inputImageCount,
+      0,
+      { quality, soraModel: selectedSoraModel, aspectRatio: dto.aspectRatio, duration: dto.duration },
+    );
+
+    // 立即返回 taskId，不等待视频生成完成
+    return {
+      success: true,
+      taskId,
+      status: 'pending',
+      message: '视频生成任务已提交，请通过 taskId 轮询查询进度',
+    };
+  }
+
+  /**
+   * 后台执行视频生成（不阻塞 HTTP 请求）
+   */
+  private async executeVideoGenerationAsync(
+    taskId: string,
+    req: any,
+    serviceType: ServiceType,
+    selectedSoraModel: string,
+    options: Parameters<typeof this.sora2VideoService.generateVideo>[0],
+    inputImageCount: number | undefined,
+    outputImageCount: number,
+    requestParams?: Record<string, any>,
+  ): Promise<void> {
+    // 异步执行，不等待结果
+    this.processVideoGenerationTask(taskId, req, serviceType, selectedSoraModel, options, inputImageCount, outputImageCount, requestParams)
+      .catch((error) => {
+        this.logger.error(`[Async] Video generation task ${taskId} failed:`, error);
+      });
+  }
+
+  /**
+   * 处理视频生成任务（积分扣费 + 实际生成）
+   */
+  private async processVideoGenerationTask(
+    taskId: string,
+    req: any,
+    serviceType: ServiceType,
+    selectedSoraModel: string,
+    options: Parameters<typeof this.sora2VideoService.generateVideo>[0],
+    inputImageCount: number | undefined,
+    outputImageCount: number,
+    requestParams?: Record<string, any>,
+  ): Promise<void> {
+    // 更新任务状态为处理中
+    updateAsyncTask(taskId, { status: 'processing' });
+
+    try {
+      // 调用 withCredits 执行积分扣费和实际生成
+      const result = await this.withCredits(
+        req,
+        serviceType,
+        selectedSoraModel,
+        async () => {
+          const videoResult = await this.sora2VideoService.generateVideo(options);
+
+          if (!videoResult?.videoUrl) {
+            throw new ServiceUnavailableException(
+              videoResult?.fallbackMessage || videoResult?.content || '视频生成失败：未返回可用视频链接',
+            );
+          }
+
+          const skipWatermark = await this.canSkipWatermark(req);
+          this.logger.log(`[Async] Video generated for task ${taskId}, skipWatermark=${skipWatermark}`);
+
+          let finalResult = { ...videoResult };
+
+          if (skipWatermark) {
+            let proxiedUrl = videoResult.videoUrl;
+            try {
+              const uploaded = await this.videoWatermarkService.uploadOriginalToOSS(videoResult.videoUrl);
+              proxiedUrl = uploaded.url;
+            } catch (error) {
+              this.logger.warn(`[Async] Video OSS copy failed for task ${taskId}`, error);
+            }
+            finalResult = {
+              ...videoResult,
+              videoUrl: proxiedUrl,
+              videoUrlRaw: videoResult.videoUrl,
+              videoUrlWatermarked: proxiedUrl,
+              watermarkSkipped: true,
+            };
+          } else {
+            try {
+              const wm = await this.videoWatermarkService.addWatermarkAndUpload(videoResult.videoUrl, {
+                text: 'Tanvas AI',
+              });
+              finalResult = {
+                ...videoResult,
+                videoUrl: wm.url,
+                videoUrlRaw: videoResult.videoUrl,
+                videoUrlWatermarked: wm.url,
+                watermarkSkipped: false,
+              };
+            } catch (error) {
+              this.logger.error(`[Async] Video watermark failed for task ${taskId}:`, error);
+              finalResult = {
+                ...videoResult,
+                videoUrl: videoResult.videoUrl,
+                videoUrlRaw: videoResult.videoUrl,
+                videoUrlWatermarked: videoResult.videoUrl,
+                watermarkFailed: true,
+              };
+            }
+          }
+
+          return finalResult;
+        },
+        inputImageCount,
+        outputImageCount,
+        undefined,
+        requestParams,
+      );
+
+      // 更新任务状态为完成
+      updateAsyncTask(taskId, {
+        status: 'completed',
+        result: result as any,
+      });
+      this.logger.log(`[Async] Video generation task ${taskId} completed successfully`);
+    } catch (error) {
+      // 更新任务状态为失败
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      updateAsyncTask(taskId, {
+        status: 'failed',
+        error: errorMessage,
+      });
+      this.logger.error(`[Async] Video generation task ${taskId} failed:`, error);
+    }
+  }
+
   @Post('sora2/character/create')
   async createSora2Character(@Body() dto: CreateSora2CharacterDto) {
     if (!dto.url && !dto.fromTask) {
@@ -1860,7 +2058,34 @@ export class AiController {
     if (!taskId || !taskId.trim()) {
       throw new BadRequestException('taskId 不能为空');
     }
-    return this.sora2VideoService.queryVideoTask(taskId.trim());
+    const trimmedTaskId = taskId.trim();
+
+    // 首先检查是否是异步任务
+    const asyncTask = getAsyncTaskResult(trimmedTaskId);
+    if (asyncTask) {
+      // 异步任务，直接返回存储的结果
+      if (asyncTask.status === 'completed' && asyncTask.result) {
+        return {
+          id: trimmedTaskId,
+          status: asyncTask.result.status || 'completed',
+          videoUrl: asyncTask.result.videoUrl,
+          thumbnailUrl: asyncTask.result.thumbnailUrl,
+          raw: asyncTask.result,
+        };
+      }
+      if (asyncTask.status === 'failed') {
+        throw new ServiceUnavailableException(asyncTask.error || '视频生成失败');
+      }
+      // pending 或 processing，返回进行中状态
+      return {
+        id: trimmedTaskId,
+        status: asyncTask.status === 'processing' ? 'processing' : 'pending',
+        progress: asyncTask.status === 'processing' ? 50 : 10,
+      };
+    }
+
+    // 非异步任务，调用原始的 Sora2 查询接口
+    return this.sora2VideoService.queryVideoTask(trimmedTaskId);
   }
 
   /**
@@ -3072,6 +3297,16 @@ export class AiController {
       throw new BadRequestException('taskId is required');
     }
     return this.minimaxSpeechService.queryAsyncSpeechTask(normalizedTaskId);
+  }
+
+  @Post('minimax-music')
+  async generateMusic(@Body() dto: MinimaxMusicDto, @Req() req: any) {
+    return this.withCredits(
+      req,
+      'minimax-music',
+      dto.model,
+      async () => this.minimaxMusicService.generateMusic(dto),
+    );
   }
 }
 

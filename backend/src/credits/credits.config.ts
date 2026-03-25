@@ -266,6 +266,12 @@ export const CREDIT_PRICING_CONFIG = {
     creditsPerCall: 10,
     description: '使用 MiniMax 进行文本转语音合成',
   },
+  'minimax-music': {
+    serviceName: 'MiniMax 音乐生成',
+    provider: 'minimax',
+    creditsPerCall: 30,
+    description: '使用 MiniMax 进行音乐生成',
+  },
   'tencent-speech': {
     serviceName: '腾讯语音合成',
     provider: 'tencent',

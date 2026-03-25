@@ -1142,6 +1142,15 @@ const normalizeSora2ErrorMessage = (rawMessage?: string, status?: number): strin
   }
 
   if (
+    lower.includes("积分不足") ||
+    lower.includes("insufficient credit") ||
+    lower.includes("not enough credit") ||
+    normalized.includes("积分不足")
+  ) {
+    return normalized || "积分不足，请先充值后重试。";
+  }
+
+  if (
     lower.includes("in_progress") ||
     lower.includes("submitted") ||
     normalized.includes("处理中")
@@ -1258,6 +1267,86 @@ export async function generateVideoViaAPI(
   }
 }
 
+/**
+ * 异步视频生成接口
+ * 立即返回 taskId，前端通过轮询查询进度
+ */
+export async function generateVideoAsyncAPI(
+  request: VideoGenerationRequest
+): Promise<AIServiceResponse<{ taskId: string; status: string; message: string }>> {
+  const startedAt = getTimestamp();
+  try {
+    const referenceImageUrls = (request.referenceImageUrls || []).filter(
+      (url): url is string => typeof url === "string" && url.trim().length > 0
+    );
+    const payload: VideoGenerationRequest = {
+      ...request,
+      referenceImageUrls: referenceImageUrls.length
+        ? referenceImageUrls
+        : undefined,
+    };
+
+    const response = await fetchWithAuth(`${API_BASE_URL}/ai/generate-video-async`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const rawMessage = readBackendErrorMessage(errorData);
+      logApiTiming("generate-video-async", startedAt, {
+        success: false,
+        status: response.status,
+        quality: request.quality,
+        references: referenceImageUrls.length,
+      });
+      return {
+        success: false,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: normalizeSora2ErrorMessage(rawMessage, response.status),
+          timestamp: new Date(),
+        },
+      };
+    }
+
+    const data = await response.json();
+    logApiTiming("generate-video-async", startedAt, {
+      success: true,
+      quality: request.quality,
+      references: referenceImageUrls.length,
+    });
+    return {
+      success: true,
+      data: {
+        taskId: data.taskId,
+        status: data.status,
+        message: data.message,
+      },
+    };
+  } catch (error) {
+    logApiTiming("generate-video-async", startedAt, {
+      success: false,
+      quality: request.quality,
+      references: Array.isArray(request.referenceImageUrls)
+        ? request.referenceImageUrls.length
+        : 0,
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+    return {
+      success: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "Network error",
+        timestamp: new Date(),
+      },
+    };
+  }
+}
+
 export interface Sora2CharacterCreateRequest {
   model?: "sora-2" | "sora-2-pro";
   timestamps: string;
@@ -1290,7 +1379,12 @@ export interface Sora2VideoTaskResult {
   status: string;
   progress?: number;
   videoUrl?: string;
+  video_url?: string;
   thumbnailUrl?: string;
+  thumbnail_url?: string;
+  content?: string;
+  referencedUrls?: string[];
+  taskInfo?: Record<string, any>;
   raw?: Record<string, any>;
 }
 
@@ -1312,8 +1406,11 @@ export async function createSora2CharacterViaAPI(
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      const rawMessage = readBackendErrorMessage(errorData);
+      const errorData = await response.json().catch(() => null);
+      const rawMessage =
+        readBackendErrorMessage(errorData) ||
+        (await response.clone().text().catch(() => "")) ||
+        `HTTP ${response.status}`;
       return {
         success: false,
         error: {
@@ -1350,8 +1447,11 @@ export async function querySora2CharacterTaskViaAPI(
     );
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      const rawMessage = readBackendErrorMessage(errorData);
+      const errorData = await response.json().catch(() => null);
+      const rawMessage =
+        readBackendErrorMessage(errorData) ||
+        (await response.clone().text().catch(() => "")) ||
+        `HTTP ${response.status}`;
       return {
         success: false,
         error: {
@@ -1385,8 +1485,11 @@ export async function querySora2VideoTaskViaAPI(
     );
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      const rawMessage = readBackendErrorMessage(errorData);
+      const errorData = await response.json().catch(() => null);
+      const rawMessage =
+        readBackendErrorMessage(errorData) ||
+        (await response.clone().text().catch(() => "")) ||
+        `HTTP ${response.status}`;
       return {
         success: false,
         error: {

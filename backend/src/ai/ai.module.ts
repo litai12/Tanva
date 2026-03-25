@@ -27,6 +27,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { Nano2Service } from './services/nano2.service';
 import { Seedream5Service } from './services/seedream5.service';
 import { MinimaxSpeechService } from './services/minimax-speech.service';
+import { MinimaxMusicService } from './services/minimax-music.service';
 import { TencentSpeechService } from './services/tencent-speech.service';
 
 @Module({
@@ -58,6 +59,7 @@ import { TencentSpeechService } from './services/tencent-speech.service';
     Nano2Service,
     Seedream5Service,
     MinimaxSpeechService,
+    MinimaxMusicService,
     TencentSpeechService,
     ImageTaskService, // 添加图像任务服务
     ApiKeyOrJwtGuard,

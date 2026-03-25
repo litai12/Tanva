@@ -82,6 +82,7 @@ import ImageSplitNode from "./nodes/ImageSplitNode";
 import ImageCompressNode from "./nodes/ImageCompressNode";
 import MinimaxSpeechNode from "./nodes/MinimaxSpeechNode";
 import MinimaxMusicNode from "./nodes/MinimaxMusicNode";
+import TencentSpeechNode from "./nodes/TencentSpeechNode";
 import Nano2Node from "./nodes/Nano2Node";
 import Seedream5Node from "./nodes/Seedream5Node";
 import NodeGroupNode from "./nodes/NodeGroupNode";
@@ -609,7 +610,7 @@ const FLOW_CLIPBOARD_MIME = "application/x-tanva-flow";
 const FLOW_CLIPBOARD_FALLBACK_TEXT = "Tanva flow selection";
 const FLOW_CLIPBOARD_TYPE = "tanva-flow";
 
-const nodeTypes = {
+const rawNodeTypes = {
   nodeGroup: NodeGroupNode,
   textPrompt: TextPromptNode,
   textPromptPro: TextPromptProNode,
@@ -654,7 +655,11 @@ const nodeTypes = {
   imageCompress: ImageCompressNode,
   minimaxSpeech: MinimaxSpeechNode,
   minimaxMusic: MinimaxMusicNode,
+  tencentSpeech: TencentSpeechNode,
 };
+
+/** 节点内通过 data.error 字段展示错误 */
+const nodeTypes = rawNodeTypes;
 
 // 自定义边组件 - 选中时在终点显示删除按钮
 const EDGE_DELETE_BUTTON_STYLE: React.CSSProperties = {
@@ -782,6 +787,7 @@ const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "viduQ3",
   "doubaoVideo",
   "minimaxSpeech",
+  "tencentSpeech",
   "minimaxMusic",
 ]);
 const FLOW_GROUP_LOCAL_RUN_TYPES = new Set([
@@ -983,6 +989,7 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "audioUpload", sourceHandle: "audio" },
     { nodeType: "minimaxSpeech", sourceHandle: "audio" },
     { nodeType: "minimaxMusic", sourceHandle: "audio" },
+    { nodeType: "tencentSpeech", sourceHandle: "audio" },
   ],
   character: [
     { nodeType: "video", sourceHandle: "video" },
@@ -1053,6 +1060,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   doubaoVideo: 600, // Seedance 1.5 Pro包视频生成
   videoToGif: 30, // 视频转GIF
   minimaxSpeech: 10, // MiniMax 语音合成
+  tencentSpeech: 10, // 腾讯语音合成
   minimaxMusic: 30, // MiniMax 音乐生成
   audioUpload: 0, // 语音上传节点 - 不消耗积分
   camera: 0, // 截图节点 - 不消耗积分
@@ -1108,6 +1116,7 @@ const NODE_PALETTE_ITEMS = [
   { key: "storyboardSplit", zh: "分镜拆分节点", en: "Storyboard Split", category: "other" },
   { key: "audioUpload", zh: "语音节点", en: "Audio Node", category: "audio" },
   { key: "minimaxSpeech", zh: "MiniMax语音合成", en: "MiniMax Speech", category: "audio" },
+  { key: "tencentSpeech", zh: "腾讯语音合成", en: "Tencent Speech", category: "audio" },
   { key: "minimaxMusic", zh: "MiniMax音乐生成", en: "MiniMax Music", category: "audio" },
 ];
 
@@ -1214,6 +1223,7 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   videoToGif: "video",
   audioUpload: "audio",
   minimaxSpeech: "audio",
+  tencentSpeech: "audio",
   minimaxMusic: "audio",
 };
 
@@ -1271,6 +1281,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   imageSplit: { w: 320, h: 400 },
   imageCompress: { w: 300, h: 360 },
   minimaxSpeech: { w: 280, h: 240 },
+  tencentSpeech: { w: 300, h: 400 },
   minimaxMusic: { w: 300, h: 460 },
 } as const;
 
@@ -5977,6 +5988,33 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
+          : type === "tencentSpeech"
+          ? {
+              status: "idle" as const,
+              text: "",
+              history: [] as Array<{
+                id: string;
+                prompt: string;
+                audioUrl: string;
+                videoUrl?: string;
+                createdAt: number;
+              }>,
+              selectedHistoryId: undefined,
+              voiceId: "",
+              speakerGender: "male" as const,
+              srcLang: "zh",
+              dstLang: "en",
+              srcSubtitleUrl: "",
+              dstSubtitleUrl: "",
+              embedSubtitle: true,
+              font: "auto",
+              fontSize: 50,
+              marginV: 50,
+              outputPattern: "",
+              speakerUrlInput: "",
+              boxW: size.w,
+              boxH: size.h,
+            }
           : type === "minimaxMusic"
           ? {
               status: "idle" as const,
@@ -6563,7 +6601,7 @@ function FlowInner() {
         }
         if (targetHandle === "audio") {
           if (sourceHandle !== "audio") return false;
-          return ["audioUpload", "minimaxSpeech", "minimaxMusic"].includes(
+          return ["audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
             sourceNode.type || ""
           );
         }
@@ -6573,7 +6611,7 @@ function FlowInner() {
       if (targetNode.type === "audioUpload") {
         if (targetHandle === "audio") {
           if (sourceHandle !== "audio") return false;
-          return ["audioUpload", "minimaxSpeech", "minimaxMusic"].includes(
+          return ["audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
             sourceNode.type || ""
           );
         }
@@ -6620,7 +6658,7 @@ function FlowInner() {
         if (targetHandle === "audio") {
           if (!canKlingNodeUseAudioInput(targetNode)) return false;
           if (sourceHandle !== "audio") return false;
-          return ["audioUpload", "minimaxSpeech", "minimaxMusic"].includes(
+          return ["audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
             sourceNode.type || ""
           );
         }
@@ -6695,6 +6733,15 @@ function FlowInner() {
       if (targetNode.type === "minimaxSpeech") {
         if (targetHandle === "text") {
           return textSourceTypes.includes(sourceNode.type || "");
+        }
+        return false;
+      }
+      if (targetNode.type === "tencentSpeech") {
+        if (targetHandle === "text") {
+          return textSourceTypes.includes(sourceNode.type || "");
+        }
+        if (targetHandle === "video") {
+          return ["video", "sora2Video", "wan26", "wan2R2V", "klingVideo", "kling26Video", "klingO1Video", "viduVideo", "viduQ3", "doubaoVideo"].includes(sourceNode.type || "");
         }
         return false;
       }
@@ -7118,6 +7165,7 @@ function FlowInner() {
           "viduVideo",
           "doubaoVideo",
           "minimaxSpeech",
+          "tencentSpeech",
           "minimaxMusic",
         ];
         if (
@@ -11416,6 +11464,188 @@ function FlowInner() {
         return;
       }
 
+      // 腾讯语音合成节点处理逻辑
+      if (node.type === "tencentSpeech") {
+        const { text: upstreamText, hasEdge: hasTextEdge } = getTextPromptForNode(nodeId);
+        const localTextRaw =
+          typeof (node.data as any)?.text === "string"
+            ? (node.data as any).text
+            : "";
+        const localText = localTextRaw.trim();
+        const finalText = (upstreamText || localText).trim();
+
+        const sanitizeMediaUrl = (url?: string | null) => {
+          if (!url || typeof url !== "string") return undefined;
+          const trimmed = url.trim();
+          if (!trimmed) return undefined;
+          const markdownSplit = trimmed.split("](");
+          const candidate = markdownSplit.length > 1 ? markdownSplit[0] : trimmed;
+          const spaceIdx = candidate.indexOf(" ");
+          return spaceIdx > 0 ? candidate.slice(0, spaceIdx) : candidate;
+        };
+
+        const resolveVideoUrl = (edge: Edge): string | undefined => {
+          const srcNode = rf.getNode(edge.source);
+          if (!srcNode) return undefined;
+          const data = (srcNode.data as any) || {};
+          const direct =
+            data.videoUrl ||
+            data.video_url ||
+            data.output?.video_url ||
+            (Array.isArray(data.output) ? data.output[0]?.video_url : undefined) ||
+            data.raw?.output?.video_url ||
+            data.raw?.video_url;
+          const fromHistory = Array.isArray(data.history)
+            ? data.history[0]?.videoUrl
+            : undefined;
+          return sanitizeMediaUrl(direct) || sanitizeMediaUrl(fromHistory);
+        };
+
+        const videoEdge = currentEdges.find(
+          (e) => e.target === nodeId && e.targetHandle === "video"
+        );
+        const inputVideoUrl = videoEdge ? resolveVideoUrl(videoEdge) : undefined;
+        if (!inputVideoUrl) {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "failed",
+                      error: "请连接视频输入",
+                    },
+                  }
+                : n
+            )
+          );
+          return;
+        }
+
+        setNodes((ns) =>
+          ns.map((n) =>
+            n.id === nodeId
+              ? {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    status: "running",
+                    error: undefined,
+                    inputVideoUrl,
+                    text: finalText,
+                  },
+                }
+              : n
+          )
+        );
+
+        try {
+          const speakerUrlInput = (node.data as any)?.speakerUrlInput;
+          const voiceId = (node.data as any)?.voiceId;
+          const speakerGender = (node.data as any)?.speakerGender;
+          const srcLang = (node.data as any)?.srcLang;
+          const dstLang = (node.data as any)?.dstLang;
+          const srcSubtitleUrl = (node.data as any)?.srcSubtitleUrl;
+          const dstSubtitleUrl = (node.data as any)?.dstSubtitleUrl;
+          const embedSubtitle = (node.data as any)?.embedSubtitle;
+          const font = (node.data as any)?.font;
+          const fontSize = (node.data as any)?.fontSize;
+          const marginV = (node.data as any)?.marginV;
+          const outputPattern = (node.data as any)?.outputPattern;
+
+          const response = await fetchWithAuth("/api/ai/tencent-speech", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              inputVideoUrl,
+              text: finalText || undefined,
+              speakerUrl: speakerUrlInput?.trim() || undefined,
+              voiceId: voiceId?.trim() || undefined,
+              speakerGender: speakerGender?.trim() || undefined,
+              srcLang: srcLang?.trim() || undefined,
+              dstLang: dstLang?.trim() || undefined,
+              srcSubtitleUrl: srcSubtitleUrl?.trim() || undefined,
+              dstSubtitleUrl: dstSubtitleUrl?.trim() || undefined,
+              embedSubtitle,
+              font: font?.trim() || undefined,
+              fontSize: typeof fontSize === "number" ? fontSize : undefined,
+              marginV: typeof marginV === "number" ? marginV : undefined,
+              outputPattern: outputPattern?.trim() || undefined,
+            }),
+          });
+
+          if (!response.ok) {
+            let message = "腾讯语音合成失败";
+            try {
+              const errorData = await response.json();
+              message = errorData?.message || errorData?.error || message;
+            } catch {}
+            throw new Error(message);
+          }
+
+          const result = await response.json();
+          const audioUrl = result?.audioUrl;
+          const videoUrl = result?.videoUrl;
+
+          if (!audioUrl && !videoUrl) {
+            throw new Error("腾讯语音合成返回缺少结果");
+          }
+
+          const historyItemId = `tencent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          const historyItem = {
+            id: historyItemId,
+            prompt: finalText,
+            audioUrl: audioUrl || "",
+            videoUrl: typeof videoUrl === "string" ? videoUrl : undefined,
+            createdAt: Date.now(),
+          };
+
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "succeeded",
+                      audioUrl: audioUrl || n.data?.audioUrl,
+                      videoUrl: typeof videoUrl === "string" ? videoUrl : n.data?.videoUrl,
+                      selectedHistoryId: historyItemId,
+                      history: [
+                        historyItem,
+                        ...(
+                          Array.isArray((n.data as any)?.history)
+                            ? ((n.data as any).history as Array<Record<string, unknown>>)
+                                .filter(
+                                  (item) =>
+                                    (typeof item?.audioUrl === "string" && item.audioUrl.trim().length > 0) ||
+                                    (typeof item?.videoUrl === "string" && item.videoUrl.trim().length > 0)
+                                )
+                                .slice(0, 29)
+                            : []
+                        ),
+                      ],
+                      error: undefined,
+                    },
+                  }
+                : n
+            )
+          );
+        } catch (error) {
+          console.error("[tencentSpeech] 错误:", error);
+          const msg = error instanceof Error ? error.message : "腾讯语音合成失败";
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? { ...n, data: { ...n.data, status: "failed", error: msg } }
+                : n
+            )
+          );
+        }
+        return;
+      }
+
       // MiniMax Music 节点处理逻辑
       if (node.type === "minimaxMusic") {
         console.log("[minimaxMusic] 开始处理");
@@ -14346,6 +14576,7 @@ function FlowInner() {
         n.type === "nano2" ||
         n.type === "seedream5" ||
         n.type === "minimaxSpeech" ||
+        n.type === "tencentSpeech" ||
         n.type === "minimaxMusic"
           ? { ...n, data: { ...n.data, onRun: runNode, onSend: onSendHandler } }
           : n.type === "image" || n.type === "imagePro"

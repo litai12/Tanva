@@ -1,4 +1,4 @@
-﻿/**
+/**
  * AI聊天对话框状态管理
  * 管理对话框显示、输入内容和生成状态
  */
@@ -17,6 +17,8 @@ import {
   generateTextResponseViaAPI,
   midjourneyActionViaAPI,
   generateVideoViaAPI,
+  generateVideoAsyncAPI,
+  querySora2VideoTaskViaAPI,
 } from "@/services/aiBackendAPI";
 import {
   generateVideoByProvider,
@@ -31,6 +33,7 @@ import { ossUploadService, dataURLToBlob, dataURLToBlobAsync } from "@/services/
 import { createSafeStorage } from "@/stores/storageUtils";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useImageHistoryStore } from "@/stores/imageHistoryStore";
+import { isInsufficientCreditsErrorMessage } from "@/utils/creditsError";
 import { createImagePreviewDataUrl } from "@/utils/imagePreview";
 import { logger } from "@/utils/logger";
 import { createAsyncLimiter, mapWithLimit } from "@/utils/asyncLimit";
@@ -1324,12 +1327,17 @@ export type Sora2VideoGenerationOptions = {
   characterTaskId?: string;
 };
 
+// 异步任务轮询配置
+const ASYNC_POLL_INTERVAL_MS = 5000; // 5秒轮询一次
+const ASYNC_POLL_MAX_ATTEMPTS = 180; // 最多轮询 15 分钟
+const ASYNC_POLL_MAX_TIMEOUT_MS = ASYNC_POLL_INTERVAL_MS * ASYNC_POLL_MAX_ATTEMPTS;
+
 export async function requestSora2VideoGeneration(
   prompt: string,
   referenceImageUrls?: string | string[] | null,
   options?: Sora2VideoGenerationOptions
 ) {
-  options?.onProgress?.("提交视频生成请求", 35);
+  options?.onProgress?.("提交视频生成请求", 10);
 
   const normalizedImages = Array.isArray(referenceImageUrls)
     ? referenceImageUrls
@@ -1351,7 +1359,8 @@ export async function requestSora2VideoGeneration(
       ? (String(options.durationSeconds) as "10" | "15" | "25")
       : undefined;
 
-  const response = await generateVideoViaAPI({
+  // 使用异步接口，立即获取 taskId
+  const asyncResponse = await generateVideoAsyncAPI({
     prompt,
     referenceImageUrls: cleanedImageUrls.length ? cleanedImageUrls : undefined,
     quality: options?.quality,
@@ -1368,12 +1377,85 @@ export async function requestSora2VideoGeneration(
     characterTaskId: options?.characterTaskId,
   });
 
-  if (!response.success || !response.data) {
-    throw new Error(response.error?.message || "视频生成失败");
+  if (!asyncResponse.success || !asyncResponse.data) {
+    throw new Error(asyncResponse.error?.message || "视频生成请求失败");
   }
 
-  options?.onProgress?.("解析视频响应", 85);
-  return response.data;
+  const { taskId } = asyncResponse.data;
+  console.log("[Sora2] Async task created:", taskId);
+
+  // 轮询查询任务状态
+  options?.onProgress?.("视频生成中，请稍候...", 20);
+
+  const startTime = Date.now();
+  let lastError: string | undefined;
+
+  for (let attempt = 1; attempt <= ASYNC_POLL_MAX_ATTEMPTS; attempt++) {
+    // 等待一段时间
+    await new Promise(resolve => setTimeout(resolve, ASYNC_POLL_INTERVAL_MS));
+
+    // 检查超时
+    if (Date.now() - startTime > ASYNC_POLL_MAX_TIMEOUT_MS) {
+      throw new Error("视频生成超时，请稍后重试");
+    }
+
+    // 查询任务状态
+    const pollResponse = await querySora2VideoTaskViaAPI(taskId);
+
+    if (!pollResponse.success) {
+      const failMsg = pollResponse.error?.message || "";
+      lastError = failMsg;
+      if (isInsufficientCreditsErrorMessage(failMsg)) {
+        throw new Error(failMsg);
+      }
+      // 本服务异步任务失败时查询接口返回 503 + 错误文案，应终止轮询而非空等超时
+      if (
+        pollResponse.error?.code === "HTTP_503" &&
+        typeof taskId === "string" &&
+        taskId.startsWith("async-sora2-")
+      ) {
+        throw new Error(failMsg || "视频生成失败");
+      }
+      console.warn(`[Sora2] Poll attempt ${attempt} failed:`, lastError);
+      // 继续轮询，不立即失败
+      options?.onProgress?.(`视频生成中（查询失败，第${attempt}次）...`, 20 + Math.min(50, attempt));
+      continue;
+    }
+
+    const taskData = pollResponse.data;
+
+    // 计算进度 (20% - 90%)
+    const progress = Math.min(90, 20 + (attempt / ASYNC_POLL_MAX_ATTEMPTS) * 70);
+    options?.onProgress?.(`视频生成中（${Math.round(progress)}%）...`, progress);
+
+    // 检查任务状态
+    const status = taskData?.status?.toLowerCase();
+
+    if (status === 'completed' || status === 'succeeded' || status === 'success') {
+      console.log("[Sora2] Task completed:", taskId);
+      options?.onProgress?.("视频生成完成", 95);
+      return {
+        videoUrl: taskData?.videoUrl || taskData?.video_url,
+        content: taskData?.content || "视频已生成",
+        referencedUrls: taskData?.referencedUrls || [],
+        thumbnailUrl: taskData?.thumbnailUrl || taskData?.thumbnail_url,
+        status: taskData?.status,
+        taskId: taskId,
+        taskInfo: taskData?.taskInfo || taskData?.raw,
+      };
+    }
+
+    if (status === 'failed' || status === 'error' || status === 'failure') {
+      const errorMsg = taskData?.raw?.error?.message || taskData?.raw?.message || "视频生成失败";
+      throw new Error(errorMsg);
+    }
+
+    // pending 或 processing 状态，继续轮询
+    console.log(`[Sora2] Poll attempt ${attempt}/${ASYNC_POLL_MAX_ATTEMPTS}:`, status);
+  }
+
+  // 轮询次数用尽仍未完成
+  throw new Error(lastError || "视频生成超时，请稍后重试");
 }
 const downloadUrlAsDataUrl = async (url: string): Promise<string | null> => {
   try {
@@ -4990,7 +5072,6 @@ export const useAIChatStore = create<AIChatState>()(
               try {
                 const remoteCandidate =
                   imageRemoteUrl ??
-                  undefined ??
                   getResultImageRemoteUrl(result.data) ??
                   null;
                 if (remoteCandidate) {
