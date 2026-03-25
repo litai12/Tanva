@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { cn } from "@/lib/utils";
-import { ArrowLeft, FileText, CheckCircle, Clock, XCircle, Loader2, RefreshCw } from "lucide-react";
+import { ArrowLeft, FileText, CheckCircle, Clock, XCircle, Loader2, RefreshCw, Pencil } from "lucide-react";
 import {
   createPaymentOrder,
   getPaymentStatus,
@@ -27,6 +27,7 @@ interface PaymentPanelProps {
 
 const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess }) => {
   const [packages, setPackages] = useState<RechargePackage[]>([]);
+  const [creditsPerYuan, setCreditsPerYuan] = useState<number>(100);
   const [packagesLoading, setPackagesLoading] = useState(true);
   const [selectedPackage, setSelectedPackage] = useState<number | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("alipay");
@@ -41,15 +42,30 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
   const [isExpired, setIsExpired] = useState(false);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  /** 递增后可使尚未完成的 createPaymentOrder 回调不再写入 state，避免套餐单与自定义单互相覆盖 */
+  const orderRequestIdRef = useRef(0);
 
-  // 当前选中的支付金额和积分
+  // 自定义积分解锁：历史累计已支付 ≥ ¥200 才显示该区域
+  const [customAmountEligible, setCustomAmountEligible] = useState(false);
+  const [customAmountMode, setCustomAmountMode] = useState(false);
+  const [customCreditsInput, setCustomCreditsInput] = useState("");
+
+  const parseCustomCredits = (raw: string) =>
+    Math.max(0, Math.floor(Number.parseFloat(raw.replace(/,/g, "").trim()) || 0));
+
+  // 当前选中的支付金额和积分（自定义：先填积分，再换算金额）
   const currentPayInfo = useMemo(() => {
+    if (customAmountMode) {
+      const credits = parseCustomCredits(customCreditsInput);
+      const amount = Math.round((credits / creditsPerYuan) * 100) / 100;
+      return { amount, credits };
+    }
     if (selectedPackage !== null && packages[selectedPackage]) {
       const pkg = packages[selectedPackage];
       return { amount: pkg.price, credits: pkg.credits };
     }
     return { amount: 0, credits: 0 };
-  }, [selectedPackage, packages]);
+  }, [selectedPackage, packages, customAmountMode, customCreditsInput, creditsPerYuan]);
 
   // 筛选后的订单列表
   const filteredOrders = useMemo(() => {
@@ -61,8 +77,12 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
   const loadOrders = useCallback(async () => {
     setOrdersLoading(true);
     try {
-      const result = await getPaymentOrders({ page: 1, pageSize: 20 });
+      const result = await getPaymentOrders({ page: 1, pageSize: 200 });
       setOrders(result.orders);
+      // const totalPaid = result.orders
+      //   .filter(o => o.status === "paid")
+      //   .reduce((sum, o) => sum + o.amount, 0);
+      // setCustomAmountEligible(totalPaid >= 200);
     } catch (error) {
       console.error("加载订单失败:", error);
     } finally {
@@ -70,10 +90,11 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
     }
   }, []);
 
-  // 创建订单并获取二维码
+  // 创建订单并获取二维码（套餐 / 刷新过期码）
   const handleCreateOrder = useCallback(async () => {
     if (currentPayInfo.amount <= 0 || isLoading) return;
 
+    const requestId = ++orderRequestIdRef.current;
     setIsLoading(true);
     setIsExpired(false);
     try {
@@ -82,16 +103,21 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
         credits: currentPayInfo.credits,
         paymentMethod,
       });
+      if (requestId !== orderRequestIdRef.current) return;
       setQrCodeUrl(order.qrCodeUrl);
       setCurrentOrderNo(order.orderNo);
       setCountdown(300);
     } catch (error: any) {
       console.error("创建订单失败:", error);
-      showToast(error.message || "创建订单失败", "error");
+      if (requestId === orderRequestIdRef.current) {
+        showToast(error.message || "创建订单失败", "error");
+      }
     } finally {
-      setIsLoading(false);
+      if (requestId === orderRequestIdRef.current) {
+        setIsLoading(false);
+      }
     }
-  }, [currentPayInfo, paymentMethod, isLoading]);
+  }, [currentPayInfo, paymentMethod, isLoading, customAmountMode]);
 
   // 轮询支付状态
   const pollPaymentStatus = useCallback(async () => {
@@ -124,6 +150,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
       try {
         const data = await getPaymentPackages();
         setPackages(data.packages);
+        if (data.creditsPerYuan) setCreditsPerYuan(data.creditsPerYuan);
         if (data.packages.length > 0) {
           setSelectedPackage(0);
         }
@@ -152,11 +179,91 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
     };
   }, []);
 
-  // 套餐加载完成后自动生成二维码
+  // 打开面板时根据历史已付金额判断是否显示自定义积分入口：累计已支付 ≥ ¥200 才解锁
   useEffect(() => {
-    if (!packagesLoading && packages.length > 0 && selectedPackage !== null && (paymentMethod === "alipay" || paymentMethod === "wechat") && !showOrders) {
-      handleCreateOrder();
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await getPaymentOrders({ page: 1, pageSize: 200 });
+        if (cancelled) return;
+        const totalPaid = result.orders
+          .filter((o) => o.status === "paid")
+          .reduce((sum, o) => sum + o.amount, 0);
+        setCustomAmountEligible(totalPaid >= 200);
+      } catch (e) {
+        console.error("检查自定义充值资格失败:", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 自定义模式：积分输入变化后自动生成订单（500ms 防抖）
+  useEffect(() => {
+    if (!customAmountMode || !customCreditsInput) return;
+    const credits = parseCustomCredits(customCreditsInput);
+    const amount = Math.round((credits / creditsPerYuan) * 100) / 100;
+    if (credits < 1 || amount <= 0) return;
+    if (paymentMethod !== "alipay" && paymentMethod !== "wechat") return;
+
+    const timer = setTimeout(async () => {
+      const requestId = ++orderRequestIdRef.current;
+      setIsLoading(true);
+      setQrCodeUrl(null);
+      setCurrentOrderNo(null);
+      setIsExpired(false);
+      setCountdown(300);
+      try {
+        const order = await createPaymentOrder({ amount, credits, paymentMethod });
+        if (requestId !== orderRequestIdRef.current) return;
+        setQrCodeUrl(order.qrCodeUrl);
+        setCurrentOrderNo(order.orderNo);
+      } catch (err: any) {
+        if (requestId === orderRequestIdRef.current) {
+          showToast(err.message || "创建订单失败", "error");
+        }
+      } finally {
+        if (requestId === orderRequestIdRef.current) {
+          setIsLoading(false);
+        }
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [customAmountMode, customCreditsInput, creditsPerYuan, paymentMethod]);
+  // 仅在套餐列表首次加载完成时自动下单，避免与 handlePackageSelect 在切换套餐时重复请求
+  useEffect(() => {
+    if (!packagesLoading && packages.length > 0 && selectedPackage !== null && (paymentMethod === "alipay" || paymentMethod === "wechat") && !showOrders && !customAmountMode) {
+      const pkg = packages[selectedPackage];
+      if (!pkg) return;
+      const requestId = ++orderRequestIdRef.current;
+      void (async () => {
+        setIsLoading(true);
+        setIsExpired(false);
+        try {
+          const order = await createPaymentOrder({
+            amount: pkg.price,
+            credits: pkg.credits,
+            paymentMethod,
+          });
+          if (requestId !== orderRequestIdRef.current) return;
+          setQrCodeUrl(order.qrCodeUrl);
+          setCurrentOrderNo(order.orderNo);
+          setCountdown(300);
+        } catch (error: any) {
+          console.error("创建订单失败:", error);
+          if (requestId === orderRequestIdRef.current) {
+            showToast(error.message || "创建订单失败", "error");
+          }
+        } finally {
+          if (requestId === orderRequestIdRef.current) {
+            setIsLoading(false);
+          }
+        }
+      })();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只响应 packagesLoading，首次进入面板拉默认套餐码
   }, [packagesLoading]);
 
   // 当有订单号时，启动支付状态轮询（每3秒查询一次）
@@ -180,13 +287,20 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
 
   // 切换支付方式时重新创建订单
   const handlePaymentMethodChange = async (method: PaymentMethod) => {
+    orderRequestIdRef.current += 1;
     setPaymentMethod(method);
     setQrCodeUrl(null);
     setCurrentOrderNo(null);
     setIsExpired(false);
     setCountdown(300);
 
+    if (customAmountMode) {
+      // 切换支付方式后由 useEffect 自动重新生成订单
+      return;
+    }
+
     if (currentPayInfo.amount > 0) {
+      const requestId = ++orderRequestIdRef.current;
       setIsLoading(true);
       try {
         const order = await createPaymentOrder({
@@ -194,17 +308,24 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
           credits: currentPayInfo.credits,
           paymentMethod: method,
         });
+        if (requestId !== orderRequestIdRef.current) return;
         setQrCodeUrl(order.qrCodeUrl);
         setCurrentOrderNo(order.orderNo);
       } catch (error: any) {
-        showToast(error.message || "创建订单失败", "error");
+        if (requestId === orderRequestIdRef.current) {
+          showToast(error.message || "创建订单失败", "error");
+        }
       } finally {
-        setIsLoading(false);
+        if (requestId === orderRequestIdRef.current) {
+          setIsLoading(false);
+        }
       }
     }
   };
 
   const handlePackageSelect = (index: number) => {
+    orderRequestIdRef.current += 1;
+    setCustomAmountMode(false);
     setSelectedPackage(index);
     setQrCodeUrl(null);
     setCurrentOrderNo(null);
@@ -214,6 +335,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
     if ((paymentMethod === "alipay" || paymentMethod === "wechat") && packages[index]) {
       const pkg = packages[index];
       setTimeout(async () => {
+        const requestId = ++orderRequestIdRef.current;
         setIsLoading(true);
         try {
           const order = await createPaymentOrder({
@@ -221,12 +343,17 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
             credits: pkg.credits,
             paymentMethod: paymentMethod,
           });
+          if (requestId !== orderRequestIdRef.current) return;
           setQrCodeUrl(order.qrCodeUrl);
           setCurrentOrderNo(order.orderNo);
         } catch (error: any) {
-          showToast(error.message || "创建订单失败", "error");
+          if (requestId === orderRequestIdRef.current) {
+            showToast(error.message || "创建订单失败", "error");
+          }
         } finally {
-          setIsLoading(false);
+          if (requestId === orderRequestIdRef.current) {
+            setIsLoading(false);
+          }
         }
       }, 100);
     }
@@ -369,7 +496,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
                 onClick={() => handlePackageSelect(index)}
                 className={cn(
                   "relative p-4 rounded-xl border-2 text-left transition-all",
-                  selectedPackage === index
+                  selectedPackage === index && !customAmountMode
                     ? "border-blue-400 bg-blue-50/50"
                     : "border-slate-200 bg-white hover:border-slate-300"
                 )}
@@ -398,6 +525,73 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
               </button>
             ))}
           </div>
+
+          {/* 自定义积分（历史累计已支付 ≥ ¥200 才显示该区域；金额由积分按汇率换算） */}
+          {customAmountEligible && (
+          <div
+            className={cn(
+              "rounded-xl border-2 transition-all",
+              customAmountMode
+                ? "border-blue-400 bg-blue-50/50"
+                : "border-dashed border-slate-300 bg-white hover:border-blue-300 hover:bg-blue-50/30"
+            )}
+          >
+            {customAmountMode ? (
+              <div className='p-4'>
+                <div className='flex items-center gap-2 mb-3'>
+                  <Pencil className='w-4 h-4 text-blue-500' />
+                  <span className='text-sm font-medium text-blue-600'>自定义积分</span>
+                  <button
+                    onClick={() => {
+                      setCustomAmountMode(false);
+                      setQrCodeUrl(null);
+                      setCurrentOrderNo(null);
+                      setIsExpired(false);
+                      setCountdown(300);
+                    }}
+                    className='ml-auto text-xs text-slate-400 hover:text-slate-600 underline'
+                  >
+                    取消
+                  </button>
+                </div>
+                <div className='flex flex-wrap items-center gap-2'>
+                  <input
+                    type='number'
+                    inputMode='numeric'
+                    min={1}
+                    step={1}
+                    value={customCreditsInput}
+                    onChange={(e) => setCustomCreditsInput(e.target.value)}
+                    placeholder='输入积分数量'
+                    className='min-w-[120px] flex-1 px-3 py-2 text-lg font-semibold text-slate-800 bg-white border-2 border-blue-300 rounded-lg outline-none focus:border-blue-500 transition-colors'
+                  />
+                  <span className='text-sm text-slate-500 shrink-0'>积分</span>
+                  <span className='text-sm text-slate-500 shrink-0'>
+                    ≈ ¥{currentPayInfo.amount.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => {
+                  orderRequestIdRef.current += 1;
+                  setSelectedPackage(null);
+                  setCustomAmountMode(true);
+                  setCustomCreditsInput("");
+                  setQrCodeUrl(null);
+                  setCurrentOrderNo(null);
+                  setIsLoading(false);
+                  setIsExpired(false);
+                  setCountdown(300);
+                }}
+                className='w-full p-4 flex items-center justify-center gap-2 text-slate-500 hover:text-blue-500 transition-colors'
+              >
+                <Pencil className='w-4 h-4 text-blue-500' />
+                <span className='text-sm'>自定义积分充值</span>
+              </button>
+            )}
+          </div>
+          )}
 
         </div>
 
@@ -436,7 +630,13 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
             ) : qrCodeUrl ? (
               <img src={qrCodeUrl} alt='支付二维码' className='w-full h-full object-contain' />
             ) : (
-              <span className='text-slate-400 text-sm'>选择套餐生成二维码</span>
+              <span className='text-slate-400 text-sm text-center px-2'>
+                {customAmountMode
+                  ? parseCustomCredits(customCreditsInput) < 1
+                    ? "请输入积分数量"
+                    : "正在生成二维码…"
+                  : "选择套餐生成二维码"}
+              </span>
             )}
           </div>
 

@@ -208,12 +208,19 @@ export class PaymentService implements OnModuleInit {
     }
 
     try {
+      // 确保金额为合法数字并保留2位小数传给支付宝
+      const numericAmount = Number(amount);
+      if (isNaN(numericAmount) || numericAmount <= 0) {
+        throw new BadRequestException(`非法金额: ${amount}`);
+      }
+      const amountStr = numericAmount.toFixed(2);
+      console.log(`[Alipay] 生成二维码请求 → out_trade_no=${orderNo}, total_amount=${amountStr}`);
       const result = await this.alipaySdk.exec('alipay.trade.precreate', {
         notify_url: process.env.ALIPAY_NOTIFY_URL || 'https://www.tanvas.cn/api/payment/notify',
         bizContent: {
           out_trade_no: orderNo,
-          total_amount: amount.toFixed(2),
-          subject: `积分充值 - ${amount}元`,
+          total_amount: amountStr,
+          subject: `积分充值 - ${amountStr}元`,
           timeout_express: '30m',
         },
       });
