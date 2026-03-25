@@ -1,6 +1,6 @@
 import React from "react";
 import { Handle, Position, useReactFlow, useStore } from "reactflow";
-import { AlertTriangle, Video, Share2, Download } from "lucide-react";
+import { AlertTriangle, Video, Share2, Download, HelpCircle } from "lucide-react";
 import SmartImage from "../../ui/SmartImage";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { useAuthStore } from "@/stores/authStore";
@@ -109,20 +109,21 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const user = useAuthStore((state) => state.user);
   const projectId = useProjectContentStore((state) => state.projectId);
   const [showHistory, setShowHistory] = React.useState(false);
+  const [showHelp, setShowHelp] = React.useState(false);
 
   // 检测是否有图片输入连接
   const hasImageInput = useStore((state) => {
     const edges = state.edges || [];
     return edges.some(
-      (edge) => edge.target === id && edge.targetHandle === "image"
+      (edge) => edge.target === id && (edge.targetHandle === "image" || edge.targetHandle === "image-2")
     );
   });
 
-  // 检测图片输入数量
+  // 检测图片输入数量（含 image 和 image-2）
   const imageInputCount = useStore((state) => {
     const edges = state.edges || [];
     return edges.filter(
-      (edge) => edge.target === id && edge.targetHandle === "image"
+      (edge) => edge.target === id && (edge.targetHandle === "image" || edge.targetHandle === "image-2")
     ).length;
   });
 
@@ -132,6 +133,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     (provider === "kling-2.6" ? "kling-v2-6" : "kling-v2-6");
   const isUnifiedKlingNode = provider === "kling" || provider === "kling-2.6";
   const isKling26Model = isUnifiedKlingNode && (klingModel === "kling-v2-6" || klingModel === "kling-v3-0");
+  const isProMode = ((data as any).mode || "std") === "pro";
   const providerInfo = isUnifiedKlingNode
     ? PROVIDER_CONFIG.kling
     : PROVIDER_CONFIG[provider] || PROVIDER_CONFIG["kling"];
@@ -881,6 +883,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         onMouseEnter={() => setHover("text-in")}
         onMouseLeave={() => setHover(null)}
       />
+      {/* 图片输入 handle: std 模式只渲染 1 个（image），pro 模式渲染 2 个（image 首帧 + image-2 尾帧） */}
+      {/* image 首帧 */}
       <Handle
         type='target'
         position={Position.Left}
@@ -889,8 +893,19 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         onMouseEnter={() => setHover("image-in")}
         onMouseLeave={() => setHover(null)}
       />
-      {/* 兼容历史数据：旧项目的 klingVideo 可能存在 targetHandle=audio 的连线 */}
-      {isUnifiedKlingNode && (
+      {/* image-2 尾帧: 仅 Kling 2.6/3.0 pro 模式渲染 */}
+      {isKling26Model && isProMode && (
+        <Handle
+          type='target'
+          position={Position.Left}
+          id='image-2'
+          style={{ top: "78%" }}
+          onMouseEnter={() => setHover("image-2-in")}
+          onMouseLeave={() => setHover(null)}
+        />
+      )}
+      {/* audio targetHandle 仅 Kling 旧版（kling-v2-1）可用；2.6/3.0 只支持 sound 布尔开关，不接受连线 */}
+      {isUnifiedKlingNode && klingModel !== "kling-v2-6" && klingModel !== "kling-v3-0" && (
         <Handle
           type='target'
           position={Position.Left}
@@ -921,7 +936,15 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           className='flow-tooltip'
           style={{ left: -8, top: "60%", transform: "translate(-100%, -50%)" }}
         >
-          image
+          {isKling26Model ? (isProMode ? "image (首帧)" : "image (仅1张)") : "image"}
+        </div>
+      )}
+      {hover === "image-2-in" && (
+        <div
+          className='flow-tooltip'
+          style={{ left: -8, top: "78%", transform: "translate(-100%, -50%)" }}
+        >
+          image-2 (尾帧)
         </div>
       )}
       {hover === "audio-in" && (
@@ -961,6 +984,26 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           <span>{isZh ? providerInfo.zh : providerInfo.name}</span>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
+          {/* 玩法说明按钮: 仅 Kling 2.6/3.0 节点显示 */}
+          {isKling26Model && (
+            <button
+              onClick={() => setShowHelp(!showHelp)}
+              style={{
+                fontSize: 12,
+                padding: "4px 8px",
+                background: showHelp ? "#3b82f6" : "#f3f4f6",
+                color: showHelp ? "#fff" : "#6b7280",
+                borderRadius: 6,
+                border: "none",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+              }}
+              title={lt("玩法说明", "Help")}
+            >
+              <HelpCircle size={14} />
+            </button>
+          )}
           <button
             onClick={onRun}
             onMouseDown={handleButtonMouseDown}
@@ -1046,6 +1089,58 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           }}
         >
           {downloadFeedback.message}
+        </div>
+      )}
+
+      {/* 玩法说明 */}
+      {isKling26Model && showHelp && (
+        <div style={{
+          fontSize: 11,
+          color: "#374151",
+          background: "#f0f9ff",
+          padding: "8px",
+          borderRadius: 6,
+          marginBottom: 8,
+          border: "1px solid #bfdbfe",
+          lineHeight: 1.5,
+        }}>
+          <div style={{ fontWeight: 600, marginBottom: 4, color: "#1e40af" }}>
+            {lt("🎬 玩法说明", "🎬 Usage Guide")} {klingModel === "kling-v2-6" ? "(Kling 2.6)" : klingModel === "kling-v3-0" ? "(Kling 3.0)" : ""}
+          </div>
+          {klingModel === "kling-v2-6" ? (
+            <>
+              <div style={{ marginBottom: 3 }}>
+                <strong>{lt("标准模式（Std）", "Standard (Std)")}:</strong>{" "}
+                {lt("1张图→视频（无音效）", "1 image → video (no sound)")}
+              </div>
+              <div style={{ marginBottom: 3 }}>
+                <strong>{lt("专业模式（Pro）", "Professional (Pro)")}:</strong>{" "}
+                {lt("1张图→视频（有音效）", "1 image → video (with sound)")}
+              </div>
+              <div style={{ marginBottom: 3 }}>
+                <strong>{lt("首尾帧（Pro）", "Start-End (Pro)")}:</strong>{" "}
+                {lt("2张图（首帧+尾帧）→视频（有音效）", "2 images (start+end) → video (with sound)")}
+              </div>
+              <div style={{ color: "#6b7280", fontSize: 10, marginTop: 4 }}>
+                💡 {lt("提示：标准模式只能接1张图，专业模式可接2张图（首尾帧）", "Tip: Std mode = 1 image, Pro mode = 1 or 2 images (start-end)")}
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ marginBottom: 3 }}>
+                <strong>{lt("标准模式（Std）", "Standard (Std)")}:</strong>{" "}
+                {lt("1张图→视频", "1 image → video")}
+              </div>
+              <div style={{ marginBottom: 3 }}>
+                <strong>{lt("专业模式（Pro）", "Professional (Pro)")}:</strong>{" "}
+                {lt("1张图→视频（含音效），2张图→首尾帧", "1 image → video (with sound), 2 images → start-end")}
+              </div>
+              <div style={{ color: "#6b7280", fontSize: 10, marginTop: 4 }}>
+                💡 {lt("Kling 3.0 全面升级，建议优先使用", "Kling 3.0 is fully upgraded, recommended")}{" "}
+                <span style={{ color: "#059669", fontWeight: 600 }}>{lt("★ Pro 模式效果更佳", "★ Pro mode recommended")}</span>
+              </div>
+            </>
+          )}
         </div>
       )}
 

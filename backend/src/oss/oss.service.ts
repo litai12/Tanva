@@ -245,6 +245,7 @@ export class OssService {
       'volces.com',             // 字节/Seedance 1.5 Pro
       'tencentcos.cn',          // 腾讯 COS（混元 3D 输出）
       'myqcloud.com',           // 腾讯云通用域名
+      'tgtai.com',              // Tanva CDN 域名（供 AI 上游服务访问）
     ];
 
     defaultAllowed.forEach(h => hosts.push(h));

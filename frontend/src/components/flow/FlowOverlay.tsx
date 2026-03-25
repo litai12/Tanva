@@ -6405,6 +6405,23 @@ function FlowInner() {
   );
 
   const canKlingNodeUseAudioInput = React.useCallback((node?: Node | null) => {
+    // Kling 2.6/3.0 的 sound 参数只支持 UI 布尔开关（sound=on/off），不接受连线输入
+    return false;
+  }, []);
+
+  const isKling26Node = React.useCallback((node?: Node | null) => {
+    if (!node) return false;
+    const nodeData = (node.data || {}) as Record<string, any>;
+    const klingModel =
+      nodeData.klingModel ||
+      (node.type === "kling26Video" || nodeData.provider === "kling-2.6"
+        ? "kling-v2-6"
+        : "kling-v2-6");
+    return klingModel === "kling-v2-6" || klingModel === "kling-v3-0";
+  }, []);
+
+  /** Kling 2.6/3.0 pro 模式支持首尾帧（image-2）；std 模式仅 1 张图 */
+  const canKlingNodeUseImage2Input = React.useCallback((node?: Node | null) => {
     if (!node || (node.type !== "klingVideo" && node.type !== "kling26Video")) {
       return false;
     }
@@ -6661,6 +6678,11 @@ function FlowInner() {
           targetNode.type || ""
         )
       ) {
+        if (targetHandle === "image-2") {
+          // image-2 仅 Kling 2.6/3.0 pro 模式可用
+          if (!canKlingNodeUseImage2Input(targetNode)) return false;
+          return isImageSource(sourceNode, sourceHandle);
+        }
         if (isImageHandle(targetHandle)) {
           return isImageSource(sourceNode, sourceHandle);
         }
@@ -6901,7 +6923,7 @@ function FlowInner() {
       }
       return false;
     },
-    [rf, isTextHandle, isImageHandle, textSourceTypes, canKlingNodeUseAudioInput]
+    [rf, isTextHandle, isImageHandle, textSourceTypes, canKlingNodeUseAudioInput, canKlingNodeUseImage2Input]
   );
 
   // 限制：Generate(text) 仅一个连接；Generate(img) 最多6条
@@ -6995,10 +7017,25 @@ function FlowInner() {
         }
         if (params.targetHandle === "text") return true;
       }
-      // Kling 视频节点：支持最多 4 张参考图
+      // Kling 视频节点：std 最多 1 张图，pro 最多 2 张（image + image-2）
       if (targetNode?.type === "klingVideo" || targetNode?.type === "kling26Video") {
-        if (params.targetHandle === "image") {
-          return incoming.length < KLING_MAX_REFERENCE_IMAGES;
+        const nodeData = (targetNode.data || {}) as Record<string, any>;
+        const klingModel =
+          nodeData.klingModel ||
+          (targetNode.type === "kling26Video" || nodeData.provider === "kling-2.6"
+            ? "kling-v2-6"
+            : "kling-v2-6");
+        const isKling26Model = klingModel === "kling-v2-6" || klingModel === "kling-v3-0";
+        const mode = typeof nodeData.mode === "string" ? nodeData.mode : "std";
+
+        // Kling 视频节点：每个 handle 最多 1 张图（image 首帧 / image-2 尾帧）
+        if (params.targetHandle === "image" || params.targetHandle === "image-2") {
+          if (!isImageHandle(params.targetHandle) && params.targetHandle !== "image-2") return false;
+          if (params.targetHandle === "image-2") {
+            if (!isKling26Model || mode !== "pro") return false;
+          }
+          // 同一个 handle 只能连 1 张图（不能重复连线替换）
+          return incoming.length < 1;
         }
         if (params.targetHandle === "text") return true;
         if (params.targetHandle === "audio") {
@@ -7085,7 +7122,7 @@ function FlowInner() {
       }
       return false;
     },
-    [rf, isTextHandle, isImageHandle, canKlingNodeUseAudioInput]
+    [rf, isTextHandle, isImageHandle, canKlingNodeUseAudioInput, canKlingNodeUseImage2Input]
   );
 
   const onConnect = React.useCallback(
@@ -7109,8 +7146,8 @@ function FlowInner() {
                   message: canUseAudio
                     ? lt("Kling 音频最多连接 2 条", "Kling audio supports up to 2 connections")
                     : lt(
-                        "当前仅 Kling 2.6 Pro 模式支持音频输入",
-                        "Audio input is only available in Kling 2.6 Pro mode"
+                        "Kling 2.6/3.0 仅支持 sound 开关，暂不支持音频连线输入",
+                        "Kling 2.6/3.0 only supports sound toggle, audio connection is not supported"
                       ),
                   type: "warning",
                 },
@@ -7286,22 +7323,32 @@ function FlowInner() {
             });
           }
         }
-        // Kling 视频节点：支持最多 4 张参考图
-        if ((tgt?.type === "klingVideo" || tgt?.type === "kling26Video") && params.targetHandle === "image") {
-          let remainingToDrop = Math.max(
-            0,
-            next.filter(
-              (e) => e.target === params.target && e.targetHandle === "image"
-            ).length -
-              KLING_MAX_REFERENCE_IMAGES +
-              1 // +1 for the incoming edge
+        // Kling 视频节点：std 最多 1 张图，pro 最多 2 张（image + image-2）
+        if ((tgt?.type === "klingVideo" || tgt?.type === "kling26Video") &&
+            (params.targetHandle === "image" || params.targetHandle === "image-2")) {
+          const nodeData = (tgt.data || {}) as Record<string, any>;
+          const klingModel =
+            nodeData.klingModel ||
+            (tgt?.type === "kling26Video" || nodeData.provider === "kling-2.6"
+              ? "kling-v2-6"
+              : "kling-v2-6");
+          const isKling26Model = klingModel === "kling-v2-6" || klingModel === "kling-v3-0";
+          const mode = typeof nodeData.mode === "string" ? nodeData.mode : "std";
+          const maxImages = isKling26Model && mode === "pro" ? 2 : 1;
+          // image-2 只能在 pro 模式下接，不能替换 image
+          if (params.targetHandle === "image-2" && !(isKling26Model && mode === "pro")) {
+            return;
+          }
+          const imgEdges = next.filter(
+            (e) => e.target === params.target && (e.targetHandle === "image" || e.targetHandle === "image-2")
           );
+          let remainingToDrop = Math.max(0, imgEdges.length - maxImages + 1);
           if (remainingToDrop > 0) {
             next = next.filter((e) => {
               if (remainingToDrop <= 0) return true;
-              const isImageEdge =
-                e.target === params.target && e.targetHandle === "image";
-              if (isImageEdge) {
+              const isImgEdge =
+                e.target === params.target && (e.targetHandle === "image" || e.targetHandle === "image-2");
+              if (isImgEdge) {
                 remainingToDrop -= 1;
                 return false;
               }
