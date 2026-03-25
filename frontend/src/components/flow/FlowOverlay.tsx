@@ -7037,6 +7037,10 @@ function FlowInner() {
       if (targetNode?.type === "minimaxSpeech") {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
       }
+      if (targetNode?.type === "tencentSpeech") {
+        if (params.targetHandle === "text") return true; // 新线会替换旧线
+        if (params.targetHandle === "video") return true; // 仅一条视频连接
+      }
       if (targetNode?.type === "minimaxMusic") {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
       }
