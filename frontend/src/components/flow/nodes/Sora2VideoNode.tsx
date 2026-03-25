@@ -222,7 +222,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
   const selectedModel: 'sora-2' | 'sora-2-pro' =
     data.model === 'sora-2' || data.model === 'sora-2-pro'
       ? data.model
-      : 'sora-2-pro';
+      : 'sora-2';
 
   const handleModelChange = React.useCallback((value: 'sora-2' | 'sora-2-pro') => {
     if (value === selectedModel) return;
