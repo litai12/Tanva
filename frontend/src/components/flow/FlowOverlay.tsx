@@ -115,9 +115,12 @@ import {
   resolvePublicAssetUrlFromKey,
 } from "@/utils/assetProxy";
 import {
+  isBlobUrl,
+  isDataImageUrl,
   isPersistableImageRef,
   isRemoteUrl,
   normalizePersistableImageRef,
+  requiresManagedImageUpload,
   resolveImageToBlob,
   resolveImageToDataUrl,
 } from "@/utils/imageSource";
@@ -4619,13 +4622,22 @@ function FlowInner() {
 
   // 将运行时图片引用转换为可持久化引用（优先返回 OSS key；已是可持久化引用则规范化后直接返回）
   const uploadImageToStableUrl = React.useCallback(
-    async (value: string, fileName: string): Promise<string> => {
+    async (
+      value: string,
+      fileName: string,
+      opts?: { reuploadUnstableRemote?: boolean }
+    ): Promise<string> => {
       const trimmed = typeof value === "string" ? value.trim() : "";
       if (!trimmed) throw new Error("空的图片数据");
 
       const normalized = normalizePersistableImageRef(trimmed);
       if (normalized && isPersistableImageRef(normalized)) {
-        return normalized;
+        if (
+          !opts?.reuploadUnstableRemote ||
+          !requiresManagedImageUpload(normalized)
+        ) {
+          return normalized;
+        }
       }
 
       const result = await imageUploadService.uploadImageSource(trimmed, {
@@ -12382,8 +12394,43 @@ function FlowInner() {
 
           const resolvedImageUrl =
             result.data.imageUrl || result.data.metadata?.imageUrl;
-          const imageData =
-            resolvedImageUrl || result.data.imageData || result.data.imageUrl;
+          const rawPreview =
+            (typeof resolvedImageUrl === "string" && resolvedImageUrl.trim()) ||
+            (typeof result.data.imageData === "string" &&
+              result.data.imageData.trim()) ||
+            (typeof result.data.imageUrl === "string" &&
+              result.data.imageUrl.trim()) ||
+            "";
+
+          let stableImageRef = rawPreview;
+          try {
+            if (rawPreview) {
+              stableImageRef = await uploadImageToStableUrl(
+                rawPreview,
+                `flow_nano2_${nodeId}_${Date.now()}.png`,
+                { reuploadUnstableRemote: true }
+              );
+            }
+          } catch (persistErr) {
+            console.warn(
+              "[Flow] Nano2: failed to persist preview to stable storage",
+              persistErr
+            );
+            stableImageRef = rawPreview;
+          }
+
+          const nodeImageUrl =
+            stableImageRef &&
+            !isDataImageUrl(stableImageRef) &&
+            !isBlobUrl(stableImageRef)
+              ? stableImageRef
+              : undefined;
+          const nodeImageData =
+            stableImageRef &&
+            (isDataImageUrl(stableImageRef) || isBlobUrl(stableImageRef))
+              ? stableImageRef
+              : undefined;
+
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
@@ -12392,8 +12439,8 @@ function FlowInner() {
                     data: {
                       ...n.data,
                       status: "succeeded",
-                      imageUrl: resolvedImageUrl || undefined,
-                      imageData: resolvedImageUrl ? undefined : imageData,
+                      imageUrl: nodeImageUrl,
+                      imageData: nodeImageData,
                       error: undefined,
                     },
                   }
@@ -12401,17 +12448,16 @@ function FlowInner() {
             )
           );
 
-          if (imageData) {
+          if (stableImageRef) {
             try {
               const projectId = useProjectContentStore.getState().projectId;
               const historyId = `${nodeId}-${Date.now()}`;
-              const isRemoteHistoryImage =
-                typeof resolvedImageUrl === "string" &&
-                /^https?:\/\//i.test(resolvedImageUrl);
+              const historyRemote =
+                !isDataImageUrl(stableImageRef) && !isBlobUrl(stableImageRef);
               void recordImageHistoryEntry({
                 id: historyId,
-                base64: isRemoteHistoryImage ? undefined : imageData,
-                remoteUrl: isRemoteHistoryImage ? resolvedImageUrl : undefined,
+                base64: historyRemote ? undefined : stableImageRef,
+                remoteUrl: historyRemote ? stableImageRef : undefined,
                 title: `Nano2 ${new Date().toLocaleTimeString()}`,
                 nodeId,
                 nodeType: "generate",
@@ -12533,7 +12579,32 @@ function FlowInner() {
 
           // 支持批量返回多张图片
           const imageUrls = result.data.imageUrls || result.data.metadata?.imageUrls;
-          const finalImages = imageUrls && imageUrls.length > 0 ? imageUrls : [imageData];
+          const finalImagesRaw =
+            imageUrls && Array.isArray(imageUrls) && imageUrls.length > 0
+              ? imageUrls
+              : [imageData];
+
+          const stableFinalImages: string[] = [];
+          for (let i = 0; i < finalImagesRaw.length; i += 1) {
+            const item = finalImagesRaw[i];
+            if (typeof item !== "string" || !item.trim()) continue;
+            const trimmed = item.trim();
+            try {
+              stableFinalImages.push(
+                await uploadImageToStableUrl(
+                  trimmed,
+                  `flow_seedream5_${nodeId}_${i}_${Date.now()}.png`,
+                  { reuploadUnstableRemote: true }
+                )
+              );
+            } catch (persistErr) {
+              console.warn(
+                "[Flow] Seedream5: failed to persist preview to stable storage",
+                persistErr
+              );
+              stableFinalImages.push(trimmed);
+            }
+          }
 
           setNodes((ns) =>
             ns.map((n) =>
@@ -12543,9 +12614,9 @@ function FlowInner() {
                     data: {
                       ...n.data,
                       status: "succeeded",
-                      images: finalImages,
-                      imageUrls: finalImages,
-                      imageUrl: finalImages[0],
+                      images: stableFinalImages,
+                      imageUrls: stableFinalImages,
+                      imageUrl: stableFinalImages[0],
                       error: undefined,
                     },
                   }
@@ -12553,16 +12624,18 @@ function FlowInner() {
             )
           );
 
-          if (imageData) {
+          const historySource = stableFinalImages[0];
+          if (historySource) {
             try {
               const projectId = useProjectContentStore.getState().projectId;
               const historyId = `${nodeId}-${Date.now()}`;
-              const isRemoteHistoryImage = typeof resolvedImageUrl === "string" && /^https?:\/\//i.test(resolvedImageUrl);
+              const historyRemote =
+                !isDataImageUrl(historySource) && !isBlobUrl(historySource);
 
               void recordImageHistoryEntry({
                 id: historyId,
-                base64: isRemoteHistoryImage ? undefined : imageData,
-                remoteUrl: isRemoteHistoryImage ? resolvedImageUrl : undefined,
+                base64: historyRemote ? undefined : historySource,
+                remoteUrl: historyRemote ? historySource : undefined,
                 title: `Seedream 5.0 ${new Date().toLocaleTimeString()}`,
                 nodeId,
                 nodeType: "generate",
@@ -13536,7 +13609,16 @@ function FlowInner() {
         );
       }
     },
-    [aiProvider, globalWebSearchEnabled, imageModel, rf, setNodes, appendSora2History, appendVideoHistory]
+    [
+      aiProvider,
+      appendSora2History,
+      appendVideoHistory,
+      globalWebSearchEnabled,
+      imageModel,
+      rf,
+      setNodes,
+      uploadImageToStableUrl,
+    ]
   );
 
   // 定义稳定的onSend回调
