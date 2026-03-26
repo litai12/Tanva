@@ -898,7 +898,14 @@ const FloatingHeader: React.FC = () => {
       case "workspace":
         // 显示支付面板
         if (showPaymentPanel) {
-          return <PaymentPanel onBack={() => setShowPaymentPanel(false)} />;
+          return (
+            <PaymentPanel
+              onBack={() => {
+                setShowPaymentPanel(false);
+                setIsSettingsOpen(false);
+              }}
+            />
+          );
         }
         // 显示工作区内容
         return (
