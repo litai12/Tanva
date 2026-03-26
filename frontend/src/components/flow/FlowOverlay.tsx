@@ -153,6 +153,8 @@ import { personalLibraryApi } from "@/services/personalLibraryApi";
 import {
   fetchNodeConfigs,
   getStatusBadge,
+  NODE_CONFIG_SYNC_DOM_EVENT,
+  NODE_CONFIG_SYNC_STORAGE_KEY,
   type NodeConfig,
 } from "@/services/nodeConfigService";
 import {
@@ -1984,6 +1986,26 @@ function FlowInner() {
     fetchNodeConfigs().then(setNodeConfigs).catch(console.error);
   }, []);
 
+  // 管理端保存后：localStorage 仅其它标签页能收到 storage 事件；同窗口用 NODE_CONFIG_SYNC_DOM_EVENT
+  React.useEffect(() => {
+    const refetch = () => {
+      fetchNodeConfigs({ force: true })
+        .then(setNodeConfigs)
+        .catch(console.error);
+    };
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === NODE_CONFIG_SYNC_STORAGE_KEY && e.newValue != null) {
+        refetch();
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    window.addEventListener(NODE_CONFIG_SYNC_DOM_EVENT, refetch);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener(NODE_CONFIG_SYNC_DOM_EVENT, refetch);
+    };
+  }, []);
+
   // 确保画布节点面板中的顺序：输入 → 图像 → 视频 → 其他
   const sortedNodeConfigs = React.useMemo(() => {
     if (!nodeConfigs || nodeConfigs.length === 0) return nodeConfigs;
@@ -2059,14 +2081,15 @@ function FlowInner() {
 
     return merged
       .map((config) => {
-        if (config.nodeKey === "generatePro") {
+        // 有后端配置时沿用后台名称，避免「节点管理」改名后面板仍被写死覆盖
+        if (!hasBackendConfigs && config.nodeKey === "generatePro") {
           return {
             ...config,
             nameZh: "自定义节点",
             nameEn: "Agent",
           };
         }
-        if (config.nodeKey === "textNote") {
+        if (!hasBackendConfigs && config.nodeKey === "textNote") {
           return {
             ...config,
             nameEn: "Note Node",
@@ -12895,6 +12918,8 @@ function FlowInner() {
       })();
 
       if (node.type === "generate4") {
+        /** 连续多次调同一接口易被限流，稍作间隔可提高 3、4 张成功率 */
+        const MULTI_GENERATE_STAGGER_MS = 650;
         const total = Math.max(
           1,
           Math.min(4, Number((node.data as any)?.count) || 4)
@@ -12909,20 +12934,30 @@ function FlowInner() {
                     status: "running",
                     error: undefined,
                     images: [],
+                    generate4SlotErrors: undefined,
+                    generate4PassIndex: 0,
                   },
                 }
               : n
           )
         );
         const produced: string[] = [];
-        const updateMultiGenerateProgress = (completedSlots: number) => {
-          const ratio = Math.max(0, Math.min(1, completedSlots / total));
+        const slotErrors: (string | undefined)[] = Array.from(
+          { length: total },
+          () => undefined
+        );
+        /** 已完成第几轮请求（用于 UI：与成功张数无关，避免中间槽失败后误显示「生成中」） */
+        const updateMultiGenerateProgress = (passIndex: number) => {
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
                 ? {
                     ...n,
-                    data: { ...n.data, images: [...produced] },
+                    data: {
+                      ...n.data,
+                      images: Array.from({ length: total }, (__, idx) => produced[idx] || ""),
+                      generate4PassIndex: passIndex,
+                    },
                   }
                 : n
             )
@@ -12930,6 +12965,9 @@ function FlowInner() {
         };
 
         for (let i = 0; i < total; i++) {
+          if (i > 0) {
+            await new Promise((r) => setTimeout(r, MULTI_GENERATE_STAGGER_MS));
+          }
           let generatedImage: string | undefined;
           let generatedModel: string | undefined;
           let generatedMetadata: Record<string, any> | undefined;
@@ -12988,6 +13026,11 @@ function FlowInner() {
               result.data?.imageData;
 
             if (!result.success || !result.data || !generatedSrc) {
+              slotErrors[i] =
+                result.error?.message ||
+                (result.success && !generatedSrc
+                  ? "接口成功但未返回图片"
+                  : "生成失败");
               if (result.success && result.data && !generatedSrc) {
                 console.warn(
                   "⚠️ Flow generate4 success but no image returned",
@@ -13006,8 +13049,16 @@ function FlowInner() {
               generatedModel = result.data.model || nodeSpecificModel;
               generatedMetadata = result.data.metadata as Record<string, any> | undefined;
             }
-          } catch {
-            // 忽略单张失败，继续下一张
+          } catch (err: any) {
+            slotErrors[i] =
+              typeof err?.message === "string" && err.message.trim()
+                ? err.message.trim()
+                : "请求异常";
+            console.warn("⚠️ Flow generate4 slot failed", {
+              nodeId,
+              slot: i,
+              err,
+            });
           }
 
           if (generatedImage) {
@@ -13128,7 +13179,16 @@ function FlowInner() {
           updateMultiGenerateProgress(i + 1);
         }
 
-        const hasAny = produced.filter(Boolean).length > 0;
+        const okCount = produced.filter(Boolean).length;
+        const hasAny = okCount > 0;
+        const imagesDense = Array.from(
+          { length: total },
+          (_, idx) => produced[idx] || ""
+        );
+        const partialHint =
+          hasAny && okCount < total
+            ? `仅成功 ${okCount}/${total} 张，其余槽位见下方说明（常见于接口限流或额度不足）。`
+            : undefined;
         setNodes((ns) =>
           ns.map((n) =>
             n.id === nodeId
@@ -13137,8 +13197,12 @@ function FlowInner() {
                   data: {
                     ...n.data,
                     status: hasAny ? "succeeded" : "failed",
-                    error: hasAny ? undefined : "全部生成失败",
-                    images: [...produced],
+                    error: hasAny ? partialHint : "全部生成失败",
+                    images: imagesDense,
+                    generate4SlotErrors: slotErrors.some((e) => Boolean(e))
+                      ? slotErrors
+                      : undefined,
+                    generate4PassIndex: undefined,
                   },
                 }
               : n

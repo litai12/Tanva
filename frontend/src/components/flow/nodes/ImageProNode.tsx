@@ -12,7 +12,7 @@ import ContextMenu from '../../ui/context-menu';
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { deleteFlowImage, parseFlowImageAssetRef, putFlowImageBlobs, toFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
-import { toRenderableImageSrc } from '@/utils/imageSource';
+import { pickPersistedImageRefFromUploadAsset, toRenderableImageSrc } from '@/utils/imageSource';
 import { useLocaleText } from '@/utils/localeText';
 
 type Props = {
@@ -323,7 +323,10 @@ function ImageProNodeInner({ id, data, selected }: Props) {
         return;
       }
 
-      const persistedRef = (uploadResult.asset.key || key || uploadResult.asset.url).trim();
+      const persistedRef = pickPersistedImageRefFromUploadAsset(
+        uploadResult.asset,
+        key
+      ).trim();
       if (!persistedRef) return;
 
       // 防止并发上传回写覆盖：确认节点仍在使用本次 previewRef

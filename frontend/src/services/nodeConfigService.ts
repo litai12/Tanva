@@ -25,12 +25,36 @@ let cachedConfigs: NodeConfig[] | null = null;
 let cacheTimestamp = 0;
 const CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
 
+/** 跨标签页通知画布刷新节点配置（与 localStorage 事件 key 一致） */
+export const NODE_CONFIG_SYNC_STORAGE_KEY = "tanva:nodeConfigRev";
+
+/** 同窗口内通知（storage 事件不会在写入的当前标签页触发） */
+export const NODE_CONFIG_SYNC_DOM_EVENT = "tanva:nodeConfigsUpdated";
+
+/**
+ * 管理端更新节点配置后调用：清空内存缓存并通知其他标签页重新拉取
+ */
+export function notifyNodeConfigsUpdated(): void {
+  clearNodeConfigCache();
+  try {
+    localStorage.setItem(NODE_CONFIG_SYNC_STORAGE_KEY, String(Date.now()));
+  } catch {
+    // 隐私模式等场景忽略
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(NODE_CONFIG_SYNC_DOM_EVENT));
+  }
+}
+
 /**
  * 获取所有节点配置
+ * @param options.force 为 true 时跳过内存缓存（管理端保存后、收到同步通知时使用）
  */
-export async function fetchNodeConfigs(): Promise<NodeConfig[]> {
-  // 检查缓存
-  if (cachedConfigs && Date.now() - cacheTimestamp < CACHE_TTL) {
+export async function fetchNodeConfigs(options?: {
+  force?: boolean;
+}): Promise<NodeConfig[]> {
+  const force = Boolean(options?.force);
+  if (!force && cachedConfigs && Date.now() - cacheTimestamp < CACHE_TTL) {
     return cachedConfigs;
   }
 

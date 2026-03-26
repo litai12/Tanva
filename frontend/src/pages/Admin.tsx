@@ -41,6 +41,7 @@ import {
   type CreditAnomalyRecord,
   type NodeConfig,
 } from "@/services/adminApi";
+import { notifyNodeConfigsUpdated } from "@/services/nodeConfigService";
 import {
   fetchTemplates,
   fetchTemplate,
@@ -2974,6 +2975,7 @@ function NodeConfigsTab() {
           isVisible: editingConfig.isVisible,
           description: editingConfig.description,
         });
+        notifyNodeConfigsUpdated();
         setModalOpen(false);
         setEditingConfig(null);
         loadConfigs();
@@ -2995,6 +2997,7 @@ function NodeConfigsTab() {
           isVisible: editingConfig.isVisible,
           description: editingConfig.description,
         });
+        notifyNodeConfigsUpdated();
         setModalOpen(false);
         setEditingConfig(null);
         loadConfigs();
@@ -3010,6 +3013,7 @@ function NodeConfigsTab() {
     }
     try {
       await deleteNodeConfig(nodeKey);
+      notifyNodeConfigsUpdated();
       loadConfigs();
     } catch (error: any) {
       alert(error.message || "删除失败");

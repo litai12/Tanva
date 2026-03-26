@@ -20,7 +20,12 @@ import {
   toFlowImageAssetRef,
 } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
-import { isPersistableImageRef, resolveImageToBlob, toRenderableImageSrc } from "@/utils/imageSource";
+import {
+  isPersistableImageRef,
+  pickPersistedImageRefFromUploadAsset,
+  resolveImageToBlob,
+  toRenderableImageSrc,
+} from "@/utils/imageSource";
 import { blobToDataUrl, canvasToBlob, createImageBitmapLimited } from "@/utils/imageConcurrency";
 import { shallow } from "zustand/shallow";
 import { useLocaleText } from "@/utils/localeText";
@@ -1267,7 +1272,10 @@ function ImageNodeInner({ id, data, selected }: Props) {
         return;
       }
 
-      const persistedRef = (uploadResult.asset.key || key || uploadResult.asset.url).trim();
+      const persistedRef = pickPersistedImageRefFromUploadAsset(
+        uploadResult.asset,
+        key
+      ).trim();
       if (!persistedRef) return;
 
       // 防止并发上传回写覆盖：确认节点仍在使用本次 previewRef

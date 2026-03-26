@@ -11,6 +11,7 @@ import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import { useLocaleText } from "@/utils/localeText";
+import { explainGenerateReferenceImageError } from "@/utils/flowGenerateRefErrors";
 
 type Props = {
   id: string;
@@ -80,6 +81,13 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
 
   const defaultReferencePrompt = lt("请参考第二张图的内容", "Please follow the content of the second image");
   const referencePromptValue = data.referencePrompt ?? defaultReferencePrompt;
+
+  const displayError = React.useMemo(() => {
+    if (!error) return "";
+    const hint = explainGenerateReferenceImageError(error);
+    if (hint) return lt(hint.zh, hint.en);
+    return error;
+  }, [error, lt]);
 
   const onRun = React.useCallback(() => {
     data.onRun?.(id);
@@ -266,9 +274,9 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
       </div>
 
       <GenerationProgressBar status={status} />
-      {status === "failed" && error ? (
+      {status === "failed" && displayError ? (
         <div style={{ fontSize: 12, color: "#ef4444", whiteSpace: "pre-wrap" }}>
-          {error}
+          {displayError}
         </div>
       ) : null}
 

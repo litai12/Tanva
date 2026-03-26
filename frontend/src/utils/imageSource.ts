@@ -178,6 +178,23 @@ export const isLikelyManagedAssetUrl = (url: string): boolean => {
   }
 };
 
+/**
+ * 上传成功后写入节点的持久化引用：优先可直接访问的 OSS/CDN URL，
+ * 避免仅用 key 时必须依赖 /api/assets/proxy（代理或 API 域名配置异常时易裂图）。
+ */
+export function pickPersistedImageRefFromUploadAsset(
+  asset: { url?: string; key?: string } | undefined,
+  plannedKey: string
+): string {
+  const url = typeof asset?.url === "string" ? asset.url.trim() : "";
+  if (url && /^https?:\/\//i.test(url)) return url;
+  const k =
+    (typeof asset?.key === "string" ? asset.key.trim() : "") ||
+    (typeof plannedKey === "string" ? plannedKey.trim() : "");
+  if (k) return k;
+  return url;
+}
+
 export const isPersistableImageRef = (value?: string | null): boolean => {
   if (typeof value !== "string") return false;
   const trimmed = value.trim();
