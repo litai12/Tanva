@@ -939,7 +939,7 @@ const FloatingHeader: React.FC = () => {
                 <button
                   onClick={() => {
                     setIsSettingsOpen(false);
-                    window.open("/my-credits", "_blank");
+                    navigate("/my-credits");
                   }}
                   className='text-sm text-slate-500 hover:text-slate-700'
                 >
