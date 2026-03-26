@@ -156,7 +156,7 @@ export class MidjourneyProvider implements IAIProvider {
     if (this.shouldUseYouchuanModel(model)) {
       if (!this.hasYouchuanCredentials()) {
         throw new ServiceUnavailableException(
-          'Youchuan credentials not configured on the server for Midjourney V7 / Niji 7.'
+          'V7/Niji 7 模式需要配置 Youchuan 账号，但后端未配置（YOUCHUAN_APP_ID / YOUCHUAN_SECRET_KEY），请切换到 147 AI 账号或联系管理员配置。'
         );
       }
       return 'youchuan';
@@ -248,18 +248,22 @@ export class MidjourneyProvider implements IAIProvider {
       this.logger.error(
         `[Midjourney] ${operation} failed: HTTP ${response.status} ${response.statusText} ${text}`
       );
-      // 提取更友好的错误信息
+      // 提取更友好的错误信息（147 AI 返回 {error: {message, type, ...}} 结构）
       const errorDesc =
-        data?.description || data?.message || data?.comment || data?.error || response.statusText;
-      throw new Error(`Midjourney ${operation} failed: ${errorDesc}`);
+        data?.description ||
+        (typeof data?.error === 'string' ? data.error : data?.error?.message) ||
+        data?.message ||
+        data?.comment ||
+        response.statusText;
+      throw new Error(`MJ 图片生成失败：${errorDesc}`);
     }
 
     // 检查 API 返回的业务错误码
     if (mode === 'legacy' && data?.code && data.code !== 1 && data.code !== 22) {
       // code 1 = 成功, code 22 = 排队中
-      const errorMsg = data.description || data.message || 'Unknown API error';
+      const errorMsg = data.description || data.message || '未知 API 错误';
       this.logger.error(`[Midjourney] ${operation} API error: code=${data.code}, ${errorMsg}`);
-      throw new Error(`Midjourney ${operation} failed: ${errorMsg}`);
+      throw new Error(`MJ 图片生成失败：${errorMsg}`);
     }
 
     return data as T;
@@ -271,37 +275,63 @@ export class MidjourneyProvider implements IAIProvider {
     operation: string,
     requestMode?: MidjourneyAuthMode
   ): Promise<string> {
-    const response = await this.apiRequest<MidjourneySubmitResponse>(
-      'POST',
-      path,
-      payload,
-      `${operation} submit`,
-      requestMode
-    );
+    const maxRetries = 2;
+    let lastError: Error | null = null;
 
-    if (response?.code === 21) {
-      throw new Error(
-        response.description || 'Midjourney API requires modal input for this action.'
-      );
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await this.apiRequest<MidjourneySubmitResponse>(
+          'POST',
+          path,
+          payload,
+          `${operation} submit`,
+          requestMode
+        );
+
+        if (response?.code === 21) {
+          throw new Error(
+            response.description || 'MJ 任务需要补充信息，请尝试调整提示词后重新提交。'
+          );
+        }
+
+        const taskId =
+          (response as any)?.id ??
+          (response as any)?.jobId ??
+          (response as any)?.data?.jobId ??
+          (response as any)?.cost?.jobId ??
+          (typeof (response as any)?.result === 'object' ? ((response as any).result as any)?.jobId : undefined) ??
+          (response as any)?.result ??
+          (response as any)?.properties?.taskId;
+        if (!taskId) {
+          this.logger.error(
+            `[Midjourney] ${operation} did not return task id. Response: ${JSON.stringify(response).slice(0, 500)}`
+          );
+          throw new Error(`MJ 任务提交后未返回任务 ID，请稍后重试。`);
+        }
+
+        return String(taskId);
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        const msg = lastError.message;
+
+        // queue_full_or_no_account：短暂重试
+        const isQueueFull =
+          msg.includes('queue_full_or_no_account') ||
+          msg.includes('upstream_error');
+        if (isQueueFull && attempt < maxRetries) {
+          const delayMs = (attempt + 1) * 1500;
+          this.logger.warn(
+            `[Midjourney] ${operation} queue full, retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`
+          );
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          continue;
+        }
+
+        throw lastError;
+      }
     }
 
-    const taskId =
-      (response as any)?.id ??
-      (response as any)?.jobId ??
-      (response as any)?.data?.jobId ??
-      (response as any)?.cost?.jobId ??
-      (typeof (response as any)?.result === 'object' ? ((response as any).result as any)?.jobId : undefined) ??
-      (response as any)?.result ??
-      (response as any)?.properties?.taskId;
-    if (!taskId) {
-      // 打印完整响应以便调试
-      this.logger.error(
-        `[Midjourney] ${operation} did not return task id. Response: ${JSON.stringify(response).slice(0, 500)}`
-      );
-      throw new Error(`[Midjourney] ${operation} did not return task id.`);
-    }
-
-    return String(taskId);
+    throw lastError!;
   }
 
   private async pollTask(
@@ -350,12 +380,12 @@ export class MidjourneyProvider implements IAIProvider {
       }
 
       if (status === 'FAILURE' || status === 'FAILED' || status === 'CANCEL') {
-        const reason = task.failReason || task.description || task.comment || 'Unknown reason';
-        throw new Error(`Midjourney task ${taskId} failed: ${reason}`);
+        const reason = task.failReason || task.description || task.comment || '未知原因';
+        throw new Error(`MJ 任务执行失败：${reason}`);
       }
     }
 
-    throw new Error(`Midjourney task ${taskId} timed out after ${this.maxPollAttempts} attempts`);
+    throw new Error(`MJ 任务超时（等待 ${this.maxPollAttempts} 次后仍未完成），请稍后重试。`);
   }
 
   private normalizeTaskStatus(task: MidjourneyTaskResponse): string {
@@ -516,7 +546,7 @@ export class MidjourneyProvider implements IAIProvider {
     // 如果是 URL，抛出错误提示需要使用异步方法
     if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
       throw new Error(
-        `Image is a URL, use ensureDataUrlAsync instead: ${trimmed.slice(0, 80)}...`
+        `图片为 URL 格式，请使用异步方法：${trimmed.slice(0, 80)}...`
       );
     }
 
@@ -536,11 +566,11 @@ export class MidjourneyProvider implements IAIProvider {
       this.logger.log(`[Midjourney] Downloading image from URL: ${trimmed.slice(0, 80)}...`);
       const response = await fetch(trimmed);
       if (!response.ok) {
-        throw new Error(`Failed to download image: HTTP ${response.status}`);
+        throw new Error(`图片下载失败：HTTP ${response.status}`);
       }
       const contentType = response.headers.get('content-type') || '';
       if (!contentType.startsWith('image/')) {
-        throw new Error(`URL returned non-image content: ${contentType}`);
+        throw new Error(`图片 URL 返回的内容不是图片格式：${contentType}`);
       }
       const buffer = Buffer.from(await response.arrayBuffer());
       const base64 = buffer.toString('base64');
@@ -718,7 +748,7 @@ export class MidjourneyProvider implements IAIProvider {
   private async toPromptImageUrl(image: string): Promise<string> {
     const trimmed = image.trim();
     if (!trimmed) {
-      throw new Error('Empty image input is not allowed.');
+      throw new Error('图片输入不能为空。');
     }
 
     if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
@@ -728,7 +758,7 @@ export class MidjourneyProvider implements IAIProvider {
     const dataUrl = await this.ensureDataUrlAsync(trimmed);
     const match = dataUrl.match(/^data:(.+?);base64,(.+)$/);
     if (!match) {
-      throw new Error('Unsupported image input format for Youchuan image reference.');
+      throw new Error('不支持的图片格式，请使用 JPG/PNG/WebP/GIF。');
     }
 
     const [, contentType, base64] = match;
@@ -739,7 +769,7 @@ export class MidjourneyProvider implements IAIProvider {
     );
 
     if (!ossUrl) {
-      throw new Error('Failed to upload image reference to OSS.');
+      throw new Error('图片上传到 OSS 失败，无法提交到 MJ。');
     }
 
     return ossUrl;
@@ -757,9 +787,25 @@ export class MidjourneyProvider implements IAIProvider {
       )
     ).filter(Boolean);
 
-    const text = [...promptImageUrls, prompt.trim()].filter(Boolean).join(' ').trim();
+    // youchuan /v1/tob/diffusion 不支持 MJ V7 专属参数，过滤掉
+    const unsupportedPatterns = [
+      /--cref\s+\S+/gi,
+      /--sref\s+\S+/gi,
+      /--oref\s+\S+/gi,
+      /--iw\s+\S+/gi,
+      /--sw\s+\S+/gi,
+      /--sv\s+\S+/gi,
+      /--ow\s+\S+/gi,
+      /--exp\s+\S+/gi,
+    ];
+    let cleanedPrompt = prompt.trim();
+    for (const pattern of unsupportedPatterns) {
+      cleanedPrompt = cleanedPrompt.replace(pattern, '');
+    }
+
+    const text = [...promptImageUrls, cleanedPrompt].filter(Boolean).join(' ').trim();
     if (!text) {
-      throw new Error('Midjourney V7/Niji 7 requires at least a prompt or image reference.');
+      throw new Error('V7/Niji 7 模式需要至少提供提示词或参考图片。');
     }
 
     return { text };
@@ -793,7 +839,7 @@ export class MidjourneyProvider implements IAIProvider {
       base64Array.push(trimmed);
     }
 
-    promptParts.push(request.prompt);
+    promptParts.push(request.prompt.replace(/\r?\n/g, ' ').trim());
 
     const payload: Record<string, any> = {
       prompt: promptParts.filter(Boolean).join(' ').trim(),
@@ -1050,7 +1096,7 @@ export class MidjourneyProvider implements IAIProvider {
     try {
       const requestMode = this.resolveRequestMode(request.model);
       if (!Array.isArray(request.sourceImages) || request.sourceImages.length < 2) {
-        throw new Error('Midjourney blend requires at least two source images.');
+        throw new Error('MJ Blend 至少需要两张图片进行融合。');
       }
 
       if (requestMode === 'youchuan') {
@@ -1096,7 +1142,7 @@ export class MidjourneyProvider implements IAIProvider {
     try {
       const requestMode = this.resolveRequestMode(request.model);
       if (requestMode === 'youchuan') {
-        throw new Error('Youchuan Midjourney provider does not expose describe-image API yet.');
+        throw new Error('MJ Describe（图生文）当前账号模式暂不支持，请切换到 147 AI 账号。');
       }
 
       const payload = await this.buildDescribePayload(request);
@@ -1233,7 +1279,7 @@ export class MidjourneyProvider implements IAIProvider {
   ): Promise<AIProviderResponse<ImageResult>> {
     try {
       if (this.isYouchuanMode()) {
-        throw new Error('Youchuan Midjourney provider does not support legacy action buttons.');
+        throw new Error('MJ 操作按钮当前账号模式暂不支持，请切换到 147 AI 账号。');
       }
 
       const payload = {
@@ -1272,7 +1318,7 @@ export class MidjourneyProvider implements IAIProvider {
   ): Promise<AIProviderResponse<ImageResult>> {
     try {
       if (this.isYouchuanMode()) {
-        throw new Error('Youchuan Midjourney provider does not support legacy modal actions.');
+        throw new Error('MJ 自定义 Modal 当前账号模式暂不支持，请切换到 147 AI 账号。');
       }
 
       const payload = {

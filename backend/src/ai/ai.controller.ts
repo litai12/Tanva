@@ -742,7 +742,7 @@ export class AiController {
       } catch (err: any) {
         const code = err?.code ? String(err.code) : '';
         if (code === 'ENOENT' || String(err?.message || '').includes('spawn ffmpeg')) {
-          throw new ServiceUnavailableException('ffmpeg not installed on the server');
+          throw new ServiceUnavailableException('服务器未安装 ffmpeg，请联系运维处理');
         }
         throw err;
       }
@@ -776,7 +776,7 @@ export class AiController {
       process.env.SORA2_API_KEY ||
       null;
     if (!apiKey) {
-      throw new ServiceUnavailableException('147 API key not configured (BANANA_API_KEY)');
+      throw new ServiceUnavailableException('147 API Key 未配置（BANANA_API_KEY），请检查后端环境变量');
     }
 
     const apiBaseUrl = (
@@ -833,7 +833,7 @@ export class AiController {
         if (joined.length) return joined;
       }
 
-      throw new ServiceUnavailableException('147 returned empty content');
+      throw new ServiceUnavailableException('147 AI 返回了空内容，请稍后重试');
     } catch (error: any) {
       if (error.name === 'AbortError') {
         throw new ServiceUnavailableException(`Video analysis timeout (${VIDEO_ANALYSIS_TIMEOUT / 1000}s)`);
@@ -849,11 +849,11 @@ export class AiController {
     try {
       parsed = new URL(urlValue);
     } catch {
-      throw new BadRequestException('Invalid videoUrl');
+      throw new BadRequestException('视频 URL 格式无效');
     }
 
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      throw new BadRequestException('Unsupported videoUrl protocol');
+      throw new BadRequestException('视频 URL 只支持 http/https 协议');
     }
 
     const hostname = parsed.hostname;
@@ -865,7 +865,7 @@ export class AiController {
 
     if (!isAllowed) {
       this.logger.warn(`URL host not allowed: ${hostname}, allowedHosts: ${allowedHosts.join(', ')}`);
-      throw new BadRequestException('videoUrl host not allowed');
+      throw new BadRequestException('视频 URL 域名不在允许列表中，请使用白名单内的域名');
     }
 
     return parsed;
@@ -876,11 +876,11 @@ export class AiController {
     try {
       parsed = new URL(urlValue);
     } catch {
-      throw new BadRequestException('Invalid imageUrl');
+      throw new BadRequestException('图片 URL 格式无效');
     }
 
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      throw new BadRequestException('Unsupported imageUrl protocol');
+      throw new BadRequestException('图片 URL 只支持 http/https 协议');
     }
 
     const hostname = parsed.hostname;
@@ -891,7 +891,7 @@ export class AiController {
 
     if (!isAllowed) {
       this.logger.warn(`Image URL host not allowed: ${hostname}`);
-      throw new BadRequestException('imageUrl host not allowed');
+      throw new BadRequestException('图片 URL 域名不在允许列表中，请使用白名单内的域名');
     }
 
     return parsed;
@@ -931,18 +931,18 @@ export class AiController {
 
       const contentType = response.headers.get('content-type') || 'image/png';
       if (!contentType.startsWith('image/')) {
-        throw new BadRequestException('imageUrl is not an image');
+        throw new BadRequestException('图片 URL 返回的不是图片格式');
       }
 
       const maxBytes = 30 * 1024 * 1024;
       const contentLength = Number(response.headers.get('content-length') || 0);
       if (contentLength && contentLength > maxBytes) {
-        throw new BadRequestException('imageUrl is too large');
+        throw new BadRequestException('图片文件过大，请使用更小的图片（最大 30MB）');
       }
 
       const buffer = Buffer.from(await response.arrayBuffer());
       if (buffer.length > maxBytes) {
-        throw new BadRequestException('imageUrl is too large');
+        throw new BadRequestException('图片文件过大，请使用更小的图片（最大 30MB）');
       }
 
       const base64 = buffer.toString('base64');
@@ -1289,7 +1289,7 @@ export class AiController {
           }
         }
 
-        throw new InternalServerErrorException('Image generation retry loop exhausted unexpectedly');
+        throw new InternalServerErrorException('图片生成重试次数耗尽，请稍后重试。');
       }, 0, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }));
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -1339,7 +1339,7 @@ export class AiController {
       }
 
       if (!sourceImage) {
-        throw new BadRequestException('sourceImage or sourceImageUrl is required');
+        throw new BadRequestException('编辑图片接口需要提供 sourceImage 或 sourceImageUrl');
       }
 
       // 非 MJ 时验证 sourceImage 是有效的图片格式
@@ -1424,7 +1424,7 @@ export class AiController {
         : [];
 
       if (!sourceImages.length) {
-        throw new BadRequestException('sourceImages or sourceImageUrls is required');
+        throw new BadRequestException('融合图片接口需要提供 sourceImages 或 sourceImageUrls（至少两张）');
       }
 
       if (providerName && providerName !== 'gemini-pro') {
@@ -1481,7 +1481,7 @@ export class AiController {
     return this.withCredits(req, 'midjourney-variation', 'midjourney-fast', async () => {
       const provider = this.factory.getProvider('midjourney-fast', 'midjourney');
       if (!(provider instanceof MidjourneyProvider)) {
-        throw new ServiceUnavailableException('Midjourney provider is unavailable.');
+        throw new ServiceUnavailableException('MJ 服务暂不可用，请检查账号配置');
       }
 
       const result = await provider.triggerAction({
@@ -1513,7 +1513,7 @@ export class AiController {
     return this.withCredits(req, 'midjourney-variation', 'midjourney-fast', async () => {
       const provider = this.factory.getProvider('midjourney-fast', 'midjourney');
       if (!(provider instanceof MidjourneyProvider)) {
-        throw new ServiceUnavailableException('Midjourney provider is unavailable.');
+        throw new ServiceUnavailableException('MJ 服务暂不可用，请检查账号配置');
       }
 
       const result = await provider.executeModal({
@@ -2355,7 +2355,7 @@ export class AiController {
               };
             }
 
-            const message = result.error?.message || 'Failed to convert image to vector';
+            const message = result.error?.message || '图片转矢量图失败';
             this.logger.error(`[${providerName}] img2vector failed: ${message}`);
             throw new InternalServerErrorException(message);
           } catch (error) {
@@ -2905,7 +2905,7 @@ export class AiController {
         if (contentLengthHeader) {
           const size = Number(contentLengthHeader);
           if (Number.isFinite(size) && size > MAX_VIDEO_BYTES) {
-            throw new BadRequestException('Video file too large');
+            throw new BadRequestException('视频文件过大，请使用更小的视频');
           }
         }
 
@@ -2962,7 +2962,7 @@ export class AiController {
             intervalSeconds,
           });
           if (!frames.length) {
-            throw new ServiceUnavailableException('Failed to extract frames from video');
+            throw new ServiceUnavailableException('无法从视频中提取帧，请检查视频文件是否损坏');
           }
 
           stage = 'analyze_frames';
@@ -3047,7 +3047,7 @@ export class AiController {
         let file = uploadResult;
         while (file.state === 'PROCESSING') {
           if (Date.now() > deadline) {
-            throw new ServiceUnavailableException('Video processing timed out');
+            throw new ServiceUnavailableException('视频处理超时，请使用更短的视频');
           }
           this.logger.log('⏳ Waiting for video processing...');
           await new Promise((resolve) => setTimeout(resolve, 5000));
@@ -3099,9 +3099,9 @@ export class AiController {
           throw error;
         }
         if (this.isLikelyNetworkError(error)) {
-          throw new ServiceUnavailableException(`Video analysis failed at ${stage}: ${summary}`);
-        }
-        throw new InternalServerErrorException(`Video analysis failed at ${stage}: ${summary}`);
+        throw new ServiceUnavailableException(`视频分析失败（${stage}）：${summary}`);
+      }
+        throw new InternalServerErrorException(`视频分析失败（${stage}）：${summary}`);
       } finally {
         try {
           if (tempFile) {
@@ -3266,7 +3266,7 @@ export class AiController {
   async queryTencentSpeechAsyncTask(@Param('taskId') taskId: string) {
     const normalizedTaskId = taskId?.trim();
     if (!normalizedTaskId) {
-      throw new BadRequestException('taskId is required');
+      throw new BadRequestException('taskId 参数不能为空');
     }
     return this.tencentSpeechService.queryAsyncSpeechTask(normalizedTaskId);
   }
@@ -3294,7 +3294,7 @@ export class AiController {
   async querySpeechAsyncTask(@Param('taskId') taskId: string) {
     const normalizedTaskId = taskId?.trim();
     if (!normalizedTaskId) {
-      throw new BadRequestException('taskId is required');
+      throw new BadRequestException('taskId 参数不能为空');
     }
     return this.minimaxSpeechService.queryAsyncSpeechTask(normalizedTaskId);
   }
