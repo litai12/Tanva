@@ -644,6 +644,88 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     }
   }, [selectedPlaceholderId]);
 
+  /**
+   * paperJson 恢复后 Paper 上已有 3D 组，但 React 侧 model3DInstances 为空时，Model3DContainer 不会挂载。
+   * 仅从现有 Paper 组重建运行时实例，不重复创建组（与 hydrateFromSnapshot 区分）。
+   */
+  const syncModel3DInstancesFromPaper = useCallback(() => {
+    if (!paper?.project) return;
+    try {
+      const groups = paper.project.layers.flatMap((layer) =>
+        (layer.children || []).filter(
+          (child: any) => child?.data?.type === '3d-model' && child?.data?.modelId
+        )
+      ) as paper.Group[];
+
+      const seen = new Set<string>();
+      const built: Model3DInstance[] = [];
+
+      for (const group of groups) {
+        const modelId = String(group.data?.modelId || '');
+        if (!modelId || seen.has(modelId)) continue;
+
+        const md = (group.data?.modelData || {}) as Model3DData;
+        const url = md?.url || (group.data as any)?.url || (group.data as any)?.path;
+        if (!url || typeof url !== 'string') continue;
+
+        seen.add(modelId);
+
+        const dataBounds = group.data?.bounds as
+          | { x: number; y: number; width: number; height: number }
+          | undefined;
+        const bounds =
+          dataBounds &&
+          typeof dataBounds.width === 'number' &&
+          typeof dataBounds.height === 'number'
+            ? {
+                x: dataBounds.x,
+                y: dataBounds.y,
+                width: dataBounds.width,
+                height: dataBounds.height,
+              }
+            : {
+                x: group.bounds.x,
+                y: group.bounds.y,
+                width: group.bounds.width,
+                height: group.bounds.height,
+              };
+
+        const selectionRect = group.children.find(
+          (c: any) => c?.data?.type === '3d-model-selection-area'
+        ) as paper.Path | undefined;
+
+        const resolvedPath = md.path || md.url || url;
+
+        built.push({
+          id: modelId,
+          modelData: {
+            ...md,
+            url: md.url || url,
+            path: resolvedPath,
+          },
+          bounds,
+          isSelected: false,
+          visible: group.visible !== false,
+          selectionRect,
+          layerId: (() => {
+            const name = group.layer?.name;
+            if (typeof name === 'string' && name.startsWith('layer_')) {
+              return name.replace('layer_', '');
+            }
+            return undefined;
+          })(),
+        });
+      }
+
+      if (built.length > 0) {
+        setModel3DInstances(built);
+        setSelectedModel3DIds([]);
+      }
+    } catch (error) {
+      console.warn('从 Paper 同步 3D 实例失败:', error);
+    }
+  }, []);
+
   const hydrateFromSnapshot = useCallback((snapshots: ModelAssetSnapshot[]) => {
     if (!Array.isArray(snapshots) || snapshots.length === 0) {
       setModel3DInstances([]);
@@ -843,6 +925,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     setSelectedModel3DIds,  // 设置多选状态
     setTriggerModel3DUpload,
     hydrateFromSnapshot,
+    syncModel3DInstancesFromPaper,
     createModel3DFromSnapshot,
   };
 };
