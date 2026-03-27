@@ -1,5 +1,5 @@
 import React from 'react';
-import { Handle, Position, useReactFlow, type Node } from 'reactflow';
+import { Handle, Position, useReactFlow, type Node as RFNode } from 'reactflow';
 import { Send as SendIcon, Play, Plus, X, Link, Copy, Trash2, Download, FolderPlus, Check, Globe } from 'lucide-react';
 import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
 import SmartImage from '../../ui/SmartImage';
@@ -224,7 +224,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
 
       for (const edge of textEdges) {
         sourceIds.push(edge.source);
-        let sourceNode = rf.getNode(edge.source) as Node | undefined;
+        let sourceNode: RFNode | undefined = rf.getNode(edge.source) as RFNode | undefined;
         if (
           optimisticSource &&
           sourceNode &&
@@ -235,7 +235,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
           sourceNode = {
             ...sourceNode,
             data: { ...(sourceNode.data as Record<string, unknown>), ...optimisticSource.patch },
-          };
+          } as RFNode;
         }
         if (sourceNode) {
           const resolved = resolveTextFromSourceNode(sourceNode, edge.sourceHandle);

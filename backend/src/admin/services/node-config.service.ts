@@ -66,18 +66,8 @@ export class NodeConfigService {
 
     return sorted.map((config) => ({
       nodeKey: config.nodeKey,
-      nameZh:
-        config.nodeKey === 'sora2Video'
-          ? 'Sora2 Pro视频生成'
-          : config.nodeKey === 'sora2Character'
-          ? 'Sora2角色生成'
-          : config.nameZh,
-      nameEn:
-        config.nodeKey === 'sora2Video'
-          ? 'Sora2 Pro'
-          : config.nodeKey === 'sora2Character'
-          ? 'Sora2 Character'
-          : config.nameEn,
+      nameZh: config.nameZh,
+      nameEn: config.nameEn,
       category: config.category,
       status: config.status,
       statusMessage: config.statusMessage,
@@ -117,18 +107,8 @@ export class NodeConfigService {
     return sorted.map((config) => ({
       id: config.id,
       nodeKey: config.nodeKey,
-      nameZh:
-        config.nodeKey === 'sora2Video'
-          ? 'Sora2 Pro视频生成'
-          : config.nodeKey === 'sora2Character'
-          ? 'Sora2角色生成'
-          : config.nameZh,
-      nameEn:
-        config.nodeKey === 'sora2Video'
-          ? 'Sora2 Pro'
-          : config.nodeKey === 'sora2Character'
-          ? 'Sora2 Character'
-          : config.nameEn,
+      nameZh: config.nameZh,
+      nameEn: config.nameEn,
       category: config.category,
       status: config.status,
       statusMessage: config.statusMessage,
