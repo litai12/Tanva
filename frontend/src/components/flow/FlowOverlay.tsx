@@ -4306,6 +4306,15 @@ function FlowInner() {
   React.useEffect(() => {
     setAddTab((prev) => clampAddTab(prev, allowedAddTabs));
   }, [allowedAddTabs, clampAddTab]);
+
+  // 仅同步展示：打开「节点」页签时拉取后台节点管理中的最新配置（不在画板内编辑）
+  React.useEffect(() => {
+    if (!addPanel.visible || addTab !== "nodes") return;
+    fetchNodeConfigs({ force: true })
+      .then(setNodeConfigs)
+      .catch(console.error);
+  }, [addPanel.visible, addTab]);
+
   const addPanelRef = React.useRef<HTMLDivElement | null>(null);
   const lastPaneClickRef = React.useRef<{
     t: number;
