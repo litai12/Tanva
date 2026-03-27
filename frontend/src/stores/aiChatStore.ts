@@ -4138,25 +4138,29 @@ export const useAIChatStore = create<AIChatState>()(
               stage: "正在编辑",
             });
 
+            // 🔥 统一改为先上传到 OSS，用 URL 传给后端（避免大 base64 中转占用内存/带宽）
+            const projectIdEdit = useProjectContentStore.getState().projectId;
             const remoteSourceUrl = normalizeRemoteUrl(sourceImage);
             const remoteSourceAllowed = Boolean(
               remoteSourceUrl &&
                 isLikelyBackendAllowedRemoteUrl(remoteSourceUrl)
             );
-            const preferRemoteUrl =
-              Boolean(remoteSourceUrl) &&
-              remoteSourceAllowed &&
-              state.aiProvider !== "runninghub";
-            const normalizedSourceImage = preferRemoteUrl
-              ? null
-              : await resolveImageToDataUrl(sourceImage);
-            if (!normalizedSourceImage && !preferRemoteUrl) {
-              if (remoteSourceUrl && !remoteSourceAllowed) {
+            let sourceImageUrlForBackend: string | undefined;
+            if (state.aiProvider === "runninghub") {
+              // RunningHub 走 providerOptions，不从这里取 URL
+            } else if (remoteSourceUrl && remoteSourceAllowed) {
+              sourceImageUrlForBackend = remoteSourceUrl;
+            } else {
+              const uploadedUrl = await uploadImageToOSS(sourceImage, projectIdEdit);
+              if (uploadedUrl) {
+                sourceImageUrlForBackend = uploadedUrl;
+              } else if (remoteSourceUrl && !remoteSourceAllowed) {
                 throw new Error(
-                  "源图 URL 域名不在后端白名单，且浏览器无法读取该图片。请先上传到画布/素材库后重试。"
+                  "源图 URL 域名不在后端白名单，且上传失败。请先上传到画布/素材库后重试。"
                 );
+              } else {
+                throw new Error("源图上传 OSS 失败，请重新选择图片。");
               }
-              throw new Error("源图像读取失败，请重新选择图片。");
             }
 
             // 模拟进度更新 - 2分钟（120秒）内从0%到95%
@@ -4211,6 +4215,7 @@ export const useAIChatStore = create<AIChatState>()(
                 get().updateMessageStatus(aiMessageId!, statusUpdate);
               };
 
+              const normalizedSourceImage = await resolveImageToDataUrl(sourceImage);
               providerOptions = await buildRunningHubProviderOptions({
                 primaryImage: normalizedSourceImage || '',
                 referenceImage: state.sourceImagesForBlending?.[0],
@@ -4219,10 +4224,12 @@ export const useAIChatStore = create<AIChatState>()(
               });
             }
 
-            const buildEditRequest = (model: string): AIImageEditRequest => ({
+            const buildEditRequest = async (model: string): Promise<AIImageEditRequest> => ({
               prompt,
-              sourceImage: normalizedSourceImage || undefined,
-              sourceImageUrl: preferRemoteUrl ? remoteSourceUrl ?? undefined : undefined,
+              sourceImage: state.aiProvider === "runninghub"
+                ? (await resolveImageToDataUrl(sourceImage)) || undefined
+                : undefined,
+              sourceImageUrl: sourceImageUrlForBackend,
               model,
               aiProvider: state.aiProvider,
               providerOptions,
@@ -4244,7 +4251,7 @@ export const useAIChatStore = create<AIChatState>()(
               prompt: prompt.substring(0, 50) + "...",
             });
 
-            let result = await editImageViaAPI(buildEditRequest(modelToUse));
+            let result = await editImageViaAPI(await buildEditRequest(modelToUse));
 
             clearInterval(progressInterval);
 
@@ -4280,7 +4287,7 @@ export const useAIChatStore = create<AIChatState>()(
               });
 
               result = await editImageViaAPI(
-                buildEditRequest(GEMINI_FLASH_IMAGE_MODEL)
+                await buildEditRequest(GEMINI_FLASH_IMAGE_MODEL)
               );
               logProcessStep(metrics, "editImage fallback response received");
 
@@ -4923,42 +4930,23 @@ export const useAIChatStore = create<AIChatState>()(
               stage: "正在融合",
             });
 
-            const hasRemoteSource = sourceImages.some(
-              (img) => normalizeRemoteUrl(img) !== null
-            );
-            const normalizedSourceImages = hasRemoteSource
-              ? null
-              : await mapWithLimit(sourceImages, 2, async (img) => {
-                  const resolved = await resolveImageToDataUrl(img);
-                  if (!resolved) {
-                    throw new Error("融合图片读取失败，请重新选择图片。");
-                  }
-                  return resolved;
-                });
-            const sourceImageUrls = hasRemoteSource
-              ? await mapWithLimit(sourceImages, 2, async (img) => {
-                  const remoteUrl = normalizeRemoteUrl(img);
-                  const remoteAllowed = Boolean(
-                    remoteUrl && isLikelyBackendAllowedRemoteUrl(remoteUrl)
-                  );
-                  if (remoteUrl && remoteAllowed) return remoteUrl;
-                  const resolved = await resolveImageToDataUrl(img);
-                  if (!resolved) {
-                    if (remoteUrl && !remoteAllowed) {
-                      throw new Error(
-                        "检测到不在后端白名单的图片域名，且浏览器无法读取图片。请先上传到画布/素材库后再融合。"
-                      );
-                    }
-                    throw new Error("融合图片读取失败，请重新选择图片。");
-                  }
-                  const projectId = useProjectContentStore.getState().projectId;
-                  const uploadedUrl = await uploadImageToOSS(resolved, projectId);
-                  if (!uploadedUrl) {
-                    throw new Error("融合图片上传失败，请重试。");
-                  }
-                  return uploadedUrl;
-                })
-              : undefined;
+            // 🔥 统一改为先上传到 OSS，用 URL 传给后端
+            const projectIdBlend = useProjectContentStore.getState().projectId;
+            const sourceImageUrls = await mapWithLimit(sourceImages, 2, async (img) => {
+              const remoteUrl = normalizeRemoteUrl(img);
+              const remoteAllowed = Boolean(
+                remoteUrl && isLikelyBackendAllowedRemoteUrl(remoteUrl)
+              );
+              if (remoteUrl && remoteAllowed) return remoteUrl;
+              const uploadedUrl = await uploadImageToOSS(img, projectIdBlend);
+              if (uploadedUrl) return uploadedUrl;
+              if (remoteUrl && !remoteAllowed) {
+                throw new Error(
+                  "检测到不在后端白名单的图片域名，且上传失败。请先上传到画布/素材库后再融合。"
+                );
+              }
+              throw new Error("融合图片上传 OSS 失败，请重新选择图片。");
+            });
 
             // 模拟进度更新 - 2分钟（120秒）内从0%到95%
             // 每秒更新一次，每次增加约0.79%
@@ -4993,7 +4981,6 @@ export const useAIChatStore = create<AIChatState>()(
 
             const result = await blendImagesViaAPI({
               prompt,
-              sourceImages: normalizedSourceImages ?? undefined,
               sourceImageUrls,
               model: modelToUse,
               aiProvider: state.aiProvider,
@@ -5571,10 +5558,22 @@ export const useAIChatStore = create<AIChatState>()(
               stage: "正在分析",
             });
 
-            // ✅ 统一把源图解析为 dataURL（支持 dataURL/base64/blob/remote）
-            const formattedImageData = await resolveImageToDataUrl(sourceImage);
-            if (!formattedImageData) {
-              throw new Error("源图像读取失败，请重新选择图片。");
+            // 🔥 统一改为先上传到 OSS，用 URL 传给后端
+            const projectIdAnalyze = useProjectContentStore.getState().projectId;
+            const remoteUrlAnalyze = normalizeRemoteUrl(sourceImage);
+            const remoteAllowedAnalyze = Boolean(
+              remoteUrlAnalyze && isLikelyBackendAllowedRemoteUrl(remoteUrlAnalyze)
+            );
+            const uploadedAnalyzeUrl = remoteUrlAnalyze && remoteAllowedAnalyze
+              ? remoteUrlAnalyze
+              : await uploadImageToOSS(sourceImage, projectIdAnalyze);
+            if (!uploadedAnalyzeUrl) {
+              if (remoteUrlAnalyze && !remoteAllowedAnalyze) {
+                throw new Error(
+                  "源图 URL 域名不在后端白名单，且上传失败。请先上传到画布/素材库后重试。"
+                );
+              }
+              throw new Error("源图上传 OSS 失败，请重新选择图片。");
             }
 
             // 模拟进度更新 - 2分钟（120秒）内从0%到95%
@@ -5606,12 +5605,16 @@ export const useAIChatStore = create<AIChatState>()(
               });
             }, 1000);
 
-            // 调用后端API分析图像
+            // 调用后端API分析图像（后端仅接受 base64）
             const modelToUse = getImageModelForProvider(state.aiProvider);
+            const analyzeSourceBase64 = await resolveImageToDataUrl(sourceImage);
+            if (!analyzeSourceBase64) {
+              throw new Error("无法读取源图片数据");
+            }
 
             const result = await analyzeImageViaAPI({
               prompt: prompt || "请详细分析这张图片的内容",
-              sourceImage: formattedImageData,
+              sourceImage: analyzeSourceBase64,
               model: modelToUse,
               aiProvider: state.aiProvider,
             });
