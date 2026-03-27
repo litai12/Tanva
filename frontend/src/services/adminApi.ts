@@ -215,6 +215,8 @@ export interface AdminUserCreditTransaction {
   createdAt: string;
   apiUsageId?: string | null;
   channel?: string | null;
+  provider?: string | null;
+  model?: string | null;
   apiResponseStatus?: string | null;
   processingTime?: number | null;
 }

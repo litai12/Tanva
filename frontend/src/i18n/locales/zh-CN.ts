@@ -373,6 +373,7 @@ const zhCN = {
       durationUnit: "秒",
       notAvailable: "--",
       channel: "渠道：{{channel}}",
+      model: "模型：{{model}}",
     },
     usage: {
       title: "API 调用记录",

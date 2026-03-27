@@ -21,3 +21,6 @@
 ## 路由约定（节选）
 - 公开：`/`、`/auth/login`、`/auth/register`、`/oss`、`/runninghub-test`
 - 受保护：`/workspace`、`/app`、`/admin`、`/my-credits`
+
+## 我的积分（`/my-credits`）
+- 积分流水在“项目”列支持显示 AI 渠道与模型（如 `渠道：A · 模型：gemini-2.5-flash-image-preview`），用于定位实际执行链路。

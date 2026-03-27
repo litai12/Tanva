@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, TrendingUp, TrendingDown, Activity, Zap, RefreshCw, AlertTriangle } from 'lucide-react';
+import { TrendingUp, TrendingDown, Activity, Zap, RefreshCw, AlertTriangle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
@@ -29,6 +28,8 @@ interface Transaction {
   createdAt: string;
   apiUsageId?: string | null;
   channel?: string | null;
+  provider?: string | null;
+  model?: string | null;
   apiResponseStatus?: string | null;
   processingTime?: number | null;
 }
@@ -114,7 +115,6 @@ const SimpleLineChart: React.FC<{
 
 const MyCredits: React.FC = () => {
   const { t, i18n } = useTranslation();
-  const navigate = useNavigate();
   const [credits, setCredits] = useState<UserCreditsInfo | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [apiUsage, setApiUsage] = useState<ApiUsageRecord[]>([]);
@@ -287,15 +287,7 @@ const MyCredits: React.FC = () => {
       {/* Header */}
       <div className="sticky top-0 z-10 border-b bg-white/80 backdrop-blur-xl border-slate-200/60">
         <div className="flex items-center justify-between max-w-4xl px-4 py-4 mx-auto">
-          <div className="flex items-center gap-3">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate(-1)}
-              className="p-0 rounded-full h-9 w-9"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </Button>
+          <div className="flex items-center">
             <h1 className="text-lg font-semibold text-slate-800">
               {t('creditsPage.title')}
             </h1>
@@ -507,11 +499,21 @@ const MyCredits: React.FC = () => {
                               </div>
                               <div className="min-w-0">
                                 <div className="font-medium text-slate-700 truncate max-w-[240px]">{tx.description}</div>
-                                {tx.channel && (
+                                {(tx.channel || tx.model) && (
                                   <div className="text-xs text-slate-500">
-                                    {t('creditsPage.transactions.channel', {
-                                      channel: formatChannelLabel(tx.channel),
-                                    })}
+                                    {tx.channel && (
+                                      <span>
+                                        {t('creditsPage.transactions.channel', {
+                                          channel: formatChannelLabel(tx.channel),
+                                        })}
+                                      </span>
+                                    )}
+                                    {tx.channel && tx.model && <span> · </span>}
+                                    {tx.model && (
+                                      <span>
+                                        {t('creditsPage.transactions.model', { model: tx.model })}
+                                      </span>
+                                    )}
                                   </div>
                                 )}
                               </div>

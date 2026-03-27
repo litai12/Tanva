@@ -1247,7 +1247,7 @@ export class CreditsService {
     const apiUsageMap = new Map<
       string,
       {
-        provider: string;
+        provider: string | null;
         model: string | null;
         requestParams: Prisma.JsonValue | null;
         responseStatus: string;
@@ -1278,6 +1278,8 @@ export class CreditsService {
       return {
         ...tx,
         channel: this.extractChannelFromApiUsage(usage),
+        provider: usage?.provider ?? null,
+        model: usage?.model ?? null,
         apiResponseStatus: usage?.responseStatus ?? null,
         processingTime: usage?.processingTime ?? null,
       };
