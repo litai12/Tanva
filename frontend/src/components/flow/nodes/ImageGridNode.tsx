@@ -1,7 +1,6 @@
 import React from 'react';
 import { Handle, Position, useStore, type ReactFlowState, type Node } from 'reactflow';
 import SmartImage from '../../ui/SmartImage';
-import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import {
   createEphemeralFlowImageObjectUrl,
@@ -169,10 +168,6 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
   const [hover, setHover] = React.useState<string | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const projectId = useProjectContentStore((s) => s.projectId);
-
-  const outputAssetId = React.useMemo(() => parseFlowImageAssetRef(outputImage), [outputImage]);
-  const outputAssetUrl = useFlowImageAssetUrl(outputAssetId);
-  const outputPreviewSrc = outputAssetId ? (outputAssetUrl || '') : buildImageSrc(outputImage);
 
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
   const boxShadow = selected
@@ -799,7 +794,7 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
             }}
           >
             <SmartImage
-              src={outputPreviewSrc}
+              src={outputImage}
               alt={lt("拼合结果", "Combined result")}
               style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff' }}
             />
