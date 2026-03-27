@@ -803,6 +803,12 @@ export class MidjourneyProvider implements IAIProvider {
       cleanedPrompt = cleanedPrompt.replace(pattern, '');
     }
 
+    // 悠船对极长「说明 + Markdown」整段容易返回 5xx；与前端 MJ V7 清洗对齐，硬上限兜底
+    const MAX_YOUCHUAN_TEXT_CHARS = 10000;
+    if (cleanedPrompt.length > MAX_YOUCHUAN_TEXT_CHARS) {
+      cleanedPrompt = cleanedPrompt.slice(0, MAX_YOUCHUAN_TEXT_CHARS).trim();
+    }
+
     const text = [...promptImageUrls, cleanedPrompt].filter(Boolean).join(' ').trim();
     if (!text) {
       throw new Error('V7/Niji 7 模式需要至少提供提示词或参考图片。');
@@ -973,6 +979,8 @@ export class MidjourneyProvider implements IAIProvider {
     const midjourneyMeta = {
       taskId: task.id,
       status: task.status,
+      /** 部分 147 链路提交 /mj/submit/action 时需要带回 */
+      state: task.state,
       buttons: task.buttons,
       prompt: task.prompt,
       promptEn: task.promptEn,
