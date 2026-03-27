@@ -244,6 +244,7 @@ export interface AIError {
 export interface AIImageAnalyzeRequest {
   prompt?: string;
   sourceImage: string; // base64 encoded image
+  sourceImageUrl?: string; // URL to remote image
   model?: string;
   aiProvider?: SupportedAIProvider;
   providerOptions?: AIProviderOptions;
