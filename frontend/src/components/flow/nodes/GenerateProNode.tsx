@@ -236,9 +236,28 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
     setExternalPrompts(prompts);
   }, [id, rf]);
 
+  const refreshExternalPromptsTimerRef = React.useRef<number | null>(null);
+  const refreshExternalPromptsDeferred = React.useCallback(() => {
+    if (refreshExternalPromptsTimerRef.current !== null) {
+      window.clearTimeout(refreshExternalPromptsTimerRef.current);
+    }
+    refreshExternalPromptsTimerRef.current = window.setTimeout(() => {
+      refreshExternalPromptsTimerRef.current = null;
+      refreshExternalPrompts();
+    }, 0);
+  }, [refreshExternalPrompts]);
+
   React.useEffect(() => {
     refreshExternalPrompts();
   }, [refreshExternalPrompts]);
+
+  React.useEffect(() => {
+    return () => {
+      if (refreshExternalPromptsTimerRef.current !== null) {
+        window.clearTimeout(refreshExternalPromptsTimerRef.current);
+      }
+    };
+  }, []);
 
   // 监听边的变化（连接/断开）来刷新外部提示词
   React.useEffect(() => {
@@ -254,11 +273,11 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ id: string }>).detail;
       if (!detail?.id || !externalSourceIds.includes(detail.id)) return;
-      refreshExternalPrompts();
+      refreshExternalPromptsDeferred();
     };
     window.addEventListener('flow:updateNodeData', handler as EventListener);
     return () => window.removeEventListener('flow:updateNodeData', handler as EventListener);
-  }, [externalSourceIds, refreshExternalPrompts]);
+  }, [externalSourceIds, refreshExternalPromptsDeferred]);
 
   // 更新单个提示词
   const updatePrompt = React.useCallback((index: number, value: string) => {

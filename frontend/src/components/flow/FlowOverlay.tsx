@@ -715,6 +715,12 @@ const CustomEdge = React.memo(function CustomEdge({
     (event: React.MouseEvent) => {
       event.stopPropagation();
       setEdges((edges) => edges.filter((e) => e.id !== id));
+      try {
+        historyService.commit("flow-edge-delete").catch(() => {});
+      } catch {}
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("flow:edgesChange"));
+      }, 0);
     },
     [id, setEdges]
   );
@@ -11187,7 +11193,9 @@ function FlowInner() {
           // 开始轮询查询任务状态
           const pollInterval = 5000; // 5秒
           const maxAttempts = 180; // 最多180次（15分钟）
+          const maxConsecutiveQueryErrors = 6; // 连续查询失败 6 次后直接失败返回
           let attempts = 0;
+          let consecutiveQueryErrors = 0;
           let pollTimer: number | undefined;
           let settled = false;
           let polling = false;
@@ -11253,6 +11261,7 @@ function FlowInner() {
                 provider as VideoProvider,
                 createResult.taskId
               );
+              consecutiveQueryErrors = 0;
 
               if (
                 queryResult.status === "succeeded" ||
@@ -11336,13 +11345,51 @@ function FlowInner() {
               }
               // 其他状态继续轮询
             } catch (error) {
+              consecutiveQueryErrors++;
               console.warn("❌ [Flow] Task query failed", {
                 nodeId,
                 provider,
                 attempt: attempts,
+                consecutiveQueryErrors,
                 error: error instanceof Error ? error.message : String(error),
               });
-              // 继续轮询，不中断
+              if (consecutiveQueryErrors >= maxConsecutiveQueryErrors) {
+                stopPolling();
+                // 连续查询失败时也尝试退还积分
+                if (createResult.apiUsageId) {
+                  try {
+                    await refundVideoTask(createResult.apiUsageId);
+                    console.log("✅ [Flow] Video task credits refunded (query failed)", {
+                      nodeId,
+                      provider,
+                      apiUsageId: createResult.apiUsageId,
+                    });
+                  } catch (refundError) {
+                    console.warn("❌ [Flow] Failed to refund credits (query failed)", {
+                      nodeId,
+                      provider,
+                      apiUsageId: createResult.apiUsageId,
+                      error: refundError instanceof Error ? refundError.message : String(refundError),
+                    });
+                  }
+                }
+                setNodes((ns) =>
+                  ns.map((n) =>
+                    n.id === nodeId
+                      ? {
+                          ...n,
+                          data: {
+                            ...n.data,
+                            status: "failed",
+                            error: "任务状态查询失败，请重试",
+                          },
+                        }
+                      : n
+                  )
+                );
+                return;
+              }
+              // 查询偶发失败时继续轮询
             } finally {
               polling = false;
             }
