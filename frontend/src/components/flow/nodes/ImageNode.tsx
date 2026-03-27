@@ -884,7 +884,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
         (item) =>
           ({
             id: item.id,
-            src: item.src,
+            src: item.remoteUrl || item.src,
             title: item.title,
             timestamp: item.timestamp,
           } as ImageItem)
