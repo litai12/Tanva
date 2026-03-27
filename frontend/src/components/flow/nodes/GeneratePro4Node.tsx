@@ -1,5 +1,5 @@
 import React from "react";
-import { Handle, Position, useReactFlow } from "reactflow";
+import { Handle, Position, useReactFlow, type Node } from "reactflow";
 import { Play, Plus, X, Link, Copy, Trash2, Download, FolderPlus, Send as SendIcon } from "lucide-react";
 import ImagePreviewModal from "../../ui/ImagePreviewModal";
 import SmartImage from "../../ui/SmartImage";
@@ -94,29 +94,44 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
   const [externalPrompts, setExternalPrompts] = React.useState<string[]>([]);
   const [externalSourceIds, setExternalSourceIds] = React.useState<string[]>([]);
 
-  const refreshExternalPrompts = React.useCallback(() => {
-    const currentEdges = rf.getEdges();
-    const textEdges = currentEdges.filter((e) => e.target === id && e.targetHandle === "text");
+  const refreshExternalPrompts = React.useCallback(
+    (optimisticSource?: { sourceId: string; patch: Record<string, unknown> } | null) => {
+      const currentEdges = rf.getEdges();
+      const textEdges = currentEdges.filter((e) => e.target === id && e.targetHandle === "text");
 
-    if (textEdges.length === 0) {
-      setExternalPrompts([]);
-      setExternalSourceIds([]);
-      return;
-    }
+      if (textEdges.length === 0) {
+        setExternalPrompts([]);
+        setExternalSourceIds([]);
+        return;
+      }
 
-    const sourceIds: string[] = [];
-    const prompts: string[] = [];
-    for (const edge of textEdges) {
-      sourceIds.push(edge.source);
-      const sourceNode = rf.getNode(edge.source);
-      if (!sourceNode) continue;
-      const resolved = resolveTextFromSourceNode(sourceNode, edge.sourceHandle);
-      if (resolved && resolved.trim().length) prompts.push(resolved.trim());
-    }
+      const sourceIds: string[] = [];
+      const prompts: string[] = [];
+      for (const edge of textEdges) {
+        sourceIds.push(edge.source);
+        let sourceNode = rf.getNode(edge.source) as Node | undefined;
+        if (
+          optimisticSource &&
+          sourceNode &&
+          edge.source === optimisticSource.sourceId &&
+          optimisticSource.patch &&
+          typeof optimisticSource.patch === "object"
+        ) {
+          sourceNode = {
+            ...sourceNode,
+            data: { ...(sourceNode.data as Record<string, unknown>), ...optimisticSource.patch },
+          };
+        }
+        if (!sourceNode) continue;
+        const resolved = resolveTextFromSourceNode(sourceNode, edge.sourceHandle);
+        if (resolved && resolved.trim().length) prompts.push(resolved.trim());
+      }
 
-    setExternalSourceIds(sourceIds);
-    setExternalPrompts(prompts);
-  }, [id, rf]);
+      setExternalSourceIds(sourceIds);
+      setExternalPrompts(prompts);
+    },
+    [id, rf],
+  );
 
   const refreshExternalPromptsTimerRef = React.useRef<number | null>(null);
   const refreshExternalPromptsDeferred = React.useCallback(() => {
@@ -152,9 +167,13 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
   React.useEffect(() => {
     if (externalSourceIds.length === 0) return;
     const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ id: string }>).detail;
+      const detail = (event as CustomEvent<{ id: string; patch?: Record<string, unknown> }>).detail;
       if (!detail?.id || !externalSourceIds.includes(detail.id)) return;
-      refreshExternalPromptsDeferred();
+      if (detail.patch && typeof detail.patch === "object") {
+        refreshExternalPrompts({ sourceId: detail.id, patch: detail.patch });
+      } else {
+        refreshExternalPromptsDeferred();
+      }
     };
     window.addEventListener("flow:updateNodeData", handler as EventListener);
     return () =>
@@ -162,7 +181,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
         "flow:updateNodeData",
         handler as EventListener
       );
-  }, [externalSourceIds, refreshExternalPromptsDeferred]);
+  }, [externalSourceIds, refreshExternalPrompts, refreshExternalPromptsDeferred]);
 
   // 图片区域宽度
   const imageWidth = data.imageWidth || DEFAULT_IMAGE_WIDTH;
