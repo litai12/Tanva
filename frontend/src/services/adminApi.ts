@@ -215,6 +215,8 @@ export interface AdminUserCreditTransaction {
   createdAt: string;
   apiUsageId?: string | null;
   channel?: string | null;
+  provider?: string | null;
+  model?: string | null;
   apiResponseStatus?: string | null;
   processingTime?: number | null;
 }
@@ -420,7 +422,7 @@ export async function upsertSetting(data: {
 // ==================== 支付相关 ====================
 
 export type PaymentMethod = "alipay" | "wechat";
-export type PaymentStatus = "pending" | "paid" | "failed" | "expired";
+export type PaymentStatus = "pending" | "paid" | "failed" | "expired" | "cancelled";
 
 export interface PaymentOrderResponse {
   orderId: string;

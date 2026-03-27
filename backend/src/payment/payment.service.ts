@@ -1,6 +1,7 @@
 
-import { Injectable, BadRequestException, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, OnModuleInit, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   PaymentMethod,
@@ -24,12 +25,92 @@ const WeChatPay = require('wechatpay-node-v3');
 export class PaymentService implements OnModuleInit {
   private alipaySdk: any;
   private wechatPay: any;
+  private readonly logger = new Logger(PaymentService.name);
 
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
     private referralService: ReferralService,
   ) { }
+
+  private isAlipaySuccessStatus(status: string | null | undefined): boolean {
+    return status === 'TRADE_SUCCESS' || status === 'TRADE_FINISHED';
+  }
+
+  private isWechatSuccessStatus(status: string | null | undefined): boolean {
+    return status === 'SUCCESS';
+  }
+
+  private toNumber(value: unknown): number | null {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === 'string') {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  }
+
+  private isAmountMatched(expected: number, actual: number | null): boolean {
+    if (actual === null) {
+      return true;
+    }
+    return Math.abs(expected - actual) < 0.01;
+  }
+
+  private parseNotifyData(data: unknown): Record<string, string> {
+    if (!data) return {};
+
+    if (typeof data === 'string') {
+      const raw = data.trim();
+      if (!raw) return {};
+
+      if (raw.startsWith('{') || raw.startsWith('[')) {
+        try {
+          const parsed = JSON.parse(raw);
+          return this.parseNotifyData(parsed);
+        } catch {
+          // 继续按 form body 解析
+        }
+      }
+
+      const payload = new URLSearchParams(raw);
+      const result: Record<string, string> = {};
+      payload.forEach((value, key) => {
+        result[key] = value;
+      });
+      return result;
+    }
+
+    if (typeof data === 'object' && !Array.isArray(data)) {
+      const result: Record<string, string> = {};
+      for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+        if (value === undefined || value === null) continue;
+        if (typeof value === 'string') {
+          result[key] = value;
+        } else if (typeof value === 'number' || typeof value === 'boolean') {
+          result[key] = String(value);
+        } else {
+          result[key] = JSON.stringify(value);
+        }
+      }
+      return result;
+    }
+
+    return {};
+  }
+
+  private mergeOrderMetadata(
+    currentMetadata: unknown,
+    patch: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const base =
+      currentMetadata && typeof currentMetadata === 'object' && !Array.isArray(currentMetadata)
+        ? { ...(currentMetadata as Record<string, unknown>) }
+        : {};
+    return { ...base, ...patch };
+  }
 
   /**
    * 🛡️ 密钥标准化函数 (PKCS1 专用版)
@@ -296,38 +377,85 @@ export class PaymentService implements OnModuleInit {
   async getOrderStatus(orderNo: string, userId: string): Promise<PaymentStatusResponse> {
     const order = await this.prisma.paymentOrder.findFirst({ where: { orderNo, userId } });
     if (!order) throw new NotFoundException('订单不存在');
-    if (order.status === PaymentStatus.PENDING && order.paymentMethod === PaymentMethod.ALIPAY) {
-      const alipayStatus = await this.queryAlipayTradeStatus(orderNo);
-      if (alipayStatus === 'TRADE_SUCCESS' || alipayStatus === 'TRADE_FINISHED') {
-        await this.processPaymentSuccess(order.id, userId, order.credits, order.amount);
-        return { orderNo: order.orderNo, status: PaymentStatus.PAID, paidAt: new Date(), credits: order.credits };
+
+    if (order.status !== PaymentStatus.PAID && order.paymentMethod === PaymentMethod.ALIPAY) {
+      const alipayTrade = await this.queryAlipayTradeStatus(orderNo);
+      const expectedAmount = Number(order.amount);
+      if (
+        this.isAlipaySuccessStatus(alipayTrade.status) &&
+        this.isAmountMatched(expectedAmount, alipayTrade.totalAmount)
+      ) {
+        await this.processPaymentSuccess(order.id, userId, order.credits, {
+          tradeNo: alipayTrade.tradeNo,
+          paymentMethod: PaymentMethod.ALIPAY,
+          source: 'alipay_status_query',
+        });
       }
     }
-    // 微信支付状态查询
-    if (order.status === PaymentStatus.PENDING && order.paymentMethod === PaymentMethod.WECHAT) {
-      const wechatStatus = await this.queryWechatTradeStatus(orderNo);
-      if (wechatStatus === 'SUCCESS') {
-        await this.processPaymentSuccess(order.id, userId, order.credits, order.amount);
-        return { orderNo: order.orderNo, status: PaymentStatus.PAID, paidAt: new Date(), credits: order.credits };
+
+    if (order.status !== PaymentStatus.PAID && order.paymentMethod === PaymentMethod.WECHAT) {
+      const wechatTrade = await this.queryWechatTradeStatus(orderNo);
+      if (this.isWechatSuccessStatus(wechatTrade.status)) {
+        await this.processPaymentSuccess(order.id, userId, order.credits, {
+          tradeNo: wechatTrade.transactionId,
+          paymentMethod: PaymentMethod.WECHAT,
+          source: 'wechat_status_query',
+        });
       }
     }
-    return { orderNo: order.orderNo, status: order.status as PaymentStatus, paidAt: order.paidAt, credits: order.credits };
+
+    const latestOrder = await this.prisma.paymentOrder.findUnique({ where: { id: order.id } });
+    if (!latestOrder) throw new NotFoundException('订单不存在');
+
+    return {
+      orderNo: latestOrder.orderNo,
+      status: latestOrder.status as PaymentStatus,
+      paidAt: latestOrder.paidAt,
+      credits: latestOrder.credits,
+    };
   }
 
-  private async queryAlipayTradeStatus(orderNo: string): Promise<string | null> {
-    if (!this.alipaySdk) { return null; }
+  private async queryAlipayTradeStatus(orderNo: string): Promise<{
+    status: string | null;
+    tradeNo: string | null;
+    totalAmount: number | null;
+    raw: Record<string, unknown> | null;
+  }> {
+    if (!this.alipaySdk) {
+      return { status: null, tradeNo: null, totalAmount: null, raw: null };
+    }
     try {
       const result = await this.alipaySdk.exec('alipay.trade.query', { bizContent: { out_trade_no: orderNo } });
-      if (result.code === '10000') { return result.tradeStatus; }
-      return null;
-    } catch (error) { console.error('查询支付宝交易状态失败:', error); return null; }
+      if (result.code === '10000') {
+        return {
+          status: (result.tradeStatus ?? result.trade_status ?? null) as string | null,
+          tradeNo: (result.tradeNo ?? result.trade_no ?? null) as string | null,
+          totalAmount: this.toNumber(result.totalAmount ?? result.total_amount),
+          raw: result as Record<string, unknown>,
+        };
+      }
+      this.logger.warn(`查询支付宝交易状态失败: orderNo=${orderNo}, code=${String(result.code)}, subCode=${String(result.subCode ?? result.sub_code ?? '')}`);
+      return { status: null, tradeNo: null, totalAmount: null, raw: result as Record<string, unknown> };
+    } catch (error) {
+      this.logger.error(
+        `查询支付宝交易状态异常: orderNo=${orderNo}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      return { status: null, tradeNo: null, totalAmount: null, raw: null };
+    }
   }
 
   /**
    * 查询微信支付交易状态
    */
-  private async queryWechatTradeStatus(orderNo: string): Promise<string | null> {
-    if (!this.wechatPay) { return null; }
+  private async queryWechatTradeStatus(orderNo: string): Promise<{
+    status: string | null;
+    transactionId: string | null;
+    raw: Record<string, unknown> | null;
+  }> {
+    if (!this.wechatPay) {
+      return { status: null, transactionId: null, raw: null };
+    }
     try {
       const appid = this.configService.get<string>('WECHAT_APP_ID');
       const mchid = this.configService.get<string>('WECHAT_MCH_ID');
@@ -339,30 +467,85 @@ export class PaymentService implements OnModuleInit {
 
       console.log('微信支付订单查询响应:', JSON.stringify(result, null, 2));
 
-      if (result.trade_state) {
-        return result.trade_state;
-      }
-      return null;
+      return {
+        status: (result.trade_state ?? null) as string | null,
+        transactionId: (result.transaction_id ?? null) as string | null,
+        raw: result as Record<string, unknown>,
+      };
     } catch (error) {
       console.error('查询微信支付交易状态失败:', error);
-      return null;
+      return { status: null, transactionId: null, raw: null };
     }
   }
 
-  private async processPaymentSuccess(orderId: string, userId: string, credits: number, amount: any): Promise<void> {
+  private async processPaymentSuccess(
+    orderId: string,
+    userId: string,
+    credits: number,
+    options?: {
+      tradeNo?: string | null;
+      source?: string;
+      paymentMethod?: PaymentMethod;
+      paidAt?: Date;
+    },
+  ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       const currentOrder = await tx.paymentOrder.findUnique({ where: { id: orderId } });
-      if (!currentOrder || currentOrder.status === PaymentStatus.PAID) return;
+      if (!currentOrder) return;
+
+      if (currentOrder.status === PaymentStatus.PAID) {
+        if (options?.tradeNo && !currentOrder.tradeNo) {
+          await tx.paymentOrder.update({
+            where: { id: orderId },
+            data: {
+              tradeNo: options.tradeNo,
+              metadata: this.mergeOrderMetadata(currentOrder.metadata, {
+                lastPaymentSyncAt: new Date().toISOString(),
+                lastPaymentSource: options.source ?? 'unknown',
+              }) as any,
+            },
+          });
+        }
+        return;
+      }
+
       const paidOrderCount = await tx.paymentOrder.count({
         where: { userId, status: PaymentStatus.PAID },
       });
       const isFirstRecharge = paidOrderCount === 0;
-      await tx.paymentOrder.update({ where: { id: orderId }, data: { status: PaymentStatus.PAID, paidAt: new Date() } });
+      await tx.paymentOrder.update({
+        where: { id: orderId },
+        data: {
+          status: PaymentStatus.PAID,
+          paidAt: options?.paidAt ?? new Date(),
+          ...(options?.tradeNo ? { tradeNo: options.tradeNo } : {}),
+          metadata: this.mergeOrderMetadata(currentOrder.metadata, {
+            lastPaymentSyncAt: new Date().toISOString(),
+            lastPaymentSource: options?.source ?? 'unknown',
+            paymentMethod: options?.paymentMethod ?? currentOrder.paymentMethod,
+          }) as any,
+        },
+      });
       let account = await tx.creditAccount.findUnique({ where: { userId } });
       if (!account) account = await tx.creditAccount.create({ data: { userId, balance: 0, totalEarned: 0 } });
       const newBalance = account.balance + credits;
       await tx.creditAccount.update({ where: { id: account.id }, data: { balance: newBalance, totalEarned: account.totalEarned + credits } });
-      await tx.creditTransaction.create({ data: { accountId: account.id, type: TransactionType.EARN, amount: credits, balanceBefore: account.balance, balanceAfter: newBalance, description: `充值`, metadata: { orderNo: orderId } } });
+      await tx.creditTransaction.create({
+        data: {
+          accountId: account.id,
+          type: TransactionType.EARN,
+          amount: credits,
+          balanceBefore: account.balance,
+          balanceAfter: newBalance,
+          description: `充值`,
+          metadata: {
+            orderId: currentOrder.id,
+            orderNo: currentOrder.orderNo,
+            ...(options?.tradeNo ? { tradeNo: options.tradeNo } : {}),
+            source: options?.source ?? 'unknown',
+          },
+        },
+      });
       if (isFirstRecharge) {
         await this.referralService.rewardInviterForInviteeFirstRechargeInTransaction(tx, userId);
       }
@@ -380,10 +563,155 @@ export class PaymentService implements OnModuleInit {
         pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
       };
   }
-  async confirmPayment(orderNo: string, userId: string) { return { success: true, credits: 0, newBalance: 0 }; }
-  async adminConfirmPayment(orderNo: string) { return { success: true, credits: 0, userId: '' }; }
-  async cleanupExpiredOrders() { return 0; }
-  async handleAlipayNotify(data: any) { return true; }
+  async confirmPayment(orderNo: string, userId: string) {
+    const order = await this.prisma.paymentOrder.findFirst({
+      where: { orderNo, userId },
+    });
+    if (!order) {
+      throw new NotFoundException('订单不存在');
+    }
+
+    if (order.status !== PaymentStatus.PAID && order.paymentMethod === PaymentMethod.ALIPAY) {
+      const alipayTrade = await this.queryAlipayTradeStatus(orderNo);
+      const expectedAmount = Number(order.amount);
+      if (
+        this.isAlipaySuccessStatus(alipayTrade.status) &&
+        this.isAmountMatched(expectedAmount, alipayTrade.totalAmount)
+      ) {
+        await this.processPaymentSuccess(order.id, order.userId, order.credits, {
+          tradeNo: alipayTrade.tradeNo,
+          paymentMethod: PaymentMethod.ALIPAY,
+          source: 'alipay_manual_confirm',
+        });
+      }
+    }
+
+    if (order.status !== PaymentStatus.PAID && order.paymentMethod === PaymentMethod.WECHAT) {
+      const wechatTrade = await this.queryWechatTradeStatus(orderNo);
+      if (this.isWechatSuccessStatus(wechatTrade.status)) {
+        await this.processPaymentSuccess(order.id, order.userId, order.credits, {
+          tradeNo: wechatTrade.transactionId,
+          paymentMethod: PaymentMethod.WECHAT,
+          source: 'wechat_manual_confirm',
+        });
+      }
+    }
+
+    const [latestOrder, account] = await Promise.all([
+      this.prisma.paymentOrder.findUnique({ where: { id: order.id } }),
+      this.prisma.creditAccount.findUnique({ where: { userId } }),
+    ]);
+    if (!latestOrder) {
+      throw new NotFoundException('订单不存在');
+    }
+
+    return {
+      success: latestOrder.status === PaymentStatus.PAID,
+      credits: latestOrder.status === PaymentStatus.PAID ? latestOrder.credits : 0,
+      newBalance: account?.balance ?? 0,
+    };
+  }
+
+  async adminConfirmPayment(orderNo: string) {
+    const order = await this.prisma.paymentOrder.findFirst({ where: { orderNo } });
+    if (!order) {
+      throw new NotFoundException('订单不存在');
+    }
+
+    await this.confirmPayment(orderNo, order.userId);
+    const latestOrder = await this.prisma.paymentOrder.findUnique({ where: { id: order.id } });
+
+    return {
+      success: latestOrder?.status === PaymentStatus.PAID,
+      credits: latestOrder?.status === PaymentStatus.PAID ? latestOrder.credits : 0,
+      userId: order.userId,
+    };
+  }
+
+  async cleanupExpiredOrders() {
+    const result = await this.prisma.paymentOrder.updateMany({
+      where: {
+        status: PaymentStatus.PENDING,
+        expiredAt: { lt: new Date() },
+      },
+      data: {
+        status: PaymentStatus.EXPIRED,
+      },
+    });
+    return result.count;
+  }
+
+  @Cron(CronExpression.EVERY_MINUTE)
+  async cleanupExpiredOrdersJob() {
+    try {
+      const count = await this.cleanupExpiredOrders();
+      if (count > 0) {
+        this.logger.log(`已清理过期支付订单: ${count}`);
+      }
+    } catch (error) {
+      this.logger.error(
+        '清理过期支付订单失败',
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
+
+  async handleAlipayNotify(data: any) {
+    try {
+      const notifyData = this.parseNotifyData(data);
+      const orderNo = notifyData.out_trade_no || notifyData.outTradeNo;
+      const tradeStatus = notifyData.trade_status || notifyData.tradeStatus;
+      const tradeNo = notifyData.trade_no || notifyData.tradeNo || null;
+
+      if (!orderNo) {
+        this.logger.warn('支付宝回调缺少 out_trade_no');
+        return false;
+      }
+
+      if (tradeStatus && !this.isAlipaySuccessStatus(tradeStatus)) {
+        this.logger.log(`支付宝回调非成功状态: orderNo=${orderNo}, tradeStatus=${tradeStatus}`);
+        return true;
+      }
+
+      const order = await this.prisma.paymentOrder.findFirst({
+        where: { orderNo },
+      });
+
+      if (!order) {
+        this.logger.error(`支付宝回调订单不存在: orderNo=${orderNo}`);
+        return false;
+      }
+
+      // 优先使用支付宝主动查询做二次确认，避免因回调体解析/验签差异导致漏单。
+      const alipayTrade = await this.queryAlipayTradeStatus(orderNo);
+      if (!this.isAlipaySuccessStatus(alipayTrade.status)) {
+        this.logger.warn(`支付宝回调核对失败: orderNo=${orderNo}, queryStatus=${String(alipayTrade.status)}`);
+        return false;
+      }
+
+      const expectedAmount = Number(order.amount);
+      if (!this.isAmountMatched(expectedAmount, alipayTrade.totalAmount)) {
+        this.logger.error(
+          `支付宝回调金额不一致: orderNo=${orderNo}, expected=${expectedAmount}, actual=${String(alipayTrade.totalAmount)}`,
+        );
+        return false;
+      }
+
+      await this.processPaymentSuccess(order.id, order.userId, order.credits, {
+        tradeNo: tradeNo || alipayTrade.tradeNo,
+        source: 'alipay_notify',
+        paymentMethod: PaymentMethod.ALIPAY,
+      });
+      this.logger.log(`支付宝回调处理成功: orderNo=${orderNo}, tradeNo=${tradeNo || alipayTrade.tradeNo || '-'}`);
+      return true;
+    } catch (error) {
+      this.logger.error(
+        '处理支付宝回调失败',
+        error instanceof Error ? error.stack : String(error),
+      );
+      return false;
+    }
+  }
 
   /**
    * 处理微信支付异步回调通知
@@ -394,16 +722,23 @@ export class PaymentService implements OnModuleInit {
 
       // 微信支付 V3 回调验签和解密需要处理
       // 这里简化处理，实际需要验证签名和解密 ciphertext
-      const { out_trade_no, transaction_id, trade_state } = data;
+      const notifyData = this.parseNotifyData(data);
+      const out_trade_no = notifyData.out_trade_no || notifyData.outTradeNo;
+      const transaction_id = notifyData.transaction_id || notifyData.transactionId;
+      const trade_state = notifyData.trade_state || notifyData.tradeState;
 
-      if (trade_state === 'SUCCESS' && out_trade_no) {
+      if (this.isWechatSuccessStatus(trade_state) && out_trade_no) {
         // 通过订单号查找订单
         const order = await this.prisma.paymentOrder.findFirst({
           where: { orderNo: out_trade_no },
         });
 
-        if (order && order.status === PaymentStatus.PENDING) {
-          await this.processPaymentSuccess(order.id, order.userId, order.credits, order.amount);
+        if (order) {
+          await this.processPaymentSuccess(order.id, order.userId, order.credits, {
+            tradeNo: transaction_id,
+            paymentMethod: PaymentMethod.WECHAT,
+            source: 'wechat_notify',
+          });
           console.log(`订单 ${out_trade_no} 已通过微信回调处理成功`);
           return true;
         }

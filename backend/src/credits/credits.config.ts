@@ -37,20 +37,24 @@ export const CREDIT_PRICING_CONFIG = {
     },
   },
   'gemini-image-edit': {
-    serviceName: 'Nano banana Pro 图像编辑',
+    serviceName: 'Nano banana Pro 图像编辑（Pro）',
     provider: 'gemini',
     creditsPerCall: 30,
     description: '使用 Nano banana Pro 编辑图像',
     resolutionPricing: {
+      '1K': 40,
+      '2K': 60,
       '4K': 120,
     },
   },
   'gemini-3.1-image-edit': {
-    serviceName: 'Nano banana 2 图像编辑',
+    serviceName: 'Nano banana 2 图像编辑（Ultra）',
     provider: 'gemini',
     creditsPerCall: 30,
     description: '使用 Nano banana 2 编辑图像',
     resolutionPricing: {
+      '0.5K': 20,
+      '2K': 45,
       '4K': 60,
     },
   },
@@ -61,20 +65,24 @@ export const CREDIT_PRICING_CONFIG = {
     description: '使用 Nano banana-2.5 编辑图像',
   },
   'gemini-image-blend': {
-    serviceName: 'Nano banana Pro 融合',
+    serviceName: 'Nano banana Pro 融合（Pro）',
     provider: 'gemini',
     creditsPerCall: 30,
     description: '使用 Nano banana Pro 融合多张图像',
     resolutionPricing: {
+      '1K': 40,
+      '2K': 60,
       '4K': 120,
     },
   },
   'gemini-3.1-image-blend': {
-    serviceName: 'Nano banana 2 融合',
+    serviceName: 'Nano banana 2 融合（Ultra）',
     provider: 'gemini',
     creditsPerCall: 30,
     description: '使用 Nano banana 2 融合多张图像',
     resolutionPricing: {
+      '0.5K': 20,
+      '2K': 45,
       '4K': 60,
     },
   },

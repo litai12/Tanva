@@ -126,7 +126,14 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
   }, [data.fps, data.width, updateNodeData]);
 
   const handleConvert = React.useCallback(async () => {
-    if (!effectiveVideoUrl || status === 'converting') return;
+    if (!effectiveVideoUrl) {
+      updateNodeData({
+        status: 'error',
+        error: lt('没有可转换的视频输入，请先连接视频节点', 'No video input to convert. Please connect a video node first'),
+      });
+      return;
+    }
+    if (status === 'converting') return;
 
     updateNodeData({ status: 'converting', error: undefined });
 

@@ -118,9 +118,28 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
     setExternalPrompts(prompts);
   }, [id, rf]);
 
+  const refreshExternalPromptsTimerRef = React.useRef<number | null>(null);
+  const refreshExternalPromptsDeferred = React.useCallback(() => {
+    if (refreshExternalPromptsTimerRef.current !== null) {
+      window.clearTimeout(refreshExternalPromptsTimerRef.current);
+    }
+    refreshExternalPromptsTimerRef.current = window.setTimeout(() => {
+      refreshExternalPromptsTimerRef.current = null;
+      refreshExternalPrompts();
+    }, 0);
+  }, [refreshExternalPrompts]);
+
   React.useEffect(() => {
     refreshExternalPrompts();
   }, [refreshExternalPrompts]);
+
+  React.useEffect(() => {
+    return () => {
+      if (refreshExternalPromptsTimerRef.current !== null) {
+        window.clearTimeout(refreshExternalPromptsTimerRef.current);
+      }
+    };
+  }, []);
 
   React.useEffect(() => {
     const handleEdgesChange = () => {
@@ -135,7 +154,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ id: string }>).detail;
       if (!detail?.id || !externalSourceIds.includes(detail.id)) return;
-      refreshExternalPrompts();
+      refreshExternalPromptsDeferred();
     };
     window.addEventListener("flow:updateNodeData", handler as EventListener);
     return () =>
@@ -143,7 +162,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
         "flow:updateNodeData",
         handler as EventListener
       );
-  }, [externalSourceIds, refreshExternalPrompts]);
+  }, [externalSourceIds, refreshExternalPromptsDeferred]);
 
   // 图片区域宽度
   const imageWidth = data.imageWidth || DEFAULT_IMAGE_WIDTH;

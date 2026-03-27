@@ -310,7 +310,14 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
 
   // 统一抽帧入口
   const extractFrames = React.useCallback(async () => {
-    if (!effectiveVideoUrl || status === 'extracting') return;
+    if (!effectiveVideoUrl) {
+      updateNodeData({
+        status: 'error',
+        error: lt('没有可抽帧的视频输入，请先连接视频节点', 'No video input to extract frames. Please connect a video node first'),
+      });
+      return;
+    }
+    if (status === 'extracting') return;
 
     updateNodeData({
       status: 'extracting',

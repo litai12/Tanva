@@ -374,6 +374,7 @@ const enUS = {
       durationUnit: "s",
       notAvailable: "--",
       channel: "Channel: {{channel}}",
+      model: "Model: {{model}}",
     },
     usage: {
       title: "API Usage Records",

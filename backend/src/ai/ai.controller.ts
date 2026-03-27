@@ -1619,7 +1619,7 @@ export class AiController {
 
       // gemini 和 gemini-pro 都使用默认的 Gemini 服务
       return this.imageGeneration.analyzeImage({ ...dto, customApiKey });
-    }, 1, 0, skipCredits);
+    }, 1, 0, skipCredits, this.buildCreditRequestParams(providerName));
   }
 
   @Post('text-chat')
@@ -3415,4 +3415,3 @@ export class AiController {
     );
   }
 }
-
