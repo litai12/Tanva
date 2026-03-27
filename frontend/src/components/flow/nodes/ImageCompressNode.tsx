@@ -1,7 +1,7 @@
 import React from 'react';
 import { Handle, Position, useStore, type ReactFlowState, type Node } from 'reactflow';
 import SmartImage from '../../ui/SmartImage';
-import { resolveImageToBlob, toRenderableImageSrc } from '@/utils/imageSource';
+import { resolveImageToBlob } from '@/utils/imageSource';
 import { canvasToBlob, createImageBitmapLimited } from '@/utils/imageConcurrency';
 import { imageUploadService } from '@/services/imageUploadService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
@@ -54,13 +54,6 @@ const normalizeString = (value: unknown): string => {
   if (typeof value !== 'string') return '';
   const trimmed = value.trim();
   return trimmed || '';
-};
-
-const buildImageSrc = (value?: string): string => {
-  if (!value) return '';
-  const trimmed = value.trim();
-  if (!trimmed) return '';
-  return toRenderableImageSrc(trimmed) || '';
 };
 
 const makeCanvas = (width: number, height: number): HTMLCanvasElement | OffscreenCanvas => {
@@ -451,9 +444,8 @@ function ImageCompressNodeInner({ id, data, selected = false }: Props) {
     : normalizeString(data.inputImage);
 
   const outputRef = normalizeString(data.outputImage) || normalizeString(data.imageData);
-  const inputPreviewSrc = buildImageSrc(inputRef);
-  const outputPreviewSrc = buildImageSrc(outputRef);
-  const finalPreviewSrc = outputPreviewSrc || inputPreviewSrc;
+  /** 原始引用交给 SmartImage（useNonBase64ImageSrc），避免 toRenderableImageSrc 误伤 flow-asset: */
+  const previewImageRef = outputRef || inputRef;
 
   const handleCompress = React.useCallback(async () => {
     if (!connectedInput || isProcessing) {
@@ -618,9 +610,9 @@ function ImageCompressNodeInner({ id, data, selected = false }: Props) {
           overflow: 'hidden',
         }}
       >
-        {finalPreviewSrc ? (
+        {previewImageRef ? (
           <SmartImage
-            src={finalPreviewSrc}
+            src={previewImageRef}
             alt='Compressed preview'
             style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff' }}
             loading='lazy'
