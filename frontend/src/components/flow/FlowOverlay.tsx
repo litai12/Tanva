@@ -167,6 +167,7 @@ import type { AIImageGenerateRequest, AIImageResult } from "@/types/ai";
 import MiniMapImageOverlay from "./MiniMapImageOverlay";
 import PersonalLibraryPanel from "./PersonalLibraryPanel";
 import { resolveTextFromSourceNode } from "./utils/textSource";
+import { sanitizeFlowTextForMidjourneyV7 } from "./utils/mjV7PromptSanitize";
 import { useLocaleText } from "@/utils/localeText";
 
 // 兼容历史多图输入句柄：将 targetHandle img1/img2/... 归一化到 img
@@ -8439,6 +8440,7 @@ function FlowInner() {
         taskId: string;
         customId: string;
         label?: string;
+        state?: string;
       };
       if (!detail?.nodeId || !detail?.taskId || !detail?.customId) return;
 
@@ -8467,6 +8469,7 @@ function FlowInner() {
           taskId: detail.taskId,
           customId: detail.customId,
           actionLabel: detail.label,
+          state: detail.state,
         });
 
         if (!result.success || !result.data) {
@@ -8516,6 +8519,10 @@ function FlowInner() {
                     imageData: hasRemoteUrl ? undefined : imgBase64,
                     error: undefined,
                     taskId: midjourneyMeta.taskId || detail.taskId,
+                    mjApiState:
+                      typeof midjourneyMeta.state === "string"
+                        ? midjourneyMeta.state
+                        : undefined,
                     buttons: midjourneyMeta.buttons,
                     imageUrl: hasRemoteUrl
                       ? normalizedMidjourneyUrl
@@ -9260,85 +9267,59 @@ function FlowInner() {
         return trimmed.length > 0 ? trimmed : undefined;
       };
 
+      /**
+       * Midjourney V7 / Niji 7：走悠船 /v1/tob/diffusion，后端会剥离 iw/sv/sw/ow/exp/cref/sref/oref 等片段；
+       * 且禁止把 data: base64 写进提示词（会撑爆请求体导致 500）。参考图仅通过 imageUrls 上传。
+       * 速度见 backend/docs/mj v7和Niji 7速度模式文档说明.md（需显式 --fast / --turbo / --draft）。
+       */
       const buildMidjourneyPrompt = (
         nodeType: string,
         nodeData: Record<string, any>,
         promptText: string,
-        hasImages: boolean,
-        crefFromImageHandle?: string
+        hasImages: boolean
       ) => {
         const isNiji = nodeType === "niji7";
         const errors: string[] = [];
         const flags: string[] = [];
         const basePrompt = (promptText || "").trim();
-        const defaultChaos = "40";
-        const defaultStylize = "100";
-        const defaultImageWeight = "1";
-        const defaultQuality = "1";
 
         if (basePrompt.includes("::")) {
           errors.push("Midjourney V7 / Niji 7 暂不支持多提示词 ::");
         }
 
-        const srefList = parseMidjourneyList(nodeData.styleRefs);
-        if (srefList.length > 10) {
-          errors.push("sref 最多支持 10 个");
-        }
-
         flags.push(isNiji ? "--niji 7" : "--v 7");
 
         if (nodeData.aspectRatio) flags.push(`--ar ${nodeData.aspectRatio}`);
-        if (nodeData.speedMode === "turbo") flags.push("--turbo");
+
+        const resolvedSpeed =
+          nodeData.speedMode === "turbo"
+            ? "turbo"
+            : !isNiji &&
+              (nodeData.speedMode === "draft" || nodeData.draft)
+            ? "draft"
+            : "fast";
+        if (resolvedSpeed === "turbo") flags.push("--turbo");
+        else if (resolvedSpeed === "draft" && !isNiji) flags.push("--draft");
+        else flags.push("--fast");
+
         if (nodeData.raw) flags.push("--raw");
 
-        const chaos = normalizeMidjourneyValue(nodeData.chaos) ?? defaultChaos;
-        if (chaos) flags.push(`--chaos ${chaos}`);
-        const stylize = normalizeMidjourneyValue(nodeData.stylize) ?? defaultStylize;
-        if (stylize) flags.push(`--stylize ${stylize}`);
+        const chaos = normalizeMidjourneyValue(nodeData.chaos);
+        if (chaos && chaos !== "0") flags.push(`--chaos ${chaos}`);
+        const stylize = normalizeMidjourneyValue(nodeData.stylize) ?? "100";
+        if (stylize && stylize !== "100") flags.push(`--stylize ${stylize}`);
         const weird = normalizeMidjourneyValue(nodeData.weird);
         if (weird) flags.push(`--weird ${weird}`);
         const seed = normalizeMidjourneyValue(nodeData.seed);
         if (seed) flags.push(`--seed ${seed}`);
 
         if (!isNiji) {
-          const quality = normalizeMidjourneyValue(nodeData.quality) ?? defaultQuality;
-          if (quality) flags.push(`--q ${quality}`);
+          const quality = normalizeMidjourneyValue(nodeData.quality) ?? "1";
+          if (quality && quality !== "1") flags.push(`--q ${quality}`);
           const noPrompt = normalizeMidjourneyValue(nodeData.noPrompt);
           if (noPrompt) flags.push(`--no ${noPrompt}`);
-          if (nodeData.draft) flags.push("--draft");
           if (nodeData.tile) flags.push("--tile");
-
-          const orefList = parseMidjourneyList(nodeData.omniReference);
-          if (orefList.length > 1) {
-            errors.push("oref 仅支持 1 个引用");
-          } else if (orefList.length === 1) {
-            flags.push(`--oref ${orefList[0]}`);
-          }
-
-          const omniWeight = normalizeMidjourneyValue(nodeData.omniWeight);
-          if (omniWeight) flags.push(`--ow ${omniWeight}`);
-          const exp = normalizeMidjourneyValue(nodeData.exp);
-          if (exp) flags.push(`--exp ${exp}`);
-
-          if (crefFromImageHandle) {
-            flags.push(`--cref ${crefFromImageHandle}`);
-          }
         }
-
-        if (hasImages) {
-          const imageWeight =
-            normalizeMidjourneyValue(nodeData.imageWeight) ?? defaultImageWeight;
-          if (imageWeight) flags.push(`--iw ${imageWeight}`);
-        }
-
-        if (srefList.length > 0) {
-          flags.push(`--sref ${srefList.join(" ")}`);
-        }
-
-        const styleVersion = normalizeMidjourneyValue(nodeData.styleVersion);
-        if (styleVersion) flags.push(`--sv ${styleVersion}`);
-        const styleWeight = normalizeMidjourneyValue(nodeData.styleWeight);
-        if (styleWeight) flags.push(`--sw ${styleWeight}`);
 
         const finalPrompt = [basePrompt, ...flags].filter(Boolean).join(" ").trim();
         if (!basePrompt && !hasImages) {
@@ -9485,6 +9466,12 @@ function FlowInner() {
             parameters: { size, resolution, duration, shot_type: shotType },
           });
 
+          const wanApiUsageId =
+            typeof (result as any)?.apiUsageId === "string" &&
+            (result as any).apiUsageId.trim().length > 0
+              ? (result as any).apiUsageId.trim()
+              : undefined;
+
           const extractVideoUrl = (obj: any): string | undefined => {
             if (!obj) return undefined;
             return (
@@ -9527,12 +9514,40 @@ function FlowInner() {
               }
 
               if (status === "failed" || status === "error") {
+                if (wanApiUsageId) {
+                  try {
+                    await refundVideoTask(wanApiUsageId);
+                  } catch (refundErr) {
+                    console.warn("[Flow] Wan2.6 refund after task failed", {
+                      nodeId,
+                      apiUsageId: wanApiUsageId,
+                      error:
+                        refundErr instanceof Error
+                          ? refundErr.message
+                          : String(refundErr),
+                    });
+                  }
+                }
                 throw new Error("视频生成任务失败");
               }
               // pending/running 状态继续轮询
             }
 
             if (!videoUrl) {
+              if (wanApiUsageId) {
+                try {
+                  await refundVideoTask(wanApiUsageId);
+                } catch (refundErr) {
+                  console.warn("[Flow] Wan2.6 refund after poll timeout", {
+                    nodeId,
+                    apiUsageId: wanApiUsageId,
+                    error:
+                      refundErr instanceof Error
+                        ? refundErr.message
+                        : String(refundErr),
+                  });
+                }
+              }
               throw new Error("任务查询超时，请稍后重试");
             }
           }
@@ -12040,6 +12055,10 @@ function FlowInner() {
                       imageData: hasRemoteUrl ? undefined : mjImgBase64,
                       error: undefined,
                       taskId: midjourneyMeta.taskId,
+                      mjApiState:
+                        typeof midjourneyMeta.state === "string"
+                          ? midjourneyMeta.state
+                          : undefined,
                       buttons: midjourneyMeta.buttons,
                       imageUrl: hasRemoteUrl
                         ? normalizedMidjourneyUrl
@@ -12161,18 +12180,23 @@ function FlowInner() {
       // Nano2 节点处理逻辑
       if (node.type === "midjourneyV7" || node.type === "niji7") {
         const { text: promptText } = getTextPromptForNode(nodeId);
+        const presetRaw = (node.data as any)?.presetPrompt;
+        const preset =
+          typeof presetRaw === "string" ? presetRaw.trim() : "";
+        const mergedPromptText = sanitizeFlowTextForMidjourneyV7(
+          [preset, promptText].filter(Boolean).join(" ").trim()
+        );
         const totalImgEdges = currentEdges.filter(
           (e) => e.target === nodeId && e.targetHandle === "img"
         );
         const imgEdges = totalImgEdges.slice(0, 10);
-        const imageDatas = await resolveEdgesAsDataUrls(imgEdges);
+        let imageDatas = await resolveEdgesAsDataUrls(imgEdges);
 
         const omniImageEdges = currentEdges.filter(
           (e) =>
             e.target === nodeId &&
             (e.targetHandle === "omniImage" || e.targetHandle === "omniimage")
         );
-        let crefFromImageHandle: string | undefined;
         if (omniImageEdges.length > 1) {
           setNodes((ns) =>
             ns.map((n) =>
@@ -12186,16 +12210,26 @@ function FlowInner() {
         if (omniImageEdges.length === 1) {
           const crefDatas = await resolveEdgesAsDataUrls([omniImageEdges[0]]);
           if (crefDatas.length > 0) {
-            crefFromImageHandle = crefDatas[0];
+            const beforeCount = imageDatas.length;
+            imageDatas = [crefDatas[0], ...imageDatas].slice(0, 10);
+            if (beforeCount >= 10) {
+              window.dispatchEvent(
+                new CustomEvent("toast", {
+                  detail: {
+                    message: `参考图已满 10 张，万物参考已插入队首并去掉最后一张`,
+                    type: "warning",
+                  },
+                })
+              );
+            }
           }
         }
 
         const { finalPrompt, errors } = buildMidjourneyPrompt(
           node.type,
           (node.data || {}) as Record<string, any>,
-          promptText,
-          imageDatas.length > 0,
-          crefFromImageHandle
+          mergedPromptText,
+          imageDatas.length > 0
         );
 
         if (errors.length > 0) {
@@ -12292,6 +12326,10 @@ function FlowInner() {
                       imageData: hasRemoteUrl ? undefined : mjImgBase64,
                       error: undefined,
                       taskId: midjourneyMeta.taskId,
+                      mjApiState:
+                        typeof midjourneyMeta.state === "string"
+                          ? midjourneyMeta.state
+                          : undefined,
                       buttons: midjourneyMeta.buttons,
                       imageUrl: hasRemoteUrl
                         ? normalizedMidjourneyUrl
@@ -13928,6 +13966,78 @@ function FlowInner() {
         return;
       }
 
+      // nano2 单图节点：与 generate4 相同的上传优先策略，确保远程 URL 先上传到 OSS 再派发画板事件
+      if (node.type === "nano2") {
+        const rawImageUrl =
+          ((node.data as any)?.imageUrl as string | undefined) ||
+          ((node.data as any)?.imageData as string | undefined);
+
+        let normalizedUrl = normalizeForCanvas(rawImageUrl);
+        if (!normalizedUrl && rawImageUrl?.trim()) {
+          normalizedUrl = await resolveImageToDataUrl(rawImageUrl, { preferProxy: true });
+        }
+        if (!normalizedUrl) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "没有可发送的图片", type: "warning" },
+            })
+          );
+          return;
+        }
+
+        const fileName = `flow_nano2_${id}_${Date.now()}.png`;
+        const pid = useProjectContentStore.getState().projectId;
+
+        try {
+          const uploadResult = await imageUploadService.uploadImageSource(normalizedUrl, {
+            fileName,
+            projectId: pid ?? undefined,
+            dir: pid ? `projects/${pid}/images/` : undefined,
+          });
+          if (uploadResult.success && uploadResult.asset?.url) {
+            const resolved = (uploadResult.asset.key || "").trim() || uploadResult.asset.url;
+            window.dispatchEvent(
+              new CustomEvent("triggerQuickImageUpload", {
+                detail: {
+                  imageData: resolved,
+                  fileName,
+                  operationType: "generate",
+                  smartPosition: undefined,
+                  sourceImageId: undefined,
+                  sourceImages: undefined,
+                },
+              })
+            );
+            window.dispatchEvent(
+              new CustomEvent("toast", {
+                detail: { message: "图片已发送到画板", type: "success" },
+              })
+            );
+            return;
+          }
+        } catch {}
+
+        // 上传失败时：直接派发事件（blob/data URL 由画板保存流程补传 OSS）
+        window.dispatchEvent(
+          new CustomEvent("triggerQuickImageUpload", {
+            detail: {
+              imageData: normalizedUrl,
+              fileName,
+              operationType: "generate",
+              smartPosition: undefined,
+              sourceImageId: undefined,
+              sourceImages: undefined,
+            },
+          })
+        );
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "图片已发送到画板", type: "success" },
+          })
+        );
+        return;
+      }
+
       if (node.type === "image" || node.type === "imagePro") {
         const resolveCropFromImageChain = (
           current: any,
@@ -14162,6 +14272,28 @@ function FlowInner() {
       }
 
       const fileName = `flow_${Date.now()}.png`;
+      let sendPayload = dataUrl;
+
+      // Midjourney CDN 等外站 https：先发起到项目 OSS，避免画板资产长期 pendingUpload
+      if (
+        (dataUrl.startsWith("http://") || dataUrl.startsWith("https://")) &&
+        requiresManagedImageUpload(dataUrl)
+      ) {
+        try {
+          const pid = useProjectContentStore.getState().projectId;
+          const uploadResult = await imageUploadService.uploadImageSource(dataUrl, {
+            fileName,
+            projectId: pid ?? undefined,
+            dir: pid ? `projects/${pid}/images/` : undefined,
+          });
+          if (uploadResult.success && uploadResult.asset?.url) {
+            const key = (uploadResult.asset.key || "").trim();
+            sendPayload = key || uploadResult.asset.url;
+          }
+        } catch {
+          // 淇濆瓨鏃朵粛浼氶€氳繃 resolveImageToBlob 灏濊瘯琛ヤ紶
+        }
+      }
 
       // 🔥 关键修复：当图片源不可直接外发（flow-asset: / blob: / data:image/）
       // 时，先上传到 OSS，再用远程 URL 派发事件，避免画板保存被阻塞。
@@ -14207,7 +14339,7 @@ function FlowInner() {
       window.dispatchEvent(
         new CustomEvent("triggerQuickImageUpload", {
           detail: {
-            imageData: dataUrl,
+            imageData: sendPayload,
             fileName,
             operationType: "generate",
             smartPosition: undefined,
