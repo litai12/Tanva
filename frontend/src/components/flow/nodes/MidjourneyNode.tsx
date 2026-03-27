@@ -22,6 +22,67 @@ type MidjourneyButtonInfo = {
   style?: number;
 };
 
+/**
+ * 分组规则：优先与历史「label 以 U/V 开头」一致（用 U/V+数字 避免误判 Upscale 等）；
+ * 再兼容少数中转返回的 upscale_1 / variation_2。
+ * 展示文案统一为 U1–U4、V1–V4 纯文字（不用 emoji）。
+ */
+type MjActionButtonGroup = 'upscale' | 'variation' | 'other';
+
+function classifyMidjourneyActionButton(btn: MidjourneyButtonInfo): {
+  group: MjActionButtonGroup;
+  displayLabel: string;
+  sortKey: number;
+} {
+  const raw = (btn.label ?? '').trim();
+  const lower = raw.toLowerCase();
+
+  const legacyU = raw.match(/^U\s*(\d+)/i);
+  if (legacyU) {
+    const n = parseInt(legacyU[1], 10);
+    return { group: 'upscale', displayLabel: `U${n}`, sortKey: n };
+  }
+  const legacyV = raw.match(/^V\s*(\d+)/i);
+  if (legacyV) {
+    const n = parseInt(legacyV[1], 10);
+    return { group: 'variation', displayLabel: `V${n}`, sortKey: n };
+  }
+
+  const upscaleNum = lower.match(/upscale[_\s-]*(\d+)/);
+  if (upscaleNum) {
+    const n = parseInt(upscaleNum[1], 10);
+    return { group: 'upscale', displayLabel: `U${n}`, sortKey: n };
+  }
+  const upWord = lower.match(/upscal(?:e|ing)\s*#?\s*(\d+)/);
+  if (upWord) {
+    const n = parseInt(upWord[1], 10);
+    return { group: 'upscale', displayLabel: `U${n}`, sortKey: n };
+  }
+
+  const variationNum = lower.match(/variation[_\s-]*(\d+)/);
+  if (variationNum) {
+    const n = parseInt(variationNum[1], 10);
+    return { group: 'variation', displayLabel: `V${n}`, sortKey: n };
+  }
+
+  const zhUp = raw.match(/放大\s*(\d+)/);
+  if (zhUp) {
+    const n = parseInt(zhUp[1], 10);
+    return { group: 'upscale', displayLabel: `U${n}`, sortKey: n };
+  }
+  const zhVar = raw.match(/变体\s*(\d+)/);
+  if (zhVar) {
+    const n = parseInt(zhVar[1], 10);
+    return { group: 'variation', displayLabel: `V${n}`, sortKey: n };
+  }
+
+  return {
+    group: 'other',
+    displayLabel: raw || '•',
+    sortKey: 999,
+  };
+}
+
 type Props = {
   id: string;
   type?: string;
@@ -38,6 +99,8 @@ type Props = {
     onSend?: (id: string) => void;
     // Midjourney 特有的元数据
     taskId?: string;
+    /** 147 action 可选参数，与轮询任务 state 一致 */
+    mjApiState?: string;
     buttons?: MidjourneyButtonInfo[];
     imageUrl?: string;
     promptEn?: string;
@@ -230,6 +293,10 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
               taskId: data.taskId,
               customId: button.customId,
               label: button.label,
+              state:
+                typeof data.mjApiState === 'string' && data.mjApiState.trim()
+                  ? data.mjApiState.trim()
+                  : undefined,
             },
           })
         );
@@ -239,7 +306,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
         setActionLoading(null);
       }
     },
-    [id, data.taskId, actionLoading]
+    [id, data.taskId, data.mjApiState, actionLoading]
   );
 
   // 当节点数据更新时同步最新历史图�?id（历史写入在 FlowOverlay 中统一处理，避�?onlyRenderVisibleElements 时丢失）
@@ -270,16 +337,23 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
     return () => window.removeEventListener('keydown', handler);
   }, [preview]);
 
-  // 渲染 Midjourney 操作按钮
+  // 渲染 Midjourney 操作按钮（兼容 U1 / upscale_1 等多种上游 label）
   const renderActionButtons = () => {
     if (!data.buttons || data.buttons.length === 0) return null;
 
-    // 分组按钮：U1-U4, V1-V4, 其他
-    const upscaleButtons = data.buttons.filter((b) => b.label?.startsWith('U'));
-    const variationButtons = data.buttons.filter((b) => b.label?.startsWith('V'));
-    const otherButtons = data.buttons.filter(
-      (b) => !b.label?.startsWith('U') && !b.label?.startsWith('V')
-    );
+    const withMeta = data.buttons.map((b) => ({
+      btn: b,
+      ...classifyMidjourneyActionButton(b),
+    }));
+    const upscaleButtons = withMeta
+      .filter((x) => x.group === 'upscale')
+      .sort((a, b) => a.sortKey - b.sortKey)
+      .map((x) => x);
+    const variationButtons = withMeta
+      .filter((x) => x.group === 'variation')
+      .sort((a, b) => a.sortKey - b.sortKey)
+      .map((x) => x);
+    const otherButtons = withMeta.filter((x) => x.group === 'other');
 
     const buttonStyle: React.CSSProperties = {
       fontSize: 11,
@@ -332,7 +406,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
             <div style={{ display: 'grid', gridTemplateColumns: '20px 1fr', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600 }}>U</span>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
-                {upscaleButtons.map((btn) => (
+                {upscaleButtons.map(({ btn, displayLabel }) => (
                   <button
                     key={btn.customId}
                     onClick={() => handleButtonAction(btn)}
@@ -343,9 +417,9 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
                     }}
                     onMouseEnter={!actionLoading ? handleMouseEnter : undefined}
                     onMouseLeave={!actionLoading ? handleMouseLeave : undefined}
-                    title={btn.label}
+                    title={btn.label || displayLabel}
                   >
-                    {btn.emoji || btn.label}
+                    {displayLabel}
                   </button>
                 ))}
               </div>
@@ -356,7 +430,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
             <div style={{ display: 'grid', gridTemplateColumns: '20px 1fr', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600 }}>V</span>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
-                {variationButtons.map((btn) => (
+                {variationButtons.map(({ btn, displayLabel }) => (
                   <button
                     key={btn.customId}
                     onClick={() => handleButtonAction(btn)}
@@ -367,9 +441,9 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
                     }}
                     onMouseEnter={!actionLoading ? handleMouseEnter : undefined}
                     onMouseLeave={!actionLoading ? handleMouseLeave : undefined}
-                    title={btn.label}
+                    title={btn.label || displayLabel}
                   >
-                    {btn.emoji || btn.label}
+                    {displayLabel}
                   </button>
                 ))}
               </div>
@@ -386,7 +460,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
               borderTop: `1px dashed ${accentBorder}`,
               justifyContent: 'center'
             }}>
-              {otherButtons.map((btn) => (
+              {otherButtons.map(({ btn, displayLabel }) => (
                 <button
                   key={btn.customId}
                   onClick={() => handleButtonAction(btn)}
@@ -400,9 +474,9 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
                   }}
                   onMouseEnter={!actionLoading ? handleMouseEnter : undefined}
                   onMouseLeave={!actionLoading ? handleMouseLeave : undefined}
-                  title={btn.label}
+                  title={btn.label || displayLabel}
                 >
-                  {btn.emoji || btn.label}
+                  {btn.emoji || btn.label || displayLabel}
                 </button>
               ))}
             </div>
@@ -439,29 +513,21 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
           : 'fast';
     const speedMode = isNiji && resolvedSpeedMode === 'draft' ? 'fast' : resolvedSpeedMode;
     const qualityValue = data.quality ?? '1';
-    const chaosValue = String(data.chaos ?? '40');
+    const chaosValue = String(data.chaos ?? '0');
     const stylizeValue = String(data.stylize ?? '100');
     const weirdValue = String(data.weird ?? '');
-    const imageWeightValue = String(data.imageWeight ?? '1');
-    const expValue = String(data.exp ?? '');
     const hasAdvancedOverrides =
       (!isNiji && qualityValue !== '1') ||
-      chaosValue !== '40' ||
+      chaosValue !== '0' ||
       stylizeValue !== '100' ||
       weirdValue !== '' ||
       String(data.seed ?? '') !== '' ||
-      imageWeightValue !== '1' ||
       Boolean(data.raw) ||
       speedMode === 'turbo' ||
       (!isNiji && speedMode === 'draft') ||
       (!isNiji && Boolean(data.tile)) ||
       (!isNiji && String(data.noPrompt ?? '').trim() !== '') ||
-      String(data.styleRefs ?? '').trim() !== '' ||
-      String(data.styleVersion ?? '').trim() !== '' ||
-      String(data.styleWeight ?? '').trim() !== '' ||
-      (!isNiji && String(data.omniReference ?? '').trim() !== '') ||
-      (!isNiji && String(data.omniWeight ?? '').trim() !== '') ||
-      (!isNiji && expValue.trim() !== '');
+      String(data.presetPrompt ?? '').trim() !== '';
 
     return (
       <>
@@ -549,7 +615,12 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
             <div>{lt('支持文本生图，也支持连接最多 10 张参考图。', 'Supports text-to-image and up to 10 reference images.')}</div>
             <div>{lt('连图后 prompt 可继续填写；只接图也能运行。', 'You can still add prompt after connecting images; image-only generation is also allowed.')}</div>
             <div>{lt('V7 / Niji 7 不支持多提示词 ::。', 'V7 / Niji 7 do not support multi-prompt "::".')}</div>
-            <div>{lt('sref 最多 10 个；oref 仅 V7 支持且只允许 1 个。', 'Up to 10 sref entries; oref is V7-only and accepts one value.')}</div>
+            <div>
+              {lt(
+                '万物参考请连「omni」柄（与参考图一并上传，勿在提示词里写 base64）；当前悠船接入不在提示词中传 sref/sv/sw/ow/exp/iw。',
+                'Use the omni handle for character-style refs (uploaded with images; do not put base64 in the prompt). This channel does not send sref/sv/sw/ow/exp/iw in the prompt text.'
+              )}
+            </div>
           </div>
         )}
 
@@ -568,6 +639,18 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
             {lt(`已连接 ${imageInputCount} 张参考图，最多支持 10 张，运行时只读取前 10 张。`, `Connected ${imageInputCount} references. Only the first 10 will be used.`)}
           </div>
         )}
+
+        <div style={{ marginBottom: 8 }}>
+          <label style={commonLabelStyle}>{lt('预设提示词', 'Preset prompt')}</label>
+          <input
+            value={presetPromptValue}
+            onChange={(e) => updatePresetPrompt(e.target.value)}
+            placeholder={lt('可选，与左侧 Text 提示词拼接', 'Optional; prepended before the Text prompt')}
+            style={commonInputStyle}
+            onPointerDownCapture={stopNodeDrag}
+            onMouseDownCapture={stopNodeDrag}
+          />
+        </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
           <div>
@@ -663,7 +746,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
             <input
               value={chaosValue}
               onChange={(e) => updateData({ chaos: e.target.value })}
-              placeholder="0-100"
+              placeholder={lt('默认 0，填 0–100', 'Default 0; 0–100')}
               style={commonInputStyle}
               onPointerDownCapture={stopNodeDrag}
               onMouseDownCapture={stopNodeDrag}
@@ -700,17 +783,6 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
               value={String(data.seed ?? '')}
               onChange={(e) => updateData({ seed: e.target.value })}
               placeholder="0-4294967295"
-              style={commonInputStyle}
-              onPointerDownCapture={stopNodeDrag}
-              onMouseDownCapture={stopNodeDrag}
-            />
-          </div>
-          <div>
-            <label style={commonLabelStyle}>{lt('图权重', 'Image weight')}</label>
-            <input
-              value={imageWeightValue}
-              onChange={(e) => updateData({ imageWeight: e.target.value })}
-              placeholder={isNiji ? '0-2' : '0-3'}
               style={commonInputStyle}
               onPointerDownCapture={stopNodeDrag}
               onMouseDownCapture={stopNodeDrag}
@@ -757,87 +829,6 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
               onMouseDownCapture={stopNodeDrag}
             />
           </div>
-        )}
-
-        {false && (
-        <div style={{ marginBottom: 8 }}>
-          <label style={commonLabelStyle}>{lt('风格引用 sref', 'Style refs')}</label>
-          <textarea
-            value={data.styleRefs ?? ''}
-            onChange={(e) => updateData({ styleRefs: e.target.value })}
-            placeholder={lt('支持 URL / style code，多项请换行或逗号分隔，最多 10 个', 'URLs or style codes, split by newline/comma, up to 10')}
-            style={{ ...commonInputStyle, minHeight: 54, resize: 'vertical' }}
-            onPointerDownCapture={stopNodeDrag}
-            onMouseDownCapture={stopNodeDrag}
-          />
-        </div>
-        )}
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-          <div>
-            <label style={commonLabelStyle}>{lt('风格版本 sv', 'Style version')}</label>
-            <input
-              value={String(data.styleVersion ?? '')}
-              onChange={(e) => updateData({ styleVersion: e.target.value })}
-              placeholder="4 / 5 / 6"
-              style={commonInputStyle}
-              onPointerDownCapture={stopNodeDrag}
-              onMouseDownCapture={stopNodeDrag}
-            />
-          </div>
-          <div>
-            <label style={commonLabelStyle}>{lt('风格权重 sw', 'Style weight')}</label>
-            <input
-              value={String(data.styleWeight ?? '')}
-              onChange={(e) => updateData({ styleWeight: e.target.value })}
-              placeholder="0-1000"
-              style={commonInputStyle}
-              onPointerDownCapture={stopNodeDrag}
-              onMouseDownCapture={stopNodeDrag}
-            />
-          </div>
-        </div>
-
-        {!isNiji && (
-          <>
-            {false && (
-            <div style={{ marginBottom: 8 }}>
-              <label style={commonLabelStyle}>{lt('万物引用 oref', 'Omni reference')}</label>
-              <input
-                value={data.omniReference ?? ''}
-                onChange={(e) => updateData({ omniReference: e.target.value })}
-                placeholder={lt('仅支持 1 个 URL', 'Only one URL is supported')}
-                style={commonInputStyle}
-                onPointerDownCapture={stopNodeDrag}
-                onMouseDownCapture={stopNodeDrag}
-              />
-            </div>
-            )}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-              <div>
-                <label style={commonLabelStyle}>{lt('万物权重 ow', 'Omni weight')}</label>
-                <input
-                  value={String(data.omniWeight ?? '')}
-                  onChange={(e) => updateData({ omniWeight: e.target.value })}
-                  placeholder="0-1000"
-                  style={commonInputStyle}
-                  onPointerDownCapture={stopNodeDrag}
-                  onMouseDownCapture={stopNodeDrag}
-                />
-              </div>
-              <div>
-                <label style={commonLabelStyle}>{lt('实验参数 exp', 'Experimental')}</label>
-                <input
-                  value={expValue}
-                  onChange={(e) => updateData({ exp: e.target.value })}
-                  placeholder="0-100"
-                  style={commonInputStyle}
-                  onPointerDownCapture={stopNodeDrag}
-                  onMouseDownCapture={stopNodeDrag}
-                />
-              </div>
-            </div>
-          </>
         )}
 
         {/* V7/Niji7 多图矩阵显示 */}
