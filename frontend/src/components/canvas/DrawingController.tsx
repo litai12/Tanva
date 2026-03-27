@@ -966,17 +966,34 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               el instanceof Element &&
               el.classList?.contains("tanva-flow-overlay")
           );
-          if (
-            fromFlowOverlay ||
-            (zone === "flow" &&
+
+          const clipboardDataEarly = e.clipboardData;
+          const hasRenderableImageClipboard = (() => {
+            const data = clipboardDataEarly;
+            if (!data?.items?.length) return false;
+            return Array.from(data.items).some(
+              (item) =>
+                item &&
+                (item.kind === "file" ||
+                  (typeof item.type === "string" &&
+                    item.type.startsWith("image/")))
+            );
+          })();
+
+          // 剪贴板里是图片文件时，必须交给画布落地；否则在 zone=flow 且仍有 Flow 剪贴板数据时会整段 return，导致「只进全局历史、画布不显示」等问题
+          if (!hasRenderableImageClipboard) {
+            if (fromFlowOverlay) return;
+            if (
+              zone === "flow" &&
               flowPayload &&
               Array.isArray(flowPayload.nodes) &&
-              flowPayload.nodes.length > 0)
-          ) {
-            return;
+              flowPayload.nodes.length > 0
+            ) {
+              return;
+            }
           }
 
-          const clipboardData = e.clipboardData;
+          const clipboardData = clipboardDataEarly;
           if (!clipboardData) return;
 
           // 先尝试处理画布内的结构化剪贴板数据
@@ -1504,23 +1521,27 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           }
 
 	          // 直接调用快速上传的处理函数，传递智能排版相关参数
-	          quickImageUpload.handleQuickImageUploaded(
-	            imageData,
-	            fileName,
-	            selectedImageBounds,
-	            resolvedSmartPosition,
-	            operationType,
-	            sourceImageId,
-	            sourceImages,
-	            {
-	              videoInfo,
-	              placeholderId,
-	              preferHorizontal,
-	              parallelGroupId,
-	              parallelGroupIndex,
-	              parallelGroupTotal,
-	            } // 🔥 传递并行分组信息
-	          );
+	          void quickImageUpload
+	            .handleQuickImageUploaded(
+	              imageData,
+	              fileName,
+	              selectedImageBounds,
+	              resolvedSmartPosition,
+	              operationType,
+	              sourceImageId,
+	              sourceImages,
+	              {
+	                videoInfo,
+	                placeholderId,
+	                preferHorizontal,
+	                parallelGroupId,
+	                parallelGroupIndex,
+	                parallelGroupTotal,
+	              } // 🔥 传递并行分组信息
+	            )
+	            .catch((err) => {
+	              console.error("智能排版快速上传落盘失败:", err);
+	            });
 	          logger.debug("✅ [DEBUG] 已调用智能排版快速上传处理函数");
 	        };
 
@@ -3761,6 +3782,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             try {
               paper.view.update();
             } catch {}
+            // paperJson 里的 Raster 源可能是失效 blob:；用 assets 快照重绑像素，避免可选中但不显示。
+            if (
+              Array.isArray(projectAssets.images) &&
+              projectAssets.images.length > 0
+            ) {
+              imageTool.repairPaperRastersFromSnapshots(projectAssets.images);
+            }
           } else if (projectAssets.images?.length) {
             // 仅种子化状态会产生“可点击但不可见”的幽灵图，这里改为真正重建 Raster。
             imageTool.hydrateFromSnapshot(projectAssets.images);
@@ -3770,13 +3798,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         console.warn("paperJson 恢复后重建图片实例失败:", error);
       }
 
-      // paperJson 恢复后补齐 3D 运行时实例：若 Paper 中无可用 3D 组，则回退到 assets.models 兜底恢复
+      // paperJson 恢复后补齐 3D 运行时实例：Paper 上已有组时只同步 React（避免重复建组）；否则用 assets.models 兜底。
       try {
-        if (
-          model3DTool.model3DInstances.length === 0 &&
-          Array.isArray(projectAssets.models) &&
-          projectAssets.models.length > 0
-        ) {
+        if (model3DTool.model3DInstances.length === 0) {
           const hasUsablePaperModels = (() => {
             try {
               const modelItems = (paper.project as any).getItems?.({
@@ -3801,7 +3825,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             }
           })();
 
-          if (!hasUsablePaperModels) {
+          if (hasUsablePaperModels) {
+            model3DTool.syncModel3DInstancesFromPaper();
+          } else if (
+            Array.isArray(projectAssets.models) &&
+            projectAssets.models.length > 0
+          ) {
             model3DTool.hydrateFromSnapshot(projectAssets.models);
           }
         }
@@ -3844,8 +3873,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     model3DTool.model3DInstances,
     simpleTextTool.textItems,
     imageTool.hydrateFromSnapshot,
+    imageTool.repairPaperRastersFromSnapshots,
     model3DTool.hydrateFromSnapshot,
+    model3DTool.syncModel3DInstancesFromPaper,
     simpleTextTool.hydrateFromSnapshot,
+    videoTool.hydrateFromSnapshot,
   ]);
 
   useEffect(() => {
@@ -5341,7 +5373,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const key = event.key?.toLowerCase?.() || "";
       if ((key !== "c" && key !== "v") || !(event.metaKey || event.ctrlKey))
         return;
-      if (!hasSelectionRef.current && !clipboardService.getCanvasData()) return;
 
       const path =
         typeof event.composedPath === "function" ? event.composedPath() : [];
@@ -5352,6 +5383,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           el instanceof Element && el.classList?.contains("tanva-flow-overlay")
         );
       });
+
+      // 粘贴：无需已有画布选区；只要事件路径经过画布且不在 Flow 节点上，就把剪贴板域切到 canvas，避免仍停留在 flow 时粘贴图片被误判
+      if (key === "v" && fromCanvas && !fromFlowOverlay) {
+        clipboardService.setActiveZone("canvas");
+      }
+
+      if (!hasSelectionRef.current && !clipboardService.getCanvasData()) return;
+
       if (!fromCanvas || fromFlowOverlay) {
         return; // 不在画布区域的快捷键，不强制切换到画布
       }
@@ -7972,7 +8011,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       {/* 快速图片上传组件（居中） */}
       <ImageUploadComponent
-        onImageUploaded={quickImageUpload.handleQuickImageUploaded}
+        onImageUploaded={(asset) => {
+          void uploadImageToCanvas?.(asset).catch((err) => {
+            console.error("快速图片落盘失败:", err);
+          });
+        }}
         onUploadError={quickImageUpload.handleQuickUploadError}
         trigger={quickImageUpload.triggerQuickUpload}
         onTriggerHandled={quickImageUpload.handleQuickUploadTriggerHandled}
@@ -8001,6 +8044,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           id: img.id,
           url: img.imageData?.url,
           src: img.imageData?.src,
+          key: img.imageData?.key,
+          remoteUrl: img.imageData?.remoteUrl,
           localDataUrl: img.imageData?.localDataUrl,
           fileName: img.imageData?.fileName,
           pendingUpload: img.imageData?.pendingUpload,
@@ -8015,6 +8060,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               id: image.id,
               url: image.imageData?.url,
               src: image.imageData?.src,
+              key: image.imageData?.key,
+              remoteUrl: image.imageData?.remoteUrl,
               localDataUrl: image.imageData?.localDataUrl,
               fileName: image.imageData?.fileName,
               pendingUpload: image.imageData?.pendingUpload,
