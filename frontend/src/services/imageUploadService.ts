@@ -1,7 +1,12 @@
 import { logger } from '@/utils/logger';
 import { dataURLToBlobAsync, getImageDimensions, uploadToOSS, type OssUploadOptions } from './ossUploadService';
 import { createAsyncLimiter } from '@/utils/asyncLimit';
-import { isRemoteUrl, resolveImageToBlob } from '@/utils/imageSource';
+import {
+  isRemoteUrl,
+  normalizePersistableImageRef,
+  requiresManagedImageUpload,
+  resolveImageToBlob,
+} from '@/utils/imageSource';
 import { imageUploadWorkerClient } from './imageUploadWorkerClient';
 import { useUploadTaskStore } from '@/stores/uploadTaskStore';
 
@@ -159,18 +164,35 @@ async function uploadImageSource(
   options: ImageUploadOptions = {}
 ): Promise<ImageUploadResult> {
   try {
-    // 已是远程 URL：不重复上传，直接返回
+    // 已是「可托管」远程 URL：不重复上传，直接返回
+    // 外站/签名链 URL 必须拉取后转存 OSS，否则画板保存会一直 pendingUpload
     if (typeof source === 'string' && isRemoteUrl(source)) {
       const url = source.trim();
-      return {
-        success: true,
-        asset: {
-          id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-          url,
-          fileName: options.fileName,
-          contentType: options.contentType,
-        },
-      };
+      const normalized = normalizePersistableImageRef(url) || url;
+      if (!requiresManagedImageUpload(normalized)) {
+        return {
+          success: true,
+          asset: {
+            id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            url,
+            fileName: options.fileName,
+            contentType: options.contentType,
+          },
+        };
+      }
+      const blob =
+        (await resolveImageToBlob(url, { preferProxy: true })) || null;
+      if (!blob || blob.size <= 0) {
+        return {
+          success: false,
+          error: '无法读取远程图片（可能被跨域拦截，请重试或使用代理）',
+        };
+      }
+      const fileName = options.fileName || `image_${Date.now()}.png`;
+      const file = new File([blob], fileName, {
+        type: options.contentType || blob.type || 'image/png',
+      });
+      return uploadImageFile(file, { ...options, fileName });
     }
 
     if (source instanceof File) {
