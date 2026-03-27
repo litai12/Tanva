@@ -91,6 +91,7 @@ function TencentSpeechNode({ id, data, selected }: Props) {
   const [showAdvanced, setShowAdvanced] = React.useState(false);
   const [downloadingId, setDownloadingId] = React.useState<string | null>(null);
   const [voiceKeyword, setVoiceKeyword] = React.useState('');
+  const [handleHover, setHandleHover] = React.useState<string | null>(null);
   const hasPromptInput = useStore((state: ReactFlowState) =>
     state.edges.some((edge) => edge.target === id && edge.targetHandle === 'text'),
   );
@@ -740,10 +741,50 @@ function TencentSpeechNode({ id, data, selected }: Props) {
         </div>
       ) : null}
 
-      <Handle id="text" type="target" position={Position.Left} style={{ top: '28%' }} />
-      <Handle id="video" type="target" position={Position.Left} style={{ top: '44%' }} />
-      <Handle id="audio" type="source" position={Position.Right} style={{ top: '48%' }} />
-      <Handle id="video" type="source" position={Position.Right} style={{ top: '62%' }} />
+      <Handle
+        id="text"
+        type="target"
+        position={Position.Left}
+        style={{ top: '28%' }}
+        onMouseEnter={() => setHandleHover('text-in')}
+        onMouseLeave={() => setHandleHover(null)}
+      />
+      <Handle
+        id="video"
+        type="target"
+        position={Position.Left}
+        style={{ top: '44%' }}
+        onMouseEnter={() => setHandleHover('video-in')}
+        onMouseLeave={() => setHandleHover(null)}
+      />
+      <Handle
+        id="audio"
+        type="source"
+        position={Position.Right}
+        style={{ top: '48%' }}
+        onMouseEnter={() => setHandleHover('audio-out')}
+        onMouseLeave={() => setHandleHover(null)}
+      />
+      <Handle
+        id="video"
+        type="source"
+        position={Position.Right}
+        style={{ top: '62%' }}
+        onMouseEnter={() => setHandleHover('video-out')}
+        onMouseLeave={() => setHandleHover(null)}
+      />
+      {handleHover === 'text-in' ? (
+        <div className="flow-tooltip" style={{ left: -8, top: '28%', transform: 'translate(-100%, -50%)' }}>text</div>
+      ) : null}
+      {handleHover === 'video-in' ? (
+        <div className="flow-tooltip" style={{ left: -8, top: '44%', transform: 'translate(-100%, -50%)' }}>video</div>
+      ) : null}
+      {handleHover === 'audio-out' ? (
+        <div className="flow-tooltip" style={{ right: -8, top: '48%', transform: 'translate(100%, -50%)' }}>audio</div>
+      ) : null}
+      {handleHover === 'video-out' ? (
+        <div className="flow-tooltip" style={{ right: -8, top: '62%', transform: 'translate(100%, -50%)' }}>video</div>
+      ) : null}
     </div>
   );
 }
