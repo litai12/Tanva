@@ -1,15 +1,7 @@
 // @ts-nocheck
 // Flow 主画布与节点调度入口。
 import React from "react";
-import {
-  Trash2,
-  Plus,
-  Upload,
-  Download,
-  Group,
-  Ungroup,
-  Pencil,
-} from "lucide-react";
+import { Trash2, Plus, Upload, Download, Group, Ungroup } from "lucide-react";
 import { fetchTemplateCategories } from "@/services/publicTemplateService";
 import { fetchWithAuth } from "@/services/authFetch";
 import SharedTemplateCard from "@/components/template/SharedTemplateCard";
@@ -161,13 +153,10 @@ import { personalLibraryApi } from "@/services/personalLibraryApi";
 import {
   fetchNodeConfigs,
   getStatusBadge,
-  notifyNodeConfigsUpdated,
   NODE_CONFIG_SYNC_DOM_EVENT,
   NODE_CONFIG_SYNC_STORAGE_KEY,
   type NodeConfig,
 } from "@/services/nodeConfigService";
-import { updateNodeConfig } from "@/services/adminApi";
-import { useAuthStore } from "@/stores/authStore";
 import {
   createPersonalAssetId,
   usePersonalLibraryStore,
@@ -2024,14 +2013,6 @@ function FlowInner() {
     };
   }, []);
 
-  const isFlowNodePaletteAdmin = useAuthStore((s) => s.user?.role === "admin");
-  const [nodePaletteAdminEdit, setNodePaletteAdminEdit] = React.useState<
-    | null
-    | { nodeKey: string; nameZh: string; nameEn: string; description: string }
-  >(null);
-  const [nodePaletteAdminEditSaving, setNodePaletteAdminEditSaving] =
-    React.useState(false);
-
   // 确保画布节点面板中的顺序：输入 → 图像 → 视频 → 其他
   const sortedNodeConfigs = React.useMemo(() => {
     if (!nodeConfigs || nodeConfigs.length === 0) return nodeConfigs;
@@ -2049,34 +2030,6 @@ function FlowInner() {
       return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
     });
   }, [nodeConfigs]);
-
-  const hasBackendNodeConfigs = Boolean(
-    sortedNodeConfigs && sortedNodeConfigs.length > 0
-  );
-
-  const saveNodePaletteAdminEdit = React.useCallback(async () => {
-    if (!nodePaletteAdminEdit) return;
-    const nameZh = nodePaletteAdminEdit.nameZh.trim();
-    const nameEn = nodePaletteAdminEdit.nameEn.trim();
-    if (!nameZh || !nameEn) {
-      window.alert(lt("中文名与英文名不能为空", "Chinese and English names required"));
-      return;
-    }
-    setNodePaletteAdminEditSaving(true);
-    try {
-      await updateNodeConfig(nodePaletteAdminEdit.nodeKey, {
-        nameZh,
-        nameEn,
-        description: nodePaletteAdminEdit.description.trim() || undefined,
-      });
-      notifyNodeConfigsUpdated();
-      setNodePaletteAdminEdit(null);
-    } catch (e: any) {
-      window.alert(e?.message || lt("保存失败", "Save failed"));
-    } finally {
-      setNodePaletteAdminEditSaving(false);
-    }
-  }, [lt, nodePaletteAdminEdit]);
 
   const nodePaletteConfigs = React.useMemo(() => {
     const fallbackConfigs = NODE_PALETTE_ITEMS.map((item) => ({
@@ -16885,65 +16838,21 @@ function FlowInner() {
                             config.status === "coming_soon";
                           const badge = getStatusBadge(config.status);
                           return (
-                            <div
+                            <NodePaletteButton
                               key={config.nodeKey}
-                              style={{ position: "relative" }}
-                            >
-                              {isFlowNodePaletteAdmin &&
-                              hasBackendNodeConfigs ? (
-                                <button
-                                  type="button"
-                                  title={lt(
-                                    "编辑节点显示名",
-                                    "Edit display names"
-                                  )}
-                                  data-prevent-add-panel
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    setNodePaletteAdminEdit({
-                                      nodeKey: config.nodeKey,
-                                      nameZh: config.nameZh || "",
-                                      nameEn: config.nameEn || "",
-                                      description:
-                                        (config.description as string) || "",
-                                    });
-                                  }}
-                                  style={{
-                                    position: "absolute",
-                                    top: 6,
-                                    right: 8,
-                                    zIndex: 2,
-                                    width: 28,
-                                    height: 28,
-                                    borderRadius: 8,
-                                    border: "1px solid #e5e7eb",
-                                    background: "#fff",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    cursor: "pointer",
-                                    padding: 0,
-                                  }}
-                                >
-                                  <Pencil size={14} strokeWidth={2} />
-                                </button>
-                              ) : null}
-                              <NodePaletteButton
-                                zh={config.nameZh}
-                                en={config.nameEn}
-                                badge={badge}
-                                status={config.status}
-                                credits={config.creditsPerCall}
-                                disabled={isDisabled}
-                                onClick={() =>
-                                  createNodeAtWorldCenter(
-                                    resolveFlowNodeTypeFromConfig(config),
-                                    { ...addPanel.world }
-                                  )
-                                }
-                              />
-                            </div>
+                              zh={config.nameZh}
+                              en={config.nameEn}
+                              badge={badge}
+                              status={config.status}
+                              credits={config.creditsPerCall}
+                              disabled={isDisabled}
+                              onClick={() =>
+                                createNodeAtWorldCenter(
+                                  resolveFlowNodeTypeFromConfig(config),
+                                  { ...addPanel.world }
+                                )
+                              }
+                            />
                           );
                         })}
                       </div>
@@ -17318,157 +17227,6 @@ function FlowInner() {
           onChange={(e) => handleImportFiles(e.target.files)}
         />
       </div>
-      {nodePaletteAdminEdit ? (
-        <div
-          data-prevent-add-panel
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 500,
-            background: "rgba(15,23,42,0.35)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 16,
-          }}
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setNodePaletteAdminEdit(null);
-          }}
-        >
-          <div
-            style={{
-              width: "min(420px, 100%)",
-              background: "#fff",
-              borderRadius: 14,
-              border: "1px solid #e5e7eb",
-              boxShadow: "0 20px 50px rgba(0,0,0,0.15)",
-              padding: 20,
-            }}
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 14 }}>
-              {lt("编辑节点面板显示", "Edit node palette labels")}
-            </div>
-            <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 14 }}>
-              nodeKey:{" "}
-              <code style={{ fontSize: 12 }}>{nodePaletteAdminEdit.nodeKey}</code>
-            </div>
-            <label
-              style={{
-                display: "block",
-                fontSize: 12,
-                fontWeight: 500,
-                marginBottom: 4,
-              }}
-            >
-              {lt("中文名（卡片下方长文案）", "Chinese label")}
-            </label>
-            <input
-              value={nodePaletteAdminEdit.nameZh}
-              onChange={(e) =>
-                setNodePaletteAdminEdit((prev) =>
-                  prev ? { ...prev, nameZh: e.target.value } : prev
-                )
-              }
-              style={{
-                width: "100%",
-                marginBottom: 12,
-                padding: "8px 10px",
-                borderRadius: 8,
-                border: "1px solid #e5e7eb",
-                fontSize: 14,
-              }}
-            />
-            <label
-              style={{
-                display: "block",
-                fontSize: 12,
-                fontWeight: 500,
-                marginBottom: 4,
-              }}
-            >
-              {lt("英文名（卡片主标题）", "English title")}
-            </label>
-            <input
-              value={nodePaletteAdminEdit.nameEn}
-              onChange={(e) =>
-                setNodePaletteAdminEdit((prev) =>
-                  prev ? { ...prev, nameEn: e.target.value } : prev
-                )
-              }
-              style={{
-                width: "100%",
-                marginBottom: 12,
-                padding: "8px 10px",
-                borderRadius: 8,
-                border: "1px solid #e5e7eb",
-                fontSize: 14,
-              }}
-            />
-            <label
-              style={{
-                display: "block",
-                fontSize: 12,
-                fontWeight: 500,
-                marginBottom: 4,
-              }}
-            >
-              {lt("描述（可选，同步至节点管理）", "Description (optional)")}
-            </label>
-            <input
-              value={nodePaletteAdminEdit.description}
-              onChange={(e) =>
-                setNodePaletteAdminEdit((prev) =>
-                  prev ? { ...prev, description: e.target.value } : prev
-                )
-              }
-              style={{
-                width: "100%",
-                marginBottom: 16,
-                padding: "8px 10px",
-                borderRadius: 8,
-                border: "1px solid #e5e7eb",
-                fontSize: 14,
-              }}
-            />
-            <div
-              style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}
-            >
-              <button
-                type="button"
-                onClick={() => setNodePaletteAdminEdit(null)}
-                disabled={nodePaletteAdminEditSaving}
-                style={{
-                  padding: "8px 14px",
-                  borderRadius: 8,
-                  border: "1px solid #e5e7eb",
-                  background: "#fff",
-                  cursor: nodePaletteAdminEditSaving ? "not-allowed" : "pointer",
-                }}
-              >
-                {lt("取消", "Cancel")}
-              </button>
-              <button
-                type="button"
-                onClick={() => void saveNodePaletteAdminEdit()}
-                disabled={nodePaletteAdminEditSaving}
-                style={{
-                  padding: "8px 14px",
-                  borderRadius: 8,
-                  border: "none",
-                  background: "#2563eb",
-                  color: "#fff",
-                  cursor: nodePaletteAdminEditSaving ? "not-allowed" : "pointer",
-                }}
-              >
-                {nodePaletteAdminEditSaving
-                  ? lt("保存中…", "Saving…")
-                  : lt("保存", "Save")}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
