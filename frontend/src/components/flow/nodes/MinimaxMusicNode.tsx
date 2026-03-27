@@ -38,6 +38,7 @@ type Props = {
 function MinimaxMusicNode({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const [downloadingId, setDownloadingId] = React.useState<string | null>(null);
+  const [handleHover, setHandleHover] = React.useState<string | null>(null);
   const hasPromptInput = useStore((state: ReactFlowState) =>
     state.edges.some((edge) => edge.target === id && edge.targetHandle === "text")
   );
@@ -501,8 +502,28 @@ function MinimaxMusicNode({ id, data, selected }: Props) {
         </div>
       ) : null}
 
-      <Handle id="text" type="target" position={Position.Left} style={{ top: "50%" }} />
-      <Handle id="audio" type="source" position={Position.Right} style={{ top: "50%" }} />
+      <Handle
+        id="text"
+        type="target"
+        position={Position.Left}
+        style={{ top: "50%" }}
+        onMouseEnter={() => setHandleHover("text-in")}
+        onMouseLeave={() => setHandleHover(null)}
+      />
+      <Handle
+        id="audio"
+        type="source"
+        position={Position.Right}
+        style={{ top: "50%" }}
+        onMouseEnter={() => setHandleHover("audio-out")}
+        onMouseLeave={() => setHandleHover(null)}
+      />
+      {handleHover === "text-in" ? (
+        <div className="flow-tooltip" style={{ left: -8, top: "50%", transform: "translate(-100%, -50%)" }}>text</div>
+      ) : null}
+      {handleHover === "audio-out" ? (
+        <div className="flow-tooltip" style={{ right: -8, top: "50%", transform: "translate(100%, -50%)" }}>audio</div>
+      ) : null}
     </div>
   );
 }
