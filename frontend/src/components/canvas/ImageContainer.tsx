@@ -1,4 +1,4 @@
-﻿// Renders the image overlay UI and per-image actions on the canvas.
+// Renders the image overlay UI and per-image actions on the canvas.
 import React, {
   useRef,
   useCallback,
@@ -118,6 +118,32 @@ const ensureDataUrlString = (
 
 const normalizeImageSrc = (value?: string | null): string => {
   return toRenderableImageSrc(value) || "";
+};
+
+/** 预览侧栏/放大：与 Paper 渲染一致，优先稳定 remoteUrl/key，并保留 flow-asset 供 SmartImage 解析 */
+const resolvePreviewImageSrcForCanvas = (img: {
+  remoteUrl?: string;
+  url?: string;
+  src?: string;
+  key?: string;
+  localDataUrl?: string;
+}): string => {
+  const candidates = [
+    img.remoteUrl,
+    img.url,
+    img.src,
+    img.key,
+    img.localDataUrl,
+  ];
+  for (const c of candidates) {
+    if (typeof c !== "string") continue;
+    const raw = c.trim();
+    if (!raw) continue;
+    const normalized = normalizeImageSrc(raw);
+    if (normalized) return normalized;
+    return raw;
+  }
+  return "";
 };
 
 const clampNumber = (value: number, min: number, max: number): number => {
@@ -512,15 +538,19 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
   const relatedHistoryImages = useMemo<ImageItem[]>(() => {
     return projectHistoryItems
-      .filter((item) => !!item.imageUrl)
-      .map((item) => ({
-        id: item.id,
-        src: normalizeImageSrc(item.imageUrl),
-        title: item.prompt || item.sourceProjectName || "图片",
-        timestamp: Number.isNaN(Date.parse(item.createdAt))
-          ? undefined
-          : Date.parse(item.createdAt),
-      }));
+      .filter((item) => !!item.imageUrl?.trim())
+      .map((item) => {
+        const raw = item.imageUrl.trim();
+        const normalized = normalizeImageSrc(raw);
+        return {
+          id: item.id,
+          src: normalized || raw,
+          title: item.prompt || item.sourceProjectName || "图片",
+          timestamp: Number.isNaN(Date.parse(item.createdAt))
+            ? undefined
+            : Date.parse(item.createdAt),
+        };
+      });
   }, [projectHistoryItems]);
 
   // 监听 body class：图片拖拽 / 选择框拖拽时隐藏文字与工具栏，避免“跟随不紧”观感
@@ -2683,17 +2713,23 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   }, [setDrawMode]);
 
   const basePreviewSrc = useMemo(() => {
-    const candidate =
-      getImageDataForEditing?.(imageData.id) ||
-      imageData.url ||
-      imageData.src ||
-      imageData.localDataUrl;
-    return normalizeImageSrc(candidate);
+    const fromEdit = getImageDataForEditing?.(imageData.id);
+    return (
+      resolvePreviewImageSrcForCanvas({
+        remoteUrl: imageData.remoteUrl,
+        url: imageData.url,
+        src: fromEdit || imageData.src,
+        key: imageData.key,
+        localDataUrl: imageData.localDataUrl,
+      }) || ""
+    );
   }, [
     getImageDataForEditing,
     imageData.id,
+    imageData.remoteUrl,
     imageData.url,
     imageData.src,
+    imageData.key,
     imageData.localDataUrl,
   ]);
 
@@ -2702,7 +2738,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
     // 1. 首先添加画布上所有图片（优先级最高）
     allCanvasImages.forEach((img) => {
-      const src = normalizeImageSrc(img.url || img.src || img.localDataUrl || "");
+      const src = resolvePreviewImageSrcForCanvas(img);
       if (!src) return;
       if (mapBySrc.has(src)) return; // 去重
       mapBySrc.set(src, {
@@ -2715,23 +2751,19 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
     // 2. 然后添加历史图片（补充画布上没有的）
     relatedHistoryImages.forEach((item) => {
-      if (!item.src) return;
-      const normalizedSrc = normalizeImageSrc(item.src);
-      if (!normalizedSrc) return;
-      if (mapBySrc.has(normalizedSrc)) return; // 已存在则跳过
-      mapBySrc.set(normalizedSrc, {
+      const raw = item.src?.trim() || "";
+      if (!raw) return;
+      const normalizedSrc = normalizeImageSrc(raw);
+      const displaySrc = normalizedSrc || raw;
+      if (mapBySrc.has(displaySrc)) return; // 已存在则跳过
+      mapBySrc.set(displaySrc, {
         ...item,
-        src: normalizedSrc,
+        src: displaySrc,
       });
     });
 
     // 获取所有图片并排序
     const allItems = Array.from(mapBySrc.values());
-
-    // 构建当前双击图片的信息
-    const currentImageSrc = normalizeImageSrc(
-      imageData.url || imageData.src || imageData.localDataUrl || ""
-    );
 
     // 排序：当前图片在第一位，其他按时间降序
     return allItems.sort((a, b) => {
@@ -2743,7 +2775,16 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       const timeB = b.timestamp ?? 0;
       return timeB - timeA;
     });
-  }, [allCanvasImages, relatedHistoryImages, imageData.id, imageData.url, imageData.src, imageData.localDataUrl]);
+  }, [
+    allCanvasImages,
+    relatedHistoryImages,
+    imageData.id,
+    imageData.remoteUrl,
+    imageData.url,
+    imageData.src,
+    imageData.key,
+    imageData.localDataUrl,
+  ]);
 
   const activePreviewId = previewImageId ?? imageData.id;
   const activePreviewSrc = useMemo(() => {
