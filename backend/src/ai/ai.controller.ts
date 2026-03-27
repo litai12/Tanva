@@ -459,6 +459,24 @@ export class AiController {
   }
 
   /**
+   * DashScope Wan2.6 I2V：仅创建异步任务、尚未产出视频时，积分记录保持 pending，并把 apiUsageId 返回给前端用于失败退款。
+   */
+  private isWanDashscopeI2VAsyncPending(result: any): boolean {
+    if (!result || result.success !== true || !result.data) return false;
+    const d = result.data;
+    const videoUrl =
+      d.videoUrl ||
+      d.video_url ||
+      d.output?.video_url ||
+      (Array.isArray(d.output) && d.output[0]?.video_url) ||
+      d.raw?.output?.video_url ||
+      d.raw?.video_url;
+    if (videoUrl) return false;
+    const taskId = d.taskId || d.task_id;
+    return typeof taskId === 'string' && taskId.length > 0;
+  }
+
+  /**
    * 预扣积分并执行操作
    * @param skipCredits 如果为 true，则跳过积分扣除（例如使用自定义 API Key 时）
    */
@@ -471,6 +489,12 @@ export class AiController {
     outputImageCount?: number,
     skipCredits?: boolean,
     requestParams?: Record<string, any>,
+    creditOptions?: {
+      /** 若返回体为 { success: false }（HTTP 仍 200），视为失败并退款 */
+      treatReturnedFailureAsError?: boolean;
+      /** 为 true 时不将本次调用标为成功（保持 pending），用于异步任务后续由前端确认失败并退款 */
+      skipFinalizeSuccessIf?: (result: T) => boolean;
+    },
   ): Promise<T> {
     const userId = this.getUserId(req);
 
@@ -521,6 +545,24 @@ export class AiController {
 
       // 执行实际操作
       const result = await operation();
+
+      if (
+        creditOptions?.treatReturnedFailureAsError &&
+        result &&
+        typeof result === 'object' &&
+        'success' in (result as object) &&
+        (result as any).success === false
+      ) {
+        const errPayload = (result as any).error;
+        const msg =
+          typeof errPayload?.message === 'string' && errPayload.message.trim().length > 0
+            ? errPayload.message.trim()
+            : typeof errPayload?.code === 'string'
+              ? errPayload.code
+              : '操作失败';
+        throw new BadRequestException(msg);
+      }
+
       const executionChannel = this.extractExecutionChannel(result);
 
       if (apiUsageId) {
@@ -533,6 +575,15 @@ export class AiController {
             `Failed to update apiUsage request params: ${this.summarizeError(error)}`,
           );
         }
+      }
+
+      const deferFinalize = Boolean(
+        creditOptions?.skipFinalizeSuccessIf &&
+          apiUsageId &&
+          creditOptions.skipFinalizeSuccessIf(result),
+      );
+      if (deferFinalize) {
+        return { ...(result as object), apiUsageId } as T;
       }
 
       // 更新状态为成功
@@ -2481,7 +2532,18 @@ export class AiController {
         if (videoUrlDirect) return { success: true, data };
 
         const taskId = data?.taskId || data?.task_id || data?.id || data?.output?.task_id || data?.result?.task_id || data?.output?.[0]?.task_id || data?.data?.task_id || data?.data?.output?.task_id;
-        if (!taskId) return { success: true, data };
+        if (!taskId) {
+          this.logger.warn('DashScope wan2.6-t2v create response contains no task id and no video url', {
+            dataPreview: JSON.stringify(data).slice(0, 400),
+          });
+          return {
+            success: false,
+            error: {
+              message: 'DashScope 未返回任务 ID 或视频地址',
+              details: data,
+            },
+          };
+        }
 
         const statusUrl = `https://dashscope.aliyuncs.com/api/v1/tasks/${encodeURIComponent(taskId)}`;
         const intervalMs = 15000;
@@ -2497,6 +2559,19 @@ export class AiController {
 
             if (statusValue === 'succeeded' || statusValue === 'success') {
               const finalVideoUrl = extractVideoUrl(statusData) || extractVideoUrl(statusData?.result) || extractVideoUrl(statusData?.output) || undefined;
+              if (!finalVideoUrl) {
+                this.logger.warn('DashScope wan2.6-t2v task succeeded but no video URL in response', {
+                  taskId,
+                  dataPreview: JSON.stringify(statusData).slice(0, 400),
+                });
+                return {
+                  success: false,
+                  error: {
+                    message: 'DashScope 任务已完成但未返回视频地址',
+                    details: statusData,
+                  },
+                };
+              }
               return { success: true, data: { taskId, status: statusValue, videoUrl: finalVideoUrl, video_url: finalVideoUrl, output: { video_url: finalVideoUrl }, raw: statusData } };
             }
             if (statusValue === 'failed' || statusValue === 'error') {
@@ -2509,6 +2584,8 @@ export class AiController {
         this.logger.error('❌ DashScope request exception', error);
         return { success: false, error: { code: 'NETWORK_ERROR', message: error?.message || String(error) } };
       }
+    }, undefined, undefined, undefined, undefined, {
+      treatReturnedFailureAsError: true,
     });
   }
 
@@ -2583,7 +2660,13 @@ export class AiController {
           this.logger.warn('DashScope i2v create response contains no task id and no video url', {
             dataPreview: JSON.stringify(data).slice(0, 200),
           });
-          return { success: true, data };
+          return {
+            success: false,
+            error: {
+              message: 'DashScope 未返回任务 ID 或视频地址',
+              details: data,
+            },
+          };
         }
 
         // 异步模式：立即返回 taskId，前端轮询查询状态
@@ -2604,6 +2687,9 @@ export class AiController {
           error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
         };
       }
+    }, undefined, undefined, undefined, undefined, {
+      treatReturnedFailureAsError: true,
+      skipFinalizeSuccessIf: (r: any) => this.isWanDashscopeI2VAsyncPending(r),
     });
   }
 
@@ -2721,7 +2807,13 @@ export class AiController {
           this.logger.warn('DashScope r2v create response contains no task id and no video url', {
             dataPreview: JSON.stringify(data).slice(0, 200),
           });
-          return { success: true, data };
+          return {
+            success: false,
+            error: {
+              message: 'DashScope 未返回任务 ID 或视频地址',
+              details: data,
+            },
+          };
         }
 
         const statusUrl = `https://dashscope.aliyuncs.com/api/v1/tasks/${encodeURIComponent(taskId)}`;
@@ -2768,6 +2860,18 @@ export class AiController {
                 extractVideoUrl(statusData?.result) ||
                 extractVideoUrl(statusData?.output) ||
                 undefined;
+              if (!finalVideoUrl) {
+                this.logger.warn(`DashScope r2v task ${taskId} succeeded but no video URL in response`, {
+                  dataPreview: JSON.stringify(statusData).slice(0, 400),
+                });
+                return {
+                  success: false,
+                  error: {
+                    message: 'DashScope 任务已完成但未返回视频地址',
+                    details: statusData,
+                  },
+                };
+              }
               this.logger.log(
                 `✅ DashScope r2v task ${taskId} succeeded, videoUrl: ${String(finalVideoUrl).slice(0, 120)}`
               );
@@ -2828,6 +2932,8 @@ export class AiController {
           error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
         };
       }
+    }, undefined, undefined, undefined, undefined, {
+      treatReturnedFailureAsError: true,
     });
   }
 
