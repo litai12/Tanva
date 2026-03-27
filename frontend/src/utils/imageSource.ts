@@ -272,7 +272,7 @@ const normalizePossiblyDuplicatedDataUrl = (dataUrl: string): string => {
  * - data:image/* -> 原样（并修复重复前缀）
  * - blob:/http(s) -> 原样（http(s) 会按需要走 assets proxy）
  * - /api/assets/proxy?... -> 补齐 base（适配生产静态部署）
- * - OSS key (projects/... 等) -> 转为 /api/assets/proxy?key=...
+ * - OSS key (projects/... 等) -> 一律转为 /api/assets/proxy?key=...（避免直连 CDN 自定义域名证书错误如 ERR_CERT_COMMON_NAME_INVALID）
  * - 其他路径（/ ./ ../）-> 原样（视为同源静态资源）
  * - 其他（认为是裸 base64）-> 补 data:image/png;base64 前缀
  */
@@ -281,20 +281,48 @@ export const toRenderableImageSrc = (value?: string | null): string | null => {
   const normalized = normalizePersistableImageRef(value);
   const trimmed = normalized.trim();
   if (!trimmed) return null;
+  // 运行时引用：必须由 useFlowImageAssetUrl / useNonBase64ImageSrc 等解析，禁止当作 base64 包装
+  if (parseFlowImageAssetRef(trimmed)) return null;
   if (isDataImageUrl(trimmed)) return normalizePossiblyDuplicatedDataUrl(trimmed);
   if (isBlobUrl(trimmed)) return trimmed;
   if (isAssetKeyRef(trimmed)) {
     const withoutLeading = trimmed.replace(/^\/+/, "");
-    const directBase = getOssBaseUrl();
-    if (directBase && !shouldAvoidSameOriginDirectBase(directBase)) {
-      return `${directBase}${withoutLeading}`;
-    }
+    // 展示层不拼接 VITE_ASSET_PUBLIC_BASE_URL 直连 CDN：自定义域名易出现证书 CN 不匹配，浏览器直接 <img> 会失败。
     return proxifyRemoteAssetUrl(
       `/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`,
       { forceProxy: true }
     );
   }
-  if (isRemoteUrl(trimmed)) return trimmed;
+  if (isRemoteUrl(trimmed)) {
+    try {
+      const assetUrl = new URL(trimmed);
+      const pathKey = assetUrl.pathname.replace(/^\/+/, "");
+      // 完整 HTTPS URL 若路径已是托管 key（如 templates/...），仍可能指向证书 CN 不匹配的自定义 CDN；
+      // 按 key 走同源代理，由后端凭凭证取 OSS，避免浏览器直连报错。
+      if (isAssetKeyRef(pathKey)) {
+        return proxifyRemoteAssetUrl(
+          `/api/assets/proxy?key=${encodeURIComponent(pathKey)}`,
+          { forceProxy: true }
+        );
+      }
+    } catch {
+      // ignore
+    }
+    // Nano2 / Apimart 等返回的直链常在浏览器 <img> 场景被 Referer/防盗链拦截；走后端代理可稳定展示。
+    try {
+      const host = new URL(trimmed).hostname.toLowerCase();
+      const hotlinkSensitiveHosts = ["apimart.ai"];
+      const needsDisplayProxy = hotlinkSensitiveHosts.some(
+        (h) => host === h || host.endsWith(`.${h}`)
+      );
+      if (needsDisplayProxy) {
+        return proxifyRemoteAssetUrl(trimmed, { forceProxy: true });
+      }
+    } catch {
+      // ignore
+    }
+    return trimmed;
+  }
   if (
     trimmed.startsWith("/") ||
     trimmed.startsWith("./") ||
