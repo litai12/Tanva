@@ -937,9 +937,15 @@ const FloatingHeader: React.FC = () => {
                   </span>
                 </div>
                 <button
+                  type='button'
                   onClick={() => {
                     setIsSettingsOpen(false);
-                    navigate("/my-credits");
+                    const base = import.meta.env.BASE_URL || "/";
+                    const originWithBase = `${window.location.origin}${
+                      base.endsWith("/") ? base : `${base}/`
+                    }`;
+                    const href = new URL("my-credits", originWithBase).href;
+                    window.open(href, "_blank", "noopener,noreferrer");
                   }}
                   className='text-sm text-slate-500 hover:text-slate-700'
                 >

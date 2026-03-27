@@ -36,6 +36,7 @@ const enUS = {
         login: "Log in",
         register: "Sign up",
         logout: "Log out",
+        myCredits: "My Credits",
       },
     },
     hero: {

@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { useRef, useState, useEffect, useCallback } from "react";
 import GlassButton from "@/components/GlassButton";
 import { useAuthStore } from "@/stores/authStore";
-import { MessageCircle } from "lucide-react";
+import { MessageCircle, Zap } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 
@@ -241,6 +241,14 @@ export default function Home() {
                       />
                       {status?.label}
                     </span>
+                    <Button
+                      variant='ghost'
+                      className='text-white hover:text-white/80 hover:bg-white/10 rounded-full h-8 px-3 text-sm border border-white/20 gap-1.5'
+                      onClick={() => navigate("/my-credits")}
+                    >
+                      <Zap className='w-3.5 h-3.5' />
+                      {t("home.header.actions.myCredits")}
+                    </Button>
                     <Button
                       variant='ghost'
                       className='text-white hover:text-white/80 hover:bg-white/10 rounded-full h-8 px-3 text-sm border border-white/20'
