@@ -4,6 +4,7 @@ import { ArrowLeft, FileText, CheckCircle, Clock, XCircle, Loader2, RefreshCw, P
 import {
   createPaymentOrder,
   getPaymentStatus,
+  confirmPayment,
   getPaymentOrders,
   getPaymentPackages,
   type PaymentMethod,
@@ -40,6 +41,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [countdown, setCountdown] = useState(300);
   const [isExpired, setIsExpired] = useState(false);
+  const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   /** 递增后可使尚未完成的 createPaymentOrder 回调不再写入 state，避免套餐单与自定义单互相覆盖 */
@@ -119,6 +121,17 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
     }
   }, [currentPayInfo, paymentMethod, isLoading, customAmountMode]);
 
+  const handlePaymentCompleted = useCallback((credits: number) => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+    showToast(`支付成功！获得 ${credits} 积分`, "success");
+    window.dispatchEvent(new CustomEvent("refresh-credits"));
+    onPaymentSuccess?.();
+    onBack();
+  }, [onPaymentSuccess, onBack]);
+
   // 轮询支付状态
   const pollPaymentStatus = useCallback(async () => {
     if (!currentOrderNo) return;
@@ -126,23 +139,31 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
     try {
       const status = await getPaymentStatus(currentOrderNo);
       if (status.status === "paid") {
-        // 停止轮询
-        if (pollingRef.current) {
-          clearInterval(pollingRef.current);
-          pollingRef.current = null;
-        }
-        // 全局提示支付成功
-        showToast(`支付成功！获得 ${status.credits} 积分`, "success");
-        // 触发全局积分刷新
-        window.dispatchEvent(new CustomEvent("refresh-credits"));
-        // 跳转到工作区
-        onPaymentSuccess?.();
-        onBack();
+        handlePaymentCompleted(status.credits);
       }
     } catch (error) {
       console.error("查询支付状态失败:", error);
     }
-  }, [currentOrderNo, onPaymentSuccess, onBack]);
+  }, [currentOrderNo, handlePaymentCompleted]);
+
+  const handleManualConfirmPayment = useCallback(async () => {
+    if (!currentOrderNo || isVerifyingPayment) return;
+
+    setIsVerifyingPayment(true);
+    try {
+      const result = await confirmPayment(currentOrderNo);
+      if (result.success) {
+        handlePaymentCompleted(result.credits);
+      } else {
+        showToast("暂未检测到支付成功，请稍后再试", "info");
+      }
+    } catch (error: any) {
+      console.error("主动核对支付状态失败:", error);
+      showToast(error?.message || "核对支付状态失败", "error");
+    } finally {
+      setIsVerifyingPayment(false);
+    }
+  }, [currentOrderNo, isVerifyingPayment, handlePaymentCompleted]);
 
   // 加载套餐配置
   useEffect(() => {
@@ -674,6 +695,17 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
                 </span>
               )}
             </div>
+          )}
+
+          {(paymentMethod === "alipay" || paymentMethod === "wechat") && qrCodeUrl && (
+            <button
+              onClick={handleManualConfirmPayment}
+              disabled={isVerifyingPayment}
+              className='mt-2 w-full h-8 rounded-lg border border-slate-200 text-slate-600 text-xs hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 transition-colors'
+            >
+              {isVerifyingPayment && <Loader2 className='w-3.5 h-3.5 animate-spin' />}
+              <span>{isVerifyingPayment ? "正在核对..." : "我已支付，立即核对"}</span>
+            </button>
           )}
         </div>
         </div>

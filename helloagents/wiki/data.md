@@ -15,10 +15,12 @@
 - `InvitationCode` / `InvitationRedemption`：邀请码与兑换
 - `GlobalImageHistory`：全局图片历史
 - `PublicTemplate`：公共模板
+- `UserTemplate`：用户私有模板（“我的模板”云端持久化）
 - `SystemSetting`：系统配置
 
 ## 关系要点
 - `User` 1..n `Project`
+- `User` 1..n `UserTemplate`
 - `Project` 1..n `WorkflowHistory`
 - `User` 0..1 `CreditAccount`，`CreditAccount` 1..n `CreditTransaction`
 - `User` 1..n `RefreshToken`
