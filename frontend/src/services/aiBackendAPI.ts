@@ -425,6 +425,10 @@ export async function generateImageViaAPI(
   );
 }
 
+/**
+ * 编辑图像 - 通过后端 API
+ * 注意：优先使用 sourceImageUrl；若无则使用 sourceImage（base64）
+ */
 async function performEditImageRequest(
   request: AIImageEditRequest
 ): Promise<AIServiceResponse<AIImageResult>> {
@@ -437,8 +441,7 @@ async function performEditImageRequest(
     thinkingLevel: request.thinkingLevel,
     imageOnly: request.imageOnly,
     prompt: request.prompt?.substring(0, 50) + "...",
-    sourceImageLength: request.sourceImage?.length || 0,
-    sourceImageUrl: request.sourceImageUrl,
+    sourceImage: request.sourceImageUrl ? request.sourceImageUrl.substring(0, 80) + '...' : (request.sourceImage?.substring(0, 80) + '...' || 'N/A'),
   });
   
   try {
