@@ -13,6 +13,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- Canvas 绘制新增 `Shift` 融图交互：在仅选中 1 张图片且使用 `free/line/rect/circle` 绘制时，按住 `Shift` 完成绘制会将图形直接烘焙进该图片（含填充）；本地即时替换后后台上传并自动升级为远程引用，失败时回退保留原始图形（`frontend/src/components/canvas/DrawingController.tsx`）。
 - Workspace 顶部帮助入口改为悬停下拉：问号按钮不再直接跳转，改为 hover 后显示 `用户手册` 与 `更新日志` 两个链接项（`frontend/src/components/layout/FloatingHeader.tsx`）。
 - Workspace 外观设置：新用户默认 `风格样式` 改为 `网格`（`GridStyle.LINES`），用户手动切换后的样式继续按现有本地偏好持久化（`canvas-settings` / `tanva-view-settings`）保留。
 - Flow `ImageSplit` 新增“分割模式”配置：支持 `智能分割` 与 `自定义网格`；`自定义网格` 可按 `列×行`（如 `4×2`）固定切分，并自动同步输出端口数量（总数限制 `<=50`）。
@@ -59,6 +60,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - �?端 AI�?Seedance�?doubao�?�?�?任�?��?��??�?�?��?��?传�??OSS�?�?�?�??�?��?? OSS �?��?�?��?��?避�?��?�?TOS �?��?��??CORS/�?�??�?��?�??
 
 ### Fixed
+- Canvas/LayerPanel: selecting an image directly on the canvas now back-syncs to the layer panel item highlight, and auto-expands/activates the owning layer (`frontend/src/components/panels/LayerPanel.tsx`).
 - Payment: 修复支付宝充值回调空实现导致的漏入账；新增回调体解析、主动查询核对、手动确认补单与过期订单清理，降低“第三方已支付但前端/积分未更新”风险。
 - 2D�?D�?修复混�??submit �?�?��?�容�?�?�??使�??`ImageUrl` �?符串并�?�?��?种 payload �??�??�?避�??`Code:1001 Invalid param`�?`backend/src/ai/services/convert-2d-to-3d.service.ts`�?�??
 - 2D�?D�?�?�?��??工�?�栏�??�??D�?D�?��?端�?�?��??换为混�??�??D�?submit/query 轮询�?�?保�?��??�??�?�端交�?�?�?��?D�?�?�?�流�?不�?�?�?�?模�??�??�?�来源�?�换为混�??�?�口�?`backend/src/ai/services/convert-2d-to-3d.service.ts`�?�??

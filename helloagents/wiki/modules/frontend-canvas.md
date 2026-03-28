@@ -48,6 +48,11 @@
 - 双击画布图片打开预览蒙层，主图优先显示当前双击图片。
 - 右侧缩略图栏展示当前项目的“全局图片历史”列表，支持点击切换预览。
 
+## 图层面板反向选中
+- 当用户在画板中选中图片时，`LayerPanel` 会监听 `tanva-image-instances-updated` 并自动高亮对应图元项。
+- 同步时会自动展开并激活对应图层，避免“画板已选中但图层面板无反馈”。
+- 主要实现位于 `frontend/src/components/panels/LayerPanel.tsx`。
+
 ## 库面板（右侧）
 - 顶部提供双标签：`全局历史` 与 `手动素材`。
 - `手动素材` 维持原逻辑：来自 `personalLibraryStore + personalLibraryApi`，支持上传/删除/详情/发送到画板。
