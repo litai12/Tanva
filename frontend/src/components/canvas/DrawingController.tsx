@@ -399,6 +399,13 @@ interface DrawingControllerProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
 }
 
+interface DrawMergeTarget {
+  imageId: string;
+  imageSource: string;
+  imageBounds: { x: number; y: number; width: number; height: number };
+  fileName: string;
+}
+
 type ContextMenuTargetType =
   | "canvas"
   | "selection"
@@ -2904,6 +2911,280 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     model3DInstancesRef.current = model3DTool.model3DInstances;
   }, [model3DTool.model3DInstances]);
 
+  const resolveDrawMergeTarget = useCallback(
+    (path: paper.Path): DrawMergeTarget | null => {
+      const mergeModes = ["free", "line", "rect", "circle"];
+      if (!(mergeModes as string[]).includes(drawMode)) return null;
+      if (isEraser) return null;
+      if (!preciseShiftPressedRef.current) return null;
+
+      const selectedImageIds = Array.isArray(imageTool.selectedImageIds)
+        ? imageTool.selectedImageIds.filter((id) => typeof id === "string" && id.trim())
+        : [];
+      if (selectedImageIds.length !== 1) return null;
+
+      const imageId = selectedImageIds[0];
+      const imageInstance = imageTool.imageInstances.find((img) => img.id === imageId);
+      if (!imageInstance?.bounds) return null;
+
+      const imageBounds = imageInstance.bounds;
+      if (
+        !Number.isFinite(imageBounds.x) ||
+        !Number.isFinite(imageBounds.y) ||
+        !Number.isFinite(imageBounds.width) ||
+        !Number.isFinite(imageBounds.height) ||
+        imageBounds.width <= 0 ||
+        imageBounds.height <= 0
+      ) {
+        return null;
+      }
+
+      const imageRect = new paper.Rectangle(
+        imageBounds.x,
+        imageBounds.y,
+        imageBounds.width,
+        imageBounds.height
+      );
+      if (!path.bounds?.intersects(imageRect)) {
+        return null;
+      }
+
+      const imageSource =
+        resolveCanvasImageRefForChat(imageId, imageInstance.imageData) ||
+        extractAnyImageSource(imageInstance.imageData);
+      if (!imageSource) return null;
+
+      const baseName = normalizeImageFileName(
+        imageInstance.imageData?.fileName,
+        "image/png"
+      ).replace(/\.[a-z0-9]+$/i, "");
+
+      return {
+        imageId,
+        imageSource,
+        imageBounds: {
+          x: imageBounds.x,
+          y: imageBounds.y,
+          width: imageBounds.width,
+          height: imageBounds.height,
+        },
+        fileName: `${baseName || "image"}_brush_${Date.now()}.png`,
+      };
+    },
+    [drawMode, imageTool.imageInstances, imageTool.selectedImageIds, isEraser]
+  );
+
+  const mergeDrawPathIntoImage = useCallback(
+    async (path: paper.Path, target: DrawMergeTarget): Promise<boolean> => {
+      const baseBlob = await resolveImageToBlob(target.imageSource, {
+        preferProxy: true,
+      });
+      if (!baseBlob) return false;
+
+      const baseImage = await loadImageFromBlob(baseBlob);
+      const pixelWidth = Math.max(
+        1,
+        Math.round(baseImage.naturalWidth || baseImage.width || 1)
+      );
+      const pixelHeight = Math.max(
+        1,
+        Math.round(baseImage.naturalHeight || baseImage.height || 1)
+      );
+
+      const canvas = document.createElement("canvas");
+      canvas.width = pixelWidth;
+      canvas.height = pixelHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return false;
+
+      ctx.clearRect(0, 0, pixelWidth, pixelHeight);
+      ctx.drawImage(baseImage, 0, 0, pixelWidth, pixelHeight);
+
+      const segments = path.segments || [];
+      if (segments.length === 0) return false;
+
+      const mapPoint = (point: paper.Point) => ({
+        x:
+          ((point.x - target.imageBounds.x) / target.imageBounds.width) *
+          pixelWidth,
+        y:
+          ((point.y - target.imageBounds.y) / target.imageBounds.height) *
+          pixelHeight,
+      });
+
+      const scaleX = pixelWidth / target.imageBounds.width;
+      const scaleY = pixelHeight / target.imageBounds.height;
+      const avgScale = (Math.abs(scaleX) + Math.abs(scaleY)) / 2;
+      const pathStrokeWidth = Number.isFinite(path.strokeWidth)
+        ? path.strokeWidth
+        : 1;
+      const lineWidth = Math.max(1, pathStrokeWidth * avgScale);
+
+      const strokeColor = (() => {
+        const raw = path.strokeColor as any;
+        if (!raw) return "#000000";
+        try {
+          if (typeof raw.toCSS === "function") return raw.toCSS(true);
+        } catch {}
+        return "#000000";
+      })();
+      const opacity =
+        typeof path.opacity === "number" && Number.isFinite(path.opacity)
+          ? Math.max(0, Math.min(1, path.opacity))
+          : 1;
+      const fillColor = (() => {
+        const raw = path.fillColor as any;
+        if (!raw) return null;
+        try {
+          if (typeof raw.toCSS === "function") return raw.toCSS(true);
+        } catch {}
+        return null;
+      })();
+      const shouldFill = Boolean(fillColor);
+      const shouldStroke = Boolean(path.strokeColor);
+
+      ctx.save();
+      ctx.beginPath();
+
+      const first = mapPoint(segments[0].point);
+      ctx.moveTo(first.x, first.y);
+
+      for (let i = 1; i < segments.length; i += 1) {
+        const prev = segments[i - 1];
+        const curr = segments[i];
+
+        const cp1Point = prev.point.add(prev.handleOut || new paper.Point(0, 0));
+        const cp2Point = curr.point.add(curr.handleIn || new paper.Point(0, 0));
+        const cp1 = mapPoint(cp1Point);
+        const cp2 = mapPoint(cp2Point);
+        const end = mapPoint(curr.point);
+
+        const hasCurve =
+          (prev.handleOut && prev.handleOut.length > 0.01) ||
+          (curr.handleIn && curr.handleIn.length > 0.01);
+        if (hasCurve) {
+          ctx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, end.x, end.y);
+        } else {
+          ctx.lineTo(end.x, end.y);
+        }
+      }
+
+      if (path.closed) {
+        ctx.closePath();
+      }
+
+      ctx.globalAlpha = opacity;
+      if (shouldFill && fillColor) {
+        ctx.fillStyle = fillColor;
+        const fillRule = path.fillRule === "evenodd" ? "evenodd" : "nonzero";
+        ctx.fill(fillRule as CanvasFillRule);
+      }
+
+      if (shouldStroke) {
+        ctx.strokeStyle = strokeColor;
+        ctx.lineCap = (path.strokeCap as CanvasLineCap) || "round";
+        ctx.lineJoin = (path.strokeJoin as CanvasLineJoin) || "round";
+        ctx.lineWidth = lineWidth;
+        if (
+          typeof path.miterLimit === "number" &&
+          Number.isFinite(path.miterLimit)
+        ) {
+          ctx.miterLimit = path.miterLimit;
+        }
+
+        const dashArray = Array.isArray(path.dashArray) ? path.dashArray : [];
+        if (dashArray.length > 0) {
+          ctx.setLineDash(
+            dashArray
+              .map((value) => Number(value))
+              .filter((value) => Number.isFinite(value) && value > 0)
+              .map((value) => value * avgScale)
+          );
+          if (
+            typeof path.dashOffset === "number" &&
+            Number.isFinite(path.dashOffset)
+          ) {
+            ctx.lineDashOffset = path.dashOffset * avgScale;
+          }
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      const mergedBlob = await canvasToBlob(canvas, {
+        type: "image/png",
+        quality: 0.92,
+      });
+      const previewUrl = URL.createObjectURL(mergedBlob);
+
+      window.dispatchEvent(
+        new CustomEvent("canvas:replace-image-source", {
+          detail: {
+            imageId: target.imageId,
+            source: previewUrl,
+            bounds: target.imageBounds,
+            contentType: "image/png",
+            fileName: target.fileName,
+            width: pixelWidth,
+            height: pixelHeight,
+            historyLabel: "merge-brush-into-image",
+            pendingUpload: true,
+          },
+        })
+      );
+
+      void (async () => {
+        try {
+          const uploadDir = projectId
+            ? `projects/${projectId}/images/`
+            : "uploads/images/";
+          const uploadResult = await imageUploadService.uploadImageSource(
+            mergedBlob,
+            {
+              projectId,
+              dir: uploadDir,
+              fileName: target.fileName,
+              contentType: "image/png",
+            }
+          );
+
+          if (!uploadResult.success || !uploadResult.asset?.url) {
+            logger.warn("画笔融合后图片上传失败，保留本地预览等待后续补传", {
+              imageId: target.imageId,
+              error: uploadResult.error,
+            });
+            return;
+          }
+
+          const normalizedKey = normalizePersistableImageRef(
+            uploadResult.asset.key || ""
+          );
+          const normalizedRemoteUrl =
+            normalizePersistableImageRef(uploadResult.asset.url) ||
+            uploadResult.asset.url;
+
+          window.dispatchEvent(
+            new CustomEvent("tanva:upgradeImageSource", {
+              detail: {
+                placeholderId: target.imageId,
+                key: normalizedKey || undefined,
+                remoteUrl: normalizedRemoteUrl || undefined,
+              },
+            })
+          );
+        } catch (error) {
+          logger.warn("画笔融合后图片上传异常，保留本地预览等待后续补传", {
+            imageId: target.imageId,
+            error,
+          });
+        }
+      })();
+
+      return true;
+    },
+    [projectId]
+  );
+
   // ========== 初始化自动对齐Hook ==========
   const snapAlignment = useSnapAlignment({
     imageInstances: imageTool.imageInstances,
@@ -2999,7 +3280,72 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         logger.debug("路径创建:", path);
       },
       onPathComplete: (path) => {
-        logger.debug("路径完成:", path);
+        const completedPath = path as unknown as paper.Path;
+        const mergeTarget = resolveDrawMergeTarget(completedPath);
+        if (mergeTarget) {
+          const clonedPath = completedPath.clone({ insert: false }) as paper.Path;
+          const originalParent = completedPath.parent as
+            | (paper.Item & {
+                addChild?: (item: paper.Item) => void;
+                insertChild?: (index: number, item: paper.Item) => void;
+                children?: paper.Item[];
+              })
+            | null;
+          const originalIndex = Array.isArray(originalParent?.children)
+            ? originalParent.children.indexOf(completedPath)
+            : -1;
+
+          try {
+            completedPath.remove();
+            paper.view?.update();
+          } catch {}
+
+          void (async () => {
+            const merged = await mergeDrawPathIntoImage(clonedPath, mergeTarget);
+            if (merged) {
+              try {
+                clonedPath.remove();
+              } catch {}
+              return;
+            }
+
+            try {
+              if (
+                originalParent &&
+                typeof originalParent.insertChild === "function" &&
+                originalIndex >= 0 &&
+                originalIndex <= (originalParent.children?.length ?? 0)
+              ) {
+                originalParent.insertChild(originalIndex, clonedPath);
+              } else if (
+                originalParent &&
+                typeof originalParent.addChild === "function"
+              ) {
+                originalParent.addChild(clonedPath);
+              } else {
+                const drawingLayer = ensureDrawingLayer();
+                if (drawingLayer) drawingLayer.addChild(clonedPath);
+              }
+              paper.view?.update();
+              paperSaveService.triggerAutoSave("merge-brush-fallback");
+            } catch {
+              try {
+                clonedPath.remove();
+              } catch {}
+            }
+
+            window.dispatchEvent(
+              new CustomEvent("toast", {
+                detail: {
+                  message: "融图失败，已保留原始图形",
+                  type: "warning",
+                },
+              })
+            );
+          })();
+        }
+
+        logger.debug("路径完成:", completedPath);
 
         // 检查 Paper.js 项目状态后再触发保存
         if (paper && paper.project && paper.view) {
