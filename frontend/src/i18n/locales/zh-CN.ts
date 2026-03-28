@@ -126,6 +126,8 @@ const zhCN = {
   workspace: {
     header: {
       help: "帮助",
+      userManual: "用户手册",
+      changelog: "更新日志",
       settings: "设置",
       backHome: "返回首页",
       renameHint: "双击重命名",

@@ -10,6 +10,7 @@
   - `InteractionController.tsx`：交互控制（拖拽、选择等）
   - `GridRenderer.tsx`、`SnapGuideRenderer.tsx`、`ScaleBarRenderer.tsx`：辅助渲染
   - `TextEditor.tsx` / `SimpleTextEditor.tsx`：文字编辑
+- `frontend/src/components/panels/LibraryPanel.tsx`：右侧库面板（手动素材 / 全局历史切换，支持拖拽或发送到画板）
 - `frontend/src/components/canvas/hooks/`：与画布交互相关 hooks
 
 ## 图片引用协议（重要）
@@ -46,6 +47,12 @@
 ## 画布图片预览
 - 双击画布图片打开预览蒙层，主图优先显示当前双击图片。
 - 右侧缩略图栏展示当前项目的“全局图片历史”列表，支持点击切换预览。
+
+## 库面板（右侧）
+- 顶部提供双标签：`全局历史` 与 `手动素材`。
+- `手动素材` 维持原逻辑：来自 `personalLibraryStore + personalLibraryApi`，支持上传/删除/详情/发送到画板。
+- `全局历史` 在库面板内独立拉取，支持搜索、类型筛选、页码分页（`1 2 ... N`）、点击发送或拖拽到画板。
+- 库面板主内容区使用固定滚动容器（`flex + min-h-0 + overflow-y-auto`），避免历史列表在部分视口下无法下滑的问题。
 
 ## 3D 拍照白图防护
 - `Model3DViewer` 在处理 `tanva:model3d-capture-frame` 时会先强制渲染当前机位（`invalidate + renderer.render(scene, camera)`），再抓取帧数据。

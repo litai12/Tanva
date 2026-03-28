@@ -10,3 +10,7 @@
 ## 数据模型关联
 - `GlobalImageHistory`
 
+## 查询说明
+- `GET /api/global-image-history` 支持两种分页方式：
+- 游标分页：`cursor + limit`（原有行为，返回 `nextCursor/hasMore`）。
+- 页码分页：`page + limit`（新增行为，返回 `page/totalPages/totalCount`，用于前端页码跳转）。

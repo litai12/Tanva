@@ -93,6 +93,9 @@ const VIEW_APPEARANCE_STORAGE_KEY = "tanva-view-settings";
 const REFERRAL_NOTIFICATION_LAST_SEEN_DATE_STORAGE_KEY =
   "tanva-referral-notification-last-seen-date";
 const MAX_QUICK_PROJECTS = 5;
+const USER_MANUAL_URL = "https://gcnyatv1ofs3.feishu.cn/docx/U5Jzd18dLoCtvlxhHdDcoRgVnWd";
+const CHANGELOG_URL =
+  "https://gcnyatv1ofs3.feishu.cn/wiki/NMVhwMbglijVwFkW8HKcfpCynIp";
 
 const getTodayDateKey = () => {
   const now = new Date();
@@ -221,6 +224,7 @@ const FloatingHeader: React.FC = () => {
     useState<DailyRewardStatus | null>(null);
   const [dailyRewardLoading, setDailyRewardLoading] = useState(false);
   const [dailyRewardClaiming, setDailyRewardClaiming] = useState(false);
+  const [isHelpMenuOpen, setIsHelpMenuOpen] = useState(false);
   const [isWechatQrOpen, setIsWechatQrOpen] = useState(false);
   const [isGlobalFlowRunning, setIsGlobalFlowRunning] = useState(false);
   const [fpsOverlayAdminButtonLayout, setFpsOverlayAdminButtonLayout] = useState<{
@@ -1963,20 +1967,48 @@ const FloatingHeader: React.FC = () => {
             </Button>
 
             {/* 帮助按钮 */}
-            <Button
-              variant='ghost'
-              size='sm'
-              className='p-0 text-gray-600 transition-all duration-200 border rounded-full h-7 w-7 bg-liquid-glass-light backdrop-blur-minimal border-liquid-glass-light hover:bg-liquid-glass-hover'
-              title={t("workspace.header.help")}
-              onClick={() =>
-                window.open(
-                  "https://gcnyatv1ofs3.feishu.cn/docx/U5Jzd18dLoCtvlxhHdDcoRgVnWd",
-                  "_blank"
-                )
-              }
+            <div
+              className='relative'
+              onMouseEnter={() => setIsHelpMenuOpen(true)}
+              onMouseLeave={() => setIsHelpMenuOpen(false)}
             >
-              <HelpCircle className='w-4 h-4' />
-            </Button>
+              {isHelpMenuOpen && (
+                <div className='absolute top-full left-1/2 -translate-x-1/2 pt-2 z-[100] animate-in fade-in slide-in-from-top-2 duration-200'>
+                  <div className='w-[132px] p-1.5 rounded-2xl bg-white/95 backdrop-blur-md border border-slate-200 shadow-[0_12px_28px_rgba(15,23,42,0.12)] flex flex-col gap-0.5'>
+                    <button
+                      type='button'
+                      className='w-full h-9 px-3 rounded-xl text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300'
+                      onClick={() => {
+                        window.open(USER_MANUAL_URL, "_blank", "noopener,noreferrer");
+                        setIsHelpMenuOpen(false);
+                      }}
+                    >
+                      {t("workspace.header.userManual")}
+                    </button>
+                    <button
+                      type='button'
+                      className='w-full h-9 px-3 rounded-xl text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300'
+                      onClick={() => {
+                        window.open(CHANGELOG_URL, "_blank", "noopener,noreferrer");
+                        setIsHelpMenuOpen(false);
+                      }}
+                    >
+                      {t("workspace.header.changelog")}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <Button
+                variant='ghost'
+                size='sm'
+                className='p-0 text-gray-600 transition-all duration-200 border rounded-full h-7 w-7 bg-liquid-glass-light backdrop-blur-minimal border-liquid-glass-light hover:bg-liquid-glass-hover'
+                title={t("workspace.header.help")}
+                onClick={() => setIsHelpMenuOpen((prev) => !prev)}
+              >
+                <HelpCircle className='w-4 h-4' />
+              </Button>
+            </div>
 
             <div
               className='relative'

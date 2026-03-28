@@ -10,8 +10,10 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 画布与 AI 对话框支持 JSON 复制/导入（右键 + `Ctrl/Cmd+Shift+C/V`），导出内容与 `Project.contentJson` 保持一致。
 - Flow 新增 `MiniMax 音乐生成` 节点（`minimaxMusic`）：支持 `prompt`、`lyrics`、`isInstrumental`、`lyricsOptimizer`，输出音频 URL 并支持历史回放/下载；后端新增 `POST /api/ai/minimax-music`，接入 MiniMax `music_generation` 接口并纳入积分服务 `minimax-music`。
 - 新增用户模板云端持久化：后端增加 `UserTemplate` 数据模型与 `/api/user-templates` 鉴权 CRUD，前端“我的模板”从本地 IndexedDB 优先切换为后端存储（保留本地回退与迁移）。
+- 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- Workspace 顶部帮助入口改为悬停下拉：问号按钮不再直接跳转，改为 hover 后显示 `用户手册` 与 `更新日志` 两个链接项（`frontend/src/components/layout/FloatingHeader.tsx`）。
 - Workspace 外观设置：新用户默认 `风格样式` 改为 `网格`（`GridStyle.LINES`），用户手动切换后的样式继续按现有本地偏好持久化（`canvas-settings` / `tanva-view-settings`）保留。
 - Flow `ImageSplit` 新增“分割模式”配置：支持 `智能分割` 与 `自定义网格`；`自定义网格` 可按 `列×行`（如 `4×2`）固定切分，并自动同步输出端口数量（总数限制 `<=50`）。
 - AI 生成分辨率选项调整：Pro（`banana` / `gemini-pro`）重新开放 `1K / 2K` 选择，不再固定 `4K`；聊天面板与 Flow 生成节点（`GenerateNode` / `GenerateProNode` / `GeneratePro4Node`）保持一致。

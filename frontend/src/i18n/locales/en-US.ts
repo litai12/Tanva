@@ -126,6 +126,8 @@ const enUS = {
   workspace: {
     header: {
       help: "Help",
+      userManual: "User Manual",
+      changelog: "Changelog",
       settings: "Settings",
       backHome: "Back to Home",
       renameHint: "Double-click to rename",

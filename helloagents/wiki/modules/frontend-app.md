@@ -24,3 +24,8 @@
 
 ## 我的积分（`/my-credits`）
 - 积分流水在“项目”列支持显示 AI 渠道与模型（如 `渠道：A · 模型：gemini-2.5-flash-image-preview`），用于定位实际执行链路。
+
+## 工作区顶部帮助入口（`/app`）
+- 组件：`frontend/src/components/layout/FloatingHeader.tsx`
+- 交互：问号按钮改为 hover 展开下拉菜单，不再直接点击跳转。
+- 菜单项：`用户手册`（飞书文档）与 `更新日志`（仓库 `frontend/docs/06-变更日志.md`）。
