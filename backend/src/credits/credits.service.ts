@@ -16,6 +16,7 @@ import { ReferralService } from '../referral/referral.service';
 const DAILY_REWARD_EXPIRE_DAYS = 7;
 const STALE_PENDING_DEFAULT_TIMEOUT_MINUTES = 15;
 const STALE_PENDING_DEFAULT_VIDEO_TIMEOUT_MINUTES = 30;
+const STALE_PENDING_VIDEO_REFUND_DEFAULT_CUTOVER_AT = '2026-03-28T00:00:00.000Z';
 const STALE_PENDING_DEFAULT_BATCH_SIZE = 100;
 const DEFAULT_FREE_USER_MONTHLY_IMAGE_LIMIT = 100;
 const DEFAULT_FREE_USER_DAILY_IMAGE_LIMIT = 20;
@@ -268,6 +269,35 @@ export class CreditsService {
       'CREDITS_PENDING_VIDEO_TIMEOUT_MINUTES',
       STALE_PENDING_DEFAULT_VIDEO_TIMEOUT_MINUTES,
     );
+  }
+
+  private getStalePendingVideoRefundCutoverAt(): Date | null {
+    const raw = process.env.CREDITS_PENDING_VIDEO_REFUND_CUTOVER_AT;
+    const trimmed = raw?.trim();
+
+    if (trimmed) {
+      const normalized = trimmed.toLowerCase();
+      if (normalized === 'off' || normalized === 'none' || normalized === '0') {
+        return null;
+      }
+
+      const parsed = new Date(trimmed);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed;
+      }
+      this.logger.warn(
+        `Invalid CREDITS_PENDING_VIDEO_REFUND_CUTOVER_AT=${trimmed}, fallback to default ${STALE_PENDING_VIDEO_REFUND_DEFAULT_CUTOVER_AT}`,
+      );
+    }
+
+    const fallback = new Date(STALE_PENDING_VIDEO_REFUND_DEFAULT_CUTOVER_AT);
+    if (Number.isNaN(fallback.getTime())) {
+      this.logger.warn(
+        `Invalid default video refund cutover date ${STALE_PENDING_VIDEO_REFUND_DEFAULT_CUTOVER_AT}, disable cutover filter`,
+      );
+      return null;
+    }
+    return fallback;
   }
 
   private getStalePendingBatchSize(): number {
@@ -1096,10 +1126,12 @@ export class CreditsService {
   }> {
     const timeoutMinutes = options?.timeoutMinutes ?? this.getStalePendingVideoTimeoutMinutes();
     const batchSize = options?.batchSize ?? this.getStalePendingBatchSize();
+    const cutoverAt = this.getStalePendingVideoRefundCutoverAt();
     return this.autoRefundStalePendingUsagesForServiceTypes(
       STALE_PENDING_VIDEO_SERVICE_TYPES,
       timeoutMinutes,
       batchSize,
+      cutoverAt,
     );
   }
 
@@ -1107,6 +1139,7 @@ export class CreditsService {
     serviceTypes: ServiceType[],
     timeoutMinutes: number,
     batchSize: number,
+    minCreatedAt?: Date | null,
   ): Promise<{
     scanned: number;
     refunded: number;
@@ -1116,12 +1149,16 @@ export class CreditsService {
     batchSize: number;
   }> {
     const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000);
+    const createdAtFilter: Prisma.DateTimeFilter = { lt: cutoff };
+    if (minCreatedAt) {
+      createdAtFilter.gte = minCreatedAt;
+    }
 
     const staleRecords = await this.prisma.apiUsageRecord.findMany({
       where: {
         responseStatus: ApiResponseStatus.PENDING,
         serviceType: { in: serviceTypes },
-        createdAt: { lt: cutoff },
+        createdAt: createdAtFilter,
       },
       orderBy: { createdAt: 'asc' },
       take: batchSize,

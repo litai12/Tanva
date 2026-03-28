@@ -37,6 +37,9 @@
 - 定时任务每 5 分钟扫描超时 `pending` 并自动退款：
   - 图像类：`CREDITS_PENDING_TIMEOUT_MINUTES`（默认 15 分钟）
   - 视频类：`CREDITS_PENDING_VIDEO_TIMEOUT_MINUTES`（默认 30 分钟）
+- 视频类自动退款默认带分界线：仅处理 `createdAt >= 2026-03-28T00:00:00.000Z` 的记录，避免历史 `pending` 上线后集中退款。
+  - 可通过 `CREDITS_PENDING_VIDEO_REFUND_CUTOVER_AT` 覆盖时间点；
+  - 设置为 `off/none/0` 可关闭分界线过滤。
 
 ## 数据模型关联
 - `CreditAccount`、`CreditTransaction`、`ApiUsageRecord`、`CreditPricing`、`CreditPackage`
