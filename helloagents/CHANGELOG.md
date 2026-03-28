@@ -14,6 +14,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Changed
 - Canvas 绘制新增 `Shift` 融图交互：在仅选中 1 张图片且使用 `free/line/rect/circle` 绘制时，按住 `Shift` 完成绘制会将图形直接烘焙进该图片（含填充）；本地即时替换后后台上传并自动升级为远程引用，失败时回退保留原始图形（`frontend/src/components/canvas/DrawingController.tsx`）。
+- 管理后台「付费用户」列表新增白名单状态透出：后端 `GET /api/admin/paid-users` 返回 `noWatermark`，前端状态列对白名单用户显示 `VIP`（`backend/src/admin/admin.service.ts`, `frontend/src/services/adminApi.ts`, `frontend/src/pages/Admin.tsx`）。
 - Workspace 顶部帮助入口改为悬停下拉：问号按钮不再直接跳转，改为 hover 后显示 `用户手册` 与 `更新日志` 两个链接项（`frontend/src/components/layout/FloatingHeader.tsx`）。
 - Workspace 外观设置：新用户默认 `风格样式` 改为 `网格`（`GridStyle.LINES`），用户手动切换后的样式继续按现有本地偏好持久化（`canvas-settings` / `tanva-view-settings`）保留。
 - Flow `ImageSplit` 新增“分割模式”配置：支持 `智能分割` 与 `自定义网格`；`自定义网格` 可按 `列×行`（如 `4×2`）固定切分，并自动同步输出端口数量（总数限制 `<=50`）。

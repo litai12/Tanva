@@ -571,6 +571,7 @@ export interface PaidUser {
   name: string | null;
   role: string;
   status: string;
+  noWatermark: boolean;
   createdAt: string;
   lastLoginAt: string | null;
   creditBalance: number;
