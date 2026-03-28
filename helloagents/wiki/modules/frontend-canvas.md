@@ -49,8 +49,8 @@
 - 右侧缩略图栏展示当前项目的“全局图片历史”列表，支持点击切换预览。
 
 ## 图层面板反向选中
-- 当用户在画板中选中图片时，`LayerPanel` 会监听 `tanva-image-instances-updated` 并自动高亮对应图元项。
-- 同步时会自动展开并激活对应图层，避免“画板已选中但图层面板无反馈”。
+- 当用户在画板中选中图片/3D/路径时，`DrawingController` 会派发 `tanva-canvas-selection-updated`，`LayerPanel` 会据此自动高亮对应图元项。
+- 同步时会自动展开并激活对应图层，避免“画板已选中但图层面板无反馈”；图片场景仍兼容 `tanva-image-instances-updated`。
 - 主要实现位于 `frontend/src/components/panels/LayerPanel.tsx`。
 
 ## 库面板（右侧）

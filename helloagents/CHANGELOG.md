@@ -60,7 +60,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - �?端 AI�?Seedance�?doubao�?�?�?任�?��?��??�?�?��?��?传�??OSS�?�?�?�??�?��?? OSS �?��?�?��?��?避�?��?�?TOS �?��?��??CORS/�?�??�?��?�??
 
 ### Fixed
-- Canvas/LayerPanel: selecting an image directly on the canvas now back-syncs to the layer panel item highlight, and auto-expands/activates the owning layer (`frontend/src/components/panels/LayerPanel.tsx`).
+- Canvas/LayerPanel: canvas selection now back-syncs to layer panel highlight for image/model/path, with auto-expand/activate of the owning layer (`frontend/src/components/panels/LayerPanel.tsx`, `frontend/src/components/canvas/DrawingController.tsx`).
+- Flow/TextNote: 非编辑态下文本便签中心区域恢复可直接拖拽移动（不再仅边缘可拖），仅双击进入编辑态（`frontend/src/components/flow/nodes/TextNoteNode.tsx`）。
+- Flow/TextNote: 文本便签四边连接句柄改为默认隐藏且不可交互（不再自动弹出可连接节点面板），并将便签背景统一为淡土黄色（`frontend/src/components/flow/nodes/TextNoteNode.tsx`）。
 - Payment: 修复支付宝充值回调空实现导致的漏入账；新增回调体解析、主动查询核对、手动确认补单与过期订单清理，降低“第三方已支付但前端/积分未更新”风险。
 - 2D�?D�?修复混�??submit �?�?��?�容�?�?�??使�??`ImageUrl` �?符串并�?�?��?种 payload �??�??�?避�??`Code:1001 Invalid param`�?`backend/src/ai/services/convert-2d-to-3d.service.ts`�?�??
 - 2D�?D�?�?�?��??工�?�栏�??�??D�?D�?��?端�?�?��??换为混�??�??D�?submit/query 轮询�?�?保�?��??�??�?�端交�?�?�?��?D�?�?�?�流�?不�?�?�?�?模�??�??�?�来源�?�换为混�??�?�口�?`backend/src/ai/services/convert-2d-to-3d.service.ts`�?�??

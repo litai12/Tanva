@@ -3687,6 +3687,16 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         textIds: selectedTextIds,
         paths: selectedPaths,
       };
+      window.dispatchEvent(
+        new CustomEvent("tanva-canvas-selection-updated", {
+          detail: {
+            imageCount: (imageTool.selectedImageIds ?? []).length,
+            modelCount: (model3DTool.selectedModel3DIds ?? []).length,
+            pathCount: selectedPaths.length,
+            textCount: selectedTextIds.length,
+          },
+        })
+      );
     } catch {}
 
     return () => {
