@@ -385,6 +385,8 @@ function GenerateNodeInner({ id, data, selected }: Props) {
   const imageSizeOptions: Array<{ label: string; value: string }> = React.useMemo(() => {
     const base = [
       { label: lt("自动", "Auto"), value: "" },
+      { label: "1K", value: "1K" },
+      { label: "2K", value: "2K" },
       { label: "4K", value: "4K" },
     ];
     if (providerMode === "ultra") {
@@ -396,7 +398,6 @@ function GenerateNodeInner({ id, data, selected }: Props) {
         { label: "4K", value: "4K" },
       ];
     }
-    // Pro 模式固定 4K，不提供 1K/2K 选择
     return base;
   }, [lt, providerMode]);
 

@@ -12,6 +12,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 新增用户模板云端持久化：后端增加 `UserTemplate` 数据模型与 `/api/user-templates` 鉴权 CRUD，前端“我的模板”从本地 IndexedDB 优先切换为后端存储（保留本地回退与迁移）。
 
 ### Changed
+- AI 生成分辨率选项调整：Pro（`banana` / `gemini-pro`）重新开放 `1K / 2K` 选择，不再固定 `4K`；聊天面板与 Flow 生成节点（`GenerateNode` / `GenerateProNode` / `GeneratePro4Node`）保持一致。
 - Credits: 调整图像编辑/融合计费与名称展示。Ultra（`gemini-3.1-image-edit`/`gemini-3.1-image-blend`）0.5K=20、2K=45；Pro（`gemini-image-edit`/`gemini-image-blend`）1K=40、2K=60；对应服务名更新为 `（Ultra）` / `（Pro）`，以便前端积分流水直接区分模式。
 - Credits/API: `GET /api/credits/transactions`（含管理员对应接口）新增返回 `provider` 与 `model`，并继续返回 `channel`，用于前端直接展示“渠道 + 模型”。
 - AI Analyze: `POST /api/ai/analyze-image` 计费链路补充 `aiProvider/channelHint` 入库，避免部分图像分析流水缺失渠道信息。

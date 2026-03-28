@@ -544,12 +544,8 @@ const AIChatDialog: React.FC = () => {
       { label: "2K", value: "2K" },
       { label: "4K", value: "4K" },
     ];
-    // Pro 模式（banana / gemini-pro）：移除 1K/2K，固定 4K
-    const filtered = (aiProvider === "banana" || aiProvider === "gemini-pro")
-      ? sizes.filter(s => s.value !== "1K" && s.value !== "2K")
-      : sizes;
-    return [{ label: t("chat.common.auto"), value: null }, ...filtered];
-  }, [isUltraMode, t, aiProvider]);
+    return [{ label: t("chat.common.auto"), value: null }, ...sizes];
+  }, [isUltraMode, t]);
 
   // 记录最新的最大化状态，供原生事件监听使用
   useEffect(() => {

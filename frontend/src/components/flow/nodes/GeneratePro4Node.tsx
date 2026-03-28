@@ -88,9 +88,6 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
     aiProvider === 'banana' ||
     aiProvider === 'banana-3.1' ||
     aiProvider === 'nano2';
-  // 纯 Pro 模式（banana / gemini-pro）：固定 4K，不提供 1K/2K 选择
-  const isBananaPro =
-    aiProvider === 'banana' || aiProvider === 'gemini-pro';
 
   // 检测外部文本连接
   const rf = useReactFlow();
@@ -323,23 +320,16 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
   );
 
   const aspectRatioValue = data.aspectRatio ?? "";
-  const imageSizeValue = isBananaPro ? (data.imageSize ?? '4K') : (data.imageSize ?? null);
+  const imageSizeValue = data.imageSize ?? null;
 
-  // 图像尺寸选项：Pro 模式固定 4K，Ultra 等其他模式保留全部选项
   const imageSizeOptions: Array<{ label: string; value: '1K' | '2K' | '4K' | null }> = React.useMemo(() => {
-    if (isBananaPro) {
-      return [
-        { label: lt('自动', 'Auto'), value: null },
-        { label: '4K', value: '4K' },
-      ];
-    }
     return [
       { label: lt('自动', 'Auto'), value: null },
       { label: '1K', value: '1K' },
       { label: '2K', value: '2K' },
       { label: '4K', value: '4K' },
     ];
-  }, [lt, isBananaPro]);
+  }, [lt]);
 
   const updateImageSize = React.useCallback((size: '1K' | '2K' | '4K' | null) => {
     window.dispatchEvent(
