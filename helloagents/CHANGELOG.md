@@ -13,7 +13,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- Canvas：`ImageContainer` 图片操作新增“提取调色板”，点击后按当前图片提取 6 个主色，并在原图右侧生成独立调色板图片（走快速上传链路，最终持久化为远程引用）。
 - Canvas 绘制新增 `Shift` 融图交互：在仅选中 1 张图片且使用 `free/line/rect/circle` 绘制时，按住 `Shift` 完成绘制会将图形直接烘焙进该图片（含填充）；本地即时替换后后台上传并自动升级为远程引用，失败时回退保留原始图形（`frontend/src/components/canvas/DrawingController.tsx`）。
+- Canvas 绘图面板新增线条样式选项：`实线 / 虚线 / 点画线 / 手绘风（两头粗中间细）/ 手绘风（中间粗两头细）`；手绘风在 `free/line` 下会把中心线转换为闭合轮廓路径，并在 SVG 导出时保留 `stroke-dasharray` / `stroke-dashoffset`（`frontend/src/components/toolbar/ToolBar.tsx`, `frontend/src/stores/toolStore.ts`, `frontend/src/components/canvas/hooks/useDrawingTools.ts`, `frontend/src/components/canvas/DrawingController.tsx`）。
 - 管理后台「付费用户」列表新增白名单状态透出：后端 `GET /api/admin/paid-users` 返回 `noWatermark`，前端状态列对白名单用户显示 `VIP`（`backend/src/admin/admin.service.ts`, `frontend/src/services/adminApi.ts`, `frontend/src/pages/Admin.tsx`）。
 - Workspace 顶部帮助入口改为悬停下拉：问号按钮不再直接跳转，改为 hover 后显示 `用户手册` 与 `更新日志` 两个链接项（`frontend/src/components/layout/FloatingHeader.tsx`）。
 - Workspace 外观设置：新用户默认 `风格样式` 改为 `网格`（`GridStyle.LINES`），用户手动切换后的样式继续按现有本地偏好持久化（`canvas-settings` / `tanva-view-settings`）保留。

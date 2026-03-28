@@ -21,6 +21,7 @@ import {
   Lock,
   Unlock,
   MoreHorizontal,
+  Palette,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import {
@@ -76,7 +77,8 @@ type ToolbarActionKey =
   | "expandImage"
   | "cropImage"
   | "editText"
-  | "generateNode";
+  | "generateNode"
+  | "extractPalette";
 
 type ToolbarAction = {
   key: ToolbarActionKey;
@@ -101,7 +103,15 @@ const ROTATABLE_TOOLBAR_KEYS: readonly ToolbarActionKey[] = [
   "expandImage",
   "cropImage",
   "editText",
+  "extractPalette",
 ];
+
+const DEFAULT_PALETTE_SIZE = 6;
+const PALETTE_STRIP_WIDTH_PX = 34;
+const PALETTE_STRIP_HEIGHT_PX = 180;
+const PALETTE_IMAGE_GAP_WORLD = 18;
+const PALETTE_MIN_DISPLAY_HEIGHT_PX = 72;
+const PALETTE_MIN_DISPLAY_WIDTH_PX = 14;
 
 type Bounds = { x: number; y: number; width: number; height: number };
 type CropRect = { x: number; y: number; width: number; height: number };
@@ -208,6 +218,146 @@ const parseRecognizedTexts = (analysis: string): string[] => {
     .filter(Boolean);
 
   return dedupeTexts(lines).slice(0, 20);
+};
+
+const clampChannel = (value: number): number =>
+  Math.max(0, Math.min(255, Math.round(value)));
+
+const rgbToHex = (r: number, g: number, b: number): string => {
+  const toHex = (channel: number) =>
+    clampChannel(channel).toString(16).padStart(2, "0");
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+};
+
+const colorDistanceSq = (
+  left: { r: number; g: number; b: number },
+  right: { r: number; g: number; b: number }
+): number => {
+  const dr = left.r - right.r;
+  const dg = left.g - right.g;
+  const db = left.b - right.b;
+  return dr * dr + dg * dg + db * db;
+};
+
+const extractPaletteFromImageDataUrl = async (
+  imageDataUrl: string,
+  paletteSize: number = DEFAULT_PALETTE_SIZE
+): Promise<string[]> => {
+  const image = await loadImageElement(imageDataUrl);
+  const longestEdge = Math.max(image.width, image.height);
+  const downsampleScale = longestEdge > 180 ? 180 / longestEdge : 1;
+  const targetWidth = Math.max(1, Math.round(image.width * downsampleScale));
+  const targetHeight = Math.max(1, Math.round(image.height * downsampleScale));
+  const canvas = document.createElement("canvas");
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return [];
+
+  ctx.drawImage(image, 0, 0, targetWidth, targetHeight);
+  const imageData = ctx.getImageData(0, 0, targetWidth, targetHeight);
+  const buckets = new Map<
+    string,
+    { r: number; g: number; b: number; score: number }
+  >();
+  const quantStep = 24;
+
+  for (let i = 0; i < imageData.data.length; i += 4) {
+    const alpha = imageData.data[i + 3];
+    if (alpha < 120) continue;
+
+    const r = imageData.data[i];
+    const g = imageData.data[i + 1];
+    const b = imageData.data[i + 2];
+    const qR = Math.min(255, Math.round(r / quantStep) * quantStep);
+    const qG = Math.min(255, Math.round(g / quantStep) * quantStep);
+    const qB = Math.min(255, Math.round(b / quantStep) * quantStep);
+    const key = `${qR}-${qG}-${qB}`;
+    const delta = Math.max(qR, qG, qB) - Math.min(qR, qG, qB);
+    const weight = 1 + (delta / 255) * 0.3;
+    const current = buckets.get(key);
+    if (current) {
+      current.score += weight;
+      continue;
+    }
+    buckets.set(key, {
+      r: qR,
+      g: qG,
+      b: qB,
+      score: weight,
+    });
+  }
+
+  const sorted = Array.from(buckets.values()).sort(
+    (left, right) => right.score - left.score
+  );
+  if (sorted.length === 0) return [];
+
+  const selected: Array<{ r: number; g: number; b: number; score: number }> = [];
+  const minDistanceSq = 28 * 28;
+
+  for (const candidate of sorted) {
+    const farEnough = selected.every(
+      (existing) => colorDistanceSq(existing, candidate) >= minDistanceSq
+    );
+    if (!farEnough) continue;
+    selected.push(candidate);
+    if (selected.length >= paletteSize) break;
+  }
+
+  if (selected.length < paletteSize) {
+    for (const candidate of sorted) {
+      const exists = selected.some(
+        (existing) =>
+          existing.r === candidate.r &&
+          existing.g === candidate.g &&
+          existing.b === candidate.b
+      );
+      if (exists) continue;
+      selected.push(candidate);
+      if (selected.length >= paletteSize) break;
+    }
+  }
+
+  return selected
+    .slice(0, paletteSize)
+    .map((item) => rgbToHex(item.r, item.g, item.b));
+};
+
+const buildPaletteStripDataUrl = async (
+  colors: string[],
+  size?: { width: number; height: number }
+): Promise<string> => {
+  const safeColors = colors.filter((item) => typeof item === "string" && item.trim());
+  if (safeColors.length === 0) {
+    throw new Error("未提取到有效颜色");
+  }
+
+  const canvasWidth = Math.max(
+    1,
+    Math.round(size?.width ?? PALETTE_STRIP_WIDTH_PX)
+  );
+  const canvasHeight = Math.max(
+    1,
+    Math.round(size?.height ?? PALETTE_STRIP_HEIGHT_PX)
+  );
+  const canvas = document.createElement("canvas");
+  canvas.width = canvasWidth;
+  canvas.height = canvasHeight;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("无法创建调色板画布");
+  }
+
+  const stripeHeight = canvas.height / safeColors.length;
+  safeColors.forEach((color, index) => {
+    const y = Math.round(index * stripeHeight);
+    const nextY = Math.round((index + 1) * stripeHeight);
+    ctx.fillStyle = color;
+    ctx.fillRect(0, y, canvas.width, Math.max(1, nextY - y));
+  });
+
+  return canvasToDataUrl(canvas, "image/png");
 };
 
 const buildTextEditPrompt = (
@@ -399,6 +549,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const [isRecognizingText, setIsRecognizingText] = useState(false);
   const [isApplyingTextEdit, setIsApplyingTextEdit] = useState(false);
   const [showTextEditPanel, setShowTextEditPanel] = useState(false);
+  const [isExtractingPalette, setIsExtractingPalette] = useState(false);
   const [isCropping, setIsCropping] = useState(false);
   const [isApplyingCrop, setIsApplyingCrop] = useState(false);
   const [cropRect, setCropRect] = useState<CropRect | null>(null);
@@ -1099,6 +1250,126 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     imageData.localDataUrl,
     projectId,
   ]);
+
+  const handleExtractPalette = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (isExtractingPalette) return;
+
+      const run = async () => {
+        setIsExtractingPalette(true);
+        try {
+          // 优先取当前画布里正在渲染的图，确保调色板与所见一致。
+          let sourceImage: string | null = null;
+          const imageGroup = paper.project?.layers?.flatMap((layer) =>
+            layer.children.filter(
+              (child) =>
+                child.data?.type === "image" && child.data?.imageId === imageData.id
+            )
+          )[0];
+          if (isGroup(imageGroup)) {
+            const raster = imageGroup.children.find((child) =>
+              isRaster(child)
+            ) as paper.Raster | undefined;
+            if (raster?.canvas) {
+              sourceImage = await canvasToDataUrl(raster.canvas, "image/png");
+            }
+          }
+
+          if (!sourceImage) {
+            sourceImage = await resolveImageDataUrl();
+          }
+          if (!sourceImage) {
+            throw new Error("无法获取图片数据，提取调色板失败");
+          }
+
+          const colors = await extractPaletteFromImageDataUrl(
+            sourceImage,
+            DEFAULT_PALETTE_SIZE
+          );
+          if (colors.length === 0) {
+            throw new Error("未提取到有效颜色");
+          }
+
+          const paletteAspectRatio = PALETTE_STRIP_WIDTH_PX / PALETTE_STRIP_HEIGHT_PX;
+          const paletteDisplayHeight = Math.max(
+            PALETTE_MIN_DISPLAY_HEIGHT_PX,
+            Math.round(realTimeBounds.height)
+          );
+          const paletteDisplayWidth = Math.max(
+            PALETTE_MIN_DISPLAY_WIDTH_PX,
+            Math.round(paletteDisplayHeight * paletteAspectRatio)
+          );
+          const paletteImageDataUrl = await buildPaletteStripDataUrl(colors, {
+            width: paletteDisplayWidth,
+            height: paletteDisplayHeight,
+          });
+          const selectedPaletteBounds = {
+            x: realTimeBounds.x + realTimeBounds.width + PALETTE_IMAGE_GAP_WORLD,
+            y: realTimeBounds.y,
+            width: paletteDisplayWidth,
+            height: paletteDisplayHeight,
+          };
+          const paletteCenter = {
+            x:
+              realTimeBounds.x +
+              realTimeBounds.width +
+              PALETTE_IMAGE_GAP_WORLD +
+              paletteDisplayWidth / 2,
+            y: realTimeBounds.y + realTimeBounds.height / 2,
+          };
+
+          window.dispatchEvent(
+            new CustomEvent("triggerQuickImageUpload", {
+              detail: {
+                imageData: paletteImageDataUrl,
+                fileName: `palette-strip-${Date.now()}.png`,
+                selectedImageBounds: selectedPaletteBounds,
+                smartPosition: paletteCenter,
+                operationType: "palette",
+                sourceImageId: imageData.id,
+              },
+            })
+          );
+
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message: `🎨 已生成调色板图（${colors.length} 色）`,
+                type: "success",
+              },
+            })
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "提取调色板失败";
+          logger.error("提取调色板失败", error);
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message, type: "error" },
+            })
+          );
+        } finally {
+          setIsExtractingPalette(false);
+        }
+      };
+
+      run().catch((error) => {
+        logger.error("提取调色板异常", error);
+        setIsExtractingPalette(false);
+      });
+    },
+    [
+      imageData.id,
+      isExtractingPalette,
+      realTimeBounds.height,
+      realTimeBounds.width,
+      realTimeBounds.x,
+      realTimeBounds.y,
+      resolveImageDataUrl,
+    ]
+  );
 
   // 处理AI编辑按钮点击
   const handleAIEdit = useCallback(
@@ -2928,6 +3199,18 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       onClick: (event) => {
         recordToolbarUsage("editText");
         handleRecognizeImageText(event);
+      },
+    },
+    {
+      key: "extractPalette",
+      label: "提取调色板",
+      title: isExtractingPalette ? "正在提取调色板..." : "提取调色板",
+      icon: Palette,
+      disabled: isPendingUpload || isExtractingPalette,
+      loading: isExtractingPalette,
+      onClick: (event) => {
+        recordToolbarUsage("extractPalette");
+        handleExtractPalette(event);
       },
     },
     {

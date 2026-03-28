@@ -434,6 +434,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     currentColor,
     fillColor,
     strokeWidth,
+    lineStyle,
     isEraser,
     hasFill,
     setDrawMode,
@@ -3273,6 +3274,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     currentColor,
     fillColor,
     strokeWidth,
+    lineStyle,
     isEraser,
     hasFill,
     eventHandlers: {
@@ -6329,18 +6331,39 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
           // 获取路径的SVG表示
           const pathData = clonedPath.pathData;
-          const strokeColor = path.strokeColor
+          const hasStroke = Boolean(path.strokeColor) && (path.strokeWidth ?? 0) > 0;
+          const strokeColor = path.strokeColor && hasStroke
             ? path.strokeColor.toCSS(true)
-            : "#000000";
+            : "none";
           const strokeWidth =
-            path.data?.originalStrokeWidth ?? path.strokeWidth ?? 2;
+            hasStroke
+              ? (path.data?.originalStrokeWidth ?? path.strokeWidth ?? 2)
+              : 0;
           const fillColor = path.fillColor
             ? path.fillColor.toCSS(true)
             : "none";
+          const dashArray = Array.isArray(path.dashArray)
+            ? path.dashArray
+                .map((value) => Number(value))
+                .filter((value) => Number.isFinite(value) && value > 0)
+            : [];
+          const dashAttr =
+            hasStroke && dashArray.length > 0
+              ? ` stroke-dasharray="${dashArray.join(" ")}"`
+              : "";
+          const dashOffsetAttr =
+            hasStroke &&
+            dashArray.length > 0 &&
+            typeof path.dashOffset === "number" &&
+            Number.isFinite(path.dashOffset)
+              ? ` stroke-dashoffset="${path.dashOffset}"`
+              : "";
+          const lineCap = (path.strokeCap as string) || "round";
+          const lineJoin = (path.strokeJoin as string) || "round";
 
           clonedPath.remove();
 
-          return `<path d="${pathData}" stroke="${strokeColor}" stroke-width="${strokeWidth}" fill="${fillColor}" stroke-linecap="round" stroke-linejoin="round"/>`;
+          return `<path d="${pathData}" stroke="${strokeColor}" stroke-width="${strokeWidth}" fill="${fillColor}" stroke-linecap="${lineCap}" stroke-linejoin="${lineJoin}"${dashAttr}${dashOffsetAttr}/>`;
         })
         .join("\n  ");
 
