@@ -3,6 +3,7 @@ import { TrendingUp, TrendingDown, Activity, Zap, RefreshCw, AlertTriangle } fro
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
+import PaymentPanel from '@/components/payment/PaymentPanel';
 import {
   claimDailyReward,
   getDailyRewardStatus,
@@ -125,6 +126,7 @@ const MyCredits: React.FC = () => {
   const [expiringCredits, setExpiringCredits] = useState<ExpiringCreditsInfo | null>(null);
   const [checkInCalendar, setCheckInCalendar] = useState<CheckInCalendar | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'transactions'>('overview');
+  const [showPaymentPanel, setShowPaymentPanel] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -347,9 +349,14 @@ const MyCredits: React.FC = () => {
               </div>
               <div className="text-5xl font-bold">{credits?.balance || 0}</div>
             </div>
-            <div className="p-3 bg-white/20 rounded-2xl">
-              <Zap className="w-8 h-8" />
-            </div>
+            <button
+              type="button"
+              onClick={() => setShowPaymentPanel(true)}
+              title={t('workspace.settings.workspaceTab.credits.recharge')}
+              className="px-4 py-2 text-sm font-semibold text-white transition-all border rounded-xl bg-slate-900/85 border-slate-800/70 hover:bg-slate-900 shadow-[0_6px_20px_rgba(15,23,42,0.32)]"
+            >
+              {t('workspace.settings.workspaceTab.credits.recharge')}
+            </button>
           </div>
           <div className="grid grid-cols-3 gap-4 mt-6">
             <div className="p-3 bg-white/10 rounded-xl">
@@ -591,6 +598,26 @@ const MyCredits: React.FC = () => {
           </div>
         )}
       </div>
+
+      {showPaymentPanel && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/30"
+          onClick={() => setShowPaymentPanel(false)}
+        >
+          <div
+            className="w-full max-w-[960px] max-h-[88vh] overflow-auto bg-white border border-slate-200 shadow-[0_24px_80px_rgba(15,23,42,0.22)] rounded-3xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <PaymentPanel
+              onBack={() => setShowPaymentPanel(false)}
+              onPaymentSuccess={() => {
+                setShowPaymentPanel(false);
+                loadData(false);
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

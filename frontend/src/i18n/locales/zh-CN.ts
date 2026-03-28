@@ -129,6 +129,7 @@ const zhCN = {
       userManual: "用户手册",
       changelog: "更新日志",
       settings: "设置",
+      myCredits: "我的积分",
       backHome: "返回首页",
       renameHint: "双击重命名",
       switchProject: "切换项目",

@@ -113,7 +113,7 @@ export default function Workspace() {
                   <div>
                     <Button
                       onClick={() => navigate("/")}
-                      className='bg-white border'
+                      className='bg-slate-900 text-white hover:bg-slate-800'
                     >
                       {t("workspace.settings.workspaceTab.credits.recharge")}
                     </Button>

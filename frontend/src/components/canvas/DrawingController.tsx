@@ -13,6 +13,8 @@ import {
   FolderPlus,
   FileJson,
   FileInput,
+  Play,
+  Square,
 } from 'lucide-react';
 import { useToolStore, useCanvasStore, useLayerStore } from '@/stores';
 import { useAIChatStore, type PreciseEditContext } from '@/stores/aiChatStore';
@@ -458,6 +460,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   >({});
   const [contextMenuState, setContextMenuState] =
     useState<CanvasContextMenuState | null>(null);
+  const [isGlobalFlowRunning, setIsGlobalFlowRunning] = useState(false);
   const canvasJsonImportInputRef = useRef<HTMLInputElement | null>(null);
   const handleCanvasPasteRef = useRef<() => boolean>(() => false);
   const canvasToChatSyncTokenRef = useRef(0);
@@ -6646,6 +6649,23 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     };
   }, [canvasRef, ensureSelectionForTarget, resolveContextTarget]);
 
+  useEffect(() => {
+    const handleGlobalRunState = (event: Event) => {
+      const detail = (event as CustomEvent<{ running?: boolean }>).detail;
+      setIsGlobalFlowRunning(detail?.running === true);
+    };
+    window.addEventListener(
+      "flow:global-run-state",
+      handleGlobalRunState as EventListener
+    );
+    return () => {
+      window.removeEventListener(
+        "flow:global-run-state",
+        handleGlobalRunState as EventListener
+      );
+    };
+  }, []);
+
   const handleDeleteSelection = useCallback(() => {
     let didDelete = false;
 
@@ -6856,6 +6876,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     const canCopy = hasSelection && contextMenuState.type !== "canvas";
     const canPaste = !!clipboardService.getCanvasData();
+    const isCanvasContext =
+      contextMenuState.type === "canvas" || contextMenuState.type === "selection";
 
     const items: Array<{
       label: string;
@@ -6895,6 +6917,24 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         },
       },
     ];
+
+    if (isCanvasContext) {
+      items.push({
+        label: isGlobalFlowRunning ? "终止全局运行" : "全局运行",
+        icon: isGlobalFlowRunning ? (
+          <Square className='w-4 h-4' />
+        ) : (
+          <Play className='w-4 h-4' />
+        ),
+        onClick: () => {
+          window.dispatchEvent(
+            new CustomEvent(
+              isGlobalFlowRunning ? "flow:stop-global" : "flow:run-global"
+            )
+          );
+        },
+      });
+    }
 
     if (contextMenuState.type === "image" && contextMenuState.targetId) {
       const targetId = contextMenuState.targetId;
@@ -6982,6 +7022,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     selectionTool.selectedPath,
     selectionTool.selectedPaths,
     hasSelection,
+    isGlobalFlowRunning,
     closeContextMenu,
   ]);
 

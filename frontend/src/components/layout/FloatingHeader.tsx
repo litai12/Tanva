@@ -44,7 +44,7 @@ import {
   Globe,
   Gift,
   MessageCircle,
-  Play,
+  Star,
 } from "lucide-react";
 import MemoryDebugPanel from "@/components/debug/MemoryDebugPanel";
 import HistoryDebugPanel from "@/components/debug/HistoryDebugPanel";
@@ -226,7 +226,6 @@ const FloatingHeader: React.FC = () => {
   const [dailyRewardClaiming, setDailyRewardClaiming] = useState(false);
   const [isHelpMenuOpen, setIsHelpMenuOpen] = useState(false);
   const [isWechatQrOpen, setIsWechatQrOpen] = useState(false);
-  const [isGlobalFlowRunning, setIsGlobalFlowRunning] = useState(false);
   const [fpsOverlayAdminButtonLayout, setFpsOverlayAdminButtonLayout] = useState<{
     top: number;
     left: number;
@@ -474,6 +473,7 @@ const FloatingHeader: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [activeSettingsSection, setActiveSettingsSection] =
     useState<SettingsSectionId>("workspace");
+  const settingsContentScrollRef = useRef<HTMLDivElement | null>(null);
   const [showReferralNotification, setShowReferralNotification] =
     useState(false);
   const [isGlobalHistoryOpen, setIsGlobalHistoryOpen] = useState(false);
@@ -503,6 +503,13 @@ const FloatingHeader: React.FC = () => {
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [isSettingsOpen]);
+
+  useEffect(() => {
+    if (!isSettingsOpen) return;
+    const container = settingsContentScrollRef.current;
+    if (!container) return;
+    container.scrollTop = 0;
+  }, [activeSettingsSection, isSettingsOpen]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -716,25 +723,6 @@ const FloatingHeader: React.FC = () => {
     };
   }, [refreshCreditsAndDailyReward]);
 
-  useEffect(() => {
-    const handleGlobalRunState = (
-      event: Event
-    ) => {
-      const detail = (event as CustomEvent<{ running?: boolean }>).detail;
-      setIsGlobalFlowRunning(detail?.running === true);
-    };
-    window.addEventListener(
-      "flow:global-run-state",
-      handleGlobalRunState as EventListener
-    );
-    return () => {
-      window.removeEventListener(
-        "flow:global-run-state",
-        handleGlobalRunState as EventListener
-      );
-    };
-  }, []);
-
   const handleClaimDailyReward = useCallback(async () => {
     if (!user || dailyRewardClaiming) return;
     setDailyRewardClaiming(true);
@@ -755,6 +743,21 @@ const FloatingHeader: React.FC = () => {
       refreshCreditsAndDailyReward();
     }
   }, [dailyRewardClaiming, refreshCreditsAndDailyReward, t, user]);
+
+  const openCreditsPage = useCallback(() => {
+    const base = import.meta.env.BASE_URL || "/";
+    const originWithBase = `${window.location.origin}${
+      base.endsWith("/") ? base : `${base}/`
+    }`;
+    const href = new URL("my-credits", originWithBase).href;
+    window.open(href, "_blank", "noopener,noreferrer");
+  }, []);
+
+  const topCreditsText = useMemo(() => {
+    if (creditsLoading && !creditsInfo) return "...";
+    if (creditsInfo) return creditsInfo.balance.toLocaleString();
+    return "--";
+  }, [creditsInfo, creditsLoading]);
 
   const displayName =
     user?.name ||
@@ -929,6 +932,9 @@ const FloatingHeader: React.FC = () => {
                 </div>
                 <div className='text-sm text-slate-400'>{secondaryId}</div>
               </div>
+              <div className='shrink-0 text-sm leading-none text-right select-none'>
+                <AutosaveStatus />
+              </div>
             </div>
 
             {/* 积分信息卡片 */}
@@ -944,12 +950,7 @@ const FloatingHeader: React.FC = () => {
                   type='button'
                   onClick={() => {
                     setIsSettingsOpen(false);
-                    const base = import.meta.env.BASE_URL || "/";
-                    const originWithBase = `${window.location.origin}${
-                      base.endsWith("/") ? base : `${base}/`
-                    }`;
-                    const href = new URL("my-credits", originWithBase).href;
-                    window.open(href, "_blank", "noopener,noreferrer");
+                    openCreditsPage();
                   }}
                   className='text-sm text-slate-500 hover:text-slate-700'
                 >
@@ -974,7 +975,7 @@ const FloatingHeader: React.FC = () => {
                     </div>
                     <button
                       onClick={() => setShowPaymentPanel(true)}
-                      className='px-5 py-2 border border-slate-300 text-slate-600 rounded-lg hover:bg-white transition-colors text-sm'
+                      className='px-5 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800 transition-colors text-sm'
                     >
                       {t("workspace.settings.workspaceTab.credits.recharge")}
                     </button>
@@ -1902,8 +1903,8 @@ const FloatingHeader: React.FC = () => {
         {/* 空白拉伸 */}
         <div className='flex-1' />
 
-        {/* 右侧栏：功能按钮 + 保存状态 */}
-        <div className='flex flex-col items-center gap-1 pointer-events-auto'>
+        {/* 右侧栏：功能按钮 */}
+        <div className='pointer-events-auto'>
           <div className='flex items-center gap-1.5 md:gap-2 px-4 md:px-6 py-2 h-[46px] rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300'>
             {/* 素材库按钮 */}
             {showLibraryButton && (
@@ -1929,41 +1930,18 @@ const FloatingHeader: React.FC = () => {
               </Button>
             )}
 
-            {/* 全局运行按钮 */}
             <Button
               variant='ghost'
               size='sm'
-              className={cn(
-                "h-7 px-2 gap-1.5 rounded-full transition-all duration-200 border",
-                "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border-liquid-glass shadow-liquid-glass",
-                "text-slate-700 hover:bg-liquid-glass-hover"
-              )}
-              title={
-                isGlobalFlowRunning
-                  ? t("workspace.header.globalAutoStop")
-                  : t("workspace.header.globalAutoRun")
-              }
-              onClick={() => {
-                if (isGlobalFlowRunning) {
-                  window.dispatchEvent(new CustomEvent("flow:stop-global"));
-                } else {
-                  window.dispatchEvent(new CustomEvent("flow:run-global"));
-                }
-              }}
+              className='h-7 px-2.5 text-xs rounded-full border border-liquid-glass-light bg-liquid-glass-light backdrop-blur-minimal text-gray-700 hover:bg-liquid-glass-hover transition-all duration-200 flex items-center gap-1.5'
+              title={t("workspace.header.myCredits")}
+              onClick={openCreditsPage}
             >
-              {isGlobalFlowRunning ? (
-                <span
-                  className='inline-block w-2.5 h-2.5 bg-black rounded-[2px]'
-                  aria-hidden='true'
-                />
-              ) : (
-                <Play className='w-4 h-4' />
-              )}
-              <span className='text-[11px] leading-none whitespace-nowrap'>
-                {isGlobalFlowRunning
-                  ? t("workspace.header.globalAutoStop")
-                  : t("workspace.header.globalAutoRun")}
+              <span className='relative flex items-center justify-center w-4 h-4 rounded-full bg-gradient-to-br from-amber-300 via-amber-400 to-orange-500 shadow-[0_1px_4px_rgba(245,158,11,0.5)]'>
+                <span className='absolute inset-[1px] rounded-full bg-gradient-to-br from-amber-200/85 to-amber-500/80' />
+                <Star className='relative w-2.5 h-2.5 text-amber-50 fill-amber-100/90' />
               </span>
+              <span className='tabular-nums font-medium'>{topCreditsText}</span>
             </Button>
 
             {/* 帮助按钮 */}
@@ -2076,11 +2054,6 @@ const FloatingHeader: React.FC = () => {
               <Menu className='w-4 h-4' />
             </Button>
           </div>
-          <div className='pr-1 text-[11px] leading-none w-full text-center h-4 flex items-center justify-center select-none pointer-events-none'>
-            <span className='pointer-events-none'>
-              <AutosaveStatus />
-            </span>
-          </div>
         </div>
 
         {isSettingsOpen &&
@@ -2154,7 +2127,10 @@ const FloatingHeader: React.FC = () => {
                       </div>
                     </div>
                   </aside>
-                  <div className='flex-1 px-4 py-6 overflow-y-auto sm:px-6'>
+                  <div
+                    ref={settingsContentScrollRef}
+                    className='flex-1 px-4 py-6 overflow-y-auto sm:px-6'
+                  >
                     <div className='flex flex-wrap gap-2 mb-4 sm:hidden'>
                       {SETTINGS_SECTIONS.map((section) => {
                         const Icon = section.icon;

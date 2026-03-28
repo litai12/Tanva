@@ -13,6 +13,12 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- Credits 页面（`/my-credits`）概览卡片右上角改为“立即充值”按钮（点击弹出 `PaymentPanel`）；同时顶部“我的积分”入口图标升级为金币高光样式（`frontend/src/pages/MyCredits.tsx`, `frontend/src/components/layout/FloatingHeader.tsx`）。
+- Credits 充值弹窗布局微调：左侧套餐区域补充底部留白，视觉更舒展（`frontend/src/components/payment/PaymentPanel.tsx`）。
+- Workspace 保存状态提示位置调整：不再在画布顶部常驻显示，改为在设置首页（Workspace）用户信息区展示（`frontend/src/components/layout/FloatingHeader.tsx`）。
+- Workspace 顶部右侧工具区新增“积分”入口（图标 + 当前余额），并与设置弹窗“积分详情”复用同一跳转逻辑，统一打开 `/my-credits`（`frontend/src/components/layout/FloatingHeader.tsx`）。
+- Flow：节点拖拽新增自动对齐（边缘/中心吸附）与参考线展示，复用图片自动对齐算法 `detectAlignments/deduplicateAlignments`，并接入全局开关 `snapAlignmentEnabled`（`frontend/src/components/flow/FlowOverlay.tsx`, `frontend/src/components/flow/flow.css`）。
+- Workspace 设置弹窗：切换左侧分组后，右侧内容区滚动位置会重置到顶部，不再记忆上一次分组的滚动位置（`frontend/src/components/layout/FloatingHeader.tsx`）。
 - Canvas：`ImageContainer` 图片操作新增“提取调色板”，点击后按当前图片提取 6 个主色，并在原图右侧生成独立调色板图片（走快速上传链路，最终持久化为远程引用）。
 - Canvas 绘制新增 `Shift` 融图交互：在仅选中 1 张图片且使用 `free/line/rect/circle` 绘制时，按住 `Shift` 完成绘制会将图形直接烘焙进该图片（含填充）；本地即时替换后后台上传并自动升级为远程引用，失败时回退保留原始图形（`frontend/src/components/canvas/DrawingController.tsx`）。
 - Canvas 绘图面板新增线条样式选项：`实线 / 虚线 / 点画线 / 手绘风（两头粗中间细）/ 手绘风（中间粗两头细）`；手绘风在 `free/line` 下会把中心线转换为闭合轮廓路径，并在 SVG 导出时保留 `stroke-dasharray` / `stroke-dashoffset`（`frontend/src/components/toolbar/ToolBar.tsx`, `frontend/src/stores/toolStore.ts`, `frontend/src/components/canvas/hooks/useDrawingTools.ts`, `frontend/src/components/canvas/DrawingController.tsx`）。

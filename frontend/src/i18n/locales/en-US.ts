@@ -129,6 +129,7 @@ const enUS = {
       userManual: "User Manual",
       changelog: "Changelog",
       settings: "Settings",
+      myCredits: "My Credits",
       backHome: "Back to Home",
       renameHint: "Double-click to rename",
       switchProject: "Switch Project",

@@ -170,6 +170,12 @@ import PersonalLibraryPanel from "./PersonalLibraryPanel";
 import { resolveTextFromSourceNode } from "./utils/textSource";
 import { sanitizeFlowTextForMidjourneyV7 } from "./utils/mjV7PromptSanitize";
 import { useLocaleText } from "@/utils/localeText";
+import {
+  detectAlignments,
+  deduplicateAlignments,
+  type AlignmentLine,
+  type ObjectBounds,
+} from "@/utils/snapAlignment";
 
 // 兼容历史多图输入句柄：将 targetHandle img1/img2/... 归一化到 img
 const normalizeFlowTargetHandle = (
@@ -477,6 +483,46 @@ const getNodeRenderSize = (node: RFNode): { width: number; height: number } => {
     width: Number.isFinite(width) && width > 0 ? width : fallback.w,
     height: Number.isFinite(height) && height > 0 ? height : fallback.h,
   };
+};
+
+const FLOW_SNAP_BASE_THRESHOLD = 8;
+const FLOW_SNAP_GUIDE_COLORS = {
+  edge: "rgba(255, 107, 107, 0.48)",
+  center: "rgba(255, 105, 180, 0.44)",
+} as const;
+
+const toFlowSnapBounds = (node: RFNode): ObjectBounds | null => {
+  if (!node || (node as any)?.hidden) return null;
+  const { width, height } = getNodeRenderSize(node);
+  const x = Number(node.position?.x ?? 0);
+  const y = Number(node.position?.y ?? 0);
+  if (
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return null;
+  }
+  return { id: String(node.id), x, y, width, height };
+};
+
+const buildAlignmentSignature = (alignments: AlignmentLine[]): string => {
+  if (!Array.isArray(alignments) || alignments.length === 0) return "";
+  return alignments
+    .map((line) =>
+      [
+        line.orientation,
+        line.type,
+        Math.round(Number(line.position || 0) * 10) / 10,
+        Math.round(Number(line.start || 0) * 10) / 10,
+        Math.round(Number(line.end || 0) * 10) / 10,
+      ].join(":")
+    )
+    .sort()
+    .join("|");
 };
 
 const computeGroupBounds = (
@@ -2158,6 +2204,165 @@ function FlowInner() {
       .filter(Boolean);
   }, [lt, nodePaletteConfigs]);
 
+  const snapAlignmentEnabled = useUIStore((s) => s.snapAlignmentEnabled);
+  const [flowSnapAlignments, setFlowSnapAlignments] = React.useState<
+    AlignmentLine[]
+  >([]);
+  const flowSnapTargetsRef = React.useRef<ObjectBounds[]>([]);
+  const flowDragAnchorNodeIdRef = React.useRef<string | null>(null);
+  const flowSnapSignatureRef = React.useRef<string>("");
+
+  const updateFlowSnapAlignments = React.useCallback(
+    (alignments: AlignmentLine[]) => {
+      const next = Array.isArray(alignments) ? alignments : [];
+      const signature = buildAlignmentSignature(next);
+      if (signature === flowSnapSignatureRef.current) return;
+      flowSnapSignatureRef.current = signature;
+      setFlowSnapAlignments(next);
+    },
+    []
+  );
+
+  const clearFlowSnapState = React.useCallback(() => {
+    flowSnapTargetsRef.current = [];
+    flowDragAnchorNodeIdRef.current = null;
+    updateFlowSnapAlignments([]);
+  }, [updateFlowSnapAlignments]);
+
+  const prepareFlowSnapping = React.useCallback(
+    (draggingNodes: RFNode[], anchorNodeId?: string) => {
+      flowDragAnchorNodeIdRef.current =
+        typeof anchorNodeId === "string" ? anchorNodeId : null;
+      if (!snapAlignmentEnabled) {
+        flowSnapTargetsRef.current = [];
+        updateFlowSnapAlignments([]);
+        return;
+      }
+      const draggingIdSet = new Set(
+        (draggingNodes || []).map((node) => String(node?.id || "")).filter(Boolean)
+      );
+      (draggingNodes || []).forEach((node) => {
+        if (!isGroupNode(node)) return;
+        getGroupChildIds(node).forEach((childId) => draggingIdSet.add(String(childId)));
+      });
+      const allNodes = (rfRef.current.getNodes?.() || []) as RFNode[];
+      flowSnapTargetsRef.current = allNodes
+        .filter((node) => !draggingIdSet.has(String(node.id)))
+        .map((node) => toFlowSnapBounds(node))
+        .filter((item): item is ObjectBounds => Boolean(item));
+      updateFlowSnapAlignments([]);
+    },
+    [snapAlignmentEnabled, updateFlowSnapAlignments]
+  );
+
+  const applyFlowSnappingToChanges = React.useCallback(
+    (changes: any[]) => {
+      if (!Array.isArray(changes) || changes.length === 0) return changes;
+      const hasDraggingPositionChange = changes.some(
+        (change) => change?.type === "position" && change?.dragging
+      );
+      if (!hasDraggingPositionChange) {
+        const hasDragStop = changes.some(
+          (change) => change?.type === "position" && change?.dragging === false
+        );
+        if (hasDragStop) updateFlowSnapAlignments([]);
+        return changes;
+      }
+
+      if (!snapAlignmentEnabled || flowSnapTargetsRef.current.length === 0) {
+        updateFlowSnapAlignments([]);
+        return changes;
+      }
+
+      const draggingChanges = changes.filter(
+        (change) =>
+          change?.type === "position" &&
+          change?.dragging &&
+          change?.position &&
+          Number.isFinite(Number(change.position.x)) &&
+          Number.isFinite(Number(change.position.y))
+      );
+      if (draggingChanges.length === 0) {
+        updateFlowSnapAlignments([]);
+        return changes;
+      }
+
+      const anchorId = flowDragAnchorNodeIdRef.current;
+      const anchorChange =
+        (anchorId
+          ? draggingChanges.find((change) => String(change.id) === anchorId)
+          : null) || draggingChanges[0];
+      if (!anchorChange) {
+        updateFlowSnapAlignments([]);
+        return changes;
+      }
+
+      const currentNodes = (rfRef.current.getNodes?.() || []) as RFNode[];
+      const nodeMap = new Map(currentNodes.map((node) => [String(node.id), node]));
+      const anchorNode = nodeMap.get(String(anchorChange.id));
+      if (!anchorNode) {
+        updateFlowSnapAlignments([]);
+        return changes;
+      }
+
+      const { width, height } = getNodeRenderSize(anchorNode);
+      const draggingBounds: ObjectBounds = {
+        id: String(anchorChange.id),
+        x: Number(anchorChange.position.x),
+        y: Number(anchorChange.position.y),
+        width,
+        height,
+      };
+
+      const viewportZoom = Number(rfRef.current.getViewport?.()?.zoom);
+      const zoom =
+        Number.isFinite(viewportZoom) && viewportZoom > 0
+          ? viewportZoom
+          : Number(useCanvasStore.getState().zoom || 1) || 1;
+      const threshold = FLOW_SNAP_BASE_THRESHOLD / Math.max(zoom, 0.1);
+      const result = detectAlignments(
+        draggingBounds,
+        flowSnapTargetsRef.current,
+        threshold
+      );
+      const alignments = deduplicateAlignments(result.alignments || []);
+      updateFlowSnapAlignments(alignments);
+
+      const deltaX = Number(result?.snapDelta?.x || 0);
+      const deltaY = Number(result?.snapDelta?.y || 0);
+      if (Math.abs(deltaX) < 1e-6 && Math.abs(deltaY) < 1e-6) {
+        return changes;
+      }
+
+      return changes.map((change) => {
+        if (change?.type !== "position" || !change?.dragging) return change;
+        const next = { ...change };
+        if (
+          next.position &&
+          Number.isFinite(Number(next.position.x)) &&
+          Number.isFinite(Number(next.position.y))
+        ) {
+          next.position = {
+            x: Number(next.position.x) + deltaX,
+            y: Number(next.position.y) + deltaY,
+          };
+        }
+        if (
+          next.positionAbsolute &&
+          Number.isFinite(Number(next.positionAbsolute.x)) &&
+          Number.isFinite(Number(next.positionAbsolute.y))
+        ) {
+          next.positionAbsolute = {
+            x: Number(next.positionAbsolute.x) + deltaX,
+            y: Number(next.positionAbsolute.y) + deltaY,
+          };
+        }
+        return next;
+      });
+    },
+    [snapAlignmentEnabled, updateFlowSnapAlignments]
+  );
+
   const onNodesChangeWithHistory = React.useCallback(
     (changes: any) => {
       let processedChanges = changes;
@@ -2304,6 +2509,8 @@ function FlowInner() {
         } catch {}
       }
 
+      processedChanges = applyFlowSnappingToChanges(processedChanges);
+
       onNodesChange(processedChanges);
       try {
         const needCommit =
@@ -2319,7 +2526,7 @@ function FlowInner() {
           historyService.commit("flow-nodes-change").catch(() => {});
       } catch {}
     },
-    [onNodesChange]
+    [applyFlowSnappingToChanges, onNodesChange]
   );
 
   const rf = useReactFlow();
@@ -2327,6 +2534,12 @@ function FlowInner() {
   React.useEffect(() => {
     rfRef.current = rf;
   }, [rf]);
+  React.useEffect(() => {
+    if (!snapAlignmentEnabled) {
+      clearFlowSnapState();
+    }
+  }, [clearFlowSnapState, snapAlignmentEnabled]);
+  React.useEffect(() => () => clearFlowSnapState(), [clearFlowSnapState]);
 
   const normalizeGroupNodes = React.useCallback((inputNodes: RFNode[]) => {
     if (!Array.isArray(inputNodes) || inputNodes.length === 0) {
@@ -16332,6 +16545,31 @@ function FlowInner() {
     uploadImageToStableUrl,
   ]);
 
+  const flowSnapViewport = React.useMemo(() => {
+    const fallback = initialViewport || { x: 0, y: 0, zoom: 1 };
+    try {
+      const viewport = rfRef.current.getViewport?.();
+      if (
+        viewport &&
+        Number.isFinite(Number(viewport.x)) &&
+        Number.isFinite(Number(viewport.y)) &&
+        Number.isFinite(Number(viewport.zoom)) &&
+        Number(viewport.zoom) > 0
+      ) {
+        return {
+          x: Number(viewport.x),
+          y: Number(viewport.y),
+          zoom: Number(viewport.zoom),
+        };
+      }
+    } catch {}
+    return {
+      x: Number(fallback.x || 0),
+      y: Number(fallback.y || 0),
+      zoom: Number(fallback.zoom || 1) || 1,
+    };
+  }, [flowSnapAlignments, initialViewport]);
+
   return (
     <div
       ref={containerRef}
@@ -16351,15 +16589,16 @@ function FlowInner() {
         onNodeDragStart={(event, node) => {
           nodeDraggingRef.current = true;
           setIsNodeDragging(true);
+          const allNodes = rf.getNodes();
+          const selectedNodes = allNodes.filter(
+            (n: any) => n.selected || n.id === node.id
+          );
           // 检测 Alt 键是否按下
           const altPressed = event.altKey;
           if (altPressed) {
+            // Alt+拖拽复制时关闭吸附，避免副本与原节点重叠后“回吸”。
+            clearFlowSnapState();
             // Alt+拖拽：创建副本并让副本跟随鼠标移动，原节点保持原有连线与位置
-            const allNodes = rf.getNodes();
-            const selectedNodes = allNodes.filter(
-              (n: any) => n.selected || n.id === node.id
-            );
-
             if (selectedNodes.length > 0) {
               const startPositions = new Map<
                 string,
@@ -16454,11 +16693,15 @@ function FlowInner() {
             }
           } else {
             altDragStartRef.current = null;
+            const draggingNodes =
+              selectedNodes.length > 0 ? (selectedNodes as RFNode[]) : ([node] as RFNode[]);
+            prepareFlowSnapping(draggingNodes, String(node.id));
           }
         }}
         onNodeDragStop={(event, node) => {
           nodeDraggingRef.current = false;
           setIsNodeDragging(false);
+          clearFlowSnapState();
 
           // Alt+拖拽复制：副本已在 dragStart 时创建，这里只需提交历史
           if (
@@ -16542,6 +16785,52 @@ function FlowInner() {
         {/* 将画布上的图片以绿色块显示在 MiniMap 内 */}
         <MiniMapImageOverlay />
       </ReactFlow>
+
+      {flowSnapAlignments.length > 0 && (
+        <svg className='tanva-flow-snap-guides' aria-hidden='true'>
+          {flowSnapAlignments.map((alignment, index) => {
+            const zoom = Math.max(0.1, Number(flowSnapViewport.zoom) || 1);
+            const offsetX = Number(flowSnapViewport.x) || 0;
+            const offsetY = Number(flowSnapViewport.y) || 0;
+            const color =
+              alignment.type === "centerX" || alignment.type === "centerY"
+                ? FLOW_SNAP_GUIDE_COLORS.center
+                : FLOW_SNAP_GUIDE_COLORS.edge;
+            if (alignment.orientation === "vertical") {
+              const x = alignment.position * zoom + offsetX;
+              const y1 = alignment.start * zoom + offsetY;
+              const y2 = alignment.end * zoom + offsetY;
+              return (
+                <line
+                  key={`v-${alignment.type}-${Math.round(alignment.position)}-${index}`}
+                  x1={x}
+                  y1={y1}
+                  x2={x}
+                  y2={y2}
+                  stroke={color}
+                  strokeWidth={0.8}
+                  strokeDasharray='3.5 3.5'
+                />
+              );
+            }
+            const y = alignment.position * zoom + offsetY;
+            const x1 = alignment.start * zoom + offsetX;
+            const x2 = alignment.end * zoom + offsetX;
+            return (
+              <line
+                key={`h-${alignment.type}-${Math.round(alignment.position)}-${index}`}
+                x1={x1}
+                y1={y}
+                x2={x2}
+                y2={y}
+                stroke={color}
+                strokeWidth={0.8}
+                strokeDasharray='3.5 3.5'
+              />
+            );
+          })}
+        </svg>
+      )}
 
       <div
         ref={connectQuickMenuRef}

@@ -508,7 +508,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
         /* 充值内容 */
         <div className='flex gap-4 mt-6'>
         {/* 左侧：套餐选择 */}
-        <div className='flex-1'>
+        <div className='flex-1 pb-4 md:pb-6'>
           {/* 套餐网格 */}
           <div className='grid grid-cols-3 gap-3 mb-3'>
             {packages.map((pkg, index) => (

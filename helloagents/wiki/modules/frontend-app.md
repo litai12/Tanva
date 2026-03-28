@@ -24,8 +24,19 @@
 
 ## 我的积分（`/my-credits`）
 - 积分流水在“项目”列支持显示 AI 渠道与模型（如 `渠道：A · 模型：gemini-2.5-flash-image-preview`），用于定位实际执行链路。
+- 概览卡片右上角提供“立即充值”文字按钮；点击后在当前页弹出 `PaymentPanel` 充值面板。
 
 ## 工作区顶部帮助入口（`/app`）
 - 组件：`frontend/src/components/layout/FloatingHeader.tsx`
 - 交互：问号按钮改为 hover 展开下拉菜单，不再直接点击跳转。
 - 菜单项：`用户手册`（飞书文档）与 `更新日志`（仓库 `frontend/docs/06-变更日志.md`）。
+
+## 工作区顶部积分入口（`/app`）
+- 组件：`frontend/src/components/layout/FloatingHeader.tsx`
+- 交互：右上角工具区新增“积分”按钮（图标 + 当前余额），点击后新开页进入 `/my-credits`。
+- 数据：复用顶部已加载的 `getMyCredits()` 结果（加载中显示 `...`，暂无数据显示 `--`）。
+
+## 工作区设置弹窗（`/app`）
+- 组件：`frontend/src/components/layout/FloatingHeader.tsx`
+- 交互：切换左侧设置分组时，右侧内容滚动区域会回到顶部（不保留上一次分组的滚动位置）。
+- 保存状态提示（如“有未保存更改”）放在设置首页用户信息区显示，不再在画布顶部常驻显示。
