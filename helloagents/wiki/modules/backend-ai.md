@@ -19,6 +19,7 @@
 - `POST remove-background`（含 public 变体）/ `GET background-removal-info`
 - `POST convert-2d-to-3d` / `expand-image`
 - `POST generate-video` / `generate-video-provider` / `GET video-task/:provider/:taskId`
+- `POST video-task-success` / `POST video-task-refund`（异步视频任务前端轮询后的成功/失败回写）
 - `POST generate-paperjs` / `img2vector`
 - `GET veo/models` / `POST veo/generate`
 - `POST dashscope/generate-wan2-6-*`
@@ -27,6 +28,7 @@
 
 ## 注意事项
 - Seedance（doubao）视频任务成功后，后端会将上游视频拉取并上传到 OSS，仅返回自有 OSS 公网链接给前端。
+- 异步视频计费为“先扣费 + 后确认”：创建任务后记录保持 `pending`，前端轮询成功调用 `video-task-success` 标记 `success`，失败调用 `video-task-refund` 标记失败并退款。
 - `edit-image` / `blend-images` 支持 `sourceImageUrl(s)`，后端会按 OSS 白名单拉取并转换为 dataURL。
 - Banana 文本链路（`text-chat` / `tool-selection`）支持独立于图像链路的供应商配置键 `banana_text_provider`：`auto`（Apimart→147）、`legacy_auto`（147→Apimart）、`apimart`、`legacy`。
 - Banana 文本走 Apimart 时使用 `https://api.apimart.ai/v1/chat/completions`（OpenAI Chat Completions 兼容格式），鉴权复用 `NANO2_API_KEY`。

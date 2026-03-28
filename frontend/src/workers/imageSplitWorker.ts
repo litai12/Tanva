@@ -11,6 +11,8 @@ export type SplitImageRequest = {
   requestId: string;
   source: SplitImageSource;
   outputCount: number;
+  gridCols?: number;
+  gridRows?: number;
   authToken?: string;
 };
 
@@ -27,6 +29,8 @@ export type SplitImageRectsRequest = {
   requestId: string;
   source: SplitImageSource;
   outputCount: number;
+  gridCols?: number;
+  gridRows?: number;
   authToken?: string;
 };
 
@@ -61,6 +65,29 @@ export type SplitImageRectsResponse = {
 const MIN_OUTPUT_COUNT = 1;
 const MAX_OUTPUT_COUNT = 50;
 const DEFAULT_OUTPUT_COUNT = 9;
+type FixedGridShape = { cols: number; rows: number; total: number };
+
+const toPositiveInt = (value: unknown): number | null => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return null;
+  const intVal = Math.floor(num);
+  if (intVal < 1) return null;
+  return intVal;
+};
+
+const resolveRequestedGrid = (gridCols: unknown, gridRows: unknown): FixedGridShape | null => {
+  const cols = toPositiveInt(gridCols);
+  const rows = toPositiveInt(gridRows);
+  if (cols == null && rows == null) return null;
+  if (cols == null || rows == null) {
+    throw new Error("自定义网格参数无效");
+  }
+  const total = cols * rows;
+  if (total > MAX_OUTPUT_COUNT) {
+    throw new Error(`自定义网格总数不能超过 ${MAX_OUTPUT_COUNT}`);
+  }
+  return { cols, rows, total };
+};
 
 const isWhitePixel = (r: number, g: number, b: number, threshold = 250): boolean =>
   r >= threshold && g >= threshold && b >= threshold;
@@ -264,14 +291,17 @@ const shouldAttemptRegionDetect = async (bitmap: ImageBitmap): Promise<boolean> 
 
 const splitByGrid = async (
   bitmap: ImageBitmap,
-  count: number
+  count: number,
+  fixedGrid?: FixedGridShape
 ): Promise<Array<Omit<SplitImageResultItem, "buffer" | "contentType"> & { blob: Blob }>> => {
-  const safeCount = Math.min(
-    MAX_OUTPUT_COUNT,
-    Math.max(MIN_OUTPUT_COUNT, Math.floor(count || DEFAULT_OUTPUT_COUNT))
-  );
-  const cols = Math.max(1, Math.ceil(Math.sqrt(safeCount)));
-  const rows = Math.max(1, Math.ceil(safeCount / cols));
+  const safeCount = fixedGrid
+    ? fixedGrid.total
+    : Math.min(
+        MAX_OUTPUT_COUNT,
+        Math.max(MIN_OUTPUT_COUNT, Math.floor(count || DEFAULT_OUTPUT_COUNT))
+      );
+  const cols = fixedGrid?.cols ?? Math.max(1, Math.ceil(Math.sqrt(safeCount)));
+  const rows = fixedGrid?.rows ?? Math.max(1, Math.ceil(safeCount / cols));
 
   const out: Array<
     Omit<SplitImageResultItem, "buffer" | "contentType"> & { blob: Blob }
@@ -307,14 +337,17 @@ const splitByGrid = async (
 
 const splitRectsByGrid = (
   bitmap: ImageBitmap,
-  count: number
+  count: number,
+  fixedGrid?: FixedGridShape
 ): SplitImageRectItem[] => {
-  const safeCount = Math.min(
-    MAX_OUTPUT_COUNT,
-    Math.max(MIN_OUTPUT_COUNT, Math.floor(count || DEFAULT_OUTPUT_COUNT))
-  );
-  const cols = Math.max(1, Math.ceil(Math.sqrt(safeCount)));
-  const rows = Math.max(1, Math.ceil(safeCount / cols));
+  const safeCount = fixedGrid
+    ? fixedGrid.total
+    : Math.min(
+        MAX_OUTPUT_COUNT,
+        Math.max(MIN_OUTPUT_COUNT, Math.floor(count || DEFAULT_OUTPUT_COUNT))
+      );
+  const cols = fixedGrid?.cols ?? Math.max(1, Math.ceil(Math.sqrt(safeCount)));
+  const rows = fixedGrid?.rows ?? Math.max(1, Math.ceil(safeCount / cols));
 
   const out: SplitImageRectItem[] = [];
   for (let i = 0; i < safeCount; i += 1) {
@@ -572,10 +605,13 @@ self.addEventListener(
             };
           }
 
-          const safeCount = Math.min(
-            MAX_OUTPUT_COUNT,
-            Math.max(MIN_OUTPUT_COUNT, Math.floor(data.outputCount || DEFAULT_OUTPUT_COUNT))
-          );
+          const requestedGrid = resolveRequestedGrid(data.gridCols, data.gridRows);
+          const safeCount = requestedGrid
+            ? requestedGrid.total
+            : Math.min(
+                MAX_OUTPUT_COUNT,
+                Math.max(MIN_OUTPUT_COUNT, Math.floor(data.outputCount || DEFAULT_OUTPUT_COUNT))
+              );
 
           const blob = await resolveSourceToBlob(data.source, data.authToken);
           const bitmap = await createImageBitmap(blob);
@@ -584,17 +620,21 @@ self.addEventListener(
             Omit<SplitImageResultItem, "buffer" | "contentType"> & { blob: Blob }
           > = [];
 
-          const canDetect = await shouldAttemptRegionDetect(bitmap);
-          if (canDetect) {
-            pieces = await splitByRegions(bitmap);
-          }
+          if (requestedGrid) {
+            pieces = await splitByGrid(bitmap, safeCount, requestedGrid);
+          } else {
+            const canDetect = await shouldAttemptRegionDetect(bitmap);
+            if (canDetect) {
+              pieces = await splitByRegions(bitmap);
+            }
 
-          const tooManyPieces =
-            pieces.length >
-            Math.min(MAX_OUTPUT_COUNT, Math.max(safeCount, DEFAULT_OUTPUT_COUNT)) * 2;
+            const tooManyPieces =
+              pieces.length >
+              Math.min(MAX_OUTPUT_COUNT, Math.max(safeCount, DEFAULT_OUTPUT_COUNT)) * 2;
 
-          if (pieces.length <= 1 || tooManyPieces) {
-            pieces = await splitByGrid(bitmap, safeCount);
+            if (pieces.length <= 1 || tooManyPieces) {
+              pieces = await splitByGrid(bitmap, safeCount);
+            }
           }
 
           try {
@@ -667,10 +707,13 @@ self.addEventListener(
           };
         }
 
-        const safeCount = Math.min(
-          MAX_OUTPUT_COUNT,
-          Math.max(MIN_OUTPUT_COUNT, Math.floor(data.outputCount || DEFAULT_OUTPUT_COUNT))
-        );
+        const requestedGrid = resolveRequestedGrid(data.gridCols, data.gridRows);
+        const safeCount = requestedGrid
+          ? requestedGrid.total
+          : Math.min(
+              MAX_OUTPUT_COUNT,
+              Math.max(MIN_OUTPUT_COUNT, Math.floor(data.outputCount || DEFAULT_OUTPUT_COUNT))
+            );
 
         const blob = await resolveSourceToBlob(data.source, data.authToken);
         const bitmap = await createImageBitmap(blob);
@@ -678,23 +721,28 @@ self.addEventListener(
         let rects: SplitImageRectItem[] = [];
         let usedGrid = false;
 
-        const canDetect = await shouldAttemptRegionDetect(bitmap);
-        if (canDetect) {
-          rects = await splitRectsByRegions(bitmap);
-        }
-
-        const tooManyPieces =
-          rects.length >
-          Math.min(MAX_OUTPUT_COUNT, Math.max(safeCount, DEFAULT_OUTPUT_COUNT)) * 2;
-
-        // 端口语义：输出数量必须严格等于 safeCount。
-        // - 连通域检测可能得到任意数量的区域（更像“份数”），会破坏“端口数量(1-50)”的语义；
-        // - 网格切分则能保证输出数量与每块尺寸稳定（例如 2048 -> 16 份，每块 512x512）。
-        //
-        // 因此：仅当连通域检测刚好得到 safeCount 时才采纳，否则回退到网格切分。
-        if (rects.length !== safeCount || rects.length <= 1 || tooManyPieces) {
-          rects = splitRectsByGrid(bitmap, safeCount);
+        if (requestedGrid) {
+          rects = splitRectsByGrid(bitmap, safeCount, requestedGrid);
           usedGrid = true;
+        } else {
+          const canDetect = await shouldAttemptRegionDetect(bitmap);
+          if (canDetect) {
+            rects = await splitRectsByRegions(bitmap);
+          }
+
+          const tooManyPieces =
+            rects.length >
+            Math.min(MAX_OUTPUT_COUNT, Math.max(safeCount, DEFAULT_OUTPUT_COUNT)) * 2;
+
+          // 端口语义：输出数量必须严格等于 safeCount。
+          // - 连通域检测可能得到任意数量的区域（更像“份数”），会破坏“端口数量(1-50)”的语义；
+          // - 网格切分则能保证输出数量与每块尺寸稳定（例如 2048 -> 16 份，每块 512x512）。
+          //
+          // 因此：仅当连通域检测刚好得到 safeCount 时才采纳，否则回退到网格切分。
+          if (rects.length !== safeCount || rects.length <= 1 || tooManyPieces) {
+            rects = splitRectsByGrid(bitmap, safeCount);
+            usedGrid = true;
+          }
         }
 
         // 去白边裁切会改变每块输出尺寸；仅在“连通域检测模式”下启用，避免网格切分出现尺寸不一致。

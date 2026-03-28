@@ -12,11 +12,14 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 新增用户模板云端持久化：后端增加 `UserTemplate` 数据模型与 `/api/user-templates` 鉴权 CRUD，前端“我的模板”从本地 IndexedDB 优先切换为后端存储（保留本地回退与迁移）。
 
 ### Changed
+- Workspace 外观设置：新用户默认 `风格样式` 改为 `网格`（`GridStyle.LINES`），用户手动切换后的样式继续按现有本地偏好持久化（`canvas-settings` / `tanva-view-settings`）保留。
+- Flow `ImageSplit` 新增“分割模式”配置：支持 `智能分割` 与 `自定义网格`；`自定义网格` 可按 `列×行`（如 `4×2`）固定切分，并自动同步输出端口数量（总数限制 `<=50`）。
 - AI 生成分辨率选项调整：Pro（`banana` / `gemini-pro`）重新开放 `1K / 2K` 选择，不再固定 `4K`；聊天面板与 Flow 生成节点（`GenerateNode` / `GenerateProNode` / `GeneratePro4Node`）保持一致。
 - Credits: 调整图像编辑/融合计费与名称展示。Ultra（`gemini-3.1-image-edit`/`gemini-3.1-image-blend`）0.5K=20、2K=45；Pro（`gemini-image-edit`/`gemini-image-blend`）1K=40、2K=60；对应服务名更新为 `（Ultra）` / `（Pro）`，以便前端积分流水直接区分模式。
 - Credits/API: `GET /api/credits/transactions`（含管理员对应接口）新增返回 `provider` 与 `model`，并继续返回 `channel`，用于前端直接展示“渠道 + 模型”。
 - AI Analyze: `POST /api/ai/analyze-image` 计费链路补充 `aiProvider/channelHint` 入库，避免部分图像分析流水缺失渠道信息。
 - Frontend `/my-credits`: 交易列表“项目”行新增模型展示，与渠道并列显示（`渠道：X · 模型：Y`）。
+- Credits/Video Async：补齐异步视频积分状态收敛链路（新增 `POST /api/ai/video-task-success` 成功回写；`generate-video-provider` 创建失败退款兜底；pending 超时自动退款覆盖视频服务，默认 30 分钟）；`/my-credits` 交易列表新增状态列，`pending` 显示黄色“处理中”。
 - Flow�?�??�?�??�?��?��?�??�??�?�?�?�?��?��??�?�??叠�?�?保�??�??�?卡�??�?�?�??子�??�?��?��?��?并保�??�?�?�?�??�?��??�?线�?端�?��?��?�?��??�?�??�?��?�?�??叠卡�??�?��?��?示�?�??�?��??缩�?��?��?�?�?`frontend/src/components/flow/FlowOverlay.tsx`�?�`frontend/src/components/flow/nodes/NodeGroupNode.tsx`�?�??
 - Flow�?修复�??�?�?��??叠/�?�?�??换�?�?线�?常�?失�??�?��?�?�??叠�?��?�??�?线�?�为 `hidden`�?保�??�??�?edge id�?�?�?�?�?可稳�?恢复�?`frontend/src/components/flow/FlowOverlay.tsx`�?�??
 - �?��?�积�??页�??积�??记�?�?�表格�?��?�??�?��?积�??�?��??�?使�?�每条交�??�?? `balanceAfter`�?�?�?管�?�??�??积�??详�??�?�中�??�?额�?示保�?��?�?��?`frontend/src/pages/MyCredits.tsx`�?`frontend/src/i18n/locales/zh-CN.ts`�?`frontend/src/i18n/locales/en-US.ts`�?�??

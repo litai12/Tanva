@@ -110,7 +110,7 @@ class ImageSplitWorkerClient {
 
   async splitImage(
     source: WorkerSplitImageSource,
-    options: { outputCount: number }
+    options: { outputCount: number; gridCols?: number; gridRows?: number }
   ): Promise<WorkerSplitImageResult> {
     if (!this.isSupported()) {
       return { success: false, error: "当前环境不支持 Worker 图像分割能力" };
@@ -137,6 +137,8 @@ class ImageSplitWorkerClient {
         requestId,
         source,
         outputCount: options.outputCount,
+        gridCols: options.gridCols,
+        gridRows: options.gridRows,
         authToken: getAccessToken() || undefined,
       };
 
@@ -146,7 +148,7 @@ class ImageSplitWorkerClient {
 
   async splitImageRects(
     source: WorkerSplitImageSource,
-    options: { outputCount: number }
+    options: { outputCount: number; gridCols?: number; gridRows?: number }
   ): Promise<WorkerSplitImageRectsResult> {
     if (!this.isSupported()) {
       return { success: false, error: "当前环境不支持 Worker 图像分割能力" };
@@ -173,6 +175,8 @@ class ImageSplitWorkerClient {
         requestId,
         source,
         outputCount: options.outputCount,
+        gridCols: options.gridCols,
+        gridRows: options.gridRows,
         authToken: getAccessToken() || undefined,
       };
 

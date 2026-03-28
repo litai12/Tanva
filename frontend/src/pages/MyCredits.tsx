@@ -198,6 +198,37 @@ const MyCredits: React.FC = () => {
     return channel;
   };
 
+  const getTransactionStatusMeta = (
+    status: string | null | undefined,
+    hasApiUsage: boolean
+  ): { label: string; className: string } | null => {
+    let normalized = typeof status === 'string' ? status.trim().toLowerCase() : '';
+    if (!normalized && hasApiUsage) {
+      normalized = 'pending';
+    }
+
+    if (!normalized) return null;
+
+    if (normalized === 'success') {
+      return {
+        label: t('creditsPage.usage.status.success'),
+        className: 'bg-green-100 text-green-700 border border-green-200',
+      };
+    }
+
+    if (normalized === 'failed') {
+      return {
+        label: t('creditsPage.usage.status.failed'),
+        className: 'bg-red-100 text-red-700 border border-red-200',
+      };
+    }
+
+    return {
+      label: t('creditsPage.usage.status.pending'),
+      className: 'bg-yellow-100 text-yellow-700 border border-yellow-200',
+    };
+  };
+
   const dailyUsageData = useMemo(() => {
     const days = 14;
     const now = new Date();
@@ -470,6 +501,7 @@ const MyCredits: React.FC = () => {
                   <thead className="sticky top-0 z-10 bg-slate-50">
                     <tr className="text-xs font-medium text-slate-500">
                       <th className="px-4 py-3 text-left">{t('creditsPage.transactions.columns.item')}</th>
+                      <th className="px-4 py-3 text-left">{t('creditsPage.transactions.columns.status')}</th>
                       <th className="px-4 py-3 text-right">{t('creditsPage.transactions.columns.amount')}</th>
                       <th className="px-4 py-3 text-right">{t('creditsPage.transactions.columns.remaining')}</th>
                       <th className="px-4 py-3 text-left">{t('creditsPage.transactions.columns.generatedAt')}</th>
@@ -482,6 +514,7 @@ const MyCredits: React.FC = () => {
                       const durationSeconds = typeof tx.processingTime === 'number'
                         ? Math.max(0, Math.round(tx.processingTime / 1000))
                         : null;
+                      const statusMeta = getTransactionStatusMeta(tx.apiResponseStatus, Boolean(tx.apiUsageId));
 
                       return (
                         <tr key={tx.id} className="hover:bg-slate-50/60">
@@ -518,6 +551,18 @@ const MyCredits: React.FC = () => {
                                 )}
                               </div>
                             </div>
+                          </td>
+                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                            {statusMeta ? (
+                              <span className={cn(
+                                "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                                statusMeta.className
+                              )}>
+                                {statusMeta.label}
+                              </span>
+                            ) : (
+                              t('creditsPage.transactions.notAvailable')
+                            )}
                           </td>
                           <td className={cn(
                             "px-4 py-3 text-right font-semibold",

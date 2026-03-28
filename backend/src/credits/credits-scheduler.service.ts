@@ -32,7 +32,7 @@ export class CreditsSchedulerService {
   }
 
   /**
-   * 每 5 分钟执行一次：处理长时间 pending 的生图调用并自动退款
+   * 每 5 分钟执行一次：处理长时间 pending 的异步调用并自动退款
    */
   @Cron(CronExpression.EVERY_5_MINUTES)
   async handleStalePendingAutoRefund() {
@@ -43,11 +43,19 @@ export class CreditsSchedulerService {
 
     this.stalePendingAutoRefundRunning = true;
     try {
-      const result = await this.creditsService.autoRefundStalePendingImageUsages();
+      const [imageResult, videoResult] = await Promise.all([
+        this.creditsService.autoRefundStalePendingImageUsages(),
+        this.creditsService.autoRefundStalePendingVideoUsages(),
+      ]);
 
-      if (result.scanned > 0 || result.errors > 0) {
+      if (
+        imageResult.scanned > 0 ||
+        imageResult.errors > 0 ||
+        videoResult.scanned > 0 ||
+        videoResult.errors > 0
+      ) {
         this.logger.log(
-          `pending超时自动退款完成: scanned=${result.scanned}, refunded=${result.refunded}, skippedSuccess=${result.skippedSuccess}, errors=${result.errors}, timeoutMinutes=${result.timeoutMinutes}`,
+          `pending超时自动退款完成: image(scanned=${imageResult.scanned}, refunded=${imageResult.refunded}, skippedSuccess=${imageResult.skippedSuccess}, errors=${imageResult.errors}, timeoutMinutes=${imageResult.timeoutMinutes}) video(scanned=${videoResult.scanned}, refunded=${videoResult.refunded}, skippedSuccess=${videoResult.skippedSuccess}, errors=${videoResult.errors}, timeoutMinutes=${videoResult.timeoutMinutes})`,
         );
       }
     } catch (error) {

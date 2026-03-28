@@ -108,3 +108,30 @@ export async function refundVideoTask(apiUsageId: string): Promise<{ success: bo
 
   return response.json();
 }
+
+/**
+ * 视频任务成功后确认积分状态（将 pending 标记为 success）
+ */
+export async function markVideoTaskSuccess(
+  apiUsageId: string,
+  processingTime?: number
+): Promise<{ success: boolean }> {
+  const apiBaseUrl = getApiBaseUrl();
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/api/ai/video-task-success`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ apiUsageId, processingTime }),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.message || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}

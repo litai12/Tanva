@@ -144,6 +144,7 @@ import {
 } from "@/services/aiBackendAPI";
 import {
   generateVideoByProvider,
+  markVideoTaskSuccess,
   queryVideoTask,
   refundVideoTask,
   type VideoProvider,
@@ -6005,6 +6006,9 @@ function FlowInner() {
           ? {
               status: "idle" as const,
               splitImages: [],
+              splitMode: "smart" as const,
+              gridCols: 3,
+              gridRows: 3,
               outputCount: 9,
               boxW: size.w,
               boxH: size.h,
@@ -9474,6 +9478,7 @@ function FlowInner() {
               ? (node.data as any).audioUrl.trim()
               : undefined);
 
+          const wanGenerationStartedAt = Date.now();
           const result = await generateWan26ViaAPI({
             prompt: promptText,
             imgUrl: imgUrl,
@@ -9570,6 +9575,18 @@ function FlowInner() {
           if (!videoUrl) {
             throw new Error("未返回视频地址");
           }
+
+          if (wanApiUsageId) {
+            const processingTime = Math.max(0, Date.now() - wanGenerationStartedAt);
+            void markVideoTaskSuccess(wanApiUsageId, processingTime).catch((markErr) => {
+              console.warn("[Flow] Wan2.6 mark success failed", {
+                nodeId,
+                apiUsageId: wanApiUsageId,
+                error: markErr instanceof Error ? markErr.message : String(markErr),
+              });
+            });
+          }
+
           const thumbnail = result.data?.thumbnail;
           const historyEntry = {
             id: `history-${Date.now()}`,
@@ -11293,6 +11310,22 @@ function FlowInner() {
                 queryResult.status === "succeed"
               ) {
                 stopPolling();
+                if (createResult.apiUsageId) {
+                  const processingTime = Math.max(0, Date.now() - generationStartMs);
+                  void markVideoTaskSuccess(createResult.apiUsageId, processingTime).catch(
+                    (markError) => {
+                      console.warn("❌ [Flow] Failed to mark video task success", {
+                        nodeId,
+                        provider,
+                        apiUsageId: createResult.apiUsageId,
+                        error:
+                          markError instanceof Error
+                            ? markError.message
+                            : String(markError),
+                      });
+                    }
+                  );
+                }
                 const elapsedSeconds = Math.max(
                   1,
                   Math.round((Date.now() - generationStartMs) / 1000)

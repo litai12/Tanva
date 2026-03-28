@@ -22,6 +22,7 @@ import {
 } from "@/services/aiBackendAPI";
 import {
   generateVideoByProvider,
+  markVideoTaskSuccess,
   queryVideoTask,
   refundVideoTask,
   type VideoProvider,
@@ -6139,6 +6140,7 @@ export const useAIChatStore = create<AIChatState>()(
               stage: "发送请求到 Seedance",
             });
 
+            const videoRequestStartedAt = Date.now();
             logProcessStep(metrics, "generateVideo calling video provider API");
             const createResult = await generateVideoByProvider({
               prompt,
@@ -6161,6 +6163,15 @@ export const useAIChatStore = create<AIChatState>()(
               thumbnailUrl?: string,
               status?: string
             ) => {
+              if (createResult.apiUsageId) {
+                const processingTime = Math.max(0, Date.now() - videoRequestStartedAt);
+                void markVideoTaskSuccess(createResult.apiUsageId, processingTime).catch(
+                  (markError) => {
+                    console.warn("❌ Seedance 成功状态回写失败", markError);
+                  }
+                );
+              }
+
               const remoteVideoUrl = videoUrl;
               get().updateMessage(aiMessageId, (msg) => ({
                 ...msg,
@@ -7218,6 +7229,14 @@ export const useAIChatStore = create<AIChatState>()(
             }));
             logProcessStep(metrics, "executeProcessFlow encountered error");
             throw err;
+          } finally {
+            // 确保无论工具执行成功或失败，都把当前会话状态立刻刷入持久层，
+            // 避免 UI 已更新但刷新后回退到旧占位消息。
+            try {
+              await get().refreshSessions({ immediate: true });
+            } catch (persistError) {
+              console.warn("⚠️ executeProcessFlow 持久化会话失败:", persistError);
+            }
           }
           logProcessStep(metrics, "executeProcessFlow done");
         },

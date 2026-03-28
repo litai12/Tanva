@@ -78,6 +78,7 @@ export type StoryboardSplitData = {
 };
 
 export type ImageSplitStatus = 'idle' | 'processing' | 'succeeded' | 'failed';
+export type ImageSplitMode = 'smart' | 'customGrid';
 
 export type SplitRectItem = {
   index: number;
@@ -98,6 +99,9 @@ export type SplitImageItem = {
 
 export type ImageSplitData = {
   status?: ImageSplitStatus;
+  splitMode?: ImageSplitMode;
+  gridCols?: number;
+  gridRows?: number;
   inputImage?: string;
   inputImageUrl?: string;
   // 方案A：持久化仅保存裁切矩形与原图引用（不保存切片图片数据）

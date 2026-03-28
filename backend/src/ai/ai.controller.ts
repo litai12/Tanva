@@ -2166,6 +2166,7 @@ export class AiController {
 
     // 确保用户有积分账户
     await this.creditsService.getOrCreateAccount(userId);
+    const startTime = Date.now();
 
     // 预扣积分
     const deductResult = await this.creditsService.preDeductCredits({
@@ -2208,17 +2209,50 @@ export class AiController {
     } catch (error) {
       // 创建任务失败，立即退款
       const errorMessage = error instanceof Error ? error.message : String(error);
-      await this.creditsService.updateApiUsageStatus(
-        apiUsageId,
-        ApiResponseStatus.FAILED,
-        errorMessage,
-        0,
-      );
+      const processingTime = Math.max(0, Date.now() - startTime);
+      let failedMarked = false;
+
       try {
-        await this.creditsService.refundCredits(userId, apiUsageId);
-        this.logger.debug(`Credits refunded for failed video task creation: ${apiUsageId}`);
-      } catch (refundError) {
-        this.logger.error('Failed to refund credits:', refundError);
+        await this.creditsService.updateApiUsageStatus(
+          apiUsageId,
+          ApiResponseStatus.FAILED,
+          errorMessage,
+          processingTime,
+        );
+        failedMarked = true;
+      } catch (statusError) {
+        this.logger.error(
+          `Failed to update video api usage status to failed, fallback to markApiUsageFailedForUser: ${this.summarizeError(statusError)}`,
+        );
+      }
+
+      if (!failedMarked) {
+        try {
+          await this.creditsService.markApiUsageFailedForUser(
+            userId,
+            apiUsageId,
+            errorMessage,
+            processingTime,
+          );
+          failedMarked = true;
+        } catch (markError) {
+          this.logger.error(
+            `Failed to mark video api usage as failed for refund fallback: ${this.summarizeError(markError)}`,
+          );
+        }
+      }
+
+      if (failedMarked) {
+        try {
+          await this.creditsService.refundCredits(userId, apiUsageId);
+          this.logger.debug(`Credits refunded for failed video task creation: ${apiUsageId}`);
+        } catch (refundError) {
+          this.logger.error('Failed to refund credits:', refundError);
+        }
+      } else {
+        this.logger.error(
+          `Skip refund because video api usage cannot be marked failed. apiUsageId=${apiUsageId}`,
+        );
       }
       throw error;
     }
@@ -2260,6 +2294,37 @@ export class AiController {
       this.logger.error(`❌ 视频任务积分退还失败: ${message}`);
       throw error;
     }
+  }
+
+  /**
+   * 视频任务成功时确认积分状态（将 pending 标记为 success）
+   */
+  @Post('video-task-success')
+  async markVideoTaskSuccess(
+    @Body() body: { apiUsageId: string; processingTime?: number },
+    @Req() req: any,
+  ) {
+    const userId = this.getUserId(req);
+    if (!userId) {
+      throw new BadRequestException('需要用户认证');
+    }
+
+    const apiUsageId = typeof body?.apiUsageId === 'string' ? body.apiUsageId.trim() : '';
+    if (!apiUsageId) {
+      throw new BadRequestException('缺少 apiUsageId 参数');
+    }
+
+    const rawProcessingTime = Number(body?.processingTime);
+    const processingTime = Number.isFinite(rawProcessingTime)
+      ? Math.max(0, Math.round(rawProcessingTime))
+      : 0;
+
+    await this.creditsService.markApiUsageSuccessForUser(
+      userId,
+      apiUsageId,
+      processingTime,
+    );
+    return { success: true };
   }
 
   /**
