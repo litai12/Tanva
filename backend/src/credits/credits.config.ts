@@ -37,20 +37,24 @@ export const CREDIT_PRICING_CONFIG = {
     },
   },
   'gemini-image-edit': {
-    serviceName: 'Nano banana Pro 图像编辑',
+    serviceName: 'Nano banana Pro 图像编辑（Pro）',
     provider: 'gemini',
     creditsPerCall: 30,
     description: '使用 Nano banana Pro 编辑图像',
     resolutionPricing: {
+      '1K': 40,
+      '2K': 60,
       '4K': 120,
     },
   },
   'gemini-3.1-image-edit': {
-    serviceName: 'Nano banana 2 图像编辑',
+    serviceName: 'Nano banana 2 图像编辑（Ultra）',
     provider: 'gemini',
     creditsPerCall: 30,
     description: '使用 Nano banana 2 编辑图像',
     resolutionPricing: {
+      '0.5K': 20,
+      '2K': 45,
       '4K': 60,
     },
   },
@@ -61,20 +65,24 @@ export const CREDIT_PRICING_CONFIG = {
     description: '使用 Nano banana-2.5 编辑图像',
   },
   'gemini-image-blend': {
-    serviceName: 'Nano banana Pro 融合',
+    serviceName: 'Nano banana Pro 融合（Pro）',
     provider: 'gemini',
     creditsPerCall: 30,
     description: '使用 Nano banana Pro 融合多张图像',
     resolutionPricing: {
+      '1K': 40,
+      '2K': 60,
       '4K': 120,
     },
   },
   'gemini-3.1-image-blend': {
-    serviceName: 'Nano banana 2 融合',
+    serviceName: 'Nano banana 2 融合（Ultra）',
     provider: 'gemini',
     creditsPerCall: 30,
     description: '使用 Nano banana 2 融合多张图像',
     resolutionPricing: {
+      '0.5K': 20,
+      '2K': 45,
       '4K': 60,
     },
   },
@@ -106,6 +114,14 @@ export const CREDIT_PRICING_CONFIG = {
     maxInputTokens: 8000,
     maxContextLength: 32000,
   },
+  'gemini-prompt-optimize': {
+    serviceName: 'Gemini 提示词优化',
+    provider: 'gemini',
+    creditsPerCall: 5,
+    description: '使用 Gemini 进行提示词优化',
+    maxInputTokens: 8000,
+    maxContextLength: 32000,
+  },
   'gemini-tool-selection': {
     serviceName: 'Gemini 工具选择',
     provider: 'gemini',
@@ -133,25 +149,25 @@ export const CREDIT_PRICING_CONFIG = {
 
   // Sora 视频服务
   'sora-sd': {
-    serviceName: 'Sora 普清视频',
+    serviceName: 'Sora2 视频生成',
     provider: 'sora',
-    creditsPerCall: 900,
-    description: '使用 Sora 生成视频（统一计费）',
+    creditsPerCall: 200,
+    description: '使用 Sora2 生成视频（按模型计费）',
     modelPricing: {
-      'sora-2': { creditsPerCall: 900, description: 'Sora2 标准模型（占位）' },
-      'sora-2-vip': { creditsPerCall: 900, description: 'Sora2 VIP 模型（占位）' },
-      'sora-2-pro': { creditsPerCall: 900, description: 'Sora2 Pro 模型（占位）' },
+      'sora-2': { creditsPerCall: 200, description: 'Sora2 标准模型' },
+      'sora-2-vip': { creditsPerCall: 200, description: 'Sora2 VIP 模型' },
+      'sora-2-pro': { creditsPerCall: 750, description: 'Sora2 Pro 专业模型' },
     },
   },
   'sora-hd': {
-    serviceName: 'Sora 高清视频',
+    serviceName: 'Sora2 高清视频',
     provider: 'sora',
-    creditsPerCall: 900,
-    description: '使用 Sora 生成视频（统一计费）',
+    creditsPerCall: 200,
+    description: '使用 Sora2 生成高清视频（按模型计费）',
     modelPricing: {
-      'sora-2': { creditsPerCall: 900, description: 'Sora2 标准模型（占位）' },
-      'sora-2-vip': { creditsPerCall: 900, description: 'Sora2 VIP 模型（占位）' },
-      'sora-2-pro': { creditsPerCall: 900, description: 'Sora2 Pro 模型（占位）' },
+      'sora-2': { creditsPerCall: 200, description: 'Sora2 标准模型' },
+      'sora-2-vip': { creditsPerCall: 200, description: 'Sora2 VIP 模型' },
+      'sora-2-pro': { creditsPerCall: 750, description: 'Sora2 Pro 专业模型' },
     },
   },
 
@@ -246,11 +262,29 @@ export const CREDIT_PRICING_CONFIG = {
     creditsPerCall: 600,
     description: '使用Seedance 1.5 Pro 生成视频',
   },
+  'video-to-gif': {
+    serviceName: '视频转GIF',
+    provider: 'ffmpeg',
+    creditsPerCall: 30,
+    description: '将视频转换为 GIF',
+  },
   'minimax-speech': {
     serviceName: 'MiniMax 语音合成',
     provider: 'minimax',
     creditsPerCall: 10,
     description: '使用 MiniMax 进行文本转语音合成',
+  },
+  'minimax-music': {
+    serviceName: 'MiniMax 音乐生成',
+    provider: 'minimax',
+    creditsPerCall: 30,
+    description: '使用 MiniMax 进行音乐生成',
+  },
+  'tencent-speech': {
+    serviceName: '腾讯语音合成',
+    provider: 'tencent',
+    creditsPerCall: 10,
+    description: '使用腾讯 MPS AI 配音接口进行语音生成',
   },
   'doubao-seedream-5-0-260128': {
     serviceName: 'Seedream 5.0 图像生成',

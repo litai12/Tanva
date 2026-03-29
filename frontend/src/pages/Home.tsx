@@ -27,7 +27,7 @@ const WeChatFloatingButton = () => {
           if (data.officialAccount) setQrCodes(prev => ({ ...prev, officialAccount: data.officialAccount }));
           if (data.wechatGroup) setQrCodes(prev => ({ ...prev, wechatGroup: data.wechatGroup }));
         }
-      } catch (e) {
+      } catch (_e) {
         // 使用默认图片
       }
     };

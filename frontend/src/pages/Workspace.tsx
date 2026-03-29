@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { projectApi, type Project } from "@/services/projectApi";
@@ -112,7 +113,7 @@ export default function Workspace() {
                   <div>
                     <Button
                       onClick={() => navigate("/")}
-                      className='bg-white border'
+                      className='bg-slate-900 text-white hover:bg-slate-800'
                     >
                       {t("workspace.settings.workspaceTab.credits.recharge")}
                     </Button>
@@ -150,6 +151,14 @@ export default function Workspace() {
                   {t("workspacePage.quickActions.desc")}
                 </div>
                 <div className='flex flex-col gap-3'>
+                  <Button
+                    onClick={() => navigate("/my-credits")}
+                    variant='outline'
+                    className='rounded-xl gap-2'
+                  >
+                    <Zap className='w-4 h-4' />
+                    {t("home.header.actions.myCredits")}
+                  </Button>
                   <Button
                     onClick={() => navigate("/app")}
                     variant='outline'

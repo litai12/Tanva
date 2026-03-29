@@ -41,6 +41,7 @@ import {
   type CreditAnomalyRecord,
   type NodeConfig,
 } from "@/services/adminApi";
+import { notifyNodeConfigsUpdated } from "@/services/nodeConfigService";
 import {
   fetchTemplates,
   fetchTemplate,
@@ -2107,13 +2108,19 @@ function PaidUsersTab() {
                     <td className='px-4 py-3 text-right text-blue-600'>{user.creditBalance}</td>
                     <td className='px-4 py-3 text-right'>{user.totalSpent}</td>
                     <td className='px-4 py-3'>
-                      <span className={`px-2 py-1 rounded text-xs ${
-                        user.status === 'active' ? 'bg-green-100 text-green-700' :
-                        user.status === 'inactive' ? 'bg-yellow-100 text-yellow-700' :
-                        'bg-red-100 text-red-700'
-                      }`}>
-                        {user.status === 'active' ? '正常' : user.status === 'inactive' ? '禁用' : '封禁'}
-                      </span>
+                      {user.noWatermark ? (
+                        <span className='px-2 py-1 rounded text-xs bg-blue-100 text-blue-700'>
+                          VIP
+                        </span>
+                      ) : (
+                        <span className={`px-2 py-1 rounded text-xs ${
+                          user.status === 'active' ? 'bg-green-100 text-green-700' :
+                          user.status === 'inactive' ? 'bg-yellow-100 text-yellow-700' :
+                          'bg-red-100 text-red-700'
+                        }`}>
+                          {user.status === 'active' ? '正常' : user.status === 'inactive' ? '禁用' : '封禁'}
+                        </span>
+                      )}
                     </td>
                     <td className='px-4 py-3 text-xs text-gray-500'>
                       {new Date(user.createdAt).toLocaleDateString()}
@@ -2974,6 +2981,7 @@ function NodeConfigsTab() {
           isVisible: editingConfig.isVisible,
           description: editingConfig.description,
         });
+        notifyNodeConfigsUpdated();
         setModalOpen(false);
         setEditingConfig(null);
         loadConfigs();
@@ -2995,6 +3003,7 @@ function NodeConfigsTab() {
           isVisible: editingConfig.isVisible,
           description: editingConfig.description,
         });
+        notifyNodeConfigsUpdated();
         setModalOpen(false);
         setEditingConfig(null);
         loadConfigs();
@@ -3010,6 +3019,7 @@ function NodeConfigsTab() {
     }
     try {
       await deleteNodeConfig(nodeKey);
+      notifyNodeConfigsUpdated();
       loadConfigs();
     } catch (error: any) {
       alert(error.message || "删除失败");

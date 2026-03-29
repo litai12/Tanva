@@ -17,9 +17,12 @@ import {
   generateTextResponseViaAPI,
   midjourneyActionViaAPI,
   generateVideoViaAPI,
+  generateVideoAsyncAPI,
+  querySora2VideoTaskViaAPI,
 } from "@/services/aiBackendAPI";
 import {
   generateVideoByProvider,
+  markVideoTaskSuccess,
   queryVideoTask,
   refundVideoTask,
   type VideoProvider,
@@ -31,6 +34,7 @@ import { ossUploadService, dataURLToBlob, dataURLToBlobAsync } from "@/services/
 import { createSafeStorage } from "@/stores/storageUtils";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useImageHistoryStore } from "@/stores/imageHistoryStore";
+import { isInsufficientCreditsErrorMessage } from "@/utils/creditsError";
 import { createImagePreviewDataUrl } from "@/utils/imagePreview";
 import { logger } from "@/utils/logger";
 import { createAsyncLimiter, mapWithLimit } from "@/utils/asyncLimit";
@@ -1309,7 +1313,7 @@ const migrateLegacySessions = async (
 export type Sora2VideoGenerationOptions = {
   onProgress?: (stage: string, progress: number) => void;
   quality?: Sora2VideoQuality;
-  model?: "sora-2" | "sora-2-vip" | "sora-2-pro";
+  model?: "sora-2" | "sora-2-pro";
   /** 画面比例，仅极速 Sora2 支持。例如 '16:9' | '9:16' */
   aspectRatio?: "16:9" | "9:16";
   /** 时长（秒），仅极速 Sora2 支持。例如 10 / 15 / 25 */
@@ -1324,12 +1328,17 @@ export type Sora2VideoGenerationOptions = {
   characterTaskId?: string;
 };
 
+// 异步任务轮询配置
+const ASYNC_POLL_INTERVAL_MS = 5000; // 5秒轮询一次
+const ASYNC_POLL_MAX_ATTEMPTS = 180; // 最多轮询 15 分钟
+const ASYNC_POLL_MAX_TIMEOUT_MS = ASYNC_POLL_INTERVAL_MS * ASYNC_POLL_MAX_ATTEMPTS;
+
 export async function requestSora2VideoGeneration(
   prompt: string,
   referenceImageUrls?: string | string[] | null,
   options?: Sora2VideoGenerationOptions
 ) {
-  options?.onProgress?.("提交视频生成请求", 35);
+  options?.onProgress?.("提交视频生成请求", 10);
 
   const normalizedImages = Array.isArray(referenceImageUrls)
     ? referenceImageUrls
@@ -1351,7 +1360,8 @@ export async function requestSora2VideoGeneration(
       ? (String(options.durationSeconds) as "10" | "15" | "25")
       : undefined;
 
-  const response = await generateVideoViaAPI({
+  // 使用异步接口，立即获取 taskId
+  const asyncResponse = await generateVideoAsyncAPI({
     prompt,
     referenceImageUrls: cleanedImageUrls.length ? cleanedImageUrls : undefined,
     quality: options?.quality,
@@ -1368,12 +1378,85 @@ export async function requestSora2VideoGeneration(
     characterTaskId: options?.characterTaskId,
   });
 
-  if (!response.success || !response.data) {
-    throw new Error(response.error?.message || "视频生成失败");
+  if (!asyncResponse.success || !asyncResponse.data) {
+    throw new Error(asyncResponse.error?.message || "视频生成请求失败");
   }
 
-  options?.onProgress?.("解析视频响应", 85);
-  return response.data;
+  const { taskId } = asyncResponse.data;
+  console.log("[Sora2] Async task created:", taskId);
+
+  // 轮询查询任务状态
+  options?.onProgress?.("视频生成中，请稍候...", 20);
+
+  const startTime = Date.now();
+  let lastError: string | undefined;
+
+  for (let attempt = 1; attempt <= ASYNC_POLL_MAX_ATTEMPTS; attempt++) {
+    // 等待一段时间
+    await new Promise(resolve => setTimeout(resolve, ASYNC_POLL_INTERVAL_MS));
+
+    // 检查超时
+    if (Date.now() - startTime > ASYNC_POLL_MAX_TIMEOUT_MS) {
+      throw new Error("视频生成超时，请稍后重试");
+    }
+
+    // 查询任务状态
+    const pollResponse = await querySora2VideoTaskViaAPI(taskId);
+
+    if (!pollResponse.success) {
+      const failMsg = pollResponse.error?.message || "";
+      lastError = failMsg;
+      if (isInsufficientCreditsErrorMessage(failMsg)) {
+        throw new Error(failMsg);
+      }
+      // 本服务异步任务失败时查询接口返回 503 + 错误文案，应终止轮询而非空等超时
+      if (
+        pollResponse.error?.code === "HTTP_503" &&
+        typeof taskId === "string" &&
+        taskId.startsWith("async-sora2-")
+      ) {
+        throw new Error(failMsg || "视频生成失败");
+      }
+      console.warn(`[Sora2] Poll attempt ${attempt} failed:`, lastError);
+      // 继续轮询，不立即失败
+      options?.onProgress?.(`视频生成中（查询失败，第${attempt}次）...`, 20 + Math.min(50, attempt));
+      continue;
+    }
+
+    const taskData = pollResponse.data;
+
+    // 计算进度 (20% - 90%)
+    const progress = Math.min(90, 20 + (attempt / ASYNC_POLL_MAX_ATTEMPTS) * 70);
+    options?.onProgress?.(`视频生成中（${Math.round(progress)}%）...`, progress);
+
+    // 检查任务状态
+    const status = taskData?.status?.toLowerCase();
+
+    if (status === 'completed' || status === 'succeeded' || status === 'success') {
+      console.log("[Sora2] Task completed:", taskId);
+      options?.onProgress?.("视频生成完成", 95);
+      return {
+        videoUrl: taskData?.videoUrl || taskData?.video_url,
+        content: taskData?.content || "视频已生成",
+        referencedUrls: taskData?.referencedUrls || [],
+        thumbnailUrl: taskData?.thumbnailUrl || taskData?.thumbnail_url,
+        status: taskData?.status,
+        taskId: taskId,
+        taskInfo: taskData?.taskInfo || taskData?.raw,
+      };
+    }
+
+    if (status === 'failed' || status === 'error' || status === 'failure') {
+      const errorMsg = taskData?.raw?.error?.message || taskData?.raw?.message || "视频生成失败";
+      throw new Error(errorMsg);
+    }
+
+    // pending 或 processing 状态，继续轮询
+    console.log(`[Sora2] Poll attempt ${attempt}/${ASYNC_POLL_MAX_ATTEMPTS}:`, status);
+  }
+
+  // 轮询次数用尽仍未完成
+  throw new Error(lastError || "视频生成超时，请稍后重试");
 }
 const downloadUrlAsDataUrl = async (url: string): Promise<string | null> => {
   try {
@@ -4056,25 +4139,29 @@ export const useAIChatStore = create<AIChatState>()(
               stage: "正在编辑",
             });
 
+            // 🔥 统一改为先上传到 OSS，用 URL 传给后端（避免大 base64 中转占用内存/带宽）
+            const projectIdEdit = useProjectContentStore.getState().projectId;
             const remoteSourceUrl = normalizeRemoteUrl(sourceImage);
             const remoteSourceAllowed = Boolean(
               remoteSourceUrl &&
                 isLikelyBackendAllowedRemoteUrl(remoteSourceUrl)
             );
-            const preferRemoteUrl =
-              Boolean(remoteSourceUrl) &&
-              remoteSourceAllowed &&
-              state.aiProvider !== "runninghub";
-            const normalizedSourceImage = preferRemoteUrl
-              ? null
-              : await resolveImageToDataUrl(sourceImage);
-            if (!normalizedSourceImage && !preferRemoteUrl) {
-              if (remoteSourceUrl && !remoteSourceAllowed) {
+            let sourceImageUrlForBackend: string | undefined;
+            if (state.aiProvider === "runninghub") {
+              // RunningHub 走 providerOptions，不从这里取 URL
+            } else if (remoteSourceUrl && remoteSourceAllowed) {
+              sourceImageUrlForBackend = remoteSourceUrl;
+            } else {
+              const uploadedUrl = await uploadImageToOSS(sourceImage, projectIdEdit);
+              if (uploadedUrl) {
+                sourceImageUrlForBackend = uploadedUrl;
+              } else if (remoteSourceUrl && !remoteSourceAllowed) {
                 throw new Error(
-                  "源图 URL 域名不在后端白名单，且浏览器无法读取该图片。请先上传到画布/素材库后重试。"
+                  "源图 URL 域名不在后端白名单，且上传失败。请先上传到画布/素材库后重试。"
                 );
+              } else {
+                throw new Error("源图上传 OSS 失败，请重新选择图片。");
               }
-              throw new Error("源图像读取失败，请重新选择图片。");
             }
 
             // 模拟进度更新 - 2分钟（120秒）内从0%到95%
@@ -4129,6 +4216,7 @@ export const useAIChatStore = create<AIChatState>()(
                 get().updateMessageStatus(aiMessageId!, statusUpdate);
               };
 
+              const normalizedSourceImage = await resolveImageToDataUrl(sourceImage);
               providerOptions = await buildRunningHubProviderOptions({
                 primaryImage: normalizedSourceImage || '',
                 referenceImage: state.sourceImagesForBlending?.[0],
@@ -4137,10 +4225,12 @@ export const useAIChatStore = create<AIChatState>()(
               });
             }
 
-            const buildEditRequest = (model: string): AIImageEditRequest => ({
+            const buildEditRequest = async (model: string): Promise<AIImageEditRequest> => ({
               prompt,
-              sourceImage: normalizedSourceImage || undefined,
-              sourceImageUrl: preferRemoteUrl ? remoteSourceUrl ?? undefined : undefined,
+              sourceImage: state.aiProvider === "runninghub"
+                ? (await resolveImageToDataUrl(sourceImage)) || undefined
+                : undefined,
+              sourceImageUrl: sourceImageUrlForBackend,
               model,
               aiProvider: state.aiProvider,
               providerOptions,
@@ -4162,7 +4252,7 @@ export const useAIChatStore = create<AIChatState>()(
               prompt: prompt.substring(0, 50) + "...",
             });
 
-            let result = await editImageViaAPI(buildEditRequest(modelToUse));
+            let result = await editImageViaAPI(await buildEditRequest(modelToUse));
 
             clearInterval(progressInterval);
 
@@ -4198,7 +4288,7 @@ export const useAIChatStore = create<AIChatState>()(
               });
 
               result = await editImageViaAPI(
-                buildEditRequest(GEMINI_FLASH_IMAGE_MODEL)
+                await buildEditRequest(GEMINI_FLASH_IMAGE_MODEL)
               );
               logProcessStep(metrics, "editImage fallback response received");
 
@@ -4841,42 +4931,23 @@ export const useAIChatStore = create<AIChatState>()(
               stage: "正在融合",
             });
 
-            const hasRemoteSource = sourceImages.some(
-              (img) => normalizeRemoteUrl(img) !== null
-            );
-            const normalizedSourceImages = hasRemoteSource
-              ? null
-              : await mapWithLimit(sourceImages, 2, async (img) => {
-                  const resolved = await resolveImageToDataUrl(img);
-                  if (!resolved) {
-                    throw new Error("融合图片读取失败，请重新选择图片。");
-                  }
-                  return resolved;
-                });
-            const sourceImageUrls = hasRemoteSource
-              ? await mapWithLimit(sourceImages, 2, async (img) => {
-                  const remoteUrl = normalizeRemoteUrl(img);
-                  const remoteAllowed = Boolean(
-                    remoteUrl && isLikelyBackendAllowedRemoteUrl(remoteUrl)
-                  );
-                  if (remoteUrl && remoteAllowed) return remoteUrl;
-                  const resolved = await resolveImageToDataUrl(img);
-                  if (!resolved) {
-                    if (remoteUrl && !remoteAllowed) {
-                      throw new Error(
-                        "检测到不在后端白名单的图片域名，且浏览器无法读取图片。请先上传到画布/素材库后再融合。"
-                      );
-                    }
-                    throw new Error("融合图片读取失败，请重新选择图片。");
-                  }
-                  const projectId = useProjectContentStore.getState().projectId;
-                  const uploadedUrl = await uploadImageToOSS(resolved, projectId);
-                  if (!uploadedUrl) {
-                    throw new Error("融合图片上传失败，请重试。");
-                  }
-                  return uploadedUrl;
-                })
-              : undefined;
+            // 🔥 统一改为先上传到 OSS，用 URL 传给后端
+            const projectIdBlend = useProjectContentStore.getState().projectId;
+            const sourceImageUrls = await mapWithLimit(sourceImages, 2, async (img) => {
+              const remoteUrl = normalizeRemoteUrl(img);
+              const remoteAllowed = Boolean(
+                remoteUrl && isLikelyBackendAllowedRemoteUrl(remoteUrl)
+              );
+              if (remoteUrl && remoteAllowed) return remoteUrl;
+              const uploadedUrl = await uploadImageToOSS(img, projectIdBlend);
+              if (uploadedUrl) return uploadedUrl;
+              if (remoteUrl && !remoteAllowed) {
+                throw new Error(
+                  "检测到不在后端白名单的图片域名，且上传失败。请先上传到画布/素材库后再融合。"
+                );
+              }
+              throw new Error("融合图片上传 OSS 失败，请重新选择图片。");
+            });
 
             // 模拟进度更新 - 2分钟（120秒）内从0%到95%
             // 每秒更新一次，每次增加约0.79%
@@ -4911,7 +4982,6 @@ export const useAIChatStore = create<AIChatState>()(
 
             const result = await blendImagesViaAPI({
               prompt,
-              sourceImages: normalizedSourceImages ?? undefined,
               sourceImageUrls,
               model: modelToUse,
               aiProvider: state.aiProvider,
@@ -4990,7 +5060,6 @@ export const useAIChatStore = create<AIChatState>()(
               try {
                 const remoteCandidate =
                   imageRemoteUrl ??
-                  undefined ??
                   getResultImageRemoteUrl(result.data) ??
                   null;
                 if (remoteCandidate) {
@@ -5490,10 +5559,22 @@ export const useAIChatStore = create<AIChatState>()(
               stage: "正在分析",
             });
 
-            // ✅ 统一把源图解析为 dataURL（支持 dataURL/base64/blob/remote）
-            const formattedImageData = await resolveImageToDataUrl(sourceImage);
-            if (!formattedImageData) {
-              throw new Error("源图像读取失败，请重新选择图片。");
+            // 🔥 统一改为先上传到 OSS，用 URL 传给后端
+            const projectIdAnalyze = useProjectContentStore.getState().projectId;
+            const remoteUrlAnalyze = normalizeRemoteUrl(sourceImage);
+            const remoteAllowedAnalyze = Boolean(
+              remoteUrlAnalyze && isLikelyBackendAllowedRemoteUrl(remoteUrlAnalyze)
+            );
+            const uploadedAnalyzeUrl = remoteUrlAnalyze && remoteAllowedAnalyze
+              ? remoteUrlAnalyze
+              : await uploadImageToOSS(sourceImage, projectIdAnalyze);
+            if (!uploadedAnalyzeUrl) {
+              if (remoteUrlAnalyze && !remoteAllowedAnalyze) {
+                throw new Error(
+                  "源图 URL 域名不在后端白名单，且上传失败。请先上传到画布/素材库后重试。"
+                );
+              }
+              throw new Error("源图上传 OSS 失败，请重新选择图片。");
             }
 
             // 模拟进度更新 - 2分钟（120秒）内从0%到95%
@@ -5525,12 +5606,16 @@ export const useAIChatStore = create<AIChatState>()(
               });
             }, 1000);
 
-            // 调用后端API分析图像
+            // 调用后端API分析图像（后端仅接受 base64）
             const modelToUse = getImageModelForProvider(state.aiProvider);
+            const analyzeSourceBase64 = await resolveImageToDataUrl(sourceImage);
+            if (!analyzeSourceBase64) {
+              throw new Error("无法读取源图片数据");
+            }
 
             const result = await analyzeImageViaAPI({
               prompt: prompt || "请详细分析这张图片的内容",
-              sourceImage: formattedImageData,
+              sourceImage: analyzeSourceBase64,
               model: modelToUse,
               aiProvider: state.aiProvider,
             });
@@ -6055,6 +6140,7 @@ export const useAIChatStore = create<AIChatState>()(
               stage: "发送请求到 Seedance",
             });
 
+            const videoRequestStartedAt = Date.now();
             logProcessStep(metrics, "generateVideo calling video provider API");
             const createResult = await generateVideoByProvider({
               prompt,
@@ -6077,6 +6163,15 @@ export const useAIChatStore = create<AIChatState>()(
               thumbnailUrl?: string,
               status?: string
             ) => {
+              if (createResult.apiUsageId) {
+                const processingTime = Math.max(0, Date.now() - videoRequestStartedAt);
+                void markVideoTaskSuccess(createResult.apiUsageId, processingTime).catch(
+                  (markError) => {
+                    console.warn("❌ Seedance 成功状态回写失败", markError);
+                  }
+                );
+              }
+
               const remoteVideoUrl = videoUrl;
               get().updateMessage(aiMessageId, (msg) => ({
                 ...msg,
@@ -7134,6 +7229,14 @@ export const useAIChatStore = create<AIChatState>()(
             }));
             logProcessStep(metrics, "executeProcessFlow encountered error");
             throw err;
+          } finally {
+            // 确保无论工具执行成功或失败，都把当前会话状态立刻刷入持久层，
+            // 避免 UI 已更新但刷新后回退到旧占位消息。
+            try {
+              await get().refreshSessions({ immediate: true });
+            } catch (persistError) {
+              console.warn("⚠️ executeProcessFlow 持久化会话失败:", persistError);
+            }
           }
           logProcessStep(metrics, "executeProcessFlow done");
         },

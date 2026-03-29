@@ -1143,6 +1143,7 @@ export class AdminService {
         name: true,
         role: true,
         status: true,
+        noWatermark: true,
         createdAt: true,
         lastLoginAt: true,
         creditAccount: {
@@ -1176,6 +1177,7 @@ export class AdminService {
         name: user.name,
         role: user.role,
         status: user.status,
+        noWatermark: user.noWatermark,
         createdAt: user.createdAt,
         lastLoginAt: user.lastLoginAt,
         creditBalance: user.creditAccount?.balance || 0,

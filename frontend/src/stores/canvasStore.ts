@@ -121,7 +121,7 @@ export const useCanvasStore = create<CanvasState>()(
       (set, get, _api) => ({
       // 初始状态
       gridSize: 32,
-      gridStyle: GridStyle.SOLID, // 默认使用纯色背景
+      gridStyle: GridStyle.LINES, // 新用户默认使用网格背景
       gridDotSize: 1,
       gridColor: '#000000',
       gridBgColor: '#ffffff',
@@ -203,13 +203,6 @@ export const useCanvasStore = create<CanvasState>()(
           const state = persistedState as Partial<CanvasState>;
 
           const migratedState: Partial<CanvasState> = { ...state };
-
-          // 版本 0 -> 1：将默认网格样式迁移为纯色
-          if (version < 1) {
-            if (!migratedState.gridStyle || migratedState.gridStyle === GridStyle.LINES) {
-              migratedState.gridStyle = GridStyle.SOLID;
-            }
-          }
 
           // 版本 1 -> 2：新增滚轮缩放模式
           if (version < 2) {

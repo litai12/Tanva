@@ -36,6 +36,7 @@ const zhCN = {
         login: "登录",
         register: "注册",
         logout: "退出登录",
+        myCredits: "我的积分",
       },
     },
     hero: {
@@ -125,7 +126,10 @@ const zhCN = {
   workspace: {
     header: {
       help: "帮助",
+      userManual: "用户手册",
+      changelog: "更新日志",
       settings: "设置",
+      myCredits: "我的积分",
       backHome: "返回首页",
       renameHint: "双击重命名",
       switchProject: "切换项目",
@@ -251,6 +255,12 @@ const zhCN = {
         gridColor: {
           title: "网格颜色",
         },
+        edgeColorMode: {
+          title: "连线颜色",
+          desc: "设置流程图连线的显示颜色",
+          standard: "标准色",
+          handle: "跟随句柄",
+        },
         chatStyle: {
           title: "AI 对话框样式",
           transparent: "透明",
@@ -367,6 +377,7 @@ const zhCN = {
       durationUnit: "秒",
       notAvailable: "--",
       channel: "渠道：{{channel}}",
+      model: "模型：{{model}}",
     },
     usage: {
       title: "API 调用记录",
@@ -389,6 +400,7 @@ const zhCN = {
       gemini31ImageBlend: "Nano banana 2 融合",
       geminiImageAnalyze: "图像分析",
       geminiText: "文字对话",
+      geminiPromptOptimize: "提示词优化",
       geminiPaperJs: "Paper.js 生成",
       midjourneyImagine: "Midjourney 生图",
       midjourneyVariation: "Midjourney 变体",

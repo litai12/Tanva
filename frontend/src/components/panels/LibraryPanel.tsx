@@ -2,14 +2,16 @@ import React from "react";
 import { Button } from "../ui/button";
 import SmartImage from "../ui/SmartImage";
 import {
+  ChevronLeft,
   ChevronRight,
-  Upload,
   Download,
   Trash2,
   Send,
   Image as ImageIcon,
   Box,
   Plus,
+  Search,
+  Loader2,
 } from "lucide-react";
 import { useUIStore } from "@/stores/uiStore";
 import { imageUploadService } from "@/services/imageUploadService";
@@ -31,6 +33,10 @@ import {
   type PersonalModelAsset,
   type PersonalSvgAsset,
 } from "@/stores/personalLibraryStore";
+import {
+  globalImageHistoryApi,
+  type GlobalImageHistoryItem,
+} from "@/services/globalImageHistoryApi";
 import type { StoredImageAsset } from "@/types/canvas";
 
 const formatSize = (bytes?: number): string => {
@@ -42,6 +48,61 @@ const formatSize = (bytes?: number): string => {
 
 const formatDate = (timestamp: number): string => {
   return new Date(timestamp).toLocaleString();
+};
+
+const formatHistoryDate = (value: string): string => {
+  return new Date(value).toLocaleDateString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+  });
+};
+
+const SOURCE_TYPE_LABELS: Record<string, string> = {
+  generate: "图片生成",
+  generatePro: "图片生成Pro",
+  generatePro4: "图片生成Pro4",
+  midjourney: "Midjourney",
+  "3d": "3D生成",
+  camera: "相机",
+  image: "图片",
+  imagePro: "图片Pro",
+};
+
+type LibraryTab = "global-history" | "manual";
+const HISTORY_PAGE_SIZE = 20;
+
+type HistoryPageSlot = number | "ellipsis-left" | "ellipsis-right";
+
+const buildHistoryPageSlots = (
+  currentPage: number,
+  totalPages: number
+): HistoryPageSlot[] => {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+  if (currentPage <= 4) {
+    return [1, 2, 3, 4, 5, "ellipsis-right", totalPages];
+  }
+  if (currentPage >= totalPages - 3) {
+    return [
+      1,
+      "ellipsis-left",
+      totalPages - 4,
+      totalPages - 3,
+      totalPages - 2,
+      totalPages - 1,
+      totalPages,
+    ];
+  }
+  return [
+    1,
+    "ellipsis-left",
+    currentPage - 1,
+    currentPage,
+    currentPage + 1,
+    "ellipsis-right",
+    totalPages,
+  ];
 };
 
 const getTypeLabel = (
@@ -71,6 +132,7 @@ const getTypeLabel = (
 
 const LibraryPanel: React.FC = () => {
   const { showLibraryPanel, setShowLibraryPanel } = useUIStore();
+  const [activeTab, setActiveTab] = React.useState<LibraryTab>("manual");
   const [isUploading, setUploading] = React.useState(false);
   const [isLibraryDragHovering, setLibraryDragHovering] = React.useState(false);
   const [selectedAsset, setSelectedAsset] =
@@ -85,6 +147,28 @@ const LibraryPanel: React.FC = () => {
   const allAssets = usePersonalLibraryStore((state) => state.assets);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const detailPanelRef = React.useRef<HTMLDivElement>(null);
+  const [historyItems, setHistoryItems] = React.useState<GlobalImageHistoryItem[]>(
+    []
+  );
+  const [historyIsLoading, setHistoryIsLoading] = React.useState(false);
+  const [historyFilterType, setHistoryFilterType] = React.useState("");
+  const [historySearchQuery, setHistorySearchQuery] = React.useState("");
+  const [historyPage, setHistoryPage] = React.useState(1);
+  const [historyTotalPages, setHistoryTotalPages] = React.useState(1);
+  const [historyTotalCount, setHistoryTotalCount] = React.useState(0);
+
+  const historyQueryOptions = React.useMemo(
+    () => ({
+      sourceType: historyFilterType.trim() || undefined,
+      search: historySearchQuery.trim() || undefined,
+    }),
+    [historyFilterType, historySearchQuery]
+  );
+
+  const historyPageSlots = React.useMemo(
+    () => buildHistoryPageSlots(historyPage, historyTotalPages),
+    [historyPage, historyTotalPages]
+  );
 
   const handleModelThumbnailUpdate = React.useCallback(
     (assetId: string, thumbnail: string) => {
@@ -135,6 +219,12 @@ const LibraryPanel: React.FC = () => {
       setLibraryDragHovering(false);
     }
   }, [showLibraryPanel, isLibraryDragHovering]);
+
+  React.useEffect(() => {
+    if (activeTab !== "manual" && selectedAsset) {
+      setSelectedAsset(null);
+    }
+  }, [activeTab, selectedAsset]);
 
   const triggerUpload = () => fileInputRef.current?.click();
 
@@ -437,6 +527,38 @@ const LibraryPanel: React.FC = () => {
     }
   };
 
+  const handleHistorySendToCanvas = async (item: GlobalImageHistoryItem) => {
+    if (!item.imageUrl) {
+      alert("历史图片缺少可用链接，无法发送到画板");
+      return;
+    }
+    const dataUrl = await readDataUrl(item.imageUrl);
+    const displayFileName = `history_${item.id}.png`;
+    const payload: string | StoredImageAsset = dataUrl
+      ? dataUrl
+      : {
+          id: item.id,
+          url: item.imageUrl,
+          src: item.imageUrl,
+          fileName: displayFileName,
+        };
+
+    window.dispatchEvent(
+      new CustomEvent("triggerQuickImageUpload", {
+        detail: {
+          imageData: payload,
+          fileName: displayFileName,
+          operationType: "manual",
+        },
+      })
+    );
+    window.dispatchEvent(
+      new CustomEvent("toast", {
+        detail: { message: "历史图片已发送到画板", type: "success" },
+      })
+    );
+  };
+
   const handleClose = () => {
     setShowLibraryPanel(false);
     setSelectedAsset(null);
@@ -511,6 +633,25 @@ const LibraryPanel: React.FC = () => {
         })
       );
     }
+    event.dataTransfer.effectAllowed = "copy";
+  };
+
+  const handleHistoryDragStart = (
+    item: GlobalImageHistoryItem,
+    event: React.DragEvent
+  ) => {
+    event.dataTransfer.setData("text/uri-list", item.imageUrl);
+    event.dataTransfer.setData("text/plain", item.imageUrl);
+    event.dataTransfer.setData(
+      "application/x-tanva-asset",
+      JSON.stringify({
+        type: "2d",
+        id: item.id,
+        url: item.imageUrl,
+        name: item.prompt || "历史图片",
+        fileName: `history_${item.id}.png`,
+      })
+    );
     event.dataTransfer.effectAllowed = "copy";
   };
 
@@ -658,13 +799,69 @@ const LibraryPanel: React.FC = () => {
     };
   }, [showLibraryPanel, mergeAssets]);
 
+  React.useEffect(() => {
+    setHistoryPage(1);
+  }, [historyQueryOptions.search, historyQueryOptions.sourceType]);
+
+  React.useEffect(() => {
+    if (!showLibraryPanel || activeTab !== "global-history") return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      setHistoryIsLoading(true);
+      void globalImageHistoryApi
+        .list({
+          limit: HISTORY_PAGE_SIZE,
+          page: historyPage,
+          sourceType: historyQueryOptions.sourceType,
+          search: historyQueryOptions.search,
+        })
+        .then((result) => {
+          if (cancelled) return;
+          setHistoryItems(Array.isArray(result.items) ? result.items : []);
+          setHistoryTotalCount(result.totalCount ?? result.items.length);
+          setHistoryTotalPages(Math.max(1, result.totalPages ?? 1));
+          if (
+            typeof result.page === "number" &&
+            Number.isFinite(result.page) &&
+            result.page !== historyPage
+          ) {
+            setHistoryPage(Math.max(1, Math.trunc(result.page)));
+          }
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            console.warn("[LibraryPanel] 拉取全局历史失败:", error);
+            setHistoryItems([]);
+            setHistoryTotalPages(1);
+            setHistoryTotalCount(0);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setHistoryIsLoading(false);
+          }
+        });
+    }, 220);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [
+    showLibraryPanel,
+    activeTab,
+    historyPage,
+    historyQueryOptions.search,
+    historyQueryOptions.sourceType,
+  ]);
+
   // 面板关闭时隐藏
   if (!showLibraryPanel) return null;
 
   return (
     <>
       {/* 详情面板 - 在库面板左侧弹出 */}
-      {selectedAsset && (
+      {activeTab === "manual" && selectedAsset && (
         <div
           ref={detailPanelRef}
           className='fixed right-[336px] w-56 bg-white rounded-xl shadow-xl border border-gray-200 z-[1001] overflow-hidden'
@@ -793,7 +990,7 @@ const LibraryPanel: React.FC = () => {
       {/* 主面板 */}
       <div
         data-library-drop-zone='true'
-        className={`fixed top-0 right-0 h-full w-80 bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border-l border-liquid-glass z-[1000] transform transition-transform duration-[50ms] ease-out ${
+        className={`fixed top-0 right-0 h-full w-80 bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border-l border-liquid-glass z-[1000] transform transition-transform duration-[50ms] ease-out flex flex-col overflow-hidden ${
           showLibraryPanel ? "translate-x-0" : "translate-x-full"
         }`}
       >
@@ -822,6 +1019,34 @@ const LibraryPanel: React.FC = () => {
         {/* 分隔线 */}
         <div className='mx-4 h-px bg-gray-200' />
 
+        {/* 标签切换 */}
+        <div className='px-3 pt-3 pb-2'>
+          <div className='grid grid-cols-2 gap-2 rounded-xl bg-gray-100 p-1'>
+            <button
+              type='button'
+              className={`h-8 rounded-lg text-xs font-medium transition-colors ${
+                activeTab === "global-history"
+                  ? "bg-white text-gray-800 shadow-sm"
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
+              onClick={() => setActiveTab("global-history")}
+            >
+              全局历史
+            </button>
+            <button
+              type='button'
+              className={`h-8 rounded-lg text-xs font-medium transition-colors ${
+                activeTab === "manual"
+                  ? "bg-white text-gray-800 shadow-sm"
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
+              onClick={() => setActiveTab("manual")}
+            >
+              个人素材
+            </button>
+          </div>
+        </div>
+
         {/* 隐藏的文件输入 */}
         <input
           ref={fileInputRef}
@@ -832,71 +1057,200 @@ const LibraryPanel: React.FC = () => {
         />
 
         {/* 资源网格 */}
-        <div className='flex-1 overflow-y-auto pb-12 relative'>
-          <div className='p-3'>
-            <div className='grid grid-cols-3 gap-2'>
-              {/* 资源列表 */}
-              {allAssets.map((asset) => {
-                const is2dOrSvg = asset.type === "2d" || asset.type === "svg";
-                const isSelected = selectedAsset?.id === asset.id;
-                const typeLabel =
-                  asset.type === "2d"
-                    ? "IMG"
-                    : asset.type === "3d"
-                    ? "3D"
-                    : "SVG";
+        <div className='flex-1 min-h-0 overflow-y-auto'>
+          {activeTab === "manual" ? (
+            <div className='p-3'>
+              <div className='grid grid-cols-3 gap-2'>
+                {/* 资源列表 */}
+                {allAssets.map((asset) => {
+                  const is2dOrSvg = asset.type === "2d" || asset.type === "svg";
+                  const isSelected = selectedAsset?.id === asset.id;
+                  const typeLabel =
+                    asset.type === "2d"
+                      ? "IMG"
+                      : asset.type === "3d"
+                      ? "3D"
+                      : "SVG";
 
-                return (
-                  <div
-                    key={asset.id}
-                    data-asset-thumbnail
-                    draggable
-                    className={`aspect-square rounded-lg overflow-hidden bg-gray-100 cursor-grab transition-all hover:ring-2 hover:ring-blue-400 active:cursor-grabbing relative ${
-                      isSelected ? "ring-2 ring-blue-500" : ""
-                    }`}
-                    onClick={(e) => handleAssetClick(asset, e)}
-                    onDragStart={(e) => handleDragStart(asset, e)}
-                  >
-                    {is2dOrSvg ? (
-                      <SmartImage
-                        src={asset.thumbnail || asset.url}
-                        alt={asset.name}
-                        className='w-full h-full object-cover'
-                        draggable={false}
-                      />
-                    ) : (
-                      <ModelPreview
-                        asset={asset as PersonalModelAsset}
-                        onThumbnailReady={handleModelThumbnailUpdate}
-                      />
-                    )}
-                    {/* 类型标签 */}
-                    <div className='absolute bottom-1 right-1 px-1 py-0.5 bg-black/60 text-white text-[8px] font-medium rounded'>
-                      {typeLabel}
+                  return (
+                    <div
+                      key={asset.id}
+                      data-asset-thumbnail
+                      draggable
+                      className={`aspect-square rounded-lg overflow-hidden bg-gray-100 cursor-grab transition-all hover:ring-2 hover:ring-blue-400 active:cursor-grabbing relative ${
+                        isSelected ? "ring-2 ring-blue-500" : ""
+                      }`}
+                      onClick={(e) => handleAssetClick(asset, e)}
+                      onDragStart={(e) => handleDragStart(asset, e)}
+                    >
+                      {is2dOrSvg ? (
+                        <SmartImage
+                          src={asset.thumbnail || asset.url}
+                          alt={asset.name}
+                          className='w-full h-full object-cover'
+                          draggable={false}
+                        />
+                      ) : (
+                        <ModelPreview
+                          asset={asset as PersonalModelAsset}
+                          onThumbnailReady={handleModelThumbnailUpdate}
+                        />
+                      )}
+                      {/* 类型标签 */}
+                      <div className='absolute bottom-1 right-1 px-1 py-0.5 bg-black/60 text-white text-[8px] font-medium rounded'>
+                        {typeLabel}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
 
-              {/* 上传按钮方格 - 放在最后 */}
-              <div
-                className='aspect-square rounded-lg overflow-hidden bg-gray-50 border border-gray-200 cursor-pointer transition-all hover:border-blue-400 hover:bg-blue-50 flex items-center justify-center'
-                onClick={triggerUpload}
-              >
-                {isUploading ? (
-                  <div className='text-gray-400 text-xs'>上传中...</div>
-                ) : (
-                  <Plus className='w-8 h-8 text-gray-400' />
-                )}
+                {/* 上传按钮方格 - 放在最后 */}
+                <div
+                  className='aspect-square rounded-lg overflow-hidden bg-gray-50 border border-gray-200 cursor-pointer transition-all hover:border-blue-400 hover:bg-blue-50 flex items-center justify-center'
+                  onClick={triggerUpload}
+                >
+                  {isUploading ? (
+                    <div className='text-gray-400 text-xs'>上传中...</div>
+                  ) : (
+                    <Plus className='w-8 h-8 text-gray-400' />
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+          ) : (
+            <div className='p-3 space-y-3'>
+              <div className='flex gap-2'>
+                <div className='relative flex-1'>
+                  <Search className='pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400' />
+                  <input
+                    type='text'
+                    value={historySearchQuery}
+                    onChange={(event) => setHistorySearchQuery(event.target.value)}
+                    placeholder='搜索 prompt...'
+                    className='w-full h-8 rounded-lg border border-gray-200 bg-white pl-7 pr-2 text-xs text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400'
+                  />
+                </div>
+                <select
+                  value={historyFilterType}
+                  onChange={(event) => setHistoryFilterType(event.target.value)}
+                  className='h-8 max-w-[108px] rounded-lg border border-gray-200 bg-white px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400'
+                >
+                  <option value=''>全部类型</option>
+                  {Object.entries(SOURCE_TYPE_LABELS).map(([key, label]) => (
+                    <option key={key} value={key}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {historyItems.length === 0 && !historyIsLoading ? (
+                <div className='rounded-lg border border-dashed border-gray-200 bg-white/70 py-10 text-center text-xs text-gray-500'>
+                  暂无全局历史
+                </div>
+              ) : (
+                <div className='grid grid-cols-2 gap-2'>
+                  {historyItems.map((item) => (
+                    <div
+                      key={item.id}
+                      draggable
+                      className='aspect-square rounded-lg overflow-hidden bg-gray-100 cursor-grab transition-all hover:ring-2 hover:ring-blue-400 active:cursor-grabbing relative'
+                      onClick={() => void handleHistorySendToCanvas(item)}
+                      onDragStart={(event) => handleHistoryDragStart(item, event)}
+                      title={item.prompt || "历史图片"}
+                    >
+                      <SmartImage
+                        src={item.imageUrl}
+                        alt={item.prompt || "历史图片"}
+                        className='w-full h-full object-cover'
+                        draggable={false}
+                        loading='lazy'
+                      />
+                      <div className='absolute bottom-0 left-0 right-0 px-1.5 py-1 bg-gradient-to-t from-black/70 to-transparent flex items-center justify-between text-[10px] text-white'>
+                        <span>{formatHistoryDate(item.createdAt)}</span>
+                        <span className='px-1 py-0.5 rounded bg-white/25 truncate max-w-[70px] text-right'>
+                          {SOURCE_TYPE_LABELS[item.sourceType] || item.sourceType}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {historyIsLoading ? (
+                <div className='flex items-center justify-center gap-1 text-xs text-gray-500 py-1'>
+                  <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                  加载中...
+                </div>
+              ) : null}
+
+              {historyTotalPages > 1 ? (
+                <div className='flex items-center justify-center gap-1'>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    className='h-7 px-2 text-xs'
+                    disabled={historyIsLoading || historyPage <= 1}
+                    onClick={() =>
+                      setHistoryPage((prev) => Math.max(1, prev - 1))
+                    }
+                    aria-label='上一页'
+                    title='上一页'
+                  >
+                    <ChevronLeft className='h-3.5 w-3.5' />
+                  </Button>
+                  {historyPageSlots.map((slot, index) =>
+                    typeof slot === "number" ? (
+                      <button
+                        key={`page-${slot}`}
+                        type='button'
+                        className={`h-7 min-w-7 px-1 rounded text-xs border transition-colors ${
+                          historyPage === slot
+                            ? "bg-gray-900 border-gray-900 text-white"
+                            : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
+                        }`}
+                        onClick={() => setHistoryPage(slot)}
+                      >
+                        {slot}
+                      </button>
+                    ) : (
+                      <span
+                        key={`${slot}-${index}`}
+                        className='h-7 min-w-7 inline-flex items-center justify-center text-xs text-gray-400'
+                      >
+                        ...
+                      </span>
+                    )
+                  )}
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    className='h-7 px-2 text-xs'
+                    disabled={historyIsLoading || historyPage >= historyTotalPages}
+                    onClick={() =>
+                      setHistoryPage((prev) =>
+                        Math.min(historyTotalPages, prev + 1)
+                      )
+                    }
+                    aria-label='下一页'
+                    title='下一页'
+                  >
+                    <ChevronRight className='h-3.5 w-3.5' />
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          )}
         </div>
 
         {/* 面板底部 */}
-        <div className='absolute bottom-0 left-0 right-0 p-3 bg-white/80 backdrop-blur-sm'>
+        <div className='p-3 bg-white/80 backdrop-blur-sm border-t border-white/40'>
           <div className='text-xs text-gray-500 text-center'>
-            共 {allAssets.length} 个资源
+            {activeTab === "manual"
+              ? `共 ${allAssets.length} 个资源`
+              : `第 ${historyPage}/${historyTotalPages} 页 · 共 ${historyTotalCount} 条`}
           </div>
         </div>
       </div>

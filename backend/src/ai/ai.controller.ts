@@ -35,6 +35,8 @@ import {
   ExpandImageDto,
 } from './dto/image-generation.dto';
 import { MinimaxSpeechDto } from './dto/minimax-speech.dto';
+import { MinimaxMusicDto } from './dto/minimax-music.dto';
+import { TencentSpeechDto } from './dto/tencent-speech.dto';
 import { PaperJSGenerateRequestDto, PaperJSGenerateResponseDto } from './dto/paperjs-generation.dto';
 import { Img2VectorRequestDto, Img2VectorResponseDto } from './dto/img2vector.dto';
 import { Convert2Dto3DService } from './services/convert-2d-to-3d.service';
@@ -51,8 +53,15 @@ import { Sora2VideoService } from './services/sora2-video.service';
 import { VeoVideoService } from './services/veo-video.service';
 import { VideoProviderService } from './services/video-provider.service';
 import { MinimaxSpeechService } from './services/minimax-speech.service';
+import { MinimaxMusicService } from './services/minimax-music.service';
+import { TencentSpeechService } from './services/tencent-speech.service';
 import { applyWatermarkToBase64 } from './services/watermark.util';
 import { VideoWatermarkService } from './services/video-watermark.service';
+import {
+  createAsyncTask,
+  updateAsyncTask,
+  getAsyncTaskResult,
+} from './services/async-video-task.store';
 import { VideoProviderRequestDto } from './dto/video-provider.dto';
 import { AnalyzeVideoDto } from './dto/video-analysis.dto';
 import { OssService } from '../oss/oss.service';
@@ -128,6 +137,8 @@ export class AiController {
     private readonly veoVideoService: VeoVideoService,
     private readonly videoProviderService: VideoProviderService,
     private readonly minimaxSpeechService: MinimaxSpeechService,
+    private readonly tencentSpeechService: TencentSpeechService,
+    private readonly minimaxMusicService: MinimaxMusicService,
     private readonly oss: OssService,
     @Optional() private readonly imageTaskService?: ImageTaskService,
   ) {}
@@ -448,6 +459,24 @@ export class AiController {
   }
 
   /**
+   * DashScope Wan2.6 I2V：仅创建异步任务、尚未产出视频时，积分记录保持 pending，并把 apiUsageId 返回给前端用于失败退款。
+   */
+  private isWanDashscopeI2VAsyncPending(result: any): boolean {
+    if (!result || result.success !== true || !result.data) return false;
+    const d = result.data;
+    const videoUrl =
+      d.videoUrl ||
+      d.video_url ||
+      d.output?.video_url ||
+      (Array.isArray(d.output) && d.output[0]?.video_url) ||
+      d.raw?.output?.video_url ||
+      d.raw?.video_url;
+    if (videoUrl) return false;
+    const taskId = d.taskId || d.task_id;
+    return typeof taskId === 'string' && taskId.length > 0;
+  }
+
+  /**
    * 预扣积分并执行操作
    * @param skipCredits 如果为 true，则跳过积分扣除（例如使用自定义 API Key 时）
    */
@@ -460,6 +489,12 @@ export class AiController {
     outputImageCount?: number,
     skipCredits?: boolean,
     requestParams?: Record<string, any>,
+    creditOptions?: {
+      /** 若返回体为 { success: false }（HTTP 仍 200），视为失败并退款 */
+      treatReturnedFailureAsError?: boolean;
+      /** 为 true 时不将本次调用标为成功（保持 pending），用于异步任务后续由前端确认失败并退款 */
+      skipFinalizeSuccessIf?: (result: T) => boolean;
+    },
   ): Promise<T> {
     const userId = this.getUserId(req);
 
@@ -510,6 +545,24 @@ export class AiController {
 
       // 执行实际操作
       const result = await operation();
+
+      if (
+        creditOptions?.treatReturnedFailureAsError &&
+        result &&
+        typeof result === 'object' &&
+        'success' in (result as object) &&
+        (result as any).success === false
+      ) {
+        const errPayload = (result as any).error;
+        const msg =
+          typeof errPayload?.message === 'string' && errPayload.message.trim().length > 0
+            ? errPayload.message.trim()
+            : typeof errPayload?.code === 'string'
+              ? errPayload.code
+              : '操作失败';
+        throw new BadRequestException(msg);
+      }
+
       const executionChannel = this.extractExecutionChannel(result);
 
       if (apiUsageId) {
@@ -522,6 +575,15 @@ export class AiController {
             `Failed to update apiUsage request params: ${this.summarizeError(error)}`,
           );
         }
+      }
+
+      const deferFinalize = Boolean(
+        creditOptions?.skipFinalizeSuccessIf &&
+          apiUsageId &&
+          creditOptions.skipFinalizeSuccessIf(result),
+      );
+      if (deferFinalize) {
+        return { ...(result as object), apiUsageId } as T;
       }
 
       // 更新状态为成功
@@ -731,7 +793,7 @@ export class AiController {
       } catch (err: any) {
         const code = err?.code ? String(err.code) : '';
         if (code === 'ENOENT' || String(err?.message || '').includes('spawn ffmpeg')) {
-          throw new ServiceUnavailableException('ffmpeg not installed on the server');
+          throw new ServiceUnavailableException('服务器未安装 ffmpeg，请联系运维处理');
         }
         throw err;
       }
@@ -765,7 +827,7 @@ export class AiController {
       process.env.SORA2_API_KEY ||
       null;
     if (!apiKey) {
-      throw new ServiceUnavailableException('147 API key not configured (BANANA_API_KEY)');
+      throw new ServiceUnavailableException('147 API Key 未配置（BANANA_API_KEY），请检查后端环境变量');
     }
 
     const apiBaseUrl = (
@@ -822,7 +884,7 @@ export class AiController {
         if (joined.length) return joined;
       }
 
-      throw new ServiceUnavailableException('147 returned empty content');
+      throw new ServiceUnavailableException('147 AI 返回了空内容，请稍后重试');
     } catch (error: any) {
       if (error.name === 'AbortError') {
         throw new ServiceUnavailableException(`Video analysis timeout (${VIDEO_ANALYSIS_TIMEOUT / 1000}s)`);
@@ -838,11 +900,11 @@ export class AiController {
     try {
       parsed = new URL(urlValue);
     } catch {
-      throw new BadRequestException('Invalid videoUrl');
+      throw new BadRequestException('视频 URL 格式无效');
     }
 
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      throw new BadRequestException('Unsupported videoUrl protocol');
+      throw new BadRequestException('视频 URL 只支持 http/https 协议');
     }
 
     const hostname = parsed.hostname;
@@ -854,7 +916,7 @@ export class AiController {
 
     if (!isAllowed) {
       this.logger.warn(`URL host not allowed: ${hostname}, allowedHosts: ${allowedHosts.join(', ')}`);
-      throw new BadRequestException('videoUrl host not allowed');
+      throw new BadRequestException('视频 URL 域名不在允许列表中，请使用白名单内的域名');
     }
 
     return parsed;
@@ -865,11 +927,11 @@ export class AiController {
     try {
       parsed = new URL(urlValue);
     } catch {
-      throw new BadRequestException('Invalid imageUrl');
+      throw new BadRequestException('图片 URL 格式无效');
     }
 
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      throw new BadRequestException('Unsupported imageUrl protocol');
+      throw new BadRequestException('图片 URL 只支持 http/https 协议');
     }
 
     const hostname = parsed.hostname;
@@ -880,7 +942,7 @@ export class AiController {
 
     if (!isAllowed) {
       this.logger.warn(`Image URL host not allowed: ${hostname}`);
-      throw new BadRequestException('imageUrl host not allowed');
+      throw new BadRequestException('图片 URL 域名不在允许列表中，请使用白名单内的域名');
     }
 
     return parsed;
@@ -920,18 +982,18 @@ export class AiController {
 
       const contentType = response.headers.get('content-type') || 'image/png';
       if (!contentType.startsWith('image/')) {
-        throw new BadRequestException('imageUrl is not an image');
+        throw new BadRequestException('图片 URL 返回的不是图片格式');
       }
 
       const maxBytes = 30 * 1024 * 1024;
       const contentLength = Number(response.headers.get('content-length') || 0);
       if (contentLength && contentLength > maxBytes) {
-        throw new BadRequestException('imageUrl is too large');
+        throw new BadRequestException('图片文件过大，请使用更小的图片（最大 30MB）');
       }
 
       const buffer = Buffer.from(await response.arrayBuffer());
       if (buffer.length > maxBytes) {
-        throw new BadRequestException('imageUrl is too large');
+        throw new BadRequestException('图片文件过大，请使用更小的图片（最大 30MB）');
       }
 
       const base64 = buffer.toString('base64');
@@ -1278,7 +1340,7 @@ export class AiController {
           }
         }
 
-        throw new InternalServerErrorException('Image generation retry loop exhausted unexpectedly');
+        throw new InternalServerErrorException('图片生成重试次数耗尽，请稍后重试。');
       }, 0, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }));
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -1328,7 +1390,7 @@ export class AiController {
       }
 
       if (!sourceImage) {
-        throw new BadRequestException('sourceImage or sourceImageUrl is required');
+        throw new BadRequestException('编辑图片接口需要提供 sourceImage 或 sourceImageUrl');
       }
 
       // 非 MJ 时验证 sourceImage 是有效的图片格式
@@ -1413,7 +1475,7 @@ export class AiController {
         : [];
 
       if (!sourceImages.length) {
-        throw new BadRequestException('sourceImages or sourceImageUrls is required');
+        throw new BadRequestException('融合图片接口需要提供 sourceImages 或 sourceImageUrls（至少两张）');
       }
 
       if (providerName && providerName !== 'gemini-pro') {
@@ -1470,7 +1532,7 @@ export class AiController {
     return this.withCredits(req, 'midjourney-variation', 'midjourney-fast', async () => {
       const provider = this.factory.getProvider('midjourney-fast', 'midjourney');
       if (!(provider instanceof MidjourneyProvider)) {
-        throw new ServiceUnavailableException('Midjourney provider is unavailable.');
+        throw new ServiceUnavailableException('MJ 服务暂不可用，请检查账号配置');
       }
 
       const result = await provider.triggerAction({
@@ -1502,7 +1564,7 @@ export class AiController {
     return this.withCredits(req, 'midjourney-variation', 'midjourney-fast', async () => {
       const provider = this.factory.getProvider('midjourney-fast', 'midjourney');
       if (!(provider instanceof MidjourneyProvider)) {
-        throw new ServiceUnavailableException('Midjourney provider is unavailable.');
+        throw new ServiceUnavailableException('MJ 服务暂不可用，请检查账号配置');
       }
 
       const result = await provider.executeModal({
@@ -1557,19 +1619,22 @@ export class AiController {
 
       // gemini 和 gemini-pro 都使用默认的 Gemini 服务
       return this.imageGeneration.analyzeImage({ ...dto, customApiKey });
-    }, 1, 0, skipCredits);
+    }, 1, 0, skipCredits, this.buildCreditRequestParams(providerName));
   }
 
   @Post('text-chat')
   async textChat(@Body() dto: TextChatDto, @Req() req: any) {
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveTextModel(providerName, dto.model);
+    const billingTag = dto.billingTag === 'prompt_optimize' ? 'prompt_optimize' : 'text_chat';
+    const serviceType: ServiceType =
+      billingTag === 'prompt_optimize' ? 'gemini-prompt-optimize' : 'gemini-text';
 
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
 
-    return this.withCredits(req, 'gemini-text', model, async () => {
+    return this.withCredits(req, serviceType, model, async () => {
       if (providerName && providerName !== 'gemini-pro') {
         const provider = this.factory.getProvider(dto.model, providerName);
         const result = await provider.generateText({
@@ -1588,7 +1653,7 @@ export class AiController {
 
       // gemini 和 gemini-pro 都使用默认的 Gemini 服务
       return this.imageGeneration.generateTextResponse({ ...dto, customApiKey });
-    }, undefined, undefined, skipCredits);
+    }, undefined, undefined, skipCredits, this.buildCreditRequestParams(providerName, { billingTag }));
   }
 
   @Post('remove-background')
@@ -1709,7 +1774,7 @@ export class AiController {
     const quality = dto.quality === 'sd' ? 'sd' : 'hd';
     const serviceType: ServiceType = quality === 'sd' ? 'sora-sd' : 'sora-hd';
     const selectedSoraModel =
-      dto.model === 'sora-2' || dto.model === 'sora-2-vip' || dto.model === 'sora-2-pro'
+      dto.model === 'sora-2' || dto.model === 'sora-2-pro'
         ? dto.model
         : quality === 'hd'
         ? 'sora-2-pro'
@@ -1719,11 +1784,21 @@ export class AiController {
       [];
     const legacySingle = dto.referenceImageUrl?.trim();
     const referenceImageUrls = legacySingle ? [...normalizedArray, legacySingle] : normalizedArray;
-    const inputImageCount = referenceImageUrls.length || undefined;
+    const hasCharacterMode =
+      (typeof dto.characterTaskId === 'string' && dto.characterTaskId.trim().length > 0) ||
+      (typeof dto.characterUrl === 'string' && dto.characterUrl.trim().length > 0);
+    const effectiveReferenceImageUrls = hasCharacterMode ? [] : referenceImageUrls;
+    const inputImageCount = effectiveReferenceImageUrls.length || undefined;
 
     this.logger.log(
-      `🎬 Video generation request received (quality=${quality}, referenceCount=${referenceImageUrls.length})`,
+      `Video generation request received (quality=${quality}, referenceCount=${effectiveReferenceImageUrls.length}, characterMode=${hasCharacterMode})`,
     );
+    this.logger.log(`Video generation full dto: ${JSON.stringify(dto)}`);
+    if (hasCharacterMode && referenceImageUrls.length > 0) {
+      this.logger.warn(
+        `Sora2 character mode detected: ignore ${referenceImageUrls.length} reference image(s)`,
+      );
+    }
 
     return this.withCredits(
       req,
@@ -1732,7 +1807,7 @@ export class AiController {
       async () => {
         const result = await this.sora2VideoService.generateVideo({
           prompt: dto.prompt,
-          referenceImageUrls,
+          referenceImageUrls: effectiveReferenceImageUrls,
           quality,
           aspectRatio: dto.aspectRatio,
           duration: dto.duration,
@@ -1749,7 +1824,7 @@ export class AiController {
 
         if (!result?.videoUrl) {
           throw new ServiceUnavailableException(
-            result?.fallbackMessage || result?.content || '视频生成失败：未返回可用的视频链接',
+            result?.fallbackMessage || result?.content || '视频生成失败：未返回可用视频链接',
           );
         }
 
@@ -1813,16 +1888,211 @@ export class AiController {
     );
   }
 
+  /**
+   * 异步视频生成接口
+   * 立即返回 taskId，前端通过轮询 /ai/sora2/video/:taskId 查询进度
+   * 解决线上反向代理超时问题（504 Gateway Timeout）
+   */
+  @Post('generate-video-async')
+  async generateVideoAsync(@Body() dto: GenerateVideoDto, @Req() req: any) {
+    const quality = dto.quality === 'sd' ? 'sd' : 'hd';
+    const serviceType: ServiceType = quality === 'sd' ? 'sora-sd' : 'sora-hd';
+    const selectedSoraModel =
+      dto.model === 'sora-2' || dto.model === 'sora-2-pro'
+        ? dto.model
+        : quality === 'hd'
+        ? 'sora-2-pro'
+        : 'sora-2';
+    const normalizedArray =
+      dto.referenceImageUrls?.filter((url) => typeof url === 'string' && url.trim().length > 0) ||
+      [];
+    const legacySingle = dto.referenceImageUrl?.trim();
+    const referenceImageUrls = legacySingle ? [...normalizedArray, legacySingle] : normalizedArray;
+    const hasCharacterMode =
+      (typeof dto.characterTaskId === 'string' && dto.characterTaskId.trim().length > 0) ||
+      (typeof dto.characterUrl === 'string' && dto.characterUrl.trim().length > 0);
+    const effectiveReferenceImageUrls = hasCharacterMode ? [] : referenceImageUrls;
+    const inputImageCount = effectiveReferenceImageUrls.length || undefined;
+
+    this.logger.log(
+      `[Async] Video generation request received (quality=${quality}, referenceCount=${effectiveReferenceImageUrls.length}, characterMode=${hasCharacterMode})`,
+    );
+
+    // 创建异步任务并写入内存存储
+    const taskId = `async-sora2-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+    createAsyncTask(taskId);
+
+    // 在后台执行实际任务（不阻塞请求）
+    this.executeVideoGenerationAsync(
+      taskId,
+      req,
+      serviceType,
+      selectedSoraModel,
+      {
+        prompt: dto.prompt,
+        referenceImageUrls: effectiveReferenceImageUrls,
+        quality,
+        aspectRatio: dto.aspectRatio,
+        duration: dto.duration,
+        model: dto.model,
+        watermark: dto.watermark,
+        thumbnail: dto.thumbnail,
+        privateMode: dto.privateMode,
+        style: dto.style,
+        storyboard: dto.storyboard,
+        characterUrl: dto.characterUrl,
+        characterTimestamps: dto.characterTimestamps,
+        characterTaskId: dto.characterTaskId,
+      },
+      inputImageCount,
+      0,
+      { quality, soraModel: selectedSoraModel, aspectRatio: dto.aspectRatio, duration: dto.duration },
+    );
+
+    // 立即返回 taskId，不等待视频生成完成
+    return {
+      success: true,
+      taskId,
+      status: 'pending',
+      message: '视频生成任务已提交，请通过 taskId 轮询查询进度',
+    };
+  }
+
+  /**
+   * 后台执行视频生成（不阻塞 HTTP 请求）
+   */
+  private async executeVideoGenerationAsync(
+    taskId: string,
+    req: any,
+    serviceType: ServiceType,
+    selectedSoraModel: string,
+    options: Parameters<typeof this.sora2VideoService.generateVideo>[0],
+    inputImageCount: number | undefined,
+    outputImageCount: number,
+    requestParams?: Record<string, any>,
+  ): Promise<void> {
+    // 异步执行，不等待结果
+    this.processVideoGenerationTask(taskId, req, serviceType, selectedSoraModel, options, inputImageCount, outputImageCount, requestParams)
+      .catch((error) => {
+        this.logger.error(`[Async] Video generation task ${taskId} failed:`, error);
+      });
+  }
+
+  /**
+   * 处理视频生成任务（积分扣费 + 实际生成）
+   */
+  private async processVideoGenerationTask(
+    taskId: string,
+    req: any,
+    serviceType: ServiceType,
+    selectedSoraModel: string,
+    options: Parameters<typeof this.sora2VideoService.generateVideo>[0],
+    inputImageCount: number | undefined,
+    outputImageCount: number,
+    requestParams?: Record<string, any>,
+  ): Promise<void> {
+    // 更新任务状态为处理中
+    updateAsyncTask(taskId, { status: 'processing' });
+
+    try {
+      // 调用 withCredits 执行积分扣费和实际生成
+      const result = await this.withCredits(
+        req,
+        serviceType,
+        selectedSoraModel,
+        async () => {
+          const videoResult = await this.sora2VideoService.generateVideo(options);
+
+          if (!videoResult?.videoUrl) {
+            throw new ServiceUnavailableException(
+              videoResult?.fallbackMessage || videoResult?.content || '视频生成失败：未返回可用视频链接',
+            );
+          }
+
+          const skipWatermark = await this.canSkipWatermark(req);
+          this.logger.log(`[Async] Video generated for task ${taskId}, skipWatermark=${skipWatermark}`);
+
+          let finalResult = { ...videoResult };
+
+          if (skipWatermark) {
+            let proxiedUrl = videoResult.videoUrl;
+            try {
+              const uploaded = await this.videoWatermarkService.uploadOriginalToOSS(videoResult.videoUrl);
+              proxiedUrl = uploaded.url;
+            } catch (error) {
+              this.logger.warn(`[Async] Video OSS copy failed for task ${taskId}`, error);
+            }
+            finalResult = {
+              ...videoResult,
+              videoUrl: proxiedUrl,
+              videoUrlRaw: videoResult.videoUrl,
+              videoUrlWatermarked: proxiedUrl,
+              watermarkSkipped: true,
+            };
+          } else {
+            try {
+              const wm = await this.videoWatermarkService.addWatermarkAndUpload(videoResult.videoUrl, {
+                text: 'Tanvas AI',
+              });
+              finalResult = {
+                ...videoResult,
+                videoUrl: wm.url,
+                videoUrlRaw: videoResult.videoUrl,
+                videoUrlWatermarked: wm.url,
+                watermarkSkipped: false,
+              };
+            } catch (error) {
+              this.logger.error(`[Async] Video watermark failed for task ${taskId}:`, error);
+              finalResult = {
+                ...videoResult,
+                videoUrl: videoResult.videoUrl,
+                videoUrlRaw: videoResult.videoUrl,
+                videoUrlWatermarked: videoResult.videoUrl,
+                watermarkFailed: true,
+              };
+            }
+          }
+
+          return finalResult;
+        },
+        inputImageCount,
+        outputImageCount,
+        undefined,
+        requestParams,
+      );
+
+      // 更新任务状态为完成
+      updateAsyncTask(taskId, {
+        status: 'completed',
+        result: result as any,
+      });
+      this.logger.log(`[Async] Video generation task ${taskId} completed successfully`);
+    } catch (error) {
+      // 更新任务状态为失败
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      updateAsyncTask(taskId, {
+        status: 'failed',
+        error: errorMessage,
+      });
+      this.logger.error(`[Async] Video generation task ${taskId} failed:`, error);
+    }
+  }
+
   @Post('sora2/character/create')
   async createSora2Character(@Body() dto: CreateSora2CharacterDto) {
     if (!dto.url && !dto.fromTask) {
       throw new BadRequestException('参数 url 和 fromTask 需二选一');
     }
+    // 角色创建链路不支持 prompt/image，这里只保留白名单字段
+    const safeModel = dto.model;
+    const safeTimestamps = typeof dto.timestamps === 'string' ? dto.timestamps.trim() : dto.timestamps;
+    const safeUrl = typeof dto.url === 'string' ? dto.url.trim() : dto.url;
+    const safeFromTask = typeof dto.fromTask === 'string' ? dto.fromTask.trim() : dto.fromTask;
     return this.sora2VideoService.createCharacterTask({
-      model: dto.model,
-      timestamps: dto.timestamps,
-      url: dto.url,
-      fromTask: dto.fromTask,
+      model: safeModel,
+      timestamps: safeTimestamps,
+      url: safeUrl,
+      fromTask: safeFromTask,
     });
   }
 
@@ -1832,6 +2102,41 @@ export class AiController {
       throw new BadRequestException('taskId 不能为空');
     }
     return this.sora2VideoService.queryCharacterTask(taskId.trim());
+  }
+
+  @Get('sora2/video/:taskId')
+  async querySora2VideoTask(@Param('taskId') taskId: string) {
+    if (!taskId || !taskId.trim()) {
+      throw new BadRequestException('taskId 不能为空');
+    }
+    const trimmedTaskId = taskId.trim();
+
+    // 首先检查是否是异步任务
+    const asyncTask = getAsyncTaskResult(trimmedTaskId);
+    if (asyncTask) {
+      // 异步任务，直接返回存储的结果
+      if (asyncTask.status === 'completed' && asyncTask.result) {
+        return {
+          id: trimmedTaskId,
+          status: asyncTask.result.status || 'completed',
+          videoUrl: asyncTask.result.videoUrl,
+          thumbnailUrl: asyncTask.result.thumbnailUrl,
+          raw: asyncTask.result,
+        };
+      }
+      if (asyncTask.status === 'failed') {
+        throw new ServiceUnavailableException(asyncTask.error || '视频生成失败');
+      }
+      // pending 或 processing，返回进行中状态
+      return {
+        id: trimmedTaskId,
+        status: asyncTask.status === 'processing' ? 'processing' : 'pending',
+        progress: asyncTask.status === 'processing' ? 50 : 10,
+      };
+    }
+
+    // 非异步任务，调用原始的 Sora2 查询接口
+    return this.sora2VideoService.queryVideoTask(trimmedTaskId);
   }
 
   /**
@@ -1861,6 +2166,7 @@ export class AiController {
 
     // 确保用户有积分账户
     await this.creditsService.getOrCreateAccount(userId);
+    const startTime = Date.now();
 
     // 预扣积分
     const deductResult = await this.creditsService.preDeductCredits({
@@ -1903,17 +2209,50 @@ export class AiController {
     } catch (error) {
       // 创建任务失败，立即退款
       const errorMessage = error instanceof Error ? error.message : String(error);
-      await this.creditsService.updateApiUsageStatus(
-        apiUsageId,
-        ApiResponseStatus.FAILED,
-        errorMessage,
-        0,
-      );
+      const processingTime = Math.max(0, Date.now() - startTime);
+      let failedMarked = false;
+
       try {
-        await this.creditsService.refundCredits(userId, apiUsageId);
-        this.logger.debug(`Credits refunded for failed video task creation: ${apiUsageId}`);
-      } catch (refundError) {
-        this.logger.error('Failed to refund credits:', refundError);
+        await this.creditsService.updateApiUsageStatus(
+          apiUsageId,
+          ApiResponseStatus.FAILED,
+          errorMessage,
+          processingTime,
+        );
+        failedMarked = true;
+      } catch (statusError) {
+        this.logger.error(
+          `Failed to update video api usage status to failed, fallback to markApiUsageFailedForUser: ${this.summarizeError(statusError)}`,
+        );
+      }
+
+      if (!failedMarked) {
+        try {
+          await this.creditsService.markApiUsageFailedForUser(
+            userId,
+            apiUsageId,
+            errorMessage,
+            processingTime,
+          );
+          failedMarked = true;
+        } catch (markError) {
+          this.logger.error(
+            `Failed to mark video api usage as failed for refund fallback: ${this.summarizeError(markError)}`,
+          );
+        }
+      }
+
+      if (failedMarked) {
+        try {
+          await this.creditsService.refundCredits(userId, apiUsageId);
+          this.logger.debug(`Credits refunded for failed video task creation: ${apiUsageId}`);
+        } catch (refundError) {
+          this.logger.error('Failed to refund credits:', refundError);
+        }
+      } else {
+        this.logger.error(
+          `Skip refund because video api usage cannot be marked failed. apiUsageId=${apiUsageId}`,
+        );
       }
       throw error;
     }
@@ -1955,6 +2294,37 @@ export class AiController {
       this.logger.error(`❌ 视频任务积分退还失败: ${message}`);
       throw error;
     }
+  }
+
+  /**
+   * 视频任务成功时确认积分状态（将 pending 标记为 success）
+   */
+  @Post('video-task-success')
+  async markVideoTaskSuccess(
+    @Body() body: { apiUsageId: string; processingTime?: number },
+    @Req() req: any,
+  ) {
+    const userId = this.getUserId(req);
+    if (!userId) {
+      throw new BadRequestException('需要用户认证');
+    }
+
+    const apiUsageId = typeof body?.apiUsageId === 'string' ? body.apiUsageId.trim() : '';
+    if (!apiUsageId) {
+      throw new BadRequestException('缺少 apiUsageId 参数');
+    }
+
+    const rawProcessingTime = Number(body?.processingTime);
+    const processingTime = Number.isFinite(rawProcessingTime)
+      ? Math.max(0, Math.round(rawProcessingTime))
+      : 0;
+
+    await this.creditsService.markApiUsageSuccessForUser(
+      userId,
+      apiUsageId,
+      processingTime,
+    );
+    return { success: true };
   }
 
   /**
@@ -2101,7 +2471,7 @@ export class AiController {
               };
             }
 
-            const message = result.error?.message || 'Failed to convert image to vector';
+            const message = result.error?.message || '图片转矢量图失败';
             this.logger.error(`[${providerName}] img2vector failed: ${message}`);
             throw new InternalServerErrorException(message);
           } catch (error) {
@@ -2227,7 +2597,18 @@ export class AiController {
         if (videoUrlDirect) return { success: true, data };
 
         const taskId = data?.taskId || data?.task_id || data?.id || data?.output?.task_id || data?.result?.task_id || data?.output?.[0]?.task_id || data?.data?.task_id || data?.data?.output?.task_id;
-        if (!taskId) return { success: true, data };
+        if (!taskId) {
+          this.logger.warn('DashScope wan2.6-t2v create response contains no task id and no video url', {
+            dataPreview: JSON.stringify(data).slice(0, 400),
+          });
+          return {
+            success: false,
+            error: {
+              message: 'DashScope 未返回任务 ID 或视频地址',
+              details: data,
+            },
+          };
+        }
 
         const statusUrl = `https://dashscope.aliyuncs.com/api/v1/tasks/${encodeURIComponent(taskId)}`;
         const intervalMs = 15000;
@@ -2243,6 +2624,19 @@ export class AiController {
 
             if (statusValue === 'succeeded' || statusValue === 'success') {
               const finalVideoUrl = extractVideoUrl(statusData) || extractVideoUrl(statusData?.result) || extractVideoUrl(statusData?.output) || undefined;
+              if (!finalVideoUrl) {
+                this.logger.warn('DashScope wan2.6-t2v task succeeded but no video URL in response', {
+                  taskId,
+                  dataPreview: JSON.stringify(statusData).slice(0, 400),
+                });
+                return {
+                  success: false,
+                  error: {
+                    message: 'DashScope 任务已完成但未返回视频地址',
+                    details: statusData,
+                  },
+                };
+              }
               return { success: true, data: { taskId, status: statusValue, videoUrl: finalVideoUrl, video_url: finalVideoUrl, output: { video_url: finalVideoUrl }, raw: statusData } };
             }
             if (statusValue === 'failed' || statusValue === 'error') {
@@ -2255,6 +2649,8 @@ export class AiController {
         this.logger.error('❌ DashScope request exception', error);
         return { success: false, error: { code: 'NETWORK_ERROR', message: error?.message || String(error) } };
       }
+    }, undefined, undefined, undefined, undefined, {
+      treatReturnedFailureAsError: true,
     });
   }
 
@@ -2329,7 +2725,13 @@ export class AiController {
           this.logger.warn('DashScope i2v create response contains no task id and no video url', {
             dataPreview: JSON.stringify(data).slice(0, 200),
           });
-          return { success: true, data };
+          return {
+            success: false,
+            error: {
+              message: 'DashScope 未返回任务 ID 或视频地址',
+              details: data,
+            },
+          };
         }
 
         // 异步模式：立即返回 taskId，前端轮询查询状态
@@ -2350,6 +2752,9 @@ export class AiController {
           error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
         };
       }
+    }, undefined, undefined, undefined, undefined, {
+      treatReturnedFailureAsError: true,
+      skipFinalizeSuccessIf: (r: any) => this.isWanDashscopeI2VAsyncPending(r),
     });
   }
 
@@ -2467,7 +2872,13 @@ export class AiController {
           this.logger.warn('DashScope r2v create response contains no task id and no video url', {
             dataPreview: JSON.stringify(data).slice(0, 200),
           });
-          return { success: true, data };
+          return {
+            success: false,
+            error: {
+              message: 'DashScope 未返回任务 ID 或视频地址',
+              details: data,
+            },
+          };
         }
 
         const statusUrl = `https://dashscope.aliyuncs.com/api/v1/tasks/${encodeURIComponent(taskId)}`;
@@ -2514,6 +2925,18 @@ export class AiController {
                 extractVideoUrl(statusData?.result) ||
                 extractVideoUrl(statusData?.output) ||
                 undefined;
+              if (!finalVideoUrl) {
+                this.logger.warn(`DashScope r2v task ${taskId} succeeded but no video URL in response`, {
+                  dataPreview: JSON.stringify(statusData).slice(0, 400),
+                });
+                return {
+                  success: false,
+                  error: {
+                    message: 'DashScope 任务已完成但未返回视频地址',
+                    details: statusData,
+                  },
+                };
+              }
               this.logger.log(
                 `✅ DashScope r2v task ${taskId} succeeded, videoUrl: ${String(finalVideoUrl).slice(0, 120)}`
               );
@@ -2574,6 +2997,8 @@ export class AiController {
           error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
         };
       }
+    }, undefined, undefined, undefined, undefined, {
+      treatReturnedFailureAsError: true,
     });
   }
 
@@ -2651,7 +3076,7 @@ export class AiController {
         if (contentLengthHeader) {
           const size = Number(contentLengthHeader);
           if (Number.isFinite(size) && size > MAX_VIDEO_BYTES) {
-            throw new BadRequestException('Video file too large');
+            throw new BadRequestException('视频文件过大，请使用更小的视频');
           }
         }
 
@@ -2708,7 +3133,7 @@ export class AiController {
             intervalSeconds,
           });
           if (!frames.length) {
-            throw new ServiceUnavailableException('Failed to extract frames from video');
+            throw new ServiceUnavailableException('无法从视频中提取帧，请检查视频文件是否损坏');
           }
 
           stage = 'analyze_frames';
@@ -2793,7 +3218,7 @@ export class AiController {
         let file = uploadResult;
         while (file.state === 'PROCESSING') {
           if (Date.now() > deadline) {
-            throw new ServiceUnavailableException('Video processing timed out');
+            throw new ServiceUnavailableException('视频处理超时，请使用更短的视频');
           }
           this.logger.log('⏳ Waiting for video processing...');
           await new Promise((resolve) => setTimeout(resolve, 5000));
@@ -2845,9 +3270,9 @@ export class AiController {
           throw error;
         }
         if (this.isLikelyNetworkError(error)) {
-          throw new ServiceUnavailableException(`Video analysis failed at ${stage}: ${summary}`);
-        }
-        throw new InternalServerErrorException(`Video analysis failed at ${stage}: ${summary}`);
+        throw new ServiceUnavailableException(`视频分析失败（${stage}）：${summary}`);
+      }
+        throw new InternalServerErrorException(`视频分析失败（${stage}）：${summary}`);
       } finally {
         try {
           if (tempFile) {
@@ -2983,6 +3408,40 @@ export class AiController {
     };
   }
 
+  @Post('tencent-speech')
+  async generateTencentSpeech(@Body() dto: TencentSpeechDto, @Req() req: any) {
+    return this.withCredits(
+      req,
+      'tencent-speech',
+      undefined,
+      async () => this.tencentSpeechService.synthesizeSpeech(dto),
+      undefined,
+      undefined,
+      false,
+      {
+        inputVideoUrl: dto.inputVideoUrl,
+        textLength: (dto.text || '').trim().length || undefined,
+        speakerUrl: dto.speakerUrl,
+        srcSubtitleUrl: dto.srcSubtitleUrl,
+        dstLangs: dto.dstLangs,
+      },
+    );
+  }
+
+  @Post('tencent-speech/async')
+  async generateTencentSpeechAsync(@Body() dto: TencentSpeechDto) {
+    return this.tencentSpeechService.createAsyncSpeechTask(dto);
+  }
+
+  @Get('tencent-speech/async/:taskId')
+  async queryTencentSpeechAsyncTask(@Param('taskId') taskId: string) {
+    const normalizedTaskId = taskId?.trim();
+    if (!normalizedTaskId) {
+      throw new BadRequestException('taskId 参数不能为空');
+    }
+    return this.tencentSpeechService.queryAsyncSpeechTask(normalizedTaskId);
+  }
+
   @Post('minimax-speech')
   async generateSpeech(@Body() dto: MinimaxSpeechDto, @Req() req: any) {
     return this.withCredits(
@@ -3006,8 +3465,18 @@ export class AiController {
   async querySpeechAsyncTask(@Param('taskId') taskId: string) {
     const normalizedTaskId = taskId?.trim();
     if (!normalizedTaskId) {
-      throw new BadRequestException('taskId is required');
+      throw new BadRequestException('taskId 参数不能为空');
     }
     return this.minimaxSpeechService.queryAsyncSpeechTask(normalizedTaskId);
+  }
+
+  @Post('minimax-music')
+  async generateMusic(@Body() dto: MinimaxMusicDto, @Req() req: any) {
+    return this.withCredits(
+      req,
+      'minimax-music',
+      dto.model,
+      async () => this.minimaxMusicService.generateMusic(dto),
+    );
   }
 }

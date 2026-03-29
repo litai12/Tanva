@@ -17,6 +17,7 @@ import { TemplatesModule } from './templates/templates.module';
 import { PaymentModule } from './payment/payment.module';
 import { ReferralModule } from './referral/referral.module';
 import { TelemetryModule } from './telemetry/telemetry.module';
+import { UserTemplatesModule } from './user-templates/user-templates.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { TelemetryModule } from './telemetry/telemetry.module';
     PaymentModule,
     ReferralModule,
     TelemetryModule,
+    UserTemplatesModule,
   ],
 })
 export class AppModule {}

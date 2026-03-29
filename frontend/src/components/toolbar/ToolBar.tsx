@@ -7,6 +7,7 @@ import TextStylePanel from './TextStylePanel';
 import ColorPicker from './ColorPicker';
 import { useToolStore, useUIStore } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
+import type { LineStyle } from '@/stores/toolStore';
 import { logger } from '@/utils/logger';
 import { cn } from '@/lib/utils';
 import paper from 'paper';
@@ -57,6 +58,178 @@ const CircleIcon: React.FC<{ className?: string }> = ({ className }) => (
     <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" fill="none" />
   </svg>
 );
+
+const LineStyleIcon: React.FC<{ className?: string; styleType: LineStyle }> = ({ className, styleType }) => {
+  if (styleType === 'dashed') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={className}>
+        <line x1="2" y1="8" x2="14" y2="8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeDasharray="3 3" />
+      </svg>
+    );
+  }
+
+  if (styleType === 'dash-dot') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={className}>
+        <line x1="2" y1="8" x2="14" y2="8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeDasharray="5 2 1 2" />
+      </svg>
+    );
+  }
+
+  if (styleType === 'sketch-end-heavy') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={className}>
+        <line x1="2" y1="8" x2="14" y2="8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        <circle cx="2.5" cy="8" r="1.6" fill="currentColor" />
+        <circle cx="13.5" cy="8" r="1.6" fill="currentColor" />
+      </svg>
+    );
+  }
+
+  if (styleType === 'sketch-center-heavy') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={className}>
+        <line x1="2" y1="8" x2="14" y2="8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        <circle cx="8" cy="8" r="1.7" fill="currentColor" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={className}>
+      <line x1="2" y1="8" x2="14" y2="8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+};
+
+const LineStylePreview: React.FC<{ className?: string; styleType: LineStyle }> = ({ className, styleType }) => {
+  if (styleType === 'dashed') {
+    return (
+      <svg width="56" height="12" viewBox="0 0 56 12" fill="none" className={className}>
+        <line x1="4" y1="6" x2="52" y2="6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeDasharray="5 4" />
+      </svg>
+    );
+  }
+
+  if (styleType === 'dash-dot') {
+    return (
+      <svg width="56" height="12" viewBox="0 0 56 12" fill="none" className={className}>
+        <line x1="4" y1="6" x2="52" y2="6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeDasharray="8 3 1.2 3" />
+      </svg>
+    );
+  }
+
+  if (styleType === 'sketch-end-heavy') {
+    return (
+      <svg width="56" height="12" viewBox="0 0 56 12" fill="none" className={className}>
+        <line x1="4" y1="6" x2="52" y2="6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <circle cx="6" cy="6" r="2.2" fill="currentColor" />
+        <circle cx="50" cy="6" r="2.2" fill="currentColor" />
+      </svg>
+    );
+  }
+
+  if (styleType === 'sketch-center-heavy') {
+    return (
+      <svg width="56" height="12" viewBox="0 0 56 12" fill="none" className={className}>
+        <line x1="4" y1="6" x2="52" y2="6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <circle cx="28" cy="6" r="2.3" fill="currentColor" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg width="56" height="12" viewBox="0 0 56 12" fill="none" className={className}>
+      <line x1="4" y1="6" x2="52" y2="6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+    </svg>
+  );
+};
+
+const LINE_STYLE_OPTIONS: Array<{ value: LineStyle; label: string }> = [
+  { value: 'solid', label: '实线' },
+  { value: 'dashed', label: '虚线' },
+  { value: 'dash-dot', label: '点画线' },
+  { value: 'sketch-end-heavy', label: '手绘风（两头粗）' },
+  { value: 'sketch-center-heavy', label: '手绘风（中间粗）' },
+];
+
+const LineStylePicker: React.FC<{
+  value: LineStyle;
+  onChange: (style: LineStyle) => void;
+  disabled?: boolean;
+  title?: string;
+}> = ({ value, onChange, disabled = false, title }) => {
+  const [isOpen, setIsOpen] = React.useState(false);
+  const panelRef = React.useRef<HTMLDivElement>(null);
+  const buttonRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      const clickedInPanel = panelRef.current?.contains(target);
+      const clickedInButton = buttonRef.current?.contains(target);
+      if (!clickedInPanel && !clickedInButton) {
+        setIsOpen(false);
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside, true);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside, true);
+      };
+    }
+  }, [isOpen]);
+
+  return (
+    <div className="relative">
+      <div
+        ref={buttonRef}
+        className={cn(
+          "w-6 h-6 rounded border border-gray-300 bg-white cursor-pointer flex items-center justify-center",
+          disabled && "opacity-50 cursor-not-allowed"
+        )}
+        onClick={() => {
+          if (!disabled) setIsOpen((prev) => !prev);
+        }}
+        title={title}
+      >
+        <LineStyleIcon styleType={value} className="w-4 h-4 text-gray-700" />
+      </div>
+
+      {isOpen && (
+        <div
+          ref={panelRef}
+          className="absolute left-full top-1/2 z-[1010] ml-2 w-44 -translate-y-1/2 rounded-xl border border-liquid-glass-light bg-liquid-glass-light p-2 shadow-liquid-glass-lg backdrop-blur-minimal backdrop-saturate-125"
+        >
+          <div className="mb-1 px-1 text-[11px] font-medium text-gray-500">线条样式</div>
+          <div className="flex flex-col gap-1">
+            {LINE_STYLE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={cn(
+                  "flex h-8 w-full items-center justify-between rounded-lg border px-2 text-xs font-medium transition-colors",
+                  value === option.value
+                    ? "border-gray-900 bg-gray-900 text-white shadow-sm"
+                    : "border-gray-200 bg-white/95 text-gray-700 hover:border-gray-300 hover:bg-gray-50"
+                )}
+                onClick={() => {
+                  onChange(option.value);
+                  setIsOpen(false);
+                }}
+                title={option.label}
+              >
+                <LineStylePreview styleType={option.value} className="h-3 w-14 shrink-0" />
+                <span className="ml-2 truncate">{option.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 // 添加节点图标 - 带连接线的节点图标
 const AddNodeIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -176,12 +349,14 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
     currentColor,
     fillColor,
     strokeWidth,
+    lineStyle,
     isEraser,
     hasFill,
     setDrawMode,
     setCurrentColor,
     setFillColor,
     setStrokeWidth,
+    setLineStyle,
     toggleEraser,
     toggleFill,
   } = useToolStore();
@@ -811,6 +986,17 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                   onChange={setCurrentColor}
                   disabled={isEraser}
                   title="线条颜色"
+                />
+              </div>
+
+              {/* 线条样式 */}
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-xs font-medium text-gray-600">样式</span>
+                <LineStylePicker
+                  value={lineStyle}
+                  onChange={setLineStyle}
+                  disabled={isEraser}
+                  title="线条样式"
                 />
               </div>
 

@@ -44,7 +44,7 @@ import {
   Globe,
   Gift,
   MessageCircle,
-  Play,
+  Star,
 } from "lucide-react";
 import MemoryDebugPanel from "@/components/debug/MemoryDebugPanel";
 import HistoryDebugPanel from "@/components/debug/HistoryDebugPanel";
@@ -52,6 +52,7 @@ import PaymentPanel from "@/components/payment/PaymentPanel";
 import { useProjectStore } from "@/stores/projectStore";
 import ProjectManagerModal from "@/components/projects/ProjectManagerModal";
 import { useUIStore, useCanvasStore, GridStyle } from "@/stores";
+import { useFlowStore, FlowEdgeColorMode } from "@/stores/flowStore";
 import { useImageHistoryStore } from "@/stores/imageHistoryStore";
 import { useAIChatStore } from "@/stores/aiChatStore";
 import { logger } from "@/utils/logger";
@@ -92,6 +93,9 @@ const VIEW_APPEARANCE_STORAGE_KEY = "tanva-view-settings";
 const REFERRAL_NOTIFICATION_LAST_SEEN_DATE_STORAGE_KEY =
   "tanva-referral-notification-last-seen-date";
 const MAX_QUICK_PROJECTS = 5;
+const USER_MANUAL_URL = "https://gcnyatv1ofs3.feishu.cn/docx/U5Jzd18dLoCtvlxhHdDcoRgVnWd";
+const CHANGELOG_URL =
+  "https://gcnyatv1ofs3.feishu.cn/wiki/NMVhwMbglijVwFkW8HKcfpCynIp";
 
 const getTodayDateKey = () => {
   const now = new Date();
@@ -133,6 +137,8 @@ const FloatingHeader: React.FC = () => {
     setZoomSensitivity,
     setWheelZoomMode,
   } = useCanvasStore();
+  const edgeColorMode = useFlowStore((s) => s.edgeColorMode);
+  const setEdgeColorMode = useFlowStore((s) => s.setEdgeColorMode);
 
   // AI 配置
   const {
@@ -218,8 +224,8 @@ const FloatingHeader: React.FC = () => {
     useState<DailyRewardStatus | null>(null);
   const [dailyRewardLoading, setDailyRewardLoading] = useState(false);
   const [dailyRewardClaiming, setDailyRewardClaiming] = useState(false);
+  const [isHelpMenuOpen, setIsHelpMenuOpen] = useState(false);
   const [isWechatQrOpen, setIsWechatQrOpen] = useState(false);
-  const [isGlobalFlowRunning, setIsGlobalFlowRunning] = useState(false);
   const [fpsOverlayAdminButtonLayout, setFpsOverlayAdminButtonLayout] = useState<{
     top: number;
     left: number;
@@ -354,6 +360,7 @@ const FloatingHeader: React.FC = () => {
         gridColor: string;
         gridBgColor: string;
         gridBgEnabled: boolean;
+        edgeColorMode: FlowEdgeColorMode;
       }> | null;
       if (!saved || typeof saved !== "object") return;
 
@@ -387,6 +394,12 @@ const FloatingHeader: React.FC = () => {
       if (typeof saved.gridBgEnabled === "boolean") {
         setGridBgEnabled(saved.gridBgEnabled);
       }
+      if (
+        saved.edgeColorMode === FlowEdgeColorMode.STANDARD ||
+        saved.edgeColorMode === FlowEdgeColorMode.HANDLE
+      ) {
+        setEdgeColorMode(saved.edgeColorMode);
+      }
     } catch (error) {
       console.warn(
         "[FloatingHeader] Failed to load saved appearance settings:",
@@ -400,6 +413,7 @@ const FloatingHeader: React.FC = () => {
     setGridColor,
     setGridBgColor,
     setGridBgEnabled,
+    setEdgeColorMode,
     setGridSizeInput,
   ]);
 
@@ -423,6 +437,7 @@ const FloatingHeader: React.FC = () => {
       gridColor,
       gridBgColor,
       gridBgEnabled,
+      edgeColorMode,
     };
 
     try {
@@ -446,10 +461,19 @@ const FloatingHeader: React.FC = () => {
         2200
       );
     }
-  }, [showGrid, gridStyle, gridSize, gridColor, gridBgColor, gridBgEnabled]);
+  }, [
+    showGrid,
+    gridStyle,
+    gridSize,
+    gridColor,
+    gridBgColor,
+    gridBgEnabled,
+    edgeColorMode,
+  ]);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [activeSettingsSection, setActiveSettingsSection] =
     useState<SettingsSectionId>("workspace");
+  const settingsContentScrollRef = useRef<HTMLDivElement | null>(null);
   const [showReferralNotification, setShowReferralNotification] =
     useState(false);
   const [isGlobalHistoryOpen, setIsGlobalHistoryOpen] = useState(false);
@@ -479,6 +503,13 @@ const FloatingHeader: React.FC = () => {
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [isSettingsOpen]);
+
+  useEffect(() => {
+    if (!isSettingsOpen) return;
+    const container = settingsContentScrollRef.current;
+    if (!container) return;
+    container.scrollTop = 0;
+  }, [activeSettingsSection, isSettingsOpen]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -692,25 +723,6 @@ const FloatingHeader: React.FC = () => {
     };
   }, [refreshCreditsAndDailyReward]);
 
-  useEffect(() => {
-    const handleGlobalRunState = (
-      event: Event
-    ) => {
-      const detail = (event as CustomEvent<{ running?: boolean }>).detail;
-      setIsGlobalFlowRunning(detail?.running === true);
-    };
-    window.addEventListener(
-      "flow:global-run-state",
-      handleGlobalRunState as EventListener
-    );
-    return () => {
-      window.removeEventListener(
-        "flow:global-run-state",
-        handleGlobalRunState as EventListener
-      );
-    };
-  }, []);
-
   const handleClaimDailyReward = useCallback(async () => {
     if (!user || dailyRewardClaiming) return;
     setDailyRewardClaiming(true);
@@ -731,6 +743,21 @@ const FloatingHeader: React.FC = () => {
       refreshCreditsAndDailyReward();
     }
   }, [dailyRewardClaiming, refreshCreditsAndDailyReward, t, user]);
+
+  const openCreditsPage = useCallback(() => {
+    const base = import.meta.env.BASE_URL || "/";
+    const originWithBase = `${window.location.origin}${
+      base.endsWith("/") ? base : `${base}/`
+    }`;
+    const href = new URL("my-credits", originWithBase).href;
+    window.open(href, "_blank", "noopener,noreferrer");
+  }, []);
+
+  const topCreditsText = useMemo(() => {
+    if (creditsLoading && !creditsInfo) return "...";
+    if (creditsInfo) return creditsInfo.balance.toLocaleString();
+    return "--";
+  }, [creditsInfo, creditsLoading]);
 
   const displayName =
     user?.name ||
@@ -878,7 +905,14 @@ const FloatingHeader: React.FC = () => {
       case "workspace":
         // 显示支付面板
         if (showPaymentPanel) {
-          return <PaymentPanel onBack={() => setShowPaymentPanel(false)} />;
+          return (
+            <PaymentPanel
+              onBack={() => {
+                setShowPaymentPanel(false);
+                setIsSettingsOpen(false);
+              }}
+            />
+          );
         }
         // 显示工作区内容
         return (
@@ -898,6 +932,9 @@ const FloatingHeader: React.FC = () => {
                 </div>
                 <div className='text-sm text-slate-400'>{secondaryId}</div>
               </div>
+              <div className='shrink-0 text-sm leading-none text-right select-none'>
+                <AutosaveStatus />
+              </div>
             </div>
 
             {/* 积分信息卡片 */}
@@ -910,9 +947,10 @@ const FloatingHeader: React.FC = () => {
                   </span>
                 </div>
                 <button
+                  type='button'
                   onClick={() => {
                     setIsSettingsOpen(false);
-                    window.open("/my-credits", "_blank");
+                    openCreditsPage();
                   }}
                   className='text-sm text-slate-500 hover:text-slate-700'
                 >
@@ -937,7 +975,7 @@ const FloatingHeader: React.FC = () => {
                     </div>
                     <button
                       onClick={() => setShowPaymentPanel(true)}
-                      className='px-5 py-2 border border-slate-300 text-slate-600 rounded-lg hover:bg-white transition-colors text-sm'
+                      className='px-5 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800 transition-colors text-sm'
                     >
                       {t("workspace.settings.workspaceTab.credits.recharge")}
                     </button>
@@ -1175,6 +1213,45 @@ const FloatingHeader: React.FC = () => {
                   className='w-8 h-8 rounded-full border-0 cursor-pointer overflow-hidden'
                   style={{ WebkitAppearance: "none" }}
                 />
+              </div>
+            </div>
+
+            {/* 分隔线 */}
+            <div className='border-b border-slate-100'></div>
+
+            {/* 连线颜色 */}
+            <div>
+              <div className='text-sm font-medium text-slate-700'>
+                {t("workspace.settings.appearanceTab.edgeColorMode.title")}
+              </div>
+              <div className='text-xs text-slate-400 mt-0.5 mb-3'>
+                {t("workspace.settings.appearanceTab.edgeColorMode.desc")}
+              </div>
+              <div className='inline-flex rounded-full bg-slate-100 p-1'>
+                <button
+                  type='button'
+                  onClick={() => setEdgeColorMode(FlowEdgeColorMode.STANDARD)}
+                  className={cn(
+                    "px-4 py-1 rounded-full text-sm transition-all",
+                    edgeColorMode === FlowEdgeColorMode.STANDARD
+                      ? "bg-white text-slate-700 shadow-sm"
+                      : "text-slate-400 hover:text-slate-600"
+                  )}
+                >
+                  {t("workspace.settings.appearanceTab.edgeColorMode.standard")}
+                </button>
+                <button
+                  type='button'
+                  onClick={() => setEdgeColorMode(FlowEdgeColorMode.HANDLE)}
+                  className={cn(
+                    "px-4 py-1 rounded-full text-sm transition-all",
+                    edgeColorMode === FlowEdgeColorMode.HANDLE
+                      ? "bg-white text-slate-700 shadow-sm"
+                      : "text-slate-400 hover:text-slate-600"
+                  )}
+                >
+                  {t("workspace.settings.appearanceTab.edgeColorMode.handle")}
+                </button>
               </div>
             </div>
 
@@ -1826,8 +1903,8 @@ const FloatingHeader: React.FC = () => {
         {/* 空白拉伸 */}
         <div className='flex-1' />
 
-        {/* 右侧栏：功能按钮 + 保存状态 */}
-        <div className='flex flex-col items-center gap-1 pointer-events-auto'>
+        {/* 右侧栏：功能按钮 */}
+        <div className='pointer-events-auto'>
           <div className='flex items-center gap-1.5 md:gap-2 px-4 md:px-6 py-2 h-[46px] rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300'>
             {/* 素材库按钮 */}
             {showLibraryButton && (
@@ -1853,58 +1930,63 @@ const FloatingHeader: React.FC = () => {
               </Button>
             )}
 
-            {/* 全局运行按钮 */}
             <Button
               variant='ghost'
               size='sm'
-              className={cn(
-                "h-7 px-2 gap-1.5 rounded-full transition-all duration-200 border",
-                "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border-liquid-glass shadow-liquid-glass",
-                "text-slate-700 hover:bg-liquid-glass-hover"
-              )}
-              title={
-                isGlobalFlowRunning
-                  ? t("workspace.header.globalAutoStop")
-                  : t("workspace.header.globalAutoRun")
-              }
-              onClick={() => {
-                if (isGlobalFlowRunning) {
-                  window.dispatchEvent(new CustomEvent("flow:stop-global"));
-                } else {
-                  window.dispatchEvent(new CustomEvent("flow:run-global"));
-                }
-              }}
+              className='h-7 px-2.5 text-xs rounded-full border border-liquid-glass-light bg-liquid-glass-light backdrop-blur-minimal text-gray-700 hover:bg-liquid-glass-hover transition-all duration-200 flex items-center gap-1.5'
+              title={t("workspace.header.myCredits")}
+              onClick={openCreditsPage}
             >
-              {isGlobalFlowRunning ? (
-                <span
-                  className='inline-block w-2.5 h-2.5 bg-black rounded-[2px]'
-                  aria-hidden='true'
-                />
-              ) : (
-                <Play className='w-4 h-4' />
-              )}
-              <span className='text-[11px] leading-none whitespace-nowrap'>
-                {isGlobalFlowRunning
-                  ? t("workspace.header.globalAutoStop")
-                  : t("workspace.header.globalAutoRun")}
+              <span className='relative flex items-center justify-center w-4 h-4 rounded-full bg-gradient-to-br from-amber-300 via-amber-400 to-orange-500 shadow-[0_1px_4px_rgba(245,158,11,0.5)]'>
+                <span className='absolute inset-[1px] rounded-full bg-gradient-to-br from-amber-200/85 to-amber-500/80' />
+                <Star className='relative w-2.5 h-2.5 text-amber-50 fill-amber-100/90' />
               </span>
+              <span className='tabular-nums font-medium'>{topCreditsText}</span>
             </Button>
 
             {/* 帮助按钮 */}
-            <Button
-              variant='ghost'
-              size='sm'
-              className='p-0 text-gray-600 transition-all duration-200 border rounded-full h-7 w-7 bg-liquid-glass-light backdrop-blur-minimal border-liquid-glass-light hover:bg-liquid-glass-hover'
-              title={t("workspace.header.help")}
-              onClick={() =>
-                window.open(
-                  "https://gcnyatv1ofs3.feishu.cn/docx/U5Jzd18dLoCtvlxhHdDcoRgVnWd",
-                  "_blank"
-                )
-              }
+            <div
+              className='relative'
+              onMouseEnter={() => setIsHelpMenuOpen(true)}
+              onMouseLeave={() => setIsHelpMenuOpen(false)}
             >
-              <HelpCircle className='w-4 h-4' />
-            </Button>
+              {isHelpMenuOpen && (
+                <div className='absolute top-full left-1/2 -translate-x-1/2 pt-2 z-[100] animate-in fade-in slide-in-from-top-2 duration-200'>
+                  <div className='w-[132px] p-1.5 rounded-2xl bg-white/95 backdrop-blur-md border border-slate-200 shadow-[0_12px_28px_rgba(15,23,42,0.12)] flex flex-col gap-0.5'>
+                    <button
+                      type='button'
+                      className='w-full h-9 px-3 rounded-xl text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300'
+                      onClick={() => {
+                        window.open(USER_MANUAL_URL, "_blank", "noopener,noreferrer");
+                        setIsHelpMenuOpen(false);
+                      }}
+                    >
+                      {t("workspace.header.userManual")}
+                    </button>
+                    <button
+                      type='button'
+                      className='w-full h-9 px-3 rounded-xl text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300'
+                      onClick={() => {
+                        window.open(CHANGELOG_URL, "_blank", "noopener,noreferrer");
+                        setIsHelpMenuOpen(false);
+                      }}
+                    >
+                      {t("workspace.header.changelog")}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <Button
+                variant='ghost'
+                size='sm'
+                className='p-0 text-gray-600 transition-all duration-200 border rounded-full h-7 w-7 bg-liquid-glass-light backdrop-blur-minimal border-liquid-glass-light hover:bg-liquid-glass-hover'
+                title={t("workspace.header.help")}
+                onClick={() => setIsHelpMenuOpen((prev) => !prev)}
+              >
+                <HelpCircle className='w-4 h-4' />
+              </Button>
+            </div>
 
             <div
               className='relative'
@@ -1971,11 +2053,6 @@ const FloatingHeader: React.FC = () => {
             >
               <Menu className='w-4 h-4' />
             </Button>
-          </div>
-          <div className='pr-1 text-[11px] leading-none w-full text-center h-4 flex items-center justify-center select-none pointer-events-none'>
-            <span className='pointer-events-none'>
-              <AutosaveStatus />
-            </span>
           </div>
         </div>
 
@@ -2050,7 +2127,10 @@ const FloatingHeader: React.FC = () => {
                       </div>
                     </div>
                   </aside>
-                  <div className='flex-1 px-4 py-6 overflow-y-auto sm:px-6'>
+                  <div
+                    ref={settingsContentScrollRef}
+                    className='flex-1 px-4 py-6 overflow-y-auto sm:px-6'
+                  >
                     <div className='flex flex-wrap gap-2 mb-4 sm:hidden'>
                       {SETTINGS_SECTIONS.map((section) => {
                         const Icon = section.icon;

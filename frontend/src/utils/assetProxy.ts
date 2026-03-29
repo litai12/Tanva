@@ -212,9 +212,10 @@ export function proxifyRemoteAssetUrl(
       return input;
     }
 
-    // 当显式关闭代理时（VITE_PROXY_ASSETS=false），直接使用 OSS 原始 URL，
+    // 当显式关闭代理时（VITE_PROXY_ASSETS=false），直接使用 OSS/CDN 原始 URL，
     // 避免占用前端内存缓存与重复的 base64/占位替换。
-    if (!proxyEnabled) {
+    // forceProxy 为 true 时仍走后端代理（例如 Apimart 等带防盗链的生成图域名，<img> 直连易裂图）。
+    if (!proxyEnabled && !forceProxy) {
       return value;
     }
   } catch {

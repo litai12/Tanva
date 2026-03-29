@@ -12,12 +12,22 @@ export const FlowBackgroundVariant = {
 
 export type FlowBackgroundVariant = typeof FlowBackgroundVariant[keyof typeof FlowBackgroundVariant];
 
+export const FlowEdgeColorMode = {
+  STANDARD: 'standard',
+  HANDLE: 'handle',
+} as const;
+
+export type FlowEdgeColorMode = typeof FlowEdgeColorMode[keyof typeof FlowEdgeColorMode];
+
 const FLOW_SETTINGS_VERSION = 1;
 
 const isFlowBackgroundVariant = (value: unknown): value is FlowBackgroundVariant =>
   value === FlowBackgroundVariant.DOTS ||
   value === FlowBackgroundVariant.LINES ||
   value === FlowBackgroundVariant.CROSS;
+
+const isFlowEdgeColorMode = (value: unknown): value is FlowEdgeColorMode =>
+  value === FlowEdgeColorMode.STANDARD || value === FlowEdgeColorMode.HANDLE;
 
 interface FlowState {
   // Flow背景/网格系统
@@ -27,6 +37,7 @@ interface FlowState {
   backgroundSize: number;          // 点大小/线宽
   backgroundColor: string;         // 背景颜色
   backgroundOpacity: number;       // 背景透明度
+  edgeColorMode: FlowEdgeColorMode; // 连线颜色模式
 
   // 性能/渲染策略
   onlyRenderVisibleElements: boolean; // ReactFlow: 视窗外元素是否卸载（省性能但会有“回到视窗重新加载感”）
@@ -48,6 +59,7 @@ interface FlowState {
   setBackgroundSize: (size: number) => void;
   setBackgroundColor: (color: string) => void;
   setBackgroundOpacity: (opacity: number) => void;
+  setEdgeColorMode: (mode: FlowEdgeColorMode) => void;
   setFlowZoom: (zoom: number) => void;
   setFlowPan: (x: number, y: number) => void;
   panFlowBy: (deltaX: number, deltaY: number) => void;
@@ -69,6 +81,7 @@ export const useFlowStore = create<FlowState>()(
         backgroundSize: 1,
         backgroundColor: '#94a3b8', // slate-400
         backgroundOpacity: 0.4,
+        edgeColorMode: FlowEdgeColorMode.STANDARD,
 
         // 默认关闭：避免节点/图片离开视窗后再进入时的卸载/重建“加载感”
         onlyRenderVisibleElements: false,
@@ -96,6 +109,7 @@ export const useFlowStore = create<FlowState>()(
         setBackgroundOpacity: (opacity) => set({ 
           backgroundOpacity: Math.max(0, Math.min(1, opacity)) 
         }),
+        setEdgeColorMode: (mode) => set({ edgeColorMode: mode }),
 
         setOnlyRenderVisibleElements: (enabled) => set({ onlyRenderVisibleElements: enabled }),
         setShowFpsOverlay: (enabled) => set({ showFpsOverlay: enabled }),
@@ -146,6 +160,9 @@ export const useFlowStore = create<FlowState>()(
               typeof state.backgroundOpacity === 'number'
                 ? Math.max(0, Math.min(1, state.backgroundOpacity))
                 : 0.4,
+            edgeColorMode: isFlowEdgeColorMode(state.edgeColorMode)
+              ? state.edgeColorMode
+              : FlowEdgeColorMode.STANDARD,
             snapToGrid: typeof state.snapToGrid === 'boolean' ? state.snapToGrid : true,
             onlyRenderVisibleElements:
               typeof state.onlyRenderVisibleElements === 'boolean'
@@ -162,6 +179,7 @@ export const useFlowStore = create<FlowState>()(
           backgroundSize: state.backgroundSize,
           backgroundColor: state.backgroundColor,
           backgroundOpacity: state.backgroundOpacity,
+          edgeColorMode: state.edgeColorMode,
           snapToGrid: state.snapToGrid,
           onlyRenderVisibleElements: state.onlyRenderVisibleElements,
           showFpsOverlay: state.showFpsOverlay,

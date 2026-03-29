@@ -36,6 +36,7 @@ const enUS = {
         login: "Log in",
         register: "Sign up",
         logout: "Log out",
+        myCredits: "My Credits",
       },
     },
     hero: {
@@ -125,7 +126,10 @@ const enUS = {
   workspace: {
     header: {
       help: "Help",
+      userManual: "User Manual",
+      changelog: "Changelog",
       settings: "Settings",
+      myCredits: "My Credits",
       backHome: "Back to Home",
       renameHint: "Double-click to rename",
       switchProject: "Switch Project",
@@ -251,6 +255,12 @@ const enUS = {
         gridColor: {
           title: "Grid Color",
         },
+        edgeColorMode: {
+          title: "Edge Color",
+          desc: "Set how flow edge colors are displayed",
+          standard: "Standard",
+          handle: "Follow Handle",
+        },
         chatStyle: {
           title: "AI Chat Style",
           transparent: "Transparent",
@@ -368,6 +378,7 @@ const enUS = {
       durationUnit: "s",
       notAvailable: "--",
       channel: "Channel: {{channel}}",
+      model: "Model: {{model}}",
     },
     usage: {
       title: "API Usage Records",
@@ -390,6 +401,7 @@ const enUS = {
       gemini31ImageBlend: "Nano banana 2 Blend",
       geminiImageAnalyze: "Image Analysis",
       geminiText: "Text Chat",
+      geminiPromptOptimize: "Prompt Optimization",
       geminiPaperJs: "Paper.js Generation",
       midjourneyImagine: "Midjourney Image",
       midjourneyVariation: "Midjourney Variation",

@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { cn } from '@/lib/utils';
+import { Pipette } from 'lucide-react';
 
 interface ColorPickerProps {
   value: string;
@@ -13,6 +14,16 @@ interface ColorPickerProps {
   showLabel?: string; // 新增：在颜色块中心显示的字母标签
   showFillPattern?: boolean; // 新增：是否显示填充图案
 }
+
+interface EyeDropperResult {
+  sRGBHex: string;
+}
+
+interface EyeDropperInstance {
+  open: () => Promise<EyeDropperResult>;
+}
+
+type EyeDropperConstructor = new () => EyeDropperInstance;
 
 // 预设颜色面板 - 1行12列（12个颜色）
 const PRESET_COLORS = [
@@ -68,6 +79,10 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
   const panelRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLDivElement>(null);
   const colorInputRef = useRef<HTMLInputElement>(null);
+  const cleanupCanvasPickRef = useRef<(() => void) | null>(null);
+  const [isCanvasPicking, setIsCanvasPicking] = useState(false);
+  const eyeDropperSupported = typeof window !== 'undefined' &&
+    typeof (window as Window & { EyeDropper?: EyeDropperConstructor }).EyeDropper === 'function';
 
   // 点击外部关闭
   useEffect(() => {
@@ -111,6 +126,99 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
     onTransparentSelect?.();
     setIsOpen(false);
   };
+
+  const rgbToHex = (r: number, g: number, b: number): string => {
+    const toHex = (value: number) => value.toString(16).padStart(2, '0');
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  };
+
+  const startCanvasFallbackPick = () => {
+    const canvas = document.querySelector('canvas.tanva-main-canvas') as HTMLCanvasElement | null;
+    if (!canvas) return;
+
+    setIsOpen(false);
+    setIsCanvasPicking(true);
+
+    const previousBodyCursor = document.body.style.cursor;
+    const previousCanvasCursor = canvas.style.cursor;
+    document.body.style.cursor = 'crosshair';
+    canvas.style.cursor = 'crosshair';
+
+    const cleanup = () => {
+      window.removeEventListener('pointerdown', handlePointerDown, true);
+      window.removeEventListener('keydown', handleKeyDown, true);
+      document.body.style.cursor = previousBodyCursor;
+      canvas.style.cursor = previousCanvasCursor;
+      cleanupCanvasPickRef.current = null;
+      setIsCanvasPicking(false);
+    };
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const clickedCanvas = event.clientX >= rect.left &&
+        event.clientX <= rect.right &&
+        event.clientY >= rect.top &&
+        event.clientY <= rect.bottom;
+
+      if (clickedCanvas) {
+        event.preventDefault();
+        event.stopPropagation();
+        const x = Math.floor((event.clientX - rect.left) * (canvas.width / rect.width));
+        const y = Math.floor((event.clientY - rect.top) * (canvas.height / rect.height));
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (ctx && Number.isFinite(x) && Number.isFinite(y)) {
+          try {
+            const pixel = ctx.getImageData(x, y, 1, 1).data;
+            handleColorSelect(rgbToHex(pixel[0], pixel[1], pixel[2]));
+          } catch (error) {
+            console.error('Canvas color pick failed:', error);
+          }
+        }
+      }
+
+      cleanup();
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        cleanup();
+      }
+    };
+
+    cleanupCanvasPickRef.current = cleanup;
+    window.addEventListener('pointerdown', handlePointerDown, true);
+    window.addEventListener('keydown', handleKeyDown, true);
+  };
+
+  const handleEyeDropperPick = async (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!eyeDropperSupported) {
+      startCanvasFallbackPick();
+      return;
+    }
+
+    try {
+      const EyeDropperCtor = (window as Window & { EyeDropper?: EyeDropperConstructor }).EyeDropper;
+      if (!EyeDropperCtor) return;
+      const eyeDropper = new EyeDropperCtor();
+      const result = await eyeDropper.open();
+      if (result?.sRGBHex) {
+        handleColorSelect(result.sRGBHex);
+      }
+    } catch (error) {
+      // 用户主动取消取色时浏览器会抛 AbortError，这里静默忽略。
+      if ((error as { name?: string })?.name !== 'AbortError') {
+        console.error('EyeDropper failed:', error);
+      }
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      cleanupCanvasPickRef.current?.();
+    };
+  }, []);
 
   return (
     <div className="relative">
@@ -191,18 +299,12 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
               </div>
             )}
             
-            {/* 自定义颜色按钮 */}
-            <label 
-              className={cn("block", showTransparent ? "flex-1" : "w-full")}
-            >
+            {/* 自定义颜色与吸管取色 */}
+            <div className={cn("flex gap-2", showTransparent ? "flex-1" : "w-full")}>
               <input
                 ref={colorInputRef}
                 type="color"
                 value={value}
-                onClick={(e) => {
-                  // 阻止事件冒泡，防止触发外部点击检测
-                  e.stopPropagation();
-                }}
                 onChange={(e) => {
                   // 只更新颜色值，不关闭面板，让用户可以继续调整
                   handleColorSelect(e.target.value, false);
@@ -216,17 +318,27 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
                 }}
                 className="sr-only"
               />
-              <div 
-                className="flex items-center justify-center w-full h-8 text-xs font-medium text-gray-600 border border-gray-300 rounded cursor-pointer bg-gray-50 hover:bg-gray-100"
-                onClick={(e) => {
-                  // 触发 color input 的点击
-                  e.preventDefault();
+              <button
+                type="button"
+                className="flex items-center justify-center flex-1 h-8 text-xs font-medium text-gray-600 border border-gray-300 rounded cursor-pointer bg-gray-50 hover:bg-gray-100"
+                onClick={() => {
                   colorInputRef.current?.click();
                 }}
               >
                 More
-              </div>
-            </label>
+              </button>
+              <button
+                type="button"
+                onClick={handleEyeDropperPick}
+                title={isCanvasPicking ? '正在等待点击画布取色（Esc 取消）' : (eyeDropperSupported ? '吸管取色（从画布拾取）' : '点击后在画布上取色（Esc 取消）')}
+                className={cn(
+                  "flex items-center justify-center w-8 h-8 border border-gray-300 rounded bg-gray-50 text-gray-600 cursor-pointer hover:bg-gray-100",
+                  isCanvasPicking && "bg-blue-50 border-blue-300 text-blue-600"
+                )}
+              >
+                <Pipette className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
       )}

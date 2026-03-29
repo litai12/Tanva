@@ -244,6 +244,7 @@ export interface AIError {
 export interface AIImageAnalyzeRequest {
   prompt?: string;
   sourceImage: string; // base64 encoded image
+  sourceImageUrl?: string; // URL to remote image
   model?: string;
   aiProvider?: SupportedAIProvider;
   providerOptions?: AIProviderOptions;
@@ -262,6 +263,7 @@ export interface AITextChatRequest {
   model?: string;
   aiProvider?: SupportedAIProvider;
   providerOptions?: AIProviderOptions;
+  billingTag?: 'text_chat' | 'prompt_optimize';
   thinkingLevel?: 'high' | 'low'; // 思考级别（仅 Gemini 3）
   context?: string[];
   enableWebSearch?: boolean; // 是否启用联网搜索

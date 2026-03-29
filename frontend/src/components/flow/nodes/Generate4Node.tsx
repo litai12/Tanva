@@ -16,6 +16,10 @@ type Props = {
     imageUrls?: string[];
     thumbnails?: string[];
     count?: number;
+    /** 各槽失败原因（与 Multi Generate 顺序调用相关） */
+    generate4SlotErrors?: (string | undefined)[];
+    /** 运行中：已完成到第几轮（0..count），用于槽位 loading，与成功张数解耦 */
+    generate4PassIndex?: number;
     aspectRatio?: "1:1" | "2:3" | "3:2" | "3:4" | "4:3" | "4:5" | "5:4" | "9:16" | "16:9" | "21:9";
     imageSize?: "0.5K" | "1K" | "2K" | "4K";
     onRun?: (id: string) => void;
@@ -40,6 +44,11 @@ function Generate4NodeInner({ id, data, selected }: Props) {
   const images = data.images || [];
   const imageUrls = data.imageUrls || [];
   const thumbnails = data.thumbnails || [];
+  const slotErrors = data.generate4SlotErrors || [];
+  const passIndex =
+    typeof data.generate4PassIndex === "number" && Number.isFinite(data.generate4PassIndex)
+      ? Math.max(0, data.generate4PassIndex)
+      : 0;
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
   const [previewIndex, setPreviewIndex] = React.useState<number>(0);
@@ -90,7 +99,11 @@ function Generate4NodeInner({ id, data, selected }: Props) {
     const img = imageUrls[idx] || images[idx];
     const thumb = thumbnails[idx];
     const displaySrc = thumb ? buildImageSrc(thumb) : (img ? buildImageSrc(img) : '');
-    const isLoading = status === "running" && idx >= images.length;
+    const slotErr =
+      typeof slotErrors[idx] === "string" && slotErrors[idx]!.trim()
+        ? slotErrors[idx]!.trim()
+        : "";
+    const isLoading = status === "running" && idx >= passIndex;
     return (
       <div
         key={idx}
@@ -125,6 +138,19 @@ function Generate4NodeInner({ id, data, selected }: Props) {
               background: "#fff",
             }}
           />
+        ) : slotErr ? (
+          <span
+            style={{
+              fontSize: 10,
+              color: "#b91c1c",
+              padding: "4px 6px",
+              textAlign: "center",
+              lineHeight: 1.35,
+            }}
+            title={slotErr}
+          >
+            {lt("失败", "Failed")}: {slotErr.length > 40 ? `${slotErr.slice(0, 40)}…` : slotErr}
+          </span>
         ) : (
           <span style={{ fontSize: 12, color: "#9ca3af" }}>
             {isLoading ? lt("生成中…", "Generating...") : lt("空槽", "Empty")}
@@ -443,11 +469,11 @@ function Generate4NodeInner({ id, data, selected }: Props) {
         {Array.from({ length: 4 }).map((_, i) => renderCell(i))}
       </div>
 
-      {status === "failed" && error && (
+      {error && (status === "failed" || status === "succeeded") && (
         <div
           style={{
             fontSize: 12,
-            color: "#ef4444",
+            color: status === "failed" ? "#ef4444" : "#b45309",
             marginTop: 4,
             whiteSpace: "pre-wrap",
           }}

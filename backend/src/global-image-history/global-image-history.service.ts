@@ -22,7 +22,8 @@ export class GlobalImageHistoryService {
   }
 
   async list(userId: string, query: QueryGlobalImageHistoryDto) {
-    const { limit = 20, cursor, sourceType, sourceProjectId, search } = query;
+    const { limit = 20, cursor, sourceType, sourceProjectId, search, page } =
+      query;
 
     const where: any = { userId };
     if (sourceType) {
@@ -47,6 +48,30 @@ export class GlobalImageHistoryService {
           },
         },
       ];
+    }
+
+    if (typeof page === 'number' && Number.isFinite(page) && page >= 1) {
+      const totalCount = await this.prisma.globalImageHistory.count({ where });
+      const totalPages =
+        totalCount > 0 ? Math.ceil(totalCount / limit) : 1;
+      const safePage = Math.min(Math.max(1, Math.trunc(page)), totalPages);
+      const skip = (safePage - 1) * limit;
+
+      const items = await this.prisma.globalImageHistory.findMany({
+        where,
+        take: limit,
+        skip,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      });
+
+      return {
+        items,
+        nextCursor: undefined,
+        hasMore: safePage < totalPages,
+        totalCount,
+        totalPages,
+        page: safePage,
+      };
     }
 
     const items = await this.prisma.globalImageHistory.findMany({

@@ -1,6 +1,6 @@
 import type { Node, Edge } from 'reactflow';
 
-export type NodeKind = 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generatePro' | 'storyboardSplit' | 'imageSplit' | 'imageCompress' | 'audioUpload' | 'minimaxSpeech';
+export type NodeKind = 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generatePro' | 'storyboardSplit' | 'imageSplit' | 'imageCompress' | 'audioUpload' | 'minimaxSpeech' | 'tencentSpeech';
 
 export type TextPromptData = {
   text?: string;
@@ -78,6 +78,7 @@ export type StoryboardSplitData = {
 };
 
 export type ImageSplitStatus = 'idle' | 'processing' | 'succeeded' | 'failed';
+export type ImageSplitMode = 'smart' | 'customGrid';
 
 export type SplitRectItem = {
   index: number;
@@ -98,6 +99,9 @@ export type SplitImageItem = {
 
 export type ImageSplitData = {
   status?: ImageSplitStatus;
+  splitMode?: ImageSplitMode;
+  gridCols?: number;
+  gridRows?: number;
   inputImage?: string;
   inputImageUrl?: string;
   // 方案A：持久化仅保存裁切矩形与原图引用（不保存切片图片数据）
@@ -177,7 +181,37 @@ export type AudioUploadData = {
   boxH?: number;
 };
 
-export type AnyNodeData = TextPromptData | PromptOptimizeData | ImageData | GenerateData | GenerateProData | Generate4Data | TextChatData | StoryboardSplitData | ImageSplitData | ImageCompressData | AudioUploadData | MinimaxSpeechData;
+export type TencentSpeechData = {
+  status?: 'idle' | 'running' | 'succeeded' | 'failed';
+  audioUrl?: string;
+  videoUrl?: string;
+  speakerUrl?: string;
+  error?: string;
+  inputVideoUrl?: string;
+  text?: string;
+  speakerUrlInput?: string;
+  voiceId?: string;
+  speakerGender?: 'male' | 'female';
+  srcLang?: string;
+  dstLang?: string;
+  srcSubtitleUrl?: string;
+  dstSubtitleUrl?: string;
+  embedSubtitle?: boolean;
+  font?: string;
+  fontSize?: number;
+  marginV?: number;
+  outputPattern?: string;
+  history?: Array<{
+    id: string;
+    prompt: string;
+    audioUrl: string;
+    videoUrl?: string;
+    createdAt: number;
+  }>;
+  selectedHistoryId?: string;
+};
+
+export type AnyNodeData = TextPromptData | PromptOptimizeData | ImageData | GenerateData | GenerateProData | Generate4Data | TextChatData | StoryboardSplitData | ImageSplitData | ImageCompressData | AudioUploadData | MinimaxSpeechData | TencentSpeechData;
 
 export type AnyNode = Node<AnyNodeData>;
 export type AnyEdge = Edge;

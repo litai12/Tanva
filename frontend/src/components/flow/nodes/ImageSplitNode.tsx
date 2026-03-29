@@ -10,7 +10,6 @@ import {
   type Edge,
   type Node,
 } from 'reactflow';
-import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { imageSplitWorkerClient } from '@/services/imageSplitWorkerClient';
 import { deleteFlowImage, parseFlowImageAssetRef, putFlowImageBlobs, toFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { toRenderableImageSrc } from '@/utils/imageSource';
@@ -170,6 +169,9 @@ type Props = {
   id: string;
   data: {
     status?: 'idle' | 'processing' | 'succeeded' | 'failed';
+    splitMode?: 'smart' | 'customGrid';
+    gridCols?: number;
+    gridRows?: number;
     inputImage?: string;
     inputImageUrl?: string;
     // 方案A：仅持久化裁切矩形，不持久化切片图片数据
@@ -186,9 +188,30 @@ type Props = {
   selected?: boolean;
 };
 
+type SplitMode = 'smart' | 'customGrid';
 const MIN_OUTPUT_COUNT = 1;
 const MAX_OUTPUT_COUNT = 50;
 const DEFAULT_OUTPUT_COUNT = 9;
+const DEFAULT_SPLIT_MODE: SplitMode = 'smart';
+const DEFAULT_GRID_COLS = 3;
+const DEFAULT_GRID_ROWS = 3;
+
+const normalizeSplitMode = (value: unknown): SplitMode =>
+  value === 'customGrid' ? 'customGrid' : DEFAULT_SPLIT_MODE;
+
+const toPositiveInt = (value: unknown): number | null => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  const intVal = Math.floor(n);
+  if (intVal < 1) return null;
+  return intVal;
+};
+
+const normalizeGridDimension = (value: unknown, fallback: number): number => {
+  const parsed = toPositiveInt(value);
+  if (parsed == null) return fallback;
+  return Math.min(MAX_OUTPUT_COUNT, parsed);
+};
 
 const normalizeMimeType = (type: string): string => {
   const lower = type.trim().toLowerCase();
@@ -672,16 +695,23 @@ type SplitRectsResult = {
   sourceHeight: number;
 };
 
-const splitRectsByGrid = async (imageSrc: string, count: number): Promise<SplitRectsResult> => {
-  const safeCount = Math.min(MAX_OUTPUT_COUNT, Math.max(MIN_OUTPUT_COUNT, Math.floor(count || DEFAULT_OUTPUT_COUNT)));
+const splitRectsByGrid = async (
+  imageSrc: string,
+  count: number,
+  fixedGrid?: { cols: number; rows: number },
+  options?: { trimWhite?: boolean }
+): Promise<SplitRectsResult> => {
+  const safeCount = fixedGrid
+    ? Math.min(MAX_OUTPUT_COUNT, Math.max(1, fixedGrid.cols * fixedGrid.rows))
+    : Math.min(MAX_OUTPUT_COUNT, Math.max(MIN_OUTPUT_COUNT, Math.floor(count || DEFAULT_OUTPUT_COUNT)));
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
 
     img.onload = () => {
       try {
-        const cols = Math.max(1, Math.ceil(Math.sqrt(safeCount)));
-        const rows = Math.max(1, Math.ceil(safeCount / cols));
+        const cols = fixedGrid?.cols ?? Math.max(1, Math.ceil(Math.sqrt(safeCount)));
+        const rows = fixedGrid?.rows ?? Math.max(1, Math.ceil(safeCount / cols));
 
         let rects: SplitRectItem[] = [];
 
@@ -700,8 +730,9 @@ const splitRectsByGrid = async (imageSrc: string, count: number): Promise<SplitR
           rects.push({ index: i, x: x0, y: y0, width: w, height: h });
         }
 
+        const shouldTrimWhite = options?.trimWhite ?? !fixedGrid;
         // 白底场景：按内容去白边（避免“报纸/证件照”类切片带大面积白边）
-        if (looksLikeWhiteBackgroundFromSample(img)) {
+        if (shouldTrimWhite && looksLikeWhiteBackgroundFromSample(img)) {
           rects = trimRectsByDownsample(img, rects);
         }
 
@@ -729,7 +760,6 @@ const detectAndSplitRects = async (imageSrc: string): Promise<SplitRectsResult> 
         // 而最终也会回落到网格切分，因此直接跳过。
         const totalPixels = img.width * img.height;
         const MAX_PIXELS_FOR_REGION_DETECT = 2_000_000; // ~2MP
-        const SAMPLE_SIZE = 96;
         const looksLikeWhiteBackground = looksLikeWhiteBackgroundFromSample(img);
         if (!looksLikeWhiteBackground || totalPixels > MAX_PIXELS_FOR_REGION_DETECT) {
           resolve({ rects: [], sourceWidth: img.width, sourceHeight: img.height });
@@ -1041,6 +1071,13 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
     width: typeof data.sourceWidth === 'number' ? data.sourceWidth : 0,
     height: typeof data.sourceHeight === 'number' ? data.sourceHeight : 0,
   }));
+  const [splitMode, setSplitMode] = React.useState<SplitMode>(() => normalizeSplitMode(data.splitMode));
+  const [gridCols, setGridCols] = React.useState<number>(() =>
+    normalizeGridDimension(data.gridCols, DEFAULT_GRID_COLS)
+  );
+  const [gridRows, setGridRows] = React.useState<number>(() =>
+    normalizeGridDimension(data.gridRows, DEFAULT_GRID_ROWS)
+  );
   const [outputCount, setOutputCount] = React.useState<number>(
     Math.min(MAX_OUTPUT_COUNT, Math.max(MIN_OUTPUT_COUNT, data.outputCount || DEFAULT_OUTPUT_COUNT))
   );
@@ -1048,6 +1085,8 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
   const [isProcessing, setIsProcessing] = React.useState(false);
   const [derivedInputRef, setDerivedInputRef] = React.useState<string | null>(null);
   const derivedInputRefLatest = React.useRef<string | null>(null);
+  const customGridCount = gridCols * gridRows;
+  const isCustomGridValid = customGridCount >= MIN_OUTPUT_COUNT && customGridCount <= MAX_OUTPUT_COUNT;
 
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
@@ -1572,7 +1611,8 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
       !normalizeString(derivedInputRef) &&
       (!Array.isArray(data.splitRects) || data.splitRects.length === 0)
   );
-  const canSplit = !!normalizeString(effectiveInputImage);
+  const hasEffectiveInputImage = !!normalizeString(effectiveInputImage);
+  const canSplit = hasEffectiveInputImage && (splitMode !== 'customGrid' || isCustomGridValid);
 
   // 更新节点数据
   const updateNodeData = React.useCallback((patch: Record<string, unknown>) => {
@@ -1685,11 +1725,37 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
   }, [data.splitRects, data.splitImages, data.sourceWidth, data.sourceHeight]);
 
   React.useEffect(() => {
-    const count = data.outputCount || DEFAULT_OUTPUT_COUNT;
-    if (count !== outputCount) {
-      setOutputCount(Math.min(MAX_OUTPUT_COUNT, Math.max(MIN_OUTPUT_COUNT, count)));
+    const nextMode = normalizeSplitMode(data.splitMode);
+    if (nextMode !== splitMode) {
+      setSplitMode(nextMode);
     }
-  }, [data.outputCount]);
+
+    const nextCols = normalizeGridDimension(data.gridCols, DEFAULT_GRID_COLS);
+    if (nextCols !== gridCols) {
+      setGridCols(nextCols);
+    }
+
+    const nextRows = normalizeGridDimension(data.gridRows, DEFAULT_GRID_ROWS);
+    if (nextRows !== gridRows) {
+      setGridRows(nextRows);
+    }
+  }, [data.gridCols, data.gridRows, data.splitMode, splitMode, gridCols, gridRows]);
+
+  React.useEffect(() => {
+    if (splitMode === 'customGrid') {
+      const count = Math.min(MAX_OUTPUT_COUNT, Math.max(MIN_OUTPUT_COUNT, customGridCount));
+      if (count !== outputCount) {
+        setOutputCount(count);
+      }
+      return;
+    }
+
+    const count = data.outputCount || DEFAULT_OUTPUT_COUNT;
+    const safeCount = Math.min(MAX_OUTPUT_COUNT, Math.max(MIN_OUTPUT_COUNT, count));
+    if (safeCount !== outputCount) {
+      setOutputCount(safeCount);
+    }
+  }, [customGridCount, data.outputCount, outputCount, splitMode]);
 
   // 执行分割
   const handleSplit = React.useCallback(async () => {
@@ -1750,9 +1816,19 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
         runtimeInputRef = toFlowImageAssetRef(assetId);
       }
 
-      const preferredCount = upstreamImageGridInputs.length > 0
-        ? Math.max(outputCount, upstreamImageGridInputs.length)
-        : outputCount;
+      if (splitMode === 'customGrid' && !isCustomGridValid) {
+        throw new Error(lt('自定义网格总数不能超过 50', 'Custom grid total cannot exceed 50'));
+      }
+      const fixedGrid = splitMode === 'customGrid'
+        ? { cols: gridCols, rows: gridRows }
+        : undefined;
+      const preferredCount = splitMode === 'customGrid'
+        ? customGridCount
+        : (
+          upstreamImageGridInputs.length > 0
+            ? Math.max(outputCount, upstreamImageGridInputs.length)
+            : outputCount
+        );
       const safeCount = Math.min(
         MAX_OUTPUT_COUNT,
         Math.max(MIN_OUTPUT_COUNT, Math.floor(preferredCount || DEFAULT_OUTPUT_COUNT))
@@ -1778,21 +1854,28 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
           splitSrc = buildImageSrc(runtimeInputRef) || inputImageSrc;
         }
         if (!splitSrc) throw new Error(lt('图片加载失败', 'Image load failed'));
-        const detected = await detectAndSplitRects(splitSrc);
-        rects = detected.rects;
-        sourceWidth = detected.sourceWidth;
-        sourceHeight = detected.sourceHeight;
-
-        // 对“整张图是一个连通块 / 无法识别区域”的情况做兜底：按输出数量做等分网格切图
-        // 端口语义：输出数量必须严格等于 safeCount，否则认为“检测结果不可靠”，回退到网格切分。
-        const countMismatch = rects.length !== safeCount;
-        const tooManyPieces =
-          rects.length > Math.min(MAX_OUTPUT_COUNT, Math.max(safeCount, DEFAULT_OUTPUT_COUNT)) * 2;
-        if (countMismatch || rects.length <= 1 || tooManyPieces) {
-          const grid = await splitRectsByGrid(splitSrc, safeCount);
+        if (fixedGrid) {
+          const grid = await splitRectsByGrid(splitSrc, safeCount, fixedGrid, { trimWhite: false });
           rects = grid.rects;
           sourceWidth = grid.sourceWidth;
           sourceHeight = grid.sourceHeight;
+        } else {
+          const detected = await detectAndSplitRects(splitSrc);
+          rects = detected.rects;
+          sourceWidth = detected.sourceWidth;
+          sourceHeight = detected.sourceHeight;
+
+          // 对“整张图是一个连通块 / 无法识别区域”的情况做兜底：按输出数量做等分网格切图
+          // 端口语义：输出数量必须严格等于 safeCount，否则认为“检测结果不可靠”，回退到网格切分。
+          const countMismatch = rects.length !== safeCount;
+          const tooManyPieces =
+            rects.length > Math.min(MAX_OUTPUT_COUNT, Math.max(safeCount, DEFAULT_OUTPUT_COUNT)) * 2;
+          if (countMismatch || rects.length <= 1 || tooManyPieces) {
+            const grid = await splitRectsByGrid(splitSrc, safeCount);
+            rects = grid.rects;
+            sourceWidth = grid.sourceWidth;
+            sourceHeight = grid.sourceHeight;
+          }
         }
         return {
           rects: rects.slice(0, MAX_OUTPUT_COUNT),
@@ -1812,7 +1895,11 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
         })();
 
         try {
-          const result = await imageSplitWorkerClient.splitImageRects(source, { outputCount: safeCount });
+          const result = await imageSplitWorkerClient.splitImageRects(source, {
+            outputCount: safeCount,
+            gridCols: fixedGrid?.cols,
+            gridRows: fixedGrid?.rows,
+          });
           if (!result.success || !Array.isArray(result.rects)) {
             throw new Error(result.error || lt('分割失败', 'Split failed'));
           }
@@ -1838,7 +1925,9 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
       }
 
       // 自动扩展输出端口数量
-      const newOutputCount = Math.min(MAX_OUTPUT_COUNT, Math.max(outputCount, rects.length));
+      const newOutputCount = splitMode === 'customGrid'
+        ? safeCount
+        : Math.min(MAX_OUTPUT_COUNT, Math.max(outputCount, rects.length));
       if (newOutputCount !== outputCount) {
         setOutputCount(newOutputCount);
       }
@@ -1850,6 +1939,9 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
         splitRects: rects,
         sourceWidth: sourceWidth || undefined,
         sourceHeight: sourceHeight || undefined,
+        splitMode,
+        gridCols,
+        gridRows,
         outputCount: newOutputCount,
         error: undefined
       };
@@ -1876,14 +1968,86 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
       } catch {}
       setIsProcessing(false);
     }
-  }, [id, inputAssetId, inputImageSrc, outputCount, projectId, rawInputImage, updateNodeData, upstreamImageGridInputs, lt]);
+  }, [
+    customGridCount,
+    gridCols,
+    gridRows,
+    id,
+    effectiveInputImage,
+    inputAssetId,
+    inputImageSrc,
+    isCustomGridValid,
+    outputCount,
+    projectId,
+    rawInputImage,
+    splitMode,
+    updateNodeData,
+    upstreamImageGridInputs,
+    lt,
+  ]);
 
   // 更新输出端口数量
   const handleOutputCountChange = React.useCallback((value: number) => {
+    if (splitMode === 'customGrid') return;
     const count = Math.min(MAX_OUTPUT_COUNT, Math.max(MIN_OUTPUT_COUNT, value));
     setOutputCount(count);
     updateNodeData({ outputCount: count });
-  }, [updateNodeData]);
+  }, [splitMode, updateNodeData]);
+
+  const handleSplitModeChange = React.useCallback((nextMode: SplitMode) => {
+    setSplitMode(nextMode);
+    if (nextMode === 'customGrid') {
+      const nextCount = Math.min(MAX_OUTPUT_COUNT, Math.max(MIN_OUTPUT_COUNT, gridCols * gridRows));
+      setOutputCount(nextCount);
+      updateNodeData({
+        splitMode: nextMode,
+        gridCols,
+        gridRows,
+        outputCount: nextCount,
+      });
+      return;
+    }
+    updateNodeData({
+      splitMode: nextMode,
+      gridCols,
+      gridRows,
+      outputCount,
+    });
+  }, [gridCols, gridRows, outputCount, updateNodeData]);
+
+  const handleGridColsChange = React.useCallback((value: number) => {
+    const nextCols = normalizeGridDimension(value, 1);
+    setGridCols(nextCols);
+    if (splitMode === 'customGrid') {
+      const nextCount = Math.min(MAX_OUTPUT_COUNT, Math.max(MIN_OUTPUT_COUNT, nextCols * gridRows));
+      setOutputCount(nextCount);
+      updateNodeData({
+        splitMode,
+        gridCols: nextCols,
+        gridRows,
+        outputCount: nextCount,
+      });
+      return;
+    }
+    updateNodeData({ splitMode, gridCols: nextCols, gridRows });
+  }, [gridRows, splitMode, updateNodeData]);
+
+  const handleGridRowsChange = React.useCallback((value: number) => {
+    const nextRows = normalizeGridDimension(value, 1);
+    setGridRows(nextRows);
+    if (splitMode === 'customGrid') {
+      const nextCount = Math.min(MAX_OUTPUT_COUNT, Math.max(MIN_OUTPUT_COUNT, gridCols * nextRows));
+      setOutputCount(nextCount);
+      updateNodeData({
+        splitMode,
+        gridCols,
+        gridRows: nextRows,
+        outputCount: nextCount,
+      });
+      return;
+    }
+    updateNodeData({ splitMode, gridCols, gridRows: nextRows });
+  }, [gridCols, splitMode, updateNodeData]);
 
   const stopNodeDrag = React.useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
@@ -2097,7 +2261,11 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
               isProcessing
                 ? lt('处理中...', 'Processing...')
                 : !canSplit
-                  ? (hasInputConnection ? lt('已连接但未读取到图片（检查上游输出/连线句柄）', 'Connected but no image was read (check upstream output/handle)') : lt('请先连接输入图片', 'Please connect an input image'))
+                  ? (
+                    !hasEffectiveInputImage
+                      ? (hasInputConnection ? lt('已连接但未读取到图片（检查上游输出/连线句柄）', 'Connected but no image was read (check upstream output/handle)') : lt('请先连接输入图片', 'Please connect an input image'))
+                      : lt('自定义网格总数不能超过 50', 'Custom grid total cannot exceed 50')
+                  )
                   : lt('开始分割', 'Start split')
             }
             style={{
@@ -2115,15 +2283,12 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
         </div>
       </div>
 
-      {/* 输出数量配置 */}
+      {/* 分割模式配置 */}
       <div className="nodrag nopan" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <label style={{ fontSize: 12, color: '#6b7280' }}>{lt('输出端口', 'Output ports')}</label>
-        <input
-          type="number"
-          min={MIN_OUTPUT_COUNT}
-          max={MAX_OUTPUT_COUNT}
-          value={outputCount}
-          onChange={(e) => handleOutputCountChange(Number(e.target.value))}
+        <label style={{ fontSize: 12, color: '#6b7280' }}>{lt('分割模式', 'Split mode')}</label>
+        <select
+          value={splitMode}
+          onChange={(e) => handleSplitModeChange(normalizeSplitMode(e.target.value))}
           onPointerDown={stopNodeDrag}
           onPointerDownCapture={stopNodeDrag}
           onMouseDown={stopNodeDrag}
@@ -2132,15 +2297,95 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
           onClickCapture={stopNodeDrag}
           className="nodrag nopan"
           style={{
-            width: 60,
             fontSize: 12,
             padding: '2px 6px',
             border: '1px solid #e5e7eb',
-            borderRadius: 6
+            borderRadius: 6,
+            background: '#fff',
           }}
-        />
-        <span style={{ fontSize: 11, color: '#9ca3af' }}>(1-50)</span>
+        >
+          <option value="smart">{lt('智能分割', 'Smart split')}</option>
+          <option value="customGrid">{lt('自定义网格', 'Custom grid')}</option>
+        </select>
       </div>
+
+      {splitMode === 'customGrid' ? (
+        <div className="nodrag nopan" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <label style={{ fontSize: 12, color: '#6b7280' }}>{lt('网格（列×行）', 'Grid (cols x rows)')}</label>
+          <input
+            type="number"
+            min={1}
+            max={MAX_OUTPUT_COUNT}
+            value={gridCols}
+            onChange={(e) => handleGridColsChange(Number(e.target.value))}
+            onPointerDown={stopNodeDrag}
+            onPointerDownCapture={stopNodeDrag}
+            onMouseDown={stopNodeDrag}
+            onMouseDownCapture={stopNodeDrag}
+            onClick={stopNodeDrag}
+            onClickCapture={stopNodeDrag}
+            className="nodrag nopan"
+            style={{
+              width: 56,
+              fontSize: 12,
+              padding: '2px 6px',
+              border: '1px solid #e5e7eb',
+              borderRadius: 6
+            }}
+          />
+          <span style={{ fontSize: 12, color: '#6b7280' }}>x</span>
+          <input
+            type="number"
+            min={1}
+            max={MAX_OUTPUT_COUNT}
+            value={gridRows}
+            onChange={(e) => handleGridRowsChange(Number(e.target.value))}
+            onPointerDown={stopNodeDrag}
+            onPointerDownCapture={stopNodeDrag}
+            onMouseDown={stopNodeDrag}
+            onMouseDownCapture={stopNodeDrag}
+            onClick={stopNodeDrag}
+            onClickCapture={stopNodeDrag}
+            className="nodrag nopan"
+            style={{
+              width: 56,
+              fontSize: 12,
+              padding: '2px 6px',
+              border: '1px solid #e5e7eb',
+              borderRadius: 6
+            }}
+          />
+          <span style={{ fontSize: 11, color: isCustomGridValid ? '#9ca3af' : '#ef4444' }}>
+            {lt(`总数 ${customGridCount}/50`, `Total ${customGridCount}/50`)}
+          </span>
+        </div>
+      ) : (
+        <div className="nodrag nopan" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <label style={{ fontSize: 12, color: '#6b7280' }}>{lt('输出端口', 'Output ports')}</label>
+          <input
+            type="number"
+            min={MIN_OUTPUT_COUNT}
+            max={MAX_OUTPUT_COUNT}
+            value={outputCount}
+            onChange={(e) => handleOutputCountChange(Number(e.target.value))}
+            onPointerDown={stopNodeDrag}
+            onPointerDownCapture={stopNodeDrag}
+            onMouseDown={stopNodeDrag}
+            onMouseDownCapture={stopNodeDrag}
+            onClick={stopNodeDrag}
+            onClickCapture={stopNodeDrag}
+            className="nodrag nopan"
+            style={{
+              width: 60,
+              fontSize: 12,
+              padding: '2px 6px',
+              border: '1px solid #e5e7eb',
+              borderRadius: 6
+            }}
+          />
+          <span style={{ fontSize: 11, color: '#9ca3af' }}>(1-50)</span>
+        </div>
+      )}
 
       {/* 输入图片预览 */}
       <div style={{

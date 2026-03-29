@@ -42,6 +42,19 @@ const LayerPanel: React.FC = () => {
         return id ? id : null;
     };
 
+    const getCanvasModelIdFromItem = (item: LayerItemData): string | null => {
+        const raw = (item as any)?.paperItem?.data?.modelId;
+        const id = typeof raw === 'string' ? raw.trim() : (raw !== null && raw !== undefined ? String(raw).trim() : '');
+        return id ? id : null;
+    };
+
+    const getPaperItemIdFromItem = (item: LayerItemData): string | null => {
+        const raw = (item as any)?.paperItem?.id;
+        if (raw === null || raw === undefined) return null;
+        const id = String(raw).trim();
+        return id ? id : null;
+    };
+
     const isPendingCanvasImageItem = (item: LayerItemData): boolean => {
         if (item.type !== 'image') return false;
         const imageId = getCanvasImageIdFromItem(item);
@@ -88,6 +101,7 @@ const LayerPanel: React.FC = () => {
     const [layerItems, setLayerItems] = useState<Record<string, LayerItemData[]>>({});
     const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
     const [isInitialLoading, setIsInitialLoading] = useState(true);
+    const allLayerItems = useMemo(() => Object.values(layerItems).flat(), [layerItems]);
 
     const containerRef = useRef<HTMLDivElement | null>(null);
     const indicatorClass = useMemo(() => 'absolute left-3 right-3 h-0.5 bg-gray-800 rounded-full pointer-events-none', []);
@@ -313,6 +327,109 @@ const LayerPanel: React.FC = () => {
             clearInterval(updateInterval);
         };
     }, [showLayerPanel, layers]);
+
+    // 反向同步：画板里选中图片/图元时，图层面板高亮对应项
+    useEffect(() => {
+        if (!showLayerPanel) return;
+
+        const syncCanvasSelectionToLayerPanel = () => {
+            const imageInstances = Array.isArray((window as any).tanvaImageInstances)
+                ? (window as any).tanvaImageInstances
+                : [];
+
+            const selectedImageIds = imageInstances
+                .filter((img: any) => img?.isSelected === true && typeof img?.id === 'string')
+                .map((img: any) => String(img.id));
+
+            const canvasSelection = ((window as any).tanvaCanvasSelection || {}) as {
+                imageIds?: string[];
+                modelIds?: string[];
+                paths?: Array<{ id?: string | number }>;
+            };
+
+            const selectedImageIdSet = new Set<string>([
+                ...selectedImageIds,
+                ...((Array.isArray(canvasSelection.imageIds) ? canvasSelection.imageIds : []).map((id) => String(id))),
+            ]);
+
+            const selectedModelIdSet = new Set<string>(
+                (Array.isArray(canvasSelection.modelIds) ? canvasSelection.modelIds : []).map((id) => String(id))
+            );
+
+            const selectedPathItemIdSet = new Set<string>(
+                (Array.isArray(canvasSelection.paths) ? canvasSelection.paths : [])
+                    .map((path) => {
+                        const raw = (path as any)?.id;
+                        if (raw === null || raw === undefined) return '';
+                        return String(raw).trim();
+                    })
+                    .filter(Boolean)
+            );
+
+            let selectedItem: LayerItemData | undefined;
+
+            for (const imageId of selectedImageIdSet) {
+                selectedItem = allLayerItems.find((item) => {
+                    if (item.type !== 'image') return false;
+                    return getCanvasImageIdFromItem(item) === imageId;
+                });
+                if (selectedItem) break;
+            }
+
+            if (!selectedItem) {
+                for (const modelId of selectedModelIdSet) {
+                    selectedItem = allLayerItems.find((item) => {
+                        if (item.type !== 'model3d') return false;
+                        return getCanvasModelIdFromItem(item) === modelId;
+                    });
+                    if (selectedItem) break;
+                }
+            }
+
+            if (!selectedItem && selectedPathItemIdSet.size > 0) {
+                selectedItem = allLayerItems.find((item) => {
+                    const paperItemId = getPaperItemIdFromItem(item);
+                    return Boolean(paperItemId && selectedPathItemIdSet.has(paperItemId));
+                });
+            }
+
+            if (!selectedItem) {
+                selectedItem = allLayerItems.find((item) => item.selected === true);
+            }
+
+            const nextSelectedItemId = selectedItem?.id ?? null;
+            setSelectedItemId((prev) => (prev === nextSelectedItemId ? prev : nextSelectedItemId));
+
+            const nextLayerId =
+                typeof selectedItem?.id === 'string' && selectedItem.id.includes('_item_')
+                    ? selectedItem.id.split('_item_')[0]
+                    : null;
+
+            if (!nextLayerId) return;
+
+            setExpandedLayers((prev) => {
+                if (prev.has(nextLayerId)) return prev;
+                const next = new Set(prev);
+                next.add(nextLayerId);
+                return next;
+            });
+
+            if (activeLayerId !== nextLayerId) {
+                activateLayer(nextLayerId);
+            }
+        };
+
+        syncCanvasSelectionToLayerPanel();
+        window.addEventListener('tanva-image-instances-updated', syncCanvasSelectionToLayerPanel as EventListener);
+        window.addEventListener('tanva-canvas-selection-updated', syncCanvasSelectionToLayerPanel as EventListener);
+        window.addEventListener('paper-project-changed', syncCanvasSelectionToLayerPanel as EventListener);
+
+        return () => {
+            window.removeEventListener('tanva-image-instances-updated', syncCanvasSelectionToLayerPanel as EventListener);
+            window.removeEventListener('tanva-canvas-selection-updated', syncCanvasSelectionToLayerPanel as EventListener);
+            window.removeEventListener('paper-project-changed', syncCanvasSelectionToLayerPanel as EventListener);
+        };
+    }, [showLayerPanel, allLayerItems, activeLayerId, activateLayer]);
 
     const generateLayerThumb = async (id: string): Promise<{ src: string; revoke?: () => void } | null> => {
         try {

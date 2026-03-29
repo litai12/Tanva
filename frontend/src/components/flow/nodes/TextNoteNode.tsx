@@ -19,6 +19,7 @@ function TextNoteNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const rf = useReactFlow();
   const [value, setValue] = React.useState<string>(data.text || '');
+  const noteBackground = '#f3ead2';
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
   const width = data.boxW || 220;
@@ -34,7 +35,9 @@ function TextNoteNodeInner({ id, data, selected }: Props) {
 
   const stopPropagation = React.useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
-    const nativeEvent = (event as React.SyntheticEvent<any, Event>).nativeEvent as Event & { stopImmediatePropagation?: () => void };
+    const nativeEvent = (
+      event as React.SyntheticEvent<Element, Event>
+    ).nativeEvent as Event & { stopImmediatePropagation?: () => void };
     nativeEvent.stopImmediatePropagation?.();
   }, []);
 
@@ -117,7 +120,7 @@ function TextNoteNodeInner({ id, data, selected }: Props) {
         width,
         minHeight: height,
         padding: '12px 14px',
-        background: '#f5f7fa',
+        background: noteBackground,
         border: `1px solid ${borderColor}`,
         borderRadius: 14,
         boxShadow,
@@ -144,13 +147,13 @@ function TextNoteNodeInner({ id, data, selected }: Props) {
       />
       <div
         ref={editorRef}
-        className="tanva-textnote-editor nodrag nowheel"
+        className={`tanva-textnote-editor nowheel${isEditing ? ' nodrag' : ''}`}
         contentEditable={isEditing}
         suppressContentEditableWarning
         data-placeholder={lt("输入文本", "Enter text")}
         onInput={onEditorInput}
         onWheelCapture={isEditing ? stopPropagation : undefined}
-        onMouseDown={stopPropagation}
+        onMouseDown={isEditing ? stopPropagation : undefined}
         onCompositionStart={handleCompositionStart}
         onCompositionEnd={handleCompositionEnd}
         onBlur={() => exitEditing(true)}
@@ -160,7 +163,7 @@ function TextNoteNodeInner({ id, data, selected }: Props) {
           width: '100%',
           minHeight: Math.max(60, height - 24),
           borderRadius: 12,
-          background: '#f5f7fa',
+          background: noteBackground,
           fontSize: 18,
           fontWeight: 600,
           color: '#111827',
@@ -183,14 +186,22 @@ function TextNoteNodeInner({ id, data, selected }: Props) {
             type="source"
             id={`text-${cfg.key}-out`}
             position={cfg.position}
-            style={cfg.style as React.CSSProperties}
+            style={{
+              ...(cfg.style as React.CSSProperties),
+              opacity: 0,
+              pointerEvents: 'none',
+            }}
             className="tanva-textnote-handle tanva-textnote-handle--source"
           />
           <Handle
             type="target"
             id={`text-${cfg.key}-in`}
             position={cfg.position}
-            style={cfg.style as React.CSSProperties}
+            style={{
+              ...(cfg.style as React.CSSProperties),
+              opacity: 0,
+              pointerEvents: 'none',
+            }}
             className="tanva-textnote-handle tanva-textnote-handle--target"
           />
         </React.Fragment>

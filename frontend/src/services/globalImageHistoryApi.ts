@@ -41,6 +41,7 @@ async function json<T>(res: Response): Promise<T> {
 export const globalImageHistoryApi = {
   async list(params?: {
     limit?: number;
+    page?: number;
     cursor?: string;
     sourceType?: string;
     sourceProjectId?: string;
@@ -49,9 +50,13 @@ export const globalImageHistoryApi = {
     items: GlobalImageHistoryItem[];
     nextCursor?: string;
     hasMore: boolean;
+    totalCount?: number;
+    totalPages?: number;
+    page?: number;
   }> {
     const searchParams = new URLSearchParams();
     if (params?.limit) searchParams.set("limit", String(params.limit));
+    if (params?.page) searchParams.set("page", String(params.page));
     if (params?.cursor) searchParams.set("cursor", params.cursor);
     if (params?.sourceType) searchParams.set("sourceType", params.sourceType);
     if (params?.sourceProjectId) {

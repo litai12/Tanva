@@ -10,7 +10,23 @@
 - `frontend/src/components/flow/utils/`：辅助逻辑
 - `frontend/src/components/flow/PersonalLibraryPanel.tsx`：个人库面板（与后端 personal-library 相关）
 
+## 音频节点
+- `minimaxSpeech`：文本转语音节点，输出 `audio` 句柄。
+- `minimaxMusic`：音乐生成节点，支持 `prompt`、`lyrics`、`isInstrumental`、`lyricsOptimizer`，调用 `/api/ai/minimax-music`，输出 `audio` 句柄，可连接 `wan26` / `audioUpload` / Kling 音频输入。
+
 ## 规范
+### 需求: 视频转 GIF 节点
+**模块:** Flow 视频工具节点
+支持在 Flow 中将视频节点输出转换为 GIF，并以远程 URL 持久化输出（不落库 base64/blob）。
+
+#### 场景: 视频节点 -> Video to GIF（终端下载）
+连接视频输入后，严格按输入视频时长转换（无需手动设置时长），可选调整 FPS/宽度并执行转换。
+- 结果返回可访问的 GIF URL
+- 节点仅保留输入句柄，不再提供右侧输出句柄
+- 不再提供“无限循环”选项（固定为非无限循环）
+- 生成成功后可在节点右上角直接下载 GIF（不再在节点底部展示“打开原图”链接）
+- 后端已接入积分系统：每次转换预扣 30 积分，转换失败自动退款并写入积分流水
+
 ### 需求: 图片节点缩放后刷新尺寸一致
 **模块:** Flow 图片节点
 图片节点在画布放大后刷新页面，内部渲染尺寸应保持一致，不随缩放倍数被重复放大。
@@ -18,6 +34,15 @@
 #### 场景: 放大后刷新
 画布滚轮放大后刷新页面。
 - 图片节点内部渲染尺寸与缩放前一致
+
+### 需求: Image 节点标题可双击重命名
+**模块:** Flow 图片节点
+Image 节点标题支持双击进入编辑态，方便在流程中快速区分多个图片输入节点。
+
+#### 场景: 双击标题重命名
+用户双击节点标题（默认 `Image`）后可直接输入新名称。
+- `Enter` 或失焦保存并回写 `data.label`
+- `Escape` 取消本次编辑
 
 ### 需求: MiniMap 拖拽时常驻
 **模块:** Flow 画布
@@ -43,11 +68,30 @@
 从文本输出触发自动连接时，首项为 `textPrompt`；从图片输出触发自动连接时，首项为 `image`。
 - 其余候选节点仍按使用频率排序
 
+### 需求: 连线颜色模式可切换
+**模块:** Flow Overlay / Flow 设置
+支持在工具栏切换连线颜色显示策略，兼顾统一视觉与类型识别。
+
+#### 场景: 标准色 / 跟随句柄
+用户可在「设置 -> 视图外观」中切换连线颜色模式（Flow 工具栏也可快捷切换）。
+- `标准色`：全部连线使用统一灰色
+- `跟随句柄`：连线颜色跟随句柄类型（文本/图片/视频/多图/音频）
+
+### 需求: 节点拖拽自动对齐
+**模块:** Flow Overlay
+Flow 节点拖拽支持与其他节点进行边缘/中心吸附，并显示对齐参考线（复用画布图片自动对齐的同款算法与全局开关）。
+
+#### 场景: 拖拽节点接近其他节点
+用户拖动一个或多个节点靠近其他节点时。
+- 在吸附阈值内自动贴齐（left/right/top/bottom/center）
+- 显示红/粉色参考线提示当前对齐关系
+- 结束拖拽后自动清理参考线
+
 ## 图片与内存
 - **原则**：不要在 `content.flow`（项目内容 JSON）里持久化大体积 base64；这会导致序列化/对比/自动保存时产生巨型临时字符串并推高内存。
 - **Flow 图片资产**：`frontend/src/services/flowImageAssetStore.ts` 的 `flow-asset:<id>` 仅用于运行期/本地缓存；**保存到后端前必须替换为远程 URL/OSS key**（否则会被阻止保存/或被后端清洗丢弃）。当前通过 `frontend/src/services/flowSaveService.ts` 在保存链路里自动补传并替换（优先覆盖 `Image Split` 的输入图引用）。
 - **Image Split 持久化（方案A）**：运行时可用 `inputImageUrl=flow-asset:` 做分割/下游裁切；保存到后端前会补传并替换为 `inputImageUrl`（远程 URL/OSS key）+ `splitRects[]`（裁切矩形）+ `sourceWidth/sourceHeight`，切片图片本身不落库。渲染/下游（例如 `Image Grid`）按需从原图裁切。
-- **Image Split 输出端口数**：节点配置使用“输出端口数量(1-50)”，Worker 会按 `cols=ceil(sqrt(count))`、`rows=ceil(count/cols)` 做网格裁切；例如 2048x2048 要得到 512x512 的 4x4 切片，应将输出端口设为 `16`（仅裁切不缩放）。
+- **Image Split 分割模式**：节点支持 `智能分割` 与 `自定义网格` 两种模式。`智能分割` 保持原行为（连通域检测，失败时按 `cols=ceil(sqrt(count))` 回退网格）；`自定义网格` 通过 `列 × 行`（例如 `4 × 2`）固定切片布局，输出端口数自动同步为 `cols*rows`，并限制总数不超过 `50`。
 - **裁切输出尺寸**：下游按 `splitRects[].width/height`（源坐标系）作为输出尺寸；当 base 图像只加载到缩略图（`naturalW < sourceWidth`）时，仍会输出正确尺寸（避免 1024 误变 200）。
 - **Image 节点裁切透传**：`Image`/`ImagePro` 节点带 `crop` 时，下游聚合（如 `Image Grid`）会优先按 `crop` 裁切再拼合，避免回退到整图；节点连接链路中也支持读取上游 `Image` 的 `crop` 进行裁剪预览。
 - **Image 节点发送到画布**：Image 节点在有图片资源时可一键发送到画布；发送内容以节点当前渲染资源为准（含 `crop`/ImageSplit 裁剪预览），避免回退为整图。
@@ -93,3 +137,23 @@
 
 ## 依赖
 - `reactflow`
+
+## 语音节点补充
+- 新增 `TencentSpeechNode`（`frontend/src/components/flow/nodes/TencentSpeechNode.tsx`），对应节点类型 `tencentSpeech`。
+- 新增系统音色数据源 `frontend/src/components/flow/nodes/tencentSystemVoices.ts`（252 条，来源腾讯云文档 `https://cloud.tencent.com/document/product/862/129151`），用于节点内可检索下拉选择。
+- 该节点对接后端 `POST /api/ai/tencent-speech`，参数按腾讯 MPS AI 配音文档映射：
+  - `text + voiceId` 模式：前端通过 `text` 句柄接入 Prompt 节点文本，并可填写 `voiceId`；后端会优先自动生成 `speaker.json` 并上传 OSS，再发起配音任务（适用于无原音轨视频）。
+  - `text` 模式（回退）：若未提供 `voiceId`（且未配置默认音色），后端自动切分为 SRT 并上传 OSS，再自动发起配音任务。
+  - 输入视频预处理：后端在提交腾讯任务前会探测输入视频音轨；若检测到无音轨（`AudioStreamSet` 为空），会自动补一条静音音轨并上传 OSS，再用补轨后的视频地址提交（默认开启，可用 `TENCENT_MPS_AUTO_INJECT_SILENT_AUDIO` 关闭）。
+  - 跨语种 `srcLang -> dstLang`：当两者不同且使用 `text` 模式时，后端会先做自动翻译，再生成目标字幕/目标配音文本（可通过 `TENCENT_MPS_ENABLE_AUTO_TRANSLATE` 配置开关）。
+  - `speakerUrl` 模式：传 `speakerUrl`。
+  - `subtitleUrls` 模式：传 `srcSubtitleUrl + dstSubtitleUrl`（前端简化单目标语言），并可附带 `srcLang/dstLang`。
+  - 字幕样式：`embedSubtitle/font/fontSize/marginV/outputPattern`。
+- 节点音色交互：
+  - 高级设置中提供“系统音色”搜索 + 下拉，默认按 `srcLang` 过滤（无匹配时回退全量）。
+  - 下拉选中音色后会自动同步 `speakerGender`（男/女）。
+  - 仍保留 `voiceId` 手动输入框，可覆盖下拉结果（兼容自定义/新增音色）。
+- 连接规则：
+  - 输入：左侧 `video` 句柄（必须连接视频节点，不支持手填 URL）。
+  - 输出：右侧 `audio` 与 `video` 双句柄。
+  - `audio` 句柄优先输出音频 URL，若上游仅返回视频 URL 则回退视频 URL；`video` 句柄输出配音后视频，支持继续串到视频分析/抽帧/视频融合等下游节点。

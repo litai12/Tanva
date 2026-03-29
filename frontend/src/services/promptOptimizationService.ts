@@ -142,6 +142,7 @@ class PromptOptimizationService {
             aiProvider: request.aiProvider,
             model: modelToUse,
             enableWebSearch: false,
+            billingTag: 'prompt_optimize',
           }),
           this.REQUEST_TIMEOUT_MS
         );

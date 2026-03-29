@@ -208,7 +208,11 @@ export class VideoProviderService {
     return (
       raw.includes("http_request_failed") ||
       raw.includes("upstream") ||
-      raw.includes("请求上游地址失败")
+      raw.includes("请求上游地址失败") ||
+      raw.includes("failed to get the contents of the file") ||
+      raw.includes("failed to get contents of the file") ||
+      raw.includes("get the contents of the file") ||
+      raw.includes("content of the file")
     );
   }
 
@@ -816,8 +820,9 @@ export class VideoProviderService {
       payload.image = await this.uploadBase64ImageToOSS(options.referenceImages![0]);
       payload.image_tail = await this.uploadBase64ImageToOSS(options.referenceImages![1]);
       payload.prompt = options.prompt || KLING_DEFAULT_REFERENCE_PROMPT;
-      // 首尾帧模式不支持音效
-      payload.sound = "no";
+      // 首尾帧模式不支持音效，且 kling-v2-6/std 不支持 image_tail，必须用 pro
+      payload.mode = "pro";
+      payload.sound = "off";
     } else if (videoMode === "multi-image2video") {
       const imageUrls = await Promise.all(
         options.referenceImages!.slice(0, 4).map(img => this.uploadBase64ImageToOSS(img))

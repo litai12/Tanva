@@ -13,6 +13,8 @@ import {
   FolderPlus,
   FileJson,
   FileInput,
+  Play,
+  Square,
 } from 'lucide-react';
 import { useToolStore, useCanvasStore, useLayerStore } from '@/stores';
 import { useAIChatStore, type PreciseEditContext } from '@/stores/aiChatStore';
@@ -399,6 +401,13 @@ interface DrawingControllerProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
 }
 
+interface DrawMergeTarget {
+  imageId: string;
+  imageSource: string;
+  imageBounds: { x: number; y: number; width: number; height: number };
+  fileName: string;
+}
+
 type ContextMenuTargetType =
   | "canvas"
   | "selection"
@@ -427,6 +436,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     currentColor,
     fillColor,
     strokeWidth,
+    lineStyle,
     isEraser,
     hasFill,
     setDrawMode,
@@ -450,6 +460,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   >({});
   const [contextMenuState, setContextMenuState] =
     useState<CanvasContextMenuState | null>(null);
+  const [isGlobalFlowRunning, setIsGlobalFlowRunning] = useState(false);
   const canvasJsonImportInputRef = useRef<HTMLInputElement | null>(null);
   const handleCanvasPasteRef = useRef<() => boolean>(() => false);
   const canvasToChatSyncTokenRef = useRef(0);
@@ -966,17 +977,34 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               el instanceof Element &&
               el.classList?.contains("tanva-flow-overlay")
           );
-          if (
-            fromFlowOverlay ||
-            (zone === "flow" &&
+
+          const clipboardDataEarly = e.clipboardData;
+          const hasRenderableImageClipboard = (() => {
+            const data = clipboardDataEarly;
+            if (!data?.items?.length) return false;
+            return Array.from(data.items).some(
+              (item) =>
+                item &&
+                (item.kind === "file" ||
+                  (typeof item.type === "string" &&
+                    item.type.startsWith("image/")))
+            );
+          })();
+
+          // 剪贴板里是图片文件时，必须交给画布落地；否则在 zone=flow 且仍有 Flow 剪贴板数据时会整段 return，导致「只进全局历史、画布不显示」等问题
+          if (!hasRenderableImageClipboard) {
+            if (fromFlowOverlay) return;
+            if (
+              zone === "flow" &&
               flowPayload &&
               Array.isArray(flowPayload.nodes) &&
-              flowPayload.nodes.length > 0)
-          ) {
-            return;
+              flowPayload.nodes.length > 0
+            ) {
+              return;
+            }
           }
 
-          const clipboardData = e.clipboardData;
+          const clipboardData = clipboardDataEarly;
           if (!clipboardData) return;
 
           // 先尝试处理画布内的结构化剪贴板数据
@@ -1504,23 +1532,27 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           }
 
 	          // 直接调用快速上传的处理函数，传递智能排版相关参数
-	          quickImageUpload.handleQuickImageUploaded(
-	            imageData,
-	            fileName,
-	            selectedImageBounds,
-	            resolvedSmartPosition,
-	            operationType,
-	            sourceImageId,
-	            sourceImages,
-	            {
-	              videoInfo,
-	              placeholderId,
-	              preferHorizontal,
-	              parallelGroupId,
-	              parallelGroupIndex,
-	              parallelGroupTotal,
-	            } // 🔥 传递并行分组信息
-	          );
+	          void quickImageUpload
+	            .handleQuickImageUploaded(
+	              imageData,
+	              fileName,
+	              selectedImageBounds,
+	              resolvedSmartPosition,
+	              operationType,
+	              sourceImageId,
+	              sourceImages,
+	              {
+	                videoInfo,
+	                placeholderId,
+	                preferHorizontal,
+	                parallelGroupId,
+	                parallelGroupIndex,
+	                parallelGroupTotal,
+	              } // 🔥 传递并行分组信息
+	            )
+	            .catch((err) => {
+	              console.error("智能排版快速上传落盘失败:", err);
+	            });
 	          logger.debug("✅ [DEBUG] 已调用智能排版快速上传处理函数");
 	        };
 
@@ -2883,6 +2915,280 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     model3DInstancesRef.current = model3DTool.model3DInstances;
   }, [model3DTool.model3DInstances]);
 
+  const resolveDrawMergeTarget = useCallback(
+    (path: paper.Path): DrawMergeTarget | null => {
+      const mergeModes = ["free", "line", "rect", "circle"];
+      if (!(mergeModes as string[]).includes(drawMode)) return null;
+      if (isEraser) return null;
+      if (!preciseShiftPressedRef.current) return null;
+
+      const selectedImageIds = Array.isArray(imageTool.selectedImageIds)
+        ? imageTool.selectedImageIds.filter((id) => typeof id === "string" && id.trim())
+        : [];
+      if (selectedImageIds.length !== 1) return null;
+
+      const imageId = selectedImageIds[0];
+      const imageInstance = imageTool.imageInstances.find((img) => img.id === imageId);
+      if (!imageInstance?.bounds) return null;
+
+      const imageBounds = imageInstance.bounds;
+      if (
+        !Number.isFinite(imageBounds.x) ||
+        !Number.isFinite(imageBounds.y) ||
+        !Number.isFinite(imageBounds.width) ||
+        !Number.isFinite(imageBounds.height) ||
+        imageBounds.width <= 0 ||
+        imageBounds.height <= 0
+      ) {
+        return null;
+      }
+
+      const imageRect = new paper.Rectangle(
+        imageBounds.x,
+        imageBounds.y,
+        imageBounds.width,
+        imageBounds.height
+      );
+      if (!path.bounds?.intersects(imageRect)) {
+        return null;
+      }
+
+      const imageSource =
+        resolveCanvasImageRefForChat(imageId, imageInstance.imageData) ||
+        extractAnyImageSource(imageInstance.imageData);
+      if (!imageSource) return null;
+
+      const baseName = normalizeImageFileName(
+        imageInstance.imageData?.fileName,
+        "image/png"
+      ).replace(/\.[a-z0-9]+$/i, "");
+
+      return {
+        imageId,
+        imageSource,
+        imageBounds: {
+          x: imageBounds.x,
+          y: imageBounds.y,
+          width: imageBounds.width,
+          height: imageBounds.height,
+        },
+        fileName: `${baseName || "image"}_brush_${Date.now()}.png`,
+      };
+    },
+    [drawMode, imageTool.imageInstances, imageTool.selectedImageIds, isEraser]
+  );
+
+  const mergeDrawPathIntoImage = useCallback(
+    async (path: paper.Path, target: DrawMergeTarget): Promise<boolean> => {
+      const baseBlob = await resolveImageToBlob(target.imageSource, {
+        preferProxy: true,
+      });
+      if (!baseBlob) return false;
+
+      const baseImage = await loadImageFromBlob(baseBlob);
+      const pixelWidth = Math.max(
+        1,
+        Math.round(baseImage.naturalWidth || baseImage.width || 1)
+      );
+      const pixelHeight = Math.max(
+        1,
+        Math.round(baseImage.naturalHeight || baseImage.height || 1)
+      );
+
+      const canvas = document.createElement("canvas");
+      canvas.width = pixelWidth;
+      canvas.height = pixelHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return false;
+
+      ctx.clearRect(0, 0, pixelWidth, pixelHeight);
+      ctx.drawImage(baseImage, 0, 0, pixelWidth, pixelHeight);
+
+      const segments = path.segments || [];
+      if (segments.length === 0) return false;
+
+      const mapPoint = (point: paper.Point) => ({
+        x:
+          ((point.x - target.imageBounds.x) / target.imageBounds.width) *
+          pixelWidth,
+        y:
+          ((point.y - target.imageBounds.y) / target.imageBounds.height) *
+          pixelHeight,
+      });
+
+      const scaleX = pixelWidth / target.imageBounds.width;
+      const scaleY = pixelHeight / target.imageBounds.height;
+      const avgScale = (Math.abs(scaleX) + Math.abs(scaleY)) / 2;
+      const pathStrokeWidth = Number.isFinite(path.strokeWidth)
+        ? path.strokeWidth
+        : 1;
+      const lineWidth = Math.max(1, pathStrokeWidth * avgScale);
+
+      const strokeColor = (() => {
+        const raw = path.strokeColor as any;
+        if (!raw) return "#000000";
+        try {
+          if (typeof raw.toCSS === "function") return raw.toCSS(true);
+        } catch {}
+        return "#000000";
+      })();
+      const opacity =
+        typeof path.opacity === "number" && Number.isFinite(path.opacity)
+          ? Math.max(0, Math.min(1, path.opacity))
+          : 1;
+      const fillColor = (() => {
+        const raw = path.fillColor as any;
+        if (!raw) return null;
+        try {
+          if (typeof raw.toCSS === "function") return raw.toCSS(true);
+        } catch {}
+        return null;
+      })();
+      const shouldFill = Boolean(fillColor);
+      const shouldStroke = Boolean(path.strokeColor);
+
+      ctx.save();
+      ctx.beginPath();
+
+      const first = mapPoint(segments[0].point);
+      ctx.moveTo(first.x, first.y);
+
+      for (let i = 1; i < segments.length; i += 1) {
+        const prev = segments[i - 1];
+        const curr = segments[i];
+
+        const cp1Point = prev.point.add(prev.handleOut || new paper.Point(0, 0));
+        const cp2Point = curr.point.add(curr.handleIn || new paper.Point(0, 0));
+        const cp1 = mapPoint(cp1Point);
+        const cp2 = mapPoint(cp2Point);
+        const end = mapPoint(curr.point);
+
+        const hasCurve =
+          (prev.handleOut && prev.handleOut.length > 0.01) ||
+          (curr.handleIn && curr.handleIn.length > 0.01);
+        if (hasCurve) {
+          ctx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, end.x, end.y);
+        } else {
+          ctx.lineTo(end.x, end.y);
+        }
+      }
+
+      if (path.closed) {
+        ctx.closePath();
+      }
+
+      ctx.globalAlpha = opacity;
+      if (shouldFill && fillColor) {
+        ctx.fillStyle = fillColor;
+        const fillRule = path.fillRule === "evenodd" ? "evenodd" : "nonzero";
+        ctx.fill(fillRule as CanvasFillRule);
+      }
+
+      if (shouldStroke) {
+        ctx.strokeStyle = strokeColor;
+        ctx.lineCap = (path.strokeCap as CanvasLineCap) || "round";
+        ctx.lineJoin = (path.strokeJoin as CanvasLineJoin) || "round";
+        ctx.lineWidth = lineWidth;
+        if (
+          typeof path.miterLimit === "number" &&
+          Number.isFinite(path.miterLimit)
+        ) {
+          ctx.miterLimit = path.miterLimit;
+        }
+
+        const dashArray = Array.isArray(path.dashArray) ? path.dashArray : [];
+        if (dashArray.length > 0) {
+          ctx.setLineDash(
+            dashArray
+              .map((value) => Number(value))
+              .filter((value) => Number.isFinite(value) && value > 0)
+              .map((value) => value * avgScale)
+          );
+          if (
+            typeof path.dashOffset === "number" &&
+            Number.isFinite(path.dashOffset)
+          ) {
+            ctx.lineDashOffset = path.dashOffset * avgScale;
+          }
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      const mergedBlob = await canvasToBlob(canvas, {
+        type: "image/png",
+        quality: 0.92,
+      });
+      const previewUrl = URL.createObjectURL(mergedBlob);
+
+      window.dispatchEvent(
+        new CustomEvent("canvas:replace-image-source", {
+          detail: {
+            imageId: target.imageId,
+            source: previewUrl,
+            bounds: target.imageBounds,
+            contentType: "image/png",
+            fileName: target.fileName,
+            width: pixelWidth,
+            height: pixelHeight,
+            historyLabel: "merge-brush-into-image",
+            pendingUpload: true,
+          },
+        })
+      );
+
+      void (async () => {
+        try {
+          const uploadDir = projectId
+            ? `projects/${projectId}/images/`
+            : "uploads/images/";
+          const uploadResult = await imageUploadService.uploadImageSource(
+            mergedBlob,
+            {
+              projectId,
+              dir: uploadDir,
+              fileName: target.fileName,
+              contentType: "image/png",
+            }
+          );
+
+          if (!uploadResult.success || !uploadResult.asset?.url) {
+            logger.warn("画笔融合后图片上传失败，保留本地预览等待后续补传", {
+              imageId: target.imageId,
+              error: uploadResult.error,
+            });
+            return;
+          }
+
+          const normalizedKey = normalizePersistableImageRef(
+            uploadResult.asset.key || ""
+          );
+          const normalizedRemoteUrl =
+            normalizePersistableImageRef(uploadResult.asset.url) ||
+            uploadResult.asset.url;
+
+          window.dispatchEvent(
+            new CustomEvent("tanva:upgradeImageSource", {
+              detail: {
+                placeholderId: target.imageId,
+                key: normalizedKey || undefined,
+                remoteUrl: normalizedRemoteUrl || undefined,
+              },
+            })
+          );
+        } catch (error) {
+          logger.warn("画笔融合后图片上传异常，保留本地预览等待后续补传", {
+            imageId: target.imageId,
+            error,
+          });
+        }
+      })();
+
+      return true;
+    },
+    [projectId]
+  );
+
   // ========== 初始化自动对齐Hook ==========
   const snapAlignment = useSnapAlignment({
     imageInstances: imageTool.imageInstances,
@@ -2971,6 +3277,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     currentColor,
     fillColor,
     strokeWidth,
+    lineStyle,
     isEraser,
     hasFill,
     eventHandlers: {
@@ -2978,7 +3285,72 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         logger.debug("路径创建:", path);
       },
       onPathComplete: (path) => {
-        logger.debug("路径完成:", path);
+        const completedPath = path as unknown as paper.Path;
+        const mergeTarget = resolveDrawMergeTarget(completedPath);
+        if (mergeTarget) {
+          const clonedPath = completedPath.clone({ insert: false }) as paper.Path;
+          const originalParent = completedPath.parent as
+            | (paper.Item & {
+                addChild?: (item: paper.Item) => void;
+                insertChild?: (index: number, item: paper.Item) => void;
+                children?: paper.Item[];
+              })
+            | null;
+          const originalIndex = Array.isArray(originalParent?.children)
+            ? originalParent.children.indexOf(completedPath)
+            : -1;
+
+          try {
+            completedPath.remove();
+            paper.view?.update();
+          } catch {}
+
+          void (async () => {
+            const merged = await mergeDrawPathIntoImage(clonedPath, mergeTarget);
+            if (merged) {
+              try {
+                clonedPath.remove();
+              } catch {}
+              return;
+            }
+
+            try {
+              if (
+                originalParent &&
+                typeof originalParent.insertChild === "function" &&
+                originalIndex >= 0 &&
+                originalIndex <= (originalParent.children?.length ?? 0)
+              ) {
+                originalParent.insertChild(originalIndex, clonedPath);
+              } else if (
+                originalParent &&
+                typeof originalParent.addChild === "function"
+              ) {
+                originalParent.addChild(clonedPath);
+              } else {
+                const drawingLayer = ensureDrawingLayer();
+                if (drawingLayer) drawingLayer.addChild(clonedPath);
+              }
+              paper.view?.update();
+              paperSaveService.triggerAutoSave("merge-brush-fallback");
+            } catch {
+              try {
+                clonedPath.remove();
+              } catch {}
+            }
+
+            window.dispatchEvent(
+              new CustomEvent("toast", {
+                detail: {
+                  message: "融图失败，已保留原始图形",
+                  type: "warning",
+                },
+              })
+            );
+          })();
+        }
+
+        logger.debug("路径完成:", completedPath);
 
         // 检查 Paper.js 项目状态后再触发保存
         if (paper && paper.project && paper.view) {
@@ -3320,6 +3692,16 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         textIds: selectedTextIds,
         paths: selectedPaths,
       };
+      window.dispatchEvent(
+        new CustomEvent("tanva-canvas-selection-updated", {
+          detail: {
+            imageCount: (imageTool.selectedImageIds ?? []).length,
+            modelCount: (model3DTool.selectedModel3DIds ?? []).length,
+            pathCount: selectedPaths.length,
+            textCount: selectedTextIds.length,
+          },
+        })
+      );
     } catch {}
 
     return () => {
@@ -3761,6 +4143,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             try {
               paper.view.update();
             } catch {}
+            // paperJson 里的 Raster 源可能是失效 blob:；用 assets 快照重绑像素，避免可选中但不显示。
+            if (
+              Array.isArray(projectAssets.images) &&
+              projectAssets.images.length > 0
+            ) {
+              imageTool.repairPaperRastersFromSnapshots(projectAssets.images);
+            }
           } else if (projectAssets.images?.length) {
             // 仅种子化状态会产生“可点击但不可见”的幽灵图，这里改为真正重建 Raster。
             imageTool.hydrateFromSnapshot(projectAssets.images);
@@ -3770,13 +4159,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         console.warn("paperJson 恢复后重建图片实例失败:", error);
       }
 
-      // paperJson 恢复后补齐 3D 运行时实例：若 Paper 中无可用 3D 组，则回退到 assets.models 兜底恢复
+      // paperJson 恢复后补齐 3D 运行时实例：Paper 上已有组时只同步 React（避免重复建组）；否则用 assets.models 兜底。
       try {
-        if (
-          model3DTool.model3DInstances.length === 0 &&
-          Array.isArray(projectAssets.models) &&
-          projectAssets.models.length > 0
-        ) {
+        if (model3DTool.model3DInstances.length === 0) {
           const hasUsablePaperModels = (() => {
             try {
               const modelItems = (paper.project as any).getItems?.({
@@ -3801,7 +4186,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             }
           })();
 
-          if (!hasUsablePaperModels) {
+          if (hasUsablePaperModels) {
+            model3DTool.syncModel3DInstancesFromPaper();
+          } else if (
+            Array.isArray(projectAssets.models) &&
+            projectAssets.models.length > 0
+          ) {
             model3DTool.hydrateFromSnapshot(projectAssets.models);
           }
         }
@@ -3844,8 +4234,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     model3DTool.model3DInstances,
     simpleTextTool.textItems,
     imageTool.hydrateFromSnapshot,
+    imageTool.repairPaperRastersFromSnapshots,
     model3DTool.hydrateFromSnapshot,
+    model3DTool.syncModel3DInstancesFromPaper,
     simpleTextTool.hydrateFromSnapshot,
+    videoTool.hydrateFromSnapshot,
   ]);
 
   useEffect(() => {
@@ -5341,7 +5734,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const key = event.key?.toLowerCase?.() || "";
       if ((key !== "c" && key !== "v") || !(event.metaKey || event.ctrlKey))
         return;
-      if (!hasSelectionRef.current && !clipboardService.getCanvasData()) return;
 
       const path =
         typeof event.composedPath === "function" ? event.composedPath() : [];
@@ -5352,6 +5744,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           el instanceof Element && el.classList?.contains("tanva-flow-overlay")
         );
       });
+
+      // 粘贴：无需已有画布选区；只要事件路径经过画布且不在 Flow 节点上，就把剪贴板域切到 canvas，避免仍停留在 flow 时粘贴图片被误判
+      if (key === "v" && fromCanvas && !fromFlowOverlay) {
+        clipboardService.setActiveZone("canvas");
+      }
+
+      if (!hasSelectionRef.current && !clipboardService.getCanvasData()) return;
+
       if (!fromCanvas || fromFlowOverlay) {
         return; // 不在画布区域的快捷键，不强制切换到画布
       }
@@ -5934,18 +6334,39 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
           // 获取路径的SVG表示
           const pathData = clonedPath.pathData;
-          const strokeColor = path.strokeColor
+          const hasStroke = Boolean(path.strokeColor) && (path.strokeWidth ?? 0) > 0;
+          const strokeColor = path.strokeColor && hasStroke
             ? path.strokeColor.toCSS(true)
-            : "#000000";
+            : "none";
           const strokeWidth =
-            path.data?.originalStrokeWidth ?? path.strokeWidth ?? 2;
+            hasStroke
+              ? (path.data?.originalStrokeWidth ?? path.strokeWidth ?? 2)
+              : 0;
           const fillColor = path.fillColor
             ? path.fillColor.toCSS(true)
             : "none";
+          const dashArray = Array.isArray(path.dashArray)
+            ? path.dashArray
+                .map((value) => Number(value))
+                .filter((value) => Number.isFinite(value) && value > 0)
+            : [];
+          const dashAttr =
+            hasStroke && dashArray.length > 0
+              ? ` stroke-dasharray="${dashArray.join(" ")}"`
+              : "";
+          const dashOffsetAttr =
+            hasStroke &&
+            dashArray.length > 0 &&
+            typeof path.dashOffset === "number" &&
+            Number.isFinite(path.dashOffset)
+              ? ` stroke-dashoffset="${path.dashOffset}"`
+              : "";
+          const lineCap = (path.strokeCap as string) || "round";
+          const lineJoin = (path.strokeJoin as string) || "round";
 
           clonedPath.remove();
 
-          return `<path d="${pathData}" stroke="${strokeColor}" stroke-width="${strokeWidth}" fill="${fillColor}" stroke-linecap="round" stroke-linejoin="round"/>`;
+          return `<path d="${pathData}" stroke="${strokeColor}" stroke-width="${strokeWidth}" fill="${fillColor}" stroke-linecap="${lineCap}" stroke-linejoin="${lineJoin}"${dashAttr}${dashOffsetAttr}/>`;
         })
         .join("\n  ");
 
@@ -6228,6 +6649,23 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     };
   }, [canvasRef, ensureSelectionForTarget, resolveContextTarget]);
 
+  useEffect(() => {
+    const handleGlobalRunState = (event: Event) => {
+      const detail = (event as CustomEvent<{ running?: boolean }>).detail;
+      setIsGlobalFlowRunning(detail?.running === true);
+    };
+    window.addEventListener(
+      "flow:global-run-state",
+      handleGlobalRunState as EventListener
+    );
+    return () => {
+      window.removeEventListener(
+        "flow:global-run-state",
+        handleGlobalRunState as EventListener
+      );
+    };
+  }, []);
+
   const handleDeleteSelection = useCallback(() => {
     let didDelete = false;
 
@@ -6438,6 +6876,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     const canCopy = hasSelection && contextMenuState.type !== "canvas";
     const canPaste = !!clipboardService.getCanvasData();
+    const isCanvasContext =
+      contextMenuState.type === "canvas" || contextMenuState.type === "selection";
 
     const items: Array<{
       label: string;
@@ -6477,6 +6917,24 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         },
       },
     ];
+
+    if (isCanvasContext) {
+      items.push({
+        label: isGlobalFlowRunning ? "终止全局运行" : "全局运行",
+        icon: isGlobalFlowRunning ? (
+          <Square className='w-4 h-4' />
+        ) : (
+          <Play className='w-4 h-4' />
+        ),
+        onClick: () => {
+          window.dispatchEvent(
+            new CustomEvent(
+              isGlobalFlowRunning ? "flow:stop-global" : "flow:run-global"
+            )
+          );
+        },
+      });
+    }
 
     if (contextMenuState.type === "image" && contextMenuState.targetId) {
       const targetId = contextMenuState.targetId;
@@ -6564,6 +7022,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     selectionTool.selectedPath,
     selectionTool.selectedPaths,
     hasSelection,
+    isGlobalFlowRunning,
     closeContextMenu,
   ]);
 
@@ -7972,7 +8431,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       {/* 快速图片上传组件（居中） */}
       <ImageUploadComponent
-        onImageUploaded={quickImageUpload.handleQuickImageUploaded}
+        onImageUploaded={(asset) => {
+          void uploadImageToCanvas?.(asset).catch((err) => {
+            console.error("快速图片落盘失败:", err);
+          });
+        }}
         onUploadError={quickImageUpload.handleQuickUploadError}
         trigger={quickImageUpload.triggerQuickUpload}
         onTriggerHandled={quickImageUpload.handleQuickUploadTriggerHandled}
@@ -8001,6 +8464,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           id: img.id,
           url: img.imageData?.url,
           src: img.imageData?.src,
+          key: img.imageData?.key,
+          remoteUrl: img.imageData?.remoteUrl,
           localDataUrl: img.imageData?.localDataUrl,
           fileName: img.imageData?.fileName,
           pendingUpload: img.imageData?.pendingUpload,
@@ -8015,6 +8480,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               id: image.id,
               url: image.imageData?.url,
               src: image.imageData?.src,
+              key: image.imageData?.key,
+              remoteUrl: image.imageData?.remoteUrl,
               localDataUrl: image.imageData?.localDataUrl,
               fileName: image.imageData?.fileName,
               pendingUpload: image.imageData?.pendingUpload,

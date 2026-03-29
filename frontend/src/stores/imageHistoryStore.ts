@@ -233,14 +233,12 @@ export const useImageHistoryStore = create<ImageHistoryStore>()(
             const updated = [...state.history];
             const existing = updated[existingIndex];
 
-            const shouldKeepExistingSrc =
-              existing.src?.startsWith('http') && !storageSrc.startsWith('http');
-
+            // 不要用「旧 http + 新非 http」保留旧链接：旧链接可能是已过期签名 URL，会导致裂图与预览失败
             finalItem = {
               ...existing,
               ...newItem,
-              src: shouldKeepExistingSrc ? existing.src : storageSrc,
-              remoteUrl: existing.remoteUrl || newItem.remoteUrl,
+              src: storageSrc,
+              remoteUrl: newItem.remoteUrl ?? existing.remoteUrl,
               id: existing.id,
               projectId: projectKey,
               timestamp: newItem.timestamp ?? existing.timestamp,

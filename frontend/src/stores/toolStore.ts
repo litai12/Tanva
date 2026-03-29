@@ -6,6 +6,12 @@ import { createSafeStorage } from './storageUtils';
 
 // 工具类型定义
 export type DrawMode = 'select' | 'marquee' | 'pointer' | 'free' | 'line' | 'rect' | 'circle' | 'polyline' | 'text' | 'image' | 'quick-image' | '3d-model' | 'screenshot';
+export type LineStyle =
+  | 'solid'
+  | 'dashed'
+  | 'dash-dot'
+  | 'sketch-end-heavy'
+  | 'sketch-center-heavy';
 
 interface ToolState {
   // 当前激活工具
@@ -15,6 +21,7 @@ interface ToolState {
   currentColor: string;
   fillColor: string;
   strokeWidth: number;
+  lineStyle: LineStyle;
   isEraser: boolean;
   hasFill: boolean;
 
@@ -23,6 +30,7 @@ interface ToolState {
   setCurrentColor: (color: string) => void;
   setFillColor: (color: string) => void;
   setStrokeWidth: (width: number) => void;
+  setLineStyle: (style: LineStyle) => void;
   toggleEraser: () => void;
   toggleFill: () => void;
 
@@ -47,10 +55,21 @@ const ALL_DRAW_MODES: DrawMode[] = [
   '3d-model',
   'screenshot',
 ];
-const TOOL_SETTINGS_VERSION = 1;
+const TOOL_SETTINGS_VERSION = 2;
 
 const isDrawMode = (value: unknown): value is DrawMode =>
   typeof value === 'string' && ALL_DRAW_MODES.includes(value as DrawMode);
+
+const LINE_STYLES: LineStyle[] = [
+  'solid',
+  'dashed',
+  'dash-dot',
+  'sketch-end-heavy',
+  'sketch-center-heavy',
+];
+
+const isLineStyle = (value: unknown): value is LineStyle =>
+  typeof value === 'string' && LINE_STYLES.includes(value as LineStyle);
 
 export const useToolStore = create<ToolState>()(
   subscribeWithSelector(
@@ -61,6 +80,7 @@ export const useToolStore = create<ToolState>()(
         currentColor: '#ff0000',
         fillColor: '#ffffff',
         strokeWidth: 2,
+        lineStyle: 'solid',
         isEraser: false,
         hasFill: false,
 
@@ -82,6 +102,10 @@ export const useToolStore = create<ToolState>()(
         setStrokeWidth: (width) => {
           const validWidth = Math.max(1, Math.min(20, width)); // 限制范围 1-20
           set({ strokeWidth: validWidth });
+        },
+
+        setLineStyle: (style) => {
+          set({ lineStyle: style });
         },
 
         toggleEraser: () => {
@@ -125,6 +149,7 @@ export const useToolStore = create<ToolState>()(
               typeof state.strokeWidth === 'number'
                 ? Math.max(1, Math.min(20, state.strokeWidth))
                 : 2,
+            lineStyle: isLineStyle(state.lineStyle) ? state.lineStyle : 'solid',
             hasFill: typeof state.hasFill === 'boolean' ? state.hasFill : false,
           };
         },
@@ -134,6 +159,7 @@ export const useToolStore = create<ToolState>()(
           currentColor: state.currentColor,
           fillColor: state.fillColor,
           strokeWidth: state.strokeWidth,
+          lineStyle: state.lineStyle,
           hasFill: state.hasFill,
         }) as Partial<ToolState>,
       }
@@ -147,6 +173,7 @@ export const useDrawingProps = () => useToolStore((state) => ({
   currentColor: state.currentColor,
   fillColor: state.fillColor,
   strokeWidth: state.strokeWidth,
+  lineStyle: state.lineStyle,
   isEraser: state.isEraser,
   hasFill: state.hasFill,
 }));
@@ -155,6 +182,7 @@ export const useToolActions = () => useToolStore((state) => ({
   setCurrentColor: state.setCurrentColor,
   setFillColor: state.setFillColor,
   setStrokeWidth: state.setStrokeWidth,
+  setLineStyle: state.setLineStyle,
   toggleEraser: state.toggleEraser,
   toggleFill: state.toggleFill,
   nextDrawingTool: state.nextDrawingTool,

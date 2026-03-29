@@ -16,6 +16,7 @@ import {
   isRemoteUrl,
   normalizePersistableImageRef,
   requiresManagedImageUpload,
+  resolveImageToBlob,
   toRenderableImageSrc,
 } from '@/utils/imageSource';
 import { FLOW_IMAGE_ASSET_PREFIX } from '@/services/flowImageAssetStore';
@@ -569,6 +570,17 @@ class PaperSaveService {
           return { kind: 'blob', value: blob };
         }
         // blob URL 可能已被回收/刷新失效；尝试从已渲染的 Raster.canvas 兜底
+        const fallback = await this.resolveRasterCanvasAsInlineSource(asset);
+        if (fallback) return fallback;
+        continue;
+      }
+      if (isRemoteUrl(trimmed) && requiresManagedImageUpload(trimmed)) {
+        try {
+          const blob = await resolveImageToBlob(trimmed, { preferProxy: true });
+          if (blob && blob.size > 0) {
+            return { kind: 'blob', value: blob };
+          }
+        } catch {}
         const fallback = await this.resolveRasterCanvasAsInlineSource(asset);
         if (fallback) return fallback;
         continue;
@@ -1855,6 +1867,19 @@ class PaperSaveService {
     }
     this.scheduledForProjectId = null;
     this.pendingSaveReason = null;
+  }
+
+  /**
+   * paperJson 恢复或手动修复 Raster 源后：统一走代理/crossOrigin 并挂接 onLoad，避免“可选中但不显示”。
+   */
+  refreshRasterSourcesAfterRepair(): void {
+    try {
+      this.ensureRasterCrossOriginAndProxySources();
+      this.ensureRasterLoadUpdates();
+      if (paper?.view) (paper.view as any).update?.();
+    } catch (error) {
+      console.warn('[PaperSaveService] refreshRasterSourcesAfterRepair 失败:', error);
+    }
   }
 
   /**

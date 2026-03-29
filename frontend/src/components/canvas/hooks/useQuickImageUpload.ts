@@ -1193,6 +1193,23 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         let rasterSource = pickedSource.source;
         const resolvedRemoteUrl = pickedSource.remoteUrl;
         const resolvedKey = pickedSource.key;
+        let resolveRasterReady: (() => void) | undefined;
+        let rejectRasterReady: ((reason?: unknown) => void) | undefined;
+        let rasterSettled = false;
+        const rasterReady = new Promise<void>((resolve, reject) => {
+            resolveRasterReady = () => {
+                if (rasterSettled) return;
+                rasterSettled = true;
+                resolve();
+            };
+            rejectRasterReady = (reason?: unknown) => {
+                if (rasterSettled) return;
+                rasterSettled = true;
+                if (reason !== undefined) reject(reason);
+                else reject(new Error('quick-image-raster-failed'));
+            };
+        });
+
         try {
             ensureDrawingLayer();
 
@@ -1541,6 +1558,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 	                window.dispatchEvent(new CustomEvent('toast', {
 	                    detail: { message, type: 'error' }
 	                }));
+	                try { rejectRasterReady?.(e); } catch {}
 	            };
 
 	            const scheduleLoadTimeout = () => {
@@ -1600,11 +1618,13 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                         } catch {}
                     }
                     try { paper.view.update(); } catch {}
+                    try { resolveRasterReady?.(); } catch {}
                     return;
                 }
 
                 if (!asset) {
                     logger.error('快速上传：缺少图片资源');
+                    try { rejectRasterReady?.(new Error('quick-upload-missing-asset')); } catch {}
                     return;
                 }
 
@@ -2057,6 +2077,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     removePredictedPlaceholder(placeholderId);
                 }
 	                paper.view.update();
+	                try { resolveRasterReady?.(); } catch {}
 	            };
 
 	            // 🔥 定义 onError 处理器（支持 proxy/CORS 失败后重试）
@@ -2091,8 +2112,10 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 	            bindRasterHandlers();
 	            scheduleLoadTimeout();
 	            setRasterSource(raster, rasterSource);
+	            await rasterReady;
 	        } catch (error) {
 	            logger.error('快速上传图片时出错:', error);
+	            try { rejectRasterReady?.(error); } catch {}
 	        }
     }, [ensureDrawingLayer, calculateSmartPosition, findImagePlaceholder, projectId, removePredictedPlaceholder, resolveMatrixPosition, upsertPendingImage]);
 

@@ -60,6 +60,58 @@ const pickRuntimeImageSource = (params: {
   return persisted || local;
 };
 
+function getRasterSourceStringForRepair(raster: paper.Raster): string {
+  try {
+    const tracked = (raster as any)?.__tanvaSourceRef;
+    if (typeof tracked === 'string' && tracked.trim()) return tracked.trim();
+    const source = (raster as any)?.source;
+    if (typeof source === 'string' && source.trim()) return source.trim();
+    const src = (source as any)?.src;
+    if (typeof src === 'string' && src.trim()) return src.trim();
+  } catch {}
+  return '';
+}
+
+function isPaperRasterContentReady(raster: paper.Raster | null | undefined): boolean {
+  if (!raster) return false;
+  try {
+    if ((raster as any).loaded === true) {
+      const w = Number((raster as any).width ?? 0);
+      const h = Number((raster as any).height ?? 0);
+      if (w > 0 && h > 0) return true;
+    }
+    const imageLike = (raster as any).image as
+      | { complete?: boolean; naturalWidth?: number; naturalHeight?: number; width?: number; height?: number }
+      | undefined;
+    if (imageLike) {
+      const nw = Number(imageLike.naturalWidth ?? 0);
+      const nh = Number(imageLike.naturalHeight ?? 0);
+      if (nw > 0 && nh > 0) return true;
+      const fw = Number(imageLike.width ?? 0);
+      const fh = Number(imageLike.height ?? 0);
+      if (Boolean(imageLike.complete) && fw > 0 && fh > 0) return true;
+    }
+  } catch {}
+  return false;
+}
+
+function findRasterByImageId(imageId: string): paper.Raster | null {
+  if (!paper?.project || !imageId) return null;
+  try {
+    const items = paper.project.layers.flatMap((layer) =>
+      (layer.children || []).filter((x: any) => x?.data?.imageId === imageId)
+    ) as paper.Item[];
+    for (const item of items) {
+      if (item instanceof paper.Group) {
+        const r = item.children.find((c) => isRaster(c)) as paper.Raster | undefined;
+        if (r) return r;
+      }
+      if (isRaster(item)) return item as paper.Raster;
+    }
+  } catch {}
+  return null;
+}
+
 interface UseImageToolProps {
   context: DrawingContext;
   canvasRef?: React.RefObject<HTMLCanvasElement | null>;
@@ -457,6 +509,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         // 上传中仍允许 src=blob:；上传完成后优先使用可持久化来源
         src: preferredDisplaySrc || persistedSrc || persistedUrl || asset.url,
         key: normalizedKey || asset.key,
+        remoteUrl: isRemoteUrl(persistedSrc) ? persistedSrc : undefined,
         fileName: asset.fileName,
         width: asset.width,
         height: asset.height,
@@ -610,9 +663,17 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     try {
       // 🎯 优先使用原始图片数据（高质量）
       // 这样可以避免canvas缩放导致的质量损失
-      const primarySrc = imageInstance.imageData?.url || imageInstance.imageData?.src;
+      const primarySrc =
+        imageInstance.imageData?.remoteUrl ||
+        imageInstance.imageData?.url ||
+        imageInstance.imageData?.src;
       if (primarySrc) {
         return primarySrc;
+      }
+
+      const keyOnly = imageInstance.imageData?.key;
+      if (keyOnly) {
+        return keyOnly;
       }
 
       // 次优：运行时缓存（可能是 dataURL）
@@ -1368,6 +1429,56 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     }
   }, [selectedPlaceholderId]);
 
+  /**
+   * paperJson 反序列化后：Raster 可能仍指向已 revoke 的 blob: 或加载失败，但 imageInstances 已从 assets 补齐。
+   * 用快照中的可持久化地址重绑 Raster，避免“可选中但不显示”。
+   */
+  const repairPaperRastersFromSnapshots = useCallback((snapshots: ImageAssetSnapshot[]) => {
+    if (!paper?.project || !Array.isArray(snapshots) || snapshots.length === 0) return;
+
+    for (const snap of snapshots) {
+      if (!snap?.id) continue;
+      const preferredSource = pickRuntimeImageSource({
+        pendingUpload: snap?.pendingUpload,
+        localDataUrl: snap?.localDataUrl,
+        persistedCandidates: [snap?.src, snap?.url, snap?.key],
+      });
+      if (!preferredSource) continue;
+
+      const raster = findRasterByImageId(snap.id);
+      if (!raster) continue;
+
+      const currentStr = getRasterSourceStringForRepair(raster);
+      const blobStale =
+        currentStr.startsWith('blob:') && !isPaperRasterContentReady(raster);
+      const notReady = !isPaperRasterContentReady(raster);
+      if (!blobStale && !notReady) continue;
+
+      const renderable = toRenderableImageSrc(preferredSource) || preferredSource;
+      if (!renderable) continue;
+
+      try {
+        (raster as any).crossOrigin = 'anonymous';
+      } catch {}
+
+      const normalizedKey = normalizePersistableImageRef(snap.key || '');
+      const normalizedUrl = normalizePersistableImageRef(snap.url || snap.src || '');
+      if (!raster.data) raster.data = {};
+      if (normalizedKey && isAssetKeyRef(normalizedKey)) {
+        (raster.data as any).key = normalizedKey;
+      }
+      if (normalizedUrl && isRemoteUrl(normalizedUrl)) {
+        (raster.data as any).remoteUrl = normalizedUrl;
+      }
+
+      setRasterSourceSafely(raster, renderable);
+    }
+
+    try {
+      paperSaveService.refreshRasterSourcesAfterRepair();
+    } catch {}
+  }, []);
+
   const hydrateFromSnapshot = useCallback((snapshots: ImageAssetSnapshot[]) => {
     if (!Array.isArray(snapshots) || snapshots.length === 0) {
       setImageInstances([]);
@@ -1408,6 +1519,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
             url: snap.url ?? snap.key ?? source,
             src: source || snap.src || snap.url || '',
             key: snap.key,
+            remoteUrl: snap.remoteUrl,
             fileName: snap.fileName,
             width: snap.width,
             height: snap.height,
@@ -1486,6 +1598,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
           url: snap.url ?? img.imageData.url ?? snap.localDataUrl,
           src: preferredSource || img.imageData.src,
           key: snap.key ?? img.imageData.key,
+          remoteUrl: snap.remoteUrl ?? img.imageData.remoteUrl,
           fileName: snap.fileName ?? img.imageData.fileName,
           width: snap.width ?? img.imageData.width,
           height: snap.height ?? img.imageData.height,
@@ -1673,6 +1786,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         url: persistedUrl || source,
         src: persistedSrc || persistedUrl || source,
         key: normalizedKey || snapshot.key,
+        remoteUrl: isRemoteUrl(persistedSrc) ? persistedSrc : undefined,
         fileName: snapshot.fileName,
         width: snapshot.width ?? snapshot.bounds.width,
         height: snapshot.height ?? snapshot.bounds.height,
@@ -1737,6 +1851,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     // AI编辑功能
     getImageDataForEditing,
     hydrateFromSnapshot,
+    repairPaperRastersFromSnapshots,
     createImageFromSnapshot,
     setImagesVisibility,
     isImageLocked,

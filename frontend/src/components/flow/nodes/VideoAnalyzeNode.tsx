@@ -78,7 +78,19 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
   }, [data.analysisPrompt, defaultAnalysisPrompt, id]);
 
   const onAnalyze = React.useCallback(async () => {
-    if (!effectiveVideoUrl || status === 'running' || isAnalyzing) return;
+    if (!effectiveVideoUrl) {
+      window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
+        detail: {
+          id,
+          patch: {
+            status: 'failed',
+            error: lt('没有可分析的视频输入，请先连接视频节点', 'No video input to analyze. Please connect a video node first')
+          }
+        }
+      }));
+      return;
+    }
+    if (status === 'running' || isAnalyzing) return;
 
     const promptToUse = (data.analysisPrompt ?? defaultAnalysisPrompt).trim();
     if (!promptToUse.length) {

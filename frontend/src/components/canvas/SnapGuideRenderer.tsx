@@ -14,8 +14,8 @@ interface SnapGuideRendererProps {
 
 // 参考线颜色配置
 const COLORS = {
-  edge: '#ff6b6b', // 红色 - 边缘对齐
-  center: '#ff69b4', // 粉色 - 中心对齐
+  edge: 'rgba(255, 107, 107, 0.48)', // 红色 - 边缘对齐（更浅）
+  center: 'rgba(255, 105, 180, 0.44)', // 粉色 - 中心对齐（更浅）
 };
 
 export function SnapGuideRenderer({ alignments, zoom }: SnapGuideRendererProps) {
@@ -38,8 +38,8 @@ export function SnapGuideRenderer({ alignments, zoom }: SnapGuideRendererProps) 
     }
 
     // 线宽随缩放调整，确保视觉一致性
-    const strokeWidth = 1 / Math.max(zoom, 0.1);
-    const dashLength = 4 / Math.max(zoom, 0.1);
+    const strokeWidth = 0.8 / Math.max(zoom, 0.1);
+    const dashLength = 3.5 / Math.max(zoom, 0.1);
 
     alignments.forEach((alignment) => {
       const isCenter = alignment.type === 'centerX' || alignment.type === 'centerY';

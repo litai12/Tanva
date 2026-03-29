@@ -15,6 +15,8 @@ import { ReferralService } from '../referral/referral.service';
 // 签到积分过期天数（普通用户）
 const DAILY_REWARD_EXPIRE_DAYS = 7;
 const STALE_PENDING_DEFAULT_TIMEOUT_MINUTES = 15;
+const STALE_PENDING_DEFAULT_VIDEO_TIMEOUT_MINUTES = 30;
+const STALE_PENDING_VIDEO_REFUND_DEFAULT_CUTOVER_AT = '2026-03-28T00:00:00.000Z';
 const STALE_PENDING_DEFAULT_BATCH_SIZE = 100;
 const DEFAULT_FREE_USER_MONTHLY_IMAGE_LIMIT = 100;
 const DEFAULT_FREE_USER_DAILY_IMAGE_LIMIT = 20;
@@ -31,6 +33,15 @@ const STALE_PENDING_IMAGE_SERVICE_TYPES: ServiceType[] = [
   'gemini-2.5-image-blend',
   'midjourney-imagine',
   'midjourney-variation',
+];
+const STALE_PENDING_VIDEO_SERVICE_TYPES: ServiceType[] = [
+  'wan26-video',
+  'kling-video',
+  'kling-2.6-video',
+  'kling-o3-video',
+  'vidu-video',
+  'viduq3-pro-video',
+  'doubao-video',
 ];
 const FREE_USER_IMAGE_LIMITED_SERVICES: ServiceType[] = [
   ...STALE_PENDING_IMAGE_SERVICE_TYPES,
@@ -151,6 +162,29 @@ export class CreditsService {
   }
 
   /**
+   * Sora 视频服务：Pro 模型（750 积分）显示「Sora 2 Pro 视频生成」，标准/VIP 模型显示「Sora2 视频生成」
+   */
+  private resolveSoraServiceName(
+    serviceType: ServiceType,
+    defaultServiceName: string,
+    requestParams: any,
+    model?: string,
+  ): string {
+    if (serviceType !== 'sora-sd' && serviceType !== 'sora-hd') {
+      return defaultServiceName;
+    }
+
+    const selectedModel =
+      this.normalizeSoraBillingModel(requestParams?.soraModel) ||
+      this.normalizeSoraBillingModel(model);
+    if (selectedModel === 'sora-2-pro') {
+      return serviceType === 'sora-hd' ? 'Sora 2 Pro 高清视频' : 'Sora 2 Pro 视频生成';
+    }
+
+    return defaultServiceName;
+  }
+
+  /**
    * 根据分辨率解析积分定价
    * 支持按分辨率差异化计费的服务（由 pricing.resolutionPricing 控制）
    */
@@ -228,6 +262,42 @@ export class CreditsService {
       'CREDITS_PENDING_TIMEOUT_MINUTES',
       STALE_PENDING_DEFAULT_TIMEOUT_MINUTES,
     );
+  }
+
+  private getStalePendingVideoTimeoutMinutes(): number {
+    return this.parsePositiveIntEnv(
+      'CREDITS_PENDING_VIDEO_TIMEOUT_MINUTES',
+      STALE_PENDING_DEFAULT_VIDEO_TIMEOUT_MINUTES,
+    );
+  }
+
+  private getStalePendingVideoRefundCutoverAt(): Date | null {
+    const raw = process.env.CREDITS_PENDING_VIDEO_REFUND_CUTOVER_AT;
+    const trimmed = raw?.trim();
+
+    if (trimmed) {
+      const normalized = trimmed.toLowerCase();
+      if (normalized === 'off' || normalized === 'none' || normalized === '0') {
+        return null;
+      }
+
+      const parsed = new Date(trimmed);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed;
+      }
+      this.logger.warn(
+        `Invalid CREDITS_PENDING_VIDEO_REFUND_CUTOVER_AT=${trimmed}, fallback to default ${STALE_PENDING_VIDEO_REFUND_DEFAULT_CUTOVER_AT}`,
+      );
+    }
+
+    const fallback = new Date(STALE_PENDING_VIDEO_REFUND_DEFAULT_CUTOVER_AT);
+    if (Number.isNaN(fallback.getTime())) {
+      this.logger.warn(
+        `Invalid default video refund cutover date ${STALE_PENDING_VIDEO_REFUND_DEFAULT_CUTOVER_AT}, disable cutover filter`,
+      );
+      return null;
+    }
+    return fallback;
   }
 
   private getStalePendingBatchSize(): number {
@@ -721,6 +791,14 @@ export class CreditsService {
 
       const newBalance = account.balance - creditsToDeduct;
 
+      // Sora 按模型区分显示名称：Pro 750 积分显示「Sora 2 Pro 视频生成」
+      const effectiveServiceName = this.resolveSoraServiceName(
+        serviceType,
+        pricing.serviceName,
+        requestParams,
+        model,
+      );
+
       // 更新账户余额
       await tx.creditAccount.update({
         where: { id: account.id },
@@ -735,7 +813,7 @@ export class CreditsService {
         data: {
           userId,
           serviceType,
-          serviceName: pricing.serviceName,
+          serviceName: effectiveServiceName,
           provider: requestedProvider || pricing.provider,
           model,
           creditsUsed: creditsToDeduct,
@@ -758,7 +836,7 @@ export class CreditsService {
           amount: -creditsToDeduct,
           balanceBefore: account.balance,
           balanceAfter: newBalance,
-          description: `使用 ${pricing.serviceName}${requestParams?.imageSize ? `（${requestParams.imageSize}）` : ''}`,
+          description: `使用 ${effectiveServiceName}${requestParams?.imageSize ? `（${requestParams.imageSize}）` : ''}`,
           apiUsageId: apiUsage.id,
         },
       });
@@ -884,6 +962,47 @@ export class CreditsService {
   }
 
   /**
+   * 标记用户的 API 使用记录为成功（用于可轮询任务在前端确认成功后回写）
+   */
+  async markApiUsageSuccessForUser(
+    userId: string,
+    apiUsageId: string,
+    processingTime: number = 0,
+  ) {
+    const apiUsage = await this.prisma.apiUsageRecord.findUnique({
+      where: { id: apiUsageId },
+    });
+
+    if (!apiUsage) {
+      throw new NotFoundException('API使用记录不存在');
+    }
+
+    if (apiUsage.userId !== userId) {
+      throw new BadRequestException('无权操作该 API 使用记录');
+    }
+
+    if (apiUsage.responseStatus === ApiResponseStatus.FAILED) {
+      throw new BadRequestException('失败的 API 调用不支持标记成功');
+    }
+
+    if (apiUsage.responseStatus === ApiResponseStatus.SUCCESS) {
+      return apiUsage;
+    }
+
+    const updated = await this.prisma.apiUsageRecord.update({
+      where: { id: apiUsageId },
+      data: {
+        responseStatus: ApiResponseStatus.SUCCESS,
+        errorMessage: null,
+        processingTime: Math.max(0, processingTime),
+      },
+    });
+
+    await this.verifyAndRewardInviterSafely(userId);
+    return updated;
+  }
+
+  /**
    * API 调用失败时退还积分
    */
   async refundCredits(userId: string, apiUsageId: string): Promise<AddCreditsResult> {
@@ -982,13 +1101,64 @@ export class CreditsService {
   }> {
     const timeoutMinutes = options?.timeoutMinutes ?? this.getStalePendingTimeoutMinutes();
     const batchSize = options?.batchSize ?? this.getStalePendingBatchSize();
+    return this.autoRefundStalePendingUsagesForServiceTypes(
+      STALE_PENDING_IMAGE_SERVICE_TYPES,
+      timeoutMinutes,
+      batchSize,
+    );
+  }
+
+  /**
+   * 自动处理长时间 pending 的异步视频调用：
+   * - 标记为 failed
+   * - 执行积分退款（幂等）
+   */
+  async autoRefundStalePendingVideoUsages(options?: {
+    timeoutMinutes?: number;
+    batchSize?: number;
+  }): Promise<{
+    scanned: number;
+    refunded: number;
+    skippedSuccess: number;
+    errors: number;
+    timeoutMinutes: number;
+    batchSize: number;
+  }> {
+    const timeoutMinutes = options?.timeoutMinutes ?? this.getStalePendingVideoTimeoutMinutes();
+    const batchSize = options?.batchSize ?? this.getStalePendingBatchSize();
+    const cutoverAt = this.getStalePendingVideoRefundCutoverAt();
+    return this.autoRefundStalePendingUsagesForServiceTypes(
+      STALE_PENDING_VIDEO_SERVICE_TYPES,
+      timeoutMinutes,
+      batchSize,
+      cutoverAt,
+    );
+  }
+
+  private async autoRefundStalePendingUsagesForServiceTypes(
+    serviceTypes: ServiceType[],
+    timeoutMinutes: number,
+    batchSize: number,
+    minCreatedAt?: Date | null,
+  ): Promise<{
+    scanned: number;
+    refunded: number;
+    skippedSuccess: number;
+    errors: number;
+    timeoutMinutes: number;
+    batchSize: number;
+  }> {
     const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000);
+    const createdAtFilter: Prisma.DateTimeFilter = { lt: cutoff };
+    if (minCreatedAt) {
+      createdAtFilter.gte = minCreatedAt;
+    }
 
     const staleRecords = await this.prisma.apiUsageRecord.findMany({
       where: {
         responseStatus: ApiResponseStatus.PENDING,
-        serviceType: { in: STALE_PENDING_IMAGE_SERVICE_TYPES },
-        createdAt: { lt: cutoff },
+        serviceType: { in: serviceTypes },
+        createdAt: createdAtFilter,
       },
       orderBy: { createdAt: 'asc' },
       take: batchSize,
@@ -1216,7 +1386,7 @@ export class CreditsService {
     const apiUsageMap = new Map<
       string,
       {
-        provider: string;
+        provider: string | null;
         model: string | null;
         requestParams: Prisma.JsonValue | null;
         responseStatus: string;
@@ -1247,6 +1417,8 @@ export class CreditsService {
       return {
         ...tx,
         channel: this.extractChannelFromApiUsage(usage),
+        provider: usage?.provider ?? null,
+        model: usage?.model ?? null,
         apiResponseStatus: usage?.responseStatus ?? null,
         processingTime: usage?.processingTime ?? null,
       };

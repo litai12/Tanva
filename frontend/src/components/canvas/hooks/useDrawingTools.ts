@@ -12,28 +12,148 @@ import type {
   DrawingContext 
 } from '@/types/canvas';
 import type { ExtendedPath } from '@/types/paper';
-import type { DrawMode } from '@/stores/toolStore';
+import type { DrawMode, LineStyle } from '@/stores/toolStore';
 
 interface UseDrawingToolsProps {
   context: DrawingContext;
   currentColor: string;
   fillColor: string;
   strokeWidth: number;
+  lineStyle: LineStyle;
   isEraser: boolean;
   hasFill: boolean;
   eventHandlers?: DrawingToolEventHandlers;
 }
+
+const isSketchLineStyle = (style: LineStyle): boolean =>
+  style === 'sketch-end-heavy' || style === 'sketch-center-heavy';
+
+const supportsSketchMode = (mode: DrawMode): boolean =>
+  mode === 'free' || mode === 'line';
+
+const getDashArray = (style: LineStyle, width: number): number[] => {
+  const normalizedWidth = Math.max(1, width);
+  if (style === 'dashed') {
+    return [normalizedWidth * 4, normalizedWidth * 2.8];
+  }
+  if (style === 'dash-dot') {
+    return [normalizedWidth * 5, normalizedWidth * 2, normalizedWidth, normalizedWidth * 2];
+  }
+  return [];
+};
+
+const getSketchProfileFactor = (t: number, style: LineStyle): number => {
+  const normalized = Math.max(0, Math.min(1, t));
+  const edgeBias = Math.pow(Math.abs(2 * normalized - 1), 0.85);
+  if (style === 'sketch-end-heavy') {
+    return 0.7 + edgeBias * 0.95;
+  }
+  return 0.7 + (1 - edgeBias) * 0.95;
+};
 
 export const useDrawingTools = ({ 
   context, 
   currentColor, 
   fillColor,
   strokeWidth, 
+  lineStyle,
   isEraser,
   hasFill,
   eventHandlers = {} 
 }: UseDrawingToolsProps) => {
   const { ensureDrawingLayer } = context;
+
+  const applyLineStyleToPath = useCallback((path: paper.Path, mode: DrawMode) => {
+    if (!path || isEraser) return;
+
+    path.strokeCap = 'round';
+    path.strokeJoin = 'round';
+    path.data = {
+      ...(path.data || {}),
+      lineStyle,
+    };
+
+    if (isSketchLineStyle(lineStyle) && supportsSketchMode(mode)) {
+      path.dashArray = [];
+      path.dashOffset = 0;
+      return;
+    }
+
+    const dashArray = getDashArray(lineStyle, strokeWidth);
+    path.dashArray = dashArray;
+    path.dashOffset = 0;
+  }, [lineStyle, strokeWidth, isEraser]);
+
+  const convertToSketchPath = useCallback((sourcePath: paper.Path, mode: DrawMode): paper.Path => {
+    if (!isSketchLineStyle(lineStyle) || !supportsSketchMode(mode)) {
+      return sourcePath;
+    }
+
+    const totalLength = sourcePath.length;
+    if (!Number.isFinite(totalLength) || totalLength <= 0.5) {
+      return sourcePath;
+    }
+
+    const segmentCount = Math.max(
+      18,
+      Math.min(140, Math.ceil(totalLength / Math.max(1.2, strokeWidth * 0.55)))
+    );
+    const leftPoints: paper.Point[] = [];
+    const rightPoints: paper.Point[] = [];
+    const seed = ((sourcePath.firstSegment?.point.x || 0) * 0.037 + (sourcePath.firstSegment?.point.y || 0) * 0.061) % 1;
+
+    for (let i = 0; i < segmentCount; i += 1) {
+      const t = segmentCount <= 1 ? 0 : i / (segmentCount - 1);
+      const offset = Math.max(0, Math.min(totalLength, totalLength * t));
+      const point = sourcePath.getPointAt(offset) || sourcePath.lastSegment?.point || sourcePath.firstSegment?.point;
+      if (!point) continue;
+
+      const normalAtOffset =
+        sourcePath.getNormalAt(Math.min(totalLength - 0.0001, Math.max(0.0001, offset))) ||
+        sourcePath.getNormalAt(offset) ||
+        new paper.Point(0, -1);
+      const normal = normalAtOffset.normalize();
+      const widthBase = Math.max(1, strokeWidth) * getSketchProfileFactor(t, lineStyle);
+      const widthWobble =
+        Math.sin((t * 5.8 + seed) * Math.PI * 2) * Math.min(0.7, strokeWidth * 0.1);
+      const width = Math.max(0.8, widthBase + widthWobble);
+      const centerWobble =
+        Math.sin((t * 3.6 + seed * 1.7) * Math.PI * 2) * Math.min(0.5, strokeWidth * 0.08);
+      const centerPoint = point.add(normal.multiply(centerWobble));
+
+      leftPoints.push(centerPoint.add(normal.multiply(width / 2)));
+      rightPoints.push(centerPoint.subtract(normal.multiply(width / 2)));
+    }
+
+    if (leftPoints.length < 2 || rightPoints.length < 2) {
+      return sourcePath;
+    }
+
+    const sourceParent = sourcePath.parent;
+    const sourceIndex = sourcePath.index;
+    sourcePath.remove();
+
+    const sketchPath = new paper.Path();
+    leftPoints.forEach((pt) => sketchPath.add(pt));
+    rightPoints.reverse().forEach((pt) => sketchPath.add(pt));
+    sketchPath.closed = true;
+    sketchPath.fillColor = new paper.Color(currentColor);
+    sketchPath.strokeColor = null;
+    sketchPath.strokeWidth = 0;
+    sketchPath.smooth({ type: 'catmull-rom', factor: 0.58 });
+    sketchPath.data = {
+      ...(sourcePath.data || {}),
+      lineStyle,
+      isSketchStylePath: true,
+      sourceStrokeWidth: strokeWidth,
+    };
+
+    if (sourceParent) {
+      sourceParent.insertChild(sourceIndex, sketchPath);
+    }
+
+    return sketchPath;
+  }, [currentColor, lineStyle, strokeWidth]);
 
   // 判断当前工具是否支持填充
   const supportsFill = (mode: DrawMode): boolean => {
@@ -91,6 +211,7 @@ export const useDrawingTools = ({
       // 普通绘制模式
       pathRef.current.strokeColor = new paper.Color(currentColor);
       pathRef.current.strokeWidth = strokeWidth;
+      applyLineStyleToPath(pathRef.current as unknown as paper.Path, 'free');
     }
 
     pathRef.current.strokeCap = 'round';
@@ -105,7 +226,7 @@ export const useDrawingTools = ({
     isDrawingRef.current = true;
     
     eventHandlers.onPathCreate?.(pathRef.current);
-  }, [ensureDrawingLayer, currentColor, strokeWidth, isEraser, eventHandlers.onPathCreate]);
+  }, [ensureDrawingLayer, currentColor, strokeWidth, isEraser, applyLineStyleToPath, eventHandlers.onPathCreate]);
 
   // 继续自由绘制
   const continueFreeDraw = useCallback((point: paper.Point) => {
@@ -167,6 +288,7 @@ export const useDrawingTools = ({
     pathRef.current = new paper.Path.Rectangle(rectangle);
     pathRef.current.strokeColor = new paper.Color(currentColor);
     pathRef.current.strokeWidth = strokeWidth;
+    applyLineStyleToPath(pathRef.current as unknown as paper.Path, 'rect');
     pathRef.current.fillColor = getFillColor('rect');
 
     // 保存起始点用于后续更新
@@ -180,7 +302,7 @@ export const useDrawingTools = ({
     isDrawingRef.current = true;
     
     eventHandlers.onPathCreate?.(pathRef.current);
-  }, [ensureDrawingLayer, currentColor, strokeWidth, eventHandlers.onPathCreate]);
+  }, [ensureDrawingLayer, currentColor, strokeWidth, applyLineStyleToPath, eventHandlers.onPathCreate]);
 
   // 更新矩形绘制
   const updateRectDraw = useCallback((point: paper.Point) => {
@@ -214,12 +336,13 @@ export const useDrawingTools = ({
       }
       pathRef.current.strokeColor = new paper.Color(currentColor);
       pathRef.current.strokeWidth = strokeWidth;
+      applyLineStyleToPath(pathRef.current as unknown as paper.Path, 'rect');
       pathRef.current.fillColor = getFillColor('rect');
 
       // 保持起始点引用
       if (pathRef.current) (pathRef.current as any).startPoint = startPoint;
     }
-  }, [currentColor, strokeWidth, createRectPath, drawingState.initialClickPoint, drawingState.hasMoved, drawingState.dragThreshold]);
+  }, [currentColor, strokeWidth, applyLineStyleToPath, createRectPath, drawingState.initialClickPoint, drawingState.hasMoved, drawingState.dragThreshold]);
 
   // ========== 圆形绘制功能 ==========
 
@@ -244,6 +367,7 @@ export const useDrawingTools = ({
     });
     pathRef.current.strokeColor = new paper.Color(currentColor);
     pathRef.current.strokeWidth = strokeWidth;
+    applyLineStyleToPath(pathRef.current as unknown as paper.Path, 'circle');
     pathRef.current.fillColor = getFillColor('circle');
 
     // 保存起始点和圆形标识用于后续更新
@@ -265,7 +389,7 @@ export const useDrawingTools = ({
     isDrawingRef.current = true;
     
     eventHandlers.onPathCreate?.(pathRef.current);
-  }, [ensureDrawingLayer, currentColor, strokeWidth, eventHandlers.onPathCreate]);
+  }, [ensureDrawingLayer, currentColor, strokeWidth, applyLineStyleToPath, eventHandlers.onPathCreate]);
 
   // 更新圆形绘制
   const updateCircleDraw = useCallback((point: paper.Point) => {
@@ -303,12 +427,13 @@ export const useDrawingTools = ({
       }
       pathRef.current.strokeColor = new paper.Color(currentColor);
       pathRef.current.strokeWidth = strokeWidth;
+      applyLineStyleToPath(pathRef.current as unknown as paper.Path, 'circle');
       pathRef.current.fillColor = getFillColor('circle');
 
       // 保持起始点引用
       if (pathRef.current) (pathRef.current as any).startPoint = startPoint;
     }
-  }, [currentColor, strokeWidth, createCirclePath, drawingState.initialClickPoint, drawingState.hasMoved, drawingState.dragThreshold]);
+  }, [currentColor, strokeWidth, applyLineStyleToPath, createCirclePath, drawingState.initialClickPoint, drawingState.hasMoved, drawingState.dragThreshold]);
 
   // ========== 图片占位框绘制功能 ==========
 
@@ -461,6 +586,7 @@ export const useDrawingTools = ({
     });
     pathRef.current.strokeColor = new paper.Color(currentColor);
     pathRef.current.strokeWidth = strokeWidth;
+    applyLineStyleToPath(pathRef.current as unknown as paper.Path, 'line');
 
     // 保存起始点用于后续更新
     if (pathRef.current) (pathRef.current as any).startPoint = startPoint;
@@ -477,7 +603,7 @@ export const useDrawingTools = ({
     
     logger.debug('创建直线路径');
     eventHandlers.onPathCreate?.(pathRef.current);
-  }, [ensureDrawingLayer, currentColor, strokeWidth, eventHandlers.onPathCreate]);
+  }, [ensureDrawingLayer, currentColor, strokeWidth, applyLineStyleToPath, eventHandlers.onPathCreate]);
 
   // 开始绘制直线（仅记录起始位置）
   const startLineDraw = useCallback((point: paper.Point) => {
@@ -515,7 +641,7 @@ export const useDrawingTools = ({
       if (pathRef.current) delete (pathRef.current as any).startPoint;
 
       logger.drawing('完成直线绘制');
-      const completedPath = pathRef.current;
+      const completedPath = convertToSketchPath(pathRef.current as paper.Path, 'line');
       pathRef.current = null;
       isDrawingRef.current = false;
       
@@ -532,10 +658,10 @@ export const useDrawingTools = ({
         (paper.project as any).emit('change');
       }
 
-      eventHandlers.onPathComplete?.(completedPath);
+      eventHandlers.onPathComplete?.(completedPath as any);
       eventHandlers.onDrawEnd?.('line');
     }
-  }, [eventHandlers.onPathComplete, eventHandlers.onDrawEnd]);
+  }, [convertToSketchPath, eventHandlers.onPathComplete, eventHandlers.onDrawEnd]);
 
   // ========== 通用绘制结束 ==========
   
@@ -609,12 +735,15 @@ export const useDrawingTools = ({
 
       // 清理路径引用和临时数据
       if (pathRef.current) {
-        const completedPath = pathRef.current;
+        let completedPath = pathRef.current as paper.Path;
         delete pathRef.current.startPoint;
+        if (!isEraser && drawMode !== 'image' && drawMode !== '3d-model') {
+          completedPath = convertToSketchPath(completedPath, drawMode);
+        }
         pathRef.current = null;
         
         if (!isEraser && drawMode !== 'image' && drawMode !== '3d-model') {
-          eventHandlers.onPathComplete?.(completedPath);
+          eventHandlers.onPathComplete?.(completedPath as any);
         }
       }
 
@@ -636,7 +765,7 @@ export const useDrawingTools = ({
     
     eventHandlers.onDrawEnd?.(drawMode);
     logger.debug(`结束${drawMode}绘制`);
-  }, [isEraser, drawingState.initialClickPoint, eventHandlers.onPathComplete, eventHandlers.onDrawEnd]);
+  }, [isEraser, drawingState.initialClickPoint, convertToSketchPath, eventHandlers.onPathComplete, eventHandlers.onDrawEnd]);
 
   return {
     // 状态

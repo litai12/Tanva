@@ -1,5 +1,5 @@
 import React from 'react';
-import { Handle, Position, useReactFlow } from 'reactflow';
+import { Handle, Position, useReactFlow, type Node as RFNode } from 'reactflow';
 import { Send as SendIcon, Play, Plus, X, Link, Copy, Trash2, Download, FolderPlus, Check, Globe } from 'lucide-react';
 import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
 import SmartImage from '../../ui/SmartImage';
@@ -207,38 +207,72 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
     nativeEvent.stopImmediatePropagation?.();
   }, []);
 
-  const refreshExternalPrompts = React.useCallback(() => {
-    const currentEdges = rf.getEdges();
-    // 获取所有连接到 text handle 的边
-    const textEdges = currentEdges.filter(e => e.target === id && e.targetHandle === 'text');
+  const refreshExternalPrompts = React.useCallback(
+    (optimisticSource?: { sourceId: string; patch: Record<string, unknown> } | null) => {
+      const currentEdges = rf.getEdges();
+      // 获取所有连接到 text handle 的边
+      const textEdges = currentEdges.filter((e) => e.target === id && e.targetHandle === 'text');
 
-    if (textEdges.length === 0) {
-      setExternalPrompts([]);
-      setExternalSourceIds([]);
-      return;
-    }
+      if (textEdges.length === 0) {
+        setExternalPrompts([]);
+        setExternalSourceIds([]);
+        return;
+      }
 
-    const sourceIds: string[] = [];
-    const prompts: string[] = [];
+      const sourceIds: string[] = [];
+      const prompts: string[] = [];
 
-    for (const edge of textEdges) {
-      sourceIds.push(edge.source);
-      const sourceNode = rf.getNode(edge.source);
-      if (sourceNode) {
-        const resolved = resolveTextFromSourceNode(sourceNode, edge.sourceHandle);
-        if (resolved && resolved.trim().length) {
-          prompts.push(resolved.trim());
+      for (const edge of textEdges) {
+        sourceIds.push(edge.source);
+        let sourceNode: RFNode | undefined = rf.getNode(edge.source) as RFNode | undefined;
+        if (
+          optimisticSource &&
+          sourceNode &&
+          edge.source === optimisticSource.sourceId &&
+          optimisticSource.patch &&
+          typeof optimisticSource.patch === 'object'
+        ) {
+          sourceNode = {
+            ...sourceNode,
+            data: { ...(sourceNode.data as Record<string, unknown>), ...optimisticSource.patch },
+          } as RFNode;
+        }
+        if (sourceNode) {
+          const resolved = resolveTextFromSourceNode(sourceNode, edge.sourceHandle);
+          if (resolved && resolved.trim().length) {
+            prompts.push(resolved.trim());
+          }
         }
       }
-    }
 
-    setExternalSourceIds(sourceIds);
-    setExternalPrompts(prompts);
-  }, [id, rf]);
+      setExternalSourceIds(sourceIds);
+      setExternalPrompts(prompts);
+    },
+    [id, rf],
+  );
+
+  const refreshExternalPromptsTimerRef = React.useRef<number | null>(null);
+  const refreshExternalPromptsDeferred = React.useCallback(() => {
+    if (refreshExternalPromptsTimerRef.current !== null) {
+      window.clearTimeout(refreshExternalPromptsTimerRef.current);
+    }
+    refreshExternalPromptsTimerRef.current = window.setTimeout(() => {
+      refreshExternalPromptsTimerRef.current = null;
+      refreshExternalPrompts();
+    }, 0);
+  }, [refreshExternalPrompts]);
 
   React.useEffect(() => {
     refreshExternalPrompts();
   }, [refreshExternalPrompts]);
+
+  React.useEffect(() => {
+    return () => {
+      if (refreshExternalPromptsTimerRef.current !== null) {
+        window.clearTimeout(refreshExternalPromptsTimerRef.current);
+      }
+    };
+  }, []);
 
   // 监听边的变化（连接/断开）来刷新外部提示词
   React.useEffect(() => {
@@ -252,13 +286,18 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   React.useEffect(() => {
     if (externalSourceIds.length === 0) return;
     const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ id: string }>).detail;
+      const detail = (event as CustomEvent<{ id: string; patch?: Record<string, unknown> }>).detail;
       if (!detail?.id || !externalSourceIds.includes(detail.id)) return;
-      refreshExternalPrompts();
+      // 同一事件周期内 Flow 的 setNodes 可能尚未提交，用事件里的 patch 与当前节点合并后再解析，避免外链文案卡在旧值
+      if (detail.patch && typeof detail.patch === 'object') {
+        refreshExternalPrompts({ sourceId: detail.id, patch: detail.patch });
+      } else {
+        refreshExternalPromptsDeferred();
+      }
     };
     window.addEventListener('flow:updateNodeData', handler as EventListener);
     return () => window.removeEventListener('flow:updateNodeData', handler as EventListener);
-  }, [externalSourceIds, refreshExternalPrompts]);
+  }, [externalSourceIds, refreshExternalPrompts, refreshExternalPromptsDeferred]);
 
   // 更新单个提示词
   const updatePrompt = React.useCallback((index: number, value: string) => {
@@ -373,13 +412,14 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   const aspectRatioValue = data.aspectRatio ?? '';
   const imageSizeValue = data.imageSize ?? null;
 
-  // 图像尺寸选项
-  const imageSizeOptions: Array<{ label: string; value: '1K' | '2K' | '4K' | null }> = React.useMemo(() => ([
-    { label: lt('自动', 'Auto'), value: null },
-    { label: '1K', value: '1K' },
-    { label: '2K', value: '2K' },
-    { label: '4K', value: '4K' },
-  ]), [lt]);
+  const imageSizeOptions: Array<{ label: string; value: '1K' | '2K' | '4K' | null }> = React.useMemo(() => {
+    return [
+      { label: lt('自动', 'Auto'), value: null },
+      { label: '1K', value: '1K' },
+      { label: '2K', value: '2K' },
+      { label: '4K', value: '4K' },
+    ];
+  }, [lt]);
 
   // 更新图像尺寸
   const updateImageSize = React.useCallback((size: '1K' | '2K' | '4K' | null) => {

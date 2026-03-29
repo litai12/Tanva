@@ -3,10 +3,18 @@ import { OssService } from './oss.service';
 import { UploadsController } from './uploads.controller';
 import { AssetsController } from './assets.controller';
 import { VideoFramesController } from './video-frames.controller';
+import { VideoGifController } from './video-gif.controller';
+import { CreditsModule } from '../credits/credits.module';
 
 @Module({
+  imports: [CreditsModule],
   providers: [OssService],
-  controllers: [UploadsController, AssetsController, VideoFramesController],
+  controllers: [
+    UploadsController,
+    AssetsController,
+    VideoFramesController,
+    VideoGifController,
+  ],
   exports: [OssService],
 })
 export class OssModule {}

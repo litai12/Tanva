@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, TrendingUp, TrendingDown, Activity, Zap, RefreshCw, AlertTriangle } from 'lucide-react';
+import { TrendingUp, TrendingDown, Activity, Zap, RefreshCw, AlertTriangle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
+import PaymentPanel from '@/components/payment/PaymentPanel';
 import {
   claimDailyReward,
   getDailyRewardStatus,
@@ -29,6 +29,8 @@ interface Transaction {
   createdAt: string;
   apiUsageId?: string | null;
   channel?: string | null;
+  provider?: string | null;
+  model?: string | null;
   apiResponseStatus?: string | null;
   processingTime?: number | null;
 }
@@ -53,6 +55,7 @@ const SERVICE_TYPE_TRANSLATION_KEYS: Record<string, string> = {
   'gemini-3.1-image-blend': 'gemini31ImageBlend',
   'gemini-image-analyze': 'geminiImageAnalyze',
   'gemini-text': 'geminiText',
+  'gemini-prompt-optimize': 'geminiPromptOptimize',
   'gemini-paperjs': 'geminiPaperJs',
   'midjourney-imagine': 'midjourneyImagine',
   'midjourney-variation': 'midjourneyVariation',
@@ -113,7 +116,6 @@ const SimpleLineChart: React.FC<{
 
 const MyCredits: React.FC = () => {
   const { t, i18n } = useTranslation();
-  const navigate = useNavigate();
   const [credits, setCredits] = useState<UserCreditsInfo | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [apiUsage, setApiUsage] = useState<ApiUsageRecord[]>([]);
@@ -124,6 +126,7 @@ const MyCredits: React.FC = () => {
   const [expiringCredits, setExpiringCredits] = useState<ExpiringCreditsInfo | null>(null);
   const [checkInCalendar, setCheckInCalendar] = useState<CheckInCalendar | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'transactions'>('overview');
+  const [showPaymentPanel, setShowPaymentPanel] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -197,6 +200,37 @@ const MyCredits: React.FC = () => {
     return channel;
   };
 
+  const getTransactionStatusMeta = (
+    status: string | null | undefined,
+    hasApiUsage: boolean
+  ): { label: string; className: string } | null => {
+    let normalized = typeof status === 'string' ? status.trim().toLowerCase() : '';
+    if (!normalized && hasApiUsage) {
+      normalized = 'pending';
+    }
+
+    if (!normalized) return null;
+
+    if (normalized === 'success') {
+      return {
+        label: t('creditsPage.usage.status.success'),
+        className: 'bg-green-100 text-green-700 border border-green-200',
+      };
+    }
+
+    if (normalized === 'failed') {
+      return {
+        label: t('creditsPage.usage.status.failed'),
+        className: 'bg-red-100 text-red-700 border border-red-200',
+      };
+    }
+
+    return {
+      label: t('creditsPage.usage.status.pending'),
+      className: 'bg-yellow-100 text-yellow-700 border border-yellow-200',
+    };
+  };
+
   const dailyUsageData = useMemo(() => {
     const days = 14;
     const now = new Date();
@@ -229,10 +263,11 @@ const MyCredits: React.FC = () => {
   };
 
   const usageByService = useMemo(() => {
+    // 按 serviceName 分组（后端已按 Sora 模型区分），以正确展示 Sora 标准版 vs Pro 版
     const serviceMap = new Map<string, { count: number; credits: number }>();
 
     apiUsage.forEach(record => {
-      const key = record.serviceType;
+      const key = record.serviceName || record.serviceType;
       const existing = serviceMap.get(key) || { count: 0, credits: 0 };
       serviceMap.set(key, {
         count: existing.count + 1,
@@ -241,13 +276,13 @@ const MyCredits: React.FC = () => {
     });
 
     return Array.from(serviceMap.entries())
-      .map(([serviceType, stats]) => ({
-        serviceType,
-        serviceName: getServiceTypeLabel(serviceType),
+      .map(([serviceName, stats]) => ({
+        serviceType: serviceName,
+        serviceName,
         ...stats,
       }))
       .sort((a, b) => b.credits - a.credits);
-  }, [apiUsage, i18n.resolvedLanguage, t]);
+  }, [apiUsage]);
 
   // 今日消耗
   const todaySpent = useMemo(() => {
@@ -285,15 +320,7 @@ const MyCredits: React.FC = () => {
       {/* Header */}
       <div className="sticky top-0 z-10 border-b bg-white/80 backdrop-blur-xl border-slate-200/60">
         <div className="flex items-center justify-between max-w-4xl px-4 py-4 mx-auto">
-          <div className="flex items-center gap-3">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate(-1)}
-              className="p-0 rounded-full h-9 w-9"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </Button>
+          <div className="flex items-center">
             <h1 className="text-lg font-semibold text-slate-800">
               {t('creditsPage.title')}
             </h1>
@@ -322,9 +349,14 @@ const MyCredits: React.FC = () => {
               </div>
               <div className="text-5xl font-bold">{credits?.balance || 0}</div>
             </div>
-            <div className="p-3 bg-white/20 rounded-2xl">
-              <Zap className="w-8 h-8" />
-            </div>
+            <button
+              type="button"
+              onClick={() => setShowPaymentPanel(true)}
+              title={t('workspace.settings.workspaceTab.credits.recharge')}
+              className="px-4 py-2 text-sm font-semibold text-white transition-all border rounded-xl bg-slate-900/85 border-slate-800/70 hover:bg-slate-900 shadow-[0_6px_20px_rgba(15,23,42,0.32)]"
+            >
+              {t('workspace.settings.workspaceTab.credits.recharge')}
+            </button>
           </div>
           <div className="grid grid-cols-3 gap-4 mt-6">
             <div className="p-3 bg-white/10 rounded-xl">
@@ -476,6 +508,7 @@ const MyCredits: React.FC = () => {
                   <thead className="sticky top-0 z-10 bg-slate-50">
                     <tr className="text-xs font-medium text-slate-500">
                       <th className="px-4 py-3 text-left">{t('creditsPage.transactions.columns.item')}</th>
+                      <th className="px-4 py-3 text-left">{t('creditsPage.transactions.columns.status')}</th>
                       <th className="px-4 py-3 text-right">{t('creditsPage.transactions.columns.amount')}</th>
                       <th className="px-4 py-3 text-right">{t('creditsPage.transactions.columns.remaining')}</th>
                       <th className="px-4 py-3 text-left">{t('creditsPage.transactions.columns.generatedAt')}</th>
@@ -488,6 +521,7 @@ const MyCredits: React.FC = () => {
                       const durationSeconds = typeof tx.processingTime === 'number'
                         ? Math.max(0, Math.round(tx.processingTime / 1000))
                         : null;
+                      const statusMeta = getTransactionStatusMeta(tx.apiResponseStatus, Boolean(tx.apiUsageId));
 
                       return (
                         <tr key={tx.id} className="hover:bg-slate-50/60">
@@ -505,15 +539,37 @@ const MyCredits: React.FC = () => {
                               </div>
                               <div className="min-w-0">
                                 <div className="font-medium text-slate-700 truncate max-w-[240px]">{tx.description}</div>
-                                {tx.channel && (
+                                {(tx.channel || tx.model) && (
                                   <div className="text-xs text-slate-500">
-                                    {t('creditsPage.transactions.channel', {
-                                      channel: formatChannelLabel(tx.channel),
-                                    })}
+                                    {tx.channel && (
+                                      <span>
+                                        {t('creditsPage.transactions.channel', {
+                                          channel: formatChannelLabel(tx.channel),
+                                        })}
+                                      </span>
+                                    )}
+                                    {tx.channel && tx.model && <span> · </span>}
+                                    {tx.model && (
+                                      <span>
+                                        {t('creditsPage.transactions.model', { model: tx.model })}
+                                      </span>
+                                    )}
                                   </div>
                                 )}
                               </div>
                             </div>
+                          </td>
+                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                            {statusMeta ? (
+                              <span className={cn(
+                                "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                                statusMeta.className
+                              )}>
+                                {statusMeta.label}
+                              </span>
+                            ) : (
+                              t('creditsPage.transactions.notAvailable')
+                            )}
                           </td>
                           <td className={cn(
                             "px-4 py-3 text-right font-semibold",
@@ -542,6 +598,26 @@ const MyCredits: React.FC = () => {
           </div>
         )}
       </div>
+
+      {showPaymentPanel && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/30"
+          onClick={() => setShowPaymentPanel(false)}
+        >
+          <div
+            className="w-full max-w-[960px] max-h-[88vh] overflow-auto bg-white border border-slate-200 shadow-[0_24px_80px_rgba(15,23,42,0.22)] rounded-3xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <PaymentPanel
+              onBack={() => setShowPaymentPanel(false)}
+              onPaymentSuccess={() => {
+                setShowPaymentPanel(false);
+                loadData(false);
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };
