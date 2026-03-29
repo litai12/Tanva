@@ -259,7 +259,7 @@ const getResendInfoFromMessage = (message: ChatMessage): ResendInfo | null => {
 };
 
 const AIChatDialog: React.FC = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const {
     isVisible,
     isMaximized,
@@ -321,6 +321,10 @@ const AIChatDialog: React.FC = () => {
   } = useAIChatStore();
   const focusMode = useUIStore((state) => state.focusMode);
   const showLibraryPanel = useUIStore((state) => state.showLibraryPanel);
+  const isZh = (i18n.resolvedLanguage || i18n.language || "")
+    .toLowerCase()
+    .startsWith("zh");
+  const lt = useCallback((zhText: string, enText: string) => (isZh ? zhText : enText), [isZh]);
 
   // 监听aiProvider变化并打印日志
   React.useEffect(() => {
@@ -1788,7 +1792,11 @@ const AIChatDialog: React.FC = () => {
               void handleCopyMessage(message);
             }
           }}
-          title={hasText ? "复制" : "暂无可复制的文本"}
+          title={
+            hasText
+              ? lt("复制", "Copy")
+              : lt("暂无可复制的文本", "No text to copy")
+          }
         >
           <Copy className='h-3.5 w-3.5' />
         </button>
@@ -1805,7 +1813,11 @@ const AIChatDialog: React.FC = () => {
               void handleDirectResend(message, resendInfo);
             }
           }}
-          title={isGenerating ? "正在生成中" : "重新发送"}
+          title={
+            isGenerating
+              ? lt("正在生成中", "Generating")
+              : lt("重新发送", "Resend")
+          }
         >
           <RotateCcw className='h-3.5 w-3.5' />
         </button>
@@ -1822,7 +1834,7 @@ const AIChatDialog: React.FC = () => {
               handleResendMessage(message, resendInfo);
             }
           }}
-          title='重新编辑'
+          title={lt("重新编辑", "Edit again")}
         >
           <Pencil className='h-3.5 w-3.5' />
         </button>
@@ -2781,8 +2793,8 @@ const AIChatDialog: React.FC = () => {
 
   const sendShortcutHint =
     sendShortcut === "enter"
-      ? "快捷键：Enter 发送，Shift+Enter 换行"
-      : "快捷键：Ctrl/Cmd + Enter 发送，Enter 换行";
+      ? lt("快捷键：Enter 发送，Shift+Enter 换行", "Shortcut: Enter to send, Shift+Enter for newline")
+      : lt("快捷键：Ctrl/Cmd + Enter 发送，Enter 换行", "Shortcut: Ctrl/Cmd + Enter to send, Enter for newline");
   const sendButtonTitle = manualModeWarning || sendShortcutHint;
 
   // 计算拖拽时是否使用自定义位置
@@ -2892,8 +2904,8 @@ const AIChatDialog: React.FC = () => {
                 setHistoryVisibility(true, true);
               }
             }}
-            title='点击收起或展开 AI 对话'
-            aria-label='点击收起或展开 AI 对话'
+            title={lt("点击收起或展开 AI 对话", "Collapse or expand AI chat")}
+            aria-label={lt("点击收起或展开 AI 对话", "Collapse or expand AI chat")}
           >
             <div
               className={cn(
@@ -2928,8 +2940,14 @@ const AIChatDialog: React.FC = () => {
             aria-pressed={isHistoryLocked}
             title={
               isHistoryLocked
-                ? "已上锁：禁止展开历史记录或最大化"
-                : "解锁后可展开历史记录或最大化"
+                ? lt(
+                    "已上锁：禁止展开历史记录或最大化",
+                    "Locked: history expand/maximize is disabled"
+                  )
+                : lt(
+                    "解锁后可展开历史记录或最大化",
+                    "Unlock to expand history or maximize"
+                  )
             }
             className={cn(
               "absolute left-1/2 bottom-[-1px] -translate-x-1/2 flex h-5 w-5 cursor-pointer items-center justify-center",
@@ -3045,7 +3063,7 @@ const AIChatDialog: React.FC = () => {
                       <button
                         onClick={handleRemoveSourceImage}
                         className='absolute flex items-center justify-center w-4 h-4 text-white transition-opacity bg-red-500 rounded-full opacity-0 -top-1 -right-1 hover:bg-red-600 group-hover:opacity-100'
-                        title='删除图片'
+                        title={lt("删除图片", "Remove image")}
                       >
                         <X className='w-2.5 h-2.5' />
                       </button>
@@ -3063,7 +3081,7 @@ const AIChatDialog: React.FC = () => {
                       <button
                         onClick={() => setSourceImageForAnalysis(null)}
                         className='absolute flex items-center justify-center w-4 h-4 text-white transition-opacity bg-red-500 rounded-full opacity-0 -top-1 -right-1 hover:bg-red-600 group-hover:opacity-100'
-                        title='删除图片'
+                        title={lt("删除图片", "Remove image")}
                       >
                         <X className='w-2.5 h-2.5' />
                       </button>
@@ -3088,7 +3106,10 @@ const AIChatDialog: React.FC = () => {
                       <button
                         onClick={() => handleRemoveBlendImage(index)}
                         className='absolute flex items-center justify-center w-4 h-4 text-white transition-opacity bg-red-500 rounded-full opacity-0 -top-1 -right-1 hover:bg-red-600 group-hover:opacity-100'
-                        title={`删除图片 ${index + 1}`}
+                        title={lt(
+                          `删除图片 ${index + 1}`,
+                          `Remove image ${index + 1}`
+                        )}
                       >
                         <X className='w-2.5 h-2.5' />
                       </button>
@@ -3103,7 +3124,7 @@ const AIChatDialog: React.FC = () => {
                     <button
                       onClick={() => fileInputRef.current?.click()}
                       className='flex items-center justify-center w-16 h-16 transition-colors border-2 border-gray-300 border-dashed rounded hover:border-blue-400 group'
-                      title='添加更多图片'
+                      title={lt("添加更多图片", "Add more images")}
                     >
                       <Plus className='w-6 h-6 text-gray-400 group-hover:text-blue-500' />
                     </button>
@@ -3122,20 +3143,20 @@ const AIChatDialog: React.FC = () => {
                         "flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-full text-xs text-gray-700 max-w-[220px] transition-all duration-200",
                         "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass"
                       )}
-                      title={sourcePdfFileName || "已添加的 PDF"}
+                      title={sourcePdfFileName || lt("已添加的 PDF", "Added PDF")}
                     >
                       <span className='inline-flex h-5 w-5 items-center justify-center rounded-full bg-gray-100/50 text-gray-500 text-[11px] font-semibold'>
                         @
                       </span>
                       <FileText className='w-4 h-4 text-red-500' />
                       <span className='truncate'>
-                        {sourcePdfFileName || "PDF 文件"}
+                        {sourcePdfFileName || lt("PDF 文件", "PDF file")}
                       </span>
                     </div>
                     <button
                       onClick={() => setSourcePdfForAnalysis(null)}
                       className='absolute flex items-center justify-center w-4 h-4 text-white transition-opacity bg-red-500 rounded-full opacity-0 -top-1 -right-1 hover:bg-red-600 group-hover:opacity-100'
-                      title='删除 PDF'
+                      title={lt("删除 PDF", "Remove PDF")}
                     >
                       <X className='w-2.5 h-2.5' />
                     </button>
@@ -3323,8 +3344,8 @@ const AIChatDialog: React.FC = () => {
                           "h-7 px-2 text-[11px] font-normal text-slate-700 transition-colors duration-150",
                           "hover:text-slate-900 active:translate-y-[0.5px]"
                         )}
-                        title='选择生成倍数'
-                        aria-label={`倍数 ${autoModeMultiplier}X`}
+                        title={lt("选择生成倍数", "Select multiplier")}
+                        aria-label={lt(`倍数 ${autoModeMultiplier}X`, `Multiplier ${autoModeMultiplier}X`)}
                       >
                         <span className='inline-flex items-baseline'>
                           <span className='text-sm leading-none'>{autoModeMultiplier}</span>
@@ -3339,7 +3360,7 @@ const AIChatDialog: React.FC = () => {
                       className='min-w-[80px] rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md'
                     >
                       <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
-                        生成倍数
+                        {lt("生成倍数", "Multiplier")}
                       </DropdownMenuLabel>
                       {AUTO_MODE_MULTIPLIERS.map((multiplier) => {
                         const isActive = autoModeMultiplier === multiplier;
@@ -3387,7 +3408,7 @@ const AIChatDialog: React.FC = () => {
                       ? "text-slate-700"
                       : !aspectRatio && "opacity-50 cursor-not-allowed text-gray-400"
                   )}
-                  title={aspectRatio ? `长宽比: ${aspectRatio}` : "选择长宽比"}
+                  title={aspectRatio ? lt(`长宽比: ${aspectRatio}`, `Aspect ratio: ${aspectRatio}`) : lt("选择长宽比", "Select aspect ratio")}
                 >
                   {aspectRatio ? (
                     <span className='text-[10px] font-medium leading-none'>{aspectRatio}</span>
@@ -3417,8 +3438,8 @@ const AIChatDialog: React.FC = () => {
                   )}
                   title={
                     videoAspectRatio
-                      ? `尺寸: ${videoAspectRatio}`
-                      : "选择尺寸"
+                      ? lt(`尺寸: ${videoAspectRatio}`, `Size: ${videoAspectRatio}`)
+                      : lt("选择尺寸", "Select size")
                   }
                 >
                   {videoAspectRatio ? (
@@ -3450,8 +3471,8 @@ const AIChatDialog: React.FC = () => {
                   )}
                   title={
                     videoDurationSeconds
-                      ? `时长: ${videoDurationSeconds}秒`
-                      : "选择时长"
+                      ? lt(`时长: ${videoDurationSeconds}秒`, `Duration: ${videoDurationSeconds}s`)
+                      : lt("选择时长", "Select duration")
                   }
                 >
                   {videoDurationSeconds ? (
@@ -3481,7 +3502,7 @@ const AIChatDialog: React.FC = () => {
                       ? "text-slate-700"
                       : "opacity-50 cursor-not-allowed text-gray-400"
                   )}
-                  title={imageSize ? `分辨率: ${imageSize}` : "选择分辨率"}
+                  title={imageSize ? lt(`分辨率: ${imageSize}`, `Resolution: ${imageSize}`) : lt("选择分辨率", "Select resolution")}
                 >
                   <span className='font-medium text-[10px] leading-none'>
                     {imageSize || "HD"}
@@ -3508,8 +3529,11 @@ const AIChatDialog: React.FC = () => {
                   )}
                   title={
                     thinkingLevel
-                      ? `思考级别: ${thinkingLevel === "high" ? "高" : "低"}`
-                      : "选择思考级别"
+                      ? lt(
+                          `思考级别: ${thinkingLevel === "high" ? "高" : "低"}`,
+                          `Thinking level: ${thinkingLevel === "high" ? "High" : "Low"}`
+                        )
+                      : lt("选择思考级别", "Select thinking level")
                   }
                 >
                   <Brain className='h-3.5 w-3.5' />
@@ -3572,15 +3596,15 @@ const AIChatDialog: React.FC = () => {
                       visibility: videoAspectReady ? "visible" : "hidden",
                     }}
                   >
-                    <div className='px-3 pt-2 text-[11px] uppercase tracking-wide text-slate-400'>
-                      尺寸
-                    </div>
-                    <div className='flex items-center gap-1 p-2'>
-                      {[
-                        { label: "自动", value: null },
-                        { label: "横屏 (16:9)", value: "16:9" },
-                        { label: "竖屏 (9:16)", value: "9:16" },
-                      ].map((opt) => (
+	                    <div className='px-3 pt-2 text-[11px] uppercase tracking-wide text-slate-400'>
+	                      {lt("尺寸", "Size")}
+	                    </div>
+	                    <div className='flex items-center gap-1 p-2'>
+	                      {[
+	                        { label: lt("自动", "Auto"), value: null },
+	                        { label: lt("横屏 (16:9)", "Landscape (16:9)"), value: "16:9" },
+	                        { label: lt("竖屏 (9:16)", "Portrait (9:16)"), value: "9:16" },
+	                      ].map((opt) => (
                         <button
                           key={opt.label}
                           className={cn(
@@ -3621,18 +3645,18 @@ const AIChatDialog: React.FC = () => {
                       visibility: videoDurationReady ? "visible" : "hidden",
                     }}
                   >
-                    <div className='px-3 pt-2 text-[11px] uppercase tracking-wide text-slate-400'>
-                      时间长度
-                    </div>
-                    <div className='flex items-center gap-1 p-2'>
-                      {[
-                        { label: "默认", value: null },
-                        { label: "3秒", value: 3 },
-                        { label: "4秒", value: 4 },
-                        { label: "5秒", value: 5 },
-                        { label: "6秒", value: 6 },
-                        { label: "8秒", value: 8 },
-                      ].map((opt) => (
+	                    <div className='px-3 pt-2 text-[11px] uppercase tracking-wide text-slate-400'>
+	                      {lt("时间长度", "Duration")}
+	                    </div>
+	                    <div className='flex items-center gap-1 p-2'>
+	                      {[
+	                        { label: lt("默认", "Default"), value: null },
+	                        { label: lt("3秒", "3s"), value: 3 },
+	                        { label: lt("4秒", "4s"), value: 4 },
+	                        { label: lt("5秒", "5s"), value: 5 },
+	                        { label: lt("6秒", "6s"), value: 6 },
+	                        { label: lt("8秒", "8s"), value: 8 },
+	                      ].map((opt) => (
                         <button
                           key={opt.label}
                           className={cn(
@@ -3718,11 +3742,11 @@ const AIChatDialog: React.FC = () => {
                     }}
                   >
                     <div className='flex items-center gap-1 p-2'>
-                      {[
-                        { label: "自动", value: null },
-                        { label: "高", value: "high" },
-                        { label: "低", value: "low" },
-                      ].map((opt) => (
+	                      {[
+	                        { label: lt("自动", "Auto"), value: null },
+	                        { label: lt("高", "High"), value: "high" },
+	                        { label: lt("低", "Low"), value: "low" },
+	                      ].map((opt) => (
                         <button
                           key={opt.label}
                           className={cn(
@@ -3765,9 +3789,10 @@ const AIChatDialog: React.FC = () => {
                         : "text-slate-700"
                       : "opacity-50 cursor-not-allowed text-gray-400"
                   )}
-                  title={`联网搜索: ${
-                    enableWebSearch ? "开启" : "关闭"
-                  } - 让AI获取实时信息`}
+                  title={lt(
+                    `联网搜索: ${enableWebSearch ? "开启" : "关闭"} - 让AI获取实时信息`,
+                    `Web search: ${enableWebSearch ? "On" : "Off"} - Allow AI to fetch real-time info`
+                  )}
                 >
                   <MinimalGlobeIcon className='h-3.5 w-3.5' />
                 </Button>
@@ -3791,8 +3816,8 @@ const AIChatDialog: React.FC = () => {
                   )}
                   title={
                     autoOptimizeEnabled
-                      ? "自动扩写已开启（单击关闭，长按打开设置面板）"
-                      : "单击开启自动扩写，长按打开扩写设置面板"
+                      ? lt("自动扩写已开启（单击关闭，长按打开设置面板）", "Auto prompt expansion is on (click to disable, long-press for settings)")
+                      : lt("单击开启自动扩写，长按打开扩写设置面板", "Click to enable auto expansion, long-press for settings")
                   }
                   onPointerDown={handlePromptButtonPointerDown}
                   onPointerUp={handlePromptButtonPointerUp}
@@ -3826,7 +3851,7 @@ const AIChatDialog: React.FC = () => {
                         ? "hover:bg-liquid-glass-hover text-gray-700"
                         : "opacity-50 cursor-not-allowed text-gray-400"
                     )}
-                    title='上传文件'
+                    title={lt("上传文件", "Upload files")}
                   >
                     <Plus className='h-3.5 w-3.5' />
                   </Button>
@@ -3844,7 +3869,7 @@ const AIChatDialog: React.FC = () => {
                     className='flex items-center gap-2 px-3 py-2 text-sm text-gray-700 cursor-pointer hover:bg-gray-50'
                   >
                     <Image className='w-4 h-4' />
-                    <span>上传图片</span>
+                    <span>{lt("上传图片", "Upload image")}</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => {
@@ -3853,7 +3878,7 @@ const AIChatDialog: React.FC = () => {
                     className='flex items-center gap-2 px-3 py-2 text-sm text-gray-700 cursor-pointer hover:bg-gray-50'
                   >
                     <FileText className='w-4 h-4' />
-                    <span>上传PDF</span>
+                    <span>{lt("上传PDF", "Upload PDF")}</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -3989,8 +4014,11 @@ const AIChatDialog: React.FC = () => {
                       handleCreateSession();
                     }}
                     disabled={creatingSession || generationStatus.isGenerating}
-                    title='新建一个独立的聊天会话'
-                    aria-label='新建聊天会话'
+                    title={lt(
+                      "新建一个独立的聊天会话",
+                      "Create a new standalone chat session"
+                    )}
+                    aria-label={lt("新建聊天会话", "Create new chat session")}
                   >
                     {creatingSession ? (
                       <Loader2 className='h-4 w-4 animate-spin' />
@@ -4013,8 +4041,8 @@ const AIChatDialog: React.FC = () => {
                           generationStatus.isGenerating ||
                           (isHistoryLocked && !showHistory)
                         }
-                        title='历史会话列表'
-                        aria-label='历史会话列表'
+                        title={lt("历史会话列表", "Session history list")}
+                        aria-label={lt("历史会话列表", "Session history list")}
                       >
                         <History className='h-4 w-4' />
                       </Button>
@@ -4026,14 +4054,14 @@ const AIChatDialog: React.FC = () => {
                       className='w-[min(72vw,392px)] overflow-hidden rounded-[16px] border border-slate-200 bg-white/95 p-0 text-slate-800 shadow-lg backdrop-blur-md'
                     >
                       <DropdownMenuLabel className='px-4 py-3 text-sm font-semibold tracking-normal text-slate-700'>
-                        对话历史
+                        {lt("对话历史", "Conversation history")}
                       </DropdownMenuLabel>
                       {sessions.length === 0 ? (
                         <DropdownMenuItem
                           disabled
                           className='rounded-none border-t border-slate-200 px-4 py-3 text-[11px] text-slate-400'
                         >
-                          暂无会话
+                          {lt("暂无会话", "No sessions yet")}
                         </DropdownMenuItem>
                       ) : (
                         sessions.map((session) => {
@@ -4057,7 +4085,9 @@ const AIChatDialog: React.FC = () => {
                               <span className='w-full truncate text-sm font-semibold leading-snug'>
                                 {`${session.name}${
                                   session.messageCount
-                                    ? `（${session.messageCount}条）`
+                                    ? isZh
+                                      ? `（${session.messageCount}条）`
+                                      : ` (${session.messageCount} msgs)`
                                     : ""
                                 }`}
                               </span>
@@ -4190,7 +4220,7 @@ const AIChatDialog: React.FC = () => {
                             e.stopPropagation();
                             handleImagePreview(imageSrc, "AI生成的图像");
                           }}
-                          title='点击全屏预览'
+                          title={lt("点击全屏预览", "Click to preview fullscreen")}
                         />
                       );
                     }
@@ -4628,7 +4658,10 @@ const AIChatDialog: React.FC = () => {
                                                           );
                                                         }
                                                       }}
-                                                      title='分享链接'
+                                                      title={lt(
+                                                        "分享链接",
+                                                        "Share link"
+                                                      )}
                                                       className='flex items-center justify-center text-purple-500 transition-colors bg-white border border-purple-100 rounded-full shadow-sm w-9 h-9 hover:bg-purple-50'
                                                     >
                                                       <Share2 className='w-3.5 h-3.5' />
@@ -4765,7 +4798,10 @@ const AIChatDialog: React.FC = () => {
                                                           } catch {}
                                                         }
                                                       }}
-                                                      title='下载视频'
+                                                      title={lt(
+                                                        "下载视频",
+                                                        "Download video"
+                                                      )}
                                                       className='flex items-center justify-center text-blue-500 transition-colors bg-white border border-gray-200 rounded-full shadow-sm w-9 h-9 hover:bg-gray-800/10'
                                                     >
                                                       <Download className='w-3.5 h-3.5' />
@@ -4866,7 +4902,10 @@ const AIChatDialog: React.FC = () => {
                                                               "AI生成的图像"
                                                             );
                                                           }}
-                                                          title='点击全屏预览'
+                                                          title={lt(
+                                                            "点击全屏预览",
+                                                            "Click to preview fullscreen"
+                                                          )}
                                                         />
                                                       );
                                                     }
@@ -4943,7 +4982,10 @@ const AIChatDialog: React.FC = () => {
                                                             "源图像"
                                                           );
                                                         }}
-                                                        title='点击全屏预览'
+                                                        title={lt(
+                                                          "点击全屏预览",
+                                                          "Click to preview fullscreen"
+                                                        )}
                                                       />
                                                     </div>
                                                   )}
@@ -4981,9 +5023,14 @@ const AIChatDialog: React.FC = () => {
                                                                       }`
                                                                     );
                                                                   }}
-                                                                  title={`点击全屏预览融合图像 ${
-                                                                    index + 1
-                                                                  }`}
+                                                                  title={lt(
+                                                                    `点击全屏预览融合图像 ${
+                                                                      index + 1
+                                                                    }`,
+                                                                    `Click to preview blended image ${
+                                                                      index + 1
+                                                                    } fullscreen`
+                                                                  )}
                                                                 />
                                                                 <div
                                                                   className='absolute -top-0.5 -left-0.5 bg-blue-600 text-white text-xs w-4 h-4 rounded-full font-medium shadow-sm flex items-center justify-center'
@@ -5032,7 +5079,10 @@ const AIChatDialog: React.FC = () => {
                                                       "源图像"
                                                     );
                                                   }}
-                                                  title='点击全屏预览'
+                                                  title={lt(
+                                                    "点击全屏预览",
+                                                    "Click to preview fullscreen"
+                                                  )}
                                                 />
                                               </div>
                                             )}
@@ -5062,9 +5112,14 @@ const AIChatDialog: React.FC = () => {
                                                                 }`
                                                               );
                                                             }}
-                                                            title={`点击全屏预览融合图像 ${
-                                                              index + 1
-                                                            }`}
+                                                            title={lt(
+                                                              `点击全屏预览融合图像 ${
+                                                                index + 1
+                                                              }`,
+                                                              `Click to preview blended image ${
+                                                                index + 1
+                                                              } fullscreen`
+                                                            )}
                                                           />
                                                           <div
                                                             className='absolute -top-0.5 -left-0.5 bg-blue-600 text-white text-xs w-4 h-4 rounded-full font-medium shadow-sm flex items-center justify-center'

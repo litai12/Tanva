@@ -11,6 +11,7 @@ import {
   type PaymentOrderRecord,
   type RechargePackage,
 } from "@/services/adminApi";
+import { useLocaleText } from "@/utils/localeText";
 
 // 全局 toast 提示
 const showToast = (message: string, type: "success" | "error" | "info" = "info") => {
@@ -27,6 +28,7 @@ interface PaymentPanelProps {
 }
 
 const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess }) => {
+  const { lt } = useLocaleText();
   const [packages, setPackages] = useState<RechargePackage[]>([]);
   const [creditsPerYuan, setCreditsPerYuan] = useState<number>(100);
   const [packagesLoading, setPackagesLoading] = useState(true);
@@ -112,7 +114,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
     } catch (error: any) {
       console.error("创建订单失败:", error);
       if (requestId === orderRequestIdRef.current) {
-        showToast(error.message || "创建订单失败", "error");
+        showToast(error.message || lt("创建订单失败", "Failed to create order"), "error");
       }
     } finally {
       if (requestId === orderRequestIdRef.current) {
@@ -126,7 +128,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
       clearInterval(pollingRef.current);
       pollingRef.current = null;
     }
-    showToast(`支付成功！获得 ${credits} 积分`, "success");
+    showToast(lt(`支付成功！获得 ${credits} 积分`, `Payment successful! You received ${credits} credits`), "success");
     window.dispatchEvent(new CustomEvent("refresh-credits"));
     onPaymentSuccess?.();
     onBack();
@@ -155,11 +157,11 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
       if (result.success) {
         handlePaymentCompleted(result.credits);
       } else {
-        showToast("暂未检测到支付成功，请稍后再试", "info");
+        showToast(lt("暂未检测到支付成功，请稍后再试", "Payment not detected yet, please try again later"), "info");
       }
     } catch (error: any) {
       console.error("主动核对支付状态失败:", error);
-      showToast(error?.message || "核对支付状态失败", "error");
+      showToast(error?.message || lt("核对支付状态失败", "Payment verification failed"), "error");
     } finally {
       setIsVerifyingPayment(false);
     }
@@ -242,7 +244,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
         setCurrentOrderNo(order.orderNo);
       } catch (err: any) {
         if (requestId === orderRequestIdRef.current) {
-          showToast(err.message || "创建订单失败", "error");
+          showToast(err.message || lt("创建订单失败", "Failed to create order"), "error");
         }
       } finally {
         if (requestId === orderRequestIdRef.current) {
@@ -275,7 +277,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
         } catch (error: any) {
           console.error("创建订单失败:", error);
           if (requestId === orderRequestIdRef.current) {
-            showToast(error.message || "创建订单失败", "error");
+            showToast(error.message || lt("创建订单失败", "Failed to create order"), "error");
           }
         } finally {
           if (requestId === orderRequestIdRef.current) {
@@ -334,7 +336,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
         setCurrentOrderNo(order.orderNo);
       } catch (error: any) {
         if (requestId === orderRequestIdRef.current) {
-          showToast(error.message || "创建订单失败", "error");
+          showToast(error.message || lt("创建订单失败", "Failed to create order"), "error");
         }
       } finally {
         if (requestId === orderRequestIdRef.current) {
@@ -369,7 +371,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
           setCurrentOrderNo(order.orderNo);
         } catch (error: any) {
           if (requestId === orderRequestIdRef.current) {
-            showToast(error.message || "创建订单失败", "error");
+            showToast(error.message || lt("创建订单失败", "Failed to create order"), "error");
           }
         } finally {
           if (requestId === orderRequestIdRef.current) {
@@ -405,11 +407,11 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
   // 获取订单状态文本
   const getStatusText = (status: string) => {
     switch (status) {
-      case "paid": return "已支付";
-      case "pending": return "待支付";
-      case "expired": return "已过期";
-      case "failed": return "失败";
-      case "cancelled": return "已取消";
+      case "paid": return lt("已支付", "Paid");
+      case "pending": return lt("待支付", "Pending");
+      case "expired": return lt("已过期", "Expired");
+      case "failed": return lt("失败", "Failed");
+      case "cancelled": return lt("已取消", "Cancelled");
       default: return status;
     }
   };
@@ -426,7 +428,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
             <ArrowLeft className='w-5 h-5 text-slate-500' />
           </button>
           <h3 className='text-lg font-medium text-slate-800'>
-            {showOrders ? "订单记录" : "积分充值"}
+            {showOrders ? lt("订单记录", "Orders") : lt("积分充值", "Top Up Credits")}
           </h3>
         </div>
         {!showOrders && (
@@ -435,7 +437,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
             className='flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors'
           >
             <FileText className='w-4 h-4' />
-            订单记录
+            {lt("订单记录", "Orders")}
           </button>
         )}
       </div>
@@ -446,11 +448,11 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
           {/* 状态筛选 */}
           <div className='flex items-center gap-2 mb-4 flex-wrap'>
             {[
-              { value: "all", label: "全部" },
-              { value: "paid", label: "已支付" },
-              { value: "pending", label: "待支付" },
-              { value: "expired", label: "已过期" },
-              { value: "cancelled", label: "已取消" },
+              { value: "all", label: lt("全部", "All") },
+              { value: "paid", label: lt("已支付", "Paid") },
+              { value: "pending", label: lt("待支付", "Pending") },
+              { value: "expired", label: lt("已过期", "Expired") },
+              { value: "cancelled", label: lt("已取消", "Cancelled") },
             ].map((item) => (
               <button
                 key={item.value}
@@ -473,7 +475,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
             </div>
           ) : filteredOrders.length === 0 ? (
             <div className='text-center py-12 text-slate-400'>
-              {orders.length === 0 ? "暂无订单记录" : "暂无符合条件的订单"}
+              {orders.length === 0 ? lt("暂无订单记录", "No orders yet") : lt("暂无符合条件的订单", "No matching orders")}
             </div>
           ) : (
             <div className='space-y-3'>
@@ -488,7 +490,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
                         ¥{order.amount}
                       </span>
                       <span className='text-sm text-slate-500'>
-                        → {order.credits.toLocaleString()} 积分
+                        → {order.credits.toLocaleString()} {lt("积分", "credits")}
                       </span>
                     </div>
                     <div className='text-xs text-slate-400 mt-1'>
@@ -527,7 +529,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
                 </div>
                 <div className='text-sm text-slate-500 mt-1'>
                   {pkg.credits.toLocaleString()}
-                  <span className='text-xs'>积分</span>
+                  <span className='text-xs'>{lt("积分", "credits")}</span>
                 </div>
                 {(pkg.tag || pkg.bonus) && (
                   <div className='flex items-center gap-1.5 mt-2'>
@@ -561,7 +563,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
               <div className='p-4'>
                 <div className='flex items-center gap-2 mb-3'>
                   <Pencil className='w-4 h-4 text-blue-500' />
-                  <span className='text-sm font-medium text-blue-600'>自定义积分</span>
+                  <span className='text-sm font-medium text-blue-600'>{lt("自定义积分", "Custom credits")}</span>
                   <button
                     onClick={() => {
                       setCustomAmountMode(false);
@@ -572,7 +574,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
                     }}
                     className='ml-auto text-xs text-slate-400 hover:text-slate-600 underline'
                   >
-                    取消
+                    {lt("取消", "Cancel")}
                   </button>
                 </div>
                 <div className='flex flex-wrap items-center gap-2'>
@@ -583,10 +585,10 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
                     step={1}
                     value={customCreditsInput}
                     onChange={(e) => setCustomCreditsInput(e.target.value)}
-                    placeholder='输入积分数量'
+                    placeholder={lt("输入积分数量", "Enter credits")}
                     className='min-w-[120px] flex-1 px-3 py-2 text-lg font-semibold text-slate-800 bg-white border-2 border-blue-300 rounded-lg outline-none focus:border-blue-500 transition-colors'
                   />
-                  <span className='text-sm text-slate-500 shrink-0'>积分</span>
+                  <span className='text-sm text-slate-500 shrink-0'>{lt("积分", "credits")}</span>
                   <span className='text-sm text-slate-500 shrink-0'>
                     ≈ ¥{currentPayInfo.amount.toFixed(2)}
                   </span>
@@ -608,7 +610,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
                 className='w-full p-4 flex items-center justify-center gap-2 text-slate-500 hover:text-blue-500 transition-colors'
               >
                 <Pencil className='w-4 h-4 text-blue-500' />
-                <span className='text-sm'>自定义积分充值</span>
+                <span className='text-sm'>{lt("自定义积分充值", "Custom credits top-up")}</span>
               </button>
             )}
           </div>
@@ -629,7 +631,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
                   : "border-slate-200 text-slate-500 hover:border-slate-300"
               )}
             >
-              支付宝
+              {lt("支付宝", "Alipay")}
             </button>
             <button
               onClick={() => handlePaymentMethodChange("wechat")}
@@ -640,7 +642,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
                   : "border-slate-200 text-slate-500 hover:border-slate-300"
               )}
             >
-              微信
+              {lt("微信", "WeChat")}
             </button>
           </div>
 
@@ -649,14 +651,14 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
             {isLoading ? (
               <Loader2 className='w-8 h-8 animate-spin text-slate-400' />
             ) : qrCodeUrl ? (
-              <img src={qrCodeUrl} alt='支付二维码' className='w-full h-full object-contain' />
+              <img src={qrCodeUrl} alt={lt("支付二维码", "Payment QR code")} className='w-full h-full object-contain' />
             ) : (
               <span className='text-slate-400 text-sm text-center px-2'>
                 {customAmountMode
                   ? parseCustomCredits(customCreditsInput) < 1
-                    ? "请输入积分数量"
-                    : "正在生成二维码…"
-                  : "选择套餐生成二维码"}
+                    ? lt("请输入积分数量", "Please enter credits")
+                    : lt("正在生成二维码…", "Generating QR code...")
+                  : lt("选择套餐生成二维码", "Select a package to generate QR code")}
               </span>
             )}
           </div>
@@ -664,16 +666,16 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
           {/* 微信支付提示 */}
           {paymentMethod === "wechat" && qrCodeUrl && (
             <div className='mt-2 p-2 bg-green-50 rounded-lg text-center'>
-              <p className='text-xs text-green-700'>请向管理员转账</p>
+              <p className='text-xs text-green-700'>{lt("请向管理员转账", "Please transfer to admin")}</p>
               <p className='text-sm font-semibold text-green-800'>¥{currentPayInfo.amount}</p>
-              <p className='text-xs text-green-600 mt-1'>转账后自动到账</p>
+              <p className='text-xs text-green-600 mt-1'>{lt("转账后自动到账", "Credits will be granted automatically after transfer")}</p>
             </div>
           )}
 
           {/* 支付金额显示 */}
           {paymentMethod === "alipay" && (
             <div className='text-center mt-3 text-sm text-slate-500'>
-              支付金额：<span className='text-lg font-semibold text-slate-800'>¥{currentPayInfo.amount}</span>
+              {lt("支付金额：", "Amount:")}<span className='text-lg font-semibold text-slate-800'>¥{currentPayInfo.amount}</span>
             </div>
           )}
 
@@ -687,11 +689,11 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
                   className='flex items-center gap-1.5 px-2 py-1 text-orange-600 hover:bg-orange-50 rounded transition-colors'
                 >
                   <RefreshCw className={cn('w-3.5 h-3.5', isLoading && 'animate-spin')} />
-                  <span>二维码已过期，点击刷新</span>
+                  <span>{lt("二维码已过期，点击刷新", "QR code expired, click to refresh")}</span>
                 </button>
               ) : (
                 <span className='text-slate-400'>
-                  {Math.floor(countdown / 60)}:{(countdown % 60).toString().padStart(2, '0')} 后过期
+                  {Math.floor(countdown / 60)}:{(countdown % 60).toString().padStart(2, '0')} {lt("后过期", "until expiry")}
                 </span>
               )}
             </div>
@@ -704,7 +706,7 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
               className='mt-2 w-full h-8 rounded-lg border border-slate-200 text-slate-600 text-xs hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 transition-colors'
             >
               {isVerifyingPayment && <Loader2 className='w-3.5 h-3.5 animate-spin' />}
-              <span>{isVerifyingPayment ? "正在核对..." : "我已支付，立即核对"}</span>
+              <span>{isVerifyingPayment ? lt("正在核对...", "Verifying...") : lt("我已支付，立即核对", "I've paid, verify now")}</span>
             </button>
           )}
         </div>

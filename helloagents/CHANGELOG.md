@@ -289,3 +289,11 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - `videoToGif` conversion endpoint now integrates credits billing: pre-deduct 30 credits on start, mark success/failed status in `ApiUsageRecord`, and auto-refund on conversion failure (`backend/src/oss/video-gif.controller.ts`, `backend/src/credits/credits.config.ts`, `backend/src/oss/oss.module.ts`).
 - Backend/frontend default node config for `videoToGif` now align with `serviceType=video-to-gif` and `priceYuan=0.3` for pricing/config consistency (`backend/src/admin/services/node-config.service.ts`, `frontend/src/services/nodeConfigService.ts`).
 - Tencent Speech no-audio resilience: backend now probes input video audio stream before `ProcessMedia`; if no audio stream is detected, it auto-injects a silent AAC track via ffmpeg, uploads the patched video to OSS, and submits Tencent task with the patched URL. Added env toggles `TENCENT_MPS_AUTO_INJECT_SILENT_AUDIO` (default `true`), `TENCENT_MPS_FFPROBE_TIMEOUT_MS` (default `20000`), and `TENCENT_MPS_FFMPEG_TIMEOUT_MS` (default `180000`).
+
+## [Bilingual Patch - 2026-03-29]
+### Changed
+- Frontend payment panel now uses locale-aware copy (`useLocaleText`) for order status, filter tabs, QR/payment prompts, and manual verification CTA (`frontend/src/components/payment/PaymentPanel.tsx`).
+- Frontend library panel now uses locale-aware copy for upload/delete/send-to-canvas flows, detail panel labels, history filter/pagination, and 3D preview status text (`frontend/src/components/panels/LibraryPanel.tsx`).
+- Frontend layer panel now uses locale-aware copy for panel header/actions, item/layer context menu labels, pending-upload badge/tooltip, default auto-generated item names, and bottom stats summary (`frontend/src/components/panels/LayerPanel.tsx`).
+- Frontend toolbar now uses locale-aware copy for line-style picker labels, major tooltips/titles, and clear-canvas confirmation text (`frontend/src/components/toolbar/ToolBar.tsx`).
+- Frontend AI chat dialog now uses locale-aware copy in key interaction controls: bottom parameter/tool buttons, upload/send helper prompts, history toolbar labels, and image/video preview action tooltips (`frontend/src/components/chat/AIChatDialog.tsx`).

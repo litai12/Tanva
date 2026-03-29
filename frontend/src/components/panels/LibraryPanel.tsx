@@ -38,6 +38,7 @@ import {
   type GlobalImageHistoryItem,
 } from "@/services/globalImageHistoryApi";
 import type { StoredImageAsset } from "@/types/canvas";
+import { useLocaleText } from "@/utils/localeText";
 
 const formatSize = (bytes?: number): string => {
   if (!bytes && bytes !== 0) return "-";
@@ -50,22 +51,22 @@ const formatDate = (timestamp: number): string => {
   return new Date(timestamp).toLocaleString();
 };
 
-const formatHistoryDate = (value: string): string => {
-  return new Date(value).toLocaleDateString("zh-CN", {
+const formatHistoryDate = (value: string, locale: string): string => {
+  return new Date(value).toLocaleDateString(locale, {
     month: "2-digit",
     day: "2-digit",
   });
 };
 
-const SOURCE_TYPE_LABELS: Record<string, string> = {
-  generate: "图片生成",
-  generatePro: "图片生成Pro",
-  generatePro4: "图片生成Pro4",
-  midjourney: "Midjourney",
-  "3d": "3D生成",
-  camera: "相机",
-  image: "图片",
-  imagePro: "图片Pro",
+const SOURCE_TYPE_LABELS: Record<string, { zh: string; en: string }> = {
+  generate: { zh: "图片生成", en: "Image Generate" },
+  generatePro: { zh: "图片生成Pro", en: "Image Generate Pro" },
+  generatePro4: { zh: "图片生成Pro4", en: "Image Generate Pro4" },
+  midjourney: { zh: "Midjourney", en: "Midjourney" },
+  "3d": { zh: "3D生成", en: "3D Generate" },
+  camera: { zh: "相机", en: "Camera" },
+  image: { zh: "图片", en: "Image" },
+  imagePro: { zh: "图片Pro", en: "Image Pro" },
 };
 
 type LibraryTab = "global-history" | "manual";
@@ -123,7 +124,7 @@ const getTypeLabel = (
       };
     default:
       return {
-        label: "矢量",
+        label: "SVG",
         icon: <ImageIcon className='w-3 h-3' />,
         bgColor: "bg-green-100 text-green-700",
       };
@@ -131,6 +132,8 @@ const getTypeLabel = (
 };
 
 const LibraryPanel: React.FC = () => {
+  const { lt, isZh } = useLocaleText();
+  const locale = isZh ? "zh-CN" : "en-US";
   const { showLibraryPanel, setShowLibraryPanel } = useUIStore();
   const [activeTab, setActiveTab] = React.useState<LibraryTab>("manual");
   const [isUploading, setUploading] = React.useState(false);
@@ -168,6 +171,15 @@ const LibraryPanel: React.FC = () => {
   const historyPageSlots = React.useMemo(
     () => buildHistoryPageSlots(historyPage, historyTotalPages),
     [historyPage, historyTotalPages]
+  );
+
+  const getSourceTypeLabel = React.useCallback(
+    (type: string) => {
+      const item = SOURCE_TYPE_LABELS[type];
+      if (!item) return type;
+      return lt(item.zh, item.en);
+    },
+    [lt]
   );
 
   const handleModelThumbnailUpdate = React.useCallback(
@@ -240,7 +252,7 @@ const LibraryPanel: React.FC = () => {
         id,
         type: "2d",
         name:
-          file.name.replace(/\.[^/.]+$/, "") || asset.fileName || "未命名图片",
+          file.name.replace(/\.[^/.]+$/, "") || asset.fileName || lt("未命名图片", "Untitled Image"),
         url: asset.url,
         thumbnail: asset.url,
         width: asset.width,
@@ -274,7 +286,7 @@ const LibraryPanel: React.FC = () => {
         id,
         type: "3d",
         name:
-          file.name.replace(/\.[^/.]+$/, "") || asset.fileName || "未命名模型",
+          file.name.replace(/\.[^/.]+$/, "") || asset.fileName || lt("未命名模型", "Untitled Model"),
         url: asset.url,
         fileName: asset.fileName ?? file.name,
         fileSize: asset.fileSize ?? file.size,
@@ -321,7 +333,7 @@ const LibraryPanel: React.FC = () => {
           dir: "uploads/personal-library/models/",
         });
         if (!result.success || !result.asset) {
-          alert(result.error || "3D 模型上传失败，请重试");
+          alert(result.error || lt("3D 模型上传失败，请重试", "3D model upload failed. Please try again."));
           return;
         }
         upsertModelAsset(file, result.asset);
@@ -330,7 +342,7 @@ const LibraryPanel: React.FC = () => {
           dir: "uploads/personal-library/images/",
         });
         if (!result.success || !result.asset) {
-          alert(result.error || "图片上传失败，请重试");
+          alert(result.error || lt("图片上传失败，请重试", "Image upload failed. Please try again."));
           return;
         }
         upsertImageAsset(file, result.asset);
@@ -357,7 +369,7 @@ const LibraryPanel: React.FC = () => {
   };
 
   const handleRemoveAsset = (asset: PersonalLibraryAsset) => {
-    if (!confirm(`确定要删除「${asset.name}」吗？`)) {
+    if (!confirm(lt(`确定要删除「${asset.name}」吗？`, `Delete "${asset.name}"?`))) {
       return;
     }
     removeAsset(asset.id);
@@ -429,7 +441,7 @@ const LibraryPanel: React.FC = () => {
 
   const handleSendToCanvas = async (asset: PersonalLibraryAsset) => {
     if (!asset.url) {
-      alert("资源缺少可用的链接，无法发送到画板");
+      alert(lt("资源缺少可用的链接，无法发送到画板", "This asset has no usable URL and cannot be sent to canvas."));
       return;
     }
     if (asset.type === "2d") {
@@ -465,7 +477,7 @@ const LibraryPanel: React.FC = () => {
       );
       window.dispatchEvent(
         new CustomEvent("toast", {
-          detail: { message: "图片已发送到画板", type: "success" },
+          detail: { message: lt("图片已发送到画板", "Image sent to canvas"), type: "success" },
         })
       );
       return;
@@ -494,7 +506,7 @@ const LibraryPanel: React.FC = () => {
       );
       window.dispatchEvent(
         new CustomEvent("toast", {
-          detail: { message: "3D 模型已发送到画板", type: "success" },
+          detail: { message: lt("3D 模型已发送到画板", "3D model sent to canvas"), type: "success" },
         })
       );
     }
@@ -521,7 +533,7 @@ const LibraryPanel: React.FC = () => {
       );
       window.dispatchEvent(
         new CustomEvent("toast", {
-          detail: { message: "SVG 已发送到画板", type: "success" },
+          detail: { message: lt("SVG 已发送到画板", "SVG sent to canvas"), type: "success" },
         })
       );
     }
@@ -529,7 +541,7 @@ const LibraryPanel: React.FC = () => {
 
   const handleHistorySendToCanvas = async (item: GlobalImageHistoryItem) => {
     if (!item.imageUrl) {
-      alert("历史图片缺少可用链接，无法发送到画板");
+      alert(lt("历史图片缺少可用链接，无法发送到画板", "History image has no usable URL and cannot be sent to canvas."));
       return;
     }
     const dataUrl = await readDataUrl(item.imageUrl);
@@ -554,7 +566,7 @@ const LibraryPanel: React.FC = () => {
     );
     window.dispatchEvent(
       new CustomEvent("toast", {
-        detail: { message: "历史图片已发送到画板", type: "success" },
+        detail: { message: lt("历史图片已发送到画板", "History image sent to canvas"), type: "success" },
       })
     );
   };
@@ -648,7 +660,7 @@ const LibraryPanel: React.FC = () => {
         type: "2d",
         id: item.id,
         url: item.imageUrl,
-        name: item.prompt || "历史图片",
+        name: item.prompt || lt("历史图片", "History Image"),
         fileName: `history_${item.id}.png`,
       })
     );
@@ -686,7 +698,7 @@ const LibraryPanel: React.FC = () => {
           );
           window.dispatchEvent(
             new CustomEvent("toast", {
-              detail: { message: "3D 模型已添加到画板", type: "success" },
+              detail: { message: lt("3D 模型已添加到画板", "3D model added to canvas"), type: "success" },
             })
           );
         }
@@ -716,12 +728,12 @@ const LibraryPanel: React.FC = () => {
         const imageAsset: PersonalImageAsset = {
           id,
           type: "2d",
-          name: name || fileName?.replace(/\.[^/.]+$/, "") || "画布图片",
+          name: name || fileName?.replace(/\.[^/.]+$/, "") || lt("画布图片", "Canvas Image"),
           url,
           thumbnail: url,
           width,
           height,
-          fileName: fileName || "画布图片.png",
+          fileName: fileName || lt("画布图片.png", "canvas-image.png"),
           contentType: contentType || "image/png",
           createdAt: Date.now(),
           updatedAt: Date.now(),
@@ -732,7 +744,7 @@ const LibraryPanel: React.FC = () => {
         });
         window.dispatchEvent(
           new CustomEvent("toast", {
-            detail: { message: "图片已添加到个人库", type: "success" },
+            detail: { message: lt("图片已添加到个人库", "Image added to personal library"), type: "success" },
           })
         );
         setLibraryDragHovering(false);
@@ -917,7 +929,7 @@ const LibraryPanel: React.FC = () => {
             {/* 尺寸/格式 */}
             {selectedAsset.type === "2d" || selectedAsset.type === "svg" ? (
               <div>
-                <div className='text-xs text-gray-500'>尺寸</div>
+                <div className='text-xs text-gray-500'>{lt("尺寸", "Dimensions")}</div>
                 <div className='text-sm text-gray-700'>
                   {(selectedAsset as PersonalImageAsset | PersonalSvgAsset)
                     .width ?? "-"}{" "}
@@ -928,7 +940,7 @@ const LibraryPanel: React.FC = () => {
               </div>
             ) : (
               <div>
-                <div className='text-xs text-gray-500'>格式</div>
+                <div className='text-xs text-gray-500'>{lt("格式", "Format")}</div>
                 <div className='text-sm text-gray-700'>
                   {(
                     selectedAsset as PersonalModelAsset
@@ -939,7 +951,7 @@ const LibraryPanel: React.FC = () => {
 
             {/* 文件大小 */}
             <div>
-              <div className='text-xs text-gray-500'>大小</div>
+              <div className='text-xs text-gray-500'>{lt("大小", "Size")}</div>
               <div className='text-sm text-gray-700'>
                 {formatSize(selectedAsset.fileSize)}
               </div>
@@ -947,7 +959,7 @@ const LibraryPanel: React.FC = () => {
 
             {/* 更新时间 */}
             <div>
-              <div className='text-xs text-gray-500'>更新时间</div>
+              <div className='text-xs text-gray-500'>{lt("更新时间", "Updated")}</div>
               <div className='text-sm text-gray-700'>
                 {formatDate(selectedAsset.updatedAt)}
               </div>
@@ -961,7 +973,7 @@ const LibraryPanel: React.FC = () => {
               size='sm'
               className='h-8 w-8 p-0'
               onClick={() => void handleSendToCanvas(selectedAsset)}
-              title='发送到画板'
+              title={lt("发送到画板", "Send to canvas")}
             >
               <Send className='h-3 w-3' />
             </Button>
@@ -970,7 +982,7 @@ const LibraryPanel: React.FC = () => {
               size='sm'
               className='h-8 w-8 p-0'
               onClick={() => handleDownload(selectedAsset)}
-              title='下载'
+              title={lt("下载", "Download")}
             >
               <Download className='h-3 w-3' />
             </Button>
@@ -979,7 +991,7 @@ const LibraryPanel: React.FC = () => {
               size='sm'
               className='h-8 w-8 p-0'
               onClick={() => handleRemoveAsset(selectedAsset)}
-              title='删除'
+              title={lt("删除", "Delete")}
             >
               <Trash2 className='h-3 w-3' />
             </Button>
@@ -997,7 +1009,7 @@ const LibraryPanel: React.FC = () => {
         {isLibraryDragHovering && (
           <div className='pointer-events-none absolute inset-0 z-[1010] flex items-start justify-center px-3 pt-3'>
             <div className='w-full h-24 rounded-xl border-2 border-dashed border-blue-400/80 bg-blue-50/85 text-blue-700 flex items-center justify-center font-medium shadow-[0_10px_30px_rgba(59,130,246,0.15)] backdrop-blur-sm'>
-              松开添加到库
+              {lt("松开添加到库", "Release to add to library")}
             </div>
           </div>
         )}
@@ -1008,12 +1020,12 @@ const LibraryPanel: React.FC = () => {
             size='sm'
             className='h-8 w-8 p-0 text-gray-600 hover:text-gray-800 bg-transparent'
             onClick={handleClose}
-            title='收起库面板'
-            aria-label='收起库面板'
+            title={lt("收起库面板", "Collapse library panel")}
+            aria-label={lt("收起库面板", "Collapse library panel")}
           >
             <ChevronRight className='h-4 w-4' />
           </Button>
-          <h2 className='text-lg font-semibold text-gray-800'>库</h2>
+          <h2 className='text-lg font-semibold text-gray-800'>{lt("库", "Library")}</h2>
         </div>
 
         {/* 分隔线 */}
@@ -1031,7 +1043,7 @@ const LibraryPanel: React.FC = () => {
               }`}
               onClick={() => setActiveTab("global-history")}
             >
-              全局历史
+              {lt("全局历史", "Global History")}
             </button>
             <button
               type='button'
@@ -1042,7 +1054,7 @@ const LibraryPanel: React.FC = () => {
               }`}
               onClick={() => setActiveTab("manual")}
             >
-              个人素材
+              {lt("个人素材", "Personal Assets")}
             </button>
           </div>
         </div>
@@ -1110,7 +1122,7 @@ const LibraryPanel: React.FC = () => {
                   onClick={triggerUpload}
                 >
                   {isUploading ? (
-                    <div className='text-gray-400 text-xs'>上传中...</div>
+                    <div className='text-gray-400 text-xs'>{lt("上传中...", "Uploading...")}</div>
                   ) : (
                     <Plus className='w-8 h-8 text-gray-400' />
                   )}
@@ -1126,7 +1138,7 @@ const LibraryPanel: React.FC = () => {
                     type='text'
                     value={historySearchQuery}
                     onChange={(event) => setHistorySearchQuery(event.target.value)}
-                    placeholder='搜索 prompt...'
+                    placeholder={lt("搜索 prompt...", "Search prompt...")}
                     className='w-full h-8 rounded-lg border border-gray-200 bg-white pl-7 pr-2 text-xs text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400'
                   />
                 </div>
@@ -1135,10 +1147,10 @@ const LibraryPanel: React.FC = () => {
                   onChange={(event) => setHistoryFilterType(event.target.value)}
                   className='h-8 max-w-[108px] rounded-lg border border-gray-200 bg-white px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400'
                 >
-                  <option value=''>全部类型</option>
-                  {Object.entries(SOURCE_TYPE_LABELS).map(([key, label]) => (
+                  <option value=''>{lt("全部类型", "All types")}</option>
+                  {Object.keys(SOURCE_TYPE_LABELS).map((key) => (
                     <option key={key} value={key}>
-                      {label}
+                      {getSourceTypeLabel(key)}
                     </option>
                   ))}
                 </select>
@@ -1146,7 +1158,7 @@ const LibraryPanel: React.FC = () => {
 
               {historyItems.length === 0 && !historyIsLoading ? (
                 <div className='rounded-lg border border-dashed border-gray-200 bg-white/70 py-10 text-center text-xs text-gray-500'>
-                  暂无全局历史
+                  {lt("暂无全局历史", "No global history")}
                 </div>
               ) : (
                 <div className='grid grid-cols-2 gap-2'>
@@ -1157,19 +1169,19 @@ const LibraryPanel: React.FC = () => {
                       className='aspect-square rounded-lg overflow-hidden bg-gray-100 cursor-grab transition-all hover:ring-2 hover:ring-blue-400 active:cursor-grabbing relative'
                       onClick={() => void handleHistorySendToCanvas(item)}
                       onDragStart={(event) => handleHistoryDragStart(item, event)}
-                      title={item.prompt || "历史图片"}
+                      title={item.prompt || lt("历史图片", "History Image")}
                     >
                       <SmartImage
                         src={item.imageUrl}
-                        alt={item.prompt || "历史图片"}
+                        alt={item.prompt || lt("历史图片", "History Image")}
                         className='w-full h-full object-cover'
                         draggable={false}
                         loading='lazy'
                       />
                       <div className='absolute bottom-0 left-0 right-0 px-1.5 py-1 bg-gradient-to-t from-black/70 to-transparent flex items-center justify-between text-[10px] text-white'>
-                        <span>{formatHistoryDate(item.createdAt)}</span>
+                        <span>{formatHistoryDate(item.createdAt, locale)}</span>
                         <span className='px-1 py-0.5 rounded bg-white/25 truncate max-w-[70px] text-right'>
-                          {SOURCE_TYPE_LABELS[item.sourceType] || item.sourceType}
+                          {getSourceTypeLabel(item.sourceType)}
                         </span>
                       </div>
                     </div>
@@ -1180,7 +1192,7 @@ const LibraryPanel: React.FC = () => {
               {historyIsLoading ? (
                 <div className='flex items-center justify-center gap-1 text-xs text-gray-500 py-1'>
                   <Loader2 className='h-3.5 w-3.5 animate-spin' />
-                  加载中...
+                  {lt("加载中...", "Loading...")}
                 </div>
               ) : null}
 
@@ -1195,8 +1207,8 @@ const LibraryPanel: React.FC = () => {
                     onClick={() =>
                       setHistoryPage((prev) => Math.max(1, prev - 1))
                     }
-                    aria-label='上一页'
-                    title='上一页'
+                    aria-label={lt("上一页", "Previous page")}
+                    title={lt("上一页", "Previous page")}
                   >
                     <ChevronLeft className='h-3.5 w-3.5' />
                   </Button>
@@ -1234,8 +1246,8 @@ const LibraryPanel: React.FC = () => {
                         Math.min(historyTotalPages, prev + 1)
                       )
                     }
-                    aria-label='下一页'
-                    title='下一页'
+                    aria-label={lt("下一页", "Next page")}
+                    title={lt("下一页", "Next page")}
                   >
                     <ChevronRight className='h-3.5 w-3.5' />
                   </Button>
@@ -1249,8 +1261,8 @@ const LibraryPanel: React.FC = () => {
         <div className='p-3 bg-white/80 backdrop-blur-sm border-t border-white/40'>
           <div className='text-xs text-gray-500 text-center'>
             {activeTab === "manual"
-              ? `共 ${allAssets.length} 个资源`
-              : `第 ${historyPage}/${historyTotalPages} 页 · 共 ${historyTotalCount} 条`}
+              ? lt(`共 ${allAssets.length} 个资源`, `${allAssets.length} assets`)
+              : lt(`第 ${historyPage}/${historyTotalPages} 页 · 共 ${historyTotalCount} 条`, `Page ${historyPage}/${historyTotalPages} · ${historyTotalCount} items`)}
           </div>
         </div>
       </div>
@@ -1270,6 +1282,7 @@ const ModelPreview: React.FC<ModelPreviewProps> = ({
   onThumbnailReady,
   large,
 }) => {
+  const { lt } = useLocaleText();
   const [previewSrc, setPreviewSrc] = React.useState<string | null>(
     asset.thumbnail ?? null
   );
@@ -1314,7 +1327,7 @@ const ModelPreview: React.FC<ModelPreviewProps> = ({
     return (
       <SmartImage
         src={previewSrc}
-        alt={`${asset.name} 预览`}
+        alt={`${asset.name} ${lt("预览", "Preview")}`}
         className={`w-full h-full ${large ? "object-contain" : "object-cover"}`}
         draggable={false}
       />
@@ -1325,7 +1338,7 @@ const ModelPreview: React.FC<ModelPreviewProps> = ({
     <div className='w-full h-full bg-gradient-to-br from-purple-500 to-indigo-600 flex flex-col items-center justify-center text-white'>
       <Box className={large ? "w-8 h-8" : "w-4 h-4"} />
       {isLoading && (
-        <div className={`mt-1 ${large ? "text-xs" : "text-[8px]"}`}>加载中</div>
+        <div className={`mt-1 ${large ? "text-xs" : "text-[8px]"}`}>{lt("加载中", "Loading")}</div>
       )}
     </div>
   );
