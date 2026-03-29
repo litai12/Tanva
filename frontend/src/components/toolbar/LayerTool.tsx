@@ -3,8 +3,12 @@ import { Button } from '../ui/button';
 import { Layers } from 'lucide-react';
 import { useUIStore } from '@/stores/uiStore';
 import { cn } from '@/lib/utils';
+import { useTranslation } from 'react-i18next';
 
 const LayerTool: React.FC = () => {
+    const { i18n } = useTranslation();
+    const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
+    const lt = (zhText: string, enText: string) => (isZh ? zhText : enText);
     const { showLayerPanel, toggleLayerPanel } = useUIStore();
 
     return (
@@ -18,7 +22,7 @@ const LayerTool: React.FC = () => {
                     : "bg-white/50 border-gray-300"
             )}
             onClick={toggleLayerPanel}
-            title="图层面板"
+            title={lt('图层面板', 'Layer panel')}
         >
             <Layers className="w-4 h-4" />
         </Button>

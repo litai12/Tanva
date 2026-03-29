@@ -7,6 +7,7 @@ import backgroundRemovalService from '@/services/backgroundRemovalService';
 import { logger } from '@/utils/logger';
 import { ImageIcon, Wand2Icon, XIcon } from 'lucide-react';
 import { fileToDataUrl } from '@/utils/imageConcurrency';
+import { useTranslation } from 'react-i18next';
 
 export interface BackgroundRemovalToolProps {
   onRemoveComplete?: (imageData: string) => void;
@@ -21,6 +22,11 @@ export const BackgroundRemovalTool: React.FC<BackgroundRemovalToolProps> = ({
   onRemoveComplete,
   onCancel,
 }) => {
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || '')
+    .toLowerCase()
+    .startsWith('zh');
+  const lt = (zh: string, en: string) => (isZh ? zh : en);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -116,7 +122,9 @@ export const BackgroundRemovalTool: React.FC<BackgroundRemovalToolProps> = ({
             </div>
             <div>
               <h2 className="text-3xl font-bold text-gray-900">Background Removal</h2>
-              <p className="text-sm text-gray-500">Remove background from your images instantly</p>
+              <p className="text-sm text-gray-500">
+                {lt('一键移除图片背景', 'Remove background from your images instantly')}
+              </p>
             </div>
           </div>
 
@@ -136,7 +144,7 @@ export const BackgroundRemovalTool: React.FC<BackgroundRemovalToolProps> = ({
                 </div>
                 <div>
                   <p className="text-lg font-semibold text-gray-800">
-                    点击上传图片
+                    {lt('点击上传图片', 'Click to upload image')}
                   </p>
                   <p className="text-sm text-gray-500 mt-1">PNG, JPG, GIF, WebP up to 100MB</p>
                 </div>
@@ -146,7 +154,7 @@ export const BackgroundRemovalTool: React.FC<BackgroundRemovalToolProps> = ({
             <div className="relative group">
               <SmartImage
                 src={selectedImage}
-                alt="Selected"
+                alt={lt('已选择图片', 'Selected image')}
                 className="w-full max-h-96 object-cover rounded-2xl border-2 border-gray-100 shadow-md group-hover:shadow-lg transition-shadow"
               />
             {processing && (
@@ -182,14 +190,16 @@ export const BackgroundRemovalTool: React.FC<BackgroundRemovalToolProps> = ({
               </div>
               <div className="flex-grow">
                 <p className="text-sm font-semibold text-green-700">
-                  Successfully removed background!
+                  {lt('背景移除成功！', 'Successfully removed background!')}
                 </p>
                 <p className="text-xs text-green-600 mt-1">
-                  Processed using{' '}
+                  {lt('处理方式：', 'Processed using ')}
                   <span className="font-bold">
-                    {processingMethod === 'frontend' ? 'Frontend' : 'Backend'}
-                  </span>{' '}
-                  in {processingTime}ms
+                    {processingMethod === 'frontend'
+                      ? lt('前端', 'Frontend')
+                      : lt('后端', 'Backend')}
+                  </span>
+                  {lt(`，耗时 ${processingTime}ms`, ` in ${processingTime}ms`)}
                 </p>
               </div>
             </div>
@@ -206,14 +216,14 @@ export const BackgroundRemovalTool: React.FC<BackgroundRemovalToolProps> = ({
                 className="flex-1 bg-gradient-to-r from-gray-800 to-gray-900 hover:from-gray-900 hover:to-gray-800 text-white text-base font-semibold py-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200"
               >
                 <Wand2Icon className="w-5 h-5 mr-2" />
-                Remove Background
+                {lt('移除背景', 'Remove Background')}
               </Button>
               <Button
                 onClick={handleReset}
                 variant="outline"
                 className="flex-1 text-base font-semibold py-6 rounded-xl border-2 border-gray-300 hover:border-gray-400 hover:bg-gray-50 transition-all duration-200"
               >
-                Reset
+                {lt('重置', 'Reset')}
               </Button>
             </>
           )}
@@ -226,7 +236,7 @@ export const BackgroundRemovalTool: React.FC<BackgroundRemovalToolProps> = ({
                 className="flex-1 bg-gradient-to-r from-gray-800 to-gray-900 hover:from-gray-900 hover:to-gray-800 text-white text-base font-semibold py-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200"
               >
                 <ImageIcon className="w-5 h-5 mr-2" />
-                点击上传图片
+                {lt('点击上传图片', 'Click to upload image')}
               </Button>
               {onCancel && (
                 <Button onClick={onCancel} variant="outline" className="px-6 py-6 rounded-xl border-2 border-gray-300 hover:border-gray-400 hover:bg-gray-50 transition-all duration-200">

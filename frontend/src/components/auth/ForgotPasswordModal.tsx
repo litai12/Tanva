@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { X, ArrowLeft } from "lucide-react";
 import { authApi } from "@/services/authApi";
+import { useTranslation } from "react-i18next";
 
 type ForgotPasswordModalProps = {
   isOpen: boolean;
@@ -18,6 +19,11 @@ export default function ForgotPasswordModal({
   onClose,
   onSuccess,
 }: ForgotPasswordModalProps) {
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || "")
+    .toLowerCase()
+    .startsWith("zh");
+  const lt = (zhText: string, enText: string) => (isZh ? zhText : enText);
   const [step, setStep] = useState<Step>("phone");
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
@@ -51,11 +57,11 @@ export default function ForgotPasswordModal({
   const handleSendSms = async () => {
     if (sendCooldown > 0) return;
     if (!phone) {
-      setError("请输入手机号");
+      setError(lt("请输入手机号", "Please enter your phone number"));
       return;
     }
     if (!/^1[3-9]\d{9}$/.test(phone)) {
-      setError("手机号格式不正确");
+      setError(lt("手机号格式不正确", "Invalid phone number format"));
       return;
     }
 
@@ -65,7 +71,10 @@ export default function ForgotPasswordModal({
       window.dispatchEvent(
         new CustomEvent("toast", {
           detail: {
-            message: "验证码已发送，请注意查收短信并手动输入",
+            message: lt(
+              "验证码已发送，请注意查收短信并手动输入",
+              "Verification code sent. Please check SMS and enter it manually."
+            ),
             type: "success",
           },
         })
@@ -73,13 +82,13 @@ export default function ForgotPasswordModal({
       setSendCooldown(60);
       setStep("verify");
     } catch (err: any) {
-      setError(err?.message || "发送失败");
+      setError(err?.message || lt("发送失败", "Send failed"));
     }
   };
 
   const handleVerifyCode = async () => {
     if (!code.trim()) {
-      setError("请输入验证码");
+      setError(lt("请输入验证码", "Please enter the verification code"));
       return;
     }
 
@@ -94,9 +103,14 @@ export default function ForgotPasswordModal({
       const message = err?.message || "";
       // 如果是验证码过期，给出更友好的提示
       if (message.includes("过期") || message.includes("expired")) {
-        setError("验证码已过期，请重新获取验证码");
+        setError(
+          lt(
+            "验证码已过期，请重新获取验证码",
+            "Verification code expired. Please request a new code."
+          )
+        );
       } else {
-        setError(err?.message || "验证码验证失败");
+        setError(err?.message || lt("验证码验证失败", "Code verification failed"));
       }
     } finally {
       setIsSubmitting(false);
@@ -105,20 +119,35 @@ export default function ForgotPasswordModal({
 
   const handleResetPassword = async () => {
     if (!newPassword.trim()) {
-      setError("请输入新密码");
+      setError(lt("请输入新密码", "Please enter a new password"));
       return;
     }
     // 密码长度8-100位，必须包含大小写字母和数字
     if (newPassword.length < 8 || newPassword.length > 100) {
-      setError("密码长度必须在8到100位之间");
+      setError(
+        lt(
+          "密码长度必须在8到100位之间",
+          "Password length must be between 8 and 100 characters"
+        )
+      );
       return;
     }
     if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(newPassword)) {
-      setError("密码需包含大小写字母和数字");
+      setError(
+        lt(
+          "密码需包含大小写字母和数字",
+          "Password must include uppercase/lowercase letters and numbers"
+        )
+      );
       return;
     }
     if (newPassword !== confirmPassword) {
-      setError("两次输入的密码不一致");
+      setError(
+        lt(
+          "两次输入的密码不一致",
+          "The two password entries do not match"
+        )
+      );
       return;
     }
 
@@ -129,7 +158,10 @@ export default function ForgotPasswordModal({
       window.dispatchEvent(
         new CustomEvent("toast", {
           detail: {
-            message: "密码重置成功，请使用新密码登录",
+            message: lt(
+              "密码重置成功，请使用新密码登录",
+              "Password reset successful. Please sign in with the new password."
+            ),
             type: "success",
           },
         })
@@ -137,7 +169,7 @@ export default function ForgotPasswordModal({
       onSuccess?.();
       handleClose();
     } catch (err: any) {
-      setError(err?.message || "密码重置失败");
+      setError(err?.message || lt("密码重置失败", "Password reset failed"));
     } finally {
       setIsSubmitting(false);
     }
@@ -176,7 +208,9 @@ export default function ForgotPasswordModal({
                 <ArrowLeft className='h-5 w-5 text-slate-400' />
               </button>
             )}
-            <span className='text-lg text-slate-600'>忘记密码</span>
+            <span className='text-lg text-slate-600'>
+              {lt("忘记密码", "Forgot Password")}
+            </span>
           </div>
           <button
             onClick={handleClose}
@@ -234,9 +268,9 @@ export default function ForgotPasswordModal({
             </div>
           </div>
           <div className='flex justify-between mt-2 text-xs text-gray-500'>
-            <span>输入手机号</span>
-            <span>验证身份</span>
-            <span>重置密码</span>
+            <span>{lt("输入手机号", "Phone")}</span>
+            <span>{lt("验证身份", "Verify")}</span>
+            <span>{lt("重置密码", "Reset")}</span>
           </div>
         </div>
 
@@ -246,15 +280,18 @@ export default function ForgotPasswordModal({
             <div className='space-y-4'>
               <div>
                 <h3 className='text-lg font-medium text-gray-900 mb-2'>
-                  输入手机号
+                  {lt("输入手机号", "Enter phone number")}
                 </h3>
                 <p className='text-sm text-gray-600 mb-4'>
-                  我们将向您的手机发送验证码来验证身份
+                  {lt(
+                    "我们将向您的手机发送验证码来验证身份",
+                    "We will send an SMS code to verify your identity"
+                  )}
                 </p>
               </div>
 
               <Input
-                placeholder='请输入手机号'
+                placeholder={lt("请输入手机号", "Enter phone number")}
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 autoFocus
@@ -267,7 +304,12 @@ export default function ForgotPasswordModal({
                 className='w-full bg-gray-700 hover:bg-gray-800 text-white rounded-xl h-10'
                 disabled={sendCooldown > 0}
               >
-                {sendCooldown > 0 ? `重新发送(${sendCooldown}s)` : "发送验证码"}
+                {sendCooldown > 0
+                  ? lt(
+                      `重新发送(${sendCooldown}s)`,
+                      `Resend (${sendCooldown}s)`
+                    )
+                  : lt("发送验证码", "Send code")}
               </Button>
             </div>
           )}
@@ -276,15 +318,18 @@ export default function ForgotPasswordModal({
             <div className='space-y-4'>
               <div>
                 <h3 className='text-lg font-medium text-gray-900 mb-2'>
-                  验证身份
+                  {lt("验证身份", "Verify identity")}
                 </h3>
                 <p className='text-sm text-gray-600 mb-4'>
-                  已向 {phone} 发送验证码，请输入收到的6位验证码
+                  {lt(
+                    `已向 ${phone} 发送验证码，请输入收到的6位验证码`,
+                    `Code sent to ${phone}. Enter the 6-digit code.`
+                  )}
                 </p>
               </div>
 
               <Input
-                placeholder='请输入验证码'
+                placeholder={lt("请输入验证码", "Enter verification code")}
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 maxLength={6}
@@ -298,7 +343,9 @@ export default function ForgotPasswordModal({
                 className='w-full bg-gray-700 hover:bg-gray-800 text-white rounded-xl h-10'
                 disabled={isSubmitting}
               >
-                {isSubmitting ? "验证中..." : "验证验证码"}
+                {isSubmitting
+                  ? lt("验证中...", "Verifying...")
+                  : lt("验证验证码", "Verify code")}
               </Button>
             </div>
           )}
@@ -307,13 +354,15 @@ export default function ForgotPasswordModal({
             <div className='space-y-4'>
               <div>
                 <h3 className='text-lg font-medium text-gray-900 mb-2'>
-                  重置密码
+                  {lt("重置密码", "Reset password")}
                 </h3>
-                <p className='text-sm text-gray-600 mb-4'>请设置您的新密码</p>
+                <p className='text-sm text-gray-600 mb-4'>
+                  {lt("请设置您的新密码", "Please set your new password")}
+                </p>
               </div>
 
               <Input
-                placeholder='请输入新密码'
+                placeholder={lt("请输入新密码", "Enter new password")}
                 type='password'
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
@@ -321,7 +370,10 @@ export default function ForgotPasswordModal({
               />
 
               <Input
-                placeholder='请再次输入新密码'
+                placeholder={lt(
+                  "请再次输入新密码",
+                  "Re-enter new password"
+                )}
                 type='password'
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
@@ -334,7 +386,9 @@ export default function ForgotPasswordModal({
                 className='w-full bg-gray-700 hover:bg-gray-800 text-white rounded-xl h-10'
                 disabled={isSubmitting}
               >
-                {isSubmitting ? "重置中..." : "重置密码"}
+                {isSubmitting
+                  ? lt("重置中...", "Resetting...")
+                  : lt("重置密码", "Reset password")}
               </Button>
             </div>
           )}

@@ -2,12 +2,13 @@ import { logger } from '@/utils/logger';
 import React, { useRef, useCallback } from 'react';
 import { model3DUploadService } from '@/services/model3DUploadService';
 import type { Model3DData } from '@/services/model3DUploadService';
+import { useTranslation } from 'react-i18next';
 
 interface Model3DUploadComponentProps {
   onModel3DUploaded: (modelData: Model3DData) => void;
   onUploadError: (error: string) => void;
-  trigger: boolean; // 外部控制触发上传
-  onTriggerHandled: () => void; // 触发处理完成的回调
+  trigger: boolean; // External trigger signal.
+  onTriggerHandled: () => void; // Callback after trigger handling.
   projectId?: string | null;
 }
 
@@ -18,15 +19,18 @@ const Model3DUploadComponent: React.FC<Model3DUploadComponentProps> = ({
   onTriggerHandled,
   projectId,
 }) => {
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
+  const lt = useCallback((zhText: string, enText: string) => (isZh ? zhText : enText), [isZh]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 处理文件选择
+  // Handle file selection.
   const handleFileSelect = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
     try {
-      logger.debug('🎲 开始处理3D模型文件:', file.name);
+      logger.debug('Starting 3D model processing:', file.name);
 
       const uploadDir = projectId ? `projects/${projectId}/models/` : 'uploads/models/';
       const result = await model3DUploadService.uploadModelFile(file, {
@@ -37,24 +41,24 @@ const Model3DUploadComponent: React.FC<Model3DUploadComponentProps> = ({
 
       if (result.success && result.asset) {
         const modelData = model3DUploadService.createModel3DData(result.asset);
-        logger.debug('✅ 3D模型上传成功:', modelData.fileName);
+        logger.debug('3D model uploaded:', modelData.fileName);
         onModel3DUploaded(modelData);
       } else {
-        console.error('❌ 3D模型处理失败:', result.error);
-        onUploadError(result.error || '3D模型处理失败');
+        console.error('3D model processing failed:', result.error);
+        onUploadError(result.error || lt('3D模型处理失败', '3D model processing failed'));
       }
     } catch (error) {
-      console.error('❌ 3D模型处理异常:', error);
-      onUploadError('3D模型处理失败，请重试');
+      console.error('3D model processing exception:', error);
+      onUploadError(lt('3D模型处理失败，请重试', '3D model processing failed. Please try again.'));
     }
 
-    // 清空input值，允许重复选择同一文件
+    // Clear input value to allow selecting the same file again.
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
-  }, [onModel3DUploaded, onUploadError]);
+  }, [lt, onModel3DUploaded, onUploadError]);
 
-  // 处理外部触发
+  // Handle external trigger.
   React.useEffect(() => {
     if (trigger && fileInputRef.current) {
       fileInputRef.current.click();

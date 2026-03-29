@@ -41,6 +41,12 @@
 - 远程地址：上传回写时将 OSS `key` 解析为完整 `remoteUrl`（基于 `VITE_ASSET_PUBLIC_BASE_URL`），优先使用 `remoteUrl` 同步到 AI 对话框
 - 保存兜底：`frontend/src/services/paperSaveService.ts` 的 `ensureRemoteAssets` 会在云保存前补传 `pendingUpload` 的图片，并同样触发 `tanva:upgradeImageSource`
 
+## 图片裁切稳定性
+- `ImageContainer` 裁切后回写 `bounds` 时按 `X/Y` 分别使用显示缩放比例，不再使用单一平均缩放，避免非等比场景出现“被压扁/拉伸”。
+- `imageUrlCache` 的 `dataUrl` 缓存绑定图片源指纹（`sourceFingerprint`）；当同一 `imageId` 更换了源图后，裁切/编辑不会复用旧缓存图，降低“偶发低清/像被压缩”的问题。
+- 裁切执行链路改为“实时源 -> Blob -> canvas -> Blob 预览（`blob:`）-> 后台上传回写远程引用”，不再依赖缓存 dataURL 作为裁切输入，降低“裁切不可用/偶发裁错源”的风险。
+- 裁切开始时会预生成新的 OSS key，并在上传中阶段显式清理旧 `remoteUrl`，避免“先显示正确裁切图，随后被旧远程源覆盖成压缩/整图挤压”的回写竞争问题。
+
 ## JSON 复制/导入（Project.contentJson）
 - 右键画布菜单与 `Ctrl/Cmd+Shift+C` 支持复制画布 JSON（严格走 `sanitizeProjectContentForCloudSave` 清理内联图片引用）。
 - `Ctrl/Cmd+Shift+V` 或右键导入画布 JSON 时追加到当前项目，并触发 `paper-project-changed` 重建实例。
@@ -48,6 +54,12 @@
 ## 画布图片预览
 - 双击画布图片打开预览蒙层，主图优先显示当前双击图片。
 - 右侧缩略图栏展示当前项目的“全局图片历史”列表，支持点击切换预览。
+- `frontend/src/components/ui/ImagePreviewModal.tsx` 已接入双语文案：默认标题/历史标题、关闭提示、加载文案、生成时间 tooltip 与兜底 alt 文案按语言切换。
+
+## 双语适配补充
+- `ExpandImageSelector`（`frontend/src/components/canvas/ExpandImageSelector.tsx`）已接入双语文案：扩图操作提示、常用尺寸选择、发送/取消按钮 tooltip 按语言切换。
+- `BackgroundRemovalTool` / `BackgroundRemovedImageExport`（`frontend/src/components/canvas/BackgroundRemovalTool.tsx`, `frontend/src/components/canvas/BackgroundRemovedImageExport.tsx`）已接入双语文案：上传提示、成功反馈、导出操作和空态文案按语言切换。
+- `TextSelectionOverlay` 已清理残余中文注释（无功能改动），保持双语扫描基线准确。
 
 ## 图片调色板条
 - `ImageContainer` 的图片操作菜单新增 `提取调色板`（位于“更多”菜单候选项内）。

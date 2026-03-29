@@ -2492,6 +2492,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const isPersistableSource = isPersistableImageRef(normalizedSource);
       const explicitPendingUpload =
         typeof detail.pendingUpload === "boolean" ? detail.pendingUpload : undefined;
+      const clearRemoteUrl = detail.clearRemoteUrl === true;
+      const clearKey = detail.clearKey === true;
       const pendingUpload =
         explicitPendingUpload ??
         (!isPersistableSource || requiresManagedImageUpload(normalizedSource));
@@ -2572,10 +2574,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           if (hasInlinePreview) {
             updates.localDataUrl = renderableSource;
           }
-          if (persistedKey) {
+          if (clearKey) {
+            updates.key = undefined;
+          } else if (persistedKey) {
             updates.key = persistedKey;
           }
-          if (persistedRemoteUrl) {
+          if (clearRemoteUrl) {
+            updates.remoteUrl = undefined;
+          } else if (persistedRemoteUrl) {
             updates.remoteUrl = persistedRemoteUrl;
           }
         } else {
@@ -2697,10 +2703,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                   if (hasInlinePreview) {
                     nextRasterData.localDataUrl = renderableSource;
                   }
-                  if (persistedKey) {
+                  if (clearKey) {
+                    delete nextRasterData.key;
+                  } else if (persistedKey) {
                     nextRasterData.key = persistedKey;
                   }
-                  if (persistedRemoteUrl) {
+                  if (clearRemoteUrl) {
+                    delete nextRasterData.remoteUrl;
+                  } else if (persistedRemoteUrl) {
                     nextRasterData.remoteUrl = persistedRemoteUrl;
                   }
                 } else {

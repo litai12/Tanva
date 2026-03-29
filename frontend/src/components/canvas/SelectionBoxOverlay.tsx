@@ -1,6 +1,6 @@
 /**
- * 选择框覆盖层组件
- * 在React Flow节点之上显示选择框，确保选择框始终可见
+ * Selection box overlay.
+ * Renders above React Flow nodes so the box is always visible.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -17,7 +17,7 @@ const SelectionBoxOverlay: React.FC = () => {
   const [boxBounds, setBoxBounds] = useState<SelectionBoxBounds | null>(null);
 
   useEffect(() => {
-    // 监听选择框更新事件
+    // Listen to selection box update events.
     const handleSelectionBoxUpdate = (event: CustomEvent) => {
       const { startPoint, currentPoint } = event.detail;
 
@@ -26,7 +26,7 @@ const SelectionBoxOverlay: React.FC = () => {
         return;
       }
 
-      // 将Paper.js坐标转换为屏幕坐标
+      // Convert Paper.js coordinates to screen coordinates.
       const canvas = paper.view.element as HTMLCanvasElement;
       const rect = canvas.getBoundingClientRect();
       const dpr = window.devicePixelRatio || 1;
@@ -39,7 +39,7 @@ const SelectionBoxOverlay: React.FC = () => {
       const currentX = currentView.x / dpr + rect.left;
       const currentY = currentView.y / dpr + rect.top;
 
-      // 计算选择框的位置和大小
+      // Compute box position and size.
       const left = Math.min(startX, currentX);
       const top = Math.min(startY, currentY);
       const width = Math.abs(currentX - startX);
@@ -76,7 +76,7 @@ const SelectionBoxOverlay: React.FC = () => {
         border: '1px dashed #007AFF',
         background: 'rgba(0, 122, 255, 0.1)',
         pointerEvents: 'none',
-        zIndex: 10000, // 确保在React Flow节点之上
+        zIndex: 10000, // Keep above React Flow nodes.
       }}
     />
   );

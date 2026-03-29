@@ -1,6 +1,6 @@
 /**
- * 文本选择框覆盖层组件
- * 显示选中文本的边框和操作手柄
+ * Text selection overlay component
+ * Renders selection borders and handles for selected text
  */
 
 import React, { useCallback, useMemo, useRef, useEffect, useState } from 'react';
@@ -60,32 +60,32 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
     [activeText, selectedTexts]
   );
 
-  // 监听画布状态变化
+  // Listen for canvas state changes.
   const zoom = useCanvasStore(state => state.zoom);
   const panX = useCanvasStore(state => state.panX);
   const panY = useCanvasStore(state => state.panY);
 
-  // 强制更新状态
+  // Force update state.
   const [updateKey, setUpdateKey] = useState(0);
 
-  // 拖拽状态
+  // Drag state.
   const isDraggingRef = useRef(false);
   const dragTypeRef = useRef<'move' | 'resize' | null>(null);
   const resizeDirectionRef = useRef<'nw' | 'ne' | 'sw' | 'se' | null>(null);
 
-  // 监听画布变化，强制更新选择框位置
+  // Listen to canvas updates and refresh overlay bounds.
   useEffect(() => {
     const handleUpdate = () => {
       setUpdateKey(k => k + 1);
     };
 
-    // 监听 paper.view 的帧更新
+    // Listen to paper.view frame updates.
     let frameId: number | null = null;
     const onFrame = () => {
       handleUpdate();
     };
 
-    // 使用 requestAnimationFrame 来节流更新
+    // Throttle updates with requestAnimationFrame.
     const scheduleUpdate = () => {
       if (frameId === null) {
         frameId = requestAnimationFrame(() => {
@@ -95,7 +95,7 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
       }
     };
 
-    // 监听各种可能导致位置变化的事件
+    // Listen to events that may change element positions.
     window.addEventListener('wheel', scheduleUpdate, { passive: true });
     window.addEventListener('resize', handleUpdate);
 
@@ -108,12 +108,12 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
     };
   }, []);
 
-  // 额外监听 zoom/pan 变化
+  // Also update on zoom/pan changes.
   useEffect(() => {
     setUpdateKey(k => k + 1);
   }, [zoom, panX, panY]);
 
-  // 计算选择框位置
+  // Compute selection bounds.
   const getSelectionBounds = useCallback(
     (target?: { paperText: paper.PointText } | null) => {
       if (!target?.paperText || !paper.view || !paper.view.element) {
@@ -122,7 +122,7 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
 
       try {
         const bounds = target.paperText.bounds;
-        const padding = 4; // 选择框的内边距
+        const padding = 4; // Inner padding for selection bounds.
 
         const canvasEl = paper.view.element as HTMLCanvasElement;
         const r = projectRectToClient(canvasEl, bounds);
@@ -133,12 +133,12 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
           height: r.height + padding * 2,
         };
       } catch (error) {
-        console.warn('计算文本选择框位置失败:', error);
+        console.warn('Failed to calculate text selection bounds:', error);
         return null;
       }
     },
     [updateKey]
-  ); // 添加 updateKey 依赖
+  ); // Keep updateKey in deps to refresh bounds.
 
   const activeSelectionBounds = useMemo(() => getSelectionBounds(activeText), [activeText, getSelectionBounds]);
   const inactiveSelectionBounds = useMemo(
@@ -157,7 +157,7 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
   );
   const isMultiSelection = selectedTexts.length > 1;
 
-  // 转换屏幕坐标到Paper.js坐标
+  // Convert screen coordinates to Paper.js coordinates.
   const screenToPaperPoint = useCallback((clientX: number, clientY: number): paper.Point => {
     if (!paper.view || !paper.view.element) {
       return new paper.Point(clientX, clientY);
@@ -167,7 +167,7 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
     return clientToProject(canvasEl, clientX, clientY);
   }, []);
 
-  // 处理选择框边框拖拽（移动）
+  // Handle border drag (move).
   const handleBorderMouseDown = useCallback((e: React.MouseEvent) => {
     const activeTextId = activeText?.id || selectedTextId;
     if (!activeTextId || !onTextDragStart) return;
@@ -182,7 +182,7 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
     onTextDragStart(activeTextId, paperPoint);
   }, [activeText, selectedTextId, onTextDragStart, screenToPaperPoint]);
 
-  // 处理角点拖拽（调整大小）
+  // Handle corner drag (resize).
   const handleCornerMouseDown = useCallback((direction: 'nw' | 'ne' | 'sw' | 'se') =>
     (e: React.MouseEvent) => {
       const activeTextId = activeText?.id || selectedTextId;
@@ -199,7 +199,7 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
       onTextResizeStart(activeTextId, paperPoint, direction);
     }, [activeText, selectedTextId, onTextResizeStart, screenToPaperPoint]);
 
-  // 全局鼠标移动和释放事件
+  // Global mouse move/up handlers.
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isDraggingRef.current) return;
@@ -208,11 +208,11 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
 
       if (dragTypeRef.current === 'move' && onTextDrag) {
         onTextDrag(paperPoint);
-        // 拖拽时更新选择框位置
+        // Refresh bounds while dragging.
         setUpdateKey(k => k + 1);
       } else if (dragTypeRef.current === 'resize' && onTextResize && resizeDirectionRef.current) {
         onTextResize(paperPoint, resizeDirectionRef.current);
-        // 调整大小时更新选择框位置
+        // Refresh bounds while resizing.
         setUpdateKey(k => k + 1);
       }
     };
@@ -231,12 +231,12 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
           onTextDragEnd();
         }
 
-        // 操作结束后更新选择框位置
+        // Refresh bounds after interaction completes.
         setUpdateKey(k => k + 1);
       }
     };
 
-    // 始终监听这些事件
+    // Always listen for these events.
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
 
@@ -246,7 +246,7 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
     };
   }, [onTextDrag, onTextDragEnd, onTextResize, onTextResizeEnd, screenToPaperPoint]);
 
-  // 处理双击进入编辑
+  // Enter edit mode on double click.
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -256,7 +256,7 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
     }
   }, [activeText, selectedTextId, onTextDoubleClick]);
 
-  // 如果没有选中文本，不显示选择框
+  // Hide overlay when no text is selected.
   if (selectedTexts.length === 0) {
     return null;
   }
@@ -292,12 +292,12 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
             width: activeSelectionBounds.width,
             height: activeSelectionBounds.height,
             backgroundColor: 'transparent',
-            pointerEvents: 'none', // 基层不拦截事件
+            pointerEvents: 'none', // Base layer does not intercept events.
             zIndex: 999,
             boxSizing: 'border-box'
           }}
         >
-          {/* 整个选择框区域可拖拽，双击进入编辑 */}
+	          {/* Entire bounds are draggable; double-click to edit. */}
           <div
             style={{
               position: 'absolute',
@@ -310,7 +310,7 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
             onMouseDown={handleBorderMouseDown}
             onDoubleClick={handleDoubleClick}
           />
-          {/* 四个角的方块手柄 - 白色填充，蓝色边框 */}
+	          {/* Four corner handles - white fill, blue border. */}
           {(() => { const handleSize = 6; const offset = -(handleSize / 2); return (
           <>
           <div

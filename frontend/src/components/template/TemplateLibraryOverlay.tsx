@@ -13,7 +13,7 @@ const TemplateLibraryOverlay: React.FC = () => {
   }, [setShow]);
 
   const handleInstantiate = useCallback((_: FlowTemplate) => {
-    // TemplateModal 会自行通过事件通知 FlowOverlay，这里仅负责关闭弹窗
+    // TemplateModal notifies FlowOverlay through events; this overlay only closes itself.
     setShow(false);
   }, [setShow]);
 

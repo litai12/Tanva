@@ -3,8 +3,12 @@ import paper from 'paper';
 import { useCanvasStore } from '@/stores';
 import { Button } from '@/components/ui/button';
 import { BoundsCalculator, type Bounds } from '@/utils/BoundsCalculator';
+import { useTranslation } from 'react-i18next';
 
 const ZoomIndicator: React.FC = () => {
+    const { i18n } = useTranslation();
+    const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
+    const lt = (zhText: string, enText: string) => (isZh ? zhText : enText);
     const { zoom, setZoom, setPan } = useCanvasStore();
     const [menuOpen, setMenuOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
@@ -383,7 +387,7 @@ const ZoomIndicator: React.FC = () => {
                     }`}
                     onClick={zoomIn}
                     disabled={!canZoomIn}
-                    title={canZoomIn ? "放大 10%" : "已达最大缩放 (400%)"}
+                    title={canZoomIn ? lt("放大 10%", "Zoom in 10%") : lt("已达最大缩放 (400%)", "Maximum zoom reached (400%)")}
                 >
                     <span className="text-sm font-bold">+</span>
                 </Button>
@@ -393,7 +397,7 @@ const ZoomIndicator: React.FC = () => {
                     <button
                         className="h-8 w-8 text-xs font-mono font-medium transition-all duration-200 rounded-full flex items-center justify-center text-gray-900 hover:bg-gray-800/10"
                         onClick={() => setMenuOpen(!menuOpen)}
-                        title="缩放选项"
+                        title={lt("缩放选项", "Zoom options")}
                     >
                         {formatZoom(zoom)}
                     </button>
@@ -405,19 +409,19 @@ const ZoomIndicator: React.FC = () => {
                                 className="w-full px-3 py-2 text-sm text-left text-gray-700 hover:bg-gray-100"
                                 onClick={resetZoom}
                             >
-                                缩放至 100%
+                                {lt("缩放至 100%", "Zoom to 100%")}
                             </button>
                             <button
                                 className="w-full px-3 py-2 text-sm text-left text-gray-700 hover:bg-gray-100"
                                 onClick={fitToScreen}
                             >
-                                适合屏幕
+                                {lt("适合屏幕", "Fit to screen")}
                             </button>
                             <button
                                 className="w-full px-3 py-2 text-sm text-left text-gray-700 hover:bg-gray-100"
                                 onClick={fitToSelection}
                             >
-                                选中内容最大化 (Z)
+                                {lt("选中内容最大化 (Z)", "Fit selection (Z)")}
                             </button>
                         </div>
                     )}
@@ -434,7 +438,7 @@ const ZoomIndicator: React.FC = () => {
                     }`}
                     onClick={zoomOut}
                     disabled={!canZoomOut}
-                    title={canZoomOut ? "缩小 10%" : "已达最小缩放 (10%)"}
+                    title={canZoomOut ? lt("缩小 10%", "Zoom out 10%") : lt("已达最小缩放 (10%)", "Minimum zoom reached (10%)")}
                 >
                     <span className="text-sm font-bold">−</span>
                 </Button>

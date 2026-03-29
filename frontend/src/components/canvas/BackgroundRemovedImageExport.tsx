@@ -5,6 +5,7 @@ import { DownloadIcon, CopyIcon, CheckIcon, AlertCircle } from 'lucide-react';
 import paper from 'paper';
 import PaperBackgroundRemovalService from '@/services/paperBackgroundRemovalService';
 import { logger } from '@/utils/logger';
+import { useTranslation } from 'react-i18next';
 
 export interface BackgroundRemovedImageExportProps {
   onExportComplete?: () => void;
@@ -19,6 +20,11 @@ export interface BackgroundRemovedImageExportProps {
 export const BackgroundRemovedImageExport: React.FC<
   BackgroundRemovedImageExportProps
 > = ({ onExportComplete: _onExportComplete }) => {
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || '')
+    .toLowerCase()
+    .startsWith('zh');
+  const lt = (zh: string, en: string) => (isZh ? zh : en);
   const [removedImages, setRemovedImages] = useState<paper.Raster[]>([]);
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(
     null
@@ -135,14 +141,14 @@ export const BackgroundRemovedImageExport: React.FC<
     <Card className="w-full max-w-sm p-4 bg-white shadow-lg border-0 space-y-4">
       {/* 标题 */}
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">已移除背景图像</h3>
+        <h3 className="text-sm font-semibold">{lt('已移除背景图像', 'Background Removed Images')}</h3>
         <Button
           onClick={refreshRemovedImages}
           size="sm"
           variant="outline"
           className="text-xs"
         >
-          刷新
+          {lt('刷新', 'Refresh')}
         </Button>
       </div>
 
@@ -150,7 +156,7 @@ export const BackgroundRemovedImageExport: React.FC<
       {removedImages.length > 0 ? (
         <div className="space-y-2">
           <div className="text-xs text-gray-600 mb-2">
-            {removedImages.length} 个图像
+            {lt(`${removedImages.length} 个图像`, `${removedImages.length} images`)}
           </div>
 
           {/* 图像选择 */}
@@ -165,7 +171,7 @@ export const BackgroundRemovedImageExport: React.FC<
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
               >
-                {image.name || `图像${index + 1}`}
+                {image.name || lt(`图像${index + 1}`, `Image ${index + 1}`)}
               </button>
             ))}
           </div>
@@ -185,7 +191,7 @@ export const BackgroundRemovedImageExport: React.FC<
                 <AlertCircle className="w-4 h-4" />
               )}
               <span>
-                {exportSuccess ? '✅ 操作成功' : '❌ 操作失败'}
+                {exportSuccess ? lt('✅ 操作成功', '✅ Operation succeeded') : lt('❌ 操作失败', '❌ Operation failed')}
               </span>
             </div>
           )}
@@ -199,7 +205,7 @@ export const BackgroundRemovedImageExport: React.FC<
               className="flex-1 bg-gray-800 hover:bg-gray-900"
             >
               <DownloadIcon className="w-4 h-4 mr-1" />
-              下载PNG
+              {lt('下载PNG', 'Download PNG')}
             </Button>
 
             <Button
@@ -210,7 +216,7 @@ export const BackgroundRemovedImageExport: React.FC<
               className="flex-1"
             >
               <CopyIcon className="w-4 h-4 mr-1" />
-              复制
+              {lt('复制', 'Copy')}
             </Button>
 
             <Button
@@ -220,17 +226,17 @@ export const BackgroundRemovedImageExport: React.FC<
               variant="outline"
               className="text-red-600 hover:text-red-700"
             >
-              删除
+              {lt('删除', 'Delete')}
             </Button>
           </div>
         </div>
       ) : (
         <div className="text-center py-4">
           <p className="text-sm text-gray-500">
-            还没有移除背景的图像
+            {lt('还没有移除背景的图像', 'No background-removed images yet')}
           </p>
           <p className="text-xs text-gray-400 mt-1">
-            使用抠图工具后,图像会显示在这里
+            {lt('使用抠图工具后，图像会显示在这里', 'Use the background removal tool and images will appear here')}
           </p>
         </div>
       )}

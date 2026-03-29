@@ -8,6 +8,7 @@ import { paperSaveService } from "@/services/paperSaveService";
 import { flowSaveService } from "@/services/flowSaveService";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { sanitizeProjectContentForCloudSave } from "@/utils/projectContentValidation";
+import { useTranslation } from "react-i18next";
 
 type WorkflowHistoryButtonProps = {
   projectId: string | null;
@@ -15,13 +16,19 @@ type WorkflowHistoryButtonProps = {
 
 const PANEL_WIDTH = 360;
 
-function formatZhDateTime(value: string): string {
+function formatDateTime(value: string, locale: string): string {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString("zh-CN", { hour12: false });
+  return d.toLocaleString(locale, { hour12: false });
 }
 
 export default function WorkflowHistoryButton({ projectId }: WorkflowHistoryButtonProps) {
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || "")
+    .toLowerCase()
+    .startsWith("zh");
+  const locale = isZh ? "zh-CN" : "en-US";
+  const lt = (zhText: string, enText: string) => (isZh ? zhText : enText);
   const [open, setOpen] = useState(false);
   const [pinned, setPinned] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -67,11 +74,11 @@ export default function WorkflowHistoryButton({ projectId }: WorkflowHistoryButt
       const list = await projectApi.listWorkflowHistory(projectId, { limit: 50 });
       setItems(list);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "加载失败");
+      setError(e instanceof Error ? e.message : lt("加载失败", "Load failed"));
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [lt, projectId]);
 
   const close = useCallback(() => {
     cancelClose();
@@ -115,7 +122,12 @@ export default function WorkflowHistoryButton({ projectId }: WorkflowHistoryButt
     const storeBefore = useProjectContentStore.getState();
     if (!projectId || storeBefore.projectId !== projectId || storeBefore.saving) return;
 
-    const confirmed = window.confirm("将覆盖当前工作流图并立即保存，是否继续？");
+    const confirmed = window.confirm(
+      lt(
+        "将覆盖当前工作流图并立即保存，是否继续？",
+        "This will overwrite the current workflow and save immediately. Continue?"
+      )
+    );
     if (!confirmed) return;
 
     setRestoring(updatedAt);
@@ -123,7 +135,12 @@ export default function WorkflowHistoryButton({ projectId }: WorkflowHistoryButt
       const detail = await projectApi.getWorkflowHistory(projectId, updatedAt);
       const flow = detail?.flow;
       if (!flow || typeof flow !== "object") {
-        throw new Error("历史版本缺少有效的 Flow 数据");
+        throw new Error(
+          lt(
+            "历史版本缺少有效的 Flow 数据",
+            "Selected history version is missing valid Flow data"
+          )
+        );
       }
 
       useProjectContentStore.getState().updatePartial({ flow: flow as any }, { markDirty: true });
@@ -140,7 +157,10 @@ export default function WorkflowHistoryButton({ projectId }: WorkflowHistoryButt
       const invalidFlowNodeIds = sanitizeResult?.dropped.flowNodeIds ?? [];
       const contentForCloudSave = sanitizeResult?.sanitized ?? store.content;
       if (invalidCanvasImageIds.length > 0 || invalidFlowNodeIds.length > 0) {
-        const message = `存在未上传到 OSS 的图片（画布 ${invalidCanvasImageIds.length} 张，Flow ${invalidFlowNodeIds.length} 处），已阻止云端保存，请重试上传后再保存`;
+        const message = lt(
+          `存在未上传到 OSS 的图片（画布 ${invalidCanvasImageIds.length} 张，Flow ${invalidFlowNodeIds.length} 处），已阻止云端保存，请重试上传后再保存`,
+          `Found images not uploaded to OSS (Canvas ${invalidCanvasImageIds.length}, Flow ${invalidFlowNodeIds.length}); cloud save is blocked. Please upload and retry.`
+        );
         try { store.setWarning(message); } catch {}
         return;
       } else {
@@ -158,7 +178,7 @@ export default function WorkflowHistoryButton({ projectId }: WorkflowHistoryButt
       await refresh();
       close();
     } catch (e: any) {
-      const msg = typeof e?.message === "string" ? e.message : "恢复失败";
+      const msg = typeof e?.message === "string" ? e.message : lt("恢复失败", "Restore failed");
       try {
         useProjectContentStore.getState().setError(msg);
       } catch {}
@@ -169,20 +189,20 @@ export default function WorkflowHistoryButton({ projectId }: WorkflowHistoryButt
       }
       setRestoring(null);
     }
-  }, [close, projectId, refresh]);
+  }, [close, lt, projectId, refresh]);
 
   const content = useMemo(() => {
     if (!projectId) {
-      return <div className="p-3 text-xs text-slate-500">未打开项目</div>;
+      return <div className="p-3 text-xs text-slate-500">{lt("未打开项目", "No project opened")}</div>;
     }
     if (loading) {
-      return <div className="p-3 text-xs text-slate-500">加载中...</div>;
+      return <div className="p-3 text-xs text-slate-500">{lt("加载中...", "Loading...")}</div>;
     }
     if (error) {
       return <div className="p-3 text-xs text-red-600">{error}</div>;
     }
     if (items.length === 0) {
-      return <div className="p-3 text-xs text-slate-500">暂无历史版本（手动保存会生成）</div>;
+      return <div className="p-3 text-xs text-slate-500">{lt("暂无历史版本（手动保存会生成）", "No history versions yet (created by manual save)")}</div>;
     }
 
     return (
@@ -194,10 +214,13 @@ export default function WorkflowHistoryButton({ projectId }: WorkflowHistoryButt
           >
             <div className="min-w-0">
               <div className="text-[11px] text-slate-500">
-                {formatZhDateTime(item.updatedAt)}
+                {formatDateTime(item.updatedAt, locale)}
               </div>
               <div className="text-xs text-slate-800">
-                v{item.version} · 节点 {item.nodeCount} · 连线 {item.edgeCount}
+                {lt(
+                  `v${item.version} · 节点 ${item.nodeCount} · 连线 ${item.edgeCount}`,
+                  `v${item.version} · Nodes ${item.nodeCount} · Edges ${item.edgeCount}`
+                )}
               </div>
             </div>
             <button
@@ -210,16 +233,16 @@ export default function WorkflowHistoryButton({ projectId }: WorkflowHistoryButt
               )}
               disabled={Boolean(restoring)}
               onClick={() => restore(item.updatedAt)}
-              title="恢复并保存"
+              title={lt("恢复并保存", "Restore and save")}
             >
               <RotateCcw className="h-3 w-3" />
-              恢复
+              {lt("恢复", "Restore")}
             </button>
           </div>
         ))}
       </div>
     );
-  }, [error, items, loading, projectId, restore, restoring]);
+  }, [error, items, loading, locale, lt, projectId, restore, restoring]);
 
   return (
     <>
@@ -233,7 +256,7 @@ export default function WorkflowHistoryButton({ projectId }: WorkflowHistoryButt
           "bg-liquid-glass-light backdrop-blur-minimal border-liquid-glass-light hover:bg-liquid-glass-hover",
           pinned && "bg-liquid-glass-hover"
         )}
-        title={canOpen ? "工作流历史" : "未打开项目"}
+        title={canOpen ? lt("工作流历史", "Workflow history") : lt("未打开项目", "No project opened")}
         onMouseEnter={() => {
           if (!canOpen) return;
           cancelClose();
@@ -267,13 +290,15 @@ export default function WorkflowHistoryButton({ projectId }: WorkflowHistoryButt
             onMouseLeave={scheduleClose}
           >
             <div className="flex items-center justify-between gap-2 border-b border-slate-200/70 px-3 py-2">
-              <div className="text-sm font-medium text-slate-800">工作流历史</div>
+              <div className="text-sm font-medium text-slate-800">
+                {lt("工作流历史", "Workflow history")}
+              </div>
               <div className="flex items-center gap-1">
                 <button
                   type="button"
                   className="inline-flex h-7 w-7 items-center justify-center rounded-full text-slate-600 hover:bg-slate-100"
                   onClick={() => refresh()}
-                  title="刷新"
+                  title={lt("刷新", "Refresh")}
                 >
                   <RefreshCw className={cn("h-4 w-4", loading && "opacity-60")} />
                 </button>
@@ -281,7 +306,7 @@ export default function WorkflowHistoryButton({ projectId }: WorkflowHistoryButt
                   type="button"
                   className="inline-flex h-7 w-7 items-center justify-center rounded-full text-slate-600 hover:bg-slate-100"
                   onClick={close}
-                  title="关闭"
+                  title={lt("关闭", "Close")}
                 >
                   <X className="h-4 w-4" />
                 </button>

@@ -6,8 +6,12 @@ import { useProjectContentStore } from '@/stores/projectContentStore';
 import { saveMonitor } from '@/utils/saveMonitor';
 import { refreshProjectThumbnail } from '@/services/projectThumbnailService';
 import { sanitizeProjectContentForCloudSave } from '@/utils/projectContentValidation';
+import { useTranslation } from 'react-i18next';
 
 export default function ManualSaveButton() {
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
+  const lt = useCallback((zhText: string, enText: string) => (isZh ? zhText : enText), [isZh]);
   const projectId = useProjectContentStore((state) => state.projectId);
   const saving = useProjectContentStore((state) => state.saving);
   const setSaving = useProjectContentStore((state) => state.setSaving);
@@ -28,7 +32,7 @@ export default function ManualSaveButton() {
       const store = useProjectContentStore.getState();
       const { projectId: currentProjectId, content, version } = store;
       if (!currentProjectId || !content) {
-        setError('当前没有可以保存的内容');
+        setError(lt('当前没有可以保存的内容', 'No content available to save'));
         return;
       }
 
@@ -38,7 +42,10 @@ export default function ManualSaveButton() {
       const contentForCloudSave = sanitizeResult?.sanitized ?? content;
       if (invalidCanvasImageIds.length > 0 || invalidFlowNodeIds.length > 0) {
         setWarning(
-          `存在未上传到 OSS 的图片（画布 ${invalidCanvasImageIds.length} 张，Flow ${invalidFlowNodeIds.length} 处），已阻止云端保存，请重试上传后再保存`
+          lt(
+            `存在未上传到 OSS 的图片（画布 ${invalidCanvasImageIds.length} 张，Flow ${invalidFlowNodeIds.length} 处），已阻止云端保存，请重试上传后再保存`,
+            `Found images not uploaded to OSS (Canvas ${invalidCanvasImageIds.length}, Flow ${invalidFlowNodeIds.length}); cloud save is blocked. Please upload and retry.`
+          )
         );
         return;
       } else {
@@ -70,8 +77,8 @@ export default function ManualSaveButton() {
       const currentProjectId = store.projectId;
       const rawMessage = error instanceof Error ? error.message : '';
       const message = rawMessage.includes('413') || rawMessage.toLowerCase().includes('too large')
-        ? '保存失败：内容过大，请尝试清理或拆分项目'
-        : (rawMessage || '保存失败');
+        ? lt('保存失败：内容过大，请尝试清理或拆分项目', 'Save failed: content is too large. Try cleaning or splitting the project')
+        : (rawMessage || lt('保存失败', 'Save failed'));
       if (currentProjectId) {
         try {
           saveMonitor.push(currentProjectId, 'manual_save_error', { message });
@@ -82,7 +89,7 @@ export default function ManualSaveButton() {
     } finally {
       setSaving(false);
     }
-  }, [markSaved, setError, setSaving, setWarning]);
+  }, [lt, markSaved, setError, setSaving, setWarning]);
 
   return (
     <button
@@ -91,7 +98,7 @@ export default function ManualSaveButton() {
       disabled={!projectId || saving}
       className="rounded border border-sky-500 bg-sky-50 px-2 py-1 text-xs text-sky-600 hover:bg-sky-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
     >
-      {saving ? '保存中…' : '保存'}
+      {saving ? lt('保存中…', 'Saving...') : lt('保存', 'Save')}
     </button>
   );
 }

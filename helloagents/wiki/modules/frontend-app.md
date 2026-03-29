@@ -38,6 +38,23 @@
 - `AccountBadge`（`frontend/src/components/AccountBadge.tsx`）已接入双语文案：问候语、认证状态标签与来源 tooltip、退出登录按钮按语言切换。
 - `AppLoader` / `AppLoadingIndicator`（`frontend/src/components/AppLoader.tsx`, `frontend/src/components/AppLoadingIndicator.tsx`）默认加载提示已按语言切换。
 - `AuthWrapper`（`frontend/src/components/AuthWrapper.tsx`）会话过期 toast、登录状态校验加载文案、错误态“重新加载”按钮已按语言切换。
+- `ForgotPasswordModal`（`frontend/src/components/auth/ForgotPasswordModal.tsx`）已接入双语文案：手机号/验证码/重置密码三步流程的标题、说明、输入占位、错误提示、操作按钮与 toast 按语言切换。
+- `AutosaveStatus` / `ManualSaveButton`（`frontend/src/components/autosave/AutosaveStatus.tsx`, `frontend/src/components/autosave/ManualSaveButton.tsx`）已接入双语文案：保存状态提示、手动保存按钮、保存失败与未上传阻断提示按语言切换。
+- `PendingUploadLeavePrompt` / `PendingUploadNavigationGuard`（`frontend/src/components/guards/PendingUploadLeavePrompt.tsx`, `frontend/src/components/guards/PendingUploadNavigationGuard.tsx`）已接入双语文案：离开确认弹窗标题/说明/详情行/按钮与路由拦截提示按语言切换。
+- `ZoomIndicator` / `FocusModeButton` / `ImageSizeIndicator`（`frontend/src/components/canvas/ZoomIndicator.tsx`, `frontend/src/components/canvas/FocusModeButton.tsx`, `frontend/src/components/canvas/ImageSizeIndicator.tsx`）已接入双语文案：缩放菜单与按钮 tooltip、专注模式提示、原始尺寸模式标识按语言切换。
+- `WorkflowHistoryButton`（`frontend/src/components/workflow-history/WorkflowHistoryButton.tsx`）已接入双语文案：历史面板标题、刷新/关闭/恢复操作、空态与恢复确认提示按语言切换。
+- `LayerTool` / `SharedTemplateCard`（`frontend/src/components/toolbar/LayerTool.tsx`, `frontend/src/components/template/SharedTemplateCard.tsx`）已接入双语文案：图层面板按钮标题、模板卡片空态/标签前缀/删除提示按语言切换。
+- `ImageUploadComponent` / `Model3DUploadComponent`（`frontend/src/components/canvas/ImageUploadComponent.tsx`, `frontend/src/components/canvas/Model3DUploadComponent.tsx`）已接入双语文案：上传失败、组件未就绪、无法打开文件选择器等错误提示按语言切换。
+- `SelectionBoxOverlay` / `SnapGuideRenderer` / `ScaleBarRenderer` / `GenerationProgressBar` / `context-menu` / `dropdown-menu` 已清理残余中文注释，保持扫描基线准确并避免误报未双语化文件。
+- `OSSDemo` / `PromptOptimizerDemo`（`frontend/src/pages/OSSDemo.tsx`, `frontend/src/pages/PromptOptimizerDemo.tsx`）已接入双语文案：Demo 页按钮、状态提示、字段标签、辅助说明和错误提示按语言切换。
+- `SelectionGroupToolbar`（`frontend/src/components/canvas/SelectionGroupToolbar.tsx`）已接入双语文案：截图、组合/解组、批量下载、发送到对话框等动作的按钮文字和 tooltip 按语言切换。
+- `Canvas` / `GlobalZoomCapture` / `InteractionController` 已清理残余中文注释与日志标签，保持扫描基线准确并避免误报未双语化文件。
+- `BackgroundRemovalTool` / `BackgroundRemovedImageExport`（`frontend/src/components/canvas/BackgroundRemovalTool.tsx`, `frontend/src/components/canvas/BackgroundRemovedImageExport.tsx`）已接入双语文案：上传提示、处理成功提示、导出按钮、空态说明按语言切换。
+- `ImagePreviewModal` / `TemplateModal`（`frontend/src/components/ui/ImagePreviewModal.tsx`, `frontend/src/components/template/TemplateModal.tsx`）已接入双语文案：预览标题与加载文案、模板页签与加载态、模板删除确认和占位文案按语言切换。
+- `ColorPicker` / `TextStylePanel`（`frontend/src/components/toolbar/ColorPicker.tsx`, `frontend/src/components/toolbar/TextStylePanel.tsx`）已接入双语文案：吸管取色提示、透明/更多按钮、字体/字重/颜色/对齐标题按语言切换。
+- `MemoryDebugPanel` / `HistoryDebugPanel` / `CachedImageDebug`（`frontend/src/components/debug/MemoryDebugPanel.tsx`, `frontend/src/components/debug/HistoryDebugPanel.tsx`, `frontend/src/components/debug/CachedImageDebug.tsx`）已接入双语文案：监控状态、历史栈说明、缓存图调试标签与操作按钮按语言切换。
+- `Sora2Test`（`frontend/src/pages/Sora2Test.tsx`）已接入双语文案：视频提示词占位与画幅提示说明按语言切换。
+- `MiniMapImageOverlay` / `TextSelectionOverlay` 已清理残余中文注释，保持扫描基线准确并避免误报未双语化文件。
 
 ## 工作区顶部帮助入口（`/app`）
 - 组件：`frontend/src/components/layout/FloatingHeader.tsx`

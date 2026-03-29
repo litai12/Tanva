@@ -26,7 +26,7 @@ import { initializeRuntimeStability } from '@/bootstrap/runtimeStability';
 function RootRoutes() {
   const user = useAuthStore((s) => s.user);
   const loadProjects = useProjectStore((s) => s.load);
-  // 延迟初始化：由受保护路由或登录流程触发，避免在每次页面加载时自动请求 /api/auth/me
+  // Lazy init is triggered by protected routes/login flow to avoid auto /api/auth/me on every load.
   useEffect(() => {
     if (user) loadProjects();
   }, [user, loadProjects]);

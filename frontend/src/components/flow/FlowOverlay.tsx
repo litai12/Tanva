@@ -115,10 +115,13 @@ import {
   resolvePublicAssetUrlFromKey,
 } from "@/utils/assetProxy";
 import {
+  isAssetProxyRef,
   isBlobUrl,
   isDataImageUrl,
+  isLikelyBackendAllowedRemoteUrl,
   isPersistableImageRef,
   isRemoteUrl,
+  normalizeRemoteUrl,
   normalizePersistableImageRef,
   requiresManagedImageUpload,
   resolveImageToBlob,
@@ -13214,6 +13217,48 @@ function FlowInner() {
         imageDatas = await resolveEdgesAsDataUrls(imgEdges);
       }
 
+      // 运行时图片输入归一化（优先走 sourceImageUrl，避免大体积 sourceImage 触发上游 500）：
+      // - 仅当已是后端可直连的 HTTPS 资源时直传；
+      // - 其余（代理 URL、key、data/blob/flow-asset、裸 base64）统一先上传 OSS，失败即中断。
+      if (imageDatas.length > 0) {
+        const projectId = useProjectContentStore.getState().projectId;
+        const weakRawBase64 = (value: string): boolean => {
+          const compact = value.replace(/\s+/g, "");
+          if (!compact || compact.length >= 2048) return false;
+          if (!/^[A-Za-z0-9+/=]+$/.test(compact)) return false;
+          return true;
+        };
+        const normalizedInputs: string[] = [];
+        for (const value of imageDatas) {
+          const trimmed = typeof value === "string" ? value.trim() : "";
+          if (!trimmed) continue;
+
+          const remote = normalizeRemoteUrl(trimmed);
+          const canPassRemoteDirectly =
+            Boolean(remote) &&
+            !isAssetProxyRef(remote) &&
+            isLikelyBackendAllowedRemoteUrl(remote) &&
+            !requiresManagedImageUpload(remote);
+
+          if (canPassRemoteDirectly && remote) {
+            normalizedInputs.push(remote);
+            continue;
+          }
+
+          const uploadInput = weakRawBase64(trimmed)
+            ? ensureDataUrl(trimmed)
+            : trimmed;
+          const uploaded = await uploadImageToOSS(uploadInput, projectId);
+          if (uploaded && isRemoteUrl(uploaded)) {
+            normalizedInputs.push(uploaded);
+          } else {
+            failWithMessage("图片上传失败，无法用于编辑/融合，请检查上传与 OSS 配置");
+            return;
+          }
+        }
+        imageDatas = normalizedInputs;
+      }
+
       console.log(`[Flow Debug] Node ${nodeId} (${node.type}) 准备运行:`, {
         prompt: prompt.substring(0, 50) + "...",
         imageDatasCount: imageDatas.length,
@@ -13242,9 +13287,7 @@ function FlowInner() {
         return undefined;
       })();
       const effectiveImageSize =
-        node.type === "generate" && aiProvider === "banana-2.5"
-          ? undefined
-          : nodeSizeValue || imageSize || undefined;
+        nodeSizeValue || imageSize || "1K";
       const enableWebSearchForNode =
         (node.type === "generatePro" || node.type === "generatePro4") &&
         Boolean((node.data as any)?.enableWebSearch ?? globalWebSearchEnabled);
@@ -13850,45 +13893,59 @@ function FlowInner() {
           error?: { message: string };
         };
 
-        const remoteInputs = imageDatas.filter(isRemoteUrl);
-        const hasOnlyRemote =
-          imageDatas.length > 0 && remoteInputs.length === imageDatas.length;
-        if (imageDatas.length === 0) {
-          result = await generateImageViaAPI({
-            prompt,
-            outputFormat: "png",
-            aiProvider,
-            model: nodeSpecificModel,
-            aspectRatio: effectiveAspectRatio,
-            imageSize: effectiveImageSize,
-            ...(enableWebSearchForNode ? { enableWebSearch: true } : {}),
-          });
-        } else if (imageDatas.length === 1) {
-          console.log('[FlowOverlay] editImage调用参数:', { aiProvider, model: nodeSpecificModel, imageModel });
-          result = await editImageViaAPI({
-            prompt,
-            ...(hasOnlyRemote
-              ? { sourceImageUrl: imageDatas[0] }
-              : { sourceImage: imageDatas[0] }),
-            outputFormat: "png",
-            aiProvider,
-            model: nodeSpecificModel,
-            aspectRatio: effectiveAspectRatio,
-            imageSize: effectiveImageSize,
-          });
-        } else {
-          result = await blendImagesViaAPI({
+        const executeImageRequest = async (
+          provider: typeof aiProvider,
+          model: string,
+          imageSizeOverride?: "0.5K" | "1K" | "2K" | "4K"
+        ) => {
+          const remoteInputs = imageDatas.filter(isRemoteUrl);
+          const hasOnlyRemote =
+            imageDatas.length > 0 && remoteInputs.length === imageDatas.length;
+          const requestImageSize = imageSizeOverride || effectiveImageSize;
+          if (imageDatas.length === 0) {
+            return await generateImageViaAPI({
+              prompt,
+              outputFormat: "png",
+              aiProvider: provider,
+              model,
+              aspectRatio: effectiveAspectRatio,
+              imageSize: requestImageSize,
+              ...(enableWebSearchForNode ? { enableWebSearch: true } : {}),
+            });
+          }
+          if (imageDatas.length === 1) {
+            console.log("[FlowOverlay] editImage调用参数:", {
+              aiProvider: provider,
+              model,
+              imageModel,
+              imageSize: requestImageSize,
+            });
+            return await editImageViaAPI({
+              prompt,
+              ...(hasOnlyRemote
+                ? { sourceImageUrl: imageDatas[0] }
+                : { sourceImage: imageDatas[0] }),
+              outputFormat: "png",
+              aiProvider: provider,
+              model,
+              aspectRatio: effectiveAspectRatio,
+              imageSize: requestImageSize,
+            });
+          }
+          return await blendImagesViaAPI({
             prompt,
             ...(hasOnlyRemote
               ? { sourceImageUrls: imageDatas.slice(0, 6) }
               : { sourceImages: imageDatas.slice(0, 6) }),
             outputFormat: "png",
-            aiProvider,
-            model: nodeSpecificModel,
+            aiProvider: provider,
+            model,
             aspectRatio: effectiveAspectRatio,
-            imageSize: effectiveImageSize,
+            imageSize: requestImageSize,
           });
-        }
+        };
+
+        result = await executeImageRequest(aiProvider, nodeSpecificModel);
 
         if (!result.success || !result.data) {
           const msg = result.error?.message || "执行失败";

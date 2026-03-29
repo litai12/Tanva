@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { memoryMonitor } from '@/utils/memoryMonitor';
 import type { MemoryStats } from '@/utils/memoryMonitor';
 import { Activity, Trash2, AlertTriangle, CheckCircle } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface MemoryDebugPanelProps {
   isVisible?: boolean;
@@ -17,6 +18,11 @@ const MemoryDebugPanel: React.FC<MemoryDebugPanelProps> = ({
   isVisible = false,
   onClose,
 }) => {
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || '')
+    .toLowerCase()
+    .startsWith('zh');
+  const lt = (zh: string, en: string) => (isZh ? zh : en);
   const [stats, setStats] = useState<MemoryStats>(memoryMonitor.getStats());
 
   // 定期更新统计信息
@@ -47,16 +53,16 @@ const MemoryDebugPanel: React.FC<MemoryDebugPanelProps> = ({
 
   const getMemoryStatus = () => {
     if (stats.memoryWarning) {
-      return { icon: AlertTriangle, color: 'text-red-500', text: '警告' };
+      return { icon: AlertTriangle, color: 'text-red-500', text: lt('警告', 'Warning') };
     }
-    return { icon: CheckCircle, color: 'text-green-500', text: '正常' };
+    return { icon: CheckCircle, color: 'text-green-500', text: lt('正常', 'Normal') };
   };
 
   const formatTime = (ms: number) => {
     const seconds = Math.floor(ms / 1000);
-    if (seconds < 60) return `${seconds}秒`;
+    if (seconds < 60) return lt(`${seconds}秒`, `${seconds}s`);
     const minutes = Math.floor(seconds / 60);
-    return `${minutes}分${seconds % 60}秒`;
+    return lt(`${minutes}分${seconds % 60}秒`, `${minutes}m ${seconds % 60}s`);
   };
 
   const formatBytes = (bytes: number) => {
@@ -84,7 +90,7 @@ const MemoryDebugPanel: React.FC<MemoryDebugPanelProps> = ({
 
   const formatSinceLastCleanup = () => {
     const elapsed = Date.now() - stats.lastCleanup;
-    return `${formatTime(elapsed)}前`;
+    return lt(`${formatTime(elapsed)}前`, `${formatTime(elapsed)} ago`);
   };
 
   // 参考上限 + 动态自适应，避免点阵模式下动辄超限
@@ -130,7 +136,7 @@ const MemoryDebugPanel: React.FC<MemoryDebugPanelProps> = ({
               <div className="flex items-center justify-center h-7 w-7 rounded-lg bg-emerald-50 text-emerald-600">
                 <Activity className="w-4 h-4" />
               </div>
-              内存监控
+              {lt('内存监控', 'Memory Monitor')}
             </CardTitle>
             <Button
               variant="ghost"
@@ -147,9 +153,11 @@ const MemoryDebugPanel: React.FC<MemoryDebugPanelProps> = ({
           {/* Memory Status */}
           <div className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2.5">
             <div className="flex flex-col text-xs text-muted-foreground">
-              <span className="font-medium text-slate-700">状态</span>
+              <span className="font-medium text-slate-700">{lt('状态', 'Status')}</span>
               <span className="mt-0.5 text-[11px]">
-                {stats.memoryWarning ? '检测到内存压力' : '运行稳定'}
+                {stats.memoryWarning
+                  ? lt('检测到内存压力', 'Memory pressure detected')
+                  : lt('运行稳定', 'Running stable')}
               </span>
             </div>
             <div className="flex items-center gap-2">
@@ -167,23 +175,23 @@ const MemoryDebugPanel: React.FC<MemoryDebugPanelProps> = ({
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-lg border border-slate-100 bg-slate-50/40 px-3 py-2.5 space-y-2">
               <h4 className="text-[11px] font-semibold text-slate-600">
-                Paper.js 对象
+                {lt('Paper.js 对象', 'Paper.js Objects')}
               </h4>
               <div className="space-y-1.5 text-xs">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">图层数</span>
+                  <span className="text-muted-foreground">{lt('图层数', 'Layers')}</span>
                   <span className="font-mono tabular-nums text-slate-900">
                     {stats.totalLayers}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">总对象</span>
+                  <span className="text-muted-foreground">{lt('总对象', 'Total objects')}</span>
                   <span className="font-mono tabular-nums text-slate-900">
                     {stats.totalItems}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">网格对象</span>
+                  <span className="text-muted-foreground">{lt('网格对象', 'Grid objects')}</span>
                   <span className="font-mono tabular-nums text-slate-900">
                     {stats.gridItems}
                   </span>
@@ -194,7 +202,7 @@ const MemoryDebugPanel: React.FC<MemoryDebugPanelProps> = ({
             {/* Browser Memory */}
             <div className="rounded-lg border border-slate-100 bg-slate-50/40 px-3 py-2.5 space-y-2">
               <h4 className="text-[11px] font-semibold text-slate-600">
-                浏览器内存
+                {lt('浏览器内存', 'Browser Memory')}
               </h4>
               {stats.browserMemory.supported ? (
                 <div className="space-y-2 text-xs">
@@ -218,7 +226,10 @@ const MemoryDebugPanel: React.FC<MemoryDebugPanelProps> = ({
                 </div>
               ) : (
                 <p className="text-[11px] leading-5 text-muted-foreground">
-                  当前环境不支持 heap 统计（需桌面浏览器或开启 performance.memory）
+                  {lt(
+                    '当前环境不支持 heap 统计（需桌面浏览器或开启 performance.memory）',
+                    'Heap stats are not supported in this environment (desktop browser with performance.memory required).'
+                  )}
                 </p>
               )}
             </div>
@@ -227,16 +238,16 @@ const MemoryDebugPanel: React.FC<MemoryDebugPanelProps> = ({
           {/* Object Pool Statistics */}
           <div className="rounded-lg border border-slate-100 bg-white/60 px-3 py-3 space-y-3">
             <div className="flex items-center justify-between">
-              <h4 className="text-[11px] font-semibold text-slate-600">对象池</h4>
+              <h4 className="text-[11px] font-semibold text-slate-600">{lt('对象池', 'Object Pool')}</h4>
               <span className="text-[11px] text-muted-foreground">
-                总池 {totalPoolSize}/{totalLimit}
+                {lt('总池', 'Total')} {totalPoolSize}/{totalLimit}
               </span>
             </div>
 
             <div className="space-y-2 text-xs">
               <div className="space-y-1.5">
                 <div className="flex justify-between text-[11px] text-muted-foreground">
-                  <span>主网格点</span>
+                  <span>{lt('主网格点', 'Main dots')}</span>
                   <span className="font-mono tabular-nums text-slate-900">
                     {stats.activePoolSize.mainDots}/{poolLimits.mainDots}
                   </span>
@@ -258,7 +269,7 @@ const MemoryDebugPanel: React.FC<MemoryDebugPanelProps> = ({
 
               <div className="space-y-1.5">
                 <div className="flex justify-between text-[11px] text-muted-foreground">
-                  <span>副网格点</span>
+                  <span>{lt('副网格点', 'Minor dots')}</span>
                   <span className="font-mono tabular-nums text-slate-900">
                     {stats.activePoolSize.minorDots}/{poolLimits.minorDots}
                   </span>
@@ -280,7 +291,7 @@ const MemoryDebugPanel: React.FC<MemoryDebugPanelProps> = ({
 
               <div className="space-y-1.5">
                 <div className="flex justify-between text-[11px] text-muted-foreground">
-                  <span>网格线</span>
+                  <span>{lt('网格线', 'Grid lines')}</span>
                   <span className="font-mono tabular-nums text-slate-900">
                   {stats.activePoolSize.gridLines}/{poolLimits.gridLines}
                   </span>
@@ -301,7 +312,7 @@ const MemoryDebugPanel: React.FC<MemoryDebugPanelProps> = ({
               </div>
 
               <div className="flex justify-between border-t pt-2 text-[11px] font-medium text-slate-700">
-                <span>总池大小</span>
+                <span>{lt('总池大小', 'Total pool size')}</span>
                 <span className="font-mono tabular-nums">
                   {totalPoolSize}/{totalLimit}
                 </span>
@@ -312,7 +323,7 @@ const MemoryDebugPanel: React.FC<MemoryDebugPanelProps> = ({
           {/* Memory Management */}
           <div className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-3 space-y-2.5">
             <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-              <span>上次清理</span>
+              <span>{lt('上次清理', 'Last cleanup')}</span>
               <span className="font-mono tabular-nums text-slate-900">
                 {formatSinceLastCleanup()}
               </span>
@@ -325,7 +336,7 @@ const MemoryDebugPanel: React.FC<MemoryDebugPanelProps> = ({
               className="w-full h-9 text-xs font-medium shadow-sm"
             >
               <Trash2 className="w-4 h-4 mr-2" />
-              强制清理
+              {lt('强制清理', 'Force cleanup')}
             </Button>
           </div>
 

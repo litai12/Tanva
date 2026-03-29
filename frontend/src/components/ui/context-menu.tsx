@@ -1,5 +1,5 @@
 /**
- * 简单的上下文菜单组件
+ * Simple context menu component.
  */
 
 import React, { useState, useRef, useEffect } from 'react';

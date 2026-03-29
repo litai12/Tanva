@@ -10,6 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
+import { useTranslation } from 'react-i18next';
 
 interface ExpandImageSelectorProps {
   imageBounds: { x: number; y: number; width: number; height: number };
@@ -34,8 +35,13 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
   onSelect,
   onCancel,
 }) => {
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || '')
+    .toLowerCase()
+    .startsWith('zh');
+  const lt = (zh: string, en: string) => (isZh ? zh : en);
   const [expandRatios, setExpandRatios] = useState<{ left: number; top: number; right: number; bottom: number } | null>(null);
-  const [_selectedSizeLabel, setSelectedSizeLabel] = useState('常用尺寸');
+  const [_selectedSizeLabel, setSelectedSizeLabel] = useState(lt('常用尺寸', 'Common sizes'));
   const [frameBounds, setFrameBounds] = useState(imageBounds);
   const isDraggingRef = useRef(false);
   const hasCustomFrameRef = useRef(false);
@@ -91,8 +97,8 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
     prevImageBoundsRef.current = imageBounds;
     hasCustomFrameRef.current = false;
     setFrameBounds(imageBounds);
-    setSelectedSizeLabel('常用尺寸');
-  }, [imageId, imageBounds]);
+    setSelectedSizeLabel(lt('常用尺寸', 'Common sizes'));
+  }, [imageId, imageBounds, lt]);
 
   // 将Paper.js坐标转换为屏幕坐标
   const convertToScreen = useCallback((point: paper.Point) => {
@@ -139,8 +145,8 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
   // 取消选择
   const handleCancel = useCallback(() => {
     onCancel();
-    setSelectedSizeLabel('常用尺寸');
-  }, [onCancel]);
+    setSelectedSizeLabel(lt('常用尺寸', 'Common sizes'));
+  }, [onCancel, lt]);
 
   const handleRightClickCancel = useCallback((e?: React.MouseEvent | MouseEvent) => {
     if (e) {
@@ -596,7 +602,9 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
             zIndex: 10001,
           }}
         >
-          {frameBounds ? '左键拖拽角柄调整区域，右键或点击取消按钮退出' : '请拖拽图片角柄调整扩图区域'}
+          {frameBounds
+            ? lt('左键拖拽角柄调整区域，右键或点击取消按钮退出', 'Drag corner handles with left click. Right click or click cancel to exit.')
+            : lt('请拖拽图片角柄调整扩图区域', 'Drag image corner handles to adjust the expansion area.')}
         </div>
         <Button
           variant="outline"
@@ -764,7 +772,7 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
                     // padding: '5px',
                     margin: '0px 8px',
                   }}
-                  title="选择常用尺寸"
+                  title={lt('选择常用尺寸', 'Select common sizes')}
                 >
                   <Ruler className="w-4 h-4" />
                 </Button>
@@ -786,7 +794,7 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
               size="sm"
               onClick={handleConfirm}
               disabled={!frameBounds || !expandRatios}
-              title="发送"
+              title={lt('发送', 'Send')}
               style={{
                 width: '34px',
                 height: '34px',
@@ -800,7 +808,7 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
               variant="ghost"
               size="sm"
               onClick={handleCancel}
-              title="取消"
+              title={lt('取消', 'Cancel')}
               style={{
                 color: '#0f172a',
                 border: '1px solid rgba(15,23,42,0.15)',

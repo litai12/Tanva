@@ -2,6 +2,7 @@ import React from 'react';
 import type { TemplateIndexEntry } from '@/types/template';
 import SmartImage from '@/components/ui/SmartImage';
 import './template-card.css';
+import { useTranslation } from 'react-i18next';
 
 interface Props {
   item: {
@@ -19,13 +20,17 @@ interface Props {
 }
 
 export default function SharedTemplateCard({ item, onClick, onDelete, showDelete }: Props) {
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
+  const lt = (zhText: string, enText: string) => (isZh ? zhText : enText);
+
   return (
     <div className="tpl-card" onClick={onClick}>
       <div className="tpl-card-thumb">
         {item.thumbnail ? (
           <SmartImage src={item.thumbnail} alt={item.name} className="tpl-card-img" />
         ) : (
-          <div className="tpl-card-noimg">暂无预览</div>
+          <div className="tpl-card-noimg">{lt('暂无预览', 'No preview')}</div>
         )}
         {item.thumbnailSmall ? (
           <SmartImage src={item.thumbnailSmall} alt={`${item.name}-mini`} className="tpl-card-small" />
@@ -34,7 +39,7 @@ export default function SharedTemplateCard({ item, onClick, onDelete, showDelete
       <div className="tpl-card-body">
         <div className="tpl-card-name">{item.name}</div>
         {item.description ? <div className="tpl-card-desc">{item.description}</div> : null}
-        {item.tags && item.tags.length ? <div className="tpl-card-tags">标签：{item.tags.join(' / ')}</div> : null}
+        {item.tags && item.tags.length ? <div className="tpl-card-tags">{lt('标签：', 'Tags: ')}{item.tags.join(' / ')}</div> : null}
       </div>
       {showDelete && (
         <button
@@ -43,7 +48,7 @@ export default function SharedTemplateCard({ item, onClick, onDelete, showDelete
             e.stopPropagation();
             onDelete?.();
           }}
-          title="删除模板"
+          title={lt('删除模板', 'Delete template')}
         >
           ×
         </button>
@@ -51,4 +56,3 @@ export default function SharedTemplateCard({ item, onClick, onDelete, showDelete
     </div>
   );
 }
-

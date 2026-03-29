@@ -5,8 +5,12 @@
 
 import React, { useState, useEffect } from 'react';
 import { Maximize2, RotateCcw } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 const ImageSizeIndicator: React.FC = () => {
+    const { i18n } = useTranslation();
+    const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
+    const lt = (zhText: string, enText: string) => (isZh ? zhText : enText);
     const [useOriginalSize, setUseOriginalSize] = useState(() => {
         return localStorage.getItem('tanva-use-original-size') === 'true';
     });
@@ -40,8 +44,8 @@ const ImageSizeIndicator: React.FC = () => {
                boxShadow: '0 12px 40px rgba(34, 197, 94, 0.3), 0 4px 16px rgba(34, 197, 94, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
              }}>
             <Maximize2 className="w-4 h-4" />
-            <span className="text-sm font-medium">原始尺寸模式</span>
-            <div className="text-xs opacity-90">1像素=1像素</div>
+            <span className="text-sm font-medium">{lt('原始尺寸模式', 'Original size mode')}</span>
+            <div className="text-xs opacity-90">{lt('1像素=1像素', '1 pixel = 1 pixel')}</div>
         </div>
     );
 };

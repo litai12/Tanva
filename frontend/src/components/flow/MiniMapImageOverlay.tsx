@@ -6,12 +6,13 @@ import { useCanvasStore } from '@/stores';
 
 /**
  * MiniMapImageOverlay
- * 在 React Flow 的 MiniMap <svg> 上方追加一层 <g>，
- * 读取画布中的图片实例（window.tanvaImageInstances）并以绿色矩形表示。
+ * Adds a <g> layer above the React Flow MiniMap <svg>,
+ * reads canvas image instances (window.tanvaImageInstances),
+ * and renders them as green rectangles.
  *
- * 说明：
- * - FlowOverlay 已把 ReactFlow 的视口与 Canvas 的 pan/zoom 同步。
- * - MiniMap 的 viewBox 与节点/世界坐标一致，因此直接用图片的世界坐标即可。
+ * Notes:
+ * - FlowOverlay already syncs ReactFlow viewport with Canvas pan/zoom.
+ * - MiniMap viewBox matches world coordinates, so image world bounds can be used directly.
  */
 const MiniMapImageOverlay: React.FC = () => {
   const [svgEl, setSvgEl] = React.useState<SVGSVGElement | null>(null);
@@ -25,7 +26,7 @@ const MiniMapImageOverlay: React.FC = () => {
     raf: 0,
   });
 
-  // 将世界坐标平移到视图中心
+  // Pan world coordinates to the view center.
   const panToWorldCenter = React.useCallback((worldX: number, worldY: number) => {
     try {
       const { zoom, setPan } = useCanvasStore.getState();
@@ -38,7 +39,7 @@ const MiniMapImageOverlay: React.FC = () => {
     } catch {}
   }, []);
 
-  // 将客户端坐标转换为 minimap 世界坐标
+  // Convert client coordinates to MiniMap world coordinates.
   const clientToWorld = React.useCallback((clientX: number, clientY: number) => {
     if (!svgEl) return null;
     const pt = svgEl.createSVGPoint();
@@ -50,7 +51,7 @@ const MiniMapImageOverlay: React.FC = () => {
     return { x: svgPt.x, y: svgPt.y };
   }, [svgEl]);
 
-  // 获取 minimap 的 svg 元素
+  // Find the MiniMap SVG host element.
   React.useEffect(() => {
     const find = () => {
       let host: SVGSVGElement | null = null;
@@ -62,7 +63,7 @@ const MiniMapImageOverlay: React.FC = () => {
           if (innerSvg instanceof SVGSVGElement) host = innerSvg as SVGSVGElement;
         }
       }
-      // 优先插入到 graph 分组，这样能继承同样的缩放/裁剪
+      // Prefer the graph group so this layer inherits the same transforms/clipping.
       const graph = host?.querySelector('.react-flow__minimap-graph') as SVGGElement | null;
       const target = (graph || host) as any;
       if (target) {
@@ -79,7 +80,7 @@ const MiniMapImageOverlay: React.FC = () => {
   const updateImages = React.useCallback(() => {
     try {
       const list = (window as any).tanvaImageInstances || [];
-      // 仅保留可见图片
+      // Keep visible images only.
       const visible = list.filter((img: any) => img && (img.visible !== false));
       const dpr = (window.devicePixelRatio || 1);
       const mapped = visible.map((img: any) => ({
@@ -89,7 +90,7 @@ const MiniMapImageOverlay: React.FC = () => {
         width: Number(img.bounds?.width || 0) / dpr,
         height: Number(img.bounds?.height || 0) / dpr,
       }));
-      // 生成签名，发生变更再更新状态
+      // Build a signature and update state only when changed.
       const sig = JSON.stringify(mapped);
       if (sig !== lastSigRef.current) {
         lastSigRef.current = sig;
@@ -98,14 +99,14 @@ const MiniMapImageOverlay: React.FC = () => {
     } catch {}
   }, []);
 
-  // 事件驱动：图片实例更新后立即刷新 MiniMap
+  // Event-driven refresh when image instances change.
   React.useEffect(() => {
     const onUpdate = () => updateImages();
     window.addEventListener("tanva-image-instances-updated", onUpdate);
     return () => window.removeEventListener("tanva-image-instances-updated", onUpdate);
   }, [updateImages]);
 
-  // 轻量兜底轮询，避免极端情况下事件遗漏
+  // Lightweight fallback polling in case events are missed.
   React.useEffect(() => {
     const id = window.setInterval(() => updateImages(), 1000);
     return () => window.clearInterval(id);
@@ -116,7 +117,7 @@ const MiniMapImageOverlay: React.FC = () => {
     updateImages();
   }, [targetEl, updateImages]);
 
-  // 点击 MiniMap 快速跳转到视图
+  // Click MiniMap to quickly center viewport.
   React.useEffect(() => {
     if (!svgEl) return;
     const onClick = (ev: MouseEvent) => {
@@ -124,7 +125,7 @@ const MiniMapImageOverlay: React.FC = () => {
         const world = clientToWorld(ev.clientX, ev.clientY);
         if (!world) return;
 
-        // 若点击位置落在某个图片块内，则用该块中心点；否则就用点击处
+        // If clicked inside an image block, use its center; otherwise use click position.
         const hit = images.find(m => world.x >= m.x && world.x <= m.x + m.width && world.y >= m.y && world.y <= m.y + m.height);
         const worldX = hit ? (hit.x + hit.width / 2) : world.x;
         const worldY = hit ? (hit.y + hit.height / 2) : world.y;
@@ -136,7 +137,7 @@ const MiniMapImageOverlay: React.FC = () => {
     return () => svgEl.removeEventListener('click', onClick);
   }, [svgEl, images, clientToWorld, panToWorldCenter]);
 
-  // 在 MiniMap 上按住拖动以平移画布
+  // Drag on MiniMap to pan canvas.
   React.useEffect(() => {
     const el = svgEl;
     if (!el) return;
@@ -203,7 +204,7 @@ const MiniMapImageOverlay: React.FC = () => {
           y={img.y}
           width={Math.max(0, img.width)}
           height={Math.max(0, img.height)}
-          fill="#10b98155" // 绿色半透明，无描边
+          fill="#10b98155" // Semi-transparent green with no stroke.
           rx={2}
           ry={2}
         />

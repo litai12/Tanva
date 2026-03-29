@@ -961,51 +961,85 @@ export class AiController {
     }
   }
 
+  private buildImageFetchCandidates(parsed: URL): string[] {
+    const candidates: string[] = [parsed.toString()];
+    const key = parsed.pathname.replace(/^\/+/, '');
+
+    // 对托管资源 key 增加 OSS 原生域名兜底，避免自定义 CDN 域名在服务端网络环境不可达时直接失败。
+    if (/^(projects|uploads|templates|videos)\//i.test(key)) {
+      try {
+        const canonical = this.oss.publicUrl(key);
+        if (canonical && !candidates.includes(canonical)) {
+          candidates.push(canonical);
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    return candidates;
+  }
+
   private async fetchImageAsDataUrl(imageUrl: string): Promise<string> {
     const parsed = this.parseAndValidateAllowedImageUrl(imageUrl);
+    const candidates = this.buildImageFetchCandidates(parsed);
+    const maxBytes = 30 * 1024 * 1024;
+    const errors: string[] = [];
 
-    // 添加 60 秒超时控制
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
+    for (const candidateUrl of candidates) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
 
-    try {
-      const response = await fetch(parsed.toString(), {
-        signal: controller.signal,
-      });
+      try {
+        const response = await fetch(candidateUrl, {
+          signal: controller.signal,
+        });
 
-      if (!response.ok) {
-        const text = await response.text().catch(() => '');
-        throw new BadRequestException(
-          `Failed to fetch imageUrl: HTTP ${response.status} ${text}`.trim(),
-        );
+        if (!response.ok) {
+          const text = await response.text().catch(() => '');
+          errors.push(
+            `${candidateUrl} -> HTTP ${response.status}${
+              text ? ` ${text}` : ''
+            }`.trim(),
+          );
+          continue;
+        }
+
+        const contentType = response.headers.get('content-type') || 'image/png';
+        if (!contentType.startsWith('image/')) {
+          errors.push(`${candidateUrl} -> invalid content-type: ${contentType}`);
+          continue;
+        }
+
+        const contentLength = Number(response.headers.get('content-length') || 0);
+        if (contentLength && contentLength > maxBytes) {
+          throw new BadRequestException('图片文件过大，请使用更小的图片（最大 30MB）');
+        }
+
+        const buffer = Buffer.from(await response.arrayBuffer());
+        if (buffer.length > maxBytes) {
+          throw new BadRequestException('图片文件过大，请使用更小的图片（最大 30MB）');
+        }
+
+        const base64 = buffer.toString('base64');
+        return `data:${contentType};base64,${base64}`;
+      } catch (error: any) {
+        if (error?.name === 'AbortError') {
+          errors.push(`${candidateUrl} -> timeout`);
+          continue;
+        }
+        const summary = this.summarizeError(error);
+        errors.push(`${candidateUrl} -> ${summary}`);
+        continue;
+      } finally {
+        clearTimeout(timeoutId);
       }
-
-      const contentType = response.headers.get('content-type') || 'image/png';
-      if (!contentType.startsWith('image/')) {
-        throw new BadRequestException('图片 URL 返回的不是图片格式');
-      }
-
-      const maxBytes = 30 * 1024 * 1024;
-      const contentLength = Number(response.headers.get('content-length') || 0);
-      if (contentLength && contentLength > maxBytes) {
-        throw new BadRequestException('图片文件过大，请使用更小的图片（最大 30MB）');
-      }
-
-      const buffer = Buffer.from(await response.arrayBuffer());
-      if (buffer.length > maxBytes) {
-        throw new BadRequestException('图片文件过大，请使用更小的图片（最大 30MB）');
-      }
-
-      const base64 = buffer.toString('base64');
-      return `data:${contentType};base64,${base64}`;
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
-        throw new BadRequestException('图片下载超时（60秒）');
-      }
-      throw error;
-    } finally {
-      clearTimeout(timeoutId);
     }
+
+    this.logger.error(
+      `[fetchImageAsDataUrl] all candidates failed for ${imageUrl}: ${errors.join(' | ')}`,
+    );
+    throw new BadGatewayException('图片资源不可访问，请确认图片链接有效且服务端可访问');
   }
 
   private resolveTextModel(providerName: string | null, requestedModel?: string): string {

@@ -16,7 +16,7 @@ const SmartImage = React.forwardRef<HTMLImageElement, SmartImageProps>(
       if (placeholder !== undefined) {
         return <>{placeholder}</>;
       }
-      // 默认占位：复用 className/style 保持布局稳定
+      // Default placeholder: reuse className/style to keep layout stable.
       return (
         <div
           className={typeof imgProps.className === "string" ? imgProps.className : undefined}
