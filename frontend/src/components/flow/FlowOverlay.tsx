@@ -978,6 +978,7 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "nano2", targetHandle: "text" },
     { nodeType: "promptOptimize", targetHandle: "text" },
     { nodeType: "textChat", targetHandle: "text" },
+    { nodeType: "analysis", targetHandle: "text" },
   ],
   image: [
     { nodeType: "image", targetHandle: "img" },
@@ -7070,6 +7071,8 @@ function FlowInner() {
       if (targetNode.type === "analysis") {
         if (targetHandle === "img")
           return isImageSource(sourceNode, sourceHandle);
+        if (targetHandle === "text")
+          return textSourceTypes.includes(sourceNode.type || "");
         return false;
       }
       if (targetNode.type === "videoAnalyze") {
@@ -7351,6 +7354,7 @@ function FlowInner() {
       }
       if (targetNode?.type === "analysis") {
         if (params.targetHandle === "img") return true; // 仅一条连接，后续替换
+        if (params.targetHandle === "text") return true; // 追加提示词输入，新线替换旧线
       }
       if (targetNode?.type === "videoAnalyze") {
         if (params.targetHandle === "video") return true; // 仅一条视频连接
@@ -7476,6 +7480,7 @@ function FlowInner() {
           "minimaxSpeech",
           "tencentSpeech",
           "minimaxMusic",
+          "analysis",
         ];
         if (
           singleTextInputTypes.includes(tgt?.type || "") &&

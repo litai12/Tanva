@@ -10,6 +10,7 @@ import { parseFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import { resolveImageToBlob, resolveImageToDataUrl, toRenderableImageSrc } from '@/utils/imageSource';
 import { useLocaleText } from '@/utils/localeText';
+import { resolveTextFromSourceNode } from '../utils/textSource';
 
 type Props = {
   id: string;
@@ -440,10 +441,25 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
     }
   }, [data.analysisPrompt, defaultAnalysisPrompt, id]);
 
+  const readConnectedExtraPrompt = React.useCallback((): string => {
+    try {
+      const edge = rf.getEdges().find((e) => e.target === id && e.targetHandle === 'text');
+      if (!edge?.source) return '';
+      const src = rf.getNode(edge.source);
+      const sourceHandle =
+        typeof edge.sourceHandle === 'string' ? edge.sourceHandle : undefined;
+      return resolveTextFromSourceNode(src, sourceHandle)?.trim() ?? '';
+    } catch {
+      return '';
+    }
+  }, [id, rf]);
+
   const onAnalyze = React.useCallback(async () => {
     if (!hasAnyInput || status === 'running' || isAnalyzing) return;
 
-    const promptToUse = (data.analysisPrompt ?? defaultAnalysisPrompt).trim();
+    const basePrompt = (data.analysisPrompt ?? defaultAnalysisPrompt).trim();
+    const extraPrompt = readConnectedExtraPrompt();
+    const promptToUse = extraPrompt ? `${basePrompt}\n\n${extraPrompt}` : basePrompt;
     if (!promptToUse.length) {
       window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
         detail: { id, patch: { status: 'failed', error: 'Prompt cannot be empty' } }
@@ -722,7 +738,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [aiProvider, data.analysisPrompt, data.imageData, data.imageUrl, defaultAnalysisPrompt, hasAnyInput, id, imageModel, incomingEdge, isAnalyzing, lt, rf, status]);
+  }, [aiProvider, data.analysisPrompt, data.imageData, data.imageUrl, defaultAnalysisPrompt, hasAnyInput, id, imageModel, incomingEdge, isAnalyzing, lt, readConnectedExtraPrompt, rf, status]);
 
   React.useEffect(() => {
     const handler = (event: Event) => {
@@ -895,8 +911,16 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
         type="target"
         position={Position.Left}
         id="img"
-        style={{ top: '50%' }}
+        style={{ top: '38%' }}
         onMouseEnter={() => setHover('img-in')}
+        onMouseLeave={() => setHover(null)}
+      />
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="text"
+        style={{ top: '76%' }}
+        onMouseEnter={() => setHover('text-in')}
         onMouseLeave={() => setHover(null)}
       />
       <Handle
@@ -909,8 +933,13 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
       />
 
       {hover === 'img-in' && (
-        <div className="flow-tooltip" style={{ left: -8, top: '50%', transform: 'translate(-100%, -50%)' }}>
+        <div className="flow-tooltip" style={{ left: -8, top: '38%', transform: 'translate(-100%, -50%)' }}>
           image
+        </div>
+      )}
+      {hover === 'text-in' && (
+        <div className="flow-tooltip" style={{ left: -8, top: '76%', transform: 'translate(-100%, -50%)' }}>
+          {lt('追加提示词', 'extra prompt')}
         </div>
       )}
       {hover === 'prompt-out' && (
