@@ -5,12 +5,13 @@ import { Button } from '@/components/ui/button';
 import SmartImage from '@/components/ui/SmartImage';
 import { Check, Trash2 } from 'lucide-react';
 import { usePendingUploadLeaveGuard } from '@/hooks/usePendingUploadLeaveGuard';
+import { useTranslation } from 'react-i18next';
 
-function formatDate(iso: string) {
+function formatDate(iso: string, locale?: string) {
   try {
     const d = new Date(iso);
-    const date = d.toLocaleDateString();
-    const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const date = d.toLocaleDateString(locale);
+    const time = d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
     return `${date} ${time}`;
   } catch {
     return iso;
@@ -26,6 +27,10 @@ const placeholderThumb =
 const PAGE_SIZE = 6;
 
 export default function ProjectManagerModal() {
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
+  const lt = (zhText: string, enText: string) => (isZh ? zhText : enText);
+  const locale = isZh ? 'zh-CN' : 'en-US';
   const { modalOpen, closeModal, projects, create, open, rename, remove, loading, load, error } = useProjectStore();
   const guardLeave = usePendingUploadLeaveGuard();
   const [creating, setCreating] = useState(false);
@@ -115,9 +120,14 @@ export default function ProjectManagerModal() {
   const handleBatchDelete = async () => {
     if (!selectionMode || selectedIds.size === 0) return;
     const targets = projects.filter((p) => selectedIds.has(p.id));
-    const confirmMsg = `确定删除以下 ${targets.length} 个项目？\n\n${targets
-      .map((p) => p.name || '未命名')
-      .join('\n')}`;
+    const confirmMsg = lt(
+      `确定删除以下 ${targets.length} 个项目？\n\n${targets
+        .map((p) => p.name || '未命名')
+        .join('\n')}`,
+      `Delete the following ${targets.length} projects?\n\n${targets
+        .map((p) => p.name || 'Untitled')
+        .join('\n')}`
+    );
     if (!confirm(confirmMsg)) return;
 
     setIsDeleting(true);
@@ -137,11 +147,20 @@ export default function ProjectManagerModal() {
       setSelectionMode(false);
     } else {
       setSelectedIds(new Set(failed));
-      alert(`删除失败 ${failed.length} 个项目，请稍后重试。`);
+      alert(lt(`删除失败 ${failed.length} 个项目，请稍后重试。`, `Failed to delete ${failed.length} projects. Please try again later.`));
     }
   };
 
   if (!modalOpen) return null;
+  const warnBeforeSwitchTitle = lt('切换项目前确认', 'Confirm before switching project');
+  const warnBeforeCreateMessage = lt(
+    '仍有图片未上传完成，新建项目会切换当前文件，可能导致图片丢失或无法保存到云端。',
+    'There are still pending image uploads. Creating a new project will switch the current file and may cause image loss or failed cloud save.'
+  );
+  const warnBeforeOpenMessage = lt(
+    '仍有图片未上传完成，切换项目可能导致图片丢失或无法保存到云端。',
+    'There are still pending image uploads. Switching projects may cause image loss or failed cloud save.'
+  );
 
   const fillerCount = Math.max(0, PAGE_SIZE - paginatedProjects.length);
 
@@ -150,7 +169,7 @@ export default function ProjectManagerModal() {
       <div className="absolute inset-0 bg-transparent" onClick={closeModal} />
       <div className="relative bg-white rounded-xl shadow-xl w-[1000px] h-[620px] overflow-hidden border">
         <div className="flex items-center justify-between px-4 py-3 border-b">
-          <div className="font-medium">项目管理</div>
+          <div className="font-medium">{lt('项目管理', 'Project Manager')}</div>
           <div />
         </div>
 
@@ -168,20 +187,20 @@ export default function ProjectManagerModal() {
                 guardLeave(async () => {
                   setCreating(true);
                   try {
-                    await create('未命名');
+                    await create(lt('未命名', 'Untitled'));
                   } finally {
                     setCreating(false);
                   }
                 }, {
-                  title: '切换项目前确认',
-                  message: '仍有图片未上传完成，新建项目会切换当前文件，可能导致图片丢失或无法保存到云端。',
+                  title: warnBeforeSwitchTitle,
+                  message: warnBeforeCreateMessage,
                 });
               }}
             >
-              新建项目
+              {lt('新建项目', 'New project')}
             </Button>
             <input
-              placeholder="新建并命名"
+              placeholder={lt('新建并命名', 'Create and name')}
               className="border text-sm px-2 py-1 rounded"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
@@ -196,8 +215,8 @@ export default function ProjectManagerModal() {
                       setCreating(false);
                     }
                   }, {
-                    title: '切换项目前确认',
-                    message: '仍有图片未上传完成，新建项目会切换当前文件，可能导致图片丢失或无法保存到云端。',
+                    title: warnBeforeSwitchTitle,
+                    message: warnBeforeCreateMessage,
                   });
                 }
               }}
@@ -213,11 +232,13 @@ export default function ProjectManagerModal() {
                       onChange={toggleSelectAll}
                       className="h-4 w-4 rounded border-slate-300"
                     />
-                    全选
+                    {lt('全选', 'Select all')}
                   </label>
                   {selectedCount > 0 && (
                     <>
-                      <span className="text-sm text-slate-500">已选 {selectedCount} 项</span>
+                      <span className="text-sm text-slate-500">
+                        {lt(`已选 ${selectedCount} 项`, `${selectedCount} selected`)}
+                      </span>
                       <Button
                         size="sm"
                         variant="outline"
@@ -226,17 +247,17 @@ export default function ProjectManagerModal() {
                         className="flex items-center gap-2 border-red-200 text-red-600 hover:bg-red-50"
                       >
                         <Trash2 className="h-4 w-4" />
-                        删除
+                        {lt('删除', 'Delete')}
                       </Button>
                     </>
                   )}
                   <Button variant="ghost" size="sm" onClick={toggleSelectionMode}>
-                    完成
+                    {lt('完成', 'Done')}
                   </Button>
                 </div>
               ) : (
                 <Button variant="outline" size="sm" onClick={toggleSelectionMode}>
-                  选择
+                  {lt('选择', 'Select')}
                 </Button>
               )
             )}
@@ -246,7 +267,7 @@ export default function ProjectManagerModal() {
             <div className="h-full overflow-y-auto px-1">
               {projects.length === 0 ? (
                 <div className="text-center text-slate-500 py-10 whitespace-pre-line">
-                  暂无项目，点击上方“新建项目”开始
+                  {lt('暂无项目，点击上方“新建项目”开始', 'No projects yet. Click "New project" above to start')}
                 </div>
               ) : (
                 <div className="mx-auto max-w-[880px] grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-x-6 gap-y-8 items-start pb-6">
@@ -262,8 +283,8 @@ export default function ProjectManagerModal() {
                             toggleSelect(p.id);
                           } else {
                             guardLeave(() => open(p.id), {
-                              title: '切换项目前确认',
-                              message: '仍有图片未上传完成，切换项目可能导致图片丢失或无法保存到云端。',
+                              title: warnBeforeSwitchTitle,
+                              message: warnBeforeOpenMessage,
                             });
                           }
                         }}
@@ -274,8 +295,8 @@ export default function ProjectManagerModal() {
                               toggleSelect(p.id);
                             } else {
                               guardLeave(() => open(p.id), {
-                                title: '切换项目前确认',
-                                message: '仍有图片未上传完成，切换项目可能导致图片丢失或无法保存到云端。',
+                                title: warnBeforeSwitchTitle,
+                                message: warnBeforeOpenMessage,
                               });
                             }
                           }
@@ -311,9 +332,11 @@ export default function ProjectManagerModal() {
                         <div className="px-3 py-1.5 flex items-center justify-between gap-2">
                           <div className="min-w-0">
                             <div className="text-sm font-medium truncate" title={p.name}>
-                              {p.name || 'Untitled'}
+                              {p.name || lt('未命名', 'Untitled')}
                             </div>
-                            <div className="text-[11px] leading-4 text-slate-500">更新于 {formatDate(p.updatedAt)}</div>
+                            <div className="text-[11px] leading-4 text-slate-500">
+                              {lt('更新于', 'Updated')} {formatDate(p.updatedAt, locale)}
+                            </div>
                           </div>
                           <div
                             className={`flex gap-1 shrink-0 transition-opacity ${
@@ -328,17 +351,17 @@ export default function ProjectManagerModal() {
                               variant="ghost"
                               onClick={async (event) => {
                                 event.stopPropagation();
-                                const name = prompt('重命名为：', p.name);
+                                const name = prompt(lt('重命名为：', 'Rename to:'), p.name);
                                 if (name && name !== p.name) {
                                   try {
                                     await rename(p.id, name);
                                   } catch (e) {
-                                    alert('重命名失败：' + (e as Error).message);
+                                    alert(lt('重命名失败：', 'Rename failed: ') + (e as Error).message);
                                   }
                                 }
                               }}
                             >
-                              重命名
+                              {lt('重命名', 'Rename')}
                             </Button>
                             <Button
                               size="sm"
@@ -347,16 +370,16 @@ export default function ProjectManagerModal() {
                               disabled={isDeleting}
                               onClick={async (event) => {
                                 event.stopPropagation();
-                                if (confirm('确定删除该项目？')) {
+                                if (confirm(lt('确定删除该项目？', 'Delete this project?'))) {
                                   try {
                                     await remove(p.id);
                                   } catch (e) {
-                                    alert('删除失败：' + (e as Error).message);
+                                    alert(lt('删除失败：', 'Delete failed: ') + (e as Error).message);
                                   }
                                 }
                               }}
                             >
-                              删除
+                              {lt('删除', 'Delete')}
                             </Button>
                           </div>
                         </div>
@@ -390,7 +413,10 @@ export default function ProjectManagerModal() {
           {projects.length > 0 && (
             <div className="flex items-center justify-between pt-2">
               <span className="text-xs text-slate-500">
-                第 {Math.min(page + 1, totalPages)} / {totalPages} 页
+                {lt(
+                  `第 ${Math.min(page + 1, totalPages)} / ${totalPages} 页`,
+                  `Page ${Math.min(page + 1, totalPages)} / ${totalPages}`
+                )}
               </span>
               <div className="flex items-center gap-2">
                 <Button
@@ -399,7 +425,7 @@ export default function ProjectManagerModal() {
                   disabled={page === 0}
                   onClick={() => setPage((prev) => Math.max(prev - 1, 0))}
                 >
-                  上一页
+                  {lt('上一页', 'Previous')}
                 </Button>
                 <Button
                   variant="outline"
@@ -407,7 +433,7 @@ export default function ProjectManagerModal() {
                   disabled={page >= totalPages - 1}
                   onClick={() => setPage((prev) => Math.min(prev + 1, totalPages - 1))}
                 >
-                  下一页
+                  {lt('下一页', 'Next')}
                 </Button>
               </div>
             </div>

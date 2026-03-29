@@ -14,6 +14,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { createPortal } from 'react-dom';
 import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
+import { useTranslation } from 'react-i18next';
 
 export interface PromptOptimizationSettings {
   language: '中文' | 'English';
@@ -49,6 +50,9 @@ const PromptOptimizationPanel = React.forwardRef<HTMLDivElement, PromptOptimizat
 
   const { optimize, loading, result, error, reset } = usePromptOptimization();
   const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
+  const lt = (zhText: string, enText: string) => (isZh ? zhText : enText);
   const textModel = useMemo(() => getTextModelForProvider(aiProvider), [aiProvider]);
   const [formError, setFormError] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -125,7 +129,7 @@ const PromptOptimizationPanel = React.forwardRef<HTMLDivElement, PromptOptimizat
   const handleOptimize = async () => {
     const trimmed = currentInput.trim();
     if (!trimmed) {
-      setFormError('请输入需要扩写的提示词');
+      setFormError(lt('请输入需要扩写的提示词', 'Please enter a prompt to optimize'));
       return;
     }
     setFormError(null);
@@ -182,45 +186,45 @@ const PromptOptimizationPanel = React.forwardRef<HTMLDivElement, PromptOptimizat
       <div className="px-4 pt-4 pb-3 space-y-4 text-sm text-slate-700">
         <div className="grid grid-cols-2 gap-3">
           <label className="space-y-1 text-xs">
-            <span className="text-slate-500">输出语言</span>
+            <span className="text-slate-500">{lt('输出语言', 'Output language')}</span>
             <select
               className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500"
               value={settings.language}
               onChange={(event) => handleSettingsFieldChange('language', event.target.value as PromptOptimizationSettings['language'])}
             >
-              <option value="中文">中文</option>
+              <option value="中文">{lt('中文', 'Chinese')}</option>
               <option value="English">English</option>
             </select>
           </label>
 
           <label className="space-y-1 text-xs">
-            <span className="text-slate-500">长度倾向</span>
+            <span className="text-slate-500">{lt('长度倾向', 'Length preference')}</span>
             <select
               className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500"
               value={settings.lengthPreference}
               onChange={(event) => handleSettingsFieldChange('lengthPreference', event.target.value as PromptOptimizationSettings['lengthPreference'])}
             >
-              <option value="concise">简洁</option>
-              <option value="balanced">均衡</option>
-              <option value="detailed">细节丰富</option>
+              <option value="concise">{lt('简洁', 'Concise')}</option>
+              <option value="balanced">{lt('均衡', 'Balanced')}</option>
+              <option value="detailed">{lt('细节丰富', 'Detailed')}</option>
             </select>
           </label>
 
           <label className="col-span-2 space-y-1 text-xs">
-            <span className="text-slate-500">语气 / 风格</span>
+            <span className="text-slate-500">{lt('语气 / 风格', 'Tone / style')}</span>
             <input
               className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500"
-              placeholder="例如：沉浸式、叙事感强"
+              placeholder={lt('例如：沉浸式、叙事感强', 'e.g. immersive, narrative-rich')}
               value={settings.tone}
               onChange={(event) => handleSettingsFieldChange('tone', event.target.value)}
             />
           </label>
 
           <label className="col-span-2 space-y-1 text-xs">
-            <span className="text-slate-500">重点补充方向</span>
+            <span className="text-slate-500">{lt('重点补充方向', 'Focus areas')}</span>
             <input
               className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500"
-              placeholder="例如：目标受众、光影、镜头语言"
+              placeholder={lt('例如：目标受众、光影、镜头语言', 'e.g. target audience, lighting, camera language')}
               value={settings.focus}
               onChange={(event) => handleSettingsFieldChange('focus', event.target.value)}
             />
@@ -241,11 +245,11 @@ const PromptOptimizationPanel = React.forwardRef<HTMLDivElement, PromptOptimizat
 
         <div className="space-y-2">
           <div className="flex items-center justify-between text-xs text-slate-500">
-            <span>扩写预览</span>
+            <span>{lt('扩写预览', 'Optimization preview')}</span>
             {autoOptimizeEnabled && (
               <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 text-sky-600 px-2 py-0.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-sky-500 animate-pulse" />
-                自动扩写开启
+                {lt('自动扩写开启', 'Auto optimization on')}
               </span>
             )}
           </div>
@@ -254,7 +258,7 @@ const PromptOptimizationPanel = React.forwardRef<HTMLDivElement, PromptOptimizat
               readOnly
               value={loading ? '' : optimizedText}
               className="min-h-[120px] resize-none bg-slate-50/70 border border-slate-200 text-sm text-slate-700"
-              placeholder={loading ? '' : '生成预览后将在此处展示扩写结果'}
+              placeholder={loading ? '' : lt('生成预览后将在此处展示扩写结果', 'Optimized result will appear here after generation')}
             />
             {loading && (
               <div className="absolute inset-0 flex items-center justify-center bg-white/70 rounded-md">
@@ -273,7 +277,7 @@ const PromptOptimizationPanel = React.forwardRef<HTMLDivElement, PromptOptimizat
           onClick={handleOptimize}
           disabled={loading}
         >
-          {loading ? '生成中...' : '生成扩写'}
+          {loading ? lt('生成中...', 'Generating...') : lt('生成扩写', 'Generate optimization')}
         </Button>
         <div className="flex items-center gap-2">
           <Button
@@ -282,14 +286,14 @@ const PromptOptimizationPanel = React.forwardRef<HTMLDivElement, PromptOptimizat
             onClick={handleApply}
             disabled={!optimizedText || loading}
           >
-            回填输入框
+            {lt('回填输入框', 'Apply to input')}
           </Button>
           <Button
             size="sm"
             onClick={handleSend}
             disabled={!optimizedText || loading}
           >
-            应用并生成
+            {lt('应用并生成', 'Apply and generate')}
           </Button>
         </div>
       </div>

@@ -297,3 +297,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Frontend layer panel now uses locale-aware copy for panel header/actions, item/layer context menu labels, pending-upload badge/tooltip, default auto-generated item names, and bottom stats summary (`frontend/src/components/panels/LayerPanel.tsx`).
 - Frontend toolbar now uses locale-aware copy for line-style picker labels, major tooltips/titles, and clear-canvas confirmation text (`frontend/src/components/toolbar/ToolBar.tsx`).
 - Frontend AI chat dialog now uses locale-aware copy in key interaction controls: bottom parameter/tool buttons, upload/send helper prompts, history toolbar labels, and image/video preview action tooltips (`frontend/src/components/chat/AIChatDialog.tsx`).
+- Frontend prompt optimization panel now uses locale-aware copy for labels/placeholders/errors/CTA buttons in the long-press expansion settings panel (`frontend/src/components/chat/PromptOptimizationPanel.tsx`).
+- Frontend global keyboard shortcut handler now uses locale-aware copy for clipboard JSON toasts and cloud-save warning/error messages (`frontend/src/components/KeyboardShortcuts.tsx`).
+- Frontend project manager modal now uses locale-aware copy for header, create/select/delete actions, leave-guard prompts, rename/delete confirms, empty state, and pagination text (`frontend/src/components/projects/ProjectManagerModal.tsx`).
+- Frontend account badge now uses locale-aware copy for greeting, auth status labels/source tooltip, and logout button text (`frontend/src/components/AccountBadge.tsx`).
+- Frontend app loader/overlay loading indicator now use locale-aware default loading messages (`frontend/src/components/AppLoader.tsx`, `frontend/src/components/AppLoadingIndicator.tsx`).
+- Frontend auth wrapper now uses locale-aware copy for session-expired toast, auth-check loading message, and reload CTA (`frontend/src/components/AuthWrapper.tsx`).

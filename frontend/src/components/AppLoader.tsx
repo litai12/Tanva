@@ -1,5 +1,6 @@
 import React from 'react';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { useTranslation } from 'react-i18next';
 
 interface AppLoaderProps {
   message?: string;
@@ -7,9 +8,13 @@ interface AppLoaderProps {
 }
 
 export const AppLoader: React.FC<AppLoaderProps> = ({
-  message = "加载中...",
+  message,
   showLogo = true
 }) => {
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
+  const displayMessage = message ?? (isZh ? '加载中...' : 'Loading...');
+
   return (
     <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-white">
       <div className="flex flex-col items-center gap-6">
@@ -20,7 +25,7 @@ export const AppLoader: React.FC<AppLoaderProps> = ({
             alt="Tanva"
           />
         )}
-        <LoadingSpinner size="lg" message={message} />
+        <LoadingSpinner size="lg" message={displayMessage} />
       </div>
     </div>
   );
