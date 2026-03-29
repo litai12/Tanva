@@ -56,6 +56,22 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
 
   const parseCustomCredits = (raw: string) =>
     Math.max(0, Math.floor(Number.parseFloat(raw.replace(/,/g, "").trim()) || 0));
+  const localizePackageBadge = useCallback(
+    (rawValue?: string | null): string => {
+      const value = typeof rawValue === "string" ? rawValue.trim() : "";
+      if (!value) return "";
+      if (value === "首充翻倍" || value.toLowerCase() === "first top-up x2") {
+        return lt("首充翻倍", "First top-up x2");
+      }
+      const ratioMatch = /^(?:送|赠送|\+)?\s*(\d+)\s*%$/i.exec(value);
+      if (ratioMatch?.[1]) {
+        const ratio = ratioMatch[1];
+        return lt(`送${ratio}%`, `+${ratio}%`);
+      }
+      return value;
+    },
+    [lt]
+  );
 
   // 当前选中的支付金额和积分（自定义：先填积分，再换算金额）
   const currentPayInfo = useMemo(() => {
@@ -513,40 +529,44 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
         <div className='flex-1 pb-4 md:pb-6'>
           {/* 套餐网格 */}
           <div className='grid grid-cols-3 gap-3 mb-3'>
-            {packages.map((pkg, index) => (
-              <button
-                key={pkg.price}
-                onClick={() => handlePackageSelect(index)}
-                className={cn(
-                  "relative p-4 rounded-xl border-2 text-left transition-all",
-                  selectedPackage === index && !customAmountMode
-                    ? "border-blue-400 bg-blue-50/50"
-                    : "border-slate-200 bg-white hover:border-slate-300"
-                )}
-              >
-                <div className='text-2xl font-semibold text-slate-800'>
-                  ¥{pkg.price}
-                </div>
-                <div className='text-sm text-slate-500 mt-1'>
-                  {pkg.credits.toLocaleString()}
-                  <span className='text-xs'>{lt("积分", "credits")}</span>
-                </div>
-                {(pkg.tag || pkg.bonus) && (
-                  <div className='flex items-center gap-1.5 mt-2'>
-                    {pkg.tag && (
-                      <span className='px-2 py-0.5 text-xs rounded-full bg-orange-100 text-orange-600'>
-                        {pkg.tag}
-                      </span>
-                    )}
-                    {pkg.bonus && (
-                      <span className='px-2 py-0.5 text-xs rounded-full bg-purple-100 text-purple-600'>
-                        {pkg.bonus}
-                      </span>
-                    )}
+            {packages.map((pkg, index) => {
+              const localizedTag = localizePackageBadge(pkg.tag);
+              const localizedBonus = localizePackageBadge(pkg.bonus);
+              return (
+                <button
+                  key={pkg.price}
+                  onClick={() => handlePackageSelect(index)}
+                  className={cn(
+                    "relative p-4 rounded-xl border-2 text-left transition-all",
+                    selectedPackage === index && !customAmountMode
+                      ? "border-blue-400 bg-blue-50/50"
+                      : "border-slate-200 bg-white hover:border-slate-300"
+                  )}
+                >
+                  <div className='text-2xl font-semibold text-slate-800'>
+                    ¥{pkg.price}
                   </div>
-                )}
-              </button>
-            ))}
+                  <div className='text-sm text-slate-500 mt-1'>
+                    {pkg.credits.toLocaleString()}
+                    <span className='text-xs'>{lt("积分", "credits")}</span>
+                  </div>
+                  {(localizedTag || localizedBonus) && (
+                    <div className='flex items-center gap-1.5 mt-2'>
+                      {localizedTag && (
+                        <span className='px-2 py-0.5 text-xs rounded-full bg-orange-100 text-orange-600'>
+                          {localizedTag}
+                        </span>
+                      )}
+                      {localizedBonus && (
+                        <span className='px-2 py-0.5 text-xs rounded-full bg-purple-100 text-purple-600'>
+                          {localizedBonus}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </button>
+              );
+            })}
           </div>
 
           {/* 自定义积分（历史累计已支付 ≥ ¥200 才显示该区域；金额由积分按汇率换算） */}

@@ -33,6 +33,14 @@ const LayerPanel: React.FC = () => {
     const { layers, activeLayerId, createLayer, deleteLayer, toggleVisibility, activateLayer, renameLayer, toggleLocked, reorderLayer } = useLayerStore();
     const { setSourceImageForEditing, showDialog } = useAIChatStore();
     const content = useProjectContentStore((state) => state.content);
+    const localizeLayerName = (name?: string): string => {
+        const raw = typeof name === 'string' ? name.trim() : '';
+        if (!raw) return lt('未命名图层', 'Untitled Layer');
+        const match = /^(?:图层|layer)\s*(\d+)$/i.exec(raw);
+        if (!match) return raw;
+        const num = match[1];
+        return lt(`图层 ${num}`, `Layer ${num}`);
+    };
 
     const pendingCanvasImageIdSet = useMemo(() => {
         return new Set(getNonRemoteImageAssetIds(content));
@@ -1521,7 +1529,7 @@ const LayerPanel: React.FC = () => {
                                             />
                                         ) : (
                                             <div className={`text-sm font-medium truncate ${layer.visible ? 'text-gray-900' : 'text-gray-500'}`}>
-                                                {layer.name}
+                                                {localizeLayerName(layer.name)}
                                             </div>
                                         )}
 

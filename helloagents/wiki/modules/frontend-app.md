@@ -19,7 +19,7 @@
 - 编辑器（`/app`）内若存在上传中/待上传图片（含 Flow 内联图片引用），在离开页面/切换项目/退出登录/浏览器前进后退时会弹出确认提示，避免误操作导致图片丢失或无法保存到云端。
 
 ## 路由约定（节选）
-- 公开：`/`、`/auth/login`、`/auth/register`、`/oss`、`/runninghub-test`
+- 公开：`/`、`/auth/login`、`/auth/register`、`/oss`
 - 受保护：`/workspace`、`/app`、`/admin`、`/my-credits`
 
 ## 我的积分（`/my-credits`）
@@ -55,6 +55,10 @@
 - `MemoryDebugPanel` / `HistoryDebugPanel` / `CachedImageDebug`（`frontend/src/components/debug/MemoryDebugPanel.tsx`, `frontend/src/components/debug/HistoryDebugPanel.tsx`, `frontend/src/components/debug/CachedImageDebug.tsx`）已接入双语文案：监控状态、历史栈说明、缓存图调试标签与操作按钮按语言切换。
 - `Sora2Test`（`frontend/src/pages/Sora2Test.tsx`）已接入双语文案：视频提示词占位与画幅提示说明按语言切换。
 - `MiniMapImageOverlay` / `TextSelectionOverlay` 已清理残余中文注释，保持扫描基线准确并避免误报未双语化文件。
+- `GlobalImageHistoryPage` / `GlobalImageDetailModal`（`frontend/src/components/global-history/GlobalImageHistoryPage.tsx`, `frontend/src/components/global-history/GlobalImageDetailModal.tsx`）已接入双语文案：历史页标题、搜索/筛选、加载与空态、删除撤销提示，以及详情弹窗元数据标签按语言切换。
+- `FloatingHeader` + `projectStore`（`frontend/src/components/layout/FloatingHeader.tsx`, `frontend/src/stores/projectStore.ts`）已补充双语策略：自动创建/兜底项目名按当前语言生成，且历史 `未命名*`/`Untitled*` 项目名在顶部标题与项目下拉中按当前语言显示。
+- `PaymentPanel`（`frontend/src/components/payment/PaymentPanel.tsx`）已补充套餐角标双语映射：`首充翻倍`、`送X%` 等后端标签会在英文环境显示为 `First top-up x2`、`+X%`。
+- `LayerPanel` + `layerStore`（`frontend/src/components/panels/LayerPanel.tsx`, `frontend/src/stores/layerStore.ts`）已补充图层名双语兼容：新建图层默认名按当前语言生成，历史 `图层 N`/`Layer N` 显示按当前语言映射。
 
 ## 工作区顶部帮助入口（`/app`）
 - 组件：`frontend/src/components/layout/FloatingHeader.tsx`

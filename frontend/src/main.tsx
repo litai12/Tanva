@@ -18,7 +18,6 @@ import CommunityGuidelines from '@/pages/legal/CommunityGuidelines';
 import { useAuthStore } from '@/stores/authStore';
 import { useProjectStore } from '@/stores/projectStore';
 import Workspace from '@/pages/Workspace';
-import RunningHubTest from '@/pages/RunningHubTest';
 import PendingUploadLeavePrompt from '@/components/guards/PendingUploadLeavePrompt';
 import PendingUploadNavigationGuard from '@/components/guards/PendingUploadNavigationGuard';
 import { initializeRuntimeStability } from '@/bootstrap/runtimeStability';
@@ -39,7 +38,6 @@ function RootRoutes() {
       <Route path="/legal/privacy" element={<PrivacyPolicy />} />
       <Route path="/legal/community" element={<CommunityGuidelines />} />
       <Route path="/oss" element={<OSSDemo />} />
-      <Route path="/runninghub-test" element={<RunningHubTest />} />
       <Route element={<ProtectedRoute />}>
         <Route path="/workspace" element={<Workspace />} />
         <Route path="/app" element={<App />} />

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { projectApi, type Project } from '@/services/projectApi';
 import { deleteProjectCache } from '@/services/projectCacheStore';
+import i18n from '@/i18n';
 
 type ProjectState = {
   projects: Project[];
@@ -21,6 +22,15 @@ type ProjectState = {
 };
 
 const LS_CURRENT_PROJECT = 'current_project_id';
+
+const getDefaultProjectName = (): string => {
+  const translated = String(
+    i18n.t('workspacePage.prompt.defaultName', {
+      defaultValue: '未命名项目',
+    }) || ''
+  ).trim();
+  return translated || '未命名项目';
+};
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
   projects: [],
@@ -45,7 +55,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         } else {
           // 没有项目，自动创建一个"未命名"
           try {
-            const project = await projectApi.create({ name: '未命名' });
+            const project = await projectApi.create({ name: getDefaultProjectName() });
             const all = [project, ...projects];
             set({ projects: all, currentProjectId: project.id, currentProject: project, loading: false });
             try { localStorage.setItem(LS_CURRENT_PROJECT, project.id); } catch {}
@@ -67,7 +77,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   closeModal: () => set({ modalOpen: false }),
 
   create: async (name?: string) => {
-    const project = await projectApi.create({ name });
+    const normalizedName = name?.trim();
+    const project = await projectApi.create({ name: normalizedName || getDefaultProjectName() });
     set((s) => ({ projects: [project, ...s.projects] }));
     get().open(project.id);
     return project;
@@ -150,7 +161,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
     if (stateAfterRemoval.projects.length === 0) {
       try {
-        const fallback = await projectApi.create({ name: '未命名' });
+        const fallback = await projectApi.create({ name: getDefaultProjectName() });
         set({
           projects: [fallback],
           currentProjectId: fallback.id,

@@ -13,6 +13,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- AI 图像调用（`generate-image` / `edit-image` / `blend-images`）前端自动重试从 3 次收敛为 1 次，避免网络抖动时同一次用户操作触发多条积分扣减/退款流水；失败重试由后端 provider 内部策略承接（`frontend/src/services/aiBackendAPI.ts`）。
+- Flow `Multi Generate`（`generate4`）节点移除 `Count` 配置，运行轮次固定为 4；新建节点初始化数据不再写入 `count` 字段，避免配置面板与实际行为不一致（`frontend/src/components/flow/nodes/Generate4Node.tsx`, `frontend/src/components/flow/FlowOverlay.tsx`, `frontend/src/components/flow/types.ts`）。
 - Credits 页面（`/my-credits`）概览卡片右上角改为“立即充值”按钮（点击弹出 `PaymentPanel`）；同时顶部“我的积分”入口图标升级为金币高光样式（`frontend/src/pages/MyCredits.tsx`, `frontend/src/components/layout/FloatingHeader.tsx`）。
 - Credits 充值弹窗布局微调：左侧套餐区域补充底部留白，视觉更舒展（`frontend/src/components/payment/PaymentPanel.tsx`）。
 - Workspace 保存状态提示位置调整：不再在画布顶部常驻显示，改为在设置首页（Workspace）用户信息区展示（`frontend/src/components/layout/FloatingHeader.tsx`）。
@@ -329,3 +331,10 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Frontend debug panels now use locale-aware copy for memory/history/cache labels, retry/API status text, and action buttons (`frontend/src/components/debug/MemoryDebugPanel.tsx`, `frontend/src/components/debug/HistoryDebugPanel.tsx`, `frontend/src/components/debug/CachedImageDebug.tsx`).
 - Cleaned residual Chinese-only comments in MiniMap/text-selection overlay components to keep bilingual scan baseline accurate (`frontend/src/components/flow/MiniMapImageOverlay.tsx`, `frontend/src/components/canvas/TextSelectionOverlay.tsx`).
 - Bilingual scanner baseline for unadapted TSX files reduced from `30` to `17` in this round.
+- Removed deprecated RunningHub test page and public route (`/runninghub-test`) from frontend entry routing (`frontend/src/main.tsx`, `frontend/src/pages/RunningHubTest.tsx`, `helloagents/wiki/modules/frontend-app.md`).
+- Frontend global-history list/detail views now use locale-aware copy for headers, filters, search placeholders, empty states, delete/undo prompts, and detail metadata labels (`frontend/src/components/global-history/GlobalImageHistoryPage.tsx`, `frontend/src/components/global-history/GlobalImageDetailModal.tsx`).
+- Bilingual scanner baseline further reduced from `17` to `14` after removing `RunningHubTest` and adapting global-history pages.
+- Flow add-panel template/custom empty states and category chips now use locale-aware labels (including `全部/All`, `其他/Other`, and placeholder subtitle copy) to avoid mixed-language UI in English mode (`frontend/src/components/flow/FlowOverlay.tsx`).
+- Layer default naming now follows current locale for newly created layers (`图层 N`/`Layer N`), and layer panel display maps legacy `图层 N`/`Layer N` aliases to current language without mutating stored names (`frontend/src/stores/layerStore.ts`, `frontend/src/components/panels/LayerPanel.tsx`).
+- Project default naming now follows current locale (`workspacePage.prompt.defaultName`) for auto-created/fallback projects, and header quick-switch display maps legacy `未命名*`/`Untitled*` aliases to current language (`frontend/src/stores/projectStore.ts`, `frontend/src/components/layout/FloatingHeader.tsx`).
+- Payment package badges now localize backend-provided `tag/bonus` labels such as `首充翻倍` and `送X%`/`+X%` to prevent Chinese-only badge text in English mode (`frontend/src/components/payment/PaymentPanel.tsx`).

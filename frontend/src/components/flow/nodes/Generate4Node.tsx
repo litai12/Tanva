@@ -15,10 +15,9 @@ type Props = {
     images?: string[];
     imageUrls?: string[];
     thumbnails?: string[];
-    count?: number;
     /** 各槽失败原因（与 Multi Generate 顺序调用相关） */
     generate4SlotErrors?: (string | undefined)[];
-    /** 运行中：已完成到第几轮（0..count），用于槽位 loading，与成功张数解耦 */
+    /** 运行中：已完成到第几轮（0..4），用于槽位 loading，与成功张数解耦 */
     generate4PassIndex?: number;
     aspectRatio?: "1:1" | "2:3" | "3:2" | "3:4" | "4:3" | "4:5" | "5:4" | "9:16" | "16:9" | "21:9";
     imageSize?: "0.5K" | "1K" | "2K" | "4K";
@@ -64,17 +63,6 @@ function Generate4NodeInner({ id, data, selected }: Props) {
   const onSend = React.useCallback(() => {
     data.onSend?.(id);
   }, [data, id]);
-
-  const updateCount = React.useCallback(
-    (v: number) => {
-      const count = Math.max(1, Math.min(4, Math.round(v)));
-      const ev = new CustomEvent("flow:updateNodeData", {
-        detail: { id, patch: { count } },
-      });
-      window.dispatchEvent(ev);
-    },
-    [id]
-  );
 
   const updateAspectRatio = React.useCallback(
     (value: string) => {
@@ -327,50 +315,6 @@ function Generate4NodeInner({ id, data, selected }: Props) {
         </div>
       </div>
 
-      {/* 数量 */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "flex-start",
-          gap: 12,
-          marginBottom: 8,
-        }}
-      >
-        <label
-          className='nodrag nopan'
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            fontSize: 12,
-            color: "#6b7280",
-          }}
-        >
-          {lt("数量", "Count")}
-          <input
-            type='number'
-            min={1}
-            max={4}
-            value={Math.max(1, Math.min(4, Number(data.count) || 4))}
-            onChange={(e) => updateCount(Number(e.target.value))}
-            onPointerDown={stopNodeDrag}
-            onPointerDownCapture={stopNodeDrag}
-            onMouseDown={stopNodeDrag}
-            onMouseDownCapture={stopNodeDrag}
-            onClick={stopNodeDrag}
-            onClickCapture={stopNodeDrag}
-            className='nodrag nopan'
-            style={{
-              width: 56,
-              fontSize: 12,
-              padding: "2px 6px",
-              border: "1px solid #e5e7eb",
-              borderRadius: 8,
-            }}
-          />
-        </label>
-      </div>
       {showSizeControls && (
         <div
           style={{

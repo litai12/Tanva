@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import paper from 'paper';
+import i18n from '@/i18n';
 
 export interface LayerMeta {
     id: string;
@@ -31,6 +32,25 @@ interface LayerState {
 }
 
 const SYSTEM_LAYER_NAMES = new Set(['grid', 'background', 'scalebar']);
+
+const isZhLocale = (): boolean => {
+    const lang = String(i18n.resolvedLanguage || i18n.language || 'zh-CN')
+        .toLowerCase()
+        .trim();
+    return lang.startsWith('zh');
+};
+
+const parseDefaultLayerNumber = (name?: string): number | null => {
+    const raw = typeof name === 'string' ? name.trim() : '';
+    if (!raw) return null;
+    const match = /^(?:(?:图层|layer)\s*)?(\d+)$/i.exec(raw);
+    if (!match) return null;
+    const n = parseInt(match[1], 10);
+    return Number.isNaN(n) ? null : n;
+};
+
+const buildDefaultLayerName = (num: number): string =>
+    isZhLocale() ? `图层 ${num}` : `Layer ${num}`;
 
 function findLayerByStoreId(id: string): paper.Layer | null {
     if (!paper.project) return null;
@@ -67,19 +87,16 @@ export const useLayerStore = create<LayerState>()(subscribeWithSelector((set, ge
     createLayer: (name, activate = true) => {
         // generate id
         const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        // 默认命名：图层 1, 2, 3 ...
+        // 默认命名：图层 1/Layer 1, 图层 2/Layer 2 ...
         const nextDefaultName = (() => {
             const current = get().layers;
             let maxNum = 0;
             for (const l of current) {
-                const m = /^(?:图层\s*)?(\d+)$|^图层\s+(\d+)$/.exec(l.name);
-                if (m) {
-                    const n = parseInt(m[1] || m[2] || '0', 10);
-                    if (!Number.isNaN(n)) maxNum = Math.max(maxNum, n);
-                }
+                const n = parseDefaultLayerNumber(l.name);
+                if (n !== null) maxNum = Math.max(maxNum, n);
             }
             const next = maxNum + 1 || (current.length + 1);
-            return `图层 ${next}`;
+            return buildDefaultLayerName(next);
         })();
         const layerName = name && name.trim() ? name.trim() : nextDefaultName;
 
@@ -312,7 +329,7 @@ export const useLayerStore = create<LayerState>()(subscribeWithSelector((set, ge
 
         // 如果没有任何图层，创建一个
         if (state.layers.length === 0) {
-            const newId = state.createLayer('图层 1', true);
+            const newId = state.createLayer(undefined, true);
             const newLayer = findLayerByStoreId(newId);
             if (newLayer) return newLayer;
         }
@@ -334,7 +351,7 @@ export const useLayerStore = create<LayerState>()(subscribeWithSelector((set, ge
             insertAboveGrid(fallbackLayer);
             fallbackLayer.activate();
 
-            const fallbackName = `图层 ${state.layers.length + 1}`;
+            const fallbackName = buildDefaultLayerName(state.layers.length + 1);
             set((current) => ({
                 layers: [...current.layers, { id: fallbackId, name: fallbackName, visible: true, locked: false }],
                 activeLayerId: fallbackId

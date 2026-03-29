@@ -1895,7 +1895,10 @@ const AddTemplateCard: React.FC<{
   );
 };
 
-const TemplatePlaceholder: React.FC<{ label?: string }> = ({ label }) => (
+const TemplatePlaceholder: React.FC<{
+  label: string;
+  subtitle: string;
+}> = ({ label, subtitle }) => (
   <div
     style={{
       display: "flex",
@@ -1936,10 +1939,8 @@ const TemplatePlaceholder: React.FC<{ label?: string }> = ({ label }) => (
         fontSize: 13,
       }}
     >
-      <div style={{ fontSize: 15, fontWeight: 600 }}>
-        {label || "敬请期待更多模板"}
-      </div>
-      <div>我们正在准备更多创意模板</div>
+      <div style={{ fontSize: 15, fontWeight: 600 }}>{label}</div>
+      <div>{subtitle}</div>
     </div>
   </div>
 );
@@ -4569,14 +4570,30 @@ function FlowInner() {
   // 单选分类：仅允许选择一个内置分类，空字符串表示未筛选（显示全部）
   const [activeBuiltinCategory, setActiveBuiltinCategory] =
     React.useState<string>("");
+  const normalizeTemplateCategory = React.useCallback((value?: string | null) => {
+    const raw = typeof value === "string" ? value.trim() : "";
+    if (!raw) return "其他";
+    if (raw.toLowerCase() === "other") return "其他";
+    return raw;
+  }, []);
+  const getTemplateCategoryLabel = React.useCallback(
+    (value?: string | null) => {
+      const normalized = normalizeTemplateCategory(value);
+      if (normalized === "其他") return lt("其他", "Other");
+      return normalized;
+    },
+    [lt, normalizeTemplateCategory]
+  );
 
   const filteredTplIndex = React.useMemo(() => {
     if (!tplIndex) return [];
     if (!activeBuiltinCategory) return tplIndex;
     return tplIndex.filter(
-      (item) => (item.category || "其他") === activeBuiltinCategory
+      (item) =>
+        normalizeTemplateCategory(item.category) ===
+        normalizeTemplateCategory(activeBuiltinCategory)
     );
-  }, [tplIndex, activeBuiltinCategory]);
+  }, [tplIndex, activeBuiltinCategory, normalizeTemplateCategory]);
 
   const getPlaceholderCount = React.useCallback(
     (len: number, opts?: { columns?: number; minVisible?: number }) => {
@@ -5721,7 +5738,7 @@ function FlowInner() {
           const idx = await loadBuiltInTemplateIndex();
           const normalizedIdx = idx.map((item) => ({
             ...item,
-            category: item.category || "其他",
+            category: normalizeTemplateCategory(item.category),
           }));
           if (!cancelled) {
             setTplIndex(normalizedIdx);
@@ -5736,7 +5753,7 @@ function FlowInner() {
     return () => {
       cancelled = true;
     };
-  }, [addPanel.visible, addTab, tplIndex]);
+  }, [addPanel.visible, addTab, tplIndex, normalizeTemplateCategory]);
 
   // 加载后端维护的分类列表（供公共模板使用）
   React.useEffect(() => {
@@ -5746,13 +5763,15 @@ function FlowInner() {
       try {
         const cats = await fetchTemplateCategories();
         if (!cancelled && Array.isArray(cats) && cats.length) {
-          setBuiltinCategories(cats);
+          setBuiltinCategories(
+            Array.from(new Set(cats.map((cat) => normalizeTemplateCategory(cat))))
+          );
           return;
         }
         // 如果后端没有返回分类或为空，从 tplIndex 推断分类
         if (!cancelled) {
           const fromTpl = (tplIndex || [])
-            .map((t) => t.category)
+            .map((t) => normalizeTemplateCategory(t.category))
             .filter(Boolean) as string[];
           const uniq = Array.from(new Set(fromTpl));
           if (uniq.length) {
@@ -5765,7 +5784,7 @@ function FlowInner() {
         // 若请求失败（例如未认证），也从 tplIndex 推断
         if (!cancelled) {
           const fromTpl = (tplIndex || [])
-            .map((t) => t.category)
+            .map((t) => normalizeTemplateCategory(t.category))
             .filter(Boolean) as string[];
           const uniq = Array.from(new Set(fromTpl));
           if (uniq.length) {
@@ -5779,7 +5798,7 @@ function FlowInner() {
     return () => {
       cancelled = true;
     };
-  }, [addPanel.visible, addTab, tplIndex]);
+  }, [addPanel.visible, addTab, tplIndex, normalizeTemplateCategory]);
 
   // 捕获原生点击，通过自定义检测实现双击（300ms 间隔），仅在真正空白 Pane 区域触发；排除 AI 对话框及其保护带
   React.useEffect(() => {
@@ -6003,7 +6022,6 @@ function FlowInner() {
           ? {
               status: "idle" as const,
               images: [],
-              count: 4,
               boxW: size.w,
               boxH: size.h,
             }
@@ -13308,10 +13326,7 @@ function FlowInner() {
       if (node.type === "generate4") {
         /** 连续多次调同一接口易被限流，稍作间隔可提高 3、4 张成功率 */
         const MULTI_GENERATE_STAGGER_MS = 650;
-        const total = Math.max(
-          1,
-          Math.min(4, Number((node.data as any)?.count) || 4)
-        );
+        const total = 4;
         setNodes((ns) =>
           ns.map((n) =>
             n.id === nodeId
@@ -15498,7 +15513,7 @@ function FlowInner() {
               id,
               type: "generate4",
               position: { x, y },
-              data: { status: "idle", images: [], count: 4 },
+              data: { status: "idle", images: [] },
             },
           ] as any)
         );
@@ -15675,7 +15690,7 @@ function FlowInner() {
             : type === "generatePro"
             ? { status: "idle", prompts: [""], title: "Agent", enableWebSearch: false }
             : type === "generate4"
-            ? { status: "idle", images: [], count: 4 }
+            ? { status: "idle", images: [] }
             : type === "generateRef"
             ? { status: "idle", referencePrompt: undefined }
             : type === "analysis"
@@ -17344,7 +17359,7 @@ function FlowInner() {
                     marginBottom: 8,
                   }}
                 >
-                  定制化节点
+                  {lt("定制化节点", "Custom Nodes")}
                 </div>
                 <div
                   style={{
@@ -17353,7 +17368,10 @@ function FlowInner() {
                     textAlign: "center",
                   }}
                 >
-                  为您量身定制的专属节点，敬请期待
+                  {lt(
+                    "为您量身定制的专属节点，敬请期待",
+                    "Tailor-made nodes for your workflow are coming soon"
+                  )}
                 </div>
               </div>
             ) : addTab === "templates" ? (
@@ -17400,7 +17418,7 @@ function FlowInner() {
                               : "none",
                           }}
                         >
-                          全部
+                          {lt("全部", "All")}
                         </button>
                         {builtinCategories.map((cat) => {
                           const isActive = activeBuiltinCategory === cat;
@@ -17429,7 +17447,7 @@ function FlowInner() {
                                   : "none",
                               }}
                             >
-                              {cat}
+                              {getTemplateCategoryLabel(cat)}
                             </button>
                           );
                         })}
@@ -17469,7 +17487,11 @@ function FlowInner() {
                       }).map((_, idx) => (
                         <TemplatePlaceholder
                           key={`builtin-placeholder-${idx}`}
-                          label='敬请期待更多模板'
+                          label={lt("敬请期待更多模板", "More templates coming soon")}
+                          subtitle={lt(
+                            "我们正在准备更多创意模板",
+                            "We are preparing more creative templates"
+                          )}
                         />
                       ))}
                     </div>
@@ -17601,7 +17623,14 @@ function FlowInner() {
                                 minVisible: 4,
                               }),
                       }).map((_, idx) => (
-                        <TemplatePlaceholder key={`user-placeholder-${idx}`} />
+                        <TemplatePlaceholder
+                          key={`user-placeholder-${idx}`}
+                          label={lt("敬请期待更多模板", "More templates coming soon")}
+                          subtitle={lt(
+                            "我们正在准备更多创意模板",
+                            "We are preparing more creative templates"
+                          )}
+                        />
                       ))}
                     </div>
                   </div>
