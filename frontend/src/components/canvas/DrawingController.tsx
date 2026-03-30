@@ -34,7 +34,6 @@ import { BoundsCalculator } from '@/utils/BoundsCalculator';
 import { createImageGroupBlock, formatImageGroupTitle, removeGroupBlockTitle } from '@/utils/paperImageGroupBlock';
 import { contextManager } from '@/services/contextManager';
 import { clipboardService, type CanvasClipboardData, type PathClipboardSnapshot } from '@/services/clipboardService';
-import { clipboardJsonService } from '@/services/clipboardJsonService';
 import { isGroup, isRaster } from '@/utils/paperCoords';
 import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot, VideoAssetSnapshot } from '@/types/project';
 import ContextMenu from '@/components/ui/context-menu';
@@ -461,7 +460,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const [contextMenuState, setContextMenuState] =
     useState<CanvasContextMenuState | null>(null);
   const [isGlobalFlowRunning, setIsGlobalFlowRunning] = useState(false);
-  const canvasJsonImportInputRef = useRef<HTMLInputElement | null>(null);
   const handleCanvasPasteRef = useRef<() => boolean>(() => false);
   const canvasToChatSyncTokenRef = useRef(0);
   const canvasBlobToFlowAssetRefCacheRef = useRef<Map<string, string>>(
@@ -6822,64 +6820,23 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     []
   );
 
-  const handleCopyCanvasJson = useCallback(async () => {
+  const handleExportCanvasJson = useCallback(() => {
     try {
-      await clipboardJsonService.copyProjectContentToClipboard();
-      showToast("已复制画布 JSON");
+      window.dispatchEvent(new CustomEvent("flow:export-template-request"));
     } catch (error) {
-      console.error("复制画布 JSON 失败:", error);
-      showToast("复制失败，请重试", "error");
+      console.error("触发导出画布 JSON 失败:", error);
+      showToast("导出失败，请重试", "error");
     }
   }, [showToast]);
 
   const handleImportCanvasJson = useCallback(() => {
     try {
-      const input = canvasJsonImportInputRef.current;
-      if (!input) {
-        showToast("无法打开文件选择器", "error");
-        return;
-      }
-      input.value = "";
-      input.click();
+      window.dispatchEvent(new CustomEvent("flow:import-template-request"));
     } catch (error) {
-      console.error("打开 JSON 文件选择器失败:", error);
+      console.error("触发导入画布 JSON 失败:", error);
       showToast("无法打开文件选择器", "error");
     }
   }, [showToast]);
-
-  const handleCanvasJsonFileSelected = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const input = event.currentTarget;
-      const file = input.files?.[0];
-      if (!file) {
-        input.value = "";
-        return;
-      }
-
-      const reader = new FileReader();
-      reader.onerror = () => {
-        console.error("读取画布 JSON 文件失败:", reader.error);
-        showToast("读取 JSON 文件失败", "error");
-        input.value = "";
-      };
-      reader.onload = () => {
-        void (async () => {
-          try {
-            const text = String(reader.result ?? "");
-            await clipboardJsonService.importProjectContentFromText(text);
-            showToast("已导入画布 JSON");
-          } catch (error) {
-            console.error("导入画布 JSON 文件失败:", error);
-            showToast("导入失败，请检查 JSON 文件内容", "error");
-          } finally {
-            input.value = "";
-          }
-        })();
-      };
-      reader.readAsText(file);
-    },
-    [showToast]
-  );
 
   const contextMenuItems = useMemo(() => {
     if (!contextMenuState) return [];
@@ -6912,10 +6869,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         disabled: !canPaste,
       },
       {
-        label: "复制画布 JSON",
+        label: "导出画布 JSON",
         icon: <FileJson className='w-4 h-4' />,
         onClick: () => {
-          void handleCopyCanvasJson().finally(() => closeContextMenu());
+          handleExportCanvasJson();
+          closeContextMenu();
         },
       },
       {
@@ -7019,7 +6977,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     contextMenuState,
     handleCanvasCopy,
     handleCanvasPaste,
-    handleCopyCanvasJson,
+    handleExportCanvasJson,
     handleImportCanvasJson,
     handleAddImageToLibrary,
     handleDeleteSelection,
@@ -8422,14 +8380,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   return (
     <>
-      <input
-        ref={canvasJsonImportInputRef}
-        type='file'
-        accept='application/json,.json,text/json'
-        style={{ display: "none" }}
-        onChange={handleCanvasJsonFileSelected}
-      />
-
       {/* 图片上传组件 */}
       <ImageUploadComponent
         onImageUploaded={imageTool.handleImageUploaded}

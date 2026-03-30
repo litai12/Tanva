@@ -5155,6 +5155,84 @@ function FlowInner() {
     importInputRef.current?.click();
   }, []);
 
+  const importFlowTemplateFromText = React.useCallback(
+    (text: string) => {
+      const obj = JSON.parse(text);
+      const rawNodes = Array.isArray(obj?.nodes) ? obj.nodes : [];
+      const rawEdges = Array.isArray(obj?.edges) ? obj.edges : [];
+
+      const existing = new Set((rf.getNodes() || []).map((n) => n.id));
+      const idMap = new Map<string, string>();
+
+      const now = Date.now();
+      rawNodes.forEach((n: any, idx: number) => {
+        const origId = String(n.id || `n_${idx}`);
+        let newId = origId;
+        if (existing.has(newId) || idMap.has(newId))
+          newId = `${origId}_${now}_${idx}`;
+        idMap.set(origId, newId);
+      });
+
+      const mappedNodes = rawNodes.map((n: any, idx: number) => {
+        const origId = String(n.id || `n_${idx}`);
+        const newId = idMap.get(origId) || `${origId}_${now}_${idx}`;
+        const data = cleanNodeData(n.data) || {};
+        if (n.type === FLOW_GROUP_NODE_TYPE) {
+          const rawChildIds = Array.isArray((data as any).childNodeIds)
+            ? (data as any).childNodeIds
+            : [];
+          (data as any).childNodeIds = rawChildIds
+            .map((childId: string) => idMap.get(String(childId)) || null)
+            .filter(Boolean);
+        }
+        return {
+          id: newId,
+          type: n.type,
+          position: n.position || { x: 0, y: 0 },
+          data,
+          width: n.width,
+          height: n.height,
+          style: n.style ? { ...n.style } : undefined,
+          parentNode: n.parentNode
+            ? idMap.get(String(n.parentNode)) || undefined
+            : undefined,
+          extent: n.extent,
+          selectable: n.selectable,
+          draggable: n.draggable,
+        } as any;
+      });
+
+      const mappedEdges = rawEdges
+        .map((e: any, idx: number) => {
+          const sid = idMap.get(String(e.source)) || String(e.source);
+          const tid = idMap.get(String(e.target)) || String(e.target);
+          return {
+            id: String(e.id || `e_${now}_${idx}`),
+            source: sid,
+            target: tid,
+            sourceHandle: e.sourceHandle,
+            targetHandle: e.targetHandle,
+            type: e.type || "default",
+          } as any;
+        })
+        .filter(
+          (e: any) =>
+            mappedNodes.find((n) => n.id === e.source) &&
+            mappedNodes.find((n) => n.id === e.target)
+        );
+
+      setNodes((ns) => ns.concat(mappedNodes));
+      setEdges((es) => es.concat(mappedEdges));
+      console.log(
+        `✅ 导入成功：节点 ${mappedNodes.length} 条，连线 ${mappedEdges.length} 条`
+      );
+      try {
+        historyService.commit("flow-import").catch(() => {});
+      } catch {}
+    },
+    [rf, setNodes, setEdges, cleanNodeData]
+  );
+
   const handleImportFiles = React.useCallback(
     (files: FileList | null) => {
       if (!files || files.length === 0) return;
@@ -5163,76 +5241,7 @@ function FlowInner() {
       reader.onload = () => {
         try {
           const text = String(reader.result || "");
-          const obj = JSON.parse(text);
-          const rawNodes = Array.isArray(obj?.nodes) ? obj.nodes : [];
-          const rawEdges = Array.isArray(obj?.edges) ? obj.edges : [];
-
-          const existing = new Set((rf.getNodes() || []).map((n) => n.id));
-          const idMap = new Map<string, string>();
-
-          const now = Date.now();
-          rawNodes.forEach((n: any, idx: number) => {
-            const origId = String(n.id || `n_${idx}`);
-            let newId = origId;
-            if (existing.has(newId) || idMap.has(newId))
-              newId = `${origId}_${now}_${idx}`;
-            idMap.set(origId, newId);
-          });
-
-          const mappedNodes = rawNodes.map((n: any, idx: number) => {
-            const origId = String(n.id || `n_${idx}`);
-            const newId = idMap.get(origId) || `${origId}_${now}_${idx}`;
-            const data = cleanNodeData(n.data) || {};
-            if (n.type === FLOW_GROUP_NODE_TYPE) {
-              const rawChildIds = Array.isArray((data as any).childNodeIds)
-                ? (data as any).childNodeIds
-                : [];
-              (data as any).childNodeIds = rawChildIds
-                .map((childId: string) => idMap.get(String(childId)) || null)
-                .filter(Boolean);
-            }
-            return {
-              id: newId,
-              type: n.type,
-              position: n.position || { x: 0, y: 0 },
-              data,
-              width: n.width,
-              height: n.height,
-              style: n.style ? { ...n.style } : undefined,
-              parentNode: n.parentNode ? idMap.get(String(n.parentNode)) || undefined : undefined,
-              extent: n.extent,
-              selectable: n.selectable,
-              draggable: n.draggable,
-            } as any;
-          });
-
-          const mappedEdges = rawEdges
-            .map((e: any, idx: number) => {
-              const sid = idMap.get(String(e.source)) || String(e.source);
-              const tid = idMap.get(String(e.target)) || String(e.target);
-              return {
-                id: String(e.id || `e_${now}_${idx}`),
-                source: sid,
-                target: tid,
-                sourceHandle: e.sourceHandle,
-                targetHandle: e.targetHandle,
-                type: e.type || "default",
-              } as any;
-            })
-            .filter(
-              (e: any) =>
-                mappedNodes.find((n) => n.id === e.source) &&
-                mappedNodes.find((n) => n.id === e.target)
-            );
-
-          setNodes((ns) => ns.concat(mappedNodes));
-          setEdges((es) => es.concat(mappedEdges));
-          console.log(
-            `✅ 导入成功：节点 ${mappedNodes.length} 条，连线 ${mappedEdges.length} 条`
-          );
-          try {
-            historyService.commit("flow-import").catch(() => {});
-          } catch {}
+          importFlowTemplateFromText(text);
         } catch (err) {
           console.error("导入失败：JSON 解析错误", err);
         } finally {
@@ -5245,7 +5254,69 @@ function FlowInner() {
       };
       reader.readAsText(file);
     },
-    [rf, setNodes, setEdges, cleanNodeData]
+    [importFlowTemplateFromText]
+  );
+
+  React.useEffect(() => {
+    const handler = () => {
+      void exportFlow();
+    };
+    window.addEventListener(
+      "flow:export-template-request",
+      handler as EventListener
+    );
+    return () => {
+      window.removeEventListener(
+        "flow:export-template-request",
+        handler as EventListener
+      );
+    };
+  }, [exportFlow]);
+
+  React.useEffect(() => {
+    const handler = () => {
+      handleImportClick();
+    };
+    window.addEventListener(
+      "flow:import-template-request",
+      handler as EventListener
+    );
+    return () => {
+      window.removeEventListener(
+        "flow:import-template-request",
+        handler as EventListener
+      );
+    };
+  }, [handleImportClick]);
+
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const customEvent = event as CustomEvent<{ content?: unknown }>;
+      const content =
+        typeof customEvent.detail?.content === "string"
+          ? customEvent.detail.content
+          : "";
+      if (!content.trim()) return;
+
+      try {
+        importFlowTemplateFromText(content);
+      } catch (err) {
+        console.error("导入失败：JSON 解析错误", err);
+      } finally {
+        setAddPanel((v) => ({ ...v, visible: false }));
+      }
+    };
+    window.addEventListener(
+      "flow:import-template-json",
+      handler as EventListener
+    );
+    return () => {
+      window.removeEventListener(
+        "flow:import-template-json",
+        handler as EventListener
+      );
+    };
+  }, [importFlowTemplateFromText]
   );
 
   // 仅在真正空白处（底层画布）允许触发

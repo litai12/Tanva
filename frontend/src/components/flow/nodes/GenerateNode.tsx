@@ -218,12 +218,13 @@ const readConnectedImagesFromNode = (
     return out;
   }
 
+  // 优先使用运行时当前渲染资源（imageData/inputImage），保证连线缩略图即时更新
   const full =
-    normalizeImageValue(d.imageUrl) ||
     normalizeImageValue(d.imageData) ||
+    normalizeImageValue(d.imageUrl) ||
     normalizeImageValue(d.outputImage) ||
-    normalizeImageValue(d.inputImageUrl) ||
     normalizeImageValue(d.inputImage) ||
+    normalizeImageValue(d.inputImageUrl) ||
     normalizeImageValue(d.thumbnailDataUrl) ||
     normalizeImageValue(d.thumbnail);
   const thumb =

@@ -14,6 +14,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Changed
 - AI 图像调用（`generate-image` / `edit-image` / `blend-images`）前端自动重试从 3 次收敛为 1 次，避免网络抖动时同一次用户操作触发多条积分扣减/退款流水；失败重试由后端 provider 内部策略承接（`frontend/src/services/aiBackendAPI.ts`）。
+- Canvas 右键菜单中的 JSON 操作改为直接复用 Flow「我的模板」导入/导出链路：`导出画布 JSON` 触发 `flow:export-template-request`，`导入画布 JSON` 触发 `flow:import-template-request`；同时 `FlowOverlay` 新增 `flow:export-template-request` / `flow:import-template-request` / `flow:import-template-json` 事件监听，统一走同一套导入导出实现（`frontend/src/components/canvas/DrawingController.tsx`, `frontend/src/components/flow/FlowOverlay.tsx`）。
 - Flow `Multi Generate`（`generate4`）节点移除 `Count` 配置，运行轮次固定为 4；新建节点初始化数据不再写入 `count` 字段，避免配置面板与实际行为不一致（`frontend/src/components/flow/nodes/Generate4Node.tsx`, `frontend/src/components/flow/FlowOverlay.tsx`, `frontend/src/components/flow/types.ts`）。
 - Credits 页面（`/my-credits`）概览卡片右上角改为“立即充值”按钮（点击弹出 `PaymentPanel`）；同时顶部“我的积分”入口图标升级为金币高光样式（`frontend/src/pages/MyCredits.tsx`, `frontend/src/components/layout/FloatingHeader.tsx`）。
 - Credits 充值弹窗布局微调：左侧套餐区域补充底部留白，视觉更舒展（`frontend/src/components/payment/PaymentPanel.tsx`）。
@@ -73,6 +74,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Fixed
 - Canvas：重做图片裁切执行链路并修复偶发“像被压缩/低清/裁切不可用”。`ImageContainer` 裁切改为按实时源解析 Blob 后再裁切（不依赖缓存 dataURL 输入），本地预览走 `blob:` + 后台上传回写远程引用；裁切开始即预分配新 OSS key 并清理上传中旧 `remoteUrl`，避免回写竞争把图切回旧源；同时回写尺寸改为按 X/Y 独立缩放，`imageUrlCache` 新增图片源指纹命中策略，避免同一 `imageId` 更换源图后误用旧缓存（`frontend/src/components/canvas/ImageContainer.tsx`, `frontend/src/components/canvas/DrawingController.tsx`, `frontend/src/services/imageUrlCache.ts`）。
 - Flow：`Generate` 节点顶部输入缩略图现在会识别 `Image/ImagePro` 的 `crop` 以及 `ImageSplit(splitRects)`，按裁切区域预览，避免视觉上误判为“传的是整图”；运行时传参逻辑保持按裁切结果处理（`frontend/src/components/flow/nodes/GenerateNode.tsx`, `frontend/src/components/flow/FlowOverlay.tsx`）。
+- Flow：`Generate` 节点读取连线输入预览时改为优先使用 `imageData/inputImage`（运行时资源）再回退 `imageUrl/inputImageUrl`，修复“已连线时上传/替换图片后缩略图不立即更新”的问题（`frontend/src/components/flow/nodes/GenerateNode.tsx`）。
 - Canvas/LayerPanel: canvas selection now back-syncs to layer panel highlight for image/model/path, with auto-expand/activate of the owning layer (`frontend/src/components/panels/LayerPanel.tsx`, `frontend/src/components/canvas/DrawingController.tsx`).
 - Flow/TextNote: 非编辑态下文本便签中心区域恢复可直接拖拽移动（不再仅边缘可拖），仅双击进入编辑态（`frontend/src/components/flow/nodes/TextNoteNode.tsx`）。
 - Flow/TextNote: 文本便签四边连接句柄改为默认隐藏且不可交互（不再自动弹出可连接节点面板），并将便签背景统一为淡土黄色（`frontend/src/components/flow/nodes/TextNoteNode.tsx`）。
