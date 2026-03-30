@@ -1002,12 +1002,12 @@ function SplitRectPreview({
 }) {
   const thumbSize = 48;
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+  const sourceCandidates = React.useMemo(
+    () => buildSplitImageSrcCandidates(sourceSrc),
+    [sourceSrc]
+  );
   const canRender =
-    !!sourceSrc &&
-    typeof sourceWidth === 'number' &&
-    typeof sourceHeight === 'number' &&
-    sourceWidth > 0 &&
-    sourceHeight > 0 &&
+    sourceCandidates.length > 0 &&
     rect.width > 0 &&
     rect.height > 0;
 
@@ -1025,18 +1025,14 @@ function SplitRectPreview({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, thumbSize, thumbSize);
 
-    if (!canRender || !sourceSrc) {
+    if (!canRender) {
       ctx.fillStyle = '#f3f4f6';
       ctx.fillRect(0, 0, thumbSize, thumbSize);
       return;
     }
 
     let cancelled = false;
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.decoding = 'async';
-
-    const draw = () => {
+    const draw = (img: HTMLImageElement) => {
       if (cancelled) return;
       const srcW = sourceWidth || img.naturalWidth || img.width;
       const srcH = sourceHeight || img.naturalHeight || img.height;
@@ -1070,19 +1066,36 @@ function SplitRectPreview({
       ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
     };
 
-    img.onload = draw;
-    img.onerror = () => {
-      if (cancelled) return;
+    const renderPlaceholder = () => {
       ctx.clearRect(0, 0, thumbSize, thumbSize);
       ctx.fillStyle = '#f3f4f6';
       ctx.fillRect(0, 0, thumbSize, thumbSize);
     };
-    img.src = sourceSrc;
+
+    const tryLoad = (index: number) => {
+      if (cancelled) return;
+      const nextSrc = sourceCandidates[index];
+      if (!nextSrc) {
+        renderPlaceholder();
+        return;
+      }
+
+      const img = new Image();
+      img.decoding = 'async';
+      img.onload = () => draw(img);
+      img.onerror = () => {
+        if (cancelled) return;
+        tryLoad(index + 1);
+      };
+      img.src = nextSrc;
+    };
+
+    tryLoad(0);
 
     return () => {
       cancelled = true;
     };
-  }, [canRender, rect.height, rect.width, rect.x, rect.y, sourceHeight, sourceSrc, sourceWidth]);
+  }, [canRender, rect.height, rect.width, rect.x, rect.y, sourceCandidates, sourceHeight, sourceWidth]);
 
   return (
     <div style={{

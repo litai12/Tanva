@@ -78,6 +78,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Fixed
 - Flow：`Image Split` 读取 `seedream5` 上游时补齐 `imageUrls/images` 兜底，并将分割加载源改为“强制代理优先、直连回退”候选策略，修复 Seedream 外链图在分割节点报“图片加载失败”（`frontend/src/components/flow/nodes/ImageSplitNode.tsx`）。
+- Flow：`Image Split` 切片缩略图预览增加“代理优先 + 原地址回退”加载策略，移除跨域 `anonymous` 的硬依赖，并允许缺失 `sourceWidth/sourceHeight` 时按天然尺寸回退渲染，修复“已分割但缩略图全灰块”（`frontend/src/components/flow/nodes/ImageSplitNode.tsx`）。
 - Canvas：重做图片裁切执行链路并修复偶发“像被压缩/低清/裁切不可用”。`ImageContainer` 裁切改为按实时源解析 Blob 后再裁切（不依赖缓存 dataURL 输入），本地预览走 `blob:` + 后台上传回写远程引用；裁切开始即预分配新 OSS key 并清理上传中旧 `remoteUrl`，避免回写竞争把图切回旧源；同时回写尺寸改为按 X/Y 独立缩放，`imageUrlCache` 新增图片源指纹命中策略，避免同一 `imageId` 更换源图后误用旧缓存（`frontend/src/components/canvas/ImageContainer.tsx`, `frontend/src/components/canvas/DrawingController.tsx`, `frontend/src/services/imageUrlCache.ts`）。
 - Flow：`Generate` 节点顶部输入缩略图现在会识别 `Image/ImagePro` 的 `crop` 以及 `ImageSplit(splitRects)`，按裁切区域预览，避免视觉上误判为“传的是整图”；运行时传参逻辑保持按裁切结果处理（`frontend/src/components/flow/nodes/GenerateNode.tsx`, `frontend/src/components/flow/FlowOverlay.tsx`）。
 - Flow：`Generate` 节点读取连线输入预览时改为优先使用 `imageData/inputImage`（运行时资源）再回退 `imageUrl/inputImageUrl`，修复“已连线时上传/替换图片后缩略图不立即更新”的问题（`frontend/src/components/flow/nodes/GenerateNode.tsx`）。
