@@ -228,7 +228,12 @@ const getEdgeHandleKind = (
   ) {
     return "image";
   }
-  if (value === "text" || value.startsWith("text-") || value.startsWith("prompt")) {
+  if (
+    value === "text" ||
+    value.startsWith("text-") ||
+    value.startsWith("prompt") ||
+    value === "response-text"
+  ) {
     return "text";
   }
   return null;

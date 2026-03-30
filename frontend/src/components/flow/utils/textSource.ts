@@ -44,12 +44,24 @@ export const resolveTextFromSourceNode = (node: Node | null | undefined, handleI
 
   // 处理 generatePro / generatePro4 的 prompts 数组
   if (node.type === 'generatePro' || node.type === 'generatePro4') {
+    const generatedText = data.responseText ?? data.textResponse;
+    if (handleId === 'response-text' || handleId === 'result-text' || handleId === 'responseText') {
+      if (typeof generatedText === 'string' && generatedText.trim().length > 0) {
+        return generatedText.trim();
+      }
+      return undefined;
+    }
+
     const prompts = data.prompts;
     if (Array.isArray(prompts) && prompts.length > 0) {
       const first = prompts[0];
       if (typeof first === 'string' && first.trim().length > 0) {
         return first.trim();
       }
+    }
+
+    if (typeof generatedText === 'string' && generatedText.trim().length > 0) {
+      return generatedText.trim();
     }
   }
 

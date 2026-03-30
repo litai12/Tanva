@@ -67,6 +67,14 @@ const buildImageSrc = (value?: string): string | undefined => {
 };
 
 const MAX_INPUT_PREVIEWS = 6;
+const HIDDEN_SOURCE_HANDLE_STYLE: React.CSSProperties = {
+  width: 1,
+  height: 1,
+  opacity: 0,
+  border: "none",
+  background: "transparent",
+  pointerEvents: "none",
+};
 
 const normalizeImageValue = (value: unknown): string | undefined => {
   if (typeof value !== "string") return undefined;
@@ -600,6 +608,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
   const showAspectRatioSelector = providerMode !== "fast";
   const showImageSizeSelector = providerMode === "pro" || providerMode === "ultra";
   const showSizeControls = showAspectRatioSelector || showImageSizeSelector;
+  const showTextOutputHandle = providerMode === "ultra";
 
   const imageSizeOptions: Array<{ label: string; value: string }> = React.useMemo(() => {
     const base = [
@@ -684,6 +693,11 @@ function GenerateNodeInner({ id, data, selected }: Props) {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [preview]);
+
+  React.useEffect(() => {
+    if (showTextOutputHandle) return;
+    setHover((prev) => (prev === "prompt-out" ? null : prev));
+  }, [showTextOutputHandle]);
 
   return (
     <div
@@ -1048,7 +1062,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
         type='source'
         position={Position.Right}
         id='text'
-        style={{ top: "65%" }}
+        style={{ top: "65%", ...(showTextOutputHandle ? null : HIDDEN_SOURCE_HANDLE_STYLE) }}
         onMouseEnter={() => setHover("prompt-out")}
         onMouseLeave={() => setHover(null)}
       />
@@ -1077,7 +1091,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
           image
         </div>
       )}
-      {hover === "prompt-out" && (
+      {showTextOutputHandle && hover === "prompt-out" && (
         <div
           className='flow-tooltip'
           style={{ right: -8, top: "65%", transform: "translate(100%, -50%)" }}

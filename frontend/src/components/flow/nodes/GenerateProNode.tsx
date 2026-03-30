@@ -35,6 +35,7 @@ type Props = {
     imageData?: string;
     imageUrl?: string;
     thumbnail?: string; // 缩略图，用于节点显示
+    responseText?: string;
     title?: string;
     enableWebSearch?: boolean;
     error?: string;
@@ -457,6 +458,10 @@ function InputImageThumb({
 function GenerateProNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const { status, error } = data;
+  const responseText = (
+    (typeof data.responseText === 'string' ? data.responseText : '') ||
+    (typeof (data as any)?.textResponse === 'string' ? (data as any).textResponse : '')
+  ).trim();
 
   // 原图用于预览和下载
   const rawFullValue = data.imageData || data.imageUrl;
@@ -1634,6 +1639,76 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
           )}
         </div>
       ))}
+
+      {responseText && (
+        <div style={{ marginTop: 8, position: 'relative' }}>
+          <div
+            className='nodrag nopan nowheel'
+            onPointerDownCapture={stopNodeDrag}
+            onMouseDownCapture={stopNodeDrag}
+            style={{
+              background: '#fff',
+              borderRadius: 16,
+              border: '1px solid #e5e7eb',
+              padding: '10px 14px',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+            }}
+          >
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: '#6b7280',
+                marginBottom: 6,
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+              }}
+            >
+              {lt('返回文字', 'Response')}
+            </div>
+            <div
+              style={{
+                fontSize: 13,
+                lineHeight: 1.5,
+                color: '#374151',
+                whiteSpace: 'pre-wrap',
+                maxHeight: 160,
+                overflowY: 'auto',
+              }}
+            >
+              {responseText}
+            </div>
+          </div>
+
+          <Handle
+            className='tanva-beta-handle tanva-beta-handle-text'
+            type='source'
+            position={Position.Right}
+            id='response-text'
+            style={{
+              top: '50%',
+              right: -12,
+              width: 8,
+              height: 8,
+              background: '#22c55e',
+              border: 'none',
+              boxShadow: 'none',
+            }}
+            onMouseEnter={() => setHover('response-out')}
+            onMouseLeave={() => setHover(null)}
+          />
+
+          {hover === 'response-out' && (
+            <div className='flow-tooltip' style={{
+              position: 'absolute',
+              right: -16,
+              top: '50%',
+              transform: 'translate(100%, -50%)',
+              zIndex: 10,
+            }}>{lt('返回文字', 'response text')}</div>
+          )}
+        </div>
+      )}
 
       {/* 选中或文字聚焦时显示：添加提示词按钮和按钮组 */}
       {(selected || isTextFocused) && (

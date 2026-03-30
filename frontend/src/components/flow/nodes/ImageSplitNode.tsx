@@ -16,6 +16,7 @@ import { toRenderableImageSrc } from '@/utils/imageSource';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { isPersistableImageRef, normalizePersistableImageRef, resolveImageToBlob } from '@/utils/imageSource';
+import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { canvasToBlob, createImageBitmapLimited } from '@/utils/imageConcurrency';
 import SmartImage from '../../ui/SmartImage';
 import { shallow } from 'zustand/shallow';
@@ -397,6 +398,33 @@ const buildImageSrc = (value?: string): string | undefined => {
   return toRenderableImageSrc(trimmed) || undefined;
 };
 
+const pushUniqueString = (list: string[], value?: string | null): void => {
+  if (typeof value !== 'string') return;
+  const trimmed = value.trim();
+  if (!trimmed) return;
+  if (!list.includes(trimmed)) list.push(trimmed);
+};
+
+// 分割链路需要读取像素（worker/canvas），优先使用强制代理 URL，避免外域无 CORS 时直接 onerror。
+const buildSplitImageSrcCandidates = (
+  value?: string,
+  fallback?: string
+): string[] => {
+  const candidates: string[] = [];
+  const normalized = buildImageSrc(value);
+  if (normalized) {
+    pushUniqueString(candidates, proxifyRemoteAssetUrl(normalized, { forceProxy: true }));
+    pushUniqueString(candidates, normalized);
+  }
+
+  if (fallback) {
+    pushUniqueString(candidates, proxifyRemoteAssetUrl(fallback, { forceProxy: true }));
+    pushUniqueString(candidates, fallback);
+  }
+
+  return candidates;
+};
+
 const readImageFromNode = (node: Node<any>, sourceHandle?: string | null): string | undefined => {
   if (!node) return undefined;
   const d = (node.data ?? {}) as Record<string, unknown>;
@@ -447,6 +475,31 @@ const readImageFromNode = (node: Node<any>, sourceHandle?: string | null): strin
         normalizeString(thumbnails?.[idx])
       );
     }
+  }
+
+  // Seedream5：句柄为 img，优先 imageUrl，其次 imageUrls/images[0]。
+  if (node.type === 'seedream5') {
+    const imageUrls = d.imageUrls as string[] | undefined;
+    const images = d.images as string[] | undefined;
+    return (
+      normalizeString(d.imageUrl) ||
+      normalizeString(imageUrls?.[0]) ||
+      normalizeString(images?.[0]) ||
+      normalizeString(d.thumbnailDataUrl) ||
+      normalizeString(d.thumbnail)
+    );
+  }
+
+  // 通用：单图句柄 img 在部分节点上可能仅写入 imageUrls/images[0]
+  if (sourceHandle === 'img') {
+    const imageUrls = d.imageUrls as string[] | undefined;
+    const images = d.images as string[] | undefined;
+    const thumbnails = d.thumbnails as string[] | undefined;
+    const first =
+      normalizeString(imageUrls?.[0]) ||
+      normalizeString(images?.[0]) ||
+      normalizeString(thumbnails?.[0]);
+    if (first) return first;
   }
 
   // 通用：优先读 imageData / imageUrl / outputImage，其次读 thumbnail/thumbnailDataUrl（兼容“仅缩略图”的节点数据）
@@ -539,6 +592,16 @@ const readImagesFromNode = (node: Node<any>, sourceHandle?: string | null): Upst
         normalizeString(thumbnails?.[idx]);
       return value ? [{ id: `${node.id}-img-${idx + 1}`, imageData: value }] : [];
     }
+  }
+
+  if (node.type === 'seedream5') {
+    const imageUrls = d.imageUrls as string[] | undefined;
+    const images = d.images as string[] | undefined;
+    const first =
+      normalizeString(d.imageUrl) ||
+      normalizeString(imageUrls?.[0]) ||
+      normalizeString(images?.[0]);
+    return first ? [{ id: `${node.id}-img-1`, imageData: first }] : [];
   }
 
   const single = readImageFromNode(node, sourceHandle);
@@ -1838,75 +1901,106 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
       let sourceWidth = 0;
       let sourceHeight = 0;
 
+      const splitWithSource = async (splitSrc: string): Promise<{
+        rects: SplitRectItem[];
+        sourceWidth: number;
+        sourceHeight: number;
+      }> => {
+        if (!splitSrc) throw new Error(lt('图片加载失败', 'Image load failed'));
+
+        if (fixedGrid) {
+          const grid = await splitRectsByGrid(splitSrc, safeCount, fixedGrid, { trimWhite: false });
+          return {
+            rects: grid.rects.slice(0, MAX_OUTPUT_COUNT),
+            sourceWidth: grid.sourceWidth,
+            sourceHeight: grid.sourceHeight,
+          };
+        }
+
+        const detected = await detectAndSplitRects(splitSrc);
+        let nextRects = detected.rects;
+        let nextSourceWidth = detected.sourceWidth;
+        let nextSourceHeight = detected.sourceHeight;
+
+        // 对“整张图是一个连通块 / 无法识别区域”的情况做兜底：按输出数量做等分网格切图
+        // 端口语义：输出数量必须严格等于 safeCount，否则认为“检测结果不可靠”，回退到网格切分。
+        const countMismatch = nextRects.length !== safeCount;
+        const tooManyPieces =
+          nextRects.length > Math.min(MAX_OUTPUT_COUNT, Math.max(safeCount, DEFAULT_OUTPUT_COUNT)) * 2;
+        if (countMismatch || nextRects.length <= 1 || tooManyPieces) {
+          const grid = await splitRectsByGrid(splitSrc, safeCount);
+          nextRects = grid.rects;
+          nextSourceWidth = grid.sourceWidth;
+          nextSourceHeight = grid.sourceHeight;
+        }
+
+        return {
+          rects: nextRects.slice(0, MAX_OUTPUT_COUNT),
+          sourceWidth: nextSourceWidth,
+          sourceHeight: nextSourceHeight,
+        };
+      };
+
       const splitByMainThread = async (): Promise<{
         rects: SplitRectItem[];
         sourceWidth: number;
         sourceHeight: number;
       }> => {
-        let splitSrc: string | undefined;
         if (runtimeBlob) {
           const objectUrl = URL.createObjectURL(runtimeBlob);
-          splitSrc = objectUrl;
+          const splitSrc = objectUrl;
           revokeObjectUrl = () => {
             try { URL.revokeObjectURL(objectUrl); } catch {}
           };
-        } else {
-          splitSrc = buildImageSrc(runtimeInputRef) || inputImageSrc;
+          return await splitWithSource(splitSrc);
         }
-        if (!splitSrc) throw new Error(lt('图片加载失败', 'Image load failed'));
-        if (fixedGrid) {
-          const grid = await splitRectsByGrid(splitSrc, safeCount, fixedGrid, { trimWhite: false });
-          rects = grid.rects;
-          sourceWidth = grid.sourceWidth;
-          sourceHeight = grid.sourceHeight;
-        } else {
-          const detected = await detectAndSplitRects(splitSrc);
-          rects = detected.rects;
-          sourceWidth = detected.sourceWidth;
-          sourceHeight = detected.sourceHeight;
 
-          // 对“整张图是一个连通块 / 无法识别区域”的情况做兜底：按输出数量做等分网格切图
-          // 端口语义：输出数量必须严格等于 safeCount，否则认为“检测结果不可靠”，回退到网格切分。
-          const countMismatch = rects.length !== safeCount;
-          const tooManyPieces =
-            rects.length > Math.min(MAX_OUTPUT_COUNT, Math.max(safeCount, DEFAULT_OUTPUT_COUNT)) * 2;
-          if (countMismatch || rects.length <= 1 || tooManyPieces) {
-            const grid = await splitRectsByGrid(splitSrc, safeCount);
-            rects = grid.rects;
-            sourceWidth = grid.sourceWidth;
-            sourceHeight = grid.sourceHeight;
+        const srcCandidates = buildSplitImageSrcCandidates(runtimeInputRef, inputImageSrc);
+        let lastError: unknown = null;
+        for (const splitSrc of srcCandidates) {
+          try {
+            return await splitWithSource(splitSrc);
+          } catch (err) {
+            lastError = err;
           }
         }
-        return {
-          rects: rects.slice(0, MAX_OUTPUT_COUNT),
-          sourceWidth,
-          sourceHeight,
-        };
+
+        if (lastError instanceof Error) throw lastError;
+        throw new Error(lt('图片加载失败', 'Image load failed'));
       };
 
       // 优先使用 Worker + OffscreenCanvas（避免主线程卡顿）
       // 但若 Worker 运行失败（例如特性不完整/初始化异常），自动回退主线程逻辑。
       if (imageSplitWorkerClient.isSupported()) {
-        const source = ((): { kind: 'blob'; blob: Blob } | { kind: 'url'; url: string } => {
-          if (runtimeBlob) return { kind: 'blob' as const, blob: runtimeBlob };
-          const url = buildImageSrc(runtimeInputRef);
-          if (!url) throw new Error(lt('图片加载失败', 'Image load failed'));
-          return { kind: 'url' as const, url };
-        })();
+        const workerSources = runtimeBlob
+          ? [{ kind: 'blob' as const, blob: runtimeBlob }]
+          : buildSplitImageSrcCandidates(runtimeInputRef, inputImageSrc).map((url) => ({
+            kind: 'url' as const,
+            url,
+          }));
 
-        try {
-          const result = await imageSplitWorkerClient.splitImageRects(source, {
-            outputCount: safeCount,
-            gridCols: fixedGrid?.cols,
-            gridRows: fixedGrid?.rows,
-          });
-          if (!result.success || !Array.isArray(result.rects)) {
-            throw new Error(result.error || lt('分割失败', 'Split failed'));
+        let workerSucceeded = false;
+        for (const source of workerSources) {
+          try {
+            const result = await imageSplitWorkerClient.splitImageRects(source, {
+              outputCount: safeCount,
+              gridCols: fixedGrid?.cols,
+              gridRows: fixedGrid?.rows,
+            });
+            if (!result.success || !Array.isArray(result.rects)) {
+              throw new Error(result.error || lt('分割失败', 'Split failed'));
+            }
+            rects = result.rects.slice(0, MAX_OUTPUT_COUNT);
+            sourceWidth = result.sourceWidth ?? 0;
+            sourceHeight = result.sourceHeight ?? 0;
+            workerSucceeded = true;
+            break;
+          } catch {
+            // 尝试下一个 source（例如代理 URL 不可用时回退直连 URL）
           }
-          rects = result.rects.slice(0, MAX_OUTPUT_COUNT);
-          sourceWidth = result.sourceWidth ?? 0;
-          sourceHeight = result.sourceHeight ?? 0;
-        } catch {
+        }
+
+        if (!workerSucceeded) {
           const fallback = await splitByMainThread();
           rects = fallback.rects;
           sourceWidth = fallback.sourceWidth;

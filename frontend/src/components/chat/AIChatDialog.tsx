@@ -2245,7 +2245,7 @@ const AIChatDialog: React.FC = () => {
           if (hasPdfForAnalysis) {
             return { supported: count === 0 };
           }
-          return { supported: count === 1 };
+          return { supported: count >= 1 };
         case "video":
           return { supported: count <= 1 };
         default:
@@ -2272,8 +2272,18 @@ const AIChatDialog: React.FC = () => {
     if (manualAIMode === "blend") {
       return "Blend模式需要添加至少2张以上图片";
     }
+    if (manualAIMode === "analyze") {
+      return hasPdfForAnalysis
+        ? "PDF分析模式不支持同时添加图片"
+        : "Analysis模式至少需要添加1张图片";
+    }
     return `当前模式不支持${selectedImageCount}张图`;
-  }, [isManualModeSupported, manualAIMode, selectedImageCount]);
+  }, [
+    hasPdfForAnalysis,
+    isManualModeSupported,
+    manualAIMode,
+    selectedImageCount,
+  ]);
 
   // 处理发送 - 使用AI智能工具选择
   const handleSend = async () => {
