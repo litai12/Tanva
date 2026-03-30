@@ -13,6 +13,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- Flow：节点添加面板与快捷连接候选统一隐藏 `sora2Video` / `sora2Character` / `nano2`，不再展示 `Sora 2`、`Sora2 Character` 与 `Nano2` 入口（`frontend/src/components/flow/FlowOverlay.tsx`）。
+- AI Analyze：`POST /api/ai/analyze-image` 增加 `sourceImages` 多图输入（兼容原 `sourceImage` 单图）；Flow `Analysis` 节点同步支持多图连线分析，`gemini/gemini-pro/banana` 按多文件联合分析，`midjourney describe` 对多图输入返回明确不支持错误。
+- Flow Analysis：`text` 句柄支持多条 Prompt 连线并在运行时串联拼接（不再被新连线覆盖）。
 - AI 图像调用（`generate-image` / `edit-image` / `blend-images`）前端自动重试从 3 次收敛为 1 次，避免网络抖动时同一次用户操作触发多条积分扣减/退款流水；失败重试由后端 provider 内部策略承接（`frontend/src/services/aiBackendAPI.ts`）。
 - Canvas 右键菜单中的 JSON 操作改为直接复用 Flow「我的模板」导入/导出链路：`导出画布 JSON` 触发 `flow:export-template-request`，`导入画布 JSON` 触发 `flow:import-template-request`；同时 `FlowOverlay` 新增 `flow:export-template-request` / `flow:import-template-request` / `flow:import-template-json` 事件监听，统一走同一套导入导出实现（`frontend/src/components/canvas/DrawingController.tsx`, `frontend/src/components/flow/FlowOverlay.tsx`）。
 - Flow `Multi Generate`（`generate4`）节点移除 `Count` 配置，运行轮次固定为 4；新建节点初始化数据不再写入 `count` 字段，避免配置面板与实际行为不一致（`frontend/src/components/flow/nodes/Generate4Node.tsx`, `frontend/src/components/flow/FlowOverlay.tsx`, `frontend/src/components/flow/types.ts`）。

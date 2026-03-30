@@ -120,6 +120,7 @@ export interface ImageBlendRequest {
 export interface ImageAnalysisRequest {
   prompt?: string;
   sourceImage: string; // base64
+  sourceImages?: string[]; // base64/url array (optional, multi-image analysis)
   model?: string;
   providerOptions?: ProviderOptionsPayload;
 }

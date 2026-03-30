@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsArray, IsBoolean, IsEnum, IsObject, ValidateIf, IsNumber } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsArray, IsBoolean, IsEnum, IsObject, ValidateIf, IsNumber, ArrayMinSize } from 'class-validator';
 
 enum AspectRatio {
   'SQUARE' = '1:1',
@@ -236,9 +236,16 @@ export class AnalyzeImageDto {
   @IsString()
   prompt?: string;
 
+  @ValidateIf((o) => !o.sourceImages || o.sourceImages.length === 0)
   @IsString()
   @IsNotEmpty()
-  sourceImage!: string; // base64
+  sourceImage?: string; // base64
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsString({ each: true })
+  sourceImages?: string[]; // base64/url array
 
   @IsOptional()
   @IsString()

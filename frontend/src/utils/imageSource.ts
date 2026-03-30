@@ -321,7 +321,9 @@ export const toRenderableImageSrc = (value?: string | null): string | null => {
     } catch {
       // ignore
     }
-    return trimmed;
+    // 统一走 asset proxy 归一化：当配置关闭代理时会保留可直连 URL；
+    // 但像 *.tgtai.com 这类需要强制代理的域名会在 proxifyRemoteAssetUrl 内被兜底处理。
+    return proxifyRemoteAssetUrl(trimmed);
   }
   if (
     trimmed.startsWith("/") ||

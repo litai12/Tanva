@@ -4,7 +4,6 @@ import ImagePreviewModal from '../../ui/ImagePreviewModal';
 import SmartImage from '../../ui/SmartImage';
 import { aiImageService } from '@/services/aiImageService';
 import { useAIChatStore, getImageModelForProvider } from '@/stores/aiChatStore';
-import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { canvasToBlob, createImageBitmapLimited, blobToDataUrl } from '@/utils/imageConcurrency';
 import { parseFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
@@ -40,46 +39,18 @@ type CropInfo = {
   sourceHeight?: number;
 };
 
-const CanvasCropPreview = React.memo(({
+type ConnectedInput = { kind: 'crop'; crop: CropInfo } | { kind: 'base'; baseRef: string };
+type ConnectedInputPreview = { id: string; baseRef: string; crop?: CropInfo };
+const MAX_INPUT_PREVIEWS = 6;
+
+function InputImageCropThumb({
   src,
-  rect,
-  sourceWidth,
-  sourceHeight,
+  crop,
 }: {
   src: string;
-  rect: { x: number; y: number; width: number; height: number };
-  sourceWidth?: number;
-  sourceHeight?: number;
-}) => {
-  const containerRef = React.useRef<HTMLDivElement | null>(null);
+  crop: CropInfo;
+}) {
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
-  const [size, setSize] = React.useState<{ w: number; h: number }>({ w: 0, h: 0 });
-
-  React.useLayoutEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    const update = () => {
-      const rect = container.getBoundingClientRect();
-      const w = Math.max(1, Math.round(rect.width));
-      const h = Math.max(1, Math.round(rect.height));
-      setSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
-    };
-
-    update();
-
-    let ro: ResizeObserver | null = null;
-    try {
-      ro = new ResizeObserver(update);
-      ro.observe(container);
-    } catch {}
-
-    window.addEventListener('resize', update);
-    return () => {
-      window.removeEventListener('resize', update);
-      try { ro?.disconnect(); } catch {}
-    };
-  }, []);
 
   React.useEffect(() => {
     const canvas = canvasRef.current;
@@ -87,125 +58,177 @@ const CanvasCropPreview = React.memo(({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const w = size.w;
-    const h = size.h;
+    const size = 44;
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    canvas.width = Math.max(1, Math.round(size * dpr));
+    canvas.height = Math.max(1, Math.round(size * dpr));
+    canvas.style.width = `${size}px`;
+    canvas.style.height = `${size}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, size, size);
 
-    const drawPlaceholder = () => {
-      canvas.style.width = `${w}px`;
-      canvas.style.height = `${h}px`;
-      canvas.width = Math.max(1, Math.round(w * dpr));
-      canvas.height = Math.max(1, Math.round(h * dpr));
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, w, h);
+    if (!src) {
       ctx.fillStyle = '#f3f4f6';
-      ctx.fillRect(0, 0, w, h);
-    };
-
-    if (!src || !rect || rect.width <= 0 || rect.height <= 0 || w <= 0 || h <= 0) {
-      drawPlaceholder();
+      ctx.fillRect(0, 0, size, size);
       return;
     }
 
     let cancelled = false;
     const img = new Image();
+    img.crossOrigin = 'anonymous';
     img.decoding = 'async';
-
-    const onLoad = () => {
+    img.onload = () => {
       if (cancelled) return;
       const naturalW = img.naturalWidth || img.width;
       const naturalH = img.naturalHeight || img.height;
       if (!naturalW || !naturalH) {
-        drawPlaceholder();
+        ctx.fillStyle = '#f3f4f6';
+        ctx.fillRect(0, 0, size, size);
         return;
       }
 
-      const srcW = typeof sourceWidth === 'number' && sourceWidth > 0 ? sourceWidth : naturalW;
-      const srcH = typeof sourceHeight === 'number' && sourceHeight > 0 ? sourceHeight : naturalH;
-
+      const srcW =
+        typeof crop.sourceWidth === 'number' && crop.sourceWidth > 0
+          ? crop.sourceWidth
+          : naturalW;
+      const srcH =
+        typeof crop.sourceHeight === 'number' && crop.sourceHeight > 0
+          ? crop.sourceHeight
+          : naturalH;
       const scaleX = srcW > 0 ? naturalW / srcW : 1;
       const scaleY = srcH > 0 ? naturalH / srcH : 1;
+      const sx = Math.max(0, Math.min(naturalW - 1, crop.rect.x * scaleX));
+      const sy = Math.max(0, Math.min(naturalH - 1, crop.rect.y * scaleY));
+      const swRaw = Math.max(1, crop.rect.width * scaleX);
+      const shRaw = Math.max(1, crop.rect.height * scaleY);
+      const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
+      const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
 
-      const sxRaw = rect.x * scaleX;
-      const syRaw = rect.y * scaleY;
-      const exRaw = (rect.x + rect.width) * scaleX;
-      const eyRaw = (rect.y + rect.height) * scaleY;
+      const scale = Math.max(size / sw, size / sh);
+      const dw = sw * scale;
+      const dh = sh * scale;
+      const dx = (size - dw) / 2;
+      const dy = (size - dh) / 2;
 
-      const sx = Math.max(0, Math.min(naturalW - 1, Math.floor(sxRaw)));
-      const sy = Math.max(0, Math.min(naturalH - 1, Math.floor(syRaw)));
-      const ex = Math.max(sx + 1, Math.min(naturalW, Math.ceil(exRaw)));
-      const ey = Math.max(sy + 1, Math.min(naturalH, Math.ceil(eyRaw)));
-      const sw = Math.max(1, ex - sx);
-      const sh = Math.max(1, ey - sy);
-
-      // contain：避免把留白画进 canvas
-      const fit = Math.min(w / sw, h / sh);
-      const dw = Math.max(1, Math.round(sw * fit));
-      const dh = Math.max(1, Math.round(sh * fit));
-
-      canvas.style.width = `${dw}px`;
-      canvas.style.height = `${dh}px`;
-      canvas.width = Math.max(1, Math.round(dw * dpr));
-      canvas.height = Math.max(1, Math.round(dh * dpr));
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-      ctx.clearRect(0, 0, dw, dh);
+      ctx.clearRect(0, 0, size, size);
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, dw, dh);
-      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
+      ctx.fillRect(0, 0, size, size);
+      ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
     };
-
-    const onError = () => {
+    img.onerror = () => {
       if (cancelled) return;
-      drawPlaceholder();
+      ctx.clearRect(0, 0, size, size);
+      ctx.fillStyle = '#f3f4f6';
+      ctx.fillRect(0, 0, size, size);
     };
-
-    img.onload = onLoad;
-    img.onerror = onError;
     img.src = src;
-
     return () => {
       cancelled = true;
-      img.onload = null;
-      img.onerror = null;
     };
-  }, [
-    rect?.height,
-    rect?.width,
-    rect?.x,
-    rect?.y,
-    size.h,
-    size.w,
-    sourceHeight,
-    sourceWidth,
-    src,
-  ]);
+  }, [crop.rect.height, crop.rect.width, crop.rect.x, crop.rect.y, crop.sourceHeight, crop.sourceWidth, src]);
+
+  return <canvas ref={canvasRef} style={{ display: 'block', width: 44, height: 44 }} />;
+}
+
+function InputImageThumb({
+  value,
+  order,
+  crop,
+  lt,
+  onOpenPreview,
+}: {
+  value: string;
+  order: number;
+  crop?: CropInfo;
+  lt: (zh: string, en: string) => string;
+  onOpenPreview: (value: string) => void;
+}) {
+  const assetId = React.useMemo(() => parseFlowImageAssetRef(value), [value]);
+  const assetUrl = useFlowImageAssetUrl(assetId);
+  const src = assetId ? (assetUrl || undefined) : buildImageSrc(value);
 
   return (
     <div
-      ref={containerRef}
-      style={{
-        width: '100%',
-        height: '100%',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: '#fff',
-      }}
+      style={{ position: 'relative', width: 44, height: 44, flexShrink: 0 }}
+      title={lt(`输入图 ${order}`, `Input ${order}`)}
+      className="nodrag nopan"
     >
-      <canvas ref={canvasRef} style={{ display: 'block', background: '#fff' }} />
+      <button
+        type="button"
+        onClick={() => onOpenPreview(value)}
+        onPointerDownCapture={(event) => {
+          event.stopPropagation();
+          event.nativeEvent.stopImmediatePropagation?.();
+        }}
+        onMouseDownCapture={(event) => {
+          event.stopPropagation();
+          event.nativeEvent.stopImmediatePropagation?.();
+        }}
+        style={{
+          width: '100%',
+          height: '100%',
+          borderRadius: 8,
+          overflow: 'hidden',
+          border: '1px solid #d1d5db',
+          background: '#f8fafc',
+          padding: 0,
+          margin: 0,
+          cursor: 'pointer',
+          display: 'block',
+        }}
+      >
+        {src ? (
+          crop ? (
+            <InputImageCropThumb src={src} crop={crop} />
+          ) : (
+            <SmartImage
+              src={src}
+              alt=""
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                background: '#fff',
+              }}
+            />
+          )
+        ) : null}
+      </button>
+      <div
+        style={{
+          position: 'absolute',
+          left: 4,
+          top: 4,
+          width: 14,
+          height: 14,
+          borderRadius: '999px',
+          background: '#111827',
+          color: '#fff',
+          fontSize: 9,
+          fontWeight: 700,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          border: '1px solid #fff',
+          boxShadow: '0 1px 2px rgba(0,0,0,0.28)',
+          lineHeight: 1,
+          zIndex: 2,
+        }}
+      >
+        {order}
+      </div>
     </div>
   );
-});
+}
 
 function AnalysisNodeInner({ id, data, selected = false }: Props) {
   const { lt } = useLocaleText();
   const rf = useReactFlow();
   const { status, error } = data;
-  const incomingEdge = useStore(
+  const incomingEdges = useStore(
     React.useCallback(
       (state: ReactFlowState) =>
-        state.edges.find(
+        state.edges.filter(
           (e) =>
             e.target === id &&
             (e.targetHandle === 'img' || e.targetHandle === 'image' || !e.targetHandle)
@@ -213,24 +236,21 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
       [id]
     )
   );
-  const connectedInput = useStore(
+  const connectedInputPreviews = useStore(
     React.useCallback(
-      (state: ReactFlowState): { kind: 'crop'; crop: CropInfo } | { kind: 'base'; baseRef: string } | null => {
-        const edge = state.edges.find(
-          (e) =>
-            e.target === id &&
-            (e.targetHandle === 'img' || e.targetHandle === 'image' || !e.targetHandle)
-        );
-        if (!edge) return null;
+      (state: ReactFlowState): ConnectedInputPreview[] => {
+        const edgeWithOrder = state.edges
+          .map((edge, index) => ({ edge, index }))
+          .filter(
+            ({ edge }) =>
+              edge.target === id &&
+              (edge.targetHandle === 'img' || edge.targetHandle === 'image' || !edge.targetHandle)
+          )
+          .sort((a, b) => a.index - b.index);
+        if (edgeWithOrder.length === 0) return [];
 
         const nodes = state.getNodes();
         const nodeById = new Map(nodes.map((n) => [n.id, n]));
-        const srcNode = nodeById.get(edge.source);
-        if (!srcNode) return null;
-
-        const sourceHandle = (edge as any).sourceHandle as string | undefined;
-        const handle = typeof sourceHandle === 'string' ? sourceHandle.trim() : '';
-
         const normalize = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 
         const toCropInfoFromImageSplit = (node: Node<any>, h: string): CropInfo | null => {
@@ -257,12 +277,6 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
             sourceHeight,
           };
         };
-
-        // ImageSplit -> Analysis：直接按 splitRects 裁切
-        if (srcNode.type === 'imageSplit') {
-          const crop = toCropInfoFromImageSplit(srcNode, handle);
-          return crop ? { kind: 'crop', crop } : null;
-        }
 
         const resolveCropFromImageChain = (
           node: Node<any>,
@@ -342,79 +356,128 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
           return resolveBaseFromImageChain(up, visited);
         };
 
-        // Image/ImagePro -> Analysis：优先读取节点 crop；否则尝试回溯其上游 imageSplit / image 链路
-        if (srcNode.type === 'image' || srcNode.type === 'imagePro') {
-          const d = (srcNode.data ?? {}) as any;
-          const baseRef = normalize(d.imageData) || normalize(d.imageUrl);
-          const derivedCrop = resolveCropFromImageChain(srcNode, new Set());
-          if (derivedCrop) {
-            return { kind: 'crop', crop: derivedCrop };
+        const resolveInputFromEdge = (edge: Edge): ConnectedInput | null => {
+          const srcNode = nodeById.get(edge.source);
+          if (!srcNode) return null;
+
+          const sourceHandle = (edge as any).sourceHandle as string | undefined;
+          const handle = typeof sourceHandle === 'string' ? sourceHandle.trim() : '';
+
+          if (srcNode.type === 'imageSplit') {
+            const crop = toCropInfoFromImageSplit(srcNode, handle);
+            return crop ? { kind: 'crop', crop } : null;
           }
 
-          const fallback =
-            baseRef ||
-            normalize(d.thumbnailDataUrl) ||
-            normalize(d.thumbnail) ||
-            resolveBaseFromImageChain(srcNode, new Set());
-          return fallback ? { kind: 'base', baseRef: fallback } : null;
-        }
+          if (srcNode.type === 'image' || srcNode.type === 'imagePro') {
+            const d = (srcNode.data ?? {}) as any;
+            const baseRef = normalize(d.imageData) || normalize(d.imageUrl);
+            const derivedCrop = resolveCropFromImageChain(srcNode, new Set());
+            if (derivedCrop) {
+              return { kind: 'crop', crop: derivedCrop };
+            }
 
-        // 其他节点：尽量读取可用图片字段作为预览
-        const d = (srcNode.data ?? {}) as any;
-        if (srcNode.type === 'generate4' || srcNode.type === 'generatePro4') {
-          const idx = handle?.startsWith('img') ? Math.max(0, Math.min(3, Number(handle.substring(3)) - 1)) : 0;
-          const urls = Array.isArray(d?.imageUrls) ? (d.imageUrls as string[]) : [];
-          const imgs = Array.isArray(d?.images) ? (d.images as string[]) : [];
-          const thumbs = Array.isArray(d?.thumbnails) ? (d.thumbnails as string[]) : [];
-          const picked = normalize(urls[idx]) || normalize(imgs[idx]) || normalize(thumbs[idx]);
-          return picked ? { kind: 'base', baseRef: picked } : null;
-        }
-        const direct =
-          normalize(d.imageData) ||
-          normalize(d.imageUrl) ||
-          normalize(d.outputImage) ||
-          normalize(d.thumbnailDataUrl) ||
-          normalize(d.thumbnail);
-        return direct ? { kind: 'base', baseRef: direct } : null;
+            const fallback =
+              baseRef ||
+              normalize(d.thumbnailDataUrl) ||
+              normalize(d.thumbnail) ||
+              resolveBaseFromImageChain(srcNode, new Set());
+            return fallback ? { kind: 'base', baseRef: fallback } : null;
+          }
+
+          const d = (srcNode.data ?? {}) as any;
+          if (srcNode.type === 'generate4' || srcNode.type === 'generatePro4') {
+            const idx = handle?.startsWith('img') ? Math.max(0, Math.min(3, Number(handle.substring(3)) - 1)) : 0;
+            const urls = Array.isArray(d?.imageUrls) ? (d.imageUrls as string[]) : [];
+            const imgs = Array.isArray(d?.images) ? (d.images as string[]) : [];
+            const thumbs = Array.isArray(d?.thumbnails) ? (d.thumbnails as string[]) : [];
+            const picked = normalize(urls[idx]) || normalize(imgs[idx]) || normalize(thumbs[idx]);
+            return picked ? { kind: 'base', baseRef: picked } : null;
+          }
+          const direct =
+            normalize(d.imageData) ||
+            normalize(d.imageUrl) ||
+            normalize(d.outputImage) ||
+            normalize(d.thumbnailDataUrl) ||
+            normalize(d.thumbnail);
+          return direct ? { kind: 'base', baseRef: direct } : null;
+        };
+
+        const out: ConnectedInputPreview[] = [];
+        edgeWithOrder.forEach(({ edge, index }) => {
+          const resolved = resolveInputFromEdge(edge);
+          if (!resolved) return;
+          if (resolved.kind === 'crop') {
+            out.push({
+              id: `${edge.id || edge.source}-${index}-crop`,
+              baseRef: resolved.crop.baseRef,
+              crop: resolved.crop,
+            });
+            return;
+          }
+          out.push({
+            id: `${edge.id || edge.source}-${index}-base`,
+            baseRef: resolved.baseRef,
+          });
+        });
+
+        return out.slice(0, MAX_INPUT_PREVIEWS);
       },
       [id]
     )
   );
 
   const fallbackRaw = React.useMemo(() => (data.imageData || data.imageUrl)?.trim() || '', [data.imageData, data.imageUrl]);
-  const fallbackAssetId = React.useMemo(() => parseFlowImageAssetRef(fallbackRaw), [fallbackRaw]);
-  const fallbackAssetUrl = useFlowImageAssetUrl(fallbackAssetId);
-  const fallbackPreviewSrc = React.useMemo(() => {
-    if (fallbackAssetId) return fallbackAssetUrl || undefined;
-    return buildImageSrc(fallbackRaw);
-  }, [fallbackAssetId, fallbackAssetUrl, fallbackRaw]);
+  const inputPreviews = React.useMemo<ConnectedInputPreview[]>(() => {
+    if (connectedInputPreviews.length > 0) return connectedInputPreviews;
+    if (!fallbackRaw) return [];
+    return [
+      {
+        id: `${id}-fallback`,
+        baseRef: fallbackRaw,
+      },
+    ];
+  }, [connectedInputPreviews, fallbackRaw, id]);
 
   React.useEffect(() => {
-    if (incomingEdge) return;
+    if (incomingEdges.length > 0) return;
     if (!data.imageData && !data.imageUrl) return;
     window.dispatchEvent(
       new CustomEvent('flow:updateNodeData', {
         detail: { id, patch: { imageData: undefined, imageUrl: undefined } },
       })
     );
-  }, [incomingEdge, data.imageData, data.imageUrl, id]);
+  }, [incomingEdges.length, data.imageData, data.imageUrl, id]);
 
-  const connectedBaseRef = connectedInput?.kind === 'crop'
-    ? connectedInput.crop.baseRef
-    : connectedInput?.kind === 'base'
-      ? connectedInput.baseRef
-      : '';
-  const connectedAssetId = React.useMemo(() => parseFlowImageAssetRef(connectedBaseRef), [connectedBaseRef]);
-  const connectedAssetUrl = useFlowImageAssetUrl(connectedAssetId);
-  const connectedBaseSrc = React.useMemo(() => {
-    if (!connectedBaseRef) return undefined;
-    if (connectedAssetId) return connectedAssetUrl || undefined;
-    return buildImageSrc(connectedBaseRef);
-  }, [connectedAssetId, connectedAssetUrl, connectedBaseRef]);
-
-  const hasAnyInput = Boolean(connectedInput || fallbackPreviewSrc);
+  const hasAnyInput = inputPreviews.length > 0;
+  const incomingImageCount = incomingEdges.length;
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
+  const [previewValue, setPreviewValue] = React.useState('');
+  const defaultPreviewValue = inputPreviews[0]?.baseRef || '';
+  const effectivePreviewValue = previewValue || defaultPreviewValue;
+  const previewAssetId = React.useMemo(
+    () => parseFlowImageAssetRef(effectivePreviewValue),
+    [effectivePreviewValue]
+  );
+  const previewAssetUrl = useFlowImageAssetUrl(previewAssetId);
+  const previewSrc = React.useMemo(() => {
+    if (!effectivePreviewValue) return '';
+    if (previewAssetId) return previewAssetUrl || '';
+    return buildImageSrc(effectivePreviewValue) || '';
+  }, [effectivePreviewValue, previewAssetId, previewAssetUrl]);
+  const openPreview = React.useCallback((value: string) => {
+    const next = value.trim();
+    if (!next) return;
+    setPreviewValue(next);
+    setPreview(true);
+  }, []);
+  React.useEffect(() => {
+    if (!previewValue) return;
+    const stillExists = inputPreviews.some((item) => item.baseRef === previewValue);
+    if (!stillExists) {
+      setPreviewValue('');
+    }
+  }, [inputPreviews, previewValue]);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
   const imageModel = React.useMemo(
     () => getImageModelForProvider(aiProvider),
@@ -443,12 +506,21 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
 
   const readConnectedExtraPrompt = React.useCallback((): string => {
     try {
-      const edge = rf.getEdges().find((e) => e.target === id && e.targetHandle === 'text');
-      if (!edge?.source) return '';
-      const src = rf.getNode(edge.source);
-      const sourceHandle =
-        typeof edge.sourceHandle === 'string' ? edge.sourceHandle : undefined;
-      return resolveTextFromSourceNode(src, sourceHandle)?.trim() ?? '';
+      const edges = rf.getEdges().filter((e) => e.target === id && e.targetHandle === 'text');
+      if (edges.length === 0) return '';
+
+      const promptParts = edges
+        .map((edge) => {
+          if (!edge?.source) return '';
+          const src = rf.getNode(edge.source);
+          const sourceHandle =
+            typeof edge.sourceHandle === 'string' ? edge.sourceHandle : undefined;
+          return resolveTextFromSourceNode(src, sourceHandle)?.trim() ?? '';
+        })
+        .filter((text) => text.length > 0);
+
+      if (promptParts.length === 0) return '';
+      return Array.from(new Set(promptParts)).join('\n\n');
     } catch {
       return '';
     }
@@ -687,26 +759,48 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
         return null;
       };
 
-      const resolveAnalyzeSource = async (): Promise<string> => {
-        const edge = incomingEdge || rf.getEdges().find((e) => e.target === id && (e.targetHandle === 'img' || e.targetHandle === 'image' || !e.targetHandle));
-        if (edge) {
-          const srcNode = rf.getNode(edge.source);
-          if (srcNode) {
-            const dataUrl = await resolveNodeImageToDataUrl(srcNode as any, (edge as any).sourceHandle, new Set());
-            if (dataUrl) return dataUrl;
-          }
+      const resolveAnalyzeSources = async (): Promise<string[]> => {
+        const edges = incomingEdges.length
+          ? incomingEdges
+          : rf.getEdges().filter(
+              (e) =>
+                e.target === id &&
+                (e.targetHandle === 'img' || e.targetHandle === 'image' || !e.targetHandle)
+            );
+        if (edges.length) {
+          const sourceCandidates = await Promise.all(
+            edges.map(async (edge) => {
+              const srcNode = rf.getNode(edge.source);
+              if (!srcNode) return '';
+              const dataUrl = await resolveNodeImageToDataUrl(
+                srcNode as any,
+                (edge as any).sourceHandle,
+                new Set()
+              );
+              return dataUrl?.trim() || '';
+            })
+          );
+          const normalized = Array.from(new Set(sourceCandidates.filter((value) => value.length > 0)));
+          if (normalized.length) return normalized;
         }
 
         const raw = (data.imageData || data.imageUrl)?.trim() || '';
         if (!raw) throw new Error(lt('缺少图片输入', 'Missing image input'));
         const dataUrl = await resolveImageToDataUrl(raw, { preferProxy: true });
         if (!dataUrl) throw new Error(lt('图片加载失败', 'Image load failed'));
-        return dataUrl;
+        return [dataUrl];
       };
+
+      const analysisSources = await resolveAnalyzeSources();
+      const primarySource = analysisSources[0];
+      if (!primarySource) {
+        throw new Error(lt('缺少图片输入', 'Missing image input'));
+      }
 
       const result = await aiImageService.analyzeImage({
         prompt: promptToUse,
-        sourceImage: await resolveAnalyzeSource(),
+        sourceImage: primarySource,
+        sourceImages: analysisSources.length > 1 ? analysisSources : undefined,
         aiProvider,
         model: imageModel,
       });
@@ -738,7 +832,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [aiProvider, data.analysisPrompt, data.imageData, data.imageUrl, defaultAnalysisPrompt, hasAnyInput, id, imageModel, incomingEdge, isAnalyzing, lt, readConnectedExtraPrompt, rf, status]);
+  }, [aiProvider, data.analysisPrompt, data.imageData, data.imageUrl, defaultAnalysisPrompt, hasAnyInput, id, imageModel, incomingEdges, isAnalyzing, lt, readConnectedExtraPrompt, rf, status]);
 
   React.useEffect(() => {
     const handler = (event: Event) => {
@@ -809,44 +903,58 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
         </button>
       </div>
 
-      <div
-        onDoubleClick={() => hasAnyInput && setPreview(true)}
-        style={{
-          width: '100%',
-          height: 140,
-          background: '#fff',
-          borderRadius: 6,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          overflow: 'hidden',
-          border: '1px solid #eef0f2',
-        }}
-        title={hasAnyInput ? 'Double click to preview' : undefined}
-      >
-        {connectedInput?.kind === 'crop' && connectedBaseSrc ? (
-          <CanvasCropPreview
-            src={connectedBaseSrc}
-            rect={connectedInput.crop.rect}
-            sourceWidth={connectedInput.crop.sourceWidth}
-            sourceHeight={connectedInput.crop.sourceHeight}
-          />
-        ) : connectedBaseSrc ? (
-          <SmartImage
-            src={connectedBaseSrc}
-            alt=""
-            style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff' }}
-          />
-        ) : fallbackPreviewSrc ? (
-          <SmartImage
-            src={fallbackPreviewSrc}
-            alt=""
-            style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff' }}
-          />
-        ) : (
+      {inputPreviews.length > 0 ? (
+        <div
+          className="nodrag nopan nowheel"
+          onPointerDownCapture={(event) => {
+            event.stopPropagation();
+            event.nativeEvent.stopImmediatePropagation?.();
+          }}
+          onMouseDownCapture={(event) => {
+            event.stopPropagation();
+            event.nativeEvent.stopImmediatePropagation?.();
+          }}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            overflowX: 'auto',
+            paddingBottom: 2,
+          }}
+          title={lt('输入图顺序会影响分析结果', 'Input order affects analysis results')}
+        >
+          {inputPreviews.map((item, idx) => (
+            <InputImageThumb
+              key={item.id}
+              value={item.baseRef}
+              order={idx + 1}
+              crop={item.crop}
+              lt={lt}
+              onOpenPreview={openPreview}
+            />
+          ))}
+        </div>
+      ) : (
+        <div
+          style={{
+            width: '100%',
+            minHeight: 52,
+            borderRadius: 6,
+            border: '1px solid #eef0f2',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: '#fff',
+          }}
+        >
           <span style={{ fontSize: 12, color: '#9ca3af' }}>Waiting for image input</span>
-        )}
-      </div>
+        </div>
+      )}
+      {incomingImageCount > 1 && (
+        <div style={{ fontSize: 11, color: '#6b7280' }}>
+          {lt('已连接', 'Connected')} {incomingImageCount} {lt('张图片输入', 'image inputs')}
+        </div>
+      )}
 
       <div>
         <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4 }}>Analysis Prompt</div>
@@ -950,7 +1058,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
 
       <ImagePreviewModal
         isOpen={preview}
-        imageSrc={connectedBaseSrc || fallbackPreviewSrc || ''}
+        imageSrc={previewSrc}
         imageTitle="Analysis Preview"
         onClose={() => setPreview(false)}
         imageCollection={[]}

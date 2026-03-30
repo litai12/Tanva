@@ -1,11 +1,13 @@
 import React from "react";
-import { Handle, Position } from "reactflow";
+import { Handle, Position, useStore, type Node as FlowNode, type ReactFlowState } from "reactflow";
 import { Send as SendIcon } from "lucide-react";
 import ImagePreviewModal from "../../ui/ImagePreviewModal";
 import SmartImage from "../../ui/SmartImage";
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import { useAIChatStore } from "@/stores/aiChatStore";
 import { useLocaleText } from "@/utils/localeText";
+import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
+import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 
 type Props = {
   id: string;
@@ -37,6 +39,396 @@ const buildImageSrc = (value?: string): string => {
   return toRenderableImageSrc(trimmed) || "";
 };
 
+type ConnectedInputImage = {
+  id: string;
+  imageData: string;
+  thumbnailData?: string;
+  crop?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    sourceWidth?: number;
+    sourceHeight?: number;
+  };
+};
+
+const MAX_INPUT_PREVIEWS = 6;
+
+const normalizeImageValue = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+};
+
+const parseCropInfo = (
+  value: unknown
+):
+  | {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      sourceWidth?: number;
+      sourceHeight?: number;
+    }
+  | undefined => {
+  if (!value || typeof value !== "object") return undefined;
+  const crop = value as Record<string, unknown>;
+  const x = typeof crop.x === "number" ? crop.x : Number(crop.x ?? 0);
+  const y = typeof crop.y === "number" ? crop.y : Number(crop.y ?? 0);
+  const width =
+    typeof crop.width === "number" ? crop.width : Number(crop.width ?? 0);
+  const height =
+    typeof crop.height === "number" ? crop.height : Number(crop.height ?? 0);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || width <= 0 || height <= 0) {
+    return undefined;
+  }
+  const sourceWidth =
+    typeof crop.sourceWidth === "number"
+      ? crop.sourceWidth
+      : Number(crop.sourceWidth ?? 0);
+  const sourceHeight =
+    typeof crop.sourceHeight === "number"
+      ? crop.sourceHeight
+      : Number(crop.sourceHeight ?? 0);
+  return {
+    x,
+    y,
+    width,
+    height,
+    sourceWidth: sourceWidth > 0 ? sourceWidth : undefined,
+    sourceHeight: sourceHeight > 0 ? sourceHeight : undefined,
+  };
+};
+
+const readConnectedImagesFromNode = (
+  node: FlowNode,
+  sourceHandle?: string | null
+): ConnectedInputImage[] => {
+  const d = (node.data ?? {}) as Record<string, unknown>;
+  const getStringAt = (list: unknown, idx: number): string | undefined => {
+    if (!Array.isArray(list)) return undefined;
+    return normalizeImageValue(list[idx]);
+  };
+  const pickAt = (idx: number): ConnectedInputImage[] => {
+    const full =
+      getStringAt(d.imageUrls, idx) ||
+      getStringAt(d.images, idx) ||
+      getStringAt(d.thumbnails, idx);
+    if (!full) return [];
+    const thumb = getStringAt(d.thumbnails, idx);
+    return [{ id: `${node.id}-img${idx + 1}`, imageData: full, thumbnailData: thumb }];
+  };
+
+  if (typeof sourceHandle === "string") {
+    const singleMatch = /^img(\d+)$/.exec(sourceHandle);
+    if (singleMatch) {
+      const idx = Math.max(0, Number(singleMatch[1]) - 1);
+      return pickAt(idx);
+    }
+
+    const splitMatch = /^image(\d+)$/.exec(sourceHandle);
+    if (splitMatch) {
+      const idx = Math.max(0, Number(splitMatch[1]) - 1);
+      const splitRects = Array.isArray(d.splitRects) ? d.splitRects : [];
+      const rect = splitRects[idx];
+      const rectRecord =
+        rect && typeof rect === "object" ? (rect as Record<string, unknown>) : {};
+      const x = typeof rectRecord.x === "number" ? rectRecord.x : Number(rectRecord.x ?? 0);
+      const y = typeof rectRecord.y === "number" ? rectRecord.y : Number(rectRecord.y ?? 0);
+      const width =
+        typeof rectRecord.width === "number"
+          ? rectRecord.width
+          : Number(rectRecord.width ?? 0);
+      const height =
+        typeof rectRecord.height === "number"
+          ? rectRecord.height
+          : Number(rectRecord.height ?? 0);
+      const splitBase =
+        normalizeImageValue(d.inputImageUrl) || normalizeImageValue(d.inputImage);
+      if (
+        splitBase &&
+        Number.isFinite(x) &&
+        Number.isFinite(y) &&
+        width > 0 &&
+        height > 0
+      ) {
+        const sourceWidth =
+          typeof d.sourceWidth === "number" ? d.sourceWidth : Number(d.sourceWidth ?? 0);
+        const sourceHeight =
+          typeof d.sourceHeight === "number" ? d.sourceHeight : Number(d.sourceHeight ?? 0);
+        return [
+          {
+            id: `${node.id}-image${idx + 1}`,
+            imageData: splitBase,
+            thumbnailData: splitBase,
+            crop: {
+              x,
+              y,
+              width,
+              height,
+              sourceWidth: sourceWidth > 0 ? sourceWidth : undefined,
+              sourceHeight: sourceHeight > 0 ? sourceHeight : undefined,
+            },
+          },
+        ];
+      }
+
+      const direct = normalizeImageValue(d[`image${idx + 1}`]);
+      const splitImages = Array.isArray(d.splitImages) ? d.splitImages : [];
+      const legacyCandidate = splitImages[idx];
+      const legacy =
+        legacyCandidate && typeof legacyCandidate === "object"
+          ? normalizeImageValue((legacyCandidate as { imageData?: unknown }).imageData)
+          : undefined;
+      const value = direct || legacy;
+      return value
+        ? [{ id: `${node.id}-image${idx + 1}`, imageData: value, thumbnailData: value }]
+        : [];
+    }
+  }
+
+  if (
+    typeof sourceHandle === "string" &&
+    (sourceHandle === "images" || sourceHandle.startsWith("images-"))
+  ) {
+    const max = Math.max(
+      Array.isArray(d.imageUrls) ? d.imageUrls.length : 0,
+      Array.isArray(d.images) ? d.images.length : 0,
+      Array.isArray(d.thumbnails) ? d.thumbnails.length : 0
+    );
+    const out: ConnectedInputImage[] = [];
+    for (let idx = 0; idx < max; idx += 1) {
+      out.push(...pickAt(idx));
+    }
+    return out;
+  }
+
+  const full =
+    normalizeImageValue(d.imageData) ||
+    normalizeImageValue(d.imageUrl) ||
+    normalizeImageValue(d.outputImage) ||
+    normalizeImageValue(d.inputImage) ||
+    normalizeImageValue(d.inputImageUrl) ||
+    normalizeImageValue(d.thumbnailDataUrl) ||
+    normalizeImageValue(d.thumbnail);
+  const thumb =
+    normalizeImageValue(d.thumbnail) || normalizeImageValue(d.thumbnailDataUrl);
+  const crop = parseCropInfo(d.crop);
+
+  return full
+    ? [
+        {
+          id: node.id,
+          imageData: full,
+          thumbnailData: thumb,
+          crop,
+        },
+      ]
+    : [];
+};
+
+function InputImageCropThumb({
+  src,
+  crop,
+}: {
+  src: string;
+  crop: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    sourceWidth?: number;
+    sourceHeight?: number;
+  };
+}) {
+  const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+
+  React.useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const size = 44;
+    const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+    canvas.width = Math.max(1, Math.round(size * dpr));
+    canvas.height = Math.max(1, Math.round(size * dpr));
+    canvas.style.width = `${size}px`;
+    canvas.style.height = `${size}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, size, size);
+
+    if (!src) {
+      ctx.fillStyle = "#f3f4f6";
+      ctx.fillRect(0, 0, size, size);
+      return;
+    }
+
+    let cancelled = false;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.decoding = "async";
+    img.onload = () => {
+      if (cancelled) return;
+      const naturalW = img.naturalWidth || img.width;
+      const naturalH = img.naturalHeight || img.height;
+      if (!naturalW || !naturalH) {
+        ctx.fillStyle = "#f3f4f6";
+        ctx.fillRect(0, 0, size, size);
+        return;
+      }
+
+      const srcW =
+        typeof crop.sourceWidth === "number" && crop.sourceWidth > 0
+          ? crop.sourceWidth
+          : naturalW;
+      const srcH =
+        typeof crop.sourceHeight === "number" && crop.sourceHeight > 0
+          ? crop.sourceHeight
+          : naturalH;
+      const scaleX = srcW > 0 ? naturalW / srcW : 1;
+      const scaleY = srcH > 0 ? naturalH / srcH : 1;
+      const sx = Math.max(0, Math.min(naturalW - 1, crop.x * scaleX));
+      const sy = Math.max(0, Math.min(naturalH - 1, crop.y * scaleY));
+      const swRaw = Math.max(1, crop.width * scaleX);
+      const shRaw = Math.max(1, crop.height * scaleY);
+      const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
+      const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
+
+      const scale = Math.max(size / sw, size / sh);
+      const dw = sw * scale;
+      const dh = sh * scale;
+      const dx = (size - dw) / 2;
+      const dy = (size - dh) / 2;
+
+      ctx.clearRect(0, 0, size, size);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, size, size);
+      ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+    };
+    img.onerror = () => {
+      if (cancelled) return;
+      ctx.clearRect(0, 0, size, size);
+      ctx.fillStyle = "#f3f4f6";
+      ctx.fillRect(0, 0, size, size);
+    };
+    img.src = src;
+    return () => {
+      cancelled = true;
+    };
+  }, [crop.height, crop.sourceHeight, crop.sourceWidth, crop.width, crop.x, crop.y, src]);
+
+  return <canvas ref={canvasRef} style={{ display: "block", width: 44, height: 44 }} />;
+}
+
+function InputImageThumb({
+  value,
+  order,
+  lt,
+  crop,
+  onOpenPreview,
+}: {
+  value: string;
+  order: number;
+  lt: (zh: string, en: string) => string;
+  crop?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    sourceWidth?: number;
+    sourceHeight?: number;
+  };
+  onOpenPreview: (value: string) => void;
+}) {
+  const assetId = React.useMemo(() => parseFlowImageAssetRef(value), [value]);
+  const assetUrl = useFlowImageAssetUrl(assetId);
+  const src = assetId ? (assetUrl || undefined) : buildImageSrc(value);
+
+  return (
+    <div
+      style={{
+        position: "relative",
+        width: 44,
+        height: 44,
+        flexShrink: 0,
+      }}
+      title={lt(`输入图 ${order}`, `Input ${order}`)}
+    >
+      <button
+        type='button'
+        onClick={() => onOpenPreview(value)}
+        onPointerDownCapture={(event) => {
+          event.stopPropagation();
+          const nativeEvent = (event as React.SyntheticEvent<Element, Event>)
+            .nativeEvent as Event & { stopImmediatePropagation?: () => void };
+          nativeEvent.stopImmediatePropagation?.();
+        }}
+        onMouseDownCapture={(event) => {
+          event.stopPropagation();
+          const nativeEvent = (event as React.SyntheticEvent<Element, Event>)
+            .nativeEvent as Event & { stopImmediatePropagation?: () => void };
+          nativeEvent.stopImmediatePropagation?.();
+        }}
+        style={{
+          width: "100%",
+          height: "100%",
+          borderRadius: 8,
+          overflow: "hidden",
+          border: "1px solid #d1d5db",
+          background: "#f8fafc",
+          padding: 0,
+          margin: 0,
+          cursor: "pointer",
+          display: "block",
+        }}
+      >
+        {src ? (
+          crop ? (
+            <InputImageCropThumb src={src} crop={crop} />
+          ) : (
+            <SmartImage
+              src={src}
+              alt=''
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+                background: "#fff",
+              }}
+            />
+          )
+        ) : null}
+      </button>
+      <div
+        style={{
+          position: "absolute",
+          left: 4,
+          top: 4,
+          width: 14,
+          height: 14,
+          borderRadius: "999px",
+          background: "#111827",
+          color: "#fff",
+          fontSize: 9,
+          fontWeight: 700,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          border: "1px solid #fff",
+          boxShadow: "0 1px 2px rgba(0,0,0,0.28)",
+          lineHeight: 1,
+          zIndex: 2,
+        }}
+      >
+        {order}
+      </div>
+    </div>
+  );
+}
+
 function Generate4NodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const { status, error } = data;
@@ -51,10 +443,69 @@ function Generate4NodeInner({ id, data, selected }: Props) {
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
   const [previewIndex, setPreviewIndex] = React.useState<number>(0);
+  const [previewOverrideValue, setPreviewOverrideValue] = React.useState<string>("");
   const borderColor = selected ? "#2563eb" : "#e5e7eb";
   const boxShadow = selected
     ? "0 0 0 2px rgba(37,99,235,0.12)"
     : "0 1px 2px rgba(0,0,0,0.04)";
+
+  const previewOverrideAssetId = React.useMemo(
+    () => parseFlowImageAssetRef(previewOverrideValue),
+    [previewOverrideValue]
+  );
+  const previewOverrideAssetUrl = useFlowImageAssetUrl(previewOverrideAssetId);
+  const previewOverrideSrc = React.useMemo(() => {
+    if (!previewOverrideValue) return "";
+    if (previewOverrideAssetId) return previewOverrideAssetUrl || "";
+    return buildImageSrc(previewOverrideValue);
+  }, [previewOverrideAssetId, previewOverrideAssetUrl, previewOverrideValue]);
+
+  const connectedInputImages = useStore(
+    React.useCallback(
+      (state: ReactFlowState) => {
+        const edgeWithOrder = state.edges
+          .map((edge, index) => ({ edge, index }))
+          .filter(({ edge }) => {
+            if (edge.target !== id) return false;
+            const handle = edge.targetHandle;
+            if (!handle || handle === "img") return true;
+            return /^img\d+$/.test(handle);
+          })
+          .sort((a, b) => {
+            const rank = (handle?: string | null) => {
+              if (!handle || handle === "img") return 0;
+              const match = /^img(\d+)$/.exec(handle);
+              if (!match) return Number.MAX_SAFE_INTEGER;
+              return Math.max(0, Number(match[1]) - 1);
+            };
+            const rankDelta = rank(a.edge.targetHandle) - rank(b.edge.targetHandle);
+            if (rankDelta !== 0) return rankDelta;
+            return a.index - b.index;
+          });
+
+        if (edgeWithOrder.length === 0) return [] as ConnectedInputImage[];
+
+        const nodes = state.getNodes();
+        const nodeById = new Map(nodes.map((node) => [node.id, node]));
+        const out: ConnectedInputImage[] = [];
+
+        edgeWithOrder.forEach(({ edge }, edgeIdx) => {
+          const sourceNode = nodeById.get(edge.source);
+          if (!sourceNode) return;
+          const items = readConnectedImagesFromNode(sourceNode, edge.sourceHandle);
+          items.forEach((item, itemIdx) => {
+            out.push({
+              ...item,
+              id: `${edge.id || edge.source}-${edgeIdx}-${item.id}-${itemIdx}`,
+            });
+          });
+        });
+
+        return out.slice(0, MAX_INPUT_PREVIEWS);
+      },
+      [id]
+    )
+  );
 
   const onRun = React.useCallback(() => {
     data.onRun?.(id);
@@ -63,6 +514,13 @@ function Generate4NodeInner({ id, data, selected }: Props) {
   const onSend = React.useCallback(() => {
     data.onSend?.(id);
   }, [data, id]);
+
+  const openInputPreview = React.useCallback((value: string) => {
+    const next = value.trim();
+    if (!next) return;
+    setPreviewOverrideValue(next);
+    setPreview(true);
+  }, []);
 
   const updateAspectRatio = React.useCallback(
     (value: string) => {
@@ -408,6 +866,38 @@ function Generate4NodeInner({ id, data, selected }: Props) {
         </div>
       )}
 
+      {connectedInputImages.length > 0 && (
+        <div
+          className='nodrag nopan nowheel'
+          onPointerDownCapture={stopNodeDrag}
+          onMouseDownCapture={stopNodeDrag}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            overflowX: "auto",
+            paddingBottom: 2,
+            marginBottom: 8,
+          }}
+          title={lt("输入图顺序会影响融合效果", "Input order affects blending")}
+        >
+          {connectedInputImages.map((item, idx) => (
+            <InputImageThumb
+              key={item.id}
+              value={
+                item.crop
+                  ? item.imageData
+                  : item.thumbnailData || item.imageData
+              }
+              order={idx + 1}
+              lt={lt}
+              crop={item.crop}
+              onOpenPreview={openInputPreview}
+            />
+          ))}
+        </div>
+      )}
+
       {/* 2x2 预览网格 */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
         {Array.from({ length: 4 }).map((_, i) => renderCell(i))}
@@ -528,12 +1018,16 @@ function Generate4NodeInner({ id, data, selected }: Props) {
 
       <ImagePreviewModal
         isOpen={preview}
-        imageSrc={previewCollection[previewIndex]?.src || ""}
+        imageSrc={previewOverrideSrc || previewCollection[previewIndex]?.src || ""}
         imageTitle={lt('四图预览', '4-image preview')}
-        onClose={() => setPreview(false)}
-        imageCollection={previewCollection}
-        currentImageId={previewCollection[previewIndex]?.id}
+        onClose={() => {
+          setPreview(false);
+          setPreviewOverrideValue("");
+        }}
+        imageCollection={previewOverrideSrc ? [] : previewCollection}
+        currentImageId={previewOverrideSrc ? "" : previewCollection[previewIndex]?.id}
         onImageChange={(imageId: string) => {
+          if (previewOverrideSrc) return;
           const i = previewCollection.findIndex((it) => it.id === imageId);
           if (i >= 0) setPreviewIndex(i);
         }}

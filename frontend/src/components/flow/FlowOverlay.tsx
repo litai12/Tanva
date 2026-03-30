@@ -1350,7 +1350,12 @@ const FLOW_NODE_DEFAULT_SIZE = {
 
 type FlowNodeType = keyof typeof FLOW_NODE_DEFAULT_SIZE;
 
-const HIDDEN_FLOW_NODE_TYPES = new Set<FlowNodeType>(["kling26Video"]);
+const HIDDEN_FLOW_NODE_TYPES = new Set<FlowNodeType>([
+  "kling26Video",
+  "sora2Video",
+  "sora2Character",
+  "nano2",
+]);
 
 const FLOW_NODE_KEY_ALIASES: Record<string, FlowNodeType> = {
   generatereference: "generateRef",
@@ -1433,6 +1438,11 @@ const normalizeFlowNodeType = (rawType?: string): FlowNodeType | null => {
   if (fuzzyMatched) return fuzzyMatched[1];
 
   return null;
+};
+
+const isHiddenFlowNodeType = (rawType?: string): boolean => {
+  const normalized = normalizeFlowNodeType(rawType);
+  return Boolean(normalized && HIDDEN_FLOW_NODE_TYPES.has(normalized));
 };
 
 const resolveFlowNodeTypeFromConfig = (config: Partial<NodeConfig>): string => {
@@ -2157,6 +2167,10 @@ function FlowInner() {
         return config;
       })
       .filter((config) => !BETA_NODE_KEYS.has(config.nodeKey))
+      .filter((config) => {
+        const resolvedType = resolveFlowNodeTypeFromConfig(config);
+        return !isHiddenFlowNodeType(resolvedType);
+      })
       .filter((config) => config.status !== "disabled");
   }, [sortedNodeConfigs]);
 
@@ -7445,7 +7459,7 @@ function FlowInner() {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
       }
       if (targetNode?.type === "analysis") {
-        if (params.targetHandle === "img") return true; // 仅一条连接，后续替换
+        if (params.targetHandle === "img") return true; // 支持多图输入
         if (params.targetHandle === "text") return true; // 追加提示词输入，新线替换旧线
       }
       if (targetNode?.type === "videoAnalyze") {
@@ -7519,8 +7533,7 @@ function FlowInner() {
         if (
           (tgt?.type === "image" ||
             tgt?.type === "imagePro" ||
-            tgt?.type === "viewAngle" ||
-            tgt?.type === "analysis") &&
+            tgt?.type === "viewAngle") &&
           params.targetHandle === "img"
         ) {
           next = next.filter(
@@ -7572,7 +7585,6 @@ function FlowInner() {
           "minimaxSpeech",
           "tencentSpeech",
           "minimaxMusic",
-          "analysis",
         ];
         if (
           singleTextInputTypes.includes(tgt?.type || "") &&
@@ -11377,7 +11389,13 @@ function FlowInner() {
               if (!trimmed) continue;
 
               // 根据供应商处理图片格式
-              if (provider === "vidu" || provider === "viduq3-pro" || provider === "kling" || provider === "kling-o3") {
+              if (
+                provider === "vidu" ||
+                provider === "viduq3-pro" ||
+                provider === "kling" ||
+                provider === "kling-2.6" ||
+                provider === "kling-o3"
+              ) {
                 // Vidu 和 Kling 需要可访问的 URL，必须上传到 OSS
                 if (isRemoteUrl(trimmed)) {
                   referenceImageUrls.push(normalizeStableRemoteUrl(trimmed));

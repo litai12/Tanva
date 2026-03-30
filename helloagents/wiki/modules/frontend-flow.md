@@ -13,6 +13,9 @@
 ## 双语适配补充
 - `FlowOverlay` 的添加面板中，`Templates`/`Custom` 相关空态文案、模板占位文案、模板分类筛选标签已统一走双语文案；并对分类值 `其他/Other` 做显示层映射，避免英文模式下出现中文分类芯片。
 
+## 节点可见性补充
+- `FlowOverlay` 使用统一隐藏集合控制节点可见性；当前 `sora2Video`（Sora 2）、`sora2Character`（Sora2 Character）与 `nano2`（Nano2）在节点添加面板与 Quick Connect 候选中默认隐藏。
+
 ## 音频节点
 - `minimaxSpeech`：文本转语音节点，输出 `audio` 句柄。
 - `minimaxMusic`：音乐生成节点，支持 `prompt`、`lyrics`、`isInstrumental`、`lyricsOptimizer`，调用 `/api/ai/minimax-music`，输出 `audio` 句柄，可连接 `wan26` / `audioUpload` / Kling 音频输入。

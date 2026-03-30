@@ -943,8 +943,25 @@ export class MidjourneyProvider implements IAIProvider {
 
   private async buildDescribePayload(request: ImageAnalysisRequest): Promise<Record<string, any>> {
     const options = this.extractMidjourneyOptions(request.providerOptions);
+    const sourceInputs = Array.from(
+      new Set(
+        [
+          ...(Array.isArray(request.sourceImages) ? request.sourceImages : []),
+          request.sourceImage,
+        ]
+          .map((value) => (typeof value === 'string' ? value.trim() : ''))
+          .filter((value) => value.length > 0),
+      ),
+    );
+    if (!sourceInputs.length) {
+      throw new Error('Midjourney describe requires one source image.');
+    }
+    if (sourceInputs.length > 1) {
+      throw new Error('Midjourney describe currently supports only one source image.');
+    }
+
     const payload: Record<string, any> = {
-      base64: await this.ensureDataUrlAsync(request.sourceImage),
+      base64: await this.ensureDataUrlAsync(sourceInputs[0]),
       dimensions: options?.dimensions ?? 'SQUARE',
     };
 

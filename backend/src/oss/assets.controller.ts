@@ -4,14 +4,72 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { Readable } from 'node:stream';
 import { OssService } from './oss.service';
 
+const MANAGED_ASSET_KEY_REGEX = /^(projects|uploads|templates|videos|ai)\//i;
+
 @ApiTags('assets')
 @Controller('assets')
 export class AssetsController {
   constructor(private readonly oss: OssService) {}
 
+  private normalizeManagedAssetKey(raw?: string | null): string | null {
+    const value = typeof raw === 'string' ? raw.trim().replace(/^\/+/, '') : '';
+    if (!value) return null;
+    return MANAGED_ASSET_KEY_REGEX.test(value) ? value : null;
+  }
+
+  private resolveBucketOriginUrl(key: string): string | null {
+    const normalizedKey = this.normalizeManagedAssetKey(key);
+    if (!normalizedKey) return null;
+    const [bucketOriginHost] = this.oss.publicHosts();
+    if (!bucketOriginHost) return null;
+    return `https://${bucketOriginHost}/${normalizedKey}`;
+  }
+
+  private extractManagedAssetKey(
+    input?: string | null,
+    visited: Set<string> = new Set(),
+  ): string | null {
+    const trimmed = typeof input === 'string' ? input.trim() : '';
+    if (!trimmed) return null;
+    if (visited.has(trimmed)) return null;
+    visited.add(trimmed);
+
+    const direct = this.normalizeManagedAssetKey(trimmed);
+    if (direct) return direct;
+
+    try {
+      const parsed = new URL(trimmed);
+      const fromPath = this.normalizeManagedAssetKey(parsed.pathname);
+      if (fromPath) return fromPath;
+
+      const fromKeyQuery = this.normalizeManagedAssetKey(parsed.searchParams.get('key'));
+      if (fromKeyQuery) return fromKeyQuery;
+
+      const nestedUrl = parsed.searchParams.get('url');
+      if (nestedUrl && nestedUrl !== trimmed) {
+        const nested = this.extractManagedAssetKey(nestedUrl, visited);
+        if (nested) return nested;
+      }
+    } catch {
+      // ignore
+    }
+
+    return null;
+  }
+
+  private normalizeTargetUrlForFetch(rawUrl: string): string {
+    const managedKey = this.extractManagedAssetKey(rawUrl);
+    if (!managedKey) return rawUrl;
+    return this.resolveBucketOriginUrl(managedKey) || this.oss.publicUrl(managedKey);
+  }
+
   private resolveTargetUrl(params: { url?: string; key?: string }): string {
-    const key = typeof params.key === 'string' ? params.key.trim() : '';
+    const key = typeof params.key === 'string' ? params.key.trim().replace(/^\/+/, '') : '';
     if (key) {
+      const normalizedKey = this.normalizeManagedAssetKey(key);
+      if (normalizedKey) {
+        return this.resolveBucketOriginUrl(normalizedKey) || this.oss.publicUrl(normalizedKey);
+      }
       return this.oss.publicUrl(key.replace(/^\/+/, ''));
     }
 
@@ -19,7 +77,7 @@ export class AssetsController {
     if (!url) {
       throw new BadRequestException('Missing `url` or `key`');
     }
-    return url;
+    return this.normalizeTargetUrlForFetch(url);
   }
 
   private isAllowedHost(hostname: string): boolean {

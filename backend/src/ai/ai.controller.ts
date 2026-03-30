@@ -77,6 +77,8 @@ type GenerateImageUrlResult = {
   metadata?: Record<string, any>;
 };
 
+const MANAGED_IMAGE_KEY_REGEX = /^(projects|uploads|templates|videos|ai)\//i;
+
 @ApiTags('ai')
 @UseGuards(ApiKeyOrJwtGuard)
 @Controller('ai')
@@ -922,6 +924,82 @@ export class AiController {
     return parsed;
   }
 
+  private normalizeManagedImageKey(raw?: string | null): string | null {
+    const value =
+      typeof raw === 'string' ? raw.trim().replace(/^\/+/, '') : '';
+    if (!value) return null;
+    return MANAGED_IMAGE_KEY_REGEX.test(value) ? value : null;
+  }
+
+  private resolveBucketOriginImageUrl(key: string): string | null {
+    const normalizedKey = this.normalizeManagedImageKey(key);
+    if (!normalizedKey) return null;
+    const hosts = this.oss.publicHosts();
+    const bucketOriginHost = hosts[0];
+    if (!bucketOriginHost) return null;
+    return `https://${bucketOriginHost}/${normalizedKey}`;
+  }
+
+  private extractManagedAssetKeyFromImageRef(
+    input?: string | null,
+    visited: Set<string> = new Set(),
+  ): string | null {
+    const trimmed = typeof input === 'string' ? input.trim() : '';
+    if (!trimmed) return null;
+    if (visited.has(trimmed)) return null;
+    visited.add(trimmed);
+
+    const direct = this.normalizeManagedImageKey(trimmed);
+    if (direct) return direct;
+
+    try {
+      const parsed = new URL(trimmed);
+      const fromPath = this.normalizeManagedImageKey(parsed.pathname);
+      if (fromPath) return fromPath;
+
+      const fromQueryKey = this.normalizeManagedImageKey(
+        parsed.searchParams.get('key'),
+      );
+      if (fromQueryKey) return fromQueryKey;
+
+      const nestedUrl = parsed.searchParams.get('url');
+      if (nestedUrl && nestedUrl !== trimmed) {
+        const nestedKey = this.extractManagedAssetKeyFromImageRef(
+          nestedUrl,
+          visited,
+        );
+        if (nestedKey) return nestedKey;
+      }
+    } catch {
+      // ignore
+    }
+
+    return null;
+  }
+
+  private normalizeImageUrlForUpstream(urlValue: string): string {
+    const trimmed = typeof urlValue === 'string' ? urlValue.trim() : '';
+    if (!trimmed) return '';
+
+    const managedKey = this.extractManagedAssetKeyFromImageRef(trimmed);
+    if (!managedKey) return trimmed;
+
+    return (
+      this.resolveBucketOriginImageUrl(managedKey) ||
+      this.oss.publicUrl(managedKey)
+    );
+  }
+
+  private normalizeImageUrlsForUpstream(urls: string[]): string[] {
+    const out: string[] = [];
+    for (const value of urls) {
+      const trimmed = typeof value === 'string' ? value.trim() : '';
+      if (!trimmed) continue;
+      out.push(this.normalizeImageUrlForUpstream(trimmed));
+    }
+    return out;
+  }
+
   private parseAndValidateAllowedImageUrl(urlValue: string): URL {
     let parsed: URL;
     try {
@@ -962,22 +1040,58 @@ export class AiController {
   }
 
   private buildImageFetchCandidates(parsed: URL): string[] {
-    const candidates: string[] = [parsed.toString()];
-    const key = parsed.pathname.replace(/^\/+/, '');
-
-    // 对托管资源 key 增加 OSS 原生域名兜底，避免自定义 CDN 域名在服务端网络环境不可达时直接失败。
-    if (/^(projects|uploads|templates|videos)\//i.test(key)) {
-      try {
-        const canonical = this.oss.publicUrl(key);
-        if (canonical && !candidates.includes(canonical)) {
-          candidates.push(canonical);
-        }
-      } catch {
-        // ignore
+    const candidates: string[] = [];
+    const pushCandidate = (candidate?: string | null) => {
+      const value = typeof candidate === 'string' ? candidate.trim() : '';
+      if (!value) return;
+      if (!candidates.includes(value)) {
+        candidates.push(value);
       }
+    };
+
+    pushCandidate(parsed.toString());
+
+    const managedKey = this.extractManagedAssetKeyFromImageRef(parsed.toString());
+    if (managedKey) {
+      pushCandidate(this.resolveBucketOriginImageUrl(managedKey));
+      pushCandidate(this.oss.publicUrl(managedKey));
     }
 
     return candidates;
+  }
+
+  private normalizeWanI2VBodyForUpstream(body: any): any {
+    if (!body || typeof body !== 'object') return body;
+    const next: any = { ...body };
+    if (!next.input || typeof next.input !== 'object') return next;
+
+    next.input = { ...next.input };
+    if (typeof next.input.img_url === 'string' && next.input.img_url.trim()) {
+      next.input.img_url = this.normalizeImageUrlForUpstream(next.input.img_url);
+    }
+
+    return next;
+  }
+
+  private normalizeWanR2VBodyForUpstream(body: any): any {
+    if (!body || typeof body !== 'object') return body;
+    const next: any = { ...body };
+    if (!next.input || typeof next.input !== 'object') return next;
+
+    next.input = { ...next.input };
+    const rawReferenceVideos = next.input.reference_video_urls;
+    if (Array.isArray(rawReferenceVideos)) {
+      next.input.reference_video_urls = rawReferenceVideos
+        .map((item: unknown) => {
+          if (typeof item !== 'string') return '';
+          const trimmed = item.trim();
+          if (!trimmed) return '';
+          return this.normalizeImageUrlForUpstream(trimmed);
+        })
+        .filter((value: string) => Boolean(value));
+    }
+
+    return next;
   }
 
   private async fetchImageAsDataUrl(imageUrl: string): Promise<string> {
@@ -1208,6 +1322,12 @@ export class AiController {
     }
     const model = this.resolveImageModel(providerName, dto.model);
     const serviceType = this.getImageGenerationServiceType(model, providerName || undefined);
+    const normalizedImageUrlsForProvider = this.normalizeImageUrlsForUpstream(
+      (dto.imageUrls || []).filter(
+        (url): url is string =>
+          typeof url === 'string' && url.trim().length > 0,
+      ),
+    );
 
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
@@ -1256,7 +1376,9 @@ export class AiController {
                 outputFormat: dto.outputFormat,
                 providerOptions: dto.providerOptions,
                 enableWebSearch: dto.enableWebSearch,
-                imageUrls: dto.imageUrls,
+                imageUrls: normalizedImageUrlsForProvider.length
+                  ? normalizedImageUrlsForProvider
+                  : undefined,
                 googleSearch: dto.googleSearch ?? dto.enableWebSearch,
                 googleImageSearch: dto.googleImageSearch ?? dto.enableWebSearch,
                 batchMode: dto.batchMode,
@@ -1626,6 +1748,20 @@ export class AiController {
   async analyzeImage(@Body() dto: AnalyzeImageDto, @Req() req: any) {
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
+    const normalizedImages = Array.from(
+      new Set(
+        [
+          ...(Array.isArray(dto.sourceImages) ? dto.sourceImages : []),
+          ...(typeof dto.sourceImage === 'string' ? [dto.sourceImage] : []),
+        ]
+          .map((value) => (typeof value === 'string' ? value.trim() : ''))
+          .filter((value) => value.length > 0),
+      ),
+    );
+    if (normalizedImages.length === 0) {
+      throw new BadRequestException('分析图片接口需要提供 sourceImage 或 sourceImages');
+    }
+    const primarySourceImage = normalizedImages[0];
 
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
@@ -1639,7 +1775,8 @@ export class AiController {
         const provider = this.factory.getProvider(dto.model, providerName);
         const result = await provider.analyzeImage({
           prompt: dto.prompt,
-          sourceImage: dto.sourceImage,
+          sourceImage: primarySourceImage,
+          sourceImages: normalizedImages,
           model,
           providerOptions: dto.providerOptions,
         });
@@ -1652,8 +1789,13 @@ export class AiController {
       }
 
       // gemini 和 gemini-pro 都使用默认的 Gemini 服务
-      return this.imageGeneration.analyzeImage({ ...dto, customApiKey });
-    }, 1, 0, skipCredits, this.buildCreditRequestParams(providerName));
+      return this.imageGeneration.analyzeImage({
+        ...dto,
+        sourceImage: primarySourceImage,
+        sourceImages: normalizedImages,
+        customApiKey,
+      });
+    }, normalizedImages.length, 0, skipCredits, this.buildCreditRequestParams(providerName));
   }
 
   @Post('text-chat')
@@ -1770,7 +1912,8 @@ export class AiController {
 
     return this.withCredits(req, 'convert-2d-to-3d', undefined, async () => {
       const userId = req?.user?.id || req?.user?.userId || req?.user?.sub;
-      const result = await this.convert2Dto3DService.convert2Dto3D(dto.imageUrl, {
+      const normalizedImageUrl = this.normalizeImageUrlForUpstream(dto.imageUrl);
+      const result = await this.convert2Dto3DService.convert2Dto3D(normalizedImageUrl, {
         projectId: dto.projectId,
         userId: typeof userId === 'string' ? userId : undefined,
       });
@@ -1789,8 +1932,9 @@ export class AiController {
     this.logger.log('🖼️ Expand image request received');
 
     return this.withCredits(req, 'expand-image', undefined, async () => {
+      const normalizedImageUrl = this.normalizeImageUrlForUpstream(dto.imageUrl);
       const result = await this.expandImageService.expandImage(
-        dto.imageUrl,
+        normalizedImageUrl,
         dto.expandRatios,
         dto.prompt || '扩图'
       );
@@ -1817,7 +1961,10 @@ export class AiController {
       dto.referenceImageUrls?.filter((url) => typeof url === 'string' && url.trim().length > 0) ||
       [];
     const legacySingle = dto.referenceImageUrl?.trim();
-    const referenceImageUrls = legacySingle ? [...normalizedArray, legacySingle] : normalizedArray;
+    const referenceImageUrlsRaw = legacySingle
+      ? [...normalizedArray, legacySingle]
+      : normalizedArray;
+    const referenceImageUrls = this.normalizeImageUrlsForUpstream(referenceImageUrlsRaw);
     const hasCharacterMode =
       (typeof dto.characterTaskId === 'string' && dto.characterTaskId.trim().length > 0) ||
       (typeof dto.characterUrl === 'string' && dto.characterUrl.trim().length > 0);
@@ -1941,7 +2088,10 @@ export class AiController {
       dto.referenceImageUrls?.filter((url) => typeof url === 'string' && url.trim().length > 0) ||
       [];
     const legacySingle = dto.referenceImageUrl?.trim();
-    const referenceImageUrls = legacySingle ? [...normalizedArray, legacySingle] : normalizedArray;
+    const referenceImageUrlsRaw = legacySingle
+      ? [...normalizedArray, legacySingle]
+      : normalizedArray;
+    const referenceImageUrls = this.normalizeImageUrlsForUpstream(referenceImageUrlsRaw);
     const hasCharacterMode =
       (typeof dto.characterTaskId === 'string' && dto.characterTaskId.trim().length > 0) ||
       (typeof dto.characterUrl === 'string' && dto.characterUrl.trim().length > 0);
@@ -2587,10 +2737,17 @@ export class AiController {
       this.logger.warn(`Model ${dto.model} does not support image input, ignoring referenceImageUrl`);
     }
 
+    const normalizedReferenceImageUrl =
+      dto.model === 'veo3-pro-frames' &&
+      typeof dto.referenceImageUrl === 'string' &&
+      dto.referenceImageUrl.trim()
+        ? this.normalizeImageUrlForUpstream(dto.referenceImageUrl)
+        : undefined;
+
     const result = await this.veoVideoService.generateVideo({
       prompt: dto.prompt,
       model: dto.model,
-      referenceImageUrl: dto.model === 'veo3-pro-frames' ? dto.referenceImageUrl : undefined,
+      referenceImageUrl: normalizedReferenceImageUrl,
     });
 
     return result;
@@ -2704,6 +2861,7 @@ export class AiController {
       }
 
       const dashUrl = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis';
+      const normalizedBody = this.normalizeWanI2VBodyForUpstream(body);
 
       try {
         const response = await fetch(dashUrl, {
@@ -2713,7 +2871,7 @@ export class AiController {
             Authorization: `Bearer ${dashKey}`,
             'X-DashScope-Async': 'enable',
           },
-          body: JSON.stringify(body),
+          body: JSON.stringify(normalizedBody),
         });
 
         const data = await response.json().catch(() => ({}));
@@ -2852,6 +3010,7 @@ export class AiController {
       }
 
       const dashUrl = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis';
+      const normalizedBody = this.normalizeWanR2VBodyForUpstream(body);
 
       try {
         const response = await fetch(dashUrl, {
@@ -2861,7 +3020,7 @@ export class AiController {
             Authorization: `Bearer ${dashKey}`,
             'X-DashScope-Async': 'enable',
           },
-          body: JSON.stringify(body),
+          body: JSON.stringify(normalizedBody),
         });
 
         const data = await response.json().catch(() => ({}));

@@ -254,6 +254,43 @@ const clamp01 = (value: number): number => {
   return Math.min(1, Math.max(0, value));
 };
 
+const resolveRenderedImageBlobFromRaster = async (
+  imageId: string
+): Promise<Blob | null> => {
+  if (!imageId) return null;
+  try {
+    const project = paper?.project as any;
+    const rasterClass = (paper as any).Raster;
+    if (!project?.getItems || !rasterClass) return null;
+    const rasters = project.getItems({ class: rasterClass }) as any[];
+    for (const raster of rasters) {
+      if (!raster) continue;
+      const rid =
+        raster?.data?.imageId ||
+        raster?.parent?.data?.imageId ||
+        raster?.data?.id ||
+        raster?.id;
+      if (String(rid) !== String(imageId)) continue;
+      const sourceCanvas = (raster as any)?.canvas as
+        | HTMLCanvasElement
+        | OffscreenCanvas
+        | undefined;
+      if (!sourceCanvas) continue;
+      const width = Number((sourceCanvas as any)?.width ?? 0);
+      const height = Number((sourceCanvas as any)?.height ?? 0);
+      if (!(width > 0 && height > 0)) continue;
+      try {
+        const blob = await canvasToBlob(sourceCanvas, {
+          type: "image/png",
+          quality: 0.92,
+        });
+        if (blob && blob.size > 0) return blob;
+      } catch {}
+    }
+  } catch {}
+  return null;
+};
+
 const loadImageFromBlob = async (blob: Blob): Promise<HTMLImageElement> => {
   const objectUrl = URL.createObjectURL(blob);
   try {
@@ -2988,9 +3025,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   const mergeDrawPathIntoImage = useCallback(
     async (path: paper.Path, target: DrawMergeTarget): Promise<boolean> => {
-      const baseBlob = await resolveImageToBlob(target.imageSource, {
-        preferProxy: true,
-      });
+      const renderedBlob = await resolveRenderedImageBlobFromRaster(target.imageId);
+      const baseBlob =
+        renderedBlob ||
+        (await resolveImageToBlob(target.imageSource, {
+          preferProxy: true,
+        }));
       if (!baseBlob) return false;
 
       const baseImage = await loadImageFromBlob(baseBlob);
@@ -3128,6 +3168,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         quality: 0.92,
       });
       const previewUrl = URL.createObjectURL(mergedBlob);
+      const uploadDir = projectId
+        ? `projects/${projectId}/images/`
+        : "uploads/images/";
+      const { key: plannedKey } = generateOssKey({
+        projectId,
+        dir: uploadDir,
+        fileName: target.fileName,
+        contentType: "image/png",
+      });
 
       window.dispatchEvent(
         new CustomEvent("canvas:replace-image-source", {
@@ -3137,6 +3186,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             bounds: target.imageBounds,
             contentType: "image/png",
             fileName: target.fileName,
+            key: plannedKey,
+            clearRemoteUrl: true,
             width: pixelWidth,
             height: pixelHeight,
             historyLabel: "merge-brush-into-image",
@@ -3147,9 +3198,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       void (async () => {
         try {
-          const uploadDir = projectId
-            ? `projects/${projectId}/images/`
-            : "uploads/images/";
           const uploadResult = await imageUploadService.uploadImageSource(
             mergedBlob,
             {
@@ -3157,6 +3205,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               dir: uploadDir,
               fileName: target.fileName,
               contentType: "image/png",
+              key: plannedKey,
             }
           );
 
@@ -3361,9 +3410,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         logger.debug("路径完成:", completedPath);
 
         // 检查 Paper.js 项目状态后再触发保存
-        if (paper && paper.project && paper.view) {
+        if (!mergeTarget && paper && paper.project && paper.view) {
           paperSaveService.triggerAutoSave();
-        } else {
+        } else if (!mergeTarget) {
           console.warn("⚠️ Paper.js项目状态异常，跳过自动保存");
         }
       },

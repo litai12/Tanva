@@ -42,6 +42,26 @@ function isAssetProxyPath(pathname: string): boolean {
   return pathname === "/api/assets/proxy" || pathname === "/assets/proxy";
 }
 
+function shouldForceProxyHost(hostname: string): boolean {
+  const lower = typeof hostname === "string" ? hostname.trim().toLowerCase() : "";
+  if (!lower) return false;
+  return lower === "tgtai.com" || lower.endsWith(".tgtai.com");
+}
+
+function shouldForceProxyUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return shouldForceProxyHost(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function buildAssetProxyUrl(remoteUrl: string, apiBase: string): string {
+  const frontendBase = import.meta.env.DEV ? getFrontendOrigin() : apiBase;
+  return `${frontendBase}/api/assets/proxy?url=${encodeURIComponent(remoteUrl)}`;
+}
+
 // 是否启用前端代理 OSS 资源（可通过 VITE_PROXY_ASSETS 控制，默认 false）
 function shouldProxyAssets(): boolean {
   const raw = import.meta.env.VITE_PROXY_ASSETS as string | undefined;
@@ -128,6 +148,9 @@ export function proxifyRemoteAssetUrl(
   if (looksLikeVideo) {
     try {
       const url = new URL(value);
+      if (shouldForceProxyHost(url.hostname)) {
+        return buildAssetProxyUrl(value, apiBase);
+      }
       const allowedHosts = [
         ".aliyuncs.com",
         "models.kapon.cloud",
@@ -162,7 +185,7 @@ export function proxifyRemoteAssetUrl(
   ) {
     if (!proxyEnabled) {
       const direct = tryUnwrapAssetProxyUrl(value);
-      if (direct) return direct;
+      if (direct && !shouldForceProxyUrl(direct)) return direct;
     }
     // 开发模式使用当前前端 origin，生产使用后端配置
     const frontendBase = import.meta.env.DEV
@@ -180,7 +203,7 @@ export function proxifyRemoteAssetUrl(
     if (isAssetProxyPath(url.pathname)) {
       if (!proxyEnabled) {
         const direct = tryUnwrapAssetProxyUrl(url.toString());
-        if (direct) return direct;
+        if (direct && !shouldForceProxyUrl(direct)) return direct;
       }
       const frontendBase = import.meta.env.DEV
         ? getFrontendOrigin()
@@ -190,6 +213,10 @@ export function proxifyRemoteAssetUrl(
     }
 
     if (url.hostname === window.location.hostname) return input;
+
+    if (shouldForceProxyHost(url.hostname)) {
+      return buildAssetProxyUrl(value, apiBase);
+    }
 
     // 默认仅考虑代理 OSS/aliyuncs 公网资源，避免把任意外部 URL 变成依赖后端的"通用代理"
     const allowedHosts = [
@@ -223,6 +250,5 @@ export function proxifyRemoteAssetUrl(
   }
 
   // 开发使用当前前端 origin（便于局域网/隧道访问），生产使用后端 apiBase
-  const frontendBase = import.meta.env.DEV ? getFrontendOrigin() : apiBase;
-  return `${frontendBase}/api/assets/proxy?url=${encodeURIComponent(value)}`;
+  return buildAssetProxyUrl(value, apiBase);
 }
