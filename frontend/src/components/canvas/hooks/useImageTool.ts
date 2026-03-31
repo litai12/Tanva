@@ -16,6 +16,7 @@ import {
   normalizePersistableImageRef,
   toRenderableImageSrc,
 } from '@/utils/imageSource';
+import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import type {
   ImageInstance,
   ImageDragState,
@@ -39,7 +40,42 @@ const setRasterSourceSafely = (raster: paper.Raster, source: string) => {
       return;
     } catch {}
   }
-  raster.source = value;
+  const renderable = toRenderableImageSrc(value) || value;
+  const fallbackTarget = (() => {
+    try {
+      if (isAssetKeyRef(value)) {
+        return proxifyRemoteAssetUrl(
+          `/api/assets/proxy?key=${encodeURIComponent(value.replace(/^\/+/, ''))}`,
+          { forceProxy: true },
+        );
+      }
+      if (isRemoteUrl(renderable)) {
+        return proxifyRemoteAssetUrl(renderable, { forceProxy: true });
+      }
+    } catch {}
+    return '';
+  })();
+
+  if (fallbackTarget && fallbackTarget !== renderable) {
+    try {
+      const img = new Image();
+      img.onload = () => {
+        try { (raster as any).setImage(img); } catch {}
+      };
+      img.onerror = () => {
+        try {
+          const retry = new Image();
+          retry.onload = () => {
+            try { (raster as any).setImage(retry); } catch {}
+          };
+          retry.src = fallbackTarget;
+        } catch {}
+      };
+      img.src = renderable;
+      return;
+    } catch {}
+  }
+  raster.source = renderable;
 };
 
 const trimString = (value?: string | null): string =>
@@ -55,8 +91,9 @@ const pickRuntimeImageSource = (params: {
     .map((candidate) => trimString(candidate))
     .find((candidate) => candidate.length > 0) || '';
 
-  // 上传中优先使用本地预览；否则优先可持久化引用，避免刷新后使用失效 blob: 导致“幽灵图”
-  if (params.pendingUpload && local) return local;
+  // 仅当没有可用远程/可持久化引用时，上传中才使用本地预览。
+  // 若已有 remoteUrl/url/key，应优先走远程源，减少长期依赖 blob:。
+  if (params.pendingUpload && local && !persisted) return local;
   return persisted || local;
 };
 

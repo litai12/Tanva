@@ -139,6 +139,17 @@ export async function fetchWithAuth(
   init?: AuthFetchInit
 ): Promise<Response> {
   const { allowRefresh = true, auth = "auto", ...rest } = init || {};
+  const rawUrl = resolveRequestUrl(input).trim().toLowerCase();
+  if (rawUrl.startsWith("blob:")) {
+    return new Response(null, { status: 410, statusText: "blob-url-skipped" });
+  }
+  if (rawUrl.startsWith("data:")) {
+    const directInit: RequestInit = {
+      ...rest,
+      credentials: "omit",
+    };
+    return fetch(input, directInit);
+  }
   const normalized = normalizeInit({ ...rest, auth });
   const response = await fetch(input, normalized);
   if (response.status !== 401 && response.status !== 403) {

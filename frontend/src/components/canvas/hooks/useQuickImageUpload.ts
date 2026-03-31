@@ -13,7 +13,6 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import { useImageHistoryStore } from '@/stores/imageHistoryStore';
 import { isRaster } from '@/utils/paperCoords';
 import { createImageGroupBlock } from '@/utils/paperImageGroupBlock';
-import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import {
     isAssetKeyRef,
     isAssetProxyRef,
@@ -60,20 +59,23 @@ const toPreferredRemoteSource = (value: string): string => {
     const trimmed = typeof value === 'string' ? value.trim() : '';
     if (!trimmed || !isRemoteUrl(trimmed)) return value;
     try {
-        // 远程链接优先走 assets proxy（强制模式），降低跨域/弱网下直连失败率。
-        return proxifyRemoteAssetUrl(trimmed, { forceProxy: true }) || trimmed;
+        // 远程展示优先直连（尤其 OSS），失败时由 onError 再回退 proxy。
+        return toRenderableImageSrc(trimmed) || trimmed;
     } catch {
         return trimmed;
     }
 };
 
 const pickRasterSource = (asset: StoredImageAsset): { source: string; remoteUrl?: string; key?: string } => {
+    const normalizedRemote = normalizePersistableImageRef(asset.remoteUrl);
     const normalizedUrl = normalizePersistableImageRef(asset.url);
     const normalizedSrc = normalizePersistableImageRef(asset.src);
     const normalizedKey = normalizePersistableImageRef(asset.key);
 
     // remoteUrl 仅用于“回退到直连”/一些需要 http(s) 的能力
-    const remoteUrl = isRemoteUrl(normalizedSrc)
+    const remoteUrl = isRemoteUrl(normalizedRemote)
+        ? normalizedRemote
+        : isRemoteUrl(normalizedSrc)
         ? normalizedSrc
         : isRemoteUrl(normalizedUrl)
             ? normalizedUrl
@@ -86,11 +88,18 @@ const pickRasterSource = (asset: StoredImageAsset): { source: string; remoteUrl?
             : undefined;
 
     // 显示优先：localDataUrl（预览/占位）-> key -> src/url
+    const localPreview = isInlineDataUrl(asset.localDataUrl) ? asset.localDataUrl : undefined;
+    const stableRemoteCandidate =
+        normalizedRemote ||
+        (isRemoteUrl(normalizedSrc) ? normalizedSrc : undefined) ||
+        (isRemoteUrl(normalizedUrl) ? normalizedUrl : undefined);
     const displayCandidate =
-        (isInlineDataUrl(asset.localDataUrl) ? asset.localDataUrl : undefined) ||
+        stableRemoteCandidate ||
         key ||
         normalizedSrc ||
         normalizedUrl ||
+        (asset.pendingUpload ? localPreview : undefined) ||
+        localPreview ||
         asset.url;
 
     const renderable = toRenderableImageSrc(displayCandidate) || displayCandidate;
@@ -1172,10 +1181,19 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     : isInlineDataUrl(imagePayload.src)
                         ? imagePayload.src
                         : undefined;
+            const normalizedRemote = normalizePersistableImageRef(imagePayload.remoteUrl);
+            const normalizedKey = normalizePersistableImageRef(imagePayload.key);
+            const normalizedUrl = normalizePersistableImageRef(imagePayload.url);
+            const normalizedSrc = normalizePersistableImageRef(imagePayload.src);
+            const persistableCandidate =
+                normalizedRemote ||
+                (isAssetKeyRef(normalizedKey) ? normalizedKey : '') ||
+                normalizedUrl ||
+                normalizedSrc;
             asset = {
                 ...imagePayload,
                 // 运行时展示优先使用本地 blob/data（尤其是“先关联 key 再后台上传”的场景），避免 key 尚未可用导致其它模块读图失败
-                src: inlineSource || imagePayload.src || imagePayload.url,
+                src: persistableCandidate || inlineSource || imagePayload.src || imagePayload.url,
                 localDataUrl: inlineSource,
             };
             fileName = asset.fileName || fileName;

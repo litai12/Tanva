@@ -1,4 +1,8 @@
-import { getPublicAssetBaseUrl, proxifyRemoteAssetUrl } from "@/utils/assetProxy";
+import {
+  getPublicAssetBaseUrl,
+  proxifyRemoteAssetUrl,
+  resolvePublicAssetUrlFromKey,
+} from "@/utils/assetProxy";
 import {
   FLOW_IMAGE_ASSET_PREFIX,
   getFlowImageBlob,
@@ -12,11 +16,13 @@ export type BlobUrl = `blob:${string}`;
 export type DataUrl = `data:${string}`;
 export type DataImageUrl = `data:image/${string}`;
 
+const DEFAULT_MANAGED_ASSET_HOST = "tai-tanva-ai.oss-cn-shenzhen.aliyuncs.com";
+
 // 优先使用环境变量配置的 OSS/CDN 基础地址；未配置则返回 null。
 const getOssBaseUrl = (): string | null => {
   const envBase = getPublicAssetBaseUrl();
   if (envBase) return envBase.endsWith("/") ? envBase : `${envBase}/`;
-  return null;
+  return `https://${DEFAULT_MANAGED_ASSET_HOST}/`;
 };
 
 const shouldAvoidSameOriginDirectBase = (baseUrl: string): boolean => {
@@ -121,7 +127,7 @@ const BACKEND_DEFAULT_ALLOWED_HOSTS = [
 ];
 
 const getManagedAssetHosts = (): Set<string> => {
-  const hosts = new Set<string>(["tai-tanva-ai.oss-cn-shenzhen.aliyuncs.com"]);
+  const hosts = new Set<string>([DEFAULT_MANAGED_ASSET_HOST]);
   const publicBaseHost = normalizeUrlHost(getPublicAssetBaseUrl());
   if (publicBaseHost) hosts.add(publicBaseHost);
   return hosts;
@@ -287,43 +293,41 @@ export const toRenderableImageSrc = (value?: string | null): string | null => {
   if (isBlobUrl(trimmed)) return trimmed;
   if (isAssetKeyRef(trimmed)) {
     const withoutLeading = trimmed.replace(/^\/+/, "");
-    // 展示层不拼接 VITE_ASSET_PUBLIC_BASE_URL 直连 CDN：自定义域名易出现证书 CN 不匹配，浏览器直接 <img> 会失败。
-    return proxifyRemoteAssetUrl(
-      `/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`,
-      { forceProxy: true }
-    );
+    const direct = resolvePublicAssetUrlFromKey(withoutLeading);
+    if (direct) return direct;
+    const directBase = getOssBaseUrl();
+    if (directBase && !shouldAvoidSameOriginDirectBase(directBase)) {
+      return `${directBase}${withoutLeading}`;
+    }
+    return withoutLeading.startsWith("/") ? withoutLeading : `/${withoutLeading}`;
   }
   if (isRemoteUrl(trimmed)) {
+    const managedDirect = trimmed;
+    if (isLikelyManagedAssetUrl(managedDirect)) return managedDirect;
     try {
-      const assetUrl = new URL(trimmed);
-      const pathKey = assetUrl.pathname.replace(/^\/+/, "");
-      // 完整 HTTPS URL 若路径已是托管 key（如 templates/...），仍可能指向证书 CN 不匹配的自定义 CDN；
-      // 按 key 走同源代理，由后端凭凭证取 OSS，避免浏览器直连报错。
+      const parsed = new URL(managedDirect);
+      const pathKey = parsed.pathname.replace(/^\/+/, "");
       if (isAssetKeyRef(pathKey)) {
-        return proxifyRemoteAssetUrl(
-          `/api/assets/proxy?key=${encodeURIComponent(pathKey)}`,
-          { forceProxy: true }
-        );
+        const direct = resolvePublicAssetUrlFromKey(pathKey);
+        if (direct) return direct;
+        const directBase = getOssBaseUrl();
+        if (directBase && !shouldAvoidSameOriginDirectBase(directBase)) {
+          return `${directBase}${pathKey}`;
+        }
       }
-    } catch {
-      // ignore
-    }
-    // Nano2 / Apimart 等返回的直链常在浏览器 <img> 场景被 Referer/防盗链拦截；走后端代理可稳定展示。
-    try {
-      const host = new URL(trimmed).hostname.toLowerCase();
+
+      const host = parsed.hostname.toLowerCase();
       const hotlinkSensitiveHosts = ["apimart.ai"];
       const needsDisplayProxy = hotlinkSensitiveHosts.some(
         (h) => host === h || host.endsWith(`.${h}`)
       );
       if (needsDisplayProxy) {
-        return proxifyRemoteAssetUrl(trimmed, { forceProxy: true });
+        return proxifyRemoteAssetUrl(managedDirect, { forceProxy: true });
       }
     } catch {
       // ignore
     }
-    // 统一走 asset proxy 归一化：当配置关闭代理时会保留可直连 URL；
-    // 但像 *.tgtai.com 这类需要强制代理的域名会在 proxifyRemoteAssetUrl 内被兜底处理。
-    return proxifyRemoteAssetUrl(trimmed);
+    return proxifyRemoteAssetUrl(managedDirect);
   }
   if (
     trimmed.startsWith("/") ||
@@ -479,7 +483,7 @@ export const resolveImageToDataUrl = async (
     }
   }
 
-  console.warn(`[resolveImageToDataUrl] 所有候选 URL 均失败`);
+  console.warn("[resolveImageToDataUrl] 所有候选 URL 均失败");
   return null;
 };
 

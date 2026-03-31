@@ -35,6 +35,24 @@ class PaperSaveService {
   private rasterLoadHooked = new WeakSet<object>();
   private persistableImageRefMap: Map<string, string> | null = null;
   private imageObjectUrlMap = new Map<string, string>();
+  private rasterCanvasBlobFallbackBlockedIds = new Set<string>();
+  private rasterCanvasBlobFallbackLoggedIds = new Set<string>();
+
+  private clearRasterCanvasBlobFallbackState(assetId?: string | null) {
+    const normalized = typeof assetId === 'string' ? assetId.trim() : '';
+    if (!normalized) return;
+    this.rasterCanvasBlobFallbackBlockedIds.delete(normalized);
+    this.rasterCanvasBlobFallbackLoggedIds.delete(normalized);
+  }
+
+  private markRasterCanvasBlobFallbackFailed(assetId?: string | null, error?: unknown) {
+    const normalized = typeof assetId === 'string' ? assetId.trim() : '';
+    if (!normalized) return;
+    this.rasterCanvasBlobFallbackBlockedIds.add(normalized);
+    if (this.rasterCanvasBlobFallbackLoggedIds.has(normalized)) return;
+    this.rasterCanvasBlobFallbackLoggedIds.add(normalized);
+    console.warn('从 Raster.canvas 兜底解析图片失败（已停止重试）:', { imageId: normalized, error });
+  }
 
   private getRasterSourceString(raster: any): string {
     try {
@@ -525,6 +543,10 @@ class PaperSaveService {
     | { kind: 'blob'; value: Blob }
     | null
   > {
+    const assetId = typeof asset.id === 'string' ? asset.id.trim() : '';
+    if (assetId && this.rasterCanvasBlobFallbackBlockedIds.has(assetId)) {
+      return null;
+    }
     try {
       const canvas = this.findRasterCanvasByImageId(asset.id);
       if (!canvas) return null;
@@ -533,10 +555,14 @@ class PaperSaveService {
           ? asset.contentType
           : 'image/png';
       const blob = await canvasToBlob(canvas, { type });
-      if (!blob || blob.size <= 0) return null;
+      if (!blob || blob.size <= 0) {
+        this.markRasterCanvasBlobFallbackFailed(assetId, new Error('无法生成Blob'));
+        return null;
+      }
+      this.clearRasterCanvasBlobFallbackState(assetId);
       return { kind: 'blob', value: blob };
     } catch (error) {
-      console.warn('从 Raster.canvas 兜底解析图片失败:', error);
+      this.markRasterCanvasBlobFallbackFailed(assetId, error);
       return null;
     }
   }
@@ -546,7 +572,7 @@ class PaperSaveService {
     | { kind: 'blob'; value: Blob }
     | null
   > {
-    const candidates = [asset.localDataUrl, asset.src, asset.url];
+    const candidates = [asset.remoteUrl, asset.url, asset.src, asset.localDataUrl];
     for (const candidate of candidates) {
       if (!candidate || typeof candidate !== 'string') continue;
       const trimmed = candidate.trim();
@@ -675,6 +701,7 @@ class PaperSaveService {
       // ⚠️ 注意：hasRemote 仅代表“引用格式可持久化”（key/url 形态），不代表对象已上传完成。
       // 若 pendingUpload=true，则仍需要走补传逻辑（避免“先关联 key + blob 预览”场景被误判为已上传而丢图）。
       if (hasRemote && !image.pendingUpload) {
+        this.clearRasterCanvasBlobFallbackState(image.id);
         const hadLocalDataUrl =
           typeof image.localDataUrl === 'string' &&
           (image.localDataUrl.startsWith('blob:') || image.localDataUrl.startsWith('data:'));
@@ -750,6 +777,7 @@ class PaperSaveService {
               image.width = image.width || uploadedAsset.width;
               image.height = image.height || uploadedAsset.height;
               image.pendingUpload = false;
+              this.clearRasterCanvasBlobFallbackState(image.id);
               delete image.localDataUrl;
               this.syncRuntimeImageAsset(
                 image.id,

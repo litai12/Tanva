@@ -940,7 +940,12 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       return;
     }
 
-    const rawSource = imageData.src || imageData.localDataUrl || imageData.url;
+    const rawSource =
+      imageData.remoteUrl ||
+      imageData.url ||
+      imageData.key ||
+      imageData.src ||
+      (imageData.pendingUpload ? imageData.localDataUrl : undefined);
     const src = rawSource ? toRenderableImageSrc(rawSource) || rawSource : "";
     if (!src) {
       setNaturalSize(null);
@@ -971,10 +976,13 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   }, [
     imageData.width,
     imageData.height,
-    imageData.url,
-    imageData.src,
-    imageData.localDataUrl,
-    isSelected,
+      imageData.remoteUrl,
+      imageData.url,
+      imageData.key,
+      imageData.src,
+      imageData.localDataUrl,
+      imageData.pendingUpload,
+      isSelected,
   ]);
 
   // 使用实时坐标进行屏幕坐标转换
@@ -1199,10 +1207,11 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const resolveImageDataUrl = useCallback(async (): Promise<string | null> => {
     const preferredSource =
       getImageDataForEditing?.(imageData.id) ||
-      imageData.src ||
-      imageData.localDataUrl ||
       imageData.remoteUrl ||
       imageData.url ||
+      imageData.key ||
+      imageData.src ||
+      (imageData.pendingUpload ? imageData.localDataUrl : undefined) ||
       null;
     const preferredFingerprint = buildImageSourceFingerprint(preferredSource);
 
@@ -1243,10 +1252,11 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     }
 
     const urlSource =
-      imageData.src ||
-      imageData.localDataUrl ||
       imageData.remoteUrl ||
       imageData.url ||
+      imageData.key ||
+      imageData.src ||
+      (imageData.pendingUpload ? imageData.localDataUrl : undefined) ||
       null;
     result = await ensureDataUrl(urlSource);
     const urlFingerprint = buildImageSourceFingerprint(urlSource);
@@ -1293,6 +1303,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   }, [
     getImageDataForEditing,
     imageData.id,
+    imageData.key,
+    imageData.pendingUpload,
     imageData.url,
     imageData.src,
     imageData.remoteUrl,
@@ -3583,10 +3595,11 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           imageBounds={realTimeBounds}
           imageId={imageData.id}
           imageUrl={
-            imageData.src ||
-            imageData.localDataUrl ||
             imageData.remoteUrl ||
             imageData.url ||
+            imageData.key ||
+            imageData.src ||
+            (imageData.pendingUpload ? imageData.localDataUrl : undefined) ||
             ""
           }
           onSelect={handleExpandSelect}

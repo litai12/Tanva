@@ -487,8 +487,8 @@ function ImageNodeInner({ id, data, selected }: Props) {
             const frame = frames[idx];
             if (!frame) return undefined;
 
-          // 节点展示优先使用缩略图（thumbnailDataUrl）；链路传递的“原图优先”在下游节点的解析里处理
-          return frame.thumbnailDataUrl || frame.imageUrl;
+          // 链路传递优先使用可持久化原图引用，缩略图仅作为兜底。
+          return frame.imageUrl || frame.thumbnailDataUrl;
         }
 
           // Image 节点 - 有输入连线时优先使用上游，避免修改上游后未更新
@@ -506,8 +506,8 @@ function ImageNodeInner({ id, data, selected }: Props) {
             }
 
             const direct =
-              (nodeData.imageData as string | undefined) ||
               (nodeData.imageUrl as string | undefined) ||
+              (nodeData.imageData as string | undefined) ||
               (nodeData.thumbnail as string | undefined);
             if (direct) return direct || undefined;
           }
@@ -515,8 +515,8 @@ function ImageNodeInner({ id, data, selected }: Props) {
           // 兜底：尽量兼容其他输出图片的节点
           const fallback =
             (nodeData.outputImage as string | undefined) ||
-            (nodeData.imageData as string | undefined) ||
             (nodeData.imageUrl as string | undefined) ||
+            (nodeData.imageData as string | undefined) ||
             (nodeData.thumbnail as string | undefined) ||
             (nodeData.img as string | undefined) ||
             (nodeData.image as string | undefined);
@@ -537,7 +537,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
 
   const inputRef = React.useRef<HTMLInputElement | null>(null);
 
-  const rawFullValue = connectedFrameImage || data.imageData || data.imageUrl;
+  const rawFullValue = connectedFrameImage || data.imageUrl || data.imageData;
   const fullAssetId = React.useMemo(() => parseFlowImageAssetRef(rawFullValue), [rawFullValue]);
   const fullAssetUrl = useFlowImageAssetUrl(fullAssetId);
   const fullSrc = React.useMemo(() => {
@@ -549,8 +549,9 @@ function ImageNodeInner({ id, data, selected }: Props) {
   const thumbAssetId = React.useMemo(() => parseFlowImageAssetRef(rawThumbValue), [rawThumbValue]);
   const thumbAssetUrl = useFlowImageAssetUrl(thumbAssetId);
   const displaySrc = React.useMemo(() => {
-    if (thumbAssetId) return thumbAssetUrl || fullSrc;
-    return buildImageSrc(rawThumbValue) || fullSrc;
+    if (fullSrc) return fullSrc;
+    if (thumbAssetId) return thumbAssetUrl || undefined;
+    return buildImageSrc(rawThumbValue);
   }, [thumbAssetId, thumbAssetUrl, rawThumbValue, fullSrc]);
 
   const nodeCropInfo = React.useMemo(() => {
@@ -1128,8 +1129,8 @@ function ImageNodeInner({ id, data, selected }: Props) {
     }
 
     const baseRef =
-      (typeof rawThumbValue === "string" && rawThumbValue.trim()) ||
       (typeof rawFullValue === "string" && rawFullValue.trim()) ||
+      (typeof rawThumbValue === "string" && rawThumbValue.trim()) ||
       displaySrc ||
       fullSrc ||
       "";

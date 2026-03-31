@@ -1000,6 +1000,94 @@ export class AiController {
     return out;
   }
 
+  private looksLikeSignedAssetUrl(url: string): boolean {
+    return /[?&](?:X-Amz|X-Tos|OSSAccessKeyId|Signature|Expires|x-oss-signature)=/i.test(url);
+  }
+
+  private isOwnManagedImageUrl(urlValue: string): boolean {
+    const trimmed = typeof urlValue === 'string' ? urlValue.trim() : '';
+    if (!trimmed || !/^https?:\/\//i.test(trimmed)) return false;
+    if (this.looksLikeSignedAssetUrl(trimmed)) return false;
+
+    try {
+      const parsed = new URL(trimmed);
+      const host = parsed.hostname.toLowerCase();
+      const ownHosts = this.oss.publicHosts().map((item) => item.toLowerCase());
+      const hostMatched = ownHosts.some(
+        (allowed) => host === allowed || host.endsWith(`.${allowed}`),
+      );
+      if (!hostMatched) return false;
+      return this.normalizeManagedImageKey(parsed.pathname) !== null;
+    } catch {
+      return false;
+    }
+  }
+
+  private collectProviderImageUrls(resultData: unknown): string[] {
+    const payload = this.asRecord(resultData);
+    if (!payload) return [];
+
+    const metadata = this.asRecord(payload.metadata);
+    const candidates: string[] = [];
+    const pushUrl = (value: unknown) => {
+      if (typeof value !== 'string') return;
+      const trimmed = value.trim();
+      if (!/^https?:\/\//i.test(trimmed)) return;
+      if (!candidates.includes(trimmed)) {
+        candidates.push(trimmed);
+      }
+    };
+    const pushUrlList = (value: unknown) => {
+      if (!Array.isArray(value)) return;
+      value.forEach((item) => pushUrl(item));
+    };
+
+    pushUrl(payload.imageUrl);
+    pushUrlList(payload.imageUrls);
+    pushUrlList(payload.images);
+
+    if (metadata) {
+      pushUrl(metadata.imageUrl);
+      pushUrlList(metadata.imageUrls);
+      pushUrlList(metadata.images);
+      pushUrl(metadata.sourceImageUrl);
+      pushUrlList(metadata.sourceImageUrls);
+    }
+
+    return candidates;
+  }
+
+  private async persistProviderImageUrlToManaged(
+    imageUrl: string,
+    req: any,
+    userId: string,
+  ): Promise<{
+    url: string;
+    sourceImageUrl: string;
+    uploaded: boolean;
+    key?: string;
+    mimeType?: string;
+    bytes?: number;
+  }> {
+    const sourceImageUrl = imageUrl.trim();
+    if (this.isOwnManagedImageUrl(sourceImageUrl)) {
+      return { url: sourceImageUrl, sourceImageUrl, uploaded: false };
+    }
+
+    const sourceImageDataUrl = await this.fetchImageAsDataUrl(sourceImageUrl);
+    const watermarked = await this.watermarkIfNeeded(sourceImageDataUrl, req);
+    const upload = await this.uploadGeneratedImageToOss(watermarked || '', { userId });
+
+    return {
+      url: upload.url,
+      sourceImageUrl,
+      uploaded: true,
+      key: upload.key,
+      mimeType: upload.mimeType,
+      bytes: upload.size,
+    };
+  }
+
   private parseAndValidateAllowedImageUrl(urlValue: string): URL {
     let parsed: URL;
     try {
@@ -1390,15 +1478,6 @@ export class AiController {
                   ...(result.data.metadata || {}),
                   ...(dto.enableWebSearch ? { webSearchEnabled: true } : {}),
                 };
-                // Midjourney 已经上传到 OSS，直接使用返回的 URL
-                const existingOssUrl = responseMetadata.imageUrl;
-                if (existingOssUrl && existingOssUrl.includes('oss')) {
-                  return {
-                    imageUrl: existingOssUrl,
-                    textResponse: result.data.textResponse || '',
-                    metadata: responseMetadata,
-                  };
-                }
 
                 // 如果有 imageData，上传到 OSS
                 if (result.data.imageData) {
@@ -1417,26 +1496,40 @@ export class AiController {
                   };
                 }
 
-                // 如果只有外部 imageUrl（如 Nano2）
-                if (result.data.imageUrl || result.data.metadata?.imageUrl) {
-                  const imageUrl = result.data.imageUrl || result.data.metadata?.imageUrl;
-
+                const providerImageUrls = this.collectProviderImageUrls(result.data);
+                if (providerImageUrls.length > 0) {
                   try {
-                    // 统一将外链图转存到 OSS，避免把临时外链（易过期）写入云端历史。
-                    // watermarkIfNeeded 内部会对管理员/白名单自动跳过水印处理。
-                    const sourceImageDataUrl = await this.fetchImageAsDataUrl(imageUrl);
-                    const watermarked = await this.watermarkIfNeeded(sourceImageDataUrl, req);
-                    const upload = await this.uploadGeneratedImageToOss(watermarked || '', { userId });
+                    const managedResults = await Promise.all(
+                      providerImageUrls.map((url) =>
+                        this.persistProviderImageUrlToManaged(url, req, userId),
+                      ),
+                    );
+                    const managedImageUrls = managedResults
+                      .map((item) => item.url)
+                      .filter((item): item is string => Boolean(item));
+
+                    if (managedImageUrls.length === 0) {
+                      throw new Error('managed image url list is empty');
+                    }
+
+                    const primaryImageUrl = managedImageUrls[0];
+                    const firstUploaded = managedResults.find((item) => item.uploaded);
                     return {
-                      imageUrl: upload.url,
+                      imageUrl: primaryImageUrl,
                       textResponse: result.data.textResponse || '',
                       metadata: {
                         ...responseMetadata,
-                        imageUrl: upload.url,
-                        imageKey: upload.key,
-                        mimeType: upload.mimeType,
-                        bytes: upload.size,
-                        sourceImageUrl: imageUrl,
+                        imageUrl: primaryImageUrl,
+                        imageUrls: managedImageUrls,
+                        sourceImageUrl: providerImageUrls[0],
+                        sourceImageUrls: providerImageUrls,
+                        ...(firstUploaded
+                          ? {
+                              imageKey: firstUploaded.key,
+                              mimeType: firstUploaded.mimeType,
+                              bytes: firstUploaded.bytes,
+                            }
+                          : {}),
                       },
                     };
                   } catch (error) {
@@ -1444,7 +1537,7 @@ export class AiController {
                       `[generate-image] 外链图片处理失败: ${this.summarizeError(error)}`
                     );
                     throw new BadGatewayException(
-                      '外链图片处理失败，请稍后重试（必要时请配置 ALLOWED_PROXY_HOSTS）'
+                      '外链图片处理失败，请稍后重试（必要时请配置 ALLOWED_PROXY_HOSTS，或检查上游 URL 是否可访问）'
                     );
                   }
                 }

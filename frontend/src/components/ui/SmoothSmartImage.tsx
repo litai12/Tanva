@@ -1,5 +1,6 @@
 import React from "react";
 import { useNonBase64ImageSrc } from "@/hooks/useNonBase64ImageSrc";
+import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 
 export type SmoothSmartImageProps = Omit<
   React.ImgHTMLAttributes<HTMLImageElement>,
@@ -34,6 +35,7 @@ const SmoothSmartImage = ({
     slot: SlotIndex;
     src: string;
   } | null>(null);
+  const proxyRetriedRef = React.useRef<Set<string>>(new Set());
 
   const [activeSlot, setActiveSlot] = React.useState<SlotIndex>(0);
   const [slotSrc, setSlotSrc] = React.useState<[string | null, string | null]>([
@@ -151,6 +153,30 @@ const SmoothSmartImage = ({
 
   const handleSlotError = React.useCallback((slot: SlotIndex) => () => {
     const srcForSlot = slotSrcRef.current[slot];
+    if (srcForSlot && /^https?:\/\//i.test(srcForSlot)) {
+      try {
+        const proxied = proxifyRemoteAssetUrl(srcForSlot, { forceProxy: true });
+        if (
+          proxied &&
+          proxied !== srcForSlot &&
+          !proxyRetriedRef.current.has(srcForSlot)
+        ) {
+          proxyRetriedRef.current.add(srcForSlot);
+          setSlotSrc((prev) => {
+            const nextSlots: [string | null, string | null] = [...prev] as any;
+            nextSlots[slot] = proxied;
+            return nextSlots;
+          });
+          setSlotReady((prev) => {
+            const nextReady: [boolean, boolean] = [...prev] as any;
+            nextReady[slot] = false;
+            return nextReady;
+          });
+          return;
+        }
+      } catch {}
+    }
+
     const pending = pendingSwapRef.current;
     if (!pending || pending.slot !== slot || pending.src !== srcForSlot) {
       return;

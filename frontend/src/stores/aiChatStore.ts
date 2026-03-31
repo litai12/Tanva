@@ -921,18 +921,58 @@ const createProcessMetrics = (): ProcessMetrics => {
 const getResultImageRemoteUrl = (
   result?: AIImageResult | null
 ): string | undefined => {
-  const directUrl =
-    typeof result?.imageUrl === "string" && result.imageUrl.trim().length > 0
-      ? result.imageUrl.trim()
-      : undefined;
-  if (directUrl) return directUrl;
+  const pickRemote = (value: unknown): string | undefined => {
+    if (typeof value !== "string") return undefined;
+    const trimmed = value.trim();
+    if (!/^https?:\/\//i.test(trimmed)) return undefined;
+    return trimmed;
+  };
+  const pickRemoteFromList = (list: unknown): string | undefined => {
+    if (!Array.isArray(list)) return undefined;
+    for (const item of list) {
+      const picked = pickRemote(item);
+      if (picked) return picked;
+    }
+    return undefined;
+  };
 
-  const metadata = result?.metadata;
-  if (!metadata) return undefined;
+  const fromRoot =
+    pickRemote((result as any)?.imageUrl) ||
+    pickRemote((result as any)?.remoteUrl) ||
+    pickRemote((result as any)?.url) ||
+    pickRemoteFromList((result as any)?.imageUrls) ||
+    pickRemoteFromList((result as any)?.urls);
+  if (fromRoot) return fromRoot;
+
+  const metadata = (result as any)?.metadata;
+  if (!metadata || typeof metadata !== "object") return undefined;
 
   const midMeta = metadata.midjourney as MidjourneyMetadata | undefined;
-  if (midMeta?.imageUrl) return midMeta.imageUrl;
-  if (typeof metadata.imageUrl === "string") return metadata.imageUrl;
+  const fromMeta =
+    pickRemote(midMeta?.imageUrl) ||
+    pickRemote((metadata as any)?.imageUrl) ||
+    pickRemote((metadata as any)?.remoteUrl) ||
+    pickRemote((metadata as any)?.url) ||
+    pickRemoteFromList((metadata as any)?.imageUrls) ||
+    pickRemoteFromList((metadata as any)?.urls);
+  if (fromMeta) return fromMeta;
+
+  const candidates = [
+    (metadata as any)?.result,
+    (metadata as any)?.output,
+    (metadata as any)?.outputs,
+    (metadata as any)?.data,
+  ];
+  for (const candidate of candidates) {
+    const picked =
+      pickRemote((candidate as any)?.imageUrl) ||
+      pickRemote((candidate as any)?.remoteUrl) ||
+      pickRemote((candidate as any)?.url) ||
+      pickRemoteFromList((candidate as any)?.imageUrls) ||
+      pickRemoteFromList((candidate as any)?.urls);
+    if (picked) return picked;
+  }
+
   return undefined;
 };
 

@@ -8841,19 +8841,66 @@ function FlowInner() {
           typeof midjourneyImageUrl === "string"
             ? midjourneyImageUrl.trim()
             : "";
-        const hasRemoteUrl = normalizedMidjourneyUrl.length > 0;
-        const previewSource = hasRemoteUrl
+        const rawHasRemoteUrl = normalizedMidjourneyUrl.length > 0;
+        const rawPreviewSource = rawHasRemoteUrl
           ? normalizedMidjourneyUrl
           : imgBase64;
-        
-        // 获取所有图片 URLs（用于 V7/Niji7 多图场景）
-        const midjourneyImageUrls = midjourneyMeta.imageUrls || metadata.imageUrls || [];
-        
+
+        let previewSource = rawPreviewSource;
+        try {
+          if (typeof rawPreviewSource === "string" && rawPreviewSource.trim()) {
+            previewSource = await uploadImageToStableUrl(
+              rawPreviewSource.trim(),
+              `flow_${node.type || "midjourney"}_${detail.nodeId}_${Date.now()}.png`,
+              { reuploadUnstableRemote: true }
+            );
+          }
+        } catch (persistErr) {
+          console.warn(
+            "[Flow] Midjourney action: failed to persist preview to stable storage",
+            persistErr
+          );
+          previewSource = rawPreviewSource;
+        }
+
+        const rawImageUrls = Array.isArray(midjourneyMeta.imageUrls)
+          ? midjourneyMeta.imageUrls
+          : Array.isArray(metadata.imageUrls)
+          ? metadata.imageUrls
+          : [];
+        const midjourneyImageUrls: string[] = [];
+        for (let idx = 0; idx < rawImageUrls.length; idx += 1) {
+          const item = rawImageUrls[idx];
+          if (typeof item !== "string" || !item.trim()) continue;
+          const trimmed = item.trim();
+          try {
+            midjourneyImageUrls.push(
+              await uploadImageToStableUrl(
+                trimmed,
+                `flow_${node.type || "midjourney"}_${detail.nodeId}_${idx}_${Date.now()}.png`,
+                { reuploadUnstableRemote: true }
+              )
+            );
+          } catch (persistErr) {
+            console.warn(
+              "[Flow] Midjourney action: failed to persist imageUrls item",
+              persistErr
+            );
+            midjourneyImageUrls.push(trimmed);
+          }
+        }
+
+        const hasRemoteUrl =
+          typeof previewSource === "string" &&
+          previewSource.trim().length > 0 &&
+          !isDataImageUrl(previewSource) &&
+          !isBlobUrl(previewSource);
+        const stableRemoteUrl = hasRemoteUrl ? previewSource : undefined;
+
         const historyId = previewSource
           ? `${detail.nodeId}-${Date.now()}`
           : undefined;
 
-        // 更新节点数据
         setNodes((ns) =>
           ns.map((n) =>
             n.id === detail.nodeId
@@ -8862,7 +8909,7 @@ function FlowInner() {
                   data: {
                     ...n.data,
                     status: "succeeded",
-                    imageData: hasRemoteUrl ? undefined : imgBase64,
+                    imageData: hasRemoteUrl ? undefined : previewSource,
                     error: undefined,
                     taskId: midjourneyMeta.taskId || detail.taskId,
                     mjApiState:
@@ -8871,11 +8918,12 @@ function FlowInner() {
                         : undefined,
                     buttons: midjourneyMeta.buttons,
                     imageUrl: hasRemoteUrl
-                      ? normalizedMidjourneyUrl
+                      ? stableRemoteUrl
                       : undefined,
-                    // 保存所有图片 URLs（用于 V7/Niji7 多图展示）
                     imageUrls: midjourneyImageUrls.length > 0
                       ? midjourneyImageUrls
+                      : hasRemoteUrl && stableRemoteUrl
+                      ? [stableRemoteUrl]
                       : undefined,
                     promptEn: midjourneyMeta.promptEn,
                     lastHistoryId: historyId ?? (n.data as any)?.lastHistoryId,
@@ -8885,14 +8933,12 @@ function FlowInner() {
           )
         );
 
-        // 生成缩略图
         if (historyId) {
-          // 记录到历史（避免依赖节点渲染，onlyRenderVisibleElements 时也可记录）
           const projectId = useProjectContentStore.getState().projectId;
           void recordImageHistoryEntry({
             id: historyId,
-            base64: hasRemoteUrl ? undefined : imgBase64,
-            remoteUrl: hasRemoteUrl ? normalizedMidjourneyUrl : undefined,
+            base64: hasRemoteUrl ? undefined : previewSource,
+            remoteUrl: hasRemoteUrl ? stableRemoteUrl : undefined,
             title: `${node.type === "niji7" ? "Niji 7" : node.type === "midjourneyV7" ? "Midjourney V7" : "Midjourney"} ${
               detail.label || "Action"
             } ${new Date().toLocaleTimeString()}`,
@@ -8908,7 +8954,7 @@ function FlowInner() {
               setNodes((ns) =>
                 ns.map((n) => {
                   if (n.id !== detail.nodeId) return n;
-                  if ((n.data as any)?.imageData !== imgBase64) return n;
+                  if ((n.data as any)?.imageData !== previewSource) return n;
                   return {
                     ...n,
                     data: {
@@ -8922,8 +8968,7 @@ function FlowInner() {
               );
             })
             .catch(() => {});
-        }
-      } catch (error) {
+        }      } catch (error) {
         const msg =
           error instanceof Error ? error.message : "Midjourney 操作失败";
         setNodes((ns) =>
@@ -12453,19 +12498,68 @@ function FlowInner() {
           const midjourneyMeta = mjMetadata.midjourney || {};
           const midjourneyImageUrl =
             midjourneyMeta.imageUrl || mjMetadata.imageUrl;
-          const normalizedMidjourneyUrl =
+          const rawMidjourneyImageUrl =
             typeof midjourneyImageUrl === "string"
               ? midjourneyImageUrl.trim()
               : "";
-          const hasRemoteUrl = normalizedMidjourneyUrl.length > 0;
-          const previewSource = hasRemoteUrl
-            ? normalizedMidjourneyUrl
-            : mjImgBase64;
+          const rawPreviewSource =
+            rawMidjourneyImageUrl.length > 0 ? rawMidjourneyImageUrl : mjImgBase64;
+
+          let previewSource = rawPreviewSource;
+          try {
+            if (typeof rawPreviewSource === "string" && rawPreviewSource.trim()) {
+              previewSource = await uploadImageToStableUrl(
+                rawPreviewSource.trim(),
+                `flow_midjourney_${nodeId}_${Date.now()}.png`,
+                { reuploadUnstableRemote: true }
+              );
+            }
+          } catch (persistErr) {
+            console.warn(
+              "[Flow] Midjourney: failed to persist preview to stable storage",
+              persistErr
+            );
+            previewSource = rawPreviewSource;
+          }
+
+          const hasRemoteUrl =
+            typeof previewSource === "string" &&
+            previewSource.trim().length > 0 &&
+            !isDataImageUrl(previewSource) &&
+            !isBlobUrl(previewSource);
+          const stableRemoteUrl = hasRemoteUrl ? previewSource : undefined;
+
+          const rawImageUrls = Array.isArray(midjourneyMeta.imageUrls)
+            ? midjourneyMeta.imageUrls
+            : Array.isArray(mjMetadata.imageUrls)
+            ? mjMetadata.imageUrls
+            : [];
+          const stableMidjourneyImageUrls: string[] = [];
+          for (let idx = 0; idx < rawImageUrls.length; idx += 1) {
+            const item = rawImageUrls[idx];
+            if (typeof item !== "string" || !item.trim()) continue;
+            const trimmed = item.trim();
+            try {
+              stableMidjourneyImageUrls.push(
+                await uploadImageToStableUrl(
+                  trimmed,
+                  `flow_midjourney_${nodeId}_${idx}_${Date.now()}.png`,
+                  { reuploadUnstableRemote: true }
+                )
+              );
+            } catch (persistErr) {
+              console.warn(
+                "[Flow] Midjourney: failed to persist imageUrls item",
+                persistErr
+              );
+              stableMidjourneyImageUrls.push(trimmed);
+            }
+          }
+
           const historyId = previewSource
             ? `${nodeId}-${Date.now()}`
             : undefined;
 
-          // 更新节点数据
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
@@ -12474,7 +12568,7 @@ function FlowInner() {
                     data: {
                       ...n.data,
                       status: "succeeded",
-                      imageData: hasRemoteUrl ? undefined : mjImgBase64,
+                      imageData: hasRemoteUrl ? undefined : previewSource,
                       error: undefined,
                       taskId: midjourneyMeta.taskId,
                       mjApiState:
@@ -12483,7 +12577,10 @@ function FlowInner() {
                           : undefined,
                       buttons: midjourneyMeta.buttons,
                       imageUrl: hasRemoteUrl
-                        ? normalizedMidjourneyUrl
+                        ? stableRemoteUrl
+                        : undefined,
+                      imageUrls: stableMidjourneyImageUrls.length > 0
+                        ? stableMidjourneyImageUrls
                         : undefined,
                       promptEn: midjourneyMeta.promptEn,
                       lastHistoryId:
@@ -12494,15 +12591,13 @@ function FlowInner() {
             )
           );
 
-          // 生成缩略图
           if (historyId) {
             const projectId = useProjectContentStore.getState().projectId;
-            // Midjourney 当前只支持纯文生图，actionLabel 固定为 "Imagine"
             const actionLabel = "Imagine";
             void recordImageHistoryEntry({
               id: historyId,
-              base64: hasRemoteUrl ? undefined : mjImgBase64,
-              remoteUrl: hasRemoteUrl ? normalizedMidjourneyUrl : undefined,
+              base64: hasRemoteUrl ? undefined : previewSource,
+              remoteUrl: hasRemoteUrl ? stableRemoteUrl : undefined,
               title: `Midjourney ${actionLabel} ${new Date().toLocaleTimeString()}`,
               nodeId,
               nodeType: "midjourney",
@@ -12522,9 +12617,8 @@ function FlowInner() {
                 const outs = rf.getEdges().filter((e) => e.source === nodeId);
                 setNodes((ns) =>
                   ns.map((n) => {
-                    // 更新当前 midjourney 节点自身
                     if (n.id === nodeId) {
-                      if ((n.data as any)?.imageData !== mjImgBase64) return n;
+                      if ((n.data as any)?.imageData !== previewSource) return n;
                       return {
                         ...n,
                         data: {
@@ -12535,12 +12629,11 @@ function FlowInner() {
                         },
                       };
                     }
-                    // 同步更新下游 Image 节点，避免把 base64 写入项目 JSON
                     if (
                       outs.some((e) => e.target === n.id) &&
                       n.type === "image"
                     ) {
-                      if ((n.data as any)?.imageData !== mjImgBase64) return n;
+                      if ((n.data as any)?.imageData !== previewSource) return n;
                       return {
                         ...n,
                         data: {
@@ -12576,7 +12669,7 @@ function FlowInner() {
                               imageUrl: normalizedMidjourneyUrl,
                               imageData: undefined,
                             }
-                          : { imageData: mjImgBase64 }),
+                          : { imageData: previewSource }),
                         thumbnail: undefined,
                       },
                     };
@@ -12725,14 +12818,64 @@ function FlowInner() {
           const midjourneyMeta = mjMetadata.midjourney || {};
           const midjourneyImageUrl =
             midjourneyMeta.imageUrl || mjMetadata.imageUrl;
-          const normalizedMidjourneyUrl =
+          const rawMidjourneyImageUrl =
             typeof midjourneyImageUrl === "string"
               ? midjourneyImageUrl.trim()
               : "";
-          const hasRemoteUrl = normalizedMidjourneyUrl.length > 0;
-          const previewSource = hasRemoteUrl
-            ? normalizedMidjourneyUrl
-            : mjImgBase64;
+          const rawPreviewSource =
+            rawMidjourneyImageUrl.length > 0 ? rawMidjourneyImageUrl : mjImgBase64;
+
+          let previewSource = rawPreviewSource;
+          try {
+            if (typeof rawPreviewSource === "string" && rawPreviewSource.trim()) {
+              previewSource = await uploadImageToStableUrl(
+                rawPreviewSource.trim(),
+                `flow_${node.type}_${nodeId}_${Date.now()}.png`,
+                { reuploadUnstableRemote: true }
+              );
+            }
+          } catch (persistErr) {
+            console.warn(
+              "[Flow] Midjourney V7/Niji7: failed to persist preview to stable storage",
+              persistErr
+            );
+            previewSource = rawPreviewSource;
+          }
+
+          const hasRemoteUrl =
+            typeof previewSource === "string" &&
+            previewSource.trim().length > 0 &&
+            !isDataImageUrl(previewSource) &&
+            !isBlobUrl(previewSource);
+          const stableRemoteUrl = hasRemoteUrl ? previewSource : undefined;
+
+          const rawImageUrls = Array.isArray(midjourneyMeta.imageUrls)
+            ? midjourneyMeta.imageUrls
+            : Array.isArray(mjMetadata.imageUrls)
+            ? mjMetadata.imageUrls
+            : [];
+          const stableMidjourneyImageUrls: string[] = [];
+          for (let idx = 0; idx < rawImageUrls.length; idx += 1) {
+            const item = rawImageUrls[idx];
+            if (typeof item !== "string" || !item.trim()) continue;
+            const trimmed = item.trim();
+            try {
+              stableMidjourneyImageUrls.push(
+                await uploadImageToStableUrl(
+                  trimmed,
+                  `flow_${node.type}_${nodeId}_${idx}_${Date.now()}.png`,
+                  { reuploadUnstableRemote: true }
+                )
+              );
+            } catch (persistErr) {
+              console.warn(
+                "[Flow] Midjourney V7/Niji7: failed to persist imageUrls item",
+                persistErr
+              );
+              stableMidjourneyImageUrls.push(trimmed);
+            }
+          }
+
           const historyId = previewSource
             ? `${nodeId}-${Date.now()}`
             : undefined;
@@ -12745,7 +12888,7 @@ function FlowInner() {
                     data: {
                       ...n.data,
                       status: "succeeded",
-                      imageData: hasRemoteUrl ? undefined : mjImgBase64,
+                      imageData: hasRemoteUrl ? undefined : previewSource,
                       error: undefined,
                       taskId: midjourneyMeta.taskId,
                       mjApiState:
@@ -12754,7 +12897,12 @@ function FlowInner() {
                           : undefined,
                       buttons: midjourneyMeta.buttons,
                       imageUrl: hasRemoteUrl
-                        ? normalizedMidjourneyUrl
+                        ? stableRemoteUrl
+                        : undefined,
+                      imageUrls: stableMidjourneyImageUrls.length > 0
+                        ? stableMidjourneyImageUrls
+                        : hasRemoteUrl && stableRemoteUrl
+                        ? [stableRemoteUrl]
                         : undefined,
                       promptEn: midjourneyMeta.promptEn,
                       lastHistoryId:
@@ -12769,8 +12917,8 @@ function FlowInner() {
             const projectId = useProjectContentStore.getState().projectId;
             void recordImageHistoryEntry({
               id: historyId,
-              base64: hasRemoteUrl ? undefined : mjImgBase64,
-              remoteUrl: hasRemoteUrl ? normalizedMidjourneyUrl : undefined,
+              base64: hasRemoteUrl ? undefined : previewSource,
+              remoteUrl: hasRemoteUrl ? stableRemoteUrl : undefined,
               title: `${actionTitle} ${new Date().toLocaleTimeString()}`,
               nodeId,
               nodeType: node.type,
@@ -12790,7 +12938,7 @@ function FlowInner() {
                 setNodes((ns) =>
                   ns.map((n) => {
                     if (n.id === nodeId) {
-                      if ((n.data as any)?.imageData !== mjImgBase64) return n;
+                      if ((n.data as any)?.imageData !== previewSource) return n;
                       return {
                         ...n,
                         data: {
@@ -12805,7 +12953,7 @@ function FlowInner() {
                       outs.some((e) => e.target === n.id) &&
                       n.type === "image"
                     ) {
-                      if ((n.data as any)?.imageData !== mjImgBase64) return n;
+                      if ((n.data as any)?.imageData !== previewSource) return n;
                       return {
                         ...n,
                         data: {
@@ -12840,7 +12988,7 @@ function FlowInner() {
                               imageUrl: normalizedMidjourneyUrl,
                               imageData: undefined,
                             }
-                          : { imageData: mjImgBase64 }),
+                          : { imageData: previewSource }),
                         thumbnail: undefined,
                       },
                     };
@@ -14764,7 +14912,7 @@ function FlowInner() {
             sendPayload = key || uploadResult.asset.url;
           }
         } catch {
-          // 淇濆瓨鏃朵粛浼氶€氳繃 resolveImageToBlob 灏濊瘯琛ヤ紶
+          // 保存时仍会通过 resolveImageToBlob 尝试补传
         }
       }
 
