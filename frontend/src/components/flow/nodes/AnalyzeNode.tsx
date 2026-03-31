@@ -75,7 +75,6 @@ function InputImageCropThumb({
 
     let cancelled = false;
     const img = new Image();
-    img.crossOrigin = 'anonymous';
     img.decoding = 'async';
     img.onload = () => {
       if (cancelled) return;
@@ -548,6 +547,18 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
       // 标记正在分析
       setIsAnalyzing(true);
 
+      const resolveFirstCandidateDataUrl = async (
+        ...candidates: unknown[]
+      ): Promise<string | null> => {
+        for (const candidate of candidates) {
+          const value = typeof candidate === 'string' ? candidate.trim() : '';
+          if (!value) continue;
+          const resolved = await resolveImageToDataUrl(value, { preferProxy: true });
+          if (resolved) return resolved;
+        }
+        return null;
+      };
+
       const cropImageToDataUrl = async (params: {
         baseRef: string;
         rect: { x: number; y: number; width: number; height: number };
@@ -687,9 +698,8 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
           }
           const legacy = Array.isArray(d.splitImages) ? d.splitImages : [];
           const legacyValue = legacy?.[idx]?.imageData;
-          if (typeof legacyValue === 'string' && legacyValue.trim()) {
-            return await resolveImageToDataUrl(legacyValue.trim(), { preferProxy: true });
-          }
+          const legacyResolved = await resolveFirstCandidateDataUrl(legacyValue);
+          if (legacyResolved) return legacyResolved;
           return null;
         }
 
@@ -708,18 +718,24 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
             const h = typeof crop.height === 'number' ? crop.height : Number(crop.height ?? 0);
             const sourceWidth = typeof crop.sourceWidth === 'number' ? crop.sourceWidth : Number(crop.sourceWidth ?? 0);
             const sourceHeight = typeof crop.sourceHeight === 'number' ? crop.sourceHeight : Number(crop.sourceHeight ?? 0);
-            const baseRef =
-              (typeof d.imageData === 'string' && d.imageData.trim()) ||
-              (typeof d.imageUrl === 'string' && d.imageUrl.trim()) ||
-              '';
-            if (baseRef && Number.isFinite(x) && Number.isFinite(y) && w > 0 && h > 0) {
-              const cropped = await cropImageToDataUrl({
-                baseRef,
-                rect: { x, y, width: w, height: h },
-                sourceWidth: sourceWidth > 0 ? sourceWidth : undefined,
-                sourceHeight: sourceHeight > 0 ? sourceHeight : undefined,
-              });
-              if (cropped) return cropped;
+            const cropBaseCandidates = Array.from(
+              new Set(
+                [
+                  typeof d.imageData === 'string' ? d.imageData.trim() : '',
+                  typeof d.imageUrl === 'string' ? d.imageUrl.trim() : '',
+                ].filter((value) => value.length > 0)
+              )
+            );
+            if (Number.isFinite(x) && Number.isFinite(y) && w > 0 && h > 0) {
+              for (const baseRef of cropBaseCandidates) {
+                const cropped = await cropImageToDataUrl({
+                  baseRef,
+                  rect: { x, y, width: w, height: h },
+                  sourceWidth: sourceWidth > 0 ? sourceWidth : undefined,
+                  sourceHeight: sourceHeight > 0 ? sourceHeight : undefined,
+                });
+                if (cropped) return cropped;
+              }
             }
           }
 
@@ -737,26 +753,22 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
           const urls = Array.isArray(d?.imageUrls) ? (d.imageUrls as string[]) : [];
           const imgs = Array.isArray(d?.images) ? (d.images as string[]) : [];
           const thumbs = Array.isArray(d?.thumbnails) ? (d.thumbnails as string[]) : [];
-          const candidate =
-            (typeof urls[idx] === 'string' && urls[idx].trim()) ||
-            (typeof imgs[idx] === 'string' && imgs[idx].trim()) ||
-            (typeof thumbs[idx] === 'string' && thumbs[idx].trim()) ||
-            (typeof d?.imageData === 'string' && d.imageData.trim()) ||
-            (typeof d?.imageUrl === 'string' && d.imageUrl.trim()) ||
-            '';
-          return candidate ? await resolveImageToDataUrl(candidate, { preferProxy: true }) : null;
+          return await resolveFirstCandidateDataUrl(
+            urls[idx],
+            imgs[idx],
+            thumbs[idx],
+            d?.imageData,
+            d?.imageUrl
+          );
         }
 
-        const direct =
-          (typeof d.imageData === 'string' && d.imageData.trim()) ||
-          (typeof d.imageUrl === 'string' && d.imageUrl.trim()) ||
-          (typeof d.outputImage === 'string' && d.outputImage.trim()) ||
-          (typeof d.thumbnailDataUrl === 'string' && d.thumbnailDataUrl.trim()) ||
-          (typeof d.thumbnail === 'string' && d.thumbnail.trim()) ||
-          '';
-        if (direct) return await resolveImageToDataUrl(direct, { preferProxy: true });
-
-        return null;
+        return await resolveFirstCandidateDataUrl(
+          d.imageData,
+          d.imageUrl,
+          d.outputImage,
+          d.thumbnailDataUrl,
+          d.thumbnail
+        );
       };
 
       const resolveAnalyzeSources = async (): Promise<string[]> => {
@@ -784,9 +796,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
           if (normalized.length) return normalized;
         }
 
-        const raw = (data.imageData || data.imageUrl)?.trim() || '';
-        if (!raw) throw new Error(lt('缺少图片输入', 'Missing image input'));
-        const dataUrl = await resolveImageToDataUrl(raw, { preferProxy: true });
+        const dataUrl = await resolveFirstCandidateDataUrl(data.imageData, data.imageUrl);
         if (!dataUrl) throw new Error(lt('图片加载失败', 'Image load failed'));
         return [dataUrl];
       };

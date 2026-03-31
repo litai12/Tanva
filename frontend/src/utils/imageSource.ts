@@ -378,35 +378,45 @@ export const resolveImageToDataUrl = async (
 
   // blob:/data:/http(s)/proxy-path/key/path 统一 fetch -> blob -> dataURL
   const candidates: string[] = [];
+  const addCandidate = (candidate?: string | null) => {
+    const normalized = typeof candidate === "string" ? candidate.trim() : "";
+    if (!normalized) return;
+    if (!candidates.includes(normalized)) candidates.push(normalized);
+  };
   if (isRemoteUrl(trimmed)) {
     console.log(`[resolveImageToDataUrl] 远程 URL`);
     const preferProxy = options?.preferProxy ?? true;
     if (preferProxy) {
       try {
-        const proxied = proxifyRemoteAssetUrl(trimmed);
-        if (proxied && proxied !== trimmed) candidates.push(proxied);
+        addCandidate(proxifyRemoteAssetUrl(trimmed));
       } catch {}
+      // 即使全局关闭了渲染代理，分析/上传链路仍应优先尝试后端代理，避免浏览器端 CORS 不稳定。
+      if (isLikelyBackendAllowedRemoteUrl(trimmed)) {
+        try {
+          addCandidate(proxifyRemoteAssetUrl(trimmed, { forceProxy: true }));
+        } catch {}
+      }
     }
-    candidates.push(trimmed);
+    addCandidate(trimmed);
   } else if (isBlobUrl(trimmed)) {
     console.log(`[resolveImageToDataUrl] blob URL`);
-    candidates.push(trimmed);
+    addCandidate(trimmed);
   } else if (isDataUrl(trimmed)) {
     console.log(`[resolveImageToDataUrl] data URL (非图片)`);
-    candidates.push(trimmed);
+    addCandidate(trimmed);
   } else if (isAssetProxyRef(trimmed)) {
     console.log(`[resolveImageToDataUrl] asset proxy 引用`);
-    candidates.push(proxifyRemoteAssetUrl(trimmed));
+    addCandidate(proxifyRemoteAssetUrl(trimmed));
   } else if (isAssetKeyRef(trimmed)) {
     console.log(`[resolveImageToDataUrl] asset key 引用`);
     const withoutLeading = trimmed.replace(/^\/+/, "");
     // 优先直接使用环境配置的公共 OSS/CDN URL，缺失时走代理
     const directBase = getOssBaseUrl();
     if (directBase && !shouldAvoidSameOriginDirectBase(directBase)) {
-      candidates.push(`${directBase}${withoutLeading}`);
+      addCandidate(`${directBase}${withoutLeading}`);
     }
     // 兜底：走代理
-    candidates.push(
+    addCandidate(
       proxifyRemoteAssetUrl(`/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`, {
         forceProxy: true,
       })
@@ -422,7 +432,7 @@ export const resolveImageToDataUrl = async (
         typeof window !== "undefined" && window.location?.origin
           ? window.location.origin
           : "http://localhost";
-      candidates.push(new URL(trimmed, base).toString());
+      addCandidate(new URL(trimmed, base).toString());
     } catch {
       // ignore
     }
@@ -493,17 +503,26 @@ export const resolveImageToBlob = async (
   }
 
   const candidates: string[] = [];
+  const addCandidate = (candidate?: string | null) => {
+    const normalized = typeof candidate === "string" ? candidate.trim() : "";
+    if (!normalized) return;
+    if (!candidates.includes(normalized)) candidates.push(normalized);
+  };
   if (isRemoteUrl(trimmed)) {
     const preferProxy = options?.preferProxy ?? true;
     if (preferProxy) {
       try {
-        const proxied = proxifyRemoteAssetUrl(trimmed);
-        if (proxied && proxied !== trimmed) candidates.push(proxied);
+        addCandidate(proxifyRemoteAssetUrl(trimmed));
       } catch {}
+      if (isLikelyBackendAllowedRemoteUrl(trimmed)) {
+        try {
+          addCandidate(proxifyRemoteAssetUrl(trimmed, { forceProxy: true }));
+        } catch {}
+      }
     }
-    candidates.push(trimmed);
+    addCandidate(trimmed);
   } else if (isBlobUrl(trimmed) || isDataUrl(trimmed)) {
-    candidates.push(trimmed);
+    addCandidate(trimmed);
   } else if (isAssetProxyRef(trimmed)) {
     // 先把 proxy 引用还原成真实可持久化引用（key 或 remote url）再递归处理，
     // 避免在未开启代理时被解包成“裸 key”后直接 fetch 失败。
@@ -511,14 +530,14 @@ export const resolveImageToBlob = async (
     if (normalized && normalized !== trimmed) {
       return await resolveImageToBlob(normalized, options);
     }
-    candidates.push(proxifyRemoteAssetUrl(trimmed, { forceProxy: true }));
+    addCandidate(proxifyRemoteAssetUrl(trimmed, { forceProxy: true }));
   } else if (isAssetKeyRef(trimmed)) {
     const withoutLeading = trimmed.replace(/^\/+/, "");
     const directBase = getOssBaseUrl();
     if (directBase && !shouldAvoidSameOriginDirectBase(directBase)) {
-      candidates.push(`${directBase}${withoutLeading}`);
+      addCandidate(`${directBase}${withoutLeading}`);
     }
-    candidates.push(
+    addCandidate(
       proxifyRemoteAssetUrl(
         `/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`,
         { forceProxy: true }
@@ -534,7 +553,7 @@ export const resolveImageToBlob = async (
         typeof window !== "undefined" && window.location?.origin
           ? window.location.origin
           : "http://localhost";
-      candidates.push(new URL(trimmed, base).toString());
+      addCandidate(new URL(trimmed, base).toString());
     } catch {
       // ignore
     }
