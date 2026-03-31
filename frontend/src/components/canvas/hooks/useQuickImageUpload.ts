@@ -19,7 +19,6 @@ import {
     isPersistableImageRef,
     isRemoteUrl,
     normalizePersistableImageRef,
-    resolveImageToObjectUrl,
     toRenderableImageSrc,
 } from '@/utils/imageSource';
 import type { DrawingContext, StoredImageAsset } from '@/types/canvas';
@@ -32,24 +31,20 @@ interface UseQuickImageUploadProps {
 
 const isInlineDataUrl = (value?: string | null): value is string => {
     if (typeof value !== 'string') return false;
-    return value.startsWith('data:image') || value.startsWith('blob:');
+    return value.startsWith('data:image');
 };
 
 const toCanvasSafeInlineImageSource = async (value: string): Promise<string> => {
     const trimmed = typeof value === 'string' ? value.trim() : '';
     if (!trimmed) return value;
-    if (trimmed.startsWith('blob:')) return trimmed;
-    if (trimmed.startsWith('data:image/')) {
-        const objectUrl = await resolveImageToObjectUrl(trimmed, { preferProxy: false });
-        return objectUrl ?? trimmed;
-    }
+    if (trimmed.startsWith('blob:')) return '';
+    if (trimmed.startsWith('data:image/')) return trimmed;
     // 兜底：裸 base64（避免在画布上直接渲染 data:image/base64）
     if (!isPersistableImageRef(trimmed) && trimmed.length > 128) {
         const compact = trimmed.replace(/\s+/g, '');
         const base64Pattern = /^[A-Za-z0-9+/=]+$/;
         if (base64Pattern.test(compact)) {
-            const objectUrl = await resolveImageToObjectUrl(`data:image/png;base64,${compact}`, { preferProxy: false });
-            return objectUrl ?? `data:image/png;base64,${compact}`;
+            return `data:image/png;base64,${compact}`;
         }
     }
     return trimmed;
@@ -102,8 +97,8 @@ const pickRasterSource = (asset: StoredImageAsset): { source: string; remoteUrl?
         localPreview ||
         asset.url;
 
-    const renderable = toRenderableImageSrc(displayCandidate) || displayCandidate;
-    const preferredSource = toPreferredRemoteSource(renderable);
+    const renderable = toRenderableImageSrc(displayCandidate);
+    const preferredSource = renderable ? toPreferredRemoteSource(renderable) : '';
     return { source: preferredSource, remoteUrl, key };
 };
 
@@ -1209,6 +1204,13 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
         const pickedSource = pickRasterSource(asset);
         let rasterSource = pickedSource.source;
+        if (!rasterSource) {
+            logger.error('快速上传缺少可渲染图片来源（blob 已禁用）');
+            if (extraOptions?.placeholderId) {
+                removePredictedPlaceholder(extraOptions.placeholderId);
+            }
+            return;
+        }
         const resolvedRemoteUrl = pickedSource.remoteUrl;
         const resolvedKey = pickedSource.key;
         let resolveRasterReady: (() => void) | undefined;
@@ -1473,15 +1475,17 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 	                try { (target as any).__tanvaSourceRef = value; } catch {}
 	                // Paper.js 对 string source 的内部 loader 在部分环境对 blob:/data: 偶发不稳定；
 	                // 这里对 inline source 用 HTMLImageElement 显式加载，提升兼容性。
-	                if (value.startsWith('blob:') || value.startsWith('data:image/')) {
+	                const renderable = toRenderableImageSrc(value);
+	                if (!renderable) return;
+	                if (renderable.startsWith('data:image/')) {
 	                    try {
 	                        const img = new Image();
-	                        img.src = value;
+	                        img.src = renderable;
 	                        (target as any).setImage(img);
 	                        return;
 	                    } catch {}
 	                }
-	                target.source = value;
+	                target.source = renderable;
 	            };
 
 	            // 创建图片的 Raster 对象

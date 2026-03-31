@@ -84,7 +84,7 @@ import { putFlowImageBlobs, toFlowImageAssetRef } from "@/services/flowImageAsse
 
 const isInlineImageSource = (value: unknown): value is string => {
   if (typeof value !== "string") return false;
-  return value.startsWith("data:image") || value.startsWith("blob:");
+  return value.startsWith("data:image");
 };
 
 const extractLocalImageData = (imageData: unknown): string | null => {
@@ -2150,11 +2150,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	      const resolvedRemoteUrl = incomingSrc || undefined;
 	      const persistedUrl = (incomingKey || normalizedIncoming).trim();
 	      if (!persistedUrl) return false;
-        const nextRenderableSrc =
-          toRenderableImageSrc(resolvedRemoteUrl || incomingSrc || persistedUrl) ||
-          resolvedRemoteUrl ||
-          incomingSrc ||
-          persistedUrl;
+        const nextRenderableSrc = toRenderableImageSrc(
+          resolvedRemoteUrl || incomingSrc || persistedUrl
+        );
+        if (!nextRenderableSrc) return false;
 	      const nextStoredUrl = (resolvedRemoteUrl || incomingSrc || persistedUrl).trim();
 
 		      let updated = false;
@@ -2523,8 +2522,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       if (!imageId || !rawSource.trim()) return;
 
       const normalizedSource = normalizePersistableImageRef(rawSource) || rawSource.trim();
-      const renderableSource = toRenderableImageSrc(rawSource) || rawSource;
+      const renderableSource = toRenderableImageSrc(rawSource) || "";
       const isPersistableSource = isPersistableImageRef(normalizedSource);
+      if (!renderableSource && !isPersistableSource) return;
       const explicitPendingUpload =
         typeof detail.pendingUpload === "boolean" ? detail.pendingUpload : undefined;
       const clearRemoteUrl = detail.clearRemoteUrl === true;
@@ -2532,8 +2532,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const pendingUpload =
         explicitPendingUpload ??
         (!isPersistableSource || requiresManagedImageUpload(normalizedSource));
-      const hasInlinePreview =
-        renderableSource.startsWith("data:image/") || renderableSource.startsWith("blob:");
+      const hasInlinePreview = renderableSource.startsWith("data:image/");
       const persistedSource = isPersistableSource ? normalizedSource : "";
       const stateSource = renderableSource;
       const detailKeyRaw =

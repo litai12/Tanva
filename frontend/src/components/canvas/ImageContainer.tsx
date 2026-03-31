@@ -152,7 +152,6 @@ const resolvePreviewImageSrcForCanvas = (img: {
     if (!raw) continue;
     const normalized = normalizeImageSrc(raw);
     if (normalized) return normalized;
-    return raw;
   }
   return "";
 };
@@ -713,15 +712,17 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       .map((item) => {
         const raw = item.imageUrl.trim();
         const normalized = normalizeImageSrc(raw);
+        if (!normalized) return null;
         return {
           id: item.id,
-          src: normalized || raw,
+          src: normalized,
           title: item.prompt || item.sourceProjectName || "图片",
           timestamp: Number.isNaN(Date.parse(item.createdAt))
             ? undefined
             : Date.parse(item.createdAt),
         };
-      });
+      })
+      .filter(Boolean) as ImageItem[];
   }, [projectHistoryItems]);
 
   // 监听 body class：图片拖拽 / 选择框拖拽时隐藏文字与工具栏，避免“跟随不紧”观感
@@ -946,7 +947,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       imageData.key ||
       imageData.src ||
       (imageData.pendingUpload ? imageData.localDataUrl : undefined);
-    const src = rawSource ? toRenderableImageSrc(rawSource) || rawSource : "";
+    const src = rawSource ? toRenderableImageSrc(rawSource) || "" : "";
     if (!src) {
       setNaturalSize(null);
       return;
@@ -3179,7 +3180,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       const raw = item.src?.trim() || "";
       if (!raw) return;
       const normalizedSrc = normalizeImageSrc(raw);
-      const displaySrc = normalizedSrc || raw;
+      if (!normalizedSrc) return;
+      const displaySrc = normalizedSrc;
       if (mapBySrc.has(displaySrc)) return; // 已存在则跳过
       mapBySrc.set(displaySrc, {
         ...item,

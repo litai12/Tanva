@@ -168,7 +168,8 @@ function CameraNodeInner({ id, data, selected }: Props) {
     const img = data.imageUrl || data.imageData;
     if (!img) return;
     const trimmed = img.trim();
-    const dataUrl = toRenderableImageSrc(trimmed) || trimmed;
+    const dataUrl = toRenderableImageSrc(trimmed);
+    if (!dataUrl) return;
     const fileName = `capture_${Date.now()}.png`;
     const triggerEl =
       event?.currentTarget instanceof HTMLElement ? event.currentTarget : null;

@@ -290,7 +290,8 @@ export const toRenderableImageSrc = (value?: string | null): string | null => {
   // 运行时引用：必须由 useFlowImageAssetUrl / useNonBase64ImageSrc 等解析，禁止当作 base64 包装
   if (parseFlowImageAssetRef(trimmed)) return null;
   if (isDataImageUrl(trimmed)) return normalizePossiblyDuplicatedDataUrl(trimmed);
-  if (isBlobUrl(trimmed)) return trimmed;
+  // Explicitly disable blob: in render/display chain.
+  if (isBlobUrl(trimmed)) return null;
   if (isAssetKeyRef(trimmed)) {
     const withoutLeading = trimmed.replace(/^\/+/, "");
     const direct = resolvePublicAssetUrlFromKey(withoutLeading);
