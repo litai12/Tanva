@@ -455,14 +455,14 @@ export const resolveImageToDataUrl = async (
     console.log(`[resolveImageToDataUrl] 尝试 fetch: ${url.slice(0, 80)}...`);
     try {
       // 资产代理是公开读接口，不应携带凭证；否则跨域下会触发 wildcard+credentials 的 CORS 拦截。
-      const init: RequestInit = isBlobUrl(url)
-        ? {}
-        : { mode: "cors", credentials: "omit" };
-      const response = await fetchWithAuth(url, {
-        ...init,
-        auth: "omit",
-        allowRefresh: false,
-      });
+      const response = isBlobUrl(url)
+        ? await fetch(url)
+        : await fetchWithAuth(url, {
+            mode: "cors",
+            credentials: "omit",
+            auth: "omit",
+            allowRefresh: false,
+          });
       if (!response.ok) {
         console.warn(`[resolveImageToDataUrl] fetch 失败: ${response.status}`);
         continue;
@@ -571,14 +571,14 @@ export const resolveImageToBlob = async (
 
   for (const url of candidates) {
     try {
-      const init: RequestInit = isBlobUrl(url)
-        ? {}
-        : { mode: "cors", credentials: "omit" };
-      const response = await fetchWithAuth(url, {
-        ...init,
-        auth: "omit",
-        allowRefresh: false,
-      });
+      const response = isBlobUrl(url)
+        ? await fetch(url)
+        : await fetchWithAuth(url, {
+            mode: "cors",
+            credentials: "omit",
+            auth: "omit",
+            allowRefresh: false,
+          });
       if (!response.ok) continue;
       const blob = await responseToBlob(response);
       // 验证 blob 是图片类型

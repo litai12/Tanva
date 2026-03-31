@@ -1661,7 +1661,8 @@ export class AiController {
             };
           }
 
-          const providerImageUrl = result.data.imageUrl || result.data.metadata?.imageUrl;
+          const providerImageUrls = this.collectProviderImageUrls(result.data);
+          const providerImageUrl = providerImageUrls[0];
           if (!providerImageUrl) {
             throw new BadGatewayException('编辑成功但未返回图片数据');
           }
@@ -1674,6 +1675,7 @@ export class AiController {
             metadata: {
               ...(result.data.metadata || {}),
               sourceImageUrl: providerImageUrl,
+              sourceImageUrls: providerImageUrls,
             },
           };
         }
@@ -1741,7 +1743,8 @@ export class AiController {
             };
           }
 
-          const providerImageUrl = result.data.imageUrl || result.data.metadata?.imageUrl;
+          const providerImageUrls = this.collectProviderImageUrls(result.data);
+          const providerImageUrl = providerImageUrls[0];
           if (!providerImageUrl) {
             throw new BadGatewayException('融合成功但未返回图片数据');
           }
@@ -1754,6 +1757,7 @@ export class AiController {
             metadata: {
               ...(result.data.metadata || {}),
               sourceImageUrl: providerImageUrl,
+              sourceImageUrls: providerImageUrls,
             },
           };
         }
