@@ -77,7 +77,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - �?端 AI�?Seedance�?doubao�?�?�?任�?��?��??�?�?��?��?传�??OSS�?�?�?�??�?��?? OSS �?��?�?��?��?避�?��?�?TOS �?��?��??CORS/�?�??�?��?�??
 
 ### Fixed
+- Flow Image 节点：修复“上传失败后刷新出现幽灵图”。上传失败时会回滚预分配但未落地的 `imageUrl(key)`，避免把不存在的 OSS key 持久化；同时将 `uploading=true` 且携带图片数据的节点视为不可持久化，阻止自动保存在上传未完成时写入不稳定引用（`frontend/src/components/flow/nodes/ImageNode.tsx`, `frontend/src/utils/projectContentValidation.ts`）。
 - Flow：`Image Split` 读取 `seedream5` 上游时补齐 `imageUrls/images` 兜底，并将分割加载源改为“强制代理优先、直连回退”候选策略，修复 Seedream 外链图在分割节点报“图片加载失败”（`frontend/src/components/flow/nodes/ImageSplitNode.tsx`）。
+- Flow：`Analysis` 节点输入解析改为多候选回退（`imageData/imageUrl/outputImage/thumbnail`）并在裁切链路支持多 baseRef 尝试；同时 `resolveImageToDataUrl/resolveImageToBlob` 对白名单远程 URL 增加“强制 `/api/assets/proxy`”候选兜底，修复线上偶发 `图片加载失败/缺少图片输入`（`frontend/src/components/flow/nodes/AnalyzeNode.tsx`, `frontend/src/utils/imageSource.ts`）。
 - Flow：`Image Split` 切片缩略图预览增加“代理优先 + 原地址回退”加载策略，移除跨域 `anonymous` 的硬依赖，并允许缺失 `sourceWidth/sourceHeight` 时按天然尺寸回退渲染，修复“已分割但缩略图全灰块”（`frontend/src/components/flow/nodes/ImageSplitNode.tsx`）。
 - Canvas：重做图片裁切执行链路并修复偶发“像被压缩/低清/裁切不可用”。`ImageContainer` 裁切改为按实时源解析 Blob 后再裁切（不依赖缓存 dataURL 输入），本地预览走 `blob:` + 后台上传回写远程引用；裁切开始即预分配新 OSS key 并清理上传中旧 `remoteUrl`，避免回写竞争把图切回旧源；同时回写尺寸改为按 X/Y 独立缩放，`imageUrlCache` 新增图片源指纹命中策略，避免同一 `imageId` 更换源图后误用旧缓存（`frontend/src/components/canvas/ImageContainer.tsx`, `frontend/src/components/canvas/DrawingController.tsx`, `frontend/src/services/imageUrlCache.ts`）。
 - Flow：`Generate` 节点顶部输入缩略图现在会识别 `Image/ImagePro` 的 `crop` 以及 `ImageSplit(splitRects)`，按裁切区域预览，避免视觉上误判为“传的是整图”；运行时传参逻辑保持按裁切结果处理（`frontend/src/components/flow/nodes/GenerateNode.tsx`, `frontend/src/components/flow/FlowOverlay.tsx`）。

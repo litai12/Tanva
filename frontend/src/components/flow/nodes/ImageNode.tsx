@@ -1163,6 +1163,29 @@ function ImageNodeInner({ id, data, selected }: Props) {
     if (!file.type.startsWith("image/")) return;
     const normalizedFileName = (file.name || "").trim();
     const displayName = normalizedFileName || lt("未命名图片", "Untitled Image");
+    const previousNodeData = (() => {
+      try {
+        return ((rf.getNode(id)?.data || {}) as Record<string, unknown>);
+      } catch {
+        return {};
+      }
+    })();
+    const previousImageUrl =
+      typeof previousNodeData.imageUrl === "string"
+        ? previousNodeData.imageUrl.trim()
+        : "";
+    const previousImageData =
+      typeof previousNodeData.imageData === "string"
+        ? previousNodeData.imageData
+        : undefined;
+    const previousThumbnail =
+      typeof previousNodeData.thumbnail === "string"
+        ? previousNodeData.thumbnail
+        : undefined;
+    const previousImageName =
+      typeof previousNodeData.imageName === "string"
+        ? previousNodeData.imageName
+        : undefined;
 
     const uploadDir = projectId
       ? `projects/${projectId}/images/`
@@ -1248,6 +1271,45 @@ function ImageNodeInner({ id, data, selected }: Props) {
         }
       }, 0);
     };
+    const buildUploadFailurePatch = (message: string): Record<string, unknown> => {
+      const patch: Record<string, unknown> = {
+        uploading: false,
+        uploadError: message,
+      };
+
+      try {
+        const currentNode = rf.getNode(id);
+        const currentData = ((currentNode?.data || {}) as Record<string, unknown>);
+        const currentImageData =
+          typeof currentData.imageData === "string" ? currentData.imageData : "";
+        const currentImageUrl =
+          typeof currentData.imageUrl === "string"
+            ? currentData.imageUrl.trim()
+            : "";
+        const isCurrentUploadStillActive =
+          !currentImageData || currentImageData === previewRef;
+        const isReservedKeyStillUsed = currentImageUrl === key;
+
+        if (!isCurrentUploadStillActive || !isReservedKeyStillUsed) {
+          return patch;
+        }
+
+        // 上传失败时不要继续持久化“预分配但未落地”的 key，
+        // 否则刷新后会读到空对象并出现“幽灵图”。
+        if (previousImageUrl) {
+          patch.imageUrl = previousImageUrl;
+          patch.imageData = previousImageData;
+          patch.thumbnail = previousThumbnail;
+          patch.imageName = previousImageName;
+        } else {
+          patch.imageUrl = undefined;
+          patch.imageData = previewRef;
+          patch.thumbnail = undefined;
+        }
+      } catch {}
+
+      return patch;
+    };
 
     try {
       const uploadResult = await imageUploadService.uploadImageFile(file, {
@@ -1258,17 +1320,17 @@ function ImageNodeInner({ id, data, selected }: Props) {
       });
 
       if (!uploadResult.success || !uploadResult.asset?.url) {
+        const errorMessage =
+          uploadResult.error || lt("上传失败", "Upload failed");
         window.dispatchEvent(
           new CustomEvent("flow:updateNodeData", {
             detail: {
               id,
-              patch: {
-                uploading: false,
-                uploadError: uploadResult.error || lt("上传失败", "Upload failed"),
-              },
+              patch: buildUploadFailurePatch(errorMessage),
             },
           })
         );
+        tryCleanupPreviewRef(previewRef);
         return;
       }
 
@@ -1318,17 +1380,16 @@ function ImageNodeInner({ id, data, selected }: Props) {
 
       tryCleanupPreviewRef(previewRef);
     } catch (err: any) {
+      const errorMessage = err?.message || lt("上传失败", "Upload failed");
       window.dispatchEvent(
         new CustomEvent("flow:updateNodeData", {
           detail: {
             id,
-            patch: {
-              uploading: false,
-              uploadError: err?.message || lt("上传失败", "Upload failed"),
-            },
+            patch: buildUploadFailurePatch(errorMessage),
           },
         })
       );
+      tryCleanupPreviewRef(previewRef);
     }
   }, [id, projectId, rf]);
 
