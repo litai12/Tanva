@@ -13,6 +13,13 @@ let refreshPromise: Promise<boolean> | null = null;
 
 const CREDITS_REFRESH_EVENT = "refresh-credits";
 const SAFE_URL_BASE = "http://localhost";
+const CREDITS_AFFECTING_PATH_PATTERNS = [
+  "/api/ai/",
+  "/video-gif/convert",
+];
+
+const isCreditsAffectingPath = (path: string): boolean =>
+  CREDITS_AFFECTING_PATH_PATTERNS.some((pattern) => path.includes(pattern));
 
 const resolveRequestUrl = (input: RequestInput): string => {
   if (typeof input === "string") return input;
@@ -52,9 +59,9 @@ const shouldNotifyCreditsRefresh = (
       rawUrl,
       typeof window !== "undefined" ? window.location.origin : SAFE_URL_BASE
     );
-    return parsed.pathname.includes("/api/ai/");
+    return isCreditsAffectingPath(parsed.pathname);
   } catch {
-    return rawUrl.includes("/api/ai/");
+    return isCreditsAffectingPath(rawUrl);
   }
 };
 

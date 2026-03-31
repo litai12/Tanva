@@ -1421,18 +1421,9 @@ export class AiController {
                 if (result.data.imageUrl || result.data.metadata?.imageUrl) {
                   const imageUrl = result.data.imageUrl || result.data.metadata?.imageUrl;
 
-                  // 白名单用户可跳过水印，保留外链直返
-                  const skipWatermark = await this.canSkipWatermark(req);
-                  if (skipWatermark) {
-                    return {
-                      imageUrl,
-                      textResponse: result.data.textResponse || '',
-                      metadata: responseMetadata,
-                    };
-                  }
-
                   try {
-                    // 普通用户：下载外链图片 -> 加水印 -> 上传 OSS 后返回
+                    // 统一将外链图转存到 OSS，避免把临时外链（易过期）写入云端历史。
+                    // watermarkIfNeeded 内部会对管理员/白名单自动跳过水印处理。
                     const sourceImageDataUrl = await this.fetchImageAsDataUrl(imageUrl);
                     const watermarked = await this.watermarkIfNeeded(sourceImageDataUrl, req);
                     const upload = await this.uploadGeneratedImageToOss(watermarked || '', { userId });
@@ -1450,10 +1441,10 @@ export class AiController {
                     };
                   } catch (error) {
                     this.logger.error(
-                      `[generate-image] 外链图片加水印失败: ${this.summarizeError(error)}`
+                      `[generate-image] 外链图片处理失败: ${this.summarizeError(error)}`
                     );
                     throw new BadGatewayException(
-                      'Nano2 图片水印处理失败，请稍后重试（必要时请配置 ALLOWED_PROXY_HOSTS）'
+                      '外链图片处理失败，请稍后重试（必要时请配置 ALLOWED_PROXY_HOSTS）'
                     );
                   }
                 }
