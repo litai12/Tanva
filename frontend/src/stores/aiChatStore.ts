@@ -41,7 +41,6 @@ import { createAsyncLimiter, mapWithLimit } from "@/utils/asyncLimit";
 import {
   resolveImageToBlob,
   resolveImageToDataUrl,
-  resolveImageToObjectUrl,
   isPersistableImageRef,
   normalizeRemoteUrl,
   isLikelyBackendAllowedRemoteUrl,
@@ -1141,6 +1140,15 @@ const resolveImageForPlacement = ({
   uploadedAssets?: PlacementAssets;
   fallbackRemote?: string | null;
 }): string | null => {
+  const remoteCandidate =
+    fallbackRemote ||
+    uploadedAssets?.remoteUrl ||
+    getResultImageRemoteUrl(result);
+
+  if (remoteCandidate) {
+    return remoteCandidate;
+  }
+
   const inlineCandidate =
     normalizeInlineImageData(inlineData) ??
     normalizeInlineImageData(result?.imageData) ??
@@ -1150,12 +1158,7 @@ const resolveImageForPlacement = ({
     return ensureDataUrl(inlineCandidate);
   }
 
-  const remoteCandidate =
-    fallbackRemote ||
-    uploadedAssets?.remoteUrl ||
-    getResultImageRemoteUrl(result);
-
-  return remoteCandidate || null;
+  return null;
 };
 
 const buildImagePayloadForUpload = (
@@ -3698,34 +3701,17 @@ export const useAIChatStore = create<AIChatState>()(
 
               // ========== 🔥 清晰的异步流程设计 ==========
               // 步骤1：立即更新对话框显示（使用 base64，不等待上传）- 已在上面完成
-              // 步骤2：计算 placementImageData（优先远程URL，否则转为 blob: ObjectURL）
-              // 步骤3：发送到画布（使用远程URL / blob:，避免 base64）
+              // 步骤2：计算 placementImageData（优先远程URL，否则 dataURL）
+              // 步骤3：发送到画布（使用远程URL / dataURL，禁用 blob 显示链路）
               // 步骤4：异步上传到OSS（后台进行，不阻塞显示）
               // 注意：消息状态已在步骤1中更新（generationStatus: { isGenerating: false, progress: 100 }），无需重复更新
 
               // 步骤2：计算 placementImageData
-              let placementImageData: string | null = null;
-              try {
-                const remoteCandidate =
-                  imageRemoteUrl ??
-                  getResultImageRemoteUrl(result.data) ??
-                  null;
-                if (remoteCandidate) {
-                  placementImageData = remoteCandidate;
-                } else {
-                  const inlineCandidate =
-                    normalizeInlineImageData(inlineImageData) ??
-                    normalizeInlineImageData(result.data?.imageData) ??
-                    normalizeInlineImageData(undefined);
-                  if (inlineCandidate) {
-                    placementImageData =
-                      (await resolveImageToObjectUrl(inlineCandidate)) ?? null;
-                  }
-                }
-              } catch (err) {
-                console.warn("⚠️ resolve placement image failed:", err);
-                placementImageData = null;
-              }
+              const placementImageData = resolveImageForPlacement({
+                inlineData: inlineImageData,
+                result: result.data,
+                fallbackRemote: imageRemoteUrl ?? null,
+              });
 
               // 如果没有可用的图像源，记录原因并返回
               if (!placementImageData) {
@@ -4432,28 +4418,11 @@ export const useAIChatStore = create<AIChatState>()(
               }
 
               // Prefer remote URL for canvas placement to avoid base64 memory usage.
-              let placementImageData: string | null = null;
-              try {
-                const remoteCandidate =
-                  imageRemoteUrl ??
-                  getResultImageRemoteUrl(result.data) ??
-                  null;
-                if (remoteCandidate) {
-                  placementImageData = remoteCandidate;
-                } else {
-                  const inlineCandidate =
-                    normalizeInlineImageData(inlineImageData) ??
-                    normalizeInlineImageData(result.data?.imageData) ??
-                    normalizeInlineImageData(undefined);
-                  if (inlineCandidate) {
-                    placementImageData =
-                      (await resolveImageToObjectUrl(inlineCandidate)) ?? null;
-                  }
-                }
-              } catch (err) {
-                console.warn("⚠️ resolve placement image failed:", err);
-                placementImageData = null;
-              }
+              const placementImageData = resolveImageForPlacement({
+                inlineData: inlineImageData,
+                result: result.data,
+                fallbackRemote: imageRemoteUrl ?? null,
+              });
 
               if (!placementImageData) {
                 console.warn("⚠️ [editImage] 没有可用的图像源，无法显示到画布");
@@ -5126,28 +5095,11 @@ export const useAIChatStore = create<AIChatState>()(
               }
 
               // Prefer remote URL for canvas placement to avoid base64 memory usage.
-              let placementImageData: string | null = null;
-              try {
-                const remoteCandidate =
-                  imageRemoteUrl ??
-                  getResultImageRemoteUrl(result.data) ??
-                  null;
-                if (remoteCandidate) {
-                  placementImageData = remoteCandidate;
-                } else {
-                  const inlineCandidate =
-                    normalizeInlineImageData(inlineImageData) ??
-                    normalizeInlineImageData(result.data?.imageData) ??
-                    normalizeInlineImageData(undefined);
-                  if (inlineCandidate) {
-                    placementImageData =
-                      (await resolveImageToObjectUrl(inlineCandidate)) ?? null;
-                  }
-                }
-              } catch (err) {
-                console.warn("⚠️ resolve placement image failed:", err);
-                placementImageData = null;
-              }
+              const placementImageData = resolveImageForPlacement({
+                inlineData: inlineImageData,
+                result: result.data,
+                fallbackRemote: imageRemoteUrl ?? null,
+              });
 
               if (!placementImageData) {
                 console.warn(
