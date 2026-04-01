@@ -8,6 +8,7 @@ import paper from 'paper';
 import { logger } from '@/utils/logger';
 import { historyService } from '@/services/historyService';
 import { paperSaveService } from '@/services/paperSaveService';
+import { imageUploadService } from '@/services/imageUploadService';
 import { useUIStore } from '@/stores/uiStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useImageHistoryStore } from '@/stores/imageHistoryStore';
@@ -19,6 +20,7 @@ import {
     isPersistableImageRef,
     isRemoteUrl,
     normalizePersistableImageRef,
+    requiresManagedImageUpload,
     toRenderableImageSrc,
 } from '@/utils/imageSource';
 import type { DrawingContext, StoredImageAsset } from '@/types/canvas';
@@ -32,22 +34,6 @@ interface UseQuickImageUploadProps {
 const isInlineDataUrl = (value?: string | null): value is string => {
     if (typeof value !== 'string') return false;
     return value.startsWith('data:image');
-};
-
-const toCanvasSafeInlineImageSource = async (value: string): Promise<string> => {
-    const trimmed = typeof value === 'string' ? value.trim() : '';
-    if (!trimmed) return value;
-    if (trimmed.startsWith('blob:')) return '';
-    if (trimmed.startsWith('data:image/')) return trimmed;
-    // 兜底：裸 base64（避免在画布上直接渲染 data:image/base64）
-    if (!isPersistableImageRef(trimmed) && trimmed.length > 128) {
-        const compact = trimmed.replace(/\s+/g, '');
-        const base64Pattern = /^[A-Za-z0-9+/=]+$/;
-        if (base64Pattern.test(compact)) {
-            return `data:image/png;base64,${compact}`;
-        }
-    }
-    return trimmed;
 };
 
 const toPreferredRemoteSource = (value: string): string => {
@@ -1123,52 +1109,60 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         }
 
         let asset: StoredImageAsset | null = null;
-        const skipUpload = Boolean(extraOptions?.placeholderId); // AI生成的占位符无需等待上传即可落盘
+        const uploadDir = projectId ? `projects/${projectId}/images/` : 'uploads/images/';
+        const ensureManagedAsset = async (
+            uploadInput: string,
+            preferredFileName: string,
+            preferredIdPrefix: string,
+        ): Promise<StoredImageAsset | null> => {
+            const uploadResult = await imageUploadService.uploadImageSource(uploadInput, {
+                projectId: projectId ?? undefined,
+                dir: uploadDir,
+                fileName: preferredFileName || `quick-image-${Date.now()}.png`,
+            });
+            if (!uploadResult.success || !uploadResult.asset) return null;
+            const uploadedUrl = normalizePersistableImageRef(uploadResult.asset.url);
+            const uploadedKey = normalizePersistableImageRef(uploadResult.asset.key);
+            const persistedRef = uploadedUrl || uploadedKey;
+            if (!persistedRef || !isPersistableImageRef(persistedRef)) return null;
+            const displayRef = uploadedUrl || persistedRef;
+            const remoteUrl = isRemoteUrl(displayRef) ? displayRef : undefined;
+            return {
+                id: `${preferredIdPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                url: displayRef,
+                src: toRenderableImageSrc(displayRef) || displayRef,
+                remoteUrl,
+                key: uploadedKey || uploadResult.asset.key,
+                fileName: uploadResult.asset.fileName || preferredFileName,
+                width: uploadResult.asset.width,
+                height: uploadResult.asset.height,
+                contentType: uploadResult.asset.contentType,
+                pendingUpload: false,
+                localDataUrl: undefined,
+            };
+        };
         if (typeof imagePayload === 'string') {
-            // 🔥 统一判定：是否为“可持久化图片引用”（remote URL / proxy path / OSS key / 相对路径）
-            const normalizedPersisted = normalizePersistableImageRef(imagePayload);
+            const trimmedPayload = imagePayload.trim();
+            const resolvedName = fileName || 'uploaded-image.png';
+            const normalizedPersisted = normalizePersistableImageRef(trimmedPayload);
             const isPersisted = !!normalizedPersisted && isPersistableImageRef(normalizedPersisted);
-
-            if (isPersisted) {
-                // 已是可持久化引用：直接使用，不需要上传
-                logger.upload(`🌐 [handleQuickImageUploaded] 检测到可持久化图片引用，直接使用: ${String(imagePayload).substring(0, 50)}...`);
+            const shouldUploadManaged =
+                !isPersisted || requiresManagedImageUpload(normalizedPersisted);
+            if (shouldUploadManaged) {
+                asset = await ensureManagedAsset(trimmedPayload, resolvedName, 'oss_img');
+            } else {
                 asset = {
                     id: `remote_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
                     url: normalizedPersisted,
                     key: isAssetKeyRef(normalizedPersisted) ? normalizedPersisted : undefined,
                     src: toRenderableImageSrc(normalizedPersisted) || normalizedPersisted,
-                    fileName: fileName || 'remote-image.png',
+                    remoteUrl: isRemoteUrl(normalizedPersisted) ? normalizedPersisted : undefined,
+                    fileName: resolvedName,
                     pendingUpload: false,
+                    localDataUrl: undefined,
                 };
-            } else if (skipUpload) {
-                const resolvedName = fileName || 'ai-image.png';
-                // AI落盘：避免在画布上直接渲染 data:image/base64，优先转为 blob: ObjectURL；
-                // 上传与远程替换由上游（或保存流程）负责。
-                const localSource = await toCanvasSafeInlineImageSource(imagePayload);
-                asset = {
-                    id: `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-                    url: localSource,
-                    src: localSource,
-                    fileName: resolvedName,
-                    // AI 场景仍需要在后台补传 OSS，保存前必须确保可持久化引用
-                    pendingUpload: true,
-                    localDataUrl: localSource,
-                };
-                fileName = resolvedName;
-            } else {
-                // 先上画布（本地 blob: 预览），上传由自动保存流程补传到 OSS（避免“等上传完才显示”）
-                const resolvedName = fileName || 'uploaded-image.png';
-                const localSource = await toCanvasSafeInlineImageSource(imagePayload);
-                asset = {
-                    id: `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-                    url: localSource,
-                    src: localSource,
-                    fileName: resolvedName,
-                    pendingUpload: true,
-                    localDataUrl: localSource,
-                };
-                fileName = resolvedName;
             }
+            fileName = resolvedName;
         } else {
             const inlineSource =
                 isInlineDataUrl(imagePayload.localDataUrl)
@@ -1185,16 +1179,41 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 (isAssetKeyRef(normalizedKey) ? normalizedKey : '') ||
                 normalizedUrl ||
                 normalizedSrc;
-            asset = {
-                ...imagePayload,
-                // 运行时展示优先使用本地 blob/data（尤其是“先关联 key 再后台上传”的场景），避免 key 尚未可用导致其它模块读图失败
-                src: persistableCandidate || inlineSource || imagePayload.src || imagePayload.url,
-                localDataUrl: inlineSource,
-            };
-            fileName = asset.fileName || fileName;
+            const shouldUploadManaged =
+                !persistableCandidate || requiresManagedImageUpload(persistableCandidate);
+            if (shouldUploadManaged) {
+                const uploadInput =
+                    inlineSource ||
+                    imagePayload.localDataUrl ||
+                    imagePayload.src ||
+                    imagePayload.url ||
+                    imagePayload.remoteUrl ||
+                    '';
+                if (uploadInput) {
+                    asset = await ensureManagedAsset(
+                        uploadInput,
+                        imagePayload.fileName || fileName || 'uploaded-image.png',
+                        imagePayload.id || 'oss_img',
+                    );
+                    if (asset) {
+                        asset.id = imagePayload.id || asset.id;
+                    }
+                }
+            } else {
+                const stableRef = persistableCandidate;
+                asset = {
+                    ...imagePayload,
+                    url: stableRef,
+                    src: toRenderableImageSrc(stableRef) || stableRef,
+                    remoteUrl: isRemoteUrl(stableRef) ? stableRef : imagePayload.remoteUrl,
+                    pendingUpload: false,
+                    localDataUrl: undefined,
+                };
+            }
+            fileName = asset?.fileName || fileName;
         }
 
-        if (!asset || (!asset.url && !asset.localDataUrl)) {
+        if (!asset || !asset.url) {
             logger.error('快速上传未获取到有效图片资源');
             if (extraOptions?.placeholderId) {
                 removePredictedPlaceholder(extraOptions.placeholderId);
