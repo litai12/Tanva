@@ -487,9 +487,41 @@ function ImageNodeInner({ id, data, selected }: Props) {
             const frame = frames[idx];
             if (!frame) return undefined;
 
-          // 链路传递优先使用可持久化原图引用，缩略图仅作为兜底。
-          return frame.imageUrl || frame.thumbnailDataUrl;
-        }
+            // 链路传递优先使用可持久化原图引用，缩略图仅作为兜底。
+            return frame.imageUrl || frame.thumbnailDataUrl;
+          }
+
+          if (
+            node.type === "generate4" ||
+            node.type === "generatePro4" ||
+            node.type === "midjourneyV7" ||
+            node.type === "niji7"
+          ) {
+            const sourceHandle =
+              typeof incomingEdge?.sourceHandle === "string"
+                ? incomingEdge.sourceHandle.trim()
+                : "";
+            const idx = sourceHandle.startsWith("img")
+              ? Math.max(0, Math.min(3, Number(sourceHandle.slice(3)) - 1))
+              : 0;
+            const imageUrls = Array.isArray((nodeData as any).imageUrls)
+              ? ((nodeData as any).imageUrls as string[])
+              : [];
+            const images = Array.isArray((nodeData as any).images)
+              ? ((nodeData as any).images as string[])
+              : [];
+            const thumbnails = Array.isArray((nodeData as any).thumbnails)
+              ? ((nodeData as any).thumbnails as string[])
+              : [];
+            const picked =
+              imageUrls[idx] ||
+              images[idx] ||
+              thumbnails[idx] ||
+              (nodeData.imageUrl as string | undefined) ||
+              (nodeData.imageData as string | undefined) ||
+              (nodeData.thumbnail as string | undefined);
+            if (picked) return picked;
+          }
 
           // Image 节点 - 有输入连线时优先使用上游，避免修改上游后未更新
           if (node.type === "image" || node.type === "imagePro") {

@@ -161,6 +161,8 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
   const [actionLoading, setActionLoading] = React.useState<string | null>(null);
   const [showHelp, setShowHelp] = React.useState(false);
   const [showAdvancedControls, setShowAdvancedControls] = React.useState(false);
+  const advancedImageOutputHandlePositions = ['28%', '42%', '58%', '72%'] as const;
+  const advancedImageOutputHandleIds = ['img1', 'img2', 'img3', 'img4'] as const;
 
   const borderColor = selected ? accentColor : '#e5e7eb';
   const boxShadow = selected
@@ -1178,13 +1180,23 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
               onMouseLeave={() => setHover(null)}
             />
           )}
+          {advancedImageOutputHandleIds.map((handleId, idx) => (
+            <Handle
+              key={handleId}
+              type="source"
+              position={Position.Right}
+              id={handleId}
+              style={{ top: advancedImageOutputHandlePositions[idx] }}
+              onMouseEnter={() => setHover(`${handleId}-out`)}
+              onMouseLeave={() => setHover(null)}
+            />
+          ))}
+          {/* 兼容旧工程：保留 img 输出句柄，避免历史连线失效 */}
           <Handle
             type="source"
             position={Position.Right}
             id="img"
-            style={{ top: '50%' }}
-            onMouseEnter={() => setHover('img-out')}
-            onMouseLeave={() => setHover(null)}
+            style={{ top: '50%', opacity: 0, pointerEvents: 'none' }}
           />
           {hover === 'prompt-in' && (
             <div
@@ -1210,13 +1222,20 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
               {lt('万物参考图', 'Omni reference image')}
             </div>
           )}
-          {hover === 'img-out' && (
-            <div
-              className="flow-tooltip"
-              style={{ right: -8, top: '50%', transform: 'translate(100%, -50%)' }}
-            >
-              image
-            </div>
+          {advancedImageOutputHandleIds.map((handleId, idx) =>
+            hover === `${handleId}-out` ? (
+              <div
+                key={`${handleId}-tooltip`}
+                className="flow-tooltip"
+                style={{
+                  right: -8,
+                  top: advancedImageOutputHandlePositions[idx],
+                  transform: 'translate(100%, -50%)',
+                }}
+              >
+                {`image#${idx + 1}`}
+              </div>
+            ) : null
           )}
         </>
       ) : (
@@ -1278,5 +1297,4 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
 }
 
 export default React.memo(MidjourneyNodeInner);
-
 

@@ -402,8 +402,13 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
               .filter((item): item is ImageItem => item !== null);
           }
 
-          // Generate4 / GeneratePro4：支持 img1..img4（单张）以及 images（全量）
-          if (node.type === 'generate4' || node.type === 'generatePro4') {
+          // 多图生图节点：支持 img1..img4（单张）以及 images（全量）
+          if (
+            node.type === 'generate4' ||
+            node.type === 'generatePro4' ||
+            node.type === 'midjourneyV7' ||
+            node.type === 'niji7'
+          ) {
             const urls = Array.isArray(d.imageUrls) ? (d.imageUrls as string[]) : [];
             const imgs = Array.isArray(d.images) ? (d.images as string[]) : [];
             const thumbs = Array.isArray(d.thumbnails) ? (d.thumbnails as string[]) : [];
