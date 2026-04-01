@@ -874,19 +874,91 @@ export class CreditsService {
     errorMessage?: string,
     processingTime?: number,
   ) {
-    const apiUsage = await this.prisma.apiUsageRecord.update({
+    const existingUsage = await this.prisma.apiUsageRecord.findUnique({
       where: { id: apiUsageId },
-      data: {
-        responseStatus: status,
-        errorMessage,
-        processingTime,
-      },
     });
 
-    // 如果 API 调用成功，检查是否需要核验邀请奖励
-    if (status === ApiResponseStatus.SUCCESS && apiUsage.userId) {
-      await this.verifyAndRewardInviterSafely(apiUsage.userId);
+    if (!existingUsage) {
+      throw new NotFoundException('API使用记录不存在');
     }
+
+    if (
+      existingUsage.responseStatus === ApiResponseStatus.FAILED &&
+      status === ApiResponseStatus.SUCCESS
+    ) {
+      this.logger.warn(
+        `[Credits] Skip status transition failed -> success for apiUsageId=${apiUsageId} to avoid refund mismatch`,
+      );
+      return existingUsage;
+    }
+
+    if (
+      existingUsage.responseStatus === ApiResponseStatus.SUCCESS &&
+      status === ApiResponseStatus.FAILED
+    ) {
+      this.logger.warn(
+        `[Credits] Skip status transition success -> failed for apiUsageId=${apiUsageId} to avoid reward/settlement mismatch`,
+      );
+      return existingUsage;
+    }
+
+    const updateData: Prisma.ApiUsageRecordUpdateInput = {
+      responseStatus: status,
+    };
+
+    if (status === ApiResponseStatus.SUCCESS) {
+      updateData.errorMessage = null;
+    } else if (typeof errorMessage === 'string') {
+      updateData.errorMessage = errorMessage;
+    }
+
+    if (typeof processingTime === 'number' && Number.isFinite(processingTime)) {
+      updateData.processingTime = Math.max(0, Math.round(processingTime));
+    }
+
+    const updateResult = await this.prisma.apiUsageRecord.updateMany({
+      where: {
+        id: apiUsageId,
+        ...(status === ApiResponseStatus.SUCCESS
+          ? { responseStatus: ApiResponseStatus.PENDING }
+          : status === ApiResponseStatus.FAILED
+            ? {
+                responseStatus: {
+                  in: [ApiResponseStatus.PENDING, ApiResponseStatus.FAILED],
+                },
+              }
+            : {}),
+      },
+      data: updateData,
+    });
+
+    const latestUsage = await this.prisma.apiUsageRecord.findUnique({
+      where: { id: apiUsageId },
+    });
+
+    if (!latestUsage) {
+      throw new NotFoundException('API使用记录不存在');
+    }
+
+    if (updateResult.count === 0) {
+      if (status === ApiResponseStatus.SUCCESS) {
+        this.logger.warn(
+          `[Credits] Skip success update because apiUsage is no longer pending: apiUsageId=${apiUsageId}, currentStatus=${latestUsage.responseStatus}`,
+        );
+      }
+      return latestUsage;
+    }
+
+    // 如果 API 调用首次从 pending 变为 success，检查是否需要核验邀请奖励
+    if (
+      status === ApiResponseStatus.SUCCESS &&
+      existingUsage.responseStatus !== ApiResponseStatus.SUCCESS &&
+      latestUsage.userId
+    ) {
+      await this.verifyAndRewardInviterSafely(latestUsage.userId);
+    }
+
+    return latestUsage;
   }
 
   async updateApiUsageRequestParams(
@@ -951,14 +1023,43 @@ export class CreditsService {
       return apiUsage;
     }
 
-    return this.prisma.apiUsageRecord.update({
-      where: { id: apiUsageId },
+    const updateResult = await this.prisma.apiUsageRecord.updateMany({
+      where: {
+        id: apiUsageId,
+        responseStatus: ApiResponseStatus.PENDING,
+      },
       data: {
         responseStatus: ApiResponseStatus.FAILED,
         errorMessage,
         processingTime,
       },
     });
+
+    if (updateResult.count === 0) {
+      const latestUsage = await this.prisma.apiUsageRecord.findUnique({
+        where: { id: apiUsageId },
+      });
+
+      if (!latestUsage) {
+        throw new NotFoundException('API使用记录不存在');
+      }
+
+      if (latestUsage.responseStatus === ApiResponseStatus.SUCCESS) {
+        throw new BadRequestException('成功的 API 调用不支持退款');
+      }
+
+      return latestUsage;
+    }
+
+    const updatedUsage = await this.prisma.apiUsageRecord.findUnique({
+      where: { id: apiUsageId },
+    });
+
+    if (!updatedUsage) {
+      throw new NotFoundException('API使用记录不存在');
+    }
+
+    return updatedUsage;
   }
 
   /**
@@ -989,14 +1090,41 @@ export class CreditsService {
       return apiUsage;
     }
 
-    const updated = await this.prisma.apiUsageRecord.update({
-      where: { id: apiUsageId },
+    const updateResult = await this.prisma.apiUsageRecord.updateMany({
+      where: {
+        id: apiUsageId,
+        responseStatus: ApiResponseStatus.PENDING,
+      },
       data: {
         responseStatus: ApiResponseStatus.SUCCESS,
         errorMessage: null,
         processingTime: Math.max(0, processingTime),
       },
     });
+
+    if (updateResult.count === 0) {
+      const latestUsage = await this.prisma.apiUsageRecord.findUnique({
+        where: { id: apiUsageId },
+      });
+
+      if (!latestUsage) {
+        throw new NotFoundException('API使用记录不存在');
+      }
+
+      if (latestUsage.responseStatus === ApiResponseStatus.FAILED) {
+        throw new BadRequestException('失败的 API 调用不支持标记成功');
+      }
+
+      return latestUsage;
+    }
+
+    const updated = await this.prisma.apiUsageRecord.findUnique({
+      where: { id: apiUsageId },
+    });
+
+    if (!updated) {
+      throw new NotFoundException('API使用记录不存在');
+    }
 
     await this.verifyAndRewardInviterSafely(userId);
     return updated;

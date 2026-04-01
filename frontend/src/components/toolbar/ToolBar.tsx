@@ -14,6 +14,7 @@ import paper from 'paper';
 import { isRaster } from '@/utils/paperCoords';
 import { canvasToDataUrl } from '@/utils/imageConcurrency';
 import { isRemoteUrl, normalizePersistableImageRef } from '@/utils/imageSource';
+import { useLocaleText } from '@/utils/localeText';
 
 // 统一画板：移除 Node 模式专属按钮组件
 
@@ -145,12 +146,12 @@ const LineStylePreview: React.FC<{ className?: string; styleType: LineStyle }> =
   );
 };
 
-const LINE_STYLE_OPTIONS: Array<{ value: LineStyle; label: string }> = [
-  { value: 'solid', label: '实线' },
-  { value: 'dashed', label: '虚线' },
-  { value: 'dash-dot', label: '点画线' },
-  { value: 'sketch-end-heavy', label: '手绘风（两头粗）' },
-  { value: 'sketch-center-heavy', label: '手绘风（中间粗）' },
+const LINE_STYLE_OPTIONS: Array<{ value: LineStyle; labelZh: string; labelEn: string }> = [
+  { value: 'solid', labelZh: '实线', labelEn: 'Solid' },
+  { value: 'dashed', labelZh: '虚线', labelEn: 'Dashed' },
+  { value: 'dash-dot', labelZh: '点画线', labelEn: 'Dash Dot' },
+  { value: 'sketch-end-heavy', labelZh: '手绘风（两头粗）', labelEn: 'Sketch (Heavy Ends)' },
+  { value: 'sketch-center-heavy', labelZh: '手绘风（中间粗）', labelEn: 'Sketch (Heavy Center)' },
 ];
 
 const LineStylePicker: React.FC<{
@@ -159,6 +160,7 @@ const LineStylePicker: React.FC<{
   disabled?: boolean;
   title?: string;
 }> = ({ value, onChange, disabled = false, title }) => {
+  const { lt } = useLocaleText();
   const [isOpen, setIsOpen] = React.useState(false);
   const panelRef = React.useRef<HTMLDivElement>(null);
   const buttonRef = React.useRef<HTMLDivElement>(null);
@@ -202,7 +204,7 @@ const LineStylePicker: React.FC<{
           ref={panelRef}
           className="absolute left-full top-1/2 z-[1010] ml-2 w-44 -translate-y-1/2 rounded-xl border border-liquid-glass-light bg-liquid-glass-light p-2 shadow-liquid-glass-lg backdrop-blur-minimal backdrop-saturate-125"
         >
-          <div className="mb-1 px-1 text-[11px] font-medium text-gray-500">线条样式</div>
+          <div className="mb-1 px-1 text-[11px] font-medium text-gray-500">{lt('线条样式', 'Line Style')}</div>
           <div className="flex flex-col gap-1">
             {LINE_STYLE_OPTIONS.map((option) => (
               <button
@@ -218,10 +220,10 @@ const LineStylePicker: React.FC<{
                   onChange(option.value);
                   setIsOpen(false);
                 }}
-                title={option.label}
+                title={lt(option.labelZh, option.labelEn)}
               >
                 <LineStylePreview styleType={option.value} className="h-3 w-14 shrink-0" />
-                <span className="ml-2 truncate">{option.label}</span>
+                <span className="ml-2 truncate">{lt(option.labelZh, option.labelEn)}</span>
               </button>
             ))}
           </div>
@@ -343,6 +345,7 @@ const VerticalSlider: React.FC<{
 };
 
 const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
+  const { lt } = useLocaleText();
   // 使用 Zustand store
   const {
     drawMode,
@@ -621,7 +624,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
             getActiveButtonStyle(isAIDialogVisible)
           )}
           onClick={toggleDialog}
-          title={isAIDialogVisible ? "关闭 AI 对话" : "打开 AI 对话"}
+          title={isAIDialogVisible ? lt("关闭 AI 对话", "Close AI chat") : lt("打开 AI 对话", "Open AI chat")}
         >
           <Sparkles className="w-4 h-4" />
         </Button>
@@ -646,7 +649,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
             </Button>
           </TooltipTrigger>
           <TooltipContent side="right">
-            {showFlowPanel ? '关闭 Flow 面板' : '打开 Flow 面板'}
+            {showFlowPanel ? lt('关闭 Flow 面板', 'Close Flow panel') : lt('打开 Flow 面板', 'Open Flow panel')}
           </TooltipContent>
         </Tooltip>
       )}
@@ -687,12 +690,12 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
           </TooltipTrigger>
           <TooltipContent side="right">
             {drawMode === 'select'
-              ? '复合选择'
+              ? lt('复合选择', 'Composite Select')
               : drawMode === 'marquee'
-                ? '纯框选（不含节点）'
+                ? lt('纯框选（不含节点）', 'Marquee (no nodes)')
                 : drawMode === 'pointer'
-                  ? '节点选择工具'
-                  : '点击切换到复合选择'}
+                  ? lt('节点选择工具', 'Node Select')
+                  : lt('点击切换到复合选择', 'Switch to composite select')}
           </TooltipContent>
         </Tooltip>
 
@@ -716,7 +719,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                       <DashedSelectIcon className="w-4 h-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="right" sideOffset={12}>复合选择</TooltipContent>
+                  <TooltipContent side="right" sideOffset={12}>{lt('复合选择', 'Composite Select')}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -732,7 +735,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                       <MousePointer2 className="w-4 h-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="right" sideOffset={12}>节点选择工具</TooltipContent>
+                  <TooltipContent side="right" sideOffset={12}>{lt('节点选择工具', 'Node Select')}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -748,7 +751,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                       <MarqueeSelectIcon className="w-4 h-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="right" sideOffset={12}>纯框选（不含节点）</TooltipContent>
+                  <TooltipContent side="right" sideOffset={12}>{lt('纯框选（不含节点）', 'Marquee (no nodes)')}</TooltipContent>
                 </Tooltip>
               </div>
             </div>
@@ -784,7 +787,11 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
             </Button>
           </TooltipTrigger>
           <TooltipContent side="right">
-            {drawMode === 'image' ? '添加图片' : drawMode === '3d-model' ? '添加3D模型' : '添加内容'}
+            {drawMode === 'image'
+              ? lt('添加图片', 'Add Image')
+              : drawMode === '3d-model'
+                ? lt('添加3D模型', 'Add 3D Model')
+                : lt('添加内容', 'Add Content')}
           </TooltipContent>
         </Tooltip>
 
@@ -808,7 +815,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                       <Image className="w-4 h-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="right" sideOffset={12}>添加图片</TooltipContent>
+                  <TooltipContent side="right" sideOffset={12}>{lt('添加图片', 'Add Image')}</TooltipContent>
                 </Tooltip>
 
                 {/* 3D模型工具 */}
@@ -826,7 +833,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                       <Box className="w-4 h-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="right" sideOffset={12}>添加3D模型</TooltipContent>
+                  <TooltipContent side="right" sideOffset={12}>{lt('添加3D模型', 'Add 3D Model')}</TooltipContent>
                 </Tooltip>
 
                 {/* 节点工具 */}
@@ -857,7 +864,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                       <AddNodeIcon className="w-4 h-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="right" sideOffset={12}>添加节点（双击画布空白处触发）</TooltipContent>
+                  <TooltipContent side="right" sideOffset={12}>{lt('添加节点（双击画布空白处触发）', 'Add Node (double-click blank canvas)')}</TooltipContent>
                 </Tooltip>
               </div>
             </div>
@@ -899,8 +906,11 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
           </TooltipTrigger>
           <TooltipContent side="right">
             {drawMode === 'select' || drawMode === 'marquee' || drawMode === 'pointer' || isEraser || drawMode === 'text' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'screenshot'
-              ? '点击切换到自由绘制工具'
-              : `当前工具：${drawMode === 'free' ? '自由绘制' : drawMode === 'line' ? '直线' : drawMode === 'rect' ? '矩形' : drawMode === 'circle' ? '圆形' : drawMode === 'polyline' ? '多段线' : drawMode}`}
+              ? lt('点击切换到自由绘制工具', 'Switch to free draw')
+              : lt(
+                  `当前工具：${drawMode === 'free' ? '自由绘制' : drawMode === 'line' ? '直线' : drawMode === 'rect' ? '矩形' : drawMode === 'circle' ? '圆形' : drawMode === 'polyline' ? '多段线' : drawMode}`,
+                  `Current tool: ${drawMode === 'free' ? 'Free Draw' : drawMode === 'line' ? 'Line' : drawMode === 'rect' ? 'Rectangle' : drawMode === 'circle' ? 'Circle' : drawMode === 'polyline' ? 'Polyline' : drawMode}`
+                )}
           </TooltipContent>
         </Tooltip>
 
@@ -924,7 +934,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                       <FreeDrawIcon className="w-4 h-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="right" sideOffset={12}>自由绘制</TooltipContent>
+                  <TooltipContent side="right" sideOffset={12}>{lt('自由绘制', 'Free Draw')}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -940,7 +950,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                       <StraightLineIcon className="w-4 h-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="right" sideOffset={12}>绘制直线</TooltipContent>
+                  <TooltipContent side="right" sideOffset={12}>{lt('绘制直线', 'Draw Line')}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -956,7 +966,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                       <Square className="w-4 h-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="right" sideOffset={12}>绘制矩形</TooltipContent>
+                  <TooltipContent side="right" sideOffset={12}>{lt('绘制矩形', 'Draw Rectangle')}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -972,7 +982,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                       <CircleIcon className="w-4 h-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="right" sideOffset={12}>绘制圆形</TooltipContent>
+                  <TooltipContent side="right" sideOffset={12}>{lt('绘制圆形', 'Draw Circle')}</TooltipContent>
                 </Tooltip>
               </div>
 
@@ -980,30 +990,30 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
 
               {/* 线条颜色选择器 */}
               <div className="flex flex-col items-center gap-1">
-                <span className="text-xs font-medium text-gray-600">线条</span>
+                <span className="text-xs font-medium text-gray-600">{lt('线条', 'Stroke')}</span>
                 <ColorPicker
                   value={currentColor}
                   onChange={setCurrentColor}
                   disabled={isEraser}
-                  title="线条颜色"
+                  title={lt('线条颜色', 'Stroke Color')}
                 />
               </div>
 
               {/* 线条样式 */}
               <div className="flex flex-col items-center gap-1">
-                <span className="text-xs font-medium text-gray-600">样式</span>
+                <span className="text-xs font-medium text-gray-600">{lt('样式', 'Style')}</span>
                 <LineStylePicker
                   value={lineStyle}
                   onChange={setLineStyle}
                   disabled={isEraser}
-                  title="线条样式"
+                  title={lt('线条样式', 'Line Style')}
                 />
               </div>
 
               {/* 填充控制区域 - 只在支持填充的工具时显示 */}
               {supportsFill(drawMode) && (
                 <div className="flex flex-col items-center gap-1">
-                  <span className="text-xs font-medium text-gray-600">填充</span>
+                  <span className="text-xs font-medium text-gray-600">{lt('填充', 'Fill')}</span>
                   <ColorPicker
                     value={fillColor}
                     onChange={(color) => {
@@ -1015,7 +1025,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                     }}
                     onTransparentSelect={toggleFill}
                     disabled={isEraser}
-                    title="填充颜色"
+                    title={lt('填充颜色', 'Fill Color')}
                     showTransparent={true}
                     isTransparent={!hasFill}
                     showFillPattern={hasFill}
@@ -1057,7 +1067,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
           </Button>
         </TooltipTrigger>
         <TooltipContent side="right">
-          {isEraser ? "点击切换到画笔" : "点击切换到橡皮擦"}
+          {isEraser ? lt("点击切换到画笔", "Switch to brush") : lt("点击切换到橡皮擦", "Switch to eraser")}
         </TooltipContent>
       </Tooltip>
 
@@ -1083,7 +1093,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="right">
-                点击空白处使用文本工具
+                {lt('点击空白处使用文本工具', 'Click blank area to use text tool')}
               </TooltipContent>
             </Tooltip>
 
@@ -1154,7 +1164,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
             <Layers className="w-4 h-4" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="right">图层面板</TooltipContent>
+        <TooltipContent side="right">{lt('图层面板', 'Layer Panel')}</TooltipContent>
       </Tooltip>
 
       {/* 个人库按钮 */}
@@ -1172,7 +1182,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
             <FolderOpen className="w-4 h-4" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="right">个人库</TooltipContent>
+        <TooltipContent side="right">{lt('个人库', 'Personal Library')}</TooltipContent>
       </Tooltip>
 
       {/* 模板库按钮 */}
@@ -1190,7 +1200,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
             <LayoutTemplate className="w-4 h-4" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="right">公共模板</TooltipContent>
+        <TooltipContent side="right">{lt('公共模板', 'Public Templates')}</TooltipContent>
       </Tooltip>
 
       {/* 自动对齐开关已移至设置面板的视图外观中 */}
@@ -1203,7 +1213,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
             <TooltipTrigger asChild>
               <Button
                 onClick={() => {
-                  if (window.confirm('确定要清空画布吗？此操作将删除所有图元，不可撤销。')) {
+                  if (window.confirm(lt('确定要清空画布吗？此操作将删除所有图元，不可撤销。', 'Clear canvas? This removes all elements and cannot be undone.'))) {
                     onClearCanvas();
                   }
                 }}
@@ -1214,7 +1224,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                 <Trash2 className="w-4 h-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="right">清空画布</TooltipContent>
+            <TooltipContent side="right">{lt('清空画布', 'Clear Canvas')}</TooltipContent>
           </Tooltip>
           {/* Paper.js 沙盒开关已移至设置面板的高级选项中 */}
           {/* 专注模式按钮已移至独立组件 FocusModeButton */}

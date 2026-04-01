@@ -12,6 +12,7 @@ interface CacheEntry {
   url: string;
   timestamp: number;
   base64CacheId?: string; // 改为存储缓存 ID，而非完整 dataUrl
+  sourceFingerprint?: string; // 缓存绑定的图片源指纹（用于避免复用过期低清缓存）
 }
 
 // 缓存过期时间：30分钟
@@ -110,11 +111,19 @@ class ImageUrlCacheService {
   /**
    * 获取缓存的 dataUrl（从 Base64CacheService 获取）
    */
-  async getCachedDataUrl(imageId: string, projectId?: string | null): Promise<string | null> {
+  async getCachedDataUrl(
+    imageId: string,
+    projectId?: string | null,
+    sourceFingerprint?: string
+  ): Promise<string | null> {
     const key = this.getCacheKey(imageId, projectId);
     const entry = this.cache.get(key);
 
     if (entry && this.isValid(entry) && entry.base64CacheId) {
+      // 若当前图片源与缓存绑定源不一致，直接视为未命中，避免复用旧图（常见于替换图片后 imageId 不变）。
+      if (sourceFingerprint && entry.sourceFingerprint !== sourceFingerprint) {
+        return null;
+      }
       // 从 Base64CacheService 获取
       const dataUrl = await base64CacheService.getBase64(entry.base64CacheId, entry.url);
       if (dataUrl) {
@@ -129,7 +138,12 @@ class ImageUrlCacheService {
   /**
    * 更新缓存的 dataUrl（存入 Base64CacheService）
    */
-  async updateDataUrl(imageId: string, dataUrl: string, projectId?: string | null): Promise<void> {
+  async updateDataUrl(
+    imageId: string,
+    dataUrl: string,
+    projectId?: string | null,
+    sourceFingerprint?: string
+  ): Promise<void> {
     const key = this.getCacheKey(imageId, projectId);
     const entry = this.cache.get(key);
 
@@ -145,12 +159,16 @@ class ImageUrlCacheService {
     if (entry) {
       entry.base64CacheId = cacheId;
       entry.timestamp = Date.now();
+      if (sourceFingerprint) {
+        entry.sourceFingerprint = sourceFingerprint;
+      }
     } else {
       // 如果没有 entry，创建一个新的
       this.cache.set(key, {
         url: '',
         timestamp: Date.now(),
         base64CacheId: cacheId,
+        sourceFingerprint,
       });
     }
   }

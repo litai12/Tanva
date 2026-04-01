@@ -8,17 +8,17 @@ export default function ProtectedRoute() {
   const initializing = useAuthStore((s) => s.initializing);
   const init = useAuthStore((s) => s.init);
 
-  // 本组件在首次挂载时触发延迟初始化，避免应用一加载就调用 /api/auth/me
+  // Trigger lazy auth init on first mount to avoid calling /api/auth/me immediately.
   const initializedRef = useRef(false);
   useEffect(() => {
     if (!initializedRef.current) {
       initializedRef.current = true;
-      // 异步触发初始化（会设置 initializing 为 true）
+      // Initialize asynchronously (this sets initializing=true).
       init().catch(() => {});
     }
   }, [init]);
 
-  // 如果尚未开始初始化或正在初始化，显示认证包装器
+  // Show auth wrapper while initialization has not started or is in progress.
   if (!initializedRef.current || initializing) {
     return <AuthWrapper><Outlet /></AuthWrapper>;
   }

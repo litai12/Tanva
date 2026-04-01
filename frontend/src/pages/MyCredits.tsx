@@ -234,26 +234,35 @@ const MyCredits: React.FC = () => {
   const dailyUsageData = useMemo(() => {
     const days = 14;
     const now = new Date();
-    const dailyMap = new Map<string, number>();
+    const dailyMap = new Map<string, { spend: number; refund: number }>();
 
     for (let i = days - 1; i >= 0; i--) {
       const date = new Date(now);
       date.setDate(date.getDate() - i);
       const key = `${date.getMonth() + 1}/${date.getDate()}`;
-      dailyMap.set(key, 0);
+      dailyMap.set(key, { spend: 0, refund: 0 });
     }
 
     transactions
-      .filter(t => t.type === 'spend')
+      .filter(t => t.type === 'spend' || t.type === 'refund')
       .forEach(t => {
         const date = new Date(t.createdAt);
         const key = `${date.getMonth() + 1}/${date.getDate()}`;
-        if (dailyMap.has(key)) {
-          dailyMap.set(key, (dailyMap.get(key) || 0) + Math.abs(t.amount));
+        const existing = dailyMap.get(key);
+        if (existing) {
+          if (t.type === 'spend') {
+            existing.spend += Math.abs(t.amount);
+          } else if (t.type === 'refund') {
+            existing.refund += Math.abs(t.amount);
+          }
+          dailyMap.set(key, existing);
         }
       });
 
-    return Array.from(dailyMap.entries()).map(([date, value]) => ({ date, value }));
+    return Array.from(dailyMap.entries()).map(([date, value]) => ({
+      date,
+      value: Math.max(0, value.spend - value.refund),
+    }));
   }, [transactions]);
 
   const getServiceTypeLabel = (serviceType: string) => {
@@ -287,17 +296,25 @@ const MyCredits: React.FC = () => {
   // 今日消耗
   const todaySpent = useMemo(() => {
     const today = new Date().toDateString();
-    return transactions
+    const todaySpend = transactions
       .filter(t => t.type === 'spend' && new Date(t.createdAt).toDateString() === today)
       .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+    const todayRefund = transactions
+      .filter(t => t.type === 'refund' && new Date(t.createdAt).toDateString() === today)
+      .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+    return Math.max(0, todaySpend - todayRefund);
   }, [transactions]);
 
   const weekSpent = useMemo(() => {
     const now = new Date();
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    return transactions
+    const weekSpend = transactions
       .filter(t => t.type === 'spend' && new Date(t.createdAt) >= weekAgo)
       .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+    const weekRefund = transactions
+      .filter(t => t.type === 'refund' && new Date(t.createdAt) >= weekAgo)
+      .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+    return Math.max(0, weekSpend - weekRefund);
   }, [transactions]);
 
   const latestGenerationTime = useMemo(() => {

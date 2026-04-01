@@ -108,7 +108,26 @@ const getTodayDateKey = () => {
 const FloatingHeader: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const untitledLabel = t("common.untitled");
+  const untitledProjectLabel = t("workspacePage.prompt.defaultName", {
+    defaultValue: t("common.untitled"),
+  });
+  const localizeProjectName = useCallback(
+    (name?: string | null) => {
+      const raw = typeof name === "string" ? name.trim() : "";
+      if (!raw) return untitledProjectLabel;
+      const normalized = raw.toLowerCase();
+      if (
+        raw === "未命名" ||
+        raw === "未命名项目" ||
+        normalized === "untitled" ||
+        normalized === "untitled project"
+      ) {
+        return untitledProjectLabel;
+      }
+      return raw;
+    },
+    [untitledProjectLabel]
+  );
   const {
     showLibraryPanel,
     showGrid,
@@ -170,10 +189,10 @@ const FloatingHeader: React.FC = () => {
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState("");
   useEffect(() => {
-    setTitleInput(currentProject?.name || untitledLabel);
-  }, [currentProject?.id, currentProject?.name, untitledLabel]);
+    setTitleInput(currentProject?.name || untitledProjectLabel);
+  }, [currentProject?.id, currentProject?.name, untitledProjectLabel]);
   const commitTitle = async () => {
-    const name = titleInput.trim() || untitledLabel;
+    const name = titleInput.trim() || untitledProjectLabel;
     try {
       if (currentProject) {
         if (name !== currentProject.name) {
@@ -1788,7 +1807,7 @@ const FloatingHeader: React.FC = () => {
                     className='truncate text-sm text-gray-800 max-w-[260px]'
                     title={t("workspace.header.renameHint")}
                   >
-                    {currentProject?.name || untitledLabel}
+                    {localizeProjectName(currentProject?.name)}
                   </span>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
@@ -1819,7 +1838,7 @@ const FloatingHeader: React.FC = () => {
                           className='flex items-center justify-between gap-3 px-2 py-1 text-sm'
                         >
                           <span className='truncate text-slate-700'>
-                            {project.name || untitledLabel}
+                            {localizeProjectName(project.name)}
                           </span>
                           {project.id === currentProject?.id && (
                             <Check className='w-4 h-4 text-blue-600' />

@@ -23,7 +23,10 @@ import {
   fetchTemplateCategories,
   fetchTemplates,
 } from "@/services/publicTemplateService";
+import { useTranslation } from "react-i18next";
 // import { useReactFlow } from 'reactflow'; // 暂时注释，因为FloatingHeader不在ReactFlow上下文中
+
+type LocaleTextGetter = (zh: string, en: string) => string;
 
 interface TemplateModalProps {
   isOpen: boolean;
@@ -46,7 +49,8 @@ const UserTemplateCard: React.FC<{
   };
   onInstantiate: () => Promise<void>;
   onDelete: () => Promise<void>;
-}> = ({ item, onInstantiate, onDelete }) => {
+  lt: LocaleTextGetter;
+}> = ({ item, onInstantiate, onDelete, lt }) => {
   const [isHovered, setIsHovered] = useState(false);
 
   return (
@@ -104,7 +108,7 @@ const UserTemplateCard: React.FC<{
             style={{ width: "100%", height: "100%", objectFit: "cover" }}
           />
         ) : (
-          <div style={{ fontSize: 12, color: "#9ca3af" }}>暂无预览</div>
+          <div style={{ fontSize: 12, color: "#9ca3af" }}>{lt("暂无预览", "No preview")}</div>
         )}
       </div>
       <div
@@ -128,17 +132,19 @@ const UserTemplateCard: React.FC<{
             {item.name}
           </div>
           <div style={{ fontSize: 12, color: "#6b7280" }}>
-            更新于 {new Date(item.updatedAt).toLocaleString()}
+            {lt("更新于", "Updated")} {new Date(item.updatedAt).toLocaleString()}
           </div>
         </div>
         {item.category ? (
           <div style={{ fontSize: 12, color: "#9ca3af" }}>
-            分类：{item.category}
+            {lt("分类：", "Category: ")}
+            {item.category}
           </div>
         ) : null}
         {item.tags?.length ? (
           <div style={{ fontSize: 12, color: "#9ca3af" }}>
-            标签：{item.tags.join(" / ")}
+            {lt("标签：", "Tags: ")}
+            {item.tags.join(" / ")}
           </div>
         ) : null}
       </div>
@@ -175,7 +181,7 @@ const UserTemplateCard: React.FC<{
             e.currentTarget.style.borderColor = "#fecaca";
             e.currentTarget.style.transform = "scale(1)";
           }}
-          title='删除模板'
+          title={lt("删除模板", "Delete template")}
         >
           <Trash2 size={16} strokeWidth={2} />
         </button>
@@ -187,7 +193,8 @@ const UserTemplateCard: React.FC<{
 const AddTemplateCard: React.FC<{
   onAdd: () => Promise<void>;
   label?: string;
-}> = ({ onAdd, label }) => {
+  lt: LocaleTextGetter;
+}> = ({ onAdd, label, lt }) => {
   const [isLoading, setIsLoading] = useState(false);
 
   return (
@@ -236,12 +243,15 @@ const AddTemplateCard: React.FC<{
       disabled={isLoading}
     >
       <Plus size={24} strokeWidth={2.5} />
-      <div>{isLoading ? "保存中…" : label || "保存为模板"}</div>
+      <div>{isLoading ? lt("保存中…", "Saving...") : label || lt("保存为模板", "Save as template")}</div>
     </button>
   );
 };
 
-const TemplatePlaceholder: React.FC<{ label?: string }> = ({ label }) => (
+const TemplatePlaceholder: React.FC<{ label?: string; lt: LocaleTextGetter }> = ({
+  label,
+  lt,
+}) => (
   <div
     style={{
       display: "flex",
@@ -283,9 +293,9 @@ const TemplatePlaceholder: React.FC<{ label?: string }> = ({ label }) => (
       }}
     >
       <div style={{ fontSize: 15, fontWeight: 600 }}>
-        {label || "敬请期待更多模板"}
+        {label || lt("敬请期待更多模板", "More templates coming soon")}
       </div>
-      <div>我们正在准备更多创意模板</div>
+      <div>{lt("我们正在准备更多创意模板", "We're preparing more creative templates")}</div>
     </div>
   </div>
 );
@@ -295,6 +305,26 @@ export default function TemplateModal({
   onClose,
   onInstantiateTemplate,
 }: TemplateModalProps) {
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || "")
+    .toLowerCase()
+    .startsWith("zh");
+  const lt: LocaleTextGetter = (zh, en) => (isZh ? zh : en);
+  const otherCategory = lt("其他", "Other");
+  const isOtherCategory = useCallback(
+    (category: string) => category === "其他" || category === "Other",
+    []
+  );
+  const normalizeCategory = useCallback(
+    (category?: string) =>
+      category && category.trim()
+        ? isOtherCategory(category)
+          ? otherCategory
+          : category
+        : otherCategory,
+    [isOtherCategory, otherCategory]
+  );
+
   // const rf = useReactFlow(); // 暂时注释
   const [templateScope, setTemplateScope] = useState<"public" | "mine">(
     "public"
@@ -322,9 +352,9 @@ export default function TemplateModal({
     if (!tplIndex) return [];
     if (!activeBuiltinCategory) return tplIndex;
     return tplIndex.filter(
-      (item) => (item.category || "其他") === activeBuiltinCategory
+      (item) => normalizeCategory(item.category) === activeBuiltinCategory
     );
-  }, [tplIndex, activeBuiltinCategory]);
+  }, [tplIndex, activeBuiltinCategory, normalizeCategory]);
 
   const getPlaceholderCount = useCallback(
     (len: number, opts?: { columns?: number; minVisible?: number }) => {
@@ -361,7 +391,7 @@ export default function TemplateModal({
           const idx = await loadBuiltInTemplateIndex();
           const normalizedIdx = idx.map((item) => ({
             ...item,
-            category: item.category || "其他",
+            category: normalizeCategory(item.category),
           }));
           if (!cancelled) {
             setTplIndex(normalizedIdx);
@@ -376,7 +406,7 @@ export default function TemplateModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, tplIndex]);
+  }, [isOpen, tplIndex, normalizeCategory]);
 
   // 从后端加载可用分类（管理员在后台可维护）
   useEffect(() => {
@@ -388,11 +418,11 @@ export default function TemplateModal({
         if (!cancelled) {
           if (Array.isArray(cats) && cats.length) {
             // 将"其他"分类固定在末尾
-            const otherCat = cats.filter((c) => c === "其他");
-            const restCats = cats.filter((c) => c !== "其他");
+            const otherCat = cats.filter((c) => isOtherCategory(c));
+            const restCats = cats.filter((c) => !isOtherCategory(c));
             setBuiltinCategories([...restCats, ...otherCat]);
           } else {
-            setBuiltinCategories(["其他"]);
+            setBuiltinCategories([otherCategory]);
           }
         }
       } catch (e) {
@@ -402,7 +432,7 @@ export default function TemplateModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen]);
+  }, [isOpen, isOtherCategory, otherCategory]);
 
   // 根据所选分类从后端拉取模板（单选）
   useEffect(() => {
@@ -415,7 +445,7 @@ export default function TemplateModal({
           const idx = await loadBuiltInTemplateIndex();
           const normalizedIdx = idx.map((item) => ({
             ...item,
-            category: item.category || "其他",
+            category: normalizeCategory(item.category),
           }));
           if (!cancelled) setTplIndex(normalizedIdx);
           return;
@@ -431,7 +461,7 @@ export default function TemplateModal({
         const normalized = arr.map((it: any) => ({
           id: it.id,
           name: it.name,
-          category: it.category || "其他",
+          category: normalizeCategory(it.category),
           description: it.description,
           tags: it.tags,
           thumbnail: it.thumbnail || it.thumbnailSmall,
@@ -446,7 +476,7 @@ export default function TemplateModal({
           const idx = await loadBuiltInTemplateIndex();
           const normalizedIdx = idx.map((item) => ({
             ...item,
-            category: item.category || "其他",
+            category: normalizeCategory(item.category),
           }));
           if (!cancelled) setTplIndex(normalizedIdx);
         } catch {}
@@ -455,7 +485,7 @@ export default function TemplateModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, templateScope, activeBuiltinCategory]);
+  }, [isOpen, templateScope, activeBuiltinCategory, normalizeCategory]);
 
   const instantiateTemplateAt = useCallback(
     async (tpl: FlowTemplate) => {
@@ -478,8 +508,8 @@ export default function TemplateModal({
 
   const saveCurrentAsTemplate = useCallback(async () => {
     // 暂时禁用保存功能，因为不在ReactFlow上下文中
-    alert("保存模板功能需要在Flow画布中使用");
-  }, []);
+    alert(lt("保存模板功能需要在 Flow 画布中使用", "Template saving is available in the Flow canvas"));
+  }, [lt]);
 
   const handleExportTemplates = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -499,7 +529,7 @@ export default function TemplateModal({
 
       const reader = new FileReader();
       reader.onerror = () => {
-        console.error("导入模板失败:", reader.error);
+        console.error("Template import failed:", reader.error);
         if (importInputRef.current) {
           importInputRef.current.value = "";
         }
@@ -598,7 +628,7 @@ export default function TemplateModal({
                   cursor: "pointer",
                 }}
               >
-                公共模板
+                {lt("公共模板", "Public Templates")}
               </button>
               <button
                 onClick={() => setTemplateScope("mine")}
@@ -615,7 +645,7 @@ export default function TemplateModal({
                   cursor: "pointer",
                 }}
               >
-                我的模板
+                {lt("我的模板", "My Templates")}
               </button>
             </div>
           </div>
@@ -640,11 +670,13 @@ export default function TemplateModal({
             >
               <div>
                 <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.2 }}>
-                  {templateScope === "public" ? "公共模板" : "我的模板"}
+                  {templateScope === "public"
+                    ? lt("公共模板", "Public Templates")
+                    : lt("我的模板", "My Templates")}
                 </div>
                 {tplLoading ? (
                   <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
-                    加载中…
+                    {lt("加载中…", "Loading...")}
                   </div>
                 ) : null}
               </div>
@@ -702,14 +734,14 @@ export default function TemplateModal({
                         item={item}
                         onClick={() => {
                           (async () => {
-                            console.log("[TemplateModal] 点击模板:", item.id, item.name);
+                            console.log("[TemplateModal] Template clicked:", item.id, item.name);
                             const tpl = await loadBuiltInTemplateById(item.id);
-                            console.log("[TemplateModal] 获取到模板数据:", tpl);
+                            console.log("[TemplateModal] Template loaded:", tpl);
                             if (tpl) {
-                              console.log("[TemplateModal] 模板节点数:", tpl.nodes?.length);
+                              console.log("[TemplateModal] Template node count:", tpl.nodes?.length);
                               instantiateTemplateAt(tpl);
                             } else {
-                              console.warn("[TemplateModal] 模板数据为空");
+                              console.warn("[TemplateModal] Template data is empty");
                             }
                           })();
                         }}
@@ -723,7 +755,8 @@ export default function TemplateModal({
                   }).map((_, idx) => (
                     <TemplatePlaceholder
                       key={`builtin-placeholder-${idx}`}
-                      label='敬请期待更多模板'
+                      label={lt("敬请期待更多模板", "More templates coming soon")}
+                      lt={lt}
                     />
                   ))}
                 </div>
@@ -740,10 +773,11 @@ export default function TemplateModal({
               >
                 <AddTemplateCard
                   onAdd={saveCurrentAsTemplate}
+                  lt={lt}
                   label={
                     userTplList.length
-                      ? "保存当前为新模板"
-                      : "创建我的第一个模板"
+                      ? lt("保存当前为新模板", "Save current as a new template")
+                      : lt("创建我的第一个模板", "Create my first template")
                   }
                 />
                 {userTplList.map((item) => {
@@ -758,7 +792,10 @@ export default function TemplateModal({
                       onDelete={async () => {
                         if (
                           confirm(
-                            `确定要删除模板 "${item.name}" 吗？此操作无法撤销。`
+                            lt(
+                              `确定要删除模板 "${item.name}" 吗？此操作无法撤销。`,
+                              `Delete template "${item.name}"? This action cannot be undone.`
+                            )
                           )
                         ) {
                           try {
@@ -766,11 +803,12 @@ export default function TemplateModal({
                             const list = await listUserTemplates();
                             setUserTplList(list);
                           } catch (err) {
-                            console.error("删除模板失败:", err);
-                            alert("删除模板失败");
+                            console.error("Template delete failed:", err);
+                            alert(lt("删除模板失败", "Failed to delete template"));
                           }
                         }
                       }}
+                      lt={lt}
                     />
                   );
                 })}
@@ -782,7 +820,7 @@ export default function TemplateModal({
                           minVisible: 1,
                         }),
                 }).map((_, idx) => (
-                  <TemplatePlaceholder key={`user-placeholder-${idx}`} />
+                  <TemplatePlaceholder key={`user-placeholder-${idx}`} lt={lt} />
                 ))}
               </div>
             ) : null}

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { contextManager } from '@/services/contextManager';
 import SmartImage from '@/components/ui/SmartImage';
+import { useTranslation } from 'react-i18next';
 
 interface CachedImageInfo {
   imageId: string;
@@ -14,6 +15,11 @@ interface CachedImageInfo {
 // 临时调试面板：显示当前缓存的图片信息与缩略图预览
 // 注意：这是临时测试功能，后续可移除或加开关
 const CachedImageDebug: React.FC = () => {
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || '')
+    .toLowerCase()
+    .startsWith('zh');
+  const lt = (zh: string, en: string) => (isZh ? zh : en);
   const [cached, setCached] = useState<CachedImageInfo | null>(null);
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
   const [expanded, setExpanded] = useState(true);
@@ -157,6 +163,15 @@ const CachedImageDebug: React.FC = () => {
   }, [cached]);
 
   const hasImage = !!previewSrc;
+  const retryStatusText = retryStatus
+    ? retryStatus === '成功'
+      ? lt('成功', 'Success')
+      : retryStatus === '失败'
+        ? lt('失败', 'Failed')
+        : retryStatus === '进行中'
+          ? lt('进行中', 'In progress')
+          : retryStatus
+    : '';
 
   const center = useMemo(() => {
     if (!cached?.bounds) return null;
@@ -276,12 +291,12 @@ const CachedImageDebug: React.FC = () => {
         onMouseDown={handleDragStart}
       >
         <div className="flex items-center justify-between gap-2 cursor-move" data-drag-handle>
-          <div className="text-xs font-medium text-gray-700">调试面板</div>
+          <div className="text-xs font-medium text-gray-700">{lt('调试面板', 'Debug Panel')}</div>
           <div className="flex items-center gap-1">
             <button
               className="px-1.5 py-0.5 text-[10px] rounded bg-gray-100 hover:bg-gray-200 text-gray-700"
               onClick={() => setExpanded((v) => !v)}
-            >{expanded ? '收起' : '展开'}</button>
+            >{expanded ? lt('收起', 'Collapse') : lt('展开', 'Expand')}</button>
           </div>
         </div>
 
@@ -293,43 +308,43 @@ const CachedImageDebug: React.FC = () => {
                   ID: <span className="font-mono">{cached.imageId}</span>
                 </div>
                 <div className="text-[10px] text-gray-600 break-all line-clamp-2">
-                  提示: {cached.prompt || '—'}
+                  {lt('提示', 'Prompt')}: {cached.prompt || '—'}
                 </div>
                 <div className="text-[10px] text-gray-600">
-                  模式: {mode || '—'}
+                  {lt('模式', 'Mode')}: {mode || '—'}
                 </div>
                 <div className="text-[10px] text-gray-600">
-                  长宽比: {lastAspectRatio || '—'}
+                  {lt('长宽比', 'Aspect ratio')}: {lastAspectRatio || '—'}
                 </div>
                 <div className="text-[10px] text-gray-600">
-                  中心: {center ? `cx=${Math.round(center.cx)}, cy=${Math.round(center.cy)}` : '—'}
+                  {lt('中心', 'Center')}: {center ? `cx=${Math.round(center.cx)}, cy=${Math.round(center.cy)}` : '—'}
                 </div>
                 <div className="text-[10px] text-gray-600">
-                  尺寸: {cached?.bounds ? `${Math.round(cached.bounds.width)}×${Math.round(cached.bounds.height)}` : '—'}
-                  {naturalSize ? `（原图 ${naturalSize.w}×${naturalSize.h}）` : ''}
+                  {lt('尺寸', 'Size')}: {cached?.bounds ? `${Math.round(cached.bounds.width)}×${Math.round(cached.bounds.height)}` : '—'}
+                  {naturalSize ? lt(`（原图 ${naturalSize.w}×${naturalSize.h}）`, ` (source ${naturalSize.w}×${naturalSize.h})`) : ''}
                 </div>
                 <div className="text-[10px] text-gray-600">
-                  图层: {cached.layerId || '—'}
+                  {lt('图层', 'Layer')}: {cached.layerId || '—'}
                 </div>
                 <div className="text-[10px] text-gray-600">
-                  重试: {retryCount > 0 ? `${retryCount}/5` : '—'} 
-                  {isRetrying && <span className="text-orange-600 ml-1">进行中</span>}
-                  {retryStatus && <span className="text-gray-500 ml-1">({retryStatus})</span>}
+                  {lt('重试', 'Retry')}: {retryCount > 0 ? `${retryCount}/5` : '—'} 
+                  {isRetrying && <span className="text-orange-600 ml-1">{lt('进行中', 'In progress')}</span>}
+                  {retryStatusText && <span className="text-gray-500 ml-1">({retryStatusText})</span>}
                 </div>
                 
                 {/* API配置信息 */}
                 {apiConfig && (
                   <div className="text-[9px] text-gray-500 bg-gray-50 p-2 rounded border">
-                    <div className="font-semibold mb-1">API配置:</div>
+                    <div className="font-semibold mb-1">{lt('API配置', 'API Config')}:</div>
                     <div className="space-y-1">
-                      <div>模型: {apiConfig.model}</div>
-                      <div>长宽比: {apiConfig.aspectRatio}</div>
-                      <div>仅图像: {apiConfig.imageOnly ? '是' : '否'}</div>
-                      <div>输出类型: {Array.isArray(apiConfig.responseModalities) ? apiConfig.responseModalities.join('，') : 'Text, Image'}</div>
-                      <div>时间: {new Date(apiConfig.timestamp).toLocaleTimeString()}</div>
+                      <div>{lt('模型', 'Model')}: {apiConfig.model}</div>
+                      <div>{lt('长宽比', 'Aspect ratio')}: {apiConfig.aspectRatio}</div>
+                      <div>{lt('仅图像', 'Image only')}: {apiConfig.imageOnly ? lt('是', 'Yes') : lt('否', 'No')}</div>
+                      <div>{lt('输出类型', 'Output type')}: {Array.isArray(apiConfig.responseModalities) ? apiConfig.responseModalities.join('，') : 'Text, Image'}</div>
+                      <div>{lt('时间', 'Time')}: {new Date(apiConfig.timestamp).toLocaleTimeString()}</div>
                     </div>
                     <details className="mt-1">
-                      <summary className="cursor-pointer text-[8px]">完整配置</summary>
+                      <summary className="cursor-pointer text-[8px]">{lt('完整配置', 'Full config')}</summary>
                       <pre className="text-[7px] mt-1 whitespace-pre-wrap break-all">
                         {JSON.stringify(apiConfig.config, null, 2)}
                       </pre>
@@ -345,7 +360,7 @@ const CachedImageDebug: React.FC = () => {
                     />
                   ) : (
                     <div className="w-full h-[80px] flex items-center justify-center text-[10px] text-gray-400 border border-dashed rounded">
-                      无可预览的图片数据
+                      {lt('无可预览的图片数据', 'No previewable image data')}
                     </div>
                   )}
                 </div>
@@ -354,29 +369,29 @@ const CachedImageDebug: React.FC = () => {
                     className="px-1.5 py-0.5 text-[10px] rounded bg-gray-800 hover:bg-gray-900 text-white disabled:opacity-40"
                     onClick={handlePreview}
                     disabled={!hasImage}
-                  >预览</button>
+                  >{lt('预览', 'Preview')}</button>
                   <button
                     className="px-1.5 py-0.5 text-[10px] rounded bg-gray-100 hover:bg-gray-200 text-gray-700"
                     onClick={handleCopyId}
-                  >复制ID</button>
+                  >{lt('复制ID', 'Copy ID')}</button>
                   <button
                     className="px-1.5 py-0.5 text-[10px] rounded bg-gray-100 hover:bg-gray-200 text-gray-700"
                     onClick={handleCopyPrompt}
-                  >复制提示</button>
+                  >{lt('复制提示', 'Copy Prompt')}</button>
                   {retryCount > 0 && (
                     <button
                       className="px-1.5 py-0.5 text-[10px] rounded bg-orange-50 hover:bg-orange-100 text-orange-600"
                       onClick={handleResetRetry}
-                    >重置重试</button>
+                    >{lt('重置重试', 'Reset Retry')}</button>
                   )}
                   <button
                     className="ml-auto px-1.5 py-0.5 text-[10px] rounded bg-red-50 hover:bg-red-100 text-red-600"
                     onClick={handleClear}
-                  >清除缓存</button>
+                  >{lt('清除缓存', 'Clear Cache')}</button>
                 </div>
               </div>
             ) : (
-              <div className="text-[10px] text-gray-500">当前无缓存图片</div>
+              <div className="text-[10px] text-gray-500">{lt('当前无缓存图片', 'No cached image')}</div>
             )}
           </div>
         )}

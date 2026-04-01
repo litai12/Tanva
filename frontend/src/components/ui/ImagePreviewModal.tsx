@@ -8,6 +8,7 @@ import { X, ChevronUp, ChevronDown } from 'lucide-react';
 import { Button } from './button';
 import SmartImage from './SmartImage';
 import './ImagePreviewModal.css';
+import { useTranslation } from 'react-i18next';
 
 export interface ImageItem {
   id: string;
@@ -33,16 +34,24 @@ interface ImagePreviewModalProps {
 const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
   isOpen,
   imageSrc,
-  imageTitle = '图片预览',
+  imageTitle,
   onClose,
   imageCollection = [],
   currentImageId,
   onImageChange,
-  collectionTitle = '历史记录',
+  collectionTitle,
   onLoadMore,
   hasMore = false,
   isLoading = false,
 }) => {
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || '')
+    .toLowerCase()
+    .startsWith('zh');
+  const lt = (zh: string, en: string) => (isZh ? zh : en);
+  const resolvedImageTitle = imageTitle || lt('图片预览', 'Image Preview');
+  const resolvedCollectionTitle = collectionTitle || lt('历史记录', 'History');
+
   const sortedCollection = useMemo(() => {
     return imageCollection
       .map((item, index) => ({ ...item, _originalIndex: index }))
@@ -162,13 +171,13 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            console.log('关闭预览按钮被点击');
+            console.log('Preview close button clicked');
             onClose();
           }}
           variant="ghost"
           size="sm"
           className="absolute top-1 right-4 h-8 w-8 p-0 text-white hover:bg-white/20 transition-all duration-200 z-[1000000]"
-          title="关闭预览 (ESC)"
+          title={lt('关闭预览 (ESC)', 'Close preview (ESC)')}
         >
           <X className="h-4 w-4" />
         </Button>
@@ -181,7 +190,7 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
         >
           <SmartImage
             src={imageSrc}
-            alt={imageTitle}
+            alt={resolvedImageTitle}
             className="shadow-2xl"
             style={{
               filter: 'drop-shadow(0 25px 50px rgba(0, 0, 0, 0.8))',
@@ -192,11 +201,11 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
               objectFit: 'contain',
             }}
             placeholder={
-              <div className="text-white/70 text-sm">加载中...</div>
+              <div className="text-white/70 text-sm">{lt('加载中...', 'Loading...')}</div>
             }
-            onLoad={() => console.log('预览图片加载成功')}
+            onLoad={() => console.log('Preview image loaded')}
             onError={(e) => {
-              console.error('预览图片加载失败:', e);
+              console.error('Preview image load failed:', e);
             }}
           />
         </div>
@@ -209,7 +218,7 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
           >
             {/* 缩略图标题 */}
             <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
-              <h3 className="text-white text-sm font-medium">{collectionTitle}</h3>
+              <h3 className="text-white text-sm font-medium">{resolvedCollectionTitle}</h3>
             </div>
 
             {/* 缩略图滚动容器 */}
@@ -238,7 +247,11 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
                           : 'hover:ring-1 hover:ring-white/30'
                       }`}
                       onClick={() => handleThumbnailClick(item.id)}
-                      title={formattedTimestamp ? `生成时间：${formattedTimestamp}` : undefined}
+                      title={
+                        formattedTimestamp
+                          ? lt(`生成时间：${formattedTimestamp}`, `Generated at: ${formattedTimestamp}`)
+                          : undefined
+                      }
                     >
                       {shouldShowBadge && (
                         <div className="absolute top-1 left-1 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-semibold flex items-center justify-center shadow">
@@ -254,7 +267,7 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
                       <div className="aspect-video bg-gray-800">
                         <SmartImage
                           src={item.src}
-                          alt={item.title || `图片 ${index + 1}`}
+                          alt={item.title || lt(`图片 ${index + 1}`, `Image ${index + 1}`)}
                           className="w-full h-full object-cover"
                           loading="lazy"
                           placeholder={<div className="w-full h-full bg-gray-800" />}

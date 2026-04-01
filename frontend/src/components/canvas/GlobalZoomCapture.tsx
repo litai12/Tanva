@@ -80,8 +80,8 @@ const shouldBypassCanvasZoom = (event: Event) => {
 };
 
 /**
- * 捕获全局的双指缩放/捏合手势，统一转化为画布缩放百分比。
- * 这样无论手势发生在节点、AI对话框还是其他浮层上，都不会触发浏览器分辨率缩放。
+ * Capture global pinch/zoom gestures and translate them into canvas zoom.
+ * This prevents browser-level page zoom regardless of gesture origin.
  */
 const GlobalZoomCapture = () => {
   const gestureStartZoomRef = useRef<number | null>(null);
@@ -127,7 +127,7 @@ const GlobalZoomCapture = () => {
       if (!(event.ctrlKey || event.metaKey)) return;
       const store = useCanvasStore.getState();
 
-      // 反转模式下，Ctrl/Cmd + 滚轮不执行缩放，但仍阻止浏览器页面缩放
+      // In reverse mode, Ctrl/Cmd + wheel does not zoom canvas, but still blocks page zoom.
       if (store.wheelZoomMode === 'direct') {
         event.preventDefault();
         return;

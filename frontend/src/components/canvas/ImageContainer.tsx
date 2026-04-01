@@ -35,7 +35,7 @@ import backgroundRemovalService from "@/services/backgroundRemovalService";
 import { LoadingSpinner } from "../ui/loading-spinner";
 import { logger } from "@/utils/logger";
 import { convert2Dto3D } from "@/services/convert2Dto3DService";
-import { uploadToOSS } from "@/services/ossUploadService";
+import { generateOssKey, uploadToOSS } from "@/services/ossUploadService";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import type { Model3DData } from "@/services/model3DUploadService";
 // optimizeHdImage 已弃用，改用 aiImageService.editImage
@@ -52,10 +52,11 @@ import {
   isPersistableImageRef,
   isRemoteUrl,
   normalizePersistableImageRef,
+  resolveImageToBlob,
   resolveImageToDataUrl,
   toRenderableImageSrc,
 } from "@/utils/imageSource";
-import { canvasToDataUrl, dataUrlToBlob } from "@/utils/imageConcurrency";
+import { blobToDataUrl, canvasToBlob, canvasToDataUrl, dataUrlToBlob } from "@/utils/imageConcurrency";
 
 const EXPAND_PRESET_PROMPT =
   "请智能填充图像中的黑色区域，使其与原始图像内容完美融合，保持原图的高宽比不变";
@@ -151,7 +152,6 @@ const resolvePreviewImageSrcForCanvas = (img: {
     if (!raw) continue;
     const normalized = normalizeImageSrc(raw);
     if (normalized) return normalized;
-    return raw;
   }
   return "";
 };
@@ -159,6 +159,25 @@ const resolvePreviewImageSrcForCanvas = (img: {
 const clampNumber = (value: number, min: number, max: number): number => {
   if (!Number.isFinite(value)) return min;
   return Math.max(min, Math.min(max, value));
+};
+
+const buildImageSourceFingerprint = (value?: string | null): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.startsWith("data:image/")) {
+    const head = trimmed.slice(0, 64);
+    const tail = trimmed.slice(-24);
+    return `data:${trimmed.length}:${head}:${tail}`;
+  }
+  if (trimmed.startsWith("blob:")) {
+    return `blob:${trimmed}`;
+  }
+  const normalized = normalizePersistableImageRef(trimmed);
+  if (normalized) return normalized;
+  const compact = trimmed.replace(/\s+/g, "");
+  if (!compact) return undefined;
+  return `inline:${compact.length}:${compact.slice(0, 48)}:${compact.slice(-24)}`;
 };
 
 const dedupeTexts = (items: string[]): string[] => {
@@ -693,15 +712,17 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       .map((item) => {
         const raw = item.imageUrl.trim();
         const normalized = normalizeImageSrc(raw);
+        if (!normalized) return null;
         return {
           id: item.id,
-          src: normalized || raw,
+          src: normalized,
           title: item.prompt || item.sourceProjectName || "图片",
           timestamp: Number.isNaN(Date.parse(item.createdAt))
             ? undefined
             : Date.parse(item.createdAt),
         };
-      });
+      })
+      .filter(Boolean) as ImageItem[];
   }, [projectHistoryItems]);
 
   // 监听 body class：图片拖拽 / 选择框拖拽时隐藏文字与工具栏，避免“跟随不紧”观感
@@ -920,8 +941,13 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       return;
     }
 
-    const rawSource = imageData.src || imageData.localDataUrl || imageData.url;
-    const src = rawSource ? toRenderableImageSrc(rawSource) || rawSource : "";
+    const rawSource =
+      imageData.remoteUrl ||
+      imageData.url ||
+      imageData.key ||
+      imageData.src ||
+      (imageData.pendingUpload ? imageData.localDataUrl : undefined);
+    const src = rawSource ? toRenderableImageSrc(rawSource) || "" : "";
     if (!src) {
       setNaturalSize(null);
       return;
@@ -951,10 +977,13 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   }, [
     imageData.width,
     imageData.height,
-    imageData.url,
-    imageData.src,
-    imageData.localDataUrl,
-    isSelected,
+      imageData.remoteUrl,
+      imageData.url,
+      imageData.key,
+      imageData.src,
+      imageData.localDataUrl,
+      imageData.pendingUpload,
+      isSelected,
   ]);
 
   // 使用实时坐标进行屏幕坐标转换
@@ -1177,10 +1206,21 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   }, [isImageLocked, screenBounds.height, screenBounds.width, screenBounds.x, screenBounds.y]);
 
   const resolveImageDataUrl = useCallback(async (): Promise<string | null> => {
+    const preferredSource =
+      getImageDataForEditing?.(imageData.id) ||
+      imageData.remoteUrl ||
+      imageData.url ||
+      imageData.key ||
+      imageData.src ||
+      (imageData.pendingUpload ? imageData.localDataUrl : undefined) ||
+      null;
+    const preferredFingerprint = buildImageSourceFingerprint(preferredSource);
+
     // 首先检查缓存的 dataUrl
     const cachedDataUrl = await imageUrlCache.getCachedDataUrl(
       imageData.id,
-      projectId
+      projectId,
+      preferredFingerprint
     );
     if (cachedDataUrl) {
       return cachedDataUrl;
@@ -1195,25 +1235,40 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
     let result: string | null = null;
 
-    if (getImageDataForEditing) {
-      result = await ensureDataUrl(getImageDataForEditing(imageData.id));
+    const editingSource = getImageDataForEditing?.(imageData.id) || null;
+    const editingFingerprint = buildImageSourceFingerprint(editingSource);
+
+    if (editingSource) {
+      result = await ensureDataUrl(editingSource);
       if (result) {
         // 缓存结果
-        void imageUrlCache.updateDataUrl(imageData.id, result, projectId);
+        void imageUrlCache.updateDataUrl(
+          imageData.id,
+          result,
+          projectId,
+          editingFingerprint
+        );
         return result;
       }
     }
 
     const urlSource =
-      imageData.src ||
-      imageData.localDataUrl ||
       imageData.remoteUrl ||
       imageData.url ||
+      imageData.key ||
+      imageData.src ||
+      (imageData.pendingUpload ? imageData.localDataUrl : undefined) ||
       null;
     result = await ensureDataUrl(urlSource);
+    const urlFingerprint = buildImageSourceFingerprint(urlSource);
     if (result) {
       // 缓存结果
-      void imageUrlCache.updateDataUrl(imageData.id, result, projectId);
+      void imageUrlCache.updateDataUrl(
+        imageData.id,
+        result,
+        projectId,
+        urlFingerprint
+      );
       return result;
     }
 
@@ -1234,7 +1289,12 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         result = await ensureDataUrl(canvasData);
         if (result) {
           // 缓存结果
-          void imageUrlCache.updateDataUrl(imageData.id, result, projectId);
+          void imageUrlCache.updateDataUrl(
+            imageData.id,
+            result,
+            projectId,
+            urlFingerprint
+          );
           return result;
         }
       }
@@ -1244,6 +1304,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   }, [
     getImageDataForEditing,
     imageData.id,
+    imageData.key,
+    imageData.pendingUpload,
     imageData.url,
     imageData.src,
     imageData.remoteUrl,
@@ -2525,12 +2587,72 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
     setIsApplyingCrop(true);
     try {
-      const sourceDataUrl = await resolveImageDataUrl();
-      if (!sourceDataUrl) {
+      const resolveCropSourceImage = async (): Promise<HTMLImageElement | null> => {
+        const candidates: string[] = [];
+        const pushCandidate = (value?: string | null) => {
+          if (typeof value !== "string") return;
+          const trimmed = value.trim();
+          if (!trimmed) return;
+          if (!candidates.includes(trimmed)) {
+            candidates.push(trimmed);
+          }
+        };
+
+        pushCandidate(getImageDataForEditing?.(imageData.id));
+        pushCandidate(imageData.remoteUrl);
+        pushCandidate(imageData.key);
+        pushCandidate(imageData.url);
+        pushCandidate(imageData.src);
+        pushCandidate(imageData.localDataUrl);
+
+        for (const candidate of candidates) {
+          try {
+            const blob = await resolveImageToBlob(candidate, { preferProxy: true });
+            if (!blob || blob.size <= 0) continue;
+            const objectUrl = URL.createObjectURL(blob);
+            try {
+              return await loadImageElement(objectUrl);
+            } finally {
+              try {
+                URL.revokeObjectURL(objectUrl);
+              } catch {}
+            }
+          } catch {
+            // 尝试下一个候选源
+          }
+        }
+
+        try {
+          const imageGroup = paper.project?.layers?.flatMap((layer) =>
+            layer.children.filter(
+              (child) =>
+                child.data?.type === "image" && child.data?.imageId === imageData.id
+            )
+          )[0];
+          if (!imageGroup) return null;
+          const raster = imageGroup.children.find((child) =>
+            isRaster(child)
+          ) as paper.Raster;
+          if (!raster?.canvas) return null;
+          const fallbackBlob = await canvasToBlob(raster.canvas, { type: "image/png" });
+          if (!fallbackBlob || fallbackBlob.size <= 0) return null;
+          const objectUrl = URL.createObjectURL(fallbackBlob);
+          try {
+            return await loadImageElement(objectUrl);
+          } finally {
+            try {
+              URL.revokeObjectURL(objectUrl);
+            } catch {}
+          }
+        } catch {
+          return null;
+        }
+      };
+
+      const image = await resolveCropSourceImage();
+      if (!image) {
         throw new Error("无法获取原图，裁切失败");
       }
-
-      const image = await loadImageElement(sourceDataUrl);
       const naturalWidth = image.naturalWidth || image.width;
       const naturalHeight = image.naturalHeight || image.height;
       if (naturalWidth <= 0 || naturalHeight <= 0) {
@@ -2543,17 +2665,24 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       const scaleY = naturalHeight / displayHeight;
       const displayScaleX = displayWidth / naturalWidth;
       const displayScaleY = displayHeight / naturalHeight;
-      // 使用单一缩放因子回推裁后显示尺寸，避免 X/Y 不同缩放导致的形变。
-      const uniformDisplayScale =
+      // 裁切后保持当前画布中的显示比例（支持非等比缩放，避免“被压扁/拉伸”）。
+      const safeDisplayScaleX =
         Number.isFinite(displayScaleX) &&
-        Number.isFinite(displayScaleY) &&
         displayScaleX > 0 &&
+        Number.isFinite(displayScaleY) &&
         displayScaleY > 0
-          ? (displayScaleX + displayScaleY) / 2
-          : displayScaleX > 0
           ? displayScaleX
           : displayScaleY > 0
           ? displayScaleY
+          : 1;
+      const safeDisplayScaleY =
+        Number.isFinite(displayScaleY) &&
+        displayScaleY > 0 &&
+        Number.isFinite(displayScaleX) &&
+        displayScaleX > 0
+          ? displayScaleY
+          : displayScaleX > 0
+          ? displayScaleX
           : 1;
 
       const cropLeftPx = clampNumber(
@@ -2601,30 +2730,51 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         cropHeight
       );
 
-      const croppedDataUrl = await canvasToDataUrl(canvas, "image/png");
+      const croppedBlob = await canvasToBlob(canvas, { type: "image/png" });
+      if (!croppedBlob || croppedBlob.size <= 0) {
+        throw new Error("裁切结果为空，裁切失败");
+      }
       const nextBounds = {
         x: cropRect.x,
         y: cropRect.y,
-        width: Math.max(1, cropWidth * uniformDisplayScale),
-        height: Math.max(1, cropHeight * uniformDisplayScale),
+        width: Math.max(1, cropWidth * safeDisplayScaleX),
+        height: Math.max(1, cropHeight * safeDisplayScaleY),
       };
-      void imageUrlCache.updateDataUrl(imageData.id, croppedDataUrl, projectId);
 
       if (onImageUpdate) {
+        const croppedDataUrl = await blobToDataUrl(croppedBlob);
+        void imageUrlCache.updateDataUrl(
+          imageData.id,
+          croppedDataUrl,
+          projectId,
+          buildImageSourceFingerprint(croppedDataUrl)
+        );
         await onImageUpdate(imageData.id, croppedDataUrl, nextBounds);
       } else {
         const fileName = `crop-${Date.now()}.png`;
+        const uploadDir = projectId
+          ? `projects/${projectId}/images/`
+          : "uploads/images/";
+        const { key: plannedKey } = generateOssKey({
+          projectId,
+          dir: uploadDir,
+          fileName,
+          contentType: "image/png",
+        });
         onResize?.(nextBounds);
+        const croppedPreviewUrl = URL.createObjectURL(croppedBlob);
 
         // 先用本地 dataURL 立即替换渲染，避免先切远程源导致首帧“幽灵图”。
         window.dispatchEvent(
           new CustomEvent("canvas:replace-image-source", {
             detail: {
               imageId: imageData.id,
-              source: croppedDataUrl,
+              source: croppedPreviewUrl,
               bounds: nextBounds,
               contentType: "image/png",
               fileName,
+              key: plannedKey,
+              clearRemoteUrl: true,
               width: cropWidth,
               height: cropHeight,
               historyLabel: "crop-image",
@@ -2636,12 +2786,12 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         // 后台上传并回写远程元数据；DrawingController 会在远程资源可用后再无缝切换。
         void (async () => {
           try {
-            const croppedBlob = await dataUrlToBlob(croppedDataUrl);
             const uploadResult = await uploadToOSS(croppedBlob, {
-              dir: projectId ? `projects/${projectId}/images/` : "uploads/images/",
+              dir: uploadDir,
               fileName,
               contentType: "image/png",
               projectId,
+              key: plannedKey,
             });
 
             if (!uploadResult.success || !uploadResult.url) {
@@ -2693,6 +2843,12 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   }, [
     cropRect,
     imageData.id,
+    imageData.key,
+    imageData.localDataUrl,
+    imageData.remoteUrl,
+    imageData.src,
+    imageData.url,
+    getImageDataForEditing,
     isApplyingCrop,
     onImageUpdate,
     onResize,
@@ -2701,7 +2857,6 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     realTimeBounds.width,
     realTimeBounds.x,
     realTimeBounds.y,
-    resolveImageDataUrl,
   ]);
 
   // 处理扩图按钮点击
@@ -3025,7 +3180,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       const raw = item.src?.trim() || "";
       if (!raw) return;
       const normalizedSrc = normalizeImageSrc(raw);
-      const displaySrc = normalizedSrc || raw;
+      if (!normalizedSrc) return;
+      const displaySrc = normalizedSrc;
       if (mapBySrc.has(displaySrc)) return; // 已存在则跳过
       mapBySrc.set(displaySrc, {
         ...item,
@@ -3441,10 +3597,11 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           imageBounds={realTimeBounds}
           imageId={imageData.id}
           imageUrl={
-            imageData.src ||
-            imageData.localDataUrl ||
             imageData.remoteUrl ||
             imageData.url ||
+            imageData.key ||
+            imageData.src ||
+            (imageData.pendingUpload ? imageData.localDataUrl : undefined) ||
             ""
           }
           onSelect={handleExpandSelect}

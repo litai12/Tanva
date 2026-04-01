@@ -12,6 +12,8 @@ import { Readable } from "node:stream";
 // 默认请求超时时间（毫秒）
 const DEFAULT_FETCH_TIMEOUT = 180000; // 3分钟
 const QUERY_FETCH_TIMEOUT = 60000; // 60秒（避免触发阿里云 ESA 300秒超时限制，采用短超时+快速轮询策略）
+const IMAGE_FETCH_TIMEOUT = 60000;
+const MANAGED_IMAGE_KEY_REGEX = /^(projects|uploads|templates|videos|ai)\//i;
 
 /**
  * 带超时的 fetch 请求
@@ -75,6 +77,95 @@ export class VideoProviderService {
     return allowed.some(
       (host) => hostname === host || hostname.endsWith("." + host)
     );
+  }
+
+  private extractManagedImageKey(input: string): string | null {
+    const trimmed = typeof input === "string" ? input.trim() : "";
+    if (!trimmed) return null;
+
+    const normalizeKey = (raw?: string | null): string | null => {
+      const value = typeof raw === "string" ? raw.trim().replace(/^\/+/, "") : "";
+      if (!value) return null;
+      return MANAGED_IMAGE_KEY_REGEX.test(value) ? value : null;
+    };
+
+    const normalizedDirect = normalizeKey(trimmed);
+    if (normalizedDirect) return normalizedDirect;
+
+    try {
+      const parsed = new URL(trimmed);
+      const keyFromPath = normalizeKey(parsed.pathname);
+      if (keyFromPath) return keyFromPath;
+
+      const keyFromQuery = normalizeKey(parsed.searchParams.get("key"));
+      if (keyFromQuery) return keyFromQuery;
+
+      const nestedUrl = parsed.searchParams.get("url");
+      if (nestedUrl && nestedUrl !== trimmed) {
+        const keyFromNested = this.extractManagedImageKey(nestedUrl);
+        if (keyFromNested) return keyFromNested;
+      }
+    } catch {
+      // ignore
+    }
+
+    return null;
+  }
+
+  private buildBucketOriginUrlForKey(key: string): string | null {
+    const normalizedKey = typeof key === "string" ? key.trim().replace(/^\/+/, "") : "";
+    if (!normalizedKey) return null;
+    const [bucketOriginHost] = this.resolveOssHosts();
+    if (!bucketOriginHost) return null;
+    return `https://${bucketOriginHost}/${normalizedKey}`;
+  }
+
+  private normalizeManagedAssetUrlForUpstream(input: string): string {
+    const trimmed = typeof input === "string" ? input.trim() : "";
+    if (!trimmed) return "";
+    const managedKey = this.extractManagedImageKey(trimmed);
+    if (!managedKey) return trimmed;
+    return this.buildBucketOriginUrlForKey(managedKey) || this.oss.publicUrl(managedKey);
+  }
+
+  private buildImageFetchCandidates(imageUrl: string): string[] {
+    const trimmed = typeof imageUrl === "string" ? imageUrl.trim() : "";
+    if (!trimmed) return [];
+
+    const candidates: string[] = [];
+    const pushCandidate = (candidate?: string | null) => {
+      const value = typeof candidate === "string" ? candidate.trim() : "";
+      if (!value) return;
+      if (!/^https?:\/\//i.test(value)) return;
+      if (!candidates.includes(value)) {
+        candidates.push(value);
+      }
+    };
+
+    pushCandidate(trimmed);
+
+    const managedKey = this.extractManagedImageKey(trimmed);
+    if (managedKey) {
+      pushCandidate(this.buildBucketOriginUrlForKey(managedKey));
+      pushCandidate(this.oss.publicUrl(managedKey));
+    }
+
+    try {
+      const parsed = new URL(trimmed);
+      const nestedUrl = parsed.searchParams.get("url");
+      if (nestedUrl) {
+        pushCandidate(nestedUrl);
+        const nestedKey = this.extractManagedImageKey(nestedUrl);
+        if (nestedKey) {
+          pushCandidate(this.buildBucketOriginUrlForKey(nestedKey));
+          pushCandidate(this.oss.publicUrl(nestedKey));
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    return candidates;
   }
 
   private async uploadRemoteVideoToOss(
@@ -149,40 +240,91 @@ export class VideoProviderService {
     mimeType: string = "image/png"
   ): Promise<string> {
     try {
-      if (base64Data.startsWith("http://") || base64Data.startsWith("https://")) {
-        this.logger.log(`📎 Image is a URL, downloading: ${base64Data.substring(0, 100)}...`);
+      const input = typeof base64Data === "string" ? base64Data.trim() : "";
+      if (!input) {
+        throw new Error("Empty image input");
+      }
+
+      const managedKey = this.extractManagedImageKey(input);
+      if (managedKey) {
+        return this.normalizeManagedAssetUrlForUpstream(input);
+      }
+
+      if (input.startsWith("http://") || input.startsWith("https://")) {
+        this.logger.log(`📎 Image is a URL, downloading: ${input.substring(0, 100)}...`);
 
         // 如果已经是 OSS URL，直接返回
-        if (this.isOssPublicUrl(base64Data)) {
-          return base64Data;
+        if (this.isOssPublicUrl(input)) {
+          return input;
         }
 
-        // 下载远程图片并上传到 OSS
-        const response = await fetch(base64Data);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch image: HTTP ${response.status}`);
+        // 下载远程图片并上传到 OSS（对托管资源增加 OSS 原始域名候选，避免 CDN 在服务端/上游不可达）
+        const fetchCandidates = this.buildImageFetchCandidates(input);
+        if (!fetchCandidates.length) {
+          throw new Error("Failed to fetch image: no valid candidate URL");
         }
 
-        const arrayBuffer = await response.arrayBuffer();
-        const imageBuffer = Buffer.from(arrayBuffer);
+        let imageBuffer: Buffer | null = null;
+        let contentType = "image/jpeg";
+        const errors: string[] = [];
+
+        for (const candidate of fetchCandidates) {
+          try {
+            const response = await fetchWithTimeout(candidate, {
+              method: "GET",
+              timeout: IMAGE_FETCH_TIMEOUT,
+            });
+            if (!response.ok) {
+              errors.push(`${candidate} -> HTTP ${response.status}`);
+              continue;
+            }
+            const nextContentType = response.headers.get("content-type") || "image/jpeg";
+            if (!nextContentType.toLowerCase().startsWith("image/")) {
+              errors.push(`${candidate} -> invalid content-type ${nextContentType}`);
+              continue;
+            }
+            imageBuffer = Buffer.from(await response.arrayBuffer());
+            if (!imageBuffer.length) {
+              errors.push(`${candidate} -> empty body`);
+              continue;
+            }
+            contentType = nextContentType;
+            break;
+          } catch (error) {
+            errors.push(
+              `${candidate} -> ${
+                error instanceof Error ? error.message : String(error)
+              }`
+            );
+          }
+        }
+
+        if (!imageBuffer) {
+          throw new Error(
+            `Failed to fetch image from all candidates: ${errors
+              .slice(0, 3)
+              .join(" | ")}`
+          );
+        }
+
         const timestamp = Date.now();
         const randomId = Math.random().toString(36).substring(2, 8);
-        const contentType = response.headers.get("content-type") || "image/jpeg";
-        const extension = contentType.split("/")[1]?.split(";")[0] || "jpg";
-        const key = `ai/images/kling-inputs/${timestamp}-${randomId}.${extension}`;
+        const rawExtension = contentType.split("/")[1]?.split(";")[0] || "jpg";
+        const extension = /^[a-z0-9]+$/i.test(rawExtension) ? rawExtension.toLowerCase() : "jpg";
+        const key = `ai/images/video-provider-inputs/${timestamp}-${randomId}.${extension}`;
 
         const result = await this.oss.putStream(
           key,
-          require("stream").Readable.from(imageBuffer)
+          Readable.from(imageBuffer)
         );
 
         this.logger.log(`📤 Downloaded and uploaded image to OSS: ${result.url}`);
         return result.url;
       }
 
-      const cleanBase64 = base64Data.includes("base64,")
-        ? base64Data.split("base64,")[1]
-        : base64Data;
+      const cleanBase64 = input.includes("base64,")
+        ? input.split("base64,")[1]
+        : input;
 
       const imageBuffer = Buffer.from(cleanBase64, "base64");
       const timestamp = Date.now();
@@ -192,7 +334,7 @@ export class VideoProviderService {
 
       const result = await this.oss.putStream(
         key,
-        require("stream").Readable.from(imageBuffer)
+        Readable.from(imageBuffer)
       );
 
       this.logger.log(`📤 Uploaded image to OSS: ${result.url}`);
@@ -201,6 +343,38 @@ export class VideoProviderService {
       this.logger.error(`❌ Failed to upload image to OSS: ${error}`);
       throw error;
     }
+  }
+
+  private async prepareViduReferenceImages(referenceImages?: string[]): Promise<string[]> {
+    if (!Array.isArray(referenceImages) || referenceImages.length === 0) {
+      return [];
+    }
+
+    const output: string[] = [];
+    for (const image of referenceImages) {
+      const trimmed = typeof image === "string" ? image.trim() : "";
+      if (!trimmed) continue;
+      const normalized = await this.uploadBase64ImageToOSS(trimmed);
+      output.push(normalized);
+    }
+    return output;
+  }
+
+  private summarizeImageHosts(images: string[]): string {
+    const hosts = Array.from(
+      new Set(
+        images
+          .map((image) => {
+            try {
+              return new URL(image).hostname;
+            } catch {
+              return "non-url";
+            }
+          })
+          .filter(Boolean)
+      )
+    );
+    return hosts.join(",") || "none";
   }
 
   private isUpstreamImageFetchFailure(responseText: string): boolean {
@@ -1018,9 +1192,13 @@ export class VideoProviderService {
     options: VideoProviderRequestDto,
     apiKey: string
   ): Promise<VideoGenerationResult> {
+    const preparedReferenceImages = await this.prepareViduReferenceImages(
+      options.referenceImages
+    );
+
     // 确定视频生成模式（智能判断）
     let videoMode = options.videoMode;
-    const imageCount = options.referenceImages?.length || 0;
+    const imageCount = preparedReferenceImages.length;
     const hasPrompt = !!options.prompt;
 
     // 如果没有指定模式，根据图片数量和是否有prompt智能判断
@@ -1061,14 +1239,14 @@ export class VideoProviderService {
       payload.off_peak = options.offPeak || false;
     } else if (videoMode === "img2video") {
       payload.model = "viduq2-turbo";
-      payload.images = [options.referenceImages![0]];
+      payload.images = [preparedReferenceImages[0]];
       payload.duration = options.duration || 5;
       payload.resolution = options.resolution || "720p";
       payload.aspect_ratio = options.aspectRatio || "16:9";
       payload.off_peak = options.offPeak || false;
     } else if (videoMode === "start-end2video") {
       payload.model = "viduq2-turbo";
-      payload.images = [options.referenceImages![0], options.referenceImages![1]];
+      payload.images = [preparedReferenceImages[0], preparedReferenceImages[1]];
       payload.duration = options.duration || 5;
       payload.resolution = options.resolution || "720p";
       payload.aspect_ratio = options.aspectRatio || "16:9";
@@ -1077,7 +1255,7 @@ export class VideoProviderService {
         throw new Error("参考生视频模式需要提供 prompt 参数");
       }
       payload.model = "viduq2";
-      payload.images = options.referenceImages!.slice(0, 7);
+      payload.images = preparedReferenceImages.slice(0, 7);
       payload.prompt = options.prompt;
       payload.duration = options.duration || 5;
       payload.resolution = options.resolution || "720p";
@@ -1086,7 +1264,11 @@ export class VideoProviderService {
     payload.aspect_ratio = options.aspectRatio || "16:9";
 
     this.logProviderPayload("vidu", payload);
-    this.logger.log(`🎬 Vidu: mode=${videoMode}, images=${imageCount}, endpoint=${endpoint}`);
+    this.logger.log(
+      `🎬 Vidu: mode=${videoMode}, images=${imageCount}, hosts=${this.summarizeImageHosts(
+        preparedReferenceImages
+      )}, endpoint=${endpoint}`
+    );
 
     const response = await fetch(endpoint, {
       method: "POST",
@@ -1178,7 +1360,12 @@ export class VideoProviderService {
   ): Promise<VideoGenerationResult> {
     const endpoint = "https://models.kapon.cloud/kling/v1/videos/omni-video";
     const imageCount = options.referenceImages?.length || 0;
-    const hasVideo = !!options.referenceVideo;
+    const hasVideo =
+      typeof options.referenceVideo === "string" &&
+      options.referenceVideo.trim().length > 0;
+    const normalizedReferenceVideo = hasVideo
+      ? this.normalizeManagedAssetUrlForUpstream(options.referenceVideo!)
+      : undefined;
 
     const payload: any = {
       model_name: "kling-v3-omni",
@@ -1243,7 +1430,7 @@ export class VideoProviderService {
     // 处理参考视频
     if (hasVideo) {
       payload.video_list = [{
-        video_url: options.referenceVideo,
+        video_url: normalizedReferenceVideo,
         refer_type: options.referenceVideoType || "feature",
         keep_original_sound: options.keepOriginalSound || "no",
       }];
@@ -1344,9 +1531,13 @@ export class VideoProviderService {
     options: VideoProviderRequestDto,
     apiKey: string
   ): Promise<VideoGenerationResult> {
+    const preparedReferenceImages = await this.prepareViduReferenceImages(
+      options.referenceImages
+    );
+
     // 确定视频生成模式
     let videoMode = options.videoMode;
-    const imageCount = options.referenceImages?.length || 0;
+    const imageCount = preparedReferenceImages.length;
     const hasPrompt = !!options.prompt;
 
     // 智能判断模式
@@ -1384,13 +1575,23 @@ export class VideoProviderService {
       payload.style = options.style || "general";
     } else if (videoMode === "img2video") {
       payload.model = "viduq3-pro";
-      payload.images = [options.referenceImages![0]];
+      payload.images = [preparedReferenceImages[0]];
       payload.duration = options.duration || 5;
       payload.resolution = options.resolution || "720p";
       payload.aspect_ratio = options.aspectRatio || "16:9";
     } else if (videoMode === "start-end2video") {
       payload.model = "viduq3-pro";
-      payload.images = [options.referenceImages![0], options.referenceImages![1]];
+      payload.images = [preparedReferenceImages[0], preparedReferenceImages[1]];
+      payload.duration = options.duration || 5;
+      payload.resolution = options.resolution || "720p";
+      payload.aspect_ratio = options.aspectRatio || "16:9";
+    } else if (videoMode === "start-mid-end2video") {
+      payload.model = "viduq3-pro";
+      payload.images = [
+        preparedReferenceImages[0],
+        preparedReferenceImages[1],
+        preparedReferenceImages[2],
+      ];
       payload.duration = options.duration || 5;
       payload.resolution = options.resolution || "720p";
       payload.aspect_ratio = options.aspectRatio || "16:9";
@@ -1399,7 +1600,11 @@ export class VideoProviderService {
     payload.aspect_ratio = options.aspectRatio || "16:9";
 
     this.logProviderPayload("viduq3-pro", payload);
-    this.logger.log(`🎬 Vidu Q3 Pro: mode=${videoMode}, images=${imageCount}, endpoint=${endpoint}`);
+    this.logger.log(
+      `🎬 Vidu Q3 Pro: mode=${videoMode}, images=${imageCount}, hosts=${this.summarizeImageHosts(
+        preparedReferenceImages
+      )}, endpoint=${endpoint}`
+    );
 
     const response = await fetch(endpoint, {
       method: "POST",

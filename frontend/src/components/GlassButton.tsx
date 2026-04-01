@@ -34,7 +34,7 @@ const GlassButton: React.FC<GlassButtonProps> = ({
           "0 0 20px rgba(236, 72, 153, 0.3), 0 0 40px rgba(168, 85, 247, 0.2), inset 0 0 20px rgba(255, 255, 255, 0.1)",
       }}
     >
-      {/* 发光边框效果 */}
+      {/* Glow border effect */}
       <div
         className='absolute inset-0 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300'
         style={{
@@ -47,13 +47,13 @@ const GlassButton: React.FC<GlassButtonProps> = ({
         }}
       />
 
-      {/* 内部光泽 */}
+      {/* Inner gloss */}
       <div className='absolute inset-0 bg-gradient-to-b from-white/20 to-transparent rounded-full opacity-50' />
 
-      {/* 文字内容 */}
+      {/* Text content */}
       <span className='relative z-10'>{children}</span>
 
-      {/* 悬停时的光效 */}
+      {/* Hover glow */}
       <div className='absolute inset-0 rounded-full opacity-0 group-hover:opacity-30 transition-opacity duration-300 bg-gradient-to-r from-pink-400 via-purple-400 to-blue-400 blur-xl' />
     </button>
   );

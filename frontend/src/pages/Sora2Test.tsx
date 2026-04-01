@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import sora2Service from '@/services/sora2Service';
 import { SORA2_VIDEO_MODELS, DEFAULT_SORA2_VIDEO_QUALITY, type Sora2VideoQuality } from '@/stores/aiChatStore';
+import { useTranslation } from 'react-i18next';
 
 interface VideoGenerationState {
   isLoading: boolean;
@@ -15,6 +16,11 @@ interface VideoGenerationState {
 }
 
 const Sora2TestPage: React.FC = () => {
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || '')
+    .toLowerCase()
+    .startsWith('zh');
+  const lt = (zh: string, en: string) => (isZh ? zh : en);
   const [apiKey, setApiKey] = useState<string>('');
   const [prompt, setPrompt] = useState<string>('');
   const [imageInputs, setImageInputs] = useState<string>('');
@@ -263,15 +269,21 @@ const Sora2TestPage: React.FC = () => {
               <CardContent className="space-y-4">
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700">Video Prompt</label>
-                  <textarea
-                    placeholder="e.g., 一只狗在图片出场景中跑步 / A dog running in a scenic outdoor area"
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    className="w-full h-24 p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                  <p className="text-xs text-gray-500">
-                    You can add aspect ratio hints: 横屏, 竖屏, 16:9, 9:16, etc.
-                  </p>
+	                  <textarea
+	                    placeholder={lt(
+	                      '例如：一只狗在户外风景中跑步',
+	                      'e.g., A dog running in a scenic outdoor area'
+	                    )}
+	                    value={prompt}
+	                    onChange={(e) => setPrompt(e.target.value)}
+	                    className="w-full h-24 p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+	                  />
+	                  <p className="text-xs text-gray-500">
+	                    {lt(
+	                      '可添加画幅提示：横屏、竖屏、16:9、9:16 等。',
+	                      'You can add aspect ratio hints: landscape, portrait, 16:9, 9:16, etc.'
+	                    )}
+	                  </p>
                 </div>
 
                 <div className="space-y-2">

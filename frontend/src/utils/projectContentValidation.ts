@@ -88,6 +88,27 @@ function isImageLikeKey(key: string): boolean {
   return imageRefSuffixes.some((suffix) => k === suffix || k.endsWith(suffix));
 }
 
+function hasUploadingImagePayload(nodeData: unknown): boolean {
+  if (!nodeData || typeof nodeData !== "object") return false;
+  const data = nodeData as Record<string, unknown>;
+  if (data.uploading !== true) return false;
+
+  const candidateKeys = [
+    "imageData",
+    "imageUrl",
+    "thumbnail",
+    "inputImage",
+    "inputImageUrl",
+    "sourceImage",
+    "sourceImageUrl",
+  ];
+
+  return candidateKeys.some((key) => {
+    const value = data[key];
+    return typeof value === "string" && value.trim().length > 0;
+  });
+}
+
 export function getNonPersistableFlowImageNodeIds(
   content: ProjectContentSnapshot | null | undefined
 ): string[] {
@@ -122,6 +143,10 @@ export function getNonPersistableFlowImageNodeIds(
 
   for (const node of nodes as Array<{ id?: string; data?: unknown }>) {
     const nodeId = typeof node?.id === "string" && node.id ? node.id : "unknown";
+    if (hasUploadingImagePayload(node?.data)) {
+      invalid.add(nodeId);
+      continue;
+    }
     walk(nodeId, node?.data, []);
   }
 

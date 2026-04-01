@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useUploadLeavePromptStore } from '@/stores/uploadLeavePromptStore';
 import { getPendingUploadSummary } from '@/utils/pendingUploadSummary';
+import { useTranslation } from 'react-i18next';
 
 function getHistoryIdx(state: unknown): number | null {
   if (!state || typeof state !== 'object') return null;
@@ -15,6 +16,9 @@ function getHistoryIdx(state: unknown): number | null {
  * - 这里用 popstate 捕获阶段拦截，并弹出自定义确认弹窗
  */
 export default function PendingUploadNavigationGuard() {
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
+  const lt = (zhText: string, enText: string) => (isZh ? zhText : enText);
   const location = useLocation();
   const promptOpen = useUploadLeavePromptStore((state) => state.open);
   const openPrompt = useUploadLeavePromptStore((state) => state.openPrompt);
@@ -75,8 +79,11 @@ export default function PendingUploadNavigationGuard() {
 
       openPrompt({
         summary,
-        title: '还有图片未上传完成',
-        message: '检测到仍有上传中/待上传图片，离开可能导致图片丢失或无法保存到云端。',
+        title: lt('还有图片未上传完成', 'Some images are not uploaded yet'),
+        message: lt(
+          '检测到仍有上传中/待上传图片，离开可能导致图片丢失或无法保存到云端。',
+          'Detected uploading/pending images. Leaving may cause image loss or failed cloud save.'
+        ),
         onConfirm: () => {
           // 用户确认后，执行原本的前进/后退
           skipNextPopRef.current = true;
@@ -89,7 +96,7 @@ export default function PendingUploadNavigationGuard() {
 
     window.addEventListener('popstate', handler, true);
     return () => window.removeEventListener('popstate', handler, true);
-  }, [location.pathname, openPrompt, promptOpen]);
+  }, [location.pathname, lt, openPrompt, promptOpen]);
 
   return null;
 }

@@ -1,6 +1,7 @@
 import React from 'react';
 import { useUIStore } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
+import { useTranslation } from 'react-i18next';
 
 // 眼睛图标（专注模式关闭状态）
 const EyeIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -39,6 +40,9 @@ const EyeOffIcon: React.FC<{ className?: string }> = ({ className }) => (
 );
 
 const FocusModeButton: React.FC = () => {
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
+  const lt = (zhText: string, enText: string) => (isZh ? zhText : enText);
   const { focusMode, toggleFocusMode, showLayerPanel } = useUIStore();
   const isAIChatMaximized = useAIChatStore(state => state.isMaximized);
 
@@ -57,7 +61,14 @@ const FocusModeButton: React.FC = () => {
         <button
           onClick={toggleFocusMode}
           className="h-8 w-8 rounded-full flex items-center justify-center text-gray-400 hover:text-blue-600 transition-colors duration-200"
-          title={focusMode ? "退出专注模式" : "进入专注模式（隐藏顶部导航和AI对话框）"}
+          title={
+            focusMode
+              ? lt('退出专注模式', 'Exit focus mode')
+              : lt(
+                  '进入专注模式（隐藏顶部导航和AI对话框）',
+                  'Enter focus mode (hide top navigation and AI chat dialog)'
+                )
+          }
         >
           {focusMode ? (
             <EyeOffIcon className="w-4 h-4" />

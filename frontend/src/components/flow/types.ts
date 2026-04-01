@@ -44,7 +44,6 @@ export type Generate4Data = {
   status?: GenerateStatus;
   images?: string[]; // base64 strings (up to 4)
   imageUrls?: string[]; // remote URLs (preferred for templates)
-  count?: number; // 1..4
   error?: string;
   aspectRatio?: string;
   imageSize?: '0.5K' | '1K' | '2K' | '4K';

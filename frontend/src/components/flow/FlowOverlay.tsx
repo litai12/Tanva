@@ -115,10 +115,13 @@ import {
   resolvePublicAssetUrlFromKey,
 } from "@/utils/assetProxy";
 import {
+  isAssetProxyRef,
   isBlobUrl,
   isDataImageUrl,
+  isLikelyBackendAllowedRemoteUrl,
   isPersistableImageRef,
   isRemoteUrl,
+  normalizeRemoteUrl,
   normalizePersistableImageRef,
   requiresManagedImageUpload,
   resolveImageToBlob,
@@ -225,7 +228,12 @@ const getEdgeHandleKind = (
   ) {
     return "image";
   }
-  if (value === "text" || value.startsWith("text-") || value.startsWith("prompt")) {
+  if (
+    value === "text" ||
+    value.startsWith("text-") ||
+    value.startsWith("prompt") ||
+    value === "response-text"
+  ) {
     return "text";
   }
   return null;
@@ -1347,7 +1355,12 @@ const FLOW_NODE_DEFAULT_SIZE = {
 
 type FlowNodeType = keyof typeof FLOW_NODE_DEFAULT_SIZE;
 
-const HIDDEN_FLOW_NODE_TYPES = new Set<FlowNodeType>(["kling26Video"]);
+const HIDDEN_FLOW_NODE_TYPES = new Set<FlowNodeType>([
+  "kling26Video",
+  "sora2Video",
+  "sora2Character",
+  "nano2",
+]);
 
 const FLOW_NODE_KEY_ALIASES: Record<string, FlowNodeType> = {
   generatereference: "generateRef",
@@ -1430,6 +1443,11 @@ const normalizeFlowNodeType = (rawType?: string): FlowNodeType | null => {
   if (fuzzyMatched) return fuzzyMatched[1];
 
   return null;
+};
+
+const isHiddenFlowNodeType = (rawType?: string): boolean => {
+  const normalized = normalizeFlowNodeType(rawType);
+  return Boolean(normalized && HIDDEN_FLOW_NODE_TYPES.has(normalized));
 };
 
 const resolveFlowNodeTypeFromConfig = (config: Partial<NodeConfig>): string => {
@@ -1892,7 +1910,10 @@ const AddTemplateCard: React.FC<{
   );
 };
 
-const TemplatePlaceholder: React.FC<{ label?: string }> = ({ label }) => (
+const TemplatePlaceholder: React.FC<{
+  label: string;
+  subtitle: string;
+}> = ({ label, subtitle }) => (
   <div
     style={{
       display: "flex",
@@ -1933,10 +1954,8 @@ const TemplatePlaceholder: React.FC<{ label?: string }> = ({ label }) => (
         fontSize: 13,
       }}
     >
-      <div style={{ fontSize: 15, fontWeight: 600 }}>
-        {label || "敬请期待更多模板"}
-      </div>
-      <div>我们正在准备更多创意模板</div>
+      <div style={{ fontSize: 15, fontWeight: 600 }}>{label}</div>
+      <div>{subtitle}</div>
     </div>
   </div>
 );
@@ -2153,6 +2172,10 @@ function FlowInner() {
         return config;
       })
       .filter((config) => !BETA_NODE_KEYS.has(config.nodeKey))
+      .filter((config) => {
+        const resolvedType = resolveFlowNodeTypeFromConfig(config);
+        return !isHiddenFlowNodeType(resolvedType);
+      })
       .filter((config) => config.status !== "disabled");
   }, [sortedNodeConfigs]);
 
@@ -4566,14 +4589,30 @@ function FlowInner() {
   // 单选分类：仅允许选择一个内置分类，空字符串表示未筛选（显示全部）
   const [activeBuiltinCategory, setActiveBuiltinCategory] =
     React.useState<string>("");
+  const normalizeTemplateCategory = React.useCallback((value?: string | null) => {
+    const raw = typeof value === "string" ? value.trim() : "";
+    if (!raw) return "其他";
+    if (raw.toLowerCase() === "other") return "其他";
+    return raw;
+  }, []);
+  const getTemplateCategoryLabel = React.useCallback(
+    (value?: string | null) => {
+      const normalized = normalizeTemplateCategory(value);
+      if (normalized === "其他") return lt("其他", "Other");
+      return normalized;
+    },
+    [lt, normalizeTemplateCategory]
+  );
 
   const filteredTplIndex = React.useMemo(() => {
     if (!tplIndex) return [];
     if (!activeBuiltinCategory) return tplIndex;
     return tplIndex.filter(
-      (item) => (item.category || "其他") === activeBuiltinCategory
+      (item) =>
+        normalizeTemplateCategory(item.category) ===
+        normalizeTemplateCategory(activeBuiltinCategory)
     );
-  }, [tplIndex, activeBuiltinCategory]);
+  }, [tplIndex, activeBuiltinCategory, normalizeTemplateCategory]);
 
   const getPlaceholderCount = React.useCallback(
     (len: number, opts?: { columns?: number; minVisible?: number }) => {
@@ -5135,6 +5174,84 @@ function FlowInner() {
     importInputRef.current?.click();
   }, []);
 
+  const importFlowTemplateFromText = React.useCallback(
+    (text: string) => {
+      const obj = JSON.parse(text);
+      const rawNodes = Array.isArray(obj?.nodes) ? obj.nodes : [];
+      const rawEdges = Array.isArray(obj?.edges) ? obj.edges : [];
+
+      const existing = new Set((rf.getNodes() || []).map((n) => n.id));
+      const idMap = new Map<string, string>();
+
+      const now = Date.now();
+      rawNodes.forEach((n: any, idx: number) => {
+        const origId = String(n.id || `n_${idx}`);
+        let newId = origId;
+        if (existing.has(newId) || idMap.has(newId))
+          newId = `${origId}_${now}_${idx}`;
+        idMap.set(origId, newId);
+      });
+
+      const mappedNodes = rawNodes.map((n: any, idx: number) => {
+        const origId = String(n.id || `n_${idx}`);
+        const newId = idMap.get(origId) || `${origId}_${now}_${idx}`;
+        const data = cleanNodeData(n.data) || {};
+        if (n.type === FLOW_GROUP_NODE_TYPE) {
+          const rawChildIds = Array.isArray((data as any).childNodeIds)
+            ? (data as any).childNodeIds
+            : [];
+          (data as any).childNodeIds = rawChildIds
+            .map((childId: string) => idMap.get(String(childId)) || null)
+            .filter(Boolean);
+        }
+        return {
+          id: newId,
+          type: n.type,
+          position: n.position || { x: 0, y: 0 },
+          data,
+          width: n.width,
+          height: n.height,
+          style: n.style ? { ...n.style } : undefined,
+          parentNode: n.parentNode
+            ? idMap.get(String(n.parentNode)) || undefined
+            : undefined,
+          extent: n.extent,
+          selectable: n.selectable,
+          draggable: n.draggable,
+        } as any;
+      });
+
+      const mappedEdges = rawEdges
+        .map((e: any, idx: number) => {
+          const sid = idMap.get(String(e.source)) || String(e.source);
+          const tid = idMap.get(String(e.target)) || String(e.target);
+          return {
+            id: String(e.id || `e_${now}_${idx}`),
+            source: sid,
+            target: tid,
+            sourceHandle: e.sourceHandle,
+            targetHandle: e.targetHandle,
+            type: e.type || "default",
+          } as any;
+        })
+        .filter(
+          (e: any) =>
+            mappedNodes.find((n) => n.id === e.source) &&
+            mappedNodes.find((n) => n.id === e.target)
+        );
+
+      setNodes((ns) => ns.concat(mappedNodes));
+      setEdges((es) => es.concat(mappedEdges));
+      console.log(
+        `✅ 导入成功：节点 ${mappedNodes.length} 条，连线 ${mappedEdges.length} 条`
+      );
+      try {
+        historyService.commit("flow-import").catch(() => {});
+      } catch {}
+    },
+    [rf, setNodes, setEdges, cleanNodeData]
+  );
+
   const handleImportFiles = React.useCallback(
     (files: FileList | null) => {
       if (!files || files.length === 0) return;
@@ -5143,76 +5260,7 @@ function FlowInner() {
       reader.onload = () => {
         try {
           const text = String(reader.result || "");
-          const obj = JSON.parse(text);
-          const rawNodes = Array.isArray(obj?.nodes) ? obj.nodes : [];
-          const rawEdges = Array.isArray(obj?.edges) ? obj.edges : [];
-
-          const existing = new Set((rf.getNodes() || []).map((n) => n.id));
-          const idMap = new Map<string, string>();
-
-          const now = Date.now();
-          rawNodes.forEach((n: any, idx: number) => {
-            const origId = String(n.id || `n_${idx}`);
-            let newId = origId;
-            if (existing.has(newId) || idMap.has(newId))
-              newId = `${origId}_${now}_${idx}`;
-            idMap.set(origId, newId);
-          });
-
-          const mappedNodes = rawNodes.map((n: any, idx: number) => {
-            const origId = String(n.id || `n_${idx}`);
-            const newId = idMap.get(origId) || `${origId}_${now}_${idx}`;
-            const data = cleanNodeData(n.data) || {};
-            if (n.type === FLOW_GROUP_NODE_TYPE) {
-              const rawChildIds = Array.isArray((data as any).childNodeIds)
-                ? (data as any).childNodeIds
-                : [];
-              (data as any).childNodeIds = rawChildIds
-                .map((childId: string) => idMap.get(String(childId)) || null)
-                .filter(Boolean);
-            }
-            return {
-              id: newId,
-              type: n.type,
-              position: n.position || { x: 0, y: 0 },
-              data,
-              width: n.width,
-              height: n.height,
-              style: n.style ? { ...n.style } : undefined,
-              parentNode: n.parentNode ? idMap.get(String(n.parentNode)) || undefined : undefined,
-              extent: n.extent,
-              selectable: n.selectable,
-              draggable: n.draggable,
-            } as any;
-          });
-
-          const mappedEdges = rawEdges
-            .map((e: any, idx: number) => {
-              const sid = idMap.get(String(e.source)) || String(e.source);
-              const tid = idMap.get(String(e.target)) || String(e.target);
-              return {
-                id: String(e.id || `e_${now}_${idx}`),
-                source: sid,
-                target: tid,
-                sourceHandle: e.sourceHandle,
-                targetHandle: e.targetHandle,
-                type: e.type || "default",
-              } as any;
-            })
-            .filter(
-              (e: any) =>
-                mappedNodes.find((n) => n.id === e.source) &&
-                mappedNodes.find((n) => n.id === e.target)
-            );
-
-          setNodes((ns) => ns.concat(mappedNodes));
-          setEdges((es) => es.concat(mappedEdges));
-          console.log(
-            `✅ 导入成功：节点 ${mappedNodes.length} 条，连线 ${mappedEdges.length} 条`
-          );
-          try {
-            historyService.commit("flow-import").catch(() => {});
-          } catch {}
+          importFlowTemplateFromText(text);
         } catch (err) {
           console.error("导入失败：JSON 解析错误", err);
         } finally {
@@ -5225,7 +5273,69 @@ function FlowInner() {
       };
       reader.readAsText(file);
     },
-    [rf, setNodes, setEdges, cleanNodeData]
+    [importFlowTemplateFromText]
+  );
+
+  React.useEffect(() => {
+    const handler = () => {
+      void exportFlow();
+    };
+    window.addEventListener(
+      "flow:export-template-request",
+      handler as EventListener
+    );
+    return () => {
+      window.removeEventListener(
+        "flow:export-template-request",
+        handler as EventListener
+      );
+    };
+  }, [exportFlow]);
+
+  React.useEffect(() => {
+    const handler = () => {
+      handleImportClick();
+    };
+    window.addEventListener(
+      "flow:import-template-request",
+      handler as EventListener
+    );
+    return () => {
+      window.removeEventListener(
+        "flow:import-template-request",
+        handler as EventListener
+      );
+    };
+  }, [handleImportClick]);
+
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const customEvent = event as CustomEvent<{ content?: unknown }>;
+      const content =
+        typeof customEvent.detail?.content === "string"
+          ? customEvent.detail.content
+          : "";
+      if (!content.trim()) return;
+
+      try {
+        importFlowTemplateFromText(content);
+      } catch (err) {
+        console.error("导入失败：JSON 解析错误", err);
+      } finally {
+        setAddPanel((v) => ({ ...v, visible: false }));
+      }
+    };
+    window.addEventListener(
+      "flow:import-template-json",
+      handler as EventListener
+    );
+    return () => {
+      window.removeEventListener(
+        "flow:import-template-json",
+        handler as EventListener
+      );
+    };
+  }, [importFlowTemplateFromText]
   );
 
   // 仅在真正空白处（底层画布）允许触发
@@ -5718,7 +5828,7 @@ function FlowInner() {
           const idx = await loadBuiltInTemplateIndex();
           const normalizedIdx = idx.map((item) => ({
             ...item,
-            category: item.category || "其他",
+            category: normalizeTemplateCategory(item.category),
           }));
           if (!cancelled) {
             setTplIndex(normalizedIdx);
@@ -5733,7 +5843,7 @@ function FlowInner() {
     return () => {
       cancelled = true;
     };
-  }, [addPanel.visible, addTab, tplIndex]);
+  }, [addPanel.visible, addTab, tplIndex, normalizeTemplateCategory]);
 
   // 加载后端维护的分类列表（供公共模板使用）
   React.useEffect(() => {
@@ -5743,13 +5853,15 @@ function FlowInner() {
       try {
         const cats = await fetchTemplateCategories();
         if (!cancelled && Array.isArray(cats) && cats.length) {
-          setBuiltinCategories(cats);
+          setBuiltinCategories(
+            Array.from(new Set(cats.map((cat) => normalizeTemplateCategory(cat))))
+          );
           return;
         }
         // 如果后端没有返回分类或为空，从 tplIndex 推断分类
         if (!cancelled) {
           const fromTpl = (tplIndex || [])
-            .map((t) => t.category)
+            .map((t) => normalizeTemplateCategory(t.category))
             .filter(Boolean) as string[];
           const uniq = Array.from(new Set(fromTpl));
           if (uniq.length) {
@@ -5762,7 +5874,7 @@ function FlowInner() {
         // 若请求失败（例如未认证），也从 tplIndex 推断
         if (!cancelled) {
           const fromTpl = (tplIndex || [])
-            .map((t) => t.category)
+            .map((t) => normalizeTemplateCategory(t.category))
             .filter(Boolean) as string[];
           const uniq = Array.from(new Set(fromTpl));
           if (uniq.length) {
@@ -5776,7 +5888,7 @@ function FlowInner() {
     return () => {
       cancelled = true;
     };
-  }, [addPanel.visible, addTab, tplIndex]);
+  }, [addPanel.visible, addTab, tplIndex, normalizeTemplateCategory]);
 
   // 捕获原生点击，通过自定义检测实现双击（300ms 间隔），仅在真正空白 Pane 区域触发；排除 AI 对话框及其保护带
   React.useEffect(() => {
@@ -6000,7 +6112,6 @@ function FlowInner() {
           ? {
               status: "idle" as const,
               images: [],
-              count: 4,
               boxW: size.w,
               boxH: size.h,
             }
@@ -7353,7 +7464,7 @@ function FlowInner() {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
       }
       if (targetNode?.type === "analysis") {
-        if (params.targetHandle === "img") return true; // 仅一条连接，后续替换
+        if (params.targetHandle === "img") return true; // 支持多图输入
         if (params.targetHandle === "text") return true; // 追加提示词输入，新线替换旧线
       }
       if (targetNode?.type === "videoAnalyze") {
@@ -7427,8 +7538,7 @@ function FlowInner() {
         if (
           (tgt?.type === "image" ||
             tgt?.type === "imagePro" ||
-            tgt?.type === "viewAngle" ||
-            tgt?.type === "analysis") &&
+            tgt?.type === "viewAngle") &&
           params.targetHandle === "img"
         ) {
           next = next.filter(
@@ -7480,7 +7590,6 @@ function FlowInner() {
           "minimaxSpeech",
           "tencentSpeech",
           "minimaxMusic",
-          "analysis",
         ];
         if (
           singleTextInputTypes.includes(tgt?.type || "") &&
@@ -8732,19 +8841,66 @@ function FlowInner() {
           typeof midjourneyImageUrl === "string"
             ? midjourneyImageUrl.trim()
             : "";
-        const hasRemoteUrl = normalizedMidjourneyUrl.length > 0;
-        const previewSource = hasRemoteUrl
+        const rawHasRemoteUrl = normalizedMidjourneyUrl.length > 0;
+        const rawPreviewSource = rawHasRemoteUrl
           ? normalizedMidjourneyUrl
           : imgBase64;
-        
-        // 获取所有图片 URLs（用于 V7/Niji7 多图场景）
-        const midjourneyImageUrls = midjourneyMeta.imageUrls || metadata.imageUrls || [];
-        
+
+        let previewSource = rawPreviewSource;
+        try {
+          if (typeof rawPreviewSource === "string" && rawPreviewSource.trim()) {
+            previewSource = await uploadImageToStableUrl(
+              rawPreviewSource.trim(),
+              `flow_${node.type || "midjourney"}_${detail.nodeId}_${Date.now()}.png`,
+              { reuploadUnstableRemote: true }
+            );
+          }
+        } catch (persistErr) {
+          console.warn(
+            "[Flow] Midjourney action: failed to persist preview to stable storage",
+            persistErr
+          );
+          previewSource = rawPreviewSource;
+        }
+
+        const rawImageUrls = Array.isArray(midjourneyMeta.imageUrls)
+          ? midjourneyMeta.imageUrls
+          : Array.isArray(metadata.imageUrls)
+          ? metadata.imageUrls
+          : [];
+        const midjourneyImageUrls: string[] = [];
+        for (let idx = 0; idx < rawImageUrls.length; idx += 1) {
+          const item = rawImageUrls[idx];
+          if (typeof item !== "string" || !item.trim()) continue;
+          const trimmed = item.trim();
+          try {
+            midjourneyImageUrls.push(
+              await uploadImageToStableUrl(
+                trimmed,
+                `flow_${node.type || "midjourney"}_${detail.nodeId}_${idx}_${Date.now()}.png`,
+                { reuploadUnstableRemote: true }
+              )
+            );
+          } catch (persistErr) {
+            console.warn(
+              "[Flow] Midjourney action: failed to persist imageUrls item",
+              persistErr
+            );
+            midjourneyImageUrls.push(trimmed);
+          }
+        }
+
+        const hasRemoteUrl =
+          typeof previewSource === "string" &&
+          previewSource.trim().length > 0 &&
+          !isDataImageUrl(previewSource) &&
+          !isBlobUrl(previewSource);
+        const stableRemoteUrl = hasRemoteUrl ? previewSource : undefined;
+
         const historyId = previewSource
           ? `${detail.nodeId}-${Date.now()}`
           : undefined;
 
-        // 更新节点数据
         setNodes((ns) =>
           ns.map((n) =>
             n.id === detail.nodeId
@@ -8753,7 +8909,7 @@ function FlowInner() {
                   data: {
                     ...n.data,
                     status: "succeeded",
-                    imageData: hasRemoteUrl ? undefined : imgBase64,
+                    imageData: hasRemoteUrl ? undefined : previewSource,
                     error: undefined,
                     taskId: midjourneyMeta.taskId || detail.taskId,
                     mjApiState:
@@ -8762,11 +8918,12 @@ function FlowInner() {
                         : undefined,
                     buttons: midjourneyMeta.buttons,
                     imageUrl: hasRemoteUrl
-                      ? normalizedMidjourneyUrl
+                      ? stableRemoteUrl
                       : undefined,
-                    // 保存所有图片 URLs（用于 V7/Niji7 多图展示）
                     imageUrls: midjourneyImageUrls.length > 0
                       ? midjourneyImageUrls
+                      : hasRemoteUrl && stableRemoteUrl
+                      ? [stableRemoteUrl]
                       : undefined,
                     promptEn: midjourneyMeta.promptEn,
                     lastHistoryId: historyId ?? (n.data as any)?.lastHistoryId,
@@ -8776,14 +8933,12 @@ function FlowInner() {
           )
         );
 
-        // 生成缩略图
         if (historyId) {
-          // 记录到历史（避免依赖节点渲染，onlyRenderVisibleElements 时也可记录）
           const projectId = useProjectContentStore.getState().projectId;
           void recordImageHistoryEntry({
             id: historyId,
-            base64: hasRemoteUrl ? undefined : imgBase64,
-            remoteUrl: hasRemoteUrl ? normalizedMidjourneyUrl : undefined,
+            base64: hasRemoteUrl ? undefined : previewSource,
+            remoteUrl: hasRemoteUrl ? stableRemoteUrl : undefined,
             title: `${node.type === "niji7" ? "Niji 7" : node.type === "midjourneyV7" ? "Midjourney V7" : "Midjourney"} ${
               detail.label || "Action"
             } ${new Date().toLocaleTimeString()}`,
@@ -8799,7 +8954,7 @@ function FlowInner() {
               setNodes((ns) =>
                 ns.map((n) => {
                   if (n.id !== detail.nodeId) return n;
-                  if ((n.data as any)?.imageData !== imgBase64) return n;
+                  if ((n.data as any)?.imageData !== previewSource) return n;
                   return {
                     ...n,
                     data: {
@@ -8813,8 +8968,7 @@ function FlowInner() {
               );
             })
             .catch(() => {});
-        }
-      } catch (error) {
+        }      } catch (error) {
         const msg =
           error instanceof Error ? error.message : "Midjourney 操作失败";
         setNodes((ns) =>
@@ -11285,7 +11439,13 @@ function FlowInner() {
               if (!trimmed) continue;
 
               // 根据供应商处理图片格式
-              if (provider === "vidu" || provider === "viduq3-pro" || provider === "kling" || provider === "kling-o3") {
+              if (
+                provider === "vidu" ||
+                provider === "viduq3-pro" ||
+                provider === "kling" ||
+                provider === "kling-2.6" ||
+                provider === "kling-o3"
+              ) {
                 // Vidu 和 Kling 需要可访问的 URL，必须上传到 OSS
                 if (isRemoteUrl(trimmed)) {
                   referenceImageUrls.push(normalizeStableRemoteUrl(trimmed));
@@ -12338,19 +12498,68 @@ function FlowInner() {
           const midjourneyMeta = mjMetadata.midjourney || {};
           const midjourneyImageUrl =
             midjourneyMeta.imageUrl || mjMetadata.imageUrl;
-          const normalizedMidjourneyUrl =
+          const rawMidjourneyImageUrl =
             typeof midjourneyImageUrl === "string"
               ? midjourneyImageUrl.trim()
               : "";
-          const hasRemoteUrl = normalizedMidjourneyUrl.length > 0;
-          const previewSource = hasRemoteUrl
-            ? normalizedMidjourneyUrl
-            : mjImgBase64;
+          const rawPreviewSource =
+            rawMidjourneyImageUrl.length > 0 ? rawMidjourneyImageUrl : mjImgBase64;
+
+          let previewSource = rawPreviewSource;
+          try {
+            if (typeof rawPreviewSource === "string" && rawPreviewSource.trim()) {
+              previewSource = await uploadImageToStableUrl(
+                rawPreviewSource.trim(),
+                `flow_midjourney_${nodeId}_${Date.now()}.png`,
+                { reuploadUnstableRemote: true }
+              );
+            }
+          } catch (persistErr) {
+            console.warn(
+              "[Flow] Midjourney: failed to persist preview to stable storage",
+              persistErr
+            );
+            previewSource = rawPreviewSource;
+          }
+
+          const hasRemoteUrl =
+            typeof previewSource === "string" &&
+            previewSource.trim().length > 0 &&
+            !isDataImageUrl(previewSource) &&
+            !isBlobUrl(previewSource);
+          const stableRemoteUrl = hasRemoteUrl ? previewSource : undefined;
+
+          const rawImageUrls = Array.isArray(midjourneyMeta.imageUrls)
+            ? midjourneyMeta.imageUrls
+            : Array.isArray(mjMetadata.imageUrls)
+            ? mjMetadata.imageUrls
+            : [];
+          const stableMidjourneyImageUrls: string[] = [];
+          for (let idx = 0; idx < rawImageUrls.length; idx += 1) {
+            const item = rawImageUrls[idx];
+            if (typeof item !== "string" || !item.trim()) continue;
+            const trimmed = item.trim();
+            try {
+              stableMidjourneyImageUrls.push(
+                await uploadImageToStableUrl(
+                  trimmed,
+                  `flow_midjourney_${nodeId}_${idx}_${Date.now()}.png`,
+                  { reuploadUnstableRemote: true }
+                )
+              );
+            } catch (persistErr) {
+              console.warn(
+                "[Flow] Midjourney: failed to persist imageUrls item",
+                persistErr
+              );
+              stableMidjourneyImageUrls.push(trimmed);
+            }
+          }
+
           const historyId = previewSource
             ? `${nodeId}-${Date.now()}`
             : undefined;
 
-          // 更新节点数据
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
@@ -12359,7 +12568,7 @@ function FlowInner() {
                     data: {
                       ...n.data,
                       status: "succeeded",
-                      imageData: hasRemoteUrl ? undefined : mjImgBase64,
+                      imageData: hasRemoteUrl ? undefined : previewSource,
                       error: undefined,
                       taskId: midjourneyMeta.taskId,
                       mjApiState:
@@ -12368,7 +12577,10 @@ function FlowInner() {
                           : undefined,
                       buttons: midjourneyMeta.buttons,
                       imageUrl: hasRemoteUrl
-                        ? normalizedMidjourneyUrl
+                        ? stableRemoteUrl
+                        : undefined,
+                      imageUrls: stableMidjourneyImageUrls.length > 0
+                        ? stableMidjourneyImageUrls
                         : undefined,
                       promptEn: midjourneyMeta.promptEn,
                       lastHistoryId:
@@ -12379,15 +12591,13 @@ function FlowInner() {
             )
           );
 
-          // 生成缩略图
           if (historyId) {
             const projectId = useProjectContentStore.getState().projectId;
-            // Midjourney 当前只支持纯文生图，actionLabel 固定为 "Imagine"
             const actionLabel = "Imagine";
             void recordImageHistoryEntry({
               id: historyId,
-              base64: hasRemoteUrl ? undefined : mjImgBase64,
-              remoteUrl: hasRemoteUrl ? normalizedMidjourneyUrl : undefined,
+              base64: hasRemoteUrl ? undefined : previewSource,
+              remoteUrl: hasRemoteUrl ? stableRemoteUrl : undefined,
               title: `Midjourney ${actionLabel} ${new Date().toLocaleTimeString()}`,
               nodeId,
               nodeType: "midjourney",
@@ -12407,9 +12617,8 @@ function FlowInner() {
                 const outs = rf.getEdges().filter((e) => e.source === nodeId);
                 setNodes((ns) =>
                   ns.map((n) => {
-                    // 更新当前 midjourney 节点自身
                     if (n.id === nodeId) {
-                      if ((n.data as any)?.imageData !== mjImgBase64) return n;
+                      if ((n.data as any)?.imageData !== previewSource) return n;
                       return {
                         ...n,
                         data: {
@@ -12420,12 +12629,11 @@ function FlowInner() {
                         },
                       };
                     }
-                    // 同步更新下游 Image 节点，避免把 base64 写入项目 JSON
                     if (
                       outs.some((e) => e.target === n.id) &&
                       n.type === "image"
                     ) {
-                      if ((n.data as any)?.imageData !== mjImgBase64) return n;
+                      if ((n.data as any)?.imageData !== previewSource) return n;
                       return {
                         ...n,
                         data: {
@@ -12461,7 +12669,7 @@ function FlowInner() {
                               imageUrl: normalizedMidjourneyUrl,
                               imageData: undefined,
                             }
-                          : { imageData: mjImgBase64 }),
+                          : { imageData: previewSource }),
                         thumbnail: undefined,
                       },
                     };
@@ -12610,14 +12818,64 @@ function FlowInner() {
           const midjourneyMeta = mjMetadata.midjourney || {};
           const midjourneyImageUrl =
             midjourneyMeta.imageUrl || mjMetadata.imageUrl;
-          const normalizedMidjourneyUrl =
+          const rawMidjourneyImageUrl =
             typeof midjourneyImageUrl === "string"
               ? midjourneyImageUrl.trim()
               : "";
-          const hasRemoteUrl = normalizedMidjourneyUrl.length > 0;
-          const previewSource = hasRemoteUrl
-            ? normalizedMidjourneyUrl
-            : mjImgBase64;
+          const rawPreviewSource =
+            rawMidjourneyImageUrl.length > 0 ? rawMidjourneyImageUrl : mjImgBase64;
+
+          let previewSource = rawPreviewSource;
+          try {
+            if (typeof rawPreviewSource === "string" && rawPreviewSource.trim()) {
+              previewSource = await uploadImageToStableUrl(
+                rawPreviewSource.trim(),
+                `flow_${node.type}_${nodeId}_${Date.now()}.png`,
+                { reuploadUnstableRemote: true }
+              );
+            }
+          } catch (persistErr) {
+            console.warn(
+              "[Flow] Midjourney V7/Niji7: failed to persist preview to stable storage",
+              persistErr
+            );
+            previewSource = rawPreviewSource;
+          }
+
+          const hasRemoteUrl =
+            typeof previewSource === "string" &&
+            previewSource.trim().length > 0 &&
+            !isDataImageUrl(previewSource) &&
+            !isBlobUrl(previewSource);
+          const stableRemoteUrl = hasRemoteUrl ? previewSource : undefined;
+
+          const rawImageUrls = Array.isArray(midjourneyMeta.imageUrls)
+            ? midjourneyMeta.imageUrls
+            : Array.isArray(mjMetadata.imageUrls)
+            ? mjMetadata.imageUrls
+            : [];
+          const stableMidjourneyImageUrls: string[] = [];
+          for (let idx = 0; idx < rawImageUrls.length; idx += 1) {
+            const item = rawImageUrls[idx];
+            if (typeof item !== "string" || !item.trim()) continue;
+            const trimmed = item.trim();
+            try {
+              stableMidjourneyImageUrls.push(
+                await uploadImageToStableUrl(
+                  trimmed,
+                  `flow_${node.type}_${nodeId}_${idx}_${Date.now()}.png`,
+                  { reuploadUnstableRemote: true }
+                )
+              );
+            } catch (persistErr) {
+              console.warn(
+                "[Flow] Midjourney V7/Niji7: failed to persist imageUrls item",
+                persistErr
+              );
+              stableMidjourneyImageUrls.push(trimmed);
+            }
+          }
+
           const historyId = previewSource
             ? `${nodeId}-${Date.now()}`
             : undefined;
@@ -12630,7 +12888,7 @@ function FlowInner() {
                     data: {
                       ...n.data,
                       status: "succeeded",
-                      imageData: hasRemoteUrl ? undefined : mjImgBase64,
+                      imageData: hasRemoteUrl ? undefined : previewSource,
                       error: undefined,
                       taskId: midjourneyMeta.taskId,
                       mjApiState:
@@ -12639,7 +12897,12 @@ function FlowInner() {
                           : undefined,
                       buttons: midjourneyMeta.buttons,
                       imageUrl: hasRemoteUrl
-                        ? normalizedMidjourneyUrl
+                        ? stableRemoteUrl
+                        : undefined,
+                      imageUrls: stableMidjourneyImageUrls.length > 0
+                        ? stableMidjourneyImageUrls
+                        : hasRemoteUrl && stableRemoteUrl
+                        ? [stableRemoteUrl]
                         : undefined,
                       promptEn: midjourneyMeta.promptEn,
                       lastHistoryId:
@@ -12654,8 +12917,8 @@ function FlowInner() {
             const projectId = useProjectContentStore.getState().projectId;
             void recordImageHistoryEntry({
               id: historyId,
-              base64: hasRemoteUrl ? undefined : mjImgBase64,
-              remoteUrl: hasRemoteUrl ? normalizedMidjourneyUrl : undefined,
+              base64: hasRemoteUrl ? undefined : previewSource,
+              remoteUrl: hasRemoteUrl ? stableRemoteUrl : undefined,
               title: `${actionTitle} ${new Date().toLocaleTimeString()}`,
               nodeId,
               nodeType: node.type,
@@ -12675,7 +12938,7 @@ function FlowInner() {
                 setNodes((ns) =>
                   ns.map((n) => {
                     if (n.id === nodeId) {
-                      if ((n.data as any)?.imageData !== mjImgBase64) return n;
+                      if ((n.data as any)?.imageData !== previewSource) return n;
                       return {
                         ...n,
                         data: {
@@ -12690,7 +12953,7 @@ function FlowInner() {
                       outs.some((e) => e.target === n.id) &&
                       n.type === "image"
                     ) {
-                      if ((n.data as any)?.imageData !== mjImgBase64) return n;
+                      if ((n.data as any)?.imageData !== previewSource) return n;
                       return {
                         ...n,
                         data: {
@@ -12725,7 +12988,7 @@ function FlowInner() {
                               imageUrl: normalizedMidjourneyUrl,
                               imageData: undefined,
                             }
-                          : { imageData: mjImgBase64 }),
+                          : { imageData: previewSource }),
                         thumbnail: undefined,
                       },
                     };
@@ -13214,6 +13477,48 @@ function FlowInner() {
         imageDatas = await resolveEdgesAsDataUrls(imgEdges);
       }
 
+      // 运行时图片输入归一化（优先走 sourceImageUrl，避免大体积 sourceImage 触发上游 500）：
+      // - 仅当已是后端可直连的 HTTPS 资源时直传；
+      // - 其余（代理 URL、key、data/blob/flow-asset、裸 base64）统一先上传 OSS，失败即中断。
+      if (imageDatas.length > 0) {
+        const projectId = useProjectContentStore.getState().projectId;
+        const weakRawBase64 = (value: string): boolean => {
+          const compact = value.replace(/\s+/g, "");
+          if (!compact || compact.length >= 2048) return false;
+          if (!/^[A-Za-z0-9+/=]+$/.test(compact)) return false;
+          return true;
+        };
+        const normalizedInputs: string[] = [];
+        for (const value of imageDatas) {
+          const trimmed = typeof value === "string" ? value.trim() : "";
+          if (!trimmed) continue;
+
+          const remote = normalizeRemoteUrl(trimmed);
+          const canPassRemoteDirectly =
+            Boolean(remote) &&
+            !isAssetProxyRef(remote) &&
+            isLikelyBackendAllowedRemoteUrl(remote) &&
+            !requiresManagedImageUpload(remote);
+
+          if (canPassRemoteDirectly && remote) {
+            normalizedInputs.push(remote);
+            continue;
+          }
+
+          const uploadInput = weakRawBase64(trimmed)
+            ? ensureDataUrl(trimmed)
+            : trimmed;
+          const uploaded = await uploadImageToOSS(uploadInput, projectId);
+          if (uploaded && isRemoteUrl(uploaded)) {
+            normalizedInputs.push(uploaded);
+          } else {
+            failWithMessage("图片上传失败，无法用于编辑/融合，请检查上传与 OSS 配置");
+            return;
+          }
+        }
+        imageDatas = normalizedInputs;
+      }
+
       console.log(`[Flow Debug] Node ${nodeId} (${node.type}) 准备运行:`, {
         prompt: prompt.substring(0, 50) + "...",
         imageDatasCount: imageDatas.length,
@@ -13242,9 +13547,7 @@ function FlowInner() {
         return undefined;
       })();
       const effectiveImageSize =
-        node.type === "generate" && aiProvider === "banana-2.5"
-          ? undefined
-          : nodeSizeValue || imageSize || undefined;
+        nodeSizeValue || imageSize || "1K";
       const enableWebSearchForNode =
         (node.type === "generatePro" || node.type === "generatePro4") &&
         Boolean((node.data as any)?.enableWebSearch ?? globalWebSearchEnabled);
@@ -13265,10 +13568,7 @@ function FlowInner() {
       if (node.type === "generate4") {
         /** 连续多次调同一接口易被限流，稍作间隔可提高 3、4 张成功率 */
         const MULTI_GENERATE_STAGGER_MS = 650;
-        const total = Math.max(
-          1,
-          Math.min(4, Number((node.data as any)?.count) || 4)
-        );
+        const total = 4;
         setNodes((ns) =>
           ns.map((n) =>
             n.id === nodeId
@@ -13850,45 +14150,59 @@ function FlowInner() {
           error?: { message: string };
         };
 
-        const remoteInputs = imageDatas.filter(isRemoteUrl);
-        const hasOnlyRemote =
-          imageDatas.length > 0 && remoteInputs.length === imageDatas.length;
-        if (imageDatas.length === 0) {
-          result = await generateImageViaAPI({
-            prompt,
-            outputFormat: "png",
-            aiProvider,
-            model: nodeSpecificModel,
-            aspectRatio: effectiveAspectRatio,
-            imageSize: effectiveImageSize,
-            ...(enableWebSearchForNode ? { enableWebSearch: true } : {}),
-          });
-        } else if (imageDatas.length === 1) {
-          console.log('[FlowOverlay] editImage调用参数:', { aiProvider, model: nodeSpecificModel, imageModel });
-          result = await editImageViaAPI({
-            prompt,
-            ...(hasOnlyRemote
-              ? { sourceImageUrl: imageDatas[0] }
-              : { sourceImage: imageDatas[0] }),
-            outputFormat: "png",
-            aiProvider,
-            model: nodeSpecificModel,
-            aspectRatio: effectiveAspectRatio,
-            imageSize: effectiveImageSize,
-          });
-        } else {
-          result = await blendImagesViaAPI({
+        const executeImageRequest = async (
+          provider: typeof aiProvider,
+          model: string,
+          imageSizeOverride?: "0.5K" | "1K" | "2K" | "4K"
+        ) => {
+          const remoteInputs = imageDatas.filter(isRemoteUrl);
+          const hasOnlyRemote =
+            imageDatas.length > 0 && remoteInputs.length === imageDatas.length;
+          const requestImageSize = imageSizeOverride || effectiveImageSize;
+          if (imageDatas.length === 0) {
+            return await generateImageViaAPI({
+              prompt,
+              outputFormat: "png",
+              aiProvider: provider,
+              model,
+              aspectRatio: effectiveAspectRatio,
+              imageSize: requestImageSize,
+              ...(enableWebSearchForNode ? { enableWebSearch: true } : {}),
+            });
+          }
+          if (imageDatas.length === 1) {
+            console.log("[FlowOverlay] editImage调用参数:", {
+              aiProvider: provider,
+              model,
+              imageModel,
+              imageSize: requestImageSize,
+            });
+            return await editImageViaAPI({
+              prompt,
+              ...(hasOnlyRemote
+                ? { sourceImageUrl: imageDatas[0] }
+                : { sourceImage: imageDatas[0] }),
+              outputFormat: "png",
+              aiProvider: provider,
+              model,
+              aspectRatio: effectiveAspectRatio,
+              imageSize: requestImageSize,
+            });
+          }
+          return await blendImagesViaAPI({
             prompt,
             ...(hasOnlyRemote
               ? { sourceImageUrls: imageDatas.slice(0, 6) }
               : { sourceImages: imageDatas.slice(0, 6) }),
             outputFormat: "png",
-            aiProvider,
-            model: nodeSpecificModel,
+            aiProvider: provider,
+            model,
             aspectRatio: effectiveAspectRatio,
-            imageSize: effectiveImageSize,
+            imageSize: requestImageSize,
           });
-        }
+        };
+
+        result = await executeImageRequest(aiProvider, nodeSpecificModel);
 
         if (!result.success || !result.data) {
           const msg = result.error?.message || "执行失败";
@@ -14598,7 +14912,7 @@ function FlowInner() {
             sendPayload = key || uploadResult.asset.url;
           }
         } catch {
-          // 淇濆瓨鏃朵粛浼氶€氳繃 resolveImageToBlob 灏濊瘯琛ヤ紶
+          // 保存时仍会通过 resolveImageToBlob 尝试补传
         }
       }
 
@@ -15441,7 +15755,7 @@ function FlowInner() {
               id,
               type: "generate4",
               position: { x, y },
-              data: { status: "idle", images: [], count: 4 },
+              data: { status: "idle", images: [] },
             },
           ] as any)
         );
@@ -15618,7 +15932,7 @@ function FlowInner() {
             : type === "generatePro"
             ? { status: "idle", prompts: [""], title: "Agent", enableWebSearch: false }
             : type === "generate4"
-            ? { status: "idle", images: [], count: 4 }
+            ? { status: "idle", images: [] }
             : type === "generateRef"
             ? { status: "idle", referencePrompt: undefined }
             : type === "analysis"
@@ -17287,7 +17601,7 @@ function FlowInner() {
                     marginBottom: 8,
                   }}
                 >
-                  定制化节点
+                  {lt("定制化节点", "Custom Nodes")}
                 </div>
                 <div
                   style={{
@@ -17296,7 +17610,10 @@ function FlowInner() {
                     textAlign: "center",
                   }}
                 >
-                  为您量身定制的专属节点，敬请期待
+                  {lt(
+                    "为您量身定制的专属节点，敬请期待",
+                    "Tailor-made nodes for your workflow are coming soon"
+                  )}
                 </div>
               </div>
             ) : addTab === "templates" ? (
@@ -17343,7 +17660,7 @@ function FlowInner() {
                               : "none",
                           }}
                         >
-                          全部
+                          {lt("全部", "All")}
                         </button>
                         {builtinCategories.map((cat) => {
                           const isActive = activeBuiltinCategory === cat;
@@ -17372,7 +17689,7 @@ function FlowInner() {
                                   : "none",
                               }}
                             >
-                              {cat}
+                              {getTemplateCategoryLabel(cat)}
                             </button>
                           );
                         })}
@@ -17412,7 +17729,11 @@ function FlowInner() {
                       }).map((_, idx) => (
                         <TemplatePlaceholder
                           key={`builtin-placeholder-${idx}`}
-                          label='敬请期待更多模板'
+                          label={lt("敬请期待更多模板", "More templates coming soon")}
+                          subtitle={lt(
+                            "我们正在准备更多创意模板",
+                            "We are preparing more creative templates"
+                          )}
                         />
                       ))}
                     </div>
@@ -17544,7 +17865,14 @@ function FlowInner() {
                                 minVisible: 4,
                               }),
                       }).map((_, idx) => (
-                        <TemplatePlaceholder key={`user-placeholder-${idx}`} />
+                        <TemplatePlaceholder
+                          key={`user-placeholder-${idx}`}
+                          label={lt("敬请期待更多模板", "More templates coming soon")}
+                          subtitle={lt(
+                            "我们正在准备更多创意模板",
+                            "We are preparing more creative templates"
+                          )}
+                        />
                       ))}
                     </div>
                   </div>

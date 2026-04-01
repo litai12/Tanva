@@ -25,3 +25,9 @@
 - `health`：健康检查
 
 > 具体请求/响应以 Swagger 与 Controller 实现为准。
+
+## 近期接口变更（摘要）
+- `POST /api/ai/analyze-image`：
+  - 新增可选 `sourceImages: string[]`，支持多图分析。
+  - 兼容原有 `sourceImage: string` 单图请求。
+  - 两者同时传入时会合并去重后统一参与分析。

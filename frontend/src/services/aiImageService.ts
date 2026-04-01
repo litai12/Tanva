@@ -553,14 +553,19 @@ class AIImageService {
 
     const prefersImage = this.promptSuggestsImage(lowerPrompt);
     const prefersEdit = this.promptSuggestsEdit(lowerPrompt);
+    const prefersAnalyze = this.promptSuggestsAnalyze(lowerPrompt);
 
     const pick = (tool: string) => (available.includes(tool) ? tool : null);
 
     let selected =
+      ((request.imageCount || 0) > 1 &&
+        prefersAnalyze &&
+        pick("analyzeImage")) ||
       ((request.imageCount || 0) > 1 && pick("blendImages")) ||
       ((request.hasImages || request.hasCachedImage || prefersEdit) &&
         pick("editImage")) ||
       (prefersImage && pick("generateImage")) ||
+      (prefersAnalyze && pick("analyzeImage")) ||
       pick("chatResponse") ||
       available[0] ||
       "chatResponse";
@@ -610,6 +615,30 @@ class AIImageService {
       "编辑",
       "修改",
       "调整",
+    ];
+    return keywords.some((keyword) => prompt.includes(keyword));
+  }
+
+  private promptSuggestsAnalyze(prompt: string): boolean {
+    if (!prompt) return false;
+    const keywords = [
+      "analy",
+      "analysis",
+      "compare",
+      "difference",
+      "diff",
+      "contrast",
+      "inspect",
+      "review",
+      "分析",
+      "对比",
+      "比较",
+      "相同点",
+      "共同点",
+      "不同点",
+      "差异",
+      "区别",
+      "有什么不同",
     ];
     return keywords.some((keyword) => prompt.includes(keyword));
   }

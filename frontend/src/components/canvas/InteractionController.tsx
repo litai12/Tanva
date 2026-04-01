@@ -9,13 +9,13 @@ interface InteractionControllerProps {
 }
 
 const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef }) => {
-  const isDraggingRef = useRef(false); // 拖拽状态缓存
-  const zoomRef = useRef(1); // 缓存缩放值避免频繁getState
+  const isDraggingRef = useRef(false); // Drag state cache.
+  const zoomRef = useRef(1); // Cache zoom value to avoid frequent getState calls.
   const { zoom, setPan, setDragging } = useCanvasStore();
   const drawMode = useCurrentTool();
   const drawModeRef = useRef(drawMode);
 
-  // 同步缓存的zoom值
+  // Sync cached zoom value.
   useEffect(() => {
     zoomRef.current = zoom;
   }, [zoom]);
@@ -28,7 +28,7 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // 画布交互功能 - 仅保留中键拖动
+    // Canvas interaction - keep only middle-button drag.
     let isDragging = false;
     let lastScreenPoint: { x: number, y: number } | null = null;
     let dragStartPanX = 0;
@@ -50,14 +50,14 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
       }
     };
 
-    // 鼠标事件处理
+    // Mouse event handlers.
     const handleMouseDown = (event: MouseEvent) => {
-      // 只响应中键（button === 1）
+      // Only respond to middle button (button === 1).
       if (event.button === 1) {
-        event.preventDefault(); // 阻止中键的默认行为（滚动）
+        event.preventDefault(); // Prevent default middle-button behavior (scroll).
         isDragging = true;
-        isDraggingRef.current = true; // 设置拖拽状态缓存
-        setDragging(true); // 通知canvasStore开始拖拽
+        isDraggingRef.current = true; // Update drag state cache.
+        setDragging(true); // Notify canvasStore that dragging started.
         
         const rect = canvas.getBoundingClientRect();
         lastScreenPoint = {
@@ -65,7 +65,7 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
           y: event.clientY - rect.top
         };
         
-        // 获取当前最新的状态值
+        // Read latest state values.
         const currentState = useCanvasStore.getState();
         dragStartPanX = currentState.panX;
         dragStartPanY = currentState.panY;
@@ -82,20 +82,20 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
           y: event.clientY - rect.top
         };
         
-        // 计算屏幕坐标增量
+        // Compute screen-space delta.
         const screenDeltaX = currentScreenPoint.x - lastScreenPoint.x;
         const screenDeltaY = currentScreenPoint.y - lastScreenPoint.y;
         
-        // 使用缓存的缩放值转换为世界坐标增量
-        // 将 CSS 像素增量转换到 Paper 视图坐标（设备像素），再转世界坐标
+        // Convert deltas using cached zoom.
+        // Convert CSS pixel delta -> Paper view coords (device pixels) -> world coords.
         const worldDeltaX = (screenDeltaX * dpr) / zoomRef.current;
         const worldDeltaY = (screenDeltaY * dpr) / zoomRef.current;
         
-        // 更新平移值
+        // Update pan values.
         const newPanX = dragStartPanX + worldDeltaX;
         const newPanY = dragStartPanY + worldDeltaY;
         
-        // 拖拽时使用requestAnimationFrame优化性能
+        // Use requestAnimationFrame for drag updates.
         if (dragAnimationId) {
           cancelAnimationFrame(dragAnimationId);
         }
@@ -113,7 +113,7 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
       }
     };
 
-    // 处理拖拽过程中鼠标离开画布或在窗口外释放中键的场景，避免 isDragging 卡住
+    // Handle mouse leaving canvas / window-level middle-button release during dragging.
     const handleMouseLeave = () => {
       stopDragging();
     };
@@ -124,21 +124,21 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
       }
     };
 
-    // 处理滚轮/触控板事件：根据设置切换缩放与平移手势
+    // Handle wheel/trackpad: switch between zoom and pan based on settings.
     const handleWheel = (event: WheelEvent) => {
       const store = useCanvasStore.getState();
       const isModifierWheel = event.ctrlKey || event.metaKey;
       const shouldZoom =
         store.wheelZoomMode === 'direct' ? !isModifierWheel : isModifierWheel;
 
-      // 缩放（以鼠标位置为中心）
+      // Zoom (centered on pointer position).
       if (shouldZoom) {
         event.preventDefault();
         event.stopPropagation();
 
         const rect = canvas.getBoundingClientRect();
         const dpr = window.devicePixelRatio || 1;
-        const sx = (event.clientX - rect.left) * dpr; // 设备像素
+        const sx = (event.clientX - rect.left) * dpr; // device pixels
         const sy = (event.clientY - rect.top) * dpr;
 
         const z1 = zoomRef.current;
@@ -148,7 +148,7 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
         const z2 = computeSmoothZoom(z1, delta, { sensitivity: store.zoomSensitivity });
         if (z1 === z2) return;
 
-        // 保持鼠标下的世界坐标点不动：
+        // Keep world coordinate under pointer fixed:
         // W = sx/z1 - pan1;  pan2 = sx/z2 - W
         const pan2x = store.panX + sx * (1 / z2 - 1 / z1);
         const pan2y = store.panY + sy * (1 / z2 - 1 / z1);
@@ -158,8 +158,8 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
         return;
       }
 
-      // 平移
-      event.preventDefault(); // 阻止浏览器默认行为（缩放/滚动）
+      // Pan.
+      event.preventDefault(); // Prevent browser default behavior (zoom/scroll).
       event.stopPropagation();
 
       if (Math.abs(event.deltaX) > 0 || Math.abs(event.deltaY) > 0) {
@@ -173,7 +173,7 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
       }
     };
 
-    // 添加事件监听器
+    // Register event listeners.
     canvas.addEventListener('mousedown', handleMouseDown);
     canvas.addEventListener('mousemove', handleMouseMove);
     canvas.addEventListener('mouseup', handleMouseUp);
@@ -189,7 +189,7 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
       canvas.removeEventListener('wheel', handleWheel);
       window.removeEventListener('mouseup', handleWindowMouseUp);
       
-      // 清理未完成的动画帧，防止内存泄漏
+      // Cleanup pending animation frame to avoid memory leaks.
       if (dragAnimationId) {
         cancelAnimationFrame(dragAnimationId);
         dragAnimationId = null;
@@ -197,7 +197,7 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
     };
   }, [setPan, canvasRef]);
 
-  return null; // 这个组件不渲染任何DOM
+  return null; // This component renders no DOM.
 };
 
 export default InteractionController;

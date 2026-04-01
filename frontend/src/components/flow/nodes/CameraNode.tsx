@@ -24,7 +24,7 @@ function CameraNodeInner({ id, data, selected }: Props) {
   const [preview, setPreview] = React.useState(false);
   const [currentImageId, setCurrentImageId] = React.useState<string>("");
   const src = (() => {
-    const raw = (data.imageData || data.imageUrl)?.trim();
+    const raw = (data.imageUrl || data.imageData)?.trim();
     if (!raw) return undefined;
     return toRenderableImageSrc(raw) || undefined;
   })();
@@ -165,10 +165,11 @@ function CameraNodeInner({ id, data, selected }: Props) {
   };
 
   const sendToCanvas = (event?: React.MouseEvent<HTMLButtonElement>) => {
-    const img = data.imageData || data.imageUrl;
+    const img = data.imageUrl || data.imageData;
     if (!img) return;
     const trimmed = img.trim();
-    const dataUrl = toRenderableImageSrc(trimmed) || trimmed;
+    const dataUrl = toRenderableImageSrc(trimmed);
+    if (!dataUrl) return;
     const fileName = `capture_${Date.now()}.png`;
     const triggerEl =
       event?.currentTarget instanceof HTMLElement ? event.currentTarget : null;

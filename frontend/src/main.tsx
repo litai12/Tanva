@@ -18,7 +18,6 @@ import CommunityGuidelines from '@/pages/legal/CommunityGuidelines';
 import { useAuthStore } from '@/stores/authStore';
 import { useProjectStore } from '@/stores/projectStore';
 import Workspace from '@/pages/Workspace';
-import RunningHubTest from '@/pages/RunningHubTest';
 import PendingUploadLeavePrompt from '@/components/guards/PendingUploadLeavePrompt';
 import PendingUploadNavigationGuard from '@/components/guards/PendingUploadNavigationGuard';
 import { initializeRuntimeStability } from '@/bootstrap/runtimeStability';
@@ -26,7 +25,7 @@ import { initializeRuntimeStability } from '@/bootstrap/runtimeStability';
 function RootRoutes() {
   const user = useAuthStore((s) => s.user);
   const loadProjects = useProjectStore((s) => s.load);
-  // 延迟初始化：由受保护路由或登录流程触发，避免在每次页面加载时自动请求 /api/auth/me
+  // Lazy init is triggered by protected routes/login flow to avoid auto /api/auth/me on every load.
   useEffect(() => {
     if (user) loadProjects();
   }, [user, loadProjects]);
@@ -39,7 +38,6 @@ function RootRoutes() {
       <Route path="/legal/privacy" element={<PrivacyPolicy />} />
       <Route path="/legal/community" element={<CommunityGuidelines />} />
       <Route path="/oss" element={<OSSDemo />} />
-      <Route path="/runninghub-test" element={<RunningHubTest />} />
       <Route element={<ProtectedRoute />}>
         <Route path="/workspace" element={<Workspace />} />
         <Route path="/app" element={<App />} />

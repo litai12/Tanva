@@ -16,6 +16,7 @@ import {
   normalizePersistableImageRef,
   toRenderableImageSrc,
 } from '@/utils/imageSource';
+import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import type {
   ImageInstance,
   ImageDragState,
@@ -31,15 +32,51 @@ const setRasterSourceSafely = (raster: paper.Raster, source: string) => {
   const value = typeof source === 'string' ? source.trim() : '';
   if (!value) return;
   try { (raster as any).__tanvaSourceRef = value; } catch {}
-  if (value.startsWith('blob:') || value.startsWith('data:image/')) {
+  const renderable = toRenderableImageSrc(value);
+  if (!renderable) return;
+  if (renderable.startsWith('data:image/')) {
     try {
       const img = new Image();
-      img.src = value;
+      img.src = renderable;
       (raster as any).setImage(img);
       return;
     } catch {}
   }
-  raster.source = value;
+  const fallbackTarget = (() => {
+    try {
+      if (isAssetKeyRef(value)) {
+        return proxifyRemoteAssetUrl(
+          `/api/assets/proxy?key=${encodeURIComponent(value.replace(/^\/+/, ''))}`,
+          { forceProxy: true },
+        );
+      }
+      if (isRemoteUrl(renderable)) {
+        return proxifyRemoteAssetUrl(renderable, { forceProxy: true });
+      }
+    } catch {}
+    return '';
+  })();
+
+  if (fallbackTarget && fallbackTarget !== renderable) {
+    try {
+      const img = new Image();
+      img.onload = () => {
+        try { (raster as any).setImage(img); } catch {}
+      };
+      img.onerror = () => {
+        try {
+          const retry = new Image();
+          retry.onload = () => {
+            try { (raster as any).setImage(retry); } catch {}
+          };
+          retry.src = fallbackTarget;
+        } catch {}
+      };
+      img.src = renderable;
+      return;
+    } catch {}
+  }
+  raster.source = renderable;
 };
 
 const trimString = (value?: string | null): string =>
@@ -50,13 +87,13 @@ const pickRuntimeImageSource = (params: {
   localDataUrl?: string | null;
   persistedCandidates: Array<string | null | undefined>;
 }): string => {
-  const local = trimString(params.localDataUrl);
+  const rawLocal = trimString(params.localDataUrl);
+  const local = rawLocal.startsWith('blob:') ? '' : rawLocal;
   const persisted = params.persistedCandidates
     .map((candidate) => trimString(candidate))
     .find((candidate) => candidate.length > 0) || '';
 
-  // 上传中优先使用本地预览；否则优先可持久化引用，避免刷新后使用失效 blob: 导致“幽灵图”
-  if (params.pendingUpload && local) return local;
+  if (params.pendingUpload && local && !persisted) return local;
   return persisted || local;
 };
 
@@ -484,8 +521,10 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       localDataUrl: asset.localDataUrl,
       persistedCandidates: [persistedSrc, persistedUrl, asset.url],
     });
-    const renderable = toRenderableImageSrc(preferredDisplaySrc) || preferredDisplaySrc || asset.url;
-    setRasterSourceSafely(raster, renderable);
+    const renderable = toRenderableImageSrc(preferredDisplaySrc || asset.url);
+    if (renderable) {
+      setRasterSourceSafely(raster, renderable);
+    }
 
     // 创建Paper.js组来包含所有相关元素（仅包含Raster，避免“隐形框”扩大边界）
     const imageGroup = new paper.Group([raster]);
@@ -1454,7 +1493,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       const notReady = !isPaperRasterContentReady(raster);
       if (!blobStale && !notReady) continue;
 
-      const renderable = toRenderableImageSrc(preferredSource) || preferredSource;
+      const renderable = toRenderableImageSrc(preferredSource);
       if (!renderable) continue;
 
       try {
@@ -1776,7 +1815,10 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     if (persistedSrc && isRemoteUrl(persistedSrc)) {
       (raster.data as any).remoteUrl = persistedSrc;
     }
-    setRasterSourceSafely(raster, toRenderableImageSrc(source) || source);
+    const renderable = toRenderableImageSrc(source);
+    if (renderable) {
+      setRasterSourceSafely(raster, renderable);
+    }
 
     // 创建图片实例（立即添加到状态，不等待加载完成）
     const newImageInstance: ImageInstance = {
@@ -1859,3 +1901,4 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     applyBoundsFromSnapshot,
   };
 };
+

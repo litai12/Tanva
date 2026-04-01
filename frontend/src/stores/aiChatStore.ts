@@ -41,7 +41,6 @@ import { createAsyncLimiter, mapWithLimit } from "@/utils/asyncLimit";
 import {
   resolveImageToBlob,
   resolveImageToDataUrl,
-  resolveImageToObjectUrl,
   isPersistableImageRef,
   normalizeRemoteUrl,
   isLikelyBackendAllowedRemoteUrl,
@@ -921,18 +920,58 @@ const createProcessMetrics = (): ProcessMetrics => {
 const getResultImageRemoteUrl = (
   result?: AIImageResult | null
 ): string | undefined => {
-  const directUrl =
-    typeof result?.imageUrl === "string" && result.imageUrl.trim().length > 0
-      ? result.imageUrl.trim()
-      : undefined;
-  if (directUrl) return directUrl;
+  const pickRemote = (value: unknown): string | undefined => {
+    if (typeof value !== "string") return undefined;
+    const trimmed = value.trim();
+    if (!/^https?:\/\//i.test(trimmed)) return undefined;
+    return trimmed;
+  };
+  const pickRemoteFromList = (list: unknown): string | undefined => {
+    if (!Array.isArray(list)) return undefined;
+    for (const item of list) {
+      const picked = pickRemote(item);
+      if (picked) return picked;
+    }
+    return undefined;
+  };
 
-  const metadata = result?.metadata;
-  if (!metadata) return undefined;
+  const fromRoot =
+    pickRemote((result as any)?.imageUrl) ||
+    pickRemote((result as any)?.remoteUrl) ||
+    pickRemote((result as any)?.url) ||
+    pickRemoteFromList((result as any)?.imageUrls) ||
+    pickRemoteFromList((result as any)?.urls);
+  if (fromRoot) return fromRoot;
+
+  const metadata = (result as any)?.metadata;
+  if (!metadata || typeof metadata !== "object") return undefined;
 
   const midMeta = metadata.midjourney as MidjourneyMetadata | undefined;
-  if (midMeta?.imageUrl) return midMeta.imageUrl;
-  if (typeof metadata.imageUrl === "string") return metadata.imageUrl;
+  const fromMeta =
+    pickRemote(midMeta?.imageUrl) ||
+    pickRemote((metadata as any)?.imageUrl) ||
+    pickRemote((metadata as any)?.remoteUrl) ||
+    pickRemote((metadata as any)?.url) ||
+    pickRemoteFromList((metadata as any)?.imageUrls) ||
+    pickRemoteFromList((metadata as any)?.urls);
+  if (fromMeta) return fromMeta;
+
+  const candidates = [
+    (metadata as any)?.result,
+    (metadata as any)?.output,
+    (metadata as any)?.outputs,
+    (metadata as any)?.data,
+  ];
+  for (const candidate of candidates) {
+    const picked =
+      pickRemote((candidate as any)?.imageUrl) ||
+      pickRemote((candidate as any)?.remoteUrl) ||
+      pickRemote((candidate as any)?.url) ||
+      pickRemoteFromList((candidate as any)?.imageUrls) ||
+      pickRemoteFromList((candidate as any)?.urls);
+    if (picked) return picked;
+  }
+
   return undefined;
 };
 
@@ -1101,6 +1140,15 @@ const resolveImageForPlacement = ({
   uploadedAssets?: PlacementAssets;
   fallbackRemote?: string | null;
 }): string | null => {
+  const remoteCandidate =
+    fallbackRemote ||
+    uploadedAssets?.remoteUrl ||
+    getResultImageRemoteUrl(result);
+
+  if (remoteCandidate) {
+    return remoteCandidate;
+  }
+
   const inlineCandidate =
     normalizeInlineImageData(inlineData) ??
     normalizeInlineImageData(result?.imageData) ??
@@ -1110,12 +1158,7 @@ const resolveImageForPlacement = ({
     return ensureDataUrl(inlineCandidate);
   }
 
-  const remoteCandidate =
-    fallbackRemote ||
-    uploadedAssets?.remoteUrl ||
-    getResultImageRemoteUrl(result);
-
-  return remoteCandidate || null;
+  return null;
 };
 
 const buildImagePayloadForUpload = (
@@ -2422,7 +2465,7 @@ interface AIChatState {
   // 图像分析功能
   analyzeImage: (
     prompt: string,
-    sourceImage: string,
+    sourceImage: string | string[],
     options?: { override?: MessageOverride; metrics?: ProcessMetrics }
   ) => Promise<void>;
   setSourceImageForAnalysis: (imageData: string | null) => void;
@@ -2769,6 +2812,36 @@ export const useAIChatStore = create<AIChatState>()(
         }
 
         return null;
+      };
+
+      const prefersAnalyzeForMultiImage = (prompt: string): boolean => {
+        const text = (prompt || "").trim();
+        if (!text) return false;
+        const lower = text.toLowerCase();
+        const keywords = [
+          "analy",
+          "analysis",
+          "compare",
+          "difference",
+          "diff",
+          "contrast",
+          "inspect",
+          "review",
+          "分析",
+          "对比",
+          "比较",
+          "相同点",
+          "共同点",
+          "不同点",
+          "差异",
+          "区别",
+          "有什么不同",
+        ];
+        return keywords.some((keyword) =>
+          keyword === keyword.toLowerCase()
+            ? lower.includes(keyword)
+            : text.includes(keyword)
+        );
       };
 
       return {
@@ -3628,34 +3701,17 @@ export const useAIChatStore = create<AIChatState>()(
 
               // ========== 🔥 清晰的异步流程设计 ==========
               // 步骤1：立即更新对话框显示（使用 base64，不等待上传）- 已在上面完成
-              // 步骤2：计算 placementImageData（优先远程URL，否则转为 blob: ObjectURL）
-              // 步骤3：发送到画布（使用远程URL / blob:，避免 base64）
+              // 步骤2：计算 placementImageData（优先远程URL，否则 dataURL）
+              // 步骤3：发送到画布（使用远程URL / dataURL，禁用 blob 显示链路）
               // 步骤4：异步上传到OSS（后台进行，不阻塞显示）
               // 注意：消息状态已在步骤1中更新（generationStatus: { isGenerating: false, progress: 100 }），无需重复更新
 
               // 步骤2：计算 placementImageData
-              let placementImageData: string | null = null;
-              try {
-                const remoteCandidate =
-                  imageRemoteUrl ??
-                  getResultImageRemoteUrl(result.data) ??
-                  null;
-                if (remoteCandidate) {
-                  placementImageData = remoteCandidate;
-                } else {
-                  const inlineCandidate =
-                    normalizeInlineImageData(inlineImageData) ??
-                    normalizeInlineImageData(result.data?.imageData) ??
-                    normalizeInlineImageData(undefined);
-                  if (inlineCandidate) {
-                    placementImageData =
-                      (await resolveImageToObjectUrl(inlineCandidate)) ?? null;
-                  }
-                }
-              } catch (err) {
-                console.warn("⚠️ resolve placement image failed:", err);
-                placementImageData = null;
-              }
+              const placementImageData = resolveImageForPlacement({
+                inlineData: inlineImageData,
+                result: result.data,
+                fallbackRemote: imageRemoteUrl ?? null,
+              });
 
               // 如果没有可用的图像源，记录原因并返回
               if (!placementImageData) {
@@ -4362,28 +4418,11 @@ export const useAIChatStore = create<AIChatState>()(
               }
 
               // Prefer remote URL for canvas placement to avoid base64 memory usage.
-              let placementImageData: string | null = null;
-              try {
-                const remoteCandidate =
-                  imageRemoteUrl ??
-                  getResultImageRemoteUrl(result.data) ??
-                  null;
-                if (remoteCandidate) {
-                  placementImageData = remoteCandidate;
-                } else {
-                  const inlineCandidate =
-                    normalizeInlineImageData(inlineImageData) ??
-                    normalizeInlineImageData(result.data?.imageData) ??
-                    normalizeInlineImageData(undefined);
-                  if (inlineCandidate) {
-                    placementImageData =
-                      (await resolveImageToObjectUrl(inlineCandidate)) ?? null;
-                  }
-                }
-              } catch (err) {
-                console.warn("⚠️ resolve placement image failed:", err);
-                placementImageData = null;
-              }
+              const placementImageData = resolveImageForPlacement({
+                inlineData: inlineImageData,
+                result: result.data,
+                fallbackRemote: imageRemoteUrl ?? null,
+              });
 
               if (!placementImageData) {
                 console.warn("⚠️ [editImage] 没有可用的图像源，无法显示到画布");
@@ -5056,28 +5095,11 @@ export const useAIChatStore = create<AIChatState>()(
               }
 
               // Prefer remote URL for canvas placement to avoid base64 memory usage.
-              let placementImageData: string | null = null;
-              try {
-                const remoteCandidate =
-                  imageRemoteUrl ??
-                  getResultImageRemoteUrl(result.data) ??
-                  null;
-                if (remoteCandidate) {
-                  placementImageData = remoteCandidate;
-                } else {
-                  const inlineCandidate =
-                    normalizeInlineImageData(inlineImageData) ??
-                    normalizeInlineImageData(result.data?.imageData) ??
-                    normalizeInlineImageData(undefined);
-                  if (inlineCandidate) {
-                    placementImageData =
-                      (await resolveImageToObjectUrl(inlineCandidate)) ?? null;
-                  }
-                }
-              } catch (err) {
-                console.warn("⚠️ resolve placement image failed:", err);
-                placementImageData = null;
-              }
+              const placementImageData = resolveImageForPlacement({
+                inlineData: inlineImageData,
+                result: result.data,
+                fallbackRemote: imageRemoteUrl ?? null,
+              });
 
               if (!placementImageData) {
                 console.warn(
@@ -5484,7 +5506,7 @@ export const useAIChatStore = create<AIChatState>()(
         // 图像分析功能（支持并行）
         analyzeImage: async (
           prompt: string,
-          sourceImage: string,
+          sourceImage: string | string[],
           options?: { override?: MessageOverride; metrics?: ProcessMetrics }
         ) => {
           const state = get();
@@ -5492,8 +5514,24 @@ export const useAIChatStore = create<AIChatState>()(
           logProcessStep(metrics, "analyzeImage entered");
 
           // 🔥 并行模式：不检查全局状态
+          const normalizedAnalyzeSources = Array.from(
+            new Set(
+              (Array.isArray(sourceImage) ? sourceImage : [sourceImage])
+                .map((item) => sanitizeImageInput(item))
+                .filter((item): item is string => Boolean(item))
+            )
+          );
 
-          const displaySourceImage = toRenderableImageSrc(sourceImage);
+          if (normalizedAnalyzeSources.length === 0) {
+            throw new Error("没有可分析的图像");
+          }
+
+          const displayAnalyzeSources = normalizedAnalyzeSources.map(
+            (item) => toRenderableImageSrc(item) || item
+          );
+          const displayPrimaryAnalyzeSource = displayAnalyzeSources[0];
+          const messageSourceImagesData =
+            displayAnalyzeSources.length > 1 ? displayAnalyzeSources : undefined;
           const override = options?.override;
           let aiMessageId: string | undefined;
 
@@ -5502,12 +5540,14 @@ export const useAIChatStore = create<AIChatState>()(
             get().updateMessage(override.userMessageId, (msg) => ({
               ...msg,
               content: prompt ? `分析图片: ${prompt}` : "分析这张图片",
-              sourceImageData: displaySourceImage ?? msg.sourceImageData,
+              sourceImageData: displayPrimaryAnalyzeSource ?? msg.sourceImageData,
+              sourceImagesData: messageSourceImagesData,
             }));
             get().updateMessage(aiMessageId, (msg) => ({
               ...msg,
               content: "正在分析图片...",
-              sourceImageData: displaySourceImage ?? msg.sourceImageData,
+              sourceImageData: displayPrimaryAnalyzeSource ?? msg.sourceImageData,
+              sourceImagesData: messageSourceImagesData,
               generationStatus: {
                 ...(msg.generationStatus || {
                   isGenerating: true,
@@ -5523,7 +5563,8 @@ export const useAIChatStore = create<AIChatState>()(
             state.addMessage({
               type: "user",
               content: prompt ? `分析图片: ${prompt}` : "分析这张图片",
-              sourceImageData: displaySourceImage ?? undefined,
+              sourceImageData: displayPrimaryAnalyzeSource ?? undefined,
+              sourceImagesData: messageSourceImagesData,
             });
 
             // 🔥 创建占位 AI 消息
@@ -5536,7 +5577,8 @@ export const useAIChatStore = create<AIChatState>()(
                 error: null,
                 stage: "准备中",
               },
-              sourceImageData: displaySourceImage ?? undefined,
+              sourceImageData: displayPrimaryAnalyzeSource ?? undefined,
+              sourceImagesData: messageSourceImagesData,
               provider: state.aiProvider,
             };
 
@@ -5550,6 +5592,7 @@ export const useAIChatStore = create<AIChatState>()(
           }
           logProcessStep(metrics, "analyzeImage message prepared");
 
+          let progressInterval: ReturnType<typeof setInterval> | null = null;
           try {
             // 🔥 使用消息级别的进度更新
             get().updateMessageStatus(aiMessageId, {
@@ -5560,14 +5603,15 @@ export const useAIChatStore = create<AIChatState>()(
             });
 
             // 🔥 统一改为先上传到 OSS，用 URL 传给后端
+            const primaryAnalyzeSource = normalizedAnalyzeSources[0];
             const projectIdAnalyze = useProjectContentStore.getState().projectId;
-            const remoteUrlAnalyze = normalizeRemoteUrl(sourceImage);
+            const remoteUrlAnalyze = normalizeRemoteUrl(primaryAnalyzeSource);
             const remoteAllowedAnalyze = Boolean(
               remoteUrlAnalyze && isLikelyBackendAllowedRemoteUrl(remoteUrlAnalyze)
             );
             const uploadedAnalyzeUrl = remoteUrlAnalyze && remoteAllowedAnalyze
               ? remoteUrlAnalyze
-              : await uploadImageToOSS(sourceImage, projectIdAnalyze);
+              : await uploadImageToOSS(primaryAnalyzeSource, projectIdAnalyze);
             if (!uploadedAnalyzeUrl) {
               if (remoteUrlAnalyze && !remoteAllowedAnalyze) {
                 throw new Error(
@@ -5582,7 +5626,7 @@ export const useAIChatStore = create<AIChatState>()(
             logProcessStep(metrics, "analyzeImage progress interval start");
             const PROGRESS_MAX_ANALYZE = 95;
             const PROGRESS_INCREMENT_ANALYZE = PROGRESS_MAX_ANALYZE / 120; // 约0.79%每秒
-            const progressInterval = setInterval(() => {
+            progressInterval = setInterval(() => {
               const currentMessage = get().messages.find(
                 (m) => m.id === aiMessageId
               );
@@ -5590,7 +5634,10 @@ export const useAIChatStore = create<AIChatState>()(
                 currentMessage?.generationStatus?.progress ?? 0;
 
               if (currentProgress >= PROGRESS_MAX_ANALYZE) {
-                clearInterval(progressInterval);
+                if (progressInterval) {
+                  clearInterval(progressInterval);
+                  progressInterval = null;
+                }
                 return;
               }
 
@@ -5606,21 +5653,43 @@ export const useAIChatStore = create<AIChatState>()(
               });
             }, 1000);
 
-            // 调用后端API分析图像（后端仅接受 base64）
+            // 调用后端API分析图像（后端接受多图 base64）
             const modelToUse = getImageModelForProvider(state.aiProvider);
-            const analyzeSourceBase64 = await resolveImageToDataUrl(sourceImage);
-            if (!analyzeSourceBase64) {
-              throw new Error("无法读取源图片数据");
+            const analyzeSourceBase64List = await mapWithLimit(
+              normalizedAnalyzeSources,
+              2,
+              async (item) => resolveImageToDataUrl(item)
+            );
+            const normalizedAnalyzeSourceBase64List = analyzeSourceBase64List.filter(
+              (item): item is string =>
+                typeof item === "string" && item.trim().length > 0
+            );
+            if (
+              normalizedAnalyzeSourceBase64List.length === 0 ||
+              normalizedAnalyzeSourceBase64List.length !==
+                normalizedAnalyzeSources.length
+            ) {
+              throw new Error("部分源图片读取失败，请重新选择后重试。");
             }
+            const primaryAnalyzeSourceBase64 =
+              normalizedAnalyzeSourceBase64List[0];
+            const defaultAnalyzePrompt =
+              normalizedAnalyzeSourceBase64List.length > 1
+                ? "请详细分析这组图片，并总结它们的差异与共同点"
+                : "请详细分析这张图片的内容";
 
             const result = await analyzeImageViaAPI({
-              prompt: prompt || "请详细分析这张图片的内容",
-              sourceImage: analyzeSourceBase64,
+              prompt: prompt || defaultAnalyzePrompt,
+              sourceImage: primaryAnalyzeSourceBase64,
+              sourceImages: normalizedAnalyzeSourceBase64List,
               model: modelToUse,
               aiProvider: state.aiProvider,
             });
 
-            clearInterval(progressInterval);
+            if (progressInterval) {
+              clearInterval(progressInterval);
+              progressInterval = null;
+            }
             logProcessStep(metrics, "analyzeImage API response received");
 
             if (result.success && result.data) {
@@ -5674,6 +5743,10 @@ export const useAIChatStore = create<AIChatState>()(
 
             console.error("❌ 图片分析异常:", error);
             logProcessStep(metrics, "analyzeImage failed");
+          } finally {
+            if (progressInterval) {
+              clearInterval(progressInterval);
+            }
           }
         },
 
@@ -6883,21 +6956,35 @@ export const useAIChatStore = create<AIChatState>()(
           const totalImageCount = explicitImageCount + (cachedImage ? 1 : 0);
 
           const toolSelectionContext = contextManager.buildContextPrompt(input);
+          const isSingleExplicitImage =
+            explicitImageCount === 1 &&
+            state.sourceImagesForBlending.length === 0;
+          const hasMultiExplicitImages = explicitImageCount > 1;
+          const preferAnalyzeForMultiImage = hasMultiExplicitImages
+            ? prefersAnalyzeForMultiImage(input)
+            : false;
+          const availableToolsForSelection: AvailableTool[] = isSingleExplicitImage
+            ? ["editImage", "analyzeImage"]
+            : hasMultiExplicitImages
+              ? preferAnalyzeForMultiImage
+                ? ["analyzeImage", "blendImages"]
+                : ["blendImages", "analyzeImage"]
+              : [
+                  "generateImage",
+                  "editImage",
+                  "blendImages",
+                  "analyzeImage",
+                  "chatResponse",
+                  "generateVideo",
+                  "generatePaperJS",
+                ];
 
           const toolSelectionRequest = {
             userInput: input,
             hasImages: totalImageCount > 0,
             imageCount: explicitImageCount, // 传递显式图片数量，不包含缓存
             hasCachedImage: !!cachedImage, // 单独标记是否有缓存图片
-            availableTools: [
-              "generateImage",
-              "editImage",
-              "blendImages",
-              "analyzeImage",
-              "chatResponse",
-              "generateVideo",
-              "generatePaperJS",
-            ],
+            availableTools: availableToolsForSelection,
             aiProvider: state.aiProvider,
             context: toolSelectionContext,
           };
@@ -6927,13 +7014,6 @@ export const useAIChatStore = create<AIChatState>()(
               // 📄 检测是否有 PDF 文件需要分析
               if (state.sourcePdfForAnalysis) {
                 selectedTool = "analyzePdf";
-              } else if (state.sourceImagesForBlending.length >= 2) {
-                // 🖼️ 多图强制使用融合模式，避免 AI 误选 editImage
-                selectedTool = "blendImages";
-                logProcessStep(
-                  metrics,
-                  "multi-image detected, using blendImages"
-                );
               } else {
                 if (!isParallelMode) {
                   get().updateMessage(messageOverride.aiMessageId, (msg) => ({
@@ -6971,6 +7051,17 @@ export const useAIChatStore = create<AIChatState>()(
                 parameters = {
                   prompt: toolSelectionResult.data.parameters?.prompt || input,
                 };
+                if (
+                  hasMultiExplicitImages &&
+                  preferAnalyzeForMultiImage &&
+                  selectedTool === "blendImages"
+                ) {
+                  selectedTool = "analyzeImage";
+                  logProcessStep(
+                    metrics,
+                    "multi-image analyze intent override blendImages->analyzeImage"
+                  );
+                }
                 logProcessStep(
                   metrics,
                   `tool decided: ${selectedTool ?? "none"}`
@@ -7071,7 +7162,19 @@ export const useAIChatStore = create<AIChatState>()(
                 break;
 
               case "analyzeImage":
-                if (state.sourceImageForAnalysis) {
+                if (state.sourceImagesForBlending.length > 0) {
+                  logProcessStep(
+                    metrics,
+                    "invoking analyzeImage (multi-image source)"
+                  );
+                  await store.analyzeImage(
+                    parameters.prompt || input,
+                    state.sourceImagesForBlending,
+                    { override: messageOverride, metrics }
+                  );
+                  logProcessStep(metrics, "analyzeImage finished");
+                  // 多图分析后保留源图，便于继续迭代提问
+                } else if (state.sourceImageForAnalysis) {
                   logProcessStep(
                     metrics,
                     "invoking analyzeImage (analysis source)"
@@ -7273,8 +7376,7 @@ export const useAIChatStore = create<AIChatState>()(
           // 🔥 工具选择可能较慢：先创建用户消息与占位 AI 消息，提供即时反馈
           const willCallAIToolSelection =
             state.manualAIMode === "auto" &&
-            !state.sourcePdfForAnalysis &&
-            state.sourceImagesForBlending.length < 2;
+            !state.sourcePdfForAnalysis;
 
           const userMessage = get().addMessage({
             type: "user",
@@ -7324,10 +7426,6 @@ export const useAIChatStore = create<AIChatState>()(
             // Auto 模式：先检查 PDF，再调用 AI 判断
             if (state.sourcePdfForAnalysis) {
               selectedTool = "analyzePdf";
-            } else if (state.sourceImagesForBlending.length >= 2) {
-              // 🖼️ 多图强制使用融合模式，避免 AI 误选 editImage
-              selectedTool = "blendImages";
-              console.log("🎯 [工具选择] 检测到多图输入，强制使用融合模式");
             } else {
               // 调用 AI 进行工具选择
               const cachedImage = contextManager.getCachedImage();
@@ -7349,10 +7447,18 @@ export const useAIChatStore = create<AIChatState>()(
               const isSingleExplicitImage =
                 explicitImageCount === 1 &&
                 state.sourceImagesForBlending.length === 0;
+              const hasMultiExplicitImages = explicitImageCount > 1;
+              const preferAnalyzeForMultiImage = hasMultiExplicitImages
+                ? prefersAnalyzeForMultiImage(input)
+                : false;
 
               const availableToolsForSelection: AvailableTool[] =
                 isSingleExplicitImage
                   ? ["editImage", "analyzeImage"]
+                  : hasMultiExplicitImages
+                    ? preferAnalyzeForMultiImage
+                      ? ["analyzeImage", "blendImages"]
+                      : ["blendImages", "analyzeImage"]
                   : [
                       "generateImage",
                       "editImage",
@@ -7383,22 +7489,37 @@ export const useAIChatStore = create<AIChatState>()(
                   parameters = {
                     prompt: toolSelectionResult.data.parameters?.prompt || input,
                   };
+                  if (
+                    hasMultiExplicitImages &&
+                    preferAnalyzeForMultiImage &&
+                    selectedTool === "blendImages"
+                  ) {
+                    selectedTool = "analyzeImage";
+                  }
                   console.log(
-                    `🎯 [工具选择] AI 选择了: ${selectedTool} (singleImage=${isSingleExplicitImage})`
+                    `🎯 [工具选择] AI 选择了: ${selectedTool} (singleImage=${isSingleExplicitImage}, multiImage=${hasMultiExplicitImages})`
                   );
                 } else {
                   selectedTool = isSingleExplicitImage
                     ? "editImage"
-                    : "chatResponse";
+                    : hasMultiExplicitImages
+                      ? prefersAnalyzeForMultiImage(input)
+                        ? "analyzeImage"
+                        : "blendImages"
+                      : "chatResponse";
                   console.warn(
-                    `⚠️ 工具选择失败，默认使用 ${selectedTool} (singleImage=${isSingleExplicitImage})`
+                    `⚠️ 工具选择失败，默认使用 ${selectedTool} (singleImage=${isSingleExplicitImage}, multiImage=${hasMultiExplicitImages})`
                   );
                 }
               } catch (error) {
                 console.error("❌ 工具选择异常:", error);
                 selectedTool = isSingleExplicitImage
                   ? "editImage"
-                  : "chatResponse";
+                  : hasMultiExplicitImages
+                    ? prefersAnalyzeForMultiImage(input)
+                      ? "analyzeImage"
+                      : "blendImages"
+                    : "chatResponse";
               }
             }
           }

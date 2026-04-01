@@ -6,21 +6,22 @@ import SmartImage from '../ui/SmartImage';
 import { useGlobalImageHistoryStore } from '@/stores/globalImageHistoryStore';
 import type { GlobalImageHistoryItem } from '@/services/globalImageHistoryApi';
 import GlobalImageDetailModal from './GlobalImageDetailModal';
+import { useTranslation } from 'react-i18next';
 
 interface GlobalImageHistoryPageProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-const SOURCE_TYPE_LABELS: Record<string, string> = {
-  generate: '图片生成',
-  generatePro: '图片生成Pro',
-  generatePro4: '图片生成Pro4',
-  midjourney: 'Midjourney',
-  '3d': '3D生成',
-  camera: '相机',
-  image: '图片',
-  imagePro: '图片Pro',
+const SOURCE_TYPE_LABELS: Record<string, { zh: string; en: string }> = {
+  generate: { zh: '图片生成', en: 'Image Generate' },
+  generatePro: { zh: '图片生成Pro', en: 'Image Generate Pro' },
+  generatePro4: { zh: '图片生成Pro4', en: 'Image Generate Pro4' },
+  midjourney: { zh: 'Midjourney', en: 'Midjourney' },
+  '3d': { zh: '3D生成', en: '3D Generate' },
+  camera: { zh: '相机', en: 'Camera' },
+  image: { zh: '图片', en: 'Image' },
+  imagePro: { zh: '图片Pro', en: 'Image Pro' },
 };
 
 // Header 子组件
@@ -30,6 +31,7 @@ interface HeaderProps {
   setFilterType: (type: string) => void;
   searchQuery: string;
   setSearchQuery: (query: string) => void;
+  lt: (zh: string, en: string) => string;
 }
 
 const Header: React.FC<HeaderProps> = ({
@@ -38,16 +40,17 @@ const Header: React.FC<HeaderProps> = ({
   setFilterType,
   searchQuery,
   setSearchQuery,
+  lt,
 }) => (
   <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
-    <h2 className="text-xl font-semibold text-white">全局图片历史</h2>
+    <h2 className="text-xl font-semibold text-white">{lt('全局图片历史', 'Global Image History')}</h2>
     <div className="flex items-center gap-4">
       {/* 搜索框 */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
         <input
           type="text"
-          placeholder="搜索 prompt 或项目名..."
+          placeholder={lt('搜索 prompt 或项目名...', 'Search prompt or project...')}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="pl-9 pr-4 py-2 w-64 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -59,9 +62,11 @@ const Header: React.FC<HeaderProps> = ({
         onChange={(e) => setFilterType(e.target.value)}
         className="px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
       >
-        <option value="">全部类型</option>
+        <option value="">{lt('全部类型', 'All Types')}</option>
         {Object.entries(SOURCE_TYPE_LABELS).map(([key, label]) => (
-          <option key={key} value={key}>{label}</option>
+          <option key={key} value={key}>
+            {lt(label.zh, label.en)}
+          </option>
         ))}
       </select>
       {/* 关闭按钮 */}
@@ -83,6 +88,9 @@ interface ImageCardProps {
   onSelect: (item: GlobalImageHistoryItem) => void;
   onDelete: (id: string) => void;
   onDownload: (item: GlobalImageHistoryItem) => void;
+  lt: (zh: string, en: string) => string;
+  isZh: boolean;
+  resolveSourceTypeLabel: (sourceType: string) => string;
 }
 
 const ImageCard: React.FC<ImageCardProps> = ({
@@ -90,12 +98,15 @@ const ImageCard: React.FC<ImageCardProps> = ({
   onSelect,
   onDelete,
   onDownload,
+  lt,
+  isZh,
+  resolveSourceTypeLabel,
 }) => {
-  const formattedDate = new Date(item.createdAt).toLocaleDateString('zh-CN', {
+  const formattedDate = new Date(item.createdAt).toLocaleDateString(isZh ? 'zh-CN' : 'en-US', {
     month: '2-digit',
     day: '2-digit',
   });
-  const typeLabel = SOURCE_TYPE_LABELS[item.sourceType] || item.sourceType;
+  const typeLabel = resolveSourceTypeLabel(item.sourceType);
 
   return (
     <div
@@ -105,7 +116,7 @@ const ImageCard: React.FC<ImageCardProps> = ({
       <div className="aspect-square">
         <SmartImage
           src={item.imageUrl}
-          alt={item.prompt || '图片'}
+          alt={item.prompt || lt('图片', 'Image')}
           className="w-full h-full object-cover"
           loading="lazy"
         />
@@ -116,20 +127,20 @@ const ImageCard: React.FC<ImageCardProps> = ({
           <button
             onClick={(e) => { e.stopPropagation(); onDownload(item); }}
             className="p-1.5 rounded bg-white/20 hover:bg-white/40 text-white"
-            title="下载"
+            title={lt('下载', 'Download')}
           >
             <Download className="h-4 w-4" />
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(item.id); }}
             className="p-1.5 rounded bg-red-500/60 hover:bg-red-500 text-white"
-            title="删除"
+            title={lt('删除', 'Delete')}
           >
             <Trash2 className="h-4 w-4" />
           </button>
         </div>
         <div className="text-white text-xs">
-          <p className="truncate">{item.prompt || '无描述'}</p>
+          <p className="truncate">{item.prompt || lt('无描述', 'No description')}</p>
         </div>
       </div>
       {/* 底部信息 */}
@@ -152,6 +163,9 @@ interface ImageGridProps {
   onSelect: (item: GlobalImageHistoryItem) => void;
   onDelete: (id: string) => void;
   onDownload: (item: GlobalImageHistoryItem) => void;
+  lt: (zh: string, en: string) => string;
+  isZh: boolean;
+  resolveSourceTypeLabel: (sourceType: string) => string;
 }
 
 const ImageGrid: React.FC<ImageGridProps> = ({
@@ -162,12 +176,15 @@ const ImageGrid: React.FC<ImageGridProps> = ({
   onSelect,
   onDelete,
   onDownload,
+  lt,
+  isZh,
+  resolveSourceTypeLabel,
 }) => (
   <div className="flex-1 overflow-y-auto p-6">
     {items.length === 0 && !isLoading ? (
       <div className="flex flex-col items-center justify-center h-full text-gray-400">
-        <p className="text-lg">暂无图片历史</p>
-        <p className="text-sm mt-2">生成的图片会自动保存到这里</p>
+        <p className="text-lg">{lt('暂无图片历史', 'No image history yet')}</p>
+        <p className="text-sm mt-2">{lt('生成的图片会自动保存到这里', 'Generated images will appear here automatically')}</p>
       </div>
     ) : (
       <>
@@ -179,6 +196,9 @@ const ImageGrid: React.FC<ImageGridProps> = ({
               onSelect={onSelect}
               onDelete={onDelete}
               onDownload={onDownload}
+              lt={lt}
+              isZh={isZh}
+              resolveSourceTypeLabel={resolveSourceTypeLabel}
             />
           ))}
         </div>
@@ -194,10 +214,10 @@ const ImageGrid: React.FC<ImageGridProps> = ({
               {isLoading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  加载中...
+                  {lt('加载中...', 'Loading...')}
                 </>
               ) : (
-                '加载更多'
+                lt('加载更多', 'Load More')
               )}
             </Button>
           </div>
@@ -211,6 +231,12 @@ export const GlobalImageHistoryPage: React.FC<GlobalImageHistoryPageProps> = ({
   isOpen,
   onClose,
 }) => {
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || '')
+    .toLowerCase()
+    .startsWith('zh');
+  const lt = (zh: string, en: string) => (isZh ? zh : en);
+
   const { items, isLoading, hasMore, fetchItems, deleteItem, reset } =
     useGlobalImageHistoryStore();
 
@@ -227,6 +253,13 @@ export const GlobalImageHistoryPage: React.FC<GlobalImageHistoryPageProps> = ({
     sourceType: filterType.trim() || undefined,
     search: searchQuery.trim() || undefined,
   };
+  const resolveSourceTypeLabel = useCallback(
+    (sourceType: string) => {
+      const label = SOURCE_TYPE_LABELS[sourceType];
+      return label ? lt(label.zh, label.en) : sourceType;
+    },
+    [lt]
+  );
 
   const clearPendingDelete = useCallback(() => {
     setPendingDelete((current) => {
@@ -311,7 +344,7 @@ export const GlobalImageHistoryPage: React.FC<GlobalImageHistoryPageProps> = ({
 
   // 删除图片（5 秒撤销窗口）
   const handleDelete = useCallback(async (id: string) => {
-    if (!window.confirm('确定要删除这张图片吗？')) return;
+    if (!window.confirm(lt('确定要删除这张图片吗？', 'Delete this image?'))) return;
 
     if (pendingDelete) {
       clearTimeout(pendingDelete.timer);
@@ -326,12 +359,12 @@ export const GlobalImageHistoryPage: React.FC<GlobalImageHistoryPageProps> = ({
       restoreHiddenItem(id);
       setPendingDelete((current) => (current?.id === id ? null : current));
       if (!success) {
-        window.alert('删除失败，请稍后重试');
+        window.alert(lt('删除失败，请稍后重试', 'Delete failed. Please try again later.'));
       }
     }, 5000);
 
     setPendingDelete({ id, timer });
-  }, [deleteItem, hideItem, pendingDelete, restoreHiddenItem]);
+  }, [deleteItem, hideItem, lt, pendingDelete, restoreHiddenItem]);
 
   // 下载图片
   const handleDownload = useCallback((item: GlobalImageHistoryItem) => {
@@ -366,18 +399,19 @@ export const GlobalImageHistoryPage: React.FC<GlobalImageHistoryPageProps> = ({
         setFilterType={setFilterType}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
+        lt={lt}
       />
 
       {pendingDelete ? (
         <div className="mx-6 mt-4 flex items-center justify-between rounded-lg border border-amber-400/30 bg-amber-500/20 px-4 py-3 text-sm text-amber-100">
-          <span>已标记删除，5 秒内可撤销</span>
+          <span>{lt('已标记删除，5 秒内可撤销', 'Marked for deletion. Undo available for 5 seconds.')}</span>
           <Button
             variant="ghost"
             size="sm"
             onClick={undoDelete}
             className="h-8 px-3 text-amber-100 hover:bg-amber-500/30 hover:text-white"
           >
-            撤销
+            {lt('撤销', 'Undo')}
           </Button>
         </div>
       ) : null}
@@ -391,6 +425,9 @@ export const GlobalImageHistoryPage: React.FC<GlobalImageHistoryPageProps> = ({
         onSelect={setSelectedItem}
         onDelete={handleDelete}
         onDownload={handleDownload}
+        lt={lt}
+        isZh={isZh}
+        resolveSourceTypeLabel={resolveSourceTypeLabel}
       />
 
       {/* 详情弹窗 */}

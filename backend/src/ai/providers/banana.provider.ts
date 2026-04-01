@@ -1795,10 +1795,28 @@ export class BananaProvider implements IAIProvider {
     this.logger.log(`🔍 Analyzing file with Banana (147) API...`);
 
     try {
+      const sourceInputs = Array.from(
+        new Set(
+          [
+            ...(Array.isArray(request.sourceImages) ? request.sourceImages : []),
+            request.sourceImage,
+          ]
+            .map((value) => (typeof value === "string" ? value.trim() : ""))
+            .filter((value) => value.length > 0),
+        ),
+      );
+      if (!sourceInputs.length) {
+        return {
+          success: false,
+          error: {
+            code: "ANALYSIS_FAILED",
+            message: "Analyze image requires at least one source image",
+          },
+        };
+      }
       // 使用异步版本支持 HTTP URL
-      const { data: fileData, mimeType } = await this.normalizeFileInputAsync(
-        request.sourceImage,
-        "analysis"
+      const normalizedInputs = await Promise.all(
+        sourceInputs.map((source) => this.normalizeFileInputAsync(source, "analysis"))
       );
       // 根据传入的model选择，如果没有传入则根据provider默认模型选择
       // Fast模式(banana-2.5)使用gemini-2.5-flash-image-preview，其他使用gemini-3-pro-image-preview
@@ -1810,11 +1828,14 @@ export class BananaProvider implements IAIProvider {
       const model = this.normalizeModelName(
         request.model || defaultModel
       );
-      this.logger.log(`📊 Using model: ${model}, mimeType: ${mimeType}`);
+      const mimeSummary = normalizedInputs.map((item) => item.mimeType).join(", ");
+      this.logger.log(`📊 Using model: ${model}, files=${normalizedInputs.length}, mimeType=${mimeSummary}`);
 
       // 根据文件类型生成不同的提示词
-      const isPdf = mimeType === "application/pdf";
-      const fileTypeDesc = isPdf ? "PDF document" : "image";
+      const hasPdf = normalizedInputs.some((item) => item.mimeType === "application/pdf");
+      const hasImage = normalizedInputs.some((item) => item.mimeType.startsWith("image/"));
+      const fileTypeDesc =
+        normalizedInputs.length > 1 ? "files" : hasPdf && !hasImage ? "PDF document" : "image";
 
       const analysisPrompt = request.prompt
         ? `Please analyze the following ${fileTypeDesc} (respond in ${request.prompt})`
@@ -1828,12 +1849,12 @@ export class BananaProvider implements IAIProvider {
                 model,
                 [
                   { text: analysisPrompt },
-                  {
+                  ...normalizedInputs.map((item) => ({
                     inlineData: {
-                      mimeType,
-                      data: fileData,
+                      mimeType: item.mimeType,
+                      data: item.data,
                     },
-                  },
+                  })),
                 ],
                 {}
               );

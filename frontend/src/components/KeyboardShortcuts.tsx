@@ -1,7 +1,7 @@
 /**
  * Global keyboard shortcuts for undo/redo, save, and clipboard JSON helpers.
  */
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import { projectApi } from '@/services/projectApi';
 import { paperSaveService } from '@/services/paperSaveService';
 import { flowSaveService } from '@/services/flowSaveService';
@@ -10,8 +10,13 @@ import { saveMonitor } from '@/utils/saveMonitor';
 import { historyService } from '@/services/historyService';
 import { sanitizeProjectContentForCloudSave } from '@/utils/projectContentValidation';
 import { clipboardJsonService } from '@/services/clipboardJsonService';
+import { useTranslation } from 'react-i18next';
 
 export default function KeyboardShortcuts() {
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
+  const lt = useCallback((zhText: string, enText: string) => (isZh ? zhText : enText), [isZh]);
+
   useEffect(() => {
     const showToast = (message: string, type: "success" | "error" = "success") => {
       try {
@@ -39,14 +44,14 @@ export default function KeyboardShortcuts() {
           try {
             if (inChat) {
               await clipboardJsonService.copyChatSessionsToClipboard();
-              showToast("已复制对话 JSON");
+              showToast(lt('已复制对话 JSON', 'Chat JSON copied'));
             } else {
               await clipboardJsonService.copyProjectContentToClipboard();
-              showToast("已复制画布 JSON");
+              showToast(lt('已复制画布 JSON', 'Canvas JSON copied'));
             }
           } catch (error) {
             console.error("快捷键复制 JSON 失败:", error);
-            showToast("复制失败，请重试", "error");
+            showToast(lt('复制失败，请重试', 'Copy failed, please try again'), "error");
           }
           return;
         }
@@ -55,14 +60,14 @@ export default function KeyboardShortcuts() {
           try {
             if (inChat) {
               await clipboardJsonService.importChatSessionsFromClipboard();
-              showToast("已导入对话 JSON");
+              showToast(lt('已导入对话 JSON', 'Chat JSON imported'));
             } else {
               await clipboardJsonService.importProjectContentFromClipboard();
-              showToast("已导入画布 JSON");
+              showToast(lt('已导入画布 JSON', 'Canvas JSON imported'));
             }
           } catch (error) {
             console.error("快捷键导入 JSON 失败:", error);
-            showToast("导入失败，请检查剪贴板内容", "error");
+            showToast(lt('导入失败，请检查剪贴板内容', 'Import failed. Please check clipboard content'), "error");
           }
           return;
         }
@@ -101,7 +106,10 @@ export default function KeyboardShortcuts() {
           if (invalidCanvasImageIds.length > 0 || invalidFlowNodeIds.length > 0) {
             try {
               useProjectContentStore.getState().setWarning(
-                `存在未上传到 OSS 的图片（画布 ${invalidCanvasImageIds.length} 张，Flow ${invalidFlowNodeIds.length} 处），已阻止云端保存，请重试上传后再保存`
+                lt(
+                  `存在未上传到 OSS 的图片（画布 ${invalidCanvasImageIds.length} 张，Flow ${invalidFlowNodeIds.length} 处），已阻止云端保存，请重试上传后再保存`,
+                  `Found images not uploaded to OSS (Canvas ${invalidCanvasImageIds.length}, Flow ${invalidFlowNodeIds.length}); cloud save is blocked. Please upload and retry.`
+                )
               );
             } catch {}
             return;
@@ -124,8 +132,8 @@ export default function KeyboardShortcuts() {
         } catch (err) {
           const raw = err instanceof Error ? err.message : String(err ?? '');
           const msg = raw.includes('413') || raw.toLowerCase().includes('too large')
-            ? '保存失败：内容过大，请尝试清理或拆分项目'
-            : (raw || '保存失败');
+            ? lt('保存失败：内容过大，请尝试清理或拆分项目', 'Save failed: content is too large. Try cleaning or splitting the project')
+            : (raw || lt('保存失败', 'Save failed'));
           try { useProjectContentStore.getState().setError(msg); } catch {}
         } finally {
           const store = useProjectContentStore.getState();
@@ -138,7 +146,7 @@ export default function KeyboardShortcuts() {
     window.addEventListener('keydown', onKeyDown);
     historyService.captureInitialIfEmpty().catch(() => {});
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [lt]);
 
   return null;
 }

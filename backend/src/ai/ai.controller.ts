@@ -77,6 +77,8 @@ type GenerateImageUrlResult = {
   metadata?: Record<string, any>;
 };
 
+const MANAGED_IMAGE_KEY_REGEX = /^(projects|uploads|templates|videos|ai)\//i;
+
 @ApiTags('ai')
 @UseGuards(ApiKeyOrJwtGuard)
 @Controller('ai')
@@ -922,6 +924,170 @@ export class AiController {
     return parsed;
   }
 
+  private normalizeManagedImageKey(raw?: string | null): string | null {
+    const value =
+      typeof raw === 'string' ? raw.trim().replace(/^\/+/, '') : '';
+    if (!value) return null;
+    return MANAGED_IMAGE_KEY_REGEX.test(value) ? value : null;
+  }
+
+  private resolveBucketOriginImageUrl(key: string): string | null {
+    const normalizedKey = this.normalizeManagedImageKey(key);
+    if (!normalizedKey) return null;
+    const hosts = this.oss.publicHosts();
+    const bucketOriginHost = hosts[0];
+    if (!bucketOriginHost) return null;
+    return `https://${bucketOriginHost}/${normalizedKey}`;
+  }
+
+  private extractManagedAssetKeyFromImageRef(
+    input?: string | null,
+    visited: Set<string> = new Set(),
+  ): string | null {
+    const trimmed = typeof input === 'string' ? input.trim() : '';
+    if (!trimmed) return null;
+    if (visited.has(trimmed)) return null;
+    visited.add(trimmed);
+
+    const direct = this.normalizeManagedImageKey(trimmed);
+    if (direct) return direct;
+
+    try {
+      const parsed = new URL(trimmed);
+      const fromPath = this.normalizeManagedImageKey(parsed.pathname);
+      if (fromPath) return fromPath;
+
+      const fromQueryKey = this.normalizeManagedImageKey(
+        parsed.searchParams.get('key'),
+      );
+      if (fromQueryKey) return fromQueryKey;
+
+      const nestedUrl = parsed.searchParams.get('url');
+      if (nestedUrl && nestedUrl !== trimmed) {
+        const nestedKey = this.extractManagedAssetKeyFromImageRef(
+          nestedUrl,
+          visited,
+        );
+        if (nestedKey) return nestedKey;
+      }
+    } catch {
+      // ignore
+    }
+
+    return null;
+  }
+
+  private normalizeImageUrlForUpstream(urlValue: string): string {
+    const trimmed = typeof urlValue === 'string' ? urlValue.trim() : '';
+    if (!trimmed) return '';
+
+    const managedKey = this.extractManagedAssetKeyFromImageRef(trimmed);
+    if (!managedKey) return trimmed;
+
+    return (
+      this.resolveBucketOriginImageUrl(managedKey) ||
+      this.oss.publicUrl(managedKey)
+    );
+  }
+
+  private normalizeImageUrlsForUpstream(urls: string[]): string[] {
+    const out: string[] = [];
+    for (const value of urls) {
+      const trimmed = typeof value === 'string' ? value.trim() : '';
+      if (!trimmed) continue;
+      out.push(this.normalizeImageUrlForUpstream(trimmed));
+    }
+    return out;
+  }
+
+  private looksLikeSignedAssetUrl(url: string): boolean {
+    return /[?&](?:X-Amz|X-Tos|OSSAccessKeyId|Signature|Expires|x-oss-signature)=/i.test(url);
+  }
+
+  private isOwnManagedImageUrl(urlValue: string): boolean {
+    const trimmed = typeof urlValue === 'string' ? urlValue.trim() : '';
+    if (!trimmed || !/^https?:\/\//i.test(trimmed)) return false;
+    if (this.looksLikeSignedAssetUrl(trimmed)) return false;
+
+    try {
+      const parsed = new URL(trimmed);
+      const host = parsed.hostname.toLowerCase();
+      const ownHosts = this.oss.publicHosts().map((item) => item.toLowerCase());
+      const hostMatched = ownHosts.some(
+        (allowed) => host === allowed || host.endsWith(`.${allowed}`),
+      );
+      if (!hostMatched) return false;
+      return this.normalizeManagedImageKey(parsed.pathname) !== null;
+    } catch {
+      return false;
+    }
+  }
+
+  private collectProviderImageUrls(resultData: unknown): string[] {
+    const payload = this.asRecord(resultData);
+    if (!payload) return [];
+
+    const metadata = this.asRecord(payload.metadata);
+    const candidates: string[] = [];
+    const pushUrl = (value: unknown) => {
+      if (typeof value !== 'string') return;
+      const trimmed = value.trim();
+      if (!/^https?:\/\//i.test(trimmed)) return;
+      if (!candidates.includes(trimmed)) {
+        candidates.push(trimmed);
+      }
+    };
+    const pushUrlList = (value: unknown) => {
+      if (!Array.isArray(value)) return;
+      value.forEach((item) => pushUrl(item));
+    };
+
+    pushUrl(payload.imageUrl);
+    pushUrlList(payload.imageUrls);
+    pushUrlList(payload.images);
+
+    if (metadata) {
+      pushUrl(metadata.imageUrl);
+      pushUrlList(metadata.imageUrls);
+      pushUrlList(metadata.images);
+      pushUrl(metadata.sourceImageUrl);
+      pushUrlList(metadata.sourceImageUrls);
+    }
+
+    return candidates;
+  }
+
+  private async persistProviderImageUrlToManaged(
+    imageUrl: string,
+    req: any,
+    userId: string,
+  ): Promise<{
+    url: string;
+    sourceImageUrl: string;
+    uploaded: boolean;
+    key?: string;
+    mimeType?: string;
+    bytes?: number;
+  }> {
+    const sourceImageUrl = imageUrl.trim();
+    if (this.isOwnManagedImageUrl(sourceImageUrl)) {
+      return { url: sourceImageUrl, sourceImageUrl, uploaded: false };
+    }
+
+    const sourceImageDataUrl = await this.fetchImageAsDataUrl(sourceImageUrl);
+    const watermarked = await this.watermarkIfNeeded(sourceImageDataUrl, req);
+    const upload = await this.uploadGeneratedImageToOss(watermarked || '', { userId });
+
+    return {
+      url: upload.url,
+      sourceImageUrl,
+      uploaded: true,
+      key: upload.key,
+      mimeType: upload.mimeType,
+      bytes: upload.size,
+    };
+  }
+
   private parseAndValidateAllowedImageUrl(urlValue: string): URL {
     let parsed: URL;
     try {
@@ -961,51 +1127,121 @@ export class AiController {
     }
   }
 
+  private buildImageFetchCandidates(parsed: URL): string[] {
+    const candidates: string[] = [];
+    const pushCandidate = (candidate?: string | null) => {
+      const value = typeof candidate === 'string' ? candidate.trim() : '';
+      if (!value) return;
+      if (!candidates.includes(value)) {
+        candidates.push(value);
+      }
+    };
+
+    pushCandidate(parsed.toString());
+
+    const managedKey = this.extractManagedAssetKeyFromImageRef(parsed.toString());
+    if (managedKey) {
+      pushCandidate(this.resolveBucketOriginImageUrl(managedKey));
+      pushCandidate(this.oss.publicUrl(managedKey));
+    }
+
+    return candidates;
+  }
+
+  private normalizeWanI2VBodyForUpstream(body: any): any {
+    if (!body || typeof body !== 'object') return body;
+    const next: any = { ...body };
+    if (!next.input || typeof next.input !== 'object') return next;
+
+    next.input = { ...next.input };
+    if (typeof next.input.img_url === 'string' && next.input.img_url.trim()) {
+      next.input.img_url = this.normalizeImageUrlForUpstream(next.input.img_url);
+    }
+
+    return next;
+  }
+
+  private normalizeWanR2VBodyForUpstream(body: any): any {
+    if (!body || typeof body !== 'object') return body;
+    const next: any = { ...body };
+    if (!next.input || typeof next.input !== 'object') return next;
+
+    next.input = { ...next.input };
+    const rawReferenceVideos = next.input.reference_video_urls;
+    if (Array.isArray(rawReferenceVideos)) {
+      next.input.reference_video_urls = rawReferenceVideos
+        .map((item: unknown) => {
+          if (typeof item !== 'string') return '';
+          const trimmed = item.trim();
+          if (!trimmed) return '';
+          return this.normalizeImageUrlForUpstream(trimmed);
+        })
+        .filter((value: string) => Boolean(value));
+    }
+
+    return next;
+  }
+
   private async fetchImageAsDataUrl(imageUrl: string): Promise<string> {
     const parsed = this.parseAndValidateAllowedImageUrl(imageUrl);
+    const candidates = this.buildImageFetchCandidates(parsed);
+    const maxBytes = 30 * 1024 * 1024;
+    const errors: string[] = [];
 
-    // 添加 60 秒超时控制
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
+    for (const candidateUrl of candidates) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
 
-    try {
-      const response = await fetch(parsed.toString(), {
-        signal: controller.signal,
-      });
+      try {
+        const response = await fetch(candidateUrl, {
+          signal: controller.signal,
+        });
 
-      if (!response.ok) {
-        const text = await response.text().catch(() => '');
-        throw new BadRequestException(
-          `Failed to fetch imageUrl: HTTP ${response.status} ${text}`.trim(),
-        );
+        if (!response.ok) {
+          const text = await response.text().catch(() => '');
+          errors.push(
+            `${candidateUrl} -> HTTP ${response.status}${
+              text ? ` ${text}` : ''
+            }`.trim(),
+          );
+          continue;
+        }
+
+        const contentType = response.headers.get('content-type') || 'image/png';
+        if (!contentType.startsWith('image/')) {
+          errors.push(`${candidateUrl} -> invalid content-type: ${contentType}`);
+          continue;
+        }
+
+        const contentLength = Number(response.headers.get('content-length') || 0);
+        if (contentLength && contentLength > maxBytes) {
+          throw new BadRequestException('图片文件过大，请使用更小的图片（最大 30MB）');
+        }
+
+        const buffer = Buffer.from(await response.arrayBuffer());
+        if (buffer.length > maxBytes) {
+          throw new BadRequestException('图片文件过大，请使用更小的图片（最大 30MB）');
+        }
+
+        const base64 = buffer.toString('base64');
+        return `data:${contentType};base64,${base64}`;
+      } catch (error: any) {
+        if (error?.name === 'AbortError') {
+          errors.push(`${candidateUrl} -> timeout`);
+          continue;
+        }
+        const summary = this.summarizeError(error);
+        errors.push(`${candidateUrl} -> ${summary}`);
+        continue;
+      } finally {
+        clearTimeout(timeoutId);
       }
-
-      const contentType = response.headers.get('content-type') || 'image/png';
-      if (!contentType.startsWith('image/')) {
-        throw new BadRequestException('图片 URL 返回的不是图片格式');
-      }
-
-      const maxBytes = 30 * 1024 * 1024;
-      const contentLength = Number(response.headers.get('content-length') || 0);
-      if (contentLength && contentLength > maxBytes) {
-        throw new BadRequestException('图片文件过大，请使用更小的图片（最大 30MB）');
-      }
-
-      const buffer = Buffer.from(await response.arrayBuffer());
-      if (buffer.length > maxBytes) {
-        throw new BadRequestException('图片文件过大，请使用更小的图片（最大 30MB）');
-      }
-
-      const base64 = buffer.toString('base64');
-      return `data:${contentType};base64,${base64}`;
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
-        throw new BadRequestException('图片下载超时（60秒）');
-      }
-      throw error;
-    } finally {
-      clearTimeout(timeoutId);
     }
+
+    this.logger.error(
+      `[fetchImageAsDataUrl] all candidates failed for ${imageUrl}: ${errors.join(' | ')}`,
+    );
+    throw new BadGatewayException('图片资源不可访问，请确认图片链接有效且服务端可访问');
   }
 
   private resolveTextModel(providerName: string | null, requestedModel?: string): string {
@@ -1174,6 +1410,12 @@ export class AiController {
     }
     const model = this.resolveImageModel(providerName, dto.model);
     const serviceType = this.getImageGenerationServiceType(model, providerName || undefined);
+    const normalizedImageUrlsForProvider = this.normalizeImageUrlsForUpstream(
+      (dto.imageUrls || []).filter(
+        (url): url is string =>
+          typeof url === 'string' && url.trim().length > 0,
+      ),
+    );
 
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
@@ -1222,7 +1464,9 @@ export class AiController {
                 outputFormat: dto.outputFormat,
                 providerOptions: dto.providerOptions,
                 enableWebSearch: dto.enableWebSearch,
-                imageUrls: dto.imageUrls,
+                imageUrls: normalizedImageUrlsForProvider.length
+                  ? normalizedImageUrlsForProvider
+                  : undefined,
                 googleSearch: dto.googleSearch ?? dto.enableWebSearch,
                 googleImageSearch: dto.googleImageSearch ?? dto.enableWebSearch,
                 batchMode: dto.batchMode,
@@ -1234,15 +1478,6 @@ export class AiController {
                   ...(result.data.metadata || {}),
                   ...(dto.enableWebSearch ? { webSearchEnabled: true } : {}),
                 };
-                // Midjourney 已经上传到 OSS，直接使用返回的 URL
-                const existingOssUrl = responseMetadata.imageUrl;
-                if (existingOssUrl && existingOssUrl.includes('oss')) {
-                  return {
-                    imageUrl: existingOssUrl,
-                    textResponse: result.data.textResponse || '',
-                    metadata: responseMetadata,
-                  };
-                }
 
                 // 如果有 imageData，上传到 OSS
                 if (result.data.imageData) {
@@ -1261,43 +1496,48 @@ export class AiController {
                   };
                 }
 
-                // 如果只有外部 imageUrl（如 Nano2）
-                if (result.data.imageUrl || result.data.metadata?.imageUrl) {
-                  const imageUrl = result.data.imageUrl || result.data.metadata?.imageUrl;
-
-                  // 白名单用户可跳过水印，保留外链直返
-                  const skipWatermark = await this.canSkipWatermark(req);
-                  if (skipWatermark) {
-                    return {
-                      imageUrl,
-                      textResponse: result.data.textResponse || '',
-                      metadata: responseMetadata,
-                    };
-                  }
-
+                const providerImageUrls = this.collectProviderImageUrls(result.data);
+                if (providerImageUrls.length > 0) {
                   try {
-                    // 普通用户：下载外链图片 -> 加水印 -> 上传 OSS 后返回
-                    const sourceImageDataUrl = await this.fetchImageAsDataUrl(imageUrl);
-                    const watermarked = await this.watermarkIfNeeded(sourceImageDataUrl, req);
-                    const upload = await this.uploadGeneratedImageToOss(watermarked || '', { userId });
+                    const managedResults = await Promise.all(
+                      providerImageUrls.map((url) =>
+                        this.persistProviderImageUrlToManaged(url, req, userId),
+                      ),
+                    );
+                    const managedImageUrls = managedResults
+                      .map((item) => item.url)
+                      .filter((item): item is string => Boolean(item));
+
+                    if (managedImageUrls.length === 0) {
+                      throw new Error('managed image url list is empty');
+                    }
+
+                    const primaryImageUrl = managedImageUrls[0];
+                    const firstUploaded = managedResults.find((item) => item.uploaded);
                     return {
-                      imageUrl: upload.url,
+                      imageUrl: primaryImageUrl,
                       textResponse: result.data.textResponse || '',
                       metadata: {
                         ...responseMetadata,
-                        imageUrl: upload.url,
-                        imageKey: upload.key,
-                        mimeType: upload.mimeType,
-                        bytes: upload.size,
-                        sourceImageUrl: imageUrl,
+                        imageUrl: primaryImageUrl,
+                        imageUrls: managedImageUrls,
+                        sourceImageUrl: providerImageUrls[0],
+                        sourceImageUrls: providerImageUrls,
+                        ...(firstUploaded
+                          ? {
+                              imageKey: firstUploaded.key,
+                              mimeType: firstUploaded.mimeType,
+                              bytes: firstUploaded.bytes,
+                            }
+                          : {}),
                       },
                     };
                   } catch (error) {
                     this.logger.error(
-                      `[generate-image] 外链图片加水印失败: ${this.summarizeError(error)}`
+                      `[generate-image] 外链图片处理失败: ${this.summarizeError(error)}`
                     );
                     throw new BadGatewayException(
-                      'Nano2 图片水印处理失败，请稍后重试（必要时请配置 ALLOWED_PROXY_HOSTS）'
+                      '外链图片处理失败，请稍后重试（必要时请配置 ALLOWED_PROXY_HOSTS，或检查上游 URL 是否可访问）'
                     );
                   }
                 }
@@ -1421,7 +1661,8 @@ export class AiController {
             };
           }
 
-          const providerImageUrl = result.data.imageUrl || result.data.metadata?.imageUrl;
+          const providerImageUrls = this.collectProviderImageUrls(result.data);
+          const providerImageUrl = providerImageUrls[0];
           if (!providerImageUrl) {
             throw new BadGatewayException('编辑成功但未返回图片数据');
           }
@@ -1434,6 +1675,7 @@ export class AiController {
             metadata: {
               ...(result.data.metadata || {}),
               sourceImageUrl: providerImageUrl,
+              sourceImageUrls: providerImageUrls,
             },
           };
         }
@@ -1501,7 +1743,8 @@ export class AiController {
             };
           }
 
-          const providerImageUrl = result.data.imageUrl || result.data.metadata?.imageUrl;
+          const providerImageUrls = this.collectProviderImageUrls(result.data);
+          const providerImageUrl = providerImageUrls[0];
           if (!providerImageUrl) {
             throw new BadGatewayException('融合成功但未返回图片数据');
           }
@@ -1514,6 +1757,7 @@ export class AiController {
             metadata: {
               ...(result.data.metadata || {}),
               sourceImageUrl: providerImageUrl,
+              sourceImageUrls: providerImageUrls,
             },
           };
         }
@@ -1592,6 +1836,20 @@ export class AiController {
   async analyzeImage(@Body() dto: AnalyzeImageDto, @Req() req: any) {
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
+    const normalizedImages = Array.from(
+      new Set(
+        [
+          ...(Array.isArray(dto.sourceImages) ? dto.sourceImages : []),
+          ...(typeof dto.sourceImage === 'string' ? [dto.sourceImage] : []),
+        ]
+          .map((value) => (typeof value === 'string' ? value.trim() : ''))
+          .filter((value) => value.length > 0),
+      ),
+    );
+    if (normalizedImages.length === 0) {
+      throw new BadRequestException('分析图片接口需要提供 sourceImage 或 sourceImages');
+    }
+    const primarySourceImage = normalizedImages[0];
 
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
@@ -1605,7 +1863,8 @@ export class AiController {
         const provider = this.factory.getProvider(dto.model, providerName);
         const result = await provider.analyzeImage({
           prompt: dto.prompt,
-          sourceImage: dto.sourceImage,
+          sourceImage: primarySourceImage,
+          sourceImages: normalizedImages,
           model,
           providerOptions: dto.providerOptions,
         });
@@ -1618,8 +1877,13 @@ export class AiController {
       }
 
       // gemini 和 gemini-pro 都使用默认的 Gemini 服务
-      return this.imageGeneration.analyzeImage({ ...dto, customApiKey });
-    }, 1, 0, skipCredits, this.buildCreditRequestParams(providerName));
+      return this.imageGeneration.analyzeImage({
+        ...dto,
+        sourceImage: primarySourceImage,
+        sourceImages: normalizedImages,
+        customApiKey,
+      });
+    }, normalizedImages.length, 0, skipCredits, this.buildCreditRequestParams(providerName));
   }
 
   @Post('text-chat')
@@ -1736,7 +2000,8 @@ export class AiController {
 
     return this.withCredits(req, 'convert-2d-to-3d', undefined, async () => {
       const userId = req?.user?.id || req?.user?.userId || req?.user?.sub;
-      const result = await this.convert2Dto3DService.convert2Dto3D(dto.imageUrl, {
+      const normalizedImageUrl = this.normalizeImageUrlForUpstream(dto.imageUrl);
+      const result = await this.convert2Dto3DService.convert2Dto3D(normalizedImageUrl, {
         projectId: dto.projectId,
         userId: typeof userId === 'string' ? userId : undefined,
       });
@@ -1755,8 +2020,9 @@ export class AiController {
     this.logger.log('🖼️ Expand image request received');
 
     return this.withCredits(req, 'expand-image', undefined, async () => {
+      const normalizedImageUrl = this.normalizeImageUrlForUpstream(dto.imageUrl);
       const result = await this.expandImageService.expandImage(
-        dto.imageUrl,
+        normalizedImageUrl,
         dto.expandRatios,
         dto.prompt || '扩图'
       );
@@ -1783,7 +2049,10 @@ export class AiController {
       dto.referenceImageUrls?.filter((url) => typeof url === 'string' && url.trim().length > 0) ||
       [];
     const legacySingle = dto.referenceImageUrl?.trim();
-    const referenceImageUrls = legacySingle ? [...normalizedArray, legacySingle] : normalizedArray;
+    const referenceImageUrlsRaw = legacySingle
+      ? [...normalizedArray, legacySingle]
+      : normalizedArray;
+    const referenceImageUrls = this.normalizeImageUrlsForUpstream(referenceImageUrlsRaw);
     const hasCharacterMode =
       (typeof dto.characterTaskId === 'string' && dto.characterTaskId.trim().length > 0) ||
       (typeof dto.characterUrl === 'string' && dto.characterUrl.trim().length > 0);
@@ -1907,7 +2176,10 @@ export class AiController {
       dto.referenceImageUrls?.filter((url) => typeof url === 'string' && url.trim().length > 0) ||
       [];
     const legacySingle = dto.referenceImageUrl?.trim();
-    const referenceImageUrls = legacySingle ? [...normalizedArray, legacySingle] : normalizedArray;
+    const referenceImageUrlsRaw = legacySingle
+      ? [...normalizedArray, legacySingle]
+      : normalizedArray;
+    const referenceImageUrls = this.normalizeImageUrlsForUpstream(referenceImageUrlsRaw);
     const hasCharacterMode =
       (typeof dto.characterTaskId === 'string' && dto.characterTaskId.trim().length > 0) ||
       (typeof dto.characterUrl === 'string' && dto.characterUrl.trim().length > 0);
@@ -2553,10 +2825,17 @@ export class AiController {
       this.logger.warn(`Model ${dto.model} does not support image input, ignoring referenceImageUrl`);
     }
 
+    const normalizedReferenceImageUrl =
+      dto.model === 'veo3-pro-frames' &&
+      typeof dto.referenceImageUrl === 'string' &&
+      dto.referenceImageUrl.trim()
+        ? this.normalizeImageUrlForUpstream(dto.referenceImageUrl)
+        : undefined;
+
     const result = await this.veoVideoService.generateVideo({
       prompt: dto.prompt,
       model: dto.model,
-      referenceImageUrl: dto.model === 'veo3-pro-frames' ? dto.referenceImageUrl : undefined,
+      referenceImageUrl: normalizedReferenceImageUrl,
     });
 
     return result;
@@ -2670,6 +2949,7 @@ export class AiController {
       }
 
       const dashUrl = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis';
+      const normalizedBody = this.normalizeWanI2VBodyForUpstream(body);
 
       try {
         const response = await fetch(dashUrl, {
@@ -2679,7 +2959,7 @@ export class AiController {
             Authorization: `Bearer ${dashKey}`,
             'X-DashScope-Async': 'enable',
           },
-          body: JSON.stringify(body),
+          body: JSON.stringify(normalizedBody),
         });
 
         const data = await response.json().catch(() => ({}));
@@ -2818,6 +3098,7 @@ export class AiController {
       }
 
       const dashUrl = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis';
+      const normalizedBody = this.normalizeWanR2VBodyForUpstream(body);
 
       try {
         const response = await fetch(dashUrl, {
@@ -2827,7 +3108,7 @@ export class AiController {
             Authorization: `Bearer ${dashKey}`,
             'X-DashScope-Async': 'enable',
           },
-          body: JSON.stringify(body),
+          body: JSON.stringify(normalizedBody),
         });
 
         const data = await response.json().catch(() => ({}));

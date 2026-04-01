@@ -3,16 +3,17 @@ import { X, Download, Trash2, Calendar, Folder, Tag } from 'lucide-react';
 import { Button } from '../ui/button';
 import SmartImage from '../ui/SmartImage';
 import type { GlobalImageHistoryItem } from '@/services/globalImageHistoryApi';
+import { useTranslation } from 'react-i18next';
 
-const SOURCE_TYPE_LABELS: Record<string, string> = {
-  generate: '图片生成',
-  generatePro: '图片生成Pro',
-  generatePro4: '图片生成Pro4',
-  midjourney: 'Midjourney',
-  '3d': '3D生成',
-  camera: '相机',
-  image: '图片',
-  imagePro: '图片Pro',
+const SOURCE_TYPE_LABELS: Record<string, { zh: string; en: string }> = {
+  generate: { zh: '图片生成', en: 'Image Generate' },
+  generatePro: { zh: '图片生成Pro', en: 'Image Generate Pro' },
+  generatePro4: { zh: '图片生成Pro4', en: 'Image Generate Pro4' },
+  midjourney: { zh: 'Midjourney', en: 'Midjourney' },
+  '3d': { zh: '3D生成', en: '3D Generate' },
+  camera: { zh: '相机', en: 'Camera' },
+  image: { zh: '图片', en: 'Image' },
+  imagePro: { zh: '图片Pro', en: 'Image Pro' },
 };
 
 const BANANA_31_MODEL = 'gemini-3.1-flash-image-preview';
@@ -74,8 +75,19 @@ const GlobalImageDetailModal: React.FC<GlobalImageDetailModalProps> = ({
   onDelete,
   onDownload,
 }) => {
-  const formattedDate = new Date(item.createdAt).toLocaleString('zh-CN');
-  const typeLabel = SOURCE_TYPE_LABELS[item.sourceType] || item.sourceType;
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || '')
+    .toLowerCase()
+    .startsWith('zh');
+  const lt = (zh: string, en: string) => (isZh ? zh : en);
+  const formattedDate = new Date(item.createdAt).toLocaleString(isZh ? 'zh-CN' : 'en-US');
+  const sourceTypeLabel = SOURCE_TYPE_LABELS[item.sourceType];
+  const typeLabel =
+    typeof sourceTypeLabel === 'string'
+      ? sourceTypeLabel
+      : sourceTypeLabel
+        ? lt(sourceTypeLabel.zh, sourceTypeLabel.en)
+        : item.sourceType;
   const modelInfo = resolveModelLabel(item);
 
   return (
@@ -90,7 +102,7 @@ const GlobalImageDetailModal: React.FC<GlobalImageDetailModalProps> = ({
       >
         {/* 头部 */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
-          <h3 className="text-white font-medium">图片详情</h3>
+          <h3 className="text-white font-medium">{lt('图片详情', 'Image Details')}</h3>
           <div className="flex items-center gap-2">
             <Button
               onClick={onDownload}
@@ -99,7 +111,7 @@ const GlobalImageDetailModal: React.FC<GlobalImageDetailModalProps> = ({
               className="bg-white/10 text-white border-white/20 hover:bg-white/20"
             >
               <Download className="h-4 w-4 mr-1" />
-              下载
+              {lt('下载', 'Download')}
             </Button>
             <Button
               onClick={onDelete}
@@ -108,7 +120,7 @@ const GlobalImageDetailModal: React.FC<GlobalImageDetailModalProps> = ({
               className="bg-red-500/10 text-red-300 border-red-400/30 hover:bg-red-500/20"
             >
               <Trash2 className="h-4 w-4 mr-1" />
-              删除
+              {lt('删除', 'Delete')}
             </Button>
             <Button
               onClick={onClose}
@@ -127,7 +139,7 @@ const GlobalImageDetailModal: React.FC<GlobalImageDetailModalProps> = ({
           <div className="flex-1 flex items-center justify-center bg-black/50 rounded-lg">
             <SmartImage
               src={item.imageUrl}
-              alt={item.prompt || '图片'}
+              alt={item.prompt || lt('图片', 'Image')}
               className="max-w-full max-h-[60vh] object-contain"
             />
           </div>
@@ -136,32 +148,32 @@ const GlobalImageDetailModal: React.FC<GlobalImageDetailModalProps> = ({
           <div className="w-72 space-y-4">
             <InfoItem
               icon={<Calendar className="h-4 w-4" />}
-              label="生成时间"
+              label={lt('生成时间', 'Created At')}
               value={formattedDate}
             />
             <InfoItem
               icon={<Tag className="h-4 w-4" />}
-              label="类型"
+              label={lt('类型', 'Type')}
               value={typeLabel}
             />
             {modelInfo && (
               <InfoItem
                 icon={<Tag className="h-4 w-4" />}
-                label="模型"
+                label={lt('模型', 'Model')}
                 value={modelInfo.label}
               />
             )}
             {modelInfo?.rawModel && modelInfo.rawModel !== modelInfo.label && (
               <InfoItem
                 icon={<Tag className="h-4 w-4" />}
-                label="模型ID"
+                label={lt('模型ID', 'Model ID')}
                 value={modelInfo.rawModel}
               />
             )}
             {item.sourceProjectName && (
               <InfoItem
                 icon={<Folder className="h-4 w-4" />}
-                label="来源项目"
+                label={lt('来源项目', 'Source Project')}
                 value={item.sourceProjectName}
               />
             )}

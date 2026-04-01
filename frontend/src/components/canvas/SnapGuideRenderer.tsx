@@ -1,6 +1,6 @@
 /**
- * 自动对齐系统 - 参考线渲染组件
- * 使用 Paper.js 渲染对齐参考线
+ * Snap alignment guide renderer.
+ * Uses Paper.js to draw alignment guides.
  */
 
 import { useEffect, useRef } from 'react';
@@ -12,32 +12,32 @@ interface SnapGuideRendererProps {
   zoom: number;
 }
 
-// 参考线颜色配置
+// Guide color config.
 const COLORS = {
-  edge: 'rgba(255, 107, 107, 0.48)', // 红色 - 边缘对齐（更浅）
-  center: 'rgba(255, 105, 180, 0.44)', // 粉色 - 中心对齐（更浅）
+  edge: 'rgba(255, 107, 107, 0.48)', // Red - edge alignment.
+  center: 'rgba(255, 105, 180, 0.44)', // Pink - center alignment.
 };
 
 export function SnapGuideRenderer({ alignments, zoom }: SnapGuideRendererProps) {
   const guidesRef = useRef<paper.Path[]>([]);
 
   useEffect(() => {
-    // 清除旧参考线
+    // Clear previous guides.
     guidesRef.current.forEach((guide) => {
       try {
         guide.remove();
       } catch {
-        // 忽略已删除的对象
+        // Ignore already removed objects.
       }
     });
     guidesRef.current = [];
 
-    // 如果没有对齐线或 Paper.js 未初始化，直接返回
+    // Skip when there are no alignment lines or Paper.js is not ready.
     if (!alignments.length || !paper.project) {
       return;
     }
 
-    // 线宽随缩放调整，确保视觉一致性
+    // Scale stroke width with zoom for consistent visuals.
     const strokeWidth = 0.8 / Math.max(zoom, 0.1);
     const dashLength = 3.5 / Math.max(zoom, 0.1);
 
@@ -48,7 +48,7 @@ export function SnapGuideRenderer({ alignments, zoom }: SnapGuideRendererProps) 
       let line: paper.Path;
 
       if (alignment.orientation === 'vertical') {
-        // 垂直线（X 轴对齐）
+        // Vertical line (X alignment).
         line = new paper.Path.Line({
           from: new paper.Point(alignment.position, alignment.start),
           to: new paper.Point(alignment.position, alignment.end),
@@ -57,7 +57,7 @@ export function SnapGuideRenderer({ alignments, zoom }: SnapGuideRendererProps) 
           dashArray: [dashLength, dashLength],
         });
       } else {
-        // 水平线（Y 轴对齐）
+        // Horizontal line (Y alignment).
         line = new paper.Path.Line({
           from: new paper.Point(alignment.start, alignment.position),
           to: new paper.Point(alignment.end, alignment.position),
@@ -67,39 +67,39 @@ export function SnapGuideRenderer({ alignments, zoom }: SnapGuideRendererProps) 
         });
       }
 
-      // 标记为辅助线，避免被其他逻辑处理
+      // Mark as helper line.
       line.data = { type: 'snap-guide', isHelper: true };
 
-      // 将参考线置于最前
+      // Bring guide to front.
       try {
         line.bringToFront();
       } catch {
-        // 忽略错误
+        // Ignore errors.
       }
 
       guidesRef.current.push(line);
     });
 
-    // 更新视图
+    // Update Paper view.
     try {
       paper.view.update();
     } catch {
-      // 忽略错误
+      // Ignore errors.
     }
 
-    // 清理函数
+    // Cleanup.
     return () => {
       guidesRef.current.forEach((guide) => {
         try {
           guide.remove();
         } catch {
-          // 忽略已删除的对象
+          // Ignore already removed objects.
         }
       });
       guidesRef.current = [];
     };
   }, [alignments, zoom]);
 
-  // 这是一个纯逻辑组件，不渲染任何 DOM
+  // Logical-only component; renders no DOM.
   return null;
 }

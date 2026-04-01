@@ -1,9 +1,13 @@
 import { useAuthStore } from '@/stores/authStore';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 
 export default function AccountBadge() {
   const { user, logout, loading, connection } = useAuthStore();
   const navigate = useNavigate();
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
+  const lt = (zhText: string, enText: string) => (isZh ? zhText : enText);
 
   if (!user) return null;
 
@@ -14,16 +18,16 @@ export default function AccountBadge() {
   console.log('user.phone?.slice(-4):', user.phone?.slice(-4));
   console.log('user.email:', user.email);
 
-  const displayName = user.name || user.phone?.slice(-4) || user.email || user.id?.slice(-4) || '用户';
+  const displayName = user.name || user.phone?.slice(-4) || user.email || user.id?.slice(-4) || lt('用户', 'User');
   console.log('displayName:', displayName);
 
   const status = (() => {
     switch (connection) {
-      case 'server': return { label: '在线', color: '#16a34a' };
-      case 'refresh': return { label: '已续期', color: '#f59e0b' };
-      case 'local': return { label: '在线', color: '#16a34a' };
+      case 'server': return { label: lt('在线', 'Online'), color: '#16a34a' };
+      case 'refresh': return { label: lt('已续期', 'Refreshed'), color: '#f59e0b' };
+      case 'local': return { label: lt('在线', 'Online'), color: '#16a34a' };
       case 'mock': return { label: 'Mock', color: '#8b5cf6' };
-      default: return { label: '未知', color: '#9ca3af' };
+      default: return { label: lt('未知', 'Unknown'), color: '#9ca3af' };
     }
   })();
 
@@ -39,8 +43,8 @@ export default function AccountBadge() {
 
   return (
     <div className="flex items-center gap-3 text-sm">
-      <span className="text-slate-600">你好，{displayName}</span>
-      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: status.color, color: status.color }} title={`认证来源：${status.label}`}>
+      <span className="text-slate-600">{lt('你好，', 'Hi, ')}{displayName}</span>
+      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: status.color, color: status.color }} title={lt(`认证来源：${status.label}`, `Auth source: ${status.label}`)}>
         <span style={{ width: 6, height: 6, borderRadius: 9999, background: status.color, display: 'inline-block' }} />
         {status.label}
       </span>
@@ -49,7 +53,7 @@ export default function AccountBadge() {
         onClick={handleLogout}
         disabled={loading}
       >
-        {loading ? '处理中…' : '退出登录'}
+        {loading ? lt('处理中…', 'Processing...') : lt('退出登录', 'Log out')}
       </button>
     </div>
   );

@@ -5,12 +5,13 @@ import { imageUploadService } from '@/services/imageUploadService';
 import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import type { StoredImageAsset } from '@/types/canvas';
 import { generateOssKey } from '@/services/ossUploadService';
+import { useTranslation } from 'react-i18next';
 
 interface ImageUploadComponentProps {
   onImageUploaded: (asset: StoredImageAsset) => void;
   onUploadError: (error: string) => void;
-  trigger: boolean; // 外部控制触发上传
-  onTriggerHandled: () => void; // 触发处理完成的回调
+  trigger: boolean; // External trigger signal.
+  onTriggerHandled: () => void; // Callback after trigger handling.
   projectId?: string | null;
 }
 
@@ -21,6 +22,9 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
   onTriggerHandled,
   projectId,
 }) => {
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
+  const lt = useCallback((zhText: string, enText: string) => (isZh ? zhText : enText), [isZh]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const resetInputValue = useCallback(() => {
     if (fileInputRef.current) {
@@ -28,7 +32,7 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
     }
   }, []);
 
-  // 处理文件选择
+  // Handle file selection.
   const handleFileSelect = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) {
@@ -37,11 +41,11 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
     }
 
     try {
-      logger.upload('📸 开始处理图片:', file.name);
+      logger.upload('Starting image processing:', file.name);
 
       const uploadDir = projectId ? `projects/${projectId}/images/` : 'uploads/images/';
 
-      // 1) 先用 blob: 立即上画布，避免“等待上传完成才显示”
+      // 1) Put a local blob preview on canvas immediately.
       const blobUrl = URL.createObjectURL(file);
       const imageId = `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const { key } = generateOssKey({
@@ -52,7 +56,7 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
       });
       const localAsset: StoredImageAsset = {
         id: imageId,
-        url: key, // 先关联 key，确保可持久化引用
+        url: key, // Link key first so the asset can be persisted.
         key,
         src: key,
         fileName: file.name,
@@ -62,7 +66,7 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
       };
       onImageUploaded(localAsset);
 
-      // 2) 后台上传：成功后回写并清理本地临时 blob
+      // 2) Upload in background, then upgrade source and clean local blob.
       const result = await imageUploadService.uploadImageFile(file, {
         projectId,
         dir: uploadDir,
@@ -71,7 +75,7 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
       });
 
       if (result.success && result.asset?.url) {
-        logger.upload('✅ 图片上传成功（已回写远程元数据）');
+        logger.upload('Image uploaded and upgraded to remote source.');
         try {
           window.dispatchEvent(
             new CustomEvent('tanva:upgradeImageSource', {
@@ -93,14 +97,20 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
           skipInitialStoreUpdate: true,
         });
       } else {
-        console.error('❌ 图片上传失败，已保留本地副本:', result.error);
-        onUploadError(result.error || '图片上传失败，已保留本地副本（可稍后重试上传）');
+        console.error('Image upload failed, local fallback kept:', result.error);
+        onUploadError(
+          result.error ||
+            lt(
+              '图片上传失败，已保留本地副本（可稍后重试上传）',
+              'Image upload failed; local copy is kept (you can retry later).'
+            )
+        );
       }
     } catch (error) {
-      console.error('❌ 图片处理异常:', error);
+      console.error('Image processing exception:', error);
       if (file) {
         try {
-          // 兜底：至少保证本地可见（blob:），并标记为待上传
+          // Fallback: keep local blob visible and mark as pending upload.
           const blobUrl = URL.createObjectURL(file);
           const imageId = `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
           const fallbackAsset: StoredImageAsset = {
@@ -113,19 +123,24 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
             contentType: file.type,
           };
           onImageUploaded(fallbackAsset);
-          onUploadError('图片上传失败，已保留本地副本（可稍后重试上传）');
+          onUploadError(
+            lt(
+              '图片上传失败，已保留本地副本（可稍后重试上传）',
+              'Image upload failed; local copy is kept (you can retry later).'
+            )
+          );
         } catch (fallbackError) {
-          console.error('❌ 本地兜底失败:', fallbackError);
-          onUploadError('图片处理失败，请重试');
+          console.error('Local fallback failed:', fallbackError);
+          onUploadError(lt('图片处理失败，请重试', 'Image processing failed. Please try again.'));
         }
       }
     } finally {
-      // 清空 input 值，确保可重复选择同一文件
+      // Clear input value to allow selecting the same file again.
       resetInputValue();
     }
-  }, [onImageUploaded, onUploadError, projectId, resetInputValue]);
+  }, [lt, onImageUploaded, onUploadError, projectId, resetInputValue]);
 
-  // 处理外部触发
+  // Handle external trigger.
   React.useEffect(() => {
     if (!trigger) return;
 
@@ -134,15 +149,15 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
       if (fileInputRef.current) {
         fileInputRef.current.click();
       } else {
-        onUploadError('图片上传组件未就绪，请重试');
+        onUploadError(lt('图片上传组件未就绪，请重试', 'Image upload component is not ready. Please try again.'));
       }
     } catch (error) {
-      console.error('❌ 打开文件选择器失败:', error);
-      onUploadError('无法打开文件选择器，请重试');
+      console.error('Failed to open file picker:', error);
+      onUploadError(lt('无法打开文件选择器，请重试', 'Unable to open file picker. Please try again.'));
     } finally {
       onTriggerHandled();
     }
-  }, [trigger, onTriggerHandled, onUploadError, resetInputValue]);
+  }, [lt, trigger, onTriggerHandled, onUploadError, resetInputValue]);
 
   return (
     <input

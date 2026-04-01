@@ -13,6 +13,15 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- AI `generate-image`：当上游仅返回外链 `imageUrl` 时，统一改为后端拉取并转存 OSS 后再返回；管理员/白名单仍可跳过水印，但不再直返第三方临时链接，减少云端历史过期裂图（`backend/src/ai/ai.controller.ts`）。
+- Credits Backend: `updateApiUsageStatus` 增加状态机保护，禁止 `failed -> success` 与 `success -> failed` 反向回写，减少超时自动退款与晚到成功回写造成的状态/账务不一致（`backend/src/credits/credits.service.ts`）。
+- Frontend `/my-credits`: “今日消耗 / 最近 7 天消耗 / 趋势图”改为净消耗口径（`spend - refund`，最小 0），避免失败后已退款流水仍被计入消耗（`frontend/src/pages/MyCredits.tsx`）。
+- Flow：节点添加面板与快捷连接候选统一隐藏 `sora2Video` / `sora2Character` / `nano2`，不再展示 `Sora 2`、`Sora2 Character` 与 `Nano2` 入口（`frontend/src/components/flow/FlowOverlay.tsx`）。
+- AI Analyze：`POST /api/ai/analyze-image` 增加 `sourceImages` 多图输入（兼容原 `sourceImage` 单图）；Flow `Analysis` 节点同步支持多图连线分析，`gemini/gemini-pro/banana` 按多文件联合分析，`midjourney describe` 对多图输入返回明确不支持错误。
+- Flow Analysis：`text` 句柄支持多条 Prompt 连线并在运行时串联拼接（不再被新连线覆盖）。
+- AI 图像调用（`generate-image` / `edit-image` / `blend-images`）前端自动重试从 3 次收敛为 1 次，避免网络抖动时同一次用户操作触发多条积分扣减/退款流水；失败重试由后端 provider 内部策略承接（`frontend/src/services/aiBackendAPI.ts`）。
+- Canvas 右键菜单中的 JSON 操作改为直接复用 Flow「我的模板」导入/导出链路：`导出画布 JSON` 触发 `flow:export-template-request`，`导入画布 JSON` 触发 `flow:import-template-request`；同时 `FlowOverlay` 新增 `flow:export-template-request` / `flow:import-template-request` / `flow:import-template-json` 事件监听，统一走同一套导入导出实现（`frontend/src/components/canvas/DrawingController.tsx`, `frontend/src/components/flow/FlowOverlay.tsx`）。
+- Flow `Multi Generate`（`generate4`）节点移除 `Count` 配置，运行轮次固定为 4；新建节点初始化数据不再写入 `count` 字段，避免配置面板与实际行为不一致（`frontend/src/components/flow/nodes/Generate4Node.tsx`, `frontend/src/components/flow/FlowOverlay.tsx`, `frontend/src/components/flow/types.ts`）。
 - Credits 页面（`/my-credits`）概览卡片右上角改为“立即充值”按钮（点击弹出 `PaymentPanel`）；同时顶部“我的积分”入口图标升级为金币高光样式（`frontend/src/pages/MyCredits.tsx`, `frontend/src/components/layout/FloatingHeader.tsx`）。
 - Credits 充值弹窗布局微调：左侧套餐区域补充底部留白，视觉更舒展（`frontend/src/components/payment/PaymentPanel.tsx`）。
 - Workspace 保存状态提示位置调整：不再在画布顶部常驻显示，改为在设置首页（Workspace）用户信息区展示（`frontend/src/components/layout/FloatingHeader.tsx`）。
@@ -69,6 +78,13 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - �?端 AI�?Seedance�?doubao�?�?�?任�?��?��??�?�?��?��?传�??OSS�?�?�?�??�?��?? OSS �?��?�?��?��?避�?��?�?TOS �?��?��??CORS/�?�??�?��?�??
 
 ### Fixed
+- Flow Image 节点：修复“上传失败后刷新出现幽灵图”。上传失败时会回滚预分配但未落地的 `imageUrl(key)`，避免把不存在的 OSS key 持久化；同时将 `uploading=true` 且携带图片数据的节点视为不可持久化，阻止自动保存在上传未完成时写入不稳定引用（`frontend/src/components/flow/nodes/ImageNode.tsx`, `frontend/src/utils/projectContentValidation.ts`）。
+- Flow：`Image Split` 读取 `seedream5` 上游时补齐 `imageUrls/images` 兜底，并将分割加载源改为“强制代理优先、直连回退”候选策略，修复 Seedream 外链图在分割节点报“图片加载失败”（`frontend/src/components/flow/nodes/ImageSplitNode.tsx`）。
+- Flow：`Analysis` 节点输入解析改为多候选回退（`imageData/imageUrl/outputImage/thumbnail`）并在裁切链路支持多 baseRef 尝试；同时 `resolveImageToDataUrl/resolveImageToBlob` 对白名单远程 URL 增加“强制 `/api/assets/proxy`”候选兜底，修复线上偶发 `图片加载失败/缺少图片输入`（`frontend/src/components/flow/nodes/AnalyzeNode.tsx`, `frontend/src/utils/imageSource.ts`）。
+- Flow：`Image Split` 切片缩略图预览增加“代理优先 + 原地址回退”加载策略，移除跨域 `anonymous` 的硬依赖，并允许缺失 `sourceWidth/sourceHeight` 时按天然尺寸回退渲染，修复“已分割但缩略图全灰块”（`frontend/src/components/flow/nodes/ImageSplitNode.tsx`）。
+- Canvas：重做图片裁切执行链路并修复偶发“像被压缩/低清/裁切不可用”。`ImageContainer` 裁切改为按实时源解析 Blob 后再裁切（不依赖缓存 dataURL 输入），本地预览走 `blob:` + 后台上传回写远程引用；裁切开始即预分配新 OSS key 并清理上传中旧 `remoteUrl`，避免回写竞争把图切回旧源；同时回写尺寸改为按 X/Y 独立缩放，`imageUrlCache` 新增图片源指纹命中策略，避免同一 `imageId` 更换源图后误用旧缓存（`frontend/src/components/canvas/ImageContainer.tsx`, `frontend/src/components/canvas/DrawingController.tsx`, `frontend/src/services/imageUrlCache.ts`）。
+- Flow：`Generate` 节点顶部输入缩略图现在会识别 `Image/ImagePro` 的 `crop` 以及 `ImageSplit(splitRects)`，按裁切区域预览，避免视觉上误判为“传的是整图”；运行时传参逻辑保持按裁切结果处理（`frontend/src/components/flow/nodes/GenerateNode.tsx`, `frontend/src/components/flow/FlowOverlay.tsx`）。
+- Flow：`Generate` 节点读取连线输入预览时改为优先使用 `imageData/inputImage`（运行时资源）再回退 `imageUrl/inputImageUrl`，修复“已连线时上传/替换图片后缩略图不立即更新”的问题（`frontend/src/components/flow/nodes/GenerateNode.tsx`）。
 - Canvas/LayerPanel: canvas selection now back-syncs to layer panel highlight for image/model/path, with auto-expand/activate of the owning layer (`frontend/src/components/panels/LayerPanel.tsx`, `frontend/src/components/canvas/DrawingController.tsx`).
 - Flow/TextNote: 非编辑态下文本便签中心区域恢复可直接拖拽移动（不再仅边缘可拖），仅双击进入编辑态（`frontend/src/components/flow/nodes/TextNoteNode.tsx`）。
 - Flow/TextNote: 文本便签四边连接句柄改为默认隐藏且不可交互（不再自动弹出可连接节点面板），并将便签背景统一为淡土黄色（`frontend/src/components/flow/nodes/TextNoteNode.tsx`）。
@@ -289,3 +305,48 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - `videoToGif` conversion endpoint now integrates credits billing: pre-deduct 30 credits on start, mark success/failed status in `ApiUsageRecord`, and auto-refund on conversion failure (`backend/src/oss/video-gif.controller.ts`, `backend/src/credits/credits.config.ts`, `backend/src/oss/oss.module.ts`).
 - Backend/frontend default node config for `videoToGif` now align with `serviceType=video-to-gif` and `priceYuan=0.3` for pricing/config consistency (`backend/src/admin/services/node-config.service.ts`, `frontend/src/services/nodeConfigService.ts`).
 - Tencent Speech no-audio resilience: backend now probes input video audio stream before `ProcessMedia`; if no audio stream is detected, it auto-injects a silent AAC track via ffmpeg, uploads the patched video to OSS, and submits Tencent task with the patched URL. Added env toggles `TENCENT_MPS_AUTO_INJECT_SILENT_AUDIO` (default `true`), `TENCENT_MPS_FFPROBE_TIMEOUT_MS` (default `20000`), and `TENCENT_MPS_FFMPEG_TIMEOUT_MS` (default `180000`).
+
+## [Bilingual Patch - 2026-03-29]
+### Changed
+- Frontend payment panel now uses locale-aware copy (`useLocaleText`) for order status, filter tabs, QR/payment prompts, and manual verification CTA (`frontend/src/components/payment/PaymentPanel.tsx`).
+- Frontend library panel now uses locale-aware copy for upload/delete/send-to-canvas flows, detail panel labels, history filter/pagination, and 3D preview status text (`frontend/src/components/panels/LibraryPanel.tsx`).
+- Frontend layer panel now uses locale-aware copy for panel header/actions, item/layer context menu labels, pending-upload badge/tooltip, default auto-generated item names, and bottom stats summary (`frontend/src/components/panels/LayerPanel.tsx`).
+- Frontend toolbar now uses locale-aware copy for line-style picker labels, major tooltips/titles, and clear-canvas confirmation text (`frontend/src/components/toolbar/ToolBar.tsx`).
+- Frontend AI chat dialog now uses locale-aware copy in key interaction controls: bottom parameter/tool buttons, upload/send helper prompts, history toolbar labels, and image/video preview action tooltips (`frontend/src/components/chat/AIChatDialog.tsx`).
+- Frontend prompt optimization panel now uses locale-aware copy for labels/placeholders/errors/CTA buttons in the long-press expansion settings panel (`frontend/src/components/chat/PromptOptimizationPanel.tsx`).
+- Frontend global keyboard shortcut handler now uses locale-aware copy for clipboard JSON toasts and cloud-save warning/error messages (`frontend/src/components/KeyboardShortcuts.tsx`).
+- Frontend project manager modal now uses locale-aware copy for header, create/select/delete actions, leave-guard prompts, rename/delete confirms, empty state, and pagination text (`frontend/src/components/projects/ProjectManagerModal.tsx`).
+- Frontend account badge now uses locale-aware copy for greeting, auth status labels/source tooltip, and logout button text (`frontend/src/components/AccountBadge.tsx`).
+- Frontend app loader/overlay loading indicator now use locale-aware default loading messages (`frontend/src/components/AppLoader.tsx`, `frontend/src/components/AppLoadingIndicator.tsx`).
+- Frontend auth wrapper now uses locale-aware copy for session-expired toast, auth-check loading message, and reload CTA (`frontend/src/components/AuthWrapper.tsx`).
+- Frontend forgot-password modal now uses locale-aware copy for step labels, input placeholders, validation errors, and success/failure toasts across phone/verify/reset steps (`frontend/src/components/auth/ForgotPasswordModal.tsx`).
+- Frontend autosave status/manual-save button now use locale-aware copy for saving/error/warning labels and blocked-cloud-save messaging (`frontend/src/components/autosave/AutosaveStatus.tsx`, `frontend/src/components/autosave/ManualSaveButton.tsx`).
+- Frontend pending-upload leave guards now use locale-aware copy for navigation interception prompt title/message, detail lines, and action buttons (`frontend/src/components/guards/PendingUploadLeavePrompt.tsx`, `frontend/src/components/guards/PendingUploadNavigationGuard.tsx`).
+- Frontend canvas zoom/focus/image-size indicators now use locale-aware copy for zoom menu entries/tooltips, focus-mode toggle tooltip, and original-size mode badge text (`frontend/src/components/canvas/ZoomIndicator.tsx`, `frontend/src/components/canvas/FocusModeButton.tsx`, `frontend/src/components/canvas/ImageSizeIndicator.tsx`).
+- Frontend workflow history panel now uses locale-aware copy for empty/loading states, restore flow prompts, action labels, and panel header controls (`frontend/src/components/workflow-history/WorkflowHistoryButton.tsx`).
+- Frontend layer-tool toggle and shared-template card now use locale-aware copy for toolbar/template action labels (`frontend/src/components/toolbar/LayerTool.tsx`, `frontend/src/components/template/SharedTemplateCard.tsx`).
+- Cleaned residual Chinese inline comments in protected-route/template-overlay/smart-image utility components to keep bilingual scan baseline accurate (`frontend/src/routes/ProtectedRoute.tsx`, `frontend/src/components/template/TemplateLibraryOverlay.tsx`, `frontend/src/components/ui/SmartImage.tsx`).
+- Frontend image/3D upload triggers now use locale-aware error copy for upload failure and picker readiness/opening errors (`frontend/src/components/canvas/ImageUploadComponent.tsx`, `frontend/src/components/canvas/Model3DUploadComponent.tsx`).
+- Cleaned residual Chinese inline comments in canvas helper/renderer and shared UI primitive files to keep bilingual scan baseline accurate (`frontend/src/components/canvas/SelectionBoxOverlay.tsx`, `frontend/src/components/canvas/SnapGuideRenderer.tsx`, `frontend/src/components/canvas/ScaleBarRenderer.tsx`, `frontend/src/components/flow/nodes/GenerationProgressBar.tsx`, `frontend/src/components/ui/context-menu.tsx`, `frontend/src/components/ui/dropdown-menu.tsx`).
+- Frontend OSS demo and prompt-optimizer demo pages now use locale-aware copy for user-facing actions, field labels, helper texts, and error messages (`frontend/src/pages/OSSDemo.tsx`, `frontend/src/pages/PromptOptimizerDemo.tsx`).
+- Cleaned residual Chinese inline comment in app entry route bootstrap to keep bilingual scan baseline accurate (`frontend/src/main.tsx`).
+- Frontend selection-group toolbar now uses locale-aware copy for capture/group/ungroup/batch-download/send-to-dialog action labels and tooltips (`frontend/src/components/canvas/SelectionGroupToolbar.tsx`).
+- Cleaned residual Chinese inline comments/log labels in canvas container/interaction helpers to keep bilingual scan baseline accurate (`frontend/src/pages/Canvas.tsx`, `frontend/src/components/canvas/GlobalZoomCapture.tsx`, `frontend/src/components/canvas/InteractionController.tsx`).
+
+## [Bilingual Patch - 2026-03-30]
+### Changed
+- Frontend background-removal tool + removed-image export panel now use locale-aware copy for upload prompts, success/failure messages, action buttons, and empty states (`frontend/src/components/canvas/BackgroundRemovalTool.tsx`, `frontend/src/components/canvas/BackgroundRemovedImageExport.tsx`).
+- Frontend image preview modal now uses locale-aware copy for default title/history title, close/loading labels, generated-time tooltip, and fallback image alt text (`frontend/src/components/ui/ImagePreviewModal.tsx`).
+- Frontend template modal now uses locale-aware copy for public/my tabs, loading states, user-template cards, add-template card, delete confirmations, and empty placeholders (`frontend/src/components/template/TemplateModal.tsx`).
+- Frontend toolbar color/text controls now use locale-aware copy for eyedropper hints, transparent/fill labels, text style titles, color/alignment labels, and Chinese font display names (`frontend/src/components/toolbar/ColorPicker.tsx`, `frontend/src/components/toolbar/TextStylePanel.tsx`).
+- Frontend expand-image selector and Sora2 test page now use locale-aware copy for operation hints/tooltips and Chinese prompt helper text (`frontend/src/components/canvas/ExpandImageSelector.tsx`, `frontend/src/pages/Sora2Test.tsx`).
+- Frontend debug panels now use locale-aware copy for memory/history/cache labels, retry/API status text, and action buttons (`frontend/src/components/debug/MemoryDebugPanel.tsx`, `frontend/src/components/debug/HistoryDebugPanel.tsx`, `frontend/src/components/debug/CachedImageDebug.tsx`).
+- Cleaned residual Chinese-only comments in MiniMap/text-selection overlay components to keep bilingual scan baseline accurate (`frontend/src/components/flow/MiniMapImageOverlay.tsx`, `frontend/src/components/canvas/TextSelectionOverlay.tsx`).
+- Bilingual scanner baseline for unadapted TSX files reduced from `30` to `17` in this round.
+- Removed deprecated RunningHub test page and public route (`/runninghub-test`) from frontend entry routing (`frontend/src/main.tsx`, `frontend/src/pages/RunningHubTest.tsx`, `helloagents/wiki/modules/frontend-app.md`).
+- Frontend global-history list/detail views now use locale-aware copy for headers, filters, search placeholders, empty states, delete/undo prompts, and detail metadata labels (`frontend/src/components/global-history/GlobalImageHistoryPage.tsx`, `frontend/src/components/global-history/GlobalImageDetailModal.tsx`).
+- Bilingual scanner baseline further reduced from `17` to `14` after removing `RunningHubTest` and adapting global-history pages.
+- Flow add-panel template/custom empty states and category chips now use locale-aware labels (including `全部/All`, `其他/Other`, and placeholder subtitle copy) to avoid mixed-language UI in English mode (`frontend/src/components/flow/FlowOverlay.tsx`).
+- Layer default naming now follows current locale for newly created layers (`图层 N`/`Layer N`), and layer panel display maps legacy `图层 N`/`Layer N` aliases to current language without mutating stored names (`frontend/src/stores/layerStore.ts`, `frontend/src/components/panels/LayerPanel.tsx`).
+- Project default naming now follows current locale (`workspacePage.prompt.defaultName`) for auto-created/fallback projects, and header quick-switch display maps legacy `未命名*`/`Untitled*` aliases to current language (`frontend/src/stores/projectStore.ts`, `frontend/src/components/layout/FloatingHeader.tsx`).
+- Payment package badges now localize backend-provided `tag/bonus` labels such as `首充翻倍` and `送X%`/`+X%` to prevent Chinese-only badge text in English mode (`frontend/src/components/payment/PaymentPanel.tsx`).

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { Pipette } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface ColorPickerProps {
   value: string;
@@ -75,6 +76,11 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
   showLabel,
   showFillPattern = false
 }) => {
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || '')
+    .toLowerCase()
+    .startsWith('zh');
+  const lt = (zh: string, en: string) => (isZh ? zh : en);
   const [isOpen, setIsOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLDivElement>(null);
@@ -293,7 +299,7 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
               <div
                 className="flex items-center justify-center w-16 h-8 bg-white border border-gray-300 rounded cursor-pointer hover:ring-2 hover:ring-blue-400"
                 onClick={handleTransparentSelect}
-                title="透明（无填充）"
+                title={lt('透明（无填充）', 'Transparent (no fill)')}
               >
                 <TransparentIcon />
               </div>
@@ -325,12 +331,18 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
                   colorInputRef.current?.click();
                 }}
               >
-                More
+                {lt('更多', 'More')}
               </button>
               <button
                 type="button"
                 onClick={handleEyeDropperPick}
-                title={isCanvasPicking ? '正在等待点击画布取色（Esc 取消）' : (eyeDropperSupported ? '吸管取色（从画布拾取）' : '点击后在画布上取色（Esc 取消）')}
+                title={
+                  isCanvasPicking
+                    ? lt('正在等待点击画布取色（Esc 取消）', 'Waiting for canvas pick (Esc to cancel)')
+                    : (eyeDropperSupported
+                      ? lt('吸管取色（从画布拾取）', 'Eyedropper (pick from canvas)')
+                      : lt('点击后在画布上取色（Esc 取消）', 'Click to pick from canvas (Esc to cancel)'))
+                }
                 className={cn(
                   "flex items-center justify-center w-8 h-8 border border-gray-300 rounded bg-gray-50 text-gray-600 cursor-pointer hover:bg-gray-100",
                   isCanvasPicking && "bg-blue-50 border-blue-300 text-blue-600"

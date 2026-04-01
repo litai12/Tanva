@@ -1,5 +1,5 @@
 import React from 'react';
-import { Handle, Position, useReactFlow, type Node as RFNode } from 'reactflow';
+import { Handle, Position, useReactFlow, useStore, type Node as RFNode, type Node as FlowNode, type ReactFlowState } from 'reactflow';
 import { Send as SendIcon, Play, Plus, X, Link, Copy, Trash2, Download, FolderPlus, Check, Globe } from 'lucide-react';
 import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
 import SmartImage from '../../ui/SmartImage';
@@ -35,6 +35,7 @@ type Props = {
     imageData?: string;
     imageUrl?: string;
     thumbnail?: string; // 缩略图，用于节点显示
+    responseText?: string;
     title?: string;
     enableWebSearch?: boolean;
     error?: string;
@@ -64,10 +65,403 @@ const MIN_PROMPT_HEIGHT = 60;
 const MAX_PROMPT_HEIGHT = 400;
 const DEFAULT_PROMPT_HEIGHT = 80;
 const DEFAULT_NODE_TITLE = 'Agent';
+const MAX_INPUT_PREVIEWS = 6;
+
+type ConnectedInputImage = {
+  id: string;
+  imageData: string;
+  thumbnailData?: string;
+  crop?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    sourceWidth?: number;
+    sourceHeight?: number;
+  };
+};
+
+const normalizeImageValue = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+};
+
+const parseCropInfo = (
+  value: unknown
+):
+  | {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      sourceWidth?: number;
+      sourceHeight?: number;
+    }
+  | undefined => {
+  if (!value || typeof value !== 'object') return undefined;
+  const crop = value as Record<string, unknown>;
+  const x = typeof crop.x === 'number' ? crop.x : Number(crop.x ?? 0);
+  const y = typeof crop.y === 'number' ? crop.y : Number(crop.y ?? 0);
+  const width =
+    typeof crop.width === 'number' ? crop.width : Number(crop.width ?? 0);
+  const height =
+    typeof crop.height === 'number' ? crop.height : Number(crop.height ?? 0);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || width <= 0 || height <= 0) {
+    return undefined;
+  }
+  const sourceWidth =
+    typeof crop.sourceWidth === 'number'
+      ? crop.sourceWidth
+      : Number(crop.sourceWidth ?? 0);
+  const sourceHeight =
+    typeof crop.sourceHeight === 'number'
+      ? crop.sourceHeight
+      : Number(crop.sourceHeight ?? 0);
+  return {
+    x,
+    y,
+    width,
+    height,
+    sourceWidth: sourceWidth > 0 ? sourceWidth : undefined,
+    sourceHeight: sourceHeight > 0 ? sourceHeight : undefined,
+  };
+};
+
+const readConnectedImagesFromNode = (
+  node: FlowNode,
+  sourceHandle?: string | null
+): ConnectedInputImage[] => {
+  const d = (node.data ?? {}) as Record<string, unknown>;
+  const getStringAt = (list: unknown, idx: number): string | undefined => {
+    if (!Array.isArray(list)) return undefined;
+    return normalizeImageValue(list[idx]);
+  };
+  const pickAt = (idx: number): ConnectedInputImage[] => {
+    const full =
+      getStringAt(d.imageUrls, idx) ||
+      getStringAt(d.images, idx) ||
+      getStringAt(d.thumbnails, idx);
+    if (!full) return [];
+    const thumb = getStringAt(d.thumbnails, idx);
+    return [{ id: `${node.id}-img${idx + 1}`, imageData: full, thumbnailData: thumb }];
+  };
+
+  if (typeof sourceHandle === 'string') {
+    const singleMatch = /^img(\d+)$/.exec(sourceHandle);
+    if (singleMatch) {
+      const idx = Math.max(0, Number(singleMatch[1]) - 1);
+      return pickAt(idx);
+    }
+
+    const splitMatch = /^image(\d+)$/.exec(sourceHandle);
+    if (splitMatch) {
+      const idx = Math.max(0, Number(splitMatch[1]) - 1);
+      const splitRects = Array.isArray(d.splitRects) ? d.splitRects : [];
+      const rect = splitRects[idx];
+      const rectRecord =
+        rect && typeof rect === 'object' ? (rect as Record<string, unknown>) : {};
+      const x = typeof rectRecord.x === 'number' ? rectRecord.x : Number(rectRecord.x ?? 0);
+      const y = typeof rectRecord.y === 'number' ? rectRecord.y : Number(rectRecord.y ?? 0);
+      const width =
+        typeof rectRecord.width === 'number'
+          ? rectRecord.width
+          : Number(rectRecord.width ?? 0);
+      const height =
+        typeof rectRecord.height === 'number'
+          ? rectRecord.height
+          : Number(rectRecord.height ?? 0);
+      const splitBase =
+        normalizeImageValue(d.inputImageUrl) || normalizeImageValue(d.inputImage);
+      if (
+        splitBase &&
+        Number.isFinite(x) &&
+        Number.isFinite(y) &&
+        width > 0 &&
+        height > 0
+      ) {
+        const sourceWidth =
+          typeof d.sourceWidth === 'number' ? d.sourceWidth : Number(d.sourceWidth ?? 0);
+        const sourceHeight =
+          typeof d.sourceHeight === 'number' ? d.sourceHeight : Number(d.sourceHeight ?? 0);
+        return [
+          {
+            id: `${node.id}-image${idx + 1}`,
+            imageData: splitBase,
+            thumbnailData: splitBase,
+            crop: {
+              x,
+              y,
+              width,
+              height,
+              sourceWidth: sourceWidth > 0 ? sourceWidth : undefined,
+              sourceHeight: sourceHeight > 0 ? sourceHeight : undefined,
+            },
+          },
+        ];
+      }
+
+      const direct = normalizeImageValue(d[`image${idx + 1}`]);
+      const splitImages = Array.isArray(d.splitImages) ? d.splitImages : [];
+      const legacyCandidate = splitImages[idx];
+      const legacy =
+        legacyCandidate && typeof legacyCandidate === 'object'
+          ? normalizeImageValue((legacyCandidate as { imageData?: unknown }).imageData)
+          : undefined;
+      const value = direct || legacy;
+      return value
+        ? [{ id: `${node.id}-image${idx + 1}`, imageData: value, thumbnailData: value }]
+        : [];
+    }
+  }
+
+  if (
+    typeof sourceHandle === 'string' &&
+    (sourceHandle === 'images' || sourceHandle.startsWith('images-'))
+  ) {
+    const max = Math.max(
+      Array.isArray(d.imageUrls) ? d.imageUrls.length : 0,
+      Array.isArray(d.images) ? d.images.length : 0,
+      Array.isArray(d.thumbnails) ? d.thumbnails.length : 0
+    );
+    const out: ConnectedInputImage[] = [];
+    for (let idx = 0; idx < max; idx += 1) {
+      out.push(...pickAt(idx));
+    }
+    return out;
+  }
+
+  const full =
+    normalizeImageValue(d.imageData) ||
+    normalizeImageValue(d.imageUrl) ||
+    normalizeImageValue(d.outputImage) ||
+    normalizeImageValue(d.inputImage) ||
+    normalizeImageValue(d.inputImageUrl) ||
+    normalizeImageValue(d.thumbnailDataUrl) ||
+    normalizeImageValue(d.thumbnail);
+  const thumb =
+    normalizeImageValue(d.thumbnail) || normalizeImageValue(d.thumbnailDataUrl);
+  const crop = parseCropInfo(d.crop);
+
+  return full
+    ? [
+        {
+          id: node.id,
+          imageData: full,
+          thumbnailData: thumb,
+          crop,
+        },
+      ]
+    : [];
+};
+
+function InputImageCropThumb({
+  src,
+  crop,
+}: {
+  src: string;
+  crop: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    sourceWidth?: number;
+    sourceHeight?: number;
+  };
+}) {
+  const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+
+  React.useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const size = 44;
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    canvas.width = Math.max(1, Math.round(size * dpr));
+    canvas.height = Math.max(1, Math.round(size * dpr));
+    canvas.style.width = `${size}px`;
+    canvas.style.height = `${size}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, size, size);
+
+    if (!src) {
+      ctx.fillStyle = '#f3f4f6';
+      ctx.fillRect(0, 0, size, size);
+      return;
+    }
+
+    let cancelled = false;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.decoding = 'async';
+    img.onload = () => {
+      if (cancelled) return;
+      const naturalW = img.naturalWidth || img.width;
+      const naturalH = img.naturalHeight || img.height;
+      if (!naturalW || !naturalH) {
+        ctx.fillStyle = '#f3f4f6';
+        ctx.fillRect(0, 0, size, size);
+        return;
+      }
+
+      const srcW =
+        typeof crop.sourceWidth === 'number' && crop.sourceWidth > 0
+          ? crop.sourceWidth
+          : naturalW;
+      const srcH =
+        typeof crop.sourceHeight === 'number' && crop.sourceHeight > 0
+          ? crop.sourceHeight
+          : naturalH;
+      const scaleX = srcW > 0 ? naturalW / srcW : 1;
+      const scaleY = srcH > 0 ? naturalH / srcH : 1;
+      const sx = Math.max(0, Math.min(naturalW - 1, crop.x * scaleX));
+      const sy = Math.max(0, Math.min(naturalH - 1, crop.y * scaleY));
+      const swRaw = Math.max(1, crop.width * scaleX);
+      const shRaw = Math.max(1, crop.height * scaleY);
+      const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
+      const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
+
+      const scale = Math.max(size / sw, size / sh);
+      const dw = sw * scale;
+      const dh = sh * scale;
+      const dx = (size - dw) / 2;
+      const dy = (size - dh) / 2;
+
+      ctx.clearRect(0, 0, size, size);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, size, size);
+      ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+    };
+    img.onerror = () => {
+      if (cancelled) return;
+      ctx.clearRect(0, 0, size, size);
+      ctx.fillStyle = '#f3f4f6';
+      ctx.fillRect(0, 0, size, size);
+    };
+    img.src = src;
+    return () => {
+      cancelled = true;
+    };
+  }, [crop.height, crop.sourceHeight, crop.sourceWidth, crop.width, crop.x, crop.y, src]);
+
+  return <canvas ref={canvasRef} style={{ display: 'block', width: 44, height: 44 }} />;
+}
+
+function InputImageThumb({
+  value,
+  order,
+  lt,
+  crop,
+  onOpenPreview,
+}: {
+  value: string;
+  order: number;
+  lt: (zh: string, en: string) => string;
+  crop?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    sourceWidth?: number;
+    sourceHeight?: number;
+  };
+  onOpenPreview: (value: string) => void;
+}) {
+  const assetId = React.useMemo(() => parseFlowImageAssetRef(value), [value]);
+  const assetUrl = useFlowImageAssetUrl(assetId);
+  const src = assetId ? (assetUrl || undefined) : buildImageSrc(value);
+
+  return (
+    <div
+      style={{
+        position: 'relative',
+        width: 44,
+        height: 44,
+        flexShrink: 0,
+      }}
+      title={lt(`输入图 ${order}`, `Input ${order}`)}
+    >
+      <button
+        type='button'
+        onClick={() => onOpenPreview(value)}
+        onPointerDownCapture={(event) => {
+          event.stopPropagation();
+          const nativeEvent = (event as React.SyntheticEvent<Element, Event>)
+            .nativeEvent as Event & { stopImmediatePropagation?: () => void };
+          nativeEvent.stopImmediatePropagation?.();
+        }}
+        onMouseDownCapture={(event) => {
+          event.stopPropagation();
+          const nativeEvent = (event as React.SyntheticEvent<Element, Event>)
+            .nativeEvent as Event & { stopImmediatePropagation?: () => void };
+          nativeEvent.stopImmediatePropagation?.();
+        }}
+        style={{
+          width: '100%',
+          height: '100%',
+          borderRadius: 8,
+          overflow: 'hidden',
+          border: '1px solid #d1d5db',
+          background: '#f8fafc',
+          padding: 0,
+          margin: 0,
+          cursor: 'pointer',
+          display: 'block',
+        }}
+      >
+        {src ? (
+          crop ? (
+            <InputImageCropThumb src={src} crop={crop} />
+          ) : (
+            <SmartImage
+              src={src}
+              alt=''
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                background: '#fff',
+              }}
+            />
+          )
+        ) : null}
+      </button>
+      <div
+        style={{
+          position: 'absolute',
+          left: 4,
+          top: 4,
+          width: 14,
+          height: 14,
+          borderRadius: '999px',
+          background: '#111827',
+          color: '#fff',
+          fontSize: 9,
+          fontWeight: 700,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          border: '1px solid #fff',
+          boxShadow: '0 1px 2px rgba(0,0,0,0.28)',
+          lineHeight: 1,
+          zIndex: 2,
+        }}
+      >
+        {order}
+      </div>
+    </div>
+  );
+}
 
 function GenerateProNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const { status, error } = data;
+  const responseText = (
+    (typeof data.responseText === 'string' ? data.responseText : '') ||
+    (typeof (data as any)?.textResponse === 'string' ? (data as any).textResponse : '')
+  ).trim();
 
   // 原图用于预览和下载
   const rawFullValue = data.imageData || data.imageUrl;
@@ -90,6 +484,17 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
   const [currentImageId, setCurrentImageId] = React.useState<string>('');
+  const [previewOverrideValue, setPreviewOverrideValue] = React.useState<string>('');
+  const previewOverrideAssetId = React.useMemo(
+    () => parseFlowImageAssetRef(previewOverrideValue),
+    [previewOverrideValue]
+  );
+  const previewOverrideAssetUrl = useFlowImageAssetUrl(previewOverrideAssetId);
+  const previewOverrideSrc = React.useMemo(() => {
+    if (!previewOverrideValue) return '';
+    if (previewOverrideAssetId) return previewOverrideAssetUrl || '';
+    return buildImageSrc(previewOverrideValue) || '';
+  }, [previewOverrideAssetId, previewOverrideAssetUrl, previewOverrideValue]);
   const normalizedTitle = React.useMemo(
     () =>
       typeof data.title === 'string' && data.title.trim().length > 0
@@ -206,6 +611,53 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
     const nativeEvent = (event as React.SyntheticEvent<Element, Event>).nativeEvent as Event & { stopImmediatePropagation?: () => void };
     nativeEvent.stopImmediatePropagation?.();
   }, []);
+
+  const connectedInputImages = useStore(
+    React.useCallback(
+      (state: ReactFlowState) => {
+        const edgeWithOrder = state.edges
+          .map((edge, index) => ({ edge, index }))
+          .filter(({ edge }) => {
+            if (edge.target !== id) return false;
+            const handle = edge.targetHandle;
+            if (!handle || handle === 'img') return true;
+            return /^img\d+$/.test(handle);
+          })
+          .sort((a, b) => {
+            const rank = (handle?: string | null) => {
+              if (!handle || handle === 'img') return 0;
+              const match = /^img(\d+)$/.exec(handle);
+              if (!match) return Number.MAX_SAFE_INTEGER;
+              return Math.max(0, Number(match[1]) - 1);
+            };
+            const rankDelta = rank(a.edge.targetHandle) - rank(b.edge.targetHandle);
+            if (rankDelta !== 0) return rankDelta;
+            return a.index - b.index;
+          });
+
+        if (edgeWithOrder.length === 0) return [] as ConnectedInputImage[];
+
+        const nodes = state.getNodes();
+        const nodeById = new Map(nodes.map((node) => [node.id, node]));
+        const out: ConnectedInputImage[] = [];
+
+        edgeWithOrder.forEach(({ edge }, edgeIdx) => {
+          const sourceNode = nodeById.get(edge.source);
+          if (!sourceNode) return;
+          const items = readConnectedImagesFromNode(sourceNode, edge.sourceHandle);
+          items.forEach((item, itemIdx) => {
+            out.push({
+              ...item,
+              id: `${edge.id || edge.source}-${edgeIdx}-${item.id}-${itemIdx}`,
+            });
+          });
+        });
+
+        return out.slice(0, MAX_INPUT_PREVIEWS);
+      },
+      [id]
+    )
+  );
 
   const refreshExternalPrompts = React.useCallback(
     (optimisticSource?: { sourceId: string; patch: Record<string, unknown> } | null) => {
@@ -339,6 +791,14 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
     data.onSend?.(id);
   }, [data, id]);
 
+  const openInputPreview = React.useCallback((value: string) => {
+    const next = value.trim();
+    if (!next) return;
+    setPreviewOverrideValue(next);
+    setCurrentImageId('');
+    setPreview(true);
+  }, []);
+
   // 右键菜单处理
   const handleContextMenu = React.useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -439,13 +899,19 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   const handleImageChange = React.useCallback((imageId: string) => {
     const selectedImage = allImages.find(item => item.id === imageId);
     if (selectedImage) {
+      setPreviewOverrideValue('');
       setCurrentImageId(imageId);
     }
   }, [allImages]);
 
   React.useEffect(() => {
     if (!preview) return;
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setPreview(false); };
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setPreview(false);
+        setPreviewOverrideValue('');
+      }
+    };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [preview]);
@@ -785,7 +1251,11 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
 
         {/* 图片区域 */}
         <div
-          onDoubleClick={() => fullSrc && setPreview(true)}
+          onDoubleClick={() => {
+            if (!fullSrc) return;
+            setPreviewOverrideValue('');
+            setPreview(true);
+          }}
           style={{
             position: 'relative',
             width: imageWidth,
@@ -814,6 +1284,53 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
               <span style={{ fontSize: 12, color: '#9ca3af' }}>{lt('等待生成', 'Waiting for generation')}</span>
             )}
           </div>
+
+          {connectedInputImages.length > 0 && (
+            <div
+              className='nodrag nopan nowheel'
+              onPointerDownCapture={stopNodeDrag}
+              onMouseDownCapture={stopNodeDrag}
+              onDoubleClickCapture={(event) => {
+                event.stopPropagation();
+                const nativeEvent = (event as React.SyntheticEvent<Element, Event>)
+                  .nativeEvent as Event & { stopImmediatePropagation?: () => void };
+                nativeEvent.stopImmediatePropagation?.();
+              }}
+              style={{
+                position: 'absolute',
+                left: 8,
+                bottom: 8,
+                zIndex: 4,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                maxWidth: 'calc(100% - 16px)',
+                overflowX: 'auto',
+                padding: 4,
+                borderRadius: 10,
+                background: 'rgba(255,255,255,0.82)',
+                border: '1px solid rgba(229,231,235,0.9)',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
+                backdropFilter: 'blur(4px)',
+              }}
+              title={lt('输入图顺序会影响融合效果', 'Input order affects blending')}
+            >
+              {connectedInputImages.map((item, idx) => (
+                <InputImageThumb
+                  key={item.id}
+                  value={
+                    item.crop
+                      ? item.imageData
+                      : item.thumbnailData || item.imageData
+                  }
+                  order={idx + 1}
+                  lt={lt}
+                  crop={item.crop}
+                  onOpenPreview={openInputPreview}
+                />
+              ))}
+            </div>
+          )}
         </div>
 
         {/* 选中时的四个角点 */}
@@ -1123,6 +1640,76 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
         </div>
       ))}
 
+      {responseText && (
+        <div style={{ marginTop: 8, position: 'relative' }}>
+          <div
+            className='nodrag nopan nowheel'
+            onPointerDownCapture={stopNodeDrag}
+            onMouseDownCapture={stopNodeDrag}
+            style={{
+              background: '#fff',
+              borderRadius: 16,
+              border: '1px solid #e5e7eb',
+              padding: '10px 14px',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+            }}
+          >
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: '#6b7280',
+                marginBottom: 6,
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+              }}
+            >
+              {lt('返回文字', 'Response')}
+            </div>
+            <div
+              style={{
+                fontSize: 13,
+                lineHeight: 1.5,
+                color: '#374151',
+                whiteSpace: 'pre-wrap',
+                maxHeight: 160,
+                overflowY: 'auto',
+              }}
+            >
+              {responseText}
+            </div>
+          </div>
+
+          <Handle
+            className='tanva-beta-handle tanva-beta-handle-text'
+            type='source'
+            position={Position.Right}
+            id='response-text'
+            style={{
+              top: '50%',
+              right: -12,
+              width: 8,
+              height: 8,
+              background: '#22c55e',
+              border: 'none',
+              boxShadow: 'none',
+            }}
+            onMouseEnter={() => setHover('response-out')}
+            onMouseLeave={() => setHover(null)}
+          />
+
+          {hover === 'response-out' && (
+            <div className='flow-tooltip' style={{
+              position: 'absolute',
+              right: -16,
+              top: '50%',
+              transform: 'translate(100%, -50%)',
+              zIndex: 10,
+            }}>{lt('返回文字', 'response text')}</div>
+          )}
+        </div>
+      )}
+
       {/* 选中或文字聚焦时显示：添加提示词按钮和按钮组 */}
       {(selected || isTextFocused) && (
         <>
@@ -1321,15 +1908,22 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
       <ImagePreviewModal
         isOpen={preview}
         imageSrc={
-          allImages.length > 0 && currentImageId
+          previewOverrideSrc ||
+          (allImages.length > 0 && currentImageId
             ? allImages.find(item => item.id === currentImageId)?.src || fullSrc || ''
-            : fullSrc || ''
+            : fullSrc || '')
         }
         imageTitle={lt("全局图片预览", "Global image preview")}
-        onClose={() => setPreview(false)}
-        imageCollection={allImages}
-        currentImageId={currentImageId}
-        onImageChange={handleImageChange}
+        onClose={() => {
+          setPreview(false);
+          setPreviewOverrideValue('');
+        }}
+        imageCollection={previewOverrideSrc ? [] : allImages}
+        currentImageId={previewOverrideSrc ? '' : currentImageId}
+        onImageChange={(imageId: string) => {
+          if (previewOverrideSrc) return;
+          handleImageChange(imageId);
+        }}
       />
 
       {/* 右键菜单 */}

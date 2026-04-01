@@ -665,15 +665,37 @@ export class GeminiProProvider implements IAIProvider {
   async analyzeImage(
     request: ImageAnalysisRequest
   ): Promise<AIProviderResponse<AnalysisResult>> {
-    this.logger.log(`Analyzing file...`);
+    const sourceInputs = Array.from(
+      new Set(
+        [
+          ...(Array.isArray(request.sourceImages) ? request.sourceImages : []),
+          request.sourceImage,
+        ]
+          .map((value) => (typeof value === 'string' ? value.trim() : ''))
+          .filter((value) => value.length > 0),
+      ),
+    );
+    if (!sourceInputs.length) {
+      return {
+        success: false,
+        error: {
+          code: 'ANALYSIS_FAILED',
+          message: 'Analyze image requires at least one source image',
+        },
+      };
+    }
+
+    this.logger.log(`Analyzing ${sourceInputs.length} file(s)...`);
 
     try {
-      const { data: fileData, mimeType } = this.normalizeFileInput(request.sourceImage, 'analysis');
+      const normalizedInputs = sourceInputs.map((source) => this.normalizeFileInput(source, 'analysis'));
       const client = this.ensureClient();
 
       // 根据文件类型生成不同的提示词
-      const isPdf = mimeType === 'application/pdf';
-      const fileTypeDesc = isPdf ? 'PDF document' : 'image';
+      const hasPdf = normalizedInputs.some((item) => item.mimeType === 'application/pdf');
+      const hasImage = normalizedInputs.some((item) => item.mimeType.startsWith('image/'));
+      const fileTypeDesc =
+        normalizedInputs.length > 1 ? 'files' : hasPdf && !hasImage ? 'PDF document' : 'image';
 
       const analysisPrompt = request.prompt
         ? `Please analyze the following ${fileTypeDesc} (respond in ${request.prompt})`
@@ -687,12 +709,12 @@ export class GeminiProProvider implements IAIProvider {
                 model: 'gemini-3-flash-preview',
                 contents: [
                   { text: analysisPrompt },
-                  {
+                  ...normalizedInputs.map((item) => ({
                     inlineData: {
-                      mimeType: mimeType || 'image/png',
-                      data: fileData,
+                      mimeType: item.mimeType || 'image/png',
+                      data: item.data,
                     },
-                  },
+                  })),
                 ],
                 config: {
                   safetySettings: [

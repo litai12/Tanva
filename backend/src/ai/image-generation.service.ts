@@ -88,6 +88,7 @@ interface BlendImagesRequest {
 interface AnalyzeImageRequest {
   prompt?: string;
   sourceImage: string; // base64
+  sourceImages?: string[]; // base64/url array
   model?: string;
   customApiKey?: string | null; // 用户自定义 API Key
 }
@@ -943,26 +944,50 @@ export class ImageGenerationService {
   }
 
   async analyzeImage(request: AnalyzeImageRequest): Promise<{ text: string }> {
-    this.logger.log(`Analyzing file with prompt: ${request.prompt?.substring(0, 50) || 'full analysis'}...`);
+    const sourceInputs = Array.from(
+      new Set(
+        [
+          ...(Array.isArray(request.sourceImages) ? request.sourceImages : []),
+          request.sourceImage,
+        ]
+          .map((value) => (typeof value === 'string' ? value.trim() : ''))
+          .filter((value) => value.length > 0),
+      ),
+    );
+    if (!sourceInputs.length) {
+      throw new BadRequestException('Image analysis requires at least one source image');
+    }
 
-    const { data: sourceFileData, mimeType: sourceMimeType } = this.normalizeFileInput(
-      request.sourceImage,
-      'analysis',
+    this.logger.log(
+      `Analyzing ${sourceInputs.length} file(s) with prompt: ${request.prompt?.substring(0, 50) || 'full analysis'}...`,
     );
-    this.logger.debug(
-      `Normalized analysis source file: mimeType=${sourceMimeType}, length=${sourceFileData.length}`,
-    );
+
+    const normalizedInputs = sourceInputs.map((source, index) => {
+      const { data, mimeType } = this.normalizeFileInput(source, 'analysis');
+      this.logger.debug(
+        `Normalized analysis source #${index + 1}: mimeType=${mimeType}, length=${data.length}`,
+      );
+      return { data, mimeType };
+    });
 
     const client = this.getClient(request.customApiKey);
     const model = request.model || 'gemini-3-flash-preview';
 
     // 根据文件类型生成不同的提示词
-    const isPdf = sourceMimeType === 'application/pdf';
-    const fileTypeDesc = isPdf ? 'PDF document' : 'image';
+    const hasPdf = normalizedInputs.some((item) => item.mimeType === 'application/pdf');
+    const hasImage = normalizedInputs.some((item) => item.mimeType.startsWith('image/'));
+    const fileTypeDesc =
+      normalizedInputs.length > 1 ? 'files' : hasPdf && !hasImage ? 'PDF document' : 'image';
 
     const analysisPrompt = request.prompt
       ? `Please analyze the following ${fileTypeDesc} (respond in Chinese):\n\n${request.prompt}`
-      : isPdf
+      : normalizedInputs.length > 1
+        ? `Please analyze these files in detail (respond in Chinese):
+1. Main subject and key differences between files
+2. Core objects, scenes, and notable details per file
+3. Overall style, composition, and quality observations
+4. Useful summary for downstream prompt writing`
+      : hasPdf && !hasImage
         ? `Please analyze this PDF document in detail (respond in Chinese):
 1. Document type and purpose
 2. Main content summary
@@ -987,12 +1012,12 @@ export class ImageGenerationService {
                 model,
                 contents: [
                   { text: analysisPrompt },
-                  {
+                  ...normalizedInputs.map((item) => ({
                     inlineData: {
-                      mimeType: sourceMimeType,
-                      data: sourceFileData,
+                      mimeType: item.mimeType,
+                      data: item.data,
                     },
-                  },
+                  })),
                 ],
                 config: {
                   safetySettings: [

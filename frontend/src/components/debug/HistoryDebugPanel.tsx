@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { historyService, type HistoryDebugInfo } from '@/services/historyService';
 import { History, Undo2, Redo2, ChevronDown, ChevronUp, GripHorizontal } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface HistoryDebugPanelProps {
   isVisible?: boolean;
@@ -15,6 +16,11 @@ const HistoryDebugPanel: React.FC<HistoryDebugPanelProps> = ({
   isVisible = false,
   onClose,
 }) => {
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || '')
+    .toLowerCase()
+    .startsWith('zh');
+  const lt = (zh: string, en: string) => (isZh ? zh : en);
   const [info, setInfo] = useState<HistoryDebugInfo | null>(null);
   const [expandPast, setExpandPast] = useState(true);
   const [expandFuture, setExpandFuture] = useState(true);
@@ -94,7 +100,7 @@ const HistoryDebugPanel: React.FC<HistoryDebugPanelProps> = ({
       >
         <div className="flex items-center justify-between">
           <span className="text-[11px] font-medium text-slate-700">
-            {type === 'present' ? '当前状态' : `#${snap.index + 1}`}
+            {type === 'present' ? lt('当前状态', 'Current') : `#${snap.index + 1}`}
           </span>
           <span className="text-[10px] text-muted-foreground font-mono">
             v{snap.version}
@@ -102,29 +108,29 @@ const HistoryDebugPanel: React.FC<HistoryDebugPanelProps> = ({
         </div>
         <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground">
           <div className="flex justify-between">
-            <span>图层</span>
+            <span>{lt('图层', 'Layers')}</span>
             <span className="font-mono text-slate-700">{snap.layerCount}</span>
           </div>
           <div className="flex justify-between">
-            <span>资源</span>
+            <span>{lt('资源', 'Assets')}</span>
             <span className="font-mono text-slate-700">{totalAssets}</span>
           </div>
           <div className="flex justify-between">
-            <span>画布</span>
+            <span>{lt('画布', 'Canvas')}</span>
             <span className="font-mono text-slate-700">
               {snap.hasPaperJson ? `${Math.round(snap.paperJsonLen / 1024)}KB` : '-'}
             </span>
           </div>
           <div className="flex justify-between">
             <span>Flow</span>
-            <span className="font-mono text-slate-700">{snap.hasFlow ? '有' : '-'}</span>
+            <span className="font-mono text-slate-700">{snap.hasFlow ? lt('有', 'Yes') : '-'}</span>
           </div>
         </div>
         {totalAssets > 0 && (
           <div className="flex gap-1.5 pt-1">
             {snap.assetCount.images > 0 && (
               <Badge variant="secondary" className="text-[9px] px-1.5 py-0">
-                图片 {snap.assetCount.images}
+                {lt('图片', 'Image')} {snap.assetCount.images}
               </Badge>
             )}
             {snap.assetCount.models > 0 && (
@@ -134,13 +140,13 @@ const HistoryDebugPanel: React.FC<HistoryDebugPanelProps> = ({
             )}
             {snap.assetCount.texts > 0 && (
               <Badge variant="secondary" className="text-[9px] px-1.5 py-0">
-                文字 {snap.assetCount.texts}
+                {lt('文字', 'Text')} {snap.assetCount.texts}
               </Badge>
             )}
           </div>
         )}
         <div className="text-[9px] text-muted-foreground pt-0.5">
-          保存于: {formatTime(snap.savedAt)}
+          {lt('保存于:', 'Saved at:')} {formatTime(snap.savedAt)}
         </div>
       </div>
     );
@@ -167,7 +173,7 @@ const HistoryDebugPanel: React.FC<HistoryDebugPanelProps> = ({
                 <div className="flex items-center justify-center h-7 w-7 rounded-lg bg-violet-50 text-violet-600">
                   <History className="w-4 h-4" />
                 </div>
-                历史记录调试
+                {lt('历史记录调试', 'History Debug')}
               </CardTitle>
             </div>
             <Button
@@ -184,7 +190,7 @@ const HistoryDebugPanel: React.FC<HistoryDebugPanelProps> = ({
         <CardContent className="space-y-3 overflow-y-auto flex-1">
           {!info ? (
             <div className="text-sm text-muted-foreground text-center py-4">
-              无项目历史记录
+              {lt('无项目历史记录', 'No project history')}
             </div>
           ) : (
             <>
@@ -193,14 +199,14 @@ const HistoryDebugPanel: React.FC<HistoryDebugPanelProps> = ({
                 <div className="flex items-center gap-4 text-xs">
                   <div className="flex items-center gap-1.5">
                     <Undo2 className="w-3.5 h-3.5 text-amber-600" />
-                    <span className="text-muted-foreground">可撤销</span>
+                    <span className="text-muted-foreground">{lt('可撤销', 'Undoable')}</span>
                     <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">
                       {info.pastCount}
                     </Badge>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <Redo2 className="w-3.5 h-3.5 text-emerald-600" />
-                    <span className="text-muted-foreground">可重做</span>
+                    <span className="text-muted-foreground">{lt('可重做', 'Redoable')}</span>
                     <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">
                       {info.futureCount}
                     </Badge>
@@ -213,7 +219,7 @@ const HistoryDebugPanel: React.FC<HistoryDebugPanelProps> = ({
                 <div className="space-y-1.5">
                   <h4 className="text-[11px] font-semibold text-slate-600 flex items-center gap-1">
                     <div className="w-2 h-2 rounded-full bg-blue-500" />
-                    当前状态
+                    {lt('当前状态', 'Current')}
                   </h4>
                   {renderSnapshotItem(
                     { ...info.present, index: -1 },
@@ -230,7 +236,7 @@ const HistoryDebugPanel: React.FC<HistoryDebugPanelProps> = ({
                 >
                   <span className="flex items-center gap-1">
                     <Undo2 className="w-3 h-3 text-amber-600" />
-                    撤销栈 ({info.pastCount})
+                    {lt('撤销栈', 'Undo stack')} ({info.pastCount})
                   </span>
                   {expandPast ? (
                     <ChevronUp className="w-3.5 h-3.5" />
@@ -242,7 +248,7 @@ const HistoryDebugPanel: React.FC<HistoryDebugPanelProps> = ({
                   <div className="space-y-1.5 max-h-[200px] overflow-y-auto">
                     {info.pastSnapshots.length === 0 ? (
                       <div className="text-[10px] text-muted-foreground text-center py-2 bg-slate-50 rounded">
-                        无历史记录
+                        {lt('无历史记录', 'No history')}
                       </div>
                     ) : (
                       [...info.pastSnapshots].reverse().map((snap) =>
@@ -261,7 +267,7 @@ const HistoryDebugPanel: React.FC<HistoryDebugPanelProps> = ({
                 >
                   <span className="flex items-center gap-1">
                     <Redo2 className="w-3 h-3 text-emerald-600" />
-                    重做栈 ({info.futureCount})
+                    {lt('重做栈', 'Redo stack')} ({info.futureCount})
                   </span>
                   {expandFuture ? (
                     <ChevronUp className="w-3.5 h-3.5" />
@@ -273,7 +279,7 @@ const HistoryDebugPanel: React.FC<HistoryDebugPanelProps> = ({
                   <div className="space-y-1.5 max-h-[200px] overflow-y-auto">
                     {info.futureSnapshots.length === 0 ? (
                       <div className="text-[10px] text-muted-foreground text-center py-2 bg-slate-50 rounded">
-                        无重做记录
+                        {lt('无重做记录', 'No redo records')}
                       </div>
                     ) : (
                       info.futureSnapshots.map((snap) =>
@@ -287,16 +293,16 @@ const HistoryDebugPanel: React.FC<HistoryDebugPanelProps> = ({
               {/* 记录内容说明 */}
               <div className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2.5 space-y-2">
                 <h4 className="text-[11px] font-semibold text-slate-600">
-                  历史记录包含内容
+                  {lt('历史记录包含内容', 'History includes')}
                 </h4>
                 <ul className="text-[10px] text-muted-foreground space-y-1 list-disc list-inside">
-                  <li>图层结构 (layers)</li>
-                  <li>画布内容 (Paper.js JSON)</li>
-                  <li>图片资源位置和属性</li>
-                  <li>3D 模型资源</li>
-                  <li>文字资源</li>
-                  <li>Flow 节点和连线</li>
-                  <li>视图状态 (缩放/平移)</li>
+                  <li>{lt('图层结构 (layers)', 'Layer structure (layers)')}</li>
+                  <li>{lt('画布内容 (Paper.js JSON)', 'Canvas content (Paper.js JSON)')}</li>
+                  <li>{lt('图片资源位置和属性', 'Image asset position and attributes')}</li>
+                  <li>{lt('3D 模型资源', '3D model assets')}</li>
+                  <li>{lt('文字资源', 'Text assets')}</li>
+                  <li>{lt('Flow 节点和连线', 'Flow nodes and edges')}</li>
+                  <li>{lt('视图状态 (缩放/平移)', 'Viewport state (zoom/pan)')}</li>
                 </ul>
               </div>
 
@@ -310,7 +316,7 @@ const HistoryDebugPanel: React.FC<HistoryDebugPanelProps> = ({
                   className="flex-1 h-8 text-xs"
                 >
                   <Undo2 className="w-3.5 h-3.5 mr-1.5" />
-                  撤销
+                  {lt('撤销', 'Undo')}
                 </Button>
                 <Button
                   onClick={() => historyService.redo()}
@@ -320,7 +326,7 @@ const HistoryDebugPanel: React.FC<HistoryDebugPanelProps> = ({
                   className="flex-1 h-8 text-xs"
                 >
                   <Redo2 className="w-3.5 h-3.5 mr-1.5" />
-                  重做
+                  {lt('重做', 'Redo')}
                 </Button>
               </div>
             </>

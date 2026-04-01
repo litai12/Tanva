@@ -2,7 +2,7 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
 
-// 简化版本的DropdownMenu组件
+// Simplified DropdownMenu component.
 export interface DropdownMenuProps extends React.HTMLAttributes<HTMLDivElement> {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -11,14 +11,14 @@ export interface DropdownMenuProps extends React.HTMLAttributes<HTMLDivElement> 
 export const DropdownMenu: React.FC<DropdownMenuProps> = ({ children, open: controlledOpen, onOpenChange, ...props }) => {
   const [internalOpen, setInternalOpen] = React.useState(false);
   
-  // 支持受控和非受控模式
+  // Supports controlled and uncontrolled modes.
   const isOpen = controlledOpen !== undefined ? controlledOpen : internalOpen;
   const setIsOpen = React.useCallback((value: boolean) => {
     if (controlledOpen !== undefined) {
-      // 受控模式：调用外部回调
+      // Controlled mode: call external callback.
       onOpenChange?.(value);
     } else {
-      // 非受控模式：使用内部状态
+      // Uncontrolled mode: use internal state.
       setInternalOpen(value);
     }
   }, [controlledOpen, onOpenChange]);
@@ -30,7 +30,7 @@ export const DropdownMenu: React.FC<DropdownMenuProps> = ({ children, open: cont
     <div className="relative dropdown-menu-root" {...props}>
       {React.Children.map(children, (child) => {
         if (React.isValidElement(child)) {
-          // 使用组件类型而非 role 属性来识别组件
+          // Identify components by type instead of role.
           if (child.type === DropdownMenuTrigger) {
             const originalOnClick = child.props?.onClick;
             const composedOnClick = (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -64,7 +64,7 @@ export interface DropdownMenuTriggerProps extends React.ButtonHTMLAttributes<HTM
 
 export const DropdownMenuTrigger = React.forwardRef<HTMLButtonElement, DropdownMenuTriggerProps>(
   ({ children, className, asChild = false, ...props }, ref) => {
-    // 如果使用 asChild，则将 props 传递给第一个子元素
+    // When using asChild, pass props to the first child element.
     if (asChild && React.isValidElement(children)) {
       return React.cloneElement(children as React.ReactElement, {
         ...props,
@@ -73,7 +73,7 @@ export const DropdownMenuTrigger = React.forwardRef<HTMLButtonElement, DropdownM
       });
     }
     
-    // 否则渲染标准的 button 元素
+    // Otherwise render a standard button element.
     return (
       <button 
         ref={ref}
@@ -111,7 +111,7 @@ export const DropdownMenuContent: React.FC<DropdownMenuContentProps> = ({
     const handleClickOutside = (event: MouseEvent) => {
       if (isOpen && onClose) {
         const target = event.target as Element;
-        // 检查点击是否在下拉菜单内容或触发器上
+        // Check whether click is inside dropdown content or trigger.
         const dropdown = (event.target as Element).closest('.dropdown-menu-root');
         if (!dropdown) {
           onClose();
@@ -127,7 +127,7 @@ export const DropdownMenuContent: React.FC<DropdownMenuContentProps> = ({
 
   if (!isOpen) return null;
 
-  // 位置类：支持 top/right/bottom/left 四个方向，默认 bottom（下方）
+  // Side positioning classes: top/right/bottom/left, default bottom.
   const sideClass = (() => {
     switch (side) {
       case 'top':
@@ -142,7 +142,7 @@ export const DropdownMenuContent: React.FC<DropdownMenuContentProps> = ({
     }
   })();
 
-  // 动态偏移样式
+  // Dynamic offset style.
   const offsetStyle = (() => {
     switch (side) {
       case 'top':
@@ -157,9 +157,9 @@ export const DropdownMenuContent: React.FC<DropdownMenuContentProps> = ({
     }
   })();
 
-  // 水平/垂直对齐类
+  // Horizontal/vertical align class.
   const alignClass = (() => {
-    // 垂直方向(top/bottom)：控制左右对齐
+    // Vertical sides (top/bottom): control left/right alignment.
     if (!side || side === 'bottom' || side === 'top') {
       return align === 'start'
         ? 'left-0 right-auto'
@@ -167,7 +167,7 @@ export const DropdownMenuContent: React.FC<DropdownMenuContentProps> = ({
         ? 'left-1/2 -translate-x-1/2'
         : 'right-0';
     }
-    // 水平方向(left/right)：控制上下对齐
+    // Horizontal sides (left/right): control top/bottom alignment.
     return align === 'start'
       ? 'top-0'
       : align === 'center'
@@ -193,7 +193,7 @@ export const DropdownMenuContent: React.FC<DropdownMenuContentProps> = ({
   );
 };
 
-// Context 用于传递 onClose 函数
+// Context used to pass onClose.
 const DropdownMenuContext = React.createContext<{ onClose?: () => void }>({});
 
 export interface DropdownMenuItemProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {}
@@ -205,7 +205,7 @@ export const DropdownMenuItem: React.FC<DropdownMenuItemProps> = ({ children, cl
     if (onClick) {
       onClick(e);
     }
-    // 点击后关闭菜单
+    // Close menu after click.
     if (onClose && !e.defaultPrevented) {
       onClose();
     }

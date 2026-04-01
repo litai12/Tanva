@@ -943,8 +943,25 @@ export class MidjourneyProvider implements IAIProvider {
 
   private async buildDescribePayload(request: ImageAnalysisRequest): Promise<Record<string, any>> {
     const options = this.extractMidjourneyOptions(request.providerOptions);
+    const sourceInputs = Array.from(
+      new Set(
+        [
+          ...(Array.isArray(request.sourceImages) ? request.sourceImages : []),
+          request.sourceImage,
+        ]
+          .map((value) => (typeof value === 'string' ? value.trim() : ''))
+          .filter((value) => value.length > 0),
+      ),
+    );
+    if (!sourceInputs.length) {
+      throw new Error('Midjourney describe requires one source image.');
+    }
+    if (sourceInputs.length > 1) {
+      throw new Error('Midjourney describe currently supports only one source image.');
+    }
+
     const payload: Record<string, any> = {
-      base64: await this.ensureDataUrlAsync(request.sourceImage),
+      base64: await this.ensureDataUrlAsync(sourceInputs[0]),
       dimensions: options?.dimensions ?? 'SQUARE',
     };
 
@@ -961,7 +978,8 @@ export class MidjourneyProvider implements IAIProvider {
     task: MidjourneyTaskResponse,
     imageData: string | null,
     ossUrl: string | null,
-    extraMetadata: Record<string, any> = {}
+    extraMetadata: Record<string, any> = {},
+    ossImageUrls?: Array<string | null>
   ): AIProviderResponse<ImageResult> {
     const textResponse =
       task.description ||
@@ -970,16 +988,30 @@ export class MidjourneyProvider implements IAIProvider {
       'Midjourney image generated successfully.';
 
     const originalImageUrl = this.extractImageUrl(task);
-    // 优先使用 OSS URL
+    // 浼樺厛浣跨敤 OSS URL
     const imageUrl = ossUrl || originalImageUrl;
-    
-    // 获取所有图片 URLs（用于 Youchuan 多图场景）
-    const imageUrls = task.imageUrls || (imageUrl ? [imageUrl] : []);
-    
+
+    // 鑾峰彇鎵€鏈夊浘鐗?URLs锛堜紭鍏堣繑鍥炶浆瀛樺悗鐨?OSS URL锛?
+    const originalImageUrls = Array.isArray(task.imageUrls)
+      ? task.imageUrls.filter((url): url is string => typeof url === 'string' && url.trim().length > 0)
+      : originalImageUrl
+      ? [originalImageUrl]
+      : [];
+    const persistedImageUrls = Array.isArray(ossImageUrls)
+      ? ossImageUrls
+          .filter((url): url is string => typeof url === 'string' && url.trim().length > 0)
+          .map((url) => url.trim())
+      : [];
+    const imageUrls = persistedImageUrls.length > 0
+      ? persistedImageUrls
+      : imageUrl
+      ? [imageUrl]
+      : originalImageUrls;
+
     const midjourneyMeta = {
       taskId: task.id,
       status: task.status,
-      /** 部分 147 链路提交 /mj/submit/action 时需要带回 */
+      /** 閮ㄥ垎 147 閾捐矾鎻愪氦 /mj/submit/action 鏃堕渶瑕佸甫鍥?*/
       state: task.state,
       buttons: task.buttons,
       prompt: task.prompt,
@@ -987,8 +1019,9 @@ export class MidjourneyProvider implements IAIProvider {
       description: task.description,
       properties: task.properties,
       imageUrl,
-      imageUrls, // 返回所有图片 URL
+      imageUrls, // 杩斿洖鎵€鏈夊浘鐗?URL
       originalImageUrl,
+      originalImageUrls,
     };
 
     return {
@@ -1018,19 +1051,25 @@ export class MidjourneyProvider implements IAIProvider {
         requestMode
       );
       const task = await this.pollTask(taskId, 'generateImage', requestMode);
-      
-      // 获取所有图片 URLs
-      const allImageUrls = task.imageUrls || [];
+
+      // 鑾峰彇鎵€鏈夊浘鐗?URLs锛堝崟鍥惧満鏅叏鍥炶惤鍒?extractImageUrl锛?
       const imageUrl = this.extractImageUrl(task);
-      
-      // 上传所有图片到 OSS（用于 Youchuan 多图场景）
+      const allImageUrls =
+        Array.isArray(task.imageUrls) && task.imageUrls.length > 0
+          ? task.imageUrls
+          : imageUrl
+          ? [imageUrl]
+          : [];
+
+      // 涓婁紶鎵€鏈夊浘鐗囧埌 OSS锛堢敤浜?Youchuan 澶氬浘鍦烘櫙锛?
       const ossUrls = await this.uploadImagesToOSS(allImageUrls);
-      const ossUrl = ossUrls.length > 0 ? ossUrls[0] : null;
-      
-      // 如果 OSS 上传失败，fallback 到 base64
+      const ossUrl =
+        ossUrls.find((url): url is string => typeof url === 'string' && url.trim().length > 0) || null;
+
+      // 濡傛灉 OSS 涓婁紶澶辫触锛宖allback 鍒?base64
       const imageData = ossUrl ? null : await this.downloadImageAsBase64(imageUrl);
 
-      return this.buildSuccessImageResponse(task, imageData, ossUrl);
+      return this.buildSuccessImageResponse(task, imageData, ossUrl, {}, ossUrls);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {

@@ -132,7 +132,9 @@ const generateUUID = () => {
   return `fallback-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 };
 
-const MAX_IMAGE_GENERATION_ATTEMPTS = 3;
+// 前端图像接口重试会导致同一次用户操作产生多条积分扣减/退款流水；
+// 统一收敛为单次请求，容错交给后端 provider 内部重试与 fallback。
+const MAX_IMAGE_GENERATION_ATTEMPTS = 1;
 const NO_IMAGE_RETRY_DELAY_MS = 800;
 const TEXT_CHAT_TIMEOUT_MS = 60_000;
 

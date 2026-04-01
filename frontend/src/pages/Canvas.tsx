@@ -21,35 +21,35 @@ import paper from 'paper';
 import { logger } from '@/utils/logger';
 import GlobalZoomCapture from '@/components/canvas/GlobalZoomCapture';
 // import OriginCross from '@/components/debug/OriginCross';
-// import { useAIImageDisplay } from '@/hooks/useAIImageDisplay';  // 不再需要，改用快速上传逻辑
+// import { useAIImageDisplay } from '@/hooks/useAIImageDisplay';  // No longer needed after fast upload flow.
 
 const Canvas: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [isPaperInitialized, setIsPaperInitialized] = useState(false);
-    const [isPaperReady, setIsPaperReady] = useState(false); // 控制Paper.js延迟初始化
-    // AI图像现在通过快速上传工具处理，不需要单独的hook
+    const [isPaperReady, setIsPaperReady] = useState(false); // Delay Paper.js init.
+    // AI image display now goes through fast upload flow; no extra hook needed.
     // useAIImageDisplay();
 
     const handlePaperInitialized = () => {
         setIsPaperInitialized(true);
     };
 
-    // 延迟Paper.js初始化，提升首次加载速度
+    // Delay Paper.js init to improve first-load performance.
     useEffect(() => {
         const timer = setTimeout(() => {
             setIsPaperReady(true);
-        }, 100); // 延迟100ms初始化Paper.js
+        }, 100); // Delay Paper.js init by 100ms.
 
         return () => clearTimeout(timer);
     }, []);
 
     useEffect(() => {
         migrateImageHistoryToRemote().catch((error) => {
-            try { console.warn('[Canvas] 图片历史迁移失败', error); } catch {}
+            try { console.warn('[Canvas] image history migration failed', error); } catch {}
         });
     }, []);
 
-    // 确保在 Paper.js 初始化后创建默认图层
+    // Ensure default layer exists after Paper.js init.
     useEffect(() => {
         if (isPaperInitialized) {
             try { useLayerStore.getState().ensureActiveLayer(); } catch { }
@@ -65,7 +65,7 @@ const Canvas: React.FC = () => {
                 style={{ background: 'white' }}
             />
 
-            {/* Paper.js 管理器 - 延迟初始化 */}
+            {/* Paper.js manager - delayed init */}
             {isPaperReady && (
                 <PaperCanvasManager
                     canvasRef={canvasRef}
@@ -73,59 +73,59 @@ const Canvas: React.FC = () => {
                 />
             )}
 
-            {/* 只有在 Paper.js 初始化完成后才启用网格和交互 */}
+            {/* Enable grid and interaction only after Paper.js is ready */}
             {isPaperInitialized && isPaperReady && (
                 <>
-                    {/* 网格渲染器 */}
+                    {/* Grid renderer */}
                     <GridRenderer canvasRef={canvasRef} isPaperInitialized={isPaperInitialized} />
 
-                    {/* 比例尺渲染器：已移除 */}
+                    {/* Scale bar renderer removed */}
 
-                    {/* 交互控制器 */}
+                    {/* Interaction controller */}
                     <InteractionController canvasRef={canvasRef} />
 
-                    {/* 绘图控制器 */}
+                    {/* Drawing controller */}
                     <DrawingController canvasRef={canvasRef} />
                 </>
             )}
 
-            {/* Flow 编排画布（覆盖在 Canvas 之上） */}
+            {/* Flow canvas overlay */}
             <FlowOverlay />
 
-            {/* 选择框覆盖层（确保在 Flow 节点之上） */}
+            {/* Selection box overlay (above Flow nodes) */}
             <SelectionBoxOverlay />
 
-            {/* 画布原点辅助十字（暂时关闭） */}
+            {/* Origin cross helper (disabled) */}
             {/* <OriginCross canvasRef={canvasRef} /> */}
 
-            {/* 浮动导航栏 - 专注模式时由组件自行隐藏 */}
+            {/* Floating header - hidden by component in focus mode */}
             <FloatingHeader />
 
-            {/* 工具列 */}
+            {/* Toolbar */}
             <ToolBar />
 
-            {/* 专注模式按钮 - 在缩放栏和工具栏之间 */}
+            {/* Focus mode button between zoom and toolbar */}
             <FocusModeButton />
 
-            {/* 缩放指示器 */}
+            {/* Zoom indicator */}
             <ZoomIndicator />
 
-            {/* 图像尺寸模式指示器 - 已隐藏 */}
+            {/* Image size mode indicator - hidden */}
             {/* <ImageSizeIndicator /> */}
 
-            {/* 图层面板 - 始终显示，用户可以控制其可见性 */}
+            {/* Layer panel - always mounted, visibility controlled in panel */}
             <LayerPanel />
 
-            {/* 个人库面板 - 从右侧展开 */}
+            {/* Personal library panel - expands from right side */}
             <LibraryPanel />
 
-            {/* AI对话框 - 专注模式时由组件自行隐藏 */}
+            {/* AI chat dialog - hidden by component in focus mode */}
             <AIChatDialog />
 
-            {/* Paper.js 沙盒代码面板 */}
+            {/* Paper.js sandbox code panel */}
             <CodeSandboxPanel />
 
-            {/* 调试面板：显示缓存图像信息（暂时隐藏） */}
+            {/* Debug panel for cached image info (hidden) */}
             {/* <CachedImageDebug /> */}
         </div>
     );

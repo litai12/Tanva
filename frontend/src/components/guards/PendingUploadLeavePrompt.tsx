@@ -3,8 +3,12 @@ import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useUploadLeavePromptStore } from '@/stores/uploadLeavePromptStore';
+import { useTranslation } from 'react-i18next';
 
 export default function PendingUploadLeavePrompt() {
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
+  const lt = (zhText: string, enText: string) => (isZh ? zhText : enText);
   const open = useUploadLeavePromptStore((state) => state.open);
   const title = useUploadLeavePromptStore((state) => state.title);
   const message = useUploadLeavePromptStore((state) => state.message);
@@ -27,13 +31,28 @@ export default function PendingUploadLeavePrompt() {
 
   const detailLines: string[] = [];
   if (summary.inFlightUploads > 0) {
-    detailLines.push(`正在上传：${summary.inFlightUploads} 个任务`);
+    detailLines.push(
+      lt(
+        `正在上传：${summary.inFlightUploads} 个任务`,
+        `Uploading: ${summary.inFlightUploads} task(s)`
+      )
+    );
   }
   if (summary.pendingImageAssets > 0) {
-    detailLines.push(`待上传图片：${summary.pendingImageAssets} 张`);
+    detailLines.push(
+      lt(
+        `待上传图片：${summary.pendingImageAssets} 张`,
+        `Pending images: ${summary.pendingImageAssets}`
+      )
+    );
   }
   if (summary.pendingFlowNodes > 0) {
-    detailLines.push(`Flow 节点本地图片：${summary.pendingFlowNodes} 个`);
+    detailLines.push(
+      lt(
+        `Flow 节点本地图片：${summary.pendingFlowNodes} 个`,
+        `Flow local images: ${summary.pendingFlowNodes} node(s)`
+      )
+    );
   }
 
   const handleConfirm = () => {
@@ -60,7 +79,7 @@ export default function PendingUploadLeavePrompt() {
           <button
             onClick={closePrompt}
             className="p-1 rounded-lg hover:bg-slate-100 transition-colors"
-            aria-label="关闭"
+            aria-label={lt('关闭', 'Close')}
           >
             <X className="h-5 w-5 text-slate-400" />
           </button>
@@ -81,13 +100,13 @@ export default function PendingUploadLeavePrompt() {
 
           <div className="flex items-center justify-end gap-2 pt-2">
             <Button variant="outline" onClick={closePrompt}>
-              留在页面
+              {lt('留在页面', 'Stay on page')}
             </Button>
             <Button
               className="bg-red-600 hover:bg-red-700 text-white"
               onClick={handleConfirm}
             >
-              仍要离开
+              {lt('仍要离开', 'Leave anyway')}
             </Button>
           </div>
         </div>
@@ -97,4 +116,3 @@ export default function PendingUploadLeavePrompt() {
 
   return createPortal(node, document.body);
 }
-

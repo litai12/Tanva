@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { AlignLeft, AlignCenter, AlignRight, Bold, Italic } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useTranslation } from 'react-i18next';
 
 interface TextStyle {
   fontFamily: string;
@@ -27,14 +28,19 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
   currentStyle,
   onStyleChange
 }) => {
+  const { i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || '')
+    .toLowerCase()
+    .startsWith('zh');
+  const lt = (zh: string, en: string) => (isZh ? zh : en);
   
   // 字体选项
   const fontFamilies = [
     // 中文字体（默认推荐黑体）
-    { value: '"Heiti SC", "SimHei", "黑体", sans-serif', label: '黑体' },
-    { value: '"PingFang SC", "Microsoft YaHei", "微软雅黑", sans-serif', label: '苹方/微软雅黑' },
-    { value: '"Songti SC", "SimSun", "宋体", serif', label: '宋体' },
-    { value: '"Kaiti SC", "KaiTi", "楷体", serif', label: '楷体' },
+    { value: '"Heiti SC", "SimHei", "黑体", sans-serif', label: lt('黑体', 'Heiti') },
+    { value: '"PingFang SC", "Microsoft YaHei", "微软雅黑", sans-serif', label: lt('苹方/微软雅黑', 'PingFang / YaHei') },
+    { value: '"Songti SC", "SimSun", "宋体", serif', label: lt('宋体', 'Songti') },
+    { value: '"Kaiti SC", "KaiTi", "楷体", serif', label: lt('楷体', 'Kaiti') },
     // 英文字体
     { value: 'Inter, sans-serif', label: 'Inter' },
     { value: 'Arial, sans-serif', label: 'Arial' },
@@ -71,7 +77,7 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
             value={currentStyle.fontFamily}
             onChange={(e) => onStyleChange({ fontFamily: e.target.value })}
             className="w-full text-xs px-2 py-1.5 rounded border border-gray-300 bg-white cursor-pointer"
-            title="字体"
+            title={lt('字体', 'Font')}
           >
             {fontFamilies.map(font => (
               <option key={font.value} value={font.value}>
@@ -87,7 +93,7 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
             value={currentStyle.fontWeight}
             onChange={(e) => onStyleChange({ fontWeight: e.target.value as 'normal' | 'bold' })}
             className="flex-1 text-xs px-2 py-1.5 rounded border border-gray-300 bg-white cursor-pointer"
-            title="字重"
+            title={lt('字重', 'Weight')}
           >
             {fontWeights.map(weight => (
               <option key={weight.value} value={weight.value}>
@@ -106,7 +112,7 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
                 : "bg-white border-gray-300"
             )}
             onClick={() => onStyleChange({ italic: !currentStyle.italic })}
-            title="斜体"
+            title={lt('斜体', 'Italic')}
           >
             <Italic className="w-3 h-3" />
           </Button>
@@ -122,7 +128,7 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
               min="12"
               max="128"
               className="flex-1 text-xs px-2 py-1.5 rounded border border-gray-300 bg-white text-center"
-              title="字号"
+              title={lt('字号', 'Font size')}
             />
             <span className="text-xs text-gray-500">px</span>
           </div>
@@ -152,13 +158,13 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
 
         {/* 颜色选择 */}
         <div className="flex items-center gap-2 w-full">
-          <span className="text-xs text-gray-600">颜色</span>
+          <span className="text-xs text-gray-600">{lt('颜色', 'Color')}</span>
           <input
             type="color"
             value={currentStyle.color}
             onChange={(e) => onStyleChange({ color: e.target.value })}
             className="w-8 h-6 rounded border border-gray-300 cursor-pointer"
-            title="文字颜色"
+            title={lt('文字颜色', 'Text color')}
           />
           
           {/* 常用颜色 */}
@@ -192,7 +198,7 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
                 : "bg-white border-gray-300"
             )}
             onClick={() => onStyleChange({ align: 'left' })}
-            title="左对齐"
+            title={lt('左对齐', 'Align left')}
           >
             <AlignLeft className="w-3 h-3" />
           </Button>
@@ -207,7 +213,7 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
                 : "bg-white border-gray-300"
             )}
             onClick={() => onStyleChange({ align: 'center' })}
-            title="居中对齐"
+            title={lt('居中对齐', 'Align center')}
           >
             <AlignCenter className="w-3 h-3" />
           </Button>
@@ -222,7 +228,7 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
                 : "bg-white border-gray-300"
             )}
             onClick={() => onStyleChange({ align: 'right' })}
-            title="右对齐"
+            title={lt('右对齐', 'Align right')}
           >
             <AlignRight className="w-3 h-3" />
           </Button>

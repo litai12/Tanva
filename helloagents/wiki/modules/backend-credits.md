@@ -34,6 +34,7 @@
 ## pending 收敛与自动退款
 - 异步视频链路支持前端回写成功：`POST /api/ai/video-task-success` 将 `ApiUsageRecord.responseStatus` 从 `pending` 更新为 `success`。
 - 异步任务失败可调用 `POST /api/ai/video-task-refund`：先标记 `failed` 再退款；退款交易按 `apiUsageId` 幂等。
+- 状态机保护：`updateApiUsageStatus` 禁止 `failed -> success` 与 `success -> failed` 的反向回写，避免“已退款后又标记成功”或“已成功后又标记失败”的状态/账务不一致。
 - 定时任务每 5 分钟扫描超时 `pending` 并自动退款：
   - 图像类：`CREDITS_PENDING_TIMEOUT_MINUTES`（默认 15 分钟）
   - 视频类：`CREDITS_PENDING_VIDEO_TIMEOUT_MINUTES`（默认 30 分钟）

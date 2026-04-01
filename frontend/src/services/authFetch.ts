@@ -11,6 +11,70 @@ export type AuthFetchInit = RequestInit & {
 
 let refreshPromise: Promise<boolean> | null = null;
 
+const CREDITS_REFRESH_EVENT = "refresh-credits";
+const SAFE_URL_BASE = "http://localhost";
+const CREDITS_AFFECTING_PATH_PATTERNS = [
+  "/api/ai/",
+  "/video-gif/convert",
+];
+
+const isCreditsAffectingPath = (path: string): boolean =>
+  CREDITS_AFFECTING_PATH_PATTERNS.some((pattern) => path.includes(pattern));
+
+const resolveRequestUrl = (input: RequestInput): string => {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.toString();
+  if (typeof Request !== "undefined" && input instanceof Request) {
+    return input.url;
+  }
+  return String(input);
+};
+
+const resolveRequestMethod = (
+  input: RequestInput,
+  normalized: RequestInit
+): string => {
+  if (normalized.method) return String(normalized.method).toUpperCase();
+  if (typeof Request !== "undefined" && input instanceof Request && input.method) {
+    return input.method.toUpperCase();
+  }
+  return "GET";
+};
+
+const shouldNotifyCreditsRefresh = (
+  input: RequestInput,
+  normalized: RequestInit,
+  response: Response
+): boolean => {
+  if (!response.ok) return false;
+
+  const method = resolveRequestMethod(input, normalized);
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") {
+    return false;
+  }
+
+  const rawUrl = resolveRequestUrl(input);
+  try {
+    const parsed = new URL(
+      rawUrl,
+      typeof window !== "undefined" ? window.location.origin : SAFE_URL_BASE
+    );
+    return isCreditsAffectingPath(parsed.pathname);
+  } catch {
+    return isCreditsAffectingPath(rawUrl);
+  }
+};
+
+const notifyCreditsRefreshIfNeeded = (
+  input: RequestInput,
+  normalized: RequestInit,
+  response: Response
+) => {
+  if (typeof window === "undefined") return;
+  if (!shouldNotifyCreditsRefresh(input, normalized, response)) return;
+  window.dispatchEvent(new CustomEvent(CREDITS_REFRESH_EVENT));
+};
+
 const refreshUrl =
   import.meta.env.VITE_API_BASE_URL && import.meta.env.VITE_API_BASE_URL.trim().length > 0
     ? `${import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")}/api/auth/refresh`
@@ -75,9 +139,21 @@ export async function fetchWithAuth(
   init?: AuthFetchInit
 ): Promise<Response> {
   const { allowRefresh = true, auth = "auto", ...rest } = init || {};
+  const rawUrl = resolveRequestUrl(input).trim().toLowerCase();
+  if (rawUrl.startsWith("blob:")) {
+    return new Response(null, { status: 410, statusText: "blob-url-skipped" });
+  }
+  if (rawUrl.startsWith("data:")) {
+    const directInit: RequestInit = {
+      ...rest,
+      credentials: "omit",
+    };
+    return fetch(input, directInit);
+  }
   const normalized = normalizeInit({ ...rest, auth });
   const response = await fetch(input, normalized);
   if (response.status !== 401 && response.status !== 403) {
+    notifyCreditsRefreshIfNeeded(input, normalized, response);
     return response;
   }
 
@@ -92,11 +168,13 @@ export async function fetchWithAuth(
 
   const refreshed = await ensureRefresh();
   if (refreshed) {
-    const retryResponse = await fetch(input, normalizeInit({ ...rest, auth }));
+    const retryNormalized = normalizeInit({ ...rest, auth });
+    const retryResponse = await fetch(input, retryNormalized);
     // refresh 返回 ok 但重试仍 401/403：认为登录态已失效，触发退出/登录提示
     if (retryResponse.status === 401 || retryResponse.status === 403) {
       triggerAuthExpired();
     }
+    notifyCreditsRefreshIfNeeded(input, retryNormalized, retryResponse);
     return retryResponse;
   }
 

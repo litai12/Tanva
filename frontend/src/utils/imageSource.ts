@@ -1,4 +1,8 @@
-import { getPublicAssetBaseUrl, proxifyRemoteAssetUrl } from "@/utils/assetProxy";
+import {
+  getPublicAssetBaseUrl,
+  proxifyRemoteAssetUrl,
+  resolvePublicAssetUrlFromKey,
+} from "@/utils/assetProxy";
 import {
   FLOW_IMAGE_ASSET_PREFIX,
   getFlowImageBlob,
@@ -12,11 +16,13 @@ export type BlobUrl = `blob:${string}`;
 export type DataUrl = `data:${string}`;
 export type DataImageUrl = `data:image/${string}`;
 
+const DEFAULT_MANAGED_ASSET_HOST = "tai-tanva-ai.oss-cn-shenzhen.aliyuncs.com";
+
 // 优先使用环境变量配置的 OSS/CDN 基础地址；未配置则返回 null。
 const getOssBaseUrl = (): string | null => {
   const envBase = getPublicAssetBaseUrl();
   if (envBase) return envBase.endsWith("/") ? envBase : `${envBase}/`;
-  return null;
+  return `https://${DEFAULT_MANAGED_ASSET_HOST}/`;
 };
 
 const shouldAvoidSameOriginDirectBase = (baseUrl: string): boolean => {
@@ -121,7 +127,7 @@ const BACKEND_DEFAULT_ALLOWED_HOSTS = [
 ];
 
 const getManagedAssetHosts = (): Set<string> => {
-  const hosts = new Set<string>(["tai-tanva-ai.oss-cn-shenzhen.aliyuncs.com"]);
+  const hosts = new Set<string>([DEFAULT_MANAGED_ASSET_HOST]);
   const publicBaseHost = normalizeUrlHost(getPublicAssetBaseUrl());
   if (publicBaseHost) hosts.add(publicBaseHost);
   return hosts;
@@ -284,44 +290,45 @@ export const toRenderableImageSrc = (value?: string | null): string | null => {
   // 运行时引用：必须由 useFlowImageAssetUrl / useNonBase64ImageSrc 等解析，禁止当作 base64 包装
   if (parseFlowImageAssetRef(trimmed)) return null;
   if (isDataImageUrl(trimmed)) return normalizePossiblyDuplicatedDataUrl(trimmed);
-  if (isBlobUrl(trimmed)) return trimmed;
+  // Explicitly disable blob: in render/display chain.
+  if (isBlobUrl(trimmed)) return null;
   if (isAssetKeyRef(trimmed)) {
     const withoutLeading = trimmed.replace(/^\/+/, "");
-    // 展示层不拼接 VITE_ASSET_PUBLIC_BASE_URL 直连 CDN：自定义域名易出现证书 CN 不匹配，浏览器直接 <img> 会失败。
-    return proxifyRemoteAssetUrl(
-      `/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`,
-      { forceProxy: true }
-    );
+    const direct = resolvePublicAssetUrlFromKey(withoutLeading);
+    if (direct) return direct;
+    const directBase = getOssBaseUrl();
+    if (directBase && !shouldAvoidSameOriginDirectBase(directBase)) {
+      return `${directBase}${withoutLeading}`;
+    }
+    return withoutLeading.startsWith("/") ? withoutLeading : `/${withoutLeading}`;
   }
   if (isRemoteUrl(trimmed)) {
+    const managedDirect = trimmed;
+    if (isLikelyManagedAssetUrl(managedDirect)) return managedDirect;
     try {
-      const assetUrl = new URL(trimmed);
-      const pathKey = assetUrl.pathname.replace(/^\/+/, "");
-      // 完整 HTTPS URL 若路径已是托管 key（如 templates/...），仍可能指向证书 CN 不匹配的自定义 CDN；
-      // 按 key 走同源代理，由后端凭凭证取 OSS，避免浏览器直连报错。
+      const parsed = new URL(managedDirect);
+      const pathKey = parsed.pathname.replace(/^\/+/, "");
       if (isAssetKeyRef(pathKey)) {
-        return proxifyRemoteAssetUrl(
-          `/api/assets/proxy?key=${encodeURIComponent(pathKey)}`,
-          { forceProxy: true }
-        );
+        const direct = resolvePublicAssetUrlFromKey(pathKey);
+        if (direct) return direct;
+        const directBase = getOssBaseUrl();
+        if (directBase && !shouldAvoidSameOriginDirectBase(directBase)) {
+          return `${directBase}${pathKey}`;
+        }
       }
-    } catch {
-      // ignore
-    }
-    // Nano2 / Apimart 等返回的直链常在浏览器 <img> 场景被 Referer/防盗链拦截；走后端代理可稳定展示。
-    try {
-      const host = new URL(trimmed).hostname.toLowerCase();
+
+      const host = parsed.hostname.toLowerCase();
       const hotlinkSensitiveHosts = ["apimart.ai"];
       const needsDisplayProxy = hotlinkSensitiveHosts.some(
         (h) => host === h || host.endsWith(`.${h}`)
       );
       if (needsDisplayProxy) {
-        return proxifyRemoteAssetUrl(trimmed, { forceProxy: true });
+        return proxifyRemoteAssetUrl(managedDirect, { forceProxy: true });
       }
     } catch {
       // ignore
     }
-    return trimmed;
+    return proxifyRemoteAssetUrl(managedDirect);
   }
   if (
     trimmed.startsWith("/") ||
@@ -376,35 +383,45 @@ export const resolveImageToDataUrl = async (
 
   // blob:/data:/http(s)/proxy-path/key/path 统一 fetch -> blob -> dataURL
   const candidates: string[] = [];
+  const addCandidate = (candidate?: string | null) => {
+    const normalized = typeof candidate === "string" ? candidate.trim() : "";
+    if (!normalized) return;
+    if (!candidates.includes(normalized)) candidates.push(normalized);
+  };
   if (isRemoteUrl(trimmed)) {
     console.log(`[resolveImageToDataUrl] 远程 URL`);
     const preferProxy = options?.preferProxy ?? true;
     if (preferProxy) {
       try {
-        const proxied = proxifyRemoteAssetUrl(trimmed);
-        if (proxied && proxied !== trimmed) candidates.push(proxied);
+        addCandidate(proxifyRemoteAssetUrl(trimmed));
       } catch {}
+      // 即使全局关闭了渲染代理，分析/上传链路仍应优先尝试后端代理，避免浏览器端 CORS 不稳定。
+      if (isLikelyBackendAllowedRemoteUrl(trimmed)) {
+        try {
+          addCandidate(proxifyRemoteAssetUrl(trimmed, { forceProxy: true }));
+        } catch {}
+      }
     }
-    candidates.push(trimmed);
+    addCandidate(trimmed);
   } else if (isBlobUrl(trimmed)) {
     console.log(`[resolveImageToDataUrl] blob URL`);
-    candidates.push(trimmed);
+    addCandidate(trimmed);
   } else if (isDataUrl(trimmed)) {
     console.log(`[resolveImageToDataUrl] data URL (非图片)`);
-    candidates.push(trimmed);
+    addCandidate(trimmed);
   } else if (isAssetProxyRef(trimmed)) {
     console.log(`[resolveImageToDataUrl] asset proxy 引用`);
-    candidates.push(proxifyRemoteAssetUrl(trimmed));
+    addCandidate(proxifyRemoteAssetUrl(trimmed));
   } else if (isAssetKeyRef(trimmed)) {
     console.log(`[resolveImageToDataUrl] asset key 引用`);
     const withoutLeading = trimmed.replace(/^\/+/, "");
     // 优先直接使用环境配置的公共 OSS/CDN URL，缺失时走代理
     const directBase = getOssBaseUrl();
     if (directBase && !shouldAvoidSameOriginDirectBase(directBase)) {
-      candidates.push(`${directBase}${withoutLeading}`);
+      addCandidate(`${directBase}${withoutLeading}`);
     }
     // 兜底：走代理
-    candidates.push(
+    addCandidate(
       proxifyRemoteAssetUrl(`/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`, {
         forceProxy: true,
       })
@@ -420,7 +437,7 @@ export const resolveImageToDataUrl = async (
         typeof window !== "undefined" && window.location?.origin
           ? window.location.origin
           : "http://localhost";
-      candidates.push(new URL(trimmed, base).toString());
+      addCandidate(new URL(trimmed, base).toString());
     } catch {
       // ignore
     }
@@ -438,14 +455,14 @@ export const resolveImageToDataUrl = async (
     console.log(`[resolveImageToDataUrl] 尝试 fetch: ${url.slice(0, 80)}...`);
     try {
       // 资产代理是公开读接口，不应携带凭证；否则跨域下会触发 wildcard+credentials 的 CORS 拦截。
-      const init: RequestInit = isBlobUrl(url)
-        ? {}
-        : { mode: "cors", credentials: "omit" };
-      const response = await fetchWithAuth(url, {
-        ...init,
-        auth: "omit",
-        allowRefresh: false,
-      });
+      const response = isBlobUrl(url)
+        ? await fetch(url)
+        : await fetchWithAuth(url, {
+            mode: "cors",
+            credentials: "omit",
+            auth: "omit",
+            allowRefresh: false,
+          });
       if (!response.ok) {
         console.warn(`[resolveImageToDataUrl] fetch 失败: ${response.status}`);
         continue;
@@ -467,7 +484,7 @@ export const resolveImageToDataUrl = async (
     }
   }
 
-  console.warn(`[resolveImageToDataUrl] 所有候选 URL 均失败`);
+  console.warn("[resolveImageToDataUrl] 所有候选 URL 均失败");
   return null;
 };
 
@@ -491,17 +508,26 @@ export const resolveImageToBlob = async (
   }
 
   const candidates: string[] = [];
+  const addCandidate = (candidate?: string | null) => {
+    const normalized = typeof candidate === "string" ? candidate.trim() : "";
+    if (!normalized) return;
+    if (!candidates.includes(normalized)) candidates.push(normalized);
+  };
   if (isRemoteUrl(trimmed)) {
     const preferProxy = options?.preferProxy ?? true;
     if (preferProxy) {
       try {
-        const proxied = proxifyRemoteAssetUrl(trimmed);
-        if (proxied && proxied !== trimmed) candidates.push(proxied);
+        addCandidate(proxifyRemoteAssetUrl(trimmed));
       } catch {}
+      if (isLikelyBackendAllowedRemoteUrl(trimmed)) {
+        try {
+          addCandidate(proxifyRemoteAssetUrl(trimmed, { forceProxy: true }));
+        } catch {}
+      }
     }
-    candidates.push(trimmed);
+    addCandidate(trimmed);
   } else if (isBlobUrl(trimmed) || isDataUrl(trimmed)) {
-    candidates.push(trimmed);
+    addCandidate(trimmed);
   } else if (isAssetProxyRef(trimmed)) {
     // 先把 proxy 引用还原成真实可持久化引用（key 或 remote url）再递归处理，
     // 避免在未开启代理时被解包成“裸 key”后直接 fetch 失败。
@@ -509,14 +535,14 @@ export const resolveImageToBlob = async (
     if (normalized && normalized !== trimmed) {
       return await resolveImageToBlob(normalized, options);
     }
-    candidates.push(proxifyRemoteAssetUrl(trimmed, { forceProxy: true }));
+    addCandidate(proxifyRemoteAssetUrl(trimmed, { forceProxy: true }));
   } else if (isAssetKeyRef(trimmed)) {
     const withoutLeading = trimmed.replace(/^\/+/, "");
     const directBase = getOssBaseUrl();
     if (directBase && !shouldAvoidSameOriginDirectBase(directBase)) {
-      candidates.push(`${directBase}${withoutLeading}`);
+      addCandidate(`${directBase}${withoutLeading}`);
     }
-    candidates.push(
+    addCandidate(
       proxifyRemoteAssetUrl(
         `/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`,
         { forceProxy: true }
@@ -532,7 +558,7 @@ export const resolveImageToBlob = async (
         typeof window !== "undefined" && window.location?.origin
           ? window.location.origin
           : "http://localhost";
-      candidates.push(new URL(trimmed, base).toString());
+      addCandidate(new URL(trimmed, base).toString());
     } catch {
       // ignore
     }
@@ -545,14 +571,14 @@ export const resolveImageToBlob = async (
 
   for (const url of candidates) {
     try {
-      const init: RequestInit = isBlobUrl(url)
-        ? {}
-        : { mode: "cors", credentials: "omit" };
-      const response = await fetchWithAuth(url, {
-        ...init,
-        auth: "omit",
-        allowRefresh: false,
-      });
+      const response = isBlobUrl(url)
+        ? await fetch(url)
+        : await fetchWithAuth(url, {
+            mode: "cors",
+            credentials: "omit",
+            auth: "omit",
+            allowRefresh: false,
+          });
       if (!response.ok) continue;
       const blob = await responseToBlob(response);
       // 验证 blob 是图片类型

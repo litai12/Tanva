@@ -15,6 +15,7 @@ import { isRemoteUrl, normalizePersistableImageRef } from '@/utils/imageSource';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { paperSaveService } from '@/services/paperSaveService';
 import { getNonRemoteImageAssetIds } from '@/utils/projectContentValidation';
+import { useLocaleText } from '@/utils/localeText';
 
 interface LayerItemData {
     id: string;
@@ -27,10 +28,19 @@ interface LayerItemData {
 }
 
 const LayerPanel: React.FC = () => {
+    const { lt } = useLocaleText();
     const { showLayerPanel, setShowLayerPanel } = useUIStore();
     const { layers, activeLayerId, createLayer, deleteLayer, toggleVisibility, activateLayer, renameLayer, toggleLocked, reorderLayer } = useLayerStore();
     const { setSourceImageForEditing, showDialog } = useAIChatStore();
     const content = useProjectContentStore((state) => state.content);
+    const localizeLayerName = (name?: string): string => {
+        const raw = typeof name === 'string' ? name.trim() : '';
+        if (!raw) return lt('未命名图层', 'Untitled Layer');
+        const match = /^(?:图层|layer)\s*(\d+)$/i.exec(raw);
+        if (!match) return raw;
+        const num = match[1];
+        return lt(`图层 ${num}`, `Layer ${num}`);
+    };
 
     const pendingCanvasImageIdSet = useMemo(() => {
         return new Set(getNonRemoteImageAssetIds(content));
@@ -65,7 +75,7 @@ const LayerPanel: React.FC = () => {
         e.preventDefault();
         e.stopPropagation();
         try {
-            useProjectContentStore.getState().setWarning('正在重试上传未上传图片…');
+            useProjectContentStore.getState().setWarning(lt('正在重试上传未上传图片…', 'Retrying upload for pending images...'));
         } catch {}
         try {
             await paperSaveService.saveImmediately();
@@ -188,13 +198,13 @@ const LayerPanel: React.FC = () => {
         // 预先计算每种类型的最大编号（O(n) 而非 O(n²)）
         const typeMaxNumbers: Record<string, number> = {};
         const typeNames: Record<string, string> = {
-            'circle': '圆形',
-            'rectangle': '矩形',
-            'line': '直线',
-            'path': '路径',
-            'image': '图片',
-            'model3d': '3D模型',
-            'group': '组'
+            'circle': lt('圆形', 'Circle'),
+            'rectangle': lt('矩形', 'Rectangle'),
+            'line': lt('直线', 'Line'),
+            'path': lt('路径', 'Path'),
+            'image': lt('图片', 'Image'),
+            'model3d': lt('3D模型', '3D Model'),
+            'group': lt('组', 'Group')
         };
 
         // 第一遍：收集已有的最大编号
@@ -214,7 +224,7 @@ const LayerPanel: React.FC = () => {
         // 第二遍：处理图元
         validItems.forEach((item) => {
             let type: LayerItemData['type'] = 'path';
-            let name = '未命名图元';
+            let name = lt('未命名图元', 'Untitled Item');
 
             const isGroup = item.className === 'Group' || item instanceof paper.Group;
             const isPath = item.className === 'Path' || item instanceof paper.Path;
@@ -245,7 +255,7 @@ const LayerPanel: React.FC = () => {
             if (item.data?.customName) {
                 name = item.data.customName;
             } else {
-                const baseName = typeNames[type] || '图元';
+                const baseName = typeNames[type] || lt('图元', 'Item');
                 // 直接使用预计算的最大编号 + 1
                 typeMaxNumbers[type] = (typeMaxNumbers[type] || 0) + 1;
                 const nextNumber = typeMaxNumbers[type];
@@ -967,7 +977,7 @@ const LayerPanel: React.FC = () => {
 
     const handleItemDelete = (item: LayerItemData, e: React.MouseEvent) => {
         e.stopPropagation();
-        if (item.paperItem && window.confirm('确定要删除这个图元吗？')) {
+        if (item.paperItem && window.confirm(lt('确定要删除这个图元吗？', 'Delete this item?'))) {
             // 如果是图片或3D模型组，需要额外清理
             if (item.type === 'image' || item.type === 'model3d') {
                 const itemData = item.paperItem.data;
@@ -1232,14 +1242,14 @@ const LayerPanel: React.FC = () => {
         >
             {/* 面板头部 */}
             <div className="flex items-center justify-between px-4 pt-6 pb-4">
-                <h2 className="text-lg font-semibold text-gray-800">图层</h2>
+                <h2 className="text-lg font-semibold text-gray-800">{lt('图层', 'Layers')}</h2>
                 <Button
                     variant="ghost"
                     size="sm"
                     className="h-8 w-8 p-0 text-gray-600 hover:text-gray-800 bg-transparent"
                     onClick={handleClose}
-                    title="收起图层面板"
-                    aria-label="收起图层面板"
+                    title={lt('收起图层面板', 'Collapse layer panel')}
+                    aria-label={lt('收起图层面板', 'Collapse layer panel')}
                 >
                     <ChevronLeft className="h-4 w-4" />
                 </Button>
@@ -1475,7 +1485,7 @@ const LayerPanel: React.FC = () => {
                                         size="sm"
                                         className="h-6 w-6 p-0"
                                         onClick={(e) => { e.stopPropagation(); toggleVisibility(layer.id); }}
-                                        title={layer.visible ? '隐藏' : '显示'}
+                                        title={layer.visible ? lt('隐藏', 'Hide') : lt('显示', 'Show')}
                                     >
                                         {layer.visible ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3 text-gray-400" />}
                                     </Button>
@@ -1519,7 +1529,7 @@ const LayerPanel: React.FC = () => {
                                             />
                                         ) : (
                                             <div className={`text-sm font-medium truncate ${layer.visible ? 'text-gray-900' : 'text-gray-500'}`}>
-                                                {layer.name}
+                                                {localizeLayerName(layer.name)}
                                             </div>
                                         )}
 
@@ -1534,7 +1544,7 @@ const LayerPanel: React.FC = () => {
                                             size="sm"
                                             className="h-6 w-6 p-0"
                                             onClick={(e) => { e.stopPropagation(); toggleLocked(layer.id); }}
-                                            title={layer.locked ? '解锁' : '锁定'}
+                                            title={layer.locked ? lt('解锁', 'Unlock') : lt('锁定', 'Lock')}
                                         >
                                             {layer.locked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
                                         </Button>
@@ -1545,7 +1555,7 @@ const LayerPanel: React.FC = () => {
                                         size="sm"
                                         className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
                                         onClick={(e) => { e.stopPropagation(); deleteLayer(layer.id); }}
-                                        title="删除图层"
+                                        title={lt('删除图层', 'Delete layer')}
                                     >
                                         <Trash2 className="h-3 w-3" />
                                     </Button>
@@ -1721,7 +1731,7 @@ const LayerPanel: React.FC = () => {
                                                     size="sm"
                                                     className="h-4 w-4 p-0"
                                                     onClick={(e) => handleItemVisibilityToggle(item, e)}
-                                                    title={item.visible ? '隐藏' : '显示'}
+                                                    title={item.visible ? lt('隐藏', 'Hide') : lt('显示', 'Show')}
                                                 >
                                                     {item.visible ?
                                                         <Eye className="h-3 w-3" /> :
@@ -1750,9 +1760,12 @@ const LayerPanel: React.FC = () => {
                                                         {isPendingCanvasImageItem(item) && (
                                                             <span
                                                                 className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700"
-                                                                title="该图片尚未上传到 OSS：已保存其它内容，但刷新/换设备后会丢失，可点击重试上传"
+                                                                title={lt(
+                                                                    '该图片尚未上传到 OSS：已保存其它内容，但刷新/换设备后会丢失，可点击重试上传',
+                                                                    'This image is not uploaded to OSS yet. Other content is saved, but it may be lost after refresh/device switch. Click to retry upload.'
+                                                                )}
                                                             >
-                                                                未上传
+                                                                {lt('未上传', 'Pending')}
                                                             </span>
                                                         )}
                                                     </div>
@@ -1766,7 +1779,7 @@ const LayerPanel: React.FC = () => {
                                                             size="sm"
                                                             className="h-4 w-4 p-0"
                                                             onClick={(e) => { void handleRetryUploadPendingImages(e); }}
-                                                            title="重试上传"
+                                                            title={lt('重试上传', 'Retry upload')}
                                                         >
                                                             <ImageUp className="h-3 w-3" />
                                                         </Button>
@@ -1776,7 +1789,7 @@ const LayerPanel: React.FC = () => {
                                                         size="sm"
                                                         className="h-4 w-4 p-0"
                                                         onClick={(e) => handleItemLockToggle(item, e)}
-                                                        title={item.locked ? '解锁' : '锁定'}
+                                                        title={item.locked ? lt('解锁', 'Unlock') : lt('锁定', 'Lock')}
                                                     >
                                                         {item.locked ?
                                                             <Lock className="h-2 w-2" /> :
@@ -1788,7 +1801,7 @@ const LayerPanel: React.FC = () => {
                                                         size="sm"
                                                         className="h-4 w-4 p-0"
                                                         onClick={(e) => handleItemDelete(item, e)}
-                                                        title="删除"
+                                                        title={lt('删除', 'Delete')}
                                                     >
                                                         <Trash2 className="h-2 w-2" />
                                                     </Button>
@@ -1805,7 +1818,7 @@ const LayerPanel: React.FC = () => {
                     <div
                         className="flex items-center justify-center p-2 rounded-lg border border-dashed border-gray-300 hover:bg-gray-50 hover:border-gray-400 cursor-pointer transition-colors"
                         onClick={() => createLayer(undefined, true)}
-                        title="新建图层"
+                        title={lt('新建图层', 'New layer')}
                     >
                         <Plus className="h-5 w-5 text-gray-400" />
                     </div>
@@ -1822,8 +1835,10 @@ const LayerPanel: React.FC = () => {
             {/* 面板底部 - 固定在最底部 */}
             <div className="absolute bottom-0 left-0 right-0 p-3 bg-white">
                 <div className="text-xs text-gray-500 text-center">
-                    共 {layers.length} 个图层，
-                    {Object.values(layerItems).flat().length} 个图元
+                    {lt(
+                        `共 ${layers.length} 个图层，${Object.values(layerItems).flat().length} 个图元`,
+                        `${layers.length} layers, ${Object.values(layerItems).flat().length} items`
+                    )}
                 </div>
             </div>
         </div>
@@ -1837,20 +1852,20 @@ const LayerPanel: React.FC = () => {
                 items={[
                     ...(contextMenu.item.type === 'image' && isPendingCanvasImageItem(contextMenu.item) ? [
                         {
-                            label: '重试上传',
+                            label: lt('重试上传', 'Retry upload'),
                             icon: <ImageUp className="w-4 h-4" />,
                             onClick: () => { void paperSaveService.saveImmediately().catch(() => {}); },
                         },
                     ] : []),
                     ...(contextMenu.item.type === 'image' ? [
                         {
-                            label: 'AI编辑图像',
+                            label: lt('AI编辑图像', 'AI Edit Image'),
                             icon: <Sparkles className="w-4 h-4" />,
                             onClick: () => { void handleAIEditImage(contextMenu.item!).catch(() => {}); },
                         }
                     ] : []),
                     {
-                        label: contextMenu.item.visible ? '隐藏' : '显示',
+                        label: contextMenu.item.visible ? lt('隐藏', 'Hide') : lt('显示', 'Show'),
                         icon: contextMenu.item.visible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />,
                         onClick: () => {
                             if (contextMenu.item) {
@@ -1859,7 +1874,7 @@ const LayerPanel: React.FC = () => {
                         },
                     },
                     {
-                        label: contextMenu.item.locked ? '解锁' : '锁定',
+                        label: contextMenu.item.locked ? lt('解锁', 'Unlock') : lt('锁定', 'Lock'),
                         icon: contextMenu.item.locked ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />,
                         onClick: () => {
                             if (contextMenu.item) {
@@ -1868,7 +1883,7 @@ const LayerPanel: React.FC = () => {
                         },
                     },
                     {
-                        label: '删除',
+                        label: lt('删除', 'Delete'),
                         icon: <Trash2 className="w-4 h-4 text-red-500" />,
                         onClick: () => {
                             if (contextMenu.item) {
