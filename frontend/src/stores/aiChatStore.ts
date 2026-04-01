@@ -31,6 +31,7 @@ import { useUIStore } from "@/stores/uiStore";
 import { contextManager } from "@/services/contextManager";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { ossUploadService, dataURLToBlob, dataURLToBlobAsync } from "@/services/ossUploadService";
+import { imageUploadService } from "@/services/imageUploadService";
 import { createSafeStorage } from "@/stores/storageUtils";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useImageHistoryStore } from "@/stores/imageHistoryStore";
@@ -4972,14 +4973,64 @@ export const useAIChatStore = create<AIChatState>()(
 
             // 🔥 统一改为先上传到 OSS，用 URL 传给后端
             const projectIdBlend = useProjectContentStore.getState().projectId;
-            const sourceImageUrls = await mapWithLimit(sourceImages, 2, async (img) => {
+            const sourceImageUrls = await mapWithLimit(sourceImages, 2, async (img, index) => {
               const remoteUrl = normalizeRemoteUrl(img);
               const remoteAllowed = Boolean(
                 remoteUrl && isLikelyBackendAllowedRemoteUrl(remoteUrl)
               );
+              const sourceSummary = (() => {
+                const normalized = typeof img === "string" ? img.trim() : "";
+                if (!normalized) return "empty";
+                if (/^data:image\//i.test(normalized)) {
+                  return `data:image(len=${normalized.length})`;
+                }
+                if (/^blob:/i.test(normalized)) return "blob:url";
+                if (/^https?:\/\//i.test(normalized)) {
+                  try {
+                    const parsed = new URL(normalized);
+                    return `remote:${parsed.host}${parsed.pathname.slice(0, 48)}`;
+                  } catch {
+                    return "remote:invalid";
+                  }
+                }
+                const keyLike = normalized.replace(/^\/+/, "");
+                if (/^(projects|uploads|templates|videos)\//i.test(keyLike)) {
+                  return "asset:key";
+                }
+                if (
+                  normalized.startsWith("/api/assets/proxy") ||
+                  normalized.startsWith("/assets/proxy")
+                ) {
+                  return "asset:proxy";
+                }
+                if (/^[A-Za-z0-9+/=\r\n]+$/.test(normalized) && normalized.length > 256) {
+                  return `base64:raw(len=${normalized.length})`;
+                }
+                return `other(len=${normalized.length})`;
+              })();
+
+              logger.debug("[blendImages] preparing source image", {
+                index,
+                sourceSummary,
+                remoteAllowed,
+              });
+
               if (remoteUrl && remoteAllowed) return remoteUrl;
-              const uploadedUrl = await uploadImageToOSS(img, projectIdBlend);
+              const uploadResult = await imageUploadService.uploadImageSource(img, {
+                dir: "ai-chat-images/",
+                projectId: projectIdBlend,
+                fileName: `ai-chat-blend-${Date.now()}-${index + 1}.png`,
+                contentType: "image/png",
+              });
+              const uploadedUrl = uploadResult.asset?.url?.trim();
               if (uploadedUrl) return uploadedUrl;
+              logger.warn("[blendImages] source image upload failed", {
+                index,
+                sourceSummary,
+                remoteAllowed,
+                projectId: projectIdBlend ?? null,
+                error: uploadResult.error || "unknown",
+              });
               if (remoteUrl && !remoteAllowed) {
                 throw new Error(
                   "检测到不在后端白名单的图片域名，且上传失败。请先上传到画布/素材库后再融合。"
