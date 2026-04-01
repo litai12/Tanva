@@ -36,6 +36,15 @@ type PresignResponse = {
   signature: string;
 };
 
+type PresignCacheEntry = {
+  value: PresignResponse;
+  expiresAtMs: number;
+};
+
+const PRESIGN_CACHE_TTL_FALLBACK_MS = 60_000;
+const PRESIGN_CACHE_SAFETY_MS = 10_000;
+const presignCache = new Map<string, PresignCacheEntry>();
+
 function normalizeDir(baseDir: string | undefined, projectId?: string | null) {
   const trimmed = baseDir?.trim();
   if (trimmed) return trimmed.endsWith("/") ? trimmed : `${trimmed}/`;
@@ -105,6 +114,12 @@ async function requestPresign(
   maxSize?: number,
   authToken?: string
 ): Promise<PresignResponse> {
+  const cacheKey = `${dir}|${maxSize ?? ""}|${authToken ?? "__auto__"}`;
+  const cached = presignCache.get(cacheKey);
+  if (cached && cached.expiresAtMs > Date.now() + PRESIGN_CACHE_SAFETY_MS) {
+    return cached.value;
+  }
+
   // 后端基础地址，统一从 .env 读取；无配置默认 http://localhost:4000
   const API_BASE =
     import.meta.env.VITE_API_BASE_URL &&
@@ -127,7 +142,21 @@ async function requestPresign(
   if (!res.ok) {
     throw new Error(data?.error || "获取上传凭证失败");
   }
-  return data as PresignResponse;
+  const presign = data as PresignResponse;
+  const rawExpire = Number(presign.expire);
+  const expiresAtMs = (() => {
+    if (!Number.isFinite(rawExpire) || rawExpire <= 0) {
+      return Date.now() + PRESIGN_CACHE_TTL_FALLBACK_MS;
+    }
+    // 毫秒级时间戳
+    if (rawExpire > 1e12) return rawExpire;
+    // 秒级时间戳
+    if (rawExpire > 1e9) return rawExpire * 1000;
+    // TTL 秒数
+    return Date.now() + rawExpire * 1000;
+  })();
+  presignCache.set(cacheKey, { value: presign, expiresAtMs });
+  return presign;
 }
 
 function buildKey(dir: string, fileName?: string, extensionHint?: string) {
