@@ -357,9 +357,16 @@ export class PaymentService implements OnModuleInit {
 
       console.log('微信支付统一下单响应:', JSON.stringify(result, null, 2));
 
-      if (result.code_url) {
+      const codeUrl =
+        result?.code_url ||
+        result?.data?.code_url ||
+        result?.result?.code_url ||
+        result?.codeUrl ||
+        null;
+
+      if (codeUrl) {
         // 生成二维码
-        const qrCodeDataUrl = await QRCode.toDataURL(result.code_url, {
+        const qrCodeDataUrl = await QRCode.toDataURL(codeUrl, {
           width: 256,
           margin: 2,
           color: { dark: '#000000', light: '#ffffff' },
