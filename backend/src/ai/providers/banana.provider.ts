@@ -22,6 +22,7 @@ import {
   PaperJSResult,
 } from "./ai-provider.interface";
 import { parseToolSelectionJson } from "../tool-selection-json.util";
+import { TencentVodAigcService } from "../services/tencent-vod-aigc.service";
 
 const DEFAULT_TOOLS = [
   "generateImage",
@@ -63,7 +64,9 @@ const VECTOR_KEYWORDS = [
 export type BananaImageProvider =
   | "auto"
   | "legacy_auto"
+  | "tencent_auto"
   | "apimart"
+  | "tencent"
   | "legacy";
 export const BANANA_PROVIDER_SETTING_KEY = "banana_provider";
 export type BananaTextProvider =
@@ -112,20 +115,23 @@ export class BananaProvider implements IAIProvider {
 
   constructor(
     private readonly config: ConfigService,
-    private readonly prisma: PrismaService
+    private readonly prisma: PrismaService,
+    private readonly tencentVodAigcService: TencentVodAigcService
   ) {}
 
   async initialize(): Promise<void> {
     this.apiKey = this.config.get<string>("BANANA_API_KEY") ?? null;
     this.apimartApiKey = this.config.get<string>("NANO2_API_KEY") ?? null;
 
-    if (!this.apiKey && !this.apimartApiKey) {
+    const tencentReady = this.tencentVodAigcService.isAvailable();
+
+    if (!this.apiKey && !this.apimartApiKey && !tencentReady) {
       this.logger.warn("Banana API keys not configured.");
       return;
     }
 
     this.logger.log(
-      `Banana provider initialized (legacy=${!!this.apiKey}, apimart=${!!this.apimartApiKey})`
+      `Banana provider initialized (legacy=${!!this.apiKey}, apimart=${!!this.apimartApiKey}, tencent=${tencentReady})`
     );
   }
 
@@ -154,7 +160,9 @@ export class BananaProvider implements IAIProvider {
       });
       if (
         setting &&
-        ["auto", "legacy_auto", "apimart", "legacy"].includes(setting.value)
+        ["auto", "legacy_auto", "tencent_auto", "apimart", "tencent", "legacy"].includes(
+          setting.value
+        )
       ) {
         return setting.value as BananaImageProvider;
       }
@@ -1220,6 +1228,271 @@ export class BananaProvider implements IAIProvider {
     return "unknown error";
   }
 
+  private resolveTencentImageModel(model?: string): {
+    modelName: string;
+    modelVersion: string;
+    sourceModel: string;
+  } {
+    const sourceModel = this.normalizeModelName(model || this.DEFAULT_MODEL);
+    const normalized = sourceModel.toLowerCase();
+
+    if (normalized.includes("ultra")) {
+      return { modelName: "GG", modelVersion: "3.1", sourceModel };
+    }
+    if (normalized.includes("fast")) {
+      return { modelName: "GG", modelVersion: "2.5", sourceModel };
+    }
+    if (normalized.includes("pro")) {
+      return { modelName: "GG", modelVersion: "3.0", sourceModel };
+    }
+
+    if (normalized.includes("2.5")) {
+      return { modelName: "GG", modelVersion: "2.5", sourceModel };
+    }
+    if (normalized.includes("3.1")) {
+      return { modelName: "GG", modelVersion: "3.1", sourceModel };
+    }
+
+    return { modelName: "GG", modelVersion: "3.0", sourceModel };
+  }
+
+  private toTencentFileInfos(
+    imageUrls?: string[]
+  ): Array<{ type: "File" | "Url"; fileId?: string; url?: string }> {
+    if (!Array.isArray(imageUrls) || imageUrls.length === 0) return [];
+
+    const results: Array<{ type: "File" | "Url"; fileId?: string; url?: string }> = [];
+    for (const raw of imageUrls) {
+      const value = typeof raw === "string" ? raw.trim() : "";
+      if (!value) continue;
+
+      const prefixed = value.match(/^(?:tencent-fileid:|fileid:)(.+)$/i);
+      if (prefixed?.[1]) {
+        const fileId = prefixed[1].trim();
+        if (fileId) {
+          results.push({ type: "File", fileId });
+          continue;
+        }
+      }
+
+      if (/^\d{6,}$/.test(value)) {
+        results.push({ type: "File", fileId: value });
+        continue;
+      }
+
+      if (/^https?:\/\//i.test(value)) {
+        results.push({ type: "Url", url: value });
+      }
+    }
+
+    return results;
+  }
+
+  private async generateImageViaTencent(
+    request: ImageGenerationRequest
+  ): Promise<AIProviderResponse<ImageResult>> {
+    const hasReferenceImages =
+      Array.isArray(request.imageUrls) && request.imageUrls.length > 0;
+    const fileInfos = this.toTencentFileInfos(request.imageUrls);
+    if (hasReferenceImages && fileInfos.length === 0) {
+      return {
+        success: false,
+        error: {
+          code: "GENERATION_FAILED",
+          message:
+            "Tencent reference images require Tencent FileId or public URL.",
+        },
+      };
+    }
+
+    try {
+      const modelConfig = this.resolveTencentImageModel(request.model);
+      this.logger.log(
+        `[Banana/Image/Tencent] mapped model=${modelConfig.sourceModel} -> ${modelConfig.modelName}/${modelConfig.modelVersion}, refs=${fileInfos.length}`
+      );
+      const { taskId, requestId } =
+        await this.tencentVodAigcService.createImageTask({
+          prompt: request.prompt,
+          modelName: modelConfig.modelName,
+          modelVersion: modelConfig.modelVersion,
+          fileInfos,
+          aspectRatio: request.aspectRatio,
+          imageSize: request.imageSize,
+        });
+
+      const taskResult = await this.tencentVodAigcService.waitForImageResult(taskId);
+      if (!taskResult.imageUrl) {
+        throw new Error(
+          `Tencent task ${taskId} completed but image URL is missing.`
+        );
+      }
+
+      return {
+        success: true,
+        data: {
+          imageUrl: taskResult.imageUrl,
+          textResponse: "Image generated successfully",
+          hasImage: true,
+          metadata: {
+            provider: "tencent",
+            channel: "tencent_vod_aigc",
+            taskId,
+            requestId: taskResult.requestId || requestId,
+            modelName: modelConfig.modelName,
+            modelVersion: modelConfig.modelVersion,
+            sourceModel: modelConfig.sourceModel,
+          },
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: {
+          code: "GENERATION_FAILED",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Tencent image generation failed",
+          details: error,
+        },
+      };
+    }
+  }
+
+  private async editImageViaTencent(
+    request: ImageEditRequest
+  ): Promise<AIProviderResponse<ImageResult>> {
+    try {
+      const fileInfos = this.toTencentFileInfos([request.sourceImage]);
+      if (fileInfos.length === 0) {
+        return {
+          success: false,
+          error: {
+            code: "EDIT_FAILED",
+            message:
+              "Tencent image edit requires source image as Tencent FileId or public URL.",
+          },
+        };
+      }
+
+      const modelConfig = this.resolveTencentImageModel(request.model);
+      this.logger.log(
+        `[Banana/Edit/Tencent] mapped model=${modelConfig.sourceModel} -> ${modelConfig.modelName}/${modelConfig.modelVersion}, refs=${fileInfos.length}`
+      );
+      const { taskId, requestId } =
+        await this.tencentVodAigcService.createImageTask({
+          prompt: request.prompt,
+          modelName: modelConfig.modelName,
+          modelVersion: modelConfig.modelVersion,
+          fileInfos,
+          aspectRatio: request.aspectRatio,
+          imageSize: request.imageSize,
+        });
+
+      const taskResult = await this.tencentVodAigcService.waitForImageResult(taskId);
+      if (!taskResult.imageUrl) {
+        throw new Error(
+          `Tencent task ${taskId} completed but image URL is missing.`
+        );
+      }
+
+      return {
+        success: true,
+        data: {
+          imageUrl: taskResult.imageUrl,
+          textResponse: "Image edited successfully",
+          hasImage: true,
+          metadata: {
+            provider: "tencent",
+            channel: "tencent_vod_aigc",
+            taskId,
+            requestId: taskResult.requestId || requestId,
+            modelName: modelConfig.modelName,
+            modelVersion: modelConfig.modelVersion,
+            sourceModel: modelConfig.sourceModel,
+          },
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: {
+          code: "EDIT_FAILED",
+          message:
+            error instanceof Error ? error.message : "Tencent image edit failed",
+          details: error,
+        },
+      };
+    }
+  }
+
+  private async blendImagesViaTencent(
+    request: ImageBlendRequest
+  ): Promise<AIProviderResponse<ImageResult>> {
+    try {
+      const fileInfos = this.toTencentFileInfos(request.sourceImages);
+      if (fileInfos.length === 0) {
+        return {
+          success: false,
+          error: {
+            code: "BLEND_FAILED",
+            message:
+              "Tencent image blend requires source images as Tencent FileId or public URL.",
+          },
+        };
+      }
+
+      const modelConfig = this.resolveTencentImageModel(request.model);
+      this.logger.log(
+        `[Banana/Blend/Tencent] mapped model=${modelConfig.sourceModel} -> ${modelConfig.modelName}/${modelConfig.modelVersion}, refs=${fileInfos.length}`
+      );
+      const { taskId, requestId } =
+        await this.tencentVodAigcService.createImageTask({
+          prompt: request.prompt,
+          modelName: modelConfig.modelName,
+          modelVersion: modelConfig.modelVersion,
+          fileInfos,
+          aspectRatio: request.aspectRatio,
+          imageSize: request.imageSize,
+        });
+
+      const taskResult = await this.tencentVodAigcService.waitForImageResult(taskId);
+      if (!taskResult.imageUrl) {
+        throw new Error(
+          `Tencent task ${taskId} completed but image URL is missing.`
+        );
+      }
+
+      return {
+        success: true,
+        data: {
+          imageUrl: taskResult.imageUrl,
+          textResponse: "Image blended successfully",
+          hasImage: true,
+          metadata: {
+            provider: "tencent",
+            channel: "tencent_vod_aigc",
+            taskId,
+            requestId: taskResult.requestId || requestId,
+            modelName: modelConfig.modelName,
+            modelVersion: modelConfig.modelVersion,
+            sourceModel: modelConfig.sourceModel,
+          },
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: {
+          code: "BLEND_FAILED",
+          message:
+            error instanceof Error ? error.message : "Tencent image blend failed",
+          details: error,
+        },
+      };
+    }
+  }
+
   private async generateImageViaLegacy(
     request: ImageGenerationRequest
   ): Promise<AIProviderResponse<ImageResult>> {
@@ -1291,6 +1564,8 @@ export class BananaProvider implements IAIProvider {
             textResponse: result.textResponse || "",
             hasImage: !!result.imageBytes,
             metadata: {
+              provider: "147",
+              channel: "legacy_147",
               ...(usedFallback
                 ? {
                     fallbackUsed: true,
@@ -1357,6 +1632,40 @@ export class BananaProvider implements IAIProvider {
     );
 
     const providerMode = await this.getConfiguredImageProvider();
+    this.logger.log(
+      `[Banana/Image] mode=${providerMode}, requestedModel=${this.normalizeModelName(
+        request.model || this.DEFAULT_MODEL
+      )}`
+    );
+
+    if (providerMode === "tencent") {
+      this.logger.log("[Banana/Image] route -> Tencent (forced)");
+      return this.generateImageViaTencent(request);
+    }
+
+    if (providerMode === "tencent_auto") {
+      let tencentResult: AIProviderResponse<ImageResult> | null = null;
+      let tencentError: unknown = null;
+
+      try {
+        tencentResult = await this.generateImageViaTencent(request);
+      } catch (error) {
+        tencentError = error;
+      }
+
+      if (tencentResult?.success) {
+        this.logger.log("[Banana/Image] route -> Tencent (auto first, success)");
+        return tencentResult;
+      }
+
+      this.logger.warn(
+        `Tencent image generation failed in Tencent-first mode, fallback to Apimart/147: ${this.getProviderFailureMessage(
+          tencentResult,
+          tencentError
+        )}`
+      );
+    }
+
     if (providerMode === "legacy_auto") {
       let legacyResult: AIProviderResponse<ImageResult> | null = null;
       let legacyError: unknown = null;
@@ -1367,7 +1676,10 @@ export class BananaProvider implements IAIProvider {
         legacyError = error;
       }
 
-      if (legacyResult?.success) return legacyResult;
+      if (legacyResult?.success) {
+        this.logger.log("[Banana/Image] route -> 147 (147-first, success)");
+        return legacyResult;
+      }
 
       this.logger.warn(
         `147 image generation failed in 147-first mode, fallback to Apimart: ${this.getProviderFailureMessage(
@@ -1393,7 +1705,10 @@ export class BananaProvider implements IAIProvider {
           this.DEFAULT_TIMEOUT,
           "Apimart image generation"
         );
-        if (result.success) return result;
+        if (result.success) {
+          this.logger.log("[Banana/Image] route -> Apimart (success)");
+          return result;
+        }
         if (providerMode === "apimart") return result;
       } catch (error) {
         if (providerMode === "apimart") {
@@ -1407,6 +1722,7 @@ export class BananaProvider implements IAIProvider {
       }
     }
 
+    this.logger.log("[Banana/Image] route -> 147 (final fallback)");
     return this.generateImageViaLegacy(request);
   }
 
@@ -1545,6 +1861,40 @@ export class BananaProvider implements IAIProvider {
     );
 
     const providerMode = await this.getConfiguredImageProvider();
+    this.logger.log(
+      `[Banana/Edit] mode=${providerMode}, requestedModel=${this.normalizeModelName(
+        request.model || this.DEFAULT_MODEL
+      )}`
+    );
+
+    if (providerMode === "tencent") {
+      this.logger.log("[Banana/Edit] route -> Tencent (forced)");
+      return this.editImageViaTencent(request);
+    }
+
+    if (providerMode === "tencent_auto") {
+      let tencentResult: AIProviderResponse<ImageResult> | null = null;
+      let tencentError: unknown = null;
+
+      try {
+        tencentResult = await this.editImageViaTencent(request);
+      } catch (error) {
+        tencentError = error;
+      }
+
+      if (tencentResult?.success) {
+        this.logger.log("[Banana/Edit] route -> Tencent (auto first, success)");
+        return tencentResult;
+      }
+
+      this.logger.warn(
+        `Tencent image edit failed in Tencent-first mode, fallback to Apimart/147: ${this.getProviderFailureMessage(
+          tencentResult,
+          tencentError
+        )}`
+      );
+    }
+
     if (providerMode === "legacy_auto") {
       let legacyResult: AIProviderResponse<ImageResult> | null = null;
       let legacyError: unknown = null;
@@ -1555,7 +1905,10 @@ export class BananaProvider implements IAIProvider {
         legacyError = error;
       }
 
-      if (legacyResult?.success) return legacyResult;
+      if (legacyResult?.success) {
+        this.logger.log("[Banana/Edit] route -> 147 (147-first, success)");
+        return legacyResult;
+      }
 
       this.logger.warn(
         `147 image edit failed in 147-first mode, fallback to Apimart: ${this.getProviderFailureMessage(
@@ -1581,7 +1934,10 @@ export class BananaProvider implements IAIProvider {
           this.DEFAULT_TIMEOUT,
           "Apimart image edit"
         );
-        if (result.success) return result;
+        if (result.success) {
+          this.logger.log("[Banana/Edit] route -> Apimart (success)");
+          return result;
+        }
         if (providerMode === "apimart") return result;
       } catch (error) {
         if (providerMode === "apimart") {
@@ -1595,6 +1951,7 @@ export class BananaProvider implements IAIProvider {
       }
     }
 
+    this.logger.log("[Banana/Edit] route -> 147 (final fallback)");
     return this.editImageViaLegacy(request);
   }
 
@@ -1736,6 +2093,40 @@ export class BananaProvider implements IAIProvider {
     );
 
     const providerMode = await this.getConfiguredImageProvider();
+    this.logger.log(
+      `[Banana/Blend] mode=${providerMode}, requestedModel=${this.normalizeModelName(
+        request.model || this.DEFAULT_MODEL
+      )}, sources=${request.sourceImages.length}`
+    );
+
+    if (providerMode === "tencent") {
+      this.logger.log("[Banana/Blend] route -> Tencent (forced)");
+      return this.blendImagesViaTencent(request);
+    }
+
+    if (providerMode === "tencent_auto") {
+      let tencentResult: AIProviderResponse<ImageResult> | null = null;
+      let tencentError: unknown = null;
+
+      try {
+        tencentResult = await this.blendImagesViaTencent(request);
+      } catch (error) {
+        tencentError = error;
+      }
+
+      if (tencentResult?.success) {
+        this.logger.log("[Banana/Blend] route -> Tencent (auto first, success)");
+        return tencentResult;
+      }
+
+      this.logger.warn(
+        `Tencent image blend failed in Tencent-first mode, fallback to Apimart/147: ${this.getProviderFailureMessage(
+          tencentResult,
+          tencentError
+        )}`
+      );
+    }
+
     if (providerMode === "legacy_auto") {
       let legacyResult: AIProviderResponse<ImageResult> | null = null;
       let legacyError: unknown = null;
@@ -1746,7 +2137,10 @@ export class BananaProvider implements IAIProvider {
         legacyError = error;
       }
 
-      if (legacyResult?.success) return legacyResult;
+      if (legacyResult?.success) {
+        this.logger.log("[Banana/Blend] route -> 147 (147-first, success)");
+        return legacyResult;
+      }
 
       this.logger.warn(
         `147 image blend failed in 147-first mode, fallback to Apimart: ${this.getProviderFailureMessage(
@@ -1772,7 +2166,10 @@ export class BananaProvider implements IAIProvider {
           this.DEFAULT_TIMEOUT,
           "Apimart image blend"
         );
-        if (result.success) return result;
+        if (result.success) {
+          this.logger.log("[Banana/Blend] route -> Apimart (success)");
+          return result;
+        }
         if (providerMode === "apimart") return result;
       } catch (error) {
         if (providerMode === "apimart") {
@@ -1786,6 +2183,7 @@ export class BananaProvider implements IAIProvider {
       }
     }
 
+    this.logger.log("[Banana/Blend] route -> 147 (final fallback)");
     return this.blendImagesViaLegacy(request);
   }
 
@@ -2497,7 +2895,11 @@ ${vectorRule ? `${vectorRule}\n\n` : ""}Return strict JSON only:
   }
 
   isAvailable(): boolean {
-    return !!this.apiKey || !!this.apimartApiKey;
+    return (
+      !!this.apiKey ||
+      !!this.apimartApiKey ||
+      this.tencentVodAigcService.isAvailable()
+    );
   }
 
   getProviderInfo() {

@@ -55,6 +55,7 @@ import { VideoProviderService } from './services/video-provider.service';
 import { MinimaxSpeechService } from './services/minimax-speech.service';
 import { MinimaxMusicService } from './services/minimax-music.service';
 import { TencentSpeechService } from './services/tencent-speech.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { applyWatermarkToBase64 } from './services/watermark.util';
 import { VideoWatermarkService } from './services/video-watermark.service';
 import {
@@ -141,6 +142,7 @@ export class AiController {
     private readonly minimaxSpeechService: MinimaxSpeechService,
     private readonly tencentSpeechService: TencentSpeechService,
     private readonly minimaxMusicService: MinimaxMusicService,
+    private readonly prisma: PrismaService,
     private readonly oss: OssService,
     @Optional() private readonly imageTaskService?: ImageTaskService,
   ) {}
@@ -1000,6 +1002,47 @@ export class AiController {
     return out;
   }
 
+  private isBananaProviderName(providerName: string | null | undefined): boolean {
+    const normalized = (providerName || '').trim().toLowerCase();
+    return normalized === 'banana' || normalized.startsWith('banana-');
+  }
+
+  private async getBananaImageProviderMode(): Promise<string> {
+    try {
+      const setting = await this.prisma.systemSetting.findUnique({
+        where: { key: 'banana_provider' },
+      });
+      return (setting?.value || 'auto').trim().toLowerCase();
+    } catch {
+      return 'auto';
+    }
+  }
+
+  private async normalizeSourceImageForTencentForced(
+    source: string,
+    userId: string,
+    context: string,
+  ): Promise<string> {
+    const value = typeof source === 'string' ? source.trim() : '';
+    if (!value) {
+      throw new BadRequestException(`Tencent ${context} source image is empty`);
+    }
+
+    if (/^(?:tencent-fileid:|fileid:)/i.test(value) || /^\d{6,}$/.test(value)) {
+      return value;
+    }
+
+    if (/^https?:\/\//i.test(value)) {
+      return this.normalizeImageUrlForUpstream(value);
+    }
+
+    const upload = await this.uploadGeneratedImageToOss(value, { userId });
+    this.logger.log(
+      `[${context}] Tencent forced source uploaded to OSS: key=${upload.key}`,
+    );
+    return upload.url;
+  }
+
   private looksLikeSignedAssetUrl(url: string): boolean {
     return /[?&](?:X-Amz|X-Tos|OSSAccessKeyId|Signature|Expires|x-oss-signature)=/i.test(url);
   }
@@ -1604,6 +1647,17 @@ export class AiController {
       : model?.includes('3.1')
       ? 'gemini-3.1-image-edit'
       : 'gemini-image-edit';
+    const requestUserId = this.resolveRequestUserId(req) || 'anonymous';
+    const bananaImageMode = this.isBananaProviderName(providerName)
+      ? await this.getBananaImageProviderMode()
+      : 'auto';
+    const tencentForcedBanana =
+      this.isBananaProviderName(providerName) && bananaImageMode === 'tencent';
+    if (tencentForcedBanana) {
+      this.logger.log(
+        '[edit-image] banana_provider=tencent detected, preparing Tencent-compatible source image',
+      );
+    }
     console.log(`\n========== [editImage] ==========`);
     console.log(`dto.model: ${dto.model}`);
     console.log(`resolved model: ${model}`);
@@ -1620,7 +1674,13 @@ export class AiController {
       const isMidjourney = providerName === 'midjourney';
 
       let sourceImage: string | undefined;
-      if (isMidjourney && fallbackUrl) {
+      if (tencentForcedBanana) {
+        if (dto.sourceImage && !fallbackUrl) {
+          sourceImage = dto.sourceImage;
+        } else if (fallbackUrl) {
+          sourceImage = fallbackUrl;
+        }
+      } else if (isMidjourney && fallbackUrl) {
         // MJ: 直接使用 URL
         sourceImage = fallbackUrl;
       } else if (dto.sourceImage && !fallbackUrl) {
@@ -1633,8 +1693,14 @@ export class AiController {
         throw new BadRequestException('编辑图片接口需要提供 sourceImage 或 sourceImageUrl');
       }
 
-      // 非 MJ 时验证 sourceImage 是有效的图片格式
-      if (!isMidjourney || !sourceImage.startsWith('http')) {
+      if (tencentForcedBanana) {
+        sourceImage = await this.normalizeSourceImageForTencentForced(
+          sourceImage,
+          requestUserId,
+          'edit-image',
+        );
+      } else if (!isMidjourney || !sourceImage.startsWith('http')) {
+        // 非 MJ 时验证 sourceImage 是有效的图片格式
         this.validateImageDataUrl(sourceImage);
       }
 
@@ -1704,9 +1770,26 @@ export class AiController {
       : model?.includes('3.1')
       ? 'gemini-3.1-image-blend'
       : 'gemini-image-blend';
+    const requestUserId = this.resolveRequestUserId(req) || 'anonymous';
+    const bananaImageMode = this.isBananaProviderName(providerName)
+      ? await this.getBananaImageProviderMode()
+      : 'auto';
+    const tencentForcedBanana =
+      this.isBananaProviderName(providerName) && bananaImageMode === 'tencent';
+    if (tencentForcedBanana) {
+      this.logger.log(
+        '[blend-images] banana_provider=tencent detected, preparing Tencent-compatible source images',
+      );
+    }
 
     return this.withCredits(req, serviceType as any, model, async () => {
-      const sourceImages = dto.sourceImages?.length
+      const sourceImages = tencentForcedBanana
+        ? dto.sourceImages?.length
+          ? dto.sourceImages
+          : dto.sourceImageUrls?.length
+          ? dto.sourceImageUrls
+          : []
+        : dto.sourceImages?.length
         ? await Promise.all(
             dto.sourceImages.map(async (value) =>
               /^https?:\/\//i.test(value) ? this.fetchImageAsDataUrl(value) : value,
@@ -1720,11 +1803,23 @@ export class AiController {
         throw new BadRequestException('融合图片接口需要提供 sourceImages 或 sourceImageUrls（至少两张）');
       }
 
+      const normalizedSourceImages = tencentForcedBanana
+        ? await Promise.all(
+            sourceImages.map((value, index) =>
+              this.normalizeSourceImageForTencentForced(
+                value,
+                requestUserId,
+                `blend-images#${index + 1}`,
+              ),
+            ),
+          )
+        : sourceImages;
+
       if (providerName && providerName !== 'gemini-pro') {
         const provider = this.factory.getProvider(dto.model, providerName);
         const result = await provider.blendImages({
           prompt: dto.prompt,
-          sourceImages,
+          sourceImages: normalizedSourceImages,
           model,
           imageOnly: dto.imageOnly,
           aspectRatio: dto.aspectRatio,
@@ -1765,7 +1860,11 @@ export class AiController {
       }
 
       // gemini 和 gemini-pro 都使用默认的 Gemini 服务
-      const data = await this.imageGeneration.blendImages({ ...dto, sourceImages, customApiKey });
+      const data = await this.imageGeneration.blendImages({
+        ...dto,
+        sourceImages: normalizedSourceImages,
+        customApiKey,
+      });
       const watermarked = await this.watermarkIfNeeded(data.imageData, req);
       return { ...data, imageData: watermarked };
     }, dto.sourceImages?.length || 0, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }));

@@ -29,6 +29,7 @@ import { Seedream5Service } from './services/seedream5.service';
 import { MinimaxSpeechService } from './services/minimax-speech.service';
 import { MinimaxMusicService } from './services/minimax-music.service';
 import { TencentSpeechService } from './services/tencent-speech.service';
+import { TencentVodAigcService } from './services/tencent-vod-aigc.service';
 
 @Module({
   imports: [
@@ -61,6 +62,7 @@ import { TencentSpeechService } from './services/tencent-speech.service';
     MinimaxSpeechService,
     MinimaxMusicService,
     TencentSpeechService,
+    TencentVodAigcService,
     ImageTaskService, // 添加图像任务服务
     ApiKeyOrJwtGuard,
   ],
