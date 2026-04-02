@@ -20,9 +20,9 @@ export class AssetsController {
   private resolveBucketOriginUrl(key: string): string | null {
     const normalizedKey = this.normalizeManagedAssetKey(key);
     if (!normalizedKey) return null;
-    const [bucketOriginHost] = this.oss.publicHosts();
-    if (!bucketOriginHost) return null;
-    return `https://${bucketOriginHost}/${normalizedKey}`;
+    const signed = this.oss.signUrl(normalizedKey, 300);
+    if (signed) return signed;
+    return this.oss.publicUrl(normalizedKey);
   }
 
   private extractManagedAssetKey(
@@ -60,7 +60,7 @@ export class AssetsController {
   private normalizeTargetUrlForFetch(rawUrl: string): string {
     const managedKey = this.extractManagedAssetKey(rawUrl);
     if (!managedKey) return rawUrl;
-    return this.resolveBucketOriginUrl(managedKey) || this.oss.publicUrl(managedKey);
+    return this.resolveBucketOriginUrl(managedKey) || this.oss.signUrl(managedKey, 300) || this.oss.publicUrl(managedKey);
   }
 
   private resolveTargetUrl(params: { url?: string; key?: string }): string {

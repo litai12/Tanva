@@ -45,6 +45,18 @@ const PRESIGN_CACHE_TTL_FALLBACK_MS = 60_000;
 const PRESIGN_CACHE_SAFETY_MS = 10_000;
 const presignCache = new Map<string, PresignCacheEntry>();
 
+function getApiBaseUrl(): string {
+  return import.meta.env.VITE_API_BASE_URL &&
+    import.meta.env.VITE_API_BASE_URL.trim().length > 0
+    ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")
+    : "http://localhost:4000";
+}
+
+function isBackendImageRelayEnabled(): boolean {
+  const raw = String((import.meta.env.VITE_IMAGE_UPLOAD_BACKEND_RELAY as string | undefined) || "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
 function normalizeDir(baseDir: string | undefined, projectId?: string | null) {
   const trimmed = baseDir?.trim();
   if (trimmed) return trimmed.endsWith("/") ? trimmed : `${trimmed}/`;
@@ -121,11 +133,7 @@ async function requestPresign(
   }
 
   // 后端基础地址，统一从 .env 读取；无配置默认 http://localhost:4000
-  const API_BASE =
-    import.meta.env.VITE_API_BASE_URL &&
-    import.meta.env.VITE_API_BASE_URL.trim().length > 0
-      ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")
-      : "http://localhost:4000";
+  const API_BASE = getApiBaseUrl();
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (authToken) {
@@ -159,6 +167,106 @@ async function requestPresign(
   return presign;
 }
 
+function isLikelyImageUpload(data: Blob | File, options: OssUploadOptions): boolean {
+  const type = String(options.contentType || (data as File).type || "").toLowerCase();
+  return type.startsWith("image/");
+}
+
+async function verifyUploadedAssetReadable(
+  key: string | undefined,
+  url: string | undefined,
+  authToken?: string
+): Promise<boolean> {
+  const API_BASE = getApiBaseUrl();
+  const relativeTarget = key
+    ? `/api/assets/proxy?key=${encodeURIComponent(key)}`
+    : url
+      ? `/api/assets/proxy?url=${encodeURIComponent(url)}`
+      : "";
+  const absoluteTarget = key
+    ? `${API_BASE}/api/assets/proxy?key=${encodeURIComponent(key)}`
+    : url
+      ? `${API_BASE}/api/assets/proxy?url=${encodeURIComponent(url)}`
+      : "";
+  const candidates: string[] = [];
+  if (relativeTarget) candidates.push(relativeTarget);
+  if (absoluteTarget && absoluteTarget !== relativeTarget) candidates.push(absoluteTarget);
+  if (candidates.length === 0) return false;
+
+  const headers: Record<string, string> = { Range: "bytes=0-0" };
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+
+  for (const checkTarget of candidates) {
+    try {
+      const res = await fetchWithAuth(checkTarget, {
+        method: "GET",
+        headers,
+        auth: authToken ? "omit" : "auto",
+        credentials: authToken ? "omit" : "include",
+        allowRefresh: false,
+      });
+      if (res.ok) return true;
+    } catch {
+      // try next target
+    }
+  }
+  return false;
+}
+
+async function uploadImageViaBackend(
+  data: Blob | File,
+  options: OssUploadOptions,
+  fallbackKey?: string
+): Promise<OssUploadResult> {
+  const API_BASE = getApiBaseUrl();
+  const fileName = options.fileName || "upload-image";
+  const file = data instanceof File
+    ? data
+    : new File([data], fileName, {
+        type: options.contentType || (data as File).type || "image/png",
+      });
+  const formData = new FormData();
+  formData.append("file", file);
+  if (options.dir) formData.append("dir", options.dir);
+  if (fileName) formData.append("fileName", fileName);
+  if (fallbackKey) formData.append("key", fallbackKey);
+
+  const headers: Record<string, string> = {};
+  if (options.authToken) headers.Authorization = `Bearer ${options.authToken}`;
+
+  try {
+    const res = await fetchWithAuth(`${API_BASE}/api/uploads/image`, {
+      method: "POST",
+      body: formData,
+      headers,
+      auth: options.authToken ? "omit" : "auto",
+      credentials: options.authToken ? "omit" : "include",
+    });
+    const dataJson = await res.json().catch(() => null);
+    if (!res.ok) {
+      return {
+        success: false,
+        error:
+          dataJson?.message ||
+          dataJson?.error ||
+          `Backend image upload failed: ${res.status}`,
+      };
+    }
+
+    const url = typeof dataJson?.url === "string" ? dataJson.url : "";
+    const key = typeof dataJson?.key === "string" ? dataJson.key : "";
+    if (!url) {
+      return { success: false, error: "Backend image upload returned empty url" };
+    }
+    return { success: true, url, key: key || undefined, size: data.size };
+  } catch (error: any) {
+    return {
+      success: false,
+      error: error?.message || "Backend image upload failed",
+    };
+  }
+}
+
 function buildKey(dir: string, fileName?: string, extensionHint?: string) {
   const ext = inferExtension(fileName, undefined) || extensionHint || "";
   const safeName = fileName?.replace(/[^a-zA-Z0-9_.-]/g, "_");
@@ -184,6 +292,40 @@ export async function uploadToOSS(
 ): Promise<OssUploadResult> {
   try {
     const dir = normalizeDir(options.dir, options.projectId);
+    const isImage = isLikelyImageUpload(data, options);
+
+    // Image uploads prefer backend relay to avoid browser-policy false positives
+    // where direct OSS POST returns 200 but object is not immediately readable in render chain.
+    if (isImage && isBackendImageRelayEnabled()) {
+      const extension = inferExtension(
+        options.fileName,
+        options.contentType || (data as File).type
+      );
+      const preferredKey = (() => {
+        const forced = typeof options.key === "string" ? options.key.trim() : "";
+        if (forced) return forced.replace(/^\/+/, "");
+        return buildKey(dir, options.fileName, extension);
+      })();
+
+      const backendUpload = await uploadImageViaBackend(data, { ...options, dir }, preferredKey);
+      if (backendUpload.success && backendUpload.url) {
+        const backendReadable = await verifyUploadedAssetReadable(
+          backendUpload.key,
+          backendUpload.url,
+          options.authToken
+        );
+        if (backendReadable) return backendUpload;
+        return {
+          success: false,
+          error: "Backend image upload succeeded but asset is still not readable",
+        };
+      }
+      // backend failed: continue to legacy presign direct upload fallback below
+      logger.warn("Backend image upload failed, fallback to direct OSS upload", {
+        error: backendUpload.error,
+      });
+    }
+
     const presign = await requestPresign(dir, options.maxSize, options.authToken);
 
     const extension = inferExtension(
@@ -242,6 +384,38 @@ export async function uploadToOSS(
     }
 
     const publicUrl = `${presign.host}/${key}`;
+    if (isLikelyImageUpload(data, options)) {
+      const readable = await verifyUploadedAssetReadable(key, publicUrl, options.authToken);
+      if (!readable) {
+        logger.warn("OSS direct upload returned success but asset is not readable", {
+          key,
+          publicUrl,
+        });
+        if (isBackendImageRelayEnabled()) {
+          const backendUpload = await uploadImageViaBackend(data, options, key);
+          if (backendUpload.success && backendUpload.url) {
+            const backendReadable = await verifyUploadedAssetReadable(
+              backendUpload.key,
+              backendUpload.url,
+              options.authToken
+            );
+            if (backendReadable) return backendUpload;
+            return {
+              success: false,
+              error: "Backend image upload succeeded but asset is still not readable",
+            };
+          }
+          return {
+            success: false,
+            error: backendUpload.error || "Image upload fallback failed",
+          };
+        }
+        return {
+          success: false,
+          error: "Image uploaded but remote asset is not readable",
+        };
+      }
+    }
     return {
       success: true,
       url: publicUrl,
