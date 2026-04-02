@@ -4189,6 +4189,46 @@ const AIChatDialog: React.FC = () => {
                     return trimmed;
                   };
 
+                  const resolveMessageImageSrc = (
+                    message: ChatMessage
+                  ): string | undefined => {
+                    const remote = normalizeDataUrl(
+                      toRenderableImageSrc(message.imageRemoteUrl)
+                    );
+                    if (
+                      remote &&
+                      !remote.startsWith("data:image") &&
+                      !remote.startsWith("blob:")
+                    ) {
+                      return remote;
+                    }
+
+                    const imageData = normalizeDataUrl(
+                      toRenderableImageSrc(message.imageData)
+                    );
+                    if (
+                      imageData &&
+                      !imageData.startsWith("data:image") &&
+                      !imageData.startsWith("blob:")
+                    ) {
+                      return imageData;
+                    }
+
+                    const thumb = normalizeDataUrl(
+                      toRenderableImageSrc(message.thumbnail)
+                    );
+                    if (
+                      thumb &&
+                      !thumb.startsWith("data:image") &&
+                      !thumb.startsWith("blob:")
+                    ) {
+                      return thumb;
+                    }
+
+                    // 兼容历史数据：没有远程图时再回退到旧数据。
+                    return remote || imageData || thumb;
+                  };
+
                   // 渲染单个 AI 消息的图片/占位符
                   const renderAiMessageImage = (
                     message: ChatMessage,
@@ -4200,12 +4240,7 @@ const AIChatDialog: React.FC = () => {
                     );
                     const hasTextContent = Boolean(message.content?.trim());
 
-                    const rawImageSrc =
-                      message.imageRemoteUrl ||
-                      toRenderableImageSrc(message.imageData) ||
-                      toRenderableImageSrc(message.thumbnail);
-
-                    const imageSrc = normalizeDataUrl(rawImageSrc);
+                    const imageSrc = resolveMessageImageSrc(message);
 
                     const imageSize = isCompact ? "w-28 h-28" : "w-32 h-32";
                     const shouldHideUltraTextOnlyPlaceholder = Boolean(
@@ -4884,21 +4919,9 @@ const AIChatDialog: React.FC = () => {
                                                 <div className='flex justify-center'>
                                                   {(() => {
                                                     const imageSrc =
-                                                      message.imageRemoteUrl ||
-                                                      (message.imageData
-                                                        ? message.imageData.startsWith(
-                                                            "data:image"
-                                                          )
-                                                          ? message.imageData
-                                                          : `data:image/png;base64,${message.imageData}`
-                                                        : undefined) ||
-                                                      (message.thumbnail
-                                                        ? message.thumbnail.startsWith(
-                                                            "data:image"
-                                                          )
-                                                          ? message.thumbnail
-                                                          : `data:image/png;base64,${message.thumbnail}`
-                                                        : undefined);
+                                                      resolveMessageImageSrc(
+                                                        message
+                                                      );
                                                     if (imageSrc) {
                                                       return (
                                                         <SmartImage

@@ -603,8 +603,8 @@ function ImageNodeInner({ id, data, selected }: Props) {
       (hasInputConnection &&
         typeof connectedFrameImage === "string" &&
         connectedFrameImage.trim()) ||
-      (typeof (data as any)?.imageData === "string" && (data as any).imageData.trim()) ||
       (typeof (data as any)?.imageUrl === "string" && (data as any).imageUrl.trim()) ||
+      (typeof (data as any)?.imageData === "string" && (data as any).imageData.trim()) ||
       (typeof connectedFrameImage === "string" && connectedFrameImage.trim()) ||
       "";
     if (!baseRef) return null;
@@ -669,8 +669,8 @@ function ImageNodeInner({ id, data, selected }: Props) {
             | { x?: unknown; y?: unknown; width?: unknown; height?: unknown; sourceWidth?: unknown; sourceHeight?: unknown }
             | undefined;
           const baseRef =
-            (typeof d.imageData === "string" && d.imageData.trim()) ||
             (typeof d.imageUrl === "string" && d.imageUrl.trim()) ||
+            (typeof d.imageData === "string" && d.imageData.trim()) ||
             "";
           if (crop && baseRef) {
             const x = typeof crop.x === "number" ? crop.x : Number(crop.x ?? 0);

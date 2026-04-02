@@ -146,7 +146,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
   const accentBorder = isNiji ? '#f9a8d4' : '#e9d5ff';
   const title = isAdvanced ? (isNiji ? 'Niji 7' : 'Midjourney V7') : 'Midjourney';
   const { status, error } = data;
-  const rawFullValue = data.imageData || data.imageUrl;
+  const rawFullValue = data.imageUrl || data.imageData;
   const fullAssetId = React.useMemo(() => parseFlowImageAssetRef(rawFullValue), [rawFullValue]);
   const fullAssetUrl = useFlowImageAssetUrl(fullAssetId);
   const fullSrc = fullAssetId ? (fullAssetUrl || undefined) : buildImageSrc(rawFullValue);

@@ -156,7 +156,7 @@ function ImageProNodeInner({ id, data, selected }: Props) {
   const containerRef = React.useRef<HTMLDivElement>(null);
 
   // 图片源
-  const rawFullValue = data.imageData || data.imageUrl;
+  const rawFullValue = data.imageUrl || data.imageData;
   const fullAssetId = React.useMemo(() => parseFlowImageAssetRef(rawFullValue), [rawFullValue]);
   const fullAssetUrl = useFlowImageAssetUrl(fullAssetId);
   const fullSrc = React.useMemo(() => {

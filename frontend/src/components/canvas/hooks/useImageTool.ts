@@ -106,7 +106,15 @@ const pickRuntimeImageSource = (params: {
   const persisted = params.persistedCandidates
     .map((candidate) => trimString(candidate))
     .find((candidate) => candidate.length > 0) || '';
+  const persistedRenderable = persisted ? toRenderableImageSrc(persisted) : null;
+  const hasStablePersisted = Boolean(
+    persistedRenderable &&
+      !persistedRenderable.startsWith('data:image/') &&
+      !persistedRenderable.startsWith('blob:')
+  );
 
+  // 一旦有可渲染的持久化来源（OSS URL / key），优先使用它，避免被临时 blob/data 覆盖。
+  if (hasStablePersisted) return persisted;
   // 上传中优先本地预览，避免未落地 key 触发 404 后卡在裂图状态。
   if (params.pendingUpload && local) return local;
   return persisted || local;

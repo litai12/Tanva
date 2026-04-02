@@ -464,7 +464,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   ).trim();
 
   // 原图用于预览和下载
-  const rawFullValue = data.imageData || data.imageUrl;
+  const rawFullValue = data.imageUrl || data.imageData;
   const fullAssetId = React.useMemo(() => parseFlowImageAssetRef(rawFullValue), [rawFullValue]);
   const fullAssetUrl = useFlowImageAssetUrl(fullAssetId);
   const fullSrc = React.useMemo(() => {
