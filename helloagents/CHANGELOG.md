@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Added
+- 认证系统新增观猹 OAuth2 登录：后端增加 `/api/auth/watcha/authorize` + `/api/auth/watcha/callback`，支持授权回调后自动登录、绑定/创建本地账号（`watchaUserId`）。
+- 登录页在“登录”按钮下方新增观猹入口按钮，复用后端授权跳转链路并支持回调错误提示。
 - 工作流历史版本：新增 `WorkflowHistory` 表（按 `userId + projectId + updatedAt` 复合主键），后端提供查询接口；前端右上角增加 n8n 风格历史按钮与“恢复并保存”交互。
 - 画布与 AI 对话框支持 JSON 复制/导入（右键 + `Ctrl/Cmd+Shift+C/V`），导出内容与 `Project.contentJson` 保持一致。
 - Flow 新增 `MiniMax 音乐生成` 节点（`minimaxMusic`）：支持 `prompt`、`lyrics`、`isInstrumental`、`lyricsOptimizer`，输出音频 URL 并支持历史回放/下载；后端新增 `POST /api/ai/minimax-music`，接入 MiniMax `music_generation` 接口并纳入积分服务 `minimax-music`。
@@ -350,3 +352,4 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Layer default naming now follows current locale for newly created layers (`图层 N`/`Layer N`), and layer panel display maps legacy `图层 N`/`Layer N` aliases to current language without mutating stored names (`frontend/src/stores/layerStore.ts`, `frontend/src/components/panels/LayerPanel.tsx`).
 - Project default naming now follows current locale (`workspacePage.prompt.defaultName`) for auto-created/fallback projects, and header quick-switch display maps legacy `未命名*`/`Untitled*` aliases to current language (`frontend/src/stores/projectStore.ts`, `frontend/src/components/layout/FloatingHeader.tsx`).
 - Payment package badges now localize backend-provided `tag/bonus` labels such as `首充翻倍` and `送X%`/`+X%` to prevent Chinese-only badge text in English mode (`frontend/src/components/payment/PaymentPanel.tsx`).
+

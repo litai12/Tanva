@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -8,6 +8,7 @@ import { Loader2, Eye, EyeOff, Check } from "lucide-react";
 import { authApi } from "@/services/authApi";
 import ForgotPasswordModal from "@/components/auth/ForgotPasswordModal";
 import { useTranslation } from "react-i18next";
+import watchaIcon from "@/assets/1752064513_guan-cha-insights.webp";
 
 export default function LoginPage() {
   const { t } = useTranslation();
@@ -19,14 +20,28 @@ export default function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(false); // 默认不勾选，必须手动同意
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { login, loginWithSms, error, user } = useAuthStore();
+  const watchaError = searchParams.get("watcha_error");
 
   useEffect(() => {
     if (user) {
       navigate("/app", { replace: true });
     }
   }, [user, navigate]);
+
+  useEffect(() => {
+    if (!watchaError) return;
+    window.dispatchEvent(
+      new CustomEvent("toast", {
+        detail: {
+          message: watchaError,
+          type: "error",
+        },
+      })
+    );
+  }, [watchaError]);
 
   const _isMock =
     (typeof import.meta !== "undefined" &&
@@ -50,6 +65,10 @@ export default function LoginPage() {
       console.error("登录失败:", err);
       setIsSubmitting(false);
     }
+  };
+
+  const onWatchaLogin = () => {
+    window.location.href = authApi.getWatchaAuthorizeUrl("/app");
   };
 
   // 发送验证码的冷却（秒）
@@ -158,6 +177,24 @@ export default function LoginPage() {
                       t("auth.login.submit")
                     )}
                   </Button>
+                  <div>
+                    <div className='flex items-center gap-3 mb-3'>
+                      <div className='h-px flex-1 bg-white/40' />
+                      <p className='text-xs text-white/70 whitespace-nowrap'>{t("auth.login.otherMethods")}</p>
+                      <div className='h-px flex-1 bg-white/40' />
+                    </div>
+                    <div className='flex justify-center'>
+                      <button
+                        type='button'
+                        onClick={onWatchaLogin}
+                        className='p-0 bg-transparent border-0 shadow-none hover:opacity-85 transition-opacity'
+                        aria-label={t("auth.login.watchaName")}
+                        title={t("auth.login.watchaName")}
+                      >
+                        <img src={watchaIcon} alt='Watcha' className='h-8 w-8 rounded-full object-cover' />
+                      </button>
+                    </div>
+                  </div>
                   <div className='flex justify-between text-sm'>
                     <button
                       onClick={() => setIsForgotPasswordOpen(true)}
@@ -297,6 +334,24 @@ export default function LoginPage() {
                       t("auth.login.submit")
                     )}
                   </Button>
+                  <div>
+                    <div className='flex items-center gap-3 mb-3'>
+                      <div className='h-px flex-1 bg-white/40' />
+                      <p className='text-xs text-white/70 whitespace-nowrap'>{t("auth.login.otherMethods")}</p>
+                      <div className='h-px flex-1 bg-white/40' />
+                    </div>
+                    <div className='flex justify-center'>
+                      <button
+                        type='button'
+                        onClick={onWatchaLogin}
+                        className='p-0 bg-transparent border-0 shadow-none hover:opacity-85 transition-opacity'
+                        aria-label={t("auth.login.watchaName")}
+                        title={t("auth.login.watchaName")}
+                      >
+                        <img src={watchaIcon} alt='Watcha' className='h-9 w-9 rounded-full object-cover' />
+                      </button>
+                    </div>
+                  </div>
 
                   {/* 协议勾选 */}
                   <div className='flex items-center justify-center gap-2 pt-2'>

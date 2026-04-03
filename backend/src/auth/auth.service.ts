@@ -8,6 +8,7 @@ import {
 import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
 import * as bcrypt from "bcryptjs";
+import { randomBytes } from "crypto";
 import { UsersService } from "../users/users.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { RegisterDto } from "./dto/register.dto";
@@ -16,6 +17,48 @@ import { ReferralService } from "../referral/referral.service";
 import { CreditsService } from "../credits/credits.service";
 
 type TokenPair = { accessToken: string; refreshToken: string };
+type WatchaTokenResponse = {
+  access_token?: string;
+  refresh_token?: string;
+  token_type?: string;
+  expires_in?: number;
+  scope?: string;
+  error?: string;
+  error_description?: string;
+};
+
+type WatchaUserInfoPayload = {
+  user_id?: number | string;
+  nickname?: string;
+  avatar_url?: string;
+  email?: string;
+  phone?: string;
+};
+
+type WatchaUserInfoResponse = {
+  statusCode?: number;
+  code?: string;
+  message?: string;
+  data?: WatchaUserInfoPayload;
+};
+
+type WatchaOauthCallbackParams = {
+  code?: string;
+  state?: string;
+  error?: string;
+  error_description?: string;
+};
+
+type WatchaLoginResult = {
+  user: {
+    id: string;
+    email: string | null;
+    name: string | null;
+    phone: string;
+    role: string;
+  };
+  tokens: TokenPair;
+};
 
 @Injectable()
 export class AuthService {
@@ -85,6 +128,305 @@ export class AuthService {
     const domain = invalidLocal ? undefined : rawDomain;
 
     return { httpOnly: true, secure, sameSite, domain, path: "/" } as const;
+  }
+
+  private getWatchaConfig(requireCredentials = true) {
+    const clientId = (this.config.get<string>("WATCHA_OAUTH_CLIENT_ID") || "").trim();
+    const clientSecret = (this.config.get<string>("WATCHA_OAUTH_CLIENT_SECRET") || "").trim();
+    const redirectUri = (this.config.get<string>("WATCHA_OAUTH_REDIRECT_URI") || "").trim();
+    if (requireCredentials) {
+      const missing: string[] = [];
+      if (!clientId) missing.push("WATCHA_OAUTH_CLIENT_ID");
+      if (!clientSecret) missing.push("WATCHA_OAUTH_CLIENT_SECRET");
+      if (!redirectUri) missing.push("WATCHA_OAUTH_REDIRECT_URI");
+      if (missing.length > 0) {
+        throw new BadRequestException(
+          `观猹 OAuth 配置不完整，缺少: ${missing.join(", ")}`
+        );
+      }
+    }
+
+    return {
+      authorizeUrl:
+        (this.config.get<string>("WATCHA_OAUTH_AUTHORIZE_URL") || "https://watcha.cn/oauth/authorize").trim(),
+      tokenUrl: (this.config.get<string>("WATCHA_OAUTH_TOKEN_URL") || "https://watcha.cn/oauth/api/token").trim(),
+      userInfoUrl:
+        (this.config.get<string>("WATCHA_OAUTH_USERINFO_URL") || "https://watcha.cn/oauth/api/userinfo").trim(),
+      scope: (this.config.get<string>("WATCHA_OAUTH_SCOPE") || "read").trim(),
+      frontendBaseUrl: (this.config.get<string>("WATCHA_OAUTH_FRONTEND_BASE_URL") || "http://localhost:5173").trim(),
+      failurePath: (this.config.get<string>("WATCHA_OAUTH_FAILURE_PATH") || "/auth/login").trim(),
+      stateSecret:
+        (this.config.get<string>("WATCHA_OAUTH_STATE_SECRET") ||
+          this.config.get<string>("JWT_ACCESS_SECRET") ||
+          "watcha-state-secret").trim(),
+      clientId,
+      clientSecret,
+      redirectUri,
+    };
+  }
+
+  private normalizeEmail(email?: string | null): string | null {
+    if (!email) return null;
+    const normalized = email.trim().toLowerCase();
+    return normalized || null;
+  }
+
+  private normalizePhone(phone?: string | null): string | null {
+    if (!phone) return null;
+    const normalized = phone.trim();
+    return normalized || null;
+  }
+
+  private normalizeName(name?: string | null): string | null {
+    if (!name) return null;
+    const normalized = name.trim();
+    return normalized || null;
+  }
+
+  private sanitizeReturnTo(returnTo?: string | null): string {
+    if (!returnTo) return "/app";
+    const trimmed = returnTo.trim();
+    if (!trimmed.startsWith("/") || trimmed.startsWith("//")) return "/app";
+    return trimmed.length > 512 ? "/app" : trimmed;
+  }
+
+  private buildFrontendRedirect(
+    baseUrl: string,
+    path: string,
+    query?: Record<string, string | undefined>
+  ) {
+    const redirectUrl = new URL(path, baseUrl);
+    if (query) {
+      for (const [key, value] of Object.entries(query)) {
+        if (value) {
+          redirectUrl.searchParams.set(key, value);
+        }
+      }
+    }
+    return redirectUrl.toString();
+  }
+
+  private async createWatchaState(returnTo?: string) {
+    const { stateSecret } = this.getWatchaConfig(false);
+    return this.jwt.signAsync(
+      { type: "watcha_oauth", returnTo: this.sanitizeReturnTo(returnTo) },
+      { secret: stateSecret, expiresIn: "10m" }
+    );
+  }
+
+  private async parseWatchaState(state: string): Promise<{ returnTo: string }> {
+    const { stateSecret } = this.getWatchaConfig(false);
+    const decoded = await this.jwt.verifyAsync<{ type?: string; returnTo?: string }>(state, {
+      secret: stateSecret,
+    });
+    if (!decoded || decoded.type !== "watcha_oauth") {
+      throw new UnauthorizedException("无效的观猹登录状态");
+    }
+    return { returnTo: this.sanitizeReturnTo(decoded.returnTo) };
+  }
+
+  async buildWatchaAuthorizeUrl(returnTo?: string) {
+    const watchaConfig = this.getWatchaConfig();
+    const state = await this.createWatchaState(returnTo);
+    const params = new URLSearchParams({
+      response_type: "code",
+      client_id: watchaConfig.clientId,
+      redirect_uri: watchaConfig.redirectUri,
+      scope: watchaConfig.scope || "read",
+      state,
+    });
+    return `${watchaConfig.authorizeUrl}?${params.toString()}`;
+  }
+
+  buildWatchaFailureRedirect(message?: string) {
+    const watchaConfig = this.getWatchaConfig(false);
+    return this.buildFrontendRedirect(watchaConfig.frontendBaseUrl, watchaConfig.failurePath, {
+      watcha_error: message,
+    });
+  }
+
+  private async fetchWatchaToken(code: string): Promise<string> {
+    const watchaConfig = this.getWatchaConfig();
+    const body = new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: watchaConfig.redirectUri,
+      client_id: watchaConfig.clientId,
+      client_secret: watchaConfig.clientSecret,
+    });
+
+    const res = await fetch(watchaConfig.tokenUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+
+    const data = (await res.json().catch(() => null)) as WatchaTokenResponse | null;
+    if (!res.ok || !data || data.error || !data.access_token) {
+      const msg = data?.error_description || data?.error || `HTTP ${res.status}`;
+      throw new UnauthorizedException(`观猹 Token 获取失败: ${msg}`);
+    }
+    return data.access_token;
+  }
+
+  private async fetchWatchaUserInfo(accessToken: string) {
+    const watchaConfig = this.getWatchaConfig();
+    const userInfoUrl = new URL(watchaConfig.userInfoUrl);
+    userInfoUrl.searchParams.set("access_token", accessToken);
+
+    const res = await fetch(userInfoUrl.toString(), { method: "GET" });
+    const data = (await res.json().catch(() => null)) as WatchaUserInfoResponse | null;
+    const payload = data?.data;
+
+    if (!res.ok || !payload || (!payload.user_id && payload.user_id !== 0)) {
+      const msg = data?.message || `HTTP ${res.status}`;
+      throw new UnauthorizedException(`观猹用户信息获取失败: ${msg}`);
+    }
+    return {
+      watchaUserId: String(payload.user_id),
+      nickname: this.normalizeName(payload.nickname),
+      avatarUrl: payload.avatar_url || null,
+      email: this.normalizeEmail(payload.email),
+      phone: this.normalizePhone(payload.phone),
+    };
+  }
+
+  private async pickWatchaPhoneCandidate(tx: any, watchaUserId: string, preferredPhone?: string | null) {
+    if (preferredPhone) {
+      const exists = await tx.user.findUnique({ where: { phone: preferredPhone } });
+      if (!exists) return preferredPhone;
+    }
+
+    const slug = watchaUserId.replace(/[^0-9a-zA-Z]/g, "").slice(0, 16) || randomBytes(6).toString("hex");
+    for (let i = 0; i < 20; i += 1) {
+      const candidate = `watcha_${slug}_${i}`;
+      const exists = await tx.user.findUnique({ where: { phone: candidate } });
+      if (!exists) return candidate;
+    }
+    return `watcha_${slug}_${Date.now()}`;
+  }
+
+  async loginWithWatcha(
+    profile: { watchaUserId: string; nickname?: string | null; avatarUrl?: string | null; email?: string | null; phone?: string | null },
+    meta?: { ip?: string; ua?: string }
+  ): Promise<WatchaLoginResult> {
+    const email = this.normalizeEmail(profile.email);
+    const phone = this.normalizePhone(profile.phone);
+    const name = this.normalizeName(profile.nickname) || `观猹用户-${profile.watchaUserId}`;
+    const syntheticPasswordHash = await bcrypt.hash(randomBytes(24).toString("hex"), 10);
+
+    const user = await this.prisma.$transaction(async (tx) => {
+      const pickSafeEmail = async (targetUserId: string, currentEmail: string | null) => {
+        if (currentEmail || !email) return currentEmail;
+        const owner = await tx.user.findUnique({ where: { email } });
+        if (!owner || owner.id === targetUserId) {
+          return email;
+        }
+        return currentEmail;
+      };
+
+      const byWatcha = await tx.user.findUnique({ where: { watchaUserId: profile.watchaUserId } });
+      if (byWatcha) {
+        const safeEmail = await pickSafeEmail(byWatcha.id, byWatcha.email);
+        return tx.user.update({
+          where: { id: byWatcha.id },
+          data: {
+            name: byWatcha.name || name,
+            avatarUrl: profile.avatarUrl || byWatcha.avatarUrl,
+            email: safeEmail,
+          },
+          select: { id: true, email: true, name: true, phone: true, role: true },
+        });
+      }
+
+      let candidate: any = null;
+      if (phone) {
+        candidate = await tx.user.findUnique({ where: { phone } });
+      }
+      if (!candidate && email) {
+        candidate = await tx.user.findUnique({ where: { email } });
+      }
+
+      if (candidate) {
+        if (candidate.watchaUserId && candidate.watchaUserId !== profile.watchaUserId) {
+          throw new UnauthorizedException("该账号已绑定其他观猹账号");
+        }
+        const safeEmail = await pickSafeEmail(candidate.id, candidate.email);
+        return tx.user.update({
+          where: { id: candidate.id },
+          data: {
+            watchaUserId: profile.watchaUserId,
+            name: candidate.name || name,
+            avatarUrl: profile.avatarUrl || candidate.avatarUrl,
+            email: safeEmail,
+          },
+          select: { id: true, email: true, name: true, phone: true, role: true },
+        });
+      }
+
+      let emailForCreate: string | null = null;
+      if (email) {
+        const emailExists = await tx.user.findUnique({ where: { email } });
+        if (!emailExists) {
+          emailForCreate = email;
+        }
+      }
+
+      const phoneForCreate = await this.pickWatchaPhoneCandidate(tx, profile.watchaUserId, phone);
+      return tx.user.create({
+        data: {
+          watchaUserId: profile.watchaUserId,
+          name,
+          avatarUrl: profile.avatarUrl || null,
+          email: emailForCreate,
+          phone: phoneForCreate,
+          passwordHash: syntheticPasswordHash,
+        },
+        select: { id: true, email: true, name: true, phone: true, role: true },
+      });
+    });
+
+    const tokens = await this.login(
+      { id: user.id, email: user.email || "", role: user.role },
+      meta
+    );
+    return { user, tokens };
+  }
+
+  async handleWatchaOauthCallback(
+    params: WatchaOauthCallbackParams,
+    meta?: { ip?: string; ua?: string }
+  ): Promise<{ user: WatchaLoginResult["user"]; tokens: TokenPair; redirectUrl: string }> {
+    const watchaConfig = this.getWatchaConfig();
+
+    if (params.error) {
+      throw new UnauthorizedException(params.error_description || params.error);
+    }
+
+    if (!params.code || !params.state) {
+      throw new BadRequestException("缺少观猹授权参数");
+    }
+
+    let returnTo = "/app";
+    try {
+      const statePayload = await this.parseWatchaState(params.state);
+      returnTo = statePayload.returnTo;
+    } catch {
+      throw new UnauthorizedException("观猹登录状态已失效，请重新发起登录");
+    }
+
+    try {
+      const accessToken = await this.fetchWatchaToken(params.code);
+      const profile = await this.fetchWatchaUserInfo(accessToken);
+      const { user, tokens } = await this.loginWithWatcha(profile, meta);
+      return {
+        user,
+        tokens,
+        redirectUrl: this.buildFrontendRedirect(watchaConfig.frontendBaseUrl, returnTo),
+      };
+    } catch (error: any) {
+      throw new UnauthorizedException(error?.message || "观猹登录失败");
+    }
   }
 
   async register(dto: RegisterDto, meta?: { ip?: string; ua?: string }) {
