@@ -475,34 +475,57 @@ export class PaymentService implements OnModuleInit {
     if (!this.wechatPay) {
       return { status: null, transactionId: null, totalAmount: null, paidAt: null, raw: null };
     }
+
     try {
-      const appid = this.configService.get<string>('WECHAT_APP_ID');
-      const mchid = this.configService.get<string>('WECHAT_MCH_ID');
-      const result = await this.wechatPay.orderQuery({
-        appid,
-        mchid,
-        out_trade_no: orderNo,
-      });
+      let result: any = null;
 
-      console.log('微信支付订单查询响应:', JSON.stringify(result, null, 2));
+      if (typeof this.wechatPay.query === 'function') {
+        result = await this.wechatPay.query({ out_trade_no: orderNo });
+      } else if (typeof this.wechatPay.orderQuery === 'function') {
+        const appid = this.configService.get<string>('WECHAT_APP_ID');
+        const mchid = this.configService.get<string>('WECHAT_MCH_ID');
+        result = await this.wechatPay.orderQuery({ appid, mchid, out_trade_no: orderNo });
+      } else {
+        throw new Error('wechatpay-node-v3 SDK missing query method');
+      }
 
-      const totalInCents = this.toNumber((result as any)?.amount?.total);
+      // SDK 标准返回: { status, data, errRaw, error }
+      const payload = result?.data && typeof result.data === 'object' ? result.data : result;
+      const totalInCents = this.toNumber(payload?.amount?.total);
+      const tradeState =
+        typeof payload?.trade_state === 'string'
+          ? payload.trade_state
+          : typeof payload?.tradeStatus === 'string'
+            ? payload.tradeStatus
+            : null;
+
+      this.logger.log(
+        `[wechat_query] orderNo=${orderNo}, httpStatus=${String(result?.status ?? '-')}, tradeState=${String(tradeState ?? '-')}, transactionId=${String(payload?.transaction_id ?? payload?.transactionId ?? '-')}`,
+      );
+
       return {
-        status: (result.trade_state ?? null) as string | null,
-        transactionId: (result.transaction_id ?? null) as string | null,
+        status: tradeState,
+        transactionId:
+          typeof payload?.transaction_id === 'string'
+            ? payload.transaction_id
+            : typeof payload?.transactionId === 'string'
+              ? payload.transactionId
+              : null,
         totalAmount: totalInCents === null ? null : totalInCents / 100,
         paidAt:
-          typeof (result as any)?.success_time === 'string' && (result as any).success_time
-            ? new Date((result as any).success_time)
+          typeof payload?.success_time === 'string' && payload.success_time
+            ? new Date(payload.success_time)
             : null,
         raw: result as Record<string, unknown>,
       };
     } catch (error) {
-      console.error('查询微信支付交易状态失败:', error);
+      this.logger.error(
+        `查询微信支付交易状态失败: orderNo=${orderNo}`,
+        error instanceof Error ? error.stack : String(error),
+      );
       return { status: null, transactionId: null, totalAmount: null, paidAt: null, raw: null };
     }
   }
-
   private async processPaymentSuccess(
     orderId: string,
     userId: string,

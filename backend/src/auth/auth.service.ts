@@ -174,7 +174,26 @@ export class AuthService {
   private normalizePhone(phone?: string | null): string | null {
     if (!phone) return null;
     const normalized = phone.trim();
-    return normalized || null;
+    if (!normalized) return null;
+
+    const digits = normalized.replace(/\D/g, "");
+    if (digits) {
+      if (/^1\d{10}$/.test(digits)) {
+        return digits;
+      }
+      if (digits.startsWith("86")) {
+        const without86 = digits.slice(2);
+        if (/^1\d{10}$/.test(without86)) {
+          return without86;
+        }
+      }
+      const tail11 = digits.slice(-11);
+      if (/^1\d{10}$/.test(tail11)) {
+        return tail11;
+      }
+    }
+
+    return normalized;
   }
 
   private normalizeName(name?: string | null): string | null {
