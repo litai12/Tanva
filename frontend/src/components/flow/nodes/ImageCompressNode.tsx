@@ -108,7 +108,15 @@ const readImageFromNode = (node: Node<Record<string, unknown>>, sourceHandle?: s
     return readFrameImageFromVideoExtractNode(d);
   }
 
-  if ((node.type === 'generate4' || node.type === 'generatePro4') && typeof sourceHandle === 'string') {
+  if (
+    (
+      node.type === 'generate4' ||
+      node.type === 'generatePro4' ||
+      node.type === 'midjourneyV7' ||
+      node.type === 'niji7'
+    ) &&
+    typeof sourceHandle === 'string'
+  ) {
     const match = /^img(\d+)$/.exec(sourceHandle);
     if (match) {
       const idx = Math.max(0, Number(match[1]) - 1);

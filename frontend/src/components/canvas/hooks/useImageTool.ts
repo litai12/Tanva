@@ -32,6 +32,21 @@ const setRasterSourceSafely = (raster: paper.Raster, source: string) => {
   const value = typeof source === 'string' ? source.trim() : '';
   if (!value) return;
   try { (raster as any).__tanvaSourceRef = value; } catch {}
+
+  // 运行时本地预览：允许 blob:（仅展示，不持久化）。
+  if (value.startsWith('blob:')) {
+    try {
+      raster.source = value;
+      return;
+    } catch {}
+    try {
+      const img = new Image();
+      img.src = value;
+      (raster as any).setImage(img);
+      return;
+    } catch {}
+  }
+
   const renderable = toRenderableImageSrc(value);
   if (!renderable) return;
   if (renderable.startsWith('data:image/')) {
@@ -87,13 +102,21 @@ const pickRuntimeImageSource = (params: {
   localDataUrl?: string | null;
   persistedCandidates: Array<string | null | undefined>;
 }): string => {
-  const rawLocal = trimString(params.localDataUrl);
-  const local = rawLocal.startsWith('blob:') ? '' : rawLocal;
+  const local = trimString(params.localDataUrl);
   const persisted = params.persistedCandidates
     .map((candidate) => trimString(candidate))
     .find((candidate) => candidate.length > 0) || '';
+  const persistedRenderable = persisted ? toRenderableImageSrc(persisted) : null;
+  const hasStablePersisted = Boolean(
+    persistedRenderable &&
+      !persistedRenderable.startsWith('data:image/') &&
+      !persistedRenderable.startsWith('blob:')
+  );
 
-  if (params.pendingUpload && local && !persisted) return local;
+  // 一旦有可渲染的持久化来源（OSS URL / key），优先使用它，避免被临时 blob/data 覆盖。
+  if (hasStablePersisted) return persisted;
+  // 上传中优先本地预览，避免未落地 key 触发 404 后卡在裂图状态。
+  if (params.pendingUpload && local) return local;
   return persisted || local;
 };
 
@@ -521,9 +544,9 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       localDataUrl: asset.localDataUrl,
       persistedCandidates: [persistedSrc, persistedUrl, asset.url],
     });
-    const renderable = toRenderableImageSrc(preferredDisplaySrc || asset.url);
-    if (renderable) {
-      setRasterSourceSafely(raster, renderable);
+    const sourceForRaster = preferredDisplaySrc || asset.url;
+    if (sourceForRaster) {
+      setRasterSourceSafely(raster, sourceForRaster);
     }
 
     // 创建Paper.js组来包含所有相关元素（仅包含Raster，避免“隐形框”扩大边界）
@@ -1901,4 +1924,3 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     applyBoundsFromSnapshot,
   };
 };
-

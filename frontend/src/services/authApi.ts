@@ -163,6 +163,11 @@ async function json<T>(res: Response): Promise<T> {
 }
 
 export const authApi = {
+  getWatchaAuthorizeUrl(returnTo = "/app") {
+    const params = new URLSearchParams({ returnTo });
+    return `${base}/api/auth/watcha/authorize?${params.toString()}`;
+  },
+
   async meDetailed(): Promise<{
     user: UserInfo | null;
     source: "mock" | "server" | "refresh" | "local" | null;

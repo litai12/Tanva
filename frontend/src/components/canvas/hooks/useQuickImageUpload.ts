@@ -8,17 +8,20 @@ import paper from 'paper';
 import { logger } from '@/utils/logger';
 import { historyService } from '@/services/historyService';
 import { paperSaveService } from '@/services/paperSaveService';
+import { imageUploadService } from '@/services/imageUploadService';
 import { useUIStore } from '@/stores/uiStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useImageHistoryStore } from '@/stores/imageHistoryStore';
 import { isRaster } from '@/utils/paperCoords';
 import { createImageGroupBlock } from '@/utils/paperImageGroupBlock';
+import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import {
     isAssetKeyRef,
     isAssetProxyRef,
     isPersistableImageRef,
     isRemoteUrl,
     normalizePersistableImageRef,
+    requiresManagedImageUpload,
     toRenderableImageSrc,
 } from '@/utils/imageSource';
 import type { DrawingContext, StoredImageAsset } from '@/types/canvas';
@@ -32,22 +35,6 @@ interface UseQuickImageUploadProps {
 const isInlineDataUrl = (value?: string | null): value is string => {
     if (typeof value !== 'string') return false;
     return value.startsWith('data:image');
-};
-
-const toCanvasSafeInlineImageSource = async (value: string): Promise<string> => {
-    const trimmed = typeof value === 'string' ? value.trim() : '';
-    if (!trimmed) return value;
-    if (trimmed.startsWith('blob:')) return '';
-    if (trimmed.startsWith('data:image/')) return trimmed;
-    // 兜底：裸 base64（避免在画布上直接渲染 data:image/base64）
-    if (!isPersistableImageRef(trimmed) && trimmed.length > 128) {
-        const compact = trimmed.replace(/\s+/g, '');
-        const base64Pattern = /^[A-Za-z0-9+/=]+$/;
-        if (base64Pattern.test(compact)) {
-            return `data:image/png;base64,${compact}`;
-        }
-    }
-    return trimmed;
 };
 
 const toPreferredRemoteSource = (value: string): string => {
@@ -88,12 +75,13 @@ const pickRasterSource = (asset: StoredImageAsset): { source: string; remoteUrl?
         normalizedRemote ||
         (isRemoteUrl(normalizedSrc) ? normalizedSrc : undefined) ||
         (isRemoteUrl(normalizedUrl) ? normalizedUrl : undefined);
+    const pendingPreview = asset.pendingUpload ? localPreview : undefined;
     const displayCandidate =
+        pendingPreview ||
         stableRemoteCandidate ||
         key ||
         normalizedSrc ||
         normalizedUrl ||
-        (asset.pendingUpload ? localPreview : undefined) ||
         localPreview ||
         asset.url;
 
@@ -1123,52 +1111,89 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         }
 
         let asset: StoredImageAsset | null = null;
-        const skipUpload = Boolean(extraOptions?.placeholderId); // AI生成的占位符无需等待上传即可落盘
+        const uploadDir = projectId ? `projects/${projectId}/images/` : 'uploads/images/';
+        const ensureManagedAsset = async (
+            uploadInput: string,
+            preferredFileName: string,
+            preferredIdPrefix: string,
+        ): Promise<StoredImageAsset | null> => {
+            const inlinePreview = isInlineDataUrl(uploadInput) ? uploadInput : undefined;
+            const uploadResult = await imageUploadService.uploadImageSource(uploadInput, {
+                projectId: projectId ?? undefined,
+                dir: uploadDir,
+                fileName: preferredFileName || `quick-image-${Date.now()}.png`,
+            });
+            if (!uploadResult.success || !uploadResult.asset) {
+                if (inlinePreview) {
+                    return {
+                        id: `${preferredIdPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                        url: inlinePreview,
+                        src: inlinePreview,
+                        remoteUrl: undefined,
+                        key: undefined,
+                        fileName: preferredFileName,
+                        pendingUpload: true,
+                        localDataUrl: inlinePreview,
+                    };
+                }
+                return null;
+            }
+            const uploadedUrl = normalizePersistableImageRef(uploadResult.asset.url);
+            const uploadedKey = normalizePersistableImageRef(uploadResult.asset.key);
+            const persistedRef = uploadedUrl || uploadedKey;
+            if (!persistedRef || !isPersistableImageRef(persistedRef)) {
+                if (inlinePreview) {
+                    return {
+                        id: `${preferredIdPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                        url: inlinePreview,
+                        src: inlinePreview,
+                        remoteUrl: undefined,
+                        key: undefined,
+                        fileName: preferredFileName,
+                        pendingUpload: true,
+                        localDataUrl: inlinePreview,
+                    };
+                }
+                return null;
+            }
+            const displayRef = uploadedUrl || persistedRef;
+            const remoteUrl = isRemoteUrl(displayRef) ? displayRef : undefined;
+            return {
+                id: `${preferredIdPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                url: displayRef,
+                src: toRenderableImageSrc(displayRef) || displayRef,
+                remoteUrl,
+                key: uploadedKey || uploadResult.asset.key,
+                fileName: uploadResult.asset.fileName || preferredFileName,
+                width: uploadResult.asset.width,
+                height: uploadResult.asset.height,
+                contentType: uploadResult.asset.contentType,
+                pendingUpload: false,
+                localDataUrl: undefined,
+            };
+        };
         if (typeof imagePayload === 'string') {
-            // 🔥 统一判定：是否为“可持久化图片引用”（remote URL / proxy path / OSS key / 相对路径）
-            const normalizedPersisted = normalizePersistableImageRef(imagePayload);
+            const trimmedPayload = imagePayload.trim();
+            const resolvedName = fileName || 'uploaded-image.png';
+            const normalizedPersisted = normalizePersistableImageRef(trimmedPayload);
             const isPersisted = !!normalizedPersisted && isPersistableImageRef(normalizedPersisted);
-
-            if (isPersisted) {
-                // 已是可持久化引用：直接使用，不需要上传
-                logger.upload(`🌐 [handleQuickImageUploaded] 检测到可持久化图片引用，直接使用: ${String(imagePayload).substring(0, 50)}...`);
+            const shouldUploadManaged =
+                !isPersisted || requiresManagedImageUpload(normalizedPersisted);
+            if (shouldUploadManaged) {
+                asset = await ensureManagedAsset(trimmedPayload, resolvedName, 'oss_img');
+            } else {
                 asset = {
                     id: `remote_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
                     url: normalizedPersisted,
                     key: isAssetKeyRef(normalizedPersisted) ? normalizedPersisted : undefined,
                     src: toRenderableImageSrc(normalizedPersisted) || normalizedPersisted,
-                    fileName: fileName || 'remote-image.png',
+                    remoteUrl: isRemoteUrl(normalizedPersisted) ? normalizedPersisted : undefined,
+                    fileName: resolvedName,
                     pendingUpload: false,
+                    localDataUrl: undefined,
                 };
-            } else if (skipUpload) {
-                const resolvedName = fileName || 'ai-image.png';
-                // AI落盘：避免在画布上直接渲染 data:image/base64，优先转为 blob: ObjectURL；
-                // 上传与远程替换由上游（或保存流程）负责。
-                const localSource = await toCanvasSafeInlineImageSource(imagePayload);
-                asset = {
-                    id: `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-                    url: localSource,
-                    src: localSource,
-                    fileName: resolvedName,
-                    // AI 场景仍需要在后台补传 OSS，保存前必须确保可持久化引用
-                    pendingUpload: true,
-                    localDataUrl: localSource,
-                };
-                fileName = resolvedName;
-            } else {
-                // 先上画布（本地 blob: 预览），上传由自动保存流程补传到 OSS（避免“等上传完才显示”）
-                const resolvedName = fileName || 'uploaded-image.png';
-                const localSource = await toCanvasSafeInlineImageSource(imagePayload);
-                asset = {
-                    id: `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-                    url: localSource,
-                    src: localSource,
-                    fileName: resolvedName,
-                    pendingUpload: true,
-                    localDataUrl: localSource,
-                };
-                fileName = resolvedName;
             }
+            fileName = resolvedName;
         } else {
             const inlineSource =
                 isInlineDataUrl(imagePayload.localDataUrl)
@@ -1185,16 +1210,47 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 (isAssetKeyRef(normalizedKey) ? normalizedKey : '') ||
                 normalizedUrl ||
                 normalizedSrc;
-            asset = {
-                ...imagePayload,
-                // 运行时展示优先使用本地 blob/data（尤其是“先关联 key 再后台上传”的场景），避免 key 尚未可用导致其它模块读图失败
-                src: persistableCandidate || inlineSource || imagePayload.src || imagePayload.url,
-                localDataUrl: inlineSource,
-            };
-            fileName = asset.fileName || fileName;
+            const shouldUploadManaged =
+                !persistableCandidate || requiresManagedImageUpload(persistableCandidate);
+            if (shouldUploadManaged) {
+                const uploadInput =
+                    inlineSource ||
+                    imagePayload.localDataUrl ||
+                    imagePayload.src ||
+                    imagePayload.url ||
+                    imagePayload.remoteUrl ||
+                    '';
+                if (uploadInput) {
+                    asset = await ensureManagedAsset(
+                        uploadInput,
+                        imagePayload.fileName || fileName || 'uploaded-image.png',
+                        imagePayload.id || 'oss_img',
+                    );
+                    if (asset) {
+                        asset.id = imagePayload.id || asset.id;
+                    }
+                }
+            } else {
+                const stableRef = persistableCandidate;
+                const pendingUpload = !!imagePayload.pendingUpload;
+                const localPreview = isInlineDataUrl(imagePayload.localDataUrl)
+                    ? imagePayload.localDataUrl
+                    : undefined;
+                asset = {
+                    ...imagePayload,
+                    url: stableRef,
+                    src: (pendingUpload && localPreview)
+                        ? localPreview
+                        : (toRenderableImageSrc(stableRef) || stableRef),
+                    remoteUrl: isRemoteUrl(stableRef) ? stableRef : imagePayload.remoteUrl,
+                    pendingUpload,
+                    localDataUrl: localPreview,
+                };
+            }
+            fileName = asset?.fileName || fileName;
         }
 
-        if (!asset || (!asset.url && !asset.localDataUrl)) {
+        if (!asset || !asset.url) {
             logger.error('快速上传未获取到有效图片资源');
             if (extraOptions?.placeholderId) {
                 removePredictedPlaceholder(extraOptions.placeholderId);
@@ -1450,8 +1506,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             };
 
             // 🔥 创建图片加载函数，支持 CORS 失败后重试
-            const loadRasterWithFallback = (useCrossOrigin: boolean) => {
-                const raster = new paper.Raster();
+	            const loadRasterWithFallback = (useCrossOrigin: boolean) => {
+	                const raster = new paper.Raster();
                 try {
                     if (useCrossOrigin && shouldUseAnonymousCrossOrigin(rasterSource)) {
                         (raster as any).crossOrigin = 'anonymous';
@@ -1466,8 +1522,11 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     };
                 }
 
-                return raster;
-            };
+	                return raster;
+	            };
+
+	            // When direct OSS/CDN loading fails, force the render source to keep proxy url.
+	            let forceProxyRenderSource = false;
 
 	            const setRasterSource = (target: paper.Raster, source: string) => {
 	                const value = typeof source === 'string' ? source.trim() : '';
@@ -1475,7 +1534,13 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 	                try { (target as any).__tanvaSourceRef = value; } catch {}
 	                // Paper.js 对 string source 的内部 loader 在部分环境对 blob:/data: 偶发不稳定；
 	                // 这里对 inline source 用 HTMLImageElement 显式加载，提升兼容性。
-	                const renderable = toRenderableImageSrc(value);
+	                const shouldForceProxy = forceProxyRenderSource && isAssetProxyRef(value);
+	                let renderable = shouldForceProxy
+	                    ? proxifyRemoteAssetUrl(value, { forceProxy: true })
+	                    : toRenderableImageSrc(value);
+	                if (!renderable && shouldForceProxy) {
+	                    renderable = value;
+	                }
 	                if (!renderable) return;
 	                if (renderable.startsWith('data:image/')) {
 	                    try {
@@ -1492,6 +1557,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 	            let raster = loadRasterWithFallback(true);
 	            let hasRetriedCrossOrigin = false;
 	            let hasRetriedProxyFallback = false;
+	            let hasRetriedDirectToProxyFallback = false;
 	            let loadTimeoutId: number | null = null;
 	            let retryCount = 0;
 	            let hasTerminalLoadFailure = false;
@@ -2104,31 +2170,84 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
 	            // 🔥 定义 onError 处理器（支持 proxy/CORS 失败后重试）
 	            onErrorHandler = (e: any) => {
-	                if (hasTerminalLoadFailure) return;
-	                // 代理失败（如 Host not allowed）时，回退到直接 URL 加载
-	                if (
-	                    !hasRetriedProxyFallback &&
-	                    resolvedRemoteUrl &&
-	                    isAssetProxyRef(rasterSource)
-	                ) {
-	                    hasRetriedProxyFallback = true;
-	                    rasterSource = resolvedRemoteUrl;
-	                    logger.upload('🔄 Proxy 加载失败，回退到直接 URL 加载...');
-	                    restartRasterLoad(true);
-	                    return;
-	                }
+                    if (hasTerminalLoadFailure) return;
+                    // proxy load failed -> retry direct remote URL
+                    if (
+                        !hasRetriedProxyFallback &&
+                        resolvedRemoteUrl &&
+                        isAssetProxyRef(rasterSource)
+                    ) {
+                        hasRetriedProxyFallback = true;
+                        forceProxyRenderSource = false;
+                        rasterSource = resolvedRemoteUrl;
+                        logger.upload('Proxy load failed, fallback to direct URL...');
+                        restartRasterLoad(true);
+                        return;
+                    }
 
-	                // CORS 失败时，尝试不带 crossOrigin 重新加载
-	                if (!hasRetriedCrossOrigin && shouldUseAnonymousCrossOrigin(rasterSource)) {
-	                    hasRetriedCrossOrigin = true;
-	                    logger.upload('🔄 CORS 加载失败，尝试不带 crossOrigin 重新加载...');
-	                    restartRasterLoad(false);
-	                    return;
-	                }
+                    // direct OSS/CDN load failed -> fallback to proxy once
+                    if (
+                        !hasRetriedDirectToProxyFallback &&
+                        !hasRetriedProxyFallback
+                    ) {
+                        const normalizedKey = typeof resolvedKey === 'string' ? resolvedKey.trim().replace(/^\/+/, '') : '';
+                        const keyFromRemoteUrl = (() => {
+                            const remote = typeof resolvedRemoteUrl === 'string' ? resolvedRemoteUrl.trim() : '';
+                            if (!remote || !isRemoteUrl(remote)) return '';
+                            try {
+                                const fromPath = new URL(remote).pathname.replace(/^\/+/, '');
+                                return isAssetKeyRef(fromPath) ? fromPath : '';
+                            } catch {
+                                return '';
+                            }
+                        })();
+                        const managedKeyCandidate = [normalizedKey, keyFromRemoteUrl].find((k) => isAssetKeyRef(k)) || '';
+                        const keyProxySource = managedKeyCandidate
+                            ? proxifyRemoteAssetUrl(`/api/assets/proxy?key=${encodeURIComponent(managedKeyCandidate)}`, { forceProxy: true })
+                            : '';
+                        if (keyProxySource) {
+                            hasRetriedDirectToProxyFallback = true;
+                            // prevent proxy<->direct bouncing loop
+                            hasRetriedProxyFallback = true;
+                            forceProxyRenderSource = true;
+                            rasterSource = keyProxySource;
+                            logger.upload('Direct URL load failed, fallback to proxy key source...');
+                            restartRasterLoad(false);
+                            return;
+                        }
 
-	                if (attemptLoadRetry('onError', { error: e })) return;
-	                finalizeLoadFailure(e, 'onError');
-	            };
+                        const currentSource = typeof rasterSource === 'string' ? rasterSource.trim() : '';
+                        const fallbackDirectSource = currentSource && isRemoteUrl(currentSource) && !isAssetProxyRef(currentSource)
+                            ? currentSource
+                            : (resolvedRemoteUrl && isRemoteUrl(resolvedRemoteUrl) && !isAssetProxyRef(resolvedRemoteUrl))
+                                ? resolvedRemoteUrl
+                                : '';
+                        if (fallbackDirectSource) {
+                            const proxiedSource = proxifyRemoteAssetUrl(fallbackDirectSource, { forceProxy: true });
+                            if (proxiedSource && proxiedSource !== fallbackDirectSource) {
+                                hasRetriedDirectToProxyFallback = true;
+                                // prevent proxy<->direct bouncing loop
+                                hasRetriedProxyFallback = true;
+                                forceProxyRenderSource = true;
+                                rasterSource = proxiedSource;
+                                logger.upload('Direct URL load failed, fallback to proxy...');
+                                restartRasterLoad(false);
+                                return;
+                            }
+                        }
+                    }
+
+                    // CORS load failed -> retry without crossOrigin
+                    if (!hasRetriedCrossOrigin && shouldUseAnonymousCrossOrigin(rasterSource)) {
+                        hasRetriedCrossOrigin = true;
+                        logger.upload('CORS load failed, retry without crossOrigin...');
+                        restartRasterLoad(false);
+                        return;
+                    }
+
+                    if (attemptLoadRetry('onError', { error: e })) return;
+                    finalizeLoadFailure(e, 'onError');
+                }; 
 
 	            // 绑定处理器并触发首次加载
 	            bindRasterHandlers();

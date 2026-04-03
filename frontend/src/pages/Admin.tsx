@@ -1116,6 +1116,17 @@ const BANANA_PROVIDER_OPTIONS = [
     description: "优先使用 Apimart，失败后自动切换到 147",
   },
   {
+    value: "tencent_auto",
+    label: "自动切换（腾讯优先）",
+    description:
+      "优先使用腾讯 Nano Banana，失败后自动切换到 Apimart/147",
+  },
+  {
+    value: "tencent",
+    label: "腾讯 Nano Banana",
+    description: "强制使用腾讯 Nano Banana",
+  },
+  {
     value: "legacy_auto",
     label: "自动切换（147优先）",
     description: "优先使用 147，失败后自动切换到 Apimart",

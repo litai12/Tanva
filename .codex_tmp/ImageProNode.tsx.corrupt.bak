@@ -30,7 +30,7 @@ type Props = {
   selected?: boolean;
 };
 
-// 构建图片 src - 优先使用 OSS URL，避免 proxy 降级
+// 构建图片 src - 优先使用 OSS URL，避�?proxy 降级
 const buildImageSrc = (value?: string): string | undefined => {
   if (!value) return undefined;
   const trimmed = value.trim();
@@ -78,7 +78,7 @@ const ImageContent = React.memo(({ displaySrc, isDragOver, uploading, uploadErro
       cursor: 'pointer',
       border: isDragOver ? '2px dashed #3b82f6' : 'none',
     }}
-    title={lt('拖拽图片到此或双击上传', 'Drag image here or double click to upload')}
+    title={lt('拖拽图片到此或双击上�?, 'Drag image here or double click to upload')}
   >
     {Boolean(uploading) && (
       <div
@@ -95,7 +95,7 @@ const ImageContent = React.memo(({ displaySrc, isDragOver, uploading, uploadErro
           color: '#374151',
         }}
       >
-        {lt('正在上传…', 'Uploading...')}
+        {lt('正在上传�?, 'Uploading...')}
       </div>
     )}
     {!uploading && uploadError ? (
@@ -142,7 +142,7 @@ const ImageContent = React.memo(({ displaySrc, isDragOver, uploading, uploadErro
         />
       ) : (
         <span style={{ fontSize: 12, color: '#9ca3af' }}>
-          {isDragOver ? lt('释放以上传', 'Release to upload') : lt('拖拽图片到此或双击上传', 'Drag image here or double click to upload')}
+          {isDragOver ? lt('释放以上�?, 'Release to upload') : lt('拖拽图片到此或双击上�?, 'Drag image here or double click to upload')}
         </span>
       )}
     </div>
@@ -155,8 +155,7 @@ function ImageProNodeInner({ id, data, selected }: Props) {
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
 
-  // 图片源
-  const rawFullValue = data.imageUrl || data.imageData;
+  // 图片�?  const rawFullValue = data.imageData || data.imageUrl;
   const fullAssetId = React.useMemo(() => parseFlowImageAssetRef(rawFullValue), [rawFullValue]);
   const fullAssetUrl = useFlowImageAssetUrl(fullAssetId);
   const fullSrc = React.useMemo(() => {
@@ -172,8 +171,7 @@ function ImageProNodeInner({ id, data, selected }: Props) {
     return buildImageSrc(rawThumbValue) || fullSrc;
   }, [thumbAssetId, thumbAssetUrl, rawThumbValue, fullSrc]);
 
-  // 状态
-  const [hover, setHover] = React.useState<string | null>(null);
+  // 状�?  const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
   const [currentImageId, setCurrentImageId] = React.useState<string>('');
   const [contextMenu, setContextMenu] = React.useState<{ x: number; y: number } | null>(null);
@@ -214,7 +212,7 @@ function ImageProNodeInner({ id, data, selected }: Props) {
     if (!file.type.startsWith('image/')) return;
 
     const normalizedFileName = (file.name || '').trim();
-    const displayName = normalizedFileName || lt('未命名图片', 'Untitled image');
+    const displayName = normalizedFileName || lt('未命名图�?, 'Untitled image');
 
     const uploadDir = projectId
       ? `projects/${projectId}/images/`
@@ -274,7 +272,7 @@ function ImageProNodeInner({ id, data, selected }: Props) {
       ).trim();
       if (!persistedRef) return;
 
-      // 防止并发上传回写覆盖：只处理当前 uploadToken 对应的上传结果
+      // ��ֹ�����ϴ���д���ǣ�ֻ�����ǰ uploadToken ��Ӧ���ϴ����
       try {
         const current = rf.getNode(id);
         const currentToken = (current?.data as any)?.uploadToken;
@@ -312,6 +310,7 @@ function ImageProNodeInner({ id, data, selected }: Props) {
         projectId,
         keepThumbnail: false,
       }).catch(() => {});
+
     } catch (err: any) {
       window.dispatchEvent(
         new CustomEvent('flow:updateNodeData', {
@@ -320,7 +319,6 @@ function ImageProNodeInner({ id, data, selected }: Props) {
             patch: {
               uploading: false,
               uploadError: err?.message || lt('上传失败', 'Upload failed'),
-              uploadToken: undefined,
             },
           },
         }),
@@ -356,8 +354,7 @@ function ImageProNodeInner({ id, data, selected }: Props) {
     const items = e.clipboardData?.items;
     if (!items || items.length === 0) return;
 
-    // 仅在检测到图片时拦截，保证全局 Flow 粘贴可继续冒泡
-    for (let i = 0; i < items.length; i++) {
+    // 仅在检测到图片时拦截，保证全局 Flow 粘贴可继续冒�?    for (let i = 0; i < items.length; i++) {
       const item = items[i];
       if (!item || !item.type.startsWith('image/')) continue;
       const file = item.getAsFile();
@@ -523,7 +520,7 @@ function ImageProNodeInner({ id, data, selected }: Props) {
         outline: 'none',
       }}
     >
-      {/* 隐藏的文件输入 */}
+      {/* 隐藏的文件输�?*/}
       <input
         ref={inputRef}
         type="file"
@@ -551,7 +548,7 @@ function ImageProNodeInner({ id, data, selected }: Props) {
           />
         )}
 
-        {/* 图片区域 - 父容器控制大小 */}
+        {/* 图片区域 - 父容器控制大�?*/}
         <div style={{ width: imageWidth, height: imageHeight }}>
           <ImageContent
             displaySrc={displaySrc}
@@ -719,3 +716,4 @@ function ImageProNodeInner({ id, data, selected }: Props) {
 }
 
 export default React.memo(ImageProNodeInner);
+

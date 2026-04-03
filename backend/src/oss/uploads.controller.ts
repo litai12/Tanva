@@ -24,6 +24,37 @@ const SUPPORTED_VIDEO_TYPES = [
 ];
 
 const MAX_VIDEO_SIZE = 500 * 1024 * 1024; // 500MB
+const MAX_IMAGE_SIZE = 32 * 1024 * 1024; // 32MB
+const SUPPORTED_IMAGE_TYPES = [
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/gif',
+  'image/webp',
+  'image/svg+xml',
+];
+
+function normalizeUploadDir(raw?: string, fallback = 'uploads/images/'): string {
+  const trimmed = typeof raw === 'string' ? raw.trim() : '';
+  if (!trimmed) return fallback;
+  return trimmed.endsWith('/') ? trimmed : `${trimmed}/`;
+}
+
+function sanitizeFileName(raw?: string, fallback = 'image.png'): string {
+  const trimmed = typeof raw === 'string' ? raw.trim() : '';
+  const source = trimmed || fallback;
+  return source.replace(/[^a-zA-Z0-9_.-]/g, '_');
+}
+
+function inferExtFromMime(mimeType?: string): string {
+  const value = typeof mimeType === 'string' ? mimeType.trim().toLowerCase() : '';
+  if (value === 'image/jpeg' || value === 'image/jpg') return 'jpg';
+  if (value === 'image/png') return 'png';
+  if (value === 'image/webp') return 'webp';
+  if (value === 'image/gif') return 'gif';
+  if (value === 'image/svg+xml') return 'svg';
+  return 'png';
+}
 
 @ApiTags('uploads')
 @Controller('uploads')
@@ -40,6 +71,44 @@ export class UploadsController {
     const max = body?.maxSize ?? 32 * 1024 * 1024; // 增加默认最大文件大小到32MB，支持更大的模板JSON文件
     const data = this.oss.presignPost(dir, 300, max);
     return data;
+  }
+
+  @Post('image')
+  @ApiCookieAuth('access_token')
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_IMAGE_SIZE } }))
+  @ApiConsumes('multipart/form-data')
+  async uploadImage(
+    @UploadedFile() file: any,
+    @Body() body: { dir?: string; key?: string; fileName?: string }
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+
+    const mimeType = String(file.mimetype || '').toLowerCase();
+    if (!SUPPORTED_IMAGE_TYPES.includes(mimeType)) {
+      throw new BadRequestException(`Unsupported image format: ${file.mimetype}`);
+    }
+
+    const dir = normalizeUploadDir(body?.dir, 'uploads/images/');
+    const explicitKey = typeof body?.key === 'string' ? body.key.trim().replace(/^\/+/, '') : '';
+    const safeFileName = sanitizeFileName(body?.fileName || file.originalname || `image.${inferExtFromMime(mimeType)}`);
+    const key = (() => {
+      if (explicitKey) return explicitKey;
+      const ext = safeFileName.includes('.') ? safeFileName.split('.').pop() || inferExtFromMime(mimeType) : inferExtFromMime(mimeType);
+      return `${dir}${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${safeFileName.replace(/\.[^.]+$/, '')}.${ext}`;
+    })();
+
+    const stream = Readable.from(file.buffer);
+    const result = await this.oss.putStream(key, stream, {
+      headers: {
+        'Content-Type': mimeType || 'image/png',
+        'Cache-Control': 'public, max-age=31536000, immutable',
+      },
+    });
+
+    return { url: result.url, key: result.key };
   }
 
   @Post('video')

@@ -1,5 +1,5 @@
 // @ts-nocheck
-// Flow Image 节点交互与预览逻辑。
+// Flow Image 节点交互与预览逻辑�?
 import React from "react";
 import { Handle, Position, useReactFlow, useStore, type ReactFlowState } from "reactflow";
 import { NodeResizeControl } from "@reactflow/node-resizer";
@@ -32,7 +32,7 @@ const RESIZE_EDGE_THICKNESS = 8;
 const lineControlConfigs = [
   {
     position: "top",
-    icon: "↕",
+    icon: "�?,
     style: {
       top: 0,
       bottom: "auto",
@@ -47,7 +47,7 @@ const lineControlConfigs = [
   },
   {
     position: "bottom",
-    icon: "↕",
+    icon: "�?,
     style: {
       top: "auto",
       bottom: 0,
@@ -65,7 +65,7 @@ const lineControlConfigs = [
 const handleControlConfigs = [
   {
     position: "top-left",
-    icon: "⤡",
+    icon: "�?,
     style: {
       width: 20,
       height: 20,
@@ -75,7 +75,7 @@ const handleControlConfigs = [
   },
   {
     position: "top-right",
-    icon: "⤢",
+    icon: "�?,
     style: {
       width: 20,
       height: 20,
@@ -85,7 +85,7 @@ const handleControlConfigs = [
   },
   {
     position: "bottom-left",
-    icon: "⤢",
+    icon: "�?,
     style: {
       width: 20,
       height: 20,
@@ -95,7 +95,7 @@ const handleControlConfigs = [
   },
   {
     position: "bottom-right",
-    icon: "⤡",
+    icon: "�?,
     style: {
       width: 20,
       height: 20,
@@ -128,7 +128,7 @@ type Props = {
   selected?: boolean;
 };
 
-// 构建图片 src - 优先使用 OSS URL，避免 proxy 降级
+// 构建图片 src - 优先使用 OSS URL，避�?proxy 降级
 const buildImageSrc = (value?: string): string | undefined => {
   if (!value) return undefined;
   const trimmed = value.trim();
@@ -241,7 +241,7 @@ const CanvasCropPreview = React.memo(({
       const exRaw = (rect.x + rect.width) * scaleX;
       const eyRaw = (rect.y + rect.height) * scaleY;
 
-      // 像素对齐：避免在等比缩放时取样到裁剪边缘外，产生白边/透明边
+      // 像素对齐：避免在等比缩放时取样到裁剪边缘外，产生白边/透明�?
       const sx = Math.max(0, Math.min(naturalW - 1, Math.floor(sxRaw)));
       const sy = Math.max(0, Math.min(naturalH - 1, Math.floor(syRaw)));
       const ex = Math.max(sx + 1, Math.min(naturalW, Math.ceil(exRaw)));
@@ -349,7 +349,7 @@ const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, uploading
       border: "1px solid #e5e7eb",
       cursor: "pointer",
     }}
-    title={lt('拖拽图片到此或双击上传', 'Drag image here or double click to upload')}
+    title={lt('拖拽图片到此或双击上�?, 'Drag image here or double click to upload')}
   >
     {Boolean(uploading) && (
       <div
@@ -366,7 +366,7 @@ const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, uploading
           color: "#374151",
         }}
       >
-        {lt('正在上传…', 'Uploading...')}
+        {lt('正在上传�?, 'Uploading...')}
       </div>
     )}
     {!uploading && uploadError ? (
@@ -417,7 +417,7 @@ const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, uploading
       />
     ) : (
       <span style={{ fontSize: 12, color: "#9ca3af" }}>
-        {lt('拖拽图片到此或双击上传', 'Drag image here or double click to upload')}
+        {lt('拖拽图片到此或双击上�?, 'Drag image here or double click to upload')}
       </span>
     )}
   </div>
@@ -444,7 +444,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
     )
   );
 
-  // 从连接的节点读取图片（支持 imageGrid / videoFrameExtract / image 的链式传递）
+  // 从连接的节点读取图片（支�?imageGrid / videoFrameExtract / image 的链式传递）
   const connectedFrameImage = useStore(
     React.useCallback(
       (state: ReactFlowState) => {
@@ -484,7 +484,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
             const frame = frames[idx];
             if (!frame) return undefined;
 
-            // 链路传递优先使用可持久化原图引用，缩略图仅作为兜底。
+            // 链路传递优先使用可持久化原图引用，缩略图仅作为兜底�?
             return frame.imageUrl || frame.thumbnailDataUrl;
           }
 
@@ -520,7 +520,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
             if (picked) return picked;
           }
 
-          // Image 节点 - 有输入连线时优先使用上游，避免修改上游后未更新
+          // Image 节点 - 有输入连线时优先使用上游，避免修改上游后未更�?
           if (node.type === "image" || node.type === "imagePro") {
             const upstream = edges.find(
               (e) => e.target === nodeId && e.targetHandle === "img"
@@ -552,7 +552,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
           return fallback || undefined;
         };
 
-        // 查找连接到 img 输入句柄的边
+        // 查找连接�?img 输入句柄的边
         const edgeToThis = edges.find(
           (e) => e.target === id && e.targetHandle === "img"
         );
@@ -598,13 +598,13 @@ function ImageNodeInner({ id, data, selected }: Props) {
     const sourceWidth = typeof crop.sourceWidth === "number" ? crop.sourceWidth : Number(crop.sourceWidth ?? 0);
     const sourceHeight = typeof crop.sourceHeight === "number" ? crop.sourceHeight : Number(crop.sourceHeight ?? 0);
 
-    // 运行时预览优先使用本地 flow-asset/blob（上传中 key 可能尚不可用）
+    // 运行时预览优先使用本�?flow-asset/blob（上传中 key 可能尚不可用�?
     const baseRef =
       (hasInputConnection &&
         typeof connectedFrameImage === "string" &&
         connectedFrameImage.trim()) ||
-      (typeof (data as any)?.imageUrl === "string" && (data as any).imageUrl.trim()) ||
       (typeof (data as any)?.imageData === "string" && (data as any).imageData.trim()) ||
+      (typeof (data as any)?.imageUrl === "string" && (data as any).imageUrl.trim()) ||
       (typeof connectedFrameImage === "string" && connectedFrameImage.trim()) ||
       "";
     if (!baseRef) return null;
@@ -617,7 +617,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
     };
   }, [connectedFrameImage, (data as any)?.crop?.height, (data as any)?.crop?.sourceHeight, (data as any)?.crop?.sourceWidth, (data as any)?.crop?.width, (data as any)?.crop?.x, (data as any)?.crop?.y, data.imageData, data.imageUrl]);
 
-  // ImageSplit -> Image：运行时裁剪预览（不落库）
+  // ImageSplit -> Image：运行时裁剪预览（不落库�?
   const imageSplitCropInfo = useStore(
     React.useCallback(
       (state: ReactFlowState) => {
@@ -669,8 +669,8 @@ function ImageNodeInner({ id, data, selected }: Props) {
             | { x?: unknown; y?: unknown; width?: unknown; height?: unknown; sourceWidth?: unknown; sourceHeight?: unknown }
             | undefined;
           const baseRef =
-            (typeof d.imageUrl === "string" && d.imageUrl.trim()) ||
             (typeof d.imageData === "string" && d.imageData.trim()) ||
+            (typeof d.imageUrl === "string" && d.imageUrl.trim()) ||
             "";
           if (crop && baseRef) {
             const x = typeof crop.x === "number" ? crop.x : Number(crop.x ?? 0);
@@ -1150,7 +1150,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
         sourceHeight: cropInfo.sourceHeight,
       });
       if (!cropped) {
-        notify(lt("裁剪失败，未发送图片", "Crop failed, image not sent"), "warning");
+        notify(lt("裁剪失败，未发送图�?, "Crop failed, image not sent"), "warning");
         return;
       }
       emitSend(cropped);
@@ -1192,7 +1192,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
     const file = files[0];
     if (!file.type.startsWith("image/")) return;
     const normalizedFileName = (file.name || "").trim();
-    const displayName = normalizedFileName || lt("未命名图片", "Untitled Image");
+    const displayName = normalizedFileName || lt("未命名图�?, "Untitled Image");
     const previousNodeData = (() => {
       try {
         return ((rf.getNode(id)?.data || {}) as Record<string, unknown>);
@@ -1244,6 +1244,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
         },
       })
     );
+
     const buildUploadFailurePatch = (message: string): Record<string, unknown> => {
       const patch: Record<string, unknown> = {
         uploading: false,
@@ -1263,8 +1264,6 @@ function ImageNodeInner({ id, data, selected }: Props) {
           return patch;
         }
 
-        // 上传失败时不要继续持久化“预分配但未落地”的 key，
-        // 否则刷新后会读到空对象并出现“幽灵图”。
         if (previousImageUrl) {
           patch.imageUrl = previousImageUrl;
           patch.imageData = previousImageData;
@@ -1308,7 +1307,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
       ).trim();
       if (!persistedRef) return;
 
-      // 防止并发上传回写覆盖：只处理当前 uploadToken 对应的上传结果
+      // ��ֹ�����ϴ���д���ǣ�ֻ�����ǰ uploadToken ��Ӧ���ϴ����
       try {
         const current = rf.getNode(id);
         const currentToken = (current?.data as any)?.uploadToken;
@@ -1347,6 +1346,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
         projectId,
         keepThumbnail: false,
       }).catch(() => {});
+
     } catch (err: any) {
       const errorMessage = err?.message || lt("上传失败", "Upload failed");
       window.dispatchEvent(
@@ -1680,3 +1680,4 @@ function ImageNodeInner({ id, data, selected }: Props) {
 }
 
 export default React.memo(ImageNodeInner);
+

@@ -136,16 +136,32 @@ export class PaymentController {
    */
   @Post('wechat-notify')
   async wechatNotify(
+    @Request() req: any,
     @Body() notifyData: Record<string, any>,
     @Res() res: FastifyReply,
   ) {
     try {
-      const result = await this.paymentService.handleWechatNotify(notifyData);
+      const result = await this.paymentService.handleWechatNotify(
+        notifyData,
+        (req?.headers || {}) as Record<string, string | string[] | undefined>,
+      );
       // 微信支付要求返回成功响应
       res.send(result ? { code: 'SUCCESS', message: '成功' } : { code: 'FAIL', message: '失败' });
     } catch (error) {
       console.error('处理微信支付回调失败:', error);
       res.send({ code: 'FAIL', message: '处理失败' });
     }
+  }
+
+  /**
+   * 微信支付异步回调通知（兼容路由）
+   */
+  @Post('wechat/notify')
+  async wechatNotifyCompat(
+    @Request() req: any,
+    @Body() notifyData: Record<string, any>,
+    @Res() res: FastifyReply,
+  ) {
+    return this.wechatNotify(req, notifyData, res);
   }
 }

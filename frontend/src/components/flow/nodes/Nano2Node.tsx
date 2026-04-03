@@ -48,7 +48,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
   const googleSearchValue = data.googleSearch ?? false;
   const googleImageSearchValue = data.googleImageSearch ?? false;
 
-  const rawFullValue = data.imageData || data.imageUrl;
+  const rawFullValue = data.imageUrl || data.imageData;
   const fullAssetId = React.useMemo(() => parseFlowImageAssetRef(rawFullValue), [rawFullValue]);
   const fullAssetUrl = useFlowImageAssetUrl(fullAssetId);
   const fullSrc = fullAssetId ? (fullAssetUrl || undefined) : buildImageSrc(rawFullValue);

@@ -379,7 +379,12 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
         const sourceData = (sourceNode.data || {}) as Record<string, any>;
         const sourceHandle = (edge.sourceHandle || "").trim();
 
-        if (sourceNode.type === "generate4" || sourceNode.type === "generatePro4") {
+        if (
+          sourceNode.type === "generate4" ||
+          sourceNode.type === "generatePro4" ||
+          sourceNode.type === "midjourneyV7" ||
+          sourceNode.type === "niji7"
+        ) {
           const idx = sourceHandle.startsWith("img")
             ? Math.max(0, Math.min(3, Number(sourceHandle.slice(3)) - 1))
             : 0;

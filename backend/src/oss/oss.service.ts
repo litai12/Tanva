@@ -196,6 +196,23 @@ export class OssService {
     }
   }
 
+  signUrl(key: string, expiresInSeconds = 300): string {
+    const normalizedKey = typeof key === 'string' ? key.trim().replace(/^\/+/, '') : '';
+    if (!normalizedKey) return '';
+    if (!this.isOssEnabled()) {
+      return this.publicUrl(normalizedKey);
+    }
+    try {
+      const client = this.client();
+      return client.signatureUrl(normalizedKey, {
+        expires: Math.max(30, Math.min(3600, Math.floor(expiresInSeconds))),
+        method: 'GET',
+      } as any);
+    } catch {
+      return this.publicUrl(normalizedKey);
+    }
+  }
+
   publicUrl(key: string): string {
     const { cdnHost, bucket, region } = this.conf;
     const host = cdnHost || `${bucket}.${region}.aliyuncs.com`;

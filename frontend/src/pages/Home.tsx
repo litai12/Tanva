@@ -87,8 +87,13 @@ const WeChatFloatingButton = () => {
 export default function Home() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { user, logout, connection } = useAuthStore();
+  const user = useAuthStore((s) => s.user);
+  const logout = useAuthStore((s) => s.logout);
+  const connection = useAuthStore((s) => s.connection);
+  const initAuth = useAuthStore((s) => s.init);
+  const authInitializing = useAuthStore((s) => s.initializing);
   const containerRef = useRef<HTMLDivElement>(null);
+  const authInitRef = useRef(false);
   const [currentPage, setCurrentPage] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
   const touchStartY = useRef(0);
@@ -96,6 +101,13 @@ export default function Home() {
 
   // 暂时只允许第一页，禁用后两页
   const maxPage = 0;
+
+  // 首页为公开路由，手动触发一次认证初始化，确保已登录用户回到首页时能实时显示在线状态
+  useEffect(() => {
+    if (authInitRef.current || user || authInitializing) return;
+    authInitRef.current = true;
+    initAuth().catch(() => {});
+  }, [user, authInitializing, initAuth]);
 
   // 切换到指定页面
   const goToPage = useCallback(
@@ -202,7 +214,7 @@ export default function Home() {
           {/* 右侧：用户信息或登录/注册按钮（与设置弹窗使用相同的 connection 状态） */}
           <div className='flex items-center gap-3'>
             <LanguageSwitcher tone='dark' style='simple' />
-            {user && connection ? (
+            {user ? (
               (() => {
                 const status = (() => {
                   switch (connection) {

@@ -3574,8 +3574,13 @@ function FlowInner() {
             ? clamp(preferredHRaw, 160, 1200)
             : 270;
 
-        // 多图节点（generate4 / generatePro4）
-        if (node?.type === "generate4" || node?.type === "generatePro4") {
+        // 多图节点（generate4 / generatePro4 / midjourneyV7 / niji7）
+        if (
+          node?.type === "generate4" ||
+          node?.type === "generatePro4" ||
+          node?.type === "midjourneyV7" ||
+          node?.type === "niji7"
+        ) {
           const imgs = Array.isArray(data.imageUrls)
             ? (data.imageUrls as string[])
             : Array.isArray(data.images)
@@ -7913,7 +7918,12 @@ function FlowInner() {
           let img: string | undefined;
           let incomingImageName: string | undefined;
           let incomingThumbnail: string | undefined;
-          if (src?.type === "generate4" || src?.type === "generatePro4") {
+          if (
+            src?.type === "generate4" ||
+            src?.type === "generatePro4" ||
+            src?.type === "midjourneyV7" ||
+            src?.type === "niji7"
+          ) {
             const handle = (params as any).sourceHandle as string | undefined;
             const idx =
               handle && handle.startsWith("img")
@@ -9014,7 +9024,12 @@ function FlowInner() {
         if (!srcNode) return undefined;
         const data = srcNode.data as any;
 
-        if (srcNode.type === "generate4" || srcNode.type === "generatePro4") {
+        if (
+          srcNode.type === "generate4" ||
+          srcNode.type === "generatePro4" ||
+          srcNode.type === "midjourneyV7" ||
+          srcNode.type === "niji7"
+        ) {
           const handle = (edge as any).sourceHandle as string | undefined;
           const idx = handle?.startsWith("img")
             ? Math.max(0, Math.min(3, Number(handle.substring(3)) - 1))
@@ -9025,7 +9040,10 @@ function FlowInner() {
           const imgs = Array.isArray(data?.images)
             ? (data.images as string[])
             : undefined;
-          let img = urls?.[idx] || imgs?.[idx];
+          const thumbs = Array.isArray(data?.thumbnails)
+            ? (data.thumbnails as string[])
+            : undefined;
+          let img = urls?.[idx] || imgs?.[idx] || thumbs?.[idx];
           if (
             !img &&
             typeof data?.imageData === "string" &&
@@ -9455,7 +9473,12 @@ function FlowInner() {
           );
         }
 
-        if (node.type === "generate4" || node.type === "generatePro4") {
+        if (
+          node.type === "generate4" ||
+          node.type === "generatePro4" ||
+          node.type === "midjourneyV7" ||
+          node.type === "niji7"
+        ) {
           const idx = handle?.startsWith("img")
             ? Math.max(0, Math.min(3, Number(handle.substring(3)) - 1))
             : 0;
@@ -12974,21 +12997,65 @@ function FlowInner() {
           if (previewSource) {
             const mjOuts = rf.getEdges().filter((e) => e.source === nodeId);
             if (mjOuts.length) {
+              const resolveOutputForHandle = (
+                sourceHandle?: string | null
+              ): string => {
+                const rawHandle =
+                  typeof sourceHandle === "string"
+                    ? sourceHandle.trim()
+                    : "";
+                const idx = rawHandle.startsWith("img")
+                  ? Math.max(0, Math.min(3, Number(rawHandle.slice(3)) - 1))
+                  : 0;
+                const picked =
+                  stableMidjourneyImageUrls[idx] ||
+                  stableMidjourneyImageUrls[0] ||
+                  stableRemoteUrl ||
+                  previewSource;
+                return typeof picked === "string" ? picked.trim() : "";
+              };
+
+              const isLikelyRemoteImageRef = (value: string): boolean => {
+                const trimmed = value?.trim?.() || "";
+                if (!trimmed) return false;
+                if (/^https?:\/\//i.test(trimmed)) return true;
+                if (
+                  trimmed.startsWith("/api/assets/proxy") ||
+                  trimmed.startsWith("/assets/proxy")
+                )
+                  return true;
+                if (
+                  trimmed.startsWith("/") ||
+                  trimmed.startsWith("./") ||
+                  trimmed.startsWith("../")
+                )
+                  return true;
+                if (/^(templates|projects|uploads|videos)\//i.test(trimmed))
+                  return true;
+                return false;
+              };
+
               setNodes((ns) =>
                 ns.map((n) => {
                   const hits = mjOuts.filter((e) => e.target === n.id);
                   if (!hits.length) return n;
                   if (n.type === "image") {
+                    const resolvedOutput = hits
+                      .map((e) =>
+                        resolveOutputForHandle((e as any).sourceHandle)
+                      )
+                      .find((value) => Boolean(value));
+                    if (!resolvedOutput) return n;
                     return {
                       ...n,
                       data: {
                         ...n.data,
-                        ...(hasRemoteUrl
+                        ...(isLikelyRemoteImageRef(resolvedOutput)
                           ? {
-                              imageUrl: normalizedMidjourneyUrl,
+                              imageUrl: resolvedOutput,
                               imageData: undefined,
                             }
-                          : { imageData: previewSource }),
+                          : { imageData: resolvedOutput }),
                         thumbnail: undefined,
                       },
                     };
@@ -14535,7 +14602,12 @@ function FlowInner() {
         return null;
       };
 
-      if (node.type === "generate4" || node.type === "generatePro4") {
+      if (
+        node.type === "generate4" ||
+        node.type === "generatePro4" ||
+        node.type === "midjourneyV7" ||
+        node.type === "niji7"
+      ) {
         const imgs = ((node.data as any)?.images as string[] | undefined) || [];
         const urls =
           ((node.data as any)?.imageUrls as string[] | undefined) || [];

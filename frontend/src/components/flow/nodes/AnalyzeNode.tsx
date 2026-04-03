@@ -384,7 +384,12 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
           }
 
           const d = (srcNode.data ?? {}) as any;
-          if (srcNode.type === 'generate4' || srcNode.type === 'generatePro4') {
+          if (
+            srcNode.type === 'generate4' ||
+            srcNode.type === 'generatePro4' ||
+            srcNode.type === 'midjourneyV7' ||
+            srcNode.type === 'niji7'
+          ) {
             const idx = handle?.startsWith('img') ? Math.max(0, Math.min(3, Number(handle.substring(3)) - 1)) : 0;
             const urls = Array.isArray(d?.imageUrls) ? (d.imageUrls as string[]) : [];
             const imgs = Array.isArray(d?.images) ? (d.images as string[]) : [];
@@ -748,7 +753,12 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
           }
         }
 
-        if (node.type === 'generate4' || node.type === 'generatePro4') {
+        if (
+          node.type === 'generate4' ||
+          node.type === 'generatePro4' ||
+          node.type === 'midjourneyV7' ||
+          node.type === 'niji7'
+        ) {
           const idx = handle?.startsWith('img') ? Math.max(0, Math.min(3, Number(handle.substring(3)) - 1)) : 0;
           const urls = Array.isArray(d?.imageUrls) ? (d.imageUrls as string[]) : [];
           const imgs = Array.isArray(d?.images) ? (d.images as string[]) : [];

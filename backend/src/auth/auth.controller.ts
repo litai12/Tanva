@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiCookieAuth, ApiTags } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
@@ -36,6 +36,45 @@ export class AuthController {
       user: { id: user.id, email: user.email, name: user.name, phone: user.phone, role: user.role },
       tokens,
     };
+  }
+
+  @Get('watcha/authorize')
+  async watchaAuthorize(@Query('returnTo') returnTo: string | undefined, @Res() res: any) {
+    const authorizeUrl = await this.auth.buildWatchaAuthorizeUrl(returnTo);
+    res.status(HttpStatus.FOUND);
+    return res.redirect(authorizeUrl);
+  }
+
+  @Get('watcha/callback')
+  async watchaCallback(
+    @Query('code') code: string | undefined,
+    @Query('state') state: string | undefined,
+    @Query('error') error: string | undefined,
+    @Query('error_description') errorDescription: string | undefined,
+    @Req() req: any,
+    @Res({ passthrough: true }) res: any,
+  ) {
+    try {
+      const { tokens, redirectUrl } = await this.auth.handleWatchaOauthCallback(
+        {
+          code,
+          state,
+          error,
+          error_description: errorDescription,
+        },
+        {
+          ip: req.ip,
+          ua: req.headers['user-agent'],
+        },
+      );
+      this.auth.setAuthCookies(res, tokens, req);
+      res.status(HttpStatus.FOUND);
+      return res.redirect(redirectUrl);
+    } catch (e: any) {
+      const redirectUrl = this.auth.buildWatchaFailureRedirect(e?.message || '观猹登录失败');
+      res.status(HttpStatus.FOUND);
+      return res.redirect(redirectUrl);
+    }
   }
 
   // 发送短信（生产需要配置阿里云并推荐配置 REDIS_URL；开发时可启用 SMS_DEBUG=true 返回调试码）

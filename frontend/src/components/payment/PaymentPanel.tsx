@@ -4,7 +4,6 @@ import { ArrowLeft, FileText, CheckCircle, Clock, XCircle, Loader2, RefreshCw, P
 import {
   createPaymentOrder,
   getPaymentStatus,
-  confirmPayment,
   getPaymentOrders,
   getPaymentPackages,
   type PaymentMethod,
@@ -43,7 +42,6 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [countdown, setCountdown] = useState(300);
   const [isExpired, setIsExpired] = useState(false);
-  const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   /** 递增后可使尚未完成的 createPaymentOrder 回调不再写入 state，避免套餐单与自定义单互相覆盖 */
@@ -163,25 +161,6 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
       console.error("查询支付状态失败:", error);
     }
   }, [currentOrderNo, handlePaymentCompleted]);
-
-  const handleManualConfirmPayment = useCallback(async () => {
-    if (!currentOrderNo || isVerifyingPayment) return;
-
-    setIsVerifyingPayment(true);
-    try {
-      const result = await confirmPayment(currentOrderNo);
-      if (result.success) {
-        handlePaymentCompleted(result.credits);
-      } else {
-        showToast(lt("暂未检测到支付成功，请稍后再试", "Payment not detected yet, please try again later"), "info");
-      }
-    } catch (error: any) {
-      console.error("主动核对支付状态失败:", error);
-      showToast(error?.message || lt("核对支付状态失败", "Payment verification failed"), "error");
-    } finally {
-      setIsVerifyingPayment(false);
-    }
-  }, [currentOrderNo, isVerifyingPayment, handlePaymentCompleted]);
 
   // 加载套餐配置
   useEffect(() => {
@@ -683,17 +662,9 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
             )}
           </div>
 
-          {/* 微信支付提示 */}
-          {paymentMethod === "wechat" && qrCodeUrl && (
-            <div className='mt-2 p-2 bg-green-50 rounded-lg text-center'>
-              <p className='text-xs text-green-700'>{lt("请向管理员转账", "Please transfer to admin")}</p>
-              <p className='text-sm font-semibold text-green-800'>¥{currentPayInfo.amount}</p>
-              <p className='text-xs text-green-600 mt-1'>{lt("转账后自动到账", "Credits will be granted automatically after transfer")}</p>
-            </div>
-          )}
 
           {/* 支付金额显示 */}
-          {paymentMethod === "alipay" && (
+          {(paymentMethod === "alipay" || paymentMethod === "wechat") && (
             <div className='text-center mt-3 text-sm text-slate-500'>
               {lt("支付金额：", "Amount:")}<span className='text-lg font-semibold text-slate-800'>¥{currentPayInfo.amount}</span>
             </div>
@@ -719,16 +690,6 @@ const PaymentPanel: React.FC<PaymentPanelProps> = ({ onBack, onPaymentSuccess })
             </div>
           )}
 
-          {(paymentMethod === "alipay" || paymentMethod === "wechat") && qrCodeUrl && (
-            <button
-              onClick={handleManualConfirmPayment}
-              disabled={isVerifyingPayment}
-              className='mt-2 w-full h-8 rounded-lg border border-slate-200 text-slate-600 text-xs hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 transition-colors'
-            >
-              {isVerifyingPayment && <Loader2 className='w-3.5 h-3.5 animate-spin' />}
-              <span>{isVerifyingPayment ? lt("正在核对...", "Verifying...") : lt("我已支付，立即核对", "I've paid, verify now")}</span>
-            </button>
-          )}
         </div>
         </div>
       )}

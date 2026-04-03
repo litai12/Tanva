@@ -70,7 +70,7 @@ import {
   resolveImageToBlob,
   toRenderableImageSrc,
 } from "@/utils/imageSource";
-import { canvasToBlob, responseToBlob } from "@/utils/imageConcurrency";
+import { canvasToBlob, fileToDataUrl, responseToBlob } from "@/utils/imageConcurrency";
 import {
   usePersonalLibraryStore,
   createPersonalAssetId,
@@ -1115,18 +1115,18 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                     skipInitialStoreUpdate: true,
                   });
                 } else {
-                  // fallback: blob URL（避免 base64）
-                  const blobUrl = URL.createObjectURL(file);
+                  // fallback: runtime-only data URL preview, persistence still uses remote key/url
+                  const localPreview = await fileToDataUrl(file);
                   await uploadImageToCanvas?.(
                     {
                       id: `local_img_${Date.now()}_${Math.random()
                         .toString(36)
                         .slice(2, 8)}`,
-                      url: blobUrl,
-                      src: blobUrl,
+                      url: localPreview,
+                      src: localPreview,
                       fileName: file.name,
                       pendingUpload: true,
-                      localDataUrl: blobUrl,
+                      localDataUrl: localPreview,
                     },
                     file.name
                   );
@@ -1389,8 +1389,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               ? `projects/${projectId}/images/`
               : "uploads/images/";
 
-            // 1) 先用 blob: 立即上画布，同时生成并关联 key（避免等上传完才显示）
-            const blobUrl = URL.createObjectURL(file);
+            // 1) use runtime preview immediately, keep pendingUpload until remote asset is ready
+            const localPreview = await fileToDataUrl(file);
             const imageId = `local_img_${Date.now()}_${Math.random()
               .toString(36)
               .slice(2, 8)}`;
@@ -1408,7 +1408,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               fileName: file.name,
               contentType: file.type,
               pendingUpload: true,
-              localDataUrl: blobUrl,
+              localDataUrl: localPreview,
             };
 
             await uploadImageToCanvas?.(

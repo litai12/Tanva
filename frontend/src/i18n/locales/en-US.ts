@@ -99,6 +99,10 @@ const enUS = {
       smsSent: "Code sent. Please check your SMS and enter it manually.",
       phoneRequired: "Please enter phone number",
       phoneInvalid: "Invalid phone number format",
+      otherMethods: "Other methods",
+      watchaName: "Watcha",
+      thirdPartyDivider: "Third-party login",
+      watchaSubmit: "Continue with Watcha",
     },
     register: {
       title: "Create Account",
