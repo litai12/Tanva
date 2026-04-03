@@ -25,6 +25,7 @@ const WeChatPay = require('wechatpay-node-v3');
 export class PaymentService implements OnModuleInit {
   private alipaySdk: any;
   private wechatPay: any;
+  private wechatApiV3Key: string | null = null;
   private readonly logger = new Logger(PaymentService.name);
 
   constructor(
@@ -187,6 +188,8 @@ export class PaymentService implements OnModuleInit {
     const wechatAppId = this.configService.get<string>('WECHAT_APP_ID');
     const wechatCertificate = this.configService.get<string>('WECHAT_CERTIFICATE');
     const wechatSerialNo = this.configService.get<string>('WECHAT_SERIAL_NO');
+    const wechatApiV3Key = this.configService.get<string>('WECHAT_API_V3_KEY');
+    this.wechatApiV3Key = wechatApiV3Key?.trim() || null;
 
     if (wechatMchId && wechatPrivateKey && wechatAppId) {
       try {
@@ -212,6 +215,7 @@ export class PaymentService implements OnModuleInit {
             privateKey: formattedPrivateKey,
             publicKey: wechatCertificate,
             serial_no: wechatSerialNo,
+            ...(this.wechatApiV3Key ? { key: this.wechatApiV3Key } : {}),
           });
         } else if (wechatCertificate) {
           // 如果只有证书，让SDK自动提取序列号
@@ -220,6 +224,7 @@ export class PaymentService implements OnModuleInit {
             mchid: wechatMchId,
             privateKey: formattedPrivateKey,
             publicKey: wechatCertificate,
+            ...(this.wechatApiV3Key ? { key: this.wechatApiV3Key } : {}),
           });
         } else {
           throw new Error('缺少商户证书（WECHAT_CERTIFICATE）');
@@ -402,11 +407,16 @@ export class PaymentService implements OnModuleInit {
 
     if (order.status !== PaymentStatus.PAID && order.paymentMethod === PaymentMethod.WECHAT) {
       const wechatTrade = await this.queryWechatTradeStatus(orderNo);
-      if (this.isWechatSuccessStatus(wechatTrade.status)) {
+      const expectedAmount = Number(order.amount);
+      if (
+        this.isWechatSuccessStatus(wechatTrade.status) &&
+        this.isAmountMatched(expectedAmount, wechatTrade.totalAmount)
+      ) {
         await this.processPaymentSuccess(order.id, userId, order.credits, {
           tradeNo: wechatTrade.transactionId,
           paymentMethod: PaymentMethod.WECHAT,
           source: 'wechat_status_query',
+          ...(wechatTrade.paidAt ? { paidAt: wechatTrade.paidAt } : {}),
         });
       }
     }
@@ -458,10 +468,12 @@ export class PaymentService implements OnModuleInit {
   private async queryWechatTradeStatus(orderNo: string): Promise<{
     status: string | null;
     transactionId: string | null;
+    totalAmount: number | null;
+    paidAt: Date | null;
     raw: Record<string, unknown> | null;
   }> {
     if (!this.wechatPay) {
-      return { status: null, transactionId: null, raw: null };
+      return { status: null, transactionId: null, totalAmount: null, paidAt: null, raw: null };
     }
     try {
       const appid = this.configService.get<string>('WECHAT_APP_ID');
@@ -474,14 +486,20 @@ export class PaymentService implements OnModuleInit {
 
       console.log('微信支付订单查询响应:', JSON.stringify(result, null, 2));
 
+      const totalInCents = this.toNumber((result as any)?.amount?.total);
       return {
         status: (result.trade_state ?? null) as string | null,
         transactionId: (result.transaction_id ?? null) as string | null,
+        totalAmount: totalInCents === null ? null : totalInCents / 100,
+        paidAt:
+          typeof (result as any)?.success_time === 'string' && (result as any).success_time
+            ? new Date((result as any).success_time)
+            : null,
         raw: result as Record<string, unknown>,
       };
     } catch (error) {
       console.error('查询微信支付交易状态失败:', error);
-      return { status: null, transactionId: null, raw: null };
+      return { status: null, transactionId: null, totalAmount: null, paidAt: null, raw: null };
     }
   }
 
@@ -559,8 +577,68 @@ export class PaymentService implements OnModuleInit {
     });
   }
   
-  async getUserOrders(userId: string, page = 1, pageSize = 10) { 
-      // 简写，保持原样即可
+  private async syncPendingOrdersForUser(userId: string, limit = 10): Promise<void> {
+    const safeLimit = Math.max(1, Math.min(limit, 20));
+    const pendingOrders = await this.prisma.paymentOrder.findMany({
+      where: {
+        userId,
+        status: PaymentStatus.PENDING,
+        expiredAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: safeLimit,
+    });
+
+    for (const order of pendingOrders) {
+      try {
+        const expectedAmount = Number(order.amount);
+
+        if (order.paymentMethod === PaymentMethod.ALIPAY) {
+          const alipayTrade = await this.queryAlipayTradeStatus(order.orderNo);
+          if (
+            this.isAlipaySuccessStatus(alipayTrade.status) &&
+            this.isAmountMatched(expectedAmount, alipayTrade.totalAmount)
+          ) {
+            await this.processPaymentSuccess(order.id, userId, order.credits, {
+              tradeNo: alipayTrade.tradeNo,
+              paymentMethod: PaymentMethod.ALIPAY,
+              source: 'alipay_orders_sync',
+            });
+          }
+          continue;
+        }
+
+        if (order.paymentMethod === PaymentMethod.WECHAT) {
+          const wechatTrade = await this.queryWechatTradeStatus(order.orderNo);
+          if (
+            this.isWechatSuccessStatus(wechatTrade.status) &&
+            this.isAmountMatched(expectedAmount, wechatTrade.totalAmount)
+          ) {
+            await this.processPaymentSuccess(order.id, userId, order.credits, {
+              tradeNo: wechatTrade.transactionId,
+              paymentMethod: PaymentMethod.WECHAT,
+              source: 'wechat_orders_sync',
+              ...(wechatTrade.paidAt ? { paidAt: wechatTrade.paidAt } : {}),
+            });
+          }
+        }
+      } catch (error) {
+        this.logger.warn(
+          `同步待支付订单状态失败: orderNo=${order.orderNo}, error=${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+  }
+
+  async getUserOrders(userId: string, page = 1, pageSize = 10) {
+      try {
+        await this.syncPendingOrdersForUser(userId, 10);
+      } catch (error) {
+        this.logger.warn(
+          `获取订单列表前同步支付状态失败: userId=${userId}, error=${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+
       const [orders, total] = await Promise.all([
         this.prisma.paymentOrder.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
         this.prisma.paymentOrder.count({ where: { userId } }),
@@ -570,6 +648,7 @@ export class PaymentService implements OnModuleInit {
         pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
       };
   }
+
   async confirmPayment(orderNo: string, userId: string) {
     const order = await this.prisma.paymentOrder.findFirst({
       where: { orderNo, userId },
@@ -595,11 +674,16 @@ export class PaymentService implements OnModuleInit {
 
     if (order.status !== PaymentStatus.PAID && order.paymentMethod === PaymentMethod.WECHAT) {
       const wechatTrade = await this.queryWechatTradeStatus(orderNo);
-      if (this.isWechatSuccessStatus(wechatTrade.status)) {
+      const expectedAmount = Number(order.amount);
+      if (
+        this.isWechatSuccessStatus(wechatTrade.status) &&
+        this.isAmountMatched(expectedAmount, wechatTrade.totalAmount)
+      ) {
         await this.processPaymentSuccess(order.id, order.userId, order.credits, {
           tradeNo: wechatTrade.transactionId,
           paymentMethod: PaymentMethod.WECHAT,
           source: 'wechat_manual_confirm',
+          ...(wechatTrade.paidAt ? { paidAt: wechatTrade.paidAt } : {}),
         });
       }
     }
@@ -723,35 +807,102 @@ export class PaymentService implements OnModuleInit {
   /**
    * 处理微信支付异步回调通知
    */
-  async handleWechatNotify(data: any): Promise<boolean> {
+  async handleWechatNotify(
+    data: any,
+    headers?: Record<string, string | string[] | undefined>,
+  ): Promise<boolean> {
+    void headers;
     try {
       console.log('收到微信支付回调:', JSON.stringify(data, null, 2));
 
-      // 微信支付 V3 回调验签和解密需要处理
-      // 这里简化处理，实际需要验证签名和解密 ciphertext
-      const notifyData = this.parseNotifyData(data);
-      const out_trade_no = notifyData.out_trade_no || notifyData.outTradeNo;
-      const transaction_id = notifyData.transaction_id || notifyData.transactionId;
-      const trade_state = notifyData.trade_state || notifyData.tradeState;
+      const payload = data && typeof data === 'object' && !Array.isArray(data)
+        ? (data as Record<string, any>)
+        : null;
 
-      if (this.isWechatSuccessStatus(trade_state) && out_trade_no) {
-        // 通过订单号查找订单
-        const order = await this.prisma.paymentOrder.findFirst({
-          where: { orderNo: out_trade_no },
-        });
+      if (payload?.event_type && payload.event_type !== 'TRANSACTION.SUCCESS') {
+        this.logger.log(`微信回调事件非支付成功，忽略: event_type=${String(payload.event_type)}`);
+        return true;
+      }
 
-        if (order) {
-          await this.processPaymentSuccess(order.id, order.userId, order.credits, {
-            tradeNo: transaction_id,
-            paymentMethod: PaymentMethod.WECHAT,
-            source: 'wechat_notify',
-          });
-          console.log(`订单 ${out_trade_no} 已通过微信回调处理成功`);
-          return true;
+      let outTradeNo = '';
+      let transactionId = '';
+      let tradeState = '';
+      const resource = payload?.resource;
+
+      if (
+        resource?.ciphertext &&
+        resource?.nonce &&
+        this.wechatApiV3Key &&
+        this.wechatPay?.decipher_gcm
+      ) {
+        try {
+          const decrypted = this.wechatPay.decipher_gcm(
+            resource.ciphertext,
+            resource.associated_data || '',
+            resource.nonce,
+            this.wechatApiV3Key,
+          );
+          const decryptedPayload =
+            typeof decrypted === 'string'
+              ? (JSON.parse(decrypted) as Record<string, any>)
+              : (decrypted as Record<string, any>);
+
+          outTradeNo = String(decryptedPayload?.out_trade_no || '').trim();
+          transactionId = String(decryptedPayload?.transaction_id || '').trim();
+          tradeState = String(decryptedPayload?.trade_state || '').trim();
+        } catch (decryptError) {
+          this.logger.warn(`微信回调 resource 解密失败，继续走兜底解析: ${decryptError instanceof Error ? decryptError.message : String(decryptError)}`);
         }
       }
 
-      return true; // 返回成功避免微信重复推送
+      if (!outTradeNo) {
+        const notifyData = this.parseNotifyData(data);
+        outTradeNo = (notifyData.out_trade_no || notifyData.outTradeNo || '').trim();
+        transactionId = (notifyData.transaction_id || notifyData.transactionId || '').trim();
+        tradeState = (notifyData.trade_state || notifyData.tradeState || '').trim();
+      }
+
+      if (!outTradeNo) {
+        this.logger.warn('微信回调缺少 out_trade_no');
+        return false;
+      }
+
+      if (tradeState && !this.isWechatSuccessStatus(tradeState)) {
+        this.logger.log(`微信回调非成功状态: orderNo=${outTradeNo}, tradeState=${tradeState}`);
+        return true;
+      }
+
+      const order = await this.prisma.paymentOrder.findFirst({
+        where: { orderNo: outTradeNo },
+      });
+      if (!order) {
+        this.logger.error(`微信回调订单不存在: orderNo=${outTradeNo}`);
+        return false;
+      }
+
+      const wechatTrade = await this.queryWechatTradeStatus(outTradeNo);
+      if (!this.isWechatSuccessStatus(wechatTrade.status)) {
+        this.logger.warn(`微信回调核对失败: orderNo=${outTradeNo}, queryStatus=${String(wechatTrade.status)}`);
+        return false;
+      }
+
+      const expectedAmount = Number(order.amount);
+      if (!this.isAmountMatched(expectedAmount, wechatTrade.totalAmount)) {
+        this.logger.error(
+          `微信回调金额不一致: orderNo=${outTradeNo}, expected=${expectedAmount}, actual=${String(wechatTrade.totalAmount)}`,
+        );
+        return false;
+      }
+
+      await this.processPaymentSuccess(order.id, order.userId, order.credits, {
+        tradeNo: transactionId || wechatTrade.transactionId,
+        paymentMethod: PaymentMethod.WECHAT,
+        source: 'wechat_notify',
+        ...(wechatTrade.paidAt ? { paidAt: wechatTrade.paidAt } : {}),
+      });
+
+      this.logger.log(`微信回调处理成功: orderNo=${outTradeNo}, tradeNo=${transactionId || wechatTrade.transactionId || '-'}`);
+      return true;
     } catch (error) {
       console.error('处理微信支付回调失败:', error);
       return false;
