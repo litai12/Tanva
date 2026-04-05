@@ -67,6 +67,27 @@ export class VideoProviderRequestDto {
   @IsString()
   mode?: string;
 
+  @ApiProperty({ description: 'Kling 模型版本 (如 kling-v2-1/kling-v2-6/kling-v3-0)', required: false })
+  @IsOptional()
+  @IsString()
+  klingModel?: string;
+
+  @ApiProperty({
+    description: 'Vidu 模型版本 (如 q2/q2-turbo/q2-pro/q3/q3-mix)',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  viduModel?: string;
+
+  @ApiProperty({
+    description: 'Seedance 模型版本 (如 seedance-1.5-pro/seedance-2.0)',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  seedanceModel?: string;
+
   @ApiProperty({ description: '错峰生成 (Vidu)', required: false })
   @IsOptional()
   @IsBoolean()

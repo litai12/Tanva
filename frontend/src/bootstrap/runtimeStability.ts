@@ -28,6 +28,8 @@ const MIGRATION_KEY_PREFIX = "tanva_idb_migrated_";
 const VERSION_POLL_INTERVAL_MS = 5 * 60 * 1000;
 const VERSION_FETCH_TIMEOUT_MS = 6000;
 const MAX_ERROR_REPORTS_PER_PAGE = 20;
+const TELEMETRY_REQUEST_TIMEOUT_MS = 2500;
+const TELEMETRY_CIRCUIT_BREAK_MS = 5 * 60 * 1000;
 
 const LOCAL_STORAGE_KEYS_TO_CLEAR = [
   "canvas-settings",
@@ -51,10 +53,23 @@ const shouldReportRuntimeErrors = (() => {
   const raw = String(import.meta.env.VITE_RUNTIME_ERROR_REPORTING ?? "true").toLowerCase();
   return !["0", "false", "off", "no"].includes(raw);
 })();
+const shouldEnableTelemetry = (() => {
+  const fallback = import.meta.env.PROD ? "false" : "true";
+  const raw = String(import.meta.env.VITE_ENABLE_TELEMETRY ?? fallback).toLowerCase();
+  return ["1", "true", "on", "yes"].includes(raw);
+})();
 
 const seenErrorSignatures = new Set<string>();
 let reportedErrorCount = 0;
 let versionCheckInFlight = false;
+let telemetryDisabledUntil = 0;
+
+const isTelemetryTemporarilyDisabled = (): boolean =>
+  telemetryDisabledUntil > Date.now();
+
+const tripTelemetryCircuitBreaker = (): void => {
+  telemetryDisabledUntil = Date.now() + TELEMETRY_CIRCUIT_BREAK_MS;
+};
 
 const getLocalStorage = (): Storage | undefined => {
   try {
@@ -150,6 +165,8 @@ const reportRuntimeError = (
   source: string | null
 ): void => {
   if (!shouldReportRuntimeErrors) return;
+  if (!shouldEnableTelemetry) return;
+  if (isTelemetryTemporarilyDisabled()) return;
   if (reportedErrorCount >= MAX_ERROR_REPORTS_PER_PAGE) return;
 
   const signature = `${kind}|${message}|${source ?? ""}`;
@@ -182,15 +199,28 @@ const reportRuntimeError = (
     // noop
   }
 
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), TELEMETRY_REQUEST_TIMEOUT_MS);
+
   fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body,
     credentials: "omit",
     keepalive: true,
-  }).catch(() => {
-    // noop
-  });
+    signal: controller.signal,
+  })
+    .then((response) => {
+      if (!response.ok) {
+        tripTelemetryCircuitBreaker();
+      }
+    })
+    .catch(() => {
+      tripTelemetryCircuitBreaker();
+    })
+    .finally(() => {
+      window.clearTimeout(timeout);
+    });
 };
 
 const installGlobalErrorHandlers = (): void => {

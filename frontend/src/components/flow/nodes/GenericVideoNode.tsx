@@ -10,6 +10,28 @@ import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
 
 export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao";
+type ViduModel =
+  | "q2"
+  | "q2-turbo"
+  | "q2-pro"
+  | "q3"
+  | "q3-pro"
+  | "q3-turbo"
+  | "q3-mix";
+type SeedanceModel = "seedance-1.5-pro" | "seedance-2.0";
+type VodCapabilityMetadata = {
+  label?: string;
+  modelName?: string;
+  modelVersion?: string;
+  outputConfig?: {
+    aspectRatios?: string[];
+    durations?: number[];
+    resolutions?: string[];
+    audioGeneration?: boolean;
+  };
+  inputModes?: string[];
+  notes?: string[];
+};
 
 type Props = {
   id: string;
@@ -25,11 +47,22 @@ type Props = {
     clipDuration?: number;
     aspectRatio?: string;
     klingModel?: "kling-v2-1" | "kling-v2-6" | "kling-v3-0";
+    viduModel?: ViduModel;
+    seedanceModel?: SeedanceModel;
     mode?: "std" | "pro";
     sound?: boolean;
     audioUrls?: string[];
     history?: VideoHistoryItem[];
     fallbackMessage?: string;
+    resolution?: string;
+    style?: string;
+    offPeak?: boolean;
+    camerafixed?: boolean;
+    watermark?: boolean;
+    nodeConfigKey?: string;
+    nodeConfigNameZh?: string;
+    nodeConfigNameEn?: string;
+    nodeConfigMetadata?: Record<string, any>;
   };
   selected?: boolean;
 };
@@ -128,6 +161,20 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   });
 
   const provider = data.provider || "kling";
+  const nodeConfigMetadata =
+    data.nodeConfigMetadata && typeof data.nodeConfigMetadata === "object"
+      ? (data.nodeConfigMetadata as Record<string, any>)
+      : {};
+  const vodConfig =
+    nodeConfigMetadata.vod && typeof nodeConfigMetadata.vod === "object"
+      ? (nodeConfigMetadata.vod as VodCapabilityMetadata)
+      : undefined;
+  const isVodManagedNode = Boolean(vodConfig);
+  const viduModel: ViduModel =
+    data.viduModel ||
+    (provider === "viduq3-pro" ? "q3" : "q2");
+  const seedanceModel: SeedanceModel =
+    data.seedanceModel === "seedance-2.0" ? "seedance-2.0" : "seedance-1.5-pro";
   const klingModel =
     data.klingModel ||
     (provider === "kling-2.6" ? "kling-v2-6" : "kling-v2-6");
@@ -137,6 +184,63 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const providerInfo = isUnifiedKlingNode
     ? PROVIDER_CONFIG.kling
     : PROVIDER_CONFIG[provider] || PROVIDER_CONFIG["kling"];
+  const displayTitle = React.useMemo(() => {
+    const zhTitle = typeof data.nodeConfigNameZh === "string" && data.nodeConfigNameZh.trim()
+      ? data.nodeConfigNameZh.trim()
+      : providerInfo.zh;
+    const enTitle = typeof data.nodeConfigNameEn === "string" && data.nodeConfigNameEn.trim()
+      ? data.nodeConfigNameEn.trim()
+      : providerInfo.name;
+    return isZh ? zhTitle : enTitle;
+  }, [data.nodeConfigNameEn, data.nodeConfigNameZh, isZh, providerInfo.name, providerInfo.zh]);
+  const supportedModels = React.useMemo(
+    () =>
+      Array.isArray(nodeConfigMetadata.supportedModels)
+        ? nodeConfigMetadata.supportedModels.map((item: unknown) => String(item))
+        : [],
+    [nodeConfigMetadata.supportedModels]
+  );
+  const vodAspectOptions = React.useMemo(() => {
+    if (!Array.isArray(vodConfig?.outputConfig?.aspectRatios)) return [];
+    return [
+      { label: lt("自动", "Auto"), value: "" },
+      ...vodConfig.outputConfig.aspectRatios.map((value) => ({
+        label: value,
+        value,
+      })),
+    ];
+  }, [lt, vodConfig]);
+  const vodDurationOptions = React.useMemo(() => {
+    if (!Array.isArray(vodConfig?.outputConfig?.durations)) return [];
+    return vodConfig.outputConfig.durations.map((value) => ({
+      label: lt(`${value}秒`, `${value}s`),
+      value,
+    }));
+  }, [lt, vodConfig]);
+  const vodResolutionOptions = React.useMemo(() => {
+    if (!Array.isArray(vodConfig?.outputConfig?.resolutions)) return [];
+    return vodConfig.outputConfig.resolutions.map((value) => value.toUpperCase());
+  }, [vodConfig]);
+  const vodInputModeLabel = React.useMemo(() => {
+    if (!Array.isArray(vodConfig?.inputModes) || vodConfig.inputModes.length === 0) return "";
+    const labels = vodConfig.inputModes.map((mode) => {
+      switch (mode) {
+        case "text":
+          return lt("文生视频", "Text to video");
+        case "image":
+          return lt("图生视频", "Image to video");
+        case "start_end":
+          return lt("首尾帧", "Start-end");
+        case "reference":
+          return lt("参考模式", "Reference");
+        case "reference_video":
+          return lt("视频参考", "Video reference");
+        default:
+          return mode;
+      }
+    });
+    return labels.join(" / ");
+  }, [lt, vodConfig]);
 
   const sanitizeMediaUrl = React.useCallback((url?: string | null) => {
     if (!url || typeof url !== "string") return undefined;
@@ -341,6 +445,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   };
 
   const aspectOptions = React.useMemo(() => {
+    if (vodAspectOptions.length > 0) {
+      return vodAspectOptions;
+    }
     if (provider === "vidu" || provider === "viduq3-pro") {
       return [
         { label: lt("自动", "Auto"), value: "" },
@@ -352,7 +459,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       ];
     }
     return getAspectOptions();
-  }, [getAspectOptions, lt, provider]);
+  }, [getAspectOptions, lt, provider, vodAspectOptions]);
   const klingModelOptions = React.useMemo(
     () => [
       { label: "Kling 2.6", value: "kling-v2-6" as const },
@@ -360,13 +467,60 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     ],
     []
   );
-  const durationOptions = React.useMemo(() => getDurationOptions(), [provider, lt]);
+  const viduModelOptions = React.useMemo(
+    () => [
+      { label: "Vidu Q2", value: "q2" as const },
+      { label: "Vidu Q2-Turbo", value: "q2-turbo" as const },
+      { label: "Vidu Q2-Pro", value: "q2-pro" as const },
+      { label: "Vidu Q3", value: "q3" as const },
+      { label: "Vidu Q3-Turbo", value: "q3-turbo" as const },
+      { label: "Vidu Q3-Pro", value: "q3-pro" as const },
+      { label: "Vidu Q3-Mix", value: "q3-mix" as const },
+    ],
+    []
+  );
+  const seedanceModelOptions = React.useMemo(
+    () => [
+      { label: "Seedance 1.5-Pro", value: "seedance-1.5-pro" as const },
+      { label: "Seedance 2.0", value: "seedance-2.0" as const },
+    ],
+    []
+  );
+  const filteredKlingModelOptions = React.useMemo(
+    () =>
+      supportedModels.length > 0
+        ? klingModelOptions.filter((opt) => supportedModels.includes(opt.value))
+        : klingModelOptions,
+    [klingModelOptions, supportedModels]
+  );
+  const filteredViduModelOptions = React.useMemo(
+    () =>
+      supportedModels.length > 0
+        ? viduModelOptions.filter((opt) => supportedModels.includes(opt.value))
+        : viduModelOptions,
+    [supportedModels, viduModelOptions]
+  );
+  const filteredSeedanceModelOptions = React.useMemo(
+    () =>
+      supportedModels.length > 0
+        ? seedanceModelOptions.filter((opt) => supportedModels.includes(opt.value))
+        : seedanceModelOptions,
+    [seedanceModelOptions, supportedModels]
+  );
+  const durationOptions = React.useMemo(
+    () => (vodDurationOptions.length > 0 ? vodDurationOptions : getDurationOptions()),
+    [lt, provider, vodDurationOptions]
+  );
   const shouldShowAspectSelector =
     provider === "viduq3-pro"
       ? !hasImageInput
       : provider === "vidu"
       ? true
       : !hasImageInput;
+  const shouldShowResolutionSelector = isVodManagedNode && vodResolutionOptions.length > 0;
+  const shouldShowLegacyViduOptions =
+    (provider === "vidu" || provider === "viduq3-pro") && !isVodManagedNode;
+  const shouldShowLegacySeedanceOptions = provider === "doubao" && !isVodManagedNode;
 
   React.useEffect(() => {
     if (!shouldShowAspectSelector) {
@@ -414,6 +568,41 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       );
     },
     [id, klingModel]
+  );
+
+  const handleViduModelChange = React.useCallback(
+    (value: ViduModel) => {
+      if (value === viduModel) return;
+      window.dispatchEvent(
+        new CustomEvent("flow:updateNodeData", {
+          detail: {
+            id,
+            patch: {
+              viduModel: value,
+              clipDuration: undefined,
+            },
+          },
+        })
+      );
+    },
+    [id, viduModel]
+  );
+
+  const handleSeedanceModelChange = React.useCallback(
+    (value: SeedanceModel) => {
+      if (value === seedanceModel) return;
+      window.dispatchEvent(
+        new CustomEvent("flow:updateNodeData", {
+          detail: {
+            id,
+            patch: {
+              seedanceModel: value,
+            },
+          },
+        })
+      );
+    },
+    [id, seedanceModel]
   );
 
   React.useEffect(() => {
@@ -588,9 +777,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     return lt("未设置", "Not set");
   }, [clipDuration, durationOptions, lt]);
   const klingModelLabel = React.useMemo(() => {
-    const match = klingModelOptions.find((opt) => opt.value === klingModel);
+    const match = filteredKlingModelOptions.find((opt) => opt.value === klingModel);
     return match?.label || "Kling 2.6";
-  }, [klingModel, klingModelOptions]);
+  }, [filteredKlingModelOptions, klingModel]);
 
   React.useEffect(() => {
     if (!aspectRatioValue) {
@@ -981,7 +1170,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           }}
         >
           <Video size={18} />
-          <span>{isZh ? providerInfo.zh : providerInfo.name}</span>
+          <span>{displayTitle}</span>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
           {/* 玩法说明按钮: 仅 Kling 2.6/3.0 节点显示 */}
@@ -1144,8 +1333,38 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         </div>
       )}
 
-      {/* 尺寸选择：接入图片后隐藏，未接图时显示 */}
-      {isUnifiedKlingNode && (
+      {isVodManagedNode && (
+        <div
+          style={{
+            marginBottom: 8,
+            padding: "8px 10px",
+            borderRadius: 10,
+            border: "1px solid #dbeafe",
+            background: "#f8fbff",
+          }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 600, color: "#1d4ed8" }}>
+            {vodConfig?.label || lt("VOD 视频生成节点", "VOD video generation node")}
+          </div>
+          <div style={{ fontSize: 11, color: "#64748b", marginTop: 4, lineHeight: 1.5 }}>
+            {Array.isArray(vodConfig?.outputConfig?.resolutions) && vodConfig.outputConfig.resolutions.length > 0 ? `Resolution: ${vodConfig.outputConfig.resolutions.join("/")}` : null}
+            {Array.isArray(vodConfig?.outputConfig?.durations) && vodConfig.outputConfig.durations.length > 0 ? `  |  Duration: ${Math.min(...vodConfig.outputConfig.durations)}-${Math.max(...vodConfig.outputConfig.durations)}s` : null}
+          </div>
+          {vodInputModeLabel ? (
+            <div style={{ fontSize: 11, color: "#475569", marginTop: 4 }}>
+              {lt("支持输入", "Supported input")}: {vodInputModeLabel}
+            </div>
+          ) : null}
+          {Array.isArray(vodConfig?.notes) && vodConfig.notes.length > 0 ? (
+            <div style={{ fontSize: 11, color: "#475569", marginTop: 4 }}>
+              {vodConfig.notes[0]}
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {/* 模型选择 */}
+      {(isUnifiedKlingNode || provider === "vidu" || provider === "viduq3-pro" || provider === "doubao") && (
         <div
           className='video-dropdown'
           style={{ marginBottom: 8, position: "relative" }}
@@ -1174,7 +1393,13 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               cursor: "pointer",
             }}
           >
-            <span>{klingModelLabel}</span>
+            <span>
+              {isUnifiedKlingNode
+                ? klingModelLabel
+                : provider === "doubao"
+                ? filteredSeedanceModelOptions.find((opt) => opt.value === seedanceModel)?.label || "Seedance 1.5-Pro"
+                : filteredViduModelOptions.find((opt) => opt.value === viduModel)?.label || "Vidu Q2"}
+            </span>
             <span style={{ fontSize: 16, lineHeight: 1 }}>
               {modelMenuOpen ? "▴" : "▾"}
             </span>
@@ -1197,22 +1422,53 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               }}
             >
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {klingModelOptions.map((opt) => {
-                  const isActive = klingModel === opt.value;
+                {(isUnifiedKlingNode
+                  ? filteredKlingModelOptions
+                  : provider === "doubao"
+                  ? filteredSeedanceModelOptions
+                  : filteredViduModelOptions).map((opt) => {
                   return (
                     <button
                       key={opt.value}
                       type='button'
                       onClick={() => {
-                        handleKlingModelChange(opt.value);
+                        if (isUnifiedKlingNode) {
+                          handleKlingModelChange(opt.value as "kling-v2-6" | "kling-v3-0");
+                        } else if (provider === "doubao") {
+                          handleSeedanceModelChange(opt.value as SeedanceModel);
+                        } else {
+                          handleViduModelChange(opt.value as ViduModel);
+                        }
                         setModelMenuOpen(false);
                       }}
                       style={{
                         padding: "6px 10px",
                         borderRadius: 8,
-                        border: `1px solid ${isActive ? "#2563eb" : "#e5e7eb"}`,
-                        background: isActive ? "#eff6ff" : "#fff",
-                        color: isActive ? "#1d4ed8" : "#111827",
+                        border: `1px solid ${
+                          (isUnifiedKlingNode
+                            ? klingModel
+                            : provider === "doubao"
+                            ? seedanceModel
+                            : viduModel) === opt.value
+                            ? "#2563eb"
+                            : "#e5e7eb"
+                        }`,
+                        background:
+                          (isUnifiedKlingNode
+                            ? klingModel
+                            : provider === "doubao"
+                            ? seedanceModel
+                            : viduModel) === opt.value
+                            ? "#eff6ff"
+                            : "#fff",
+                        color:
+                          (isUnifiedKlingNode
+                            ? klingModel
+                            : provider === "doubao"
+                            ? seedanceModel
+                            : viduModel) === opt.value
+                            ? "#1d4ed8"
+                            : "#111827",
                         fontSize: 12,
                         textAlign: "left",
                         cursor: "pointer",
@@ -1547,8 +1803,49 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         </div>
       )}
 
-      {/* Vidu 专用参数 */}
-      {(provider === "vidu" || provider === "viduq3-pro") && (
+      {shouldShowResolutionSelector && (
+        <div
+          className='video-dropdown'
+          style={{ marginBottom: 8, position: "relative" }}
+        >
+          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+            {lt("分辨率", "Resolution")}
+          </div>
+          <button
+            type='button'
+            onClick={(event) => {
+              event.stopPropagation();
+              const normalizedOptions = vodResolutionOptions.map((item) => item.toUpperCase());
+              const currentResolution = String(data.resolution || normalizedOptions[0] || "720P").toUpperCase();
+              const currentIndex = normalizedOptions.indexOf(currentResolution);
+              const nextResolution =
+                normalizedOptions[(currentIndex + 1 + normalizedOptions.length) % normalizedOptions.length];
+              window.dispatchEvent(
+                new CustomEvent("flow:updateNodeData", {
+                  detail: { id, patch: { resolution: nextResolution } },
+                })
+              );
+            }}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "6px 10px",
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              background: "#fff",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            <span>{String(data.resolution || vodResolutionOptions[0] || "720P").toUpperCase()}</span>
+          </button>
+        </div>
+      )}
+
+      {/* Vidu 旧链路专用参数 */}
+      {shouldShowLegacyViduOptions && (
         <>
           <div
             className='video-dropdown'
@@ -1651,8 +1948,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         </>
       )}
 
-      {/* Seedance 1.5 Pro专用参数 */}
-      {provider === "doubao" && (
+      {/* Seedance 旧链路专用参数 */}
+      {shouldShowLegacySeedanceOptions && (
         <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
           <button
             type='button'

@@ -26,10 +26,48 @@ export interface TencentVodAigcCreateTaskRequest {
   sessionId?: string;
 }
 
+export interface TencentVodAigcVideoFileInfo {
+  type?: 'File' | 'Url';
+  category?: 'Image' | 'Video';
+  fileId?: string;
+  url?: string;
+  objectId?: string;
+  usage?: 'FirstFrame' | 'Reference';
+}
+
+export interface TencentVodAigcCreateVideoTaskRequest {
+  prompt?: string;
+  modelName: string;
+  modelVersion: string;
+  fileInfos?: TencentVodAigcVideoFileInfo[];
+  lastFrameFileId?: string;
+  lastFrameUrl?: string;
+  aspectRatio?: string;
+  duration?: number;
+  resolution?: string;
+  audioGeneration?: 'Enabled' | 'Disabled';
+  enhancePrompt?: 'Enabled' | 'Disabled';
+  mediaName?: string;
+  storageMode?: 'Temporary' | 'Permanent';
+  sceneType?: string;
+  extInfo?: string;
+  sessionContext?: string;
+  sessionId?: string;
+}
+
 export interface TencentVodAigcTaskStatus {
   taskId: string;
   status?: string;
   imageUrl?: string;
+  requestId?: string;
+  raw?: Record<string, any>;
+}
+
+export interface TencentVodAigcVideoTaskStatus {
+  taskId: string;
+  status?: string;
+  videoUrl?: string;
+  fileId?: string;
   requestId?: string;
   raw?: Record<string, any>;
 }
@@ -196,6 +234,121 @@ export class TencentVodAigcService {
     return { taskId, requestId };
   }
 
+  async createVideoTask(
+    request: TencentVodAigcCreateVideoTaskRequest,
+  ): Promise<{ taskId: string; requestId?: string }> {
+    this.ensureCredentialReady();
+    if (typeof this.subAppId !== 'number') {
+      throw new ServiceUnavailableException(
+        'Tencent VOD SubAppId is required for AIGC video task. Please set TENCENT_VOD_SUB_APP_ID in backend/.env.',
+      );
+    }
+
+    const prompt = (request.prompt || '').trim();
+    const normalizedFileInfos =
+      (request.fileInfos || [])
+        .map((item) => {
+          const typeRaw = String(item?.type || '').trim().toLowerCase();
+          const categoryRaw = String(item?.category || '').trim().toLowerCase();
+          const type = typeRaw === 'file' ? 'File' : 'Url';
+          const category = categoryRaw === 'video' ? 'Video' : 'Image';
+          const fileId = (item?.fileId || '').trim();
+          const url = (item?.url || '').trim();
+          const objectId = (item?.objectId || '').trim();
+          const usage = (item?.usage || '').trim();
+          return { type, category, fileId, url, objectId, usage };
+        })
+        .filter((item) => (item.type === 'File' ? !!item.fileId : !!item.url)) || [];
+
+    if (!prompt && normalizedFileInfos.length === 0) {
+      throw new BadRequestException('Tencent AIGC video requires prompt or fileInfos');
+    }
+
+    const payload: Record<string, any> = {
+      SubAppId: this.subAppId,
+      ModelName: request.modelName,
+      ModelVersion: request.modelVersion,
+      EnhancePrompt: request.enhancePrompt || 'Enabled',
+      OutputConfig: {
+        StorageMode: request.storageMode || 'Temporary',
+      },
+    };
+
+    if (prompt) {
+      payload.Prompt = prompt;
+    }
+
+    if (normalizedFileInfos.length > 0) {
+      payload.FileInfos = normalizedFileInfos.map((item) => {
+        const result: Record<string, any> =
+          item.type === 'File'
+            ? {
+                Type: 'File',
+                Category: item.category,
+                FileId: item.fileId,
+              }
+            : {
+                Type: 'Url',
+                Category: item.category,
+                Url: item.url,
+              };
+        if (item.objectId) result.ObjectId = item.objectId;
+        if (item.usage) result.Usage = item.usage;
+        return result;
+      });
+    }
+
+    const lastFrameFileId = (request.lastFrameFileId || '').trim();
+    const lastFrameUrl = (request.lastFrameUrl || '').trim();
+    if (lastFrameFileId) {
+      payload.LastFrameFileId = lastFrameFileId;
+    } else if (lastFrameUrl) {
+      payload.LastFrameUrl = lastFrameUrl;
+    }
+
+    if (request.aspectRatio) {
+      payload.OutputConfig.AspectRatio = request.aspectRatio;
+    }
+    if (typeof request.duration === 'number' && Number.isFinite(request.duration) && request.duration > 0) {
+      payload.OutputConfig.Duration = request.duration;
+    }
+    if (request.resolution) {
+      payload.OutputConfig.Resolution = request.resolution;
+    }
+    if (request.audioGeneration) {
+      payload.OutputConfig.AudioGeneration = request.audioGeneration;
+    }
+    if (request.mediaName) {
+      payload.OutputConfig.MediaName = request.mediaName;
+    }
+    if (request.sceneType) {
+      payload.SceneType = request.sceneType;
+    }
+    if (request.extInfo) {
+      payload.ExtInfo = request.extInfo;
+    }
+    if (request.sessionContext) {
+      payload.SessionContext = request.sessionContext;
+    }
+    if (request.sessionId) {
+      payload.SessionId = request.sessionId;
+    }
+
+    this.logger.debug(
+      `Tencent VOD CreateAigcVideoTask payload: ${JSON.stringify(this.sanitizeForLog(payload))}`,
+    );
+    const response = await this.callTencentApi('CreateAigcVideoTask', payload);
+    this.logger.debug(
+      `Tencent VOD CreateAigcVideoTask response: ${JSON.stringify(this.sanitizeForLog(response))}`,
+    );
+    const taskId = this.pickFirstString(response?.TaskId, response?.taskId);
+    if (!taskId) {
+      throw new BadGatewayException('Tencent CreateAigcVideoTask succeeded but TaskId is missing');
+    }
+    const requestId = this.pickFirstString(response?.RequestId, response?.requestId);
+    return { taskId, requestId };
+  }
+
   async queryTask(taskId: string): Promise<TencentVodAigcTaskStatus> {
     this.ensureCredentialReady();
 
@@ -219,6 +372,46 @@ export class TencentVodAigcService {
       taskId: normalizedTaskId,
       status,
       imageUrl,
+      requestId,
+      raw: response,
+    };
+  }
+
+  async queryVideoTask(taskId: string): Promise<TencentVodAigcVideoTaskStatus> {
+    this.ensureCredentialReady();
+
+    const normalizedTaskId = (taskId || '').trim();
+    if (!normalizedTaskId) {
+      throw new BadRequestException('taskId is required');
+    }
+
+    const body: Record<string, any> = { TaskId: normalizedTaskId };
+    if (typeof this.subAppId === 'number') {
+      body.SubAppId = this.subAppId;
+    }
+
+    const response = await this.callTencentApi('DescribeTaskDetail', body);
+    const status = this.extractStatus(response);
+    const videoUrl = this.extractBestVideoUrl(response);
+    const fileId = this.findFirstStringByKeys(response, ['FileId']);
+    const requestId = this.pickFirstString(response?.RequestId, response?.requestId);
+    this.logger.debug(
+      `Tencent VOD DescribeTaskDetail video response: ${JSON.stringify(
+        this.sanitizeForLog({
+          taskId: normalizedTaskId,
+          status,
+          videoUrl,
+          fileId,
+          response,
+        }),
+      )}`,
+    );
+
+    return {
+      taskId: normalizedTaskId,
+      status,
+      videoUrl,
+      fileId,
       requestId,
       raw: response,
     };
@@ -289,11 +482,14 @@ export class TencentVodAigcService {
     const direct = this.pickFirstString(
       response?.Status,
       response?.TaskStatus,
+      response?.ProcedureTask?.Status,
       response?.TaskDetail?.Status,
       response?.TaskDetail?.TaskStatus,
       response?.TaskInfo?.Status,
       response?.AigcImageTask?.Status,
       response?.AIGCImageTask?.Status,
+      response?.AigcVideoTask?.Status,
+      response?.AIGCVideoTask?.Status,
     );
     if (direct) return direct;
 
@@ -326,6 +522,37 @@ export class TencentVodAigcService {
     if (key.includes('url')) score += 1;
     if (key.includes('input') || key.includes('source')) score -= 4;
     if (/\.(png|jpg|jpeg|webp|gif)(\?|$)/i.test(value)) score += 2;
+
+    return score;
+  }
+
+  private extractBestVideoUrl(response: Record<string, any>): string | undefined {
+    const candidates = this.collectUrlCandidates(response);
+    if (!candidates.length) return undefined;
+
+    const scored = candidates
+      .map((item) => ({
+        ...item,
+        score: this.scoreVideoUrlCandidate(item.keyPath, item.url),
+      }))
+      .sort((a, b) => b.score - a.score);
+
+    return scored[0]?.score > 0 ? scored[0]?.url : undefined;
+  }
+
+  private scoreVideoUrlCandidate(keyPath: string, url: string): number {
+    let score = 0;
+    const key = keyPath.toLowerCase();
+    const value = url.toLowerCase();
+
+    if (key.includes('fileurl')) score += 6;
+    if (key.includes('video')) score += 4;
+    if (key.includes('proceduretask')) score += 3;
+    if (key.includes('output')) score += 2;
+    if (key.includes('image')) score -= 4;
+    if (key.includes('input') || key.includes('source')) score -= 5;
+    if (/\.(mp4|mov|webm|m3u8)(\?|$)/i.test(value)) score += 4;
+    if (/\.(png|jpg|jpeg|webp|gif)(\?|$)/i.test(value)) score -= 4;
 
     return score;
   }
@@ -560,6 +787,28 @@ export class TencentVodAigcService {
     } catch {
       return undefined;
     }
+  }
+
+  private sanitizeForLog(value: unknown): unknown {
+    if (Array.isArray(value)) {
+      return value.map((item) => this.sanitizeForLog(item));
+    }
+
+    if (!value || typeof value !== 'object') {
+      if (typeof value === 'string' && value.length > 500) {
+        return `${value.slice(0, 500)}...[truncated ${value.length} chars]`;
+      }
+      return value;
+    }
+
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, nested]) => {
+        if (typeof nested === 'string' && nested.length > 500) {
+          return [key, `${nested.slice(0, 500)}...[truncated ${nested.length} chars]`];
+        }
+        return [key, this.sanitizeForLog(nested)];
+      }),
+    );
   }
 
   private sleep(ms: number): Promise<void> {

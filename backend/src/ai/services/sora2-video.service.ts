@@ -5,6 +5,8 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
+import { ModelRoutingService } from "./model-routing.service";
+import { TencentVodAigcService } from "./tencent-vod-aigc.service";
 
 type VideoQuality = "hd" | "sd";
 type Sora2GenerationModel = "sora-2" | "sora-2-vip" | "sora-2-pro";
@@ -32,6 +34,7 @@ const SORA2_RETRY_BASE_DELAY_MS = 1200;
 const SORA2_POLL_INTERVAL_MS = 5000;
 const SORA2_POLL_MAX_ATTEMPTS = 120;
 const SORA2_POLL_STATUSES = ["queued", "processing", "downloading", "pending"];
+const SORA2_TENCENT_TASK_PREFIX = "tencentvod-sora2-";
 
 // ==================== APIMart Sora2 Pro 配置 ====================
 const SORA2_APIMART_POLL_INTERVAL_MS = 5000;
@@ -178,7 +181,11 @@ export class Sora2VideoService {
     process.env.APIMART_API_KEY ||
     process.env.NANO2_API_KEY;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly modelRoutingService: ModelRoutingService,
+    private readonly tencentVodAigcService: TencentVodAigcService,
+  ) {}
 
   /**
    * 从数据库获取当前配置的供应商
@@ -207,6 +214,12 @@ export class Sora2VideoService {
   async generateVideo(
     options: GenerateVideoOptions
   ): Promise<Sora2VideoResult> {
+    const managedRoute = await this.modelRoutingService.resolveVideoModel("sora-2");
+    if (managedRoute?.route === "tencent_vod") {
+      this.logger.log("使用腾讯 VOD Sora2 路由");
+      return this.generateVideoTencentVod(options, managedRoute.vendor);
+    }
+
     const provider = await this.getConfiguredProvider();
     this.logger.log(`当前 Sora2 供应商配置: ${provider}`);
     const wantsApimart = this.hasApimartOnlyOptions(options);
@@ -371,6 +384,10 @@ export class Sora2VideoService {
   }
 
   async queryVideoTask(taskId: string): Promise<Sora2VideoTaskQueryResult> {
+    if (taskId?.startsWith(SORA2_TENCENT_TASK_PREFIX)) {
+      return this.queryTencentVideoTask(taskId);
+    }
+
     if (!this.apiKeyApimart) {
       throw new ServiceUnavailableException("APIMart Sora2 API Key 未配置");
     }
@@ -411,6 +428,158 @@ export class Sora2VideoService {
       thumbnailUrl,
       raw: dataRaw,
     };
+  }
+
+  private async generateVideoTencentVod(
+    options: GenerateVideoOptions,
+    vendorConfig: { modelName?: string; modelVersion?: string },
+  ): Promise<Sora2VideoResult> {
+    const normalizedPrompt =
+      typeof options.prompt === "string" && options.prompt.trim()
+        ? options.prompt.trim()
+        : "";
+    const referenceImageUrls = (options.referenceImageUrls || [])
+      .filter((url): url is string => typeof url === "string" && url.trim().length > 0)
+      .map((url) => url.trim());
+
+    if (!normalizedPrompt && referenceImageUrls.length === 0) {
+      throw new BadRequestException("Sora 2 需要提供提示词或至少 1 张参考图");
+    }
+
+    const durationRaw = options.duration ? Number(options.duration) : undefined;
+    const duration =
+      typeof durationRaw === "number" && Number.isFinite(durationRaw) && durationRaw > 0
+        ? Math.round(durationRaw)
+        : undefined;
+
+    const { taskId } = await this.tencentVodAigcService.createVideoTask({
+      modelName: vendorConfig.modelName || "OS",
+      modelVersion: vendorConfig.modelVersion || "2.0",
+      prompt: normalizedPrompt || undefined,
+      fileInfos: referenceImageUrls.map((url, index) => ({
+        type: "Url",
+        category: "Image",
+        url,
+        objectId: `id${index + 1}`,
+      })),
+      aspectRatio: options.aspectRatio,
+      duration,
+      resolution: "720P",
+      audioGeneration: "Enabled",
+      enhancePrompt: "Enabled",
+      storageMode: "Temporary",
+    });
+
+    const completed = await this.waitForTencentVideoResult(taskId);
+    if (!completed.videoUrl) {
+      throw new ServiceUnavailableException("腾讯 VOD Sora2 未返回有效视频地址");
+    }
+
+    return {
+      videoUrl: completed.videoUrl,
+      content: `视频已生成（腾讯 VOD Sora2，任务ID: ${taskId}）`,
+      referencedUrls: [completed.videoUrl],
+      status: completed.status,
+      taskId: `${SORA2_TENCENT_TASK_PREFIX}${taskId}`,
+      taskInfo: completed.raw || null,
+    };
+  }
+
+  private async waitForTencentVideoResult(taskId: string): Promise<{
+    status: string;
+    videoUrl?: string;
+    raw?: Record<string, any>;
+  }> {
+    let lastStatus = "processing";
+    let lastRaw: Record<string, any> | undefined;
+
+    await this.delay(5000);
+    for (let attempt = 1; attempt <= 120; attempt++) {
+      const result = await this.tencentVodAigcService.queryVideoTask(taskId);
+      lastStatus = String(result.status || "processing");
+      lastRaw = result.raw;
+      const normalized = this.normalizeTencentStatus(lastStatus);
+
+      if (normalized === "success") {
+        if (result.videoUrl) {
+          return {
+            status: lastStatus,
+            videoUrl: result.videoUrl,
+            raw: result.raw,
+          };
+        }
+      }
+
+      if (normalized === "failed") {
+        throw new ServiceUnavailableException(
+          `腾讯 VOD Sora2 任务失败: ${lastStatus}`
+        );
+      }
+
+      await this.delay(3000);
+    }
+
+    throw new ServiceUnavailableException(
+      `腾讯 VOD Sora2 轮询超时，最后状态: ${lastStatus}`
+    );
+  }
+
+  private async queryTencentVideoTask(taskId: string): Promise<Sora2VideoTaskQueryResult> {
+    const rawTaskId = taskId.slice(SORA2_TENCENT_TASK_PREFIX.length).trim();
+    if (!rawTaskId) {
+      throw new BadRequestException("taskId 不能为空");
+    }
+
+    const result = await this.tencentVodAigcService.queryVideoTask(rawTaskId);
+    const normalized = this.normalizeTencentStatus(result.status);
+    if (normalized === "success" && result.videoUrl) {
+      return {
+        id: taskId,
+        status: "completed",
+        progress: 100,
+        videoUrl: result.videoUrl,
+        raw: result.raw,
+      };
+    }
+
+    if (normalized === "failed") {
+      return {
+        id: taskId,
+        status: "failed",
+        raw: result.raw,
+      };
+    }
+
+    return {
+      id: taskId,
+      status: "processing",
+      progress: 50,
+      raw: result.raw,
+    };
+  }
+
+  private normalizeTencentStatus(status?: string): "processing" | "success" | "failed" {
+    const value = String(status || "").trim().toLowerCase();
+    if (
+      [
+        "finish",
+        "finished",
+        "success",
+        "succeed",
+        "succeeded",
+        "completed",
+        "complete",
+        "done",
+      ].includes(value)
+    ) {
+      return "success";
+    }
+
+    if (["failed", "fail", "error", "cancelled", "timeout", "exception"].includes(value)) {
+      return "failed";
+    }
+
+    return "processing";
   }
 
   private hasApimartOnlyOptions(options: GenerateVideoOptions): boolean {

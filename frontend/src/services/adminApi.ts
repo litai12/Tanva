@@ -82,6 +82,14 @@ export interface ApiUsageRecord {
   serviceName: string;
   provider: string;
   model: string | null;
+  requestParams?: {
+    platformKey?: string | null;
+    vendorKey?: string | null;
+    providerChannel?: string | null;
+    routedProvider?: string | null;
+    taskId?: string | null;
+    [key: string]: unknown;
+  } | null;
   creditsUsed: number;
   inputTokens: number | null;
   outputTokens: number | null;

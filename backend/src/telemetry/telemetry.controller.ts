@@ -1,5 +1,6 @@
 import { Body, Controller, HttpCode, Post, Req } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
+import { OpenObserveTelemetryService } from './openobserve-telemetry.service';
 
 const clampString = (value: unknown, maxLength: number): string | null => {
   if (typeof value !== 'string') return null;
@@ -10,6 +11,10 @@ const clampString = (value: unknown, maxLength: number): string | null => {
 
 @Controller('telemetry')
 export class TelemetryController {
+  constructor(
+    private readonly openObserveTelemetryService: OpenObserveTelemetryService,
+  ) {}
+
   @Post('frontend-error')
   @HttpCode(204)
   frontendError(@Body() body: unknown, @Req() req: FastifyRequest): void {
@@ -34,5 +39,6 @@ export class TelemetryController {
 
     // Keep telemetry in structured server logs for release-level debugging.
     console.error('[frontend-error]', JSON.stringify(normalized));
+    void this.openObserveTelemetryService.ingestFrontendError(normalized);
   }
 }

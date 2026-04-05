@@ -1,6 +1,7 @@
 import { tokenRefreshManager } from './tokenRefreshManager';
 import { triggerAuthExpired } from './authEvents';
 import { getAccessToken, getRefreshAuthHeader, setTokens } from './authTokenStorage';
+import { ensureTraceHeader } from '../utils/trace';
 
 type RequestInput = RequestInfo | URL;
 
@@ -115,6 +116,7 @@ const normalizeInit = (init?: AuthFetchInit): RequestInit => {
   const { auth, ...rest } = init || {};
   const headers = new Headers(rest.headers || {});
   const authMode = auth ?? "auto";
+  ensureTraceHeader(headers);
 
   if (authMode !== "omit") {
     const accessToken = getAccessToken();
