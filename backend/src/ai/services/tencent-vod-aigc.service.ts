@@ -40,6 +40,8 @@ export interface TencentVodAigcCreateVideoTaskRequest {
   modelName: string;
   modelVersion: string;
   fileInfos?: TencentVodAigcVideoFileInfo[];
+  lastFrameFileId?: string;
+  lastFrameUrl?: string;
   aspectRatio?: string;
   duration?: number;
   resolution?: string;
@@ -294,6 +296,14 @@ export class TencentVodAigcService {
         if (item.usage) result.Usage = item.usage;
         return result;
       });
+    }
+
+    const lastFrameFileId = (request.lastFrameFileId || '').trim();
+    const lastFrameUrl = (request.lastFrameUrl || '').trim();
+    if (lastFrameFileId) {
+      payload.LastFrameFileId = lastFrameFileId;
+    } else if (lastFrameUrl) {
+      payload.LastFrameUrl = lastFrameUrl;
     }
 
     if (request.aspectRatio) {

@@ -68,10 +68,12 @@ import ImageProNode from "./nodes/ImageProNode";
 import MidjourneyNode from "./nodes/MidjourneyNode";
 import KlingVideoNode from "./nodes/KlingVideoNode";
 import Kling26VideoNode from "./nodes/Kling26VideoNode";
+import Kling30VideoNode from "./nodes/Kling30VideoNode";
 import KlingO1VideoNode from "./nodes/KlingO1VideoNode";
 import ViduVideoNode from "./nodes/ViduVideoNode";
 import ViduQ3ProVideoNode from "./nodes/ViduQ3ProVideoNode";
 import DoubaoVideoNode from "./nodes/DoubaoVideoNode";
+import Seedance20VideoNode from "./nodes/Seedance20VideoNode";
 import VideoNode from "./nodes/VideoNode";
 import AudioNode from "./nodes/AudioNode";
 import VideoAnalyzeNode from "./nodes/VideoAnalyzeNode";
@@ -696,10 +698,12 @@ const rawNodeTypes = {
   wan2R2V: Wan2R2VNode,
   klingVideo: KlingVideoNode,
   kling26Video: Kling26VideoNode,
+  kling30Video: Kling30VideoNode,
   klingO1Video: KlingO1VideoNode,
   viduVideo: ViduVideoNode,
   viduQ3: ViduQ3ProVideoNode,
   doubaoVideo: DoubaoVideoNode,
+  seedance20Video: Seedance20VideoNode,
   storyboardSplit: StoryboardSplitNode,
   midjourney: MidjourneyNode,
   midjourneyV7: MidjourneyNode,
@@ -849,10 +853,12 @@ const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "wan2R2V",
   "klingVideo",
   "kling26Video",
+  "kling30Video",
   "klingO1Video",
   "viduVideo",
   "viduQ3",
   "doubaoVideo",
+  "seedance20Video",
   "minimaxSpeech",
   "tencentSpeech",
   "minimaxMusic",
@@ -1122,10 +1128,12 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   wan2R2V: 600, // 视频融合 - wan26-r2v
   klingVideo: 600, // 可灵视频生成
   kling26Video: 500, // 可灵2.6视频生成 - kling-v2-6
+  kling30Video: 600, // 可灵3.0视频生成 - kling-v3-0
   klingO3Video: 600, // 可灵O3视频生成 - Omni Video
   viduVideo: 600, // Vidu视频生成
   viduQ3: 600, // Vidu Q3 Pro视频生成
   doubaoVideo: 600, // Seedance 1.5 Pro包视频生成
+  seedance20Video: 600, // Seedance 2.0 视频生成
   videoToGif: 30, // 视频转GIF
   minimaxSpeech: 10, // MiniMax 语音合成
   tencentSpeech: 10, // 腾讯语音合成
@@ -1282,10 +1290,12 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   wan2R2V: "video",
   klingVideo: "video",
   kling26Video: "video",
+  kling30Video: "video",
   klingO1Video: "video",
   viduVideo: "video",
   viduQ3: "video",
   doubaoVideo: "video",
+  seedance20Video: "video",
   videoAnalyze: "video",
   videoFrameExtract: "video",
   videoToGif: "video",
@@ -1330,10 +1340,12 @@ const FLOW_NODE_DEFAULT_SIZE = {
   wan2R2V: { w: 300, h: 360 },
   klingVideo: { w: 280, h: 260 },
   kling26Video: { w: 280, h: 260 },
+  kling30Video: { w: 280, h: 260 },
   klingO1Video: { w: 280, h: 380 },
   viduVideo: { w: 280, h: 260 },
   viduQ3: { w: 280, h: 260 },
   doubaoVideo: { w: 280, h: 260 },
+  seedance20Video: { w: 280, h: 260 },
   storyboardSplit: { w: 320, h: 400 },
   midjourney: { w: 280, h: 320 },
   midjourneyV7: { w: 300, h: 760 },
@@ -1378,6 +1390,12 @@ const FLOW_NODE_KEY_ALIASES: Record<string, FlowNodeType> = {
   "kling-26": "kling26Video",
   "kling-2.6": "kling26Video",
   "kling-2.6-video": "kling26Video",
+  "kling-3.0": "kling30Video",
+  "kling-3.0-video": "kling30Video",
+  kling30: "kling30Video",
+  seedance20: "seedance20Video",
+  "seedance-2.0": "seedance20Video",
+  "seedance-2.0-video": "seedance20Video",
   pathtracer: "three",
   "path-tracer": "three",
   "three-pathtracer": "three",
@@ -1465,7 +1483,6 @@ const resolveFlowNodeTypeFromConfig = (config: Partial<NodeConfig>): string => {
   for (const candidate of candidates) {
     const normalized = normalizeFlowNodeType(candidate);
     if (normalized) {
-      if (normalized === "kling26Video") return "klingVideo";
       return normalized;
     }
   }
@@ -1477,6 +1494,28 @@ const resolveFlowNodeTypeFromConfig = (config: Partial<NodeConfig>): string => {
   }
 
   return "";
+};
+
+const buildNodePaletteCaption = (config: Partial<NodeConfig>): string | undefined => {
+  const metadata = (config.metadata ?? {}) as Record<string, any>;
+  const vod = metadata.vod && typeof metadata.vod === "object" ? metadata.vod : undefined;
+  if (vod) {
+    const segments = [
+      "VOD",
+      vod.modelVersion ? `${vod.modelName || ""} ${vod.modelVersion}`.trim() : vod.modelName,
+      Array.isArray(vod.outputConfig?.resolutions) && vod.outputConfig.resolutions.length > 0
+        ? vod.outputConfig.resolutions.join("/")
+        : undefined,
+      Array.isArray(vod.outputConfig?.durations) && vod.outputConfig.durations.length > 0
+        ? `${Math.min(...vod.outputConfig.durations)}-${Math.max(...vod.outputConfig.durations)}s`
+        : undefined,
+    ].filter(Boolean);
+    if (segments.length > 0) return segments.join(" · ");
+  }
+  if (typeof config.description === "string" && config.description.trim()) {
+    return config.description.trim();
+  }
+  return undefined;
 };
 
 const nodePaletteButtonStyle: React.CSSProperties = {
@@ -1640,12 +1679,13 @@ const setNodePaletteHover = (target: HTMLElement, hovered: boolean) => {
 const NodePaletteButton: React.FC<{
   zh: string;
   en: string;
+  caption?: string;
   badge?: string;
   status?: string;
   credits?: number | string;
   disabled?: boolean;
   onClick: () => void;
-}> = ({ zh, en, badge, status, credits, disabled, onClick }) => {
+}> = ({ zh, en, caption, badge, status, credits, disabled, onClick }) => {
   const creditsDisplay =
     credits !== undefined && credits !== 0
       ? typeof credits === "string"
@@ -1690,9 +1730,27 @@ const NodePaletteButton: React.FC<{
       onMouseLeave={(e) => !disabled && setNodePaletteHover(e.currentTarget, false)}
       disabled={disabled}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}>
-        <span style={nodePaletteEnCodeStyle}>{en}</span>
-        {badge ? <span style={getBadgeStyle(status)}>{badge}</span> : null}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4, flex: 1 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, width: "100%" }}>
+          <span style={nodePaletteEnCodeStyle}>{en}</span>
+          {badge ? <span style={getBadgeStyle(status)}>{badge}</span> : null}
+        </div>
+        {caption ? (
+          <div
+            style={{
+              fontSize: 11,
+              color: "#6b7280",
+              lineHeight: 1.4,
+              maxWidth: "100%",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+            title={caption}
+          >
+            {caption}
+          </div>
+        ) : null}
         {/* {creditsDisplay && (
           <span style={nodePaletteCreditsStyle}>消耗{creditsDisplay}积分</span>
         )} */}
@@ -2115,40 +2173,20 @@ function FlowInner() {
 
     const hasBackendConfigs = Boolean(sortedNodeConfigs && sortedNodeConfigs.length > 0);
     const base = hasBackendConfigs
-      ? (() => {
-          const deduped = new Map<string, NodeConfig>();
-          for (const config of sortedNodeConfigs) {
-            const resolvedType = resolveFlowNodeTypeFromConfig(config);
-            const dedupeKey = resolvedType || config.nodeKey;
-            if (!dedupeKey) continue;
-            const existing = deduped.get(dedupeKey);
-            if (!existing) {
-              deduped.set(dedupeKey, config);
-              continue;
-            }
-            if (
-              config.nodeKey === dedupeKey &&
-              existing.nodeKey !== dedupeKey
-            ) {
-              deduped.set(dedupeKey, config);
-            }
-          }
-          return Array.from(deduped.values());
-        })()
+      ? [...sortedNodeConfigs]
       : [...fallbackConfigs];
     const merged = [...base];
 
     if (hasBackendConfigs) {
-      const existingTypes = new Set(
+      const existingNodeKeys = new Set(
         base
-          .map((item) => resolveFlowNodeTypeFromConfig(item))
-          .filter((type): type is string => Boolean(type))
+          .map((item) => item.nodeKey)
+          .filter((key): key is string => Boolean(key))
       );
 
       for (const fallback of fallbackConfigs) {
-        const fallbackType = resolveFlowNodeTypeFromConfig(fallback);
-        if (!fallbackType || existingTypes.has(fallbackType)) continue;
-        existingTypes.add(fallbackType);
+        if (!fallback.nodeKey || existingNodeKeys.has(fallback.nodeKey)) continue;
+        existingNodeKeys.add(fallback.nodeKey);
         merged.push(fallback);
       }
     }
@@ -6041,7 +6079,9 @@ function FlowInner() {
   const createNodeAtWorldCenter = React.useCallback(
     (
       rawType: string,
-      world: { x: number; y: number }
+      world: { x: number; y: number },
+      paletteDefaultData?: Record<string, any>,
+      paletteConfig?: Partial<NodeConfig>
     ) => {
       // 以默认尺寸中心对齐放置
       const type = normalizeFlowNodeType(rawType);
@@ -6059,7 +6099,7 @@ function FlowInner() {
       const size = FLOW_NODE_DEFAULT_SIZE[type];
       const id = `${type}_${Date.now()}`;
       const pos = { x: world.x - size.w / 2, y: world.y - size.h / 2 };
-      const data =
+      const baseData =
         type === "textPrompt"
           ? { text: "", boxW: size.w, boxH: size.h, title: "Prompt" }
           : type === "textPromptPro"
@@ -6424,9 +6464,11 @@ function FlowInner() {
             }
           : type === "klingVideo" ||
             type === "kling26Video" ||
+            type === "kling30Video" ||
             type === "viduVideo" ||
             type === "viduQ3" ||
-            type === "doubaoVideo"
+            type === "doubaoVideo" ||
+            type === "seedance20Video"
           ? {
               status: "idle" as const,
               videoUrl: undefined,
@@ -6444,20 +6486,32 @@ function FlowInner() {
                   ? "doubao"
                   : "kling",
               klingModel:
-                "kling-v2-6" as const,
+                type === "kling30Video" ? ("kling-v3-0" as const) : ("kling-v2-6" as const),
               mode:
-                type === "klingVideo" || type === "kling26Video" ? ("std" as const) : undefined,
+                type === "klingVideo" || type === "kling26Video" || type === "kling30Video" ? ("std" as const) : undefined,
               sound:
-                type === "klingVideo" || type === "kling26Video" ? true : undefined,
+                type === "klingVideo" || type === "kling26Video" || type === "kling30Video" ? true : undefined,
               audioUrls:
-                type === "klingVideo" || type === "kling26Video" ? [] : undefined,
+                type === "klingVideo" || type === "kling26Video" || type === "kling30Video" ? [] : undefined,
               // Vidu 专用参数
+              viduModel:
+                type === "viduVideo"
+                  ? ("q2" as const)
+                  : type === "viduQ3"
+                  ? ("q3" as const)
+                  : undefined,
+              seedanceModel:
+                type === "doubaoVideo"
+                  ? ("seedance-1.5-pro" as const)
+                  : type === "seedance20Video"
+                  ? ("seedance-2.0" as const)
+                  : undefined,
               resolution: type === "viduVideo" || type === "viduQ3" ? ("720p" as const) : undefined,
               style: type === "viduVideo" || type === "viduQ3" ? ("general" as const) : undefined,
               offPeak: type === "viduVideo" || type === "viduQ3" ? false : undefined,
               // Seedance 1.5 Pro专用参数
-              camerafixed: type === "doubaoVideo" ? false : undefined,
-              watermark: type === "doubaoVideo" ? false : undefined,
+              camerafixed: type === "doubaoVideo" || type === "seedance20Video" ? false : undefined,
+              watermark: type === "doubaoVideo" || type === "seedance20Video" ? false : undefined,
               boxW: size.w,
               boxH: size.h,
             }
@@ -6476,6 +6530,23 @@ function FlowInner() {
               boxH: size.h,
             }
           : { boxW: size.w, boxH: size.h };
+      const data = {
+        ...baseData,
+        ...(paletteDefaultData || {}),
+        ...(paletteConfig
+          ? {
+              nodeConfigKey: paletteConfig.nodeKey,
+              nodeConfigNameZh: paletteConfig.nameZh,
+              nodeConfigNameEn: paletteConfig.nameEn,
+              nodeConfigMetadata:
+                paletteConfig.metadata && typeof paletteConfig.metadata === "object"
+                  ? paletteConfig.metadata
+                  : undefined,
+            }
+          : {}),
+        boxW: size.w,
+        boxH: size.h,
+      };
       setNodes((ns) => ns.concat([{ id, type, position: pos, data } as any]));
       try {
         historyService.commit("flow-add-node").catch(() => {});
@@ -6510,8 +6581,10 @@ function FlowInner() {
       "wan2R2V",
       "klingVideo",
       "kling26Video",
+      "kling30Video",
       "klingO1Video",
       "viduVideo",
+      "seedance20Video",
       "doubaoVideo",
       "videoFrameExtract",
     ],
@@ -6787,7 +6860,9 @@ function FlowInner() {
     const nodeData = (node.data || {}) as Record<string, any>;
     const klingModel =
       nodeData.klingModel ||
-      (node.type === "kling26Video" || nodeData.provider === "kling-2.6"
+      (node.type === "kling30Video"
+        ? "kling-v3-0"
+        : node.type === "kling26Video" || nodeData.provider === "kling-2.6"
         ? "kling-v2-6"
         : "kling-v2-6");
     return klingModel === "kling-v2-6" || klingModel === "kling-v3-0";
@@ -6795,13 +6870,15 @@ function FlowInner() {
 
   /** Kling 2.6/3.0 pro 模式支持首尾帧（image-2）；std 模式仅 1 张图 */
   const canKlingNodeUseImage2Input = React.useCallback((node?: Node | null) => {
-    if (!node || (node.type !== "klingVideo" && node.type !== "kling26Video")) {
+    if (!node || (node.type !== "klingVideo" && node.type !== "kling26Video" && node.type !== "kling30Video")) {
       return false;
     }
     const nodeData = (node.data || {}) as Record<string, any>;
     const klingModel =
       nodeData.klingModel ||
-      (node.type === "kling26Video" || nodeData.provider === "kling-2.6"
+      (node.type === "kling30Video"
+        ? "kling-v3-0"
+        : node.type === "kling26Video" || nodeData.provider === "kling-2.6"
         ? "kling-v2-6"
         : "kling-v2-6");
     const isKling26Model = klingModel === "kling-v2-6" || klingModel === "kling-v3-0";
@@ -6938,10 +7015,12 @@ function FlowInner() {
             "wan2R2V",
             "klingVideo",
             "kling26Video",
+            "kling30Video",
             "klingO1Video",
             "viduVideo",
             "viduQ3",
             "doubaoVideo",
+            "seedance20Video",
           ].includes(sourceNode.type || "");
         }
 
@@ -6959,10 +7038,12 @@ function FlowInner() {
             "wan2R2V",
             "klingVideo",
             "kling26Video",
+            "kling30Video",
             "klingO1Video",
             "viduVideo",
             "viduQ3",
             "doubaoVideo",
+            "seedance20Video",
           ].includes(sourceNode.type || "");
         }
 
@@ -7037,17 +7118,19 @@ function FlowInner() {
             "wan26",
             "klingVideo",
             "kling26Video",
+            "kling30Video",
             "klingO1Video",
             "viduVideo",
             "viduQ3",
             "doubaoVideo",
+            "seedance20Video",
           ].includes(sourceNode.type || "");
         }
         return false;
       }
 
       if (
-        ["klingVideo", "kling26Video", "viduVideo", "viduQ3", "doubaoVideo"].includes(
+        ["klingVideo", "kling26Video", "kling30Video", "viduVideo", "viduQ3", "doubaoVideo", "seedance20Video"].includes(
           targetNode.type || ""
         )
       ) {
@@ -7148,7 +7231,7 @@ function FlowInner() {
           return textSourceTypes.includes(sourceNode.type || "");
         }
         if (targetHandle === "video") {
-          return ["video", "sora2Video", "wan26", "wan2R2V", "klingVideo", "kling26Video", "klingO1Video", "viduVideo", "viduQ3", "doubaoVideo"].includes(sourceNode.type || "");
+          return ["video", "sora2Video", "wan26", "wan2R2V", "klingVideo", "kling26Video", "kling30Video", "klingO1Video", "viduVideo", "viduQ3", "doubaoVideo", "seedance20Video"].includes(sourceNode.type || "");
         }
         return false;
       }
@@ -7198,10 +7281,12 @@ function FlowInner() {
             "sora2Video",
             "klingVideo",
             "kling26Video",
+            "kling30Video",
             "klingO1Video",
             "viduVideo",
             "viduQ3",
             "doubaoVideo",
+            "seedance20Video",
             "wan26",
             "wan2R2V",
           ].includes(sourceNode.type || "");
@@ -7217,10 +7302,12 @@ function FlowInner() {
             "wan2R2V",
             "klingVideo",
             "kling26Video",
+            "kling30Video",
             "klingO1Video",
             "viduVideo",
             "viduQ3",
             "doubaoVideo",
+            "seedance20Video",
             "genericVideo",
             "seedanceVideo",
           ];
@@ -7393,11 +7480,13 @@ function FlowInner() {
         if (params.targetHandle === "text") return true;
       }
       // Kling 视频节点：std 最多 1 张图，pro 最多 2 张（image + image-2）
-      if (targetNode?.type === "klingVideo" || targetNode?.type === "kling26Video") {
+      if (targetNode?.type === "klingVideo" || targetNode?.type === "kling26Video" || targetNode?.type === "kling30Video") {
         const nodeData = (targetNode.data || {}) as Record<string, any>;
         const klingModel =
           nodeData.klingModel ||
-          (targetNode.type === "kling26Video" || nodeData.provider === "kling-2.6"
+          (targetNode.type === "kling30Video"
+            ? "kling-v3-0"
+            : targetNode.type === "kling26Video" || nodeData.provider === "kling-2.6"
             ? "kling-v2-6"
             : "kling-v2-6");
         const isKling26Model = klingModel === "kling-v2-6" || klingModel === "kling-v3-0";
@@ -7431,7 +7520,7 @@ function FlowInner() {
         if (params.targetHandle === "video") return incoming.length < 1; // 只支持 1 个视频
       }
       // Doubao 视频节点
-      if (targetNode?.type === "doubaoVideo") {
+      if (targetNode?.type === "doubaoVideo" || targetNode?.type === "seedance20Video") {
         if (params.targetHandle === "image") return true;
         if (params.targetHandle === "text") return true;
       }
@@ -7508,7 +7597,7 @@ function FlowInner() {
         const targetNode = params.target ? rf.getNode(params.target) : undefined;
         if (
           targetNode &&
-          (targetNode.type === "klingVideo" || targetNode.type === "kling26Video") &&
+          (targetNode.type === "klingVideo" || targetNode.type === "kling26Video" || targetNode.type === "kling30Video") &&
           params.targetHandle === "audio"
         ) {
           const canUseAudio = canKlingNodeUseAudioInput(targetNode);
@@ -7779,7 +7868,7 @@ function FlowInner() {
         }
         // Sora2、Doubao 视频节点：限制参考图数量
         if (
-          (tgt?.type === "sora2Video" || tgt?.type === "doubaoVideo") &&
+          (tgt?.type === "sora2Video" || tgt?.type === "doubaoVideo" || tgt?.type === "seedance20Video") &&
           params.targetHandle === "image"
         ) {
           // 允许多条 image 连接，但限制总数；超过时移除最早的
@@ -11046,22 +11135,30 @@ function FlowInner() {
       }
 
       // 新的视频生成节点处理逻辑（可灵 Kling、Kling O1、Vidu、Seedance 1.5 Pro）
-      const newVideoNodeTypes = ["klingVideo", "kling26Video", "klingO1Video", "viduVideo", "viduQ3", "doubaoVideo"];
+      const newVideoNodeTypes = ["klingVideo", "kling26Video", "kling30Video", "klingO1Video", "viduVideo", "viduQ3", "doubaoVideo", "seedance20Video"];
       if (newVideoNodeTypes.includes(node.type || "")) {
         const projectId = useProjectContentStore.getState().projectId;
         // 根据节点类型确定 provider
         let provider: string;
         const klingModel =
           (node.data as any)?.klingModel ||
-          (node.type === "kling26Video" || (node.data as any)?.provider === "kling-2.6"
+          (node.type === "kling30Video"
+            ? "kling-v3-0"
+            : node.type === "kling26Video" || (node.data as any)?.provider === "kling-2.6"
             ? "kling-v2-6"
             : "kling-v2-6");
         if (node.type === "klingO1Video") {
           provider = "kling-o3";
+        } else if (node.type === "kling30Video") {
+          provider = "kling";
         } else if (node.type === "klingVideo" || node.type === "kling26Video") {
           provider = "kling-2.6";
         } else if (node.type === "viduQ3") {
           provider = "viduq3-pro";
+        } else if (node.type === "doubaoVideo" || node.type === "seedance20Video") {
+          provider = "doubao";
+        } else if (node.type === "viduVideo") {
+          provider = "vidu";
         } else {
           provider = (node.data as any)?.provider || "kling";
         }
@@ -11465,11 +11562,12 @@ function FlowInner() {
               if (
                 provider === "vidu" ||
                 provider === "viduq3-pro" ||
+                provider === "doubao" ||
                 provider === "kling" ||
                 provider === "kling-2.6" ||
                 provider === "kling-o3"
               ) {
-                // Vidu 和 Kling 需要可访问的 URL，必须上传到 OSS
+                // 腾讯 VOD 链路需要可访问的 URL，必须上传到 OSS
                 if (isRemoteUrl(trimmed)) {
                   referenceImageUrls.push(normalizeStableRemoteUrl(trimmed));
                 } else {
@@ -11593,37 +11691,65 @@ function FlowInner() {
             promptPreview: finalPrompt?.slice(0, 120) || "(无提示词)",
           });
 
+          const rawNodeData = ((node.data as any) || {}) as Record<string, any>;
+          const requestPayload =
+            provider === "doubao"
+              ? {
+                  prompt: finalPrompt,
+                  referenceImages:
+                    referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
+                  duration: durationForAPI,
+                  aspectRatio: aspectRatioForAPI,
+                  provider: provider as VideoProvider,
+                  resolution: rawNodeData.resolution,
+                  seedanceModel:
+                    node.type === "seedance20Video"
+                      ? "seedance-2.0"
+                      : rawNodeData.seedanceModel || "seedance-1.5-pro",
+                }
+              : provider === "vidu" || provider === "viduq3-pro"
+              ? {
+                  prompt: finalPrompt,
+                  referenceImages:
+                    referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
+                  duration: durationForAPI,
+                  aspectRatio: aspectRatioForAPI,
+                  provider: provider as VideoProvider,
+                  resolution: rawNodeData.resolution,
+                  style: rawNodeData.style,
+                  offPeak: rawNodeData.offPeak,
+                  viduModel: rawNodeData.viduModel,
+                }
+              : {
+                  prompt: finalPrompt,
+                  referenceImages:
+                    referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
+                  duration: durationForAPI,
+                  aspectRatio: aspectRatioForAPI,
+                  provider: provider as VideoProvider,
+                  mode: rawNodeData.mode,
+                  klingModel:
+                    node.type === "kling30Video"
+                      ? "kling-v3-0"
+                      : rawNodeData.klingModel,
+                  sound:
+                    provider === "kling-o3" || provider === "kling-2.6" || provider === "kling"
+                      ? rawNodeData.mode === "pro"
+                        ? "on"
+                        : rawNodeData.sound === undefined || rawNodeData.sound === null
+                        ? undefined
+                        : rawNodeData.sound === "on" || rawNodeData.sound === true
+                        ? "on"
+                        : "off"
+                      : undefined,
+                  referenceVideo: referenceVideoUrl,
+                  referenceVideoType: rawNodeData.referenceVideoType,
+                  keepOriginalSound: rawNodeData.keepOriginalSound,
+                };
+
           // 调用对应供应商的 API
           const createResult = await generateVideoByProvider({
-            prompt: finalPrompt,
-            referenceImages:
-              referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
-            duration: durationForAPI,
-            aspectRatio: aspectRatioForAPI,
-            provider: provider as VideoProvider,
-            resolution: (node.data as any)?.resolution,
-            style: (node.data as any)?.style,
-            offPeak: (node.data as any)?.offPeak,
-            camerafixed: (node.data as any)?.camerafixed,
-            watermark: (node.data as any)?.watermark,
-            mode: (node.data as any)?.mode,
-            klingModel: (node.data as any)?.klingModel,
-            sound:
-              provider === "kling-o3" || provider === "kling-2.6"
-                ? (node.data as any)?.mode === "pro"
-                  ? "on"
-                  : (node.data as any)?.sound === undefined ||
-                    (node.data as any)?.sound === null
-                  ? undefined
-                  : (node.data as any)?.sound === "on" ||
-                    (node.data as any)?.sound === true
-                  ? "on"
-                  : "off"
-                : undefined,
-            // Kling O1 视频编辑参数
-            referenceVideo: referenceVideoUrl,
-            referenceVideoType: (node.data as any)?.referenceVideoType,
-            keepOriginalSound: (node.data as any)?.keepOriginalSound,
+            ...requestPayload,
           });
 
           console.log("✅ [Flow] Video task created", {
@@ -15609,10 +15735,12 @@ function FlowInner() {
             n.type === "wan2R2V" ||
             n.type === "klingVideo" ||
             n.type === "kling26Video" ||
+            n.type === "kling30Video" ||
             n.type === "klingO1Video" ||
             n.type === "viduVideo" ||
             n.type === "viduQ3" ||
-            n.type === "doubaoVideo"
+            n.type === "doubaoVideo" ||
+            n.type === "seedance20Video"
           ? { ...n, data: { ...n.data, onRun: runNode } }
           : n
       ),
@@ -17564,6 +17692,7 @@ function FlowInner() {
                               key={config.nodeKey}
                               zh={config.nameZh}
                               en={config.nameEn}
+                              caption={buildNodePaletteCaption(config)}
                               badge={badge}
                               status={config.status}
                               credits={config.creditsPerCall}
@@ -17571,7 +17700,10 @@ function FlowInner() {
                               onClick={() =>
                                 createNodeAtWorldCenter(
                                   resolveFlowNodeTypeFromConfig(config),
-                                  { ...addPanel.world }
+                                  { ...addPanel.world },
+                                  (((config.metadata ?? {}) as Record<string, any>)
+                                    .defaultData as Record<string, any>) || undefined,
+                                  config
                                 )
                               }
                             />

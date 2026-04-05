@@ -109,6 +109,16 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
           modelName: 'Kling',
           modelVersion: '2.6',
         },
+        {
+          vendorKey: 'tencent_vod',
+          platformKey: 'tencent_vod',
+          label: '腾讯 VOD',
+          enabled: false,
+          route: 'tencent_vod',
+          provider: 'kling-2.6',
+          modelName: 'Kling',
+          modelVersion: '2.6',
+        },
       ],
     },
     {
@@ -186,6 +196,54 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
           modelName: 'Vidu',
           modelVersion: 'Q2',
         },
+        {
+          vendorKey: 'tencent_vod',
+          platformKey: 'tencent_vod',
+          label: '腾讯 VOD',
+          enabled: false,
+          route: 'tencent_vod',
+          provider: 'vidu',
+          modelName: 'Vidu',
+          modelVersion: 'q2',
+        },
+      ],
+    },
+    {
+      modelKey: 'vidu-q2-turbo',
+      modelName: 'Vidu Q2-Turbo',
+      taskType: 'video',
+      enabled: true,
+      defaultVendor: 'tencent_vod',
+      vendors: [
+        {
+          vendorKey: 'tencent_vod',
+          platformKey: 'tencent_vod',
+          label: '腾讯 VOD',
+          enabled: true,
+          route: 'tencent_vod',
+          provider: 'vidu',
+          modelName: 'Vidu',
+          modelVersion: 'q2-turbo',
+        },
+      ],
+    },
+    {
+      modelKey: 'vidu-q2-pro',
+      modelName: 'Vidu Q2-Pro',
+      taskType: 'video',
+      enabled: true,
+      defaultVendor: 'tencent_vod',
+      vendors: [
+        {
+          vendorKey: 'tencent_vod',
+          platformKey: 'tencent_vod',
+          label: '腾讯 VOD',
+          enabled: true,
+          route: 'tencent_vod',
+          provider: 'vidu',
+          modelName: 'Vidu',
+          modelVersion: 'q2-pro',
+        },
       ],
     },
     {
@@ -204,6 +262,35 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
           provider: 'viduq3-pro',
           modelName: 'Vidu',
           modelVersion: 'Q3',
+        },
+        {
+          vendorKey: 'tencent_vod',
+          platformKey: 'tencent_vod',
+          label: '腾讯 VOD',
+          enabled: false,
+          route: 'tencent_vod',
+          provider: 'vidu',
+          modelName: 'Vidu',
+          modelVersion: 'q3',
+        },
+      ],
+    },
+    {
+      modelKey: 'vidu-q3-mix',
+      modelName: 'Vidu Q3-Mix',
+      taskType: 'video',
+      enabled: true,
+      defaultVendor: 'tencent_vod',
+      vendors: [
+        {
+          vendorKey: 'tencent_vod',
+          platformKey: 'tencent_vod',
+          label: '腾讯 VOD',
+          enabled: true,
+          route: 'tencent_vod',
+          provider: 'vidu',
+          modelName: 'Vidu',
+          modelVersion: 'q3-mix',
         },
       ],
     },
@@ -224,6 +311,16 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
           modelName: 'Sora',
           modelVersion: '2.0',
         },
+        {
+          vendorKey: 'tencent_vod',
+          platformKey: 'tencent_vod',
+          label: '腾讯 VOD',
+          enabled: false,
+          route: 'tencent_vod',
+          provider: 'sora2',
+          modelName: 'OS',
+          modelVersion: '2.0',
+        },
       ],
     },
     {
@@ -241,7 +338,17 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
           route: 'legacy',
           provider: 'doubao',
           modelName: 'Seedance',
-          modelVersion: '1.5',
+          modelVersion: '1.5-pro',
+        },
+        {
+          vendorKey: 'tencent_vod',
+          platformKey: 'tencent_vod',
+          label: '腾讯 VOD',
+          enabled: false,
+          route: 'tencent_vod',
+          provider: 'doubao',
+          modelName: 'Seedance',
+          modelVersion: '1.5-pro',
         },
       ],
     },
@@ -277,6 +384,80 @@ export class ModelRoutingService {
     return JSON.parse(JSON.stringify(DEFAULT_MODEL_PROVIDER_MAPPING_V2));
   }
 
+  private mergeWithDefaultConfig(input: ModelProviderMappingV2): ModelProviderMappingV2 {
+    const fallback = this.getDefaultConfig();
+    const existingPlatforms = Array.isArray(input.platforms) ? input.platforms.filter(Boolean) : [];
+    const existingPlatformKeys = new Set(
+      existingPlatforms.map((item) => (typeof item?.platformKey === 'string' ? item.platformKey : '')).filter(Boolean),
+    );
+    const mergedPlatforms = [
+      ...existingPlatforms,
+      ...(fallback.platforms || []).filter(
+        (item) => item && typeof item.platformKey === 'string' && !existingPlatformKeys.has(item.platformKey),
+      ),
+    ];
+
+    const existingModels = Array.isArray(input.models) ? input.models.filter(Boolean) : [];
+    const existingModelKeys = new Set(
+      existingModels.map((item) => (typeof item?.modelKey === 'string' ? item.modelKey : '')).filter(Boolean),
+    );
+    const mergedModels = [
+      ...existingModels,
+      ...(fallback.models || []).filter(
+        (item) => item && typeof item.modelKey === 'string' && !existingModelKeys.has(item.modelKey),
+      ),
+    ];
+
+    return this.normalizeSpecialCases({
+      version: input.version || fallback.version || 'v2',
+      platforms: mergedPlatforms,
+      models: mergedModels,
+    });
+  }
+
+  private normalizeSpecialCases(input: ModelProviderMappingV2): ModelProviderMappingV2 {
+    const models = (Array.isArray(input.models) ? input.models : []).map((model) => {
+      if (!model || model.modelKey !== 'seedance-2.0') {
+        return model;
+      }
+
+      const existingVendors = Array.isArray(model.vendors) ? model.vendors.filter(Boolean) : [];
+      const seedanceVendor =
+        existingVendors.find((vendor) => vendor.vendorKey === 'seedance_api') || {
+          vendorKey: 'seedance_api',
+          platformKey: 'seedance_api',
+          label: 'Seedance API',
+          enabled: true,
+          route: 'legacy' as const,
+          provider: 'doubao',
+          modelName: 'Seedance',
+          modelVersion: '2.0',
+        };
+
+      return {
+        ...model,
+        defaultVendor: 'seedance_api',
+        vendors: [
+          {
+            ...seedanceVendor,
+            platformKey: 'seedance_api',
+            label: seedanceVendor.label || 'Seedance API',
+            enabled: seedanceVendor.enabled !== false,
+            route: 'legacy',
+            provider: 'doubao',
+            modelName: seedanceVendor.modelName || 'Seedance',
+            modelVersion: '2.0',
+          },
+        ],
+      };
+    });
+
+    return {
+      ...input,
+      models,
+    };
+  }
+
   async getParsedConfig(): Promise<ModelProviderMappingV2> {
     try {
       const setting = await this.prisma.systemSetting.findUnique({
@@ -292,7 +473,7 @@ export class ModelRoutingService {
         return this.getDefaultConfig();
       }
 
-      return parsed;
+      return this.mergeWithDefaultConfig(parsed);
     } catch (error) {
       this.logger.warn(
         `读取模型路由配置失败，回退默认配置: ${

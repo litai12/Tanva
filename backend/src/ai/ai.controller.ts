@@ -484,29 +484,60 @@ export class AiController {
       params.klingModel = dto.klingModel;
     }
 
+    if (dto.viduModel) {
+      params.viduModel = dto.viduModel;
+    }
+
+    if (dto.seedanceModel) {
+      params.seedanceModel = dto.seedanceModel;
+    }
+
+    const assignRouteParams = (route: Awaited<ReturnType<typeof this.modelRoutingService.resolveVideoModel>>) => {
+      if (!route) return false;
+      params.modelKey = route.model.modelKey;
+      params.vendorKey = route.vendor.vendorKey;
+      params.platformKey = route.vendor.platformKey || route.vendor.vendorKey;
+      params.route = route.route;
+      params.providerChannel = route.vendor.platformKey || route.vendor.vendorKey;
+      params.routedProvider = route.vendor.provider || dto.provider;
+      return true;
+    };
+
     if (dto.provider === 'kling-o3') {
-      const route = await this.modelRoutingService.resolveVideoModel('kling-o3');
-      if (route) {
-        params.modelKey = route.model.modelKey;
-        params.vendorKey = route.vendor.vendorKey;
-        params.platformKey = route.vendor.platformKey || route.vendor.vendorKey;
-        params.route = route.route;
-        params.providerChannel = route.vendor.platformKey || route.vendor.vendorKey;
-        params.routedProvider = route.vendor.provider || dto.provider;
-      }
+      assignRouteParams(await this.modelRoutingService.resolveVideoModel('kling-o3'));
+      return params;
+    }
+
+    if (dto.provider === 'kling-2.6' || (dto.provider === 'kling' && dto.klingModel === 'kling-v2-6')) {
+      assignRouteParams(await this.modelRoutingService.resolveVideoModel('kling-2.6'));
       return params;
     }
 
     if (dto.provider === 'kling' && dto.klingModel === 'kling-v3-0') {
-      const route = await this.modelRoutingService.resolveVideoModel('kling-3.0');
-      if (route) {
-        params.modelKey = route.model.modelKey;
-        params.vendorKey = route.vendor.vendorKey;
-        params.platformKey = route.vendor.platformKey || route.vendor.vendorKey;
-        params.route = route.route;
-        params.providerChannel = route.vendor.platformKey || route.vendor.vendorKey;
-        params.routedProvider = route.vendor.provider || dto.provider;
-      }
+      assignRouteParams(await this.modelRoutingService.resolveVideoModel('kling-3.0'));
+      return params;
+    }
+
+    if (dto.provider === 'vidu' || dto.provider === 'viduq3-pro') {
+      const normalized = String(dto.viduModel || '').trim().toLowerCase();
+      const modelKey =
+        normalized === 'q2-turbo'
+          ? 'vidu-q2-turbo'
+          : normalized === 'q2-pro'
+          ? 'vidu-q2-pro'
+          : normalized === 'q3' || normalized === 'q3-pro' || normalized === 'q3-turbo'
+          ? 'vidu-q3'
+          : normalized === 'q3-mix'
+          ? 'vidu-q3-mix'
+          : 'vidu-q2';
+      assignRouteParams(await this.modelRoutingService.resolveVideoModel(modelKey));
+      return params;
+    }
+
+    if (dto.provider === 'doubao') {
+      const normalized = String(dto.seedanceModel || '').trim().toLowerCase();
+      const modelKey = normalized === 'seedance-2.0' || normalized === '2.0' ? 'seedance-2.0' : 'seedance-1.5';
+      assignRouteParams(await this.modelRoutingService.resolveVideoModel(modelKey));
       return params;
     }
 
@@ -546,9 +577,40 @@ export class AiController {
         providerChannel: requestParams?.providerChannel || null,
         routedProvider: requestParams?.routedProvider || null,
         klingModel: requestParams?.klingModel || null,
+        viduModel: requestParams?.viduModel || null,
+        seedanceModel: requestParams?.seedanceModel || null,
       },
       receivedAt: new Date().toISOString(),
     });
+  }
+
+  private async buildSora2CreditParams(params: {
+    selectedSoraModel: string;
+    quality: 'sd' | 'hd';
+    aspectRatio?: string;
+    duration?: string;
+  }): Promise<Record<string, any>> {
+    const requestParams: Record<string, any> = {
+      quality: params.quality,
+      soraModel: params.selectedSoraModel,
+      aspectRatio: params.aspectRatio,
+      duration: params.duration,
+    };
+
+    const route = await this.modelRoutingService.resolveVideoModel('sora-2');
+    if (route) {
+      requestParams.modelKey = route.model.modelKey;
+      requestParams.vendorKey = route.vendor.vendorKey;
+      requestParams.platformKey = route.vendor.platformKey || route.vendor.vendorKey;
+      requestParams.route = route.route;
+      requestParams.providerChannel = route.vendor.platformKey || route.vendor.vendorKey;
+      requestParams.routedProvider = route.vendor.provider || params.selectedSoraModel;
+    } else {
+      requestParams.providerChannel = params.selectedSoraModel;
+      requestParams.routedProvider = params.selectedSoraModel;
+    }
+
+    return requestParams;
   }
 
   /**
@@ -2572,6 +2634,13 @@ export class AiController {
       );
     }
 
+    const soraRequestParams = await this.buildSora2CreditParams({
+      selectedSoraModel,
+      quality,
+      aspectRatio: dto.aspectRatio,
+      duration: dto.duration,
+    });
+
     return this.withCredits(
       req,
       serviceType,
@@ -2651,12 +2720,7 @@ export class AiController {
       inputImageCount,
       0,
       undefined,
-      {
-        quality,
-        soraModel: selectedSoraModel,
-        aspectRatio: dto.aspectRatio,
-        duration: dto.duration,
-      },
+      soraRequestParams,
     );
   }
 
@@ -2692,6 +2756,13 @@ export class AiController {
     this.logger.log(
       `[Async] Video generation request received (quality=${quality}, referenceCount=${effectiveReferenceImageUrls.length}, characterMode=${hasCharacterMode})`,
     );
+
+    const soraRequestParams = await this.buildSora2CreditParams({
+      selectedSoraModel,
+      quality,
+      aspectRatio: dto.aspectRatio,
+      duration: dto.duration,
+    });
 
     // 创建异步任务并写入内存存储
     const taskId = `async-sora2-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
@@ -2741,7 +2812,7 @@ export class AiController {
       },
       inputImageCount,
       0,
-      { quality, soraModel: selectedSoraModel, aspectRatio: dto.aspectRatio, duration: dto.duration },
+      soraRequestParams,
     );
 
     // 立即返回 taskId，不等待视频生成完成

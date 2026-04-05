@@ -248,6 +248,16 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         modelName: "Kling",
         modelVersion: "2.6",
       },
+      {
+        vendorKey: "tencent_vod",
+        platformKey: "tencent_vod",
+        label: "腾讯 VOD",
+        enabled: false,
+        route: "tencent_vod",
+        provider: "kling-2.6",
+        modelName: "Kling",
+        modelVersion: "2.6",
+      },
     ],
   },
   {
@@ -325,6 +335,54 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         modelName: "Vidu",
         modelVersion: "Q2",
       },
+      {
+        vendorKey: "tencent_vod",
+        platformKey: "tencent_vod",
+        label: "腾讯 VOD",
+        enabled: false,
+        route: "tencent_vod",
+        provider: "vidu",
+        modelName: "Vidu",
+        modelVersion: "q2",
+      },
+    ],
+  },
+  {
+    modelKey: "vidu-q2-turbo",
+    modelName: "Vidu Q2-Turbo",
+    taskType: "video",
+    enabled: true,
+    defaultVendor: "tencent_vod",
+    vendors: [
+      {
+        vendorKey: "tencent_vod",
+        platformKey: "tencent_vod",
+        label: "腾讯 VOD",
+        enabled: true,
+        route: "tencent_vod",
+        provider: "vidu",
+        modelName: "Vidu",
+        modelVersion: "q2-turbo",
+      },
+    ],
+  },
+  {
+    modelKey: "vidu-q2-pro",
+    modelName: "Vidu Q2-Pro",
+    taskType: "video",
+    enabled: true,
+    defaultVendor: "tencent_vod",
+    vendors: [
+      {
+        vendorKey: "tencent_vod",
+        platformKey: "tencent_vod",
+        label: "腾讯 VOD",
+        enabled: true,
+        route: "tencent_vod",
+        provider: "vidu",
+        modelName: "Vidu",
+        modelVersion: "q2-pro",
+      },
     ],
   },
   {
@@ -343,6 +401,35 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "viduq3-pro",
         modelName: "Vidu",
         modelVersion: "Q3",
+      },
+      {
+        vendorKey: "tencent_vod",
+        platformKey: "tencent_vod",
+        label: "腾讯 VOD",
+        enabled: false,
+        route: "tencent_vod",
+        provider: "vidu",
+        modelName: "Vidu",
+        modelVersion: "q3",
+      },
+    ],
+  },
+  {
+    modelKey: "vidu-q3-mix",
+    modelName: "Vidu Q3-Mix",
+    taskType: "video",
+    enabled: true,
+    defaultVendor: "tencent_vod",
+    vendors: [
+      {
+        vendorKey: "tencent_vod",
+        platformKey: "tencent_vod",
+        label: "腾讯 VOD",
+        enabled: true,
+        route: "tencent_vod",
+        provider: "vidu",
+        modelName: "Vidu",
+        modelVersion: "q3-mix",
       },
     ],
   },
@@ -363,6 +450,16 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         modelName: "Sora",
         modelVersion: "2.0",
       },
+      {
+        vendorKey: "tencent_vod",
+        platformKey: "tencent_vod",
+        label: "腾讯 VOD",
+        enabled: false,
+        route: "tencent_vod",
+        provider: "sora2",
+        modelName: "OS",
+        modelVersion: "2.0",
+      },
     ],
   },
   {
@@ -380,7 +477,17 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         route: "legacy",
         provider: "doubao",
         modelName: "Seedance",
-        modelVersion: "1.5",
+        modelVersion: "1.5-pro",
+      },
+      {
+        vendorKey: "tencent_vod",
+        platformKey: "tencent_vod",
+        label: "腾讯 VOD",
+        enabled: false,
+        route: "tencent_vod",
+        provider: "doubao",
+        modelName: "Seedance",
+        modelVersion: "1.5-pro",
       },
     ],
   },
@@ -445,8 +552,21 @@ const createEmptyPlatform = (): ManagedVendorPlatformConfig => ({
 });
 
 const normalizeModelMapping = (input?: Partial<ModelProviderMappingV2>): ModelProviderMappingV2 => {
-  const platforms: ManagedVendorPlatformConfig[] = Array.isArray(input?.platforms)
-    ? input!.platforms!.filter(Boolean).map((platform) => ({
+  const inputPlatformMap = new Map(
+    (Array.isArray(input?.platforms) ? input!.platforms!.filter(Boolean) : []).map((platform) => [
+      typeof platform?.platformKey === "string" ? platform.platformKey : "",
+      platform,
+    ])
+  );
+  const mergedPlatformInputs = [
+    ...(Array.isArray(input?.platforms) ? input!.platforms!.filter(Boolean) : []),
+    ...DEFAULT_MODEL_VENDOR_PLATFORMS.filter(
+      (platform) => platform.platformKey && !inputPlatformMap.has(platform.platformKey)
+    ),
+  ];
+
+  const platforms: ManagedVendorPlatformConfig[] = mergedPlatformInputs.length
+    ? mergedPlatformInputs.map((platform) => ({
         platformKey:
           typeof platform?.platformKey === "string" ? platform.platformKey : "",
         platformName:
@@ -465,8 +585,21 @@ const normalizeModelMapping = (input?: Partial<ModelProviderMappingV2>): ModelPr
             : undefined,
       }))
     : [];
-  const models: ManagedModelConfig[] = Array.isArray(input?.models)
-    ? input!.models!.filter(Boolean).map((model) => ({
+  const inputModelMap = new Map(
+    (Array.isArray(input?.models) ? input!.models!.filter(Boolean) : []).map((model) => [
+      typeof model?.modelKey === "string" ? model.modelKey : "",
+      model,
+    ])
+  );
+  const mergedModelInputs = [
+    ...(Array.isArray(input?.models) ? input!.models!.filter(Boolean) : []),
+    ...DEFAULT_MODEL_CATALOG.filter(
+      (model) => model.modelKey && !inputModelMap.has(model.modelKey)
+    ),
+  ];
+
+  const models: ManagedModelConfig[] = mergedModelInputs.length
+    ? mergedModelInputs.map((model) => ({
         modelKey: typeof model?.modelKey === "string" ? model.modelKey : "",
         modelName: typeof model?.modelName === "string" ? model.modelName : "",
         taskType: typeof model?.taskType === "string" ? model.taskType : "",
@@ -501,10 +634,40 @@ const normalizeModelMapping = (input?: Partial<ModelProviderMappingV2>): ModelPr
       }))
     : [];
 
-  return {
+  const normalized: ModelProviderMappingV2 = {
     version: typeof input?.version === "string" ? input.version : "v2",
     platforms,
     models,
+  };
+
+  return {
+    ...normalized,
+    models: (normalized.models || []).map((model) => {
+      if (model.modelKey !== "seedance-2.0") {
+        return model;
+      }
+
+      const existingVendor =
+        (model.vendors || []).find((vendor) => vendor.vendorKey === "seedance_api") || null;
+
+      return {
+        ...model,
+        defaultVendor: "seedance_api",
+        vendors: [
+          {
+            vendorKey: "seedance_api",
+            platformKey: "seedance_api",
+            label: existingVendor?.label || "Seedance API",
+            enabled: existingVendor?.enabled !== false,
+            route: "legacy",
+            provider: "doubao",
+            modelName: existingVendor?.modelName || "Seedance",
+            modelVersion: "2.0",
+            metadata: existingVendor?.metadata,
+          },
+        ],
+      };
+    }),
   };
 };
 
@@ -4550,6 +4713,15 @@ function NodeConfigsTab() {
   const [editingConfig, setEditingConfig] = useState<NodeConfig | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [metadataText, setMetadataText] = useState("{}");
+  const [toast, setToast] = useState<{
+    message: string;
+    type: "success" | "error";
+  } | null>(null);
+
+  const showToast = (message: string, type: "success" | "error" = "success") => {
+    setToast({ message, type });
+  };
 
   const loadConfigs = async () => {
     setLoading(true);
@@ -4569,6 +4741,7 @@ function NodeConfigsTab() {
 
   const handleEdit = (config: NodeConfig) => {
     setEditingConfig({ ...config });
+    setMetadataText(JSON.stringify(config.metadata || {}, null, 2));
     setIsCreating(false);
     setModalOpen(true);
   };
@@ -4584,16 +4757,24 @@ function NodeConfigsTab() {
       sortOrder: 0,
       isVisible: true,
     });
+    setMetadataText("{}");
     setIsCreating(true);
     setModalOpen(true);
   };
 
   const handleSave = async () => {
     if (!editingConfig) return;
+    let parsedMetadata: Record<string, any> = {};
+    try {
+      parsedMetadata = metadataText.trim() ? JSON.parse(metadataText) : {};
+    } catch {
+      showToast("metadata JSON 格式不正确", "error");
+      return;
+    }
 
     if (isCreating) {
       if (!editingConfig.nodeKey || !editingConfig.nameZh || !editingConfig.nameEn) {
-        alert("请填写节点标识、中文名称和英文名称");
+        showToast("请填写节点标识、中文名称和英文名称", "error");
         return;
       }
       try {
@@ -4610,13 +4791,16 @@ function NodeConfigsTab() {
           sortOrder: editingConfig.sortOrder,
           isVisible: editingConfig.isVisible,
           description: editingConfig.description,
+          metadata: parsedMetadata,
         });
         notifyNodeConfigsUpdated();
         setModalOpen(false);
         setEditingConfig(null);
+        setMetadataText("{}");
+        showToast("节点配置已创建");
         loadConfigs();
       } catch (error: any) {
-        alert(error.message || "创建失败");
+        showToast(error.message || "创建失败", "error");
       }
     } else {
       try {
@@ -4632,13 +4816,16 @@ function NodeConfigsTab() {
           sortOrder: editingConfig.sortOrder,
           isVisible: editingConfig.isVisible,
           description: editingConfig.description,
+          metadata: parsedMetadata,
         });
         notifyNodeConfigsUpdated();
         setModalOpen(false);
         setEditingConfig(null);
+        setMetadataText("{}");
+        showToast("节点配置已保存");
         loadConfigs();
       } catch (error: any) {
-        alert(error.message || "保存失败");
+        showToast(error.message || "保存失败", "error");
       }
     }
   };
@@ -4650,10 +4837,42 @@ function NodeConfigsTab() {
     try {
       await deleteNodeConfig(nodeKey);
       notifyNodeConfigsUpdated();
+      showToast(`节点 ${nameZh} 已删除`);
       loadConfigs();
     } catch (error: any) {
-      alert(error.message || "删除失败");
+      showToast(error.message || "删除失败", "error");
     }
+  };
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 2400);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  const summarizeMetadata = (metadata?: Record<string, any>) => {
+    if (!metadata || typeof metadata !== "object") return "-";
+    const vod = metadata.vod && typeof metadata.vod === "object" ? metadata.vod : undefined;
+    if (vod) {
+      const res = Array.isArray(vod.outputConfig?.resolutions)
+        ? vod.outputConfig.resolutions.join("/")
+        : "";
+      return [
+        "VOD",
+        vod.modelName,
+        vod.modelVersion,
+        res,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    }
+    if (Array.isArray(metadata.modelKeys) && metadata.modelKeys.length > 0) {
+      return metadata.modelKeys.join(", ");
+    }
+    if (typeof metadata.provider === "string" && metadata.provider.trim()) {
+      return metadata.provider.trim();
+    }
+    return "-";
   };
 
   const statusOptions = [
@@ -4700,6 +4919,19 @@ function NodeConfigsTab() {
 
   return (
     <div>
+      {toast && (
+        <div className="fixed right-6 top-6 z-[70]">
+          <div
+            className={`min-w-[240px] rounded-lg border px-4 py-3 text-sm shadow-lg ${
+              toast.type === "success"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : "border-red-200 bg-red-50 text-red-700"
+            }`}
+          >
+            {toast.message}
+          </div>
+        </div>
+      )}
       <div className="mb-4">
         <Button onClick={handleCreate}>添加节点</Button>
       </div>
@@ -4715,6 +4947,7 @@ function NodeConfigsTab() {
                 <th className="px-4 py-3 text-right">积分/次</th>
                 <th className="px-4 py-3 text-right">原价(元)</th>
                 <th className="px-4 py-3 text-left">服务类型</th>
+                <th className="px-4 py-3 text-left">配置摘要</th>
                 <th className="px-4 py-3 text-center">显示</th>
                 <th className="px-4 py-3 text-left">操作</th>
               </tr>
@@ -4722,11 +4955,11 @@ function NodeConfigsTab() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-gray-500">加载中...</td>
+                  <td colSpan={9} className="px-4 py-8 text-center text-gray-500">加载中...</td>
                 </tr>
               ) : configs.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
                     暂无数据，请点击"初始化默认配置"
                   </td>
                 </tr>
@@ -4752,6 +4985,9 @@ function NodeConfigsTab() {
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">
                       {config.serviceType || "-"}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-500 max-w-[260px] truncate" title={summarizeMetadata(config.metadata)}>
+                      {summarizeMetadata(config.metadata)}
                     </td>
                     <td className="px-4 py-3 text-center">
                       {config.isVisible ? (
@@ -4903,6 +5139,20 @@ function NodeConfigsTab() {
                 />
               </div>
 
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Metadata JSON</label>
+                <textarea
+                  value={metadataText}
+                  onChange={(e) => setMetadataText(e.target.value)}
+                  rows={14}
+                  className="w-full rounded border border-gray-200 px-3 py-2 font-mono text-xs leading-5 outline-none focus:border-blue-400"
+                  placeholder='{"vod":{"modelName":"Kling","modelVersion":"3.0"}}'
+                />
+                <div className="mt-1 text-xs text-gray-400">
+                  节点面板、画布视频节点的 VOD 能力展示都从这里读取。
+                </div>
+              </div>
+
               <div className="flex items-center gap-4">
                 <label className="flex items-center gap-2">
                   <input
@@ -4915,7 +5165,7 @@ function NodeConfigsTab() {
               </div>
 
               <div className="flex gap-2 justify-end pt-4">
-                <Button variant="outline" onClick={() => { setModalOpen(false); setEditingConfig(null); }}>
+                <Button variant="outline" onClick={() => { setModalOpen(false); setEditingConfig(null); setMetadataText("{}"); }}>
                   取消
                 </Button>
                 <Button onClick={handleSave}>保存</Button>
