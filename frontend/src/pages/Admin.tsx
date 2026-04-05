@@ -1316,6 +1316,12 @@ function ApiRecordsTab() {
     pending: "bg-yellow-100 text-yellow-700",
   };
 
+  const getRecordChannelLabel = (record: ApiUsageRecord) =>
+    record.requestParams?.platformKey ||
+    record.requestParams?.vendorKey ||
+    record.requestParams?.providerChannel ||
+    "-";
+
   return (
     <div>
       <div className='mb-4 flex gap-2'>
@@ -1360,6 +1366,7 @@ function ApiRecordsTab() {
                 <th className='px-4 py-3 text-left'>用户</th>
                 <th className='px-4 py-3 text-left'>服务</th>
                 <th className='px-4 py-3 text-left'>提供商</th>
+                <th className='px-4 py-3 text-left'>渠道商</th>
                 <th className='px-4 py-3 text-right'>消耗积分</th>
                 <th className='px-4 py-3 text-right'>耗时</th>
                 <th className='px-4 py-3 text-left'>状态</th>
@@ -1369,7 +1376,7 @@ function ApiRecordsTab() {
               {loading ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={8}
                     className='px-4 py-8 text-center text-gray-500'
                   >
                     加载中...
@@ -1378,7 +1385,7 @@ function ApiRecordsTab() {
               ) : records.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={8}
                     className='px-4 py-8 text-center text-gray-500'
                   >
                     暂无数据
@@ -1400,6 +1407,11 @@ function ApiRecordsTab() {
                     <td className='px-4 py-3'>
                       <span className='px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs'>
                         {record.provider}
+                      </span>
+                    </td>
+                    <td className='px-4 py-3'>
+                      <span className='px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-xs'>
+                        {getRecordChannelLabel(record)}
                       </span>
                     </td>
                     <td className='px-4 py-3 text-right font-medium'>

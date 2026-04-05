@@ -515,6 +515,42 @@ export class AiController {
     return params;
   }
 
+  private emitVideoProviderGenerationTaskLog(params: {
+    stage: 'queued' | 'processing' | 'succeeded' | 'failed';
+    userId: string | null;
+    provider: string;
+    prompt?: string;
+    status: string;
+    taskId: string;
+    apiUsageId?: string | null;
+    requestParams?: Record<string, any>;
+    error?: string | null;
+  }): void {
+    const { requestParams } = params;
+    void this.telemetryService.ingestGenerationTask({
+      traceId: null,
+      taskId: params.taskId,
+      taskType: 'video-provider',
+      stage: params.stage,
+      userId: params.userId,
+      provider: params.provider,
+      prompt: typeof params.prompt === 'string' ? params.prompt.slice(0, 500) : null,
+      status: params.status,
+      error: params.error || null,
+      metadata: {
+        apiUsageId: params.apiUsageId || null,
+        modelKey: requestParams?.modelKey || null,
+        vendorKey: requestParams?.vendorKey || null,
+        platformKey: requestParams?.platformKey || null,
+        route: requestParams?.route || null,
+        providerChannel: requestParams?.providerChannel || null,
+        routedProvider: requestParams?.routedProvider || null,
+        klingModel: requestParams?.klingModel || null,
+      },
+      receivedAt: new Date().toISOString(),
+    });
+  }
+
   /**
    * DashScope Wan2.6 I2V：仅创建异步任务、尚未产出视频时，积分记录保持 pending，并把 apiUsageId 返回给前端用于失败退款。
    */
@@ -3006,6 +3042,16 @@ export class AiController {
 
     const apiUsageId = deductResult.apiUsageId;
     this.logger.debug(`Credits pre-deducted for video: ${serviceType}, apiUsageId: ${apiUsageId}`);
+    this.emitVideoProviderGenerationTaskLog({
+      stage: 'queued',
+      userId,
+      provider: effectiveDto.provider,
+      prompt: effectiveDto.prompt,
+      status: 'pending',
+      taskId: apiUsageId,
+      apiUsageId,
+      requestParams,
+    });
 
     try {
       const result = await this.videoProviderService.generateVideo(effectiveDto);
@@ -3022,6 +3068,19 @@ export class AiController {
       if (result?.taskId) {
         await this.creditsService.updateApiUsageRequestParams(apiUsageId, {
           taskId: result.taskId,
+        });
+        this.emitVideoProviderGenerationTaskLog({
+          stage: result.videoUrl ? 'succeeded' : 'processing',
+          userId,
+          provider: effectiveDto.provider,
+          prompt: effectiveDto.prompt,
+          status: result.videoUrl ? 'succeeded' : (result.status || 'queued'),
+          taskId: result.taskId,
+          apiUsageId,
+          requestParams: {
+            ...requestParams,
+            taskId: result.taskId,
+          },
         });
       }
 
@@ -3042,6 +3101,17 @@ export class AiController {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const processingTime = Math.max(0, Date.now() - startTime);
       let failedMarked = false;
+      this.emitVideoProviderGenerationTaskLog({
+        stage: 'failed',
+        userId,
+        provider: effectiveDto.provider,
+        prompt: effectiveDto.prompt,
+        status: 'failed',
+        taskId: apiUsageId,
+        apiUsageId,
+        requestParams,
+        error: errorMessage,
+      });
 
       try {
         await this.creditsService.updateApiUsageStatus(

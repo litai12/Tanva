@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { getActiveSpanContext } from './tracing';
+import { getRequestContext } from './request-context';
 
 type FrontendErrorLog = {
   kind: string;
@@ -34,6 +35,7 @@ type BackendRequestLog = {
 type GenerationTaskLog = {
   traceId: string | null;
   parentRequestId?: string | null;
+  requestId?: string | null;
   taskId: string;
   taskType: string;
   stage: 'queued' | 'processing' | 'succeeded' | 'failed';
@@ -124,10 +126,13 @@ export class OpenObserveTelemetryService {
 
   async ingestGenerationTask(log: GenerationTaskLog): Promise<void> {
     const isError = log.stage === 'failed' || log.status === 'failed' || Boolean(log.error);
+    const requestContext = getRequestContext();
     await this.ingest(
       this.configService.get<string>('OPENOBSERVE_GENERATION_TASK_STREAM')?.trim() || 'generation_tasks',
       {
         ...log,
+        requestId: log.requestId || requestContext?.requestId || null,
+        userId: log.userId || requestContext?.userId || null,
         isError,
         failureStage: isError ? log.stage : null,
         failureReason: isError ? log.error || log.status : null,
