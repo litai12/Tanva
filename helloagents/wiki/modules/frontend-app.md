@@ -59,6 +59,7 @@
 - `MiniMapImageOverlay` / `TextSelectionOverlay` 已清理残余中文注释，保持扫描基线准确并避免误报未双语化文件。
 - `GlobalImageHistoryPage` / `GlobalImageDetailModal`（`frontend/src/components/global-history/GlobalImageHistoryPage.tsx`, `frontend/src/components/global-history/GlobalImageDetailModal.tsx`）已接入双语文案：历史页标题、搜索/筛选、加载与空态、删除撤销提示，以及详情弹窗元数据标签按语言切换。
 - `FloatingHeader` + `projectStore`（`frontend/src/components/layout/FloatingHeader.tsx`, `frontend/src/stores/projectStore.ts`）已补充双语策略：自动创建/兜底项目名按当前语言生成，且历史 `未命名*`/`Untitled*` 项目名在顶部标题与项目下拉中按当前语言显示。
+- 工作区顶部项目名右侧新增快捷 `+` 新建按钮（`FloatingHeader`），点击可直接创建并切换到新项目；项目下拉中的“新建项目”复用同一创建逻辑并带防连点保护。
 - `PaymentPanel`（`frontend/src/components/payment/PaymentPanel.tsx`）已补充套餐角标双语映射：`首充翻倍`、`送X%` 等后端标签会在英文环境显示为 `First top-up x2`、`+X%`。
 - `LayerPanel` + `layerStore`（`frontend/src/components/panels/LayerPanel.tsx`, `frontend/src/stores/layerStore.ts`）已补充图层名双语兼容：新建图层默认名按当前语言生成，历史 `图层 N`/`Layer N` 显示按当前语言映射。
 
@@ -76,4 +77,3 @@
 - 组件：`frontend/src/components/layout/FloatingHeader.tsx`
 - 交互：切换左侧设置分组时，右侧内容滚动区域会回到顶部（不保留上一次分组的滚动位置）。
 - 保存状态提示（如“有未保存更改”）放在设置首页用户信息区显示，不再在画布顶部常驻显示。
-

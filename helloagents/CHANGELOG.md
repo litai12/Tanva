@@ -15,6 +15,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- Workspace 顶部项目名区域新增快捷 `+` 新建入口：在当前项目名称右侧可一键新建项目；项目下拉中的“新建项目”同步复用同一创建逻辑并增加防连点状态（`frontend/src/components/layout/FloatingHeader.tsx`）。
 - AI `generate-image`：当上游仅返回外链 `imageUrl` 时，统一改为后端拉取并转存 OSS 后再返回；管理员/白名单仍可跳过水印，但不再直返第三方临时链接，减少云端历史过期裂图（`backend/src/ai/ai.controller.ts`）。
 - Credits Backend: `updateApiUsageStatus` 增加状态机保护，禁止 `failed -> success` 与 `success -> failed` 反向回写，减少超时自动退款与晚到成功回写造成的状态/账务不一致（`backend/src/credits/credits.service.ts`）。
 - Frontend `/my-credits`: “今日消耗 / 最近 7 天消耗 / 趋势图”改为净消耗口径（`spend - refund`，最小 0），避免失败后已退款流水仍被计入消耗（`frontend/src/pages/MyCredits.tsx`）。
@@ -353,3 +354,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Project default naming now follows current locale (`workspacePage.prompt.defaultName`) for auto-created/fallback projects, and header quick-switch display maps legacy `未命名*`/`Untitled*` aliases to current language (`frontend/src/stores/projectStore.ts`, `frontend/src/components/layout/FloatingHeader.tsx`).
 - Payment package badges now localize backend-provided `tag/bonus` labels such as `首充翻倍` and `送X%`/`+X%` to prevent Chinese-only badge text in English mode (`frontend/src/components/payment/PaymentPanel.tsx`).
 
+## [Library Interaction Patch - 2026-04-05]
+### Changed
+- `库 -> 全局历史` 卡片单击行为从“直接发送到画板”改为“先打开左侧详情浮层”，详情浮层布局与 `个人素材` 保持一致，并提供发送/下载/删除操作（`frontend/src/components/panels/LibraryPanel.tsx`）。
+- `库` 面板内的 `个人素材` 与 `全局历史` 卡片统一支持双击打开全屏预览（复用 `ImagePreviewModal`），单击仍用于选中并展示详情（`frontend/src/components/panels/LibraryPanel.tsx`）。

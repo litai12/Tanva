@@ -1,6 +1,7 @@
 import React from "react";
 import { Button } from "../ui/button";
 import SmartImage from "../ui/SmartImage";
+import ImagePreviewModal from "../ui/ImagePreviewModal";
 import {
   ChevronLeft,
   ChevronRight,
@@ -140,8 +141,14 @@ const LibraryPanel: React.FC = () => {
   const [isLibraryDragHovering, setLibraryDragHovering] = React.useState(false);
   const [selectedAsset, setSelectedAsset] =
     React.useState<PersonalLibraryAsset | null>(null);
+  const [selectedHistoryItem, setSelectedHistoryItem] =
+    React.useState<GlobalImageHistoryItem | null>(null);
   const [detailPosition, setDetailPosition] = React.useState<{
     top: number;
+  } | null>(null);
+  const [previewState, setPreviewState] = React.useState<{
+    src: string;
+    title: string;
   } | null>(null);
   const addAsset = usePersonalLibraryStore((state) => state.addAsset);
   const removeAsset = usePersonalLibraryStore((state) => state.removeAsset);
@@ -233,10 +240,12 @@ const LibraryPanel: React.FC = () => {
   }, [showLibraryPanel, isLibraryDragHovering]);
 
   React.useEffect(() => {
-    if (activeTab !== "manual" && selectedAsset) {
-      setSelectedAsset(null);
+    if (activeTab === "manual") {
+      setSelectedHistoryItem(null);
+      return;
     }
-  }, [activeTab, selectedAsset]);
+    setSelectedAsset(null);
+  }, [activeTab]);
 
   const triggerUpload = () => fileInputRef.current?.click();
 
@@ -539,6 +548,73 @@ const LibraryPanel: React.FC = () => {
     }
   };
 
+  const handleHistoryDownload = (item: GlobalImageHistoryItem) => {
+    try {
+      const link = document.createElement("a");
+      link.href = item.imageUrl;
+      link.download = `history_${item.id}.png`;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch {
+      window.open(item.imageUrl, "_blank", "noopener,noreferrer");
+    }
+  };
+
+  const handleRemoveHistoryItem = async (item: GlobalImageHistoryItem) => {
+    if (
+      !confirm(
+        lt(
+          `确定要删除这张历史图片吗？`,
+          `Delete this history image?`
+        )
+      )
+    ) {
+      return;
+    }
+
+    try {
+      await globalImageHistoryApi.delete(item.id);
+      const result = await globalImageHistoryApi.list({
+        limit: HISTORY_PAGE_SIZE,
+        page: historyPage,
+        sourceType: historyQueryOptions.sourceType,
+        search: historyQueryOptions.search,
+      });
+      setHistoryItems(Array.isArray(result.items) ? result.items : []);
+      setHistoryTotalCount(result.totalCount ?? result.items.length);
+      setHistoryTotalPages(Math.max(1, result.totalPages ?? 1));
+      if (
+        typeof result.page === "number" &&
+        Number.isFinite(result.page) &&
+        result.page !== historyPage
+      ) {
+        setHistoryPage(Math.max(1, Math.trunc(result.page)));
+      }
+      setSelectedHistoryItem(null);
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: {
+            message: lt("历史图片已删除", "History image deleted"),
+            type: "success",
+          },
+        })
+      );
+    } catch (error) {
+      console.warn("[LibraryPanel] 删除历史图片失败:", error);
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: {
+            message: lt("删除失败，请稍后重试", "Delete failed. Please try again."),
+            type: "error",
+          },
+        })
+      );
+    }
+  };
+
   const handleHistorySendToCanvas = async (item: GlobalImageHistoryItem) => {
     if (!item.imageUrl) {
       alert(lt("历史图片缺少可用链接，无法发送到画板", "History image has no usable URL and cannot be sent to canvas."));
@@ -574,6 +650,64 @@ const LibraryPanel: React.FC = () => {
   const handleClose = () => {
     setShowLibraryPanel(false);
     setSelectedAsset(null);
+    setSelectedHistoryItem(null);
+    setPreviewState(null);
+  };
+
+  const openImagePreview = React.useCallback(
+    (src: string | undefined | null, title: string) => {
+      const normalized = typeof src === "string" ? src.trim() : "";
+      if (!normalized) {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: {
+              message: lt("当前素材暂无可预览内容", "No preview available for this asset"),
+              type: "warning",
+            },
+          })
+        );
+        return;
+      }
+      setPreviewState({ src: normalized, title });
+    },
+    [lt]
+  );
+
+  const getAssetPreviewSrc = React.useCallback((asset: PersonalLibraryAsset) => {
+    if (asset.type === "2d" || asset.type === "svg") {
+      return asset.thumbnail || asset.url;
+    }
+    return (asset as PersonalModelAsset).thumbnail || "";
+  }, []);
+
+  const handleAssetDoubleClick = React.useCallback(
+    (asset: PersonalLibraryAsset) => {
+      openImagePreview(
+        getAssetPreviewSrc(asset),
+        asset.name || lt("素材预览", "Asset Preview")
+      );
+    },
+    [getAssetPreviewSrc, lt, openImagePreview]
+  );
+
+  const handleHistoryItemDoubleClick = React.useCallback(
+    (item: GlobalImageHistoryItem) => {
+      openImagePreview(
+        item.imageUrl,
+        item.prompt || lt("历史图片预览", "History Image Preview")
+      );
+    },
+    [lt, openImagePreview]
+  );
+
+  const handleHistoryItemClick = (
+    item: GlobalImageHistoryItem,
+    event: React.MouseEvent
+  ) => {
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    setDetailPosition({ top: rect.top });
+    setSelectedHistoryItem(item);
+    setSelectedAsset(null);
   };
 
   const handleAssetClick = (
@@ -584,6 +718,7 @@ const LibraryPanel: React.FC = () => {
     // 计算详情面板的位置，使其与点击的缩略图对齐
     setDetailPosition({ top: rect.top });
     setSelectedAsset(asset);
+    setSelectedHistoryItem(null);
   };
 
   // 拖拽开始处理
@@ -774,20 +909,21 @@ const LibraryPanel: React.FC = () => {
       ) {
         // 检查是否点击的是缩略图
         const target = event.target as HTMLElement;
-        if (!target.closest("[data-asset-thumbnail]")) {
+        if (!target.closest("[data-library-thumbnail]")) {
           setSelectedAsset(null);
+          setSelectedHistoryItem(null);
         }
       }
     };
 
-    if (selectedAsset) {
+    if (selectedAsset || selectedHistoryItem) {
       document.addEventListener("mousedown", handleClickOutside);
     }
 
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [selectedAsset]);
+  }, [selectedAsset, selectedHistoryItem]);
 
   // 打开面板时从后端拉取个人库，避免仅依赖 localStorage
   React.useEffect(() => {
@@ -866,6 +1002,13 @@ const LibraryPanel: React.FC = () => {
     historyQueryOptions.search,
     historyQueryOptions.sourceType,
   ]);
+
+  React.useEffect(() => {
+    if (!selectedHistoryItem) return;
+    if (!historyItems.some((item) => item.id === selectedHistoryItem.id)) {
+      setSelectedHistoryItem(null);
+    }
+  }, [historyItems, selectedHistoryItem]);
 
   // 面板关闭时隐藏
   if (!showLibraryPanel) return null;
@@ -998,6 +1141,98 @@ const LibraryPanel: React.FC = () => {
           </div>
         </div>
       )}
+      {activeTab === "global-history" && selectedHistoryItem && (
+        <div
+          ref={detailPanelRef}
+          className='fixed right-[336px] w-56 bg-white rounded-xl shadow-xl border border-gray-200 z-[1001] overflow-hidden'
+          style={{
+            top: detailPosition?.top ?? 100,
+            maxHeight: "calc(100vh - 100px)",
+          }}
+        >
+          <div className='w-full aspect-square bg-gray-100 flex items-center justify-center overflow-hidden'>
+            <SmartImage
+              src={selectedHistoryItem.imageUrl}
+              alt={selectedHistoryItem.prompt || lt("历史图片", "History Image")}
+              className='w-full h-full object-contain'
+            />
+          </div>
+
+          <div className='p-3 space-y-2'>
+            <div className='flex items-center gap-2'>
+              <span className='inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700'>
+                <ImageIcon className='w-3 h-3' />
+                IMG
+              </span>
+            </div>
+
+            <div>
+              <div
+                className='text-sm font-medium text-gray-900 truncate'
+                title={selectedHistoryItem.prompt || lt("历史图片", "History Image")}
+              >
+                {selectedHistoryItem.prompt || lt("历史图片", "History Image")}
+              </div>
+            </div>
+
+            <div>
+              <div className='text-xs text-gray-500'>{lt("类型", "Type")}</div>
+              <div className='text-sm text-gray-700'>
+                {getSourceTypeLabel(selectedHistoryItem.sourceType)}
+              </div>
+            </div>
+
+            <div>
+              <div className='text-xs text-gray-500'>
+                {lt("来源项目", "Source Project")}
+              </div>
+              <div
+                className='text-sm text-gray-700 truncate'
+                title={selectedHistoryItem.sourceProjectName || "-"}
+              >
+                {selectedHistoryItem.sourceProjectName || "-"}
+              </div>
+            </div>
+
+            <div>
+              <div className='text-xs text-gray-500'>{lt("创建时间", "Created")}</div>
+              <div className='text-sm text-gray-700'>
+                {formatDate(new Date(selectedHistoryItem.createdAt).getTime())}
+              </div>
+            </div>
+          </div>
+
+          <div className='p-3 pt-0 flex justify-center gap-2'>
+            <Button
+              variant='outline'
+              size='sm'
+              className='h-8 w-8 p-0'
+              onClick={() => void handleHistorySendToCanvas(selectedHistoryItem)}
+              title={lt("发送到画板", "Send to canvas")}
+            >
+              <Send className='h-3 w-3' />
+            </Button>
+            <Button
+              variant='outline'
+              size='sm'
+              className='h-8 w-8 p-0'
+              onClick={() => handleHistoryDownload(selectedHistoryItem)}
+              title={lt("下载", "Download")}
+            >
+              <Download className='h-3 w-3' />
+            </Button>
+            <Button
+              variant='outline'
+              size='sm'
+              className='h-8 w-8 p-0'
+              onClick={() => void handleRemoveHistoryItem(selectedHistoryItem)}
+              title={lt("删除", "Delete")}
+            >
+              <Trash2 className='h-3 w-3' />
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* 主面板 */}
       <div
@@ -1087,12 +1322,13 @@ const LibraryPanel: React.FC = () => {
                   return (
                     <div
                       key={asset.id}
-                      data-asset-thumbnail
+                      data-library-thumbnail
                       draggable
                       className={`aspect-square rounded-lg overflow-hidden bg-gray-100 cursor-grab transition-all hover:ring-2 hover:ring-blue-400 active:cursor-grabbing relative ${
                         isSelected ? "ring-2 ring-blue-500" : ""
                       }`}
                       onClick={(e) => handleAssetClick(asset, e)}
+                      onDoubleClick={() => handleAssetDoubleClick(asset)}
                       onDragStart={(e) => handleDragStart(asset, e)}
                     >
                       {is2dOrSvg ? (
@@ -1165,9 +1401,11 @@ const LibraryPanel: React.FC = () => {
                   {historyItems.map((item) => (
                     <div
                       key={item.id}
+                      data-library-thumbnail
                       draggable
                       className='aspect-square rounded-lg overflow-hidden bg-gray-100 cursor-grab transition-all hover:ring-2 hover:ring-blue-400 active:cursor-grabbing relative'
-                      onClick={() => void handleHistorySendToCanvas(item)}
+                      onClick={(event) => handleHistoryItemClick(item, event)}
+                      onDoubleClick={() => handleHistoryItemDoubleClick(item)}
                       onDragStart={(event) => handleHistoryDragStart(item, event)}
                       title={item.prompt || lt("历史图片", "History Image")}
                     >
@@ -1266,6 +1504,12 @@ const LibraryPanel: React.FC = () => {
           </div>
         </div>
       </div>
+      <ImagePreviewModal
+        isOpen={Boolean(previewState)}
+        imageSrc={previewState?.src || ""}
+        imageTitle={previewState?.title}
+        onClose={() => setPreviewState(null)}
+      />
     </>
   );
 };
