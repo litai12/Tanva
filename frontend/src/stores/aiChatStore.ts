@@ -1476,7 +1476,7 @@ export async function requestSora2VideoGeneration(
     // 检查任务状态
     const status = taskData?.status?.toLowerCase();
 
-    if (status === 'completed' || status === 'succeeded' || status === 'success') {
+    if (status === 'succeeded') {
       console.log("[Sora2] Task completed:", taskId);
       options?.onProgress?.("视频生成完成", 95);
       return {
@@ -1490,7 +1490,7 @@ export async function requestSora2VideoGeneration(
       };
     }
 
-    if (status === 'failed' || status === 'error' || status === 'failure') {
+    if (status === 'failed') {
       const errorMsg = taskData?.raw?.error?.message || taskData?.raw?.message || "视频生成失败";
       throw new Error(errorMsg);
     }

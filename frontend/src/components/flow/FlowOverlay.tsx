@@ -1468,13 +1468,28 @@ const isHiddenFlowNodeType = (rawType?: string): boolean => {
   return Boolean(normalized && HIDDEN_FLOW_NODE_TYPES.has(normalized));
 };
 
+const isManagedPaletteConfig = (config?: Partial<NodeConfig>): boolean => {
+  const metadata = (config?.metadata ?? {}) as Record<string, unknown>;
+  return Boolean(
+    metadata.managedModelKey ||
+      (metadata.nodeConfig &&
+        typeof metadata.nodeConfig === "object" &&
+        (metadata.nodeConfig as Record<string, unknown>).flowNodeType)
+  );
+};
+
 const resolveFlowNodeTypeFromConfig = (config: Partial<NodeConfig>): string => {
   const metadata = (config.metadata ?? {}) as Record<string, unknown>;
+  const nodeConfig =
+    metadata.nodeConfig && typeof metadata.nodeConfig === "object"
+      ? (metadata.nodeConfig as Record<string, unknown>)
+      : undefined;
   const candidates = [
     config.nodeKey,
     config.nameEn,
     config.nameZh,
     config.serviceType,
+    typeof nodeConfig?.flowNodeType === "string" ? nodeConfig.flowNodeType : undefined,
     typeof metadata.nodeKey === "string" ? metadata.nodeKey : undefined,
     typeof metadata.type === "string" ? metadata.type : undefined,
     typeof metadata.provider === "string" ? metadata.provider : undefined,
@@ -1498,7 +1513,14 @@ const resolveFlowNodeTypeFromConfig = (config: Partial<NodeConfig>): string => {
 
 const buildNodePaletteCaption = (config: Partial<NodeConfig>): string | undefined => {
   const metadata = (config.metadata ?? {}) as Record<string, any>;
+  const nodeConfig =
+    metadata.nodeConfig && typeof metadata.nodeConfig === "object"
+      ? (metadata.nodeConfig as Record<string, any>)
+      : undefined;
   const vod = metadata.vod && typeof metadata.vod === "object" ? metadata.vod : undefined;
+  if (typeof nodeConfig?.description === "string" && nodeConfig.description.trim()) {
+    return nodeConfig.description.trim();
+  }
   if (vod) {
     const segments = [
       "VOD",
@@ -1627,6 +1649,21 @@ const nodePaletteSectionCountStyle: React.CSSProperties = {
 const getNodePaletteGroupKey = (
   config: Partial<NodeConfig> & { nodeKey?: string; category?: string }
 ): NodePanelGroupKey => {
+  const metadata = (config.metadata ?? {}) as Record<string, any>;
+  const nodeConfig =
+    metadata.nodeConfig && typeof metadata.nodeConfig === "object"
+      ? (metadata.nodeConfig as Record<string, any>)
+      : undefined;
+  const managedTaskType = String(
+    nodeConfig?.taskType || metadata.managedTaskType || config.category || ""
+  )
+    .trim()
+    .toLowerCase();
+  if (managedTaskType === "text" || managedTaskType === "input") return "text";
+  if (managedTaskType === "image") return "image";
+  if (managedTaskType === "video") return "video";
+  if (managedTaskType === "audio") return "audio";
+
   const resolvedType = resolveFlowNodeTypeFromConfig(config).trim();
   if (resolvedType && NODE_PANEL_GROUP_BY_TYPE[resolvedType]) {
     return NODE_PANEL_GROUP_BY_TYPE[resolvedType];
@@ -2212,6 +2249,9 @@ function FlowInner() {
       .filter((config) => !BETA_NODE_KEYS.has(config.nodeKey))
       .filter((config) => {
         const resolvedType = resolveFlowNodeTypeFromConfig(config);
+        if (isManagedPaletteConfig(config)) {
+          return true;
+        }
         return !isHiddenFlowNodeType(resolvedType);
       })
       .filter((config) => config.status !== "disabled");
@@ -6689,14 +6729,21 @@ function FlowInner() {
         const resolvedType = normalizedType || preset.nodeType;
         if (!resolvedType) continue;
         if (!normalizedType && !(resolvedType in FLOW_NODE_DEFAULT_SIZE)) continue;
-        if (HIDDEN_FLOW_NODE_TYPES.has(resolvedType as FlowNodeType)) continue;
-
         const cacheKey = `${resolvedType}::${preset.targetHandle}`;
         if (seen.has(cacheKey)) continue;
         seen.add(cacheKey);
 
         const meta = quickConnectMetaByType.get(resolvedType);
         const status = meta?.status;
+        const sourceConfig = nodePaletteConfigs.find(
+          (config) => resolveFlowNodeTypeFromConfig(config) === resolvedType
+        );
+        if (
+          HIDDEN_FLOW_NODE_TYPES.has(resolvedType as FlowNodeType) &&
+          !isManagedPaletteConfig(sourceConfig)
+        ) {
+          continue;
+        }
         if (
           status === "maintenance" ||
           status === "coming_soon" ||
@@ -6740,14 +6787,21 @@ function FlowInner() {
         if (!resolvedType) continue;
         if (!normalizedType && !(resolvedType in FLOW_NODE_DEFAULT_SIZE)) continue;
         if (!preset.sourceHandle) continue;
-        if (HIDDEN_FLOW_NODE_TYPES.has(resolvedType as FlowNodeType)) continue;
-
         const cacheKey = `${resolvedType}::${preset.sourceHandle}`;
         if (seen.has(cacheKey)) continue;
         seen.add(cacheKey);
 
         const meta = quickConnectMetaByType.get(resolvedType);
         const status = meta?.status;
+        const sourceConfig = nodePaletteConfigs.find(
+          (config) => resolveFlowNodeTypeFromConfig(config) === resolvedType
+        );
+        if (
+          HIDDEN_FLOW_NODE_TYPES.has(resolvedType as FlowNodeType) &&
+          !isManagedPaletteConfig(sourceConfig)
+        ) {
+          continue;
+        }
         if (
           status === "maintenance" ||
           status === "coming_soon" ||
@@ -11831,11 +11885,7 @@ function FlowInner() {
               );
               consecutiveQueryErrors = 0;
 
-              if (
-                queryResult.status === "succeeded" ||
-                queryResult.status === "SUCCESS" ||
-                queryResult.status === "succeed"
-              ) {
+              if (queryResult.status === "succeeded") {
                 stopPolling();
                 if (createResult.apiUsageId) {
                   const processingTime = Math.max(0, Date.now() - generationStartMs);
@@ -11888,10 +11938,7 @@ function FlowInner() {
                   })
                 );
                 return;
-              } else if (
-                queryResult.status === "failed" ||
-                queryResult.status === "FAILURE"
-              ) {
+              } else if (queryResult.status === "failed") {
                 stopPolling();
                 // 任务失败，尝试退还积分
                 if (createResult.apiUsageId) {

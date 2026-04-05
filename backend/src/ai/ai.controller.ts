@@ -3046,27 +3046,29 @@ export class AiController {
     if (asyncTask) {
       // 异步任务，直接返回存储的结果
       if (asyncTask.status === 'completed' && asyncTask.result) {
-        return {
+        return this.normalizeVideoTaskResponse({
           id: trimmedTaskId,
           status: asyncTask.result.status || 'completed',
           videoUrl: asyncTask.result.videoUrl,
           thumbnailUrl: asyncTask.result.thumbnailUrl,
           raw: asyncTask.result,
-        };
+        });
       }
       if (asyncTask.status === 'failed') {
         throw new ServiceUnavailableException(asyncTask.error || '视频生成失败');
       }
       // pending 或 processing，返回进行中状态
-      return {
+      return this.normalizeVideoTaskResponse({
         id: trimmedTaskId,
         status: asyncTask.status === 'processing' ? 'processing' : 'pending',
         progress: asyncTask.status === 'processing' ? 50 : 10,
-      };
+      });
     }
 
     // 非异步任务，调用原始的 Sora2 查询接口
-    return this.sora2VideoService.queryVideoTask(trimmedTaskId);
+    return this.normalizeVideoTaskResponse(
+      await this.sora2VideoService.queryVideoTask(trimmedTaskId),
+    );
   }
 
   /**
@@ -3307,7 +3309,80 @@ export class AiController {
     @Param('provider') provider: 'kling' | 'kling-2.6' | 'kling-o3' | 'vidu' | 'viduq3-pro' | 'doubao',
     @Param('taskId') taskId: string,
   ) {
-    return this.videoProviderService.queryTask(provider, taskId);
+    return this.normalizeVideoTaskResponse(
+      await this.videoProviderService.queryTask(provider, taskId),
+    );
+  }
+
+  private normalizeUnifiedVideoStatus(status?: string | null): 'queued' | 'processing' | 'succeeded' | 'failed' {
+    const value = String(status || '').trim().toLowerCase();
+    if (!value) return 'processing';
+
+    if (
+      [
+        'queued',
+        'queue',
+        'pending',
+        'submitted',
+        'waiting',
+      ].includes(value)
+    ) {
+      return 'queued';
+    }
+
+    if (
+      [
+        'processing',
+        'running',
+        'progressing',
+        'in_progress',
+      ].includes(value)
+    ) {
+      return 'processing';
+    }
+
+    if (
+      [
+        'success',
+        'succeed',
+        'succeeded',
+        'completed',
+        'complete',
+        'done',
+        'finish',
+        'finished',
+      ].includes(value)
+    ) {
+      return 'succeeded';
+    }
+
+    if (
+      [
+        'failed',
+        'fail',
+        'failure',
+        'error',
+        'cancelled',
+        'canceled',
+        'timeout',
+        'terminated',
+        'exception',
+        'expired',
+      ].includes(value)
+    ) {
+      return 'failed';
+    }
+
+    return 'processing';
+  }
+
+  private normalizeVideoTaskResponse<T extends Record<string, any>>(payload: T): T & {
+    status: 'queued' | 'processing' | 'succeeded' | 'failed';
+  } {
+    return {
+      ...payload,
+      status: this.normalizeUnifiedVideoStatus(payload?.status),
+    };
   }
 
   /**

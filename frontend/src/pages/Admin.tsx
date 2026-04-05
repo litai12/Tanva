@@ -150,6 +150,7 @@ function DashboardTrendChart({
 
 const MODEL_PROVIDER_MAPPING_SETTING_KEY = "model_provider_mapping_v2";
 type ModelVendorRouteType = "legacy" | "tencent_vod";
+type ManagedModelTaskType = "text" | "image" | "video";
 
 interface ManagedVendorPlatformConfig {
   platformKey: string;
@@ -183,11 +184,288 @@ interface ManagedModelConfig {
   metadata?: Record<string, any>;
 }
 
+interface ManagedModelNodeConfig {
+  enabled?: boolean;
+  nodeKey?: string;
+  flowNodeType?: string;
+  category?: "input" | "image" | "video";
+  creditsPerCall?: number;
+  sortOrder?: number;
+  description?: string;
+}
+
 interface ModelProviderMappingV2 {
   version?: string;
   platforms?: ManagedVendorPlatformConfig[];
   models?: ManagedModelConfig[];
 }
+
+const MANAGED_MODEL_TASK_TYPE_OPTIONS: Array<{
+  value: ManagedModelTaskType;
+  label: string;
+}> = [
+  { value: "text", label: "文本" },
+  { value: "image", label: "图片" },
+  { value: "video", label: "视频" },
+];
+
+const MANAGED_NODE_TEMPLATE_OPTIONS: Record<
+  ManagedModelTaskType,
+  Array<{ value: string; label: string; category: "input" | "image" | "video" }>
+> = {
+  text: [
+    { value: "textPrompt", label: "提示词节点", category: "input" },
+    { value: "textChat", label: "文本对话节点", category: "input" },
+    { value: "promptOptimize", label: "提示词优化节点", category: "input" },
+  ],
+  image: [
+    { value: "generate", label: "图片生成节点", category: "image" },
+    { value: "generatePro", label: "自定义图片节点", category: "image" },
+    { value: "midjourney", label: "Midjourney 节点", category: "image" },
+    { value: "analysis", label: "图像分析节点", category: "image" },
+  ],
+  video: [
+    { value: "kling26Video", label: "Kling 2.6 视频节点", category: "video" },
+    { value: "kling30Video", label: "Kling 3.0 视频节点", category: "video" },
+    { value: "klingO1Video", label: "Kling 3.0-Omni 视频节点", category: "video" },
+    { value: "viduVideo", label: "Vidu 视频节点", category: "video" },
+    { value: "viduQ3", label: "Vidu Q3 视频节点", category: "video" },
+    { value: "doubaoVideo", label: "Seedance 1.5 视频节点", category: "video" },
+    { value: "seedance20Video", label: "Seedance 2.0 视频节点", category: "video" },
+    { value: "sora2Video", label: "Sora 2 视频节点", category: "video" },
+    { value: "wan26", label: "Wan 2.6 视频节点", category: "video" },
+    { value: "wan2R2V", label: "Wan 参考视频节点", category: "video" },
+  ],
+};
+
+const normalizeManagedModelTaskType = (value?: string): ManagedModelTaskType => {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "text" || normalized === "input") return "text";
+  if (normalized === "image") return "image";
+  return "video";
+};
+
+const inferManagedNodeTemplate = (model: Partial<ManagedModelConfig>): string => {
+  const modelKey = String(model.modelKey || "")
+    .trim()
+    .toLowerCase();
+  if (model.metadata?.nodeConfig && typeof model.metadata.nodeConfig === "object") {
+    const explicit = String((model.metadata.nodeConfig as any).flowNodeType || "").trim();
+    if (explicit) return explicit;
+  }
+  if (modelKey === "kling-2.6") return "kling26Video";
+  if (modelKey === "kling-3.0") return "kling30Video";
+  if (modelKey === "kling-o3") return "klingO1Video";
+  if (modelKey === "vidu-q3" || modelKey === "vidu-q3-mix") return "viduQ3";
+  if (modelKey === "seedance-1.5") return "doubaoVideo";
+  if (modelKey === "seedance-2.0") return "seedance20Video";
+  if (modelKey === "sora-2") return "sora2Video";
+  if (modelKey === "wan-2.6") return "wan26";
+
+  const taskType = normalizeManagedModelTaskType(model.taskType);
+  return MANAGED_NODE_TEMPLATE_OPTIONS[taskType][0]?.value || "kling30Video";
+};
+
+const shouldReuseTemplateNodeKey = (modelKey?: string): boolean => {
+  const normalized = String(modelKey || "")
+    .trim()
+    .toLowerCase();
+  return [
+    "kling-2.6",
+    "kling-3.0",
+    "kling-o3",
+    "vidu-q2",
+    "vidu-q2-turbo",
+    "vidu-q2-pro",
+    "vidu-q3",
+    "vidu-q3-mix",
+    "sora-2",
+    "seedance-1.5",
+    "seedance-2.0",
+  ].includes(normalized);
+};
+
+const buildManagedNodeConfig = (
+  model: Partial<ManagedModelConfig>,
+  overrides?: Partial<ManagedModelNodeConfig>
+): ManagedModelNodeConfig => {
+  const taskType = normalizeManagedModelTaskType(model.taskType);
+  const flowNodeType =
+    overrides?.flowNodeType ||
+    (model.metadata?.nodeConfig &&
+    typeof model.metadata.nodeConfig === "object" &&
+    typeof (model.metadata.nodeConfig as any).flowNodeType === "string"
+      ? String((model.metadata.nodeConfig as any).flowNodeType)
+      : inferManagedNodeTemplate(model));
+  const matchedTemplate =
+    MANAGED_NODE_TEMPLATE_OPTIONS[taskType].find((item) => item.value === flowNodeType) ||
+    MANAGED_NODE_TEMPLATE_OPTIONS[taskType][0];
+  return {
+    enabled: true,
+    nodeKey:
+      overrides?.nodeKey ||
+      (model.metadata?.nodeConfig &&
+      typeof model.metadata.nodeConfig === "object" &&
+      typeof (model.metadata.nodeConfig as any).nodeKey === "string"
+        ? String((model.metadata.nodeConfig as any).nodeKey)
+        : shouldReuseTemplateNodeKey(model.modelKey)
+        ? matchedTemplate?.value || flowNodeType
+        : ""),
+    flowNodeType: matchedTemplate?.value || flowNodeType,
+    category: overrides?.category || matchedTemplate?.category || (taskType === "text" ? "input" : taskType),
+    creditsPerCall:
+      typeof overrides?.creditsPerCall === "number" ? overrides.creditsPerCall : 0,
+    sortOrder: typeof overrides?.sortOrder === "number" ? overrides.sortOrder : undefined,
+    description: overrides?.description || "",
+  };
+};
+
+const getManagedNodeConfig = (model: Partial<ManagedModelConfig>): ManagedModelNodeConfig => {
+  const existing =
+    model.metadata?.nodeConfig && typeof model.metadata.nodeConfig === "object"
+      ? (model.metadata.nodeConfig as ManagedModelNodeConfig)
+      : undefined;
+  return buildManagedNodeConfig(model, existing);
+};
+
+const DEFAULT_SEEDANCE20_V2_VENDOR_METADATA = {
+  executionBranch: "v2_request_profile",
+  requestProfile: {
+    enabled: true,
+    version: "v2",
+    create: {
+      method: "POST",
+      path: "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+      headers: {
+        Authorization: "{{auth.bearer}}",
+        "Content-Type": "application/json",
+      },
+      body: {
+        model: "doubao-seedance-2-0-260128",
+        content: "{{request.content}}",
+      },
+      responseMapping: {
+        taskId: ["id", "platform_id"],
+        status: ["status"],
+      },
+    },
+    query: {
+      method: "GET",
+      path: "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/{{task.id}}",
+      headers: {
+        Authorization: "{{auth.bearer}}",
+      },
+      responseMapping: {
+        status: ["status"],
+        videoUrl: ["content.video_url"],
+        error: ["error.message", "reason"],
+      },
+    },
+  },
+} as const;
+
+const DEFAULT_TENCENT_VOD_VIDU_V2_VENDOR_METADATA = {
+  executionBranch: "v2_request_profile",
+  requestProfile: {
+    enabled: true,
+    version: "v2",
+    transport: "tencent_vod_aigc_video",
+    create: {
+      body: {
+        modelName: "{{vendor.modelName}}",
+        modelVersion: "{{vendor.modelVersion}}",
+        prompt: "{{vod.prompt}}",
+        fileInfos: "{{vod.fileInfos}}",
+        lastFrameUrl: "{{vod.lastFrameUrl}}",
+        aspectRatio: "{{vod.aspectRatio}}",
+        duration: "{{vod.duration}}",
+        resolution: "{{vod.resolution}}",
+        storageMode: "{{vod.storageMode}}",
+        enhancePrompt: "{{vod.enhancePrompt}}",
+      },
+      responseMapping: {
+        taskId: ["taskId"],
+        requestId: ["requestId"],
+      },
+    },
+    query: {
+      responseMapping: {
+        status: ["status"],
+        videoUrl: ["videoUrl"],
+        fileId: ["fileId"],
+        requestId: ["requestId"],
+      },
+    },
+  },
+} as const;
+
+const DEFAULT_TENCENT_VOD_SEEDANCE15_V2_VENDOR_METADATA = {
+  executionBranch: "v2_request_profile",
+  requestProfile: {
+    enabled: true,
+    version: "v2",
+    transport: "tencent_vod_aigc_video",
+    create: {
+      body: {
+        modelName: "{{vendor.modelName}}",
+        modelVersion: "{{vendor.modelVersion}}",
+        prompt: "{{vod.prompt}}",
+        fileInfos: "{{vod.fileInfos}}",
+        aspectRatio: "{{vod.aspectRatio}}",
+        duration: "{{vod.duration}}",
+        resolution: "{{vod.resolution}}",
+        audioGeneration: "{{vod.audioGeneration}}",
+        storageMode: "{{vod.storageMode}}",
+        enhancePrompt: "{{vod.enhancePrompt}}",
+      },
+      responseMapping: {
+        taskId: ["taskId"],
+        requestId: ["requestId"],
+      },
+    },
+    query: {
+      responseMapping: {
+        status: ["status"],
+        videoUrl: ["videoUrl"],
+        fileId: ["fileId"],
+        requestId: ["requestId"],
+      },
+    },
+  },
+} as const;
+
+const DEFAULT_TENCENT_VOD_PLATFORM_METADATA = {
+  service: "tencent_vod",
+  endpoint: "https://vod.tencentcloudapi.com/",
+  upstreamDomain: "vod.tencentcloudapi.com",
+  apiVersion: "2018-07-17",
+  createTask: {
+    method: "POST",
+    action: "CreateAigcVideoTask",
+    url: "https://vod.tencentcloudapi.com/",
+  },
+  queryTask: {
+    method: "POST",
+    action: "DescribeTaskDetail",
+    url: "https://vod.tencentcloudapi.com/",
+  },
+  polling: {
+    strategy: "describe_task_detail",
+    successStatuses: ["FINISH", "SUCCESS", "SUCCEEDED", "COMPLETED"],
+    processingStatuses: ["WAITING", "PROCESSING", "RUNNING", "QUEUED", "PENDING"],
+    failedStatuses: ["FAIL", "FAILED", "ERROR", "CANCELED", "CANCELLED"],
+  },
+  responseMapping: {
+    taskId: ["Response.TaskId"],
+    status: ["Response.Status", "Response.TaskStatus"],
+    fileId: ["Response.FileId", "Response.MediaInfo.FileId"],
+    fileUrl: ["Response.FileUrl", "Response.MediaUrl", "Response.PlayUrl"],
+    message: ["Response.Message", "Response.Error.Message"],
+    requestId: ["Response.RequestId"],
+  },
+} as const;
 
 const DEFAULT_MODEL_VENDOR_PLATFORMS: ManagedVendorPlatformConfig[] = [
   {
@@ -203,6 +481,7 @@ const DEFAULT_MODEL_VENDOR_PLATFORMS: ManagedVendorPlatformConfig[] = [
     enabled: true,
     route: "tencent_vod",
     description: "腾讯云 VOD AIGC 视频生成",
+    metadata: DEFAULT_TENCENT_VOD_PLATFORM_METADATA,
   },
   {
     platformKey: "vidu_api",
@@ -344,6 +623,7 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "vidu",
         modelName: "Vidu",
         modelVersion: "q2",
+        metadata: DEFAULT_TENCENT_VOD_VIDU_V2_VENDOR_METADATA,
       },
     ],
   },
@@ -411,6 +691,7 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "vidu",
         modelName: "Vidu",
         modelVersion: "q3",
+        metadata: DEFAULT_TENCENT_VOD_VIDU_V2_VENDOR_METADATA,
       },
     ],
   },
@@ -488,6 +769,7 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "doubao",
         modelName: "Seedance",
         modelVersion: "1.5-pro",
+        metadata: DEFAULT_TENCENT_VOD_SEEDANCE15_V2_VENDOR_METADATA,
       },
     ],
   },
@@ -507,6 +789,7 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "doubao",
         modelName: "Seedance",
         modelVersion: "2.0",
+        metadata: DEFAULT_SEEDANCE20_V2_VENDOR_METADATA,
       },
     ],
   },
@@ -539,6 +822,9 @@ const createEmptyModel = (): ManagedModelConfig => ({
   taskType: "video",
   enabled: true,
   defaultVendor: "",
+  metadata: {
+    nodeConfig: buildManagedNodeConfig({ taskType: "video" }),
+  },
   vendors: [createEmptyVendor()],
 });
 
@@ -550,6 +836,68 @@ const createEmptyPlatform = (): ManagedVendorPlatformConfig => ({
   provider: "",
   description: "",
 });
+
+const ensureModelDefaultVendor = (model: ManagedModelConfig): ManagedModelConfig => {
+  const vendors = Array.isArray(model.vendors) ? model.vendors.filter(Boolean) : [];
+  if (!vendors.length) {
+    return model;
+  }
+
+  const existingDefaultVendor =
+    typeof model.defaultVendor === "string" ? model.defaultVendor.trim() : "";
+  const resolvedDefaultVendor =
+    (existingDefaultVendor && vendors.some((vendor) => vendor.vendorKey === existingDefaultVendor)
+      ? existingDefaultVendor
+      : "") ||
+    vendors.find((vendor) => vendor.enabled !== false)?.vendorKey ||
+    vendors[0]?.vendorKey ||
+    "";
+
+  return {
+    ...model,
+    defaultVendor: resolvedDefaultVendor,
+    vendors: vendors.map((vendor) => ({
+      ...vendor,
+      enabled:
+        vendor.vendorKey === resolvedDefaultVendor ? true : vendor.enabled !== false,
+    })),
+  };
+};
+
+const getDefaultVendorMetadataTemplate = (
+  modelKey?: string,
+  vendorKey?: string
+): Record<string, any> | undefined => {
+  const model = DEFAULT_MODEL_CATALOG.find((item) => item.modelKey === modelKey);
+  const vendor = model?.vendors?.find((item) => item.vendorKey === vendorKey);
+  return vendor?.metadata && typeof vendor.metadata === "object"
+    ? JSON.parse(JSON.stringify(vendor.metadata))
+    : undefined;
+};
+
+const validateManagedModelMapping = (input: ModelProviderMappingV2) => {
+  const issues: string[] = [];
+
+  (input.models || []).forEach((model) => {
+    (model.vendors || []).forEach((vendor) => {
+      const executionBranch = String(vendor.metadata?.executionBranch || "legacy").trim();
+      const hasRequestProfile =
+        !!vendor.metadata?.requestProfile &&
+        typeof vendor.metadata.requestProfile === "object" &&
+        vendor.metadata.requestProfile.enabled !== false;
+
+      if (executionBranch === "v2_request_profile" && !hasRequestProfile) {
+        issues.push(
+          `${model.modelKey || "-"} / ${vendor.vendorKey || "-"} 缺少 metadata.requestProfile`
+        );
+      }
+    });
+  });
+
+  if (issues.length) {
+    throw new Error(`以下 V2 厂商配置不完整：${issues.join("；")}`);
+  }
+};
 
 const normalizeModelMapping = (input?: Partial<ModelProviderMappingV2>): ModelProviderMappingV2 => {
   const inputPlatformMap = new Map(
@@ -643,6 +991,174 @@ const normalizeModelMapping = (input?: Partial<ModelProviderMappingV2>): ModelPr
   return {
     ...normalized,
     models: (normalized.models || []).map((model) => {
+      if (model.modelKey === "vidu-q2" || model.modelKey === "vidu-q3") {
+        const isQ3 = model.modelKey === "vidu-q3";
+        const existingVendors = Array.isArray(model.vendors) ? model.vendors.filter(Boolean) : [];
+        const legacyVendor =
+          existingVendors.find((vendor) => vendor.vendorKey === "vidu_api") || {
+            vendorKey: "vidu_api",
+            platformKey: "vidu_api",
+            label: "Vidu API",
+            enabled: true,
+            route: "legacy" as ModelVendorRouteType,
+            provider: isQ3 ? "viduq3-pro" : "vidu",
+            modelName: "Vidu",
+            modelVersion: isQ3 ? "Q3" : "Q2",
+          };
+        const tencentVodVendor =
+          existingVendors.find((vendor) => vendor.vendorKey === "tencent_vod") || {
+            vendorKey: "tencent_vod",
+            platformKey: "tencent_vod",
+            label: "腾讯 VOD",
+            enabled: false,
+            route: "tencent_vod" as ModelVendorRouteType,
+            provider: "vidu",
+            modelName: "Vidu",
+            modelVersion: isQ3 ? "q3" : "q2",
+          };
+
+        return ensureModelDefaultVendor({
+          ...model,
+          defaultVendor: model.defaultVendor || "vidu_api",
+          vendors: [
+            {
+              ...legacyVendor,
+              platformKey: "vidu_api",
+              label: legacyVendor.label || "Vidu API",
+              enabled: legacyVendor.enabled !== false,
+              route: "legacy",
+              provider: legacyVendor.provider || (isQ3 ? "viduq3-pro" : "vidu"),
+              modelName: legacyVendor.modelName || "Vidu",
+              modelVersion: legacyVendor.modelVersion || (isQ3 ? "Q3" : "Q2"),
+            },
+            {
+              ...tencentVodVendor,
+              platformKey: "tencent_vod",
+              label: tencentVodVendor.label || "腾讯 VOD",
+              enabled: tencentVodVendor.enabled === true,
+              route: "tencent_vod",
+              provider: tencentVodVendor.provider || "vidu",
+              modelName: tencentVodVendor.modelName || "Vidu",
+              modelVersion: tencentVodVendor.modelVersion || (isQ3 ? "q3" : "q2"),
+              metadata:
+                tencentVodVendor.metadata && typeof tencentVodVendor.metadata === "object"
+                  ? tencentVodVendor.metadata
+                  : DEFAULT_TENCENT_VOD_VIDU_V2_VENDOR_METADATA,
+            },
+          ],
+        });
+      }
+
+      if (model.modelKey === "sora-2") {
+        const existingVendors = Array.isArray(model.vendors) ? model.vendors.filter(Boolean) : [];
+        const soraApiVendor =
+          existingVendors.find((vendor) => vendor.vendorKey === "sora2_api") || {
+            vendorKey: "sora2_api",
+            platformKey: "sora2_api",
+            label: "Sora 2 API",
+            enabled: true,
+            route: "legacy" as ModelVendorRouteType,
+            provider: "sora2",
+            modelName: "Sora",
+            modelVersion: "2.0",
+          };
+        const tencentVodVendor =
+          existingVendors.find((vendor) => vendor.vendorKey === "tencent_vod") || {
+            vendorKey: "tencent_vod",
+            platformKey: "tencent_vod",
+            label: "腾讯 VOD",
+            enabled: false,
+            route: "tencent_vod" as ModelVendorRouteType,
+            provider: "sora2",
+            modelName: "OS",
+            modelVersion: "2.0",
+          };
+
+        return ensureModelDefaultVendor({
+          ...model,
+          defaultVendor: model.defaultVendor || "sora2_api",
+          vendors: [
+            {
+              ...soraApiVendor,
+              platformKey: "sora2_api",
+              label: soraApiVendor.label || "Sora 2 API",
+              enabled: soraApiVendor.enabled !== false,
+              route: "legacy",
+              provider: soraApiVendor.provider || "sora2",
+              modelName: soraApiVendor.modelName || "Sora",
+              modelVersion: soraApiVendor.modelVersion || "2.0",
+            },
+            {
+              ...tencentVodVendor,
+              platformKey: "tencent_vod",
+              label: tencentVodVendor.label || "腾讯 VOD",
+              enabled: tencentVodVendor.enabled === true,
+              route: "tencent_vod",
+              provider: tencentVodVendor.provider || "sora2",
+              modelName: tencentVodVendor.modelName || "OS",
+              modelVersion: tencentVodVendor.modelVersion || "2.0",
+            },
+          ],
+        });
+      }
+
+      if (model.modelKey === "seedance-1.5") {
+        const existingVendors = Array.isArray(model.vendors) ? model.vendors.filter(Boolean) : [];
+        const seedanceVendor =
+          existingVendors.find((vendor) => vendor.vendorKey === "seedance_api") || {
+            vendorKey: "seedance_api",
+            platformKey: "seedance_api",
+            label: "Seedance API",
+            enabled: true,
+            route: "legacy" as ModelVendorRouteType,
+            provider: "doubao",
+            modelName: "Seedance",
+            modelVersion: "1.5-pro",
+          };
+        const tencentVodVendor =
+          existingVendors.find((vendor) => vendor.vendorKey === "tencent_vod") || {
+            vendorKey: "tencent_vod",
+            platformKey: "tencent_vod",
+            label: "腾讯 VOD",
+            enabled: false,
+            route: "tencent_vod" as ModelVendorRouteType,
+            provider: "doubao",
+            modelName: "Seedance",
+            modelVersion: "1.5-pro",
+          };
+
+        return ensureModelDefaultVendor({
+          ...model,
+          defaultVendor: model.defaultVendor || "seedance_api",
+          vendors: [
+            {
+              ...seedanceVendor,
+              platformKey: "seedance_api",
+              label: seedanceVendor.label || "Seedance API",
+              enabled: seedanceVendor.enabled !== false,
+              route: "legacy",
+              provider: seedanceVendor.provider || "doubao",
+              modelName: seedanceVendor.modelName || "Seedance",
+              modelVersion: seedanceVendor.modelVersion || "1.5-pro",
+            },
+            {
+              ...tencentVodVendor,
+              platformKey: "tencent_vod",
+              label: tencentVodVendor.label || "腾讯 VOD",
+              enabled: tencentVodVendor.enabled === true,
+              route: "tencent_vod",
+              provider: tencentVodVendor.provider || "doubao",
+              modelName: tencentVodVendor.modelName || "Seedance",
+              modelVersion: tencentVodVendor.modelVersion || "1.5-pro",
+              metadata:
+                tencentVodVendor.metadata && typeof tencentVodVendor.metadata === "object"
+                  ? tencentVodVendor.metadata
+                  : DEFAULT_TENCENT_VOD_SEEDANCE15_V2_VENDOR_METADATA,
+            },
+          ],
+        });
+      }
+
       if (model.modelKey !== "seedance-2.0") {
         return model;
       }
@@ -650,7 +1166,7 @@ const normalizeModelMapping = (input?: Partial<ModelProviderMappingV2>): ModelPr
       const existingVendor =
         (model.vendors || []).find((vendor) => vendor.vendorKey === "seedance_api") || null;
 
-      return {
+      return ensureModelDefaultVendor({
         ...model,
         defaultVendor: "seedance_api",
         vendors: [
@@ -663,11 +1179,14 @@ const normalizeModelMapping = (input?: Partial<ModelProviderMappingV2>): ModelPr
             provider: "doubao",
             modelName: existingVendor?.modelName || "Seedance",
             modelVersion: "2.0",
-            metadata: existingVendor?.metadata,
+            metadata:
+              existingVendor?.metadata && typeof existingVendor.metadata === "object"
+                ? existingVendor.metadata
+                : DEFAULT_SEEDANCE20_V2_VENDOR_METADATA,
           },
         ],
-      };
-    }),
+      });
+    }).map((model) => ensureModelDefaultVendor(model)),
   };
 };
 
@@ -3111,6 +3630,8 @@ function ModelManagementTab() {
   const [queryPlatformName, setQueryPlatformName] = useState("");
   const [editingModelIndex, setEditingModelIndex] = useState<number | null>(null);
   const [editingModelDraft, setEditingModelDraft] = useState<ManagedModelConfig | null>(null);
+  const [editingModelMetadataText, setEditingModelMetadataText] = useState("{}");
+  const [editingVendorMetadataTexts, setEditingVendorMetadataTexts] = useState<Record<number, string>>({});
   const [editingPlatformIndex, setEditingPlatformIndex] = useState<number | null>(null);
   const [editingPlatformDraft, setEditingPlatformDraft] =
     useState<ManagedVendorPlatformConfig | null>(null);
@@ -3120,6 +3641,32 @@ function ModelManagementTab() {
     setMappingDraft(normalized);
     setJsonText(JSON.stringify(normalized, null, 2));
     return normalized;
+  };
+
+  const persistModelManagement = async (
+    nextDraft: ModelProviderMappingV2,
+    successMessage: string
+  ) => {
+    setSaving(true);
+    setStatusText("");
+    try {
+      const payloadObject = buildPersistedModelMapping(nextDraft);
+      validateManagedModelMapping(payloadObject);
+      const payload = JSON.stringify(payloadObject, null, 2);
+      const saved = await upsertSetting({
+        key: MODEL_PROVIDER_MAPPING_SETTING_KEY,
+        value: payload,
+        description: "模型厂商切换管理(JSON 映射，V2)",
+      });
+      syncDraftFromObject(payloadObject);
+      setLastUpdatedAt(saved.updatedAt);
+      setStatusText("保存成功");
+      notifyNodeConfigsUpdated();
+      showToast(successMessage);
+      return payloadObject;
+    } finally {
+      setSaving(false);
+    }
   };
 
   const showToast = (
@@ -3185,24 +3732,10 @@ function ModelManagementTab() {
   };
 
   const handleSave = async () => {
-    setSaving(true);
-    setStatusText("");
     try {
-      const payloadObject = buildPersistedModelMapping(mappingDraft);
-      const payload = JSON.stringify(payloadObject, null, 2);
-      const saved = await upsertSetting({
-        key: MODEL_PROVIDER_MAPPING_SETTING_KEY,
-        value: payload,
-        description: "模型厂商切换管理(JSON 映射，V2)",
-      });
-      syncDraftFromObject(payloadObject);
-      setLastUpdatedAt(saved.updatedAt);
-      setStatusText("保存成功");
-      showToast("模型管理配置已保存");
+      await persistModelManagement(mappingDraft, "模型管理配置已保存");
     } catch (error: any) {
       showToast(error.message || "保存失败", "error");
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -3234,7 +3767,7 @@ function ModelManagementTab() {
     modelIndex: number,
     vendorIndex: number,
     field: keyof ManagedModelVendorConfig,
-    value: string | boolean
+    value: any
   ) => {
     updateDraft((current) => {
       const models = [...(current.models || [])];
@@ -3328,22 +3861,43 @@ function ModelManagementTab() {
       const target = mappingDraft.models?.[modelIndex];
       if (!target) return;
       setEditingModelIndex(modelIndex);
-      setEditingModelDraft(
-        normalizeModelMapping({ models: [target] }).models?.[0] || createEmptyModel()
+      const nextDraftBase =
+        normalizeModelMapping({ models: [target] }).models?.[0] || createEmptyModel();
+      const nextDraft: ManagedModelConfig = {
+        ...nextDraftBase,
+        metadata: {
+          ...(nextDraftBase.metadata || {}),
+          nodeConfig: getManagedNodeConfig(nextDraftBase),
+        },
+      };
+      setEditingModelDraft(nextDraft);
+      setEditingModelMetadataText(JSON.stringify(nextDraft.metadata || {}, null, 2));
+      setEditingVendorMetadataTexts(
+        Object.fromEntries(
+          (nextDraft.vendors || []).map((vendor, index) => [
+            index,
+            JSON.stringify(vendor.metadata || {}, null, 2),
+          ])
+        )
       );
       return;
     }
 
     setEditingModelIndex(null);
-    setEditingModelDraft(createEmptyModel());
+    const nextDraft = createEmptyModel();
+    setEditingModelDraft(nextDraft);
+    setEditingModelMetadataText(JSON.stringify(nextDraft.metadata || {}, null, 2));
+    setEditingVendorMetadataTexts({ 0: JSON.stringify(nextDraft.vendors?.[0]?.metadata || {}, null, 2) });
   };
 
   const closeEditModel = () => {
     setEditingModelIndex(null);
     setEditingModelDraft(null);
+    setEditingModelMetadataText("{}");
+    setEditingVendorMetadataTexts({});
   };
 
-  const saveEditingModel = () => {
+  const saveEditingModel = async () => {
     if (!editingModelDraft) return;
 
     if (!editingModelDraft.modelKey?.trim()) {
@@ -3351,24 +3905,102 @@ function ModelManagementTab() {
       return;
     }
 
-    const normalizedModel = normalizeModelMapping({
-      models: [editingModelDraft],
-    }).models?.[0];
+    let parsedModelMetadata: Record<string, any> = {};
+    try {
+      parsedModelMetadata = editingModelMetadataText.trim()
+        ? JSON.parse(editingModelMetadataText)
+        : {};
+    } catch (error: any) {
+      showToast(error?.message || "模型 metadata JSON 不合法", "error");
+      return;
+    }
+
+    let nextVendors: ManagedModelVendorConfig[] = [];
+    try {
+      nextVendors = (editingModelDraft.vendors || []).map((vendor, vendorIndex) => {
+        const rawText = editingVendorMetadataTexts[vendorIndex] ?? "{}";
+        const parsed = rawText.trim() ? JSON.parse(rawText) : {};
+        return {
+          ...vendor,
+          metadata: parsed && typeof parsed === "object" ? parsed : {},
+        };
+      });
+    } catch (error: any) {
+      showToast(error?.message || "厂商 metadata JSON 不合法", "error");
+      return;
+    }
+
+    let normalizedModel: ManagedModelConfig | undefined;
+    try {
+      const normalizedMetadata =
+        parsedModelMetadata && typeof parsedModelMetadata === "object"
+          ? {
+              ...parsedModelMetadata,
+              nodeConfig: buildManagedNodeConfig(
+                {
+                  ...editingModelDraft,
+                  metadata: parsedModelMetadata,
+                },
+                parsedModelMetadata.nodeConfig &&
+                  typeof parsedModelMetadata.nodeConfig === "object"
+                  ? (parsedModelMetadata.nodeConfig as ManagedModelNodeConfig)
+                  : undefined
+              ),
+            }
+          : {
+              nodeConfig: buildManagedNodeConfig(editingModelDraft),
+            };
+      normalizedModel = normalizeModelMapping({
+        models: [
+          {
+            ...editingModelDraft,
+            metadata: normalizedMetadata,
+            vendors: nextVendors,
+          },
+        ],
+      }).models?.[0];
+    } catch (error: any) {
+      showToast(error?.message || "模型配置格式不合法", "error");
+      return;
+    }
 
     if (!normalizedModel) return;
 
-    updateDraft((current) => {
-      const models = [...(current.models || [])];
+    const nextDraft = normalizeModelMapping((() => {
+      const models = [...(mappingDraft.models || [])];
       if (editingModelIndex === null) {
         models.push(normalizedModel);
       } else {
         models[editingModelIndex] = normalizedModel;
       }
-      return { ...current, models };
-    });
+      return { ...mappingDraft, models };
+    })());
 
-    closeEditModel();
-    showToast(editingModelIndex === null ? "模型已添加到列表" : "模型已更新到列表");
+    try {
+      await persistModelManagement(
+        nextDraft,
+        editingModelIndex === null ? "模型已添加并保存" : "模型已更新并保存"
+      );
+      closeEditModel();
+    } catch (error: any) {
+      showToast(error?.message || "保存失败", "error");
+    }
+  };
+
+  const updateEditingModelMetadataObject = (
+    updater: (current: Record<string, any>) => Record<string, any>
+  ) => {
+    setEditingModelDraft((current) => {
+      if (!current) return current;
+      const nextMetadata = updater(
+        current.metadata && typeof current.metadata === "object" ? current.metadata : {}
+      );
+      setEditingModelMetadataText(JSON.stringify(nextMetadata, null, 2));
+      return {
+        ...current,
+        metadata: nextMetadata,
+      };
+    });
   };
 
   const updateEditingModelField = (
@@ -3388,7 +4020,7 @@ function ModelManagementTab() {
   const updateEditingVendorField = (
     vendorIndex: number,
     field: keyof ManagedModelVendorConfig,
-    value: string | boolean
+    value: any
   ) => {
     setEditingModelDraft((current) => {
       if (!current) return current;
@@ -3419,6 +4051,10 @@ function ModelManagementTab() {
           }
         : current
     );
+    setEditingVendorMetadataTexts((current) => ({
+      ...current,
+      [Object.keys(current).length]: "{}",
+    }));
   };
 
   const removeEditingVendor = (vendorIndex: number) => {
@@ -3433,20 +4069,32 @@ function ModelManagementTab() {
           : vendors[0]?.vendorKey || "",
       };
     });
+    setEditingVendorMetadataTexts((current) => {
+      const nextEntries = Object.entries(current)
+        .filter(([key]) => Number(key) !== vendorIndex)
+        .map(([key, value]) => [Number(key), value] as const)
+        .sort((a, b) => a[0] - b[0])
+        .map(([_, value], nextIndex) => [nextIndex, value] as const);
+      return Object.fromEntries(nextEntries);
+    });
   };
 
   const copyModel = (modelIndex: number) => {
     const source = mappingDraft.models?.[modelIndex];
     if (!source) return;
     const cloned = JSON.parse(JSON.stringify(source)) as ManagedModelConfig;
-    cloned.modelKey = `${source.modelKey || "model"}_copy`;
-    cloned.modelName = `${source.modelName || source.modelKey || "模型"} 复制`;
-    updateDraft((current) => ({
-      ...current,
-      models: [...(current.models || []), cloned],
-    }));
-    setStatusText("模型已复制，记得保存");
-    showToast("模型已复制，记得保存");
+    setEditingModelIndex(null);
+    setEditingModelDraft(normalizeModelMapping({ models: [cloned] }).models?.[0] || createEmptyModel());
+    setEditingModelMetadataText(JSON.stringify(cloned.metadata || {}, null, 2));
+    setEditingVendorMetadataTexts(
+      Object.fromEntries(
+        (cloned.vendors || []).map((vendor, index) => [
+          index,
+          JSON.stringify(vendor.metadata || {}, null, 2),
+        ])
+      )
+    );
+    showToast("已带入复制数据，请修改模型 Key 后保存", "warning");
   };
 
   const toggleModelStatus = (modelIndex: number, enabled: boolean) => {
@@ -3493,14 +4141,9 @@ function ModelManagementTab() {
     const source = mappingDraft.platforms?.[platformIndex];
     if (!source) return;
     const cloned = JSON.parse(JSON.stringify(source)) as ManagedVendorPlatformConfig;
-    cloned.platformKey = `${source.platformKey || "platform"}_copy`;
-    cloned.platformName = `${source.platformName || source.platformKey || "平台"} 复制`;
-    updateDraft((current) => ({
-      ...current,
-      platforms: [...(current.platforms || []), cloned],
-    }));
-    setStatusText("平台已复制，记得保存");
-    showToast("平台已复制，记得保存");
+    setEditingPlatformIndex(null);
+    setEditingPlatformDraft({ ...cloned });
+    showToast("已带入复制数据，请修改平台 Key 后保存", "warning");
   };
 
   const openEditPlatform = (platformIndex?: number) => {
@@ -3560,33 +4203,57 @@ function ModelManagementTab() {
     showToast(editingPlatformIndex === null ? "平台已添加到列表" : "平台已更新到列表");
   };
 
-  const filteredModels = (mappingDraft.models || []).filter((model) => {
-    const matchedName = !queryModelName
-      ? true
-      : `${model.modelKey} ${model.modelName}`.toLowerCase().includes(queryModelName.toLowerCase());
-    const matchedTaskType = !queryTaskType
-      ? true
-      : (model.taskType || "").toLowerCase().includes(queryTaskType.toLowerCase());
-    const matchedStatus =
-      !queryStatus
+  const filteredModelEntries = (mappingDraft.models || [])
+    .map((model, index) => ({ model, index }))
+    .filter(({ model }) => {
+      const matchedName = !queryModelName
         ? true
-        : queryStatus === "enabled"
-        ? model.enabled !== false
-        : model.enabled === false;
-    return matchedName && matchedTaskType && matchedStatus;
+        : `${model.modelKey} ${model.modelName}`.toLowerCase().includes(queryModelName.toLowerCase());
+      const matchedTaskType = !queryTaskType
+        ? true
+        : (model.taskType || "").toLowerCase().includes(queryTaskType.toLowerCase());
+      const matchedStatus =
+        !queryStatus
+          ? true
+          : queryStatus === "enabled"
+          ? model.enabled !== false
+          : model.enabled === false;
+      return matchedName && matchedTaskType && matchedStatus;
+    });
+
+  const filteredModels = filteredModelEntries.map((item) => item.model);
+
+  const filteredPlatformEntries = (mappingDraft.platforms || [])
+    .map((platform, index) => ({ platform, index }))
+    .filter(({ platform }) => {
+      const matchedName = !queryPlatformName
+        ? true
+        : `${platform.platformKey} ${platform.platformName} ${platform.provider}`
+            .toLowerCase()
+            .includes(queryPlatformName.toLowerCase());
+      return matchedName;
+    });
+
+  const filteredPlatforms = filteredPlatformEntries.map((item) => item.platform);
+
+  const platformMap = new Map(
+    (mappingDraft.platforms || []).map((platform) => [platform.platformKey, platform] as const)
+  );
+
+  const modelCountByPlatform = new Map<string, number>();
+  (mappingDraft.models || []).forEach((model) => {
+    (model.vendors || []).forEach((vendor) => {
+      const key = vendor.platformKey || "";
+      if (!key) return;
+      modelCountByPlatform.set(key, (modelCountByPlatform.get(key) || 0) + 1);
+    });
   });
 
-  const filteredPlatforms = (mappingDraft.platforms || []).filter((platform) => {
-    const matchedName = !queryPlatformName
-      ? true
-      : `${platform.platformKey} ${platform.platformName} ${platform.provider}`
-          .toLowerCase()
-          .includes(queryPlatformName.toLowerCase());
-    return matchedName;
-  });
+  const enabledModelCount = (mappingDraft.models || []).filter((item) => item.enabled !== false).length;
+  const enabledPlatformCount = (mappingDraft.platforms || []).filter((item) => item.enabled !== false).length;
 
   return (
-    <div className='space-y-6'>
+    <div >
       {toast && (
         <div className='fixed right-6 top-6 z-[70]'>
           <div
@@ -3675,12 +4342,12 @@ function ModelManagementTab() {
             <div className='rounded-lg border bg-white shadow-sm'>
               <div className='flex items-center justify-between gap-4 border-b px-4 py-3'>
                 <div>
-                  <div className='text-sm font-medium text-gray-900'>模型列表</div>
+                  <div className='text-sm font-medium text-gray-900'>模型映射列表</div>
                   <div className='text-sm text-gray-500 mt-1'>
-                    参考 xiangyu-admin 的管理模式，列表负责筛选、状态切换和复制，详细配置放到弹层里。
+                    直接看 `modelKey / defaultVendor / vendor.route / provider / modelName / modelVersion` 这些映射字段，编辑再进弹窗。
                   </div>
                 </div>
-                <Button variant='outline' onClick={() => openEditModel()}>
+                <Button variant='outline' onClick={() => openEditModel()} className='whitespace-nowrap'>
                   新增模型
                 </Button>
               </div>
@@ -3689,49 +4356,103 @@ function ModelManagementTab() {
                 <table className='w-full text-sm'>
                   <thead className='bg-gray-50 text-gray-600'>
                     <tr>
-                      <th className='px-4 py-3 text-left'>模型</th>
-                      <th className='px-4 py-3 text-left'>任务类型</th>
-                      <th className='px-4 py-3 text-left'>默认厂商</th>
-                      <th className='px-4 py-3 text-left'>厂商数</th>
-                      <th className='px-4 py-3 text-left'>状态</th>
-                      <th className='px-4 py-3 text-left'>操作</th>
+                      <th className='whitespace-nowrap px-4 py-3 text-left'>模型</th>
+                      <th className='whitespace-nowrap px-4 py-3 text-left'>模型类型</th>
+                      <th className='whitespace-nowrap px-4 py-3 text-left'>节点模板</th>
+                      <th className='whitespace-nowrap px-4 py-3 text-left'>默认厂商</th>
+                      <th className='whitespace-nowrap px-4 py-3 text-left'>路由摘要</th>
+                      <th className='whitespace-nowrap px-4 py-3 text-left'>字段映射</th>
+                      <th className='whitespace-nowrap px-4 py-3 text-left'>厂商数</th>
+                      <th className='sticky right-[88px] z-10 whitespace-nowrap bg-gray-50 px-4 py-3 text-left'>状态</th>
+                      <th className='sticky right-0 z-10 whitespace-nowrap bg-gray-50 px-4 py-3 text-left'>操作</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredModels.length === 0 ? (
+                    {filteredModelEntries.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className='px-4 py-10 text-center text-gray-500'>
+                        <td colSpan={9} className='px-4 py-10 text-center text-gray-500'>
                           暂无匹配模型
                         </td>
                       </tr>
                     ) : (
-                      filteredModels.map((model) => {
-                        const modelIndex = (mappingDraft.models || []).findIndex(
-                          (item) =>
-                            item.modelKey === model.modelKey &&
-                            item.modelName === model.modelName
-                        );
+                      filteredModelEntries.map(({ model, index: modelIndex }) => {
+                        const nodeConfig = getManagedNodeConfig(model);
+                        const defaultVendor =
+                          (model.vendors || []).find(
+                            (vendor) => vendor.vendorKey === model.defaultVendor
+                          ) || null;
+                        const routeSummary = Array.from(
+                          new Set((model.vendors || []).map((vendor) => vendor.route || "legacy"))
+                        ).join(", ");
+                        const providerSummary = Array.from(
+                          new Set(
+                            (model.vendors || [])
+                              .map((vendor) => vendor.provider || "")
+                              .filter(Boolean)
+                          )
+                        ).join(", ");
+                        const branchSummary = Array.from(
+                          new Set(
+                            (model.vendors || [])
+                              .map((vendor) =>
+                                String(vendor.metadata?.executionBranch || "legacy")
+                              )
+                              .filter(Boolean)
+                          )
+                        ).join(", ");
+                        const modelVersionSummary = (model.vendors || [])
+                          .slice(0, 2)
+                          .map((vendor) => {
+                            const platform = vendor.platformKey
+                              ? platformMap.get(vendor.platformKey)
+                              : null;
+                            const name = vendor.modelName || "-";
+                            const version = vendor.modelVersion || "-";
+                            return `${platform?.platformName || vendor.vendorKey || "-"}: ${name}/${version}`;
+                          })
+                          .join(" | ");
+
                         return (
-                          <tr key={`${model.modelKey}-${modelIndex}`} className='border-t'>
-                            <td className='px-4 py-3'>
-                              <div className='font-medium text-gray-900'>
+                          <tr key={`${model.modelKey}-${modelIndex}`} className='border-t align-top'>
+                            <td className='whitespace-nowrap px-4 py-3'>
+                              <div className='whitespace-nowrap font-medium text-gray-900'>
                                 {model.modelName || model.modelKey}
                               </div>
-                              <div className='mt-1 font-mono text-xs text-gray-400'>
+                              <div className='mt-1 whitespace-nowrap font-mono text-xs text-gray-400'>
                                 {model.modelKey || "-"}
                               </div>
                             </td>
-                            <td className='px-4 py-3 text-gray-600'>
-                              {model.taskType || "-"}
+                            <td className='whitespace-nowrap px-4 py-3 text-gray-600'>
+                              {normalizeManagedModelTaskType(model.taskType)}
                             </td>
-                            <td className='px-4 py-3 text-gray-600'>
-                              {model.defaultVendor || "-"}
+                            <td className='whitespace-nowrap px-4 py-3 text-gray-600'>
+                              <div className='whitespace-nowrap'>{nodeConfig.flowNodeType || "-"}</div>
+                              <div className='mt-1 whitespace-nowrap font-mono text-xs text-gray-400'>
+                                {nodeConfig.category || "-"}
+                              </div>
                             </td>
-                            <td className='px-4 py-3 text-gray-600'>
+                            <td className='whitespace-nowrap px-4 py-3 text-gray-600'>
+                              <div className='whitespace-nowrap'>{defaultVendor?.label || model.defaultVendor || "-"}</div>
+                              <div className='mt-1 whitespace-nowrap font-mono text-xs text-gray-400'>
+                                {model.defaultVendor || "-"}
+                              </div>
+                            </td>
+                            <td className='whitespace-nowrap px-4 py-3 text-gray-600'>
+                              <div className='whitespace-nowrap'>{routeSummary || "-"}</div>
+                              <div className='mt-1 whitespace-nowrap text-xs text-gray-400'>
+                                provider: {providerSummary || "-"} / branch: {branchSummary || "-"}
+                              </div>
+                            </td>
+                            <td className='whitespace-nowrap px-4 py-3 text-gray-600'>
+                              <div className='whitespace-nowrap text-sm leading-6'>
+                                {modelVersionSummary || "-"}
+                              </div>
+                            </td>
+                            <td className='whitespace-nowrap px-4 py-3 text-gray-600'>
                               {(model.vendors || []).length}
                             </td>
-                            <td className='px-4 py-3'>
-                              <label className='inline-flex items-center gap-2 text-sm text-gray-700'>
+                            <td className='sticky right-[88px] z-10 whitespace-nowrap bg-white px-4 py-3'>
+                              <label className='inline-flex items-center gap-2 whitespace-nowrap text-sm text-gray-700'>
                                 <input
                                   type='checkbox'
                                   checked={model.enabled !== false}
@@ -3742,23 +4463,23 @@ function ModelManagementTab() {
                                 {model.enabled !== false ? "启用" : "禁用"}
                               </label>
                             </td>
-                            <td className='px-4 py-3'>
-                              <div className='flex flex-wrap gap-3'>
+                            <td className='sticky right-0 z-10 whitespace-nowrap bg-white px-4 py-3'>
+                              <div className='flex flex-nowrap gap-3 whitespace-nowrap'>
                                 <button
                                   onClick={() => openEditModel(modelIndex)}
-                                  className='text-blue-600 hover:text-blue-700'
+                                  className='whitespace-nowrap text-blue-600 hover:text-blue-700'
                                 >
                                   编辑
                                 </button>
                                 <button
                                   onClick={() => copyModel(modelIndex)}
-                                  className='text-blue-600 hover:text-blue-700'
+                                  className='whitespace-nowrap text-blue-600 hover:text-blue-700'
                                 >
                                   复制
                                 </button>
                                 <button
                                   onClick={() => removeModel(modelIndex)}
-                                  className='text-red-600 hover:text-red-700'
+                                  className='whitespace-nowrap text-red-600 hover:text-red-700'
                                 >
                                   删除
                                 </button>
@@ -3781,7 +4502,7 @@ function ModelManagementTab() {
                     参考 xiangyu-admin 的平台管理，把通用厂商信息抽出来复用。
                   </div>
                 </div>
-                <Button variant='outline' onClick={() => openEditPlatform()}>
+                <Button variant='outline' onClick={() => openEditPlatform()} className='whitespace-nowrap'>
                   新增平台
                 </Button>
               </div>
@@ -3802,43 +4523,44 @@ function ModelManagementTab() {
                 <table className='w-full text-sm'>
                   <thead className='bg-gray-50 text-gray-600'>
                     <tr>
-                      <th className='px-4 py-3 text-left'>平台</th>
-                      <th className='px-4 py-3 text-left'>路由类型</th>
-                      <th className='px-4 py-3 text-left'>Provider</th>
-                      <th className='px-4 py-3 text-left'>状态</th>
-                      <th className='px-4 py-3 text-left'>操作</th>
+                      <th className='whitespace-nowrap px-4 py-3 text-left'>平台</th>
+                      <th className='whitespace-nowrap px-4 py-3 text-left'>路由类型</th>
+                      <th className='whitespace-nowrap px-4 py-3 text-left'>Provider</th>
+                      <th className='whitespace-nowrap px-4 py-3 text-left'>关联模型</th>
+                      <th className='sticky right-[88px] z-10 whitespace-nowrap bg-gray-50 px-4 py-3 text-left'>状态</th>
+                      <th className='sticky right-0 z-10 whitespace-nowrap bg-gray-50 px-4 py-3 text-left'>操作</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredPlatforms.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className='px-4 py-10 text-center text-gray-500'>
+                        <td colSpan={6} className='px-4 py-10 text-center text-gray-500'>
                           暂无匹配平台
                         </td>
                       </tr>
                     ) : (
-                      filteredPlatforms.map((platform) => {
-                        const platformIndex = (mappingDraft.platforms || []).findIndex(
-                          (item) => item.platformKey === platform.platformKey
-                        );
+                      filteredPlatformEntries.map(({ platform, index: platformIndex }) => {
                         return (
                           <tr key={`${platform.platformKey}-${platformIndex}`} className='border-t'>
-                            <td className='px-4 py-3'>
-                              <div className='font-medium text-gray-900'>
+                            <td className='whitespace-nowrap px-4 py-3'>
+                              <div className='whitespace-nowrap font-medium text-gray-900'>
                                 {platform.platformName || platform.platformKey}
                               </div>
-                              <div className='mt-1 font-mono text-xs text-gray-400'>
+                              <div className='mt-1 whitespace-nowrap font-mono text-xs text-gray-400'>
                                 {platform.platformKey || "-"}
                               </div>
                             </td>
-                            <td className='px-4 py-3 text-gray-600'>
+                            <td className='whitespace-nowrap px-4 py-3 text-gray-600'>
                               {platform.route || "-"}
                             </td>
-                            <td className='px-4 py-3 text-gray-600'>
+                            <td className='whitespace-nowrap px-4 py-3 text-gray-600'>
                               {platform.provider || "-"}
                             </td>
-                            <td className='px-4 py-3'>
-                              <label className='inline-flex items-center gap-2 text-sm text-gray-700'>
+                            <td className='whitespace-nowrap px-4 py-3 text-gray-600'>
+                              {modelCountByPlatform.get(platform.platformKey || "") || 0}
+                            </td>
+                            <td className='sticky right-[88px] z-10 whitespace-nowrap bg-white px-4 py-3'>
+                              <label className='inline-flex items-center gap-2 whitespace-nowrap text-sm text-gray-700'>
                                 <input
                                   type='checkbox'
                                   checked={platform.enabled !== false}
@@ -3849,23 +4571,23 @@ function ModelManagementTab() {
                                 {platform.enabled !== false ? "启用" : "禁用"}
                               </label>
                             </td>
-                            <td className='px-4 py-3'>
-                              <div className='flex flex-wrap gap-3'>
+                            <td className='sticky right-0 z-10 whitespace-nowrap bg-white px-4 py-3'>
+                              <div className='flex flex-nowrap gap-3 whitespace-nowrap'>
                                 <button
                                   onClick={() => openEditPlatform(platformIndex)}
-                                  className='text-blue-600 hover:text-blue-700'
+                                  className='whitespace-nowrap text-blue-600 hover:text-blue-700'
                                 >
                                   编辑
                                 </button>
                                 <button
                                   onClick={() => copyPlatform(platformIndex)}
-                                  className='text-blue-600 hover:text-blue-700'
+                                  className='whitespace-nowrap text-blue-600 hover:text-blue-700'
                                 >
                                   复制
                                 </button>
                                 <button
                                   onClick={() => removePlatform(platformIndex)}
-                                  className='text-red-600 hover:text-red-700'
+                                  className='whitespace-nowrap text-red-600 hover:text-red-700'
                                 >
                                   删除
                                 </button>
@@ -3944,23 +4666,45 @@ function ModelManagementTab() {
           </div>
 
           <div className='space-y-4'>
-            <div className='rounded-lg border border-blue-100 bg-blue-50 p-4'>
-              <div className='text-sm font-medium text-blue-900'>规则说明</div>
-              <div className='mt-2 space-y-2 text-sm text-blue-900/80'>
-                <p>先在“厂商平台”里维护通用平台模板，再在模型里绑定 vendor。</p>
-                <p>同一 `modelKey` 可以配置多个 `vendors`。</p>
-                <p>`defaultVendor` 指向默认厂商，运行时会选中该项。</p>
-                <p>`enabled: false` 的模型或厂商不会被选中。</p>
-                <p>`route: "legacy"` 保持旧链路，`route: "tencent_vod"` 走腾讯 VOD。</p>
+            <div className='grid gap-3 sm:grid-cols-2'>
+              <div className='rounded-lg border p-4'>
+                <div className='text-xs uppercase tracking-wide text-gray-400'>模型</div>
+                <div className='mt-2 text-2xl font-semibold text-gray-900'>
+                  {(mappingDraft.models || []).length}
+                </div>
+                <div className='mt-1 text-sm text-gray-500'>
+                  已启用 {enabledModelCount} 个
+                </div>
+              </div>
+              <div className='rounded-lg border p-4'>
+                <div className='text-xs uppercase tracking-wide text-gray-400'>平台</div>
+                <div className='mt-2 text-2xl font-semibold text-gray-900'>
+                  {(mappingDraft.platforms || []).length}
+                </div>
+                <div className='mt-1 text-sm text-gray-500'>
+                  已启用 {enabledPlatformCount} 个
+                </div>
               </div>
             </div>
+
+              <div className='rounded-lg border border-blue-100 bg-blue-50 p-4'>
+                <div className='text-sm font-medium text-blue-900'>规则说明</div>
+                <div className='mt-2 space-y-2 text-sm text-blue-900/80'>
+                  <p>先在“厂商平台”里维护通用平台模板，再在模型里绑定 vendor。</p>
+                  <p>同一 `modelKey` 可以配置多个 `vendors`。</p>
+                  <p>`defaultVendor` 指向默认厂商，运行时会选中该项。</p>
+                  <p>`enabled: false` 的模型或厂商不会被选中。</p>
+                  <p>`route: "legacy"` 保持旧链路，`route: "tencent_vod"` 走腾讯 VOD。</p>
+                  <p>画布统一只认 `queued / processing / succeeded / failed` 四种状态；平台模板里的状态映射会先在后端归一化。</p>
+                </div>
+              </div>
 
             <div className='rounded-lg border p-4'>
               <div className='text-sm font-medium text-gray-900'>当前建议</div>
               <div className='mt-2 space-y-2 text-sm text-gray-600'>
-                <p>默认目录先把首批模型占位录齐，便于后续逐个打通。</p>
-                <p>通用厂商信息尽量写到“厂商平台”，模型里只保留模型版本等差异项。</p>
-                <p>`kling-o3` 默认保持 `legacy`，验证稳定后再切 `defaultVendor`。</p>
+                <p>优先在列表里核对 `defaultVendor / route / provider / modelName / modelVersion`。</p>
+                <p>平台层只保留复用字段，模型层只写模型版本和差异化参数。</p>
+                <p>高频操作走 table + 弹窗；批量修正或导入再打开 JSON 高级模式。</p>
                 <p>后续新增模型时沿用相同结构，避免再改接口分发代码。</p>
               </div>
             </div>
@@ -3985,7 +4729,7 @@ function ModelManagementTab() {
               </Button>
             </div>
 
-            <div className='space-y-6 px-6 py-5'>
+            <div className='space-y-5 px-6 py-5'>
               <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-4'>
                 <div>
                   <label className='mb-1 block text-sm text-gray-600'>模型 Key</label>
@@ -4004,12 +4748,70 @@ function ModelManagementTab() {
                   />
                 </div>
                 <div>
-                  <label className='mb-1 block text-sm text-gray-600'>任务类型</label>
-                  <Input
-                    value={editingModelDraft.taskType || ""}
-                    onChange={(e) => updateEditingModelField("taskType", e.target.value)}
-                    placeholder='如：video'
-                  />
+                  <label className='mb-1 block text-sm text-gray-600'>模型类型</label>
+                  <select
+                    value={normalizeManagedModelTaskType(editingModelDraft.taskType)}
+                    onChange={(e) => {
+                      const nextTaskType = e.target.value as ManagedModelTaskType;
+                      updateEditingModelField("taskType", nextTaskType);
+                      updateEditingModelMetadataObject((current) => ({
+                        ...current,
+                        nodeConfig: buildManagedNodeConfig(
+                          {
+                            ...editingModelDraft,
+                            taskType: nextTaskType,
+                            metadata: current,
+                          },
+                          {
+                            ...(current.nodeConfig && typeof current.nodeConfig === "object"
+                              ? (current.nodeConfig as ManagedModelNodeConfig)
+                              : {}),
+                            flowNodeType:
+                              MANAGED_NODE_TEMPLATE_OPTIONS[nextTaskType][0]?.value,
+                          }
+                        ),
+                      }));
+                    }}
+                    className='w-full rounded border px-3 py-2 bg-white'
+                  >
+                    {MANAGED_MODEL_TASK_TYPE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className='mb-1 block text-sm text-gray-600'>节点模板</label>
+                  <select
+                    value={getManagedNodeConfig(editingModelDraft).flowNodeType || ""}
+                    onChange={(e) =>
+                      updateEditingModelMetadataObject((current) => ({
+                        ...current,
+                        nodeConfig: buildManagedNodeConfig(
+                          {
+                            ...editingModelDraft,
+                            metadata: current,
+                          },
+                          {
+                            ...(current.nodeConfig && typeof current.nodeConfig === "object"
+                              ? (current.nodeConfig as ManagedModelNodeConfig)
+                              : {}),
+                            flowNodeType: e.target.value,
+                          }
+                        ),
+                      }))
+                    }
+                    className='w-full rounded border px-3 py-2 bg-white'
+                  >
+                    {MANAGED_NODE_TEMPLATE_OPTIONS[
+                      normalizeManagedModelTaskType(editingModelDraft.taskType)
+                    ].map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className='flex items-end'>
                   <label className='flex items-center gap-2 text-sm text-gray-700'>
@@ -4021,6 +4823,104 @@ function ModelManagementTab() {
                     启用该模型
                   </label>
                 </div>
+              </div>
+
+              <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-4'>
+                <div>
+                  <label className='mb-1 block text-sm text-gray-600'>节点 Key</label>
+                  <Input
+                    value={getManagedNodeConfig(editingModelDraft).nodeKey || ""}
+                    onChange={(e) =>
+                      updateEditingModelMetadataObject((current) => ({
+                        ...current,
+                        nodeConfig: buildManagedNodeConfig(
+                          {
+                            ...editingModelDraft,
+                            metadata: current,
+                          },
+                          {
+                            ...(current.nodeConfig && typeof current.nodeConfig === "object"
+                              ? (current.nodeConfig as ManagedModelNodeConfig)
+                              : {}),
+                            nodeKey: e.target.value,
+                          }
+                        ),
+                      }))
+                    }
+                    placeholder='留空则自动生成 managed_xxx'
+                  />
+                </div>
+                <div>
+                  <label className='mb-1 block text-sm text-gray-600'>画布分组</label>
+                  <Input
+                    value={getManagedNodeConfig(editingModelDraft).category || ""}
+                    readOnly
+                    className='bg-gray-50'
+                  />
+                </div>
+                <div>
+                  <label className='mb-1 block text-sm text-gray-600'>默认排序</label>
+                  <Input
+                    value={
+                      getManagedNodeConfig(editingModelDraft).sortOrder !== undefined
+                        ? String(getManagedNodeConfig(editingModelDraft).sortOrder)
+                        : ""
+                    }
+                    onChange={(e) =>
+                      updateEditingModelMetadataObject((current) => ({
+                        ...current,
+                        nodeConfig: buildManagedNodeConfig(
+                          {
+                            ...editingModelDraft,
+                            metadata: current,
+                          },
+                          {
+                            ...(current.nodeConfig && typeof current.nodeConfig === "object"
+                              ? (current.nodeConfig as ManagedModelNodeConfig)
+                              : {}),
+                            sortOrder: e.target.value ? Number(e.target.value) : undefined,
+                          }
+                        ),
+                      }))
+                    }
+                    placeholder='留空自动排到模型节点区域后部'
+                  />
+                </div>
+                <div>
+                  <label className='mb-1 block text-sm text-gray-600'>节点说明</label>
+                  <Input
+                    value={getManagedNodeConfig(editingModelDraft).description || ""}
+                    onChange={(e) =>
+                      updateEditingModelMetadataObject((current) => ({
+                        ...current,
+                        nodeConfig: buildManagedNodeConfig(
+                          {
+                            ...editingModelDraft,
+                            metadata: current,
+                          },
+                          {
+                            ...(current.nodeConfig && typeof current.nodeConfig === "object"
+                              ? (current.nodeConfig as ManagedModelNodeConfig)
+                              : {}),
+                            description: e.target.value,
+                          }
+                        ),
+                      }))
+                    }
+                    placeholder='画布节点卡片展示说明'
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className='mb-1 block text-sm text-gray-600'>模型 Metadata(JSON)</label>
+                <textarea
+                  value={editingModelMetadataText}
+                  onChange={(e) => setEditingModelMetadataText(e.target.value)}
+                  spellCheck={false}
+                  className='min-h-[120px] w-full rounded border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-xs leading-6 text-gray-800 outline-none focus:border-blue-400 focus:bg-white'
+                  placeholder='{}'
+                />
               </div>
 
               <div className='rounded-lg border bg-gray-50 p-4'>
@@ -4036,8 +4936,20 @@ function ModelManagementTab() {
                   </Button>
                 </div>
 
-                <div className='mt-4 space-y-4'>
-                  {(editingModelDraft.vendors || []).map((vendor, vendorIndex) => (
+                <div className='space-y-3 pt-4'>
+                  {(editingModelDraft.vendors || []).map((vendor, vendorIndex) => {
+                    const boundPlatform = (mappingDraft.platforms || []).find(
+                      (item) => item.platformKey === vendor.platformKey
+                    );
+                    const inheritsPlatform = Boolean(boundPlatform);
+                    const effectiveVendorKey =
+                      (inheritsPlatform ? boundPlatform?.platformKey : vendor.vendorKey) || "";
+                    const effectiveLabel =
+                      (inheritsPlatform ? boundPlatform?.platformName : vendor.label) || "";
+                    const effectiveRoute =
+                      (inheritsPlatform ? boundPlatform?.route : vendor.route) || "legacy";
+
+                    return (
                     <div key={`${vendor.vendorKey || "vendor"}-${vendorIndex}`} className='rounded-lg border bg-white p-4'>
                       <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-4'>
                         <div>
@@ -4053,8 +4965,13 @@ function ModelManagementTab() {
                               if (targetPlatform) {
                                 updateEditingVendorField(
                                   vendorIndex,
+                                  "vendorKey",
+                                  targetPlatform.platformKey || ""
+                                );
+                                updateEditingVendorField(
+                                  vendorIndex,
                                   "label",
-                                  vendor.label || targetPlatform.platformName || ""
+                                  targetPlatform.platformName || ""
                                 );
                                 updateEditingVendorField(
                                   vendorIndex,
@@ -4078,42 +4995,82 @@ function ModelManagementTab() {
                             ))}
                           </select>
                         </div>
+                        {inheritsPlatform ? (
+                          <div className='md:col-span-2 xl:col-span-2'>
+                            <label className='mb-1 block text-sm text-gray-600'>模板继承</label>
+                            <div className='flex h-10 items-center gap-3 overflow-x-auto rounded border bg-gray-50 px-3 text-sm text-gray-700 whitespace-nowrap'>
+                              <span>厂商 Key: {effectiveVendorKey || "-"}</span>
+                              <span>展示名称: {effectiveLabel || "-"}</span>
+                              <span>路由类型: {effectiveRoute}</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div>
+                              <label className='mb-1 block text-sm text-gray-600'>厂商 Key</label>
+                              <Input
+                                value={vendor.vendorKey || ""}
+                                onChange={(e) =>
+                                  updateEditingVendorField(vendorIndex, "vendorKey", e.target.value)
+                                }
+                                placeholder='如：tencent_vod'
+                              />
+                            </div>
+                            <div>
+                              <label className='mb-1 block text-sm text-gray-600'>展示名称</label>
+                              <Input
+                                value={vendor.label || ""}
+                                onChange={(e) =>
+                                  updateEditingVendorField(vendorIndex, "label", e.target.value)
+                                }
+                                placeholder='如：腾讯 VOD'
+                              />
+                            </div>
+                            <div>
+                              <label className='mb-1 block text-sm text-gray-600'>路由类型</label>
+                              <select
+                                value={vendor.route || "legacy"}
+                                onChange={(e) =>
+                                  updateEditingVendorField(
+                                    vendorIndex,
+                                    "route",
+                                    e.target.value as ModelVendorRouteType
+                                  )
+                                }
+                                className='w-full rounded border px-3 py-2 bg-white'
+                              >
+                                <option value='legacy'>legacy</option>
+                                <option value='tencent_vod'>tencent_vod</option>
+                              </select>
+                            </div>
+                          </>
+                        )}
                         <div>
-                          <label className='mb-1 block text-sm text-gray-600'>厂商 Key</label>
-                          <Input
-                            value={vendor.vendorKey || ""}
-                            onChange={(e) =>
-                              updateEditingVendorField(vendorIndex, "vendorKey", e.target.value)
-                            }
-                            placeholder='如：tencent_vod'
-                          />
-                        </div>
-                        <div>
-                          <label className='mb-1 block text-sm text-gray-600'>展示名称</label>
-                          <Input
-                            value={vendor.label || ""}
-                            onChange={(e) =>
-                              updateEditingVendorField(vendorIndex, "label", e.target.value)
-                            }
-                            placeholder='如：腾讯 VOD'
-                          />
-                        </div>
-                        <div>
-                          <label className='mb-1 block text-sm text-gray-600'>路由类型</label>
+                          <label className='mb-1 block text-sm text-gray-600'>执行分支</label>
                           <select
-                            value={vendor.route || "legacy"}
-                            onChange={(e) =>
-                              updateEditingVendorField(
-                                vendorIndex,
-                                "route",
-                                e.target.value as ModelVendorRouteType
-                              )
+                            value={
+                              String(vendor.metadata?.executionBranch || "legacy")
                             }
+                            onChange={(e) => {
+                              const nextBranch = e.target.value;
+                              const templateMetadata = getDefaultVendorMetadataTemplate(
+                                editingModelDraft.modelKey,
+                                vendor.vendorKey
+                              );
+                              updateEditingVendorField(vendorIndex, "metadata", {
+                                ...(vendor.metadata || {}),
+                                ...(nextBranch === "v2_request_profile" ? templateMetadata || {} : {}),
+                                executionBranch: nextBranch,
+                              } as any);
+                            }}
                             className='w-full rounded border px-3 py-2 bg-white'
                           >
                             <option value='legacy'>legacy</option>
-                            <option value='tencent_vod'>tencent_vod</option>
+                            <option value='v2_request_profile'>v2_request_profile</option>
                           </select>
+                          <div className='mt-1 whitespace-nowrap text-xs text-gray-400'>
+                            仅在已配置 `metadata.requestProfile` 时生效
+                          </div>
                         </div>
                         <div className='flex items-end justify-between gap-3'>
                           <label className='flex items-center gap-2 text-sm text-gray-700'>
@@ -4136,7 +5093,7 @@ function ModelManagementTab() {
                         </div>
                       </div>
 
-                      <div className='mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4'>
+                      <div className='grid gap-4 border-t pt-4 md:grid-cols-2 xl:grid-cols-4'>
                         <div>
                           <label className='mb-1 block text-sm text-gray-600'>Provider</label>
                           <Input
@@ -4180,16 +5137,33 @@ function ModelManagementTab() {
                               checked={
                                 (editingModelDraft.defaultVendor || "") === (vendor.vendorKey || "")
                               }
-                              onChange={() =>
-                                updateEditingModelField("defaultVendor", vendor.vendorKey || "")
-                              }
+                              onChange={() => {
+                                updateEditingModelField("defaultVendor", vendor.vendorKey || "");
+                                updateEditingVendorField(vendorIndex, "enabled", true);
+                              }}
                             />
                             设为默认
                           </label>
                         </div>
                       </div>
+
+                      <div className='border-t pt-4'>
+                        <label className='mb-1 block text-sm text-gray-600'>厂商 Metadata(JSON)</label>
+                        <textarea
+                          value={editingVendorMetadataTexts[vendorIndex] ?? "{}"}
+                          onChange={(e) =>
+                            setEditingVendorMetadataTexts((current) => ({
+                              ...current,
+                              [vendorIndex]: e.target.value,
+                            }))
+                          }
+                          spellCheck={false}
+                          className='min-h-[160px] w-full rounded border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-xs leading-6 text-gray-800 outline-none focus:border-blue-400 focus:bg-white'
+                          placeholder='{}'
+                        />
+                      </div>
                     </div>
-                  ))}
+                  )})}
                 </div>
               </div>
             </div>

@@ -49,6 +49,143 @@ export interface ResolvedManagedModelRoute {
   route: ModelVendorRouteType;
 }
 
+const DEFAULT_TENCENT_VOD_PLATFORM_METADATA = {
+  service: 'tencent_vod',
+  endpoint: 'https://vod.tencentcloudapi.com/',
+  upstreamDomain: 'vod.tencentcloudapi.com',
+  apiVersion: '2018-07-17',
+  createTask: {
+    method: 'POST',
+    action: 'CreateAigcVideoTask',
+    url: 'https://vod.tencentcloudapi.com/',
+  },
+  queryTask: {
+    method: 'POST',
+    action: 'DescribeTaskDetail',
+    url: 'https://vod.tencentcloudapi.com/',
+  },
+  polling: {
+    strategy: 'describe_task_detail',
+    successStatuses: ['FINISH', 'SUCCESS', 'SUCCEEDED', 'COMPLETED'],
+    processingStatuses: ['WAITING', 'PROCESSING', 'RUNNING', 'QUEUED', 'PENDING'],
+    failedStatuses: ['FAIL', 'FAILED', 'ERROR', 'CANCELED', 'CANCELLED'],
+  },
+  responseMapping: {
+    taskId: ['Response.TaskId'],
+    status: ['Response.Status', 'Response.TaskStatus'],
+    fileId: ['Response.FileId', 'Response.MediaInfo.FileId'],
+    fileUrl: ['Response.FileUrl', 'Response.MediaUrl', 'Response.PlayUrl'],
+    message: ['Response.Message', 'Response.Error.Message'],
+    requestId: ['Response.RequestId'],
+  },
+} as const;
+
+const DEFAULT_SEEDANCE20_V2_VENDOR_METADATA = {
+  executionBranch: 'v2_request_profile',
+  requestProfile: {
+    enabled: true,
+    version: 'v2',
+    create: {
+      method: 'POST',
+      path: 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks',
+      headers: {
+        Authorization: '{{auth.bearer}}',
+        'Content-Type': 'application/json',
+      },
+      body: {
+        model: 'doubao-seedance-2-0-260128',
+        content: '{{request.content}}',
+      },
+      responseMapping: {
+        taskId: ['id', 'platform_id'],
+        status: ['status'],
+      },
+    },
+    query: {
+      method: 'GET',
+      path: 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/{{task.id}}',
+      headers: {
+        Authorization: '{{auth.bearer}}',
+      },
+      responseMapping: {
+        status: ['status'],
+        videoUrl: ['content.video_url'],
+        error: ['error.message', 'reason'],
+      },
+    },
+  },
+} as const;
+
+const DEFAULT_TENCENT_VOD_VIDU_V2_VENDOR_METADATA = {
+  executionBranch: 'v2_request_profile',
+  requestProfile: {
+    enabled: true,
+    version: 'v2',
+    transport: 'tencent_vod_aigc_video',
+    create: {
+      body: {
+        modelName: '{{vendor.modelName}}',
+        modelVersion: '{{vendor.modelVersion}}',
+        prompt: '{{vod.prompt}}',
+        fileInfos: '{{vod.fileInfos}}',
+        lastFrameUrl: '{{vod.lastFrameUrl}}',
+        aspectRatio: '{{vod.aspectRatio}}',
+        duration: '{{vod.duration}}',
+        resolution: '{{vod.resolution}}',
+        storageMode: '{{vod.storageMode}}',
+        enhancePrompt: '{{vod.enhancePrompt}}',
+      },
+      responseMapping: {
+        taskId: ['taskId'],
+        requestId: ['requestId'],
+      },
+    },
+    query: {
+      responseMapping: {
+        status: ['status'],
+        videoUrl: ['videoUrl'],
+        fileId: ['fileId'],
+        requestId: ['requestId'],
+      },
+    },
+  },
+} as const;
+
+const DEFAULT_TENCENT_VOD_SEEDANCE15_V2_VENDOR_METADATA = {
+  executionBranch: 'v2_request_profile',
+  requestProfile: {
+    enabled: true,
+    version: 'v2',
+    transport: 'tencent_vod_aigc_video',
+    create: {
+      body: {
+        modelName: '{{vendor.modelName}}',
+        modelVersion: '{{vendor.modelVersion}}',
+        prompt: '{{vod.prompt}}',
+        fileInfos: '{{vod.fileInfos}}',
+        aspectRatio: '{{vod.aspectRatio}}',
+        duration: '{{vod.duration}}',
+        resolution: '{{vod.resolution}}',
+        audioGeneration: '{{vod.audioGeneration}}',
+        storageMode: '{{vod.storageMode}}',
+        enhancePrompt: '{{vod.enhancePrompt}}',
+      },
+      responseMapping: {
+        taskId: ['taskId'],
+        requestId: ['requestId'],
+      },
+    },
+    query: {
+      responseMapping: {
+        status: ['status'],
+        videoUrl: ['videoUrl'],
+        fileId: ['fileId'],
+        requestId: ['requestId'],
+      },
+    },
+  },
+} as const;
+
 const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
   version: 'v2',
   platforms: [
@@ -65,6 +202,7 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
       enabled: true,
       route: 'tencent_vod',
       description: '腾讯云 VOD AIGC 视频生成',
+      metadata: DEFAULT_TENCENT_VOD_PLATFORM_METADATA,
     },
     {
       platformKey: 'vidu_api',
@@ -205,6 +343,7 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
           provider: 'vidu',
           modelName: 'Vidu',
           modelVersion: 'q2',
+          metadata: DEFAULT_TENCENT_VOD_VIDU_V2_VENDOR_METADATA,
         },
       ],
     },
@@ -272,6 +411,7 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
           provider: 'vidu',
           modelName: 'Vidu',
           modelVersion: 'q3',
+          metadata: DEFAULT_TENCENT_VOD_VIDU_V2_VENDOR_METADATA,
         },
       ],
     },
@@ -349,6 +489,7 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
           provider: 'doubao',
           modelName: 'Seedance',
           modelVersion: '1.5-pro',
+          metadata: DEFAULT_TENCENT_VOD_SEEDANCE15_V2_VENDOR_METADATA,
         },
       ],
     },
@@ -368,6 +509,7 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
           provider: 'doubao',
           modelName: 'Seedance',
           modelVersion: '2.0',
+          metadata: DEFAULT_SEEDANCE20_V2_VENDOR_METADATA,
         },
       ],
     },
@@ -384,6 +526,33 @@ export class ModelRoutingService {
     return JSON.parse(JSON.stringify(DEFAULT_MODEL_PROVIDER_MAPPING_V2));
   }
 
+  private ensureModelDefaultVendor(model: ManagedModelConfig): ManagedModelConfig {
+    const vendors = Array.isArray(model.vendors) ? model.vendors.filter(Boolean) : [];
+    if (!vendors.length) {
+      return model;
+    }
+
+    const existingDefaultVendor =
+      typeof model.defaultVendor === 'string' ? model.defaultVendor.trim() : '';
+    const resolvedDefaultVendor =
+      (existingDefaultVendor && vendors.some((vendor) => vendor.vendorKey === existingDefaultVendor)
+        ? existingDefaultVendor
+        : '') ||
+      vendors.find((vendor) => vendor.enabled !== false)?.vendorKey ||
+      vendors[0]?.vendorKey ||
+      '';
+
+    return {
+      ...model,
+      defaultVendor: resolvedDefaultVendor,
+      vendors: vendors.map((vendor) => ({
+        ...vendor,
+        enabled:
+          vendor.vendorKey === resolvedDefaultVendor ? true : vendor.enabled !== false,
+      })),
+    };
+  }
+
   private mergeWithDefaultConfig(input: ModelProviderMappingV2): ModelProviderMappingV2 {
     const fallback = this.getDefaultConfig();
     const existingPlatforms = Array.isArray(input.platforms) ? input.platforms.filter(Boolean) : [];
@@ -391,7 +560,20 @@ export class ModelRoutingService {
       existingPlatforms.map((item) => (typeof item?.platformKey === 'string' ? item.platformKey : '')).filter(Boolean),
     );
     const mergedPlatforms = [
-      ...existingPlatforms,
+      ...existingPlatforms.map((platform) => {
+        const fallbackPlatform =
+          (fallback.platforms || []).find((item) => item.platformKey === platform.platformKey) || null;
+        return {
+          ...fallbackPlatform,
+          ...platform,
+          metadata: {
+            ...(fallbackPlatform?.metadata && typeof fallbackPlatform.metadata === 'object'
+              ? fallbackPlatform.metadata
+              : {}),
+            ...(platform.metadata && typeof platform.metadata === 'object' ? platform.metadata : {}),
+          },
+        };
+      }),
       ...(fallback.platforms || []).filter(
         (item) => item && typeof item.platformKey === 'string' && !existingPlatformKeys.has(item.platformKey),
       ),
@@ -417,7 +599,179 @@ export class ModelRoutingService {
 
   private normalizeSpecialCases(input: ModelProviderMappingV2): ModelProviderMappingV2 {
     const models = (Array.isArray(input.models) ? input.models : []).map((model) => {
-      if (!model || model.modelKey !== 'seedance-2.0') {
+      if (!model) {
+        return model;
+      }
+
+      if (model.modelKey === 'vidu-q2' || model.modelKey === 'vidu-q3') {
+        const isQ3 = model.modelKey === 'vidu-q3';
+        const existingVendors = Array.isArray(model.vendors) ? model.vendors.filter(Boolean) : [];
+        const legacyVendor =
+          existingVendors.find((vendor) => vendor.vendorKey === 'vidu_api') || {
+            vendorKey: 'vidu_api',
+            platformKey: 'vidu_api',
+            label: 'Vidu API',
+            enabled: true,
+            route: 'legacy' as const,
+            provider: isQ3 ? 'viduq3-pro' : 'vidu',
+            modelName: 'Vidu',
+            modelVersion: isQ3 ? 'Q3' : 'Q2',
+          };
+        const tencentVodVendor =
+          existingVendors.find((vendor) => vendor.vendorKey === 'tencent_vod') || {
+            vendorKey: 'tencent_vod',
+            platformKey: 'tencent_vod',
+            label: '腾讯 VOD',
+            enabled: false,
+            route: 'tencent_vod' as const,
+            provider: 'vidu',
+            modelName: 'Vidu',
+            modelVersion: isQ3 ? 'q3' : 'q2',
+          };
+
+        const normalizedLegacyVendor: ManagedModelVendorConfig = {
+          ...legacyVendor,
+          platformKey: 'vidu_api',
+          label: legacyVendor.label || 'Vidu API',
+          enabled: legacyVendor.enabled !== false,
+          route: 'legacy',
+          provider: legacyVendor.provider || (isQ3 ? 'viduq3-pro' : 'vidu'),
+          modelName: legacyVendor.modelName || 'Vidu',
+          modelVersion: legacyVendor.modelVersion || (isQ3 ? 'Q3' : 'Q2'),
+        };
+        const normalizedTencentVodVendor: ManagedModelVendorConfig = {
+          ...tencentVodVendor,
+          platformKey: 'tencent_vod',
+          label: tencentVodVendor.label || '腾讯 VOD',
+          enabled: tencentVodVendor.enabled === true,
+          route: 'tencent_vod',
+          provider: tencentVodVendor.provider || 'vidu',
+          modelName: tencentVodVendor.modelName || 'Vidu',
+          modelVersion: tencentVodVendor.modelVersion || (isQ3 ? 'q3' : 'q2'),
+          metadata:
+            tencentVodVendor.metadata && typeof tencentVodVendor.metadata === 'object'
+              ? tencentVodVendor.metadata
+              : DEFAULT_TENCENT_VOD_VIDU_V2_VENDOR_METADATA,
+        };
+
+        return this.ensureModelDefaultVendor({
+          ...model,
+          defaultVendor: model.defaultVendor || 'vidu_api',
+          vendors: [normalizedLegacyVendor, normalizedTencentVodVendor],
+        });
+      }
+
+      if (model.modelKey === 'sora-2') {
+        const existingVendors = Array.isArray(model.vendors) ? model.vendors.filter(Boolean) : [];
+        const soraApiVendor =
+          existingVendors.find((vendor) => vendor.vendorKey === 'sora2_api') || {
+            vendorKey: 'sora2_api',
+            platformKey: 'sora2_api',
+            label: 'Sora 2 API',
+            enabled: true,
+            route: 'legacy' as const,
+            provider: 'sora2',
+            modelName: 'Sora',
+            modelVersion: '2.0',
+          };
+        const tencentVodVendor =
+          existingVendors.find((vendor) => vendor.vendorKey === 'tencent_vod') || {
+            vendorKey: 'tencent_vod',
+            platformKey: 'tencent_vod',
+            label: '腾讯 VOD',
+            enabled: false,
+            route: 'tencent_vod' as const,
+            provider: 'sora2',
+            modelName: 'OS',
+            modelVersion: '2.0',
+          };
+
+        const normalizedSoraApiVendor: ManagedModelVendorConfig = {
+          ...soraApiVendor,
+          platformKey: 'sora2_api',
+          label: soraApiVendor.label || 'Sora 2 API',
+          enabled: soraApiVendor.enabled !== false,
+          route: 'legacy',
+          provider: soraApiVendor.provider || 'sora2',
+          modelName: soraApiVendor.modelName || 'Sora',
+          modelVersion: soraApiVendor.modelVersion || '2.0',
+        };
+        const normalizedTencentVodVendor: ManagedModelVendorConfig = {
+          ...tencentVodVendor,
+          platformKey: 'tencent_vod',
+          label: tencentVodVendor.label || '腾讯 VOD',
+          enabled: tencentVodVendor.enabled === true,
+          route: 'tencent_vod',
+          provider: tencentVodVendor.provider || 'sora2',
+          modelName: tencentVodVendor.modelName || 'OS',
+          modelVersion: tencentVodVendor.modelVersion || '2.0',
+        };
+
+        return this.ensureModelDefaultVendor({
+          ...model,
+          defaultVendor: model.defaultVendor || 'sora2_api',
+          vendors: [normalizedSoraApiVendor, normalizedTencentVodVendor],
+        });
+      }
+
+      if (model.modelKey === 'seedance-1.5') {
+        const existingVendors = Array.isArray(model.vendors) ? model.vendors.filter(Boolean) : [];
+        const seedanceVendor =
+          existingVendors.find((vendor) => vendor.vendorKey === 'seedance_api') || {
+            vendorKey: 'seedance_api',
+            platformKey: 'seedance_api',
+            label: 'Seedance API',
+            enabled: true,
+            route: 'legacy' as const,
+            provider: 'doubao',
+            modelName: 'Seedance',
+            modelVersion: '1.5-pro',
+          };
+        const tencentVodVendor =
+          existingVendors.find((vendor) => vendor.vendorKey === 'tencent_vod') || {
+            vendorKey: 'tencent_vod',
+            platformKey: 'tencent_vod',
+            label: '腾讯 VOD',
+            enabled: false,
+            route: 'tencent_vod' as const,
+            provider: 'doubao',
+            modelName: 'Seedance',
+            modelVersion: '1.5-pro',
+          };
+
+        const normalizedSeedanceVendor: ManagedModelVendorConfig = {
+          ...seedanceVendor,
+          platformKey: 'seedance_api',
+          label: seedanceVendor.label || 'Seedance API',
+          enabled: seedanceVendor.enabled !== false,
+          route: 'legacy',
+          provider: seedanceVendor.provider || 'doubao',
+          modelName: seedanceVendor.modelName || 'Seedance',
+          modelVersion: seedanceVendor.modelVersion || '1.5-pro',
+        };
+        const normalizedTencentVodVendor: ManagedModelVendorConfig = {
+          ...tencentVodVendor,
+          platformKey: 'tencent_vod',
+          label: tencentVodVendor.label || '腾讯 VOD',
+          enabled: tencentVodVendor.enabled === true,
+          route: 'tencent_vod',
+          provider: tencentVodVendor.provider || 'doubao',
+          modelName: tencentVodVendor.modelName || 'Seedance',
+          modelVersion: tencentVodVendor.modelVersion || '1.5-pro',
+          metadata:
+            tencentVodVendor.metadata && typeof tencentVodVendor.metadata === 'object'
+              ? tencentVodVendor.metadata
+              : DEFAULT_TENCENT_VOD_SEEDANCE15_V2_VENDOR_METADATA,
+        };
+
+        return this.ensureModelDefaultVendor({
+          ...model,
+          defaultVendor: model.defaultVendor || 'seedance_api',
+          vendors: [normalizedSeedanceVendor, normalizedTencentVodVendor],
+        });
+      }
+
+      if (model.modelKey !== 'seedance-2.0') {
         return model;
       }
 
@@ -434,27 +788,31 @@ export class ModelRoutingService {
           modelVersion: '2.0',
         };
 
-      return {
+      const normalizedVendor: ManagedModelVendorConfig = {
+        ...seedanceVendor,
+        platformKey: 'seedance_api',
+        label: seedanceVendor.label || 'Seedance API',
+        enabled: seedanceVendor.enabled !== false,
+        route: 'legacy',
+        provider: 'doubao',
+        modelName: seedanceVendor.modelName || 'Seedance',
+        modelVersion: '2.0',
+        metadata:
+          seedanceVendor.metadata && typeof seedanceVendor.metadata === 'object'
+            ? seedanceVendor.metadata
+            : DEFAULT_SEEDANCE20_V2_VENDOR_METADATA,
+      };
+
+      return this.ensureModelDefaultVendor({
         ...model,
         defaultVendor: 'seedance_api',
-        vendors: [
-          {
-            ...seedanceVendor,
-            platformKey: 'seedance_api',
-            label: seedanceVendor.label || 'Seedance API',
-            enabled: seedanceVendor.enabled !== false,
-            route: 'legacy',
-            provider: 'doubao',
-            modelName: seedanceVendor.modelName || 'Seedance',
-            modelVersion: '2.0',
-          },
-        ],
-      };
+        vendors: [normalizedVendor],
+      });
     });
 
     return {
       ...input,
-      models,
+      models: models.map((model) => (model ? this.ensureModelDefaultVendor(model) : model)),
     };
   }
 
@@ -490,6 +848,12 @@ export class ModelRoutingService {
 
     const config = await this.getParsedConfig();
     const models = Array.isArray(config.models) ? config.models : [];
+    const platforms = Array.isArray(config.platforms) ? config.platforms.filter(Boolean) : [];
+    const platformMap = new Map(
+      platforms
+        .filter((item) => typeof item.platformKey === 'string' && item.platformKey.trim())
+        .map((item) => [item.platformKey.trim(), item] as const),
+    );
     const model = models.find(
       (item) =>
         item &&
@@ -510,11 +874,26 @@ export class ModelRoutingService {
           item.vendorKey.trim() === (model.defaultVendor || '').trim(),
       ) || enabledVendors[0];
 
-    const route = selected.route === 'tencent_vod' ? 'tencent_vod' : 'legacy';
+    const platform =
+      selected.platformKey && platformMap.has(selected.platformKey)
+        ? platformMap.get(selected.platformKey)
+        : null;
+    const mergedVendor: ManagedModelVendorConfig = {
+      ...selected,
+      label: selected.label || platform?.platformName || selected.vendorKey,
+      route: selected.route || platform?.route || 'legacy',
+      provider: selected.provider || platform?.provider || '',
+      metadata: {
+        ...(platform?.metadata && typeof platform.metadata === 'object' ? platform.metadata : {}),
+        ...(selected.metadata && typeof selected.metadata === 'object' ? selected.metadata : {}),
+      },
+    };
+
+    const route = mergedVendor.route === 'tencent_vod' ? 'tencent_vod' : 'legacy';
 
     return {
       model,
-      vendor: selected,
+      vendor: mergedVendor,
       route,
     };
   }
