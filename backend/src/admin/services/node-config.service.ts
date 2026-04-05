@@ -599,11 +599,11 @@ export class NodeConfigService {
           ...buildVodNodeMetadata(
             {
               type: 'klingVideo',
-              provider: 'kling',
+              provider: 'kling-o3',
               modelKeys: ['kling-3.0'],
               supportedModels: ['kling-v3-0'],
               defaultData: {
-                provider: 'kling',
+                provider: 'kling-o3',
                 klingModel: 'kling-v3-0',
                 mode: 'std',
                 sound: true,
@@ -1168,11 +1168,11 @@ export class NodeConfigService {
         description: '可灵Kling 3.0视频生成，走腾讯 VOD/旧链路模型管理',
         metadata: {
           type: 'klingVideo',
-          provider: 'kling',
+          provider: 'kling-o3',
           modelKeys: ['kling-3.0'],
           supportedModels: ['kling-v3-0'],
           defaultData: {
-            provider: 'kling',
+            provider: 'kling-o3',
             klingModel: 'kling-v3-0',
             mode: 'std',
             sound: true,

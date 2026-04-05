@@ -12,7 +12,7 @@ function Kling30VideoNode({ id, data, selected }: Props) {
       id={id}
       data={{
         ...data,
-        provider: "kling" as VideoProvider,
+        provider: "kling-o3" as VideoProvider,
         klingModel: data?.klingModel || "kling-v3-0",
       }}
       selected={selected}

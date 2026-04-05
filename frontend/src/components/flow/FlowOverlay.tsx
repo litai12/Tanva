@@ -6524,6 +6524,8 @@ function FlowInner() {
                   ? "viduq3-pro"
                   : type === "doubaoVideo"
                   ? "doubao"
+                  : type === "kling30Video"
+                  ? "kling-o3"
                   : "kling",
               klingModel:
                 type === "kling30Video" ? ("kling-v3-0" as const) : ("kling-v2-6" as const),
@@ -11204,7 +11206,7 @@ function FlowInner() {
         if (node.type === "klingO1Video") {
           provider = "kling-o3";
         } else if (node.type === "kling30Video") {
-          provider = "kling";
+          provider = "kling-o3";
         } else if (node.type === "klingVideo" || node.type === "kling26Video") {
           provider = "kling-2.6";
         } else if (node.type === "viduQ3") {
