@@ -1,6 +1,7 @@
 import React from "react";
 import { Button } from "../ui/button";
 import SmartImage from "../ui/SmartImage";
+import ImagePreviewModal from "../ui/ImagePreviewModal";
 import {
   ChevronLeft,
   ChevronRight,
@@ -14,6 +15,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { useUIStore } from "@/stores/uiStore";
+import { useProjectStore } from "@/stores/projectStore";
 import { imageUploadService } from "@/services/imageUploadService";
 import {
   model3DUploadService,
@@ -69,7 +71,7 @@ const SOURCE_TYPE_LABELS: Record<string, { zh: string; en: string }> = {
   imagePro: { zh: "图片Pro", en: "Image Pro" },
 };
 
-type LibraryTab = "global-history" | "manual";
+type LibraryTab = "global-history" | "project-history" | "manual";
 const HISTORY_PAGE_SIZE = 20;
 
 type HistoryPageSlot = number | "ellipsis-left" | "ellipsis-right";
@@ -135,13 +137,20 @@ const LibraryPanel: React.FC = () => {
   const { lt, isZh } = useLocaleText();
   const locale = isZh ? "zh-CN" : "en-US";
   const { showLibraryPanel, setShowLibraryPanel } = useUIStore();
+  const currentProjectId = useProjectStore((state) => state.currentProjectId);
   const [activeTab, setActiveTab] = React.useState<LibraryTab>("manual");
   const [isUploading, setUploading] = React.useState(false);
   const [isLibraryDragHovering, setLibraryDragHovering] = React.useState(false);
   const [selectedAsset, setSelectedAsset] =
     React.useState<PersonalLibraryAsset | null>(null);
+  const [selectedHistoryItem, setSelectedHistoryItem] =
+    React.useState<GlobalImageHistoryItem | null>(null);
   const [detailPosition, setDetailPosition] = React.useState<{
     top: number;
+  } | null>(null);
+  const [previewState, setPreviewState] = React.useState<{
+    src: string;
+    title: string;
   } | null>(null);
   const addAsset = usePersonalLibraryStore((state) => state.addAsset);
   const removeAsset = usePersonalLibraryStore((state) => state.removeAsset);
@@ -159,6 +168,20 @@ const LibraryPanel: React.FC = () => {
   const [historyPage, setHistoryPage] = React.useState(1);
   const [historyTotalPages, setHistoryTotalPages] = React.useState(1);
   const [historyTotalCount, setHistoryTotalCount] = React.useState(0);
+  const [projectHistoryItems, setProjectHistoryItems] = React.useState<
+    GlobalImageHistoryItem[]
+  >([]);
+  const [projectHistoryIsLoading, setProjectHistoryIsLoading] =
+    React.useState(false);
+  const [projectHistoryFilterType, setProjectHistoryFilterType] =
+    React.useState("");
+  const [projectHistorySearchQuery, setProjectHistorySearchQuery] =
+    React.useState("");
+  const [projectHistoryPage, setProjectHistoryPage] = React.useState(1);
+  const [projectHistoryTotalPages, setProjectHistoryTotalPages] =
+    React.useState(1);
+  const [projectHistoryTotalCount, setProjectHistoryTotalCount] =
+    React.useState(0);
 
   const historyQueryOptions = React.useMemo(
     () => ({
@@ -171,6 +194,17 @@ const LibraryPanel: React.FC = () => {
   const historyPageSlots = React.useMemo(
     () => buildHistoryPageSlots(historyPage, historyTotalPages),
     [historyPage, historyTotalPages]
+  );
+  const projectHistoryQueryOptions = React.useMemo(
+    () => ({
+      sourceType: projectHistoryFilterType.trim() || undefined,
+      search: projectHistorySearchQuery.trim() || undefined,
+    }),
+    [projectHistoryFilterType, projectHistorySearchQuery]
+  );
+  const projectHistoryPageSlots = React.useMemo(
+    () => buildHistoryPageSlots(projectHistoryPage, projectHistoryTotalPages),
+    [projectHistoryPage, projectHistoryTotalPages]
   );
 
   const getSourceTypeLabel = React.useCallback(
@@ -233,10 +267,13 @@ const LibraryPanel: React.FC = () => {
   }, [showLibraryPanel, isLibraryDragHovering]);
 
   React.useEffect(() => {
-    if (activeTab !== "manual" && selectedAsset) {
-      setSelectedAsset(null);
+    if (activeTab === "manual") {
+      setSelectedHistoryItem(null);
+      return;
     }
-  }, [activeTab, selectedAsset]);
+    setSelectedAsset(null);
+    setSelectedHistoryItem(null);
+  }, [activeTab]);
 
   const triggerUpload = () => fileInputRef.current?.click();
 
@@ -539,6 +576,93 @@ const LibraryPanel: React.FC = () => {
     }
   };
 
+  const handleHistoryDownload = (item: GlobalImageHistoryItem) => {
+    try {
+      const link = document.createElement("a");
+      link.href = item.imageUrl;
+      link.download = `history_${item.id}.png`;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch {
+      window.open(item.imageUrl, "_blank", "noopener,noreferrer");
+    }
+  };
+
+  const handleRemoveHistoryItem = async (item: GlobalImageHistoryItem) => {
+    if (
+      !confirm(
+        lt(
+          `确定要删除这张历史图片吗？`,
+          `Delete this history image?`
+        )
+      )
+    ) {
+      return;
+    }
+
+    try {
+      await globalImageHistoryApi.delete(item.id);
+      if (activeTab === "project-history") {
+        const result = await globalImageHistoryApi.list({
+          limit: HISTORY_PAGE_SIZE,
+          page: projectHistoryPage,
+          sourceType: projectHistoryQueryOptions.sourceType,
+          search: projectHistoryQueryOptions.search,
+          sourceProjectId: currentProjectId || undefined,
+        });
+        setProjectHistoryItems(Array.isArray(result.items) ? result.items : []);
+        setProjectHistoryTotalCount(result.totalCount ?? result.items.length);
+        setProjectHistoryTotalPages(Math.max(1, result.totalPages ?? 1));
+        if (
+          typeof result.page === "number" &&
+          Number.isFinite(result.page) &&
+          result.page !== projectHistoryPage
+        ) {
+          setProjectHistoryPage(Math.max(1, Math.trunc(result.page)));
+        }
+      } else {
+        const result = await globalImageHistoryApi.list({
+          limit: HISTORY_PAGE_SIZE,
+          page: historyPage,
+          sourceType: historyQueryOptions.sourceType,
+          search: historyQueryOptions.search,
+        });
+        setHistoryItems(Array.isArray(result.items) ? result.items : []);
+        setHistoryTotalCount(result.totalCount ?? result.items.length);
+        setHistoryTotalPages(Math.max(1, result.totalPages ?? 1));
+        if (
+          typeof result.page === "number" &&
+          Number.isFinite(result.page) &&
+          result.page !== historyPage
+        ) {
+          setHistoryPage(Math.max(1, Math.trunc(result.page)));
+        }
+      }
+      setSelectedHistoryItem(null);
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: {
+            message: lt("历史图片已删除", "History image deleted"),
+            type: "success",
+          },
+        })
+      );
+    } catch (error) {
+      console.warn("[LibraryPanel] 删除历史图片失败:", error);
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: {
+            message: lt("删除失败，请稍后重试", "Delete failed. Please try again."),
+            type: "error",
+          },
+        })
+      );
+    }
+  };
+
   const handleHistorySendToCanvas = async (item: GlobalImageHistoryItem) => {
     if (!item.imageUrl) {
       alert(lt("历史图片缺少可用链接，无法发送到画板", "History image has no usable URL and cannot be sent to canvas."));
@@ -574,6 +698,67 @@ const LibraryPanel: React.FC = () => {
   const handleClose = () => {
     setShowLibraryPanel(false);
     setSelectedAsset(null);
+    setSelectedHistoryItem(null);
+    setPreviewState(null);
+  };
+
+  const openImagePreview = React.useCallback(
+    (src: string | undefined | null, title: string) => {
+      const normalized = typeof src === "string" ? src.trim() : "";
+      if (!normalized) {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: {
+              message: lt("当前素材暂无可预览内容", "No preview available for this asset"),
+              type: "warning",
+            },
+          })
+        );
+        return;
+      }
+      setPreviewState({ src: normalized, title });
+    },
+    [lt]
+  );
+
+  const getAssetPreviewSrc = React.useCallback((asset: PersonalLibraryAsset) => {
+    if (asset.type === "2d" || asset.type === "svg") {
+      return asset.thumbnail || asset.url;
+    }
+    return (asset as PersonalModelAsset).thumbnail || "";
+  }, []);
+
+  const handleAssetDoubleClick = React.useCallback(
+    (asset: PersonalLibraryAsset) => {
+      openImagePreview(
+        getAssetPreviewSrc(asset),
+        asset.name || lt("素材预览", "Asset Preview")
+      );
+    },
+    [getAssetPreviewSrc, lt, openImagePreview]
+  );
+
+  const handleHistoryItemDoubleClick = React.useCallback(
+    (item: GlobalImageHistoryItem) => {
+      openImagePreview(
+        item.imageUrl,
+        item.prompt ||
+          (activeTab === "project-history"
+            ? lt("项目图片预览", "Project Image Preview")
+            : lt("历史图片预览", "History Image Preview"))
+      );
+    },
+    [activeTab, lt, openImagePreview]
+  );
+
+  const handleHistoryItemClick = (
+    item: GlobalImageHistoryItem,
+    event: React.MouseEvent
+  ) => {
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    setDetailPosition({ top: rect.top });
+    setSelectedHistoryItem(item);
+    setSelectedAsset(null);
   };
 
   const handleAssetClick = (
@@ -584,6 +769,7 @@ const LibraryPanel: React.FC = () => {
     // 计算详情面板的位置，使其与点击的缩略图对齐
     setDetailPosition({ top: rect.top });
     setSelectedAsset(asset);
+    setSelectedHistoryItem(null);
   };
 
   // 拖拽开始处理
@@ -774,20 +960,21 @@ const LibraryPanel: React.FC = () => {
       ) {
         // 检查是否点击的是缩略图
         const target = event.target as HTMLElement;
-        if (!target.closest("[data-asset-thumbnail]")) {
+        if (!target.closest("[data-library-thumbnail]")) {
           setSelectedAsset(null);
+          setSelectedHistoryItem(null);
         }
       }
     };
 
-    if (selectedAsset) {
+    if (selectedAsset || selectedHistoryItem) {
       document.addEventListener("mousedown", handleClickOutside);
     }
 
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [selectedAsset]);
+  }, [selectedAsset, selectedHistoryItem]);
 
   // 打开面板时从后端拉取个人库，避免仅依赖 localStorage
   React.useEffect(() => {
@@ -814,6 +1001,9 @@ const LibraryPanel: React.FC = () => {
   React.useEffect(() => {
     setHistoryPage(1);
   }, [historyQueryOptions.search, historyQueryOptions.sourceType]);
+  React.useEffect(() => {
+    setProjectHistoryPage(1);
+  }, [projectHistoryQueryOptions.search, projectHistoryQueryOptions.sourceType]);
 
   React.useEffect(() => {
     if (!showLibraryPanel || activeTab !== "global-history") return;
@@ -866,6 +1056,101 @@ const LibraryPanel: React.FC = () => {
     historyQueryOptions.search,
     historyQueryOptions.sourceType,
   ]);
+
+  React.useEffect(() => {
+    if (!showLibraryPanel || activeTab !== "project-history") return;
+    if (!currentProjectId) {
+      setProjectHistoryItems([]);
+      setProjectHistoryTotalCount(0);
+      setProjectHistoryTotalPages(1);
+      setProjectHistoryIsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      setProjectHistoryIsLoading(true);
+      void globalImageHistoryApi
+        .list({
+          limit: HISTORY_PAGE_SIZE,
+          page: projectHistoryPage,
+          sourceType: projectHistoryQueryOptions.sourceType,
+          search: projectHistoryQueryOptions.search,
+          sourceProjectId: currentProjectId,
+        })
+        .then((result) => {
+          if (cancelled) return;
+          setProjectHistoryItems(Array.isArray(result.items) ? result.items : []);
+          setProjectHistoryTotalCount(result.totalCount ?? result.items.length);
+          setProjectHistoryTotalPages(Math.max(1, result.totalPages ?? 1));
+          if (
+            typeof result.page === "number" &&
+            Number.isFinite(result.page) &&
+            result.page !== projectHistoryPage
+          ) {
+            setProjectHistoryPage(Math.max(1, Math.trunc(result.page)));
+          }
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            console.warn("[LibraryPanel] 拉取项目库失败:", error);
+            setProjectHistoryItems([]);
+            setProjectHistoryTotalPages(1);
+            setProjectHistoryTotalCount(0);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setProjectHistoryIsLoading(false);
+          }
+        });
+    }, 220);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [
+    showLibraryPanel,
+    activeTab,
+    currentProjectId,
+    projectHistoryPage,
+    projectHistoryQueryOptions.search,
+    projectHistoryQueryOptions.sourceType,
+  ]);
+
+  React.useEffect(() => {
+    if (!selectedHistoryItem) return;
+    const sourceItems =
+      activeTab === "project-history" ? projectHistoryItems : historyItems;
+    if (!sourceItems.some((item) => item.id === selectedHistoryItem.id)) {
+      setSelectedHistoryItem(null);
+    }
+  }, [activeTab, historyItems, projectHistoryItems, selectedHistoryItem]);
+
+  const isProjectHistoryTab = activeTab === "project-history";
+  const activeHistoryItems = isProjectHistoryTab
+    ? projectHistoryItems
+    : historyItems;
+  const activeHistoryIsLoading = isProjectHistoryTab
+    ? projectHistoryIsLoading
+    : historyIsLoading;
+  const activeHistoryFilterType = isProjectHistoryTab
+    ? projectHistoryFilterType
+    : historyFilterType;
+  const activeHistorySearchQuery = isProjectHistoryTab
+    ? projectHistorySearchQuery
+    : historySearchQuery;
+  const activeHistoryPage = isProjectHistoryTab ? projectHistoryPage : historyPage;
+  const activeHistoryTotalPages = isProjectHistoryTab
+    ? projectHistoryTotalPages
+    : historyTotalPages;
+  const activeHistoryTotalCount = isProjectHistoryTab
+    ? projectHistoryTotalCount
+    : historyTotalCount;
+  const activeHistoryPageSlots = isProjectHistoryTab
+    ? projectHistoryPageSlots
+    : historyPageSlots;
 
   // 面板关闭时隐藏
   if (!showLibraryPanel) return null;
@@ -998,6 +1283,112 @@ const LibraryPanel: React.FC = () => {
           </div>
         </div>
       )}
+      {(activeTab === "global-history" || activeTab === "project-history") &&
+        selectedHistoryItem && (
+        <div
+          ref={detailPanelRef}
+          className='fixed right-[336px] w-56 bg-white rounded-xl shadow-xl border border-gray-200 z-[1001] overflow-hidden'
+          style={{
+            top: detailPosition?.top ?? 100,
+            maxHeight: "calc(100vh - 100px)",
+          }}
+        >
+          <div className='w-full aspect-square bg-gray-100 flex items-center justify-center overflow-hidden'>
+            <SmartImage
+              src={selectedHistoryItem.imageUrl}
+              alt={
+                selectedHistoryItem.prompt ||
+                (activeTab === "project-history"
+                  ? lt("项目图片", "Project Image")
+                  : lt("历史图片", "History Image"))
+              }
+              className='w-full h-full object-contain'
+            />
+          </div>
+
+          <div className='p-3 space-y-2'>
+            <div className='flex items-center gap-2'>
+              <span className='inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700'>
+                <ImageIcon className='w-3 h-3' />
+                IMG
+              </span>
+            </div>
+
+            <div>
+              <div
+                className='text-sm font-medium text-gray-900 truncate'
+                title={
+                  selectedHistoryItem.prompt ||
+                  (activeTab === "project-history"
+                    ? lt("项目图片", "Project Image")
+                    : lt("历史图片", "History Image"))
+                }
+              >
+                {selectedHistoryItem.prompt ||
+                  (activeTab === "project-history"
+                    ? lt("项目图片", "Project Image")
+                    : lt("历史图片", "History Image"))}
+              </div>
+            </div>
+
+            <div>
+              <div className='text-xs text-gray-500'>{lt("类型", "Type")}</div>
+              <div className='text-sm text-gray-700'>
+                {getSourceTypeLabel(selectedHistoryItem.sourceType)}
+              </div>
+            </div>
+
+            <div>
+              <div className='text-xs text-gray-500'>
+                {lt("来源项目", "Source Project")}
+              </div>
+              <div
+                className='text-sm text-gray-700 truncate'
+                title={selectedHistoryItem.sourceProjectName || "-"}
+              >
+                {selectedHistoryItem.sourceProjectName || "-"}
+              </div>
+            </div>
+
+            <div>
+              <div className='text-xs text-gray-500'>{lt("创建时间", "Created")}</div>
+              <div className='text-sm text-gray-700'>
+                {formatDate(new Date(selectedHistoryItem.createdAt).getTime())}
+              </div>
+            </div>
+          </div>
+
+          <div className='p-3 pt-0 flex justify-center gap-2'>
+            <Button
+              variant='outline'
+              size='sm'
+              className='h-8 w-8 p-0'
+              onClick={() => void handleHistorySendToCanvas(selectedHistoryItem)}
+              title={lt("发送到画板", "Send to canvas")}
+            >
+              <Send className='h-3 w-3' />
+            </Button>
+            <Button
+              variant='outline'
+              size='sm'
+              className='h-8 w-8 p-0'
+              onClick={() => handleHistoryDownload(selectedHistoryItem)}
+              title={lt("下载", "Download")}
+            >
+              <Download className='h-3 w-3' />
+            </Button>
+            <Button
+              variant='outline'
+              size='sm'
+              className='h-8 w-8 p-0'
+              onClick={() => void handleRemoveHistoryItem(selectedHistoryItem)}
+              title={lt("删除", "Delete")}
+            >
+              <Trash2 className='h-3 w-3' />
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* 主面板 */}
       <div
@@ -1033,7 +1424,7 @@ const LibraryPanel: React.FC = () => {
 
         {/* 标签切换 */}
         <div className='px-3 pt-3 pb-2'>
-          <div className='grid grid-cols-2 gap-2 rounded-xl bg-gray-100 p-1'>
+          <div className='grid grid-cols-3 gap-2 rounded-xl bg-gray-100 p-1'>
             <button
               type='button'
               className={`h-8 rounded-lg text-xs font-medium transition-colors ${
@@ -1044,6 +1435,17 @@ const LibraryPanel: React.FC = () => {
               onClick={() => setActiveTab("global-history")}
             >
               {lt("全局历史", "Global History")}
+            </button>
+            <button
+              type='button'
+              className={`h-8 rounded-lg text-xs font-medium transition-colors ${
+                activeTab === "project-history"
+                  ? "bg-white text-gray-800 shadow-sm"
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
+              onClick={() => setActiveTab("project-history")}
+            >
+              {lt("项目库", "Project Library")}
             </button>
             <button
               type='button'
@@ -1087,12 +1489,13 @@ const LibraryPanel: React.FC = () => {
                   return (
                     <div
                       key={asset.id}
-                      data-asset-thumbnail
+                      data-library-thumbnail
                       draggable
                       className={`aspect-square rounded-lg overflow-hidden bg-gray-100 cursor-grab transition-all hover:ring-2 hover:ring-blue-400 active:cursor-grabbing relative ${
                         isSelected ? "ring-2 ring-blue-500" : ""
                       }`}
                       onClick={(e) => handleAssetClick(asset, e)}
+                      onDoubleClick={() => handleAssetDoubleClick(asset)}
                       onDragStart={(e) => handleDragStart(asset, e)}
                     >
                       {is2dOrSvg ? (
@@ -1136,15 +1539,27 @@ const LibraryPanel: React.FC = () => {
                   <Search className='pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400' />
                   <input
                     type='text'
-                    value={historySearchQuery}
-                    onChange={(event) => setHistorySearchQuery(event.target.value)}
+                    value={activeHistorySearchQuery}
+                    onChange={(event) => {
+                      if (isProjectHistoryTab) {
+                        setProjectHistorySearchQuery(event.target.value);
+                        return;
+                      }
+                      setHistorySearchQuery(event.target.value);
+                    }}
                     placeholder={lt("搜索 prompt...", "Search prompt...")}
                     className='w-full h-8 rounded-lg border border-gray-200 bg-white pl-7 pr-2 text-xs text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400'
                   />
                 </div>
                 <select
-                  value={historyFilterType}
-                  onChange={(event) => setHistoryFilterType(event.target.value)}
+                  value={activeHistoryFilterType}
+                  onChange={(event) => {
+                    if (isProjectHistoryTab) {
+                      setProjectHistoryFilterType(event.target.value);
+                      return;
+                    }
+                    setHistoryFilterType(event.target.value);
+                  }}
                   className='h-8 max-w-[108px] rounded-lg border border-gray-200 bg-white px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400'
                 >
                   <option value=''>{lt("全部类型", "All types")}</option>
@@ -1156,24 +1571,42 @@ const LibraryPanel: React.FC = () => {
                 </select>
               </div>
 
-              {historyItems.length === 0 && !historyIsLoading ? (
+              {!currentProjectId && isProjectHistoryTab ? (
                 <div className='rounded-lg border border-dashed border-gray-200 bg-white/70 py-10 text-center text-xs text-gray-500'>
-                  {lt("暂无全局历史", "No global history")}
+                  {lt("当前项目未就绪", "Current project is not ready")}
+                </div>
+              ) : activeHistoryItems.length === 0 && !activeHistoryIsLoading ? (
+                <div className='rounded-lg border border-dashed border-gray-200 bg-white/70 py-10 text-center text-xs text-gray-500'>
+                  {isProjectHistoryTab
+                    ? lt("暂无项目库记录", "No project library records")
+                    : lt("暂无全局历史", "No global history")}
                 </div>
               ) : (
                 <div className='grid grid-cols-2 gap-2'>
-                  {historyItems.map((item) => (
+                  {activeHistoryItems.map((item) => (
                     <div
                       key={item.id}
+                      data-library-thumbnail
                       draggable
                       className='aspect-square rounded-lg overflow-hidden bg-gray-100 cursor-grab transition-all hover:ring-2 hover:ring-blue-400 active:cursor-grabbing relative'
-                      onClick={() => void handleHistorySendToCanvas(item)}
+                      onClick={(event) => handleHistoryItemClick(item, event)}
+                      onDoubleClick={() => handleHistoryItemDoubleClick(item)}
                       onDragStart={(event) => handleHistoryDragStart(item, event)}
-                      title={item.prompt || lt("历史图片", "History Image")}
+                      title={
+                        item.prompt ||
+                        (isProjectHistoryTab
+                          ? lt("项目图片", "Project Image")
+                          : lt("历史图片", "History Image"))
+                      }
                     >
                       <SmartImage
                         src={item.imageUrl}
-                        alt={item.prompt || lt("历史图片", "History Image")}
+                        alt={
+                          item.prompt ||
+                          (isProjectHistoryTab
+                            ? lt("项目图片", "Project Image")
+                            : lt("历史图片", "History Image"))
+                        }
                         className='w-full h-full object-cover'
                         draggable={false}
                         loading='lazy'
@@ -1189,40 +1622,50 @@ const LibraryPanel: React.FC = () => {
                 </div>
               )}
 
-              {historyIsLoading ? (
+              {activeHistoryIsLoading ? (
                 <div className='flex items-center justify-center gap-1 text-xs text-gray-500 py-1'>
                   <Loader2 className='h-3.5 w-3.5 animate-spin' />
                   {lt("加载中...", "Loading...")}
                 </div>
               ) : null}
 
-              {historyTotalPages > 1 ? (
+              {activeHistoryTotalPages > 1 ? (
                 <div className='flex items-center justify-center gap-1'>
                   <Button
                     type='button'
                     variant='outline'
                     size='sm'
                     className='h-7 px-2 text-xs'
-                    disabled={historyIsLoading || historyPage <= 1}
-                    onClick={() =>
-                      setHistoryPage((prev) => Math.max(1, prev - 1))
-                    }
+                    disabled={activeHistoryIsLoading || activeHistoryPage <= 1}
+                    onClick={() => {
+                      if (isProjectHistoryTab) {
+                        setProjectHistoryPage((prev) => Math.max(1, prev - 1));
+                        return;
+                      }
+                      setHistoryPage((prev) => Math.max(1, prev - 1));
+                    }}
                     aria-label={lt("上一页", "Previous page")}
                     title={lt("上一页", "Previous page")}
                   >
                     <ChevronLeft className='h-3.5 w-3.5' />
                   </Button>
-                  {historyPageSlots.map((slot, index) =>
+                  {activeHistoryPageSlots.map((slot, index) =>
                     typeof slot === "number" ? (
                       <button
                         key={`page-${slot}`}
                         type='button'
                         className={`h-7 min-w-7 px-1 rounded text-xs border transition-colors ${
-                          historyPage === slot
+                          activeHistoryPage === slot
                             ? "bg-gray-900 border-gray-900 text-white"
                             : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
                         }`}
-                        onClick={() => setHistoryPage(slot)}
+                        onClick={() => {
+                          if (isProjectHistoryTab) {
+                            setProjectHistoryPage(slot);
+                            return;
+                          }
+                          setHistoryPage(slot);
+                        }}
                       >
                         {slot}
                       </button>
@@ -1240,12 +1683,21 @@ const LibraryPanel: React.FC = () => {
                     variant='outline'
                     size='sm'
                     className='h-7 px-2 text-xs'
-                    disabled={historyIsLoading || historyPage >= historyTotalPages}
-                    onClick={() =>
-                      setHistoryPage((prev) =>
-                        Math.min(historyTotalPages, prev + 1)
-                      )
+                    disabled={
+                      activeHistoryIsLoading ||
+                      activeHistoryPage >= activeHistoryTotalPages
                     }
+                    onClick={() => {
+                      if (isProjectHistoryTab) {
+                        setProjectHistoryPage((prev) =>
+                          Math.min(activeHistoryTotalPages, prev + 1)
+                        );
+                        return;
+                      }
+                      setHistoryPage((prev) =>
+                        Math.min(activeHistoryTotalPages, prev + 1)
+                      );
+                    }}
                     aria-label={lt("下一页", "Next page")}
                     title={lt("下一页", "Next page")}
                   >
@@ -1262,10 +1714,19 @@ const LibraryPanel: React.FC = () => {
           <div className='text-xs text-gray-500 text-center'>
             {activeTab === "manual"
               ? lt(`共 ${allAssets.length} 个资源`, `${allAssets.length} assets`)
-              : lt(`第 ${historyPage}/${historyTotalPages} 页 · 共 ${historyTotalCount} 条`, `Page ${historyPage}/${historyTotalPages} · ${historyTotalCount} items`)}
+              : lt(
+                  `第 ${activeHistoryPage}/${activeHistoryTotalPages} 页 · 共 ${activeHistoryTotalCount} 条`,
+                  `Page ${activeHistoryPage}/${activeHistoryTotalPages} · ${activeHistoryTotalCount} items`
+                )}
           </div>
         </div>
       </div>
+      <ImagePreviewModal
+        isOpen={Boolean(previewState)}
+        imageSrc={previewState?.src || ""}
+        imageTitle={previewState?.title}
+        onClose={() => setPreviewState(null)}
+      />
     </>
   );
 };

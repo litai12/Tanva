@@ -1954,93 +1954,142 @@ export class AiController {
       });
 
       const result = await this.withCredits(req, serviceType as any, model, async () => {
-      const fallbackUrl =
-        !dto.sourceImageUrl && dto.sourceImage && /^https?:\/\//i.test(dto.sourceImage)
-          ? dto.sourceImage
-          : dto.sourceImageUrl;
+      const maxAttempts = 3;
+      const retryDelaysMs = [500, 1200];
 
-      // MJ 支持直接使用 URL，不需要转换为 base64
-      const isMidjourney = providerName === 'midjourney';
-
-      let sourceImage: string | undefined;
-      if (tencentForcedBanana) {
-        if (dto.sourceImage && !fallbackUrl) {
-          sourceImage = dto.sourceImage;
-        } else if (fallbackUrl) {
-          sourceImage = fallbackUrl;
+      const shouldRetryOutputError = (error: unknown): boolean => {
+        if (error instanceof HttpException) {
+          return error.getStatus() === 502;
         }
-      } else if (isMidjourney && fallbackUrl) {
-        // MJ: 直接使用 URL
-        sourceImage = fallbackUrl;
-      } else if (dto.sourceImage && !fallbackUrl) {
-        sourceImage = dto.sourceImage;
-      } else if (fallbackUrl) {
-        sourceImage = await this.fetchImageAsDataUrl(fallbackUrl);
-      }
 
-      if (!sourceImage) {
-        throw new BadRequestException('编辑图片接口需要提供 sourceImage 或 sourceImageUrl');
-      }
+        const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+        if (!message) return false;
 
-      if (tencentForcedBanana) {
-        sourceImage = await this.normalizeSourceImageForTencentForced(
-          sourceImage,
-          requestUserId,
-          'edit-image',
-        );
-      } else if (!isMidjourney || !sourceImage.startsWith('http')) {
-        // 非 MJ 时验证 sourceImage 是有效的图片格式
-        this.validateImageDataUrl(sourceImage);
-      }
+        const retryablePatterns = [
+          '编辑成功但未返回图片数据',
+          '生成图像数据为空',
+          '无图像数据',
+          'no image data',
+          'stream api returned no image data',
+          'not supported',
+          '不是受支持的图片格式',
+          'base64',
+        ];
+        return retryablePatterns.some((pattern) => message.includes(pattern.toLowerCase()));
+      };
 
-      if (providerName && providerName !== 'gemini-pro') {
-        const provider = this.factory.getProvider(dto.model, providerName);
-        const result = await provider.editImage({
-          prompt: dto.prompt,
-          sourceImage,
-          model,
-          imageOnly: dto.imageOnly,
-          aspectRatio: dto.aspectRatio,
-          imageSize: dto.imageSize,
-          thinkingLevel: dto.thinkingLevel,
-          outputFormat: dto.outputFormat,
-          providerOptions: dto.providerOptions,
-        });
-        if (result.success && result.data) {
-          if (result.data.imageData) {
-            const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
-            return {
-              imageData: watermarked,
-              textResponse: result.data.textResponse || '',
-              metadata: result.data.metadata,
-            };
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          if (attempt > 1) {
+            this.logger.warn(`[edit-image] 重试编辑第 ${attempt}/${maxAttempts} 次`);
           }
 
-          const providerImageUrls = this.collectProviderImageUrls(result.data);
-          const providerImageUrl = providerImageUrls[0];
-          if (!providerImageUrl) {
-            throw new BadGatewayException('编辑成功但未返回图片数据');
+          const fallbackUrl =
+            !dto.sourceImageUrl && dto.sourceImage && /^https?:\/\//i.test(dto.sourceImage)
+              ? dto.sourceImage
+              : dto.sourceImageUrl;
+
+          // MJ 支持直接使用 URL，不需要转换为 base64
+          const isMidjourney = providerName === 'midjourney';
+
+          let sourceImage: string | undefined;
+          if (tencentForcedBanana) {
+            if (dto.sourceImage && !fallbackUrl) {
+              sourceImage = dto.sourceImage;
+            } else if (fallbackUrl) {
+              sourceImage = fallbackUrl;
+            }
+          } else if (isMidjourney && fallbackUrl) {
+            // MJ: 直接使用 URL
+            sourceImage = fallbackUrl;
+          } else if (dto.sourceImage && !fallbackUrl) {
+            sourceImage = dto.sourceImage;
+          } else if (fallbackUrl) {
+            sourceImage = await this.fetchImageAsDataUrl(fallbackUrl);
           }
 
-          const sourceImageDataUrl = await this.fetchImageAsDataUrl(providerImageUrl);
-          const watermarked = await this.watermarkIfNeeded(sourceImageDataUrl, req);
-          return {
-            imageData: watermarked,
-            textResponse: result.data.textResponse || '',
-            metadata: {
-              ...(result.data.metadata || {}),
-              sourceImageUrl: providerImageUrl,
-              sourceImageUrls: providerImageUrls,
-            },
-          };
+          if (!sourceImage) {
+            throw new BadRequestException('编辑图片接口需要提供 sourceImage 或 sourceImageUrl');
+          }
+
+          if (tencentForcedBanana) {
+            sourceImage = await this.normalizeSourceImageForTencentForced(
+              sourceImage,
+              requestUserId,
+              'edit-image',
+            );
+          } else if (!isMidjourney || !sourceImage.startsWith('http')) {
+            // 非 MJ 时验证 sourceImage 是有效的图片格式
+            this.validateImageDataUrl(sourceImage);
+          }
+
+          if (providerName && providerName !== 'gemini-pro') {
+            const provider = this.factory.getProvider(dto.model, providerName);
+            const result = await provider.editImage({
+              prompt: dto.prompt,
+              sourceImage,
+              model,
+              imageOnly: dto.imageOnly,
+              aspectRatio: dto.aspectRatio,
+              imageSize: dto.imageSize,
+              thinkingLevel: dto.thinkingLevel,
+              outputFormat: dto.outputFormat,
+              providerOptions: dto.providerOptions,
+            });
+            if (result.success && result.data) {
+              if (result.data.imageData) {
+                const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
+                return {
+                  imageData: watermarked,
+                  textResponse: result.data.textResponse || '',
+                  metadata: result.data.metadata,
+                };
+              }
+
+              const providerImageUrls = this.collectProviderImageUrls(result.data);
+              const providerImageUrl = providerImageUrls[0];
+              if (!providerImageUrl) {
+                throw new BadGatewayException('编辑成功但未返回图片数据');
+              }
+
+              const sourceImageDataUrl = await this.fetchImageAsDataUrl(providerImageUrl);
+              const watermarked = await this.watermarkIfNeeded(sourceImageDataUrl, req);
+              return {
+                imageData: watermarked,
+                textResponse: result.data.textResponse || '',
+                metadata: {
+                  ...(result.data.metadata || {}),
+                  sourceImageUrl: providerImageUrl,
+                  sourceImageUrls: providerImageUrls,
+                },
+              };
+            }
+            throw new Error(result.error?.message || 'Failed to edit image');
+          }
+
+          // gemini 和 gemini-pro 都使用默认的 Gemini 服务
+          const data = await this.imageGeneration.editImage({ ...dto, sourceImage, customApiKey });
+          const watermarked = await this.watermarkIfNeeded(data.imageData, req);
+          return { ...data, imageData: watermarked };
+        } catch (error) {
+          if (attempt < maxAttempts && shouldRetryOutputError(error)) {
+            const delay =
+              retryDelaysMs[attempt - 1] ??
+              retryDelaysMs[retryDelaysMs.length - 1] ??
+              0;
+            this.logger.warn(
+              `[edit-image] 第 ${attempt}/${maxAttempts} 次失败（${this.summarizeError(error)}），${delay}ms 后重试`
+            );
+            if (delay > 0) {
+              await new Promise((resolve) => setTimeout(resolve, delay));
+            }
+            continue;
+          }
+          throw error;
         }
-        throw new Error(result.error?.message || 'Failed to edit image');
       }
 
-      // gemini 和 gemini-pro 都使用默认的 Gemini 服务
-      const data = await this.imageGeneration.editImage({ ...dto, sourceImage, customApiKey });
-      const watermarked = await this.watermarkIfNeeded(data.imageData, req);
-      return { ...data, imageData: watermarked };
+      throw new InternalServerErrorException('图片编辑重试次数耗尽，请稍后重试。');
       }, 1, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }));
 
       void this.telemetryService.ingestGenerationTask({
@@ -2141,90 +2190,139 @@ export class AiController {
       });
 
       const result = await this.withCredits(req, serviceType as any, model, async () => {
-      const sourceImages = tencentForcedBanana
-        ? dto.sourceImages?.length
-          ? dto.sourceImages
-          : dto.sourceImageUrls?.length
-          ? dto.sourceImageUrls
-          : []
-        : dto.sourceImages?.length
-        ? await Promise.all(
-            dto.sourceImages.map(async (value) =>
-              /^https?:\/\//i.test(value) ? this.fetchImageAsDataUrl(value) : value,
-            ),
-          )
-        : dto.sourceImageUrls?.length
-        ? await Promise.all(dto.sourceImageUrls.map((url) => this.fetchImageAsDataUrl(url)))
-        : [];
+      const maxAttempts = 3;
+      const retryDelaysMs = [500, 1200];
 
-      if (!sourceImages.length) {
-        throw new BadRequestException('融合图片接口需要提供 sourceImages 或 sourceImageUrls（至少两张）');
-      }
-
-      const normalizedSourceImages = tencentForcedBanana
-        ? await Promise.all(
-            sourceImages.map((value, index) =>
-              this.normalizeSourceImageForTencentForced(
-                value,
-                requestUserId,
-                `blend-images#${index + 1}`,
-              ),
-            ),
-          )
-        : sourceImages;
-
-      if (providerName && providerName !== 'gemini-pro') {
-        const provider = this.factory.getProvider(dto.model, providerName);
-        const result = await provider.blendImages({
-          prompt: dto.prompt,
-          sourceImages: normalizedSourceImages,
-          model,
-          imageOnly: dto.imageOnly,
-          aspectRatio: dto.aspectRatio,
-          imageSize: dto.imageSize,
-          thinkingLevel: dto.thinkingLevel,
-          outputFormat: dto.outputFormat,
-          providerOptions: dto.providerOptions,
-        });
-        if (result.success && result.data) {
-          if (result.data.imageData) {
-            const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
-            return {
-              imageData: watermarked,
-              textResponse: result.data.textResponse || '',
-              metadata: result.data.metadata,
-            };
-          }
-
-          const providerImageUrls = this.collectProviderImageUrls(result.data);
-          const providerImageUrl = providerImageUrls[0];
-          if (!providerImageUrl) {
-            throw new BadGatewayException('融合成功但未返回图片数据');
-          }
-
-          const sourceImageDataUrl = await this.fetchImageAsDataUrl(providerImageUrl);
-          const watermarked = await this.watermarkIfNeeded(sourceImageDataUrl, req);
-          return {
-            imageData: watermarked,
-            textResponse: result.data.textResponse || '',
-            metadata: {
-              ...(result.data.metadata || {}),
-              sourceImageUrl: providerImageUrl,
-              sourceImageUrls: providerImageUrls,
-            },
-          };
+      const shouldRetryOutputError = (error: unknown): boolean => {
+        if (error instanceof HttpException) {
+          return error.getStatus() === 502;
         }
-        throw new Error(result.error?.message || 'Failed to blend images');
+
+        const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+        if (!message) return false;
+
+        const retryablePatterns = [
+          '融合成功但未返回图片数据',
+          '生成图像数据为空',
+          '无图像数据',
+          'no image data',
+          'stream api returned no image data',
+          'not supported',
+          '不是受支持的图片格式',
+          'base64',
+        ];
+        return retryablePatterns.some((pattern) => message.includes(pattern.toLowerCase()));
+      };
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          if (attempt > 1) {
+            this.logger.warn(`[blend-images] 重试融合第 ${attempt}/${maxAttempts} 次`);
+          }
+
+          const sourceImages = tencentForcedBanana
+            ? dto.sourceImages?.length
+              ? dto.sourceImages
+              : dto.sourceImageUrls?.length
+              ? dto.sourceImageUrls
+              : []
+            : dto.sourceImages?.length
+            ? await Promise.all(
+                dto.sourceImages.map(async (value) =>
+                  /^https?:\/\//i.test(value) ? this.fetchImageAsDataUrl(value) : value,
+                ),
+              )
+            : dto.sourceImageUrls?.length
+            ? await Promise.all(dto.sourceImageUrls.map((url) => this.fetchImageAsDataUrl(url)))
+            : [];
+
+          if (!sourceImages.length) {
+            throw new BadRequestException('融合图片接口需要提供 sourceImages 或 sourceImageUrls（至少两张）');
+          }
+
+          const normalizedSourceImages = tencentForcedBanana
+            ? await Promise.all(
+                sourceImages.map((value, index) =>
+                  this.normalizeSourceImageForTencentForced(
+                    value,
+                    requestUserId,
+                    `blend-images#${index + 1}`,
+                  ),
+                ),
+              )
+            : sourceImages;
+
+          if (providerName && providerName !== 'gemini-pro') {
+            const provider = this.factory.getProvider(dto.model, providerName);
+            const result = await provider.blendImages({
+              prompt: dto.prompt,
+              sourceImages: normalizedSourceImages,
+              model,
+              imageOnly: dto.imageOnly,
+              aspectRatio: dto.aspectRatio,
+              imageSize: dto.imageSize,
+              thinkingLevel: dto.thinkingLevel,
+              outputFormat: dto.outputFormat,
+              providerOptions: dto.providerOptions,
+            });
+            if (result.success && result.data) {
+              if (result.data.imageData) {
+                const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
+                return {
+                  imageData: watermarked,
+                  textResponse: result.data.textResponse || '',
+                  metadata: result.data.metadata,
+                };
+              }
+
+              const providerImageUrls = this.collectProviderImageUrls(result.data);
+              const providerImageUrl = providerImageUrls[0];
+              if (!providerImageUrl) {
+                throw new BadGatewayException('融合成功但未返回图片数据');
+              }
+
+              const sourceImageDataUrl = await this.fetchImageAsDataUrl(providerImageUrl);
+              const watermarked = await this.watermarkIfNeeded(sourceImageDataUrl, req);
+              return {
+                imageData: watermarked,
+                textResponse: result.data.textResponse || '',
+                metadata: {
+                  ...(result.data.metadata || {}),
+                  sourceImageUrl: providerImageUrl,
+                  sourceImageUrls: providerImageUrls,
+                },
+              };
+            }
+            throw new Error(result.error?.message || 'Failed to blend images');
+          }
+
+          // gemini 和 gemini-pro 都使用默认的 Gemini 服务
+          const data = await this.imageGeneration.blendImages({
+            ...dto,
+            sourceImages: normalizedSourceImages,
+            customApiKey,
+          });
+          const watermarked = await this.watermarkIfNeeded(data.imageData, req);
+          return { ...data, imageData: watermarked };
+        } catch (error) {
+          if (attempt < maxAttempts && shouldRetryOutputError(error)) {
+            const delay =
+              retryDelaysMs[attempt - 1] ??
+              retryDelaysMs[retryDelaysMs.length - 1] ??
+              0;
+            this.logger.warn(
+              `[blend-images] 第 ${attempt}/${maxAttempts} 次失败（${this.summarizeError(error)}），${delay}ms 后重试`
+            );
+            if (delay > 0) {
+              await new Promise((resolve) => setTimeout(resolve, delay));
+            }
+            continue;
+          }
+          throw error;
+        }
       }
 
-      // gemini 和 gemini-pro 都使用默认的 Gemini 服务
-      const data = await this.imageGeneration.blendImages({
-        ...dto,
-        sourceImages: normalizedSourceImages,
-        customApiKey,
-      });
-      const watermarked = await this.watermarkIfNeeded(data.imageData, req);
-      return { ...data, imageData: watermarked };
+      throw new InternalServerErrorException('图片融合重试次数耗尽，请稍后重试。');
       }, dto.sourceImages?.length || 0, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }));
 
       void this.telemetryService.ingestGenerationTask({

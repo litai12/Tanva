@@ -45,6 +45,7 @@ import {
   Gift,
   MessageCircle,
   Star,
+  Plus,
 } from "lucide-react";
 import MemoryDebugPanel from "@/components/debug/MemoryDebugPanel";
 import HistoryDebugPanel from "@/components/debug/HistoryDebugPanel";
@@ -186,6 +187,21 @@ const FloatingHeader: React.FC = () => {
     if (!projectId || projectId === currentProject?.id) return;
     open(projectId);
   };
+  const quickCreateInFlightRef = useRef(false);
+  const [isQuickCreatingProject, setIsQuickCreatingProject] = useState(false);
+  const handleQuickCreateProject = useCallback(async () => {
+    if (quickCreateInFlightRef.current) return;
+    quickCreateInFlightRef.current = true;
+    setIsQuickCreatingProject(true);
+    try {
+      await create();
+    } catch (error) {
+      console.error("Failed to quick create project:", error);
+    } finally {
+      quickCreateInFlightRef.current = false;
+      setIsQuickCreatingProject(false);
+    }
+  }, [create]);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState("");
   useEffect(() => {
@@ -1859,10 +1875,11 @@ const FloatingHeader: React.FC = () => {
                     {t("workspace.header.openManageFile")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={async (event) => {
+                    onClick={(event) => {
                       event.preventDefault();
-                      await create();
+                      void handleQuickCreateProject();
                     }}
+                    disabled={isQuickCreatingProject}
                     className='flex items-center justify-between gap-3 px-2 py-1 text-sm text-blue-600 hover:text-blue-700'
                   >
                     <span className='flex items-center gap-2'>
@@ -1875,6 +1892,23 @@ const FloatingHeader: React.FC = () => {
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
+            <button
+              type='button'
+              onClick={() => {
+                void handleQuickCreateProject();
+              }}
+              disabled={isQuickCreatingProject}
+              className={cn(
+                "inline-flex h-6 w-6 items-center justify-center text-slate-500 transition-colors",
+                isQuickCreatingProject
+                  ? "cursor-not-allowed opacity-60"
+                  : "hover:text-slate-700"
+              )}
+              title={t("workspace.header.newProject")}
+              aria-label={t("workspace.header.newProject")}
+            >
+              <Plus className='w-3.5 h-3.5' />
+            </button>
           </div>
         </div>
 
