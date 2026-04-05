@@ -28,6 +28,8 @@
 
 ## 注意事项
 - `generate-image` 在上游仅返回外链 `imageUrl`（如 Seedream/Nano2）时，会统一下载并转存 OSS 后返回稳定 URL；管理员/白名单只跳过水印，不再直返第三方临时链接。
+- Seedream5 supports system setting key seedream5_provider (doubao / watcha), defaulting to doubao when missing.
+- Watcha Seedream channel env vars: WATCHA_SEEDREAM_API_KEY, optional WATCHA_SEEDREAM_ENDPOINT, optional WATCHA_SEEDREAM_MODEL.
 - Seedance（doubao）视频任务成功后，后端会将上游视频拉取并上传到 OSS，仅返回自有 OSS 公网链接给前端。
 - 异步视频计费为“先扣费 + 后确认”：创建任务后记录保持 `pending`，前端轮询成功调用 `video-task-success` 标记 `success`，失败调用 `video-task-refund` 标记失败并退款。
 - `edit-image` / `blend-images` 支持 `sourceImageUrl(s)`，后端会按 OSS 白名单拉取并转换为 dataURL。

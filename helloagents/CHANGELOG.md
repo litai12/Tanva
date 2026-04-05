@@ -353,3 +353,11 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Project default naming now follows current locale (`workspacePage.prompt.defaultName`) for auto-created/fallback projects, and header quick-switch display maps legacy `未命名*`/`Untitled*` aliases to current language (`frontend/src/stores/projectStore.ts`, `frontend/src/components/layout/FloatingHeader.tsx`).
 - Payment package badges now localize backend-provided `tag/bonus` labels such as `首充翻倍` and `送X%`/`+X%` to prevent Chinese-only badge text in English mode (`frontend/src/components/payment/PaymentPanel.tsx`).
 
+
+## [Seedream5 Provider Switch - 2026-04-05]
+### Added
+- Admin settings add `seedream5_provider` (`doubao` / `watcha`) to switch Seedream 5.0 provider channel.
+- Backend Seedream5 service reads `seedream5_provider` and routes to Doubao or Watcha at runtime.
+
+### Changed
+- Watcha Seedream channel now supports dedicated env vars: `WATCHA_SEEDREAM_API_KEY`, `WATCHA_SEEDREAM_ENDPOINT`, `WATCHA_SEEDREAM_MODEL`.

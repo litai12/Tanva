@@ -26,3 +26,4 @@
   - `sora2_provider`：Sora2 视频链路供应商
   - `banana_provider`：Banana 图像链路供应商
   - `banana_text_provider`：Banana 文本链路供应商（text-chat/tool-selection）
+  - `seedream5_provider`：Seedream 5.0 图像链路供应商（`doubao` / `watcha`）

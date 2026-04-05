@@ -14,11 +14,16 @@ export class Seedream5Provider implements IAIProvider {
   ) {}
 
   async initialize(): Promise<void> {
-    const apiKey =
+    const doubaoApiKey =
       this.config.get<string>('ARK_API_KEY') ||
       this.config.get<string>('DOUBAO_API_KEY');
-    this.available = !!apiKey;
-    this.logger.log(`Seedream5 provider initialized: ${this.available ? 'available' : 'unavailable'}`);
+    const watchaApiKey =
+      this.config.get<string>('WATCHA_SEEDREAM_API_KEY') ||
+      this.config.get<string>('WATCHA_API_KEY');
+    this.available = !!doubaoApiKey || !!watchaApiKey;
+    this.logger.log(
+      `Seedream5 provider initialized: ${this.available ? 'available' : 'unavailable'} (doubao=${!!doubaoApiKey}, watcha=${!!watchaApiKey})`,
+    );
   }
 
   isAvailable(): boolean {
@@ -30,6 +35,7 @@ export class Seedream5Provider implements IAIProvider {
   }
 
   async generateImage(request: any): Promise<any> {
+    const providerInfo = await this.seedream5Service.getProviderExecutionInfo();
     const result = await this.seedream5Service.generateImage({
       prompt: request.prompt,
       size: request.imageSize || '2K',
@@ -52,7 +58,8 @@ export class Seedream5Provider implements IAIProvider {
             imageUrl: result.imageUrl,
             provider: 'seedream5',
             aiProvider: 'seedream5',
-            model: 'doubao-seedream-5-0-260128',
+            model: providerInfo.model,
+            channel: providerInfo.provider,
           },
         },
       };
@@ -70,7 +77,8 @@ export class Seedream5Provider implements IAIProvider {
             imageUrls: result.imageUrls,
             provider: 'seedream5',
             aiProvider: 'seedream5',
-            model: 'doubao-seedream-5-0-260128',
+            model: providerInfo.model,
+            channel: providerInfo.provider,
           },
         },
       };

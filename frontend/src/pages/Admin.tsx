@@ -1109,6 +1109,19 @@ const SORA2_PROVIDER_OPTIONS = [
   },
 ];
 
+const SEEDREAM5_PROVIDER_OPTIONS = [
+  {
+    value: "doubao",
+    label: "豆包",
+    description: "使用豆包 Seedream 5.0 通道（ARK）",
+  },
+  {
+    value: "watcha",
+    label: "观猹",
+    description: "使用观猹 Seedream 5.0 通道（tokendance.agent-universe.cn）",
+  },
+];
+
 const BANANA_PROVIDER_OPTIONS = [
   {
     value: "auto",
@@ -2535,6 +2548,7 @@ function SettingsTab() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [sora2Provider, setSora2Provider] = useState("auto");
+  const [seedream5Provider, setSeedream5Provider] = useState("doubao");
   const [bananaProvider, setBananaProvider] = useState("auto");
   const [bananaTextProvider, setBananaTextProvider] = useState("auto");
 
@@ -2553,6 +2567,10 @@ function SettingsTab() {
       const sora2Setting = result.find((s) => s.key === "sora2_provider");
       if (sora2Setting) {
         setSora2Provider(sora2Setting.value);
+      }
+      const seedreamSetting = result.find((s) => s.key === "seedream5_provider");
+      if (seedreamSetting) {
+        setSeedream5Provider(seedreamSetting.value);
       }
       const bananaSetting = result.find((s) => s.key === "banana_provider");
       if (bananaSetting) {
@@ -2663,6 +2681,23 @@ function SettingsTab() {
     }
   };
 
+  const handleSaveSeedream5Provider = async () => {
+    setSaving(true);
+    try {
+      await upsertSetting({
+        key: "seedream5_provider",
+        value: seedream5Provider,
+        description: "Seedream 5.0 图像通道供应商选择（豆包 / 观猹）",
+      });
+      alert("淇濆瓨鎴愬姛");
+      loadSettings();
+    } catch (error: any) {
+      alert(error.message || "淇濆瓨澶辫触");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleSaveBananaTextProvider = async () => {
     setSaving(true);
     try {
@@ -2726,6 +2761,44 @@ function SettingsTab() {
           </Button>
         </div>
       </div>
+      <div className='bg-white rounded-lg border p-6 shadow-sm'>
+        <h3 className='text-lg font-semibold mb-4'>Seedream 5.0 通道设置</h3>
+        <p className='text-sm text-gray-500 mb-4'>
+          选择 Seedream 5.0 使用的供应商通道，可在豆包与观猹之间切换。
+        </p>
+        <div className='space-y-3'>
+          {SEEDREAM5_PROVIDER_OPTIONS.map((option) => (
+            <label
+              key={option.value}
+              className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition ${
+                seedream5Provider === option.value
+                  ? "border-blue-500 bg-blue-50"
+                  : "border-gray-200 hover:border-gray-300"
+              }`}
+            >
+              <input
+                type='radio'
+                name='seedream5Provider'
+                value={option.value}
+                checked={seedream5Provider === option.value}
+                onChange={(e) => setSeedream5Provider(e.target.value)}
+                className='mt-1'
+              />
+              <div>
+                <div className='font-medium'>{option.label}</div>
+                <div className='text-sm text-gray-500'>
+                  {option.description}
+                </div>
+              </div>
+            </label>
+          ))}
+        </div>
+        <div className='mt-4'>
+          <Button onClick={handleSaveSeedream5Provider} disabled={saving}>
+            {saving ? "保存中..." : "保存设置"}
+          </Button>
+        </div>
+      </div>
 
       <div className='bg-white rounded-lg border p-6 shadow-sm'>
         <h3 className='text-lg font-semibold mb-4'>Banana 图像生成设置</h3>
@@ -2766,7 +2839,6 @@ function SettingsTab() {
           </Button>
         </div>
       </div>
-
       <div className='bg-white rounded-lg border p-6 shadow-sm'>
         <h3 className='text-lg font-semibold mb-4'>Banana 语言生成设置</h3>
         <p className='text-sm text-gray-500 mb-4'>

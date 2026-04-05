@@ -1,26 +1,63 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../../prisma/prisma.service';
+
+export type Seedream5ProviderType = 'doubao' | 'watcha';
+export const SEEDREAM5_PROVIDER_SETTING_KEY = 'seedream5_provider';
+
+interface Seedream5ProviderConfig {
+  provider: Seedream5ProviderType;
+  endpoint: string;
+  apiKey: string;
+  model: string;
+  generationPath: string;
+}
 
 @Injectable()
 export class Seedream5Service {
   private readonly logger = new Logger(Seedream5Service.name);
-  private readonly apiKey: string;
-  private readonly endpoint: string;
+  private readonly doubaoApiKey: string;
+  private readonly doubaoEndpoint: string;
+  private readonly watchaApiKey: string;
+  private readonly watchaEndpoint: string;
+  private readonly watchaModel: string;
+
   private static readonly SIZE_PRESETS = new Set(['1K', '2K', '3K', '4K']);
   private static readonly DIMENSION_PATTERN = /^(\d{3,5})\s*[xX]\s*(\d{3,5})$/;
 
-  constructor(private readonly config: ConfigService) {
-    const rawKey =
+  constructor(
+    private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {
+    this.doubaoApiKey = this.normalizeApiKey(
       this.config.get<string>('ARK_API_KEY') ||
-      this.config.get<string>('DOUBAO_API_KEY') ||
-      '';
-    this.apiKey = this.normalizeApiKey(rawKey);
-    this.endpoint =
-      this.config.get<string>('ARK_ENDPOINT') || 'https://ark.cn-beijing.volces.com';
+        this.config.get<string>('DOUBAO_API_KEY') ||
+        '',
+    );
+    this.doubaoEndpoint = this.normalizeEndpoint(
+      this.config.get<string>('ARK_ENDPOINT') || 'https://ark.cn-beijing.volces.com',
+    );
 
-    if (!this.apiKey) {
+    this.watchaApiKey = this.normalizeApiKey(
+      this.config.get<string>('WATCHA_SEEDREAM_API_KEY') ||
+        this.config.get<string>('WATCHA_API_KEY') ||
+        '',
+    );
+    this.watchaEndpoint = this.normalizeEndpoint(
+      this.config.get<string>('WATCHA_SEEDREAM_ENDPOINT') ||
+        'https://tokendance.agent-universe.cn/gateway/ark',
+    );
+    this.watchaModel =
+      this.config.get<string>('WATCHA_SEEDREAM_MODEL')?.trim() || 'seedream-5.0-lite';
+
+    if (!this.doubaoApiKey) {
       this.logger.warn(
-        'Seedream5 API key missing. Please set ARK_API_KEY (or DOUBAO_API_KEY).',
+        'Doubao Seedream key missing. Please set ARK_API_KEY (or DOUBAO_API_KEY).',
+      );
+    }
+    if (!this.watchaApiKey) {
+      this.logger.warn(
+        'Watcha Seedream key missing. Please set WATCHA_SEEDREAM_API_KEY.',
       );
     }
   }
@@ -38,6 +75,15 @@ export class Seedream5Service {
       key = key.replace(/^Bearer\s+/i, '').trim();
     }
     return key;
+  }
+
+  private normalizeEndpoint(endpoint: string): string {
+    return endpoint.trim().replace(/\/+$/, '');
+  }
+
+  private buildUrl(base: string, path: string): string {
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    return `${base}${normalizedPath}`;
   }
 
   private normalizeSize(size?: string): string {
@@ -63,6 +109,78 @@ export class Seedream5Service {
     return '2K';
   }
 
+  private normalizeSizeForProvider(
+    provider: Seedream5ProviderType,
+    size: string,
+  ): string {
+    if (provider === 'watcha' && size.toUpperCase() === '3K') {
+      this.logger.warn('Watcha Seedream does not document 3K size, fallback to 2K');
+      return '2K';
+    }
+    return size;
+  }
+
+  private async getConfiguredProvider(): Promise<Seedream5ProviderType> {
+    try {
+      const setting = await this.prisma.systemSetting.findUnique({
+        where: { key: SEEDREAM5_PROVIDER_SETTING_KEY },
+      });
+      if (setting && (setting.value === 'doubao' || setting.value === 'watcha')) {
+        return setting.value;
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Failed to read seedream5 provider setting: ${
+          error instanceof Error ? error.message : error
+        }`,
+      );
+    }
+    return 'doubao';
+  }
+
+  private async resolveProviderConfig(): Promise<Seedream5ProviderConfig> {
+    const provider = await this.getConfiguredProvider();
+
+    if (provider === 'watcha') {
+      if (!this.watchaApiKey) {
+        throw new Error(
+          'Seedream5 watcha provider selected, but WATCHA_SEEDREAM_API_KEY is not configured',
+        );
+      }
+      return {
+        provider: 'watcha',
+        endpoint: this.watchaEndpoint,
+        apiKey: this.watchaApiKey,
+        model: this.watchaModel,
+        generationPath: '/v3/images/generations',
+      };
+    }
+
+    if (!this.doubaoApiKey) {
+      throw new Error('Seedream5 Doubao key not configured (ARK_API_KEY or DOUBAO_API_KEY)');
+    }
+    return {
+      provider: 'doubao',
+      endpoint: this.doubaoEndpoint,
+      apiKey: this.doubaoApiKey,
+      model: 'doubao-seedream-5-0-260128',
+      generationPath: '/api/v3/images/generations',
+    };
+  }
+
+  async getProviderExecutionInfo(): Promise<{
+    provider: Seedream5ProviderType;
+    model: string;
+    endpoint: string;
+  }> {
+    const config = await this.resolveProviderConfig();
+    return {
+      provider: config.provider,
+      model: config.model,
+      endpoint: config.endpoint,
+    };
+  }
+
   async generateImage(params: {
     prompt?: string;
     size?: string;
@@ -70,13 +188,14 @@ export class Seedream5Service {
     batchMode?: boolean;
     batchCount?: number;
   }): Promise<{ imageUrl?: string; imageUrls?: string[] }> {
-    if (!this.apiKey) {
-      throw new Error('Seedream5 API key not configured (ARK_API_KEY or DOUBAO_API_KEY)');
-    }
+    const providerConfig = await this.resolveProviderConfig();
+    const normalizedSize = this.normalizeSizeForProvider(
+      providerConfig.provider,
+      this.normalizeSize(params.size),
+    );
 
-    const normalizedSize = this.normalizeSize(params.size);
     const payload: any = {
-      model: 'doubao-seedream-5-0-260128',
+      model: providerConfig.model,
       sequential_image_generation: params.batchMode ? 'auto' : 'disabled',
       response_format: 'url',
       size: normalizedSize,
@@ -84,33 +203,32 @@ export class Seedream5Service {
       watermark: false,
     };
 
-    // 批量模式需要设置生成数量
     if (params.batchMode && params.batchCount) {
       payload.sequential_image_generation_options = {
         max_images: Math.min(Math.max(params.batchCount, 2), 10),
       };
     }
 
-    // prompt 可选，但如果提供了就加入
     if (params.prompt) {
       payload.prompt = params.prompt;
     }
 
-    // 根据图片数量设置 image 字段
     if (params.image_urls && params.image_urls.length > 0) {
-      payload.image = params.image_urls.length === 1
-        ? params.image_urls[0]
-        : params.image_urls.slice(0, 5);
+      payload.image =
+        params.image_urls.length === 1
+          ? params.image_urls[0]
+          : params.image_urls.slice(0, 5);
     }
 
+    const requestUrl = this.buildUrl(providerConfig.endpoint, providerConfig.generationPath);
     this.logger.log(
-      `Seedream5 request: size=${normalizedSize}, hasPrompt=${!!params.prompt}, imageCount=${params.image_urls?.length || 0}, batchMode=${!!params.batchMode}, batchCount=${params.batchCount || 0}`
+      `Seedream5 request provider=${providerConfig.provider}, model=${providerConfig.model}, size=${normalizedSize}, imageCount=${params.image_urls?.length || 0}, batchMode=${!!params.batchMode}, url=${requestUrl}`,
     );
 
-    const response = await fetch(`${this.endpoint}/api/v3/images/generations`, {
+    const response = await fetch(requestUrl, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${this.apiKey}`,
+        Authorization: `Bearer ${providerConfig.apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
@@ -122,26 +240,33 @@ export class Seedream5Service {
     }
 
     const data = await response.json();
-    this.logger.log(`Seedream5 API response: ${JSON.stringify(data)}`);
+    const images = Array.isArray(data.data) ? data.data : [];
+    const imageUrls = images
+      .map((img: any) => (typeof img?.url === 'string' ? img.url : ''))
+      .filter((url: string) => !!url);
 
-    const images = data.data || [];
-    if (images.length === 1) {
-      return { imageUrl: images[0]?.url };
-    } else if (images.length > 1) {
-      return { imageUrls: images.map((img: any) => img.url) };
+    if (imageUrls.length === 1) {
+      return { imageUrl: imageUrls[0] };
+    }
+    if (imageUrls.length > 1) {
+      return { imageUrls };
     }
 
-    throw new Error('No images returned from API');
+    throw new Error('No image URL returned from Seedream5 provider');
   }
 
-  async queryTask(taskId: string): Promise<{ status: string; imageUrl?: string; imageUrls?: string[] }> {
-    if (!this.apiKey) {
-      throw new Error('Seedream5 API key not configured (ARK_API_KEY or DOUBAO_API_KEY)');
-    }
-
-    const response = await fetch(`${this.endpoint}/api/v3/images/generations/${taskId}`, {
-      headers: { 'Authorization': `Bearer ${this.apiKey}` },
-    });
+  async queryTask(taskId: string): Promise<{
+    status: string;
+    imageUrl?: string;
+    imageUrls?: string[];
+  }> {
+    const providerConfig = await this.resolveProviderConfig();
+    const response = await fetch(
+      `${this.buildUrl(providerConfig.endpoint, providerConfig.generationPath)}/${taskId}`,
+      {
+        headers: { Authorization: `Bearer ${providerConfig.apiKey}` },
+      },
+    );
 
     if (!response.ok) {
       throw new Error(`Query failed: HTTP ${response.status}`);
@@ -150,11 +275,16 @@ export class Seedream5Service {
     const data = await response.json();
 
     if (data.status === 'succeeded' || data.status === 'completed') {
-      const images = data.data || [];
-      if (images.length === 1) {
-        return { status: 'succeeded', imageUrl: images[0]?.url };
-      } else if (images.length > 1) {
-        return { status: 'succeeded', imageUrls: images.map((img: any) => img.url) };
+      const images = Array.isArray(data.data) ? data.data : [];
+      const imageUrls = images
+        .map((img: any) => (typeof img?.url === 'string' ? img.url : ''))
+        .filter((url: string) => !!url);
+
+      if (imageUrls.length === 1) {
+        return { status: 'succeeded', imageUrl: imageUrls[0] };
+      }
+      if (imageUrls.length > 1) {
+        return { status: 'succeeded', imageUrls };
       }
     }
 
