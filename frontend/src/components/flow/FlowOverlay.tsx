@@ -6767,6 +6767,44 @@ function FlowInner() {
       typeof handle === "string" && handle.startsWith("text"),
     []
   );
+  const normalizeHandleValue = React.useCallback((handle?: string | null) => {
+    if (typeof handle !== "string") return "";
+    return handle.trim().toLowerCase();
+  }, []);
+
+  const isTextSourceHandle = React.useCallback(
+    (handle?: string | null) => {
+      const value = normalizeHandleValue(handle);
+      if (!value) return true;
+      return (
+        value === "text" ||
+        value.startsWith("text") ||
+        value.startsWith("prompt") ||
+        value === "response-text" ||
+        value === "result-text" ||
+        value === "responsetext"
+      );
+    },
+    [normalizeHandleValue]
+  );
+
+  const isImageSourceHandle = React.useCallback(
+    (handle?: string | null) => {
+      const value = normalizeHandleValue(handle);
+      if (!value) return true;
+      return (
+        value === "img" ||
+        value.startsWith("img") ||
+        value === "image" ||
+        value.startsWith("image") ||
+        value === "refer" ||
+        value === "omniimage" ||
+        value === "cref" ||
+        value === "elementimg"
+      );
+    },
+    [normalizeHandleValue]
+  );
 
   // 辅助函数：检查是否为图片相关的 handle（兼容 "image" 和 "img"）
   const isImageHandle = React.useCallback(
@@ -6865,11 +6903,19 @@ function FlowInner() {
       const targetNode = rf.getNode(target);
       if (!sourceNode || !targetNode) return false;
 
+      const canSourceProvideText = (
+        node: typeof sourceNode,
+        handle?: string | null
+      ) =>
+        textSourceTypes.includes(node.type || "") &&
+        isTextSourceHandle(handle);
+
       // 检查是否为有效的图片源节点
       const isImageSource = (
         node: typeof sourceNode,
         handle?: string | null
       ) => {
+        if (!isImageSourceHandle(handle)) return false;
         const imageNodeTypes = [
           "image",
           "imagePro",
@@ -6901,7 +6947,7 @@ function FlowInner() {
       // 允许连接到 Generate / Generate4 / GenerateRef / Image / PromptOptimizer
       if (targetNode.type === "generateRef") {
         if (targetHandle === "text")
-          return textSourceTypes.includes(sourceNode.type || "");
+          return canSourceProvideText(sourceNode, sourceHandle);
         if (targetHandle === "image1" || targetHandle === "refer")
           return isImageSource(sourceNode, sourceHandle);
         if (targetHandle === "image2" || targetHandle === "img")
@@ -6915,7 +6961,7 @@ function FlowInner() {
         targetNode.type === "generatePro4"
       ) {
         if (targetHandle === "text")
-          return textSourceTypes.includes(sourceNode.type || "");
+          return canSourceProvideText(sourceNode, sourceHandle);
         if (targetHandle === "img")
           return isImageSource(sourceNode, sourceHandle);
         return false;
@@ -6970,7 +7016,7 @@ function FlowInner() {
           return isImageSource(sourceNode, sourceHandle);
         }
         if (targetHandle === "text") {
-          return textSourceTypes.includes(sourceNode.type || "");
+          return canSourceProvideText(sourceNode, sourceHandle);
         }
         return false;
       }
@@ -6996,7 +7042,7 @@ function FlowInner() {
 
       if (targetNode.type === "wan26") {
         if (targetHandle === "text") {
-          return textSourceTypes.includes(sourceNode.type || "");
+          return canSourceProvideText(sourceNode, sourceHandle);
         }
         if (isImageHandle(targetHandle)) {
           return isImageSource(sourceNode, sourceHandle);
@@ -7022,7 +7068,7 @@ function FlowInner() {
 
       if (targetNode.type === "wan2R2V") {
         if (targetHandle === "text") {
-          return textSourceTypes.includes(sourceNode.type || "");
+          return canSourceProvideText(sourceNode, sourceHandle);
         }
         if (
           targetHandle === "video-1" ||
@@ -7060,7 +7106,7 @@ function FlowInner() {
           return isImageSource(sourceNode, sourceHandle);
         }
         if (targetHandle === "text") {
-          return textSourceTypes.includes(sourceNode.type || "");
+          return canSourceProvideText(sourceNode, sourceHandle);
         }
         if (targetHandle === "audio") {
           if (!canKlingNodeUseAudioInput(targetNode)) return false;
@@ -7078,7 +7124,7 @@ function FlowInner() {
           return isImageSource(sourceNode, sourceHandle);
         }
         if (targetHandle === "text") {
-          return textSourceTypes.includes(sourceNode.type || "");
+          return canSourceProvideText(sourceNode, sourceHandle);
         }
         if (targetHandle === "video") {
           // 允许从视频节点连接
@@ -7101,7 +7147,7 @@ function FlowInner() {
       // Nano2 节点连接验证 - 支持文本和图片输入
       if (targetNode.type === "nano2") {
         if (targetHandle === "text") {
-          return textSourceTypes.includes(sourceNode.type || "");
+          return canSourceProvideText(sourceNode, sourceHandle);
         }
         if (targetHandle === "img") {
           return isImageSource(sourceNode, sourceHandle);
@@ -7111,13 +7157,13 @@ function FlowInner() {
       // Midjourney 节点连接验证 - 仅支持文本输入
       if (targetNode.type === "midjourney") {
         if (targetHandle === "text") {
-          return textSourceTypes.includes(sourceNode.type || "");
+          return canSourceProvideText(sourceNode, sourceHandle);
         }
         return false;
       }
       if (targetNode.type === "midjourneyV7" || targetNode.type === "niji7") {
         if (targetHandle === "text") {
-          return textSourceTypes.includes(sourceNode.type || "");
+          return canSourceProvideText(sourceNode, sourceHandle);
         }
         if (
           targetHandle === "img" ||
@@ -7130,7 +7176,7 @@ function FlowInner() {
       }
       if (targetNode.type === "seedream5") {
         if (targetHandle === "prompt") {
-          return textSourceTypes.includes(sourceNode.type || "");
+          return canSourceProvideText(sourceNode, sourceHandle);
         }
         if (targetHandle === "img") {
           return isImageSource(sourceNode, sourceHandle);
@@ -7139,13 +7185,13 @@ function FlowInner() {
       }
       if (targetNode.type === "minimaxSpeech") {
         if (targetHandle === "text") {
-          return textSourceTypes.includes(sourceNode.type || "");
+          return canSourceProvideText(sourceNode, sourceHandle);
         }
         return false;
       }
       if (targetNode.type === "tencentSpeech") {
         if (targetHandle === "text") {
-          return textSourceTypes.includes(sourceNode.type || "");
+          return canSourceProvideText(sourceNode, sourceHandle);
         }
         if (targetHandle === "video") {
           return ["video", "sora2Video", "wan26", "wan2R2V", "klingVideo", "kling26Video", "klingO1Video", "viduVideo", "viduQ3", "doubaoVideo"].includes(sourceNode.type || "");
@@ -7154,7 +7200,7 @@ function FlowInner() {
       }
       if (targetNode.type === "minimaxMusic") {
         if (targetHandle === "text") {
-          return textSourceTypes.includes(sourceNode.type || "");
+          return canSourceProvideText(sourceNode, sourceHandle);
         }
         return false;
       }
@@ -7171,24 +7217,24 @@ function FlowInner() {
       }
       if (targetNode.type === "promptOptimize") {
         if (isTextHandle(targetHandle))
-          return textSourceTypes.includes(sourceNode.type || "");
+          return canSourceProvideText(sourceNode, sourceHandle);
         return false;
       }
       if (targetNode.type === "textPrompt") {
         if (isTextHandle(targetHandle))
-          return textSourceTypes.includes(sourceNode.type || "");
+          return canSourceProvideText(sourceNode, sourceHandle);
         return false;
       }
       if (targetNode.type === "textPromptPro") {
         if (isTextHandle(targetHandle))
-          return textSourceTypes.includes(sourceNode.type || "");
+          return canSourceProvideText(sourceNode, sourceHandle);
         return false;
       }
       if (targetNode.type === "analysis") {
         if (targetHandle === "img")
           return isImageSource(sourceNode, sourceHandle);
         if (targetHandle === "text")
-          return textSourceTypes.includes(sourceNode.type || "");
+          return canSourceProvideText(sourceNode, sourceHandle);
         return false;
       }
       if (targetNode.type === "videoAnalyze") {
@@ -7283,22 +7329,22 @@ function FlowInner() {
       }
       if (targetNode.type === "textChat") {
         if (isTextHandle(targetHandle))
-          return textSourceTypes.includes(sourceNode.type || "");
+          return canSourceProvideText(sourceNode, sourceHandle);
         return false;
       }
       if (targetNode.type === "textNote") {
         if (isTextHandle(targetHandle))
-          return textSourceTypes.includes(sourceNode.type || "");
+          return canSourceProvideText(sourceNode, sourceHandle);
         return false;
       }
       if (targetNode.type === "storyboardSplit") {
         if (isTextHandle(targetHandle))
-          return textSourceTypes.includes(sourceNode.type || "");
+          return canSourceProvideText(sourceNode, sourceHandle);
         return false;
       }
       return false;
     },
-    [rf, isTextHandle, isImageHandle, textSourceTypes, canKlingNodeUseAudioInput, canKlingNodeUseImage2Input]
+    [rf, isTextHandle, isImageHandle, textSourceTypes, isTextSourceHandle, isImageSourceHandle, canKlingNodeUseAudioInput, canKlingNodeUseImage2Input]
   );
 
   // 限制：Generate(text) 仅一个连接；Generate(img) 最多6条
@@ -11081,16 +11127,32 @@ function FlowInner() {
           (e) => e.target === nodeId && e.targetHandle === "video"
         );
 
+        const imageHandlePriority = (handle?: string | null): number => {
+          if (handle === "image") return 0;
+          if (handle === "image-2") return 1;
+          if (handle === "elementImg") return 2;
+          return 99;
+        };
+
         const imageEdges = currentEdges
           .filter((e) => {
             if (e.target !== nodeId) return false;
-            // 有视频输入时，只收集image句柄，排除elementImg
+            // 有视频输入时，只收集 image / image-2，排除 elementImg
             if (hasVideoInput) {
-              return e.targetHandle === "image";
+              return e.targetHandle === "image" || e.targetHandle === "image-2";
             }
-            // 无视频输入时，收集image和elementImg
-            return e.targetHandle === "image" || e.targetHandle === "elementImg";
+            // 无视频输入时，收集 image / image-2 / elementImg
+            return (
+              e.targetHandle === "image" ||
+              e.targetHandle === "image-2" ||
+              e.targetHandle === "elementImg"
+            );
           })
+          .sort(
+            (a, b) =>
+              imageHandlePriority(a.targetHandle) -
+              imageHandlePriority(b.targetHandle)
+          )
           .slice(0, maxImages);
         const imageCount = imageEdges.length;
 

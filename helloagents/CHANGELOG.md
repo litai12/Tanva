@@ -15,6 +15,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- Flow: tightened connection validation in FlowOverlay so text handles (text/prompt/response-text) and image handles (img/image/image*) are no longer cross-connectable by source node type alone.
+- Flow: fixed Kling video run-path image collection to include `image-2` (end frame) and enforce handle order (`image` -> `image-2`), so Kling 3.0 Pro start/end frame mode can take effect.
 - AI `generate-image`：当上游仅返回外链 `imageUrl` 时，统一改为后端拉取并转存 OSS 后再返回；管理员/白名单仍可跳过水印，但不再直返第三方临时链接，减少云端历史过期裂图（`backend/src/ai/ai.controller.ts`）。
 - Credits Backend: `updateApiUsageStatus` 增加状态机保护，禁止 `failed -> success` 与 `success -> failed` 反向回写，减少超时自动退款与晚到成功回写造成的状态/账务不一致（`backend/src/credits/credits.service.ts`）。
 - Frontend `/my-credits`: “今日消耗 / 最近 7 天消耗 / 趋势图”改为净消耗口径（`spend - refund`，最小 0），避免失败后已退款流水仍被计入消耗（`frontend/src/pages/MyCredits.tsx`）。
