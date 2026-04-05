@@ -761,11 +761,19 @@ export class VideoProviderService {
       };
     }
 
-    const apiKey = this.apiKeys["kling"];
-    if (!apiKey || apiKey.includes("xxx")) {
-      throw new ServiceUnavailableException("kling API Key 未配置");
+    const klingO3ApiKey = this.apiKeys["kling-o3"];
+    if (!klingO3ApiKey || klingO3ApiKey.includes("xxx")) {
+      throw new ServiceUnavailableException("kling-o3 API Key 未配置");
     }
-    return this.generateKling(options, apiKey);
+
+    // `kling-3.0` managed route is backed by the omni upstream on the legacy path.
+    return this.generateKlingO1(
+      {
+        ...options,
+        provider: "kling-o3",
+      },
+      klingO3ApiKey,
+    );
   }
 
   private async queryManagedKlingO3(taskId: string) {
