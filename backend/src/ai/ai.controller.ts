@@ -71,11 +71,19 @@ import { spawn } from 'child_process';
 import crypto from 'crypto';
 import { Readable } from 'stream';
 import { verify } from 'jsonwebtoken';
+import { OpenObserveTelemetryService } from '../telemetry/openobserve-telemetry.service';
+import { captureTraceContext, runWithSpan, type PersistedTraceContext } from '../telemetry/tracing';
 
 type GenerateImageUrlResult = {
   imageUrl: string;
   textResponse: string;
   metadata?: Record<string, any>;
+};
+
+type TraceableReq = {
+  id?: string;
+  traceId?: string;
+  headers?: Record<string, unknown>;
 };
 
 const MANAGED_IMAGE_KEY_REGEX = /^(projects|uploads|templates|videos|ai)\//i;
@@ -144,6 +152,7 @@ export class AiController {
     private readonly minimaxMusicService: MinimaxMusicService,
     private readonly prisma: PrismaService,
     private readonly oss: OssService,
+    private readonly telemetryService: OpenObserveTelemetryService,
     @Optional() private readonly imageTaskService?: ImageTaskService,
   ) {}
 
@@ -697,6 +706,27 @@ export class AiController {
     const causeMessage = cause?.message ? String(cause.message) : String(cause);
     const causeCode = cause?.code ? ` code=${String(cause.code)}` : '';
     return `${name}: ${message}${code} (cause: ${causeName}: ${causeMessage}${causeCode})`;
+  }
+
+  private getTraceId(req: TraceableReq | any): string | null {
+    const direct = typeof req?.traceId === 'string' ? req.traceId.trim() : '';
+    if (direct) return direct;
+    const header = typeof req?.headers?.['x-trace-id'] === 'string'
+      ? req.headers['x-trace-id'].trim()
+      : '';
+    return header || null;
+  }
+
+  private getRequestId(req: TraceableReq | any): string | null {
+    const requestId = typeof req?.id === 'string' ? req.id.trim() : '';
+    return requestId || null;
+  }
+
+  private getTraceContext(req: TraceableReq | any): PersistedTraceContext {
+    return captureTraceContext({
+      traceId: this.getTraceId(req),
+      parentRequestId: this.getRequestId(req),
+    });
   }
 
   private isPrismaPoolTimeoutError(error: any): boolean {
@@ -1438,6 +1468,9 @@ export class AiController {
   async generateImage(@Body() dto: GenerateImageDto, @Req() req: any): Promise<GenerateImageUrlResult> {
     const startTime = Date.now();
     const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
+    const generationTaskId = `sync-image-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const traceId = this.getTraceId(req);
+    const parentRequestId = this.getRequestId(req);
 
     const requestedProviderName =
       dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
@@ -1464,8 +1497,48 @@ export class AiController {
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
 
+    void this.telemetryService.ingestGenerationTask({
+      traceId,
+      parentRequestId,
+      taskId: generationTaskId,
+      taskType: 'image-generate',
+      stage: 'queued',
+      userId,
+      provider: providerName || 'gemini',
+      prompt: dto.prompt?.slice(0, 500) || null,
+      status: 'queued',
+      metadata: {
+        model,
+        serviceType,
+        skipCredits,
+        imageOnly: Boolean(dto.imageOnly),
+        aspectRatio: dto.aspectRatio || null,
+        imageSize: dto.imageSize || null,
+        enableWebSearch: Boolean(dto.enableWebSearch),
+        inputImageCount: normalizedImageUrlsForProvider.length,
+      },
+      receivedAt: new Date().toISOString(),
+    });
+
     try {
-      return await this.withCredits(req, serviceType, model, async () => {
+      void this.telemetryService.ingestGenerationTask({
+        traceId,
+        parentRequestId,
+        taskId: generationTaskId,
+        taskType: 'image-generate',
+        stage: 'processing',
+        userId,
+        provider: providerName || 'gemini',
+        prompt: dto.prompt?.slice(0, 500) || null,
+        status: 'processing',
+        metadata: {
+          model,
+          serviceType,
+        },
+        receivedAt: new Date().toISOString(),
+      });
+
+      const result = await this.withCredits(req, serviceType, model, async () => {
         const maxAttempts = 3;
         const retryDelaysMs = [500, 1200];
 
@@ -1625,15 +1698,60 @@ export class AiController {
 
         throw new InternalServerErrorException('图片生成重试次数耗尽，请稍后重试。');
       }, 0, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }));
+
+      void this.telemetryService.ingestGenerationTask({
+        traceId,
+        parentRequestId,
+        taskId: generationTaskId,
+        taskType: 'image-generate',
+        stage: 'succeeded',
+        userId,
+        provider: providerName || 'gemini',
+        prompt: dto.prompt?.slice(0, 500) || null,
+        status: 'succeeded',
+        durationMs: Date.now() - startTime,
+        metadata: {
+          model,
+          serviceType,
+          imageUrl: result.imageUrl,
+          hasTextResponse: Boolean(result.textResponse),
+        },
+        receivedAt: new Date().toISOString(),
+      });
+
+      return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(`[generate-image] 失败: ${errorMessage}`);
+      void this.telemetryService.ingestGenerationTask({
+        traceId,
+        parentRequestId,
+        taskId: generationTaskId,
+        taskType: 'image-generate',
+        stage: 'failed',
+        userId,
+        provider: providerName || 'gemini',
+        prompt: dto.prompt?.slice(0, 500) || null,
+        status: 'failed',
+        durationMs: Date.now() - startTime,
+        error: errorMessage,
+        metadata: {
+          model,
+          serviceType,
+        },
+        receivedAt: new Date().toISOString(),
+      });
       throw error;
     }
   }
 
   @Post('edit-image')
   async editImage(@Body() dto: EditImageDto, @Req() req: any): Promise<ImageGenerationResult> {
+    const startTime = Date.now();
+    const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
+    const generationTaskId = `sync-edit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const traceId = this.getTraceId(req);
+    const parentRequestId = this.getRequestId(req);
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
 
@@ -1664,7 +1782,36 @@ export class AiController {
     console.log(`serviceType: ${serviceType}`);
     console.log(`=================================\n`);
 
-    return this.withCredits(req, serviceType as any, model, async () => {
+    void this.telemetryService.ingestGenerationTask({
+      traceId,
+      parentRequestId,
+      taskId: generationTaskId,
+      taskType: 'image-edit',
+      stage: 'queued',
+      userId,
+      provider: providerName || 'gemini',
+      prompt: dto.prompt?.slice(0, 500) || null,
+      status: 'queued',
+      metadata: { model, serviceType, skipCredits, imageSize: dto.imageSize || null },
+      receivedAt: new Date().toISOString(),
+    });
+
+    try {
+      void this.telemetryService.ingestGenerationTask({
+        traceId,
+        parentRequestId,
+        taskId: generationTaskId,
+        taskType: 'image-edit',
+        stage: 'processing',
+        userId,
+        provider: providerName || 'gemini',
+        prompt: dto.prompt?.slice(0, 500) || null,
+        status: 'processing',
+        metadata: { model, serviceType },
+        receivedAt: new Date().toISOString(),
+      });
+
+      const result = await this.withCredits(req, serviceType as any, model, async () => {
       const fallbackUrl =
         !dto.sourceImageUrl && dto.sourceImage && /^https?:\/\//i.test(dto.sourceImage)
           ? dto.sourceImage
@@ -1752,11 +1899,51 @@ export class AiController {
       const data = await this.imageGeneration.editImage({ ...dto, sourceImage, customApiKey });
       const watermarked = await this.watermarkIfNeeded(data.imageData, req);
       return { ...data, imageData: watermarked };
-    }, 1, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }));
+      }, 1, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }));
+
+      void this.telemetryService.ingestGenerationTask({
+        traceId,
+        parentRequestId,
+        taskId: generationTaskId,
+        taskType: 'image-edit',
+        stage: 'succeeded',
+        userId,
+        provider: providerName || 'gemini',
+        prompt: dto.prompt?.slice(0, 500) || null,
+        status: 'succeeded',
+        durationMs: Date.now() - startTime,
+        metadata: { model, serviceType, hasImageData: Boolean(result?.imageData) },
+        receivedAt: new Date().toISOString(),
+      });
+      return result;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      void this.telemetryService.ingestGenerationTask({
+        traceId,
+        parentRequestId,
+        taskId: generationTaskId,
+        taskType: 'image-edit',
+        stage: 'failed',
+        userId,
+        provider: providerName || 'gemini',
+        prompt: dto.prompt?.slice(0, 500) || null,
+        status: 'failed',
+        durationMs: Date.now() - startTime,
+        error: errorMessage,
+        metadata: { model, serviceType },
+        receivedAt: new Date().toISOString(),
+      });
+      throw error;
+    }
   }
 
   @Post('blend-images')
   async blendImages(@Body() dto: BlendImagesDto, @Req() req: any): Promise<ImageGenerationResult> {
+    const startTime = Date.now();
+    const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
+    const generationTaskId = `sync-blend-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const traceId = this.getTraceId(req);
+    const parentRequestId = this.getRequestId(req);
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
 
@@ -1782,7 +1969,36 @@ export class AiController {
       );
     }
 
-    return this.withCredits(req, serviceType as any, model, async () => {
+    void this.telemetryService.ingestGenerationTask({
+      traceId,
+      parentRequestId,
+      taskId: generationTaskId,
+      taskType: 'image-blend',
+      stage: 'queued',
+      userId,
+      provider: providerName || 'gemini',
+      prompt: dto.prompt?.slice(0, 500) || null,
+      status: 'queued',
+      metadata: { model, serviceType, skipCredits, imageSize: dto.imageSize || null },
+      receivedAt: new Date().toISOString(),
+    });
+
+    try {
+      void this.telemetryService.ingestGenerationTask({
+        traceId,
+        parentRequestId,
+        taskId: generationTaskId,
+        taskType: 'image-blend',
+        stage: 'processing',
+        userId,
+        provider: providerName || 'gemini',
+        prompt: dto.prompt?.slice(0, 500) || null,
+        status: 'processing',
+        metadata: { model, serviceType },
+        receivedAt: new Date().toISOString(),
+      });
+
+      const result = await this.withCredits(req, serviceType as any, model, async () => {
       const sourceImages = tencentForcedBanana
         ? dto.sourceImages?.length
           ? dto.sourceImages
@@ -1867,7 +2083,42 @@ export class AiController {
       });
       const watermarked = await this.watermarkIfNeeded(data.imageData, req);
       return { ...data, imageData: watermarked };
-    }, dto.sourceImages?.length || 0, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }));
+      }, dto.sourceImages?.length || 0, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }));
+
+      void this.telemetryService.ingestGenerationTask({
+        traceId,
+        parentRequestId,
+        taskId: generationTaskId,
+        taskType: 'image-blend',
+        stage: 'succeeded',
+        userId,
+        provider: providerName || 'gemini',
+        prompt: dto.prompt?.slice(0, 500) || null,
+        status: 'succeeded',
+        durationMs: Date.now() - startTime,
+        metadata: { model, serviceType, hasImageData: Boolean(result?.imageData) },
+        receivedAt: new Date().toISOString(),
+      });
+      return result;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      void this.telemetryService.ingestGenerationTask({
+        traceId,
+        parentRequestId,
+        taskId: generationTaskId,
+        taskType: 'image-blend',
+        stage: 'failed',
+        userId,
+        provider: providerName || 'gemini',
+        prompt: dto.prompt?.slice(0, 500) || null,
+        status: 'failed',
+        durationMs: Date.now() - startTime,
+        error: errorMessage,
+        metadata: { model, serviceType },
+        receivedAt: new Date().toISOString(),
+      });
+      throw error;
+    }
   }
 
   @Post('midjourney/action')
@@ -2117,8 +2368,43 @@ export class AiController {
   @Post('expand-image')
   async expandImage(@Body() dto: ExpandImageDto, @Req() req: any) {
     this.logger.log('🖼️ Expand image request received');
+    const startTime = Date.now();
+    const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
+    const generationTaskId = `sync-expand-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const traceId = this.getTraceId(req);
+    const parentRequestId = this.getRequestId(req);
 
-    return this.withCredits(req, 'expand-image', undefined, async () => {
+    void this.telemetryService.ingestGenerationTask({
+      traceId,
+      parentRequestId,
+      taskId: generationTaskId,
+      taskType: 'image-expand',
+      stage: 'queued',
+      userId,
+      provider: 'expand-image',
+      prompt: dto.prompt?.slice(0, 500) || '扩图',
+      status: 'queued',
+      metadata: {
+        expandRatios: Array.isArray(dto.expandRatios) ? dto.expandRatios : null,
+      },
+      receivedAt: new Date().toISOString(),
+    });
+
+    try {
+      void this.telemetryService.ingestGenerationTask({
+        traceId,
+        parentRequestId,
+        taskId: generationTaskId,
+        taskType: 'image-expand',
+        stage: 'processing',
+        userId,
+        provider: 'expand-image',
+        prompt: dto.prompt?.slice(0, 500) || '扩图',
+        status: 'processing',
+        receivedAt: new Date().toISOString(),
+      });
+
+      const result = await this.withCredits(req, 'expand-image', undefined, async () => {
       const normalizedImageUrl = this.normalizeImageUrlForUpstream(dto.imageUrl);
       const result = await this.expandImageService.expandImage(
         normalizedImageUrl,
@@ -2131,7 +2417,45 @@ export class AiController {
         imageUrl: result.imageUrl,
         promptId: result.promptId,
       };
-    }, 1, 1);
+      }, 1, 1);
+
+      void this.telemetryService.ingestGenerationTask({
+        traceId,
+        parentRequestId,
+        taskId: generationTaskId,
+        taskType: 'image-expand',
+        stage: 'succeeded',
+        userId,
+        provider: 'expand-image',
+        prompt: dto.prompt?.slice(0, 500) || '扩图',
+        status: 'succeeded',
+        durationMs: Date.now() - startTime,
+        metadata: {
+          imageUrl: result.imageUrl,
+          promptId: result.promptId,
+        },
+        receivedAt: new Date().toISOString(),
+      });
+
+      return result;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      void this.telemetryService.ingestGenerationTask({
+        traceId,
+        parentRequestId,
+        taskId: generationTaskId,
+        taskType: 'image-expand',
+        stage: 'failed',
+        userId,
+        provider: 'expand-image',
+        prompt: dto.prompt?.slice(0, 500) || '扩图',
+        status: 'failed',
+        durationMs: Date.now() - startTime,
+        error: errorMessage,
+        receivedAt: new Date().toISOString(),
+      });
+      throw error;
+    }
   }
 
   @Post('generate-video')
@@ -2292,10 +2616,30 @@ export class AiController {
     // 创建异步任务并写入内存存储
     const taskId = `async-sora2-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
     createAsyncTask(taskId);
+    const traceContext = this.getTraceContext(req);
+    void this.telemetryService.ingestGenerationTask({
+      traceId: traceContext.traceId || null,
+      parentRequestId: traceContext.parentRequestId || null,
+      taskId,
+      taskType: 'video-generate',
+      stage: 'queued',
+      userId: this.getUserId(req),
+      provider: selectedSoraModel,
+      prompt: dto.prompt?.slice(0, 500) || null,
+      status: 'queued',
+      metadata: {
+        quality,
+        referenceCount: effectiveReferenceImageUrls.length,
+        aspectRatio: dto.aspectRatio || null,
+        duration: dto.duration || null,
+      },
+      receivedAt: new Date().toISOString(),
+    });
 
     // 在后台执行实际任务（不阻塞请求）
     this.executeVideoGenerationAsync(
       taskId,
+      traceContext,
       req,
       serviceType,
       selectedSoraModel,
@@ -2334,6 +2678,7 @@ export class AiController {
    */
   private async executeVideoGenerationAsync(
     taskId: string,
+    traceContext: PersistedTraceContext,
     req: any,
     serviceType: ServiceType,
     selectedSoraModel: string,
@@ -2343,7 +2688,7 @@ export class AiController {
     requestParams?: Record<string, any>,
   ): Promise<void> {
     // 异步执行，不等待结果
-    this.processVideoGenerationTask(taskId, req, serviceType, selectedSoraModel, options, inputImageCount, outputImageCount, requestParams)
+    this.processVideoGenerationTask(taskId, traceContext, req, serviceType, selectedSoraModel, options, inputImageCount, outputImageCount, requestParams)
       .catch((error) => {
         this.logger.error(`[Async] Video generation task ${taskId} failed:`, error);
       });
@@ -2354,6 +2699,7 @@ export class AiController {
    */
   private async processVideoGenerationTask(
     taskId: string,
+    traceContext: PersistedTraceContext,
     req: any,
     serviceType: ServiceType,
     selectedSoraModel: string,
@@ -2362,91 +2708,153 @@ export class AiController {
     outputImageCount: number,
     requestParams?: Record<string, any>,
   ): Promise<void> {
-    // 更新任务状态为处理中
-    updateAsyncTask(taskId, { status: 'processing' });
+    await runWithSpan(
+      'video-task.generate',
+      traceContext,
+      {
+        'app.task.id': taskId,
+        'app.task.type': 'video-generate',
+        'app.user.id': this.getUserId(req) || 'anonymous',
+        'app.ai.provider': selectedSoraModel,
+      },
+      async () => {
+        // 更新任务状态为处理中
+        updateAsyncTask(taskId, { status: 'processing' });
+        const startedAt = Date.now();
+        void this.telemetryService.ingestGenerationTask({
+          traceId: traceContext.traceId || null,
+          parentRequestId: traceContext.parentRequestId || null,
+          taskId,
+          taskType: 'video-generate',
+          stage: 'processing',
+          userId: this.getUserId(req),
+          provider: selectedSoraModel,
+          prompt: typeof options?.prompt === 'string' ? options.prompt.slice(0, 500) : null,
+          status: 'processing',
+          metadata: {
+            serviceType,
+            inputImageCount: inputImageCount ?? null,
+            outputImageCount,
+          },
+          receivedAt: new Date().toISOString(),
+        });
 
-    try {
-      // 调用 withCredits 执行积分扣费和实际生成
-      const result = await this.withCredits(
-        req,
-        serviceType,
-        selectedSoraModel,
-        async () => {
-          const videoResult = await this.sora2VideoService.generateVideo(options);
+        try {
+          const result = await this.withCredits(
+            req,
+            serviceType,
+            selectedSoraModel,
+            async () => {
+              const videoResult = await this.sora2VideoService.generateVideo(options);
 
-          if (!videoResult?.videoUrl) {
-            throw new ServiceUnavailableException(
-              videoResult?.fallbackMessage || videoResult?.content || '视频生成失败：未返回可用视频链接',
-            );
-          }
+              if (!videoResult?.videoUrl) {
+                throw new ServiceUnavailableException(
+                  videoResult?.fallbackMessage || videoResult?.content || '视频生成失败：未返回可用视频链接',
+                );
+              }
 
-          const skipWatermark = await this.canSkipWatermark(req);
-          this.logger.log(`[Async] Video generated for task ${taskId}, skipWatermark=${skipWatermark}`);
+              const skipWatermark = await this.canSkipWatermark(req);
+              this.logger.log(`[Async] Video generated for task ${taskId}, skipWatermark=${skipWatermark}`);
 
-          let finalResult = { ...videoResult };
+              let finalResult = { ...videoResult };
 
-          if (skipWatermark) {
-            let proxiedUrl = videoResult.videoUrl;
-            try {
-              const uploaded = await this.videoWatermarkService.uploadOriginalToOSS(videoResult.videoUrl);
-              proxiedUrl = uploaded.url;
-            } catch (error) {
-              this.logger.warn(`[Async] Video OSS copy failed for task ${taskId}`, error);
-            }
-            finalResult = {
-              ...videoResult,
-              videoUrl: proxiedUrl,
-              videoUrlRaw: videoResult.videoUrl,
-              videoUrlWatermarked: proxiedUrl,
-              watermarkSkipped: true,
-            };
-          } else {
-            try {
-              const wm = await this.videoWatermarkService.addWatermarkAndUpload(videoResult.videoUrl, {
-                text: 'Tanvas AI',
-              });
-              finalResult = {
-                ...videoResult,
-                videoUrl: wm.url,
-                videoUrlRaw: videoResult.videoUrl,
-                videoUrlWatermarked: wm.url,
-                watermarkSkipped: false,
-              };
-            } catch (error) {
-              this.logger.error(`[Async] Video watermark failed for task ${taskId}:`, error);
-              finalResult = {
-                ...videoResult,
-                videoUrl: videoResult.videoUrl,
-                videoUrlRaw: videoResult.videoUrl,
-                videoUrlWatermarked: videoResult.videoUrl,
-                watermarkFailed: true,
-              };
-            }
-          }
+              if (skipWatermark) {
+                let proxiedUrl = videoResult.videoUrl;
+                try {
+                  const uploaded = await this.videoWatermarkService.uploadOriginalToOSS(videoResult.videoUrl);
+                  proxiedUrl = uploaded.url;
+                } catch (error) {
+                  this.logger.warn(`[Async] Video OSS copy failed for task ${taskId}`, error);
+                }
+                finalResult = {
+                  ...videoResult,
+                  videoUrl: proxiedUrl,
+                  videoUrlRaw: videoResult.videoUrl,
+                  videoUrlWatermarked: proxiedUrl,
+                  watermarkSkipped: true,
+                };
+              } else {
+                try {
+                  const wm = await this.videoWatermarkService.addWatermarkAndUpload(videoResult.videoUrl, {
+                    text: 'Tanvas AI',
+                  });
+                  finalResult = {
+                    ...videoResult,
+                    videoUrl: wm.url,
+                    videoUrlRaw: videoResult.videoUrl,
+                    videoUrlWatermarked: wm.url,
+                    watermarkSkipped: false,
+                  };
+                } catch (error) {
+                  this.logger.error(`[Async] Video watermark failed for task ${taskId}:`, error);
+                  finalResult = {
+                    ...videoResult,
+                    videoUrl: videoResult.videoUrl,
+                    videoUrlRaw: videoResult.videoUrl,
+                    videoUrlWatermarked: videoResult.videoUrl,
+                    watermarkFailed: true,
+                  };
+                }
+              }
 
-          return finalResult;
-        },
-        inputImageCount,
-        outputImageCount,
-        undefined,
-        requestParams,
-      );
+              return finalResult;
+            },
+            inputImageCount,
+            outputImageCount,
+            undefined,
+            requestParams,
+          );
 
-      // 更新任务状态为完成
-      updateAsyncTask(taskId, {
-        status: 'completed',
-        result: result as any,
-      });
-      this.logger.log(`[Async] Video generation task ${taskId} completed successfully`);
-    } catch (error) {
-      // 更新任务状态为失败
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      updateAsyncTask(taskId, {
-        status: 'failed',
-        error: errorMessage,
-      });
-      this.logger.error(`[Async] Video generation task ${taskId} failed:`, error);
-    }
+          updateAsyncTask(taskId, {
+            status: 'completed',
+            result: result as any,
+          });
+          this.logger.log(`[Async] Video generation task ${taskId} completed successfully`);
+          void this.telemetryService.ingestGenerationTask({
+            traceId: traceContext.traceId || null,
+            parentRequestId: traceContext.parentRequestId || null,
+            taskId,
+            taskType: 'video-generate',
+            stage: 'succeeded',
+            userId: this.getUserId(req),
+            provider: selectedSoraModel,
+            prompt: typeof options?.prompt === 'string' ? options.prompt.slice(0, 500) : null,
+            status: 'completed',
+            durationMs: Date.now() - startedAt,
+            metadata: {
+              serviceType,
+              hasVideoUrl: Boolean((result as any)?.videoUrl),
+            },
+            receivedAt: new Date().toISOString(),
+          });
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          updateAsyncTask(taskId, {
+            status: 'failed',
+            error: errorMessage,
+          });
+          this.logger.error(`[Async] Video generation task ${taskId} failed:`, error);
+          void this.telemetryService.ingestGenerationTask({
+            traceId: traceContext.traceId || null,
+            parentRequestId: traceContext.parentRequestId || null,
+            taskId,
+            taskType: 'video-generate',
+            stage: 'failed',
+            userId: this.getUserId(req),
+            provider: selectedSoraModel,
+            prompt: typeof options?.prompt === 'string' ? options.prompt.slice(0, 500) : null,
+            status: 'failed',
+            durationMs: Date.now() - startedAt,
+            error: errorMessage,
+            metadata: {
+              serviceType,
+            },
+            receivedAt: new Date().toISOString(),
+          });
+          throw error;
+        }
+      },
+    );
   }
 
   @Post('sora2/character/create')
@@ -3680,6 +4088,8 @@ export class AiController {
     }
 
     const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
+    const traceId = this.getTraceId(req);
+    const parentRequestId = this.getRequestId(req);
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
 
@@ -3690,6 +4100,7 @@ export class AiController {
       dto.prompt,
       { ...dto, model },
       providerName || 'gemini',
+      { traceId, parentRequestId },
     );
 
     return {
@@ -3708,6 +4119,8 @@ export class AiController {
     }
 
     const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
+    const traceId = this.getTraceId(req);
+    const parentRequestId = this.getRequestId(req);
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
 
@@ -3723,6 +4136,7 @@ export class AiController {
       dto.prompt,
       { ...dto, sourceImage, model },
       providerName || 'gemini',
+      { traceId, parentRequestId },
     );
 
     return {
@@ -3741,6 +4155,8 @@ export class AiController {
     }
 
     const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
+    const traceId = this.getTraceId(req);
+    const parentRequestId = this.getRequestId(req);
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
 
@@ -3758,6 +4174,7 @@ export class AiController {
       dto.prompt,
       { ...dto, sourceImages, model },
       providerName || 'gemini',
+      { traceId, parentRequestId },
     );
 
     return {

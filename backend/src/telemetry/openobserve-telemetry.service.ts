@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { getActiveSpanContext } from './tracing';
 
 type FrontendErrorLog = {
   kind: string;
@@ -16,6 +17,7 @@ type FrontendErrorLog = {
 };
 
 type BackendRequestLog = {
+  traceId: string | null;
   method: string;
   path: string;
   route: string | null;
@@ -29,9 +31,67 @@ type BackendRequestLog = {
   receivedAt: string;
 };
 
+type GenerationTaskLog = {
+  traceId: string | null;
+  parentRequestId?: string | null;
+  taskId: string;
+  taskType: string;
+  stage: 'queued' | 'processing' | 'succeeded' | 'failed';
+  userId: string | null;
+  provider: string | null;
+  prompt: string | null;
+  status: string;
+  durationMs?: number | null;
+  error?: string | null;
+  metadata?: Record<string, unknown> | null;
+  receivedAt: string;
+};
+
+type UpstreamRequestLog = {
+  traceId: string | null;
+  spanId?: string | null;
+  method: string;
+  url: string;
+  host: string | null;
+  pathname: string | null;
+  statusCode: number | null;
+  durationMs: number | null;
+  requestHeaders?: Record<string, unknown> | null;
+  requestBody?: unknown;
+  responseHeaders?: Record<string, unknown> | null;
+  responseBody?: unknown;
+  error?: string | null;
+  serviceName?: string | null;
+  receivedAt: string;
+};
+
 const isEnabled = (value: unknown, defaultValue: boolean): boolean => {
   if (value == null || value === '') return defaultValue;
   return ['1', 'true', 'on', 'yes'].includes(String(value).toLowerCase());
+};
+
+const toSnakeCase = (value: string): string =>
+  value
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/([A-Z]+)([A-Z][a-z0-9]+)/g, '$1_$2')
+    .replace(/[\s-]+/g, '_')
+    .toLowerCase();
+
+const normalizeKeysForOpenObserve = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeKeysForOpenObserve(item));
+  }
+
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, nestedValue]) => [
+      toSnakeCase(key),
+      normalizeKeysForOpenObserve(nestedValue),
+    ]),
+  );
 };
 
 @Injectable()
@@ -62,6 +122,36 @@ export class OpenObserveTelemetryService {
     );
   }
 
+  async ingestGenerationTask(log: GenerationTaskLog): Promise<void> {
+    const isError = log.stage === 'failed' || log.status === 'failed' || Boolean(log.error);
+    await this.ingest(
+      this.configService.get<string>('OPENOBSERVE_GENERATION_TASK_STREAM')?.trim() || 'generation_tasks',
+      {
+        ...log,
+        isError,
+        failureStage: isError ? log.stage : null,
+        failureReason: isError ? log.error || log.status : null,
+        service: 'backend',
+        log_type: 'generation_task',
+      },
+    );
+  }
+
+  async ingestUpstreamRequest(log: UpstreamRequestLog): Promise<void> {
+    const isError = Boolean(log.error) || (typeof log.statusCode === 'number' && log.statusCode >= 400);
+    await this.ingest(
+      this.configService.get<string>('OPENOBSERVE_UPSTREAM_REQUEST_STREAM')?.trim() || 'upstream_requests',
+      {
+        ...log,
+        isError,
+        failureStage: isError ? 'upstream_request' : null,
+        failureReason: log.error || (isError ? `HTTP_${log.statusCode}` : null),
+        service: 'backend',
+        log_type: 'upstream_request',
+      },
+    );
+  }
+
   private async ingest(stream: string, payload: Record<string, unknown>): Promise<void> {
     if (!this.shouldSend()) return;
 
@@ -78,6 +168,18 @@ export class OpenObserveTelemetryService {
     const auth = Buffer.from(`${username}:${password}`).toString('base64');
 
     try {
+      const activeSpanContext = getActiveSpanContext();
+      const normalizedPayload = normalizeKeysForOpenObserve({
+        ...payload,
+        traceId:
+          (typeof payload.traceId === 'string' && payload.traceId.trim()) ||
+          activeSpanContext?.traceId ||
+          null,
+        spanId:
+          (typeof payload.spanId === 'string' && payload.spanId.trim()) ||
+          activeSpanContext?.spanId ||
+          null,
+      });
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
@@ -85,7 +187,7 @@ export class OpenObserveTelemetryService {
           Authorization: `Basic ${auth}`,
         },
         body: JSON.stringify([
-          payload,
+          normalizedPayload,
         ]),
       });
 

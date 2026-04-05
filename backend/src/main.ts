@@ -179,7 +179,8 @@ async function bootstrap() {
       : true,
     credentials: true,
     methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
-    allowedHeaders: ["content-type", "authorization", "x-api-key"],
+    allowedHeaders: ["content-type", "authorization", "x-api-key", "x-trace-id", "traceparent"],
+    exposedHeaders: ["x-trace-id"],
   });
 
   app.useGlobalPipes(

@@ -30,6 +30,7 @@ import { MinimaxSpeechService } from './services/minimax-speech.service';
 import { MinimaxMusicService } from './services/minimax-music.service';
 import { TencentSpeechService } from './services/tencent-speech.service';
 import { TencentVodAigcService } from './services/tencent-vod-aigc.service';
+import { TelemetryModule } from '../telemetry/telemetry.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { TencentVodAigcService } from './services/tencent-vod-aigc.service';
     CreditsModule,
     OssModule,
     PrismaModule,
+    TelemetryModule,
   ],
   providers: [
     AiService,

@@ -13,5 +13,6 @@ import { OpenObserveRequestInterceptor } from './openobserve-request.interceptor
       useClass: OpenObserveRequestInterceptor,
     },
   ],
+  exports: [OpenObserveTelemetryService],
 })
 export class TelemetryModule {}
