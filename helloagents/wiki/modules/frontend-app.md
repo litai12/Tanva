@@ -32,6 +32,7 @@
 ## 双语适配（画布侧）
 - `LayerPanel`（`frontend/src/components/panels/LayerPanel.tsx`）已接入 `useLocaleText`：面板标题、操作 tooltip、上下文菜单、待上传标识与底部统计文案均按语言切换。
 - `LibraryPanel`（`frontend/src/components/panels/LibraryPanel.tsx`）已接入 `useLocaleText`：上传/删除/发送提示、详情面板字段、全局历史筛选和分页文案按语言切换。
+- `LibraryPanel` 新增独立 `项目库` 标签：按当前 `currentProjectId` 过滤展示项目内历史记录（与 `全局历史` 分离），并复用单击详情弹层、发送/下载/删除操作与双击全屏预览交互。
 - `ToolBar`（`frontend/src/components/toolbar/ToolBar.tsx`）已接入 `useLocaleText`：主工具 tooltip、线条样式面板、清空画布确认等高频交互文案双语化。
 - `AIChatDialog`（`frontend/src/components/chat/AIChatDialog.tsx`）底部参数栏与上传菜单、历史会话工具条、图片/视频预览操作 tooltip 已按中英文切换（组件内通过 `i18n.language` + `lt()` 本地文案映射实现）。
 - `PromptOptimizationPanel`（`frontend/src/components/chat/PromptOptimizationPanel.tsx`）已接入双语文案：输出语言/长度倾向/风格/重点字段标签、占位符、错误提示和底部操作按钮按语言切换。

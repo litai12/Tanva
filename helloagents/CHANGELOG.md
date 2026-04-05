@@ -358,3 +358,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Changed
 - `库 -> 全局历史` 卡片单击行为从“直接发送到画板”改为“先打开左侧详情浮层”，详情浮层布局与 `个人素材` 保持一致，并提供发送/下载/删除操作（`frontend/src/components/panels/LibraryPanel.tsx`）。
 - `库` 面板内的 `个人素材` 与 `全局历史` 卡片统一支持双击打开全屏预览（复用 `ImagePreviewModal`），单击仍用于选中并展示详情（`frontend/src/components/panels/LibraryPanel.tsx`）。
+
+## [Project Library Patch - 2026-04-05]
+### Changed
+- `库` 面板新增独立 `项目库` 标签（与 `全局历史`、`个人素材` 并列），按当前项目 ID 过滤展示项目内历史记录，并维护独立搜索/筛选/分页状态（`frontend/src/components/panels/LibraryPanel.tsx`）。
+- `项目库` 复用历史卡片交互：单击打开详情浮层（发送到画板/下载/删除），双击打开全屏预览；删除后会按项目过滤条件刷新当前列表（`frontend/src/components/panels/LibraryPanel.tsx`）。
