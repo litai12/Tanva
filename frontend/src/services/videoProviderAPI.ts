@@ -24,6 +24,7 @@ export interface VideoGenerationRequest {
   // Kling/Kling-O1 专用参数
   mode?: "std" | "pro";
   sound?: string;
+  klingModel?: "kling-v2-1" | "kling-v2-6" | "kling-v3-0";
   // Kling O1 视频编辑专用参数
   referenceVideo?: string;
   referenceVideoType?: "feature" | "motion" | "expression";

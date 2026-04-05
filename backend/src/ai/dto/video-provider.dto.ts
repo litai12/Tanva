@@ -67,6 +67,11 @@ export class VideoProviderRequestDto {
   @IsString()
   mode?: string;
 
+  @ApiProperty({ description: 'Kling 模型版本 (如 kling-v2-1/kling-v2-6/kling-v3-0)', required: false })
+  @IsOptional()
+  @IsString()
+  klingModel?: string;
+
   @ApiProperty({ description: '错峰生成 (Vidu)', required: false })
   @IsOptional()
   @IsBoolean()

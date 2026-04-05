@@ -8,12 +8,15 @@ import {
 import { VideoProviderRequestDto } from "../dto/video-provider.dto";
 import { OssService } from "../../oss/oss.service";
 import { Readable } from "node:stream";
+import { TencentVodAigcService } from "./tencent-vod-aigc.service";
+import { ModelRoutingService } from "./model-routing.service";
 
 // 默认请求超时时间（毫秒）
 const DEFAULT_FETCH_TIMEOUT = 180000; // 3分钟
 const QUERY_FETCH_TIMEOUT = 60000; // 60秒（避免触发阿里云 ESA 300秒超时限制，采用短超时+快速轮询策略）
 const IMAGE_FETCH_TIMEOUT = 60000;
 const MANAGED_IMAGE_KEY_REGEX = /^(projects|uploads|templates|videos|ai)\//i;
+const MANAGED_KLING30_TENCENT_TASK_PREFIX = "tencentvod-kling30-";
 
 /**
  * 带超时的 fetch 请求
@@ -54,7 +57,11 @@ export class VideoProviderService {
   private readonly logger = new Logger(VideoProviderService.name);
   private readonly doubaoVideoCache = new Map<string, string>();
 
-  constructor(private readonly oss: OssService) {}
+  constructor(
+    private readonly oss: OssService,
+    private readonly tencentVodAigcService: TencentVodAigcService,
+    private readonly modelRoutingService: ModelRoutingService,
+  ) {}
 
   private resolveOssHosts(): string[] {
     return this.oss.publicHosts();
@@ -480,6 +487,15 @@ export class VideoProviderService {
     options: VideoProviderRequestDto
   ): Promise<VideoGenerationResult> {
     const { provider } = options;
+
+    if (provider === "kling-o3") {
+      return this.generateManagedKlingO3(options);
+    }
+
+    if (provider === "kling" && options.klingModel === "kling-v3-0") {
+      return this.generateManagedKling30(options);
+    }
+
     const apiKey = this.apiKeys[provider];
 
     if (!apiKey || apiKey.includes("xxx")) {
@@ -500,8 +516,6 @@ export class VideoProviderService {
         return this.generateKling(options, apiKey);
       case "kling-2.6":
         return this.generateKling26(options, apiKey);
-      case "kling-o3":
-        return this.generateKlingO1(options, apiKey);
       case "vidu":
         return this.generateVidu(options, apiKey);
       case "viduq3-pro":
@@ -518,6 +532,14 @@ export class VideoProviderService {
     provider: "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao",
     taskId: string
   ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string }> {
+    if (provider === "kling-o3") {
+      return this.queryManagedKlingO3(taskId);
+    }
+
+    if (provider === "kling" && taskId.startsWith(MANAGED_KLING30_TENCENT_TASK_PREFIX)) {
+      return this.queryManagedKling30(taskId);
+    }
+
     const apiKey = this.apiKeys[provider];
     if (!apiKey) throw new Error(`${provider} API Key 未配置`);
 
@@ -528,8 +550,6 @@ export class VideoProviderService {
         return this.queryKling(taskId, apiKey);
       case "kling-2.6":
         return this.queryKling26(taskId, apiKey);
-      case "kling-o3":
-        return this.queryKlingO1(taskId, apiKey);
       case "vidu":
         return this.queryVidu(taskId, apiKey);
       case "viduq3-pro":
@@ -537,6 +557,185 @@ export class VideoProviderService {
       default:
         throw new Error(`不支持的供应商: ${provider}`);
     }
+  }
+
+  private async generateManagedKlingO3(
+    options: VideoProviderRequestDto
+  ): Promise<VideoGenerationResult> {
+    const route = await this.modelRoutingService.resolveVideoModel("kling-o3");
+    if (route?.route === "tencent_vod") {
+      return this.generateKlingOmniViaTencent(options, route.vendor);
+    }
+
+    const apiKey = this.apiKeys["kling-o3"];
+    if (!apiKey || apiKey.includes("xxx")) {
+      throw new ServiceUnavailableException("kling-o3 API Key 未配置");
+    }
+    return this.generateKlingO1(options, apiKey);
+  }
+
+  private async generateManagedKling30(
+    options: VideoProviderRequestDto
+  ): Promise<VideoGenerationResult> {
+    const route = await this.modelRoutingService.resolveVideoModel("kling-3.0");
+    if (route?.route === "tencent_vod") {
+      const result = await this.generateKlingViaTencent(
+        options,
+        route.vendor,
+        "3.0"
+      );
+      return {
+        ...result,
+        taskId: `${MANAGED_KLING30_TENCENT_TASK_PREFIX}${result.taskId}`,
+      };
+    }
+
+    const apiKey = this.apiKeys["kling"];
+    if (!apiKey || apiKey.includes("xxx")) {
+      throw new ServiceUnavailableException("kling API Key 未配置");
+    }
+    return this.generateKling(options, apiKey);
+  }
+
+  private async queryManagedKlingO3(taskId: string) {
+    const route = await this.modelRoutingService.resolveVideoModel("kling-o3");
+    if (route?.route === "tencent_vod") {
+      return this.queryTencentManagedVideoTask(taskId, "kling-o3", "Kling 3.0-Omni");
+    }
+
+    const apiKey = this.apiKeys["kling-o3"];
+    if (!apiKey || apiKey.includes("xxx")) {
+      throw new ServiceUnavailableException("kling-o3 API Key 未配置");
+    }
+    return this.queryKlingO1(taskId, apiKey);
+  }
+
+  private async queryManagedKling30(taskId: string) {
+    const normalizedTaskId = taskId.startsWith(MANAGED_KLING30_TENCENT_TASK_PREFIX)
+      ? taskId.slice(MANAGED_KLING30_TENCENT_TASK_PREFIX.length)
+      : taskId;
+    return this.queryTencentManagedVideoTask(normalizedTaskId, "kling-3.0", "Kling 3.0");
+  }
+
+  private async generateKlingOmniViaTencent(
+    options: VideoProviderRequestDto,
+    vendorConfig: { modelName?: string; modelVersion?: string }
+  ): Promise<VideoGenerationResult> {
+    return this.generateKlingViaTencent(options, vendorConfig, "3.0-Omni");
+  }
+
+  private async generateKlingViaTencent(
+    options: VideoProviderRequestDto,
+    vendorConfig: { modelName?: string; modelVersion?: string },
+    fallbackModelVersion: string
+  ): Promise<VideoGenerationResult> {
+    if (options.referenceVideo?.trim()) {
+      throw new BadRequestException(
+        `腾讯 VOD Kling ${fallbackModelVersion} 当前先接入文生视频/图片参考模式，暂不支持视频参考模式`
+      );
+    }
+
+    const normalizedImages = Array.isArray(options.referenceImages)
+      ? options.referenceImages
+          .map((item) => this.normalizeManagedAssetUrlForUpstream(item))
+          .filter((item) => typeof item === "string" && item.trim().length > 0)
+      : [];
+
+    const fileInfos = normalizedImages.map((url, index) => ({
+      type: "Url" as const,
+      category: "Image" as const,
+      url,
+      objectId: `id${index + 1}`,
+    }));
+
+    const resolutionRaw =
+      typeof options.resolution === "string" && options.resolution.trim()
+        ? options.resolution.trim().toUpperCase()
+        : options.mode === "pro"
+        ? "1080P"
+        : "720P";
+
+    const duration =
+      typeof options.duration === "number" && Number.isFinite(options.duration)
+        ? Math.max(3, Math.min(15, Math.round(options.duration)))
+        : 5;
+
+    const audioGeneration =
+      options.mode === "pro" || options.sound === "on" ? "Enabled" : "Disabled";
+
+    const { taskId } = await this.tencentVodAigcService.createVideoTask({
+      modelName: vendorConfig.modelName || "Kling",
+      modelVersion: vendorConfig.modelVersion || fallbackModelVersion,
+      prompt: options.prompt,
+      fileInfos,
+      aspectRatio: options.aspectRatio,
+      duration,
+      resolution: resolutionRaw,
+      audioGeneration,
+      storageMode: "Temporary",
+      enhancePrompt: "Enabled",
+    });
+
+    return {
+      taskId,
+      status: "queued",
+    };
+  }
+
+  private async queryTencentManagedVideoTask(
+    taskId: string,
+    uploadKeyPrefix: string,
+    modelLabel: string
+  ) {
+    const result = await this.tencentVodAigcService.queryVideoTask(taskId);
+    const normalizedStatus = String(result.status || "").trim().toLowerCase();
+
+    if (
+      normalizedStatus === "finish" ||
+      normalizedStatus === "finished" ||
+      normalizedStatus === "success" ||
+      normalizedStatus === "succeed" ||
+      normalizedStatus === "succeeded" ||
+      normalizedStatus === "completed"
+    ) {
+      if (!result.videoUrl) {
+        this.logger.warn(
+          `Tencent VOD ${modelLabel} completed without videoUrl yet, continue polling: ${JSON.stringify(
+            {
+              taskId,
+              status: result.status,
+              fileId: result.fileId,
+              requestId: result.requestId,
+              procedureStatus: (result.raw?.ProcedureTask as any)?.Status || null,
+              procedureErrCode: (result.raw?.ProcedureTask as any)?.ErrCode || null,
+              procedureMessage: (result.raw?.ProcedureTask as any)?.Message || null,
+            }
+          )}`
+        );
+        return { status: "processing" };
+      }
+      const ossUrl = this.isOssPublicUrl(result.videoUrl)
+        ? result.videoUrl
+        : await this.uploadRemoteVideoToOss(result.videoUrl, `${uploadKeyPrefix}-${taskId}`);
+      return { status: "succeeded", videoUrl: ossUrl };
+    }
+
+    if (
+      normalizedStatus === "failed" ||
+      normalizedStatus === "fail" ||
+      normalizedStatus === "error" ||
+      normalizedStatus === "cancelled" ||
+      normalizedStatus === "timeout" ||
+      normalizedStatus === "exception"
+    ) {
+      const message =
+        (result.raw?.ProcedureTask as any)?.Message ||
+        (result.raw?.AigcVideoTask as any)?.Message ||
+        "生成失败";
+      return { status: "failed", error: message } as any;
+    }
+
+    return { status: "processing" };
   }
 
   /**

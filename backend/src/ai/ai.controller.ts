@@ -52,6 +52,7 @@ import { VeoGenerateVideoDto, VeoVideoResponseDto, VeoModelsResponseDto } from '
 import { Sora2VideoService } from './services/sora2-video.service';
 import { VeoVideoService } from './services/veo-video.service';
 import { VideoProviderService } from './services/video-provider.service';
+import { ModelRoutingService } from './services/model-routing.service';
 import { MinimaxSpeechService } from './services/minimax-speech.service';
 import { MinimaxMusicService } from './services/minimax-music.service';
 import { TencentSpeechService } from './services/tencent-speech.service';
@@ -147,6 +148,7 @@ export class AiController {
     private readonly videoWatermarkService: VideoWatermarkService,
     private readonly veoVideoService: VeoVideoService,
     private readonly videoProviderService: VideoProviderService,
+    private readonly modelRoutingService: ModelRoutingService,
     private readonly minimaxSpeechService: MinimaxSpeechService,
     private readonly tencentSpeechService: TencentSpeechService,
     private readonly minimaxMusicService: MinimaxMusicService,
@@ -469,6 +471,48 @@ export class AiController {
       aiProvider,
       channelHint,
     };
+  }
+
+  private async buildVideoProviderCreditParams(
+    dto: VideoProviderRequestDto,
+  ): Promise<Record<string, any>> {
+    const params: Record<string, any> = {
+      aiProvider: dto.provider,
+    };
+
+    if (dto.klingModel) {
+      params.klingModel = dto.klingModel;
+    }
+
+    if (dto.provider === 'kling-o3') {
+      const route = await this.modelRoutingService.resolveVideoModel('kling-o3');
+      if (route) {
+        params.modelKey = route.model.modelKey;
+        params.vendorKey = route.vendor.vendorKey;
+        params.platformKey = route.vendor.platformKey || route.vendor.vendorKey;
+        params.route = route.route;
+        params.providerChannel = route.vendor.platformKey || route.vendor.vendorKey;
+        params.routedProvider = route.vendor.provider || dto.provider;
+      }
+      return params;
+    }
+
+    if (dto.provider === 'kling' && dto.klingModel === 'kling-v3-0') {
+      const route = await this.modelRoutingService.resolveVideoModel('kling-3.0');
+      if (route) {
+        params.modelKey = route.model.modelKey;
+        params.vendorKey = route.vendor.vendorKey;
+        params.platformKey = route.vendor.platformKey || route.vendor.vendorKey;
+        params.route = route.route;
+        params.providerChannel = route.vendor.platformKey || route.vendor.vendorKey;
+        params.routedProvider = route.vendor.provider || dto.provider;
+      }
+      return params;
+    }
+
+    params.routedProvider = dto.provider;
+    params.providerChannel = dto.provider;
+    return params;
   }
 
   /**
@@ -2946,6 +2990,7 @@ export class AiController {
     // 确保用户有积分账户
     await this.creditsService.getOrCreateAccount(userId);
     const startTime = Date.now();
+    const requestParams = await this.buildVideoProviderCreditParams(effectiveDto);
 
     // 预扣积分
     const deductResult = await this.creditsService.preDeductCredits({
@@ -2954,6 +2999,7 @@ export class AiController {
       model: effectiveDto.provider,
       inputImageCount: effectiveDto.referenceImages?.length || undefined,
       outputImageCount: 0,
+      requestParams,
       ipAddress: req.ip,
       userAgent: req.headers?.['user-agent'],
     });
@@ -2971,6 +3017,12 @@ export class AiController {
 
       if (!result?.taskId && !result?.videoUrl) {
         throw new ServiceUnavailableException('视频任务创建失败：未返回 taskId 或 videoUrl');
+      }
+
+      if (result?.taskId) {
+        await this.creditsService.updateApiUsageRequestParams(apiUsageId, {
+          taskId: result.taskId,
+        });
       }
 
       // 兼容“立即出片”供应商：直接标记成功；异步任务维持 pending，交由轮询结果决定是否退款

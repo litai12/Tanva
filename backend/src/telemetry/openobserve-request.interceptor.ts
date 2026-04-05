@@ -10,6 +10,7 @@ import { catchError, tap } from 'rxjs/operators';
 import crypto from 'crypto';
 import { OpenObserveTelemetryService } from './openobserve-telemetry.service';
 import { getActiveSpanContext } from './tracing';
+import { enterRequestContext } from './request-context';
 
 type AuthLikeUser = {
   id?: string;
@@ -73,6 +74,13 @@ export class OpenObserveRequestInterceptor implements NestInterceptor {
         receivedAt: new Date().toISOString(),
       });
     };
+
+    const user = request.user;
+    enterRequestContext({
+      traceId,
+      requestId: request.id || null,
+      userId: user?.id || user?.userId || user?.sub || null,
+    });
 
     return next.handle().pipe(
       tap(() => {

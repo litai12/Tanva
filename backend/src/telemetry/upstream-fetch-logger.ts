@@ -1,4 +1,5 @@
 import { context, trace } from '@opentelemetry/api';
+import { getRequestContext } from './request-context';
 
 type PatchedFetch = typeof fetch & {
   __tanvaUpstreamLoggingPatched?: boolean;
@@ -268,6 +269,7 @@ export const installUpstreamFetchLogger = (): void => {
 
     const startedAt = Date.now();
     const activeSpan = trace.getSpan(context.active())?.spanContext();
+    const requestContext = getRequestContext();
     const requestBody = await readRequestBody(request);
     const requestHeaders = sanitizeHeaders(request.headers);
 
@@ -276,8 +278,10 @@ export const installUpstreamFetchLogger = (): void => {
       const responseHeaders = sanitizeHeaders(response.headers);
       const responseBody = await readResponseBody(response);
       void ingestUpstreamRequestLog({
-        trace_id: activeSpan?.traceId || null,
+        trace_id: activeSpan?.traceId || requestContext?.traceId || null,
         span_id: activeSpan?.spanId || null,
+        request_id: requestContext?.requestId || null,
+        user_id: requestContext?.userId || null,
         method: request.method,
         url: request.url,
         host: url.host,
@@ -296,8 +300,10 @@ export const installUpstreamFetchLogger = (): void => {
       return response;
     } catch (error) {
       void ingestUpstreamRequestLog({
-        trace_id: activeSpan?.traceId || null,
+        trace_id: activeSpan?.traceId || requestContext?.traceId || null,
         span_id: activeSpan?.spanId || null,
+        request_id: requestContext?.requestId || null,
+        user_id: requestContext?.userId || null,
         method: request.method,
         url: request.url,
         host: url.host,
