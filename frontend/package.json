@@ -25,6 +25,7 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@react-three/drei": "^10.6.1",
     "@react-three/fiber": "^9.3.0",
+    "@reactflow/node-resizer": "^2.2.14",
     "@types/paper": "^0.11.14",
     "@types/three": "^0.180.0",
     "@types/uuid": "^10.0.0",
