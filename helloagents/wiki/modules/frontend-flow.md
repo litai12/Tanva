@@ -16,12 +16,15 @@
 ## 节点可见性补充
 - `FlowOverlay` 使用统一隐藏集合控制节点可见性；当前 `sora2Video`（Sora 2）、`sora2Character`（Sora2 Character）与 `nano2`（Nano2）在节点添加面板与 Quick Connect 候选中默认隐藏。
 - 节点添加面板分组不能直接把 `category: "input"` 视为“文字类节点”；输入节点仍需继续按 `nodeKey`/解析后的节点类型细分到 `text / image / video / audio`，否则 `video` 这类输入节点会被误归到文字分组。
-- `Vidu` 视频能力已收拢为单一 `viduVideo` 入口；Q2 / Q3 / Q3-Pro / Q3-Turbo / Q3-Mix 通过同一节点内的模型选择切换，面板不再额外展示多个同品牌 Vidu 节点。运行时会根据 `viduModel` 自动切换 provider、时长与参考图上限；其中 `Q3-Mix` 至少需要 1 张参考图。
+- `Vidu` 视频能力已收拢为单一 `viduVideo` 入口；节点内模型只展示 `Q2 / Q3` 两档，面板不再额外展示多个同品牌 Vidu 节点。运行时会根据 `viduModel` 自动切换 provider、时长与参考图上限，旧的 `q3-pro / q3-turbo / q3-mix` 会在前端统一归并为 `q3`。
 - 模型管理删除模型后，Flow 节点添加面板不应继续展示对应模型节点：
-  - 后端公开节点接口会按 `model_provider_mapping_v2.models[]` 过滤带 `metadata.modelKeys` 的模型节点。
-  - 前端在有后端节点配置时，不再把这类默认模型节点作为 fallback 自动补回面板。
+  - 后端公开节点接口只会从“节点管理”里读取节点配置，再按 `model_provider_mapping_v2.models[]` 过滤带 `metadata.modelKeys` 的模型节点。
+  - 前端在有后端节点配置时，不再把这类默认模型节点作为 fallback 自动补回面板；后端不可用时的本地 fallback 也不再硬编码这些模型派生视频节点。
+- 管理后台“节点管理”支持“从模型管理导入”：
+  - 导入入口会读取当前动态 `model_provider_mapping_v2`，并基于选中的模型自动创建一条显式 `NodeConfig`。
+  - 导入只负责加速创建；画布节点仍只认节点管理中的显式配置，不会被模型管理 JSON 直接派生。
 - `Vidu` 节点内的模型下拉也受模型管理约束：
-  - 后端会把 `viduVideo.metadata.supportedModels` 裁剪为当前仍启用的 `vidu-q2 / vidu-q3 / vidu-q3-mix` 子集。
+  - 后端会把 `viduVideo.metadata.supportedModels` 裁剪为当前仍启用的 `vidu-q2 / vidu-q3` 子集；前端从模型管理导入节点配置时也只会写入 `q2 / q3`。
   - 若画布上已有旧节点指向已删除子模型，前端会自动回退到第一个仍可用的 `viduModel`。
 
 ## 音频节点

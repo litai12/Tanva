@@ -1167,6 +1167,96 @@ const buildPersistedModelMapping = (input: ModelProviderMappingV2): ModelProvide
   };
 };
 
+const MANAGED_MODEL_SUPPORTED_MODELS_MAP: Record<string, string[]> = {
+  "kling-2.6": ["kling-v2-6"],
+  "kling-3.0": ["kling-v3-0"],
+  "kling-o3": ["kling-o3"],
+  "vidu-q2": ["q2"],
+  "vidu-q3": ["q3"],
+  "vidu-q3-mix": ["q3"],
+  "seedance-1.5": ["seedance-1.5-pro"],
+  "seedance-2.0": ["seedance-2.0"],
+  "sora-2": ["sora-2", "sora-2-pro"],
+};
+
+const MANAGED_MODEL_SERVICE_TYPE_MAP: Record<string, string> = {
+  "kling-2.6": "kling-2.6-video",
+  "kling-3.0": "kling-video",
+  "kling-o3": "kling-o1-video",
+  "vidu-q2": "vidu-video",
+  "vidu-q3": "viduq3-pro-video",
+  "vidu-q3-mix": "viduq3-pro-video",
+  "seedance-1.5": "doubao-video",
+  "seedance-2.0": "doubao-video",
+  "sora-2": "sora-sd",
+};
+
+const buildManagedNodeMetadata = (model: ManagedModelConfig): Record<string, any> => {
+  const taskType = normalizeManagedModelTaskType(model.taskType);
+  const nodeConfig = getManagedNodeConfig(model);
+  const defaultVendor =
+    (model.vendors || []).find((vendor) => vendor.vendorKey === model.defaultVendor) ||
+    (model.vendors || []).find((vendor) => vendor.enabled !== false) ||
+    model.vendors?.[0];
+  const supportedModels = MANAGED_MODEL_SUPPORTED_MODELS_MAP[model.modelKey] || [];
+  const metadata: Record<string, any> = {
+    type: nodeConfig.flowNodeType,
+    provider: defaultVendor?.provider || "",
+    managedModelKey: model.modelKey,
+    managedTaskType: taskType,
+    nodeConfig,
+    modelKeys: [model.modelKey],
+  };
+
+  if (supportedModels.length > 0) {
+    metadata.supportedModels = supportedModels;
+  }
+
+  if (taskType === "video") {
+    metadata.vod = {
+      label: defaultVendor?.label || model.modelName || model.modelKey,
+      modelName: defaultVendor?.modelName || model.modelName || model.modelKey,
+      modelVersion: defaultVendor?.modelVersion || "",
+    };
+  }
+
+  if (model.modelKey.startsWith("vidu-")) {
+    const defaultViduModel = supportedModels[0] || "q2";
+    metadata.defaultData = {
+      provider: defaultViduModel === "q2" ? "vidu" : "viduq3-pro",
+      viduModel: defaultViduModel,
+      resolution: "720p",
+      clipDuration: defaultViduModel === "q2" ? 5 : 8,
+    };
+  } else if (model.modelKey.startsWith("kling-")) {
+    metadata.defaultData = {
+      provider: defaultVendor?.provider || "",
+      klingModel: supportedModels[0] || "kling-v2-6",
+      clipDuration: 5,
+    };
+  } else if (model.modelKey.startsWith("seedance-")) {
+    metadata.defaultData = {
+      provider: defaultVendor?.provider || "doubao",
+      seedanceModel: supportedModels[0] || "seedance-1.5-pro",
+      clipDuration: 5,
+      resolution: "720P",
+    };
+  } else if (model.modelKey === "sora-2") {
+    metadata.defaultData = {
+      generationType: "sora2",
+      model: "sora-2-pro",
+      clipDuration: 10,
+      aspectRatio: "16:9",
+      watermark: false,
+      thumbnailEnabled: true,
+      privateMode: false,
+      storyboard: false,
+    };
+  }
+
+  return metadata;
+};
+
 // 用户管理 Tab
 function UsersTab() {
   const currentUserId = useAuthStore((state) => state.user?.id);
@@ -5759,11 +5849,14 @@ function SettingsTab() {
 // 节点配置管理 Tab
 function NodeConfigsTab() {
   const [configs, setConfigs] = useState<NodeConfig[]>([]);
+  const [managedModels, setManagedModels] = useState<ManagedModelConfig[]>([]);
   const [loading, setLoading] = useState(false);
   const [editingConfig, setEditingConfig] = useState<NodeConfig | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [metadataText, setMetadataText] = useState("{}");
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importingModelKey, setImportingModelKey] = useState("");
   const [toast, setToast] = useState<{
     message: string;
     type: "success" | "error";
@@ -5789,6 +5882,27 @@ function NodeConfigsTab() {
     loadConfigs();
   }, []);
 
+  useEffect(() => {
+    const loadManagedModels = async () => {
+      try {
+        const settings = await getSettings();
+        const existing = settings.find(
+          (item) => item.key === MODEL_PROVIDER_MAPPING_SETTING_KEY
+        );
+        const source = existing?.value?.trim()
+          ? JSON.parse(existing.value)
+          : JSON.parse(DEFAULT_MODEL_PROVIDER_MAPPING_TEMPLATE);
+        const normalized = normalizeModelMapping(source);
+        setManagedModels(normalized.models || []);
+      } catch (error) {
+        console.error("加载模型管理配置失败:", error);
+        setManagedModels([]);
+      }
+    };
+
+    loadManagedModels();
+  }, []);
+
   const handleEdit = (config: NodeConfig) => {
     setEditingConfig({ ...config });
     setMetadataText(JSON.stringify(config.metadata || {}, null, 2));
@@ -5810,6 +5924,52 @@ function NodeConfigsTab() {
     setMetadataText("{}");
     setIsCreating(true);
     setModalOpen(true);
+  };
+
+  const handleImportFromManagedModel = async () => {
+    const model = managedModels.find((item) => item.modelKey === importingModelKey);
+    if (!model) {
+      showToast("请选择要导入的模型", "error");
+      return;
+    }
+
+    const nodeConfig = getManagedNodeConfig(model);
+    const nodeKey = nodeConfig.nodeKey || "";
+    if (!nodeKey) {
+      showToast("该模型缺少可复用的节点标识，请先补充模型节点模板", "error");
+      return;
+    }
+
+    if (configs.some((item) => item.nodeKey === nodeKey)) {
+      showToast(`节点标识 ${nodeKey} 已存在，请直接在节点管理中编辑`, "error");
+      return;
+    }
+
+    const taskType = normalizeManagedModelTaskType(model.taskType);
+    const payload = {
+      nodeKey,
+      nameZh: model.modelName || model.modelKey,
+      nameEn: model.modelKey,
+      category: nodeConfig.category || (taskType === "text" ? "input" : taskType),
+      status: "normal" as const,
+      creditsPerCall: nodeConfig.creditsPerCall || 0,
+      serviceType: MANAGED_MODEL_SERVICE_TYPE_MAP[model.modelKey] || undefined,
+      sortOrder: nodeConfig.sortOrder || 0,
+      isVisible: true,
+      description: nodeConfig.description || `${model.modelName || model.modelKey} 节点（模型管理导入）`,
+      metadata: buildManagedNodeMetadata(model),
+    };
+
+    try {
+      await createNodeConfig(payload);
+      notifyNodeConfigsUpdated();
+      showToast(`已导入节点 ${payload.nameZh}`);
+      setImportModalOpen(false);
+      setImportingModelKey("");
+      loadConfigs();
+    } catch (error: any) {
+      showToast(error.message || "导入失败", "error");
+    }
   };
 
   const handleSave = async () => {
@@ -5983,7 +6143,12 @@ function NodeConfigsTab() {
         </div>
       )}
       <div className="mb-4">
-        <Button onClick={handleCreate}>添加节点</Button>
+        <div className="flex gap-2">
+          <Button onClick={handleCreate}>添加节点</Button>
+          <Button variant="outline" onClick={() => setImportModalOpen(true)}>
+            从模型管理导入
+          </Button>
+        </div>
       </div>
 
       <div className="bg-white rounded-lg border overflow-hidden">
@@ -6219,6 +6384,56 @@ function NodeConfigsTab() {
                   取消
                 </Button>
                 <Button onClick={handleSave}>保存</Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {importModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-lg">
+            <h3 className="text-lg font-semibold mb-4">从模型管理导入节点</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">选择模型</label>
+                <select
+                  value={importingModelKey}
+                  onChange={(e) => setImportingModelKey(e.target.value)}
+                  className="w-full border rounded px-3 py-2"
+                >
+                  <option value="">请选择模型管理中的模型</option>
+                  {managedModels.map((model) => {
+                    const nodeConfig = getManagedNodeConfig(model);
+                    return (
+                      <option key={model.modelKey} value={model.modelKey}>
+                        {(model.modelName || model.modelKey) +
+                          " / nodeKey=" +
+                          (nodeConfig.nodeKey || "-")}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              <div className="rounded-lg border bg-gray-50 px-4 py-3 text-sm text-gray-600">
+                该操作会基于模型管理中的动态 JSON 自动创建一条节点管理配置。
+                画布内节点仍然只以节点管理中的显式配置为准。
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setImportModalOpen(false);
+                    setImportingModelKey("");
+                  }}
+                >
+                  取消
+                </Button>
+                <Button onClick={handleImportFromManagedModel} disabled={!importingModelKey}>
+                  导入并创建
+                </Button>
               </div>
             </div>
           </div>

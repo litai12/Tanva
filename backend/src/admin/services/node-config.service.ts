@@ -34,19 +34,6 @@ export interface UpdateNodeConfigDto {
   metadata?: Record<string, any>;
 }
 
-interface ManagedModelNodeConfig {
-  enabled?: boolean;
-  nodeKey?: string;
-  flowNodeType?: string;
-  category?: string;
-  status?: string;
-  creditsPerCall?: number;
-  priceYuan?: number;
-  serviceType?: string;
-  sortOrder?: number;
-  description?: string;
-}
-
 interface ManagedModelConfig {
   modelKey: string;
   modelName?: string;
@@ -117,47 +104,6 @@ export class NodeConfigService {
     if (taskType === 'text') return 'input';
     if (taskType === 'image') return 'image';
     return 'video';
-  }
-
-  private sanitizeManagedNodeKey(modelKey: string, fallbackNodeType: string): string {
-    const source = String(modelKey || fallbackNodeType || 'managed_model')
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '');
-    return source ? `managed_${source}` : 'managed_model';
-  }
-
-  private mergeNodeConfigLists(
-    base: Array<Record<string, any>>,
-    derived: Array<Record<string, any>>,
-  ): Array<Record<string, any>> {
-    const merged = new Map<string, Record<string, any>>();
-
-    for (const item of base) {
-      if (!item?.nodeKey) continue;
-      merged.set(String(item.nodeKey), item);
-    }
-
-    for (const item of derived) {
-      if (!item?.nodeKey) continue;
-      merged.set(String(item.nodeKey), item);
-    }
-
-    const categoryOrder: Record<string, number> = {
-      input: 0,
-      image: 1,
-      video: 2,
-      audio: 3,
-      other: 4,
-    };
-
-    return Array.from(merged.values()).sort((a, b) => {
-      const ca = categoryOrder[a.category ?? 'other'] ?? 99;
-      const cb = categoryOrder[b.category ?? 'other'] ?? 99;
-      if (ca !== cb) return ca - cb;
-      return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
-    });
   }
 
   private async getEnabledManagedModelKeySet(): Promise<Set<string>> {
@@ -238,11 +184,9 @@ export class NodeConfigService {
     if (nodeKey === 'viduVideo') {
       const supportsQ2 = enabledModelKeys.has('vidu-q2');
       const supportsQ3Family = enabledModelKeys.has('vidu-q3');
-      const supportsQ3Mix = enabledModelKeys.has('vidu-q3-mix');
       const supportedModels = [
         ...(supportsQ2 ? ['q2'] : []),
-        ...(supportsQ3Family ? ['q3', 'q3-pro', 'q3-turbo'] : []),
-        ...(supportsQ3Mix ? ['q3-mix'] : []),
+        ...(supportsQ3Family ? ['q3'] : []),
       ];
 
       nextMetadata.supportedModels = supportedModels;
@@ -269,97 +213,6 @@ export class NodeConfigService {
     }
 
     return nextMetadata;
-  }
-
-  private async getManagedModelNodeConfigs() {
-    try {
-      const setting = await this.prisma.systemSetting.findUnique({
-        where: { key: MODEL_PROVIDER_MAPPING_SETTING_KEY },
-      });
-      const raw = setting?.value?.trim();
-      if (!raw) return [];
-
-      const parsed = JSON.parse(raw) as ModelProviderMappingV2Like;
-      const models = Array.isArray(parsed?.models) ? parsed.models.filter(Boolean) : [];
-
-      return models
-        .map((model, index) => {
-          if (!model || typeof model.modelKey !== 'string' || !model.modelKey.trim()) {
-            return null;
-          }
-
-          const metadata =
-            model.metadata && typeof model.metadata === 'object' ? model.metadata : {};
-          const nodeConfig =
-            metadata.nodeConfig && typeof metadata.nodeConfig === 'object'
-              ? (metadata.nodeConfig as ManagedModelNodeConfig)
-              : null;
-
-          if (!nodeConfig || nodeConfig.enabled === false) {
-            return null;
-          }
-
-          const flowNodeType = String(nodeConfig.flowNodeType || '').trim();
-          if (!flowNodeType) {
-            return null;
-          }
-
-          const taskType = this.normalizeManagedTaskType(model.taskType);
-          const category = this.normalizeManagedNodeCategory(nodeConfig.category, taskType);
-          const nodeKey =
-            String(nodeConfig.nodeKey || '').trim() ||
-            this.sanitizeManagedNodeKey(model.modelKey, flowNodeType);
-
-          const existingModelKeys = Array.isArray((metadata as any).modelKeys)
-            ? (metadata as any).modelKeys.map((item: unknown) => String(item)).filter(Boolean)
-            : [];
-
-          return {
-            nodeKey,
-            nameZh: model.modelName || model.modelKey,
-            nameEn: model.modelKey,
-            category,
-            status:
-              nodeConfig.status ||
-              (model.enabled === false ? 'disabled' : 'normal'),
-            creditsPerCall:
-              typeof nodeConfig.creditsPerCall === 'number'
-                ? nodeConfig.creditsPerCall
-                : 0,
-            priceYuan:
-              typeof nodeConfig.priceYuan === 'number' ? nodeConfig.priceYuan : null,
-            serviceType: nodeConfig.serviceType,
-            sortOrder:
-              typeof nodeConfig.sortOrder === 'number'
-                ? nodeConfig.sortOrder
-                : 2000 + index,
-            description:
-              nodeConfig.description ||
-              `${taskType} 模型节点（模型管理）`,
-            metadata: {
-              ...metadata,
-              type: flowNodeType,
-              managedModelKey: model.modelKey,
-              managedTaskType: taskType,
-              nodeConfig: {
-                ...nodeConfig,
-                flowNodeType,
-                category,
-                nodeKey,
-              },
-              modelKeys: Array.from(new Set([...existingModelKeys, model.modelKey])),
-            },
-          };
-        })
-        .filter(Boolean);
-    } catch (error) {
-      this.logger.warn(
-        `读取模型派生节点配置失败，已忽略: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-      return [];
-    }
   }
 
   private normalizeNodeConfigOutput<T extends { nodeKey: string; description?: string | null; metadata?: any }>(
@@ -431,7 +284,6 @@ export class NodeConfigService {
       where: { isVisible: true },
       orderBy: [{ sortOrder: 'asc' }], // 先按 sortOrder 粗排，后面再自定义分类顺序
     });
-    const managedConfigs = await this.getManagedModelNodeConfigs();
     const enabledManagedModelKeys = await this.getEnabledManagedModelKeySet();
 
     // 自定义分类顺序：输入(input) → 图像(image) → 视频(video) → 其他(other)
@@ -483,7 +335,7 @@ export class NodeConfigService {
         ),
       );
 
-    return this.mergeNodeConfigLists(dbConfigs, managedConfigs as Array<Record<string, any>>);
+    return dbConfigs;
   }
 
   /**
@@ -823,7 +675,7 @@ export class NodeConfigService {
               type: 'viduVideo',
               provider: 'vidu',
               modelKeys: ['vidu-q2', 'vidu-q3', 'vidu-q3-mix'],
-              supportedModels: ['q2', 'q3', 'q3-pro', 'q3-turbo', 'q3-mix'],
+              supportedModels: ['q2', 'q3'],
               defaultData: {
                 provider: 'vidu',
                 viduModel: 'q2',
@@ -1202,8 +1054,8 @@ export class NodeConfigService {
         metadata: {
           type: 'viduVideo',
           provider: 'vidu',
-          modelKeys: ['vidu-q2', 'vidu-q3', 'vidu-q3-mix'],
-          supportedModels: ['q2', 'q3', 'q3-pro', 'q3-turbo', 'q3-mix'],
+          modelKeys: ['vidu-q2', 'vidu-q3'],
+          supportedModels: ['q2', 'q3'],
           defaultData: {
             provider: 'vidu',
             viduModel: 'q2',

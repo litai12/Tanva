@@ -12,10 +12,7 @@ import { useLocaleText } from "@/utils/localeText";
 export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao";
 type ViduModel =
   | "q2"
-  | "q3"
-  | "q3-pro"
-  | "q3-turbo"
-  | "q3-mix";
+  | "q3";
 type SeedanceModel = "seedance-1.5-pro" | "seedance-2.0";
 type VodCapabilityMetadata = {
   label?: string;
@@ -89,7 +86,12 @@ const PROVIDER_CONFIG: Record<VideoProvider, { name: string; zh: string }> = {
 };
 
 const isViduQ3FamilyModel = (value?: string): boolean =>
-  ["q3", "q3-pro", "q3-turbo", "q3-mix"].includes(String(value || "").trim().toLowerCase());
+  String(value || "").trim().toLowerCase() === "q3";
+
+const normalizeViduModelValue = (value?: string): ViduModel => {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "q2" ? "q2" : "q3";
+};
 
 const SUPPORTED_AUDIO_EXTENSIONS = [
   "mp3",
@@ -171,9 +173,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       ? (nodeConfigMetadata.vod as VodCapabilityMetadata)
       : undefined;
   const isVodManagedNode = Boolean(vodConfig);
-  const viduModel: ViduModel =
-    data.viduModel ||
-    (provider === "viduq3-pro" ? "q3" : "q2");
+  const viduModel: ViduModel = normalizeViduModelValue(
+    data.viduModel || (provider === "viduq3-pro" ? "q3" : "q2")
+  );
   const seedanceModel: SeedanceModel =
     data.seedanceModel === "seedance-2.0" ? "seedance-2.0" : "seedance-1.5-pro";
   const klingModel =
@@ -197,9 +199,17 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const supportedModels = React.useMemo(
     () =>
       Array.isArray(nodeConfigMetadata.supportedModels)
-        ? nodeConfigMetadata.supportedModels.map((item: unknown) => String(item))
+        ? Array.from(
+            new Set(
+              nodeConfigMetadata.supportedModels.map((item: unknown) =>
+                provider === "vidu" || provider === "viduq3-pro"
+                  ? normalizeViduModelValue(String(item))
+                  : String(item).trim()
+              )
+            )
+          )
         : [],
-    [nodeConfigMetadata.supportedModels]
+    [nodeConfigMetadata.supportedModels, provider]
   );
   const vodAspectOptions = React.useMemo(() => {
     if (!Array.isArray(vodConfig?.outputConfig?.aspectRatios)) return [];
@@ -472,9 +482,6 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     () => [
       { label: "Vidu Q2", value: "q2" as const },
       { label: "Vidu Q3", value: "q3" as const },
-      { label: "Vidu Q3-Turbo", value: "q3-turbo" as const },
-      { label: "Vidu Q3-Pro", value: "q3-pro" as const },
-      { label: "Vidu Q3-Mix", value: "q3-mix" as const },
     ],
     []
   );

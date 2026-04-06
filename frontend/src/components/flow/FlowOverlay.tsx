@@ -872,17 +872,17 @@ const FLOW_GROUP_LOCAL_RUN_TYPES = new Set([
 ]);
 const SORA2_MAX_REFERENCE_IMAGES = 1;
 const VIDU_MAX_REFERENCE_IMAGES = 7; // Vidu viduq2 模型支持最多 7 张参考图
-const VIDUQ3_MAX_REFERENCE_IMAGES = 2; // Vidu Q3 Pro 支持最多 2 张参考图
+const VIDUQ3_MAX_REFERENCE_IMAGES = 2; // Vidu Q3 支持最多 2 张参考图
 const KLING_MAX_REFERENCE_IMAGES = 2; // Kling 2.1 / 2.6 统一限制最多 2 张参考图
 const KLING_MAX_AUDIO_INPUTS = 2;
 
-const isViduQ3FamilyModel = (value?: string): boolean =>
-  ["q3", "q3-pro", "q3-turbo", "q3-mix"].includes(
-    String(value || "").trim().toLowerCase()
-  );
+const normalizeViduModelValue = (value?: string): "q2" | "q3" => {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "q2" ? "q2" : "q3";
+};
 
-const isViduQ3MixModel = (value?: string): boolean =>
-  String(value || "").trim().toLowerCase() === "q3-mix";
+const isViduQ3FamilyModel = (value?: string): boolean =>
+  normalizeViduModelValue(value) === "q3";
 
 const getEffectiveViduProvider = (nodeData?: Record<string, any>): VideoProvider =>
   isViduQ3FamilyModel(nodeData?.viduModel) ? "viduq3-pro" : "vidu";
@@ -1385,8 +1385,6 @@ type FlowNodeType = keyof typeof FLOW_NODE_DEFAULT_SIZE;
 
 const HIDDEN_FLOW_NODE_TYPES = new Set<FlowNodeType>([
   "kling26Video",
-  "sora2Video",
-  "sora2Character",
   "nano2",
 ]);
 
@@ -11345,23 +11343,6 @@ function FlowInner() {
         let finalPrompt = promptText;
 
         if (provider === "vidu" || provider === "viduq3-pro") {
-          if (isViduQ3MixModel(rawNodeData.viduModel) && imageCount === 0) {
-            setNodes((ns) =>
-              ns.map((n) =>
-                n.id === nodeId
-                  ? {
-                      ...n,
-                      data: {
-                        ...n.data,
-                        status: "failed",
-                        error: "Q3-Mix 模式至少需要 1 张参考图",
-                      },
-                    }
-                  : n
-              )
-            );
-            return;
-          }
           if (imageCount === 0 && !hasText) {
             // 0张图必须有prompt
             setNodes((ns) =>
