@@ -649,6 +649,8 @@ export class AiController {
       treatReturnedFailureAsError?: boolean;
       /** 为 true 时不将本次调用标为成功（保持 pending），用于异步任务后续由前端确认失败并退款 */
       skipFinalizeSuccessIf?: (result: T) => boolean;
+      /** 在创建积分流水后透出 apiUsageId，便于异步链路追加 telemetry 关联字段 */
+      onApiUsageId?: (apiUsageId: string) => void;
     },
   ): Promise<T> {
     const userId = this.getUserId(req);
@@ -697,6 +699,7 @@ export class AiController {
 
       apiUsageId = deductResult.apiUsageId;
       this.logger.debug(`Credits pre-deducted: ${serviceType}, apiUsageId: ${apiUsageId}`);
+      creditOptions?.onApiUsageId?.(apiUsageId);
 
       // 执行实际操作
       const result = await operation();
@@ -2957,6 +2960,8 @@ export class AiController {
     outputImageCount: number,
     requestParams?: Record<string, any>,
   ): Promise<void> {
+    let apiUsageId: string | null = null;
+
     await runWithSpan(
       'video-task.generate',
       traceContext,
@@ -2981,6 +2986,7 @@ export class AiController {
           prompt: typeof options?.prompt === 'string' ? options.prompt.slice(0, 500) : null,
           status: 'processing',
           metadata: {
+            apiUsageId,
             serviceType,
             inputImageCount: inputImageCount ?? null,
             outputImageCount,
@@ -3052,6 +3058,11 @@ export class AiController {
             outputImageCount,
             undefined,
             requestParams,
+            {
+              onApiUsageId: (value) => {
+                apiUsageId = value;
+              },
+            },
           );
 
           updateAsyncTask(taskId, {
@@ -3071,6 +3082,7 @@ export class AiController {
             status: 'completed',
             durationMs: Date.now() - startedAt,
             metadata: {
+              apiUsageId,
               serviceType,
               hasVideoUrl: Boolean((result as any)?.videoUrl),
             },
@@ -3096,6 +3108,7 @@ export class AiController {
             durationMs: Date.now() - startedAt,
             error: errorMessage,
             metadata: {
+              apiUsageId,
               serviceType,
             },
             receivedAt: new Date().toISOString(),
