@@ -83,9 +83,12 @@ export interface ApiUsageRecord {
   provider: string;
   model: string | null;
   requestParams?: {
+    channel?: string | null;
     platformKey?: string | null;
     vendorKey?: string | null;
     providerChannel?: string | null;
+    executionChannel?: string | null;
+    channelHint?: string | null;
     routedProvider?: string | null;
     taskId?: string | null;
     [key: string]: unknown;

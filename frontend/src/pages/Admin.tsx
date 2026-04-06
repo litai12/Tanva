@@ -2039,11 +2039,33 @@ function ApiRecordsTab() {
     pending: "bg-yellow-100 text-yellow-700",
   };
 
-  const getRecordChannelLabel = (record: ApiUsageRecord) =>
-    record.requestParams?.platformKey ||
-    record.requestParams?.vendorKey ||
-    record.requestParams?.providerChannel ||
-    "-";
+  const formatExecutionChannelLabel = (
+    channel: string | null | undefined,
+  ): string => {
+    const normalized = typeof channel === "string" ? channel.trim().toLowerCase() : "";
+    if (!normalized) return "-";
+    if (normalized === "legacy" || normalized.includes("147")) return "147";
+    if (normalized.includes("apimart")) return "Apimart";
+    if (normalized === "tencent") return "Tencent";
+    if (normalized === "tencent_vod") return "Tencent VOD";
+    return channel!.trim();
+  };
+
+  const getRecordChannelLabel = (record: ApiUsageRecord) => {
+    const actualChannel =
+      record.requestParams?.channel ||
+      record.requestParams?.executionChannel ||
+      record.requestParams?.providerChannel ||
+      record.requestParams?.platformKey ||
+      record.requestParams?.vendorKey ||
+      record.requestParams?.channelHint;
+
+    if (typeof actualChannel === "string" && actualChannel.trim()) {
+      return formatExecutionChannelLabel(actualChannel);
+    }
+
+    return formatExecutionChannelLabel(record.provider);
+  };
 
   const buildOpenObserveUrl = (stream: string, query: string) => {
     const encodedQuery = btoa(query);
