@@ -51,26 +51,34 @@
 
 ### 模型映射
 
+说明：
+
+- 下列条目表示“代码/配置已支持该模型接入腾讯 VOD”，不等于“当前默认一定走腾讯 VOD”。
+- 当前实际生效状态以 `model_provider_mapping_v2` 设置值为准；本文件同时记录默认配置基线。
+
 - [X] `kling-2.6`
-  - `platformKey=tencent_vod`
-  - `provider=kling-2.6`
-  - `modelName=Kling`
-  - `modelVersion=2.6`
+  - 代码已支持 `tencent_vod` 接入
+  - 当前默认配置：`defaultVendor=legacy`
+  - 当前默认基线未启用 `tencent_vod vendor`
 - [X] `kling-3.0`
   - `platformKey=tencent_vod`
   - `provider=kling-o3`
   - `modelName=Kling`
   - `modelVersion=3.0`
+  - 当前默认配置：`defaultVendor=legacy`
+  - 当前默认基线启用 `tencent_vod vendor`
 - [X] `kling-o3`
   - `platformKey=tencent_vod`
   - `provider=kling-o3`
   - `modelName=Kling`
   - `modelVersion=3.0-Omni`
+  - 当前默认配置：`defaultVendor=tencent_vod`
 - [X] `vidu-q2`
   - `platformKey=tencent_vod`
   - `provider=vidu`
   - `modelName=Vidu`
   - `modelVersion=q2`
+  - 当前默认配置：`defaultVendor=tencent_vod`
 - [X] `vidu-q2-turbo`
   - `platformKey=tencent_vod`
   - `provider=vidu`
@@ -86,6 +94,7 @@
   - `provider=vidu`
   - `modelName=Vidu`
   - `modelVersion=q3`
+  - 当前默认配置：`defaultVendor=tencent_vod`
 - [X] `vidu-q3-mix`
   - `platformKey=tencent_vod`
   - `provider=vidu`
@@ -96,11 +105,16 @@
   - `provider=sora2`
   - `modelName=OS`
   - `modelVersion=2.0`
+  - 当前默认配置：`defaultVendor=tencent_vod`
 - [X] `seedance-1.5`
   - `platformKey=tencent_vod`
   - `provider=doubao`
   - `modelName=Seedance`
   - `modelVersion=1.5-pro`
+  - 当前默认配置：`defaultVendor=tencent_vod`
+- [X] `seedance-2.0`
+  - 代码已支持 `seedance_api` v2 request profile
+  - 当前默认配置：`enabled=false`
 
 ## 验收补充
 
@@ -112,3 +126,14 @@
 - [X] 前端节点/入口已接入
 - [X] 模型配置与文案已补齐
 - [X] 基本可用性测试已完成
+
+## 当前默认配置基线（已同步）
+
+- [X] `kling-2.6`: 默认 `legacy`，仅保留旧链路 vendor
+- [X] `kling-3.0`: 默认 `legacy`，同时启用 `tencent_vod`
+- [X] `kling-o3`: 默认 `tencent_vod`
+- [X] `vidu-q2`: 默认 `tencent_vod`
+- [X] `vidu-q3`: 默认 `tencent_vod`
+- [X] `sora-2`: 默认 `tencent_vod`
+- [X] `seedance-1.5`: 默认 `tencent_vod`
+- [X] `seedance-2.0`: 默认禁用

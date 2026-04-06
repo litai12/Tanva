@@ -1961,6 +1961,7 @@ function ApiStatsTab() {
 
 // API 调用记录 Tab
 function ApiRecordsTab() {
+  const OPENOBSERVE_LOGS_URL = "https://test.tanvas.cn/openobserve/web/logs";
   const [records, setRecords] = useState<ApiUsageRecord[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [loading, setLoading] = useState(false);
@@ -2003,6 +2004,47 @@ function ApiRecordsTab() {
     record.requestParams?.vendorKey ||
     record.requestParams?.providerChannel ||
     "-";
+
+  const buildOpenObserveUrl = (stream: string, query: string) => {
+    const encodedQuery = btoa(query);
+    const params = new URLSearchParams({
+      stream_type: "logs",
+      stream,
+      period: "7d",
+      refresh: "0",
+      sql_mode: "false",
+      query: encodedQuery,
+      fn_editor: "false",
+      type: "stream_explorer",
+      defined_schemas: "user_defined_schema",
+      org_identifier: "default",
+      quick_mode: "false",
+      show_histogram: "true",
+      logs_visualize_toggle: "logs",
+    });
+
+    return `${OPENOBSERVE_LOGS_URL}?${params.toString()}`;
+  };
+
+  const buildOpenObserveFailureUrl = (record: ApiUsageRecord) => {
+    const upstreamTaskId =
+      typeof record.requestParams?.taskId === "string" ? record.requestParams.taskId.trim() : "";
+    const userId = typeof record.userId === "string" ? record.userId.trim() : "";
+
+    if (upstreamTaskId) {
+      const queryParts = [`request_body_taskid = '${upstreamTaskId}'`];
+      if (userId) {
+        queryParts.push(`user_id = '${userId}'`);
+      }
+      return buildOpenObserveUrl("upstream_requests", queryParts.join(" and "));
+    }
+
+    return buildOpenObserveUrl("generation_tasks", `metadata_api_usage_id = '${record.id}'`);
+  };
+
+  const openFailureLogs = (record: ApiUsageRecord) => {
+    window.open(buildOpenObserveFailureUrl(record), "_blank", "noopener,noreferrer");
+  };
 
   return (
     <div>
@@ -2111,17 +2153,29 @@ function ApiRecordsTab() {
                         : "-"}
                     </td>
                     <td className='px-4 py-3'>
-                      <span
-                        className={`px-2 py-1 rounded text-xs ${
-                          statusColors[record.responseStatus] || ""
-                        }`}
-                      >
-                        {record.responseStatus === "success"
-                          ? "成功"
-                          : record.responseStatus === "failed"
-                          ? "失败"
-                          : "处理中"}
-                      </span>
+                      <div className='flex flex-col items-start gap-2'>
+                        <span
+                          className={`px-2 py-1 rounded text-xs ${
+                            statusColors[record.responseStatus] || ""
+                          }`}
+                        >
+                          {record.responseStatus === "success"
+                            ? "成功"
+                            : record.responseStatus === "failed"
+                            ? "失败"
+                            : "处理中"}
+                        </span>
+                        {record.responseStatus === "failed" && (
+                          <Button
+                            variant='outline'
+                            size='sm'
+                            className='h-7 px-2 text-xs'
+                            onClick={() => openFailureLogs(record)}
+                          >
+                            查看原因
+                          </Button>
+                        )}
+                      </div>
                       {record.errorMessage && (
                         <div
                           className='text-xs text-red-500 mt-1 max-w-xs truncate'

@@ -1,5 +1,7 @@
 import { context, trace } from '@opentelemetry/api';
+import { Logger } from '@nestjs/common';
 import { getRequestContext } from './request-context';
+import { buildOpenObserveApiPrefix, buildOpenObserveIngestEndpoint } from './openobserve-url';
 
 type PatchedFetch = typeof fetch & {
   __tanvaUpstreamLoggingPatched?: boolean;
@@ -7,6 +9,7 @@ type PatchedFetch = typeof fetch & {
 
 const MAX_BODY_TEXT_LENGTH = 200_000;
 const MAX_FIELD_STRING_LENGTH = 20_000;
+const logger = new Logger('UpstreamFetchLogger');
 const SENSITIVE_HEADERS = new Set([
   'authorization',
   'cookie',
@@ -21,16 +24,14 @@ const isEnabled = (value: unknown, defaultValue: boolean): boolean => {
 };
 
 const shouldLogUpstreamRequests = (): boolean => {
-  const nodeEnv = (process.env.NODE_ENV || '').toLowerCase();
-  const defaultEnabled = nodeEnv !== 'production';
-  return isEnabled(process.env.OPENOBSERVE_UPSTREAM_REQUEST_LOGGING_ENABLED, defaultEnabled);
+  return isEnabled(process.env.OPENOBSERVE_UPSTREAM_REQUEST_LOGGING_ENABLED, true);
 };
 
 const getOpenObserveEndpointPrefix = (): string | null => {
   const baseUrl = process.env.OPENOBSERVE_BASE_URL?.trim();
   const org = process.env.OPENOBSERVE_ORG?.trim() || 'default';
   if (!baseUrl) return null;
-  return `${baseUrl.replace(/\/+$/, '')}/api/${encodeURIComponent(org)}/`;
+  return buildOpenObserveApiPrefix(baseUrl, org);
 };
 
 const isLikelyImageBase64 = (value: string): boolean => {
@@ -235,12 +236,12 @@ const ingestUpstreamRequestLog = async (payload: Record<string, unknown>) => {
   const stream = process.env.OPENOBSERVE_UPSTREAM_REQUEST_STREAM?.trim() || 'upstream_requests';
   if (!baseUrl || !username || !password) return;
 
-  const endpoint = `${baseUrl.replace(/\/+$/, '')}/api/${encodeURIComponent(org)}/${encodeURIComponent(stream)}/_json`;
+  const endpoint = buildOpenObserveIngestEndpoint(baseUrl, org, stream);
   const auth = Buffer.from(`${username}:${password}`).toString('base64');
   const originalFetch = globalThis.fetch.bind(globalThis);
 
   try {
-    await originalFetch(endpoint, {
+    const response = await originalFetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -248,7 +249,17 @@ const ingestUpstreamRequestLog = async (payload: Record<string, unknown>) => {
       },
       body: JSON.stringify([payload]),
     });
-  } catch {}
+
+    if (!response.ok) {
+      logger.warn(
+        `OpenObserve upstream ingest failed: ${response.status} ${response.statusText}, endpoint=${endpoint}`,
+      );
+    }
+  } catch (error) {
+    logger.warn(
+      `OpenObserve upstream ingest skipped: ${error instanceof Error ? error.message : String(error)}, endpoint=${endpoint}`,
+    );
+  }
 };
 
 export const installUpstreamFetchLogger = (): void => {

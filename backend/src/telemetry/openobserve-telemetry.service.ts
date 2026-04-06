@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { getActiveSpanContext } from './tracing';
 import { getRequestContext } from './request-context';
+import { buildOpenObserveIngestEndpoint } from './openobserve-url';
 
 type FrontendErrorLog = {
   kind: string;
@@ -169,7 +170,7 @@ export class OpenObserveTelemetryService {
       return;
     }
 
-    const endpoint = `${baseUrl.replace(/\/+$/, '')}/api/${encodeURIComponent(org)}/${encodeURIComponent(stream)}/_json`;
+    const endpoint = buildOpenObserveIngestEndpoint(baseUrl, org, stream);
     const auth = Buffer.from(`${username}:${password}`).toString('base64');
 
     try {
@@ -207,8 +208,6 @@ export class OpenObserveTelemetryService {
   }
 
   private shouldSend(): boolean {
-    const nodeEnv = (this.configService.get<string>('NODE_ENV') || '').toLowerCase();
-    const defaultEnabled = nodeEnv !== 'production';
-    return isEnabled(this.configService.get('OPENOBSERVE_TELEMETRY_ENABLED'), defaultEnabled);
+    return isEnabled(this.configService.get('OPENOBSERVE_TELEMETRY_ENABLED'), true);
   }
 }
