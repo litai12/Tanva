@@ -229,7 +229,6 @@ const MANAGED_NODE_TEMPLATE_OPTIONS: Record<
     { value: "kling30Video", label: "Kling 3.0 视频节点", category: "video" },
     { value: "klingO1Video", label: "Kling 3.0-Omni 视频节点", category: "video" },
     { value: "viduVideo", label: "Vidu 视频节点", category: "video" },
-    { value: "viduQ3", label: "Vidu Q3 视频节点", category: "video" },
     { value: "doubaoVideo", label: "Seedance 1.5 视频节点", category: "video" },
     { value: "seedance20Video", label: "Seedance 2.0 视频节点", category: "video" },
     { value: "sora2Video", label: "Sora 2 视频节点", category: "video" },
@@ -258,7 +257,7 @@ const inferManagedNodeTemplate = (model: Partial<ManagedModelConfig>): string =>
   if (modelKey === "kling-2.6") return "kling26Video";
   if (modelKey === "kling-3.0") return "kling30Video";
   if (modelKey === "kling-o3") return "klingO1Video";
-  if (modelKey === "vidu-q3" || modelKey === "vidu-q3-mix") return "viduQ3";
+  if (modelKey === "vidu-q3" || modelKey === "vidu-q3-mix") return "viduVideo";
   if (modelKey === "seedance-1.5") return "doubaoVideo";
   if (modelKey === "seedance-2.0") return "seedance20Video";
   if (modelKey === "sora-2") return "sora2Video";
@@ -277,8 +276,6 @@ const shouldReuseTemplateNodeKey = (modelKey?: string): boolean => {
     "kling-3.0",
     "kling-o3",
     "vidu-q2",
-    "vidu-q2-turbo",
-    "vidu-q2-pro",
     "vidu-q3",
     "vidu-q3-mix",
     "sora-2",
@@ -628,44 +625,6 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
     ],
   },
   {
-    modelKey: "vidu-q2-turbo",
-    modelName: "Vidu Q2-Turbo",
-    taskType: "video",
-    enabled: true,
-    defaultVendor: "tencent_vod",
-    vendors: [
-      {
-        vendorKey: "tencent_vod",
-        platformKey: "tencent_vod",
-        label: "腾讯 VOD",
-        enabled: true,
-        route: "tencent_vod",
-        provider: "vidu",
-        modelName: "Vidu",
-        modelVersion: "q2-turbo",
-      },
-    ],
-  },
-  {
-    modelKey: "vidu-q2-pro",
-    modelName: "Vidu Q2-Pro",
-    taskType: "video",
-    enabled: true,
-    defaultVendor: "tencent_vod",
-    vendors: [
-      {
-        vendorKey: "tencent_vod",
-        platformKey: "tencent_vod",
-        label: "腾讯 VOD",
-        enabled: true,
-        route: "tencent_vod",
-        provider: "vidu",
-        modelName: "Vidu",
-        modelVersion: "q2-pro",
-      },
-    ],
-  },
-  {
     modelKey: "vidu-q3",
     modelName: "Vidu Q3",
     taskType: "video",
@@ -933,18 +892,9 @@ const normalizeModelMapping = (input?: Partial<ModelProviderMappingV2>): ModelPr
             : undefined,
       }))
     : [];
-  const inputModelMap = new Map(
-    (Array.isArray(input?.models) ? input!.models!.filter(Boolean) : []).map((model) => [
-      typeof model?.modelKey === "string" ? model.modelKey : "",
-      model,
-    ])
-  );
-  const mergedModelInputs = [
-    ...(Array.isArray(input?.models) ? input!.models!.filter(Boolean) : []),
-    ...DEFAULT_MODEL_CATALOG.filter(
-      (model) => model.modelKey && !inputModelMap.has(model.modelKey)
-    ),
-  ];
+  const mergedModelInputs = Array.isArray(input?.models)
+    ? input.models.filter(Boolean)
+    : DEFAULT_MODEL_CATALOG;
 
   const models: ManagedModelConfig[] = mergedModelInputs.length
     ? mergedModelInputs.map((model) => ({

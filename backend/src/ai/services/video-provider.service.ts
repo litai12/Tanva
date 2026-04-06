@@ -696,6 +696,10 @@ export class VideoProviderService {
         return this.queryKling(taskId, apiKey);
       case "kling-2.6":
         return this.queryKling26(taskId, apiKey);
+      case "vidu":
+        return this.queryVidu(taskId, apiKey);
+      case "viduq3-pro":
+        return this.queryViduQ3Pro(taskId, apiKey);
       default:
         throw new Error(`不支持的供应商: ${provider}`);
     }

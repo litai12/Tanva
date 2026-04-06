@@ -61,6 +61,13 @@ interface ModelProviderMappingV2Like {
   models?: ManagedModelConfig[];
 }
 
+interface NodeConfigMetadataLike {
+  modelKeys?: unknown;
+  supportedModels?: unknown;
+  defaultData?: unknown;
+  vod?: unknown;
+}
+
 const buildVodNodeMetadata = (
   base: Record<string, any>,
   vod: Record<string, any>,
@@ -151,6 +158,117 @@ export class NodeConfigService {
       if (ca !== cb) return ca - cb;
       return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
     });
+  }
+
+  private async getEnabledManagedModelKeySet(): Promise<Set<string>> {
+    try {
+      const setting = await this.prisma.systemSetting.findUnique({
+        where: { key: MODEL_PROVIDER_MAPPING_SETTING_KEY },
+      });
+      const raw = setting?.value?.trim();
+      if (!raw) {
+        return new Set();
+      }
+
+      const parsed = JSON.parse(raw) as ModelProviderMappingV2Like;
+      const models = Array.isArray(parsed?.models) ? parsed.models.filter(Boolean) : [];
+
+      return new Set(
+        models
+          .filter(
+            (model) =>
+              model &&
+              model.enabled !== false &&
+              typeof model.modelKey === 'string' &&
+              model.modelKey.trim(),
+          )
+          .map((model) => String(model.modelKey).trim()),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `读取模型管理配置失败，节点可见性回退为不过滤: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return new Set();
+    }
+  }
+
+  private hasAvailableManagedModel(
+    metadata: NodeConfigMetadataLike | null | undefined,
+    enabledModelKeys: Set<string>,
+  ): boolean {
+    if (!metadata || typeof metadata !== 'object') {
+      return true;
+    }
+
+    const modelKeys = Array.isArray(metadata.modelKeys)
+      ? metadata.modelKeys.map((item) => String(item).trim()).filter(Boolean)
+      : [];
+
+    if (!modelKeys.length) {
+      return true;
+    }
+
+    if (enabledModelKeys.size === 0) {
+      return false;
+    }
+
+    return modelKeys.some((key) => enabledModelKeys.has(key));
+  }
+
+  private normalizeManagedNodeMetadata(
+    nodeKey: string,
+    metadata: NodeConfigMetadataLike | null | undefined,
+    enabledModelKeys: Set<string>,
+  ): Record<string, any> | undefined {
+    if (!metadata || typeof metadata !== 'object') {
+      return metadata as Record<string, any> | undefined;
+    }
+
+    const nextMetadata = { ...(metadata as Record<string, any>) };
+    const currentModelKeys = Array.isArray(metadata.modelKeys)
+      ? metadata.modelKeys.map((item) => String(item).trim()).filter(Boolean)
+      : [];
+
+    if (currentModelKeys.length > 0) {
+      nextMetadata.modelKeys = currentModelKeys.filter((key) => enabledModelKeys.has(key));
+    }
+
+    if (nodeKey === 'viduVideo') {
+      const supportsQ2 = enabledModelKeys.has('vidu-q2');
+      const supportsQ3Family = enabledModelKeys.has('vidu-q3');
+      const supportsQ3Mix = enabledModelKeys.has('vidu-q3-mix');
+      const supportedModels = [
+        ...(supportsQ2 ? ['q2'] : []),
+        ...(supportsQ3Family ? ['q3', 'q3-pro', 'q3-turbo'] : []),
+        ...(supportsQ3Mix ? ['q3-mix'] : []),
+      ];
+
+      nextMetadata.supportedModels = supportedModels;
+
+      const defaultViduModel =
+        supportedModels.find(Boolean) || (Array.isArray(metadata.supportedModels)
+          ? metadata.supportedModels.map((item) => String(item).trim()).find(Boolean)
+          : undefined);
+
+      if (
+        nextMetadata.defaultData &&
+        typeof nextMetadata.defaultData === 'object' &&
+        defaultViduModel
+      ) {
+        nextMetadata.defaultData = {
+          ...(nextMetadata.defaultData as Record<string, any>),
+          viduModel: defaultViduModel,
+          provider:
+            defaultViduModel === 'q2'
+              ? 'vidu'
+              : 'viduq3-pro',
+        };
+      }
+    }
+
+    return nextMetadata;
   }
 
   private async getManagedModelNodeConfigs() {
@@ -314,6 +432,7 @@ export class NodeConfigService {
       orderBy: [{ sortOrder: 'asc' }], // 先按 sortOrder 粗排，后面再自定义分类顺序
     });
     const managedConfigs = await this.getManagedModelNodeConfigs();
+    const enabledManagedModelKeys = await this.getEnabledManagedModelKeySet();
 
     // 自定义分类顺序：输入(input) → 图像(image) → 视频(video) → 其他(other)
     const categoryOrder: Record<string, number> = {
@@ -331,20 +450,38 @@ export class NodeConfigService {
       return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
     });
 
-    const dbConfigs = sorted.map((config) => this.normalizeNodeConfigOutput({
-      nodeKey: config.nodeKey,
-      nameZh: config.nameZh,
-      nameEn: config.nameEn,
-      category: config.category,
-      status: config.status,
-      statusMessage: config.statusMessage,
-      creditsPerCall: config.creditsPerCall,
-      priceYuan: config.priceYuan ? Number(config.priceYuan) : null,
-      serviceType: config.serviceType,
-      sortOrder: config.sortOrder,
-      description: config.description,
-      metadata: config.metadata,
-    }));
+    const dbConfigs = sorted
+      .map((config) => {
+        const normalizedConfig = this.normalizeNodeConfigOutput({
+          nodeKey: config.nodeKey,
+          nameZh: config.nameZh,
+          nameEn: config.nameEn,
+          category: config.category,
+          status: config.status,
+          statusMessage: config.statusMessage,
+          creditsPerCall: config.creditsPerCall,
+          priceYuan: config.priceYuan ? Number(config.priceYuan) : null,
+          serviceType: config.serviceType,
+          sortOrder: config.sortOrder,
+          description: config.description,
+          metadata: config.metadata,
+        });
+
+        return {
+          ...normalizedConfig,
+          metadata: this.normalizeManagedNodeMetadata(
+            normalizedConfig.nodeKey,
+            normalizedConfig.metadata as NodeConfigMetadataLike | undefined,
+            enabledManagedModelKeys,
+          ),
+        };
+      })
+      .filter((config) =>
+        this.hasAvailableManagedModel(
+          config.metadata as NodeConfigMetadataLike | undefined,
+          enabledManagedModelKeys,
+        ),
+      );
 
     return this.mergeNodeConfigLists(dbConfigs, managedConfigs as Array<Record<string, any>>);
   }
@@ -679,14 +816,14 @@ export class NodeConfigService {
         creditsPerCall: 600,
         serviceType: 'vidu-video',
         priceYuan: 6,
-        description: 'Vidu Q2视频生成',
+        description: 'Vidu 视频生成（统一入口，含 Q2 / Q3 / Q3-Mix）',
         metadata: {
           ...buildVodNodeMetadata(
             {
               type: 'viduVideo',
               provider: 'vidu',
-              modelKeys: ['vidu-q2'],
-              supportedModels: ['q2'],
+              modelKeys: ['vidu-q2', 'vidu-q3', 'vidu-q3-mix'],
+              supportedModels: ['q2', 'q3', 'q3-pro', 'q3-turbo', 'q3-mix'],
               defaultData: {
                 provider: 'vidu',
                 viduModel: 'q2',
@@ -695,170 +832,16 @@ export class NodeConfigService {
               },
             },
             {
-              label: 'VOD Vidu Q2',
+              label: 'VOD Vidu',
               modelName: 'Vidu',
-              modelVersion: 'q2',
-              outputConfig: {
-                aspectRatios: ['16:9', '9:16', '3:4', '4:3', '1:1'],
-                durations: [1, 2, 3, 4, 5, 6, 7, 8],
-                resolutions: ['540P', '720P', '1080P'],
-              },
-              inputModes: ['text', 'image'],
-            },
-          ),
-        },
-      },
-      {
-        nodeKey: 'viduQ2TurboVideo',
-        nameZh: 'Vidu Q2-Turbo视频生成',
-        nameEn: 'Vidu Q2-Turbo',
-        category: 'video',
-        sortOrder: 25,
-        creditsPerCall: 600,
-        serviceType: 'vidu-video',
-        priceYuan: 6,
-        description: 'Vidu Q2-Turbo视频生成，走腾讯 VOD 模型管理',
-        metadata: {
-          ...buildVodNodeMetadata(
-            {
-              type: 'viduVideo',
-              provider: 'vidu',
-              modelKeys: ['vidu-q2-turbo'],
-              supportedModels: ['q2-turbo'],
-              defaultData: {
-                provider: 'vidu',
-                viduModel: 'q2-turbo',
-                resolution: '720p',
-                clipDuration: 5,
-              },
-            },
-            {
-              label: 'VOD Vidu Q2-Turbo',
-              modelName: 'Vidu',
-              modelVersion: 'q2-turbo',
-              outputConfig: {
-                aspectRatios: ['16:9', '9:16', '3:4', '4:3', '1:1'],
-                durations: [1, 2, 3, 4, 5, 6, 7, 8],
-                resolutions: ['540P', '720P', '1080P'],
-              },
-              inputModes: ['text', 'image', 'start_end'],
-              notes: ['支持 LastFrameUrl 首尾帧模式'],
-            },
-          ),
-        },
-      },
-      {
-        nodeKey: 'viduQ2ProVideo',
-        nameZh: 'Vidu Q2-Pro视频生成',
-        nameEn: 'Vidu Q2-Pro',
-        category: 'video',
-        sortOrder: 26,
-        creditsPerCall: 600,
-        serviceType: 'vidu-video',
-        priceYuan: 6,
-        description: 'Vidu Q2-Pro视频生成，走腾讯 VOD 模型管理',
-        metadata: {
-          ...buildVodNodeMetadata(
-            {
-              type: 'viduVideo',
-              provider: 'vidu',
-              modelKeys: ['vidu-q2-pro'],
-              supportedModels: ['q2-pro'],
-              defaultData: {
-                provider: 'vidu',
-                viduModel: 'q2-pro',
-                resolution: '720p',
-                clipDuration: 5,
-              },
-            },
-            {
-              label: 'VOD Vidu Q2-Pro',
-              modelName: 'Vidu',
-              modelVersion: 'q2-pro',
-              outputConfig: {
-                aspectRatios: ['16:9', '9:16', '3:4', '4:3', '1:1'],
-                durations: [1, 2, 3, 4, 5, 6, 7, 8],
-                resolutions: ['540P', '720P', '1080P'],
-              },
-              inputModes: ['text', 'image', 'start_end'],
-              notes: ['支持 LastFrameUrl 首尾帧模式'],
-            },
-          ),
-        },
-      },
-      {
-        nodeKey: 'viduQ3',
-        nameZh: 'Vidu Q3 Pro视频生成',
-        nameEn: 'Vidu Q3 Pro',
-        category: 'video',
-        sortOrder: 27,
-        creditsPerCall: 800,
-        serviceType: 'viduq3-pro-video',
-        priceYuan: 8,
-        description: 'Vidu Q3 Pro视频生成',
-        metadata: {
-          ...buildVodNodeMetadata(
-            {
-              type: 'viduQ3',
-              provider: 'viduq3-pro',
-              modelKeys: ['vidu-q3'],
-              supportedModels: ['q3', 'q3-pro', 'q3-turbo'],
-              defaultData: {
-                provider: 'viduq3-pro',
-                viduModel: 'q3',
-                resolution: '720p',
-                clipDuration: 8,
-              },
-            },
-            {
-              label: 'VOD Vidu Q3',
-              modelName: 'Vidu',
-              modelVersion: 'q3',
+              modelVersion: 'q2 / q3',
               outputConfig: {
                 aspectRatios: ['16:9', '9:16', '3:4', '4:3', '1:1'],
                 durations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
                 resolutions: ['540P', '720P', '1080P'],
               },
-              inputModes: ['text', 'image'],
-            },
-          ),
-        },
-      },
-      {
-        nodeKey: 'viduQ3MixVideo',
-        nameZh: 'Vidu Q3-Mix视频生成',
-        nameEn: 'Vidu Q3-Mix',
-        category: 'video',
-        sortOrder: 28,
-        creditsPerCall: 800,
-        serviceType: 'viduq3-pro-video',
-        priceYuan: 8,
-        description: 'Vidu Q3-Mix视频生成，走腾讯 VOD 模型管理',
-        metadata: {
-          ...buildVodNodeMetadata(
-            {
-              type: 'viduQ3',
-              provider: 'viduq3-pro',
-              modelKeys: ['vidu-q3-mix'],
-              supportedModels: ['q3-mix'],
-              defaultData: {
-                provider: 'viduq3-pro',
-                viduModel: 'q3-mix',
-                resolution: '720p',
-                clipDuration: 8,
-              },
-            },
-            {
-              label: 'VOD Vidu Q3-Mix',
-              modelName: 'Vidu',
-              modelVersion: 'q3-mix',
-              outputConfig: {
-                aspectRatios: ['16:9', '9:16', '3:4', '4:3', '1:1'],
-                durations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
-                resolutions: ['540P', '720P', '1080P'],
-              },
-              inputModes: ['reference'],
-              notes: ['Q3-Mix 仅支持 Reference 模式，至少需要 1 张参考图'],
+              inputModes: ['text', 'image', 'reference'],
+              notes: ['Q2 / Q3 / Q3-Pro / Q3-Turbo / Q3-Mix 统一收拢到同一个 Vidu 节点', 'Q3-Mix 仅支持 Reference 模式，至少需要 1 张参考图'],
             },
           ),
         },
@@ -1215,111 +1198,15 @@ export class NodeConfigService {
         creditsPerCall: 600,
         serviceType: 'vidu-video',
         priceYuan: 6,
-        description: 'Vidu Q2视频生成',
+        description: 'Vidu 视频生成（统一入口，含 Q2 / Q3 / Q3-Mix）',
         metadata: {
           type: 'viduVideo',
           provider: 'vidu',
-          modelKeys: ['vidu-q2'],
-          supportedModels: ['q2'],
+          modelKeys: ['vidu-q2', 'vidu-q3', 'vidu-q3-mix'],
+          supportedModels: ['q2', 'q3', 'q3-pro', 'q3-turbo', 'q3-mix'],
           defaultData: {
             provider: 'vidu',
             viduModel: 'q2',
-            resolution: '720p',
-            style: 'general',
-            offPeak: false,
-          },
-        },
-      },
-      {
-        nodeKey: 'viduQ2TurboVideo',
-        nameZh: 'Vidu Q2-Turbo视频生成',
-        nameEn: 'Vidu Q2-Turbo',
-        category: 'video',
-        sortOrder: 25,
-        creditsPerCall: 600,
-        serviceType: 'vidu-video',
-        priceYuan: 6,
-        description: 'Vidu Q2-Turbo视频生成，走腾讯 VOD 模型管理',
-        metadata: {
-          type: 'viduVideo',
-          provider: 'vidu',
-          modelKeys: ['vidu-q2-turbo'],
-          supportedModels: ['q2-turbo'],
-          defaultData: {
-            provider: 'vidu',
-            viduModel: 'q2-turbo',
-            resolution: '720p',
-            style: 'general',
-            offPeak: false,
-          },
-        },
-      },
-      {
-        nodeKey: 'viduQ2ProVideo',
-        nameZh: 'Vidu Q2-Pro视频生成',
-        nameEn: 'Vidu Q2-Pro',
-        category: 'video',
-        sortOrder: 26,
-        creditsPerCall: 600,
-        serviceType: 'vidu-video',
-        priceYuan: 6,
-        description: 'Vidu Q2-Pro视频生成，走腾讯 VOD 模型管理',
-        metadata: {
-          type: 'viduVideo',
-          provider: 'vidu',
-          modelKeys: ['vidu-q2-pro'],
-          supportedModels: ['q2-pro'],
-          defaultData: {
-            provider: 'vidu',
-            viduModel: 'q2-pro',
-            resolution: '720p',
-            style: 'general',
-            offPeak: false,
-          },
-        },
-      },
-      {
-        nodeKey: 'viduQ3',
-        nameZh: 'Vidu Q3 Pro视频生成',
-        nameEn: 'Vidu Q3 Pro',
-        category: 'video',
-        sortOrder: 27,
-        creditsPerCall: 800,
-        serviceType: 'viduq3-pro-video',
-        priceYuan: 8,
-        description: 'Vidu Q3 Pro视频生成',
-        metadata: {
-          type: 'viduQ3',
-          provider: 'viduq3-pro',
-          modelKeys: ['vidu-q3', 'vidu-q3-mix'],
-          supportedModels: ['q3', 'q3-pro', 'q3-turbo', 'q3-mix'],
-          defaultData: {
-            provider: 'viduq3-pro',
-            viduModel: 'q3',
-            resolution: '720p',
-            style: 'general',
-            offPeak: false,
-          },
-        },
-      },
-      {
-        nodeKey: 'viduQ3MixVideo',
-        nameZh: 'Vidu Q3-Mix视频生成',
-        nameEn: 'Vidu Q3-Mix',
-        category: 'video',
-        sortOrder: 28,
-        creditsPerCall: 800,
-        serviceType: 'viduq3-pro-video',
-        priceYuan: 8,
-        description: 'Vidu Q3-Mix视频生成，走腾讯 VOD 模型管理',
-        metadata: {
-          type: 'viduQ3',
-          provider: 'viduq3-pro',
-          modelKeys: ['vidu-q3-mix'],
-          supportedModels: ['q3-mix'],
-          defaultData: {
-            provider: 'viduq3-pro',
-            viduModel: 'q3-mix',
             resolution: '720p',
             style: 'general',
             offPeak: false,

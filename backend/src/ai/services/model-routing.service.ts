@@ -569,16 +569,7 @@ export class ModelRoutingService {
       ),
     ];
 
-    const existingModels = Array.isArray(input.models) ? input.models.filter(Boolean) : [];
-    const existingModelKeys = new Set(
-      existingModels.map((item) => (typeof item?.modelKey === 'string' ? item.modelKey : '')).filter(Boolean),
-    );
-    const mergedModels = [
-      ...existingModels,
-      ...(fallback.models || []).filter(
-        (item) => item && typeof item.modelKey === 'string' && !existingModelKeys.has(item.modelKey),
-      ),
-    ];
+    const mergedModels = Array.isArray(input.models) ? input.models.filter(Boolean) : fallback.models || [];
 
     return this.normalizeSpecialCases({
       version: input.version || fallback.version || 'v2',

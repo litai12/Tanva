@@ -27,3 +27,6 @@
   - `banana_provider`：Banana 图像链路供应商
   - `banana_text_provider`：Banana 文本链路供应商（text-chat/tool-selection）
   - `seedream5_provider`：Seedream 5.0 图像链路供应商（`doubao` / `watcha`）
+- 模型管理配置 key `model_provider_mapping_v2` 中的 `models[]` 允许“真删除”：
+  - 前端管理页不会再在归一化时把默认模型目录补回已保存配置。
+  - 后端读取该设置时，仅在整项配置缺失时回退默认目录；若设置已存在，则以保存内容为准，不自动复活被删除模型。

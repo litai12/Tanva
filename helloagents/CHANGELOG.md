@@ -15,6 +15,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- Flow/Admin：将 `Vidu` 视频节点收拢为单一 `viduVideo` 入口，移除额外的 `viduQ3` / `viduQ3MixVideo` 面板与默认配置暴露；统一节点内通过 `viduModel` 切换 Q2 / Q3 / Q3-Pro / Q3-Turbo / Q3-Mix，并自动同步 provider、时长与参考图限制（`frontend/src/services/nodeConfigService.ts`, `frontend/src/components/flow/FlowOverlay.tsx`, `frontend/src/components/flow/nodes/GenericVideoNode.tsx`, `frontend/src/pages/Admin.tsx`, `backend/src/admin/services/node-config.service.ts`）。
+- Flow/Admin：下线 `Vidu Q2-Turbo` 与 `Vidu Q2-Pro` 节点入口，同步移除前端默认节点配置、管理后台模型清单与后端节点配置种子，避免继续在面板或管理页暴露（`frontend/src/services/nodeConfigService.ts`, `frontend/src/pages/Admin.tsx`, `backend/src/admin/services/node-config.service.ts`, `frontend/src/components/flow/nodes/GenericVideoNode.tsx`）。
+- Flow：修正节点添加面板分组逻辑，不再把所有 `category: "input"` 节点提前归入“文字类节点”；`video` 输入节点现在会按真实节点类型显示在“视频类节点”（`frontend/src/components/flow/FlowOverlay.tsx`）。
 <<<<<<< HEAD
 - Workspace 顶部项目名区域新增快捷 `+` 新建入口：在当前项目名称右侧可一键新建项目；项目下拉中的“新建项目”同步复用同一创建逻辑并增加防连点状态（`frontend/src/components/layout/FloatingHeader.tsx`）。
 =======

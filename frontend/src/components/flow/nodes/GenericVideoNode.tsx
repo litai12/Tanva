@@ -12,8 +12,6 @@ import { useLocaleText } from "@/utils/localeText";
 export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao";
 type ViduModel =
   | "q2"
-  | "q2-turbo"
-  | "q2-pro"
   | "q3"
   | "q3-pro"
   | "q3-turbo"
@@ -89,6 +87,9 @@ const PROVIDER_CONFIG: Record<VideoProvider, { name: string; zh: string }> = {
   "viduq3-pro": { name: "Vidu Q3", zh: "Vidu Q3" },
   doubao: { name: "Seedance", zh: "Seedance" },
 };
+
+const isViduQ3FamilyModel = (value?: string): boolean =>
+  ["q3", "q3-pro", "q3-turbo", "q3-mix"].includes(String(value || "").trim().toLowerCase());
 
 const SUPPORTED_AUDIO_EXTENSIONS = [
   "mp3",
@@ -400,7 +401,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         { label: lt("10秒", "10s"), value: 10 },
       ];
     }
-    if (provider === "vidu") {
+    if (provider === "vidu" && !isViduQ3FamilyModel(viduModel)) {
       return [
         { label: lt("1秒", "1s"), value: 1 },
         { label: lt("2秒", "2s"), value: 2 },
@@ -412,7 +413,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         { label: lt("8秒", "8s"), value: 8 },
       ];
     }
-    if (provider === "viduq3-pro") {
+    if (provider === "viduq3-pro" || isViduQ3FamilyModel(viduModel)) {
       return [
         { label: lt("1秒", "1s"), value: 1 },
         { label: lt("2秒", "2s"), value: 2 },
@@ -470,8 +471,6 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const viduModelOptions = React.useMemo(
     () => [
       { label: "Vidu Q2", value: "q2" as const },
-      { label: "Vidu Q2-Turbo", value: "q2-turbo" as const },
-      { label: "Vidu Q2-Pro", value: "q2-pro" as const },
       { label: "Vidu Q3", value: "q3" as const },
       { label: "Vidu Q3-Turbo", value: "q3-turbo" as const },
       { label: "Vidu Q3-Pro", value: "q3-pro" as const },
@@ -528,6 +527,28 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     }
   }, [shouldShowAspectSelector]);
 
+  React.useEffect(() => {
+    if (!(provider === "vidu" || provider === "viduq3-pro")) return;
+    if (filteredViduModelOptions.length === 0) return;
+    if (filteredViduModelOptions.some((opt) => opt.value === viduModel)) return;
+
+    const fallbackModel = filteredViduModelOptions[0]?.value;
+    if (!fallbackModel) return;
+
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: {
+          id,
+          patch: {
+            viduModel: fallbackModel,
+            provider: isViduQ3FamilyModel(fallbackModel) ? "viduq3-pro" : "vidu",
+            clipDuration: undefined,
+          },
+        },
+      })
+    );
+  }, [filteredViduModelOptions, id, provider, viduModel]);
+
   const handleAspectChange = React.useCallback(
     (value: string) => {
       if (value === aspectRatioValue) return;
@@ -579,6 +600,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             id,
             patch: {
               viduModel: value,
+              provider: isViduQ3FamilyModel(value) ? "viduq3-pro" : "vidu",
               clipDuration: undefined,
             },
           },

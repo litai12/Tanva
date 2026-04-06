@@ -152,24 +152,8 @@ function getDefaultConfigs(): NodeConfig[] {
       metadata: buildVodNodeMetadata({ type: "klingO1Video", provider: "kling-o3", modelKeys: ["kling-o3"], supportedModels: ["kling-o3"], defaultData: { provider: "kling-o3", mode: "std", clipDuration: 5 } }, { label: "VOD Kling 3.0-Omni", modelName: "Kling", modelVersion: "3.0-Omni", outputConfig: { aspectRatios: ["16:9", "9:16", "1:1"], durations: [3, 4, 5, 6, 7, 8, 9, 10], resolutions: ["720P", "1080P"], audioGeneration: true }, inputModes: ["text", "image", "reference_video"], notes: ["当前接入优先覆盖文生视频和图片参考模式"] })
     },
     {
-      nodeKey: "viduVideo", nameZh: "Vidu Q2视频生成", nameEn: "Vidu Q2", category: "video", status: "normal", sortOrder: 24, creditsPerCall: 600,
-      metadata: buildVodNodeMetadata({ type: "viduVideo", provider: "vidu", modelKeys: ["vidu-q2"], supportedModels: ["q2"], defaultData: { provider: "vidu", viduModel: "q2", resolution: "720p", clipDuration: 5 } }, { label: "VOD Vidu Q2", modelName: "Vidu", modelVersion: "q2", outputConfig: { aspectRatios: ["16:9", "9:16", "3:4", "4:3", "1:1"], durations: [1, 2, 3, 4, 5, 6, 7, 8], resolutions: ["540P", "720P", "1080P"] }, inputModes: ["text", "image"] })
-    },
-    {
-      nodeKey: "viduQ2TurboVideo", nameZh: "Vidu Q2-Turbo视频生成", nameEn: "Vidu Q2-Turbo", category: "video", status: "normal", sortOrder: 25, creditsPerCall: 600,
-      metadata: buildVodNodeMetadata({ type: "viduVideo", provider: "vidu", modelKeys: ["vidu-q2-turbo"], supportedModels: ["q2-turbo"], defaultData: { provider: "vidu", viduModel: "q2-turbo", resolution: "720p", clipDuration: 5 } }, { label: "VOD Vidu Q2-Turbo", modelName: "Vidu", modelVersion: "q2-turbo", outputConfig: { aspectRatios: ["16:9", "9:16", "3:4", "4:3", "1:1"], durations: [1, 2, 3, 4, 5, 6, 7, 8], resolutions: ["540P", "720P", "1080P"] }, inputModes: ["text", "image", "start_end"], notes: ["支持 LastFrameUrl 首尾帧模式"] })
-    },
-    {
-      nodeKey: "viduQ2ProVideo", nameZh: "Vidu Q2-Pro视频生成", nameEn: "Vidu Q2-Pro", category: "video", status: "normal", sortOrder: 26, creditsPerCall: 600,
-      metadata: buildVodNodeMetadata({ type: "viduVideo", provider: "vidu", modelKeys: ["vidu-q2-pro"], supportedModels: ["q2-pro"], defaultData: { provider: "vidu", viduModel: "q2-pro", resolution: "720p", clipDuration: 5 } }, { label: "VOD Vidu Q2-Pro", modelName: "Vidu", modelVersion: "q2-pro", outputConfig: { aspectRatios: ["16:9", "9:16", "3:4", "4:3", "1:1"], durations: [1, 2, 3, 4, 5, 6, 7, 8], resolutions: ["540P", "720P", "1080P"] }, inputModes: ["text", "image", "start_end"], notes: ["支持 LastFrameUrl 首尾帧模式"] })
-    },
-    {
-      nodeKey: "viduQ3", nameZh: "Vidu Q3 Pro视频生成", nameEn: "Vidu Q3 Pro", category: "video", status: "normal", sortOrder: 27, creditsPerCall: 800,
-      metadata: buildVodNodeMetadata({ type: "viduQ3", provider: "viduq3-pro", modelKeys: ["vidu-q3"], supportedModels: ["q3", "q3-pro", "q3-turbo"], defaultData: { provider: "viduq3-pro", viduModel: "q3", resolution: "720p", clipDuration: 8 } }, { label: "VOD Vidu Q3", modelName: "Vidu", modelVersion: "q3", outputConfig: { aspectRatios: ["16:9", "9:16", "3:4", "4:3", "1:1"], durations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], resolutions: ["540P", "720P", "1080P"] }, inputModes: ["text", "image"] })
-    },
-    {
-      nodeKey: "viduQ3MixVideo", nameZh: "Vidu Q3-Mix视频生成", nameEn: "Vidu Q3-Mix", category: "video", status: "normal", sortOrder: 28, creditsPerCall: 800,
-      metadata: buildVodNodeMetadata({ type: "viduQ3", provider: "viduq3-pro", modelKeys: ["vidu-q3-mix"], supportedModels: ["q3-mix"], defaultData: { provider: "viduq3-pro", viduModel: "q3-mix", resolution: "720p", clipDuration: 8 } }, { label: "VOD Vidu Q3-Mix", modelName: "Vidu", modelVersion: "q3-mix", outputConfig: { aspectRatios: ["16:9", "9:16", "3:4", "4:3", "1:1"], durations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], resolutions: ["540P", "720P", "1080P"] }, inputModes: ["reference"], notes: ["Q3-Mix 仅支持 Reference 模式，至少需要 1 张参考图"] })
+      nodeKey: "viduVideo", nameZh: "Vidu视频生成", nameEn: "Vidu", category: "video", status: "normal", sortOrder: 24, creditsPerCall: 600,
+      metadata: buildVodNodeMetadata({ type: "viduVideo", provider: "vidu", modelKeys: ["vidu-q2", "vidu-q3", "vidu-q3-mix"], supportedModels: ["q2", "q3", "q3-pro", "q3-turbo", "q3-mix"], defaultData: { provider: "vidu", viduModel: "q2", resolution: "720p", clipDuration: 5 } }, { label: "VOD Vidu", modelName: "Vidu", modelVersion: "q2 / q3", outputConfig: { aspectRatios: ["16:9", "9:16", "3:4", "4:3", "1:1"], durations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], resolutions: ["540P", "720P", "1080P"] }, inputModes: ["text", "image", "reference"], notes: ["Q2 / Q3 / Q3-Pro / Q3-Turbo / Q3-Mix 统一收拢到同一个 Vidu 节点", "Q3-Mix 仅支持 Reference 模式，至少需要 1 张参考图"] })
     },
     {
       nodeKey: "doubaoVideo", nameZh: "Seedance 1.5 Pro视频生成", nameEn: "Seedance 1.5 Pro", category: "video", status: "normal", sortOrder: 29, creditsPerCall: 600,
