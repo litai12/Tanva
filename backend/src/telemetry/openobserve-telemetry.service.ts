@@ -208,8 +208,6 @@ export class OpenObserveTelemetryService {
   }
 
   private shouldSend(): boolean {
-    const nodeEnv = (this.configService.get<string>('NODE_ENV') || '').toLowerCase();
-    const defaultEnabled = nodeEnv !== 'production';
-    return isEnabled(this.configService.get('OPENOBSERVE_TELEMETRY_ENABLED'), defaultEnabled);
+    return isEnabled(this.configService.get('OPENOBSERVE_TELEMETRY_ENABLED'), true);
   }
 }
