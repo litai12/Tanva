@@ -5445,10 +5445,10 @@ function SettingsTab() {
         value: seedream5Provider,
         description: "Seedream 5.0 图像通道供应商选择（豆包 / 观猹）",
       });
-      alert("淇濆瓨鎴愬姛");
+      alert("保存成功");
       loadSettings();
     } catch (error: any) {
-      alert(error.message || "淇濆瓨澶辫触");
+      alert(error.message || "保存失败");
     } finally {
       setSaving(false);
     }
