@@ -247,16 +247,6 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
           modelName: 'Kling',
           modelVersion: '2.6',
         },
-        {
-          vendorKey: 'tencent_vod',
-          platformKey: 'tencent_vod',
-          label: '腾讯 VOD',
-          enabled: false,
-          route: 'tencent_vod',
-          provider: 'kling-2.6',
-          modelName: 'Kling',
-          modelVersion: '2.6',
-        },
       ],
     },
     {
@@ -280,7 +270,7 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
           vendorKey: 'tencent_vod',
           platformKey: 'tencent_vod',
           label: '腾讯 VOD',
-          enabled: false,
+          enabled: true,
           route: 'tencent_vod',
           provider: 'kling-o3',
           modelName: 'Kling',
@@ -293,7 +283,7 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
       modelName: 'Kling 3.0-Omni',
       taskType: 'video',
       enabled: true,
-      defaultVendor: 'legacy',
+      defaultVendor: 'tencent_vod',
       vendors: [
         {
           vendorKey: 'legacy',
@@ -309,7 +299,7 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
           vendorKey: 'tencent_vod',
           platformKey: 'tencent_vod',
           label: '腾讯 VOD',
-          enabled: false,
+          enabled: true,
           route: 'tencent_vod',
           provider: 'kling-o3',
           modelName: 'Kling',
@@ -322,7 +312,7 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
       modelName: 'Vidu Q2',
       taskType: 'video',
       enabled: true,
-      defaultVendor: 'vidu_api',
+      defaultVendor: 'tencent_vod',
       vendors: [
         {
           vendorKey: 'vidu_api',
@@ -338,7 +328,7 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
           vendorKey: 'tencent_vod',
           platformKey: 'tencent_vod',
           label: '腾讯 VOD',
-          enabled: false,
+          enabled: true,
           route: 'tencent_vod',
           provider: 'vidu',
           modelName: 'Vidu',
@@ -390,7 +380,7 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
       modelName: 'Vidu Q3',
       taskType: 'video',
       enabled: true,
-      defaultVendor: 'vidu_api',
+      defaultVendor: 'tencent_vod',
       vendors: [
         {
           vendorKey: 'vidu_api',
@@ -406,7 +396,7 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
           vendorKey: 'tencent_vod',
           platformKey: 'tencent_vod',
           label: '腾讯 VOD',
-          enabled: false,
+          enabled: true,
           route: 'tencent_vod',
           provider: 'vidu',
           modelName: 'Vidu',
@@ -439,7 +429,7 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
       modelName: 'Sora 2',
       taskType: 'video',
       enabled: true,
-      defaultVendor: 'sora2_api',
+      defaultVendor: 'tencent_vod',
       vendors: [
         {
           vendorKey: 'sora2_api',
@@ -455,7 +445,7 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
           vendorKey: 'tencent_vod',
           platformKey: 'tencent_vod',
           label: '腾讯 VOD',
-          enabled: false,
+          enabled: true,
           route: 'tencent_vod',
           provider: 'sora2',
           modelName: 'OS',
@@ -468,7 +458,7 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
       modelName: 'Seedance 1.5',
       taskType: 'video',
       enabled: true,
-      defaultVendor: 'seedance_api',
+      defaultVendor: 'tencent_vod',
       vendors: [
         {
           vendorKey: 'seedance_api',
@@ -478,13 +468,13 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
           route: 'legacy',
           provider: 'doubao',
           modelName: 'Seedance',
-          modelVersion: '1.5-pro',
+          modelVersion: '1.5',
         },
         {
           vendorKey: 'tencent_vod',
           platformKey: 'tencent_vod',
           label: '腾讯 VOD',
-          enabled: false,
+          enabled: true,
           route: 'tencent_vod',
           provider: 'doubao',
           modelName: 'Seedance',
@@ -497,7 +487,7 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
       modelKey: 'seedance-2.0',
       modelName: 'Seedance 2.0',
       taskType: 'video',
-      enabled: true,
+      enabled: false,
       defaultVendor: 'seedance_api',
       vendors: [
         {

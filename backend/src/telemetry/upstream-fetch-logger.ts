@@ -1,4 +1,5 @@
 import { context, trace } from '@opentelemetry/api';
+import { Logger } from '@nestjs/common';
 import { getRequestContext } from './request-context';
 import { buildOpenObserveApiPrefix, buildOpenObserveIngestEndpoint } from './openobserve-url';
 
@@ -8,6 +9,7 @@ type PatchedFetch = typeof fetch & {
 
 const MAX_BODY_TEXT_LENGTH = 200_000;
 const MAX_FIELD_STRING_LENGTH = 20_000;
+const logger = new Logger('UpstreamFetchLogger');
 const SENSITIVE_HEADERS = new Set([
   'authorization',
   'cookie',
@@ -239,7 +241,7 @@ const ingestUpstreamRequestLog = async (payload: Record<string, unknown>) => {
   const originalFetch = globalThis.fetch.bind(globalThis);
 
   try {
-    await originalFetch(endpoint, {
+    const response = await originalFetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -247,7 +249,17 @@ const ingestUpstreamRequestLog = async (payload: Record<string, unknown>) => {
       },
       body: JSON.stringify([payload]),
     });
-  } catch {}
+
+    if (!response.ok) {
+      logger.warn(
+        `OpenObserve upstream ingest failed: ${response.status} ${response.statusText}, endpoint=${endpoint}`,
+      );
+    }
+  } catch (error) {
+    logger.warn(
+      `OpenObserve upstream ingest skipped: ${error instanceof Error ? error.message : String(error)}, endpoint=${endpoint}`,
+    );
+  }
 };
 
 export const installUpstreamFetchLogger = (): void => {
