@@ -1,5 +1,6 @@
 import { context, trace } from '@opentelemetry/api';
 import { getRequestContext } from './request-context';
+import { buildOpenObserveApiPrefix, buildOpenObserveIngestEndpoint } from './openobserve-url';
 
 type PatchedFetch = typeof fetch & {
   __tanvaUpstreamLoggingPatched?: boolean;
@@ -30,7 +31,7 @@ const getOpenObserveEndpointPrefix = (): string | null => {
   const baseUrl = process.env.OPENOBSERVE_BASE_URL?.trim();
   const org = process.env.OPENOBSERVE_ORG?.trim() || 'default';
   if (!baseUrl) return null;
-  return `${baseUrl.replace(/\/+$/, '')}/api/${encodeURIComponent(org)}/`;
+  return buildOpenObserveApiPrefix(baseUrl, org);
 };
 
 const isLikelyImageBase64 = (value: string): boolean => {
@@ -235,7 +236,7 @@ const ingestUpstreamRequestLog = async (payload: Record<string, unknown>) => {
   const stream = process.env.OPENOBSERVE_UPSTREAM_REQUEST_STREAM?.trim() || 'upstream_requests';
   if (!baseUrl || !username || !password) return;
 
-  const endpoint = `${baseUrl.replace(/\/+$/, '')}/api/${encodeURIComponent(org)}/${encodeURIComponent(stream)}/_json`;
+  const endpoint = buildOpenObserveIngestEndpoint(baseUrl, org, stream);
   const auth = Buffer.from(`${username}:${password}`).toString('base64');
   const originalFetch = globalThis.fetch.bind(globalThis);
 

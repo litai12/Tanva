@@ -3,6 +3,7 @@ import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentation
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { NodeSDK } from '@opentelemetry/sdk-node';
+import { buildOpenObserveTraceEndpoint } from './openobserve-url';
 
 export type PersistedTraceContext = {
   traceId?: string | null;
@@ -30,7 +31,7 @@ const buildTraceEndpoint = (): string | null => {
   const org = process.env.OPENOBSERVE_ORG?.trim() || 'default';
   if (!baseUrl) return null;
 
-  return `${baseUrl.replace(/\/+$/, '')}/api/${encodeURIComponent(org)}/v1/traces`;
+  return buildOpenObserveTraceEndpoint(baseUrl, org);
 };
 
 const getExporterHeaders = (): Record<string, string> | null => {
