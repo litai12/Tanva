@@ -198,7 +198,13 @@ export class ProjectsService {
     id: string,
     content: unknown,
     version?: number,
-    options?: { createWorkflowHistory?: boolean }
+    options?: {
+      createWorkflowHistory?: boolean;
+      workflowHistoryMeta?: {
+        restoredFromUpdatedAt?: string;
+        restoredFromVersion?: number;
+      };
+    }
   ) {
     void version;
     return this.runProjectSaveSerialized(id, async () => {
@@ -274,7 +280,13 @@ export class ProjectsService {
     }
 
     if (options?.createWorkflowHistory) {
-      await this.tryCreateWorkflowHistorySnapshot(userId, id, updated2, sanitizedContent);
+      await this.tryCreateWorkflowHistorySnapshot(
+        userId,
+        id,
+        updated2,
+        sanitizedContent,
+        options.workflowHistoryMeta
+      );
     }
 
     const persistedVersion = updated2.contentVersion ?? newVersion;
@@ -306,6 +318,8 @@ export class ProjectsService {
           version: true,
           nodeCount: true,
           edgeCount: true,
+          restoredFromUpdatedAt: true,
+          restoredFromVersion: true,
           createdAt: true,
         },
       });
@@ -364,7 +378,11 @@ export class ProjectsService {
     userId: string,
     projectId: string,
     updatedProject: any,
-    sanitizedContent: any
+    sanitizedContent: any,
+    workflowHistoryMeta?: {
+      restoredFromUpdatedAt?: string;
+      restoredFromVersion?: number;
+    }
   ) {
     try {
       const flow = sanitizedContent?.flow && typeof sanitizedContent.flow === 'object'
@@ -372,6 +390,21 @@ export class ProjectsService {
         : { nodes: [], edges: [] };
       const nodeCount = Array.isArray((flow as any)?.nodes) ? (flow as any).nodes.length : 0;
       const edgeCount = Array.isArray((flow as any)?.edges) ? (flow as any).edges.length : 0;
+
+      const restoredFromUpdatedAt =
+        typeof workflowHistoryMeta?.restoredFromUpdatedAt === 'string' &&
+        workflowHistoryMeta.restoredFromUpdatedAt
+          ? new Date(workflowHistoryMeta.restoredFromUpdatedAt)
+          : null;
+      const restoredFromUpdatedAtValue =
+        restoredFromUpdatedAt && !Number.isNaN(restoredFromUpdatedAt.getTime())
+          ? restoredFromUpdatedAt
+          : null;
+      const restoredFromVersionValue =
+        typeof workflowHistoryMeta?.restoredFromVersion === 'number' &&
+        Number.isFinite(workflowHistoryMeta.restoredFromVersion)
+          ? workflowHistoryMeta.restoredFromVersion
+          : null;
 
       await this.prisma.workflowHistory.create({
         data: {
@@ -382,6 +415,8 @@ export class ProjectsService {
           flow: flow as Prisma.InputJsonValue,
           nodeCount,
           edgeCount,
+          restoredFromUpdatedAt: restoredFromUpdatedAtValue,
+          restoredFromVersion: restoredFromVersionValue,
         },
       });
     } catch (error: any) {

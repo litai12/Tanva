@@ -13,6 +13,7 @@ type ProjectContentState = {
   dirtySince: number | null;
   dirtyCounter: number;
   saving: boolean;
+  manualSaving: boolean;
   lastSavedAt: string | null;
   lastError: string | null;
   lastWarning: string | null;
@@ -21,6 +22,7 @@ type ProjectContentState = {
   hydrate: (content: ProjectContentSnapshot, version: number, savedAt?: string | null) => void;
   updatePartial: (partial: Partial<ProjectContentSnapshot>, options?: UpdateOptions) => void;
   setSaving: (saving: boolean) => void;
+  setManualSaving: (saving: boolean) => void;
   markSaved: (version: number, savedAt: string | null, savedAtCounter?: number) => void;
   setError: (error: string | null) => void;
   setWarning: (warning: string | null) => void;
@@ -28,7 +30,7 @@ type ProjectContentState = {
 };
 
 const createInitialState = (): Omit<ProjectContentState,
-  'setProject' | 'hydrate' | 'updatePartial' | 'setSaving' | 'markSaved' | 'setError' | 'setWarning' | 'reset'> => ({
+  'setProject' | 'hydrate' | 'updatePartial' | 'setSaving' | 'setManualSaving' | 'markSaved' | 'setError' | 'setWarning' | 'reset'> => ({
   projectId: null,
   content: null,
   version: 1,
@@ -36,6 +38,7 @@ const createInitialState = (): Omit<ProjectContentState,
   dirtySince: null,
   dirtyCounter: 0,
   saving: false,
+  manualSaving: false,
   lastSavedAt: null,
   lastError: null,
   lastWarning: null,
@@ -59,6 +62,7 @@ export const useProjectContentStore = create<ProjectContentState>((set) => ({
       dirtySince: null,
       dirtyCounter: 0,
       saving: false,
+      manualSaving: false,
       lastSavedAt: savedAt ?? state.lastSavedAt,
       lastError: null,
       lastWarning: null,
@@ -109,6 +113,7 @@ export const useProjectContentStore = create<ProjectContentState>((set) => ({
     });
   },
   setSaving: (saving) => set({ saving }),
+  setManualSaving: (manualSaving) => set({ manualSaving }),
   markSaved: (version, savedAt, savedAtCounter?: number) => {
     set((state) => {
       // 如果提供了 savedAtCounter，检查保存期间是否有新修改
@@ -122,6 +127,7 @@ export const useProjectContentStore = create<ProjectContentState>((set) => ({
         dirtySince: hasNewChanges ? state.dirtySince : null,
         dirtyCounter: hasNewChanges ? state.dirtyCounter : 0,
         saving: false,
+        manualSaving: false,
         lastSavedAt: savedAt ?? new Date().toISOString(),
       };
     });
@@ -129,6 +135,7 @@ export const useProjectContentStore = create<ProjectContentState>((set) => ({
   setError: (error) => set((state) => ({
     lastError: error,
     saving: false,
+    manualSaving: false,
     dirtySince: error ? Date.now() : state.dirtySince,
   })),
   setWarning: (warning) => set({ lastWarning: warning }),

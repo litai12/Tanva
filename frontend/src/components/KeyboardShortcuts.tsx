@@ -92,7 +92,7 @@ export default function KeyboardShortcuts() {
       if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
         e.preventDefault();
         const storeBefore = useProjectContentStore.getState();
-        if (!storeBefore.projectId || storeBefore.saving) return;
+        if (!storeBefore.projectId || storeBefore.saving || storeBefore.manualSaving) return;
         try {
           await paperSaveService.saveImmediately();
           await flowSaveService.flushImageSplitInputImages();
@@ -118,7 +118,7 @@ export default function KeyboardShortcuts() {
               useProjectContentStore.getState().setWarning(null);
             } catch {}
           }
-          store.setSaving(true);
+          store.setManualSaving(true);
           const result = await projectApi.saveContent(projectId, { content: contentForCloudSave, version, createWorkflowHistory: true });
           store.markSaved(result.version, result.updatedAt ?? new Date().toISOString());
           try {
@@ -138,7 +138,7 @@ export default function KeyboardShortcuts() {
         } finally {
           const store = useProjectContentStore.getState();
           if (store.projectId === storeBefore.projectId) {
-            store.setSaving(false);
+            store.setManualSaving(false);
           }
         }
       }

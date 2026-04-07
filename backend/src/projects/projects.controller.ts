@@ -50,6 +50,7 @@ export class ProjectsController {
   async updateContent(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateProjectContentDto) {
     return this.projects.updateContent(req.user.sub, id, dto.content, dto.version, {
       createWorkflowHistory: dto.createWorkflowHistory,
+      workflowHistoryMeta: dto.workflowHistoryMeta,
     });
   }
 
