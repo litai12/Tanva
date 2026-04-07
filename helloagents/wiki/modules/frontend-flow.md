@@ -16,7 +16,7 @@
 ## 节点可见性补充
 - `FlowOverlay` 使用统一隐藏集合控制节点可见性；当前 `sora2Video`（Sora 2）、`sora2Character`（Sora2 Character）与 `nano2`（Nano2）在节点添加面板与 Quick Connect 候选中默认隐藏。
 - 节点添加面板分组不能直接把 `category: "input"` 视为“文字类节点”；输入节点仍需继续按 `nodeKey`/解析后的节点类型细分到 `text / image / video / audio`，否则 `video` 这类输入节点会被误归到文字分组。
-- `Vidu` 视频能力已收拢为单一 `viduVideo` 入口；节点内模型只展示 `Q2 / Q3` 两档，面板不再额外展示多个同品牌 Vidu 节点。运行时会根据 `viduModel` 自动切换 provider、时长与参考图上限，旧的 `q3-pro / q3-turbo / q3-mix` 会在前端统一归并为 `q3`。
+- `Vidu` 视频能力已收拢为单一 `viduVideo` 入口；节点内模型只展示 `Q2 / Q3` 两档，面板不再额外展示多个同品牌 Vidu 节点。运行时仅支持 `vidu-q2 / vidu-q3` 两个后端模型，并根据 `viduModel` 自动切换 provider、时长与参考图上限。
 - 模型管理删除模型后，Flow 节点添加面板不应继续展示对应模型节点：
   - 后端公开节点接口只会从“节点管理”里读取节点配置，再按 `model_provider_mapping_v2.models[]` 过滤带 `metadata.modelKeys` 的模型节点。
   - 前端在有后端节点配置时，不再把这类默认模型节点作为 fallback 自动补回面板；后端不可用时的本地 fallback 也不再硬编码这些模型派生视频节点。

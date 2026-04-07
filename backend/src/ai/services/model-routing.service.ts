@@ -338,44 +338,6 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
       ],
     },
     {
-      modelKey: 'vidu-q2-turbo',
-      modelName: 'Vidu Q2-Turbo',
-      taskType: 'video',
-      enabled: true,
-      defaultVendor: 'tencent_vod',
-      vendors: [
-        {
-          vendorKey: 'tencent_vod',
-          platformKey: 'tencent_vod',
-          label: '腾讯 VOD',
-          enabled: true,
-          route: 'tencent_vod',
-          provider: 'vidu',
-          modelName: 'Vidu',
-          modelVersion: 'q2-turbo',
-        },
-      ],
-    },
-    {
-      modelKey: 'vidu-q2-pro',
-      modelName: 'Vidu Q2-Pro',
-      taskType: 'video',
-      enabled: true,
-      defaultVendor: 'tencent_vod',
-      vendors: [
-        {
-          vendorKey: 'tencent_vod',
-          platformKey: 'tencent_vod',
-          label: '腾讯 VOD',
-          enabled: true,
-          route: 'tencent_vod',
-          provider: 'vidu',
-          modelName: 'Vidu',
-          modelVersion: 'q2-pro',
-        },
-      ],
-    },
-    {
       modelKey: 'vidu-q3',
       modelName: 'Vidu Q3',
       taskType: 'video',
@@ -402,25 +364,6 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
           modelName: 'Vidu',
           modelVersion: 'q3',
           metadata: DEFAULT_TENCENT_VOD_VIDU_V2_VENDOR_METADATA,
-        },
-      ],
-    },
-    {
-      modelKey: 'vidu-q3-mix',
-      modelName: 'Vidu Q3-Mix',
-      taskType: 'video',
-      enabled: true,
-      defaultVendor: 'tencent_vod',
-      vendors: [
-        {
-          vendorKey: 'tencent_vod',
-          platformKey: 'tencent_vod',
-          label: '腾讯 VOD',
-          enabled: true,
-          route: 'tencent_vod',
-          provider: 'vidu',
-          modelName: 'Vidu',
-          modelVersion: 'q3-mix',
         },
       ],
     },
@@ -824,8 +767,13 @@ export class ModelRoutingService {
   }
 
   async resolveVideoModel(modelKey: string): Promise<ResolvedManagedModelRoute | null> {
+    const [selected] = await this.resolveVideoModelCandidates(modelKey);
+    return selected || null;
+  }
+
+  async resolveVideoModelCandidates(modelKey: string): Promise<ResolvedManagedModelRoute[]> {
     const normalizedKey = typeof modelKey === 'string' ? modelKey.trim() : '';
-    if (!normalizedKey) return null;
+    if (!normalizedKey) return [];
 
     const config = await this.getParsedConfig();
     const models = Array.isArray(config.models) ? config.models : [];
@@ -842,11 +790,11 @@ export class ModelRoutingService {
         typeof item.modelKey === 'string' &&
         item.modelKey.trim() === normalizedKey,
     );
-    if (!model) return null;
+    if (!model) return [];
 
     const vendors = Array.isArray(model.vendors) ? model.vendors.filter(Boolean) : [];
     const enabledVendors = vendors.filter((item) => item.enabled !== false);
-    if (!enabledVendors.length) return null;
+    if (!enabledVendors.length) return [];
 
     const selected =
       enabledVendors.find(
@@ -855,27 +803,32 @@ export class ModelRoutingService {
           item.vendorKey.trim() === (model.defaultVendor || '').trim(),
       ) || enabledVendors[0];
 
-    const platform =
-      selected.platformKey && platformMap.has(selected.platformKey)
-        ? platformMap.get(selected.platformKey)
-        : null;
-    const mergedVendor: ManagedModelVendorConfig = {
-      ...selected,
-      label: selected.label || platform?.platformName || selected.vendorKey,
-      route: selected.route || platform?.route || 'legacy',
-      provider: selected.provider || platform?.provider || '',
-      metadata: {
-        ...(platform?.metadata && typeof platform.metadata === 'object' ? platform.metadata : {}),
-        ...(selected.metadata && typeof selected.metadata === 'object' ? selected.metadata : {}),
-      },
-    };
+    const orderedVendors = [
+      selected,
+      ...enabledVendors.filter((item) => item.vendorKey !== selected.vendorKey),
+    ];
 
-    const route = mergedVendor.route === 'tencent_vod' ? 'tencent_vod' : 'legacy';
+    return orderedVendors.map((vendor) => {
+      const platform =
+        vendor.platformKey && platformMap.has(vendor.platformKey)
+          ? platformMap.get(vendor.platformKey)
+          : null;
+      const mergedVendor: ManagedModelVendorConfig = {
+        ...vendor,
+        label: vendor.label || platform?.platformName || vendor.vendorKey,
+        route: vendor.route || platform?.route || 'legacy',
+        provider: vendor.provider || platform?.provider || '',
+        metadata: {
+          ...(platform?.metadata && typeof platform.metadata === 'object' ? platform.metadata : {}),
+          ...(vendor.metadata && typeof vendor.metadata === 'object' ? vendor.metadata : {}),
+        },
+      };
 
-    return {
-      model,
-      vendor: mergedVendor,
-      route,
-    };
+      return {
+        model,
+        vendor: mergedVendor,
+        route: mergedVendor.route === 'tencent_vod' ? 'tencent_vod' : 'legacy',
+      };
+    });
   }
 }

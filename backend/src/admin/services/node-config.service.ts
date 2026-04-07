@@ -668,13 +668,13 @@ export class NodeConfigService {
         creditsPerCall: 600,
         serviceType: 'vidu-video',
         priceYuan: 6,
-        description: 'Vidu 视频生成（统一入口，含 Q2 / Q3 / Q3-Mix）',
+        description: 'Vidu 视频生成（统一入口，含 Q2 / Q3）',
         metadata: {
           ...buildVodNodeMetadata(
             {
               type: 'viduVideo',
               provider: 'vidu',
-              modelKeys: ['vidu-q2', 'vidu-q3', 'vidu-q3-mix'],
+              modelKeys: ['vidu-q2', 'vidu-q3'],
               supportedModels: ['q2', 'q3'],
               defaultData: {
                 provider: 'vidu',
@@ -693,7 +693,7 @@ export class NodeConfigService {
                 resolutions: ['540P', '720P', '1080P'],
               },
               inputModes: ['text', 'image', 'reference'],
-              notes: ['Q2 / Q3 / Q3-Pro / Q3-Turbo / Q3-Mix 统一收拢到同一个 Vidu 节点', 'Q3-Mix 仅支持 Reference 模式，至少需要 1 张参考图'],
+              notes: ['Q2 / Q3 统一收拢到同一个 Vidu 节点'],
             },
           ),
         },

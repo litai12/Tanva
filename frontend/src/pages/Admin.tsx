@@ -257,7 +257,7 @@ const inferManagedNodeTemplate = (model: Partial<ManagedModelConfig>): string =>
   if (modelKey === "kling-2.6") return "kling26Video";
   if (modelKey === "kling-3.0") return "kling30Video";
   if (modelKey === "kling-o3") return "klingO1Video";
-  if (modelKey === "vidu-q3" || modelKey === "vidu-q3-mix") return "viduVideo";
+  if (modelKey === "vidu-q3") return "viduVideo";
   if (modelKey === "seedance-1.5") return "doubaoVideo";
   if (modelKey === "seedance-2.0") return "seedance20Video";
   if (modelKey === "sora-2") return "sora2Video";
@@ -277,7 +277,6 @@ const shouldReuseTemplateNodeKey = (modelKey?: string): boolean => {
     "kling-o3",
     "vidu-q2",
     "vidu-q3",
-    "vidu-q3-mix",
     "sora-2",
     "seedance-1.5",
     "seedance-2.0",
@@ -651,25 +650,6 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         modelName: "Vidu",
         modelVersion: "q3",
         metadata: DEFAULT_TENCENT_VOD_VIDU_V2_VENDOR_METADATA,
-      },
-    ],
-  },
-  {
-    modelKey: "vidu-q3-mix",
-    modelName: "Vidu Q3-Mix",
-    taskType: "video",
-    enabled: true,
-    defaultVendor: "tencent_vod",
-    vendors: [
-      {
-        vendorKey: "tencent_vod",
-        platformKey: "tencent_vod",
-        label: "腾讯 VOD",
-        enabled: true,
-        route: "tencent_vod",
-        provider: "vidu",
-        modelName: "Vidu",
-        modelVersion: "q3-mix",
       },
     ],
   },
@@ -1173,7 +1153,6 @@ const MANAGED_MODEL_SUPPORTED_MODELS_MAP: Record<string, string[]> = {
   "kling-o3": ["kling-o3"],
   "vidu-q2": ["q2"],
   "vidu-q3": ["q3"],
-  "vidu-q3-mix": ["q3"],
   "seedance-1.5": ["seedance-1.5-pro"],
   "seedance-2.0": ["seedance-2.0"],
   "sora-2": ["sora-2", "sora-2-pro"],
@@ -1185,7 +1164,6 @@ const MANAGED_MODEL_SERVICE_TYPE_MAP: Record<string, string> = {
   "kling-o3": "kling-o1-video",
   "vidu-q2": "vidu-video",
   "vidu-q3": "viduq3-pro-video",
-  "vidu-q3-mix": "viduq3-pro-video",
   "seedance-1.5": "doubao-video",
   "seedance-2.0": "doubao-video",
   "sora-2": "sora-sd",
@@ -2281,30 +2259,6 @@ function ApiRecordsTab() {
     </div>
   );
 }
-
-// Sora2 供应商选项
-const SORA2_PROVIDER_OPTIONS = [
-  {
-    value: "auto",
-    label: "自动切换",
-    description: "优先使用 APIMart，失败后自动切换到 Sora2 Pro，再回退到普通Sora2",
-  },
-  {
-    value: "apimart",
-    label: "APIMart",
-    description: "强制使用 APIMart (api.apimart.ai)，不会切换到 147",
-  },
-  {
-    value: "v2",
-    label: "Sora2 Pro",
-    description: "强制使用Sora2 Pro (newapi.megabyai.cc)",
-  },
-  {
-    value: "legacy",
-    label: "普通Sora2",
-    description: "强制使用普通Sora2 (147ai.com)",
-  },
-];
 
 const SEEDREAM5_PROVIDER_OPTIONS = [
   {
@@ -5419,7 +5373,6 @@ function SettingsTab() {
   const [settings, setSettings] = useState<SystemSetting[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [sora2Provider, setSora2Provider] = useState("auto");
   const [seedream5Provider, setSeedream5Provider] = useState("doubao");
   const [bananaProvider, setBananaProvider] = useState("auto");
   const [bananaTextProvider, setBananaTextProvider] = useState("auto");
@@ -5435,11 +5388,6 @@ function SettingsTab() {
     try {
       const result = await getSettings();
       setSettings(result);
-      // 找到 sora2_provider 设置
-      const sora2Setting = result.find((s) => s.key === "sora2_provider");
-      if (sora2Setting) {
-        setSora2Provider(sora2Setting.value);
-      }
       const seedreamSetting = result.find((s) => s.key === "seedream5_provider");
       if (seedreamSetting) {
         setSeedream5Provider(seedreamSetting.value);
@@ -5519,23 +5467,6 @@ function SettingsTab() {
     }
   };
 
-  const handleSaveSora2Provider = async () => {
-    setSaving(true);
-    try {
-      await upsertSetting({
-        key: "sora2_provider",
-        value: sora2Provider,
-        description: "Sora2 视频生成 API 供应商选择",
-      });
-      alert("保存成功");
-      loadSettings();
-    } catch (error: any) {
-      alert(error.message || "保存失败");
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const handleSaveBananaProvider = async () => {
     setSaving(true);
     try {
@@ -5593,46 +5524,6 @@ function SettingsTab() {
 
   return (
     <div className='space-y-6'>
-      {/* Sora2 供应商设置 */}
-      <div className='bg-white rounded-lg border p-6 shadow-sm'>
-        <h3 className='text-lg font-semibold mb-4'>Sora2 视频生成设置</h3>
-        <p className='text-sm text-gray-500 mb-4'>
-          选择视频生成时使用的 API
-          供应商。若要确保不走 147，请选择 APIMart 渠道。
-        </p>
-        <div className='space-y-3'>
-          {SORA2_PROVIDER_OPTIONS.map((option) => (
-            <label
-              key={option.value}
-              className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition ${
-                sora2Provider === option.value
-                  ? "border-blue-500 bg-blue-50"
-                  : "border-gray-200 hover:border-gray-300"
-              }`}
-            >
-              <input
-                type='radio'
-                name='sora2Provider'
-                value={option.value}
-                checked={sora2Provider === option.value}
-                onChange={(e) => setSora2Provider(e.target.value)}
-                className='mt-1'
-              />
-              <div>
-                <div className='font-medium'>{option.label}</div>
-                <div className='text-sm text-gray-500'>
-                  {option.description}
-                </div>
-              </div>
-            </label>
-          ))}
-        </div>
-        <div className='mt-4'>
-          <Button onClick={handleSaveSora2Provider} disabled={saving}>
-            {saving ? "保存中..." : "保存设置"}
-          </Button>
-        </div>
-      </div>
       <div className='bg-white rounded-lg border p-6 shadow-sm'>
         <h3 className='text-lg font-semibold mb-4'>Seedream 5.0 通道设置</h3>
         <p className='text-sm text-gray-500 mb-4'>

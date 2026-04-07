@@ -15,15 +15,11 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
-- Flow/Admin：将 `Vidu` 视频节点收拢为单一 `viduVideo` 入口，移除额外的 `viduQ3` / `viduQ3MixVideo` 面板与默认配置暴露；统一节点内通过 `viduModel` 切换 Q2 / Q3 / Q3-Pro / Q3-Turbo / Q3-Mix，并自动同步 provider、时长与参考图限制（`frontend/src/services/nodeConfigService.ts`, `frontend/src/components/flow/FlowOverlay.tsx`, `frontend/src/components/flow/nodes/GenericVideoNode.tsx`, `frontend/src/pages/Admin.tsx`, `backend/src/admin/services/node-config.service.ts`）。
-- Flow/Admin：下线 `Vidu Q2-Turbo` 与 `Vidu Q2-Pro` 节点入口，同步移除前端默认节点配置、管理后台模型清单与后端节点配置种子，避免继续在面板或管理页暴露（`frontend/src/services/nodeConfigService.ts`, `frontend/src/pages/Admin.tsx`, `backend/src/admin/services/node-config.service.ts`, `frontend/src/components/flow/nodes/GenericVideoNode.tsx`）。
+- Flow/Admin：将 `Vidu` 视频节点收拢为单一 `viduVideo` 入口，当前仅保留 `Q2 / Q3` 两档；移除除 `vidu-q2 / vidu-q3` 外的其余 Vidu 型号配置和暴露入口（`frontend/src/pages/Admin.tsx`, `backend/src/admin/services/node-config.service.ts`, `backend/src/ai/services/model-routing.service.ts`, `backend/src/ai/services/video-provider.service.ts`）。
 - Flow：修正节点添加面板分组逻辑，不再把所有 `category: "input"` 节点提前归入“文字类节点”；`video` 输入节点现在会按真实节点类型显示在“视频类节点”（`frontend/src/components/flow/FlowOverlay.tsx`）。
-<<<<<<< HEAD
 - Workspace 顶部项目名区域新增快捷 `+` 新建入口：在当前项目名称右侧可一键新建项目；项目下拉中的“新建项目”同步复用同一创建逻辑并增加防连点状态（`frontend/src/components/layout/FloatingHeader.tsx`）。
-=======
 - Flow: tightened connection validation in FlowOverlay so text handles (text/prompt/response-text) and image handles (img/image/image*) are no longer cross-connectable by source node type alone.
 - Flow: fixed Kling video run-path image collection to include `image-2` (end frame) and enforce handle order (`image` -> `image-2`), so Kling 3.0 Pro start/end frame mode can take effect.
->>>>>>> lry_dev
 - AI `generate-image`：当上游仅返回外链 `imageUrl` 时，统一改为后端拉取并转存 OSS 后再返回；管理员/白名单仍可跳过水印，但不再直返第三方临时链接，减少云端历史过期裂图（`backend/src/ai/ai.controller.ts`）。
 - Credits Backend: `updateApiUsageStatus` 增加状态机保护，禁止 `failed -> success` 与 `success -> failed` 反向回写，减少超时自动退款与晚到成功回写造成的状态/账务不一致（`backend/src/credits/credits.service.ts`）。
 - Frontend `/my-credits`: “今日消耗 / 最近 7 天消耗 / 趋势图”改为净消耗口径（`spend - refund`，最小 0），避免失败后已退款流水仍被计入消耗（`frontend/src/pages/MyCredits.tsx`）。
