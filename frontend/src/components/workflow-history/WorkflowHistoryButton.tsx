@@ -28,7 +28,7 @@ export default function WorkflowHistoryButton({ projectId }: WorkflowHistoryButt
     .toLowerCase()
     .startsWith("zh");
   const locale = isZh ? "zh-CN" : "en-US";
-  const lt = (zhText: string, enText: string) => (isZh ? zhText : enText);
+  const lt = useCallback((zhText: string, enText: string) => (isZh ? zhText : enText), [isZh]);
   const [open, setOpen] = useState(false);
   const [pinned, setPinned] = useState(false);
   const [loading, setLoading] = useState(false);

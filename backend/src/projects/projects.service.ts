@@ -7,6 +7,7 @@ import { sanitizeDesignJson } from '../utils/designJsonSanitizer';
 
 @Injectable()
 export class ProjectsService {
+  private readonly workflowHistoryRetentionDays = 7;
   private thumbnailColumnChecked = false;
   private thumbnailColumnAvailable = false;
   private readonly projectSaveQueue = new Map<string, Promise<void>>();
@@ -340,6 +341,23 @@ export class ProjectsService {
       if (this.isMissingWorkflowHistoryTable(error)) throw new NotFoundException('历史版本不存在');
       throw error;
     }
+  }
+
+  async cleanupExpiredWorkflowHistory() {
+    const cutoff = new Date(Date.now() - this.workflowHistoryRetentionDays * 24 * 60 * 60 * 1000);
+    const result = await this.prisma.workflowHistory.deleteMany({
+      where: {
+        updatedAt: {
+          lt: cutoff,
+        },
+      },
+    });
+
+    return {
+      deletedCount: result.count,
+      retentionDays: this.workflowHistoryRetentionDays,
+      cutoff,
+    };
   }
 
   private async tryCreateWorkflowHistorySnapshot(

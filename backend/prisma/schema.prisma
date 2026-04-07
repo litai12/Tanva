@@ -118,6 +118,7 @@ model WorkflowHistory {
 
   @@id([userId, projectId, updatedAt])
   @@unique([userId, projectId, version])
+  @@index([updatedAt])
 }
 
 model CreditAccount {

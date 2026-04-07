@@ -15,6 +15,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- Backend `WorkflowHistory` 新增 7 天保留策略：项目历史查询仍返回当前项目全部现存记录，但由 `projects` 定时任务每日凌晨物理清理 7 天前数据，并为 `updatedAt` 增加索引以降低批量删除成本（`backend/src/projects/projects.service.ts`, `backend/src/projects/projects-scheduler.service.ts`, `backend/src/projects/projects.module.ts`, `backend/prisma/schema.prisma`）。
+- Workspace 顶部右侧工具区恢复手动保存与工作流历史入口：`ManualSaveButton` 与 `WorkflowHistoryButton` 重新挂载到 `FloatingHeader`，用户可再次直接保存并查看/恢复工作流历史（`frontend/src/components/layout/FloatingHeader.tsx`）。
 - Flow/Admin：将 `Vidu` 视频节点收拢为单一 `viduVideo` 入口，当前仅保留 `Q2 / Q3` 两档；移除除 `vidu-q2 / vidu-q3` 外的其余 Vidu 型号配置和暴露入口（`frontend/src/pages/Admin.tsx`, `backend/src/admin/services/node-config.service.ts`, `backend/src/ai/services/model-routing.service.ts`, `backend/src/ai/services/video-provider.service.ts`）。
 - Flow：修正节点添加面板分组逻辑，不再把所有 `category: "input"` 节点提前归入“文字类节点”；`video` 输入节点现在会按真实节点类型显示在“视频类节点”（`frontend/src/components/flow/FlowOverlay.tsx`）。
 - Workspace 顶部项目名区域新增快捷 `+` 新建入口：在当前项目名称右侧可一键新建项目；项目下拉中的“新建项目”同步复用同一创建逻辑并增加防连点状态（`frontend/src/components/layout/FloatingHeader.tsx`）。

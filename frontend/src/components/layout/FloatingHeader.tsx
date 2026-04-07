@@ -63,6 +63,7 @@ import ManualSaveButton from "@/components/autosave/ManualSaveButton";
 import GlobalImageHistoryPage from "@/components/global-history/GlobalImageHistoryPage";
 import { useGlobalImageHistoryStore } from "@/stores/globalImageHistoryStore";
 import AutosaveStatus from "@/components/autosave/AutosaveStatus";
+import WorkflowHistoryButton from "@/components/workflow-history/WorkflowHistoryButton";
 import { paperSaveService } from "@/services/paperSaveService";
 import { historyService } from "@/services/historyService";
 import { clipboardService } from "@/services/clipboardService";
@@ -1959,6 +1960,9 @@ const FloatingHeader: React.FC = () => {
         {/* 右侧栏：功能按钮 */}
         <div className='pointer-events-auto'>
           <div className='flex items-center gap-1.5 md:gap-2 px-4 md:px-6 py-2 h-[46px] rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300'>
+            <ManualSaveButton />
+            <WorkflowHistoryButton projectId={currentProject?.id ?? null} />
+
             {/* 素材库按钮 */}
             {showLibraryButton && (
               <Button
