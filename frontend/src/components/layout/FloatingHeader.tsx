@@ -833,7 +833,8 @@ const FloatingHeader: React.FC = () => {
         return { label: t("common.status.unknown"), color: "#9ca3af" };
     }
   })();
-  const isAdmin = user?.role === "admin";
+  const normalizedRole = (user?.role || "").trim().toLowerCase();
+  const isAdmin = normalizedRole === "admin" || normalizedRole === "normal_admin";
   useEffect(() => {
     if (!isAdmin || typeof window === "undefined") {
       setFpsOverlayAdminButtonLayout(null);

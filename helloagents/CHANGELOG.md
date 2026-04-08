@@ -15,6 +15,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- 后台权限新增 `normal_admin`（普通管理）角色：后端仅放行 `概览、用户管理、API统计、API记录、公共模板、水印白名单` 对应接口，`admin` 仍保留全量后台权限（`backend/src/admin/admin.controller.ts`, `backend/src/admin/dto/admin.dto.ts`）。
+- 后台页面按角色显示 Tab：`normal_admin` 只显示 `概览 / 用户管理 / API统计 / API记录 / 公共模板 / 水印白名单`；并在“用户管理”中隐藏“角色/状态”列与“详情/删除”按钮（`frontend/src/pages/Admin.tsx`, `frontend/src/components/layout/FloatingHeader.tsx`）。
 - 工作流历史恢复新增来源标记：从历史版本“恢复并保存”后，新写入的 `WorkflowHistory` 会记录 `restoredFromUpdatedAt/restoredFromVersion`，前端历史列表可直接看到“恢复自哪个版本”，避免恢复生成的新记录与普通保存记录难以区分（`backend/src/projects/*`, `frontend/src/components/workflow-history/WorkflowHistoryButton.tsx`, `frontend/src/services/projectApi.ts`）。
 - Backend `WorkflowHistory` 新增 7 天保留策略：项目历史查询仍返回当前项目全部现存记录，但由 `projects` 定时任务每日凌晨物理清理 7 天前数据，并为 `updatedAt` 增加索引以降低批量删除成本（`backend/src/projects/projects.service.ts`, `backend/src/projects/projects-scheduler.service.ts`, `backend/src/projects/projects.module.ts`, `backend/prisma/schema.prisma`）。
 - Workspace 顶部右侧工具区恢复手动保存与工作流历史入口：`ManualSaveButton` 与 `WorkflowHistoryButton` 重新挂载到 `FloatingHeader`，用户可再次直接保存并查看/恢复工作流历史（`frontend/src/components/layout/FloatingHeader.tsx`）。

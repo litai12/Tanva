@@ -43,6 +43,31 @@ interface AuthenticatedUser {
 
 type AuthenticatedRequest = FastifyRequest & { user: AuthenticatedUser };
 
+type AdminPermission =
+  | 'dashboard:view'
+  | 'users:list'
+  | 'users:credits:add'
+  | 'users:credits:deduct'
+  | 'users:credits:transactions'
+  | 'api-usage:stats'
+  | 'api-usage:records'
+  | 'templates:manage'
+  | 'watermark-whitelist:manage';
+
+const FULL_ADMIN_ROLE = 'admin';
+const NORMAL_ADMIN_ROLE = 'normal_admin';
+const NORMAL_ADMIN_ALLOWED_PERMISSIONS = new Set<AdminPermission>([
+  'dashboard:view',
+  'users:list',
+  'users:credits:add',
+  'users:credits:deduct',
+  'users:credits:transactions',
+  'api-usage:stats',
+  'api-usage:records',
+  'templates:manage',
+  'watermark-whitelist:manage',
+]);
+
 @ApiTags('管理后台')
 @Controller('admin')
 @UseGuards(JwtAuthGuard)
@@ -59,23 +84,30 @@ export class AdminController {
   /**
    * 验证管理员权限
    */
-  private checkAdmin(req: AuthenticatedRequest) {
-    if (req.user.role !== 'admin') {
-      throw new ForbiddenException('只有管理员可以访问此接口');
+  private checkAdmin(req: AuthenticatedRequest, permission?: AdminPermission) {
+    const role = typeof req.user?.role === 'string' ? req.user.role.toLowerCase() : '';
+    if (role === FULL_ADMIN_ROLE) return;
+    if (
+      role === NORMAL_ADMIN_ROLE &&
+      permission &&
+      NORMAL_ADMIN_ALLOWED_PERMISSIONS.has(permission)
+    ) {
+      return;
     }
+    throw new ForbiddenException('Only administrators can access this endpoint');
   }
 
   @Get('dashboard')
   @ApiOperation({ summary: '获取管理后台统计数据' })
   async getDashboardStats(@Request() req: AuthenticatedRequest) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'dashboard:view');
     return this.adminService.getDashboardStats();
   }
 
   @Get('users')
   @ApiOperation({ summary: '获取所有用户列表' })
   async getAllUsers(@Request() req: AuthenticatedRequest, @Query() query: UsersQueryDto) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'users:list');
     return this.adminService.getAllUsers({
       page: query.page,
       pageSize: query.pageSize,
@@ -135,7 +167,7 @@ export class AdminController {
     @Param('userId') userId: string,
     @Body() dto: { amount: number; description: string },
   ) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'users:credits:add');
     return this.creditsService.adminAddCredits(
       userId,
       dto.amount,
@@ -151,7 +183,7 @@ export class AdminController {
     @Param('userId') userId: string,
     @Body() dto: { amount: number; description: string },
   ) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'users:credits:deduct');
     return this.creditsService.adminDeductCredits(
       userId,
       dto.amount,
@@ -167,7 +199,7 @@ export class AdminController {
     @Param('userId') userId: string,
     @Query() query: TransactionHistoryQueryDto,
   ) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'users:credits:transactions');
     return this.creditsService.getTransactionHistory(userId, {
       page: query.page,
       pageSize: query.pageSize,
@@ -178,7 +210,7 @@ export class AdminController {
   @Get('api-usage/stats')
   @ApiOperation({ summary: '获取API使用统计' })
   async getApiUsageStats(@Request() req: AuthenticatedRequest, @Query() query: ApiUsageStatsQueryDto) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'api-usage:stats');
     return this.adminService.getApiUsageStats({
       startDate: query.startDate ? new Date(query.startDate) : undefined,
       endDate: query.endDate ? new Date(query.endDate) : undefined,
@@ -188,7 +220,7 @@ export class AdminController {
   @Get('api-usage/records')
   @ApiOperation({ summary: '获取所有API使用记录' })
   async getAllApiUsageRecords(@Request() req: AuthenticatedRequest, @Query() query: ApiUsageRecordsQueryDto) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'api-usage:records');
     return this.adminService.getAllApiUsageRecords({
       page: query.page,
       pageSize: query.pageSize,
@@ -250,7 +282,7 @@ export class AdminController {
   @Get('templates/categories')
   @ApiOperation({ summary: '获取所有模板分类' })
   async getTemplateCategories(@Request() req: AuthenticatedRequest) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'templates:manage');
     return this.templateService.getTemplateCategories();
   }
 
@@ -260,7 +292,7 @@ export class AdminController {
     @Request() req: AuthenticatedRequest,
     @Body() dto: { category: string },
   ) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'templates:manage');
     const key = 'template_categories';
     // 读取现有设置
     const existing = await this.adminService.getSetting(key);
@@ -290,7 +322,7 @@ export class AdminController {
     @Request() req: AuthenticatedRequest,
     @Param('category') category: string,
   ) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'templates:manage');
     const cat = decodeURIComponent(category).trim();
     if (!cat) {
       return { success: false, message: '分类不能为空' };
@@ -320,7 +352,7 @@ export class AdminController {
     @Request() req: AuthenticatedRequest,
     @Body() dto: CreateTemplateDto,
   ) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'templates:manage');
     return this.templateService.createTemplate(dto, req.user.id);
   }
 
@@ -330,7 +362,7 @@ export class AdminController {
     @Request() req: AuthenticatedRequest,
     @Query() query: TemplateQueryDto,
   ) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'templates:manage');
     return this.templateService.getTemplates(query);
   }
 
@@ -340,7 +372,7 @@ export class AdminController {
     @Request() req: AuthenticatedRequest,
     @Param('id') id: string,
   ) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'templates:manage');
     return this.templateService.getTemplateById(id);
   }
 
@@ -351,7 +383,7 @@ export class AdminController {
     @Param('id') id: string,
     @Body() dto: UpdateTemplateDto,
   ) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'templates:manage');
     return this.templateService.updateTemplate(id, dto, req.user.id);
   }
 
@@ -361,7 +393,7 @@ export class AdminController {
     @Request() req: AuthenticatedRequest,
     @Param('id') id: string,
   ) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'templates:manage');
     return this.templateService.deleteTemplate(id);
   }
 
@@ -373,7 +405,7 @@ export class AdminController {
     @Request() req: AuthenticatedRequest,
     @Query() query: { page?: string; pageSize?: string; search?: string },
   ) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'watermark-whitelist:manage');
     return this.adminService.getWatermarkWhitelist({
       page: query.page ? parseInt(query.page) : 1,
       pageSize: query.pageSize ? parseInt(query.pageSize) : 20,
@@ -387,7 +419,7 @@ export class AdminController {
     @Request() req: AuthenticatedRequest,
     @Param('userId') userId: string,
   ) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'watermark-whitelist:manage');
     return this.adminService.addToWatermarkWhitelist(userId);
   }
 
@@ -397,7 +429,7 @@ export class AdminController {
     @Request() req: AuthenticatedRequest,
     @Param('userId') userId: string,
   ) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'watermark-whitelist:manage');
     return this.adminService.removeFromWatermarkWhitelist(userId);
   }
 
