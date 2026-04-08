@@ -12,6 +12,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Membership Backend P0 最小闭环：新增 `MembershipPlan` / `UserMembershipSubscription` / `MembershipEntitlementSnapshot`，`PaymentOrder` 支持 `membership` 订单类型；支付成功后可激活/续期订阅，并发放 `membership_bound` 积分 lot。
 - Membership Backend P1 补齐到期收口：新增会员到期小时级扫描任务；过期订阅会被标记 `expired`，其 `membership_bound` lot 会归零并写入 `membership_expire` 流水，权益快照回落到 `free/inactive`。
 - Membership Backend P1 继续补齐权益调度：新增每日赠送积分衰减任务（`gift_decay`）和年费会员月度额度刷新任务（`membership_refresh`），均由 `MembershipSchedulerService` 驱动。
+- Credits/Membership Backend 进一步对齐定价策略：新增免费用户月度额度发放（`free_monthly_quota`）闭环，默认消费优先级调整为 `月卡 -> 赠送 -> 固定`，`membership_credit_policy` 新增 `freeUserMonthlyQuotaCredits` 配置项。
+- Credits/Membership Backend 继续对齐签到策略：免费签到继续走策略配置，活跃 VIP 的签到奖励改为只读取当前会员套餐 `dailyGiftCredits`，不叠加免费签到额度；第 7 天支持按倍率发放。
 - Membership Backend 新增读接口：`GET /api/membership/current` 返回当前订阅/套餐/权益聚合视图，`GET /api/membership/entitlement` 返回当前权益快照，供前端会员页接入。
 - 认证系统新增观猹 OAuth2 登录：后端增加 `/api/auth/watcha/authorize` + `/api/auth/watcha/callback`，支持授权回调后自动登录、绑定/创建本地账号（`watchaUserId`）。
 - 登录页在“登录”按钮下方新增观猹入口按钮，复用后端授权跳转链路并支持回调错误提示。
@@ -399,3 +401,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - `MembershipService.decayDailyGiftCredits` 与 `MembershipService.refreshYearlySubscriptionQuotaLots` 改为读取后台配置，不再写死 `50/30`。
 - 任务接口文档补充到 `task/2026-04-08-tanva-membership-api.md`，覆盖后台策略接口与配置生效点。
 - 前端管理后台 `系统设置` 下新增 `VIP管理` 子页，集成会员套餐列表管理与会员积分策略配置。
+- 后台管理员正向加积分改为进入 `gift` 池，不再按固定积分处理；这部分积分会参与赠送积分衰减，并在 VIP 状态下受 `pauseGiftDecay` 保护。
+- 新增会员每日赠送积分发放任务：活跃会员按套餐 `dailyGiftCredits` 每日自动发放一笔赠送积分，幂等键按“订阅 + 自然日”控制。
+- `/my-credits` 页面挂载时新增一次静默签到兜底，再刷新余额与交易流水，避免全局自动签到与页面首屏请求存在时序竞争时，看不到当日签到记录。
+- `CreditsService.claimDailyReward` 改为在事务内锁定 `CreditAccount` 行并再次校验业务日，修复多入口同时触发签到时可重复发放的问题。

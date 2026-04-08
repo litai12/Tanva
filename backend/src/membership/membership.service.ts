@@ -708,6 +708,129 @@ export class MembershipService {
     });
   }
 
+  async issueDailyMembershipGiftCredits(now = new Date()) {
+    return this.prisma.$transaction(async (tx) => {
+      const windowStart = new Date(now);
+      windowStart.setHours(0, 0, 0, 0);
+      const windowEnd = new Date(windowStart);
+      windowEnd.setDate(windowEnd.getDate() + 1);
+
+      const subscriptions = await tx.userMembershipSubscription.findMany({
+        where: {
+          status: 'active',
+          currentPeriodStartAt: { lte: now },
+          currentPeriodEndAt: { gt: now },
+        },
+        orderBy: [{ createdAt: 'asc' }],
+      });
+
+      let issuedSubscriptions = 0;
+      let grantedCredits = 0;
+      let createdLots = 0;
+
+      for (const subscription of subscriptions) {
+        const plan = await tx.membershipPlan.findUnique({
+          where: { id: subscription.membershipPlanId },
+        });
+        if (!plan || plan.dailyGiftCredits <= 0) {
+          continue;
+        }
+
+        const alreadyIssued = await tx.creditTransaction.count({
+          where: {
+            subscriptionId: subscription.id,
+            businessType: 'membership_daily_gift',
+            createdAt: {
+              gte: windowStart,
+              lt: windowEnd,
+            },
+          },
+        });
+        if (alreadyIssued > 0) {
+          continue;
+        }
+
+        let account = await tx.creditAccount.findUnique({
+          where: { userId: subscription.userId },
+        });
+        if (!account) {
+          account = await tx.creditAccount.create({
+            data: {
+              userId: subscription.userId,
+              balance: 0,
+              totalEarned: 0,
+            },
+          });
+        }
+
+        const lot = await tx.creditLot.create({
+          data: {
+            accountId: account.id,
+            sourceType: 'gift',
+            validityType: 'permanent',
+            scopeType: 'global',
+            scopeValue: null,
+            totalAmount: plan.dailyGiftCredits,
+            remainingAmount: plan.dailyGiftCredits,
+            grantedAt: now,
+            activeAt: now,
+            expiresAt: null,
+            durationDays: null,
+            orderId: null,
+            subscriptionId: subscription.id,
+            status: 'active',
+            priority: 0,
+            metadata: {
+              membershipPlanId: plan.id,
+              membershipPlanCode: plan.code,
+              grantedBy: 'membership_daily_gift',
+              issuedOn: windowStart.toISOString(),
+            },
+          },
+        });
+
+        const balanceBefore = account.balance;
+        const balanceAfter = balanceBefore + plan.dailyGiftCredits;
+
+        await tx.creditAccount.update({
+          where: { id: account.id },
+          data: {
+            balance: balanceAfter,
+            totalEarned: account.totalEarned + plan.dailyGiftCredits,
+          },
+        });
+
+        await tx.creditTransaction.create({
+          data: {
+            accountId: account.id,
+            type: TransactionType.EARN,
+            amount: plan.dailyGiftCredits,
+            balanceBefore,
+            balanceAfter,
+            description: `${plan.name} 每日赠送积分`,
+            creditLotId: lot.id,
+            businessType: 'membership_daily_gift',
+            subscriptionId: subscription.id,
+            membershipPlanId: plan.id,
+            metadata: {
+              issuedOn: windowStart.toISOString(),
+            },
+          },
+        });
+
+        issuedSubscriptions += 1;
+        grantedCredits += plan.dailyGiftCredits;
+        createdLots += 1;
+      }
+
+      return {
+        issuedSubscriptions,
+        grantedCredits,
+        createdLots,
+      };
+    });
+  }
+
   async activatePaidMembershipOrder(
     params: ActivatePaidMembershipOrderParams,
   ): Promise<ActivatePaidMembershipOrderResult> {

@@ -5846,9 +5846,9 @@ function VipManagementTab() {
   const [policyForm, setPolicyForm] = useState<MembershipCreditPolicyConfig>({
     dailyGiftDecayCredits: 50,
     fixedCreditExpireDays: 730,
+    freeUserMonthlyQuotaCredits: 500,
     dailyRewardCredits: 50,
-    dailyRewardExpireDays: 7,
-    consecutive7DayBonusCredits: 150,
+    consecutive7DayRewardMultiplier: 3,
     membershipRefreshCycleDays: 30,
   });
   const [planForm, setPlanForm] = useState<{
@@ -5988,9 +5988,9 @@ function VipManagementTab() {
       const payload: MembershipCreditPolicyConfig = {
         dailyGiftDecayCredits: Number(policyForm.dailyGiftDecayCredits),
         fixedCreditExpireDays: Number(policyForm.fixedCreditExpireDays),
+        freeUserMonthlyQuotaCredits: Number(policyForm.freeUserMonthlyQuotaCredits),
         dailyRewardCredits: Number(policyForm.dailyRewardCredits),
-        dailyRewardExpireDays: Number(policyForm.dailyRewardExpireDays),
-        consecutive7DayBonusCredits: Number(policyForm.consecutive7DayBonusCredits),
+        consecutive7DayRewardMultiplier: Number(policyForm.consecutive7DayRewardMultiplier),
         membershipRefreshCycleDays: Number(policyForm.membershipRefreshCycleDays),
       };
       const result = await updateMembershipCreditPolicy(payload);
@@ -6025,7 +6025,7 @@ function VipManagementTab() {
           <div>
             <h3 className='text-lg font-semibold'>会员积分策略</h3>
             <p className='mt-1 text-sm text-gray-500'>
-              这里配置赠送积分衰减、固定积分时效、签到奖励和刷新周期，保存后后端立即按新配置生效。
+              这里配置赠送积分衰减、固定积分时效、免费月额度、免费签到奖励和刷新周期，签到积分统一进赠送池，活跃会员期间不衰减。
             </p>
           </div>
           <Button onClick={handleSavePolicy} disabled={savingPolicy}>
@@ -6037,9 +6037,9 @@ function VipManagementTab() {
           {[
             ["dailyGiftDecayCredits", "赠送积分日衰减", "每天自动衰减的赠送积分数量"],
             ["fixedCreditExpireDays", "固定积分有效期", "充值/后台补发积分的有效天数，0 为永久"],
-            ["dailyRewardCredits", "每日签到积分", "免费用户每日签到获得的基础积分"],
-            ["dailyRewardExpireDays", "签到积分有效期", "免费用户签到积分有效天数，0 为永久"],
-            ["consecutive7DayBonusCredits", "7日连签奖励", "连续签到第 7 天额外发放的积分"],
+            ["freeUserMonthlyQuotaCredits", "免费用户月额度", "免费用户每个刷新周期自动发放的月卡积分"],
+            ["dailyRewardCredits", "免费签到积分", "免费用户每日签到获得的基础积分"],
+            ["consecutive7DayRewardMultiplier", "7日连签倍率", "连续签到第 7 天按基础签到积分的倍率发放"],
             ["membershipRefreshCycleDays", "会员刷新周期", "月卡/年卡配额刷新按这个周期计算"],
           ].map(([key, label, hint]) => (
             <div key={key} className='rounded-lg border border-gray-200 p-4'>

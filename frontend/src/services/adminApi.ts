@@ -341,11 +341,6 @@ export async function getMyApiUsage(params?: {
   return response.json();
 }
 
-export interface DailyRewardStatus {
-  canClaim: boolean;
-  lastClaimAt: string | null;
-}
-
 export interface ClaimDailyRewardResult {
   success: boolean;
   newBalance: number;
@@ -353,6 +348,10 @@ export interface ClaimDailyRewardResult {
   alreadyClaimed?: boolean;
   expiresAt?: string | null;
   consecutiveDays?: number;
+  bonusCredits?: number;
+  baseCredits?: number;
+  rewardMultiplier?: number;
+  tierCode?: string;
 }
 
 export interface ExpiringCreditsInfo {
@@ -366,6 +365,14 @@ export interface CheckInCalendar {
   lastCheckInDate: string | null;
   todayCheckedIn: boolean;
   calendarDays: Array<{ day: number; checked: boolean; missed: boolean; isToday: boolean }>;
+}
+
+export interface DailyRewardStatus {
+  canClaim: boolean;
+  lastClaimAt: string | null;
+  tierCode?: string;
+  todayRewardCredits?: number;
+  rewardMultiplier?: number;
 }
 
 export async function getDailyRewardStatus(): Promise<DailyRewardStatus> {
@@ -433,9 +440,9 @@ export async function upsertSetting(data: {
 export interface MembershipCreditPolicyConfig {
   dailyGiftDecayCredits: number;
   fixedCreditExpireDays: number;
+  freeUserMonthlyQuotaCredits: number;
   dailyRewardCredits: number;
-  dailyRewardExpireDays: number;
-  consecutive7DayBonusCredits: number;
+  consecutive7DayRewardMultiplier: number;
   membershipRefreshCycleDays: number;
 }
 

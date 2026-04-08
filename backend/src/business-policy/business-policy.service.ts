@@ -36,7 +36,7 @@ export class BusinessPolicyService {
       rawValue: setting?.value ?? null,
       updatedAt: setting?.updatedAt ?? null,
       updatedBy: setting?.updatedBy ?? null,
-      description: '会员积分策略配置：赠送衰减、固定积分时效、签到奖励、月度刷新周期',
+      description: '会员积分策略配置：赠送衰减、固定积分时效、免费月额度、签到奖励、月度刷新周期',
     };
   }
 
@@ -103,20 +103,20 @@ export class BusinessPolicyService {
         defaults.fixedCreditExpireDays,
         'fixedCreditExpireDays',
       ),
+      freeUserMonthlyQuotaCredits: this.parseNonNegativeInt(
+        candidate?.freeUserMonthlyQuotaCredits,
+        defaults.freeUserMonthlyQuotaCredits,
+        'freeUserMonthlyQuotaCredits',
+      ),
       dailyRewardCredits: this.parseNonNegativeInt(
         candidate?.dailyRewardCredits,
         defaults.dailyRewardCredits,
         'dailyRewardCredits',
       ),
-      dailyRewardExpireDays: this.parseNonNegativeInt(
-        candidate?.dailyRewardExpireDays,
-        defaults.dailyRewardExpireDays,
-        'dailyRewardExpireDays',
-      ),
-      consecutive7DayBonusCredits: this.parseNonNegativeInt(
-        candidate?.consecutive7DayBonusCredits,
-        defaults.consecutive7DayBonusCredits,
-        'consecutive7DayBonusCredits',
+      consecutive7DayRewardMultiplier: this.parsePositiveInt(
+        candidate?.consecutive7DayRewardMultiplier,
+        defaults.consecutive7DayRewardMultiplier,
+        'consecutive7DayRewardMultiplier',
       ),
       membershipRefreshCycleDays: this.parsePositiveInt(
         candidate?.membershipRefreshCycleDays,

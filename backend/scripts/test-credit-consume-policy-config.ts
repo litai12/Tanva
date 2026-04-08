@@ -14,6 +14,7 @@ function run(): void {
     sorts: [
       'scope_specificity_desc',
       'validity_priority_asc',
+      'source_priority_asc',
       'expires_at_asc_nulls_last',
     ],
     validityPriority: {
@@ -35,6 +36,7 @@ function run(): void {
   assert.deepEqual(hydrated.sorts, [
     'scope_specificity_desc',
     'validity_priority_asc',
+    'source_priority_asc',
     'expires_at_asc_nulls_last',
   ]);
   assert.equal(hydrated.validityPriority.membership_bound, 5);
@@ -53,6 +55,8 @@ function run(): void {
   assert.deepEqual(fallback.sorts, defaultPolicy.sorts);
   assert.deepEqual(fallback.validityPriority, defaultPolicy.validityPriority);
   assert.deepEqual(fallback.sourcePriority, defaultPolicy.sourcePriority);
+  assert.equal(defaultPolicy.sourcePriority.subscription, 10);
+  assert.equal(defaultPolicy.sourcePriority.gift, 20);
 }
 
 run();

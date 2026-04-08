@@ -51,6 +51,15 @@ export function buildManualCreditLotData(
   });
 }
 
+export function buildAdminGiftCreditLotData(
+  input: CreditLotGrantBaseInput,
+): CreditLotGrantData {
+  return buildPermanentLotData({
+    ...input,
+    sourceType: 'gift',
+  });
+}
+
 export function buildSignupCreditLotData(
   input: CreditLotGrantBaseInput,
 ): CreditLotGrantData {
@@ -66,39 +75,13 @@ export function buildDailyRewardCreditLotData(
   const grantedAt = input.grantedAt ?? new Date();
   const activeAt = input.activeAt ?? grantedAt;
 
-  if (!input.expiresAt) {
-    return {
-      ...buildPermanentLotData({
-        ...input,
-        sourceType: 'gift',
-      }),
-      grantedAt,
-      activeAt,
-    };
-  }
-
-  const durationDays = Math.max(
-    1,
-    Math.ceil((input.expiresAt.getTime() - grantedAt.getTime()) / (24 * 60 * 60 * 1000)),
-  );
-
   return {
-    accountId: input.accountId,
-    sourceType: 'gift',
-    validityType: 'fixed_window',
-    scopeType: input.scopeType ?? 'global',
-    scopeValue: input.scopeValue ?? null,
-    totalAmount: input.amount,
-    remainingAmount: input.amount,
+    ...buildPermanentLotData({
+      ...input,
+      sourceType: 'gift',
+    }),
     grantedAt,
     activeAt,
-    expiresAt: input.expiresAt,
-    durationDays,
-    orderId: input.orderId ?? null,
-    subscriptionId: input.subscriptionId ?? null,
-    status: 'active',
-    priority: 0,
-    ...(input.metadata ? { metadata: input.metadata } : {}),
   };
 }
 
@@ -127,6 +110,35 @@ export function buildMembershipCreditLotData(
     subscriptionId: input.subscriptionId ?? null,
     status: 'active',
     priority: 0,
+    ...(input.metadata ? { metadata: input.metadata } : {}),
+  };
+}
+
+export function buildFreeMonthlyQuotaCreditLotData(
+  input: CreditLotGrantBaseInput & { expiresAt: Date; durationDays?: number | null },
+): CreditLotGrantData {
+  const grantedAt = input.grantedAt ?? new Date();
+  const activeAt = input.activeAt ?? grantedAt;
+  const durationDays =
+    input.durationDays ??
+    Math.max(1, Math.ceil((input.expiresAt.getTime() - grantedAt.getTime()) / (24 * 60 * 60 * 1000)));
+
+  return {
+    accountId: input.accountId,
+    sourceType: 'subscription',
+    validityType: 'fixed_window',
+    scopeType: input.scopeType ?? 'global',
+    scopeValue: input.scopeValue ?? null,
+    totalAmount: input.amount,
+    remainingAmount: input.amount,
+    grantedAt,
+    activeAt,
+    expiresAt: input.expiresAt,
+    durationDays,
+    orderId: input.orderId ?? null,
+    subscriptionId: input.subscriptionId ?? null,
+    status: 'active',
+    priority: -100,
     ...(input.metadata ? { metadata: input.metadata } : {}),
   };
 }

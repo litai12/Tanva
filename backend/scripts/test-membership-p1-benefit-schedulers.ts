@@ -2,21 +2,36 @@ import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+const projectRoot = process.cwd().endsWith('/backend')
+  ? process.cwd()
+  : resolve(process.cwd(), 'backend');
+
 const service = readFileSync(
-  resolve(process.cwd(), 'backend/src/membership/membership.service.ts'),
+  resolve(projectRoot, 'src/membership/membership.service.ts'),
+  'utf8',
+);
+const creditsService = readFileSync(
+  resolve(projectRoot, 'src/credits/credits.service.ts'),
   'utf8',
 );
 const scheduler = readFileSync(
-  resolve(process.cwd(), 'backend/src/membership/membership-scheduler.service.ts'),
+  resolve(projectRoot, 'src/membership/membership-scheduler.service.ts'),
   'utf8',
 );
 
+assert.match(creditsService, /async issueFreeUserMonthlyQuotaCredits\(/);
+assert.match(creditsService, /businessType:\s*'free_monthly_quota'/);
+assert.match(creditsService, /freeUserMonthlyQuotaCredits/);
 assert.match(service, /async decayDailyGiftCredits\(/);
 assert.match(service, /businessType:\s*'gift_decay'/);
 assert.match(service, /pauseGiftDecay/);
+assert.match(service, /async issueDailyMembershipGiftCredits\(/);
+assert.match(service, /businessType:\s*'membership_daily_gift'/);
 assert.match(service, /async refreshYearlySubscriptionQuotaLots\(/);
 assert.match(service, /businessType:\s*'membership_refresh'/);
+assert.match(scheduler, /handleFreeMonthlyQuotaIssue/);
 assert.match(scheduler, /handleGiftDecay/);
+assert.match(scheduler, /handleDailyMembershipGiftIssue/);
 assert.match(scheduler, /handleYearlyQuotaRefresh/);
 
 console.log('membership p1 benefit scheduler tests passed');

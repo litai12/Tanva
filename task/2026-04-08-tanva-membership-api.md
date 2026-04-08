@@ -418,10 +418,17 @@
 - `MembershipService.refreshYearlySubscriptionQuotaLots()` 使用 `membershipRefreshCycleDays`
 - `MembershipService.activatePaidMembershipOrder()` 使用 `membershipRefreshCycleDays` 计算会员周期
 - `CreditsService.claimDailyReward()` 使用：
-  - `dailyRewardCredits`
-  - `dailyRewardExpireDays`
-  - `consecutive7DayBonusCredits`
+  - `dailyRewardCredits`（免费用户）
+  - `consecutive7DayRewardMultiplier`
+  - 当前会员套餐 `dailyGiftCredits`（VIP 用户签到基础值）
 - `PaymentService.processPaymentSuccess()` 和 `CreditsService.adminAddCredits()` 使用 `fixedCreditExpireDays`
+- `CreditsService.issueFreeUserMonthlyQuotaCredits()` 使用：
+  - `freeUserMonthlyQuotaCredits`
+  - `membershipRefreshCycleDays`
+- 当前默认扣减顺序已对齐定价策略：
+  - 月卡积分：`membership_bound` 会员月额度 + 免费用户 `free_monthly_quota`
+  - 赠送积分：签到/活动/后台补发/会员每日赠送
+  - 固定积分：充值购买积分
 
 ---
 
@@ -436,24 +443,24 @@
 ```json
 {
   "settingKey": "membership_credit_policy",
-  "description": "会员积分策略配置：赠送衰减、固定积分时效、签到奖励、月度刷新周期",
+  "description": "会员积分策略配置：赠送衰减、固定积分时效、免费月额度、签到奖励、月度刷新周期",
   "defaults": {
     "dailyGiftDecayCredits": 50,
     "fixedCreditExpireDays": 730,
+    "freeUserMonthlyQuotaCredits": 500,
     "dailyRewardCredits": 50,
-    "dailyRewardExpireDays": 7,
-    "consecutive7DayBonusCredits": 150,
+    "consecutive7DayRewardMultiplier": 3,
     "membershipRefreshCycleDays": 30
   },
   "effective": {
     "dailyGiftDecayCredits": 50,
     "fixedCreditExpireDays": 730,
+    "freeUserMonthlyQuotaCredits": 500,
     "dailyRewardCredits": 50,
-    "dailyRewardExpireDays": 7,
-    "consecutive7DayBonusCredits": 150,
+    "consecutive7DayRewardMultiplier": 3,
     "membershipRefreshCycleDays": 30
   },
-  "rawValue": "{\"dailyGiftDecayCredits\":50,\"fixedCreditExpireDays\":730,\"dailyRewardCredits\":50,\"dailyRewardExpireDays\":7,\"consecutive7DayBonusCredits\":150,\"membershipRefreshCycleDays\":30}",
+  "rawValue": "{\"dailyGiftDecayCredits\":50,\"fixedCreditExpireDays\":730,\"freeUserMonthlyQuotaCredits\":500,\"dailyRewardCredits\":50,\"consecutive7DayRewardMultiplier\":3,\"membershipRefreshCycleDays\":30}",
   "updatedAt": "2026-04-08T12:00:00.000Z",
   "updatedBy": "admin_user_id"
 }
@@ -469,9 +476,9 @@
 {
   "dailyGiftDecayCredits": 80,
   "fixedCreditExpireDays": 365,
+  "freeUserMonthlyQuotaCredits": 600,
   "dailyRewardCredits": 60,
-  "dailyRewardExpireDays": 10,
-  "consecutive7DayBonusCredits": 200,
+  "consecutive7DayRewardMultiplier": 3,
   "membershipRefreshCycleDays": 28
 }
 ```
@@ -480,10 +487,20 @@
 
 - `dailyGiftDecayCredits >= 0`
 - `fixedCreditExpireDays >= 0`
+- `freeUserMonthlyQuotaCredits >= 0`
 - `dailyRewardCredits >= 0`
-- `dailyRewardExpireDays >= 0`
-- `consecutive7DayBonusCredits >= 0`
+- `consecutive7DayRewardMultiplier > 0`
 - `membershipRefreshCycleDays > 0`
+
+补充说明：
+
+- 后台修改 `freeUserMonthlyQuotaCredits` 后，后续免费月卡周期发放将按新值生效。
+- 免费用户月额度 lot 的业务流水类型为 `free_monthly_quota`，lot 形态为 `sourceType=subscription` + `validityType=fixed_window`。
+- 签到奖励口径：
+  - 免费用户：读取 `dailyRewardCredits`
+  - VIP 用户：只读取当前会员套餐 `dailyGiftCredits`，不再叠加免费用户签到额度
+- 新发放的签到积分统一进入 `gift` 池，不再使用独立的固定时效窗口；普通用户会被每日衰减，活跃会员期间因 `pauseGiftDecay=true` 不衰减。
+- 连续签到第 7 天按 `consecutive7DayRewardMultiplier` 对当日基础签到积分做倍数发放。
 
 返回值与 `GET /api/admin/membership-credit-policy` 一致。
 

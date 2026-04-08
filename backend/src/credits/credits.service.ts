@@ -10,7 +10,9 @@ import {
 import { TransactionType, ApiResponseStatus } from './dto/credits.dto';
 import { ReferralService } from '../referral/referral.service';
 import {
+  buildAdminGiftCreditLotData,
   buildDailyRewardCreditLotData,
+  buildFreeMonthlyQuotaCreditLotData,
   buildManualCreditLotData,
   buildSignupCreditLotData,
 } from './credit-lot-grants';
@@ -33,6 +35,7 @@ const STALE_PENDING_DEFAULT_TIMEOUT_MINUTES = 15;
 const STALE_PENDING_DEFAULT_VIDEO_TIMEOUT_MINUTES = 30;
 const STALE_PENDING_VIDEO_REFUND_DEFAULT_CUTOVER_AT = '2026-03-28T00:00:00.000Z';
 const STALE_PENDING_DEFAULT_BATCH_SIZE = 100;
+const DAILY_REWARD_RESET_HOUR = 3;
 const DEFAULT_FREE_USER_MONTHLY_IMAGE_LIMIT = 100;
 const DEFAULT_FREE_USER_DAILY_IMAGE_LIMIT = 20;
 const DEFAULT_FREE_USER_DAILY_VIDEO_LIMIT = 3;
@@ -313,17 +316,122 @@ export class CreditsService {
     consecutiveDays: number,
     bonusCredits: number,
     baseCredits: number,
+    rewardMultiplier = 1,
+    tierCode?: string,
   ): Prisma.InputJsonValue {
     return {
       reason: 'daily_reward',
       consecutiveDays,
+      baseCredits,
+      rewardMultiplier,
+      ...(tierCode ? { tierCode } : {}),
       ...(bonusCredits > 0
         ? {
-            bonusCredits,
-            baseCredits,
-          }
+          bonusCredits,
+        }
         : {}),
     } as Prisma.InputJsonValue;
+  }
+
+  private normalizeDailyRewardTierCode(raw: string | null | undefined): 'free' | 'vip_69' | 'vip_199' | 'vip_599' {
+    if (!raw) return 'free';
+    const value = raw.trim().toLowerCase();
+    if (!value || value === 'free') return 'free';
+    if (value.includes('599')) return 'vip_599';
+    if (value.includes('199')) return 'vip_199';
+    if (value.includes('69')) return 'vip_69';
+    return 'free';
+  }
+
+  private async resolveDailyRewardRuleForUser(
+    client: PrismaService | Prisma.TransactionClient,
+    userId: string,
+  ): Promise<{
+    tierCode: 'free' | 'vip_69' | 'vip_199' | 'vip_599';
+    baseCredits: number;
+    rewardMultiplier: number;
+  }> {
+    const policy = await this.businessPolicyService.getMembershipCreditPolicy();
+
+    try {
+      const entitlement = await client.membershipEntitlementSnapshot.findUnique({
+        where: { userId },
+        select: {
+          currentPlanCode: true,
+          membershipStatus: true,
+          currentPeriodEndAt: true,
+        },
+      });
+
+      const isActiveVip =
+        entitlement?.membershipStatus === 'active' &&
+        entitlement.currentPeriodEndAt instanceof Date &&
+        entitlement.currentPeriodEndAt.getTime() > Date.now();
+
+      const tierCode = isActiveVip
+        ? this.normalizeDailyRewardTierCode(entitlement?.currentPlanCode)
+        : 'free';
+
+      let baseCredits = policy.dailyRewardCredits;
+
+      if (tierCode !== 'free') {
+        let membershipGiftCredits = 0;
+        const activeSubscription = await client.userMembershipSubscription.findFirst({
+          where: {
+            userId,
+            status: 'active',
+            currentPeriodStartAt: { lte: new Date() },
+            currentPeriodEndAt: { gt: new Date() },
+          },
+          select: {
+            snapshot: true,
+            membershipPlanId: true,
+          },
+          orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
+        });
+
+        const snapshot =
+          activeSubscription?.snapshot &&
+          typeof activeSubscription.snapshot === 'object' &&
+          !Array.isArray(activeSubscription.snapshot)
+            ? (activeSubscription.snapshot as Prisma.JsonObject)
+            : null;
+
+        if (typeof snapshot?.dailyGiftCredits === 'number' && Number.isFinite(snapshot.dailyGiftCredits)) {
+          membershipGiftCredits = Math.trunc(snapshot.dailyGiftCredits);
+        } else if (typeof snapshot?.dailyGiftCredits === 'string' && Number.isFinite(Number(snapshot.dailyGiftCredits))) {
+          membershipGiftCredits = Math.trunc(Number(snapshot.dailyGiftCredits));
+        } else if (activeSubscription?.membershipPlanId) {
+          const plan = await client.membershipPlan.findUnique({
+            where: { id: activeSubscription.membershipPlanId },
+            select: { dailyGiftCredits: true },
+          });
+          if (typeof plan?.dailyGiftCredits === 'number' && Number.isFinite(plan.dailyGiftCredits)) {
+            membershipGiftCredits = Math.trunc(plan.dailyGiftCredits);
+          }
+        }
+
+        baseCredits = Math.max(0, membershipGiftCredits);
+      }
+
+      return {
+        tierCode,
+        baseCredits,
+        rewardMultiplier: Math.max(1, policy.consecutive7DayRewardMultiplier),
+      };
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2021'
+      ) {
+        return {
+          tierCode: 'free',
+          baseCredits: policy.dailyRewardCredits,
+          rewardMultiplier: Math.max(1, policy.consecutive7DayRewardMultiplier),
+        };
+      }
+      throw error;
+    }
   }
 
   private async resolveCreditConsumePolicy(
@@ -361,6 +469,170 @@ export class CreditsService {
     }
 
     return hydrateCreditConsumePolicyRecord(record);
+  }
+
+  private addDays(base: Date, days: number): Date {
+    const next = new Date(base);
+    next.setDate(next.getDate() + days);
+    return next;
+  }
+
+  private getDailyRewardBusinessDayAnchor(date: Date): Date {
+    const anchor = new Date(date);
+    anchor.setMinutes(0, 0, 0);
+
+    if (anchor.getHours() < DAILY_REWARD_RESET_HOUR) {
+      anchor.setDate(anchor.getDate() - 1);
+    }
+
+    anchor.setHours(DAILY_REWARD_RESET_HOUR, 0, 0, 0);
+    return anchor;
+  }
+
+  private diffDailyRewardBusinessDays(now: Date, last: Date): number {
+    const nowAnchor = this.getDailyRewardBusinessDayAnchor(now);
+    const lastAnchor = this.getDailyRewardBusinessDayAnchor(last);
+    return Math.floor((nowAnchor.getTime() - lastAnchor.getTime()) / (24 * 60 * 60 * 1000));
+  }
+
+  private resolveFreeMonthlyQuotaCycleWindow(
+    anchorAt: Date,
+    now: Date,
+    cycleDays: number,
+  ): { cycleStartAt: Date; cycleEndAt: Date } {
+    const safeCycleDays = Math.max(1, Math.floor(cycleDays));
+    const elapsedMs = Math.max(0, now.getTime() - anchorAt.getTime());
+    const cycleIndex = Math.floor(elapsedMs / (safeCycleDays * 24 * 60 * 60 * 1000));
+    const cycleStartAt = this.addDays(anchorAt, cycleIndex * safeCycleDays);
+    const cycleEndAt = this.addDays(cycleStartAt, safeCycleDays);
+
+    return {
+      cycleStartAt,
+      cycleEndAt,
+    };
+  }
+
+  private async grantFreeUserMonthlyQuotaIfNeeded(params: {
+    userId: string;
+    account: {
+      id: string;
+      balance: number;
+      totalEarned: number;
+    };
+    userCreatedAt?: Date;
+    now?: Date;
+  }): Promise<boolean> {
+    const now = params.now ?? new Date();
+    const policy = await this.businessPolicyService.getMembershipCreditPolicy();
+    if (policy.freeUserMonthlyQuotaCredits <= 0) {
+      return false;
+    }
+
+    const userCreatedAt =
+      params.userCreatedAt ??
+      (
+        await this.prisma.user.findUnique({
+          where: { id: params.userId },
+          select: { createdAt: true },
+        })
+      )?.createdAt;
+    if (!userCreatedAt) {
+      return false;
+    }
+
+    const { cycleStartAt, cycleEndAt } = this.resolveFreeMonthlyQuotaCycleWindow(
+      userCreatedAt,
+      now,
+      policy.membershipRefreshCycleDays,
+    );
+
+    return this.prisma.$transaction(async (tx) => {
+      const account = await tx.creditAccount.findUniqueOrThrow({
+        where: { id: params.account.id },
+        select: {
+          id: true,
+          balance: true,
+          totalEarned: true,
+        },
+      });
+
+      const activeSubscription = await tx.userMembershipSubscription.findFirst({
+        where: {
+          userId: params.userId,
+          status: 'active',
+          currentPeriodStartAt: { lte: now },
+          currentPeriodEndAt: { gt: now },
+        },
+        select: { id: true },
+      });
+      if (activeSubscription) {
+        return false;
+      }
+
+      const existingGrant = await tx.creditTransaction.findFirst({
+        where: {
+          accountId: account.id,
+          businessType: 'free_monthly_quota',
+          createdAt: {
+            gte: cycleStartAt,
+            lt: cycleEndAt,
+          },
+        },
+        select: { id: true },
+      });
+      if (existingGrant) {
+        return false;
+      }
+
+      const lot = await tx.creditLot.create({
+        data: buildFreeMonthlyQuotaCreditLotData({
+          accountId: account.id,
+          amount: policy.freeUserMonthlyQuotaCredits,
+          grantedAt: now,
+          activeAt: now,
+          expiresAt: cycleEndAt,
+          durationDays: Math.max(
+            1,
+            Math.ceil((cycleEndAt.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)),
+          ),
+          metadata: {
+            grantedBy: 'free_user_monthly_quota',
+            cycleStartAt: cycleStartAt.toISOString(),
+            cycleEndAt: cycleEndAt.toISOString(),
+          },
+        }),
+      });
+
+      const balanceBefore = account.balance;
+      const balanceAfter = balanceBefore + policy.freeUserMonthlyQuotaCredits;
+
+      await tx.creditAccount.update({
+        where: { id: account.id },
+        data: {
+          balance: balanceAfter,
+          totalEarned: account.totalEarned + policy.freeUserMonthlyQuotaCredits,
+        },
+      });
+
+      await tx.creditTransaction.create({
+        data: {
+          accountId: account.id,
+          type: TransactionType.EARN,
+          amount: policy.freeUserMonthlyQuotaCredits,
+          balanceBefore,
+          balanceAfter,
+          description: '免费用户月度额度发放',
+          creditLotId: lot.id,
+          businessType: 'free_monthly_quota',
+          metadata: {
+            cycleStartAt: cycleStartAt.toISOString(),
+            cycleEndAt: cycleEndAt.toISOString(),
+          },
+        },
+      });
+
+      return true;
+    });
   }
 
   private extractChannelFromApiUsage(apiUsage?: {
@@ -725,13 +997,32 @@ export class CreditsService {
    * 使用双重检查锁定模式（Double-Checked Locking）避免并发创建冲突
    */
   async getOrCreateAccount(userId: string) {
+    let userCreatedAt: Date | undefined;
+
     // 第一次检查：快速路径，绝大多数场景直接命中
     let account = await this.prisma.creditAccount.findUnique({
       where: { userId },
     });
 
     if (account) {
-      return account;
+      userCreatedAt = (
+        await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { createdAt: true },
+        })
+      )?.createdAt;
+      const granted = await this.grantFreeUserMonthlyQuotaIfNeeded({
+        userId,
+        account,
+        userCreatedAt,
+      });
+      if (!granted) {
+        return account;
+      }
+
+      return this.prisma.creditAccount.findUniqueOrThrow({
+        where: { userId },
+      });
     }
 
     // 第二次检查：在事务内部再次检查，避免并发创建冲突
@@ -749,8 +1040,9 @@ export class CreditsService {
 
         const user = await tx.user.findUnique({
           where: { id: userId },
-          select: { invitedById: true },
+          select: { invitedById: true, createdAt: true },
         });
+        userCreatedAt = user?.createdAt;
         const invitedBonus = user?.invitedById ? INVITED_NEW_USER_BONUS_CREDITS : 0;
         const initialCredits = DEFAULT_NEW_USER_CREDITS + invitedBonus;
 
@@ -818,7 +1110,18 @@ export class CreditsService {
         isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
       });
 
-      return account;
+      const granted = await this.grantFreeUserMonthlyQuotaIfNeeded({
+        userId,
+        account,
+        userCreatedAt,
+      });
+      if (!granted) {
+        return account;
+      }
+
+      return this.prisma.creditAccount.findUniqueOrThrow({
+        where: { userId },
+      });
     } catch (error) {
       // 如果仍然发生唯一约束冲突（理论上不应该，但作为最后的安全网）
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -831,10 +1134,78 @@ export class CreditsService {
           this.logger.error(`P2002错误后未找到账户 userId=${userId}`);
           throw error;
         }
-        return existingAccount;
+        const granted = await this.grantFreeUserMonthlyQuotaIfNeeded({
+          userId,
+          account: existingAccount,
+        });
+        if (!granted) {
+          return existingAccount;
+        }
+
+        return this.prisma.creditAccount.findUniqueOrThrow({
+          where: { userId },
+        });
       }
       throw error;
     }
+  }
+
+  async issueFreeUserMonthlyQuotaCredits(now = new Date()) {
+    const activeSubscriptionUserIds = new Set(
+      (
+        await this.prisma.userMembershipSubscription.findMany({
+          where: {
+            status: 'active',
+            currentPeriodStartAt: { lte: now },
+            currentPeriodEndAt: { gt: now },
+          },
+          select: { userId: true },
+        })
+      ).map((item) => item.userId),
+    );
+
+    const users = await this.prisma.user.findMany({
+      where: {
+        status: 'active',
+      },
+      select: {
+        id: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    let affectedUsers = 0;
+    let grantedCredits = 0;
+    let createdLots = 0;
+
+    for (const user of users) {
+      if (activeSubscriptionUserIds.has(user.id)) {
+        continue;
+      }
+
+      const account = await this.getOrCreateAccount(user.id);
+      const granted = await this.grantFreeUserMonthlyQuotaIfNeeded({
+        userId: user.id,
+        account,
+        userCreatedAt: user.createdAt,
+        now,
+      });
+      if (!granted) {
+        continue;
+      }
+
+      const policy = await this.businessPolicyService.getMembershipCreditPolicy();
+      affectedUsers += 1;
+      grantedCredits += policy.freeUserMonthlyQuotaCredits;
+      createdLots += 1;
+    }
+
+    return {
+      affectedUsers,
+      grantedCredits,
+      createdLots,
+    };
   }
 
   /**
@@ -1676,7 +2047,6 @@ export class CreditsService {
     }
 
     return await this.prisma.$transaction(async (tx) => {
-      const policy = await this.businessPolicyService.getMembershipCreditPolicy();
       const account = await tx.creditAccount.findUnique({
         where: { userId },
       });
@@ -1696,16 +2066,13 @@ export class CreditsService {
       });
 
       const creditLot = await tx.creditLot.create({
-        data: buildManualCreditLotData({
+        data: buildAdminGiftCreditLotData({
           accountId: account.id,
           amount,
-          expiresAt:
-            policy.fixedCreditExpireDays > 0
-              ? new Date(Date.now() + policy.fixedCreditExpireDays * 24 * 60 * 60 * 1000)
-              : null,
           metadata: {
             adminId,
             description,
+            grantedBy: 'admin_add',
           },
         }),
       });
@@ -1807,9 +2174,6 @@ export class CreditsService {
     const where: any = { accountId: account.id };
     if (type) {
       where.type = type;
-    } else {
-      // 默认不显示每日签到积分记录
-      where.type = { not: TransactionType.DAILY_REWARD };
     }
 
     const [transactions, total] = await Promise.all([
@@ -1933,56 +2297,62 @@ export class CreditsService {
   /**
    * 检查用户今天是否已领取每日奖励
    */
-  async canClaimDailyReward(userId: string): Promise<{ canClaim: boolean; lastClaimAt: Date | null }> {
+  async canClaimDailyReward(userId: string): Promise<{
+    canClaim: boolean;
+    lastClaimAt: Date | null;
+    tierCode: string;
+    todayRewardCredits: number;
+    rewardMultiplier: number;
+  }> {
     const account = await this.getOrCreateAccount(userId);
     if (!account) {
       throw new NotFoundException('用户积分账户不存在');
     }
 
+    const rewardRule = await this.resolveDailyRewardRuleForUser(this.prisma, userId);
+
     if (!account.lastDailyRewardAt) {
-      return { canClaim: true, lastClaimAt: null };
+      return {
+        canClaim: true,
+        lastClaimAt: null,
+        tierCode: rewardRule.tierCode,
+        todayRewardCredits: rewardRule.baseCredits,
+        rewardMultiplier: rewardRule.rewardMultiplier,
+      };
     }
 
     const now = new Date();
     const lastClaim = new Date(account.lastDailyRewardAt);
+    const isSameBusinessDay = this.diffDailyRewardBusinessDays(now, lastClaim) === 0;
 
-    // 检查是否是同一天（使用本地时间）
-    const isSameDay =
-      now.getFullYear() === lastClaim.getFullYear() &&
-      now.getMonth() === lastClaim.getMonth() &&
-      now.getDate() === lastClaim.getDate();
-
-    return { canClaim: !isSameDay, lastClaimAt: account.lastDailyRewardAt };
+    return {
+      canClaim: !isSameBusinessDay,
+      lastClaimAt: account.lastDailyRewardAt,
+      tierCode: rewardRule.tierCode,
+      todayRewardCredits: rewardRule.baseCredits,
+      rewardMultiplier: rewardRule.rewardMultiplier,
+    };
   }
 
   /**
    * 领取每日登录奖励
-   * 普通用户的签到积分7天后过期，付费用户永不过期
-   * 规则：连续签到7天额外赠送150积分，断签或满7天后重置到第1天
+   * 签到积分统一进入 gift 池：普通用户会日衰减，活跃 VIP 因 pauseGiftDecay 不衰减
+   * 规则：按会员档位发放基础签到积分，连续签到第 7 天按倍率发放，断签或满 7 天后重置到第 1 天
    */
-  async claimDailyReward(userId: string): Promise<AddCreditsResult & { alreadyClaimed?: boolean; expiresAt?: Date | null; consecutiveDays?: number; bonusCredits?: number }> {
-    const { canClaim, lastClaimAt } = await this.canClaimDailyReward(userId);
-
-    if (!canClaim) {
-      return {
-        success: false,
-        newBalance: (await this.getBalance(userId)),
-        transactionId: '',
-        alreadyClaimed: true,
-      };
-    }
-
-    // 检查是否为付费用户
-    const isPaid = await this.isPaidUser(userId);
-    const policy = await this.businessPolicyService.getMembershipCreditPolicy();
-
-    // 计算过期时间：付费用户永不过期(null)，普通用户按配置天数过期
-    const expiresAt =
-      isPaid || policy.dailyRewardExpireDays <= 0
-        ? null
-        : new Date(Date.now() + policy.dailyRewardExpireDays * 24 * 60 * 60 * 1000);
-
+  async claimDailyReward(userId: string): Promise<AddCreditsResult & {
+    alreadyClaimed?: boolean;
+    expiresAt?: Date | null;
+    consecutiveDays?: number;
+    bonusCredits?: number;
+    baseCredits?: number;
+    rewardMultiplier?: number;
+    tierCode?: string;
+  }> {
     return await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw<Array<{ id: string }>>(
+        Prisma.sql`SELECT id FROM "CreditAccount" WHERE "userId" = ${userId} FOR UPDATE`,
+      );
+
       const account = await tx.creditAccount.findUnique({
         where: { userId },
       });
@@ -1991,18 +2361,30 @@ export class CreditsService {
         throw new NotFoundException('用户积分账户不存在');
       }
 
-      // 计算连续签到天数
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const now = new Date();
+      if (account.lastDailyRewardAt) {
+        const lastClaim = new Date(account.lastDailyRewardAt);
+        if (this.diffDailyRewardBusinessDays(now, lastClaim) === 0) {
+          return {
+            success: false,
+            newBalance: account.balance,
+            transactionId: '',
+            alreadyClaimed: true,
+          };
+        }
+      }
 
+      const rewardRule = await this.resolveDailyRewardRuleForUser(tx, userId);
+      const expiresAt = null;
+
+      // 计算连续签到天数
       let newConsecutiveDays = 1;
       let bonusCredits = 0;
+      let rewardMultiplier = 1;
 
       if (account.lastCheckInDate) {
         const lastCheckIn = new Date(account.lastCheckInDate);
-        lastCheckIn.setHours(0, 0, 0, 0);
-
-        const diffDays = Math.floor((today.getTime() - lastCheckIn.getTime()) / (24 * 60 * 60 * 1000));
+        const diffDays = this.diffDailyRewardBusinessDays(now, lastCheckIn);
 
         if (diffDays === 1) {
           // 连续签到
@@ -2019,12 +2401,15 @@ export class CreditsService {
         // diffDays > 1 表示断签，重新从1开始（默认值已经是1）
       }
 
-      // 第7天额外奖励150积分
+      // 第7天按策略倍数发放
       if (newConsecutiveDays === 7) {
-        bonusCredits = policy.consecutive7DayBonusCredits;
+        rewardMultiplier = Math.max(1, rewardRule.rewardMultiplier);
+        bonusCredits = rewardMultiplier > 1
+          ? rewardRule.baseCredits * (rewardMultiplier - 1)
+          : 0;
       }
 
-      const totalCredits = policy.dailyRewardCredits + bonusCredits;
+      const totalCredits = rewardRule.baseCredits + bonusCredits;
       const newBalance = account.balance + totalCredits;
 
       // 更新账户余额、最后领取时间和连续签到天数
@@ -2033,16 +2418,16 @@ export class CreditsService {
         data: {
           balance: newBalance,
           totalEarned: account.totalEarned + totalCredits,
-          lastDailyRewardAt: new Date(),
-          lastCheckInDate: new Date(),
+          lastDailyRewardAt: now,
+          lastCheckInDate: now,
           consecutiveDays: newConsecutiveDays,
         },
       });
 
       // 创建签到交易记录
       const description = bonusCredits > 0
-        ? (isPaid ? `连续签到第7天+额外奖励${bonusCredits}积分（永久）` : `连续签到第7天+额外奖励${bonusCredits}积分（${policy.dailyRewardExpireDays}天后过期）`)
-        : (isPaid ? `每日签到第${newConsecutiveDays}天（永久）` : `每日签到第${newConsecutiveDays}天（${policy.dailyRewardExpireDays}天后过期）`);
+        ? `连续签到第7天，按${rewardMultiplier}倍发放共${totalCredits}积分`
+        : `每日签到第${newConsecutiveDays}天`;
 
       const creditLot = await tx.creditLot.create({
         data: buildDailyRewardCreditLotData({
@@ -2052,7 +2437,9 @@ export class CreditsService {
           metadata: this.getDailyRewardMetadata(
             newConsecutiveDays,
             bonusCredits,
-            policy.dailyRewardCredits,
+            rewardRule.baseCredits,
+            rewardMultiplier,
+            rewardRule.tierCode,
           ),
         }),
       });
@@ -2070,7 +2457,9 @@ export class CreditsService {
           metadata: this.getDailyRewardMetadata(
             newConsecutiveDays,
             bonusCredits,
-            policy.dailyRewardCredits,
+            rewardRule.baseCredits,
+            rewardMultiplier,
+            rewardRule.tierCode,
           ),
         },
       });
@@ -2082,6 +2471,9 @@ export class CreditsService {
         expiresAt,
         consecutiveDays: newConsecutiveDays,
         bonusCredits,
+        baseCredits: rewardRule.baseCredits,
+        rewardMultiplier,
+        tierCode: rewardRule.tierCode,
       };
     });
   }
@@ -2095,6 +2487,7 @@ export class CreditsService {
     consecutiveDays: number;
     lastCheckInDate: Date | null;
     todayCheckedIn: boolean;
+    currentBusinessDayStartAt: Date;
     calendarDays: Array<{ day: number; checked: boolean; missed: boolean; isToday: boolean }>;
   }> {
     const account = await this.getOrCreateAccount(userId);
@@ -2102,19 +2495,18 @@ export class CreditsService {
       throw new NotFoundException('用户积分账户不存在');
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const now = new Date();
+    const todayAnchor = this.getDailyRewardBusinessDayAnchor(now);
 
     let todayCheckedIn = false;
     let consecutiveDays = account.consecutiveDays || 0;
 
     if (account.lastCheckInDate) {
       const lastCheckIn = new Date(account.lastCheckInDate);
-      lastCheckIn.setHours(0, 0, 0, 0);
-      todayCheckedIn = lastCheckIn.getTime() === today.getTime();
+      todayCheckedIn = this.diffDailyRewardBusinessDays(now, lastCheckIn) === 0;
 
       // 检查是否断签（超过1天没签到）
-      const diffDays = Math.floor((today.getTime() - lastCheckIn.getTime()) / (24 * 60 * 60 * 1000));
+      const diffDays = this.diffDailyRewardBusinessDays(now, lastCheckIn);
       if (diffDays > 1) {
         // 断签了，显示为0天（但数据库中的值会在下次签到时重置）
         consecutiveDays = 0;
@@ -2142,6 +2534,7 @@ export class CreditsService {
       consecutiveDays,
       lastCheckInDate: account.lastCheckInDate,
       todayCheckedIn,
+      currentBusinessDayStartAt: todayAnchor,
       calendarDays,
     };
   }

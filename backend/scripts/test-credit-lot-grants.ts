@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 
 import {
+  buildAdminGiftCreditLotData,
   buildDailyRewardCreditLotData,
+  buildFreeMonthlyQuotaCreditLotData,
   buildManualCreditLotData,
   buildRechargeCreditLotData,
   buildSignupCreditLotData,
@@ -51,6 +53,22 @@ function run(): void {
     adminId: 'admin_1',
     description: '运营补偿',
   });
+
+  const adminGiftLot = buildAdminGiftCreditLotData({
+    accountId: 'acct_2gift',
+    amount: 666,
+    grantedAt,
+    metadata: {
+      adminId: 'admin_2',
+      description: '后台赠送',
+    },
+  });
+
+  assert.equal(adminGiftLot.sourceType, 'gift');
+  assert.equal(adminGiftLot.validityType, 'permanent');
+  assert.equal(adminGiftLot.totalAmount, 666);
+  assert.equal(adminGiftLot.remainingAmount, 666);
+  assert.equal(adminGiftLot.expiresAt, null);
 
   const expiringRechargeLot = buildRechargeCreditLotData({
     accountId: 'acct_2b',
@@ -116,6 +134,21 @@ function run(): void {
   assert.equal(paidDailyRewardLot.sourceType, 'gift');
   assert.equal(paidDailyRewardLot.validityType, 'permanent');
   assert.equal(paidDailyRewardLot.expiresAt, null);
+
+  const freeMonthlyQuotaLot = buildFreeMonthlyQuotaCreditLotData({
+    accountId: 'acct_6',
+    amount: 500,
+    grantedAt,
+    expiresAt: iso('2026-05-08T12:00:00.000Z'),
+    metadata: {
+      grantedBy: 'free_user_monthly_quota',
+    },
+  });
+
+  assert.equal(freeMonthlyQuotaLot.sourceType, 'subscription');
+  assert.equal(freeMonthlyQuotaLot.validityType, 'fixed_window');
+  assert.equal(freeMonthlyQuotaLot.priority, -100);
+  assert.equal(freeMonthlyQuotaLot.expiresAt?.toISOString(), '2026-05-08T12:00:00.000Z');
 }
 
 run();

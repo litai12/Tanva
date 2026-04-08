@@ -83,8 +83,8 @@ const DEFAULT_POLICY: CreditConsumePolicy = {
   sorts: [
     'scope_specificity_desc',
     'validity_priority_asc',
-    'expires_at_asc_nulls_last',
     'source_priority_asc',
+    'expires_at_asc_nulls_last',
     'granted_at_asc',
     'custom_priority_asc',
   ],
@@ -94,10 +94,10 @@ const DEFAULT_POLICY: CreditConsumePolicy = {
     permanent: 30,
   },
   sourcePriority: {
-    promo: 10,
+    subscription: 10,
+    promo: 15,
     gift: 20,
-    manual: 25,
-    subscription: 30,
+    manual: 35,
     recharge: 40,
   },
 };

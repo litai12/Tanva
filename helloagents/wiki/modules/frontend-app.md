@@ -24,6 +24,7 @@
 - 受保护：`/workspace`、`/app`、`/admin`、`/my-credits`
 
 ## 我的积分（`/my-credits`）
+- 页面挂载时会静默补触发一次 `claimDailyReward()`，然后再拉取余额/签到状态/交易流水；用于兜底全局自动签到与页面首屏请求的时序竞争，确保签到成功后能立即看到签到流水。
 - 积分流水在“项目”列支持显示 AI 渠道与模型（如 `渠道：A · 模型：gemini-2.5-flash-image-preview`），用于定位实际执行链路。
 - 概览卡片右上角提供“立即充值”文字按钮；点击后在当前页弹出 `PaymentPanel` 充值面板。
 - `PaymentPanel`（`frontend/src/components/payment/PaymentPanel.tsx`）核心交互文案已接入 `useLocaleText`（订单状态、筛选、支付提示、二维码状态、手动核对按钮）。

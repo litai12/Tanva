@@ -1,15 +1,43 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { CreditsService } from '../credits/credits.service';
 import { MembershipService } from './membership.service';
 
 @Injectable()
 export class MembershipSchedulerService {
   private readonly logger = new Logger(MembershipSchedulerService.name);
   private expiryJobRunning = false;
+  private freeMonthlyQuotaJobRunning = false;
+  private dailyGiftIssueJobRunning = false;
   private giftDecayJobRunning = false;
   private yearlyRefreshJobRunning = false;
 
-  constructor(private readonly membershipService: MembershipService) {}
+  constructor(
+    private readonly membershipService: MembershipService,
+    private readonly creditsService: CreditsService,
+  ) {}
+
+  @Cron(CronExpression.EVERY_DAY_AT_2AM)
+  async handleFreeMonthlyQuotaIssue() {
+    if (this.freeMonthlyQuotaJobRunning) {
+      this.logger.warn('跳过免费用户月度额度发放：上一次任务尚未完成');
+      return;
+    }
+
+    this.freeMonthlyQuotaJobRunning = true;
+    try {
+      const result = await this.creditsService.issueFreeUserMonthlyQuotaCredits();
+      if (result.affectedUsers > 0 || result.grantedCredits > 0) {
+        this.logger.log(
+          `免费用户月度额度发放完成: users=${result.affectedUsers}, grantedCredits=${result.grantedCredits}, createdLots=${result.createdLots}`,
+        );
+      }
+    } catch (error) {
+      this.logger.error('免费用户月度额度发放失败:', error);
+    } finally {
+      this.freeMonthlyQuotaJobRunning = false;
+    }
+  }
 
   @Cron(CronExpression.EVERY_HOUR)
   async handleMembershipExpiry() {
@@ -37,7 +65,7 @@ export class MembershipSchedulerService {
     }
   }
 
-  @Cron(CronExpression.EVERY_DAY_AT_3AM)
+  @Cron(CronExpression.EVERY_DAY_AT_2AM)
   async handleGiftDecay() {
     if (this.giftDecayJobRunning) {
       this.logger.warn('跳过赠送积分衰减：上一次任务尚未完成');
@@ -56,6 +84,28 @@ export class MembershipSchedulerService {
       this.logger.error('赠送积分衰减失败:', error);
     } finally {
       this.giftDecayJobRunning = false;
+    }
+  }
+
+  @Cron(CronExpression.EVERY_DAY_AT_5AM)
+  async handleDailyMembershipGiftIssue() {
+    if (this.dailyGiftIssueJobRunning) {
+      this.logger.warn('跳过会员每日赠送积分发放：上一次任务尚未完成');
+      return;
+    }
+
+    this.dailyGiftIssueJobRunning = true;
+    try {
+      const result = await this.membershipService.issueDailyMembershipGiftCredits();
+      if (result.issuedSubscriptions > 0 || result.grantedCredits > 0) {
+        this.logger.log(
+          `会员每日赠送积分发放完成: subscriptions=${result.issuedSubscriptions}, grantedCredits=${result.grantedCredits}, createdLots=${result.createdLots}`,
+        );
+      }
+    } catch (error) {
+      this.logger.error('会员每日赠送积分发放失败:', error);
+    } finally {
+      this.dailyGiftIssueJobRunning = false;
     }
   }
 
