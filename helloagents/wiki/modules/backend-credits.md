@@ -76,8 +76,18 @@
   - `PaymentOrder` 扩展支持 `orderType=membership`、`membershipPlanId`、`subscriptionId`、`planSnapshot`。
   - 新增 `MembershipService.activatePaidMembershipOrder`：支付成功后激活/续期订阅、upsert 权益快照，并发放 `sourceType=subscription` + `validityType=membership_bound` 的 lot。
   - 新增 `GET /api/payment/membership-plans`，以及会员订单创建校验：金额必须匹配已启用套餐，会员订单 `credits` 固定为 `0`。
+- 会员 P1 到期收口：
+  - 新增 `MembershipSchedulerService`，按小时扫描已过期订阅。
+  - `MembershipService.expireElapsedMemberships()` 会把到期订阅标记为 `expired`，将关联的 `membership_bound` lot 归零并写入 `membership_expire` 流水，同时把权益快照回落到 `free/inactive`。
+- 会员 P1 权益调度：
+  - `MembershipService.decayDailyGiftCredits()` 会在 `pauseGiftDecay=false` 时，对 `sourceType=gift` + `validityType=permanent` 的 lot 执行每日衰减，并记录 `gift_decay` 流水。
+  - `MembershipService.refreshYearlySubscriptionQuotaLots()` 会为 `periodType=yearly` 的活跃订阅补发按 30 天窗口计算的月度额度，并记录 `membership_refresh` 流水。
+  - `MembershipSchedulerService` 新增每日 3 点赠送衰减任务、每日 4 点年费会员月度额度刷新任务。
+- 会员读接口：
+  - 新增 `GET /api/membership/current`：返回当前活跃订阅、当前套餐摘要和权益快照。
+  - 新增 `GET /api/membership/entitlement`：返回当前权益快照；无快照时回退为 `free/inactive`。
 - 尚未接入的链路：
   - 更细粒度 scope 策略（service/provider/model 级命中）
-  - 会员到期扫描、月卡自动刷新、每日赠送衰减 scheduler
+  - 月付会员自动续费
   - 前端会员页 / 支付页 / 弹窗统一接入套餐配置
   - lot 级对账与迁移回填工具

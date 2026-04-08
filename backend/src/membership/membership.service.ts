@@ -21,6 +21,191 @@ export class MembershipService {
     });
   }
 
+  async getCurrentMembership(userId: string) {
+    const subscription = await this.prisma.userMembershipSubscription.findFirst({
+      where: {
+        userId,
+        status: 'active',
+      },
+      orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    if (!subscription) {
+      return {
+        subscription: null,
+        plan: null,
+        entitlement: await this.getMembershipEntitlement(userId),
+      };
+    }
+
+    const plan = await this.prisma.membershipPlan.findUnique({
+      where: { id: subscription.membershipPlanId },
+    });
+
+    return {
+      subscription: {
+        id: subscription.id,
+        status: subscription.status,
+        periodType: subscription.periodType,
+        currentPeriodStartAt: subscription.currentPeriodStartAt,
+        currentPeriodEndAt: subscription.currentPeriodEndAt,
+        activatedAt: subscription.activatedAt,
+        renewalCount: subscription.renewalCount,
+        lastOrderId: subscription.lastOrderId,
+      },
+      plan: plan
+        ? {
+            id: plan.id,
+            code: plan.code,
+            name: plan.name,
+            billingCycle: plan.billingCycle,
+            price: Number(plan.price),
+            monthlyQuotaCredits: plan.monthlyQuotaCredits,
+            signupBonusCredits: plan.signupBonusCredits,
+            dailyGiftCredits: plan.dailyGiftCredits,
+          }
+        : null,
+      entitlement: await this.getMembershipEntitlement(userId),
+    };
+  }
+
+  async getMembershipEntitlement(userId: string) {
+    const snapshot = await this.prisma.membershipEntitlementSnapshot.findUnique({
+      where: { userId },
+    });
+
+    const activeSubscriptionCount = await this.prisma.userMembershipSubscription.count({
+      where: {
+        userId,
+        status: 'active',
+      },
+    });
+
+    if (!snapshot) {
+      return {
+        currentPlanCode: 'free',
+        membershipStatus: 'inactive',
+        currentPeriodStartAt: null,
+        currentPeriodEndAt: null,
+        pauseGiftDecay: false,
+        hasActiveSubscription: activeSubscriptionCount > 0,
+      };
+    }
+
+    return {
+      currentPlanCode: snapshot.currentPlanCode,
+      membershipStatus: snapshot.membershipStatus,
+      currentPeriodStartAt: snapshot.currentPeriodStartAt,
+      currentPeriodEndAt: snapshot.currentPeriodEndAt,
+      pauseGiftDecay: snapshot.pauseGiftDecay,
+      hasActiveSubscription: activeSubscriptionCount > 0,
+    };
+  }
+
+  async decayDailyGiftCredits(now = new Date(), dailyDecayAmount = 50) {
+    return this.prisma.$transaction(async (tx) => {
+      const accounts = await tx.creditAccount.findMany({
+        where: {
+          lots: {
+            some: {
+              sourceType: 'gift',
+              validityType: 'permanent',
+              status: 'active',
+              remainingAmount: { gt: 0 },
+            },
+          },
+        },
+        select: {
+          id: true,
+          userId: true,
+          balance: true,
+        },
+      });
+
+      let affectedUsers = 0;
+      let decayedCredits = 0;
+      let updatedLots = 0;
+
+      for (const account of accounts) {
+        const snapshot = await tx.membershipEntitlementSnapshot.findUnique({
+          where: { userId: account.userId },
+        });
+        if (snapshot?.pauseGiftDecay) {
+          continue;
+        }
+
+        const lots = await tx.creditLot.findMany({
+          where: {
+            accountId: account.id,
+            sourceType: 'gift',
+            validityType: 'permanent',
+            status: 'active',
+            remainingAmount: { gt: 0 },
+          },
+          orderBy: [{ grantedAt: 'asc' }, { createdAt: 'asc' }],
+        });
+
+        let remainingDecay = dailyDecayAmount;
+        let accountBalance = account.balance;
+        const deductions: Array<{ lotId: string; amount: number }> = [];
+
+        for (const lot of lots) {
+          if (remainingDecay <= 0) break;
+          const amount = Math.min(remainingDecay, lot.remainingAmount);
+          if (amount <= 0) continue;
+
+          const nextRemaining = lot.remainingAmount - amount;
+          await tx.creditLot.update({
+            where: { id: lot.id },
+            data: {
+              remainingAmount: nextRemaining,
+              status: nextRemaining > 0 ? 'active' : 'exhausted',
+            },
+          });
+          deductions.push({ lotId: lot.id, amount });
+          remainingDecay -= amount;
+          decayedCredits += amount;
+          updatedLots += 1;
+        }
+
+        const totalDecayed = deductions.reduce((sum, item) => sum + item.amount, 0);
+        if (totalDecayed <= 0) continue;
+
+        affectedUsers += 1;
+        const balanceBefore = accountBalance;
+        accountBalance = Math.max(0, accountBalance - totalDecayed);
+
+        await tx.creditAccount.update({
+          where: { id: account.id },
+          data: { balance: accountBalance },
+        });
+
+        await tx.creditTransaction.create({
+          data: {
+            accountId: account.id,
+            type: TransactionType.EXPIRE,
+            amount: -totalDecayed,
+            balanceBefore,
+            balanceAfter: accountBalance,
+            description: '赠送积分每日衰减',
+            businessType: 'gift_decay',
+            metadata: {
+              decayedAt: now.toISOString(),
+              dailyDecayAmount,
+              deductions,
+            },
+          },
+        });
+      }
+
+      return {
+        affectedUsers,
+        decayedCredits,
+        updatedLots,
+      };
+    });
+  }
+
   async expireElapsedMemberships(now = new Date()) {
     return this.prisma.$transaction(async (tx) => {
       const expiredSubscriptions = await tx.userMembershipSubscription.findMany({
@@ -144,6 +329,129 @@ export class MembershipService {
         expiredLots,
         expiredCredits,
         resetSnapshots,
+      };
+    });
+  }
+
+  async refreshYearlySubscriptionQuotaLots(now = new Date()) {
+    return this.prisma.$transaction(async (tx) => {
+      const subscriptions = await tx.userMembershipSubscription.findMany({
+        where: {
+          status: 'active',
+          periodType: 'yearly',
+          currentPeriodEndAt: { gt: now },
+        },
+        orderBy: [{ currentPeriodStartAt: 'asc' }, { createdAt: 'asc' }],
+      });
+
+      let refreshedSubscriptions = 0;
+      let grantedCredits = 0;
+      let createdLots = 0;
+
+      for (const subscription of subscriptions) {
+        const plan = await tx.membershipPlan.findUnique({
+          where: { id: subscription.membershipPlanId },
+        });
+        if (!plan) continue;
+
+        const snapshot = this.buildPlanSnapshot(plan, subscription.snapshot);
+        const elapsedWindows = Math.floor(
+          (now.getTime() - subscription.currentPeriodStartAt.getTime()) / (30 * 24 * 60 * 60 * 1000),
+        );
+        if (elapsedWindows <= 0) {
+          continue;
+        }
+
+        const existingRefreshCount = await tx.creditTransaction.count({
+          where: {
+            subscriptionId: subscription.id,
+            businessType: 'membership_refresh',
+          },
+        });
+
+        const missingRefreshes = elapsedWindows - existingRefreshCount;
+        if (missingRefreshes <= 0) {
+          continue;
+        }
+
+        let account = await tx.creditAccount.findUnique({
+          where: { userId: subscription.userId },
+        });
+        if (!account) {
+          account = await tx.creditAccount.create({
+            data: {
+              userId: subscription.userId,
+              balance: 0,
+              totalEarned: 0,
+            },
+          });
+        }
+
+        let accountBalance = account.balance;
+        for (let index = 0; index < missingRefreshes; index += 1) {
+          const cycleIndex = existingRefreshCount + index + 1;
+          const cycleGrantAt = this.addDays(subscription.currentPeriodStartAt, cycleIndex * 30);
+          if (cycleGrantAt > now || cycleGrantAt >= subscription.currentPeriodEndAt) {
+            break;
+          }
+
+          const lot = await tx.creditLot.create({
+            data: buildMembershipCreditLotData({
+              accountId: account.id,
+              amount: snapshot.monthlyQuotaCredits,
+              grantedAt: cycleGrantAt,
+              activeAt: cycleGrantAt,
+              expiresAt: subscription.currentPeriodEndAt,
+              subscriptionId: subscription.id,
+              metadata: {
+                membershipPlanId: plan.id,
+                membershipPlanCode: snapshot.code,
+                billingCycle: snapshot.billingCycle,
+                refreshCycleIndex: cycleIndex,
+                grantedBy: 'membership_yearly_refresh',
+              },
+            }),
+          });
+
+          const balanceBefore = accountBalance;
+          accountBalance += snapshot.monthlyQuotaCredits;
+          grantedCredits += snapshot.monthlyQuotaCredits;
+          createdLots += 1;
+
+          await tx.creditAccount.update({
+            where: { id: account.id },
+            data: {
+              balance: accountBalance,
+              totalEarned: { increment: snapshot.monthlyQuotaCredits },
+            },
+          });
+
+          await tx.creditTransaction.create({
+            data: {
+              accountId: account.id,
+              type: TransactionType.EARN,
+              amount: snapshot.monthlyQuotaCredits,
+              balanceBefore,
+              balanceAfter: accountBalance,
+              description: `${snapshot.name} 年费月度额度刷新`,
+              creditLotId: lot.id,
+              businessType: 'membership_refresh',
+              subscriptionId: subscription.id,
+              membershipPlanId: plan.id,
+              metadata: {
+                billingCycle: snapshot.billingCycle,
+                refreshCycleIndex: cycleIndex,
+              },
+            },
+          });
+          refreshedSubscriptions += 1;
+        }
+      }
+
+      return {
+        refreshedSubscriptions,
+        grantedCredits,
+        createdLots,
       };
     });
   }

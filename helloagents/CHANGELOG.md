@@ -10,6 +10,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Credits Backend 已将三条发放链路接入 lot：充值成功、管理员补发、新用户注册赠送；当前均按 permanent lot 落库，为后续切换到 lot 真值扣减做准备。
 - Credits Backend 进一步接入每日签到 lot 化、hybrid lot 扣减与 lot 级退款恢复；`CreditConsumePolicy` 支持读取 `global_default` 配置并在 migration 中完成初始化。
 - Membership Backend P0 最小闭环：新增 `MembershipPlan` / `UserMembershipSubscription` / `MembershipEntitlementSnapshot`，`PaymentOrder` 支持 `membership` 订单类型；支付成功后可激活/续期订阅，并发放 `membership_bound` 积分 lot。
+- Membership Backend P1 补齐到期收口：新增会员到期小时级扫描任务；过期订阅会被标记 `expired`，其 `membership_bound` lot 会归零并写入 `membership_expire` 流水，权益快照回落到 `free/inactive`。
+- Membership Backend P1 继续补齐权益调度：新增每日赠送积分衰减任务（`gift_decay`）和年费会员月度额度刷新任务（`membership_refresh`），均由 `MembershipSchedulerService` 驱动。
+- Membership Backend 新增读接口：`GET /api/membership/current` 返回当前订阅/套餐/权益聚合视图，`GET /api/membership/entitlement` 返回当前权益快照，供前端会员页接入。
 - 认证系统新增观猹 OAuth2 登录：后端增加 `/api/auth/watcha/authorize` + `/api/auth/watcha/callback`，支持授权回调后自动登录、绑定/创建本地账号（`watchaUserId`）。
 - 登录页在“登录”按钮下方新增观猹入口按钮，复用后端授权跳转链路并支持回调错误提示。
 - 工作流历史版本：新增 `WorkflowHistory` 表（按 `userId + projectId + updatedAt` 复合主键），后端提供查询接口；前端右上角增加 n8n 风格历史按钮与“恢复并保存”交互。
