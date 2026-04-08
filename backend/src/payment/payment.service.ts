@@ -16,6 +16,7 @@ import { TransactionType } from '../credits/dto/credits.dto';
 import { ReferralService } from '../referral/referral.service';
 import { buildRechargeCreditLotData } from '../credits/credit-lot-grants';
 import { MembershipService } from '../membership/membership.service';
+import { BusinessPolicyService } from '../business-policy/business-policy.service';
 
 // --- 🛡️ 兼容引用 ---
 const alipayLib = require('alipay-sdk');
@@ -36,6 +37,7 @@ export class PaymentService implements OnModuleInit {
     private configService: ConfigService,
     private referralService: ReferralService,
     private membershipService: MembershipService,
+    private readonly businessPolicyService: BusinessPolicyService,
   ) { }
 
   private isAlipaySuccessStatus(status: string | null | undefined): boolean {
@@ -635,6 +637,7 @@ export class PaymentService implements OnModuleInit {
     },
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
+      const policy = await this.businessPolicyService.getMembershipCreditPolicy();
       const currentOrder = await tx.paymentOrder.findUnique({ where: { id: orderId } });
       if (!currentOrder) return;
 
@@ -695,6 +698,13 @@ export class PaymentService implements OnModuleInit {
           accountId: account.id,
           amount: credits,
           grantedAt: options?.paidAt ?? new Date(),
+          expiresAt:
+            policy.fixedCreditExpireDays > 0
+              ? new Date(
+                  (options?.paidAt ?? new Date()).getTime() +
+                    policy.fixedCreditExpireDays * 24 * 60 * 60 * 1000,
+                )
+              : null,
           orderId: currentOrder.id,
           metadata: {
             orderNo: currentOrder.orderNo,

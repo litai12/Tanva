@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildMembershipCreditLotData } from '../credits/credit-lot-grants';
 import { TransactionType } from '../credits/dto/credits.dto';
+import { BusinessPolicyService } from '../business-policy/business-policy.service';
 import type {
   ActivatePaidMembershipOrderParams,
   ActivatePaidMembershipOrderResult,
@@ -12,7 +13,10 @@ import type {
 
 @Injectable()
 export class MembershipService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly businessPolicyService: BusinessPolicyService,
+  ) {}
 
   async listActivePlans() {
     return this.prisma.membershipPlan.findMany({
@@ -184,7 +188,9 @@ export class MembershipService {
     };
   }
 
-  async decayDailyGiftCredits(now = new Date(), dailyDecayAmount = 50) {
+  async decayDailyGiftCredits(now = new Date()) {
+    const policy = await this.businessPolicyService.getMembershipCreditPolicy();
+    const dailyDecayAmount = policy.dailyGiftDecayCredits;
     return this.prisma.$transaction(async (tx) => {
       const accounts = await tx.creditAccount.findMany({
         where: {
@@ -416,6 +422,8 @@ export class MembershipService {
   }
 
   async refreshYearlySubscriptionQuotaLots(now = new Date()) {
+    const policy = await this.businessPolicyService.getMembershipCreditPolicy();
+    const cycleDays = policy.membershipRefreshCycleDays;
     return this.prisma.$transaction(async (tx) => {
       const subscriptions = await tx.userMembershipSubscription.findMany({
         where: {
@@ -438,7 +446,8 @@ export class MembershipService {
 
         const snapshot = this.buildPlanSnapshot(plan, subscription.snapshot);
         const elapsedWindows = Math.floor(
-          (now.getTime() - subscription.currentPeriodStartAt.getTime()) / (30 * 24 * 60 * 60 * 1000),
+          (now.getTime() - subscription.currentPeriodStartAt.getTime()) /
+            (cycleDays * 24 * 60 * 60 * 1000),
         );
         if (elapsedWindows <= 0) {
           continue;
@@ -472,7 +481,10 @@ export class MembershipService {
         let accountBalance = account.balance;
         for (let index = 0; index < missingRefreshes; index += 1) {
           const cycleIndex = existingRefreshCount + index + 1;
-          const cycleGrantAt = this.addDays(subscription.currentPeriodStartAt, cycleIndex * 30);
+          const cycleGrantAt = this.addDays(
+            subscription.currentPeriodStartAt,
+            cycleIndex * cycleDays,
+          );
           if (cycleGrantAt > now || cycleGrantAt >= subscription.currentPeriodEndAt) {
             break;
           }
@@ -566,7 +578,8 @@ export class MembershipService {
     }
 
     const snapshot = this.buildPlanSnapshot(persistedPlan, order.planSnapshot);
-    const cycleDays = this.resolveCycleDays(snapshot.billingCycle);
+    const policy = await this.businessPolicyService.getMembershipCreditPolicy();
+    const cycleDays = this.resolveCycleDays(snapshot.billingCycle, policy.membershipRefreshCycleDays);
     const grantAmount = snapshot.monthlyQuotaCredits + snapshot.signupBonusCredits;
     const paidAt = params.paidAt;
     const activeSubscription = await params.tx.userMembershipSubscription.findFirst({
@@ -777,8 +790,8 @@ export class MembershipService {
     return value === 'yearly' ? 'yearly' : 'monthly';
   }
 
-  private resolveCycleDays(cycle: MembershipBillingCycle): number {
-    return cycle === 'yearly' ? 365 : 30;
+  private resolveCycleDays(cycle: MembershipBillingCycle, refreshCycleDays: number): number {
+    return cycle === 'yearly' ? refreshCycleDays * 12 : refreshCycleDays;
   }
 
   private addDays(base: Date, days: number): Date {

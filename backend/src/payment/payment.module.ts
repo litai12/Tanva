@@ -5,9 +5,10 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { CreditsModule } from '../credits/credits.module';
 import { ReferralModule } from '../referral/referral.module';
 import { MembershipModule } from '../membership/membership.module';
+import { BusinessPolicyModule } from '../business-policy/business-policy.module';
 
 @Module({
-  imports: [PrismaModule, CreditsModule, ReferralModule, forwardRef(() => MembershipModule)],
+  imports: [PrismaModule, CreditsModule, ReferralModule, forwardRef(() => MembershipModule), BusinessPolicyModule],
   controllers: [PaymentController],
   providers: [PaymentService],
   exports: [PaymentService],

@@ -13,6 +13,7 @@
   - `POST /api/payment/wechat-notify`
   - `POST /api/payment/wechat/notify`
 - 其余本文档中的接口都需要 `Authorization: Bearer <token>`
+- `admin` 前缀接口额外要求管理员身份
 
 ---
 
@@ -194,6 +195,16 @@
   }
 }
 ```
+
+### 2.7 充值积分有效期
+
+- 充值成功后创建的 lot 会读取后台策略配置 `fixedCreditExpireDays`
+- `fixedCreditExpireDays > 0`：
+  - lot 类型为 `fixed_window`
+  - `expiresAt = paidAt + fixedCreditExpireDays`
+- `fixedCreditExpireDays = 0`：
+  - lot 类型为 `permanent`
+- 同一策略也会作用于管理员后台手工补发积分
 
 ---
 
@@ -401,13 +412,87 @@
 }
 ```
 
+### 3.7 会员积分策略生效点
+
+- `MembershipService.decayDailyGiftCredits()` 使用 `dailyGiftDecayCredits`
+- `MembershipService.refreshYearlySubscriptionQuotaLots()` 使用 `membershipRefreshCycleDays`
+- `MembershipService.activatePaidMembershipOrder()` 使用 `membershipRefreshCycleDays` 计算会员周期
+- `CreditsService.claimDailyReward()` 使用：
+  - `dailyRewardCredits`
+  - `dailyRewardExpireDays`
+  - `consecutive7DayBonusCredits`
+- `PaymentService.processPaymentSuccess()` 和 `CreditsService.adminAddCredits()` 使用 `fixedCreditExpireDays`
+
 ---
 
-## 4. 当前已知缺口
+## 4. 管理后台策略接口
+
+### 4.1 `GET /api/admin/membership-credit-policy`
+
+获取当前生效的会员积分策略配置。
+
+响应示例：
+
+```json
+{
+  "settingKey": "membership_credit_policy",
+  "description": "会员积分策略配置：赠送衰减、固定积分时效、签到奖励、月度刷新周期",
+  "defaults": {
+    "dailyGiftDecayCredits": 50,
+    "fixedCreditExpireDays": 730,
+    "dailyRewardCredits": 50,
+    "dailyRewardExpireDays": 7,
+    "consecutive7DayBonusCredits": 150,
+    "membershipRefreshCycleDays": 30
+  },
+  "effective": {
+    "dailyGiftDecayCredits": 50,
+    "fixedCreditExpireDays": 730,
+    "dailyRewardCredits": 50,
+    "dailyRewardExpireDays": 7,
+    "consecutive7DayBonusCredits": 150,
+    "membershipRefreshCycleDays": 30
+  },
+  "rawValue": "{\"dailyGiftDecayCredits\":50,\"fixedCreditExpireDays\":730,\"dailyRewardCredits\":50,\"dailyRewardExpireDays\":7,\"consecutive7DayBonusCredits\":150,\"membershipRefreshCycleDays\":30}",
+  "updatedAt": "2026-04-08T12:00:00.000Z",
+  "updatedBy": "admin_user_id"
+}
+```
+
+### 4.2 `POST /api/admin/membership-credit-policy`
+
+更新会员积分策略配置。支持部分字段更新。
+
+请求示例：
+
+```json
+{
+  "dailyGiftDecayCredits": 80,
+  "fixedCreditExpireDays": 365,
+  "dailyRewardCredits": 60,
+  "dailyRewardExpireDays": 10,
+  "consecutive7DayBonusCredits": 200,
+  "membershipRefreshCycleDays": 28
+}
+```
+
+校验规则：
+
+- `dailyGiftDecayCredits >= 0`
+- `fixedCreditExpireDays >= 0`
+- `dailyRewardCredits >= 0`
+- `dailyRewardExpireDays >= 0`
+- `consecutive7DayBonusCredits >= 0`
+- `membershipRefreshCycleDays > 0`
+
+返回值与 `GET /api/admin/membership-credit-policy` 一致。
+
+---
+
+## 5. 当前已知缺口
 
 - `GET /api/membership/me` 中的 `quotas` 还没有完整落到数据库字段，当前返回 `null`
 - 会员权益中的 `watermarkRemoval`、`templateAccess`、`supportLevel` 等展示字段还没有完整持久化到快照
 - 还没有后台套餐 CRUD 接口
 - 还没有会员权益变更流水专用查询接口
 - 月付会员自动续费尚未实现
-

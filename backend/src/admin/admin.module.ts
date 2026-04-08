@@ -5,11 +5,12 @@ import { SettingsPublicController } from './settings-public.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { CreditsModule } from '../credits/credits.module';
 import { OssModule } from '../oss/oss.module';
+import { BusinessPolicyModule } from '../business-policy/business-policy.module';
 import { TemplateService } from './services/template.service';
 import { NodeConfigService } from './services/node-config.service';
 
 @Module({
-  imports: [PrismaModule, CreditsModule, OssModule],
+  imports: [PrismaModule, CreditsModule, OssModule, BusinessPolicyModule],
   controllers: [AdminController, SettingsPublicController],
   providers: [AdminService, TemplateService, NodeConfigService],
   exports: [AdminService, TemplateService, NodeConfigService],

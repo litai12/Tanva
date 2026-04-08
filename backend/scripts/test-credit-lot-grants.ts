@@ -52,6 +52,28 @@ function run(): void {
     description: '运营补偿',
   });
 
+  const expiringRechargeLot = buildRechargeCreditLotData({
+    accountId: 'acct_2b',
+    amount: 1200,
+    grantedAt,
+    expiresAt: iso('2028-04-07T12:00:00.000Z'),
+  });
+
+  assert.equal(expiringRechargeLot.sourceType, 'recharge');
+  assert.equal(expiringRechargeLot.validityType, 'fixed_window');
+  assert.equal(expiringRechargeLot.expiresAt?.toISOString(), '2028-04-07T12:00:00.000Z');
+
+  const expiringManualLot = buildManualCreditLotData({
+    accountId: 'acct_2c',
+    amount: 300,
+    grantedAt,
+    expiresAt: iso('2026-10-05T12:00:00.000Z'),
+  });
+
+  assert.equal(expiringManualLot.sourceType, 'manual');
+  assert.equal(expiringManualLot.validityType, 'fixed_window');
+  assert.equal(expiringManualLot.expiresAt?.toISOString(), '2026-10-05T12:00:00.000Z');
+
   const signupLot = buildSignupCreditLotData({
     accountId: 'acct_3',
     amount: 500,

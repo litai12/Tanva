@@ -80,12 +80,17 @@
   - 新增 `MembershipSchedulerService`，按小时扫描已过期订阅。
   - `MembershipService.expireElapsedMemberships()` 会把到期订阅标记为 `expired`，将关联的 `membership_bound` lot 归零并写入 `membership_expire` 流水，同时把权益快照回落到 `free/inactive`。
 - 会员 P1 权益调度：
-  - `MembershipService.decayDailyGiftCredits()` 会在 `pauseGiftDecay=false` 时，对 `sourceType=gift` + `validityType=permanent` 的 lot 执行每日衰减，并记录 `gift_decay` 流水。
-  - `MembershipService.refreshYearlySubscriptionQuotaLots()` 会为 `periodType=yearly` 的活跃订阅补发按 30 天窗口计算的月度额度，并记录 `membership_refresh` 流水。
+  - `MembershipService.decayDailyGiftCredits()` 会在 `pauseGiftDecay=false` 时，对 `sourceType=gift` + `validityType=permanent` 的 lot 执行每日衰减，并记录 `gift_decay` 流水；衰减值改为读取 `SystemSetting[membership_credit_policy].dailyGiftDecayCredits`。
+  - `MembershipService.refreshYearlySubscriptionQuotaLots()` 会为 `periodType=yearly` 的活跃订阅补发按配置窗口计算的月度额度，并记录 `membership_refresh` 流水；窗口天数来自 `membershipRefreshCycleDays`。
   - `MembershipSchedulerService` 新增每日 3 点赠送衰减任务、每日 4 点年费会员月度额度刷新任务。
 - 会员读接口：
   - 新增 `GET /api/membership/current`：返回当前活跃订阅、当前套餐摘要和权益快照。
   - 新增 `GET /api/membership/entitlement`：返回当前权益快照；无快照时回退为 `free/inactive`。
+- 后台策略配置：
+  - 新增 `backend/src/business-policy/business-policy.service.ts`，统一读取/归一化 `membership_credit_policy`。
+  - 新增 `GET /api/admin/membership-credit-policy` 与 `POST /api/admin/membership-credit-policy`。
+  - `PaymentService.processPaymentSuccess` 和 `CreditsService.adminAddCredits` 现在会读取 `fixedCreditExpireDays`，将充值/手工补发 lot 生成为 `fixed_window` 或 `permanent`。
+  - `CreditsService.claimDailyReward` 现在会读取 `dailyRewardCredits`、`dailyRewardExpireDays`、`consecutive7DayBonusCredits`。
 - 尚未接入的链路：
   - 更细粒度 scope 策略（service/provider/model 级命中）
   - 月付会员自动续费

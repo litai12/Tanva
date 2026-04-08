@@ -21,6 +21,8 @@ import { CreditsAnomalyService } from '../credits/credits-anomaly.service';
 import { TransactionHistoryQueryDto } from '../credits/dto/credits.dto';
 import { TemplateService } from './services/template.service';
 import { NodeConfigService, NodeConfigDto, UpdateNodeConfigDto } from './services/node-config.service';
+import { BusinessPolicyService } from '../business-policy/business-policy.service';
+import type { UpdateMembershipCreditPolicyInput } from '../business-policy/business-policy.types';
 import {
   UsersQueryDto,
   ApiUsageStatsQueryDto,
@@ -54,6 +56,7 @@ export class AdminController {
     private readonly creditsAnomalyService: CreditsAnomalyService,
     private readonly templateService: TemplateService,
     private readonly nodeConfigService: NodeConfigService,
+    private readonly businessPolicyService: BusinessPolicyService,
   ) {}
 
   /**
@@ -242,6 +245,23 @@ export class AdminController {
       dto.description,
       dto.metadata,
     );
+  }
+
+  @Get('membership-credit-policy')
+  @ApiOperation({ summary: '获取会员积分策略配置' })
+  async getMembershipCreditPolicy(@Request() req: AuthenticatedRequest) {
+    this.checkAdmin(req);
+    return this.businessPolicyService.getMembershipCreditPolicyView();
+  }
+
+  @Post('membership-credit-policy')
+  @ApiOperation({ summary: '更新会员积分策略配置' })
+  async updateMembershipCreditPolicy(
+    @Request() req: AuthenticatedRequest,
+    @Body() dto: UpdateMembershipCreditPolicyInput,
+  ) {
+    this.checkAdmin(req);
+    return this.businessPolicyService.updateMembershipCreditPolicy(dto, req.user.id);
   }
 
   // ==================== 公共模板管理 ====================

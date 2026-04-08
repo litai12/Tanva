@@ -5,8 +5,6 @@ import {
   CREDIT_PRICING_CONFIG,
   DEFAULT_NEW_USER_CREDITS,
   INVITED_NEW_USER_BONUS_CREDITS,
-  DAILY_LOGIN_REWARD_CREDITS,
-  CONSECUTIVE_7_DAY_BONUS_CREDITS,
   ServiceType,
 } from './credits.config';
 import { TransactionType, ApiResponseStatus } from './dto/credits.dto';
@@ -29,9 +27,8 @@ import {
   type CreditLotCandidate,
   type CreditLotStatus,
 } from './credit-lot-policy';
+import { BusinessPolicyService } from '../business-policy/business-policy.service';
 
-// 签到积分过期天数（普通用户）
-const DAILY_REWARD_EXPIRE_DAYS = 7;
 const STALE_PENDING_DEFAULT_TIMEOUT_MINUTES = 15;
 const STALE_PENDING_DEFAULT_VIDEO_TIMEOUT_MINUTES = 30;
 const STALE_PENDING_VIDEO_REFUND_DEFAULT_CUTOVER_AT = '2026-03-28T00:00:00.000Z';
@@ -119,6 +116,7 @@ export class CreditsService {
 
   constructor(
     private prisma: PrismaService,
+    private readonly businessPolicyService: BusinessPolicyService,
     @Inject(forwardRef(() => ReferralService))
     private referralService: ReferralService,
   ) {}
@@ -314,6 +312,7 @@ export class CreditsService {
   private getDailyRewardMetadata(
     consecutiveDays: number,
     bonusCredits: number,
+    baseCredits: number,
   ): Prisma.InputJsonValue {
     return {
       reason: 'daily_reward',
@@ -321,7 +320,7 @@ export class CreditsService {
       ...(bonusCredits > 0
         ? {
             bonusCredits,
-            baseCredits: DAILY_LOGIN_REWARD_CREDITS,
+            baseCredits,
           }
         : {}),
     } as Prisma.InputJsonValue;
@@ -1677,6 +1676,7 @@ export class CreditsService {
     }
 
     return await this.prisma.$transaction(async (tx) => {
+      const policy = await this.businessPolicyService.getMembershipCreditPolicy();
       const account = await tx.creditAccount.findUnique({
         where: { userId },
       });
@@ -1699,6 +1699,10 @@ export class CreditsService {
         data: buildManualCreditLotData({
           accountId: account.id,
           amount,
+          expiresAt:
+            policy.fixedCreditExpireDays > 0
+              ? new Date(Date.now() + policy.fixedCreditExpireDays * 24 * 60 * 60 * 1000)
+              : null,
           metadata: {
             adminId,
             description,
@@ -1970,9 +1974,13 @@ export class CreditsService {
 
     // 检查是否为付费用户
     const isPaid = await this.isPaidUser(userId);
+    const policy = await this.businessPolicyService.getMembershipCreditPolicy();
 
-    // 计算过期时间：付费用户永不过期(null)，普通用户7天后过期
-    const expiresAt = isPaid ? null : new Date(Date.now() + DAILY_REWARD_EXPIRE_DAYS * 24 * 60 * 60 * 1000);
+    // 计算过期时间：付费用户永不过期(null)，普通用户按配置天数过期
+    const expiresAt =
+      isPaid || policy.dailyRewardExpireDays <= 0
+        ? null
+        : new Date(Date.now() + policy.dailyRewardExpireDays * 24 * 60 * 60 * 1000);
 
     return await this.prisma.$transaction(async (tx) => {
       const account = await tx.creditAccount.findUnique({
@@ -2013,10 +2021,10 @@ export class CreditsService {
 
       // 第7天额外奖励150积分
       if (newConsecutiveDays === 7) {
-        bonusCredits = CONSECUTIVE_7_DAY_BONUS_CREDITS;
+        bonusCredits = policy.consecutive7DayBonusCredits;
       }
 
-      const totalCredits = DAILY_LOGIN_REWARD_CREDITS + bonusCredits;
+      const totalCredits = policy.dailyRewardCredits + bonusCredits;
       const newBalance = account.balance + totalCredits;
 
       // 更新账户余额、最后领取时间和连续签到天数
@@ -2033,15 +2041,19 @@ export class CreditsService {
 
       // 创建签到交易记录
       const description = bonusCredits > 0
-        ? (isPaid ? `连续签到第7天+额外奖励${bonusCredits}积分（永久）` : `连续签到第7天+额外奖励${bonusCredits}积分（${DAILY_REWARD_EXPIRE_DAYS}天后过期）`)
-        : (isPaid ? `每日签到第${newConsecutiveDays}天（永久）` : `每日签到第${newConsecutiveDays}天（${DAILY_REWARD_EXPIRE_DAYS}天后过期）`);
+        ? (isPaid ? `连续签到第7天+额外奖励${bonusCredits}积分（永久）` : `连续签到第7天+额外奖励${bonusCredits}积分（${policy.dailyRewardExpireDays}天后过期）`)
+        : (isPaid ? `每日签到第${newConsecutiveDays}天（永久）` : `每日签到第${newConsecutiveDays}天（${policy.dailyRewardExpireDays}天后过期）`);
 
       const creditLot = await tx.creditLot.create({
         data: buildDailyRewardCreditLotData({
           accountId: account.id,
           amount: totalCredits,
           expiresAt,
-          metadata: this.getDailyRewardMetadata(newConsecutiveDays, bonusCredits),
+          metadata: this.getDailyRewardMetadata(
+            newConsecutiveDays,
+            bonusCredits,
+            policy.dailyRewardCredits,
+          ),
         }),
       });
 
@@ -2055,7 +2067,11 @@ export class CreditsService {
           description,
           creditLotId: creditLot.id,
           expiresAt,
-          metadata: this.getDailyRewardMetadata(newConsecutiveDays, bonusCredits),
+          metadata: this.getDailyRewardMetadata(
+            newConsecutiveDays,
+            bonusCredits,
+            policy.dailyRewardCredits,
+          ),
         },
       });
 

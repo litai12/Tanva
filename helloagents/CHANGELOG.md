@@ -386,3 +386,12 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Changed
 - `库` 面板新增独立 `项目库` 标签（与 `全局历史`、`个人素材` 并列），按当前项目 ID 过滤展示项目内历史记录，并维护独立搜索/筛选/分页状态（`frontend/src/components/panels/LibraryPanel.tsx`）。
 - `项目库` 复用历史卡片交互：单击打开详情浮层（发送到画板/下载/删除），双击打开全屏预览；删除后会按项目过滤条件刷新当前列表（`frontend/src/components/panels/LibraryPanel.tsx`）。
+
+## [Membership Credit Policy Patch - 2026-04-08]
+### Changed
+- 后端新增独立业务策略模块 `backend/src/business-policy/*`，把会员积分策略统一收口到 `SystemSetting[membership_credit_policy]`。
+- 新增管理后台接口 `GET/POST /api/admin/membership-credit-policy`，支持配置赠送衰减值、固定积分有效期、签到奖励、签到有效期、7 日连签奖励、会员刷新周期。
+- `PaymentService.processPaymentSuccess` 与 `CreditsService.adminAddCredits` 现在按 `fixedCreditExpireDays` 创建充值/手工补发积分 lot，可在 `fixed_window` 与 `permanent` 之间切换。
+- `CreditsService.claimDailyReward` 改为读取后台配置的签到积分、签到有效期和 7 日连签奖励。
+- `MembershipService.decayDailyGiftCredits` 与 `MembershipService.refreshYearlySubscriptionQuotaLots` 改为读取后台配置，不再写死 `50/30`。
+- 任务接口文档补充到 `task/2026-04-08-tanva-membership-api.md`，覆盖后台策略接口与配置生效点。
