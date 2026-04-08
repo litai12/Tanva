@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import ZoomIndicator from '@/components/canvas/ZoomIndicator';
 import GridRenderer from '@/components/canvas/GridRenderer';
 import InteractionController from '@/components/canvas/InteractionController';
@@ -32,9 +32,9 @@ const Canvas: React.FC = () => {
     // AI image display now goes through fast upload flow; no extra hook needed.
     // useAIImageDisplay();
 
-    const handlePaperInitialized = () => {
+    const handlePaperInitialized = useCallback(() => {
         setIsPaperInitialized(true);
-    };
+    }, []);
 
     // Delay Paper.js init to improve first-load performance.
     useEffect(() => {

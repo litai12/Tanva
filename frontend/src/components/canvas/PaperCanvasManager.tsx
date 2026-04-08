@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import paper from 'paper';
 import { useCanvasStore } from '@/stores';
 import { useLayerStore } from '@/stores/layerStore';
@@ -57,6 +57,11 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
     hasInitialCenterApplied, 
     markInitialCenterApplied 
   } = useCanvasStore();
+  const onInitializedRef = useRef(onInitialized);
+
+  useEffect(() => {
+    onInitializedRef.current = onInitialized;
+  }, [onInitialized]);
 
   // Paper.js 初始化和画布尺寸管理
   useEffect(() => {
@@ -119,8 +124,8 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
           isInitialized = true;
 
           // 通知外部组件初始化完成
-          if (onInitialized) {
-            onInitialized();
+          if (onInitializedRef.current) {
+            onInitializedRef.current();
           }
 
           // 广播全局事件，便于其他模块（如自动保存管理器）得知 Paper 已就绪
@@ -186,7 +191,7 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
         }
       }
     };
-  }, [canvasRef, setPan, onInitialized]);
+  }, [canvasRef, setPan]);
 
   useEffect(() => {
     if (!isHydrated || hasInitialCenterApplied) {

@@ -435,6 +435,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const { status, error } = data;
   const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const chatTheme = useAIChatStore((state) => state.chatTheme);
   const setAIProvider = useAIChatStore((state) => state.setAIProvider);
   const rawFullValue = data.imageUrl || data.imageData;
   const fullAssetId = React.useMemo(() => parseFlowImageAssetRef(rawFullValue), [rawFullValue]);
@@ -730,20 +731,34 @@ function GenerateNodeInner({ id, data, selected }: Props) {
                   event.preventDefault();
                   event.stopPropagation();
                 }}
-                className='nodrag nopan'
+                className='nodrag nopan tanva-flow-provider-mode-badge'
                 title={lt("切换模型模式", "Switch model mode")}
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
                   justifyContent: "center",
                   padding: "1px 8px",
-                  borderRadius: 999,
+                  borderRadius: 50,
                   fontSize: 11,
                   fontWeight: 600,
-                  color: currentProviderValue === "banana-3.1" ? "#0f172a" : "#475569",
-                  background: currentProviderValue === "banana-3.1" ? "#e2e8f0" : "#f1f5f9",
-                  border: "1px solid #e2e8f0",
                   cursor: "pointer",
+                  ...(chatTheme === "black"
+                    ? {
+                        color: "#ffffff",
+                        background: "#343434",
+                        border: "1px solid #4a4a4a",
+                      }
+                    : {
+                        color:
+                          currentProviderValue === "banana-3.1"
+                            ? "#0f172a"
+                            : "#475569",
+                        background:
+                          currentProviderValue === "banana-3.1"
+                            ? "#e2e8f0"
+                            : "#f1f5f9",
+                        border: "1px solid #e2e8f0",
+                      }),
                 }}
               >
                 {currentProviderOption.label}
@@ -785,13 +800,18 @@ function GenerateNodeInner({ id, data, selected }: Props) {
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button
             onClick={onRun}
             disabled={status === "running"}
             style={{
               fontSize: 12,
-              padding: "4px 8px",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxSizing: "border-box",
+              minHeight: 30,
+              padding: "0 12px",
               background: status === "running" ? "#e5e7eb" : "#111827",
               color: "#fff",
               borderRadius: 6,
@@ -807,7 +827,13 @@ function GenerateNodeInner({ id, data, selected }: Props) {
             title={!(data.imageData || data.imageUrl) ? lt("无可发送的图像", "No image to send") : lt("发送到画布", "Send to canvas")}
             style={{
               fontSize: 12,
-              padding: "4px 8px",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxSizing: "border-box",
+              width: 34,
+              height: 30,
+              padding: 0,
               background: !(data.imageData || data.imageUrl) ? "#e5e7eb" : "#111827",
               color: "#fff",
               borderRadius: 6,
