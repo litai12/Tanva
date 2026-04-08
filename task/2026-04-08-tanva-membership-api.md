@@ -487,6 +487,62 @@
 
 返回值与 `GET /api/admin/membership-credit-policy` 一致。
 
+### 4.3 `GET /api/admin/membership-plans`
+
+获取会员套餐管理列表，返回所有套餐，包含停用项。
+
+响应示例：
+
+```json
+[
+  {
+    "id": "plan_uuid",
+    "code": "vip_199_monthly",
+    "name": "VIP 199 月卡",
+    "billingCycle": "monthly",
+    "price": 199,
+    "monthlyQuotaCredits": 20000,
+    "signupBonusCredits": 2000,
+    "dailyGiftCredits": 100,
+    "isActive": true,
+    "sortOrder": 10,
+    "metadata": {
+      "planCode": "vip_199",
+      "pauseGiftDecay": true
+    },
+    "createdAt": "2026-04-08T12:00:00.000Z",
+    "updatedAt": "2026-04-08T12:00:00.000Z"
+  }
+]
+```
+
+### 4.4 `POST /api/admin/membership-plans`
+
+创建会员套餐。
+
+请求示例：
+
+```json
+{
+  "code": "vip_599_yearly",
+  "name": "VIP 599 年卡",
+  "billingCycle": "yearly",
+  "price": 599,
+  "monthlyQuotaCredits": 30000,
+  "signupBonusCredits": 5000,
+  "dailyGiftCredits": 200,
+  "isActive": true,
+  "sortOrder": 30,
+  "metadata": {
+    "pauseGiftDecay": true
+  }
+}
+```
+
+### 4.5 `PATCH /api/admin/membership-plans/:id`
+
+更新会员套餐，支持部分字段更新。
+
 ---
 
 ## 5. 当前已知缺口

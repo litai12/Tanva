@@ -430,6 +430,85 @@ export async function upsertSetting(data: {
   return response.json();
 }
 
+export interface MembershipCreditPolicyConfig {
+  dailyGiftDecayCredits: number;
+  fixedCreditExpireDays: number;
+  dailyRewardCredits: number;
+  dailyRewardExpireDays: number;
+  consecutive7DayBonusCredits: number;
+  membershipRefreshCycleDays: number;
+}
+
+export interface MembershipCreditPolicyView {
+  settingKey: string;
+  defaults: MembershipCreditPolicyConfig;
+  effective: MembershipCreditPolicyConfig;
+  rawValue: string | null;
+  updatedAt: string | null;
+  updatedBy: string | null;
+  description: string;
+}
+
+export async function getMembershipCreditPolicy(): Promise<MembershipCreditPolicyView> {
+  const response = await request("/api/admin/membership-credit-policy");
+  return response.json();
+}
+
+export async function updateMembershipCreditPolicy(
+  data: Partial<MembershipCreditPolicyConfig>
+): Promise<MembershipCreditPolicyView> {
+  const response = await request("/api/admin/membership-credit-policy", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  return response.json();
+}
+
+export interface AdminMembershipPlan {
+  id: string;
+  code: string;
+  name: string;
+  billingCycle: "monthly" | "yearly";
+  price: number | string;
+  monthlyQuotaCredits: number;
+  signupBonusCredits: number;
+  dailyGiftCredits: number;
+  isActive: boolean;
+  sortOrder: number;
+  metadata: Record<string, any> | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function getAdminMembershipPlans(): Promise<AdminMembershipPlan[]> {
+  const response = await request("/api/admin/membership-plans");
+  return response.json();
+}
+
+export async function createAdminMembershipPlan(
+  data: Omit<AdminMembershipPlan, "id" | "createdAt" | "updatedAt" | "price"> & { price: number }
+): Promise<AdminMembershipPlan> {
+  const response = await request("/api/admin/membership-plans", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  return response.json();
+}
+
+export async function updateAdminMembershipPlan(
+  id: string,
+  data: Partial<Omit<AdminMembershipPlan, "id" | "createdAt" | "updatedAt" | "price">> & { price?: number }
+): Promise<AdminMembershipPlan> {
+  const response = await request(`/api/admin/membership-plans/${id}`, {
+    method: "PATCH",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  return response.json();
+}
+
 // ==================== 支付相关 ====================
 
 export type PaymentMethod = "alipay" | "wechat";

@@ -89,6 +89,7 @@
 - 后台策略配置：
   - 新增 `backend/src/business-policy/business-policy.service.ts`，统一读取/归一化 `membership_credit_policy`。
   - 新增 `GET /api/admin/membership-credit-policy` 与 `POST /api/admin/membership-credit-policy`。
+  - 新增 `GET /api/admin/membership-plans`、`POST /api/admin/membership-plans`、`PATCH /api/admin/membership-plans/:id`，用于后台会员套餐管理。
   - `PaymentService.processPaymentSuccess` 和 `CreditsService.adminAddCredits` 现在会读取 `fixedCreditExpireDays`，将充值/手工补发 lot 生成为 `fixed_window` 或 `permanent`。
   - `CreditsService.claimDailyReward` 现在会读取 `dailyRewardCredits`、`dailyRewardExpireDays`、`consecutive7DayBonusCredits`。
 - 尚未接入的链路：

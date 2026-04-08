@@ -391,7 +391,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Changed
 - 后端新增独立业务策略模块 `backend/src/business-policy/*`，把会员积分策略统一收口到 `SystemSetting[membership_credit_policy]`。
 - 新增管理后台接口 `GET/POST /api/admin/membership-credit-policy`，支持配置赠送衰减值、固定积分有效期、签到奖励、签到有效期、7 日连签奖励、会员刷新周期。
+- 新增管理后台接口 `GET/POST/PATCH /api/admin/membership-plans*`，支持会员套餐列表管理、创建与编辑。
 - `PaymentService.processPaymentSuccess` 与 `CreditsService.adminAddCredits` 现在按 `fixedCreditExpireDays` 创建充值/手工补发积分 lot，可在 `fixed_window` 与 `permanent` 之间切换。
 - `CreditsService.claimDailyReward` 改为读取后台配置的签到积分、签到有效期和 7 日连签奖励。
 - `MembershipService.decayDailyGiftCredits` 与 `MembershipService.refreshYearlySubscriptionQuotaLots` 改为读取后台配置，不再写死 `50/30`。
 - 任务接口文档补充到 `task/2026-04-08-tanva-membership-api.md`，覆盖后台策略接口与配置生效点。
+- 前端管理后台 `系统设置` 下新增 `VIP管理` 子页，集成会员套餐列表管理与会员积分策略配置。

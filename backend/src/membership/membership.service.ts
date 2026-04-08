@@ -18,11 +18,152 @@ export class MembershipService {
     private readonly businessPolicyService: BusinessPolicyService,
   ) {}
 
+  private isMissingTableError(error: unknown): boolean {
+    return (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2021'
+    );
+  }
+
+  private async withMissingMembershipTablesFallback<T>(
+    operation: () => Promise<T>,
+    fallback: () => T,
+  ): Promise<T> {
+    try {
+      return await operation();
+    } catch (error) {
+      if (this.isMissingTableError(error)) {
+        return fallback();
+      }
+      throw error;
+    }
+  }
+
   async listActivePlans() {
-    return this.prisma.membershipPlan.findMany({
-      where: { isActive: true },
-      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-    });
+    return this.withMissingMembershipTablesFallback(
+      () =>
+        this.prisma.membershipPlan.findMany({
+          where: { isActive: true },
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        }),
+      () => [],
+    );
+  }
+
+  async listAllPlansForAdmin() {
+    return this.withMissingMembershipTablesFallback(
+      () =>
+        this.prisma.membershipPlan.findMany({
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        }),
+      () => [],
+    );
+  }
+
+  async createMembershipPlan(input: {
+    code: string;
+    name: string;
+    billingCycle: string;
+    price: number;
+    monthlyQuotaCredits?: number;
+    signupBonusCredits?: number;
+    dailyGiftCredits?: number;
+    isActive?: boolean;
+    sortOrder?: number;
+    metadata?: Prisma.InputJsonValue;
+  }) {
+    const code = input.code.trim();
+    const name = input.name.trim();
+    if (!code) {
+      throw new BadRequestException('套餐编码不能为空');
+    }
+    if (!name) {
+      throw new BadRequestException('套餐名称不能为空');
+    }
+
+    try {
+      return await this.prisma.membershipPlan.create({
+        data: {
+          code,
+          name,
+          billingCycle: this.normalizeBillingCycle(input.billingCycle),
+          price: new Prisma.Decimal(input.price),
+          monthlyQuotaCredits: input.monthlyQuotaCredits ?? 0,
+          signupBonusCredits: input.signupBonusCredits ?? 0,
+          dailyGiftCredits: input.dailyGiftCredits ?? 0,
+          isActive: input.isActive ?? true,
+          sortOrder: input.sortOrder ?? 0,
+          ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+        },
+      });
+    } catch (error) {
+      if (this.isMissingTableError(error)) {
+        throw new BadRequestException('会员表尚未初始化，请先执行数据库迁移');
+      }
+      throw error;
+    }
+  }
+
+  async updateMembershipPlan(
+    id: string,
+    input: {
+      code?: string;
+      name?: string;
+      billingCycle?: string;
+      price?: number;
+      monthlyQuotaCredits?: number;
+      signupBonusCredits?: number;
+      dailyGiftCredits?: number;
+      isActive?: boolean;
+      sortOrder?: number;
+      metadata?: Prisma.InputJsonValue;
+    },
+  ) {
+    let existing;
+    try {
+      existing = await this.prisma.membershipPlan.findUnique({
+        where: { id },
+      });
+    } catch (error) {
+      if (this.isMissingTableError(error)) {
+        throw new BadRequestException('会员表尚未初始化，请先执行数据库迁移');
+      }
+      throw error;
+    }
+    if (!existing) {
+      throw new NotFoundException('会员套餐不存在');
+    }
+
+    try {
+      return await this.prisma.membershipPlan.update({
+        where: { id },
+        data: {
+          ...(input.code !== undefined ? { code: input.code.trim() } : {}),
+          ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+          ...(input.billingCycle !== undefined
+            ? { billingCycle: this.normalizeBillingCycle(input.billingCycle) }
+            : {}),
+          ...(input.price !== undefined ? { price: new Prisma.Decimal(input.price) } : {}),
+          ...(input.monthlyQuotaCredits !== undefined
+            ? { monthlyQuotaCredits: input.monthlyQuotaCredits }
+            : {}),
+          ...(input.signupBonusCredits !== undefined
+            ? { signupBonusCredits: input.signupBonusCredits }
+            : {}),
+          ...(input.dailyGiftCredits !== undefined
+            ? { dailyGiftCredits: input.dailyGiftCredits }
+            : {}),
+          ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+          ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
+          ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+        },
+      });
+    } catch (error) {
+      if (this.isMissingTableError(error)) {
+        throw new BadRequestException('会员表尚未初始化，请先执行数据库迁移');
+      }
+      throw error;
+    }
   }
 
   async getMembershipPlansPage() {
@@ -52,13 +193,17 @@ export class MembershipService {
   }
 
   async getCurrentMembership(userId: string) {
-    const subscription = await this.prisma.userMembershipSubscription.findFirst({
-      where: {
-        userId,
-        status: 'active',
-      },
-      orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
-    });
+    const subscription = await this.withMissingMembershipTablesFallback(
+      () =>
+        this.prisma.userMembershipSubscription.findFirst({
+          where: {
+            userId,
+            status: 'active',
+          },
+          orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
+        }),
+      () => null,
+    );
 
     if (!subscription) {
       return {
@@ -68,9 +213,13 @@ export class MembershipService {
       };
     }
 
-    const plan = await this.prisma.membershipPlan.findUnique({
-      where: { id: subscription.membershipPlanId },
-    });
+    const plan = await this.withMissingMembershipTablesFallback(
+      () =>
+        this.prisma.membershipPlan.findUnique({
+          where: { id: subscription.membershipPlanId },
+        }),
+      () => null,
+    );
 
     return {
       subscription: {
@@ -100,16 +249,25 @@ export class MembershipService {
   }
 
   async getMembershipEntitlement(userId: string) {
-    const snapshot = await this.prisma.membershipEntitlementSnapshot.findUnique({
-      where: { userId },
-    });
-
-    const activeSubscriptionCount = await this.prisma.userMembershipSubscription.count({
-      where: {
-        userId,
-        status: 'active',
-      },
-    });
+    const [snapshot, activeSubscriptionCount] = await Promise.all([
+      this.withMissingMembershipTablesFallback(
+        () =>
+          this.prisma.membershipEntitlementSnapshot.findUnique({
+            where: { userId },
+          }),
+        () => null,
+      ),
+      this.withMissingMembershipTablesFallback(
+        () =>
+          this.prisma.userMembershipSubscription.count({
+            where: {
+              userId,
+              status: 'active',
+            },
+          }),
+        () => 0,
+      ),
+    ]);
 
     if (!snapshot) {
       return {

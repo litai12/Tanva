@@ -16,6 +16,11 @@ import {
   updateUserRole,
   getSettings,
   upsertSetting,
+  getMembershipCreditPolicy,
+  updateMembershipCreditPolicy,
+  getAdminMembershipPlans,
+  createAdminMembershipPlan,
+  updateAdminMembershipPlan,
   getWatermarkWhitelist,
   addToWatermarkWhitelist,
   removeFromWatermarkWhitelist,
@@ -33,6 +38,9 @@ import {
   type ApiUsageRecord,
   type Pagination,
   type SystemSetting,
+  type MembershipCreditPolicyConfig,
+  type MembershipCreditPolicyView,
+  type AdminMembershipPlan,
   type WatermarkWhitelistUser,
   type PaidUser,
   type PaidUsersSortBy,
@@ -5759,6 +5767,449 @@ function SettingsTab() {
   );
 }
 
+function VipManagementTab() {
+  const [plans, setPlans] = useState<AdminMembershipPlan[]>([]);
+  const [policyView, setPolicyView] = useState<MembershipCreditPolicyView | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [savingPolicy, setSavingPolicy] = useState(false);
+  const [savingPlan, setSavingPlan] = useState(false);
+  const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
+  const [planMetadataText, setPlanMetadataText] = useState("{}");
+  const [policyForm, setPolicyForm] = useState<MembershipCreditPolicyConfig>({
+    dailyGiftDecayCredits: 50,
+    fixedCreditExpireDays: 730,
+    dailyRewardCredits: 50,
+    dailyRewardExpireDays: 7,
+    consecutive7DayBonusCredits: 150,
+    membershipRefreshCycleDays: 30,
+  });
+  const [planForm, setPlanForm] = useState<{
+    code: string;
+    name: string;
+    billingCycle: "monthly" | "yearly";
+    price: string;
+    monthlyQuotaCredits: string;
+    signupBonusCredits: string;
+    dailyGiftCredits: string;
+    sortOrder: string;
+    isActive: boolean;
+  }>({
+    code: "",
+    name: "",
+    billingCycle: "monthly",
+    price: "",
+    monthlyQuotaCredits: "0",
+    signupBonusCredits: "0",
+    dailyGiftCredits: "0",
+    sortOrder: "0",
+    isActive: true,
+  });
+
+  const loadVipData = async () => {
+    setLoading(true);
+    try {
+      const [plansResult, policyResult] = await Promise.all([
+        getAdminMembershipPlans(),
+        getMembershipCreditPolicy(),
+      ]);
+      setPlans(plansResult);
+      setPolicyView(policyResult);
+      setPolicyForm(policyResult.effective);
+    } catch (error) {
+      console.error("加载 VIP 管理数据失败:", error);
+      alert("加载 VIP 管理数据失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadVipData();
+  }, []);
+
+  const resetPlanForm = () => {
+    setEditingPlanId(null);
+    setPlanMetadataText("{}");
+    setPlanForm({
+      code: "",
+      name: "",
+      billingCycle: "monthly",
+      price: "",
+      monthlyQuotaCredits: "0",
+      signupBonusCredits: "0",
+      dailyGiftCredits: "0",
+      sortOrder: "0",
+      isActive: true,
+    });
+  };
+
+  const handleEditPlan = (plan: AdminMembershipPlan) => {
+    setEditingPlanId(plan.id);
+    setPlanForm({
+      code: plan.code,
+      name: plan.name,
+      billingCycle: plan.billingCycle,
+      price: String(plan.price),
+      monthlyQuotaCredits: String(plan.monthlyQuotaCredits),
+      signupBonusCredits: String(plan.signupBonusCredits),
+      dailyGiftCredits: String(plan.dailyGiftCredits),
+      sortOrder: String(plan.sortOrder),
+      isActive: plan.isActive,
+    });
+    setPlanMetadataText(JSON.stringify(plan.metadata || {}, null, 2));
+  };
+
+  const parsePlanPayload = () => {
+    let metadata: Record<string, any> = {};
+    try {
+      metadata = planMetadataText.trim() ? JSON.parse(planMetadataText) : {};
+    } catch {
+      throw new Error("套餐 metadata JSON 格式不正确");
+    }
+
+    if (!planForm.code.trim() || !planForm.name.trim() || !planForm.price.trim()) {
+      throw new Error("请填写套餐编码、名称和价格");
+    }
+
+    return {
+      code: planForm.code.trim(),
+      name: planForm.name.trim(),
+      billingCycle: planForm.billingCycle,
+      price: Number(planForm.price),
+      monthlyQuotaCredits: Number(planForm.monthlyQuotaCredits || 0),
+      signupBonusCredits: Number(planForm.signupBonusCredits || 0),
+      dailyGiftCredits: Number(planForm.dailyGiftCredits || 0),
+      sortOrder: Number(planForm.sortOrder || 0),
+      isActive: planForm.isActive,
+      metadata,
+    };
+  };
+
+  const handleSavePlan = async () => {
+    setSavingPlan(true);
+    try {
+      const payload = parsePlanPayload();
+      if (editingPlanId) {
+        await updateAdminMembershipPlan(editingPlanId, payload);
+        alert("会员套餐已更新");
+      } else {
+        await createAdminMembershipPlan(payload);
+        alert("会员套餐已创建");
+      }
+      resetPlanForm();
+      loadVipData();
+    } catch (error: any) {
+      alert(error.message || "保存套餐失败");
+    } finally {
+      setSavingPlan(false);
+    }
+  };
+
+  const handleTogglePlanActive = async (plan: AdminMembershipPlan) => {
+    try {
+      await updateAdminMembershipPlan(plan.id, { isActive: !plan.isActive });
+      loadVipData();
+    } catch (error: any) {
+      alert(error.message || "更新套餐状态失败");
+    }
+  };
+
+  const handleSavePolicy = async () => {
+    setSavingPolicy(true);
+    try {
+      const payload: MembershipCreditPolicyConfig = {
+        dailyGiftDecayCredits: Number(policyForm.dailyGiftDecayCredits),
+        fixedCreditExpireDays: Number(policyForm.fixedCreditExpireDays),
+        dailyRewardCredits: Number(policyForm.dailyRewardCredits),
+        dailyRewardExpireDays: Number(policyForm.dailyRewardExpireDays),
+        consecutive7DayBonusCredits: Number(policyForm.consecutive7DayBonusCredits),
+        membershipRefreshCycleDays: Number(policyForm.membershipRefreshCycleDays),
+      };
+      const result = await updateMembershipCreditPolicy(payload);
+      setPolicyView(result);
+      setPolicyForm(result.effective);
+      alert("VIP 策略已保存");
+    } catch (error: any) {
+      alert(error.message || "保存策略失败");
+    } finally {
+      setSavingPolicy(false);
+    }
+  };
+
+  if (loading && !policyView) {
+    return <div className='py-8 text-center text-gray-500'>加载中...</div>;
+  }
+
+  return (
+    <div className='space-y-6'>
+      <div className='grid grid-cols-1 gap-4 md:grid-cols-3'>
+        <StatCard title='会员套餐数' value={plans.length} />
+        <StatCard title='启用套餐' value={plans.filter((plan) => plan.isActive).length} />
+        <StatCard
+          title='固定积分时效'
+          value={`${policyForm.fixedCreditExpireDays} 天`}
+          subtitle='0 表示永久'
+        />
+      </div>
+
+      <div className='rounded-lg border bg-white p-6 shadow-sm'>
+        <div className='mb-4 flex items-center justify-between gap-4'>
+          <div>
+            <h3 className='text-lg font-semibold'>会员积分策略</h3>
+            <p className='mt-1 text-sm text-gray-500'>
+              这里配置赠送积分衰减、固定积分时效、签到奖励和刷新周期，保存后后端立即按新配置生效。
+            </p>
+          </div>
+          <Button onClick={handleSavePolicy} disabled={savingPolicy}>
+            {savingPolicy ? "保存中..." : "保存策略"}
+          </Button>
+        </div>
+
+        <div className='grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3'>
+          {[
+            ["dailyGiftDecayCredits", "赠送积分日衰减", "每天自动衰减的赠送积分数量"],
+            ["fixedCreditExpireDays", "固定积分有效期", "充值/后台补发积分的有效天数，0 为永久"],
+            ["dailyRewardCredits", "每日签到积分", "免费用户每日签到获得的基础积分"],
+            ["dailyRewardExpireDays", "签到积分有效期", "免费用户签到积分有效天数，0 为永久"],
+            ["consecutive7DayBonusCredits", "7日连签奖励", "连续签到第 7 天额外发放的积分"],
+            ["membershipRefreshCycleDays", "会员刷新周期", "月卡/年卡配额刷新按这个周期计算"],
+          ].map(([key, label, hint]) => (
+            <div key={key} className='rounded-lg border border-gray-200 p-4'>
+              <div className='text-sm font-medium text-gray-900'>{label}</div>
+              <div className='mt-1 text-xs text-gray-500'>{hint}</div>
+              <Input
+                type='number'
+                min='0'
+                className='mt-3'
+                value={String(policyForm[key as keyof MembershipCreditPolicyConfig])}
+                onChange={(e) =>
+                  setPolicyForm((current) => ({
+                    ...current,
+                    [key]: Number(e.target.value || 0),
+                  }))
+                }
+              />
+              {policyView?.defaults?.[key as keyof MembershipCreditPolicyConfig] !== undefined && (
+                <div className='mt-2 text-xs text-gray-400'>
+                  默认值：{String(policyView.defaults[key as keyof MembershipCreditPolicyConfig])}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className='grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_0.8fr]'>
+        <div className='rounded-lg border bg-white p-6 shadow-sm'>
+          <div className='mb-4 flex items-center justify-between'>
+            <div>
+              <h3 className='text-lg font-semibold'>会员套餐列表</h3>
+              <p className='mt-1 text-sm text-gray-500'>
+                管理前台可售 VIP 套餐，支持排序、启停和额度配置。
+              </p>
+            </div>
+            <Button variant='outline' onClick={resetPlanForm}>
+              新建套餐
+            </Button>
+          </div>
+
+          <div className='overflow-x-auto'>
+            <table className='w-full text-sm'>
+              <thead className='bg-gray-50 text-gray-600'>
+                <tr>
+                  <th className='px-3 py-2 text-left'>套餐</th>
+                  <th className='px-3 py-2 text-left'>周期</th>
+                  <th className='px-3 py-2 text-left'>价格</th>
+                  <th className='px-3 py-2 text-left'>月额度</th>
+                  <th className='px-3 py-2 text-left'>开通赠送</th>
+                  <th className='px-3 py-2 text-left'>日赠送</th>
+                  <th className='px-3 py-2 text-left'>状态</th>
+                  <th className='px-3 py-2 text-left'>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {plans.map((plan) => (
+                  <tr key={plan.id} className='border-t align-top'>
+                    <td className='px-3 py-3'>
+                      <div className='font-medium text-gray-900'>{plan.name}</div>
+                      <div className='mt-1 font-mono text-xs text-gray-500'>{plan.code}</div>
+                    </td>
+                    <td className='px-3 py-3'>{plan.billingCycle === "yearly" ? "年费" : "月费"}</td>
+                    <td className='px-3 py-3'>¥{Number(plan.price).toFixed(2)}</td>
+                    <td className='px-3 py-3'>{plan.monthlyQuotaCredits}</td>
+                    <td className='px-3 py-3'>{plan.signupBonusCredits}</td>
+                    <td className='px-3 py-3'>{plan.dailyGiftCredits}</td>
+                    <td className='px-3 py-3'>
+                      <span
+                        className={`rounded px-2 py-1 text-xs ${
+                          plan.isActive
+                            ? "bg-green-100 text-green-700"
+                            : "bg-gray-100 text-gray-600"
+                        }`}
+                      >
+                        {plan.isActive ? "启用中" : "已停用"}
+                      </span>
+                    </td>
+                    <td className='px-3 py-3'>
+                      <div className='flex flex-wrap gap-2'>
+                        <Button size='sm' variant='outline' onClick={() => handleEditPlan(plan)}>
+                          编辑
+                        </Button>
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          onClick={() => handleTogglePlanActive(plan)}
+                        >
+                          {plan.isActive ? "停用" : "启用"}
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {plans.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className='px-3 py-8 text-center text-gray-500'>
+                      暂无会员套餐
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className='rounded-lg border bg-white p-6 shadow-sm'>
+          <div className='mb-4'>
+            <h3 className='text-lg font-semibold'>
+              {editingPlanId ? "编辑会员套餐" : "新建会员套餐"}
+            </h3>
+            <p className='mt-1 text-sm text-gray-500'>
+              前端展示与下单都会读这里的套餐数据，编码建议保持稳定。
+            </p>
+          </div>
+
+          <div className='space-y-4'>
+            <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
+              <div>
+                <div className='mb-1 text-sm text-gray-600'>套餐编码</div>
+                <Input
+                  value={planForm.code}
+                  onChange={(e) => setPlanForm((current) => ({ ...current, code: e.target.value }))}
+                  placeholder='vip_199_monthly'
+                />
+              </div>
+              <div>
+                <div className='mb-1 text-sm text-gray-600'>套餐名称</div>
+                <Input
+                  value={planForm.name}
+                  onChange={(e) => setPlanForm((current) => ({ ...current, name: e.target.value }))}
+                  placeholder='VIP 199 月卡'
+                />
+              </div>
+              <div>
+                <div className='mb-1 text-sm text-gray-600'>计费周期</div>
+                <select
+                  className='w-full rounded-md border border-gray-300 px-3 py-2 text-sm'
+                  value={planForm.billingCycle}
+                  onChange={(e) =>
+                    setPlanForm((current) => ({
+                      ...current,
+                      billingCycle: e.target.value as "monthly" | "yearly",
+                    }))
+                  }
+                >
+                  <option value='monthly'>月费</option>
+                  <option value='yearly'>年费</option>
+                </select>
+              </div>
+              <div>
+                <div className='mb-1 text-sm text-gray-600'>价格</div>
+                <Input
+                  type='number'
+                  min='0'
+                  step='0.01'
+                  value={planForm.price}
+                  onChange={(e) => setPlanForm((current) => ({ ...current, price: e.target.value }))}
+                />
+              </div>
+              <div>
+                <div className='mb-1 text-sm text-gray-600'>月额度积分</div>
+                <Input
+                  type='number'
+                  min='0'
+                  value={planForm.monthlyQuotaCredits}
+                  onChange={(e) =>
+                    setPlanForm((current) => ({ ...current, monthlyQuotaCredits: e.target.value }))
+                  }
+                />
+              </div>
+              <div>
+                <div className='mb-1 text-sm text-gray-600'>开通赠送积分</div>
+                <Input
+                  type='number'
+                  min='0'
+                  value={planForm.signupBonusCredits}
+                  onChange={(e) =>
+                    setPlanForm((current) => ({ ...current, signupBonusCredits: e.target.value }))
+                  }
+                />
+              </div>
+              <div>
+                <div className='mb-1 text-sm text-gray-600'>每日赠送积分</div>
+                <Input
+                  type='number'
+                  min='0'
+                  value={planForm.dailyGiftCredits}
+                  onChange={(e) =>
+                    setPlanForm((current) => ({ ...current, dailyGiftCredits: e.target.value }))
+                  }
+                />
+              </div>
+              <div>
+                <div className='mb-1 text-sm text-gray-600'>排序</div>
+                <Input
+                  type='number'
+                  value={planForm.sortOrder}
+                  onChange={(e) =>
+                    setPlanForm((current) => ({ ...current, sortOrder: e.target.value }))
+                  }
+                />
+              </div>
+            </div>
+
+            <label className='flex items-center gap-2 text-sm text-gray-700'>
+              <input
+                type='checkbox'
+                checked={planForm.isActive}
+                onChange={(e) => setPlanForm((current) => ({ ...current, isActive: e.target.checked }))}
+              />
+              套餐启用
+            </label>
+
+            <div>
+              <div className='mb-1 text-sm text-gray-600'>metadata JSON</div>
+              <textarea
+                className='min-h-[160px] w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs'
+                value={planMetadataText}
+                onChange={(e) => setPlanMetadataText(e.target.value)}
+              />
+            </div>
+
+            <div className='flex gap-3'>
+              <Button onClick={handleSavePlan} disabled={savingPlan}>
+                {savingPlan ? "保存中..." : editingPlanId ? "保存套餐" : "创建套餐"}
+              </Button>
+              <Button variant='outline' onClick={resetPlanForm}>
+                取消编辑
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // 节点配置管理 Tab
 function NodeConfigsTab() {
   const [configs, setConfigs] = useState<NodeConfig[]>([]);
@@ -6373,7 +6824,7 @@ export default function Admin() {
     | "settings"
     | "templates"
   >("dashboard");
-  const [settingsSubTab, setSettingsSubTab] = useState<"system" | "model-management">(
+  const [settingsSubTab, setSettingsSubTab] = useState<"system" | "vip-management" | "model-management">(
     "system"
   );
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -6551,13 +7002,14 @@ export default function Admin() {
               <div className='flex flex-wrap gap-2'>
                 {[
                   { key: "system", label: "当前系统设置" },
+                  { key: "vip-management", label: "VIP管理" },
                   { key: "model-management", label: "模型管理" },
                 ].map((tab) => (
                   <button
                     key={tab.key}
                     onClick={() =>
                       setSettingsSubTab(
-                        tab.key as "system" | "model-management"
+                        tab.key as "system" | "vip-management" | "model-management"
                       )
                     }
                     className={`rounded-md px-4 py-2 text-sm font-medium transition ${
@@ -6573,6 +7025,7 @@ export default function Admin() {
             </div>
 
             {settingsSubTab === "system" && <SettingsTab />}
+            {settingsSubTab === "vip-management" && <VipManagementTab />}
             {settingsSubTab === "model-management" && <ModelManagementTab />}
           </div>
         )}

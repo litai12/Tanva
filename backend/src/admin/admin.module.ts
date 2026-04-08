@@ -6,11 +6,12 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { CreditsModule } from '../credits/credits.module';
 import { OssModule } from '../oss/oss.module';
 import { BusinessPolicyModule } from '../business-policy/business-policy.module';
+import { MembershipModule } from '../membership/membership.module';
 import { TemplateService } from './services/template.service';
 import { NodeConfigService } from './services/node-config.service';
 
 @Module({
-  imports: [PrismaModule, CreditsModule, OssModule, BusinessPolicyModule],
+  imports: [PrismaModule, CreditsModule, OssModule, BusinessPolicyModule, MembershipModule],
   controllers: [AdminController, SettingsPublicController],
   providers: [AdminService, TemplateService, NodeConfigService],
   exports: [AdminService, TemplateService, NodeConfigService],

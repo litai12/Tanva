@@ -23,6 +23,7 @@ import { TemplateService } from './services/template.service';
 import { NodeConfigService, NodeConfigDto, UpdateNodeConfigDto } from './services/node-config.service';
 import { BusinessPolicyService } from '../business-policy/business-policy.service';
 import type { UpdateMembershipCreditPolicyInput } from '../business-policy/business-policy.types';
+import { MembershipService } from '../membership/membership.service';
 import {
   UsersQueryDto,
   ApiUsageStatsQueryDto,
@@ -57,6 +58,7 @@ export class AdminController {
     private readonly templateService: TemplateService,
     private readonly nodeConfigService: NodeConfigService,
     private readonly businessPolicyService: BusinessPolicyService,
+    private readonly membershipService: MembershipService,
   ) {}
 
   /**
@@ -262,6 +264,58 @@ export class AdminController {
   ) {
     this.checkAdmin(req);
     return this.businessPolicyService.updateMembershipCreditPolicy(dto, req.user.id);
+  }
+
+  @Get('membership-plans')
+  @ApiOperation({ summary: '获取会员套餐管理列表' })
+  async getAdminMembershipPlans(@Request() req: AuthenticatedRequest) {
+    this.checkAdmin(req);
+    return this.membershipService.listAllPlansForAdmin();
+  }
+
+  @Post('membership-plans')
+  @ApiOperation({ summary: '创建会员套餐' })
+  async createMembershipPlan(
+    @Request() req: AuthenticatedRequest,
+    @Body()
+    dto: {
+      code: string;
+      name: string;
+      billingCycle: string;
+      price: number;
+      monthlyQuotaCredits?: number;
+      signupBonusCredits?: number;
+      dailyGiftCredits?: number;
+      isActive?: boolean;
+      sortOrder?: number;
+      metadata?: Record<string, any>;
+    },
+  ) {
+    this.checkAdmin(req);
+    return this.membershipService.createMembershipPlan(dto);
+  }
+
+  @Patch('membership-plans/:id')
+  @ApiOperation({ summary: '更新会员套餐' })
+  async updateMembershipPlan(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body()
+    dto: {
+      code?: string;
+      name?: string;
+      billingCycle?: string;
+      price?: number;
+      monthlyQuotaCredits?: number;
+      signupBonusCredits?: number;
+      dailyGiftCredits?: number;
+      isActive?: boolean;
+      sortOrder?: number;
+      metadata?: Record<string, any>;
+    },
+  ) {
+    this.checkAdmin(req);
+    return this.membershipService.updateMembershipPlan(id, dto);
   }
 
   // ==================== 公共模板管理 ====================
