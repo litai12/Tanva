@@ -578,6 +578,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <button
+            className="tanva-video-header-btn tanva-video-header-run"
             onClick={onRun}
             onMouseDown={handleButtonMouseDown}
             disabled={data.status === 'running'}
@@ -599,6 +600,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
             {lt('Run', 'Run')}
           </button>
           <button
+            className="tanva-video-header-btn tanva-video-header-share"
             onClick={() => copyVideoLink(data.videoUrl)}
             onMouseDown={handleButtonMouseDown}
             title={lt('复制链接', 'Copy link')}
@@ -620,6 +622,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
             <Share2 size={14} />
           </button>
           <button
+            className="tanva-video-header-btn tanva-video-header-download"
             onClick={() => triggerDownload(data.videoUrl)}
             onMouseDown={handleButtonMouseDown}
             title={lt('下载视频', 'Download video')}

@@ -446,6 +446,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
         </div>
         <div style={{ display: "flex", gap: 6 }}>
           <button
+            className="tanva-video-header-btn tanva-video-header-run"
             onClick={() => data.onRun?.(id)}
             disabled={data.status === "running"}
             style={{
@@ -466,6 +467,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
             Run
           </button>
           <button
+            className="tanva-video-header-btn tanva-video-header-share"
             onClick={() => copyVideoLink((data as any)?.videoUrl)}
             title={lt('复制链接', 'Copy link')}
             style={{
@@ -486,6 +488,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
             <Share2 size={14} />
           </button>
           <button
+            className="tanva-video-header-btn tanva-video-header-download"
             onClick={() => triggerDownload((data as any)?.videoUrl)}
             title={lt('下载视频', 'Download video')}
             style={{

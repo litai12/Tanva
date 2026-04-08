@@ -611,6 +611,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
         </div>
         <div style={{ display: "flex", gap: 6 }}>
           <button
+            className={`tanva-video-header-btn tanva-video-header-help ${showHelp ? "is-active" : "is-inactive"}`}
             onClick={() => setShowHelp(!showHelp)}
             style={{
               fontSize: 12,
@@ -628,6 +629,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
             <HelpCircle size={14} />
           </button>
           <button
+            className="tanva-video-header-btn tanva-video-header-run"
             onClick={onRun}
             onMouseDown={handleButtonMouseDown}
             disabled={data.status === "running"}
@@ -649,6 +651,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
             Run
           </button>
           <button
+            className="tanva-video-header-btn tanva-video-header-share"
             onClick={() => copyVideoLink(data.videoUrl)}
             onMouseDown={handleButtonMouseDown}
             title={lt("复制链接", "Copy link")}
@@ -670,6 +673,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
             <Share2 size={14} />
           </button>
           <button
+            className="tanva-video-header-btn tanva-video-header-download"
             onClick={() => triggerDownload(data.videoUrl)}
             onMouseDown={handleButtonMouseDown}
             title={lt("下载视频", "Download video")}

@@ -60,12 +60,64 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
   const edges = useStore((state: ReactFlowState) => state.edges);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
   const globalWebSearchEnabled = useAIChatStore((state) => state.enableWebSearch);
+  const isDarkTheme = useAIChatStore((state) => state.chatTheme === 'black');
   const textModel = React.useMemo(
     () => getTextModelForProvider(aiProvider),
     [aiProvider]
   );
-  const borderColor = selected ? '#2563eb' : '#e5e7eb';
-  const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
+  const themePalette = React.useMemo(() => {
+    if (!isDarkTheme) {
+      return {
+        nodeBg: '#fff',
+        nodeBorder: selected ? '#2563eb' : '#e5e7eb',
+        nodeShadow: selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)',
+        title: '#111827',
+        titleInputBg: '#fff',
+        titleInputBorder: '#d1d5db',
+        secondaryText: '#64748b',
+        sectionLabel: '#1e293b',
+        panelBg: '#f8fafc',
+        panelBorder: '#e2e8f0',
+        panelText: '#1f2937',
+        panelMutedText: '#94a3b8',
+        panelIndexText: '#94a3b8',
+        textareaBg: '#fff',
+        textareaBorder: '#d7dce5',
+        textareaText: '#111827',
+        checkboxText: '#4b5563',
+        statusText: '#4b5563',
+        statusBorder: '#e2e8f0',
+        runBg: '#111827',
+        runBgDisabled: '#cbd5f5',
+        runText: '#fff',
+      };
+    }
+
+    return {
+      nodeBg: 'linear-gradient(160deg, #1a1a1a 0%, #151515 55%, #101010 100%)',
+      nodeBorder: selected ? '#4a4a4a' : '#303030',
+      nodeShadow: selected ? '0 0 0 2px rgba(125,125,125,0.2), 0 14px 28px rgba(0,0,0,0.42)' : '0 10px 22px rgba(0,0,0,0.35)',
+      title: '#ffffff',
+      titleInputBg: '#202020',
+      titleInputBorder: '#3a3a3a',
+      secondaryText: '#7f7f7f',
+      sectionLabel: '#7f7f7f',
+      panelBg: '#121212',
+      panelBorder: '#2f2f2f',
+      panelText: '#ffffff',
+      panelMutedText: '#7f7f7f',
+      panelIndexText: '#7f7f7f',
+      textareaBg: '#2a2a2a',
+      textareaBorder: '#3d3d3d',
+      textareaText: '#8a8a8a',
+      checkboxText: '#7f7f7f',
+      statusText: '#7f7f7f',
+      statusBorder: '#2f2f2f',
+      runBg: '#2b2b2b',
+      runBgDisabled: '#3c3c3c',
+      runText: '#ffffff',
+    };
+  }, [isDarkTheme, selected]);
 
   const normalizedTitle = typeof data.title === 'string' && data.title.trim().length
     ? data.title.trim()
@@ -300,11 +352,11 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
 
   const panelStyle: React.CSSProperties = {
     borderRadius: 10,
-    border: '1px solid #e2e8f0',
-    background: '#f8fafc',
+    border: `1px solid ${themePalette.panelBorder}`,
+    background: themePalette.panelBg,
     padding: '10px 12px',
     fontSize: 12,
-    color: '#1f2937',
+    color: themePalette.panelText,
     whiteSpace: 'pre-wrap',
   };
 
@@ -318,13 +370,13 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
   const labelStyle: React.CSSProperties = {
     fontSize: 11,
     fontWeight: 600,
-    color: '#1e293b',
+    color: themePalette.sectionLabel,
   };
 
   const statusStyle: React.CSSProperties = {
     fontSize: 11,
-    color: status === 'failed' && errorText ? '#ef4444' : '#4b5563',
-    borderTop: '1px solid #e2e8f0',
+    color: status === 'failed' && errorText ? '#ef4444' : themePalette.statusText,
+    borderTop: `1px solid ${themePalette.statusBorder}`,
     paddingTop: 8,
     marginTop: 'auto',
   };
@@ -335,10 +387,10 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
         width: data.boxW || 320,
         height: computedHeight,
         padding: 12,
-        background: '#fff',
-        border: `1px solid ${borderColor}`,
+        background: themePalette.nodeBg,
+        border: `1px solid ${themePalette.nodeBorder}`,
         borderRadius: 12,
-        boxShadow,
+        boxShadow: themePalette.nodeShadow,
         transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
         position: 'relative',
         display: 'flex',
@@ -387,20 +439,21 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
               style={{
                 fontWeight: 600,
                 fontSize: 14,
-                color: '#111827',
-                border: '1px solid #d1d5db',
+                color: themePalette.title,
+                border: `1px solid ${themePalette.titleInputBorder}`,
                 borderRadius: 6,
                 padding: '2px 6px',
                 outline: 'none',
                 flex: 1,
                 minWidth: 0,
+                background: themePalette.titleInputBg,
               }}
             />
           ) : (
             <div
               onDoubleClick={startTitleEditing}
               title={lt('双击编辑标题', 'Double click to edit title')}
-              style={{ fontWeight: 600, fontSize: 14, color: '#111827', cursor: 'text', userSelect: 'none', flex: 1, minWidth: 0 }}
+              style={{ fontWeight: 600, fontSize: 14, color: themePalette.title, cursor: 'text', userSelect: 'none', flex: 1, minWidth: 0 }}
             >
               {title}
             </div>
@@ -411,10 +464,10 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
             style={{
               fontSize: 12,
               padding: '4px 12px',
-              background: status === 'running' || isInvoking ? '#cbd5f5' : '#111827',
-              color: '#fff',
+              background: status === 'running' || isInvoking ? themePalette.runBgDisabled : themePalette.runBg,
+              color: themePalette.runText,
               borderRadius: 8,
-              border: 'none',
+              border: isDarkTheme ? '1px solid rgba(226, 232, 240, 0.24)' : 'none',
               cursor: status === 'running' || isInvoking ? 'not-allowed' : 'pointer',
               fontWeight: 500,
               flexShrink: 0,
@@ -424,12 +477,12 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
           </button>
         </div>
 
-        <div style={{ fontSize: 11, color: '#64748b' }}>{lt('已连接提示', 'Connected prompts')}: {incomingTexts.length} {lt('条', 'item(s)')}</div>
-        <div style={{ ...connectionStyle, display: 'flex', flexDirection: 'column', gap: 8, color: incomingTexts.length ? '#1f2937' : '#94a3b8' }}>
+        <div style={{ fontSize: 11, color: themePalette.secondaryText }}>{lt('已连接提示', 'Connected prompts')}: {incomingTexts.length} {lt('条', 'item(s)')}</div>
+        <div style={{ ...connectionStyle, display: 'flex', flexDirection: 'column', gap: 8, color: incomingTexts.length ? themePalette.panelText : themePalette.panelMutedText }}>
           {incomingTexts.length
             ? incomingTexts.map((text, index) => (
               <div key={`${index}-${text.slice(0, 12)}`} style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-                <span style={{ color: '#94a3b8', fontWeight: 600, minWidth: 26 }}>#{index + 1}</span>
+                <span style={{ color: themePalette.panelIndexText, fontWeight: 600, minWidth: 26 }}>#{index + 1}</span>
                 <span style={{ flex: 1 }}>{text}</span>
               </div>
             ))
@@ -452,11 +505,11 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
               lineHeight: 1.4,
               padding: '10px 12px',
               borderRadius: 10,
-              border: '1px solid #d7dce5',
-              background: '#fff',
-              color: '#111827',
+              border: `1px solid ${themePalette.textareaBorder}`,
+              background: themePalette.textareaBg,
+              color: themePalette.textareaText,
               fontFamily: 'inherit',
-              boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
+              boxShadow: isDarkTheme ? '0 1px 2px rgba(15, 23, 42, 0.2)' : '0 1px 2px rgba(15, 23, 42, 0.04)',
             }}
             onWheelCapture={stopFlowPan}
             onPointerDownCapture={stopFlowPan}
@@ -470,7 +523,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
           </div>
         </div>
 
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#4b5563' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: themePalette.checkboxText }}>
           <input type="checkbox" checked={enableWebSearch} onChange={toggleWebSearch} />
           {lt('启用联网搜索', 'Enable web search')}
         </label>
