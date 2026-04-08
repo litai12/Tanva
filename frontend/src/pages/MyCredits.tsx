@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { TrendingUp, TrendingDown, Activity, Zap, RefreshCw, AlertTriangle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -132,10 +132,9 @@ const MyCredits: React.FC = () => {
   const [showPaymentPanel, setShowPaymentPanel] = useState(false);
   const [showMembershipPanel, setShowMembershipPanel] = useState(false);
   const [membershipCurrent, setMembershipCurrent] = useState<MembershipCurrentResponse | null>(null);
-  const initialDailyRewardEnsuredRef = useRef(false);
 
   useEffect(() => {
-    void bootstrapPage();
+    loadData();
   }, []);
 
   useEffect(() => {
@@ -148,22 +147,6 @@ const MyCredits: React.FC = () => {
       window.removeEventListener('refresh-credits', handleRefreshCredits);
     };
   }, []);
-
-  const bootstrapPage = async () => {
-    if (!initialDailyRewardEnsuredRef.current) {
-      initialDailyRewardEnsuredRef.current = true;
-      try {
-        const result = await claimDailyReward();
-        if (result.success) {
-          window.dispatchEvent(new CustomEvent('refresh-credits'));
-        }
-      } catch (error) {
-        console.warn('Silent claim daily reward on credits page failed:', error);
-      }
-    }
-
-    await loadData();
-  };
 
   const loadData = async (showLoading: boolean = true) => {
     if (showLoading) setLoading(true);

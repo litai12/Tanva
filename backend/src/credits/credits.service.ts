@@ -547,6 +547,10 @@ export class CreditsService {
     );
 
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw<Array<{ id: string }>>(
+        Prisma.sql`SELECT id FROM "CreditAccount" WHERE id = ${params.account.id} FOR UPDATE`,
+      );
+
       const account = await tx.creditAccount.findUniqueOrThrow({
         where: { id: params.account.id },
         select: {

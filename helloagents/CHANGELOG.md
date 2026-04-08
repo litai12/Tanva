@@ -405,3 +405,5 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 新增会员每日赠送积分发放任务：活跃会员按套餐 `dailyGiftCredits` 每日自动发放一笔赠送积分，幂等键按“订阅 + 自然日”控制。
 - `/my-credits` 页面挂载时新增一次静默签到兜底，再刷新余额与交易流水，避免全局自动签到与页面首屏请求存在时序竞争时，看不到当日签到记录。
 - `CreditsService.claimDailyReward` 改为在事务内锁定 `CreditAccount` 行并再次校验业务日，修复多入口同时触发签到时可重复发放的问题。
+- `grantFreeUserMonthlyQuotaIfNeeded` 改为在事务内锁定 `CreditAccount` 行后再检查本周期发放记录，修复多个并发请求同时命中账户初始化/余额查询路径时，免费月额度可能重复记交易的问题。
+- `/my-credits` 页面移除额外的静默自动签到，自动签到重新收口为应用入口单点触发，减少无意义并发请求。
