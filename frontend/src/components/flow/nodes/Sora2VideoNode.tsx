@@ -991,7 +991,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
 
       {/* History */}
       {historyItems.length > 0 && (
-        <div style={{
+        <div className='tanva-video-history' style={{
           marginTop: 8, padding: '8px 10px', borderRadius: 8, border: '1px solid #e2e8f0',
           background: '#f8fafc', display: 'flex', flexDirection: 'column', gap: 6
         }}>
@@ -1007,7 +1007,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
           {showHistory && historyItems.map((item, index) => {
             const isActive = item.videoUrl === data.videoUrl;
             return (
-              <div key={item.id}
+              <div className='tanva-video-history-item' key={item.id}
                 style={{
                   borderRadius: 6,
                   border: '1px solid ' + (isActive ? '#c7d2fe' : '#e2e8f0'),

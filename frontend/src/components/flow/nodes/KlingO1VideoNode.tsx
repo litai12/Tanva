@@ -1132,6 +1132,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
       {/* 历史记录 */}
       {historyItems.length > 0 && (
         <div
+          className="tanva-video-history"
           style={{
             marginTop: 8,
             padding: "8px 10px",
@@ -1157,6 +1158,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
             const isActive = item.videoUrl === data.videoUrl;
             return (
               <div
+                className="tanva-video-history-item"
                 key={item.id}
                 style={{
                   borderRadius: 6,

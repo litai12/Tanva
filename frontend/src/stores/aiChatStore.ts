@@ -470,6 +470,7 @@ let legacyMigrationInProgress = false;
 
 type AutoModeMultiplier = 1 | 2 | 4 | 8;
 export type SendShortcut = "enter" | "mod-enter";
+export type ChatTheme = "white" | "black";
 
 const toISOString = (
   value: Date | string | number | null | undefined
@@ -2395,6 +2396,7 @@ interface AIChatState {
   autoModeMultiplier: AutoModeMultiplier;
   sendShortcut: SendShortcut;
   expandedPanelStyle: "transparent" | "solid"; // 展开/最大化模式的面板样式
+  chatTheme: ChatTheme; // AI 对话框与工作区主题色（白/黑）
 
   // 操作方法
   showDialog: () => void;
@@ -2573,6 +2575,7 @@ interface AIChatState {
   setAutoModeMultiplier: (multiplier: AutoModeMultiplier) => void;
   setSendShortcut: (shortcut: SendShortcut) => void;
   setExpandedPanelStyle: (style: "transparent" | "solid") => void; // 设置展开模式面板样式
+  setChatTheme: (theme: ChatTheme) => void;
 
   // 重置状态
   resetState: () => void;
@@ -2879,6 +2882,7 @@ export const useAIChatStore = create<AIChatState>()(
         autoModeMultiplier: 1,
         sendShortcut: "enter",
         expandedPanelStyle: "transparent", // 默认透明样式
+        chatTheme: "white",
 
         // 对话框控制
         showDialog: () => {
@@ -4543,13 +4547,13 @@ export const useAIChatStore = create<AIChatState>()(
 		                    cropRectNormalized: preciseEditContext.cropRectNormalized,
 		                  });
 		                  if (mergedBlob) {
-		                    const mergedObjectUrl = URL.createObjectURL(mergedBlob);
+		                    const mergedDataUrl = await blobToDataUrlLimited(mergedBlob);
 		                    try {
 	                      window.dispatchEvent(
 	                        new CustomEvent("canvas:replace-image-source", {
 	                          detail: {
 	                            imageId: preciseEditContext.targetImageId,
-	                            source: mergedObjectUrl,
+	                            source: mergedDataUrl,
 	                            contentType: "image/png",
 	                            fileName: `${prompt.substring(0, 20) || "precise"}_merged.png`,
 	                            historyLabel: "precise-edit",
@@ -7952,6 +7956,10 @@ export const useAIChatStore = create<AIChatState>()(
           const next = style === "solid" ? "solid" : "transparent";
           set({ expandedPanelStyle: next });
         },
+        setChatTheme: (theme) => {
+          const next: ChatTheme = theme === "black" ? "black" : "white";
+          set({ chatTheme: next });
+        },
 
         // 重置状态
         resetState: () => {
@@ -8054,6 +8062,7 @@ export const useAIChatStore = create<AIChatState>()(
         ];
         const validSendShortcuts = ["enter", "mod-enter"];
         const validExpandedStyles = ["transparent", "solid"];
+        const validChatThemes = ["white", "black"];
         const validVideoRatios = ["16:9", "9:16"];
 
         return {
@@ -8073,6 +8082,9 @@ export const useAIChatStore = create<AIChatState>()(
           expandedPanelStyle: validExpandedStyles.includes(String(state.expandedPanelStyle))
             ? (state.expandedPanelStyle as AIChatState["expandedPanelStyle"])
             : "transparent",
+          chatTheme: validChatThemes.includes(String(state.chatTheme))
+            ? (state.chatTheme as AIChatState["chatTheme"])
+            : "white",
         };
       },
       partialize: (state) => ({
@@ -8088,6 +8100,7 @@ export const useAIChatStore = create<AIChatState>()(
         autoModeMultiplier: state.autoModeMultiplier,
         sendShortcut: state.sendShortcut,
         expandedPanelStyle: state.expandedPanelStyle,
+        chatTheme: state.chatTheme,
       }),
       // 确保新字段能正确合并，使用初始状态的默认值填充缺失字段
       merge: (persistedState, currentState) => ({

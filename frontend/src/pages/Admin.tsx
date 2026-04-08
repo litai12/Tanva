@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
+import { authApi } from "@/services/authApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { fetchWithAuth } from "@/services/authFetch";
@@ -59,6 +60,45 @@ import {
   fetchTemplateCategories,
 } from "@/services/publicTemplateService";
 import type { PublicTemplate } from "@/services/publicTemplateService";
+
+const FULL_ADMIN_ROLE = "admin";
+const NORMAL_ADMIN_ROLE = "normal_admin";
+
+type AdminTabKey =
+  | "dashboard"
+  | "users"
+  | "paid-users"
+  | "credit-records"
+  | "credit-anomalies"
+  | "api-stats"
+  | "api-records"
+  | "watermark"
+  | "node-configs"
+  | "settings"
+  | "templates";
+
+const NORMAL_ADMIN_ALLOWED_TABS = new Set<AdminTabKey>([
+  "dashboard",
+  "users",
+  "api-stats",
+  "api-records",
+  "watermark",
+  "templates",
+]);
+
+const normalizeRole = (role?: string | null) => (role || "").trim().toLowerCase();
+
+const canAccessAdminPanel = (role?: string | null) => {
+  const normalizedRole = normalizeRole(role);
+  return normalizedRole === FULL_ADMIN_ROLE || normalizedRole === NORMAL_ADMIN_ROLE;
+};
+
+const isFullAdmin = (role?: string | null) => normalizeRole(role) === FULL_ADMIN_ROLE;
+
+const canAccessAdminTab = (role: string | null | undefined, tab: AdminTabKey) => {
+  if (isFullAdmin(role)) return true;
+  return normalizeRole(role) === NORMAL_ADMIN_ROLE && NORMAL_ADMIN_ALLOWED_TABS.has(tab);
+};
 
 // 统计卡片组件
 function StatCard({
@@ -1244,7 +1284,11 @@ const buildManagedNodeMetadata = (model: ManagedModelConfig): Record<string, any
 };
 
 // 用户管理 Tab
-function UsersTab() {
+function UsersTab({
+  canManageSensitiveUserFields,
+}: {
+  canManageSensitiveUserFields: boolean;
+}) {
   const currentUserId = useAuthStore((state) => state.user?.id);
   const [users, setUsers] = useState<UserWithCredits[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
@@ -1278,6 +1322,7 @@ function UsersTab() {
   const [creditDetailTransactions, setCreditDetailTransactions] = useState<
     AdminUserCreditTransaction[]
   >([]);
+  const tableColumnCount = canManageSensitiveUserFields ? 9 : 7;
 
   const loadUsers = async () => {
     setLoading(true);
@@ -1334,6 +1379,16 @@ function UsersTab() {
   const handleRoleChange = async (userId: string, role: string) => {
     try {
       await updateUserRole(userId, role);
+      if (userId === currentUserId) {
+        const latestUser = await authApi.me().catch(() => null);
+        if (latestUser) {
+          useAuthStore.setState({ user: latestUser });
+        } else {
+          useAuthStore.setState((state) => ({
+            user: state.user ? { ...state.user, role } : state.user,
+          }));
+        }
+      }
       loadUsers();
     } catch (error) {
       console.error("更新角色失败:", error);
@@ -1453,8 +1508,12 @@ function UsersTab() {
                 <th className='px-4 py-3 text-left'>积分余额</th>
                 <th className='px-4 py-3 text-left'>总消费</th>
                 <th className='px-4 py-3 text-left'>API调用</th>
-                <th className='px-4 py-3 text-left'>角色</th>
-                <th className='px-4 py-3 text-left'>状态</th>
+                {canManageSensitiveUserFields && (
+                  <th className='px-4 py-3 text-left'>角色</th>
+                )}
+                {canManageSensitiveUserFields && (
+                  <th className='px-4 py-3 text-left'>状态</th>
+                )}
                 <th className='px-4 py-3 text-left'>注册时间</th>
                 <th className='px-4 py-3 text-left'>操作</th>
               </tr>
@@ -1463,7 +1522,7 @@ function UsersTab() {
               {loading ? (
                 <tr>
                   <td
-                    colSpan={9}
+                    colSpan={tableColumnCount}
                     className='px-4 py-8 text-center text-gray-500'
                   >
                     加载中...
@@ -1472,7 +1531,7 @@ function UsersTab() {
               ) : users.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={9}
+                    colSpan={tableColumnCount}
                     className='px-4 py-8 text-center text-gray-500'
                   >
                     暂无数据
@@ -1493,31 +1552,36 @@ function UsersTab() {
                     </td>
                     <td className='px-4 py-3'>{user.totalSpent}</td>
                     <td className='px-4 py-3'>{user.apiCallCount}</td>
-                    <td className='px-4 py-3'>
-                      <select
-                        value={user.role}
-                        onChange={(e) =>
-                          handleRoleChange(user.id, e.target.value)
-                        }
-                        className='text-xs border rounded px-2 py-1'
-                      >
-                        <option value='user'>用户</option>
-                        <option value='admin'>管理员</option>
-                      </select>
-                    </td>
-                    <td className='px-4 py-3'>
-                      <select
-                        value={user.status}
-                        onChange={(e) =>
-                          handleStatusChange(user.id, e.target.value)
-                        }
-                        className='text-xs border rounded px-2 py-1'
-                      >
-                        <option value='active'>正常</option>
-                        <option value='inactive'>禁用</option>
-                        <option value='banned'>封禁</option>
-                      </select>
-                    </td>
+                    {canManageSensitiveUserFields && (
+                      <td className='px-4 py-3'>
+                        <select
+                          value={user.role}
+                          onChange={(e) =>
+                            handleRoleChange(user.id, e.target.value)
+                          }
+                          className='text-xs border rounded px-2 py-1'
+                        >
+                          <option value='user'>用户</option>
+                          <option value='normal_admin'>普通管理</option>
+                          <option value='admin'>管理员</option>
+                        </select>
+                      </td>
+                    )}
+                    {canManageSensitiveUserFields && (
+                      <td className='px-4 py-3'>
+                        <select
+                          value={user.status}
+                          onChange={(e) =>
+                            handleStatusChange(user.id, e.target.value)
+                          }
+                          className='text-xs border rounded px-2 py-1'
+                        >
+                          <option value='active'>正常</option>
+                          <option value='inactive'>禁用</option>
+                          <option value='banned'>封禁</option>
+                        </select>
+                      </td>
+                    )}
                     <td className='px-4 py-3 text-xs text-gray-500'>
                       {new Date(user.createdAt).toLocaleDateString()}
                     </td>
@@ -1549,24 +1613,28 @@ function UsersTab() {
                         >
                           扣除
                         </Button>
-                        <Button
-                          size='sm'
-                          variant='outline'
-                          onClick={() => loadCreditDetails(user)}
-                        >
-                          详情
-                        </Button>
-                        <Button
-                          size='sm'
-                          variant='outline'
-                          className='border-red-300 text-red-600 hover:bg-red-50'
-                          disabled={
-                            deletingUserId === user.id || user.id === currentUserId
-                          }
-                          onClick={() => handleDeleteUser(user)}
-                        >
-                          {deletingUserId === user.id ? "删除中..." : "删除"}
-                        </Button>
+                        {canManageSensitiveUserFields && (
+                          <Button
+                            size='sm'
+                            variant='outline'
+                            onClick={() => loadCreditDetails(user)}
+                          >
+                            详情
+                          </Button>
+                        )}
+                        {canManageSensitiveUserFields && (
+                          <Button
+                            size='sm'
+                            variant='outline'
+                            className='border-red-300 text-red-600 hover:bg-red-50'
+                            disabled={
+                              deletingUserId === user.id || user.id === currentUserId
+                            }
+                            onClick={() => handleDeleteUser(user)}
+                          >
+                            {deletingUserId === user.id ? "删除中..." : "删除"}
+                          </Button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -6811,19 +6879,7 @@ function NodeConfigsTab() {
 export default function Admin() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
-  const [activeTab, setActiveTab] = useState<
-    | "dashboard"
-    | "users"
-    | "paid-users"
-    | "credit-records"
-    | "credit-anomalies"
-    | "api-stats"
-    | "api-records"
-    | "watermark"
-    | "node-configs"
-    | "settings"
-    | "templates"
-  >("dashboard");
+  const [activeTab, setActiveTab] = useState<AdminTabKey>("dashboard");
   const [settingsSubTab, setSettingsSubTab] = useState<"system" | "vip-management" | "model-management">(
     "system"
   );
@@ -6831,17 +6887,27 @@ export default function Admin() {
   const [loading, setLoading] = useState(true);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
+  const userRole = user?.role;
+  const hasAdminPanelAccess = canAccessAdminPanel(userRole);
+  const canManageSensitiveUserFields = isFullAdmin(userRole);
+  const currentTab = canAccessAdminTab(userRole, activeTab) ? activeTab : "dashboard";
 
   useEffect(() => {
-    // 检查是否为管理员
-    if (user && user.role !== "admin") {
+    if (user && !hasAdminPanelAccess) {
       navigate("/");
       return;
     }
-  }, [user, navigate]);
+  }, [user, hasAdminPanelAccess, navigate]);
 
   useEffect(() => {
-    if (!user || user.role !== "admin") return;
+    if (!hasAdminPanelAccess) return;
+    if (!canAccessAdminTab(userRole, activeTab)) {
+      setActiveTab("dashboard");
+    }
+  }, [activeTab, hasAdminPanelAccess, userRole]);
+
+  useEffect(() => {
+    if (!user || !hasAdminPanelAccess) return;
 
     let cancelled = false;
     let timer: ReturnType<typeof setInterval> | null = null;
@@ -6863,7 +6929,7 @@ export default function Admin() {
       }
     };
 
-    if (activeTab === "dashboard") {
+    if (currentTab === "dashboard") {
       void loadDashboard(true);
       timer = setInterval(() => {
         void loadDashboard(false);
@@ -6874,9 +6940,9 @@ export default function Admin() {
       cancelled = true;
       if (timer) clearInterval(timer);
     };
-  }, [user, activeTab]);
+  }, [user, hasAdminPanelAccess, currentTab]);
 
-  if (!user || user.role !== "admin") {
+  if (!user || !hasAdminPanelAccess) {
     return (
       <div className='min-h-screen flex items-center justify-center'>
         <div className='text-center'>
@@ -6888,7 +6954,7 @@ export default function Admin() {
     );
   }
 
-  const tabs = [
+  const tabs: { key: AdminTabKey; label: string }[] = [
     { key: "dashboard", label: "概览" },
     { key: "users", label: "用户管理" },
     { key: "paid-users", label: "付费用户" },
@@ -6900,7 +6966,8 @@ export default function Admin() {
     { key: "node-configs", label: "节点管理" },
     { key: "templates", label: "公共模板" },
     { key: "settings", label: "系统设置" },
-  ] as const;
+  ];
+  const visibleTabs = tabs.filter((tab) => canAccessAdminTab(userRole, tab.key));
 
   return (
     <div className='h-screen overflow-y-auto bg-gray-100'>
@@ -6910,12 +6977,12 @@ export default function Admin() {
           <div className='flex items-center gap-4'>
             <h1 className='text-xl font-bold'>管理后台</h1>
             <nav className='flex gap-1 ml-8'>
-              {tabs.map((tab) => (
+              {visibleTabs.map((tab) => (
                 <button
                   key={tab.key}
                   onClick={() => setActiveTab(tab.key)}
                   className={`px-4 py-2 rounded-md text-sm font-medium transition ${
-                    activeTab === tab.key
+                    currentTab === tab.key
                       ? "bg-blue-100 text-blue-700"
                       : "text-gray-600 hover:bg-gray-100"
                   }`}
@@ -6933,7 +7000,7 @@ export default function Admin() {
 
       {/* 主内容区 */}
       <main className='max-w-7xl mx-auto px-4 py-6'>
-        {activeTab === "dashboard" && (
+        {currentTab === "dashboard" && (
           <div>
             <h2 className='text-lg font-semibold mb-4'>系统概览</h2>
             {loading && !stats ? (
@@ -6987,16 +7054,18 @@ export default function Admin() {
           </div>
         )}
 
-        {activeTab === "users" && <UsersTab />}
-        {activeTab === "paid-users" && <PaidUsersTab />}
-        {activeTab === "credit-records" && <CreditChangeRecordsTab />}
-        {activeTab === "credit-anomalies" && <CreditAnomaliesTab />}
-        {activeTab === "api-stats" && <ApiStatsTab />}
-        {activeTab === "api-records" && <ApiRecordsTab />}
-        {activeTab === "watermark" && <WatermarkWhitelistTab />}
-        {activeTab === "node-configs" && <NodeConfigsTab />}
-        {activeTab === "templates" && <TemplatesTab />}
-        {activeTab === "settings" && (
+        {currentTab === "users" && (
+          <UsersTab canManageSensitiveUserFields={canManageSensitiveUserFields} />
+        )}
+        {currentTab === "paid-users" && <PaidUsersTab />}
+        {currentTab === "credit-records" && <CreditChangeRecordsTab />}
+        {currentTab === "credit-anomalies" && <CreditAnomaliesTab />}
+        {currentTab === "api-stats" && <ApiStatsTab />}
+        {currentTab === "api-records" && <ApiRecordsTab />}
+        {currentTab === "watermark" && <WatermarkWhitelistTab />}
+        {currentTab === "node-configs" && <NodeConfigsTab />}
+        {currentTab === "templates" && <TemplatesTab />}
+        {currentTab === "settings" && (
           <div className='space-y-4'>
             <div className='rounded-lg border bg-white p-2 shadow-sm'>
               <div className='flex flex-wrap gap-2'>

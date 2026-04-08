@@ -68,15 +68,15 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
   }, [onStyleChange]);
 
   return (
-    <div className="absolute left-full ml-3 transition-all duration-[50ms] ease-out z-[1001]" style={{ top: '-14px' }}>
-      <div className="flex flex-col items-center gap-3 px-3 py-3 rounded-2xl bg-white shadow-lg border border-gray-200 min-w-[180px]">
+    <div className="tanva-text-style-panel absolute left-full ml-3 transition-all duration-[50ms] ease-out z-[1001]" style={{ top: '-14px' }}>
+      <div className="tanva-text-style-panel-card flex flex-col items-center gap-3 px-3 py-3 rounded-2xl bg-white shadow-lg border border-gray-200 min-w-[180px]">
         
         {/* 字体选择 */}
         <div className="w-full">
           <select
             value={currentStyle.fontFamily}
             onChange={(e) => onStyleChange({ fontFamily: e.target.value })}
-            className="w-full text-xs px-2 py-1.5 rounded border border-gray-300 bg-white cursor-pointer"
+            className="tanva-text-style-panel-field w-full text-xs px-2 py-1.5 rounded border border-gray-300 bg-white cursor-pointer"
             title={lt('字体', 'Font')}
           >
             {fontFamilies.map(font => (
@@ -92,7 +92,7 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
           <select
             value={currentStyle.fontWeight}
             onChange={(e) => onStyleChange({ fontWeight: e.target.value as 'normal' | 'bold' })}
-            className="flex-1 text-xs px-2 py-1.5 rounded border border-gray-300 bg-white cursor-pointer"
+            className="tanva-text-style-panel-field flex-1 text-xs px-2 py-1.5 rounded border border-gray-300 bg-white cursor-pointer"
             title={lt('字重', 'Weight')}
           >
             {fontWeights.map(weight => (
@@ -106,7 +106,7 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
             variant={currentStyle.italic ? 'default' : 'outline'}
             size="sm"
             className={cn(
-              "p-0 h-7 w-7 rounded",
+              "tanva-text-style-panel-btn p-0 h-7 w-7 rounded",
               currentStyle.italic 
                 ? "bg-gray-800 text-white" 
                 : "bg-white border-gray-300"
@@ -127,7 +127,7 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
               onChange={handleFontSizeChange}
               min="12"
               max="128"
-              className="flex-1 text-xs px-2 py-1.5 rounded border border-gray-300 bg-white text-center"
+              className="tanva-text-style-panel-field flex-1 text-xs px-2 py-1.5 rounded border border-gray-300 bg-white text-center"
               title={lt('字号', 'Font size')}
             />
             <span className="text-xs text-gray-500">px</span>
@@ -141,7 +141,7 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
               variant={currentStyle.fontSize === size ? 'default' : 'outline'}
               size="sm"
               className={cn(
-                "text-xs h-6 px-2",
+                "tanva-text-style-panel-btn text-xs h-6 px-2",
                 currentStyle.fontSize === size 
                   ? "bg-gray-800 text-white" 
                   : "bg-white border-gray-300"
@@ -154,16 +154,16 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
           </div>
         </div>
 
-        <Separator orientation="horizontal" className="w-full" />
+        <Separator orientation="horizontal" className="tanva-text-style-panel-separator w-full" />
 
         {/* 颜色选择 */}
         <div className="flex items-center gap-2 w-full">
-          <span className="text-xs text-gray-600">{lt('颜色', 'Color')}</span>
+          <span className="tanva-text-style-panel-label text-xs text-gray-600">{lt('颜色', 'Color')}</span>
           <input
             type="color"
             value={currentStyle.color}
             onChange={(e) => onStyleChange({ color: e.target.value })}
-            className="w-8 h-6 rounded border border-gray-300 cursor-pointer"
+            className="tanva-text-style-panel-color-input w-8 h-6 rounded border border-gray-300 cursor-pointer"
             title={lt('文字颜色', 'Text color')}
           />
           
@@ -173,8 +173,9 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
               <button
                 key={color}
                 onClick={() => onStyleChange({ color })}
+                data-color={color}
                 className={cn(
-                  "w-5 h-5 rounded border-2 cursor-pointer",
+                  "tanva-text-style-panel-swatch w-5 h-5 rounded border-2 cursor-pointer",
                   currentStyle.color === color ? "border-blue-500" : "border-gray-300"
                 )}
                 style={{ backgroundColor: color }}
@@ -184,7 +185,7 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
           </div>
         </div>
 
-        <Separator orientation="horizontal" className="w-full" />
+        <Separator orientation="horizontal" className="tanva-text-style-panel-separator w-full" />
 
         {/* 对齐选项 */}
         <div className="flex gap-1 w-full">
@@ -192,7 +193,7 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
             variant={currentStyle.align === 'left' ? 'default' : 'outline'}
             size="sm"
             className={cn(
-              "flex-1 p-0 h-7",
+              "tanva-text-style-panel-btn flex-1 p-0 h-7",
               currentStyle.align === 'left' 
                 ? "bg-gray-800 text-white" 
                 : "bg-white border-gray-300"
@@ -207,7 +208,7 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
             variant={currentStyle.align === 'center' ? 'default' : 'outline'}
             size="sm"
             className={cn(
-              "flex-1 p-0 h-7",
+              "tanva-text-style-panel-btn flex-1 p-0 h-7",
               currentStyle.align === 'center' 
                 ? "bg-gray-800 text-white" 
                 : "bg-white border-gray-300"
@@ -222,7 +223,7 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
             variant={currentStyle.align === 'right' ? 'default' : 'outline'}
             size="sm"
             className={cn(
-              "flex-1 p-0 h-7",
+              "tanva-text-style-panel-btn flex-1 p-0 h-7",
               currentStyle.align === 'right' 
                 ? "bg-gray-800 text-white" 
                 : "bg-white border-gray-300"

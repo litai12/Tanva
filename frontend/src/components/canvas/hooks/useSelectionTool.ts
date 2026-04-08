@@ -3,11 +3,12 @@
  * 处理选择框绘制、路径选择、区域选择等功能
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
 import type { ImageInstance, Model3DInstance, VideoInstance } from '@/types/canvas';
 import { findImagePaperItem } from '@/utils/paperImageGroupBlock';
+import { useAIChatStore } from '@/stores/aiChatStore';
 
 interface UseSelectionToolProps {
   zoom: number;
@@ -48,6 +49,8 @@ export const useSelectionTool = ({
   onTextMultiSelect,
   onTextDeselect
 }: UseSelectionToolProps) => {
+  const chatTheme = useAIChatStore((state) => state.chatTheme);
+  const selectedStrokeColor = chatTheme === 'black' ? '#cfcfcf' : null;
 
   // ========== 选择工具状态 ==========
   const [selectedPath, setSelectedPath] = useState<paper.Path | null>(null);
@@ -126,6 +129,13 @@ export const useSelectionTool = ({
     path.selected = true;
     path.fullySelected = editing;
     try {
+      if (selectedStrokeColor) {
+        (path as any).selectedColor = new paper.Color(selectedStrokeColor);
+      } else if ('selectedColor' in (path as any)) {
+        delete (path as any).selectedColor;
+      }
+    } catch {}
+    try {
       path.data = { ...(path.data || {}), isPathEditing: editing };
     } catch {}
 
@@ -133,7 +143,32 @@ export const useSelectionTool = ({
       (path as any).originalStrokeWidth = path.strokeWidth;
     }
     path.strokeWidth = (path as any).originalStrokeWidth + 1;
-  }, []);
+  }, [selectedStrokeColor]);
+
+  useEffect(() => {
+    const targets: paper.Path[] = [];
+    if (selectedPath) targets.push(selectedPath);
+    if (Array.isArray(selectedPaths) && selectedPaths.length > 0) {
+      selectedPaths.forEach((path) => {
+        if (!path || targets.includes(path)) return;
+        targets.push(path);
+      });
+    }
+
+    targets.forEach((path) => {
+      try {
+        if (selectedStrokeColor) {
+          (path as any).selectedColor = new paper.Color(selectedStrokeColor);
+        } else if ('selectedColor' in (path as any)) {
+          delete (path as any).selectedColor;
+        }
+      } catch {}
+    });
+
+    try {
+      paper.view?.update();
+    } catch {}
+  }, [selectedPath, selectedPaths, selectedStrokeColor]);
 
   // 选择路径并启用编辑模式
   const handlePathSelect = useCallback((

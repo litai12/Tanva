@@ -2055,6 +2055,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
 
       {historyItems.length > 0 && (
         <div
+          className="tanva-video-history"
           style={{
             marginTop: 8,
             padding: "8px 10px",
@@ -2086,6 +2087,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
 
             return (
               <div
+                className="tanva-video-history-item"
                 key={uniqueKey}
                 style={{
                   borderRadius: 6,

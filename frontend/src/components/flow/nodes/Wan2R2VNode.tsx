@@ -779,6 +779,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
 
       {historyItems.length > 0 && (
         <div
+          className="tanva-video-history"
           style={{
             marginTop: 8,
             padding: "8px 10px",
@@ -813,6 +814,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
             const isActive = item.videoUrl === data.videoUrl;
             return (
               <div
+                className="tanva-video-history-item"
                 key={item.id}
                 style={{
                   borderRadius: 6,

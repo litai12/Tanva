@@ -1463,9 +1463,10 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
             }}
           >
             {index === 0 && externalPrompts.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+              <div className="tanva-agent-external-prompts" style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
                 {externalPrompts.map((extPrompt, extIndex) => (
                   <div
+                    className="tanva-agent-external-prompt-chip"
                     key={extIndex}
                     style={{
                       display: 'flex',
@@ -1477,8 +1478,9 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
                       border: '1px solid #bae6fd',
                     }}
                   >
-                    <Link style={{ width: 14, height: 14, color: '#0ea5e9', flexShrink: 0, marginTop: 2 }} />
+                    <Link className="tanva-agent-external-prompt-icon" style={{ width: 14, height: 14, color: '#0ea5e9', flexShrink: 0, marginTop: 2 }} />
                     <span
+                      className="tanva-agent-external-prompt-text"
                       style={{
                         fontSize: 13,
                         color: '#0369a1',

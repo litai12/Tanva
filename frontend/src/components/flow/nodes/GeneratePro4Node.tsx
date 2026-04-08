@@ -758,6 +758,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
             {/* 外部连接的提示词显示（仅第一个输入框展示） */}
             {index === 0 && externalPrompts.length > 0 && (
               <div
+                className="tanva-agent-external-prompts"
                 style={{
                   display: "flex",
                   flexDirection: "column",
@@ -767,6 +768,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
               >
                 {externalPrompts.map((externalPrompt, externalIndex) => (
                   <div
+                    className="tanva-agent-external-prompt-chip"
                     key={externalIndex}
                     style={{
                       display: "flex",
@@ -779,6 +781,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
                     }}
                   >
                     <Link
+                      className="tanva-agent-external-prompt-icon"
                       style={{
                         width: 14,
                         height: 14,
@@ -788,6 +791,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
                       }}
                     />
                     <span
+                      className="tanva-agent-external-prompt-text"
                       style={{
                         fontSize: 13,
                         color: "#0369a1",

@@ -70,7 +70,7 @@ import {
   resolveImageToBlob,
   toRenderableImageSrc,
 } from "@/utils/imageSource";
-import { canvasToBlob, fileToDataUrl, responseToBlob } from "@/utils/imageConcurrency";
+import { blobToDataUrl, canvasToBlob, fileToDataUrl, responseToBlob } from "@/utils/imageConcurrency";
 import {
   usePersonalLibraryStore,
   createPersonalAssetId,
@@ -2439,13 +2439,42 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           paper.view?.update();
         } catch {}
       };
+      let requestSeq = 0;
       try {
+        const currentSeqRaw = (raster as any).__tanvaSourceSeq;
+        const currentSeq = Number.isFinite(currentSeqRaw)
+          ? Number(currentSeqRaw)
+          : 0;
+        requestSeq = currentSeq + 1;
+        (raster as any).__tanvaSourceSeq = requestSeq;
         (raster as any).__tanvaSourceRef = trimmed;
       } catch {}
+      const isLatestSourceRequest = () => {
+        try {
+          const latestRef = (raster as any).__tanvaSourceRef;
+          if (
+            typeof latestRef === "string" &&
+            latestRef.trim() &&
+            latestRef.trim() !== trimmed
+          ) {
+            return false;
+          }
+        } catch {}
+        if (requestSeq > 0) {
+          try {
+            const latestSeq = Number((raster as any).__tanvaSourceSeq || 0);
+            if (Number.isFinite(latestSeq) && latestSeq !== requestSeq) {
+              return false;
+            }
+          } catch {}
+        }
+        return true;
+      };
 
       try {
         const image = new Image();
         image.onload = () => {
+          if (!isLatestSourceRequest()) return;
           try {
             (raster as any).setImage(image);
           } catch {}
@@ -2453,6 +2482,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           refreshView();
         };
         image.onerror = () => {
+          if (!isLatestSourceRequest()) return;
           try {
             raster.source = trimmed;
           } catch {}
@@ -2466,6 +2496,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         return;
       } catch {}
 
+      if (!isLatestSourceRequest()) return;
       try {
         raster.source = trimmed;
       } catch {}
@@ -3166,7 +3197,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         type: "image/png",
         quality: 0.92,
       });
-      const previewUrl = URL.createObjectURL(mergedBlob);
+      const previewDataUrl = await blobToDataUrl(mergedBlob);
       const uploadDir = projectId
         ? `projects/${projectId}/images/`
         : "uploads/images/";
@@ -3181,7 +3212,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         new CustomEvent("canvas:replace-image-source", {
           detail: {
             imageId: target.imageId,
-            source: previewUrl,
+            source: previewDataUrl,
             bounds: target.imageBounds,
             contentType: "image/png",
             fileName: target.fileName,
@@ -3222,6 +3253,27 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           const normalizedRemoteUrl =
             normalizePersistableImageRef(uploadResult.asset.url) ||
             uploadResult.asset.url;
+
+          const persistedSource = normalizedRemoteUrl || normalizedKey;
+          if (persistedSource) {
+            window.dispatchEvent(
+              new CustomEvent("canvas:replace-image-source", {
+                detail: {
+                  imageId: target.imageId,
+                  source: persistedSource,
+                  bounds: target.imageBounds,
+                  contentType: "image/png",
+                  fileName: target.fileName,
+                  key: normalizedKey || undefined,
+                  remoteUrl: normalizedRemoteUrl || undefined,
+                  width: pixelWidth,
+                  height: pixelHeight,
+                  historyLabel: "merge-brush-oss",
+                  pendingUpload: false,
+                },
+              })
+            );
+          }
 
           window.dispatchEvent(
             new CustomEvent("tanva:upgradeImageSource", {

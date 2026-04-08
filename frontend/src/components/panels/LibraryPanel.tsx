@@ -1393,7 +1393,7 @@ const LibraryPanel: React.FC = () => {
       {/* 主面板 */}
       <div
         data-library-drop-zone='true'
-        className={`fixed top-0 right-0 h-full w-80 bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border-l border-liquid-glass z-[1000] transform transition-transform duration-[50ms] ease-out flex flex-col overflow-hidden ${
+        className={`tanva-library-panel fixed top-0 right-0 h-full w-80 bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border-l border-liquid-glass z-[1000] transform transition-transform duration-[50ms] ease-out flex flex-col overflow-hidden ${
           showLibraryPanel ? "translate-x-0" : "translate-x-full"
         }`}
       >
@@ -1424,13 +1424,13 @@ const LibraryPanel: React.FC = () => {
 
         {/* 标签切换 */}
         <div className='px-3 pt-3 pb-2'>
-          <div className='grid grid-cols-3 gap-2 rounded-xl bg-gray-100 p-1'>
+          <div className='tanva-library-tabs grid grid-cols-3 gap-2 rounded-xl bg-gray-100 p-1'>
             <button
               type='button'
-              className={`h-8 rounded-lg text-xs font-medium transition-colors ${
+              className={`tanva-library-tab h-8 rounded-lg text-xs font-medium transition-colors ${
                 activeTab === "global-history"
-                  ? "bg-white text-gray-800 shadow-sm"
-                  : "text-gray-500 hover:text-gray-700"
+                  ? "tanva-library-tab-active bg-white text-gray-800 shadow-sm"
+                  : "tanva-library-tab-inactive text-gray-500 hover:text-gray-700"
               }`}
               onClick={() => setActiveTab("global-history")}
             >
@@ -1438,10 +1438,10 @@ const LibraryPanel: React.FC = () => {
             </button>
             <button
               type='button'
-              className={`h-8 rounded-lg text-xs font-medium transition-colors ${
+              className={`tanva-library-tab h-8 rounded-lg text-xs font-medium transition-colors ${
                 activeTab === "project-history"
-                  ? "bg-white text-gray-800 shadow-sm"
-                  : "text-gray-500 hover:text-gray-700"
+                  ? "tanva-library-tab-active bg-white text-gray-800 shadow-sm"
+                  : "tanva-library-tab-inactive text-gray-500 hover:text-gray-700"
               }`}
               onClick={() => setActiveTab("project-history")}
             >
@@ -1449,10 +1449,10 @@ const LibraryPanel: React.FC = () => {
             </button>
             <button
               type='button'
-              className={`h-8 rounded-lg text-xs font-medium transition-colors ${
+              className={`tanva-library-tab h-8 rounded-lg text-xs font-medium transition-colors ${
                 activeTab === "manual"
-                  ? "bg-white text-gray-800 shadow-sm"
-                  : "text-gray-500 hover:text-gray-700"
+                  ? "tanva-library-tab-active bg-white text-gray-800 shadow-sm"
+                  : "tanva-library-tab-inactive text-gray-500 hover:text-gray-700"
               }`}
               onClick={() => setActiveTab("manual")}
             >
@@ -1521,7 +1521,7 @@ const LibraryPanel: React.FC = () => {
 
                 {/* 上传按钮方格 - 放在最后 */}
                 <div
-                  className='aspect-square rounded-lg overflow-hidden bg-gray-50 border border-gray-200 cursor-pointer transition-all hover:border-blue-400 hover:bg-blue-50 flex items-center justify-center'
+                  className='tanva-library-upload-tile aspect-square rounded-lg overflow-hidden bg-gray-50 border border-gray-200 cursor-pointer transition-all hover:border-blue-400 hover:bg-blue-50 flex items-center justify-center'
                   onClick={triggerUpload}
                 >
                   {isUploading ? (
@@ -1548,7 +1548,7 @@ const LibraryPanel: React.FC = () => {
                       setHistorySearchQuery(event.target.value);
                     }}
                     placeholder={lt("搜索 prompt...", "Search prompt...")}
-                    className='w-full h-8 rounded-lg border border-gray-200 bg-white pl-7 pr-2 text-xs text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400'
+                    className='tanva-library-search-input w-full h-8 rounded-lg border border-gray-200 bg-white pl-7 pr-2 text-xs text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400'
                   />
                 </div>
                 <select
@@ -1560,7 +1560,7 @@ const LibraryPanel: React.FC = () => {
                     }
                     setHistoryFilterType(event.target.value);
                   }}
-                  className='h-8 max-w-[108px] rounded-lg border border-gray-200 bg-white px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400'
+                  className='tanva-library-filter-select h-8 max-w-[108px] rounded-lg border border-gray-200 bg-white px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400'
                 >
                   <option value=''>{lt("全部类型", "All types")}</option>
                   {Object.keys(SOURCE_TYPE_LABELS).map((key) => (
@@ -1710,7 +1710,7 @@ const LibraryPanel: React.FC = () => {
         </div>
 
         {/* 面板底部 */}
-        <div className='p-3 bg-white/80 backdrop-blur-sm border-t border-white/40'>
+        <div className='tanva-library-footer p-3 bg-white/80 backdrop-blur-sm border-t border-white/40'>
           <div className='text-xs text-gray-500 text-center'>
             {activeTab === "manual"
               ? lt(`共 ${allAssets.length} 个资源`, `${allAssets.length} assets`)

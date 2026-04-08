@@ -120,7 +120,7 @@ export default function ReferralRewards() {
   const weeklyBonus = checkInStatus?.weeklyBonus ?? 0;
 
   return (
-    <div className="space-y-6">
+    <div className="tanva-referral-panel space-y-6">
       {/* 每日签到区域 */}
       <div className="bg-white rounded-xl border p-6">
         <div className="flex items-center justify-between mb-4">

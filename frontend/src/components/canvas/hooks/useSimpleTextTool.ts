@@ -9,6 +9,7 @@ import { logger } from '@/utils/logger';
 import { historyService } from '@/services/historyService';
 import { useLayerStore } from '@/stores/layerStore';
 import { useToolStore } from '@/stores/toolStore';
+import { useAIChatStore } from '@/stores/aiChatStore';
 import type { TextAssetSnapshot } from '@/types/project';
 
 interface TextStyle {
@@ -36,6 +37,8 @@ interface UseSimpleTextToolProps {
 }
 
 export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpleTextToolProps) => {
+  const chatTheme = useAIChatStore((state) => state.chatTheme);
+  const autoDefaultTextColor = chatTheme === 'black' ? '#ffffff' : '#000000';
   const [textItems, setTextItems] = useState<TextItem[]>([]);
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
@@ -67,10 +70,23 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     fontFamily: '"Heiti SC", "SimHei", "黑体", sans-serif',
     fontWeight: 'bold',
     fontSize: 32,
-    color: '#000000',
+    color: autoDefaultTextColor,
     align: 'left',
     italic: false
   });
+
+  // 主题切换时，仅在默认黑/白之间自动同步；用户自定义颜色不覆盖。
+  useEffect(() => {
+    setDefaultStyle((prev) => {
+      if (prev.color !== '#000000' && prev.color !== '#ffffff') {
+        return prev;
+      }
+      if (prev.color === autoDefaultTextColor) {
+        return prev;
+      }
+      return { ...prev, color: autoDefaultTextColor };
+    });
+  }, [autoDefaultTextColor]);
 
   // 获取当前选中文本的样式
   const getSelectedTextStyle = useCallback((): TextStyle => {
@@ -140,7 +156,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     logger.debug(`📝 创建简单文本: ${id}`, { content, position: point });
     try { historyService.commit('create-text').catch(() => {}); } catch {}
     return textItem;
-  }, [currentColor, ensureDrawingLayer, setDrawMode]);
+  }, [defaultStyle, ensureDrawingLayer, setDrawMode]);
 
   // 选择文本
   const selectText = useCallback((textId: string, multiSelect: boolean = false) => {

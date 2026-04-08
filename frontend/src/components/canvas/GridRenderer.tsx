@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import paper from 'paper';
 import { useCanvasStore, useUIStore, GridStyle } from '@/stores';
+import { useAIChatStore } from '@/stores/aiChatStore';
 import { memoryMonitor } from '@/utils/memoryMonitor';
 import { logger } from '@/utils/logger';
 
@@ -11,12 +12,60 @@ interface GridRendererProps {
 
 const isLayerRemoved = (layer: paper.Layer | null): boolean => Boolean(layer && (layer as any).removed);
 
+const parseHexToRgb = (hex: string): { r: number; g: number; b: number } | null => {
+  const cleaned = (hex || '').trim().replace('#', '');
+  if (cleaned.length === 3) {
+    const r = parseInt(cleaned[0] + cleaned[0], 16);
+    const g = parseInt(cleaned[1] + cleaned[1], 16);
+    const b = parseInt(cleaned[2] + cleaned[2], 16);
+    if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) return null;
+    return { r, g, b };
+  }
+  if (cleaned.length === 6) {
+    const r = parseInt(cleaned.substring(0, 2), 16);
+    const g = parseInt(cleaned.substring(2, 4), 16);
+    const b = parseInt(cleaned.substring(4, 6), 16);
+    if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) return null;
+    return { r, g, b };
+  }
+  return null;
+};
+
+const toHex = (value: number): string => value.toString(16).padStart(2, '0');
+
+const resolveThemeAwareGridColor = (color: string, theme: 'white' | 'black'): string => {
+  if (theme !== 'black') return color;
+  const rgb = parseHexToRgb(color);
+  if (!rgb) return '#3a3a3a';
+  const avg = (rgb.r + rgb.g + rgb.b) / 3;
+  // Ensure grid lines remain visible in dark theme even when user color is near-black.
+  if (avg >= 56) return color;
+  const liftedR = Math.max(rgb.r, 58);
+  const liftedG = Math.max(rgb.g, 58);
+  const liftedB = Math.max(rgb.b, 58);
+  return `#${toHex(liftedR)}${toHex(liftedG)}${toHex(liftedB)}`;
+};
+
+const resolveThemeAwareGridBgColor = (
+  color: string,
+  theme: 'white' | 'black',
+  style: GridStyle,
+): string => {
+  if (theme === 'black' && style === GridStyle.SOLID) {
+    return '#090909';
+  }
+  return color;
+};
+
 const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitialized }) => {
   const { gridSize, gridStyle, zoom, isDragging, panX, panY } = useCanvasStore();
   const gridColor = useCanvasStore(state => state.gridColor);
   const gridBgColor = useCanvasStore(state => state.gridBgColor);
   const gridBgEnabled = useCanvasStore(state => state.gridBgEnabled);
+  const chatTheme = useAIChatStore(state => state.chatTheme);
   const { showGrid, showAxis } = useUIStore();
+  const effectiveGridColor = resolveThemeAwareGridColor(gridColor, chatTheme);
+  const effectiveGridBgColor = resolveThemeAwareGridBgColor(gridBgColor, chatTheme, gridStyle);
   const gridLayerRef = useRef<paper.Layer | null>(null);
   const backgroundRectRef = useRef<paper.Path.Rectangle | null>(null);
   const lastPanRef = useRef({ x: panX, y: panY }); // 缓存上次的平移值
@@ -330,7 +379,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     if (showGrid) {
       memoryMonitor.updatePoolStats(poolStats.main, poolStats.minor, poolStats.lines);
     }
-  }, [zoom, showGrid, showAxis, gridStyle, gridColor, gridBgColor, gridBgEnabled]);
+  }, [zoom, showGrid, showAxis, gridStyle, gridBgEnabled, chatTheme, effectiveGridColor, effectiveGridBgColor]);
 
   // 线条网格创建函数
   const getColorWithAlpha = (hex: string, alpha: number) => {
@@ -361,8 +410,12 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
 
     // 计算副网格显示阈值 - 当缩放小于30%时隐藏副网格
     const shouldShowMinorGrid = options?.showMinorGrid ?? (zoom >= 0.3);
-    const minorColor = getColorWithAlpha(gridColor, 0.10);
-    const majorColor = getColorWithAlpha(gridColor, 0.13);
+    const minorAlpha = chatTheme === 'black' ? 0.72 : 0.10;
+    const majorAlpha = chatTheme === 'black' ? 0.88 : 0.13;
+    const minorStrokeWidth = chatTheme === 'black' ? 0.65 : 0.3;
+    const majorStrokeWidth = chatTheme === 'black' ? 1.0 : 0.8;
+    const minorColor = getColorWithAlpha(effectiveGridColor, minorAlpha);
+    const majorColor = getColorWithAlpha(effectiveGridColor, majorAlpha);
 
     // 创建垂直网格线
     for (let x = minX; x <= maxX; x += currentGridSize) {
@@ -396,7 +449,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         line.segments[0].point = new paper.Point(x, minY);
         line.segments[1].point = new paper.Point(x, maxY);
         line.strokeColor = isMainGrid ? majorColor : minorColor;
-        line.strokeWidth = isMainGrid ? 0.8 : 0.3;
+        line.strokeWidth = isMainGrid ? majorStrokeWidth : minorStrokeWidth;
         line.visible = true;
         line.data = { ...(line.data || {}), isHelper: true, type: 'grid', isMain: isMainGrid };
       } else {
@@ -412,7 +465,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
           from: [x, minY],
           to: [x, maxY],
           strokeColor: isMainGrid ? majorColor : minorColor,
-          strokeWidth: isMainGrid ? 0.8 : 0.3,
+          strokeWidth: isMainGrid ? majorStrokeWidth : minorStrokeWidth,
           data: { isHelper: true, type: 'grid', isMain: isMainGrid }
         });
       }
@@ -452,7 +505,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         line.segments[0].point = new paper.Point(minX, y);
         line.segments[1].point = new paper.Point(maxX, y);
         line.strokeColor = isMainGrid ? majorColor : minorColor;
-        line.strokeWidth = isMainGrid ? 0.8 : 0.3;
+        line.strokeWidth = isMainGrid ? majorStrokeWidth : minorStrokeWidth;
         line.visible = true;
         line.data = { ...(line.data || {}), isHelper: true, type: 'grid', isMain: isMainGrid };
       } else {
@@ -468,7 +521,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
           from: [minX, y],
           to: [maxX, y],
           strokeColor: isMainGrid ? majorColor : minorColor,
-          strokeWidth: isMainGrid ? 0.8 : 0.3,
+          strokeWidth: isMainGrid ? majorStrokeWidth : minorStrokeWidth,
           data: { isHelper: true, type: 'grid', isMain: isMainGrid }
         });
       }
@@ -490,7 +543,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     // 创建一个覆盖整个可视区域的纯色矩形
     const bg = (() => {
       try {
-        const h = (gridBgColor || '#f7f7f7').replace('#','');
+        const h = (effectiveGridBgColor || '#f7f7f7').replace('#','');
         let r = 247, g = 247, b = 247;
         if (h.length === 3) {
           r = parseInt(h[0] + h[0], 16); g = parseInt(h[1] + h[1], 16); b = parseInt(h[2] + h[2], 16);

@@ -46,6 +46,8 @@ import {
   MessageCircle,
   Star,
   Plus,
+  Sun,
+  Moon,
 } from "lucide-react";
 import MemoryDebugPanel from "@/components/debug/MemoryDebugPanel";
 import HistoryDebugPanel from "@/components/debug/HistoryDebugPanel";
@@ -107,7 +109,7 @@ const getTodayDateKey = () => {
 };
 
 const FloatingHeader: React.FC = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const untitledProjectLabel = t("workspacePage.prompt.defaultName", {
     defaultValue: t("common.untitled"),
@@ -170,6 +172,8 @@ const FloatingHeader: React.FC = () => {
     setSendShortcut,
     expandedPanelStyle,
     setExpandedPanelStyle,
+    chatTheme,
+    setChatTheme,
   } = useAIChatStore();
 
   // 项目（文件）管理
@@ -793,6 +797,15 @@ const FloatingHeader: React.FC = () => {
     if (creditsInfo) return creditsInfo.balance.toLocaleString();
     return "--";
   }, [creditsInfo, creditsLoading]);
+  const isEnglish = i18n.resolvedLanguage?.toLowerCase().startsWith("en");
+  const themeToggleLabel =
+    chatTheme === "black"
+      ? isEnglish
+        ? "Switch to day theme"
+        : "切换到白天主题"
+      : isEnglish
+        ? "Switch to night theme"
+        : "切换到夜晚主题";
 
   const displayName =
     user?.name ||
@@ -820,7 +833,8 @@ const FloatingHeader: React.FC = () => {
         return { label: t("common.status.unknown"), color: "#9ca3af" };
     }
   })();
-  const isAdmin = user?.role === "admin";
+  const normalizedRole = (user?.role || "").trim().toLowerCase();
+  const isAdmin = normalizedRole === "admin" || normalizedRole === "normal_admin";
   useEffect(() => {
     if (!isAdmin || typeof window === "undefined") {
       setFpsOverlayAdminButtonLayout(null);
@@ -1325,6 +1339,7 @@ const FloatingHeader: React.FC = () => {
                 </button>
               </div>
             </div>
+
           </div>
         );
       case "ai":
@@ -1767,21 +1782,22 @@ const FloatingHeader: React.FC = () => {
       <div
         aria-hidden={focusMode}
         className={cn(
-          "fixed top-4 left-0 right-0 z-50 px-4 flex items-start justify-between gap-4 transition-all duration-[50ms] ease-out pointer-events-none",
+          "tanva-header-shell fixed top-4 left-0 right-0 z-50 px-4 flex items-start justify-between gap-4 transition-all duration-[50ms] ease-out pointer-events-none",
           showLayerPanel ? "left-[306px]" : "left-0",
           focusMode && "hidden"
         )}
       >
         {/* 左侧栏：Logo + Beta + 项目名称 */}
-        <div className='flex items-center gap-2 md:gap-3 px-4 md:px-6 py-2 h-[46px] rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 pointer-events-auto'>
+        <div className='tanva-header-card tanva-header-card-left flex items-center gap-2 md:gap-3 px-4 md:px-6 py-2 h-[46px] rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 pointer-events-auto'>
           {/* Logo */}
           <div
-            className='flex w-[110px] h-auto items-center pb-1 justify-center cursor-pointer hover:opacity-80 transition-opacity select-none'
+            className='tanva-brand-logo-wrap flex w-[110px] h-auto items-center pb-1 justify-center cursor-pointer hover:opacity-80 transition-opacity select-none'
             onClick={handleLogoClick}
             title={t("workspace.header.backHome")}
           >
             <img
-              src='/LogoText.svg'
+              src={chatTheme === "black" ? "/tanvas_ai.png" : "/LogoText.svg"}
+              className='tanva-brand-logo-img'
               alt='Logo'
               draggable='false'
               style={{
@@ -1791,7 +1807,7 @@ const FloatingHeader: React.FC = () => {
             />
           </div>
           {/* 分隔线 */}
-          <div className='w-px h-5 bg-gray-300/40' />
+          <div className='tanva-header-divider w-px h-5 bg-gray-300/40' />
 
           {/* 项目名称与快速切换 */}
           <div className='items-center hidden gap-1 sm:flex'>
@@ -1811,7 +1827,7 @@ const FloatingHeader: React.FC = () => {
             ) : (
               <DropdownMenu>
                 <DropdownMenuTrigger
-                  className='flex items-center gap-1 px-2 py-1 transition-colors bg-transparent border-none rounded-full cursor-pointer select-none hover:bg-slate-100'
+                  className='tanva-project-selector flex items-center gap-1 px-2 py-1 transition-colors bg-transparent border-none rounded-full cursor-pointer select-none hover:bg-slate-100'
                   onDoubleClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -1899,7 +1915,7 @@ const FloatingHeader: React.FC = () => {
               }}
               disabled={isQuickCreatingProject}
               className={cn(
-                "inline-flex h-6 w-6 items-center justify-center text-slate-500 transition-colors",
+                "tanva-header-new-project-btn inline-flex h-6 w-6 items-center justify-center rounded-full text-slate-500 transition-colors",
                 isQuickCreatingProject
                   ? "cursor-not-allowed opacity-60"
                   : "hover:text-slate-700"
@@ -1958,7 +1974,7 @@ const FloatingHeader: React.FC = () => {
 
         {/* 右侧栏：功能按钮 */}
         <div className='pointer-events-auto'>
-          <div className='flex items-center gap-1.5 md:gap-2 px-4 md:px-6 py-2 h-[46px] rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300'>
+          <div className='tanva-header-card tanva-header-card-right flex items-center gap-1.5 md:gap-2 px-4 md:px-6 py-2 h-[46px] rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300'>
             {/* 素材库按钮 */}
             {showLibraryButton && (
               <Button
@@ -1999,6 +2015,23 @@ const FloatingHeader: React.FC = () => {
 
             <WorkflowHistoryButton projectId={currentProject?.id ?? null} />
 
+            <Button
+              variant='ghost'
+              size='sm'
+              className='p-0 text-gray-600 transition-all duration-200 border rounded-full h-7 w-7 bg-liquid-glass-light backdrop-blur-minimal border-liquid-glass-light hover:bg-liquid-glass-hover'
+              title={themeToggleLabel}
+              aria-label={themeToggleLabel}
+              onClick={() =>
+                setChatTheme(chatTheme === "black" ? "white" : "black")
+              }
+            >
+              {chatTheme === "black" ? (
+                <Moon className='w-3.5 h-3.5' />
+              ) : (
+                <Sun className='w-3.5 h-3.5' />
+              )}
+            </Button>
+
             {/* 帮助按钮 */}
             <div
               className='relative'
@@ -2007,10 +2040,10 @@ const FloatingHeader: React.FC = () => {
             >
               {isHelpMenuOpen && (
                 <div className='absolute top-full left-1/2 -translate-x-1/2 pt-2 z-[100] animate-in fade-in slide-in-from-top-2 duration-200'>
-                  <div className='w-[132px] p-1.5 rounded-2xl bg-white/95 backdrop-blur-md border border-slate-200 shadow-[0_12px_28px_rgba(15,23,42,0.12)] flex flex-col gap-0.5'>
+                  <div className='tanva-help-dropdown w-[132px] p-1.5 rounded-2xl bg-white/95 backdrop-blur-md border border-slate-200 shadow-[0_12px_28px_rgba(15,23,42,0.12)] flex flex-col gap-0.5'>
                     <button
                       type='button'
-                      className='w-full h-9 px-3 rounded-xl text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300'
+                      className='tanva-help-dropdown-item w-full h-9 px-3 rounded-xl text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300'
                       onClick={() => {
                         window.open(USER_MANUAL_URL, "_blank", "noopener,noreferrer");
                         setIsHelpMenuOpen(false);
@@ -2020,7 +2053,7 @@ const FloatingHeader: React.FC = () => {
                     </button>
                     <button
                       type='button'
-                      className='w-full h-9 px-3 rounded-xl text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300'
+                      className='tanva-help-dropdown-item w-full h-9 px-3 rounded-xl text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300'
                       onClick={() => {
                         window.open(CHANGELOG_URL, "_blank", "noopener,noreferrer");
                         setIsHelpMenuOpen(false);
@@ -2115,15 +2148,15 @@ const FloatingHeader: React.FC = () => {
           typeof document !== "undefined" &&
           createPortal(
             <div
-              className='fixed inset-0 z-[1000] flex items-center justify-center bg-transparent px-4'
+              className='tanva-settings-overlay fixed inset-0 z-[1000] flex items-center justify-center bg-transparent px-4'
               onClick={() => setIsSettingsOpen(false)}
             >
               <div
-                className='relative flex h-[90vh] max-h-[700px] w-full max-w-[1000px] flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white/95 shadow-[0_32px_80px_rgba(15,23,42,0.18)] backdrop-blur-xl'
+                className='tanva-settings-modal relative flex h-[90vh] max-h-[700px] w-full max-w-[1000px] flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white/95 shadow-[0_32px_80px_rgba(15,23,42,0.18)] backdrop-blur-xl'
                 onClick={(event) => event.stopPropagation()}
               >
-                <div className='flex flex-1 h-full pt-4 overflow-hidden sm:pt-0'>
-                  <aside className='hidden w-[230px] h-full py-5 border-r shrink-0 border-slate-100 bg-white sm:flex sm:flex-col'>
+                <div className='tanva-settings-layout flex flex-1 h-full pt-4 overflow-hidden sm:pt-0'>
+                  <aside className='tanva-settings-sidebar hidden w-[230px] h-full py-5 border-r shrink-0 border-slate-100 bg-white sm:flex sm:flex-col'>
                     {/* 顶部标题 */}
                     <div className='flex items-center gap-2 px-6 mb-6 my-1'>
                       <svg
@@ -2154,10 +2187,10 @@ const FloatingHeader: React.FC = () => {
                             type='button'
                             onClick={() => setActiveSettingsSection(section.id)}
                             className={cn(
-                              "w-full flex items-center gap-3 rounded-3xl px-4 py-3 text-sm transition-colors",
+                              "tanva-settings-nav-item w-full flex items-center gap-3 rounded-3xl px-4 py-3 text-sm transition-colors",
                               isActive
-                                ? "bg-slate-100 text-slate-600"
-                                : "text-slate-600 hover:bg-slate-50"
+                                ? "tanva-settings-nav-item-active"
+                                : ""
                             )}
                           >
                             <Icon className='w-4 h-4' />
@@ -2184,7 +2217,7 @@ const FloatingHeader: React.FC = () => {
                   </aside>
                   <div
                     ref={settingsContentScrollRef}
-                    className='flex-1 px-4 py-6 overflow-y-auto sm:px-6'
+                    className='tanva-settings-content flex-1 px-4 py-6 overflow-y-auto sm:px-6'
                   >
                     <div className='flex flex-wrap gap-2 mb-4 sm:hidden'>
                       {SETTINGS_SECTIONS.map((section) => {

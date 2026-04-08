@@ -374,13 +374,13 @@ const ZoomIndicator: React.FC = () => {
     const canZoomOut = currentPercent > 10;
 
     return (
-        <div className="fixed left-[12px] bottom-2 z-10">
-            <div className="flex flex-col items-center gap-1 px-1 py-1 rounded-[999px] bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass">
+        <div className="tanva-zoom-shell fixed left-[12px] bottom-2 z-10">
+            <div className="tanva-zoom-shell-inner flex flex-col items-center gap-1 px-1 py-1 rounded-[999px] bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass">
                 {/* 放大按钮 */}
                 <Button
                     variant="outline"
                     size="sm"
-                    className={`h-8 w-8 p-0 rounded-full transition-all duration-200 flex items-center justify-center bg-white/50 border-gray-300 ${
+                    className={`tanva-zoom-btn h-8 w-8 p-0 rounded-full transition-all duration-200 flex items-center justify-center bg-white/50 border-gray-300 ${
                         !canZoomIn
                             ? 'opacity-40 cursor-not-allowed'
                             : 'hover:bg-gray-800/10 hover:border-gray-800/20 hover:text-gray-900'
@@ -395,7 +395,9 @@ const ZoomIndicator: React.FC = () => {
                 {/* 缩放百分比 - 点击弹出菜单 */}
                 <div className="relative" ref={menuRef}>
                     <button
-                        className="h-8 w-8 text-xs font-mono font-medium transition-all duration-200 rounded-full flex items-center justify-center text-gray-900 hover:bg-gray-800/10"
+                        className={`tanva-zoom-btn tanva-zoom-percent-btn h-8 w-8 text-xs font-mono font-medium transition-all duration-200 rounded-full flex items-center justify-center text-gray-900 hover:bg-gray-800/10 ${
+                            menuOpen ? "tanva-zoom-btn-active" : ""
+                        }`}
                         onClick={() => setMenuOpen(!menuOpen)}
                         title={lt("缩放选项", "Zoom options")}
                     >
@@ -404,21 +406,21 @@ const ZoomIndicator: React.FC = () => {
 
                     {/* 下拉菜单 */}
                     {menuOpen && (
-                        <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 w-40 bg-white/95 backdrop-blur-md rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+                        <div className="tanva-zoom-menu absolute left-full ml-2 top-1/2 -translate-y-1/2 w-40 bg-white/95 backdrop-blur-md rounded-lg shadow-lg border border-gray-200 py-1 z-50">
                             <button
-                                className="w-full px-3 py-2 text-sm text-left text-gray-700 hover:bg-gray-100"
+                                className="tanva-zoom-menu-item w-full px-3 py-2 text-sm text-left text-gray-700 hover:bg-gray-100"
                                 onClick={resetZoom}
                             >
                                 {lt("缩放至 100%", "Zoom to 100%")}
                             </button>
                             <button
-                                className="w-full px-3 py-2 text-sm text-left text-gray-700 hover:bg-gray-100"
+                                className="tanva-zoom-menu-item w-full px-3 py-2 text-sm text-left text-gray-700 hover:bg-gray-100"
                                 onClick={fitToScreen}
                             >
                                 {lt("适合屏幕", "Fit to screen")}
                             </button>
                             <button
-                                className="w-full px-3 py-2 text-sm text-left text-gray-700 hover:bg-gray-100"
+                                className="tanva-zoom-menu-item w-full px-3 py-2 text-sm text-left text-gray-700 hover:bg-gray-100"
                                 onClick={fitToSelection}
                             >
                                 {lt("选中内容最大化 (Z)", "Fit selection (Z)")}
@@ -431,7 +433,7 @@ const ZoomIndicator: React.FC = () => {
                 <Button
                     variant="outline"
                     size="sm"
-                    className={`h-8 w-8 p-0 rounded-full transition-all duration-200 flex items-center justify-center bg-white/50 border-gray-300 ${
+                    className={`tanva-zoom-btn h-8 w-8 p-0 rounded-full transition-all duration-200 flex items-center justify-center bg-white/50 border-gray-300 ${
                         !canZoomOut
                             ? 'opacity-40 cursor-not-allowed'
                             : 'hover:bg-gray-800/10 hover:border-gray-800/20 hover:text-gray-900'

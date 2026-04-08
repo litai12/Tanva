@@ -11,3 +11,7 @@
 - AI 会话状态由 `aiChatStore` 管理，持久化字段为 `Project.contentJson.aiChatSessions/aiChatActiveSessionId`。
 - AI 图片工具链路（融合/编辑）在源图为远程 URL 时仅对白名单 host 直传 `sourceImageUrls/sourceImageUrl`；非白名单远程图会先尝试在前端读取并上传 OSS，再传可持久化 URL，避免后端 `imageUrl host not allowed`。
 - 导入对话 JSON 时采用追加策略并重映射 `sessionId`，避免覆盖当前会话。
+
+## 2026-04 theme note
+- `aiChatStore` now persists `chatTheme: "white" | "black"` for workspace visual style selection.
+- `setChatTheme()` is used by `FloatingHeader` appearance settings and drives workspace-wide class toggling in `Canvas`.

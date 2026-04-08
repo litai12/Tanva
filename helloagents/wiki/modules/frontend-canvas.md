@@ -82,3 +82,10 @@
 - 显式拍照场景下，抓帧支持离屏 renderer 兜底，减少 `frameloop="demand"` + 非保留缓冲导致的白图。
 - 缓存图会标记 `data-model3d-snapshot-source`，截图服务仅使用 `runtime` 来源，不会误用预生成 preview。
 - `AutoScreenshotService` 在 runtime 帧不可用时会检查 WebGL canvas 是否近似空白；若为空则跳过绘制，避免把整块白底写入结果图。
+
+## 2026-04 workspace theme hook
+- `Canvas` toggles `body.tanva-premium-black-theme` from `aiChatStore.chatTheme`.
+- The class is removed on unmount to avoid leaking workspace theme styles into non-workspace routes.
+- `GridRenderer` now applies black-theme visibility fallback for near-black grid colors and uses stronger line alpha/width in black theme so the grid remains visible on `#000` canvas.
+- In black theme + `GridStyle.SOLID`, canvas solid background is forced to `#090909` (Surface) for consistent monochrome workspace contrast.
+- Premium dark palette alignment: toolbar shell / header cards / AI dialog / node shell use `Base #111111`; internal controls and modules use `Elevated #161616`.

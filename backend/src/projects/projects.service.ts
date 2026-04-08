@@ -309,22 +309,38 @@ export class ProjectsService {
     const parsedLimit = Math.min(Math.max(Number.parseInt((limit || '').trim(), 10) || 30, 1), 200);
 
     try {
+      const selectWithRestoreMeta: any = {
+        updatedAt: true,
+        version: true,
+        nodeCount: true,
+        edgeCount: true,
+        createdAt: true,
+      };
+      selectWithRestoreMeta.restoredFromUpdatedAt = true;
+      selectWithRestoreMeta.restoredFromVersion = true;
+
       return await this.prisma.workflowHistory.findMany({
         where: { userId, projectId },
         orderBy: { updatedAt: 'desc' },
         take: parsedLimit,
-        select: {
-          updatedAt: true,
-          version: true,
-          nodeCount: true,
-          edgeCount: true,
-          restoredFromUpdatedAt: true,
-          restoredFromVersion: true,
-          createdAt: true,
-        },
+        select: selectWithRestoreMeta,
       });
     } catch (error: any) {
       if (this.isMissingWorkflowHistoryTable(error)) return [];
+      if (this.shouldDowngradeWorkflowHistoryRestoreFields(error)) {
+        return await this.prisma.workflowHistory.findMany({
+          where: { userId, projectId },
+          orderBy: { updatedAt: 'desc' },
+          take: parsedLimit,
+          select: {
+            updatedAt: true,
+            version: true,
+            nodeCount: true,
+            edgeCount: true,
+            createdAt: true,
+          },
+        });
+      }
       throw error;
     }
   }
@@ -406,8 +422,8 @@ export class ProjectsService {
           ? workflowHistoryMeta.restoredFromVersion
           : null;
 
-      await this.prisma.workflowHistory.create({
-        data: {
+      try {
+        const createDataWithRestoreMeta: any = {
           userId,
           projectId,
           updatedAt: updatedProject.updatedAt,
@@ -415,10 +431,30 @@ export class ProjectsService {
           flow: flow as Prisma.InputJsonValue,
           nodeCount,
           edgeCount,
-          restoredFromUpdatedAt: restoredFromUpdatedAtValue,
-          restoredFromVersion: restoredFromVersionValue,
-        },
-      });
+        };
+        createDataWithRestoreMeta.restoredFromUpdatedAt = restoredFromUpdatedAtValue;
+        createDataWithRestoreMeta.restoredFromVersion = restoredFromVersionValue;
+
+        await this.prisma.workflowHistory.create({
+          data: createDataWithRestoreMeta,
+        });
+      } catch (error: any) {
+        if (this.shouldDowngradeWorkflowHistoryRestoreFields(error)) {
+          await this.prisma.workflowHistory.create({
+            data: {
+              userId,
+              projectId,
+              updatedAt: updatedProject.updatedAt,
+              version: updatedProject.contentVersion ?? 0,
+              flow: flow as Prisma.InputJsonValue,
+              nodeCount,
+              edgeCount,
+            },
+          });
+        } else {
+          throw error;
+        }
+      }
     } catch (error: any) {
       if (this.isMissingWorkflowHistoryTable(error)) return;
       // eslint-disable-next-line no-console
@@ -589,6 +625,21 @@ export class ProjectsService {
       message.includes('Unknown arg') ||
       message.includes('column') && message.includes('does not exist')
     );
+  }
+
+  private shouldDowngradeWorkflowHistoryRestoreFields(error: any): boolean {
+    if (!error) return false;
+    const message = typeof error.message === 'string' ? error.message : '';
+    const touchedRestoreField =
+      message.includes('restoredFromUpdatedAt') ||
+      message.includes('restoredFromVersion');
+    if (!touchedRestoreField) return false;
+
+    const isUnknownFieldOrArg =
+      message.includes('Unknown field') ||
+      message.includes('Unknown argument') ||
+      message.includes('Unknown arg');
+    return isUnknownFieldOrArg && message.includes('WorkflowHistory');
   }
 
   private async disableThumbnailColumn(): Promise<void> {
