@@ -6,6 +6,7 @@
 import { useEffect, useRef } from 'react';
 import paper from 'paper';
 import type { AlignmentLine } from '@/utils/snapAlignment';
+import { useAIChatStore } from '@/stores/aiChatStore';
 
 interface SnapGuideRendererProps {
   alignments: AlignmentLine[];
@@ -20,6 +21,8 @@ const COLORS = {
 
 export function SnapGuideRenderer({ alignments, zoom }: SnapGuideRendererProps) {
   const guidesRef = useRef<paper.Path[]>([]);
+  const chatTheme = useAIChatStore((state) => state.chatTheme);
+  const isDarkTheme = chatTheme === 'black';
 
   useEffect(() => {
     // Clear previous guides.
@@ -37,13 +40,13 @@ export function SnapGuideRenderer({ alignments, zoom }: SnapGuideRendererProps) 
       return;
     }
 
-    // Scale stroke width with zoom for consistent visuals.
-    const strokeWidth = 0.8 / Math.max(zoom, 0.1);
+    // 画布图片/对象对齐：略粗于原先 0.8，便于辨认
+    const strokeWidth = 0.95 / Math.max(zoom, 0.1);
     const dashLength = 3.5 / Math.max(zoom, 0.1);
 
     alignments.forEach((alignment) => {
       const isCenter = alignment.type === 'centerX' || alignment.type === 'centerY';
-      const color = isCenter ? COLORS.center : COLORS.edge;
+      const color = isDarkTheme ? '#ffffff' : (isCenter ? COLORS.center : COLORS.edge);
 
       let line: paper.Path;
 
@@ -98,7 +101,7 @@ export function SnapGuideRenderer({ alignments, zoom }: SnapGuideRendererProps) 
       });
       guidesRef.current = [];
     };
-  }, [alignments, zoom]);
+  }, [alignments, zoom, isDarkTheme]);
 
   // Logical-only component; renders no DOM.
   return null;

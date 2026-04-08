@@ -652,6 +652,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
     [lt]
   );
   const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const chatTheme = useAIChatStore((state) => state.chatTheme);
   const providerMode = React.useMemo<"fast" | "pro" | "ultra" | "other">(() => {
     if (aiProvider === "banana-2.5") return "fast";
     if (aiProvider === "banana-3.1") return "ultra";
@@ -699,6 +700,60 @@ function Generate4NodeInner({ id, data, selected }: Props) {
     [id]
   );
 
+  const providerBadgeStyle = React.useMemo((): React.CSSProperties => {
+    const base: React.CSSProperties = {
+      padding: "1px 8px",
+      borderRadius: 50,
+      fontSize: 11,
+      fontWeight: 600,
+    };
+    if (chatTheme === "black") {
+      return {
+        ...base,
+        color: "#ffffff",
+        background: "#343434",
+        border: "1px solid #4a4a4a",
+      };
+    }
+    return {
+      ...base,
+      color: providerMode === "ultra" ? "#0f172a" : "#475569",
+      background: providerMode === "ultra" ? "#e2e8f0" : "#f1f5f9",
+      border: "1px solid #e2e8f0",
+    };
+  }, [chatTheme, providerMode]);
+
+  const headerRunButtonStyle = (running: boolean): React.CSSProperties => ({
+    fontSize: 12,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxSizing: "border-box",
+    minHeight: 30,
+    padding: "0 12px",
+    background: running ? "#e5e7eb" : "#111827",
+    color: "#fff",
+    borderRadius: 6,
+    border: "none",
+    cursor: running ? "not-allowed" : "pointer",
+  });
+
+  const headerSendButtonStyle = (disabled: boolean): React.CSSProperties => ({
+    fontSize: 12,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxSizing: "border-box",
+    width: 34,
+    height: 30,
+    padding: 0,
+    background: disabled ? "#e5e7eb" : "#111827",
+    color: "#fff",
+    borderRadius: 6,
+    border: "none",
+    cursor: disabled ? "not-allowed" : "pointer",
+  });
+
   return (
     <div
       style={{
@@ -724,33 +779,24 @@ function Generate4NodeInner({ id, data, selected }: Props) {
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ fontWeight: 600 }}>Multi Generate</div>
           <div
-            style={{
-              padding: "1px 8px",
-              borderRadius: 999,
-              fontSize: 11,
-              fontWeight: 600,
-              color: providerMode === "ultra" ? "#0f172a" : "#475569",
-              background: providerMode === "ultra" ? "#e2e8f0" : "#f1f5f9",
-              border: "1px solid #e2e8f0",
-            }}
+            className='tanva-flow-provider-mode-badge'
+            style={providerBadgeStyle}
             title={`${lt("当前全局模型模式", "Current global model mode")}: ${providerModeLabel}`}
           >
             {providerModeLabel}
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
           <button
             onClick={onRun}
             disabled={status === "running"}
-            style={{
-              fontSize: 12,
-              padding: "4px 8px",
-              background: status === "running" ? "#e5e7eb" : "#111827",
-              color: "#fff",
-              borderRadius: 6,
-              border: "none",
-              cursor: status === "running" ? "not-allowed" : "pointer",
-            }}
+            style={headerRunButtonStyle(status === "running")}
           >
             {status === "running" ? "Running..." : "Run"}
           </button>
@@ -758,15 +804,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
             onClick={onSend}
             disabled={!(images.length || imageUrls.length)}
             title={!(images.length || imageUrls.length) ? lt("无可发送的图像", "No image to send") : lt("发送全部到画布", "Send all to canvas")}
-            style={{
-              fontSize: 12,
-              padding: "4px 8px",
-              background: !(images.length || imageUrls.length) ? "#e5e7eb" : "#111827",
-              color: "#fff",
-              borderRadius: 6,
-              border: "none",
-              cursor: !(images.length || imageUrls.length) ? "not-allowed" : "pointer",
-            }}
+            style={headerSendButtonStyle(!(images.length || imageUrls.length))}
           >
             <SendIcon size={14} strokeWidth={2} />
           </button>

@@ -376,44 +376,31 @@ class PaperSaveService {
     if (!jsonString) return jsonString;
 
     try {
-      // 匹配阿里云 OSS URL 的正则（包括 URL 末尾可能的引号前字符）
-      // 格式: https://xxx.oss-cn-xxx.aliyuncs.com/...
-      // 注意：JSON 中 URL 被双引号包裹，所以用 [^"\s] 来匹配到引号前停止
-      const ossUrlPattern = /(https?:\/\/[^"\s]+\.aliyuncs\.com[^"\s]*)/g;
+      const proxyUrlPattern =
+        /(?:https?:\/\/[^"\s]+)?(?:\/api\/assets\/proxy|\/assets\/proxy)\?[^"\s]*/g;
 
-      console.log('[preprocessJsonForProxy] 开始处理，JSON 长度:', jsonString.length);
-
-      let processedCount = 0;
-      let skippedCount = 0;
-      const result = jsonString.replace(ossUrlPattern, (match) => {
-        // 跳过已经是代理 URL 的
-        if (match.includes('/api/assets/proxy')) {
-          skippedCount++;
-          return match;
+      let normalizedCount = 0;
+      const result = jsonString.replace(proxyUrlPattern, (match) => {
+        const normalized = normalizePersistableImageRef(match);
+        if (normalized && normalized !== match) {
+          normalizedCount += 1;
+          return normalized;
         }
-
-        const proxied = proxifyRemoteAssetUrl(match);
-        if (proxied !== match) {
-          processedCount++;
-          console.log('[preprocessJsonForProxy] 转换:', match.substring(0, 80), '...');
-          return proxied;
-        }
-        console.log('[preprocessJsonForProxy] 未转换:', match.substring(0, 80));
         return match;
       });
 
-      console.log(`[preprocessJsonForProxy] 完成: 转换=${processedCount}, 跳过=${skippedCount}`);
-      if (processedCount > 0) {
-        console.log(`🔄 预处理 JSON：已将 ${processedCount} 个 OSS URL 转换为代理 URL`);
+      if (normalizedCount > 0) {
+        console.log(
+          `[preprocessJsonForProxy] normalized ${normalizedCount} proxy URL(s) to persistable refs`
+        );
       }
 
       return result;
     } catch (error) {
-      console.warn('[PaperSaveService] 预处理 JSON 失败，使用原始内容:', error);
+      console.warn('[PaperSaveService] preprocess JSON failed, use original payload:', error);
       return jsonString;
     }
   }
-
   private ensureRasterCrossOriginAndProxySources() {
     try {
       if (!this.isPaperProjectReady()) return;
@@ -457,18 +444,19 @@ class PaperSaveService {
         if (!candidate || this.isInlineImageSource(candidate)) return;
         if (!isPersistableImageRef(candidate)) return;
 
-        const renderable = isRemoteUrl(candidate)
-          ? proxifyRemoteAssetUrl(candidate)
-          : toRenderableImageSrc(candidate);
+        const renderable =
+          toRenderableImageSrc(candidate) ||
+          (isRemoteUrl(candidate) ? proxifyRemoteAssetUrl(candidate, { forceProxy: true }) : null);
         if (!renderable) return;
-        const shouldProxy = renderable !== candidate;
+        const shouldReplaceSource = sourceStringRaw !== renderable;
 
         const shouldUseAnonymous = (() => {
-          if (shouldProxy) return true;
+          if (!isRemoteUrl(renderable)) return false;
           try {
-            const url = new URL(candidate);
+            const url = new URL(renderable);
             if (typeof window !== 'undefined' && url.hostname === window.location.hostname) return true;
             if (url.hostname.endsWith('.aliyuncs.com')) return true;
+            if (typeof window !== 'undefined') return url.origin !== window.location.origin;
           } catch {}
           return false;
         })();
@@ -477,7 +465,7 @@ class PaperSaveService {
           try { (raster as any).crossOrigin = 'anonymous'; } catch {}
         }
 
-        if (!shouldProxy) return;
+        if (!shouldReplaceSource) return;
 
         if (typeof raster.source === 'string') {
           raster.source = renderable;
