@@ -3436,7 +3436,9 @@ const AIChatDialog: React.FC = () => {
                         : "bg-slate-900 text-white border-slate-900 hover:bg-slate-900 px-2"
                       : "w-7",
                     !aspectRatio && !generationStatus.isGenerating
-                      ? "text-slate-700"
+                      ? isBlackTheme
+                        ? "text-white"
+                        : "text-slate-700"
                       : !aspectRatio && "opacity-50 cursor-not-allowed text-gray-400"
                   )}
                   title={aspectRatio ? lt(`长宽比: ${aspectRatio}`, `Aspect ratio: ${aspectRatio}`) : lt("选择长宽比", "Select aspect ratio")}
@@ -3536,7 +3538,9 @@ const AIChatDialog: React.FC = () => {
                         ? "bg-[#1d1d1d] text-white border-[#404040] hover:bg-[#262626]"
                         : "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
                       : !generationStatus.isGenerating
-                      ? "text-slate-700"
+                      ? isBlackTheme
+                        ? "text-white"
+                        : "text-slate-700"
                       : "opacity-50 cursor-not-allowed text-gray-400"
                   )}
                   title={imageSize ? lt(`分辨率: ${imageSize}`, `Resolution: ${imageSize}`) : lt("选择分辨率", "Select resolution")}
@@ -3563,7 +3567,9 @@ const AIChatDialog: React.FC = () => {
                         ? "bg-[#1d1d1d] text-white border-[#404040] hover:bg-[#262626]"
                         : "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
                       : !generationStatus.isGenerating
-                      ? "text-slate-700"
+                      ? isBlackTheme
+                        ? "text-white"
+                        : "text-slate-700"
                       : "opacity-50 cursor-not-allowed text-gray-400"
                   )}
                   title={
@@ -3603,6 +3609,8 @@ const AIChatDialog: React.FC = () => {
                             aspectRatio === opt.value ||
                               (!aspectRatio && opt.value === null)
                               ? "bg-gray-100 text-gray-800 border border-gray-200"
+                              : isBlackTheme
+                              ? "text-white border border-transparent hover:bg-white/10"
                               : "hover:bg-gray-100 text-gray-700 border border-transparent"
                           )}
                           onClick={() => {
@@ -3745,6 +3753,8 @@ const AIChatDialog: React.FC = () => {
                             imageSize === opt.value ||
                               (!imageSize && opt.value === null)
                               ? "bg-gray-100 text-gray-800 border border-gray-200"
+                              : isBlackTheme
+                              ? "text-white border border-transparent hover:bg-white/10"
                               : "hover:bg-gray-100 text-gray-700 border border-transparent"
                           )}
                           onClick={() => {
@@ -3793,6 +3803,8 @@ const AIChatDialog: React.FC = () => {
                             thinkingLevel === opt.value ||
                               (!thinkingLevel && opt.value === null)
                               ? "bg-gray-100 text-gray-800 border border-gray-200"
+                              : isBlackTheme
+                              ? "text-white border border-transparent hover:bg-white/10"
                               : "hover:bg-gray-100 text-gray-700 border border-transparent"
                           )}
                           onClick={() => {

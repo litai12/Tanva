@@ -990,7 +990,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
               marginTop: 8,
             }}
           >
-          <div className='inline-flex items-center gap-2 px-2 py-2 rounded-[999px] bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass'>
+          <div className='tanva-agent-toolbar inline-flex items-center gap-2 px-2 py-2 rounded-[999px] bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass'>
             {/* 长宽比选择按钮 - 仅 Pro 模式显示 */}
             {isProMode && (
               <div className='relative' ref={aspectMenuRef}>
@@ -1006,8 +1006,8 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
                   }}
                   onPointerDownCapture={stopNodeDrag}
                   className={cn(
-                    "p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center",
-                    aspectRatioValue ? "bg-gray-800 text-white border-gray-800" : ""
+                    "tanva-agent-toolbar-btn p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center",
+                    (isAspectMenuOpen || aspectRatioValue) ? "tanva-agent-toolbar-btn-active bg-gray-800 text-white border-gray-800" : ""
                   )}
                   title={aspectRatioValue ? `${lt('长宽比', 'Aspect ratio')}: ${aspectRatioValue}` : lt("选择长宽比", "Select aspect ratio")}
                 >
@@ -1031,8 +1031,8 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
                   }}
                   onPointerDownCapture={stopNodeDrag}
                   className={cn(
-                    "p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center",
-                    imageSizeValue ? "bg-gray-800 text-white border-gray-800" : ""
+                    "tanva-agent-toolbar-btn p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center",
+                    (isImageSizeMenuOpen || imageSizeValue) ? "tanva-agent-toolbar-btn-active bg-gray-800 text-white border-gray-800" : ""
                   )}
                   title={imageSizeValue ? `${lt('分辨率', 'Resolution')}: ${imageSizeValue}` : lt('选择分辨率', 'Select resolution')}
                 >
@@ -1056,7 +1056,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
               }}
               disabled={status === "running"}
               onPointerDownCapture={stopNodeDrag}
-              className='p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed'
+              className='tanva-agent-toolbar-btn p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed'
               title={status === "running" ? lt("生成中...", "Generating...") : lt("运行生成", "Run generation")}
             >
               <Play style={{ width: 14, height: 14 }} />
@@ -1065,7 +1065,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
 
           {/* 长宽比水平选择栏 - 仅 Pro 模式显示 */}
           {isProMode && isAspectMenuOpen && (
-            <div className='bg-white rounded-full shadow-lg border border-gray-200 px-2 py-1.5 flex items-center gap-1'>
+            <div className='tanva-agent-toolbar-panel bg-white rounded-full shadow-lg border border-gray-200 px-2 py-1.5 flex items-center gap-1'>
               {aspectOptions.map((opt) => (
                 <button
                   key={opt.value || "auto"}
@@ -1076,10 +1076,10 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
                   }}
                   onPointerDownCapture={stopNodeDrag}
                   className={cn(
-                    "px-2 py-1 text-xs rounded-md transition-colors whitespace-nowrap",
+                    "tanva-agent-toolbar-option px-2 py-1 text-xs rounded-md transition-colors whitespace-nowrap",
                     aspectRatioValue === opt.value ||
                       (!aspectRatioValue && opt.value === "")
-                      ? "bg-gray-800 text-white font-medium"
+                      ? "tanva-agent-toolbar-option-active bg-gray-800 text-white font-medium"
                       : "text-gray-700 hover:bg-gray-100"
                   )}
                 >
@@ -1091,7 +1091,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
 
           {/* HD 图像尺寸水平选择栏 - 仅 Pro 模式显示 */}
           {isProMode && isImageSizeMenuOpen && (
-            <div className="bg-white rounded-full shadow-lg border border-gray-200 px-2 py-1.5 flex items-center gap-1">
+            <div className="tanva-agent-toolbar-panel bg-white rounded-full shadow-lg border border-gray-200 px-2 py-1.5 flex items-center gap-1">
               {imageSizeOptions.map(opt => (
                 <button
                   key={opt.value || 'auto'}
@@ -1102,9 +1102,9 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
                   }}
                   onPointerDownCapture={stopNodeDrag}
                   className={cn(
-                    "px-2 py-1 text-xs rounded-md transition-colors whitespace-nowrap",
+                    "tanva-agent-toolbar-option px-2 py-1 text-xs rounded-md transition-colors whitespace-nowrap",
                     imageSizeValue === opt.value
-                      ? "bg-gray-800 text-white font-medium"
+                      ? "tanva-agent-toolbar-option-active bg-gray-800 text-white font-medium"
                       : "text-gray-700 hover:bg-gray-100"
                   )}
                 >

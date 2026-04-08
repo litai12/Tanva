@@ -16,7 +16,6 @@ import {
   normalizePersistableImageRef,
   toRenderableImageSrc,
 } from '@/utils/imageSource';
-import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import type {
   ImageInstance,
   ImageDragState,
@@ -57,40 +56,6 @@ const setRasterSourceSafely = (raster: paper.Raster, source: string) => {
       return;
     } catch {}
   }
-  const fallbackTarget = (() => {
-    try {
-      if (isAssetKeyRef(value)) {
-        return proxifyRemoteAssetUrl(
-          `/api/assets/proxy?key=${encodeURIComponent(value.replace(/^\/+/, ''))}`,
-          { forceProxy: true },
-        );
-      }
-      if (isRemoteUrl(renderable)) {
-        return proxifyRemoteAssetUrl(renderable, { forceProxy: true });
-      }
-    } catch {}
-    return '';
-  })();
-
-  if (fallbackTarget && fallbackTarget !== renderable) {
-    try {
-      const img = new Image();
-      img.onload = () => {
-        try { (raster as any).setImage(img); } catch {}
-      };
-      img.onerror = () => {
-        try {
-          const retry = new Image();
-          retry.onload = () => {
-            try { (raster as any).setImage(retry); } catch {}
-          };
-          retry.src = fallbackTarget;
-        } catch {}
-      };
-      img.src = renderable;
-      return;
-    } catch {}
-  }
   raster.source = renderable;
 };
 
@@ -113,10 +78,10 @@ const pickRuntimeImageSource = (params: {
       !persistedRenderable.startsWith('blob:')
   );
 
-  // 一旦有可渲染的持久化来源（OSS URL / key），优先使用它，避免被临时 blob/data 覆盖。
-  if (hasStablePersisted) return persisted;
   // 上传中优先本地预览，避免未落地 key 触发 404 后卡在裂图状态。
   if (params.pendingUpload && local) return local;
+  // 一旦有可渲染的持久化来源（OSS URL / key），优先使用它，避免被临时 blob/data 覆盖。
+  if (hasStablePersisted) return persisted;
   return persisted || local;
 };
 

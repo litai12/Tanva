@@ -17531,8 +17531,13 @@ function FlowInner() {
             const zoom = Math.max(0.1, Number(flowSnapViewport.zoom) || 1);
             const offsetX = Number(flowSnapViewport.x) || 0;
             const offsetY = Number(flowSnapViewport.y) || 0;
+            /* 节点对齐：线宽为原先一半（原先 0.8/zoom） */
+            const strokeWidth = 0.4 / zoom;
+            const dashLength = 3.5 / zoom;
             const color =
-              alignment.type === "centerX" || alignment.type === "centerY"
+              isFlowBlackTheme
+                ? "#ffffff"
+                : alignment.type === "centerX" || alignment.type === "centerY"
                 ? FLOW_SNAP_GUIDE_COLORS.center
                 : FLOW_SNAP_GUIDE_COLORS.edge;
             if (alignment.orientation === "vertical") {
@@ -17547,8 +17552,8 @@ function FlowInner() {
                   x2={x}
                   y2={y2}
                   stroke={color}
-                  strokeWidth={0.8}
-                  strokeDasharray='3.5 3.5'
+                  strokeWidth={strokeWidth}
+                  strokeDasharray={`${dashLength} ${dashLength}`}
                 />
               );
             }
@@ -17563,8 +17568,8 @@ function FlowInner() {
                 x2={x2}
                 y2={y}
                 stroke={color}
-                strokeWidth={0.8}
-                strokeDasharray='3.5 3.5'
+                strokeWidth={strokeWidth}
+                strokeDasharray={`${dashLength} ${dashLength}`}
               />
             );
           })}

@@ -14,7 +14,6 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import { useImageHistoryStore } from '@/stores/imageHistoryStore';
 import { isRaster } from '@/utils/paperCoords';
 import { createImageGroupBlock } from '@/utils/paperImageGroupBlock';
-import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import {
     isAssetKeyRef,
     isAssetProxyRef,
@@ -1525,22 +1524,13 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 	                return raster;
 	            };
 
-	            // When direct OSS/CDN loading fails, force the render source to keep proxy url.
-	            let forceProxyRenderSource = false;
-
 	            const setRasterSource = (target: paper.Raster, source: string) => {
 	                const value = typeof source === 'string' ? source.trim() : '';
 	                if (!value) return;
 	                try { (target as any).__tanvaSourceRef = value; } catch {}
 	                // Paper.js 对 string source 的内部 loader 在部分环境对 blob:/data: 偶发不稳定；
 	                // 这里对 inline source 用 HTMLImageElement 显式加载，提升兼容性。
-	                const shouldForceProxy = forceProxyRenderSource && isAssetProxyRef(value);
-	                let renderable = shouldForceProxy
-	                    ? proxifyRemoteAssetUrl(value, { forceProxy: true })
-	                    : toRenderableImageSrc(value);
-	                if (!renderable && shouldForceProxy) {
-	                    renderable = value;
-	                }
+	                const renderable = toRenderableImageSrc(value);
 	                if (!renderable) return;
 	                if (renderable.startsWith('data:image/')) {
 	                    try {
@@ -1557,7 +1547,6 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 	            let raster = loadRasterWithFallback(true);
 	            let hasRetriedCrossOrigin = false;
 	            let hasRetriedProxyFallback = false;
-	            let hasRetriedDirectToProxyFallback = false;
 	            let loadTimeoutId: number | null = null;
 	            let retryCount = 0;
 	            let hasTerminalLoadFailure = false;
@@ -2178,63 +2167,10 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                         isAssetProxyRef(rasterSource)
                     ) {
                         hasRetriedProxyFallback = true;
-                        forceProxyRenderSource = false;
                         rasterSource = resolvedRemoteUrl;
                         logger.upload('Proxy load failed, fallback to direct URL...');
                         restartRasterLoad(true);
                         return;
-                    }
-
-                    // direct OSS/CDN load failed -> fallback to proxy once
-                    if (
-                        !hasRetriedDirectToProxyFallback &&
-                        !hasRetriedProxyFallback
-                    ) {
-                        const normalizedKey = typeof resolvedKey === 'string' ? resolvedKey.trim().replace(/^\/+/, '') : '';
-                        const keyFromRemoteUrl = (() => {
-                            const remote = typeof resolvedRemoteUrl === 'string' ? resolvedRemoteUrl.trim() : '';
-                            if (!remote || !isRemoteUrl(remote)) return '';
-                            try {
-                                const fromPath = new URL(remote).pathname.replace(/^\/+/, '');
-                                return isAssetKeyRef(fromPath) ? fromPath : '';
-                            } catch {
-                                return '';
-                            }
-                        })();
-                        const managedKeyCandidate = [normalizedKey, keyFromRemoteUrl].find((k) => isAssetKeyRef(k)) || '';
-                        const keyProxySource = managedKeyCandidate
-                            ? proxifyRemoteAssetUrl(`/api/assets/proxy?key=${encodeURIComponent(managedKeyCandidate)}`, { forceProxy: true })
-                            : '';
-                        if (keyProxySource) {
-                            hasRetriedDirectToProxyFallback = true;
-                            // prevent proxy<->direct bouncing loop
-                            hasRetriedProxyFallback = true;
-                            forceProxyRenderSource = true;
-                            rasterSource = keyProxySource;
-                            logger.upload('Direct URL load failed, fallback to proxy key source...');
-                            restartRasterLoad(false);
-                            return;
-                        }
-
-                        const currentSource = typeof rasterSource === 'string' ? rasterSource.trim() : '';
-                        const fallbackDirectSource = currentSource && isRemoteUrl(currentSource) && !isAssetProxyRef(currentSource)
-                            ? currentSource
-                            : (resolvedRemoteUrl && isRemoteUrl(resolvedRemoteUrl) && !isAssetProxyRef(resolvedRemoteUrl))
-                                ? resolvedRemoteUrl
-                                : '';
-                        if (fallbackDirectSource) {
-                            const proxiedSource = proxifyRemoteAssetUrl(fallbackDirectSource, { forceProxy: true });
-                            if (proxiedSource && proxiedSource !== fallbackDirectSource) {
-                                hasRetriedDirectToProxyFallback = true;
-                                // prevent proxy<->direct bouncing loop
-                                hasRetriedProxyFallback = true;
-                                forceProxyRenderSource = true;
-                                rasterSource = proxiedSource;
-                                logger.upload('Direct URL load failed, fallback to proxy...');
-                                restartRasterLoad(false);
-                                return;
-                            }
-                        }
                     }
 
                     // CORS load failed -> retry without crossOrigin

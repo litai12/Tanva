@@ -58,6 +58,21 @@ export const useSelectionTool = ({
   const [isSelectionDragging, setIsSelectionDragging] = useState(false);
   const [selectionStartPoint, setSelectionStartPoint] = useState<paper.Point | null>(null);
 
+  const getTextBoundsSafely = useCallback((paperText?: paper.PointText | null): paper.Rectangle | null => {
+    if (!paperText) return null;
+    const textAny = paperText as any;
+    if (textAny.removed || !textAny.project) return null;
+    try {
+      const bounds = paperText.bounds;
+      if (!bounds) return null;
+      if (!Number.isFinite(bounds.x) || !Number.isFinite(bounds.y)) return null;
+      if (!Number.isFinite(bounds.width) || !Number.isFinite(bounds.height)) return null;
+      return bounds;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const isHelperOrSelectionItem = useCallback((item: paper.Item | null | undefined): boolean => {
     if (!item) return true;
     const data = item.data || {};
@@ -408,8 +423,8 @@ export const useSelectionTool = ({
     // 检查文本实例是否与选择框相交
     if (selectTexts) {
       for (const textItem of textItems) {
-        if (textItem.paperText && textItem.paperText.bounds) {
-          const textBounds = textItem.paperText.bounds;
+        const textBounds = getTextBoundsSafely(textItem.paperText);
+        if (textBounds) {
           if (selectionRect.intersects(textBounds)) {
             if (!selectedTexts.includes(textItem.id)) {
               selectedTexts.push(textItem.id);
@@ -549,7 +564,7 @@ export const useSelectionTool = ({
     // 重置状态
     setIsSelectionDragging(false);
     setSelectionStartPoint(null);
-  }, [isSelectionDragging, selectionStartPoint, selectedPaths, onImageMultiSelect, onModel3DMultiSelect, onTextMultiSelect, onImageDeselect, onModel3DDeselect, onTextDeselect, imageInstances, model3DInstances, isImageLocked, isLayerVisible]);
+  }, [isSelectionDragging, selectionStartPoint, selectedPaths, onImageMultiSelect, onModel3DMultiSelect, onTextMultiSelect, onImageDeselect, onModel3DDeselect, onTextDeselect, imageInstances, model3DInstances, isImageLocked, isLayerVisible, getTextBoundsSafely]);
 
   // ========== 清除所有选择 ==========
   const clearAllSelections = useCallback(() => {
@@ -879,8 +894,9 @@ export const useSelectionTool = ({
       // 反向遍历以选择最上层的文本
       for (let i = textItems.length - 1; i >= 0; i--) {
         const textItem = textItems[i];
-        if (textItem.paperText && textItem.paperText.bounds) {
-          if (textItem.paperText.bounds.contains(point)) {
+        const textBounds = getTextBoundsSafely(textItem.paperText);
+        if (textBounds) {
+          if (textBounds.contains(point)) {
             textClicked = textItem.id;
             break;
           }
@@ -1078,6 +1094,7 @@ export const useSelectionTool = ({
     handlePathSelect,
     startSelectionBox,
     detectClickedObject,
+    getTextBoundsSafely,
     selectedPath,
     selectedPaths
   ]);
