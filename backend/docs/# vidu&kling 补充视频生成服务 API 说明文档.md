@@ -242,7 +242,7 @@
 **模型配置：**
 ```json
 {
-  "model": "viduq2-turbo"
+  "model": "viduq2"
 }
 ```
 
@@ -252,7 +252,7 @@
 **请求示例：**
 ```json
 {
-  "model": "viduq2-turbo",
+  "model": "viduq2",
   "images": ["https://example.com/image.jpg"],
   "duration": 5,
   "resolution": "720p",
@@ -263,7 +263,7 @@
 **特点：**
 - 需要 1 张参考图片
 - 不需要 prompt（模型自动生成动画）
-- 使用 `viduq2-turbo` 模型（更快）
+- 使用 `viduq2` 模型
 
 ---
 
@@ -272,7 +272,7 @@
 **模型配置：**
 ```json
 {
-  "model": "viduq2-turbo"
+  "model": "viduq2"
 }
 ```
 
@@ -282,7 +282,7 @@
 **请求示例：**
 ```json
 {
-  "model": "viduq2-turbo",
+  "model": "viduq2",
   "images": [
     "https://example.com/start.jpg",
     "https://example.com/end.jpg"
@@ -295,7 +295,7 @@
 **特点：**
 - 需要 2 张参考图片（首帧和尾帧）
 - 不需要 prompt
-- 使用 `viduq2-turbo` 模型
+- 使用 `viduq2` 模型
 - 模型会生成两帧之间的过渡动画
 
 ---
@@ -340,7 +340,7 @@
 
 | 参数 | 类型 | 必填 | 默认值 | 说明 |
 |------|------|------|--------|------|
-| `model` | string | 是 | 根据模式 | `viduq2` 或 `viduq2-turbo` |
+| `model` | string | 是 | 根据模式 | `viduq2` 或 `viduq3` |
 | `prompt` | string | 视模式而定 | - | 文本提示词 |
 | `images` | array | 视模式而定 | - | 参考图片数组 |
 | `duration` | number | 否 | 5 | 视频时长（秒） |
@@ -370,8 +370,8 @@
 | **Kling** | image2video-tail | kling-v2-1 | 首尾帧 |
 | **Kling** | multi-image2video | kling-v1-6 | 多图参考（特殊） |
 | **Vidu** | text2video | viduq2 | 文生视频 |
-| **Vidu** | img2video | viduq2-turbo | 单图生视频（快速） |
-| **Vidu** | start-end2video | viduq2-turbo | 首尾帧（快速） |
+| **Vidu** | img2video | viduq2 | 单图生视频 |
+| **Vidu** | start-end2video | viduq2 | 首尾帧 |
 | **Vidu** | reference2video | viduq2 | 多图参考 |
 
 ### 关键要点
@@ -402,8 +402,7 @@
 #### Vidu 关键要点
 
 1. **模型配置**
-   - `text2video` 和 `reference2video`：使用 `viduq2` 模型
-   - `img2video` 和 `start-end2video`：使用 `viduq2-turbo` 模型（更快）
+   - `text2video`、`img2video`、`start-end2video` 和 `reference2video`：使用 `viduq2` 模型
 
 2. **Prompt 要求**
    - `text2video`：必须提供 prompt
@@ -454,8 +453,8 @@
 ### Vidu 特殊注意事项
 
 1. **模型选择策略**
-   - 需要 prompt 的模式使用 `viduq2`
-   - 不需要 prompt 的模式使用 `viduq2-turbo`（更快）
+   - Q2 链路统一使用 `viduq2`
+   - Q3 链路统一使用 `viduq3-pro`
 
 2. **参考生视频**
    - 最多支持 7 张图片
@@ -523,4 +522,3 @@ const options2 = {
 - **版本**: 1.0
 - **更新日期**: 2026-01-19
 - **维护者**: Tanva Backend Team
-

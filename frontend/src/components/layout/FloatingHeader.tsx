@@ -61,10 +61,10 @@ import { useAIChatStore } from "@/stores/aiChatStore";
 import { logger } from "@/utils/logger";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/authStore";
-import ManualSaveButton from "@/components/autosave/ManualSaveButton";
 import GlobalImageHistoryPage from "@/components/global-history/GlobalImageHistoryPage";
 import { useGlobalImageHistoryStore } from "@/stores/globalImageHistoryStore";
 import AutosaveStatus from "@/components/autosave/AutosaveStatus";
+import WorkflowHistoryButton from "@/components/workflow-history/WorkflowHistoryButton";
 import { paperSaveService } from "@/services/paperSaveService";
 import { historyService } from "@/services/historyService";
 import { clipboardService } from "@/services/clipboardService";
@@ -2011,6 +2011,8 @@ const FloatingHeader: React.FC = () => {
               </span>
               <span className='tabular-nums font-medium'>{topCreditsText}</span>
             </Button>
+
+            <WorkflowHistoryButton projectId={currentProject?.id ?? null} />
 
             <Button
               variant='ghost'

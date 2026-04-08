@@ -521,14 +521,8 @@ export class AiController {
     if (dto.provider === 'vidu' || dto.provider === 'viduq3-pro') {
       const normalized = String(dto.viduModel || '').trim().toLowerCase();
       const modelKey =
-        normalized === 'q2-turbo'
-          ? 'vidu-q2-turbo'
-          : normalized === 'q2-pro'
-          ? 'vidu-q2-pro'
-          : normalized === 'q3' || normalized === 'q3-pro' || normalized === 'q3-turbo'
+        normalized === 'q3'
           ? 'vidu-q3'
-          : normalized === 'q3-mix'
-          ? 'vidu-q3-mix'
           : 'vidu-q2';
       assignRouteParams(await this.modelRoutingService.resolveVideoModel(modelKey));
       return params;
@@ -3204,7 +3198,8 @@ export class AiController {
     if (!userId) {
       this.logger.debug('API Key authentication - skipping credits deduction');
       const result = await this.videoProviderService.generateVideo(effectiveDto);
-      return { ...result, apiUsageId: null };
+      const { execution: _execution, ...publicResult } = result as any;
+      return { ...publicResult, apiUsageId: null };
     }
 
     // 确保用户有积分账户
@@ -3239,6 +3234,17 @@ export class AiController {
 
     try {
       const result = await this.videoProviderService.generateVideo(effectiveDto);
+      const execution = (result as any)?.execution as
+        | {
+            modelKey?: string;
+            vendorKey?: string;
+            platformKey?: string;
+            route?: string;
+            providerChannel?: string;
+            routedProvider?: string;
+            fallbackUsed?: boolean;
+          }
+        | undefined;
       const normalizedStatus = String(result?.status || '').toLowerCase();
 
       if (normalizedStatus === 'failed' || normalizedStatus === 'failure') {
@@ -3252,6 +3258,15 @@ export class AiController {
       if (result?.taskId) {
         await this.creditsService.updateApiUsageRequestParams(apiUsageId, {
           taskId: result.taskId,
+          ...(execution?.modelKey ? { modelKey: execution.modelKey } : {}),
+          ...(execution?.vendorKey ? { vendorKey: execution.vendorKey } : {}),
+          ...(execution?.platformKey ? { platformKey: execution.platformKey } : {}),
+          ...(execution?.route ? { route: execution.route } : {}),
+          ...(execution?.providerChannel ? { providerChannel: execution.providerChannel } : {}),
+          ...(execution?.routedProvider ? { routedProvider: execution.routedProvider } : {}),
+          ...(typeof execution?.fallbackUsed === 'boolean'
+            ? { fallbackUsed: execution.fallbackUsed }
+            : {}),
         });
         this.emitVideoProviderGenerationTaskLog({
           stage: result.videoUrl ? 'succeeded' : 'processing',
@@ -3264,6 +3279,15 @@ export class AiController {
           requestParams: {
             ...requestParams,
             taskId: result.taskId,
+            ...(execution?.modelKey ? { modelKey: execution.modelKey } : {}),
+            ...(execution?.vendorKey ? { vendorKey: execution.vendorKey } : {}),
+            ...(execution?.platformKey ? { platformKey: execution.platformKey } : {}),
+            ...(execution?.route ? { route: execution.route } : {}),
+            ...(execution?.providerChannel ? { providerChannel: execution.providerChannel } : {}),
+            ...(execution?.routedProvider ? { routedProvider: execution.routedProvider } : {}),
+            ...(typeof execution?.fallbackUsed === 'boolean'
+              ? { fallbackUsed: execution.fallbackUsed }
+              : {}),
           },
         });
       }
@@ -3279,7 +3303,8 @@ export class AiController {
       }
 
       // 返回 apiUsageId，前端在任务失败时可请求退款
-      return { ...result, apiUsageId };
+      const { execution: _execution, ...publicResult } = result as any;
+      return { ...publicResult, apiUsageId };
     } catch (error) {
       // 创建任务失败，立即退款
       const errorMessage = error instanceof Error ? error.message : String(error);

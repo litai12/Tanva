@@ -101,23 +101,26 @@ model Project {
 }
 
 model WorkflowHistory {
-  userId    String
-  projectId String
+  userId                String
+  projectId             String
   /// 业务语义上的“更新时间/保存时间”（作为排序键），不使用 @updatedAt
-  updatedAt DateTime @default(now())
+  updatedAt             DateTime  @default(now())
   /// 对应 Project.contentVersion（便于定位/展示版本号）
-  version   Int
+  version               Int
   /// Flow 工作流图快照（nodes/edges）
-  flow      Json     @default("{}")
-  nodeCount Int      @default(0)
-  edgeCount Int      @default(0)
-  createdAt DateTime @default(now())
+  flow                  Json      @default("{}")
+  nodeCount             Int       @default(0)
+  edgeCount             Int       @default(0)
+  restoredFromUpdatedAt DateTime?
+  restoredFromVersion   Int?
+  createdAt             DateTime  @default(now())
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@id([userId, projectId, updatedAt])
   @@unique([userId, projectId, version])
+  @@index([updatedAt])
 }
 
 model CreditAccount {

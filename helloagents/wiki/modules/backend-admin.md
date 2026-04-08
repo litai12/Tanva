@@ -23,10 +23,10 @@
 ## 注意事项
 - 认证/鉴权细节以 Guard 与具体实现为准（通常依赖 JWT + 用户 role/status）。
 - 系统设置中与供应商切换相关的 key：
-  - `sora2_provider`：Sora2 视频链路供应商
   - `banana_provider`：Banana 图像链路供应商
   - `banana_text_provider`：Banana 文本链路供应商（text-chat/tool-selection）
   - `seedream5_provider`：Seedream 5.0 图像链路供应商（`doubao` / `watcha`）
+- Sora2 不再通过系统设置切换供应商，统一在 `model_provider_mapping_v2` 中配置路由。
 - 模型管理配置 key `model_provider_mapping_v2` 中的 `models[]` 允许“真删除”：
   - 前端管理页不会再在归一化时把默认模型目录补回已保存配置。
   - 后端读取该设置时，仅在整项配置缺失时回退默认目录；若设置已存在，则以保存内容为准，不自动复活被删除模型。

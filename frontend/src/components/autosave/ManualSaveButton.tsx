@@ -13,15 +13,15 @@ export default function ManualSaveButton() {
   const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
   const lt = useCallback((zhText: string, enText: string) => (isZh ? zhText : enText), [isZh]);
   const projectId = useProjectContentStore((state) => state.projectId);
-  const saving = useProjectContentStore((state) => state.saving);
-  const setSaving = useProjectContentStore((state) => state.setSaving);
+  const manualSaving = useProjectContentStore((state) => state.manualSaving);
+  const setManualSaving = useProjectContentStore((state) => state.setManualSaving);
   const markSaved = useProjectContentStore((state) => state.markSaved);
   const setError = useProjectContentStore((state) => state.setError);
   const setWarning = useProjectContentStore((state) => state.setWarning);
 
   const handleSave = useCallback(async () => {
     const storeBefore = useProjectContentStore.getState();
-    if (!storeBefore.projectId || storeBefore.saving) {
+    if (!storeBefore.projectId || storeBefore.saving || storeBefore.manualSaving) {
       return;
     }
 
@@ -52,7 +52,7 @@ export default function ManualSaveButton() {
         setWarning(null);
       }
 
-      setSaving(true);
+      setManualSaving(true);
 
       const result = await projectApi.saveContent(currentProjectId, { content: contentForCloudSave, version, createWorkflowHistory: true });
 
@@ -87,18 +87,18 @@ export default function ManualSaveButton() {
       setError(message);
       console.error('手动保存失败:', error);
     } finally {
-      setSaving(false);
+      setManualSaving(false);
     }
-  }, [lt, markSaved, setError, setSaving, setWarning]);
+  }, [lt, markSaved, setError, setManualSaving, setWarning]);
 
   return (
     <button
       type="button"
       onClick={handleSave}
-      disabled={!projectId || saving}
+      disabled={!projectId || manualSaving}
       className="rounded border border-sky-500 bg-sky-50 px-2 py-1 text-xs text-sky-600 hover:bg-sky-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
     >
-      {saving ? lt('保存中…', 'Saving...') : lt('保存', 'Save')}
+      {manualSaving ? lt('保存中…', 'Saving...') : lt('保存', 'Save')}
     </button>
   );
 }

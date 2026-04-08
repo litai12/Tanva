@@ -73,7 +73,7 @@ export class VideoProviderRequestDto {
   klingModel?: string;
 
   @ApiProperty({
-    description: 'Vidu 模型版本 (如 q2/q2-turbo/q2-pro/q3/q3-mix)',
+    description: 'Vidu 模型版本 (如 q2/q3)',
     required: false,
   })
   @IsOptional()

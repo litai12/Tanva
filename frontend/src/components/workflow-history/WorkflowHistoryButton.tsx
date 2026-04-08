@@ -28,7 +28,7 @@ export default function WorkflowHistoryButton({ projectId }: WorkflowHistoryButt
     .toLowerCase()
     .startsWith("zh");
   const locale = isZh ? "zh-CN" : "en-US";
-  const lt = (zhText: string, enText: string) => (isZh ? zhText : enText);
+  const lt = useCallback((zhText: string, enText: string) => (isZh ? zhText : enText), [isZh]);
   const [open, setOpen] = useState(false);
   const [pinned, setPinned] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -118,9 +118,9 @@ export default function WorkflowHistoryButton({ projectId }: WorkflowHistoryButt
 
   useEffect(() => () => cancelClose(), [cancelClose]);
 
-  const restore = useCallback(async (updatedAt: string) => {
+  const restore = useCallback(async (entry: WorkflowHistoryEntry) => {
     const storeBefore = useProjectContentStore.getState();
-    if (!projectId || storeBefore.projectId !== projectId || storeBefore.saving) return;
+    if (!projectId || storeBefore.projectId !== projectId || storeBefore.saving || storeBefore.manualSaving) return;
 
     const confirmed = window.confirm(
       lt(
@@ -130,9 +130,9 @@ export default function WorkflowHistoryButton({ projectId }: WorkflowHistoryButt
     );
     if (!confirmed) return;
 
-    setRestoring(updatedAt);
+    setRestoring(entry.updatedAt);
     try {
-      const detail = await projectApi.getWorkflowHistory(projectId, updatedAt);
+      const detail = await projectApi.getWorkflowHistory(projectId, entry.updatedAt);
       const flow = detail?.flow;
       if (!flow || typeof flow !== "object") {
         throw new Error(
@@ -167,11 +167,15 @@ export default function WorkflowHistoryButton({ projectId }: WorkflowHistoryButt
         try { store.setWarning(null); } catch {}
       }
 
-      store.setSaving(true);
+      store.setManualSaving(true);
       const result = await projectApi.saveContent(projectId, {
         content: contentForCloudSave,
         version: store.version,
         createWorkflowHistory: true,
+        workflowHistoryMeta: {
+          restoredFromUpdatedAt: entry.updatedAt,
+          restoredFromVersion: entry.version,
+        },
       });
       store.markSaved(result.version, result.updatedAt ?? new Date().toISOString());
 
@@ -185,7 +189,7 @@ export default function WorkflowHistoryButton({ projectId }: WorkflowHistoryButt
     } finally {
       const storeAfter = useProjectContentStore.getState();
       if (storeAfter.projectId === projectId) {
-        storeAfter.setSaving(false);
+        storeAfter.setManualSaving(false);
       }
       setRestoring(null);
     }
@@ -222,6 +226,19 @@ export default function WorkflowHistoryButton({ projectId }: WorkflowHistoryButt
                   `v${item.version} · Nodes ${item.nodeCount} · Edges ${item.edgeCount}`
                 )}
               </div>
+              {item.restoredFromUpdatedAt && (
+                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                  <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                    {lt("恢复记录", "Restored")}
+                  </span>
+                  <span className="text-[11px] text-amber-700">
+                    {lt(
+                      `来源 v${item.restoredFromVersion ?? "?"} · ${formatDateTime(item.restoredFromUpdatedAt, locale)}`,
+                      `From v${item.restoredFromVersion ?? "?"} · ${formatDateTime(item.restoredFromUpdatedAt, locale)}`
+                    )}
+                  </span>
+                </div>
+              )}
             </div>
             <button
               type="button"
@@ -232,7 +249,7 @@ export default function WorkflowHistoryButton({ projectId }: WorkflowHistoryButt
                 restoring === item.updatedAt && "opacity-100 cursor-not-allowed"
               )}
               disabled={Boolean(restoring)}
-              onClick={() => restore(item.updatedAt)}
+              onClick={() => restore(item)}
               title={lt("恢复并保存", "Restore and save")}
             >
               <RotateCcw className="h-3 w-3" />
