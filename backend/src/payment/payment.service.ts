@@ -13,6 +13,7 @@ import {
 } from './dto/payment.dto';
 import { TransactionType } from '../credits/dto/credits.dto';
 import { ReferralService } from '../referral/referral.service';
+import { buildRechargeCreditLotData } from '../credits/credit-lot-grants';
 
 // --- 🛡️ 兼容引用 ---
 const alipayLib = require('alipay-sdk');
@@ -578,6 +579,20 @@ export class PaymentService implements OnModuleInit {
       if (!account) account = await tx.creditAccount.create({ data: { userId, balance: 0, totalEarned: 0 } });
       const newBalance = account.balance + credits;
       await tx.creditAccount.update({ where: { id: account.id }, data: { balance: newBalance, totalEarned: account.totalEarned + credits } });
+      const creditLot = await tx.creditLot.create({
+        data: buildRechargeCreditLotData({
+          accountId: account.id,
+          amount: credits,
+          grantedAt: options?.paidAt ?? new Date(),
+          orderId: currentOrder.id,
+          metadata: {
+            orderNo: currentOrder.orderNo,
+            ...(options?.tradeNo ? { tradeNo: options.tradeNo } : {}),
+            source: options?.source ?? 'unknown',
+            paymentMethod: options?.paymentMethod ?? currentOrder.paymentMethod,
+          },
+        }),
+      });
       await tx.creditTransaction.create({
         data: {
           accountId: account.id,
@@ -586,6 +601,7 @@ export class PaymentService implements OnModuleInit {
           balanceBefore: account.balance,
           balanceAfter: newBalance,
           description: `充值`,
+          creditLotId: creditLot.id,
           metadata: {
             orderId: currentOrder.id,
             orderNo: currentOrder.orderNo,

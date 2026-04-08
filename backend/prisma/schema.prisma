@@ -137,6 +137,7 @@ model CreditAccount {
   lastCheckInDate   DateTime?           // 最后签到日期
   user              User                @relation(fields: [userId], references: [id])
   transactions      CreditTransaction[]
+  lots              CreditLot[]
   anomalyRecords    CreditAnomalyRecord[]
 }
 
@@ -150,16 +151,69 @@ model CreditTransaction {
   description   String
   apiUsageId    String?
   metadata      Json?
+  creditLotId   String?
+  consumePolicyCode String?
+  consumePolicyVersion Int?
   createdAt     DateTime      @default(now())
   // 签到积分过期相关字段
   expiresAt     DateTime?     // 过期时间，null 表示永不过期
   expiredAmount Int           @default(0) // 已过期清除的积分数量
   isExpired     Boolean       @default(false) // 是否已过期处理
   account       CreditAccount @relation(fields: [accountId], references: [id])
+  creditLot     CreditLot?    @relation(fields: [creditLotId], references: [id])
 
   @@index([accountId, createdAt])
   @@index([type])
   @@index([expiresAt, isExpired]) // 用于定时清理任务查询
+  @@index([creditLotId, createdAt])
+}
+
+model CreditLot {
+  id              String              @id @default(uuid())
+  accountId       String
+  sourceType      String
+  validityType    String
+  scopeType       String?             @default("global")
+  scopeValue      String?
+  totalAmount     Int
+  remainingAmount Int
+  grantedAt       DateTime            @default(now())
+  activeAt        DateTime            @default(now())
+  expiresAt       DateTime?
+  durationDays    Int?
+  subscriptionId  String?
+  orderId         String?
+  status          String              @default("active")
+  priority        Int                 @default(0)
+  metadata        Json?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  account         CreditAccount       @relation(fields: [accountId], references: [id])
+  transactions    CreditTransaction[]
+
+  @@index([accountId, status, expiresAt])
+  @@index([accountId, validityType, status])
+  @@index([scopeType, scopeValue, status])
+  @@index([subscriptionId])
+  @@index([orderId])
+}
+
+model CreditConsumePolicy {
+  id               String   @id @default(uuid())
+  code             String   @unique
+  scopeType        String   @default("global")
+  scopeValue       String?
+  isActive         Boolean  @default(true)
+  version          Int      @default(1)
+  sorts            Json
+  validityPriority Json
+  sourcePriority   Json
+  description      String?
+  metadata         Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([scopeType, scopeValue, isActive])
 }
 
 model CreditAnomalyRecord {

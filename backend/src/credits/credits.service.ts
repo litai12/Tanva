@@ -11,6 +11,22 @@ import {
 } from './credits.config';
 import { TransactionType, ApiResponseStatus } from './dto/credits.dto';
 import { ReferralService } from '../referral/referral.service';
+import {
+  buildDailyRewardCreditLotData,
+  buildManualCreditLotData,
+  buildSignupCreditLotData,
+} from './credit-lot-grants';
+import {
+  applyLotDeductionsToSnapshots,
+  applyLotRestorationsToSnapshots,
+  buildHybridCreditDeductionPlan,
+  type HybridCreditDeduction,
+} from './credit-lot-ledger';
+import {
+  getDefaultCreditConsumePolicy,
+  type CreditLotCandidate,
+  type CreditLotStatus,
+} from './credit-lot-policy';
 
 // 签到积分过期天数（普通用户）
 const DAILY_REWARD_EXPIRE_DAYS = 7;
@@ -216,6 +232,97 @@ export class CreditsService {
 
     // 如果没有找到匹配的分辨率，返回默认值
     return defaultCredits;
+  }
+
+  private toCreditLotCandidate(lot: {
+    id: string;
+    sourceType: string;
+    validityType: string;
+    scopeType: string | null;
+    scopeValue: string | null;
+    totalAmount: number;
+    remainingAmount: number;
+    grantedAt: Date;
+    activeAt: Date;
+    expiresAt: Date | null;
+    priority: number;
+    status: string;
+  }): CreditLotCandidate {
+    return {
+      id: lot.id,
+      sourceType: lot.sourceType as CreditLotCandidate['sourceType'],
+      validityType: lot.validityType as CreditLotCandidate['validityType'],
+      scopeType: (lot.scopeType ?? 'global') as CreditLotCandidate['scopeType'],
+      scopeValue: lot.scopeValue,
+      totalAmount: lot.totalAmount,
+      remainingAmount: lot.remainingAmount,
+      grantedAt: lot.grantedAt,
+      activeAt: lot.activeAt,
+      expiresAt: lot.expiresAt,
+      priority: lot.priority,
+      status: lot.status as CreditLotStatus,
+    };
+  }
+
+  private extractLotDeductionsFromMetadata(
+    metadata: Prisma.JsonValue | null | undefined,
+  ): HybridCreditDeduction[] {
+    const payload = this.asJsonObject(metadata);
+    const rawDeductions = Array.isArray(payload?.deductions) ? payload?.deductions : [];
+
+    const deductions: HybridCreditDeduction[] = [];
+    for (const item of rawDeductions) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+      const entry = item as Record<string, unknown>;
+      const kind = entry.kind === 'lot' ? 'lot' : entry.kind === 'legacy_balance' ? 'legacy_balance' : null;
+      const amount = typeof entry.amount === 'number' ? Math.floor(entry.amount) : NaN;
+      const lotId = typeof entry.lotId === 'string' && entry.lotId.trim().length > 0 ? entry.lotId : undefined;
+      if (!kind || !Number.isFinite(amount) || amount <= 0) continue;
+      if (kind === 'lot' && !lotId) continue;
+
+      deductions.push(
+        kind === 'lot'
+          ? { kind, lotId, amount }
+          : { kind, amount },
+      );
+    }
+
+    return deductions;
+  }
+
+  private buildLotDeductionsMetadata(
+    deductions: HybridCreditDeduction[],
+  ): Prisma.InputJsonValue {
+    return {
+      deductions: deductions.map((item) =>
+        item.kind === 'lot'
+          ? {
+              kind: item.kind,
+              lotId: item.lotId,
+              amount: item.amount,
+            }
+          : {
+              kind: item.kind,
+              amount: item.amount,
+            },
+      ),
+    } as Prisma.InputJsonValue;
+  }
+
+  private getDailyRewardMetadata(
+    consecutiveDays: number,
+    bonusCredits: number,
+  ): Prisma.InputJsonValue {
+    return {
+      reason: 'daily_reward',
+      consecutiveDays,
+      ...(bonusCredits > 0
+        ? {
+            bonusCredits,
+            baseCredits: DAILY_LOGIN_REWARD_CREDITS,
+          }
+        : {}),
+    } as Prisma.InputJsonValue;
   }
 
   private extractChannelFromApiUsage(apiUsage?: {
@@ -618,6 +725,16 @@ export class CreditsService {
           },
         });
 
+        const signupLot = await tx.creditLot.create({
+          data: buildSignupCreditLotData({
+            accountId: newAccount.id,
+            amount: DEFAULT_NEW_USER_CREDITS,
+            metadata: {
+              reason: 'new_user_signup',
+            },
+          }),
+        });
+
         // 记录初始赠送交易
         await tx.creditTransaction.create({
           data: {
@@ -627,10 +744,21 @@ export class CreditsService {
             balanceBefore: 0,
             balanceAfter: DEFAULT_NEW_USER_CREDITS,
             description: '新用户注册赠送积分',
+            creditLotId: signupLot.id,
           },
         });
 
         if (invitedBonus > 0) {
+          const invitedBonusLot = await tx.creditLot.create({
+            data: buildSignupCreditLotData({
+              accountId: newAccount.id,
+              amount: invitedBonus,
+              metadata: {
+                reason: 'invitee_signup_bonus',
+                inviterUserId: user?.invitedById ?? null,
+              },
+            }),
+          });
           await tx.creditTransaction.create({
             data: {
               accountId: newAccount.id,
@@ -639,6 +767,7 @@ export class CreditsService {
               balanceBefore: DEFAULT_NEW_USER_CREDITS,
               balanceAfter: initialCredits,
               description: '被邀请注册额外赠送积分',
+              creditLotId: invitedBonusLot.id,
               metadata: { inviterUserId: user?.invitedById },
             },
           });
@@ -785,11 +914,70 @@ export class CreditsService {
         serviceType,
       });
 
-      if (account.balance < creditsToDeduct) {
+      const activeLots = await tx.creditLot.findMany({
+        where: {
+          accountId: account.id,
+          status: 'active',
+        },
+        select: {
+          id: true,
+          sourceType: true,
+          validityType: true,
+          scopeType: true,
+          scopeValue: true,
+          totalAmount: true,
+          remainingAmount: true,
+          grantedAt: true,
+          activeAt: true,
+          expiresAt: true,
+          priority: true,
+          status: true,
+        },
+      });
+
+      const consumePolicy = getDefaultCreditConsumePolicy();
+      const deductionPlan = buildHybridCreditDeductionPlan({
+        accountBalance: account.balance,
+        amount: creditsToDeduct,
+        lots: activeLots.map((lot) => this.toCreditLotCandidate(lot)),
+        now: new Date(),
+        scope: {
+          serviceType,
+          provider: requestedProvider || pricing.provider,
+          model: model ?? null,
+        },
+        policy: consumePolicy,
+      });
+
+      if (!deductionPlan.sufficient) {
         throw new BadRequestException(`积分不足，当前余额: ${account.balance}，需要: ${creditsToDeduct}`);
       }
 
-      const newBalance = account.balance - creditsToDeduct;
+      const updatedLots = applyLotDeductionsToSnapshots({
+        lots: activeLots.map((lot) => this.toCreditLotCandidate(lot)),
+        deductions: deductionPlan.deductions,
+      });
+
+      for (const updatedLot of updatedLots) {
+        const originalLot = activeLots.find((lot) => lot.id === updatedLot.id);
+        if (!originalLot) continue;
+        if (
+          originalLot.remainingAmount === updatedLot.remainingAmount &&
+          originalLot.status === updatedLot.status
+        ) {
+          continue;
+        }
+
+        await tx.creditLot.update({
+          where: { id: updatedLot.id },
+          data: {
+            remainingAmount: updatedLot.remainingAmount,
+            status: updatedLot.status,
+          },
+        });
+      }
+
+      const newBalance = account.balance - deductionPlan.totalDeducted;
 
       // Sora 按模型区分显示名称：Pro 750 积分显示「Sora 2 Pro 视频生成」
       const effectiveServiceName = this.resolveSoraServiceName(
@@ -833,11 +1021,14 @@ export class CreditsService {
         data: {
           accountId: account.id,
           type: TransactionType.SPEND,
-          amount: -creditsToDeduct,
+          amount: -deductionPlan.totalDeducted,
           balanceBefore: account.balance,
           balanceAfter: newBalance,
           description: `使用 ${effectiveServiceName}${requestParams?.imageSize ? `（${requestParams.imageSize}）` : ''}`,
           apiUsageId: apiUsage.id,
+          consumePolicyCode: consumePolicy.code,
+          consumePolicyVersion: consumePolicy.version,
+          metadata: this.buildLotDeductionsMetadata(deductionPlan.deductions),
         },
       });
 
@@ -1181,6 +1372,70 @@ export class CreditsService {
       const newBalance = account.balance + creditsToRefund;
       const adjustedTotalSpent = Math.max(0, account.totalSpent - creditsToRefund);
 
+      const spendTransaction = await tx.creditTransaction.findFirst({
+        where: {
+          apiUsageId,
+          type: TransactionType.SPEND,
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      const lotDeductions = this.extractLotDeductionsFromMetadata(
+        spendTransaction?.metadata,
+      );
+
+      if (lotDeductions.length > 0) {
+        const lotIds = lotDeductions
+          .filter((item) => item.kind === 'lot' && !!item.lotId)
+          .map((item) => item.lotId as string);
+
+        if (lotIds.length > 0) {
+          const lots = await tx.creditLot.findMany({
+            where: {
+              id: { in: lotIds },
+            },
+            select: {
+              id: true,
+              sourceType: true,
+              validityType: true,
+              scopeType: true,
+              scopeValue: true,
+              totalAmount: true,
+              remainingAmount: true,
+              grantedAt: true,
+              activeAt: true,
+              expiresAt: true,
+              priority: true,
+              status: true,
+            },
+          });
+
+          const restoredLots = applyLotRestorationsToSnapshots({
+            lots: lots.map((lot) => this.toCreditLotCandidate(lot)),
+            deductions: lotDeductions,
+          });
+
+          for (const restoredLot of restoredLots) {
+            const originalLot = lots.find((lot) => lot.id === restoredLot.id);
+            if (!originalLot) continue;
+            if (
+              originalLot.remainingAmount === restoredLot.remainingAmount &&
+              originalLot.status === restoredLot.status
+            ) {
+              continue;
+            }
+
+            await tx.creditLot.update({
+              where: { id: restoredLot.id },
+              data: {
+                remainingAmount: restoredLot.remainingAmount,
+                status: restoredLot.status,
+              },
+            });
+          }
+        }
+      }
+
       // 更新账户余额
       await tx.creditAccount.update({
         where: { id: account.id },
@@ -1200,6 +1455,11 @@ export class CreditsService {
           balanceAfter: newBalance,
           description: `退还 ${apiUsage.serviceName} 积分（API调用失败）`,
           apiUsageId,
+          consumePolicyCode: spendTransaction?.consumePolicyCode ?? null,
+          consumePolicyVersion: spendTransaction?.consumePolicyVersion ?? null,
+          metadata: lotDeductions.length > 0
+            ? this.buildLotDeductionsMetadata(lotDeductions)
+            : undefined,
         },
       });
 
@@ -1392,6 +1652,17 @@ export class CreditsService {
         },
       });
 
+      const creditLot = await tx.creditLot.create({
+        data: buildManualCreditLotData({
+          accountId: account.id,
+          amount,
+          metadata: {
+            adminId,
+            description,
+          },
+        }),
+      });
+
       const transaction = await tx.creditTransaction.create({
         data: {
           accountId: account.id,
@@ -1400,6 +1671,7 @@ export class CreditsService {
           balanceBefore: account.balance,
           balanceAfter: newBalance,
           description,
+          creditLotId: creditLot.id,
           metadata: { adminId },
         },
       });
@@ -1721,6 +1993,15 @@ export class CreditsService {
         ? (isPaid ? `连续签到第7天+额外奖励${bonusCredits}积分（永久）` : `连续签到第7天+额外奖励${bonusCredits}积分（${DAILY_REWARD_EXPIRE_DAYS}天后过期）`)
         : (isPaid ? `每日签到第${newConsecutiveDays}天（永久）` : `每日签到第${newConsecutiveDays}天（${DAILY_REWARD_EXPIRE_DAYS}天后过期）`);
 
+      const creditLot = await tx.creditLot.create({
+        data: buildDailyRewardCreditLotData({
+          accountId: account.id,
+          amount: totalCredits,
+          expiresAt,
+          metadata: this.getDailyRewardMetadata(newConsecutiveDays, bonusCredits),
+        }),
+      });
+
       const transaction = await tx.creditTransaction.create({
         data: {
           accountId: account.id,
@@ -1729,8 +2010,9 @@ export class CreditsService {
           balanceBefore: account.balance,
           balanceAfter: newBalance,
           description,
+          creditLotId: creditLot.id,
           expiresAt,
-          metadata: bonusCredits > 0 ? { bonusCredits, baseCredits: DAILY_LOGIN_REWARD_CREDITS } : undefined,
+          metadata: this.getDailyRewardMetadata(newConsecutiveDays, bonusCredits),
         },
       });
 
@@ -1811,6 +2093,133 @@ export class CreditsService {
    */
   async cleanupExpiredDailyRewards(): Promise<{ processedUsers: number; totalExpiredCredits: number }> {
     const now = new Date();
+    const processedUserIds = new Set<string>();
+    let totalExpiredCredits = 0;
+
+    const expiredDailyRewardLots = await this.prisma.creditLot.findMany({
+      where: {
+        status: 'active',
+        validityType: 'fixed_window',
+        expiresAt: { lte: now },
+        metadata: {
+          path: ['reason'],
+          equals: 'daily_reward',
+        },
+      },
+      include: {
+        account: true,
+      },
+      orderBy: { expiresAt: 'asc' },
+    });
+
+    for (const lot of expiredDailyRewardLots) {
+      const userId = lot.account.userId;
+      processedUserIds.add(userId);
+
+      const isPaid = await this.isPaidUser(userId);
+      if (isPaid) {
+        await this.prisma.$transaction(async (tx) => {
+          await tx.creditLot.update({
+            where: { id: lot.id },
+            data: {
+              validityType: 'permanent',
+              expiresAt: null,
+            },
+          });
+
+          await tx.creditTransaction.updateMany({
+            where: {
+              creditLotId: lot.id,
+              type: TransactionType.DAILY_REWARD,
+            },
+            data: {
+              expiresAt: null,
+              isExpired: false,
+            },
+          });
+        });
+        continue;
+      }
+
+      if (lot.remainingAmount <= 0) {
+        await this.prisma.$transaction(async (tx) => {
+          await tx.creditLot.update({
+            where: { id: lot.id },
+            data: {
+              remainingAmount: 0,
+              status: 'expired',
+            },
+          });
+
+          await tx.creditTransaction.updateMany({
+            where: {
+              creditLotId: lot.id,
+              type: TransactionType.DAILY_REWARD,
+            },
+            data: {
+              isExpired: true,
+              expiredAmount: 0,
+            },
+          });
+        });
+        continue;
+      }
+
+      const account = await this.prisma.creditAccount.findUnique({
+        where: { id: lot.accountId },
+      });
+
+      if (!account) continue;
+
+      const actualDeduct = Math.min(lot.remainingAmount, account.balance);
+
+      await this.prisma.$transaction(async (tx) => {
+        const newBalance = account.balance - actualDeduct;
+        await tx.creditAccount.update({
+          where: { id: account.id },
+          data: {
+            balance: newBalance,
+          },
+        });
+
+        await tx.creditLot.update({
+          where: { id: lot.id },
+          data: {
+            remainingAmount: 0,
+            status: 'expired',
+          },
+        });
+
+        await tx.creditTransaction.create({
+          data: {
+            accountId: account.id,
+            type: TransactionType.EXPIRE,
+            amount: -actualDeduct,
+            balanceBefore: account.balance,
+            balanceAfter: newBalance,
+            description: '签到积分过期清除',
+            creditLotId: lot.id,
+            metadata: {
+              expiredLotId: lot.id,
+              originalRemainingAmount: lot.remainingAmount,
+            },
+          },
+        });
+
+        await tx.creditTransaction.updateMany({
+          where: {
+            creditLotId: lot.id,
+            type: TransactionType.DAILY_REWARD,
+          },
+          data: {
+            isExpired: true,
+            expiredAmount: actualDeduct,
+          },
+        });
+      });
+
+      totalExpiredCredits += actualDeduct;
+    }
 
     // 查找所有已过期但未处理的签到积分记录
     const expiredTransactions = await this.prisma.creditTransaction.findMany({
@@ -1818,6 +2227,7 @@ export class CreditsService {
         type: TransactionType.DAILY_REWARD,
         expiresAt: { lte: now },
         isExpired: false,
+        creditLotId: null,
         amount: { gt: 0 }, // 只处理正数（获得积分的记录）
       },
       include: {
@@ -1826,7 +2236,7 @@ export class CreditsService {
     });
 
     if (expiredTransactions.length === 0) {
-      return { processedUsers: 0, totalExpiredCredits: 0 };
+      return { processedUsers: processedUserIds.size, totalExpiredCredits };
     }
 
     // 按用户分组处理
@@ -1840,9 +2250,9 @@ export class CreditsService {
     }
 
     let processedUsers = 0;
-    let totalExpiredCredits = 0;
 
     for (const [userId, transactions] of userTransactions) {
+      processedUserIds.add(userId);
       // 再次确认不是付费用户（双重检查）
       const isPaid = await this.isPaidUser(userId);
       if (isPaid) {
@@ -1928,8 +2338,9 @@ export class CreditsService {
       processedUsers++;
     }
 
-    this.logger.log(`签到积分过期清理完成: 处理 ${processedUsers} 个用户, 清除 ${totalExpiredCredits} 积分`);
-    return { processedUsers, totalExpiredCredits };
+    const totalProcessedUsers = processedUserIds.size;
+    this.logger.log(`签到积分过期清理完成: 处理 ${totalProcessedUsers} 个用户, 清除 ${totalExpiredCredits} 积分`);
+    return { processedUsers: totalProcessedUsers, totalExpiredCredits };
   }
 
   /**
@@ -1954,22 +2365,44 @@ export class CreditsService {
       return { totalExpiring: 0, expiringDetails: [], isPaidUser: false };
     }
 
-    // 查找未过期的签到积分
-    const expiringTransactions = await this.prisma.creditTransaction.findMany({
-      where: {
-        accountId: account.id,
-        type: TransactionType.DAILY_REWARD,
-        expiresAt: { not: null },
-        isExpired: false,
-        amount: { gt: 0 },
-      },
-      orderBy: { expiresAt: 'asc' },
-    });
+    const [expiringLots, expiringTransactions] = await Promise.all([
+      this.prisma.creditLot.findMany({
+        where: {
+          accountId: account.id,
+          status: 'active',
+          validityType: 'fixed_window',
+          expiresAt: { not: null },
+          remainingAmount: { gt: 0 },
+          metadata: {
+            path: ['reason'],
+            equals: 'daily_reward',
+          },
+        },
+        orderBy: { expiresAt: 'asc' },
+      }),
+      this.prisma.creditTransaction.findMany({
+        where: {
+          accountId: account.id,
+          type: TransactionType.DAILY_REWARD,
+          expiresAt: { not: null },
+          isExpired: false,
+          creditLotId: null,
+          amount: { gt: 0 },
+        },
+        orderBy: { expiresAt: 'asc' },
+      }),
+    ]);
 
-    const expiringDetails = expiringTransactions.map(t => ({
-      amount: t.amount,
-      expiresAt: t.expiresAt!,
-    }));
+    const expiringDetails = [
+      ...expiringLots.map((lot) => ({
+        amount: lot.remainingAmount,
+        expiresAt: lot.expiresAt!,
+      })),
+      ...expiringTransactions.map((t) => ({
+        amount: t.amount,
+        expiresAt: t.expiresAt!,
+      })),
+    ].sort((left, right) => left.expiresAt.getTime() - right.expiresAt.getTime());
 
     const totalExpiring = expiringDetails.reduce((sum, d) => sum + d.amount, 0);
 

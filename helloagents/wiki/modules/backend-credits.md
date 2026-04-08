@@ -44,3 +44,22 @@
 
 ## 数据模型关联
 - `CreditAccount`、`CreditTransaction`、`ApiUsageRecord`、`CreditPricing`、`CreditPackage`
+
+## 多形态积分基础层（2026-04-08）
+- 新增 `backend/src/credits/credit-lot-policy.ts`：提供积分批次（lot）候选类型、默认扣减策略、lot 可用性过滤、优先级排序和扣减规划函数。
+- 新增 `backend/src/credits/credit-lot-grants.ts`：提供充值、管理员补发、新用户注册赠送等“永久 lot”构建函数。
+- 新增 Prisma 模型基础设施：
+  - `CreditLot`：表示一批具有同一来源/有效期规则的积分，支持 `permanent`、`fixed_window`、`membership_bound` 三类生命周期。
+  - `CreditConsumePolicy`：表示扣减优先级策略，支持按生命周期、来源、scope specificity 等规则排序。
+- `CreditTransaction` 补充 lot / policy 审计字段：
+  - `creditLotId`
+  - `consumePolicyCode`
+  - `consumePolicyVersion`
+- 当前仍是基础层，现有 `CreditsService.preDeductCredits` 生产扣费逻辑尚未切换到 lot 真值扣减；后续迁移应分阶段接入，避免一次性重写线上账务链路。
+- 已接入的发放链路：
+  - `PaymentService.processPaymentSuccess`：充值成功后创建 `sourceType=recharge` 的 permanent lot。
+  - `CreditsService.adminAddCredits`：管理员补发积分时创建 `sourceType=manual` 的 permanent lot。
+  - `CreditsService.getOrCreateAccount`：新用户注册赠送与邀请注册额外赠送创建 `sourceType=promo` 的 permanent lot。
+- 尚未接入的链路：
+  - 每日签到（现有过期清理仍以 `CreditTransaction` 为主）
+  - lot 真值扣减与 lot 级退款恢复
