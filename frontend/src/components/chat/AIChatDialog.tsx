@@ -314,6 +314,7 @@ const AIChatDialog: React.FC = () => {
     sendShortcut,
     executeMidjourneyAction,
     expandedPanelStyle,
+    chatTheme,
     // 直接调用的图像处理方法（用于重新发送）
     editImage,
     blendImages,
@@ -321,6 +322,8 @@ const AIChatDialog: React.FC = () => {
   } = useAIChatStore();
   const focusMode = useUIStore((state) => state.focusMode);
   const showLibraryPanel = useUIStore((state) => state.showLibraryPanel);
+  const isBlackTheme = chatTheme === "black";
+  const chatLogoSrc = isBlackTheme ? "/tanvas_ai.png" : "/Logo.svg";
   const isZh = (i18n.resolvedLanguage || i18n.language || "")
     .toLowerCase()
     .startsWith("zh");
@@ -2873,11 +2876,26 @@ const AIChatDialog: React.FC = () => {
         data-prevent-add-panel
         className={cn(
           "transition-all ease-out relative overflow-visible group ai-chat-glow-border",
+          isBlackTheme && "ai-chat-theme-premium-dark",
+          isBlackTheme && isCompactMode && "ai-chat-panel-compact ai-chat-panel-transparent",
+          isBlackTheme && !isCompactMode && !useSolidPanel && "ai-chat-panel-transparent",
+          isBlackTheme && !isCompactMode && useSolidPanel && "ai-chat-panel-solid",
           // 紧凑模式：透明玻璃效果
-          isCompactMode && "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg",
+          isCompactMode &&
+            (isBlackTheme
+              ? "border border-[#1a1a1a] shadow-[0_20px_48px_rgba(0,0,0,0.55)]"
+              : "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg"),
           // 展开/最大化模式：根据用户设置选择透明或实心
-          !isCompactMode && !useSolidPanel && "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg",
-          !isCompactMode && useSolidPanel && "bg-white shadow-xl",
+          !isCompactMode &&
+            !useSolidPanel &&
+            (isBlackTheme
+              ? "border border-[#1a1a1a] shadow-[0_24px_60px_rgba(0,0,0,0.6)]"
+              : "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg"),
+          !isCompactMode &&
+            useSolidPanel &&
+            (isBlackTheme
+              ? "border border-[#1a1a1a] shadow-[0_24px_60px_rgba(0,0,0,0.6)]"
+              : "bg-white shadow-xl"),
           isMaximized ? "h-full flex flex-col rounded-2xl" : "p-4 rounded-2xl",
           showHistory && !isMaximized && "h-full flex flex-col -mr-4", // 展开模式：填满容器高度并贴合屏幕右侧
           isDragging || isResizing ? "duration-0" : "duration-300"
@@ -3186,7 +3204,8 @@ const AIChatDialog: React.FC = () => {
                 placeholder={shouldHidePlaceholder ? "" : getSmartPlaceholder()}
                 disabled={false}
                 className={cn(
-                  "resize-none px-4 pb-12 min-h-[80px] max-h-[260px] text-sm bg-transparent border-gray-300 focus:ring-0 transition-colors duration-200 overflow-y-auto"
+                  "resize-none px-4 pb-12 min-h-[80px] max-h-[260px] text-sm bg-transparent border-gray-300 focus:ring-0 transition-colors duration-200 overflow-y-auto",
+                  isBlackTheme && "text-white placeholder:text-[#888888]"
                 )}
                 rows={1}
               />
@@ -3412,7 +3431,9 @@ const AIChatDialog: React.FC = () => {
                     "absolute right-52 bottom-2 h-7 p-0 rounded-full transition-all duration-200",
                     "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                     aspectRatio
-                      ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-900 px-2"
+                      ? isBlackTheme
+                        ? "bg-[#1d1d1d] text-white border-[#404040] hover:bg-[#262626] px-2"
+                        : "bg-slate-900 text-white border-slate-900 hover:bg-slate-900 px-2"
                       : "w-7",
                     !aspectRatio && !generationStatus.isGenerating
                       ? "text-slate-700"
@@ -3440,7 +3461,9 @@ const AIChatDialog: React.FC = () => {
                     "absolute right-28 bottom-2 h-7 p-0 rounded-full transition-all duration-200",
                     "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                     videoAspectRatio
-                      ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-900 px-2"
+                      ? isBlackTheme
+                        ? "bg-[#1d1d1d] text-white border-[#404040] hover:bg-[#262626] px-2"
+                        : "bg-slate-900 text-white border-slate-900 hover:bg-slate-900 px-2"
                       : "w-7",
                     !generationStatus.isGenerating
                       ? "text-slate-700"
@@ -3474,7 +3497,9 @@ const AIChatDialog: React.FC = () => {
                     "absolute right-20 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200 text-xs",
                     "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                     videoDurationSeconds
-                      ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
+                      ? isBlackTheme
+                        ? "bg-[#1d1d1d] text-white border-[#404040] hover:bg-[#262626]"
+                        : "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
                       : !generationStatus.isGenerating
                       ? "text-slate-700"
                       : "opacity-50 cursor-not-allowed text-gray-400"
@@ -3507,7 +3532,9 @@ const AIChatDialog: React.FC = () => {
                     "absolute right-44 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200 text-xs",
                     "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                     imageSize
-                      ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
+                      ? isBlackTheme
+                        ? "bg-[#1d1d1d] text-white border-[#404040] hover:bg-[#262626]"
+                        : "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
                       : !generationStatus.isGenerating
                       ? "text-slate-700"
                       : "opacity-50 cursor-not-allowed text-gray-400"
@@ -3532,7 +3559,9 @@ const AIChatDialog: React.FC = () => {
                     "absolute right-36 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
                     "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                     thinkingLevel
-                      ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
+                      ? isBlackTheme
+                        ? "bg-[#1d1d1d] text-white border-[#404040] hover:bg-[#262626]"
+                        : "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
                       : !generationStatus.isGenerating
                       ? "text-slate-700"
                       : "opacity-50 cursor-not-allowed text-gray-400"
@@ -3795,7 +3824,9 @@ const AIChatDialog: React.FC = () => {
                     "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                     !generationStatus.isGenerating
                       ? enableWebSearch
-                        ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
+                        ? isBlackTheme
+                          ? "bg-[#1d1d1d] text-white border-[#404040] hover:bg-[#262626]"
+                          : "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
                         : "text-slate-700"
                       : "opacity-50 cursor-not-allowed text-gray-400"
                   )}
@@ -3814,12 +3845,15 @@ const AIChatDialog: React.FC = () => {
                   ref={promptButtonRef}
                   size='sm'
                   variant='outline'
+                  data-chat-secondary-action='true'
                   disabled={autoOptimizing}
                   className={cn(
                     "absolute right-20 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
                     "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                     autoOptimizeEnabled
-                      ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
+                      ? isBlackTheme
+                        ? "bg-[#1d1d1d] text-white border-[#404040] hover:bg-[#262626]"
+                        : "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
                       : !generationStatus.isGenerating && !autoOptimizing
                       ? "text-slate-700"
                       : "opacity-50 cursor-not-allowed text-gray-400"
@@ -3853,6 +3887,7 @@ const AIChatDialog: React.FC = () => {
                     type='button'
                     size='sm'
                     variant='outline'
+                    data-chat-secondary-action='true'
                     disabled={generationStatus.isGenerating}
                     className={cn(
                       "absolute right-12 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
@@ -3899,6 +3934,7 @@ const AIChatDialog: React.FC = () => {
                 disabled={!canSend}
                 size='sm'
                 variant='outline'
+                data-chat-primary-action='true'
                 title={sendButtonTitle}
                 className={cn(
                   "absolute right-4 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
@@ -4326,7 +4362,7 @@ const AIChatDialog: React.FC = () => {
                               {/* AI Header - 并行组只显示一次 */}
                               <div className='flex items-center gap-2 mb-2'>
                                 <SmartImage
-                                  src='/Logo.svg'
+                                  src={chatLogoSrc}
                                   alt='Tanvas Logo'
                                   className='w-4 h-4'
                                 />
@@ -4454,7 +4490,7 @@ const AIChatDialog: React.FC = () => {
                               const aiHeader = isAiMessage ? (
                                 <div className='flex items-center gap-2 mb-2'>
                                   <SmartImage
-                                    src='/Logo.svg'
+                                    src={chatLogoSrc}
                                     alt='Tanvas Logo'
                                     className='w-4 h-4'
                                   />
@@ -5398,7 +5434,7 @@ const AIChatDialog: React.FC = () => {
                     {/* AI消息标识 */}
                     <div className='flex items-center gap-2 mb-2'>
                       <SmartImage
-                        src='/Logo.svg'
+                        src={chatLogoSrc}
                         alt='Tanvas Logo'
                         className='w-4 h-4'
                       />

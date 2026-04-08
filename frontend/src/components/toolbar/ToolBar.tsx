@@ -427,7 +427,15 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
   const isSubMenuOpen = (selectionMenuEnabled && isSelectionMenuOpen) || isDrawingMenuOpen || isAddToolsMenuOpen;
   const drawingModes = ['free', 'line', 'rect', 'circle'] as const;
 
-  const { toggleDialog, isVisible: isAIDialogVisible, isMaximized: isAIChatMaximized, setSourceImageForEditing, showDialog } = useAIChatStore();
+  const {
+    toggleDialog,
+    isVisible: isAIDialogVisible,
+    isMaximized: isAIChatMaximized,
+    setSourceImageForEditing,
+    showDialog,
+    chatTheme,
+  } = useAIChatStore();
+  const isBlackTheme = chatTheme === "black";
 
   // 原始尺寸模式状态
   const [useOriginalSize, setUseOriginalSize] = React.useState(() => {
@@ -510,10 +518,15 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
   };
 
   // 根据模式获取激活状态的按钮样式
-  const inactiveButtonStyle = "bg-white/70 text-gray-700 border-transparent hover:bg-gray-800/10 hover:border-gray-800/20";
+  const inactiveButtonStyle = isBlackTheme
+    ? "bg-[#1d1d1d] text-white border border-[#1d1d1d] hover:bg-[#3f3f3f] hover:text-white hover:border-[#3f3f3f]"
+    : "bg-white/70 text-gray-700 border-transparent hover:bg-gray-800/10 hover:border-gray-800/20";
   const getActiveButtonStyle = (isActive: boolean) => {
     if (!isActive) {
       return inactiveButtonStyle;
+    }
+    if (isBlackTheme) {
+      return "tanva-toolbar-active bg-white text-[#1d1d1d] border border-white hover:bg-white hover:text-[#1d1d1d] hover:border-white";
     }
     return "bg-gray-800 text-white";
   };
@@ -522,6 +535,9 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
   const getSubPanelButtonStyle = (isActive: boolean) => {
     if (!isActive) {
       return inactiveButtonStyle;
+    }
+    if (isBlackTheme) {
+      return "tanva-toolbar-active bg-white text-[#1d1d1d] border border-white hover:bg-white hover:text-[#1d1d1d] hover:border-white";
     }
     return "bg-gray-800 text-white";
   };
@@ -610,7 +626,10 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
     <TooltipProvider delayDuration={0} skipDelayDuration={0}>
     <div
       className={cn(
-        "fixed top-1/2 transform -translate-y-1/2 flex flex-col items-center gap-2 px-2 py-2 rounded-[999px] bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass z-[1000] transition-all duration-[50ms] ease-out",
+        "tanva-toolbar-shell fixed top-1/2 transform -translate-y-1/2 flex flex-col items-center gap-2 px-2 py-2 rounded-[999px] z-[1000] transition-all duration-[50ms] ease-out",
+        isBlackTheme
+          ? "bg-[#1d1d1d] border border-[#1a1a1a] shadow-[0_20px_48px_rgba(0,0,0,0.6)]"
+          : "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass",
         isLayerPanelOpen ? "left-[322px]" : "left-2"
       )}
     >

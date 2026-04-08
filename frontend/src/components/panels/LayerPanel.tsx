@@ -1237,7 +1237,7 @@ const LayerPanel: React.FC = () => {
     return (
         <>
         <div
-            className={`fixed top-0 left-0 h-full w-80 bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border-r border-liquid-glass z-[1000] transform transition-transform duration-[50ms] ease-out ${showLayerPanel ? 'translate-x-0' : '-translate-x-full'
+            className={`tanva-layer-panel fixed top-0 left-0 h-full w-80 bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border-r border-liquid-glass z-[1000] transform transition-transform duration-[50ms] ease-out ${showLayerPanel ? 'translate-x-0' : '-translate-x-full'
                 }`}
         >
             {/* 面板头部 */}
@@ -1256,7 +1256,7 @@ const LayerPanel: React.FC = () => {
             </div>
 
             {/* 分隔线 */}
-            <div className="mx-4 h-px bg-gray-200" />
+            <div className="tanva-layer-divider mx-4 h-px bg-gray-200" />
 
             {/* 图层列表 */}
             <div className="flex-1 overflow-y-auto pb-12">
@@ -1369,7 +1369,7 @@ const LayerPanel: React.FC = () => {
                             <div key={layer.id}>
                                 {/* 图层项 */}
                                 <div
-                                    className={`flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 group ${activeLayerId === layer.id ? 'bg-gray-800/10 border border-gray-800/20' : ''}`}
+                                    className={`tanva-layer-row flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 group ${activeLayerId === layer.id ? 'tanva-layer-row-active bg-gray-800/10 border border-gray-800/20' : ''}`}
                                     onClick={() => activateLayer(layer.id)}
                                     draggable
                                     onDragStart={(e) => {
@@ -1495,7 +1495,7 @@ const LayerPanel: React.FC = () => {
                                         startEditing(layer.id, layer.name);
                                     }}>
                                         {/* 缩略图 */}
-                                        <div className="shrink-0 w-8 h-8 border rounded bg-white overflow-hidden flex items-center justify-center">
+                                        <div className="tanva-layer-thumb shrink-0 w-8 h-8 border rounded bg-white overflow-hidden flex items-center justify-center">
                                             {(() => {
                                                 const thumbUrl = getCachedThumb(layer.id);
                                                 return (
@@ -1623,7 +1623,7 @@ const LayerPanel: React.FC = () => {
                                         {items.map(item => (
                                             <div
                                                 key={item.id}
-                                                className={`flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-50 group cursor-pointer ${selectedItemId === item.id ? 'bg-gray-800/10' : ''
+                                                className={`tanva-layer-item-row flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-50 group cursor-pointer ${selectedItemId === item.id ? 'tanva-layer-item-row-active bg-gray-800/10' : ''
                                                     }`}
                                                 onClick={() => handleItemClick(item, layer.id)}
                                                 onDoubleClick={(e) => {
@@ -1816,7 +1816,7 @@ const LayerPanel: React.FC = () => {
 
                     {/* 新建图层按钮 */}
                     <div
-                        className="flex items-center justify-center p-2 rounded-lg border border-dashed border-gray-300 hover:bg-gray-50 hover:border-gray-400 cursor-pointer transition-colors"
+                        className="tanva-layer-create-btn flex items-center justify-center p-2 rounded-lg border border-dashed border-gray-300 hover:bg-gray-50 hover:border-gray-400 cursor-pointer transition-colors"
                         onClick={() => createLayer(undefined, true)}
                         title={lt('新建图层', 'New layer')}
                     >
@@ -1833,7 +1833,7 @@ const LayerPanel: React.FC = () => {
             </div>
 
             {/* 面板底部 - 固定在最底部 */}
-            <div className="absolute bottom-0 left-0 right-0 p-3 bg-white">
+            <div className="tanva-layer-footer absolute bottom-0 left-0 right-0 p-3 bg-white">
                 <div className="text-xs text-gray-500 text-center">
                     {lt(
                         `共 ${layers.length} 个图层，${Object.values(layerItems).flat().length} 个图元`,

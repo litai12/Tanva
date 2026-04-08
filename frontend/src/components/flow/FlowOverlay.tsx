@@ -1723,12 +1723,30 @@ const getNodePaletteGroupKey = (
   return "other";
 };
 
-const setNodePaletteHover = (target: HTMLElement, hovered: boolean) => {
-  target.style.background = hovered ? "#f8fafc" : "#fff";
-  target.style.borderColor = hovered ? "#d5dae3" : "#e5e7eb";
+const setNodePaletteHover = (
+  target: HTMLElement,
+  hovered: boolean,
+  isDarkTheme = false
+) => {
+  target.style.background = isDarkTheme
+    ? hovered
+      ? "#262626"
+      : "#1d1d1d"
+    : hovered
+      ? "#f8fafc"
+      : "#fff";
+  target.style.borderColor = isDarkTheme
+    ? hovered
+      ? "#4b4b4b"
+      : "#333333"
+    : hovered
+      ? "#d5dae3"
+      : "#e5e7eb";
   target.style.transform = hovered ? "translateY(-1px)" : "translateY(0)";
   target.style.boxShadow = hovered
-    ? "0 12px 26px rgba(15, 23, 42, 0.12)"
+    ? isDarkTheme
+      ? "0 12px 26px rgba(0, 0, 0, 0.38)"
+      : "0 12px 26px rgba(15, 23, 42, 0.12)"
     : "none";
 };
 
@@ -1740,8 +1758,21 @@ const NodePaletteButton: React.FC<{
   status?: string;
   credits?: number | string;
   disabled?: boolean;
+  isDarkTheme?: boolean;
+  showZh?: boolean;
   onClick: () => void;
-}> = ({ zh, en, caption, badge, status, credits, disabled, onClick }) => {
+}> = ({
+  zh,
+  en,
+  caption,
+  badge,
+  status,
+  credits,
+  disabled,
+  isDarkTheme = false,
+  showZh = true,
+  onClick,
+}) => {
   const creditsDisplay =
     credits !== undefined && credits !== 0
       ? typeof credits === "string"
@@ -1753,17 +1784,17 @@ const NodePaletteButton: React.FC<{
     if (statusCode === "maintenance") {
       return {
         ...nodePaletteBadgeStyle,
-        color: "#dc2626",
-        background: "#fee2e2",
-        border: "1px solid #fca5a5",
+        color: isDarkTheme ? "#fca5a5" : "#dc2626",
+        background: isDarkTheme ? "#3a1f1f" : "#fee2e2",
+        border: isDarkTheme ? "1px solid #7f1d1d" : "1px solid #fca5a5",
       };
     }
     if (statusCode === "coming_soon") {
       return {
         ...nodePaletteBadgeStyle,
-        color: "#d97706",
-        background: "#fef3c7",
-        border: "1px solid #fcd34d",
+        color: isDarkTheme ? "#fcd34d" : "#d97706",
+        background: isDarkTheme ? "#3a2e16" : "#fef3c7",
+        border: isDarkTheme ? "1px solid #7c5a14" : "1px solid #fcd34d",
       };
     }
     return nodePaletteBadgeStyle;
@@ -1771,10 +1802,19 @@ const NodePaletteButton: React.FC<{
 
   const buttonStyle: React.CSSProperties = {
     ...nodePaletteButtonStyle,
+    ...(isDarkTheme
+      ? {
+          border: "1px solid #333333",
+          background: "#1d1d1d",
+          color: "#ffffff",
+          justifyContent: showZh ? "space-between" : "flex-start",
+        }
+      : {}),
     ...(disabled ? {
-      opacity: 0.6,
+      opacity: isDarkTheme ? 0.75 : 0.6,
       cursor: "not-allowed",
-      background: "#f9fafb",
+      background: isDarkTheme ? "#171717" : "#f9fafb",
+      color: isDarkTheme ? "#666666" : "#0f172a",
     } : {}),
   };
 
@@ -1782,20 +1822,31 @@ const NodePaletteButton: React.FC<{
     <button
       onClick={disabled ? undefined : onClick}
       style={buttonStyle}
-      onMouseEnter={(e) => !disabled && setNodePaletteHover(e.currentTarget, true)}
-      onMouseLeave={(e) => !disabled && setNodePaletteHover(e.currentTarget, false)}
+      onMouseEnter={(e) =>
+        !disabled && setNodePaletteHover(e.currentTarget, true, isDarkTheme)
+      }
+      onMouseLeave={(e) =>
+        !disabled && setNodePaletteHover(e.currentTarget, false, isDarkTheme)
+      }
       disabled={disabled}
     >
       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4, flex: 1 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, width: "100%" }}>
-          <span style={nodePaletteEnCodeStyle}>{en}</span>
+          <span
+            style={{
+              ...nodePaletteEnCodeStyle,
+              color: isDarkTheme ? "#ffffff" : nodePaletteEnCodeStyle.color,
+            }}
+          >
+            {en}
+          </span>
           {badge ? <span style={getBadgeStyle(status)}>{badge}</span> : null}
         </div>
         {caption ? (
           <div
             style={{
               fontSize: 11,
-              color: "#6b7280",
+              color: isDarkTheme ? "#888888" : "#6b7280",
               lineHeight: 1.4,
               maxWidth: "100%",
               whiteSpace: "nowrap",
@@ -1811,7 +1862,18 @@ const NodePaletteButton: React.FC<{
           <span style={nodePaletteCreditsStyle}>消耗{creditsDisplay}积分</span>
         )} */}
       </div>
-      <span style={nodePaletteZhStyle}>{zh}</span>
+      {showZh ? (
+        <span
+          style={{
+            ...nodePaletteZhStyle,
+            background: isDarkTheme ? "#262626" : nodePaletteZhStyle.background,
+            color: isDarkTheme ? "#ffffff" : nodePaletteZhStyle.color,
+            border: isDarkTheme ? "1px solid #404040" : "none",
+          }}
+        >
+          {zh}
+        </span>
+      ) : null}
     </button>
   );
 };
@@ -1829,7 +1891,8 @@ const UserTemplateCard: React.FC<{
   };
   onInstantiate: () => Promise<void>;
   onDelete: () => Promise<void>;
-}> = ({ item, onInstantiate, onDelete }) => {
+  isDarkTheme?: boolean;
+}> = ({ item, onInstantiate, onDelete, isDarkTheme = false }) => {
   const [isHovered, setIsHovered] = React.useState(false);
 
   return (
@@ -1838,10 +1901,10 @@ const UserTemplateCard: React.FC<{
         display: "flex",
         alignItems: "stretch",
         gap: 18,
-        border: "1px solid #e5e7eb",
+        border: isDarkTheme ? "1px solid #404040" : "1px solid #e5e7eb",
         borderRadius: 12,
         padding: "18px 20px",
-        background: "#fff",
+        background: isDarkTheme ? "#1d1d1d" : "#fff",
         cursor: "pointer",
         transition: "all 0.2s ease",
         position: "relative",
@@ -1850,15 +1913,17 @@ const UserTemplateCard: React.FC<{
         overflow: "hidden",
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = "#18181b";
-        e.currentTarget.style.background = "#f4f4f5";
+        e.currentTarget.style.borderColor = isDarkTheme ? "#5a5a5a" : "#18181b";
+        e.currentTarget.style.background = isDarkTheme ? "#262626" : "#f4f4f5";
         e.currentTarget.style.transform = "translateY(-2px)";
-        e.currentTarget.style.boxShadow = "0 16px 32px rgba(0, 0, 0, 0.12)";
+        e.currentTarget.style.boxShadow = isDarkTheme
+          ? "0 16px 32px rgba(0, 0, 0, 0.45)"
+          : "0 16px 32px rgba(0, 0, 0, 0.12)";
         setIsHovered(true);
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = "#e5e7eb";
-        e.currentTarget.style.background = "#fff";
+        e.currentTarget.style.borderColor = isDarkTheme ? "#404040" : "#e5e7eb";
+        e.currentTarget.style.background = isDarkTheme ? "#1d1d1d" : "#fff";
         e.currentTarget.style.transform = "translateY(0)";
         e.currentTarget.style.boxShadow = "none";
         setIsHovered(false);
@@ -1873,7 +1938,11 @@ const UserTemplateCard: React.FC<{
           flex: "0 0 50%",
           maxWidth: "50%",
           height: "100%",
-          background: item.thumbnail ? "transparent" : "#f3f4f6",
+          background: item.thumbnail
+            ? "transparent"
+            : isDarkTheme
+              ? "#171717"
+              : "#f3f4f6",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -1887,7 +1956,9 @@ const UserTemplateCard: React.FC<{
             style={{ width: "100%", height: "100%", objectFit: "cover" }}
           />
         ) : (
-          <div style={{ fontSize: 12, color: "#9ca3af" }}>暂无预览</div>
+          <div style={{ fontSize: 12, color: isDarkTheme ? "#666666" : "#9ca3af" }}>
+            暂无预览
+          </div>
         )}
       </div>
       <div
@@ -1904,23 +1975,23 @@ const UserTemplateCard: React.FC<{
             style={{
               fontSize: 15,
               fontWeight: 600,
-              color: "#111827",
+              color: isDarkTheme ? "#ffffff" : "#111827",
               marginBottom: 6,
             }}
           >
             {item.name}
           </div>
-          <div style={{ fontSize: 12, color: "#6b7280" }}>
+          <div style={{ fontSize: 12, color: isDarkTheme ? "#888888" : "#6b7280" }}>
             更新于 {new Date(item.updatedAt).toLocaleString()}
           </div>
         </div>
         {item.category ? (
-          <div style={{ fontSize: 12, color: "#9ca3af" }}>
+          <div style={{ fontSize: 12, color: isDarkTheme ? "#666666" : "#9ca3af" }}>
             分类：{item.category}
           </div>
         ) : null}
         {item.tags?.length ? (
-          <div style={{ fontSize: 12, color: "#9ca3af" }}>
+          <div style={{ fontSize: 12, color: isDarkTheme ? "#666666" : "#9ca3af" }}>
             标签：{item.tags.join(" / ")}
           </div>
         ) : null}
@@ -1935,8 +2006,8 @@ const UserTemplateCard: React.FC<{
             width: 28,
             height: 28,
             borderRadius: 6,
-            border: "1px solid #fecaca",
-            background: "#fff",
+            border: isDarkTheme ? "1px solid #5a2a2a" : "1px solid #fecaca",
+            background: isDarkTheme ? "#262626" : "#fff",
             color: "#ef4444",
             display: "flex",
             alignItems: "center",
@@ -1949,13 +2020,13 @@ const UserTemplateCard: React.FC<{
             await onDelete();
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = "#fee2e2";
-            e.currentTarget.style.borderColor = "#fca5a5";
+            e.currentTarget.style.background = isDarkTheme ? "#3a1f1f" : "#fee2e2";
+            e.currentTarget.style.borderColor = isDarkTheme ? "#7f1d1d" : "#fca5a5";
             e.currentTarget.style.transform = "scale(1.05)";
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.background = "#fff";
-            e.currentTarget.style.borderColor = "#fecaca";
+            e.currentTarget.style.background = isDarkTheme ? "#262626" : "#fff";
+            e.currentTarget.style.borderColor = isDarkTheme ? "#5a2a2a" : "#fecaca";
             e.currentTarget.style.transform = "scale(1)";
           }}
           title='删除模板'
@@ -1970,7 +2041,8 @@ const UserTemplateCard: React.FC<{
 const AddTemplateCard: React.FC<{
   onAdd: () => Promise<void>;
   label?: string;
-}> = ({ onAdd, label }) => {
+  isDarkTheme?: boolean;
+}> = ({ onAdd, label, isDarkTheme = false }) => {
   const [isLoading, setIsLoading] = React.useState(false);
 
   return (
@@ -1990,13 +2062,13 @@ const AddTemplateCard: React.FC<{
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        border: "1px dashed #a1a1aa",
+        border: isDarkTheme ? "1px dashed #404040" : "1px dashed #a1a1aa",
         borderRadius: 12,
         padding: "18px 20px",
         minHeight: 130,
         height: 130,
-        background: "#fafafa",
-        color: "#18181b",
+        background: isDarkTheme ? "#171717" : "#fafafa",
+        color: isDarkTheme ? "#ffffff" : "#18181b",
         cursor: isLoading ? "wait" : "pointer",
         transition: "all 0.15s ease",
         gap: 10,
@@ -2005,14 +2077,16 @@ const AddTemplateCard: React.FC<{
       }}
       onMouseEnter={(e) => {
         if (isLoading) return;
-        e.currentTarget.style.background = "#f4f4f5";
-        e.currentTarget.style.borderColor = "#71717a";
+        e.currentTarget.style.background = isDarkTheme ? "#262626" : "#f4f4f5";
+        e.currentTarget.style.borderColor = isDarkTheme ? "#666666" : "#71717a";
         e.currentTarget.style.transform = "translateY(-2px)";
-        e.currentTarget.style.boxShadow = "0 12px 24px rgba(0, 0, 0, 0.12)";
+        e.currentTarget.style.boxShadow = isDarkTheme
+          ? "0 12px 24px rgba(0, 0, 0, 0.4)"
+          : "0 12px 24px rgba(0, 0, 0, 0.12)";
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.background = "#fafafa";
-        e.currentTarget.style.borderColor = "#a1a1aa";
+        e.currentTarget.style.background = isDarkTheme ? "#171717" : "#fafafa";
+        e.currentTarget.style.borderColor = isDarkTheme ? "#404040" : "#a1a1aa";
         e.currentTarget.style.transform = "translateY(0)";
         e.currentTarget.style.boxShadow = "none";
       }}
@@ -2027,18 +2101,19 @@ const AddTemplateCard: React.FC<{
 const TemplatePlaceholder: React.FC<{
   label: string;
   subtitle: string;
-}> = ({ label, subtitle }) => (
+  isDarkTheme?: boolean;
+}> = ({ label, subtitle, isDarkTheme = false }) => (
   <div
     style={{
       display: "flex",
       alignItems: "stretch",
       gap: 18,
-      border: "1px dashed #d1d5db",
+      border: isDarkTheme ? "1px dashed #404040" : "1px dashed #d1d5db",
       borderRadius: 12,
       padding: "15px",
       minHeight: 160,
       height: 160,
-      background: "#f9fafb",
+      background: isDarkTheme ? "#171717" : "#f9fafb",
       transition: "all 0.2s ease",
     }}
   >
@@ -2050,9 +2125,9 @@ const TemplatePlaceholder: React.FC<{
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: "#f3f4f6",
+        background: isDarkTheme ? "#1d1d1d" : "#f3f4f6",
         borderRadius: 8,
-        color: "#94a3b8",
+        color: isDarkTheme ? "#666666" : "#94a3b8",
       }}
     >
       <Plus size={28} strokeWidth={2} />
@@ -2064,11 +2139,19 @@ const TemplatePlaceholder: React.FC<{
         flexDirection: "column",
         gap: 8,
         justifyContent: "center",
-        color: "#94a3b8",
+        color: isDarkTheme ? "#888888" : "#94a3b8",
         fontSize: 13,
       }}
     >
-      <div style={{ fontSize: 15, fontWeight: 600 }}>{label}</div>
+      <div
+        style={{
+          fontSize: 15,
+          fontWeight: 600,
+          color: isDarkTheme ? "#ffffff" : "inherit",
+        }}
+      >
+        {label}
+      </div>
       <div>{subtitle}</div>
     </div>
   </div>
@@ -2148,7 +2231,7 @@ function useFlowViewport() {
 // ];
 
 function FlowInner() {
-  const { lt } = useLocaleText();
+  const { lt, isZh } = useLocaleText();
   const [nodes, setNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   // Alt+拖拽复制相关状态（在 onNodesChange 中做位置重映射，让“副本在动、原节点不动”）
@@ -2156,6 +2239,8 @@ function FlowInner() {
   const aiProvider = useAIChatStore((state) => state.aiProvider);
   const imageSize = useAIChatStore((state) => state.imageSize);
   const globalWebSearchEnabled = useAIChatStore((state) => state.enableWebSearch);
+  const chatTheme = useAIChatStore((state) => state.chatTheme);
+  const isFlowBlackTheme = chatTheme === "black";
   const imageModel = React.useMemo(
     () => getImageModelForProvider(aiProvider),
     [aiProvider]
@@ -17226,6 +17311,8 @@ function FlowInner() {
     <div
       ref={containerRef}
       className={`tanva-flow-overlay absolute inset-0 ${
+        isFlowBlackTheme ? "tanva-flow-theme-mono-dark" : ""
+      } ${
         isPointerMode ? "pointer-mode" : ""
       } ${isMarqueeMode ? "marquee-mode" : ""}`}
       onDoubleClick={handleContainerDoubleClick}
@@ -17613,11 +17700,14 @@ function FlowInner() {
         {addPanel.visible && (
           <div
             style={{
-              background: "#fff",
-              border: "1px solid #e5e7eb",
+              background: isFlowBlackTheme ? "#111111" : "#fff",
+              border: isFlowBlackTheme
+                ? "1px solid #404040"
+                : "1px solid #e5e7eb",
               borderRadius: 16,
-              boxShadow:
-                "0 18px 45px rgba(0,0,0,0.12), 0 8px 16px rgba(0,0,0,0.08)",
+              boxShadow: isFlowBlackTheme
+                ? "0 22px 48px rgba(0,0,0,0.55), 0 8px 18px rgba(0,0,0,0.35)"
+                : "0 18px 45px rgba(0,0,0,0.12), 0 8px 16px rgba(0,0,0,0.08)",
               width: "60vw",
               minWidth: 720,
               maxWidth: 960,
@@ -17631,7 +17721,7 @@ function FlowInner() {
                 gap: 8,
                 padding: "10px 12px 0",
                 borderBottom: "none",
-                background: "#f5f7fa",
+                background: isFlowBlackTheme ? "#161616" : "#f5f7fa",
                 borderTopLeftRadius: 16,
                 borderTopRightRadius: 16,
               }}
@@ -17645,9 +17735,24 @@ function FlowInner() {
                       fontSize: 13,
                       fontWeight: addTab === "nodes" ? 600 : 500,
                       borderRadius: "24px 24px 0 0",
-                      border: "none",
-                      background: addTab === "nodes" ? "#fff" : "transparent",
-                      color: addTab === "nodes" ? "#111827" : "#374151",
+                      border:
+                        addTab === "nodes" && isFlowBlackTheme
+                          ? "1px solid #404040"
+                          : "none",
+                      background:
+                        addTab === "nodes"
+                          ? isFlowBlackTheme
+                            ? "#262626"
+                            : "#fff"
+                          : "transparent",
+                      color:
+                        addTab === "nodes"
+                          ? isFlowBlackTheme
+                            ? "#ffffff"
+                            : "#111827"
+                          : isFlowBlackTheme
+                            ? "#888888"
+                            : "#374151",
                       marginBottom: -2,
                       transition: "all 0.15s ease",
                       cursor: "pointer",
@@ -17664,9 +17769,24 @@ function FlowInner() {
                       fontSize: 13,
                       fontWeight: addTab === "beta" ? 600 : 500,
                       borderRadius: "24px 24px 0 0",
-                      border: "none",
-                      background: addTab === "beta" ? "#fff" : "transparent",
-                      color: addTab === "beta" ? "#111827" : "#374151",
+                      border:
+                        addTab === "beta" && isFlowBlackTheme
+                          ? "1px solid #404040"
+                          : "none",
+                      background:
+                        addTab === "beta"
+                          ? isFlowBlackTheme
+                            ? "#262626"
+                            : "#fff"
+                          : "transparent",
+                      color:
+                        addTab === "beta"
+                          ? isFlowBlackTheme
+                            ? "#ffffff"
+                            : "#111827"
+                          : isFlowBlackTheme
+                            ? "#888888"
+                            : "#374151",
                       marginBottom: -2,
                       transition: "all 0.15s ease",
                       cursor: "pointer",
@@ -17685,9 +17805,24 @@ function FlowInner() {
                       fontSize: 13,
                       fontWeight: addTab === "custom" ? 600 : 500,
                       borderRadius: "24px 24px 0 0",
-                      border: "none",
-                      background: addTab === "custom" ? "#fff" : "transparent",
-                      color: addTab === "custom" ? "#111827" : "#374151",
+                      border:
+                        addTab === "custom" && isFlowBlackTheme
+                          ? "1px solid #404040"
+                          : "none",
+                      background:
+                        addTab === "custom"
+                          ? isFlowBlackTheme
+                            ? "#262626"
+                            : "#fff"
+                          : "transparent",
+                      color:
+                        addTab === "custom"
+                          ? isFlowBlackTheme
+                            ? "#ffffff"
+                            : "#111827"
+                          : isFlowBlackTheme
+                            ? "#888888"
+                            : "#374151",
                       marginBottom: -2,
                       transition: "all 0.15s ease",
                       cursor: "pointer",
@@ -17711,15 +17846,26 @@ function FlowInner() {
                             ? 600
                             : 500,
                         borderRadius: "24px 24px 0 0",
-                        border: "none",
+                        border:
+                          addTab === "templates" && templateScope === "public"
+                            ? isFlowBlackTheme
+                              ? "1px solid #404040"
+                              : "none"
+                            : "none",
                         background:
                           addTab === "templates" && templateScope === "public"
-                            ? "#fff"
+                            ? isFlowBlackTheme
+                              ? "#262626"
+                              : "#fff"
                             : "transparent",
                         color:
                           addTab === "templates" && templateScope === "public"
-                            ? "#111827"
-                            : "#374151",
+                            ? isFlowBlackTheme
+                              ? "#ffffff"
+                              : "#111827"
+                            : isFlowBlackTheme
+                              ? "#888888"
+                              : "#374151",
                         marginBottom: -2,
                         transition: "all 0.15s ease",
                         cursor: "pointer",
@@ -17740,15 +17886,26 @@ function FlowInner() {
                             ? 600
                             : 500,
                         borderRadius: "24px 24px 0 0",
-                        border: "none",
+                        border:
+                          addTab === "templates" && templateScope === "mine"
+                            ? isFlowBlackTheme
+                              ? "1px solid #404040"
+                              : "none"
+                            : "none",
                         background:
                           addTab === "templates" && templateScope === "mine"
-                            ? "#fff"
+                            ? isFlowBlackTheme
+                              ? "#262626"
+                              : "#fff"
                             : "transparent",
                         color:
                           addTab === "templates" && templateScope === "mine"
-                            ? "#111827"
-                            : "#374151",
+                            ? isFlowBlackTheme
+                              ? "#ffffff"
+                              : "#111827"
+                            : isFlowBlackTheme
+                              ? "#888888"
+                              : "#374151",
                         marginBottom: -2,
                         transition: "all 0.15s ease",
                         cursor: "pointer",
@@ -17790,6 +17947,9 @@ function FlowInner() {
                   overflowY: "auto",
                   overflowX: "hidden",
                   paddingTop: 8,
+                  background: isFlowBlackTheme ? "#161616" : "transparent",
+                  borderRadius: isFlowBlackTheme ? 12 : 0,
+                  border: isFlowBlackTheme ? "1px solid #2b2b2b" : "none",
                 }}
               >
                 <div style={{ padding: "0 20px 20px" }}>
@@ -17797,14 +17957,33 @@ function FlowInner() {
                     <section key={group.key} style={nodePaletteSectionStyle}>
                       <div style={nodePaletteSectionHeaderStyle}>
                         <div>
-                          <div style={nodePaletteSectionTitleStyle}>
+                          <div
+                            style={{
+                              ...nodePaletteSectionTitleStyle,
+                              color: isFlowBlackTheme ? "#ffffff" : "#111827",
+                            }}
+                          >
                             {group.title}
                           </div>
-                          <div style={nodePaletteSectionSubtitleStyle}>
+                          <div
+                            style={{
+                              ...nodePaletteSectionSubtitleStyle,
+                              color: isFlowBlackTheme ? "#888888" : "#6b7280",
+                            }}
+                          >
                             {group.subtitle}
                           </div>
                         </div>
-                        <span style={nodePaletteSectionCountStyle}>
+                        <span
+                          style={{
+                            ...nodePaletteSectionCountStyle,
+                            color: isFlowBlackTheme ? "#ffffff" : "#4b5563",
+                            background: isFlowBlackTheme ? "#1d1d1d" : "#f3f4f6",
+                            border: isFlowBlackTheme
+                              ? "1px solid #404040"
+                              : "1px solid #e5e7eb",
+                          }}
+                        >
                           {group.items.length} {lt("个", "items")}
                         </span>
                       </div>
@@ -17820,16 +17999,25 @@ function FlowInner() {
                             config.status === "maintenance" ||
                             config.status === "coming_soon";
                           const badge = getStatusBadge(config.status);
+                          const rawCaption = buildNodePaletteCaption(config);
+                          const caption =
+                            !isZh &&
+                            typeof rawCaption === "string" &&
+                            /[\u3400-\u9fff]/.test(rawCaption)
+                              ? `${config.nameEn || "Node"} description`
+                              : rawCaption;
                           return (
                             <NodePaletteButton
                               key={config.nodeKey}
                               zh={config.nameZh}
                               en={config.nameEn}
-                              caption={buildNodePaletteCaption(config)}
+                              caption={caption}
                               badge={badge}
                               status={config.status}
                               credits={config.creditsPerCall}
                               disabled={isDisabled}
+                              isDarkTheme={isFlowBlackTheme}
+                              showZh={isZh}
                               onClick={() =>
                                 createNodeAtWorldCenter(
                                   resolveFlowNodeTypeFromConfig(config),
@@ -17880,6 +18068,8 @@ function FlowInner() {
                       en={item.en}
                       badge={item.badge}
                       credits={NODE_CREDITS_MAP[item.key]}
+                      isDarkTheme={isFlowBlackTheme}
+                      showZh={isZh}
                       onClick={() =>
                         createNodeAtWorldCenter(
                           item.key,
@@ -17960,6 +18150,9 @@ function FlowInner() {
                   overflowY: "auto",
                   overflowX: "hidden",
                   padding: "12px 18px 18px",
+                  background: isFlowBlackTheme ? "#161616" : "transparent",
+                  borderRadius: isFlowBlackTheme ? 12 : 0,
+                  border: isFlowBlackTheme ? "1px solid #2b2b2b" : "none",
                 }}
               >
                 {templateScope === "public" && tplIndex ? (
@@ -17983,17 +18176,33 @@ function FlowInner() {
                             borderRadius: 999,
                             border:
                               "1px solid " +
-                              (!activeBuiltinCategory ? "#18181b" : "#e5e7eb"),
+                              (!activeBuiltinCategory
+                                ? isFlowBlackTheme
+                                  ? "#404040"
+                                  : "#18181b"
+                                : isFlowBlackTheme
+                                  ? "#2f2f2f"
+                                  : "#e5e7eb"),
                             background: !activeBuiltinCategory
-                              ? "#18181b"
-                              : "#fff",
-                            color: !activeBuiltinCategory ? "#fff" : "#374151",
+                              ? isFlowBlackTheme
+                                ? "#262626"
+                                : "#18181b"
+                              : isFlowBlackTheme
+                                ? "#1d1d1d"
+                                : "#fff",
+                            color: !activeBuiltinCategory
+                              ? "#fff"
+                              : isFlowBlackTheme
+                                ? "#888888"
+                                : "#374151",
                             fontSize: 12,
                             fontWeight: !activeBuiltinCategory ? 600 : 500,
                             cursor: "pointer",
                             transition: "all 0.15s ease",
                             boxShadow: !activeBuiltinCategory
-                              ? "0 10px 18px rgba(0, 0, 0, 0.18)"
+                              ? isFlowBlackTheme
+                                ? "0 8px 16px rgba(0, 0, 0, 0.4)"
+                                : "0 10px 18px rgba(0, 0, 0, 0.18)"
                               : "none",
                           }}
                         >
@@ -18014,15 +18223,33 @@ function FlowInner() {
                                 borderRadius: 999,
                                 border:
                                   "1px solid " +
-                                  (isActive ? "#18181b" : "#e5e7eb"),
-                                background: isActive ? "#18181b" : "#fff",
-                                color: isActive ? "#fff" : "#374151",
+                                  (isActive
+                                    ? isFlowBlackTheme
+                                      ? "#404040"
+                                      : "#18181b"
+                                    : isFlowBlackTheme
+                                      ? "#2f2f2f"
+                                      : "#e5e7eb"),
+                                background: isActive
+                                  ? isFlowBlackTheme
+                                    ? "#262626"
+                                    : "#18181b"
+                                  : isFlowBlackTheme
+                                    ? "#1d1d1d"
+                                    : "#fff",
+                                color: isActive
+                                  ? "#fff"
+                                  : isFlowBlackTheme
+                                    ? "#888888"
+                                    : "#374151",
                                 fontSize: 12,
                                 fontWeight: isActive ? 600 : 500,
                                 cursor: "pointer",
                                 transition: "all 0.15s ease",
                                 boxShadow: isActive
-                                  ? "0 10px 18px rgba(0, 0, 0, 0.18)"
+                                  ? isFlowBlackTheme
+                                    ? "0 8px 16px rgba(0, 0, 0, 0.4)"
+                                    : "0 10px 18px rgba(0, 0, 0, 0.18)"
                                   : "none",
                               }}
                             >
@@ -18071,6 +18298,7 @@ function FlowInner() {
                             "我们正在准备更多创意模板",
                             "We are preparing more creative templates"
                           )}
+                          isDarkTheme={isFlowBlackTheme}
                         />
                       ))}
                     </div>
@@ -18093,9 +18321,11 @@ function FlowInner() {
                         style={{
                           padding: "6px 12px",
                           borderRadius: 999,
-                          border: "1px solid #e5e7eb",
-                          background: "#fff",
-                          color: "#374151",
+                          border: isFlowBlackTheme
+                            ? "1px solid #404040"
+                            : "1px solid #e5e7eb",
+                          background: isFlowBlackTheme ? "#1d1d1d" : "#fff",
+                          color: isFlowBlackTheme ? "#ffffff" : "#374151",
                           display: "flex",
                           alignItems: "center",
                           gap: 4,
@@ -18105,12 +18335,20 @@ function FlowInner() {
                           transition: "all 0.15s ease",
                         }}
                         onMouseEnter={(e) => {
-                          e.currentTarget.style.background = "#f9fafb";
-                          e.currentTarget.style.borderColor = "#d1d5db";
+                          e.currentTarget.style.background = isFlowBlackTheme
+                            ? "#262626"
+                            : "#f9fafb";
+                          e.currentTarget.style.borderColor = isFlowBlackTheme
+                            ? "#5a5a5a"
+                            : "#d1d5db";
                         }}
                         onMouseLeave={(e) => {
-                          e.currentTarget.style.background = "#fff";
-                          e.currentTarget.style.borderColor = "#e5e7eb";
+                          e.currentTarget.style.background = isFlowBlackTheme
+                            ? "#1d1d1d"
+                            : "#fff";
+                          e.currentTarget.style.borderColor = isFlowBlackTheme
+                            ? "#404040"
+                            : "#e5e7eb";
                         }}
                       >
                         <Upload size={14} strokeWidth={2} />
@@ -18122,9 +18360,11 @@ function FlowInner() {
                         style={{
                           padding: "6px 12px",
                           borderRadius: 999,
-                          border: "1px solid #e5e7eb",
-                          background: "#fff",
-                          color: "#374151",
+                          border: isFlowBlackTheme
+                            ? "1px solid #404040"
+                            : "1px solid #e5e7eb",
+                          background: isFlowBlackTheme ? "#1d1d1d" : "#fff",
+                          color: isFlowBlackTheme ? "#ffffff" : "#374151",
                           display: "flex",
                           alignItems: "center",
                           gap: 4,
@@ -18134,12 +18374,20 @@ function FlowInner() {
                           transition: "all 0.15s ease",
                         }}
                         onMouseEnter={(e) => {
-                          e.currentTarget.style.background = "#f9fafb";
-                          e.currentTarget.style.borderColor = "#d1d5db";
+                          e.currentTarget.style.background = isFlowBlackTheme
+                            ? "#262626"
+                            : "#f9fafb";
+                          e.currentTarget.style.borderColor = isFlowBlackTheme
+                            ? "#5a5a5a"
+                            : "#d1d5db";
                         }}
                         onMouseLeave={(e) => {
-                          e.currentTarget.style.background = "#fff";
-                          e.currentTarget.style.borderColor = "#e5e7eb";
+                          e.currentTarget.style.background = isFlowBlackTheme
+                            ? "#1d1d1d"
+                            : "#fff";
+                          e.currentTarget.style.borderColor = isFlowBlackTheme
+                            ? "#404040"
+                            : "#e5e7eb";
                         }}
                       >
                         <Download size={14} strokeWidth={2} />
@@ -18160,12 +18408,14 @@ function FlowInner() {
                             ? "保存当前为新模板"
                             : "创建我的第一个模板"
                         }
+                        isDarkTheme={isFlowBlackTheme}
                       />
                       {userTplList.map((item) => {
                         return (
                           <UserTemplateCard
                             key={item.id}
                             item={item}
+                            isDarkTheme={isFlowBlackTheme}
                             onInstantiate={async () => {
                               const anchorWorld = { ...addPanel.world };
                               const tpl = await getUserTemplate(item.id);
@@ -18209,6 +18459,7 @@ function FlowInner() {
                             "我们正在准备更多创意模板",
                             "We are preparing more creative templates"
                           )}
+                          isDarkTheme={isFlowBlackTheme}
                         />
                       ))}
                     </div>
