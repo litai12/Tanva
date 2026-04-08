@@ -70,7 +70,7 @@ import {
   resolveImageToBlob,
   toRenderableImageSrc,
 } from "@/utils/imageSource";
-import { canvasToBlob, fileToDataUrl, responseToBlob } from "@/utils/imageConcurrency";
+import { blobToDataUrl, canvasToBlob, fileToDataUrl, responseToBlob } from "@/utils/imageConcurrency";
 import {
   usePersonalLibraryStore,
   createPersonalAssetId,
@@ -3197,7 +3197,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         type: "image/png",
         quality: 0.92,
       });
-      const previewUrl = URL.createObjectURL(mergedBlob);
+      const previewDataUrl = await blobToDataUrl(mergedBlob);
       const uploadDir = projectId
         ? `projects/${projectId}/images/`
         : "uploads/images/";
@@ -3212,7 +3212,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         new CustomEvent("canvas:replace-image-source", {
           detail: {
             imageId: target.imageId,
-            source: previewUrl,
+            source: previewDataUrl,
             bounds: target.imageBounds,
             contentType: "image/png",
             fileName: target.fileName,
@@ -3253,6 +3253,27 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           const normalizedRemoteUrl =
             normalizePersistableImageRef(uploadResult.asset.url) ||
             uploadResult.asset.url;
+
+          const persistedSource = normalizedRemoteUrl || normalizedKey;
+          if (persistedSource) {
+            window.dispatchEvent(
+              new CustomEvent("canvas:replace-image-source", {
+                detail: {
+                  imageId: target.imageId,
+                  source: persistedSource,
+                  bounds: target.imageBounds,
+                  contentType: "image/png",
+                  fileName: target.fileName,
+                  key: normalizedKey || undefined,
+                  remoteUrl: normalizedRemoteUrl || undefined,
+                  width: pixelWidth,
+                  height: pixelHeight,
+                  historyLabel: "merge-brush-oss",
+                  pendingUpload: false,
+                },
+              })
+            );
+          }
 
           window.dispatchEvent(
             new CustomEvent("tanva:upgradeImageSource", {

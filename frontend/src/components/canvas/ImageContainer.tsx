@@ -572,6 +572,12 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const [isCropping, setIsCropping] = useState(false);
   const [isApplyingCrop, setIsApplyingCrop] = useState(false);
   const [cropRect, setCropRect] = useState<CropRect | null>(null);
+  const [cropSourceBounds, setCropSourceBounds] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
   const [textReplacementItems, setTextReplacementItems] = useState<
     TextReplacementItem[]
   >([]);
@@ -1009,11 +1015,17 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       : 1;
 
   const clampCropRectToImage = useCallback(
-    (rect: CropRect, minWidthWorld: number, minHeightWorld: number): CropRect => {
-      const imageLeft = realTimeBounds.x;
-      const imageTop = realTimeBounds.y;
-      const imageRight = realTimeBounds.x + realTimeBounds.width;
-      const imageBottom = realTimeBounds.y + realTimeBounds.height;
+    (
+      rect: CropRect,
+      minWidthWorld: number,
+      minHeightWorld: number,
+      limitBounds?: { x: number; y: number; width: number; height: number }
+    ): CropRect => {
+      const activeBounds = limitBounds || cropSourceBounds || realTimeBounds;
+      const imageLeft = activeBounds.x;
+      const imageTop = activeBounds.y;
+      const imageRight = activeBounds.x + activeBounds.width;
+      const imageBottom = activeBounds.y + activeBounds.height;
       const imageWidth = Math.max(1, imageRight - imageLeft);
       const imageHeight = Math.max(1, imageBottom - imageTop);
       const safeMinWidth = Math.max(1, Math.min(minWidthWorld, imageWidth));
@@ -1041,30 +1053,46 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
       return { x, y, width, height };
     },
-    [realTimeBounds.height, realTimeBounds.width, realTimeBounds.x, realTimeBounds.y]
+    [
+      cropSourceBounds,
+      realTimeBounds.height,
+      realTimeBounds.width,
+      realTimeBounds.x,
+      realTimeBounds.y,
+    ]
   );
 
   const cropRectScreen = useMemo(() => {
     if (!isCropping || !cropRect) return null;
+    const activeBounds = cropSourceBounds || realTimeBounds;
+    const activeWidth = Math.max(1, activeBounds.width);
+    const activeHeight = Math.max(1, activeBounds.height);
+    const activeScreenPerWorldX =
+      activeWidth > 0 && screenBounds.width > 0 ? screenBounds.width / activeWidth : 1;
+    const activeScreenPerWorldY =
+      activeHeight > 0 && screenBounds.height > 0
+        ? screenBounds.height / activeHeight
+        : 1;
     return {
-      x: (cropRect.x - realTimeBounds.x) * screenPerWorldX,
-      y: (cropRect.y - realTimeBounds.y) * screenPerWorldY,
-      width: cropRect.width * screenPerWorldX,
-      height: cropRect.height * screenPerWorldY,
+      x: (cropRect.x - activeBounds.x) * activeScreenPerWorldX,
+      y: (cropRect.y - activeBounds.y) * activeScreenPerWorldY,
+      width: cropRect.width * activeScreenPerWorldX,
+      height: cropRect.height * activeScreenPerWorldY,
     };
   }, [
+    cropSourceBounds,
     cropRect,
     isCropping,
-    realTimeBounds.x,
-    realTimeBounds.y,
-    screenPerWorldX,
-    screenPerWorldY,
+    realTimeBounds,
+    screenBounds.height,
+    screenBounds.width,
   ]);
 
   const cancelCrop = useCallback(() => {
     setIsApplyingCrop(false);
     setIsCropping(false);
     setCropRect(null);
+    setCropSourceBounds(null);
   }, []);
 
   useEffect(() => {
@@ -1092,15 +1120,16 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       const startRect = { ...cropRect };
       const minWidthWorld = Math.max(1, 28 * worldPerScreenX);
       const minHeightWorld = Math.max(1, 28 * worldPerScreenY);
+      const activeBounds = cropSourceBounds || realTimeBounds;
 
       const handleMouseMove = (moveEvent: MouseEvent) => {
         const dxWorld = (moveEvent.clientX - startX) * worldPerScreenX;
         const dyWorld = (moveEvent.clientY - startY) * worldPerScreenY;
 
-        const imageLeft = realTimeBounds.x;
-        const imageTop = realTimeBounds.y;
-        const imageRight = realTimeBounds.x + realTimeBounds.width;
-        const imageBottom = realTimeBounds.y + realTimeBounds.height;
+        const imageLeft = activeBounds.x;
+        const imageTop = activeBounds.y;
+        const imageRight = activeBounds.x + activeBounds.width;
+        const imageBottom = activeBounds.y + activeBounds.height;
 
         const startLeft = startRect.x;
         const startTop = startRect.y;
@@ -1159,6 +1188,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       document.addEventListener("mouseup", handleMouseUp);
     },
     [
+      cropSourceBounds,
       cropRect,
       realTimeBounds.height,
       realTimeBounds.width,
@@ -2551,26 +2581,30 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const handleCropImage = useCallback(
     () => {
       if (isCropping || isApplyingCrop) return;
+      const snapshot = getRealTimePaperBounds();
 
       const minWidthWorld = Math.max(1, 28 * worldPerScreenX);
       const minHeightWorld = Math.max(1, 28 * worldPerScreenY);
 
       const initialRect = clampCropRectToImage(
         {
-          x: realTimeBounds.x,
-          y: realTimeBounds.y,
-          width: Math.max(1, realTimeBounds.width),
-          height: Math.max(1, realTimeBounds.height),
+          x: snapshot.x,
+          y: snapshot.y,
+          width: Math.max(1, snapshot.width),
+          height: Math.max(1, snapshot.height),
         },
         minWidthWorld,
-        minHeightWorld
+        minHeightWorld,
+        snapshot
       );
 
+      setCropSourceBounds(snapshot);
       setCropRect(initialRect);
       setIsCropping(true);
     },
     [
       clampCropRectToImage,
+      getRealTimePaperBounds,
       isApplyingCrop,
       isCropping,
       realTimeBounds.height,
@@ -2598,12 +2632,14 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           }
         };
 
-        pushCandidate(getImageDataForEditing?.(imageData.id));
+        pushCandidate(imageData.localDataUrl);
+        // Crop should follow what is currently rendered on canvas.
+        // Keep runtime/local source first, and only fallback to editing/original source.
+        pushCandidate(imageData.src);
+        pushCandidate(imageData.url);
         pushCandidate(imageData.remoteUrl);
         pushCandidate(imageData.key);
-        pushCandidate(imageData.url);
-        pushCandidate(imageData.src);
-        pushCandidate(imageData.localDataUrl);
+        pushCandidate(getImageDataForEditing?.(imageData.id));
 
         for (const candidate of candidates) {
           try {
@@ -2659,49 +2695,30 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         throw new Error("原图尺寸无效，裁切失败");
       }
 
-      const displayWidth = Math.max(1, realTimeBounds.width);
-      const displayHeight = Math.max(1, realTimeBounds.height);
+      const activeBounds = cropSourceBounds || realTimeBounds;
+      const safeCropRect = clampCropRectToImage(cropRect, 1, 1, activeBounds);
+      const displayWidth = Math.max(1, activeBounds.width);
+      const displayHeight = Math.max(1, activeBounds.height);
       const scaleX = naturalWidth / displayWidth;
       const scaleY = naturalHeight / displayHeight;
-      const displayScaleX = displayWidth / naturalWidth;
-      const displayScaleY = displayHeight / naturalHeight;
-      // 裁切后保持当前画布中的显示比例（支持非等比缩放，避免“被压扁/拉伸”）。
-      const safeDisplayScaleX =
-        Number.isFinite(displayScaleX) &&
-        displayScaleX > 0 &&
-        Number.isFinite(displayScaleY) &&
-        displayScaleY > 0
-          ? displayScaleX
-          : displayScaleY > 0
-          ? displayScaleY
-          : 1;
-      const safeDisplayScaleY =
-        Number.isFinite(displayScaleY) &&
-        displayScaleY > 0 &&
-        Number.isFinite(displayScaleX) &&
-        displayScaleX > 0
-          ? displayScaleY
-          : displayScaleX > 0
-          ? displayScaleX
-          : 1;
 
       const cropLeftPx = clampNumber(
-        Math.round((cropRect.x - realTimeBounds.x) * scaleX),
+        Math.round((safeCropRect.x - activeBounds.x) * scaleX),
         0,
         Math.max(0, naturalWidth - 1)
       );
       const cropTopPx = clampNumber(
-        Math.round((cropRect.y - realTimeBounds.y) * scaleY),
+        Math.round((safeCropRect.y - activeBounds.y) * scaleY),
         0,
         Math.max(0, naturalHeight - 1)
       );
       const cropRightPx = clampNumber(
-        Math.round((cropRect.x + cropRect.width - realTimeBounds.x) * scaleX),
+        Math.round((safeCropRect.x + safeCropRect.width - activeBounds.x) * scaleX),
         cropLeftPx + 1,
         naturalWidth
       );
       const cropBottomPx = clampNumber(
-        Math.round((cropRect.y + cropRect.height - realTimeBounds.y) * scaleY),
+        Math.round((safeCropRect.y + safeCropRect.height - activeBounds.y) * scaleY),
         cropTopPx + 1,
         naturalHeight
       );
@@ -2710,10 +2727,12 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       const cropY = cropTopPx;
       const cropWidth = Math.max(1, cropRightPx - cropLeftPx);
       const cropHeight = Math.max(1, cropBottomPx - cropTopPx);
+      const outputWidth = cropWidth;
+      const outputHeight = cropHeight;
 
       const canvas = document.createElement("canvas");
-      canvas.width = cropWidth;
-      canvas.height = cropHeight;
+      canvas.width = outputWidth;
+      canvas.height = outputHeight;
       const ctx = canvas.getContext("2d");
       if (!ctx) {
         throw new Error("无法创建裁切画布");
@@ -2726,8 +2745,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         cropHeight,
         0,
         0,
-        cropWidth,
-        cropHeight
+        outputWidth,
+        outputHeight
       );
 
       const croppedBlob = await canvasToBlob(canvas, { type: "image/png" });
@@ -2735,10 +2754,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         throw new Error("裁切结果为空，裁切失败");
       }
       const nextBounds = {
-        x: cropRect.x,
-        y: cropRect.y,
-        width: Math.max(1, cropWidth * safeDisplayScaleX),
-        height: Math.max(1, cropHeight * safeDisplayScaleY),
+        x: safeCropRect.x,
+        y: safeCropRect.y,
+        width: Math.max(1, safeCropRect.width),
+        height: Math.max(1, safeCropRect.height),
       };
 
       if (onImageUpdate) {
@@ -2762,21 +2781,27 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           contentType: "image/png",
         });
         onResize?.(nextBounds);
-        const croppedPreviewUrl = URL.createObjectURL(croppedBlob);
+        const croppedPreviewDataUrl = await blobToDataUrl(croppedBlob);
+        void imageUrlCache.updateDataUrl(
+          imageData.id,
+          croppedPreviewDataUrl,
+          projectId,
+          buildImageSourceFingerprint(croppedPreviewDataUrl)
+        );
 
         // 先用本地 dataURL 立即替换渲染，避免先切远程源导致首帧“幽灵图”。
         window.dispatchEvent(
           new CustomEvent("canvas:replace-image-source", {
             detail: {
               imageId: imageData.id,
-              source: croppedPreviewUrl,
+              source: croppedPreviewDataUrl,
               bounds: nextBounds,
               contentType: "image/png",
               fileName,
               key: plannedKey,
               clearRemoteUrl: true,
-              width: cropWidth,
-              height: cropHeight,
+              width: outputWidth,
+              height: outputHeight,
               historyLabel: "crop-image",
               pendingUpload: true,
             },
@@ -2806,6 +2831,27 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               return;
             }
 
+            const persistedSource = normalizedRemoteUrl || normalizedKey;
+            if (persistedSource) {
+              window.dispatchEvent(
+                new CustomEvent("canvas:replace-image-source", {
+                  detail: {
+                    imageId: imageData.id,
+                    source: persistedSource,
+                    bounds: nextBounds,
+                    contentType: "image/png",
+                    fileName,
+                    key: normalizedKey || undefined,
+                    remoteUrl: normalizedRemoteUrl || undefined,
+                    width: outputWidth,
+                    height: outputHeight,
+                    historyLabel: "crop-image-oss",
+                    pendingUpload: false,
+                  },
+                })
+              );
+            }
+
             window.dispatchEvent(
               new CustomEvent("tanva:upgradeImageSource", {
                 detail: {
@@ -2829,6 +2875,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
       setIsCropping(false);
       setCropRect(null);
+      setCropSourceBounds(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : "裁切失败";
       logger.error("裁切失败", error);
@@ -2841,7 +2888,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       setIsApplyingCrop(false);
     }
   }, [
+    clampCropRectToImage,
     cropRect,
+    cropSourceBounds,
     imageData.id,
     imageData.key,
     imageData.localDataUrl,
@@ -2853,10 +2902,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     onImageUpdate,
     onResize,
     projectId,
-    realTimeBounds.height,
-    realTimeBounds.width,
-    realTimeBounds.x,
-    realTimeBounds.y,
+    realTimeBounds,
   ]);
 
   // 处理扩图按钮点击

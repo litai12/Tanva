@@ -4547,13 +4547,13 @@ export const useAIChatStore = create<AIChatState>()(
 		                    cropRectNormalized: preciseEditContext.cropRectNormalized,
 		                  });
 		                  if (mergedBlob) {
-		                    const mergedObjectUrl = URL.createObjectURL(mergedBlob);
+		                    const mergedDataUrl = await blobToDataUrlLimited(mergedBlob);
 		                    try {
 	                      window.dispatchEvent(
 	                        new CustomEvent("canvas:replace-image-source", {
 	                          detail: {
 	                            imageId: preciseEditContext.targetImageId,
-	                            source: mergedObjectUrl,
+	                            source: mergedDataUrl,
 	                            contentType: "image/png",
 	                            fileName: `${prompt.substring(0, 20) || "precise"}_merged.png`,
 	                            historyLabel: "precise-edit",
