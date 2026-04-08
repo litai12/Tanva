@@ -2439,13 +2439,42 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           paper.view?.update();
         } catch {}
       };
+      let requestSeq = 0;
       try {
+        const currentSeqRaw = (raster as any).__tanvaSourceSeq;
+        const currentSeq = Number.isFinite(currentSeqRaw)
+          ? Number(currentSeqRaw)
+          : 0;
+        requestSeq = currentSeq + 1;
+        (raster as any).__tanvaSourceSeq = requestSeq;
         (raster as any).__tanvaSourceRef = trimmed;
       } catch {}
+      const isLatestSourceRequest = () => {
+        try {
+          const latestRef = (raster as any).__tanvaSourceRef;
+          if (
+            typeof latestRef === "string" &&
+            latestRef.trim() &&
+            latestRef.trim() !== trimmed
+          ) {
+            return false;
+          }
+        } catch {}
+        if (requestSeq > 0) {
+          try {
+            const latestSeq = Number((raster as any).__tanvaSourceSeq || 0);
+            if (Number.isFinite(latestSeq) && latestSeq !== requestSeq) {
+              return false;
+            }
+          } catch {}
+        }
+        return true;
+      };
 
       try {
         const image = new Image();
         image.onload = () => {
+          if (!isLatestSourceRequest()) return;
           try {
             (raster as any).setImage(image);
           } catch {}
@@ -2453,6 +2482,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           refreshView();
         };
         image.onerror = () => {
+          if (!isLatestSourceRequest()) return;
           try {
             raster.source = trimmed;
           } catch {}
@@ -2466,6 +2496,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         return;
       } catch {}
 
+      if (!isLatestSourceRequest()) return;
       try {
         raster.source = trimmed;
       } catch {}

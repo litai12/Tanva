@@ -150,6 +150,7 @@ body.tanva-premium-black-theme {
   --tanva-mono-text-tertiary: #555555;
   --tanva-mono-text-muted: #333333;
   --tanva-mono-border: #1a1a1a;
+  --tanva-mono-selection: #5f5f5f;
   background-color: var(--tanva-mono-surface);
 }
 
@@ -553,6 +554,18 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node:not
   background: var(--tanva-mono-base) !important;
   border: 1.5px solid var(--tanva-mono-border) !important;
   border-radius: 6px !important;
+  box-shadow: none !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node.selected:not(.react-flow__node-generatePro) > div {
+  border-color: var(--tanva-mono-selection) !important;
+  border-width: 1px !important;
+  box-shadow: none !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-overlay.pointer-mode .react-flow__node.selected > div {
+  border-color: var(--tanva-mono-selection) !important;
+  border-width: 1px !important;
   box-shadow: none !important;
 }
 
