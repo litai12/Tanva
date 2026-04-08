@@ -13,11 +13,15 @@ export enum PaymentStatus {
   CANCELLED = 'cancelled',
 }
 
+export type PaymentOrderType = 'recharge' | 'membership';
+
 // 创建订单请求
 export interface CreateOrderDto {
   amount: number;      // 支付金额（元）
   credits: number;     // 获得积分
   paymentMethod: PaymentMethod;
+  orderType?: PaymentOrderType;
+  membershipPlanId?: string;
 }
 
 // 订单响应
@@ -27,10 +31,12 @@ export interface PaymentOrderResponse {
   amount: number;
   credits: number;
   paymentMethod: PaymentMethod;
+  orderType: PaymentOrderType;
   status: PaymentStatus;
   qrCodeUrl: string | null;
   expiredAt: Date;
   createdAt: Date;
+  membershipPlanId?: string | null;
 }
 
 // 支付状态查询响应

@@ -71,6 +71,35 @@ CREATE INDEX "CreditConsumePolicy_scopeType_scopeValue_isActive_idx" ON "CreditC
 -- CreateIndex
 CREATE INDEX "CreditTransaction_creditLotId_createdAt_idx" ON "CreditTransaction"("creditLotId", "createdAt");
 
+-- Seed default consume policy
+INSERT INTO "CreditConsumePolicy" (
+    "id",
+    "code",
+    "scopeType",
+    "scopeValue",
+    "isActive",
+    "version",
+    "sorts",
+    "validityPriority",
+    "sourcePriority",
+    "description",
+    "createdAt",
+    "updatedAt"
+) VALUES (
+    gen_random_uuid()::text,
+    'global_default',
+    'global',
+    NULL,
+    true,
+    1,
+    '["scope_specificity_desc","validity_priority_asc","expires_at_asc_nulls_last","source_priority_asc","granted_at_asc","custom_priority_asc"]'::jsonb,
+    '{"membership_bound":10,"fixed_window":20,"permanent":30}'::jsonb,
+    '{"promo":10,"gift":20,"manual":25,"subscription":30,"recharge":40}'::jsonb,
+    'Default lot consume policy',
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+);
+
 -- AddForeignKey
 ALTER TABLE "CreditTransaction" ADD CONSTRAINT "CreditTransaction_creditLotId_fkey" FOREIGN KEY ("creditLotId") REFERENCES "CreditLot"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 

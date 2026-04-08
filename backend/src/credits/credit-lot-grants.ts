@@ -8,6 +8,7 @@ interface CreditLotGrantBaseInput {
   grantedAt?: Date;
   activeAt?: Date;
   orderId?: string | null;
+  subscriptionId?: string | null;
   scopeType?: CreditLotScopeType;
   scopeValue?: string | null;
   metadata?: Prisma.InputJsonValue;
@@ -26,6 +27,7 @@ interface CreditLotGrantData {
   expiresAt: Date | null;
   durationDays: number | null;
   orderId: string | null;
+  subscriptionId: string | null;
   status: 'active';
   priority: number;
   metadata?: Prisma.InputJsonValue;
@@ -93,6 +95,36 @@ export function buildDailyRewardCreditLotData(
     expiresAt: input.expiresAt,
     durationDays,
     orderId: input.orderId ?? null,
+    subscriptionId: input.subscriptionId ?? null,
+    status: 'active',
+    priority: 0,
+    ...(input.metadata ? { metadata: input.metadata } : {}),
+  };
+}
+
+export function buildMembershipCreditLotData(
+  input: CreditLotGrantBaseInput & { expiresAt: Date; durationDays?: number | null },
+): CreditLotGrantData {
+  const grantedAt = input.grantedAt ?? new Date();
+  const activeAt = input.activeAt ?? grantedAt;
+  const durationDays =
+    input.durationDays ??
+    Math.max(1, Math.ceil((input.expiresAt.getTime() - grantedAt.getTime()) / (24 * 60 * 60 * 1000)));
+
+  return {
+    accountId: input.accountId,
+    sourceType: 'subscription',
+    validityType: 'membership_bound',
+    scopeType: input.scopeType ?? 'global',
+    scopeValue: input.scopeValue ?? null,
+    totalAmount: input.amount,
+    remainingAmount: input.amount,
+    grantedAt,
+    activeAt,
+    expiresAt: input.expiresAt,
+    durationDays,
+    orderId: input.orderId ?? null,
+    subscriptionId: input.subscriptionId ?? null,
     status: 'active',
     priority: 0,
     ...(input.metadata ? { metadata: input.metadata } : {}),
@@ -118,6 +150,7 @@ function buildPermanentLotData(
     expiresAt: null,
     durationDays: null,
     orderId: input.orderId ?? null,
+    subscriptionId: input.subscriptionId ?? null,
     status: 'active',
     priority: 0,
     ...(input.metadata ? { metadata: input.metadata } : {}),

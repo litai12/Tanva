@@ -113,6 +113,12 @@ export class PaymentController {
     };
   }
 
+  @Get('membership-plans')
+  @UseGuards(JwtAuthGuard)
+  async getMembershipPlans() {
+    return this.paymentService.getMembershipPlans();
+  }
+
   /**
    * 支付宝异步回调通知
    */

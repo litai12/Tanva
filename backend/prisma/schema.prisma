@@ -152,6 +152,10 @@ model CreditTransaction {
   apiUsageId    String?
   metadata      Json?
   creditLotId   String?
+  businessType  String?
+  orderId       String?
+  subscriptionId String?
+  membershipPlanId String?
   consumePolicyCode String?
   consumePolicyVersion Int?
   createdAt     DateTime      @default(now())
@@ -166,6 +170,9 @@ model CreditTransaction {
   @@index([type])
   @@index([expiresAt, isExpired]) // 用于定时清理任务查询
   @@index([creditLotId, createdAt])
+  @@index([businessType, createdAt])
+  @@index([subscriptionId, createdAt])
+  @@index([membershipPlanId, createdAt])
 }
 
 model CreditLot {
@@ -296,6 +303,57 @@ model CreditPackage {
   updatedAt    DateTime @updatedAt
 }
 
+model MembershipPlan {
+  id                  String   @id @default(uuid())
+  code                String   @unique
+  name                String
+  billingCycle        String
+  price               Decimal  @db.Decimal(10, 2)
+  monthlyQuotaCredits Int      @default(0)
+  signupBonusCredits  Int      @default(0)
+  dailyGiftCredits    Int      @default(0)
+  isActive            Boolean  @default(true)
+  sortOrder           Int      @default(0)
+  metadata            Json?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
+model UserMembershipSubscription {
+  id                   String   @id @default(uuid())
+  userId               String
+  membershipPlanId     String
+  status               String   @default("active")
+  periodType           String
+  currentPeriodStartAt DateTime
+  currentPeriodEndAt   DateTime
+  activatedAt          DateTime?
+  expiredAt            DateTime?
+  cancelledAt          DateTime?
+  renewalCount         Int      @default(0)
+  lastOrderId          String?
+  snapshot             Json?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([userId, status])
+  @@index([membershipPlanId, status])
+  @@index([currentPeriodEndAt, status])
+}
+
+model MembershipEntitlementSnapshot {
+  userId               String   @id
+  currentPlanCode      String   @default("free")
+  membershipStatus     String   @default("inactive")
+  currentPeriodStartAt DateTime?
+  currentPeriodEndAt   DateTime?
+  pauseGiftDecay       Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
 model InvitationCode {
   id            String                 @id @default(uuid())
   code          String                 @unique
@@ -406,6 +464,8 @@ model PaymentOrder {
   id            String   @id @default(uuid())
   orderNo       String   @unique
   userId        String
+  orderType     String   @default("recharge")
+  businessCode  String?
   amount        Decimal  @db.Decimal(10, 2)
   credits       Int
   paymentMethod String   // alipay, wechat
@@ -414,6 +474,9 @@ model PaymentOrder {
   tradeNo       String?  // 第三方支付交易号
   paidAt        DateTime?
   expiredAt     DateTime
+  membershipPlanId String?
+  subscriptionId String?
+  planSnapshot  Json?
   metadata      Json?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -421,6 +484,7 @@ model PaymentOrder {
   @@index([userId, createdAt])
   @@index([status])
   @@index([orderNo])
+  @@index([orderType, status])
 }
 
 model ImageTask {

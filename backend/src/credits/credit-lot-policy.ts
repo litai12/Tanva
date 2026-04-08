@@ -52,6 +52,16 @@ export interface CreditConsumePolicy {
   sourcePriority: Record<CreditLotSourceType, number>;
 }
 
+export interface PersistedCreditConsumePolicyRecord {
+  code: string;
+  version: number;
+  scopeType?: string | null;
+  scopeValue?: string | null;
+  sorts: unknown;
+  validityPriority: unknown;
+  sourcePriority: unknown;
+}
+
 export interface CreditLotDeduction {
   lotId: string;
   amount: number;
@@ -100,6 +110,48 @@ export function getDefaultCreditConsumePolicy(): CreditConsumePolicy {
     validityPriority: { ...DEFAULT_POLICY.validityPriority },
     sourcePriority: { ...DEFAULT_POLICY.sourcePriority },
   };
+}
+
+export function hydrateCreditConsumePolicyRecord(
+  record: PersistedCreditConsumePolicyRecord,
+): CreditConsumePolicy {
+  const fallback = getDefaultCreditConsumePolicy();
+
+  return {
+    code: record.code,
+    version: Number.isFinite(record.version) ? record.version : fallback.version,
+    sorts: normalizeSorts(record.sorts, fallback.sorts),
+    validityPriority: normalizePriorityMap<CreditLotValidityType>(
+      record.validityPriority,
+      fallback.validityPriority,
+      ['membership_bound', 'fixed_window', 'permanent'],
+    ),
+    sourcePriority: normalizePriorityMap<CreditLotSourceType>(
+      record.sourcePriority,
+      fallback.sourcePriority,
+      ['promo', 'gift', 'manual', 'subscription', 'recharge'],
+    ),
+  };
+}
+
+export function selectCreditConsumePolicyRecord(
+  records: PersistedCreditConsumePolicyRecord[],
+  scope?: CreditConsumeScope,
+): PersistedCreditConsumePolicyRecord | null {
+  if (records.length === 0) return null;
+
+  const ranked = [...records]
+    .map((record) => ({
+      record,
+      rank: resolvePolicyScopeRank(record, scope),
+    }))
+    .filter((item) => item.rank >= 0)
+    .sort((left, right) => {
+      if (left.rank !== right.rank) return left.rank - right.rank;
+      return (right.record.version ?? 0) - (left.record.version ?? 0);
+    });
+
+  return ranked[0]?.record ?? null;
 }
 
 export function isLotActiveAtTime(
@@ -287,4 +339,57 @@ function resolveSourcePriority(
   policy: CreditConsumePolicy,
 ): number {
   return policy.sourcePriority[value] ?? Number.MAX_SAFE_INTEGER;
+}
+
+function normalizeSorts(
+  value: unknown,
+  fallback: string[],
+): string[] {
+  if (!Array.isArray(value)) return [...fallback];
+
+  const sorts = value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+  return sorts.length > 0 ? sorts : [...fallback];
+}
+
+function normalizePriorityMap<T extends string>(
+  value: unknown,
+  fallback: Record<T, number>,
+  keys: T[],
+): Record<T, number> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { ...fallback };
+  }
+
+  const source = value as Record<string, unknown>;
+  const result = { ...fallback };
+
+  for (const key of keys) {
+    const rawValue = source[key];
+    if (typeof rawValue === 'number' && Number.isFinite(rawValue)) {
+      result[key] = rawValue;
+    }
+  }
+
+  return result;
+}
+
+function resolvePolicyScopeRank(
+  record: PersistedCreditConsumePolicyRecord,
+  scope?: CreditConsumeScope,
+): number {
+  const scopeType = typeof record.scopeType === 'string' ? record.scopeType : 'global';
+  const scopeValue = typeof record.scopeValue === 'string' ? record.scopeValue : null;
+
+  switch (scopeType) {
+    case 'model':
+      return scope?.model && scopeValue === scope.model ? 0 : -1;
+    case 'provider':
+      return scope?.provider && scopeValue === scope.provider ? 1 : -1;
+    case 'service_type':
+      return scope?.serviceType && scopeValue === scope.serviceType ? 2 : -1;
+    case 'global':
+      return 3;
+    default:
+      return -1;
+  }
 }

@@ -23,6 +23,8 @@ import {
   type HybridCreditDeduction,
 } from './credit-lot-ledger';
 import {
+  hydrateCreditConsumePolicyRecord,
+  selectCreditConsumePolicyRecord,
   getDefaultCreditConsumePolicy,
   type CreditLotCandidate,
   type CreditLotStatus,
@@ -323,6 +325,43 @@ export class CreditsService {
           }
         : {}),
     } as Prisma.InputJsonValue;
+  }
+
+  private async resolveCreditConsumePolicy(
+    client: PrismaService | Prisma.TransactionClient,
+    scope?: {
+      serviceType?: string | null;
+      provider?: string | null;
+      model?: string | null;
+    },
+  ) {
+    const records = await client.creditConsumePolicy.findMany({
+      where: {
+        isActive: true,
+        OR: [
+          { scopeType: 'global' },
+          ...(scope?.serviceType ? [{ scopeType: 'service_type', scopeValue: scope.serviceType }] : []),
+          ...(scope?.provider ? [{ scopeType: 'provider', scopeValue: scope.provider }] : []),
+          ...(scope?.model ? [{ scopeType: 'model', scopeValue: scope.model }] : []),
+        ],
+      },
+      select: {
+        code: true,
+        version: true,
+        scopeType: true,
+        scopeValue: true,
+        sorts: true,
+        validityPriority: true,
+        sourcePriority: true,
+      },
+    });
+
+    const record = selectCreditConsumePolicyRecord(records, scope);
+    if (!record) {
+      return getDefaultCreditConsumePolicy();
+    }
+
+    return hydrateCreditConsumePolicyRecord(record);
   }
 
   private extractChannelFromApiUsage(apiUsage?: {
@@ -935,7 +974,11 @@ export class CreditsService {
         },
       });
 
-      const consumePolicy = getDefaultCreditConsumePolicy();
+      const consumePolicy = await this.resolveCreditConsumePolicy(tx, {
+        serviceType,
+        provider: requestedProvider || pricing.provider,
+        model: model ?? null,
+      });
       const deductionPlan = buildHybridCreditDeductionPlan({
         accountBalance: account.balance,
         amount: creditsToDeduct,

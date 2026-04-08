@@ -55,11 +55,29 @@
   - `creditLotId`
   - `consumePolicyCode`
   - `consumePolicyVersion`
-- 当前仍是基础层，现有 `CreditsService.preDeductCredits` 生产扣费逻辑尚未切换到 lot 真值扣减；后续迁移应分阶段接入，避免一次性重写线上账务链路。
+- `CreditsService.preDeductCredits` 已切到 hybrid lot 扣减：
+  - 先按 `CreditLot` + consume policy 排序扣减
+  - 若历史余额尚未 lot 化，则剩余部分走 `legacy_balance` 兜底
+  - 交易流水 metadata 记录 `deductions`
+- `CreditsService.refundCredits` 已支持按原 `deductions` 恢复 lot 剩余额度，并保留 legacy balance 回补。
 - 已接入的发放链路：
   - `PaymentService.processPaymentSuccess`：充值成功后创建 `sourceType=recharge` 的 permanent lot。
   - `CreditsService.adminAddCredits`：管理员补发积分时创建 `sourceType=manual` 的 permanent lot。
   - `CreditsService.getOrCreateAccount`：新用户注册赠送与邀请注册额外赠送创建 `sourceType=promo` 的 permanent lot。
+- 已接入的限时链路：
+  - `CreditsService.claimDailyReward`：免费用户签到创建 `sourceType=gift` + `validityType=fixed_window` 的 lot；付费用户签到创建 permanent lot。
+  - `CreditsService.cleanupExpiredDailyRewards`：优先按 daily reward lot 的 `remainingAmount` 过期，旧签到流水（`creditLotId IS NULL`）继续走 legacy 清理分支。
+  - `CreditsService.getExpiringCredits`：同时聚合 lot 化签到积分与 legacy 签到积分。
+- consume policy：
+  - 新增 `CreditConsumePolicy` 表，并在 migration 中初始化 `global_default`
+  - 当前 `CreditsService` 先读取 `global_default`，缺失时回退内置默认策略
+- 会员 P0 最小闭环：
+  - 新增 `MembershipPlan`、`UserMembershipSubscription`、`MembershipEntitlementSnapshot` 三张基础表。
+  - `PaymentOrder` 扩展支持 `orderType=membership`、`membershipPlanId`、`subscriptionId`、`planSnapshot`。
+  - 新增 `MembershipService.activatePaidMembershipOrder`：支付成功后激活/续期订阅、upsert 权益快照，并发放 `sourceType=subscription` + `validityType=membership_bound` 的 lot。
+  - 新增 `GET /api/payment/membership-plans`，以及会员订单创建校验：金额必须匹配已启用套餐，会员订单 `credits` 固定为 `0`。
 - 尚未接入的链路：
-  - 每日签到（现有过期清理仍以 `CreditTransaction` 为主）
-  - lot 真值扣减与 lot 级退款恢复
+  - 更细粒度 scope 策略（service/provider/model 级命中）
+  - 会员到期扫描、月卡自动刷新、每日赠送衰减 scheduler
+  - 前端会员页 / 支付页 / 弹窗统一接入套餐配置
+  - lot 级对账与迁移回填工具

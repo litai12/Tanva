@@ -18,6 +18,7 @@ import { PaymentModule } from './payment/payment.module';
 import { ReferralModule } from './referral/referral.module';
 import { TelemetryModule } from './telemetry/telemetry.module';
 import { UserTemplatesModule } from './user-templates/user-templates.module';
+import { MembershipModule } from './membership/membership.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { UserTemplatesModule } from './user-templates/user-templates.module';
     GlobalImageHistoryModule,
     TemplatesModule,
     PaymentModule,
+    MembershipModule,
     ReferralModule,
     TelemetryModule,
     UserTemplatesModule,

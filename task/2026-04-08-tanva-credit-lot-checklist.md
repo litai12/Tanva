@@ -27,7 +27,9 @@
 - [x] 接入充值成功 -> permanent lot 发放
 - [x] 接入管理员补发 -> permanent lot 发放
 - [x] 接入新用户注册赠送 -> promo permanent lot 发放
-- [ ] 接入每日签到 -> fixed_window lot 发放
+- [x] 接入每日签到 -> fixed_window / permanent lot 发放
+- [x] 接入 hybrid lot 扣减与 lot 级退款恢复
+- [x] 支持从 `CreditConsumePolicy` 读取全局默认策略，缺失时回退内置策略
 
 ## 4. 测试
 
@@ -36,6 +38,9 @@
 - [x] 测试：同生命周期内快过期优先
 - [x] 测试：permanent 最后扣
 - [x] 测试：余额不足时报错
+- [x] 测试：hybrid lot + legacy balance 扣减
+- [x] 测试：lot 扣减后可按原 deductions 恢复
+- [x] 测试：持久化 consume policy 记录可正确 hydrate / fallback
 
 ## 5. 验证
 
