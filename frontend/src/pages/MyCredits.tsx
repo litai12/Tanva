@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import PaymentPanel from '@/components/payment/PaymentPanel';
+import MembershipPanel from '@/components/payment/MembershipPanel';
 import {
   claimDailyReward,
   getDailyRewardStatus,
@@ -11,10 +12,12 @@ import {
   getCheckInCalendar,
   getMyApiUsage,
   getMyCredits,
+  getMembershipCurrent,
   getMyTransactions,
   type DailyRewardStatus,
   type ExpiringCreditsInfo,
   type CheckInCalendar,
+  type MembershipCurrentResponse,
   type UserCreditsInfo,
 } from '@/services/adminApi';
 import { cn } from '@/lib/utils';
@@ -127,6 +130,8 @@ const MyCredits: React.FC = () => {
   const [checkInCalendar, setCheckInCalendar] = useState<CheckInCalendar | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'transactions'>('overview');
   const [showPaymentPanel, setShowPaymentPanel] = useState(false);
+  const [showMembershipPanel, setShowMembershipPanel] = useState(false);
+  const [membershipCurrent, setMembershipCurrent] = useState<MembershipCurrentResponse | null>(null);
 
   useEffect(() => {
     loadData();
@@ -150,6 +155,11 @@ const MyCredits: React.FC = () => {
       setApiUsage(usageData.records || []);
       setExpiringCredits(expiringData);
       setCheckInCalendar(calendarData);
+      const membershipData = await getMembershipCurrent().catch((error) => {
+        console.warn('Failed to load membership current:', error);
+        return null;
+      });
+      setMembershipCurrent(membershipData);
     } catch (error) {
       console.error('Failed to load credits data:', error);
     } finally {
@@ -326,14 +336,14 @@ const MyCredits: React.FC = () => {
 
   if (loading) {
     return (
-        <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+        <div className="flex h-screen items-center justify-center overflow-y-auto bg-gradient-to-br from-slate-50 to-blue-50">
         <div className="text-slate-500">{t('creditsPage.loading')}</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+    <div className="h-screen overflow-y-auto bg-gradient-to-br from-slate-50 to-blue-50">
       {/* Header */}
       <div className="sticky top-0 z-10 border-b bg-white/80 backdrop-blur-xl border-slate-200/60">
         <div className="flex items-center justify-between max-w-4xl px-4 py-4 mx-auto">
@@ -374,6 +384,20 @@ const MyCredits: React.FC = () => {
             >
               {t('workspace.settings.workspaceTab.credits.recharge')}
             </button>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setShowMembershipPanel(true)}
+              className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-white/20"
+            >
+              {membershipCurrent?.plan?.name ? `当前：${membershipCurrent.plan.name}` : '订阅 VIP'}
+            </button>
+            <div className="text-xs text-blue-100/90">
+              {membershipCurrent?.entitlement?.membershipStatus === 'active' && membershipCurrent?.entitlement?.currentPeriodEndAt
+                ? `会员到期：${new Date(membershipCurrent.entitlement.currentPeriodEndAt).toLocaleDateString(currentLocale)}`
+                : '开通 VIP 可获得月额度、开通赠送和每日赠送积分'}
+            </div>
           </div>
           <div className="grid grid-cols-3 gap-4 mt-6">
             <div className="p-3 bg-white/10 rounded-xl">
@@ -629,6 +653,26 @@ const MyCredits: React.FC = () => {
               onBack={() => setShowPaymentPanel(false)}
               onPaymentSuccess={() => {
                 setShowPaymentPanel(false);
+                loadData(false);
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {showMembershipPanel && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/30"
+          onClick={() => setShowMembershipPanel(false)}
+        >
+          <div
+            className="w-full max-w-[1100px] max-h-[88vh] overflow-auto bg-white border border-slate-200 shadow-[0_24px_80px_rgba(15,23,42,0.22)] rounded-3xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <MembershipPanel
+              onBack={() => setShowMembershipPanel(false)}
+              onPaymentSuccess={() => {
+                setShowMembershipPanel(false);
                 loadData(false);
               }}
             />

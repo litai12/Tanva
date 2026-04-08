@@ -531,6 +531,9 @@ export interface PaymentStatusResponse {
   status: PaymentStatus;
   paidAt: string | null;
   credits: number;
+  orderType?: "recharge" | "membership";
+  membershipPlanId?: string | null;
+  subscriptionId?: string | null;
 }
 
 // 创建支付订单
@@ -607,6 +610,123 @@ export interface PackagesResponse {
 // 获取充值套餐（根据首充状态返回不同配置）
 export async function getPaymentPackages(): Promise<PackagesResponse> {
   const response = await request("/api/payment/packages");
+  return response.json();
+}
+
+export interface PaymentMembershipPlan {
+  id: string;
+  code: string;
+  name: string;
+  billingCycle: "monthly" | "yearly";
+  price: number;
+  monthlyQuotaCredits: number;
+  signupBonusCredits: number;
+  dailyGiftCredits: number;
+  metadata: Record<string, any> | null;
+}
+
+export async function getPaymentMembershipPlans(): Promise<{ plans: PaymentMembershipPlan[] }> {
+  const response = await request("/api/payment/membership-plans");
+  return response.json();
+}
+
+export interface MembershipCurrentResponse {
+  subscription: {
+    id: string;
+    status: string;
+    periodType: string;
+    currentPeriodStartAt: string;
+    currentPeriodEndAt: string;
+    activatedAt: string | null;
+    renewalCount: number;
+    lastOrderId: string | null;
+  } | null;
+  plan: {
+    id: string;
+    code: string;
+    name: string;
+    billingCycle: string;
+    price: number;
+    monthlyQuotaCredits: number;
+    signupBonusCredits: number;
+    dailyGiftCredits: number;
+  } | null;
+  entitlement: {
+    currentPlanCode: string;
+    membershipStatus: string;
+    currentPeriodStartAt: string | null;
+    currentPeriodEndAt: string | null;
+    pauseGiftDecay: boolean;
+    hasActiveSubscription: boolean;
+  };
+}
+
+export interface MembershipMeResponse {
+  planCode: string;
+  membershipStatus: string;
+  currentPeriodStartAt: string | null;
+  currentPeriodEndAt: string | null;
+  benefits: {
+    pauseGiftDecay: boolean;
+  };
+  balances: {
+    subscriptionCredits: number;
+    giftCredits: number;
+    fixedCredits: number;
+    totalCredits: number;
+  };
+  quotas: {
+    inviteLimit: number | null;
+    imageDailyLimit: number | null;
+    videoDailyLimit: number | null;
+  };
+  current: MembershipCurrentResponse;
+}
+
+export async function getMembershipMe(): Promise<MembershipMeResponse> {
+  const response = await request("/api/membership/me");
+  return response.json();
+}
+
+export async function getMembershipCurrent(): Promise<MembershipCurrentResponse> {
+  const response = await request("/api/membership/current");
+  return response.json();
+}
+
+export async function createMembershipOrder(data: {
+  planCode: string;
+  paymentMethod: PaymentMethod;
+}): Promise<PaymentOrderResponse> {
+  const response = await request("/api/membership/orders", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  return response.json();
+}
+
+export interface MembershipOrderRecord {
+  orderId: string;
+  orderNo: string;
+  planCode: string;
+  amount: number;
+  paymentMethod: string;
+  orderType: "membership";
+  membershipPlanId: string | null;
+  subscriptionId: string | null;
+  status: PaymentStatus;
+  paidAt: string | null;
+  createdAt: string;
+}
+
+export async function getMembershipOrders(params?: {
+  page?: number;
+  pageSize?: number;
+}): Promise<{ items: MembershipOrderRecord[]; page: number; pageSize: number; total: number }> {
+  const searchParams = new URLSearchParams();
+  if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
+  const response = await request(`/api/membership/orders?${searchParams}`);
   return response.json();
 }
 
