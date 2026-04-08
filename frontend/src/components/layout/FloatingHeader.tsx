@@ -59,7 +59,6 @@ import { useAIChatStore } from "@/stores/aiChatStore";
 import { logger } from "@/utils/logger";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/authStore";
-import ManualSaveButton from "@/components/autosave/ManualSaveButton";
 import GlobalImageHistoryPage from "@/components/global-history/GlobalImageHistoryPage";
 import { useGlobalImageHistoryStore } from "@/stores/globalImageHistoryStore";
 import AutosaveStatus from "@/components/autosave/AutosaveStatus";
@@ -1960,9 +1959,6 @@ const FloatingHeader: React.FC = () => {
         {/* 右侧栏：功能按钮 */}
         <div className='pointer-events-auto'>
           <div className='flex items-center gap-1.5 md:gap-2 px-4 md:px-6 py-2 h-[46px] rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300'>
-            <ManualSaveButton />
-            <WorkflowHistoryButton projectId={currentProject?.id ?? null} />
-
             {/* 素材库按钮 */}
             {showLibraryButton && (
               <Button
@@ -2000,6 +1996,8 @@ const FloatingHeader: React.FC = () => {
               </span>
               <span className='tabular-nums font-medium'>{topCreditsText}</span>
             </Button>
+
+            <WorkflowHistoryButton projectId={currentProject?.id ?? null} />
 
             {/* 帮助按钮 */}
             <div
