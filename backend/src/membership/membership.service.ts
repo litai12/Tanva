@@ -21,6 +21,32 @@ export class MembershipService {
     });
   }
 
+  async getMembershipPlansPage() {
+    const plans = await this.listActivePlans();
+    return {
+      hero: {
+        title: '从免费体验到专业创作，找到最适合你的方案',
+        subtitle: '免费用户可体验基础生图与视频能力，升级 VIP 后获得更多积分和高级权益',
+      },
+      plans: plans.map((plan) => ({
+        code: plan.code,
+        name: plan.name,
+        billingCycle: plan.billingCycle,
+        price: Number(plan.price),
+        monthlyQuotaCredits: plan.monthlyQuotaCredits,
+        signupBonusCredits: plan.signupBonusCredits,
+        totalMonthlyCredits: plan.monthlyQuotaCredits + plan.signupBonusCredits,
+        dailyGiftCredits: plan.dailyGiftCredits,
+        metadata: plan.metadata,
+        ctaText: `升级 ${plan.name}`,
+        isRecommended: plan.sortOrder === 10,
+      })),
+      comparisonTable: [],
+      creditRules: [],
+      footnotes: [],
+    };
+  }
+
   async getCurrentMembership(userId: string) {
     const subscription = await this.prisma.userMembershipSubscription.findFirst({
       where: {
@@ -99,6 +125,62 @@ export class MembershipService {
       currentPeriodEndAt: snapshot.currentPeriodEndAt,
       pauseGiftDecay: snapshot.pauseGiftDecay,
       hasActiveSubscription: activeSubscriptionCount > 0,
+    };
+  }
+
+  async getMembershipMe(userId: string) {
+    const [current, entitlement, account, activeLots] = await Promise.all([
+      this.getCurrentMembership(userId),
+      this.getMembershipEntitlement(userId),
+      this.prisma.creditAccount.findUnique({ where: { userId } }),
+      this.prisma.creditLot.findMany({
+        where: {
+          account: { userId },
+          status: 'active',
+          remainingAmount: { gt: 0 },
+        },
+        select: {
+          sourceType: true,
+          validityType: true,
+          remainingAmount: true,
+        },
+      }),
+    ]);
+
+    const balances = activeLots.reduce(
+      (acc, lot) => {
+        if (lot.validityType === 'membership_bound' || lot.sourceType === 'subscription') {
+          acc.subscriptionCredits += lot.remainingAmount;
+        } else if (lot.sourceType === 'gift') {
+          acc.giftCredits += lot.remainingAmount;
+        } else {
+          acc.fixedCredits += lot.remainingAmount;
+        }
+        return acc;
+      },
+      { subscriptionCredits: 0, giftCredits: 0, fixedCredits: 0 },
+    );
+
+    return {
+      planCode: entitlement.currentPlanCode,
+      membershipStatus: entitlement.membershipStatus,
+      currentPeriodStartAt: entitlement.currentPeriodStartAt,
+      currentPeriodEndAt: entitlement.currentPeriodEndAt,
+      benefits: {
+        pauseGiftDecay: entitlement.pauseGiftDecay,
+      },
+      balances: {
+        subscriptionCredits: balances.subscriptionCredits,
+        giftCredits: balances.giftCredits,
+        fixedCredits: balances.fixedCredits,
+        totalCredits: account?.balance ?? 0,
+      },
+      quotas: {
+        inviteLimit: null,
+        imageDailyLimit: null,
+        videoDailyLimit: null,
+      },
+      current,
     };
   }
 

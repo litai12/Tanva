@@ -32,6 +32,7 @@ export interface PaymentOrderResponse {
   credits: number;
   paymentMethod: PaymentMethod;
   orderType: PaymentOrderType;
+  businessCode?: string | null;
   status: PaymentStatus;
   qrCodeUrl: string | null;
   expiredAt: Date;
@@ -45,6 +46,9 @@ export interface PaymentStatusResponse {
   status: PaymentStatus;
   paidAt: Date | null;
   credits: number;
+  orderType?: PaymentOrderType;
+  membershipPlanId?: string | null;
+  subscriptionId?: string | null;
 }
 
 // 充值套餐配置

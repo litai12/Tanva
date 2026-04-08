@@ -271,6 +271,29 @@ export class PaymentService implements OnModuleInit {
     };
   }
 
+  async createMembershipOrderByPlanCode(
+    userId: string,
+    input: { planCode: string; paymentMethod: PaymentMethod },
+  ): Promise<PaymentOrderResponse> {
+    const plan = await this.prisma.membershipPlan.findFirst({
+      where: {
+        code: input.planCode,
+        isActive: true,
+      },
+    });
+    if (!plan) {
+      throw new NotFoundException('会员套餐不存在');
+    }
+
+    return this.createOrder(userId, {
+      amount: Number(plan.price),
+      credits: 0,
+      paymentMethod: input.paymentMethod,
+      orderType: 'membership',
+      membershipPlanId: plan.id,
+    });
+  }
+
   async createOrder(userId: string, dto: CreateOrderDto): Promise<PaymentOrderResponse> {
     const { amount, credits, paymentMethod } = dto;
     const orderType: PaymentOrderType = dto.orderType ?? 'recharge';
@@ -352,6 +375,7 @@ export class PaymentService implements OnModuleInit {
       orderId: order.id, orderNo: order.orderNo, amount: Number(order.amount),
       credits: order.credits, paymentMethod: order.paymentMethod as PaymentMethod,
       orderType: order.orderType as PaymentOrderType,
+      businessCode: order.businessCode,
       status: order.status as PaymentStatus, qrCodeUrl: order.qrCodeUrl,
       expiredAt: order.expiredAt, createdAt: order.createdAt,
       membershipPlanId: order.membershipPlanId,
@@ -499,6 +523,9 @@ export class PaymentService implements OnModuleInit {
       status: latestOrder.status as PaymentStatus,
       paidAt: latestOrder.paidAt,
       credits: latestOrder.credits,
+      orderType: latestOrder.orderType as PaymentOrderType,
+      membershipPlanId: latestOrder.membershipPlanId,
+      subscriptionId: latestOrder.subscriptionId,
     };
   }
 
@@ -767,9 +794,61 @@ export class PaymentService implements OnModuleInit {
         this.prisma.paymentOrder.count({ where: { userId } }),
       ]);
       return {
-        orders: orders.map(order => ({ orderId: order.id, orderNo: order.orderNo, amount: Number(order.amount), credits: order.credits, paymentMethod: order.paymentMethod, status: order.status, paidAt: order.paidAt, createdAt: order.createdAt })),
+        orders: orders.map(order => ({
+          orderId: order.id,
+          orderNo: order.orderNo,
+          amount: Number(order.amount),
+          credits: order.credits,
+          paymentMethod: order.paymentMethod,
+          orderType: order.orderType,
+          businessCode: order.businessCode,
+          membershipPlanId: order.membershipPlanId,
+          subscriptionId: order.subscriptionId,
+          status: order.status,
+          paidAt: order.paidAt,
+          createdAt: order.createdAt,
+        })),
         pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
       };
+  }
+
+  async getMembershipOrders(userId: string, page = 1, pageSize = 20) {
+    try {
+      await this.syncPendingOrdersForUser(userId, 10);
+    } catch (error) {
+      this.logger.warn(
+        `获取会员订单列表前同步支付状态失败: userId=${userId}, error=${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    const [orders, total] = await Promise.all([
+      this.prisma.paymentOrder.findMany({
+        where: { userId, orderType: 'membership' },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.paymentOrder.count({ where: { userId, orderType: 'membership' } }),
+    ]);
+
+    return {
+      items: orders.map((order) => ({
+        orderId: order.id,
+        orderNo: order.orderNo,
+        planCode: order.businessCode,
+        amount: Number(order.amount),
+        paymentMethod: order.paymentMethod,
+        orderType: order.orderType,
+        membershipPlanId: order.membershipPlanId,
+        subscriptionId: order.subscriptionId,
+        status: order.status,
+        paidAt: order.paidAt,
+        createdAt: order.createdAt,
+      })),
+      page,
+      pageSize,
+      total,
+    };
   }
 
   async confirmPayment(orderNo: string, userId: string) {
@@ -823,6 +902,9 @@ export class PaymentService implements OnModuleInit {
       success: latestOrder.status === PaymentStatus.PAID,
       credits: latestOrder.status === PaymentStatus.PAID ? latestOrder.credits : 0,
       newBalance: account?.balance ?? 0,
+      orderType: latestOrder.orderType,
+      membershipPlanId: latestOrder.membershipPlanId,
+      subscriptionId: latestOrder.subscriptionId,
     };
   }
 
