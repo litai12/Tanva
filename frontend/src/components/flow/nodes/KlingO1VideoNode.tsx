@@ -6,6 +6,7 @@ import GenerationProgressBar from "./GenerationProgressBar";
 import { useAuthStore } from "@/stores/authStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
+import RunCreditBadge from "./RunCreditBadge";
 
 type Props = {
   id: string;
@@ -17,6 +18,7 @@ type Props = {
     videoVersion?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
+    creditsPerCall?: number;
     clipDuration?: number;
     aspectRatio?: string;
     mode?: "std" | "pro";
@@ -607,7 +609,10 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
       >
         <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
           <Video size={18} />
-          <span>Kling O3</span>
+          <span>
+            Kling O3
+            <RunCreditBadge credits={data.creditsPerCall} inline />
+          </span>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
           <button

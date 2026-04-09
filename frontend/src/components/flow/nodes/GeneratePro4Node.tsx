@@ -11,6 +11,7 @@ import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import { useLocaleText } from "@/utils/localeText";
 import { flowLetterboxBackground, FLOW_NODE_DARK_SURFACE } from "./flowNodeDarkTheme";
+import RunCreditBadge from "./RunCreditBadge";
 
 // 长宽比图标
 const AspectRatioIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -45,6 +46,7 @@ type Props = {
     imageSize?: "1K" | "2K" | "4K" | null;
     prompts?: string[];
     imageWidth?: number;
+    creditsPerCall?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
   };
@@ -1074,6 +1076,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
             >
               <Play style={{ width: 14, height: 14 }} />
             </button>
+            <RunCreditBadge credits={data.creditsPerCall} compact />
           </div>
 
           {/* 长宽比水平选择栏 - 仅 Pro 模式显示 */}

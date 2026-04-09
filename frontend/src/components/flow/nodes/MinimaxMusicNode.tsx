@@ -14,6 +14,7 @@ import {
   flowNodeShellChrome,
   useFlowNodeDarkTheme,
 } from "./flowNodeDarkTheme";
+import RunCreditBadge from "./RunCreditBadge";
 
 const PROMPT_MAX_LENGTH = 2000;
 const LYRICS_MAX_LENGTH = 3500;
@@ -41,6 +42,7 @@ type Props = {
     model?: "music-2.5+" | "music-2.5";
     history?: MusicHistoryItem[];
     selectedHistoryId?: string;
+    creditsPerCall?: number;
     onRun?: (id: string) => void;
   };
   selected?: boolean;
@@ -287,7 +289,10 @@ function MinimaxMusicNode({ id, data, selected }: Props) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600 }}>
           <Music2 size={20} color="#14b8a6" strokeWidth={2.2} />
-          <span>{lt("MiniMax 音乐生成", "MiniMax Music")}</span>
+          <span>
+            {lt("MiniMax 音乐生成", "MiniMax Music")}
+            <RunCreditBadge credits={data.creditsPerCall} inline />
+          </span>
         </div>
         <button
           onClick={handleRun}

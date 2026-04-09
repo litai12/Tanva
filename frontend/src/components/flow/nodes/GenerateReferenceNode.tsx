@@ -13,6 +13,7 @@ import { toRenderableImageSrc } from "@/utils/imageSource";
 import { useLocaleText } from "@/utils/localeText";
 import { flowImagePreviewWell, flowLetterboxBackground, useFlowNodeDarkTheme } from "./flowNodeDarkTheme";
 import { explainGenerateReferenceImageError } from "@/utils/flowGenerateRefErrors";
+import RunCreditBadge from "./RunCreditBadge";
 
 type Props = {
   id: string;
@@ -23,6 +24,7 @@ type Props = {
     thumbnail?: string;
     error?: string;
     referencePrompt?: string;
+    creditsPerCall?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
   };
@@ -184,6 +186,7 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
           >
             {status === "running" ? lt("运行中...", "Running...") : "Run"}
           </button>
+          <RunCreditBadge credits={data.creditsPerCall} />
           <button
             onClick={onSend}
             disabled={!(data.imageData || data.imageUrl)}

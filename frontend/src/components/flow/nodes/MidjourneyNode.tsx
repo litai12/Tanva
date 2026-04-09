@@ -12,6 +12,7 @@ import { toRenderableImageSrc } from '@/utils/imageSource';
 import { useLocaleText } from '@/utils/localeText';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { flowImagePreviewWell, flowLetterboxBackground } from './flowNodeDarkTheme';
+import RunCreditBadge from './RunCreditBadge';
 
 type MidjourneyMode = 'FAST' | 'RELAX';
 type AdvancedMidjourneyType = 'midjourneyV7' | 'niji7';
@@ -97,6 +98,7 @@ type Props = {
     aspectRatio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9';
     mode?: MidjourneyMode;
     presetPrompt?: string;
+    creditsPerCall?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
     // Midjourney 特有的元数据
@@ -569,7 +571,10 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <Sparkles size={16} color={accentColor} />
-            <span style={{ fontWeight: 600, color: accentColor }}>{title}</span>
+            <span style={{ fontWeight: 600, color: accentColor }}>
+              {title}
+              <RunCreditBadge credits={data.creditsPerCall} inline />
+            </span>
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
             <button
@@ -1329,4 +1334,3 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
 }
 
 export default React.memo(MidjourneyNodeInner);
-

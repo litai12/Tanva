@@ -6,6 +6,7 @@ import GenerationProgressBar from "./GenerationProgressBar";
 import { fetchWithAuth } from "@/services/authFetch";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
+import RunCreditBadge from "./RunCreditBadge";
 
 type VideoHistoryItem = {
   id: string;
@@ -27,6 +28,7 @@ type Props = {
     error?: string;
     videoVersion?: number;
     onRun?: (id: string) => void;
+    creditsPerCall?: number;
     size?: string;
     duration?: number;
     shotType?: "single" | "multi";
@@ -442,9 +444,12 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
           }}
         >
           <Video size={18} />
-          <span>Wan2.6 R2V</span>
+          <span>
+            Wan2.6 R2V
+            <RunCreditBadge credits={data.creditsPerCall} inline />
+          </span>
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <button
             className="tanva-video-header-btn tanva-video-header-run"
             onClick={() => data.onRun?.(id)}

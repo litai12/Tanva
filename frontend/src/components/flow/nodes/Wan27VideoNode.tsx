@@ -6,6 +6,7 @@ import { uploadAudioToOSS } from "@/stores/aiChatStore";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
+import RunCreditBadge from "./RunCreditBadge";
 
 type VideoHistoryItem = {
   id: string;
@@ -26,6 +27,7 @@ type Props = {
     error?: string;
     videoVersion?: number;
     onRun?: (id: string) => void;
+    creditsPerCall?: number;
     resolution?: "720P" | "1080P";
     duration?: number;
     promptExtend?: boolean;
@@ -253,9 +255,12 @@ function Wan27VideoNode({ id, data, selected }: Props) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
         <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
           <Video size={18} />
-          <span>Wan2.7 I2V</span>
+          <span>
+            Wan2.7 I2V
+            <RunCreditBadge credits={data.creditsPerCall} inline />
+          </span>
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <button onClick={() => data.onRun?.(id)} disabled={data.status === "running"} style={{ width: 36, height: 32, borderRadius: 8, border: "none", background: data.status === "running" ? "#e5e7eb" : "#111827", color: "#fff", opacity: data.status === "running" ? 0.6 : 1 }}>Run</button>
           <button onClick={() => copyVideoLink(data.videoUrl)} disabled={!data.videoUrl} style={{ width: 36, height: 32, borderRadius: 8, border: "none", background: "#111827", color: "#fff", opacity: data.videoUrl ? 1 : 0.35 }}><Share2 size={14} /></button>
           <button onClick={() => triggerDownload(data.videoUrl)} disabled={!data.videoUrl || isDownloading} style={{ width: 36, height: 32, borderRadius: 8, border: "none", background: !data.videoUrl || isDownloading ? "#e5e7eb" : "#111827", color: "#fff", opacity: !data.videoUrl || isDownloading ? 0.35 : 1 }}>{isDownloading ? <span style={{ fontSize: 10, fontWeight: 600, color: "#111827" }}>···</span> : <Download size={14} />}</button>

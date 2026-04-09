@@ -22,6 +22,7 @@ import {
   flowNodeShellChrome,
   useFlowNodeDarkTheme,
 } from "./flowNodeDarkTheme";
+import RunCreditBadge from "./RunCreditBadge";
 
 type Props = {
   id: string;
@@ -44,6 +45,7 @@ type Props = {
     lensId?: string;
     boxW?: number;
     boxH?: number;
+    creditsPerCall?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
   };
@@ -1245,6 +1247,7 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
               ? lt("生成中...", "Running...")
               : lt("渲染", "Render")}
           </button>
+          <RunCreditBadge credits={data.creditsPerCall} compact />
           <button
             onClick={onSend}
             disabled={!resultFullSrc}

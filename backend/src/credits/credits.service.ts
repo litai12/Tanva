@@ -8,6 +8,7 @@ import {
   ServiceType,
 } from './credits.config';
 import { TransactionType, ApiResponseStatus } from './dto/credits.dto';
+import { PricingResponseDto } from './dto/credits.dto';
 import { ReferralService } from '../referral/referral.service';
 import {
   buildAdminGiftCreditLotData,
@@ -54,6 +55,7 @@ const STALE_PENDING_IMAGE_SERVICE_TYPES: ServiceType[] = [
 ];
 const STALE_PENDING_VIDEO_SERVICE_TYPES: ServiceType[] = [
   'wan26-video',
+  'wan27-video',
   'kling-video',
   'kling-2.6-video',
   'kling-3.0-video',
@@ -71,6 +73,7 @@ const FREE_USER_VIDEO_LIMITED_SERVICES: ServiceType[] = [
   'sora-sd',
   'sora-hd',
   'wan26-video',
+  'wan27-video',
   'wan26-r2v',
   'kling-video',
   'kling-2.6-video',
@@ -126,6 +129,33 @@ export class CreditsService {
     @Inject(forwardRef(() => ReferralService))
     private referralService: ReferralService,
   ) {}
+
+  private async resolveServicePricing(serviceType: ServiceType) {
+    const staticPricing = CREDIT_PRICING_CONFIG[serviceType as keyof typeof CREDIT_PRICING_CONFIG];
+    const nodeConfig = await this.prisma.nodeConfig.findFirst({
+      where: { serviceType },
+      select: {
+        nameZh: true,
+        creditsPerCall: true,
+      },
+    });
+
+    if (nodeConfig) {
+      return {
+        ...(staticPricing || {
+          provider: 'custom',
+          description: `Node-managed pricing for ${serviceType}`,
+        }),
+        serviceName: nodeConfig.nameZh || staticPricing?.serviceName || serviceType,
+        creditsPerCall:
+          typeof nodeConfig.creditsPerCall === 'number'
+            ? nodeConfig.creditsPerCall
+            : staticPricing?.creditsPerCall ?? 0,
+      };
+    }
+
+    return staticPricing;
+  }
 
   private asJsonObject(value: Prisma.JsonValue | null | undefined): Record<string, any> | null {
     if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -265,7 +295,7 @@ export class CreditsService {
 
     const mode = this.normalizeKlingMode(requestParams?.mode);
     const hasSound = this.normalizeKlingSound(requestParams?.sound);
-    const pricing = CREDIT_PRICING_CONFIG[serviceType] as any;
+    const pricing = (CREDIT_PRICING_CONFIG as Record<string, any>)[serviceType];
     const matrix = hasSound ? pricing?.dynamicPricing?.withSound : pricing?.dynamicPricing?.noSound;
     const configuredCredits = Number(matrix?.[mode]?.[String(duration)]);
     if (Number.isFinite(configuredCredits) && configuredCredits > 0) {
@@ -308,7 +338,7 @@ export class CreditsService {
     defaultCredits: number,
     requestParams: any,
   ): number {
-    const servicePricing = CREDIT_PRICING_CONFIG[serviceType] as any;
+    const servicePricing = (CREDIT_PRICING_CONFIG as Record<string, any>)[serviceType];
     const resolutionPricing = servicePricing?.resolutionPricing;
     if (!resolutionPricing || typeof resolutionPricing !== 'object') {
       return defaultCredits;
@@ -1338,7 +1368,7 @@ export class CreditsService {
    * 检查用户是否有足够积分
    */
   async hasEnoughCredits(userId: string, serviceType: ServiceType): Promise<boolean> {
-    const pricing = CREDIT_PRICING_CONFIG[serviceType];
+    const pricing = await this.resolveServicePricing(serviceType);
     if (!pricing) {
       throw new BadRequestException(`未知的服务类型: ${serviceType}`);
     }
@@ -1350,8 +1380,8 @@ export class CreditsService {
   /**
    * 获取服务定价
    */
-  getServicePricing(serviceType: ServiceType) {
-    const pricing = CREDIT_PRICING_CONFIG[serviceType];
+  async getServicePricing(serviceType: ServiceType) {
+    const pricing = await this.resolveServicePricing(serviceType);
     if (!pricing) {
       throw new BadRequestException(`未知的服务类型: ${serviceType}`);
     }
@@ -1364,11 +1394,41 @@ export class CreditsService {
   /**
    * 获取所有服务定价
    */
-  getAllPricing() {
-    return Object.entries(CREDIT_PRICING_CONFIG).map(([key, value]) => ({
+  async getAllPricing(): Promise<PricingResponseDto[]> {
+    const staticEntries: PricingResponseDto[] = Object.entries(CREDIT_PRICING_CONFIG).map(([key, value]) => ({
       serviceType: key,
       ...value,
-    }));
+    })) as PricingResponseDto[];
+    const extraNodeConfigs = await this.prisma.nodeConfig.findMany({
+      where: {
+        serviceType: {
+          not: null,
+        },
+      },
+      select: {
+        serviceType: true,
+        nameZh: true,
+        creditsPerCall: true,
+      },
+    });
+
+    const known = new Set(staticEntries.map((item) => item.serviceType));
+    const dynamicEntries: PricingResponseDto[] = extraNodeConfigs
+      .filter(
+        (item) =>
+          typeof item.serviceType === 'string' &&
+          item.serviceType.trim().length > 0 &&
+          !known.has(item.serviceType.trim()),
+      )
+      .map((item) => ({
+        serviceType: String(item.serviceType).trim(),
+        serviceName: item.nameZh,
+        provider: 'custom',
+        creditsPerCall: item.creditsPerCall,
+        description: `Node-managed pricing for ${item.nameZh || item.serviceType}`,
+      }));
+
+    return staticEntries.concat(dynamicEntries);
   }
 
   /**
@@ -1381,7 +1441,7 @@ export class CreditsService {
       ? requestParams.aiProvider.trim().toLowerCase()
       : '';
 
-    const pricing = CREDIT_PRICING_CONFIG[serviceType];
+    const pricing = await this.resolveServicePricing(serviceType);
     if (!pricing) {
       throw new BadRequestException(`未知的服务类型: ${serviceType}`);
     }

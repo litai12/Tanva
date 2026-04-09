@@ -14,6 +14,7 @@ import {
   flowNodeShellChrome,
   useFlowNodeDarkTheme,
 } from './flowNodeDarkTheme';
+import RunCreditBadge from './RunCreditBadge';
 
 const VOICE_OPTIONS = [
   { value: 'echo', zh: 'echo（男声青年-清色）', en: 'echo (male youth clear)' },
@@ -76,6 +77,7 @@ type Props = {
       | 'fluent'
       | 'whisper';
     soundEffects?: Array<'spacious_echo' | 'auditorium_echo' | 'lofi_telephone' | 'robotic'>;
+    creditsPerCall?: number;
     onRun?: (id: string) => void;
   };
   selected?: boolean;
@@ -269,7 +271,10 @@ function MinimaxSpeechNode({ id, data, selected }: Props) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600 }}>
           <Mic size={20} color="#8b5cf6" strokeWidth={2.2} />
-          <span>{lt('MiniMax 语音合成', 'MiniMax Speech')}</span>
+          <span>
+            {lt('MiniMax 语音合成', 'MiniMax Speech')}
+            <RunCreditBadge credits={data.creditsPerCall} inline />
+          </span>
         </div>
         <button
           onClick={handleRun}

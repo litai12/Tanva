@@ -11,6 +11,7 @@ import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import { useLocaleText } from "@/utils/localeText";
 import { flowImagePreviewWell, flowLetterboxBackground, useFlowNodeDarkTheme } from "./flowNodeDarkTheme";
+import RunCreditBadge from "./RunCreditBadge";
 
 type Props = {
   id: string;
@@ -25,6 +26,7 @@ type Props = {
     presetPrompt?: string;
     googleSearch?: boolean;
     googleImageSearch?: boolean;
+    creditsPerCall?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
   };
@@ -222,6 +224,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
           >
             {status === "running" ? "Running..." : "Run"}
           </button>
+          <RunCreditBadge credits={data.creditsPerCall} />
           <button
             onClick={onSend}
             disabled={!(data.imageData || data.imageUrl)}

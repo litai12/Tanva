@@ -13,6 +13,7 @@ import { useAIChatStore } from "@/stores/aiChatStore";
 import { useLocaleText } from "@/utils/localeText";
 import { flowImagePreviewWell, flowLetterboxBackground } from "./flowNodeDarkTheme";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "../../ui/dropdown-menu";
+import RunCreditBadge from "./RunCreditBadge";
 
 type Props = {
   id: string;
@@ -39,6 +40,7 @@ type Props = {
       | "1:8";
     imageSize?: "0.5K" | "1K" | "2K" | "4K";
     presetPrompt?: string;
+    creditsPerCall?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
   };
@@ -823,6 +825,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
           >
             {status === "running" ? "Running..." : "Run"}
           </button>
+          <RunCreditBadge credits={data.creditsPerCall} />
           <button
             onClick={onSend}
             disabled={!(data.imageData || data.imageUrl)}

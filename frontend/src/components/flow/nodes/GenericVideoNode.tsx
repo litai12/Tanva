@@ -8,6 +8,7 @@ import { uploadAudioToOSS } from "@/stores/aiChatStore";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
+import RunCreditBadge from "./RunCreditBadge";
 
 export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao";
 type ViduModel =
@@ -38,6 +39,7 @@ type Props = {
     videoVersion?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
+    creditsPerCall?: number;
     provider: VideoProvider;
     clipDuration?: number;
     aspectRatio?: string;
@@ -1199,7 +1201,10 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           }}
         >
           <Video size={18} />
-          <span>{displayTitle}</span>
+          <span>
+            {displayTitle}
+            <RunCreditBadge credits={data.creditsPerCall} inline />
+          </span>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
           {/* 玩法说明按钮: 仅 Kling 2.6/3.0 节点显示 */}

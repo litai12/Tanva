@@ -13,6 +13,7 @@ import {
   useFlowNodeDarkTheme,
 } from './flowNodeDarkTheme';
 import { TENCENT_SYSTEM_VOICES } from './tencentSystemVoices';
+import RunCreditBadge from './RunCreditBadge';
 
 const LANGUAGE_OPTIONS = [
   { value: 'zh', zh: '中文 (zh)', en: 'Chinese (zh)' },
@@ -90,6 +91,7 @@ type Props = {
     outputPattern?: string;
     history?: SpeechHistoryItem[];
     selectedHistoryId?: string;
+    creditsPerCall?: number;
     onRun?: (id: string) => void;
   };
   selected?: boolean;
@@ -315,7 +317,10 @@ function TencentSpeechNode({ id, data, selected }: Props) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600 }}>
           <Mic size={20} color="#0ea5e9" strokeWidth={2.2} />
-          <span>{lt('腾讯语音合成', 'Tencent Speech')}</span>
+          <span>
+            {lt('腾讯语音合成', 'Tencent Speech')}
+            <RunCreditBadge credits={data.creditsPerCall} inline />
+          </span>
         </div>
         <button
           onClick={handleRun}

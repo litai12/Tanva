@@ -325,7 +325,7 @@ export const CREDIT_PRICING_CONFIG = {
   },
 } as const;
 
-export type ServiceType = keyof typeof CREDIT_PRICING_CONFIG;
+export type ServiceType = string;
 
 // 默认新用户赠送积分
 export const DEFAULT_NEW_USER_CREDITS = 500;

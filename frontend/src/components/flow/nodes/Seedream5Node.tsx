@@ -8,6 +8,7 @@ import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import { useLocaleText } from "@/utils/localeText";
 import { flowImagePreviewWell, flowLetterboxBackground, useFlowNodeDarkTheme } from "./flowNodeDarkTheme";
+import RunCreditBadge from "./RunCreditBadge";
 
 type Props = {
   id: string;
@@ -20,6 +21,7 @@ type Props = {
     batchCount?: number;
     size?: string;
     watermark?: boolean;
+    creditsPerCall?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
   };
@@ -202,6 +204,7 @@ function Seedream5Node({ id, data, selected }: Props) {
           >
             {status === "running" ? "Running..." : "Run"}
           </button>
+          <RunCreditBadge credits={data.creditsPerCall} />
           <button
             onClick={onSend}
             disabled={images.length === 0}

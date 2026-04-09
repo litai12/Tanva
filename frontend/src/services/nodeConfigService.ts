@@ -129,7 +129,7 @@ function getDefaultConfigs(): NodeConfig[] {
     { nodeKey: "nano2", nameZh: "Nano2生成", nameEn: "Nano2", category: "image", status: "normal", sortOrder: 17, creditsPerCall: 30 },
 
     // 视频节点
-    { nodeKey: "wan27Video", nameZh: "Wan2.7视频生成", nameEn: "Wan2.7 I2V", category: "video", status: "normal", sortOrder: 35, creditsPerCall: 600, serviceType: "wan26-video", priceYuan: 6 },
+    { nodeKey: "wan27Video", nameZh: "Wan2.7视频生成", nameEn: "Wan2.7 I2V", category: "video", status: "normal", sortOrder: 35, creditsPerCall: 0, serviceType: "wan27-video", priceYuan: 6 },
 
     // 其他节点
     { nodeKey: "videoAnalyze", nameZh: "视频分析节点", nameEn: "Video Analysis", category: "other", status: "normal", sortOrder: 31, creditsPerCall: 30 },

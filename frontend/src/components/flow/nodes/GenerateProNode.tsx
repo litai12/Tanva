@@ -16,6 +16,7 @@ import { parseFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import { toRenderableImageSrc } from '@/utils/imageSource';
 import { useLocaleText } from '@/utils/localeText';
+import RunCreditBadge from './RunCreditBadge';
 
 // 长宽比图标
 const AspectRatioIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -45,6 +46,7 @@ type Props = {
     prompts?: string[];
     imageWidth?: number;
     promptHeight?: number;
+    creditsPerCall?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
   };
@@ -1853,6 +1855,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
               >
                 <Play style={{ width: 14, height: 14 }} />
               </button>
+              <RunCreditBadge credits={data.creditsPerCall} compact />
             </div>
 
             {/* 长宽比水平选择栏 - 仅 Pro 模式显示 */}

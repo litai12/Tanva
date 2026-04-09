@@ -904,7 +904,7 @@ export class NodeConfigService {
         category: 'video',
         sortOrder: 35,
         creditsPerCall: 600,
-        serviceType: 'wan26-video',
+        serviceType: 'wan27-video',
         priceYuan: 6,
         description: '阿里百炼 Wan2.7 I2V 视频生成',
         metadata: {
@@ -1312,7 +1312,7 @@ export class NodeConfigService {
         category: 'video',
         sortOrder: 35,
         creditsPerCall: 600,
-        serviceType: 'wan26-video',
+        serviceType: 'wan27-video',
         priceYuan: 6,
         description: '阿里百炼 Wan2.7 I2V 视频生成',
         metadata: {

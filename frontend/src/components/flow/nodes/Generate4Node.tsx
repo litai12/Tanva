@@ -14,6 +14,7 @@ import {
 } from "./flowNodeDarkTheme";
 import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
+import RunCreditBadge from "./RunCreditBadge";
 
 type Props = {
   id: string;
@@ -29,6 +30,7 @@ type Props = {
     generate4PassIndex?: number;
     aspectRatio?: "1:1" | "2:3" | "3:2" | "3:4" | "4:3" | "4:5" | "5:4" | "9:16" | "16:9" | "21:9";
     imageSize?: "0.5K" | "1K" | "2K" | "4K";
+    creditsPerCall?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
     boxW?: number;
@@ -809,6 +811,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
           >
             {status === "running" ? "Running..." : "Run"}
           </button>
+          <RunCreditBadge credits={data.creditsPerCall} />
           <button
             onClick={onSend}
             disabled={!(images.length || imageUrls.length)}

@@ -13,6 +13,10 @@ function Kling26VideoNode({ id, data, selected }: Props) {
       data={{
         ...data,
         provider: "kling" as VideoProvider,
+        creditsPerCall:
+          typeof data?.creditsPerCall === "number" ? data.creditsPerCall : 600,
+        nodeConfigNameZh: data?.nodeConfigNameZh || "Kling 2.6视频生成",
+        nodeConfigNameEn: data?.nodeConfigNameEn || "Kling 2.6",
         klingModel: data?.klingModel || "kling-v2-6",
       }}
       selected={selected}

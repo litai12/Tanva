@@ -7,6 +7,7 @@ import { useProjectContentStore } from "@/stores/projectContentStore";
 import { fetchWithAuth } from "@/services/authFetch";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
+import RunCreditBadge from "./RunCreditBadge";
 
 type VideoHistoryItem = {
   id: string;
@@ -27,6 +28,7 @@ type Props = {
     error?: string;
     videoVersion?: number;
     onRun?: (id: string) => void;
+    creditsPerCall?: number;
     size?: string; // T2V 参数：16:9、9:16、1:1、4:3、3:4
     resolution?: "720P" | "1080P"; // I2V 参数
     duration?: number; // 5、10、15
@@ -559,7 +561,10 @@ function Wan26Node({ id, data, selected }: Props) {
       >
         <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
           <Video size={18} />
-          <span>{nodeTitle}</span>
+          <span>
+            {nodeTitle}
+            <RunCreditBadge credits={data.creditsPerCall} inline />
+          </span>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
           <button

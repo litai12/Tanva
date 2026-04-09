@@ -4042,7 +4042,7 @@ export class AiController {
    */
   @Post('dashscope/generate-wan2-7-i2v')
   async generateWan27I2VViaDashscope(@Body() body: any, @Req() req: any) {
-    return this.withCredits(req, 'wan26-video', 'wan2.7-i2v', async () => {
+    return this.withCredits(req, 'wan27-video', 'wan2.7-i2v', async () => {
       const dashKey = process.env.DASHSCOPE_API_KEY;
       if (!dashKey) {
         this.logger.error('DASHSCOPE_API_KEY not configured');

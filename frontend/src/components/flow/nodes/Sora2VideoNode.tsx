@@ -7,6 +7,7 @@ import { type Sora2VideoQuality } from '@/stores/aiChatStore';
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { fetchWithAuth } from '@/services/authFetch';
 import { useLocaleText } from '@/utils/localeText';
+import RunCreditBadge from './RunCreditBadge';
 
 type Props = {
   id: string;
@@ -18,6 +19,7 @@ type Props = {
     videoVersion?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
+    creditsPerCall?: number;
     videoQuality?: Sora2VideoQuality;
     generationType?: 'sora2' | 'sora2-create-character';
     model?: 'sora-2' | 'sora-2-pro';
@@ -574,7 +576,10 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
           <Video size={18} />
-          <span>Sora2</span>
+          <span>
+            Sora2
+            <RunCreditBadge credits={data.creditsPerCall} inline />
+          </span>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <button

@@ -1152,7 +1152,6 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   sora2Character: 0, // 角色生成节点 - 当前不单独计费
   wan26: 600, // Wan2.6生成视频 - wan26-video
   wan2R2V: 600, // 视频融合 - wan26-r2v
-  wan27Video: 600, // Wan2.7 I2V
   klingVideo: "150-1200", // 可灵视频生成（2.6/3.0 按模型与参数阶梯计费）
   kling26Video: "150-1200", // 可灵2.6视频生成 - kling-v2-6
   kling30Video: "300-1200", // 可灵3.0视频生成 - kling-v3-0
@@ -2380,6 +2379,17 @@ function FlowInner() {
       })
       .filter((config) => config.status !== "disabled");
   }, [sortedNodeConfigs]);
+
+  const nodeCreditsByType = React.useMemo(() => {
+    const map = new Map<string, number>();
+    nodePaletteConfigs.forEach((config) => {
+      const resolvedType = resolveFlowNodeTypeFromConfig(config);
+      const creditsPerCall = Number(config.creditsPerCall ?? 0);
+      if (!resolvedType || !Number.isFinite(creditsPerCall)) return;
+      map.set(resolvedType, creditsPerCall);
+    });
+    return map;
+  }, [nodePaletteConfigs]);
 
   const groupedNodePaletteConfigs = React.useMemo(() => {
     const grouped: Record<
@@ -16336,8 +16346,13 @@ function FlowInner() {
   // 在 node 渲染前为 Generate 节点注入 onRun 回调
   const nodesWithHandlers = React.useMemo(
     () =>
-      nodes.map((n) =>
-        n.type === FLOW_GROUP_NODE_TYPE
+      nodes.map((n) => {
+        const resolvedType = typeof n.type === "string" ? normalizeFlowNodeType(n.type) : null;
+        const creditsPerCall =
+          (resolvedType && nodeCreditsByType.get(resolvedType)) ??
+          (typeof n.data?.creditsPerCall === "number" ? n.data.creditsPerCall : undefined);
+
+        return n.type === FLOW_GROUP_NODE_TYPE
           ? {
               ...n,
               data: {
@@ -16368,9 +16383,25 @@ function FlowInner() {
         n.type === "minimaxSpeech" ||
         n.type === "tencentSpeech" ||
         n.type === "minimaxMusic"
-          ? { ...n, data: { ...n.data, onRun: runNode, onSend: onSendHandler } }
+          ? {
+              ...n,
+              data: {
+                ...n.data,
+                onRun: runNode,
+                onSend: onSendHandler,
+                creditsPerCall,
+              },
+            }
           : n.type === "image" || n.type === "imagePro"
-          ? { ...n, data: { ...n.data, onRun: runNode, onSend: onSendHandler } }
+          ? {
+              ...n,
+              data: {
+                ...n.data,
+                onRun: runNode,
+                onSend: onSendHandler,
+                creditsPerCall,
+              },
+            }
           : n.type === "sora2Video" ||
             n.type === "sora2Character" ||
             n.type === "wan26" ||
@@ -16384,11 +16415,12 @@ function FlowInner() {
             n.type === "viduQ3" ||
             n.type === "doubaoVideo" ||
             n.type === "seedance20Video"
-          ? { ...n, data: { ...n.data, onRun: runNode } }
+          ? { ...n, data: { ...n.data, onRun: runNode, creditsPerCall } }
           : n
-      ),
+      }),
     [
       nodes,
+      nodeCreditsByType,
       runNode,
       onSendHandler,
       promptGroupName,
