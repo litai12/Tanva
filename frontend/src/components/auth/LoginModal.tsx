@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,6 +29,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
   const [wechatLoading, setWechatLoading] = useState(false);
   const [wechatError, setWechatError] = useState<string | null>(null);
   const [wechatConsuming, setWechatConsuming] = useState(false);
+  const wechatConsumingRef = useRef(false);
 
   const { login, loginWithSms, error: authError, setAuthenticatedUser } = useAuthStore();
 
@@ -120,7 +121,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
     let cancelled = false;
 
     const poll = async () => {
-      if (!wechatSession?.id || wechatConsuming || !isOpen || tab !== 'wechat') return;
+      if (!wechatSession?.id || wechatConsumingRef.current || !isOpen || tab !== 'wechat') return;
 
       try {
         const next = await authApi.getWechatOfficialSessionStatus(wechatSession.id);
@@ -129,6 +130,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
         setWechatSession(next);
 
         if (next.status === 'authorized') {
+          wechatConsumingRef.current = true;
           setWechatConsuming(true);
           const result = await authApi.consumeWechatOfficialSession(next.id);
           if (cancelled) return;
@@ -144,9 +146,11 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
         }
       } catch (err: any) {
         if (cancelled) return;
+        wechatConsumingRef.current = false;
+        setWechatConsuming(false);
         setWechatError(err?.message || t('auth.login.wechatLoadFailed'));
       } finally {
-        if (!cancelled && isOpen && tab === 'wechat' && wechatSession?.id) {
+        if (!cancelled && isOpen && tab === 'wechat' && wechatSession?.id && !wechatConsumingRef.current) {
           timer = window.setTimeout(poll, 2000);
         }
       }
@@ -160,7 +164,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
       cancelled = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [handleClose, isOpen, onSuccess, setAuthenticatedUser, t, tab, wechatConsuming, wechatSession]);
+  }, [handleClose, isOpen, onSuccess, setAuthenticatedUser, t, tab, wechatSession]);
 
   useEffect(() => {
     if (sendCooldown <= 0) return;
@@ -264,6 +268,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
                   onClick={() => {
                     setWechatSession(null);
                     setWechatConsuming(false);
+                    wechatConsumingRef.current = false;
                     void loadWechatSession();
                   }}
                   disabled={wechatLoading}

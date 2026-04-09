@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +24,7 @@ export default function LoginPage() {
   const [wechatLoading, setWechatLoading] = useState(false);
   const [wechatError, setWechatError] = useState<string | null>(null);
   const [wechatConsuming, setWechatConsuming] = useState(false);
+  const wechatConsumingRef = useRef(false);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { login, loginWithSms, error, user, setAuthenticatedUser } = useAuthStore();
@@ -53,13 +54,14 @@ export default function LoginPage() {
     let cancelled = false;
 
     const poll = async () => {
-      if (!wechatSession?.id || wechatConsuming) return;
+      if (!wechatSession?.id || wechatConsumingRef.current) return;
       try {
         const next = await authApi.getWechatOfficialSessionStatus(wechatSession.id);
         if (cancelled) return;
         setWechatSession(next);
 
         if (next.status === "authorized") {
+          wechatConsumingRef.current = true;
           setWechatConsuming(true);
           const result = await authApi.consumeWechatOfficialSession(next.id);
           if (cancelled) return;
@@ -72,9 +74,11 @@ export default function LoginPage() {
         }
       } catch (err: any) {
         if (cancelled) return;
+        wechatConsumingRef.current = false;
+        setWechatConsuming(false);
         setWechatError(err?.message || t("auth.login.wechatLoadFailed"));
       } finally {
-        if (!cancelled && wechatSession?.id) {
+        if (!cancelled && wechatSession?.id && !wechatConsumingRef.current) {
           timer = window.setTimeout(poll, 2000);
         }
       }
@@ -90,7 +94,7 @@ export default function LoginPage() {
         window.clearTimeout(timer);
       }
     };
-  }, [wechatSession?.id, wechatConsuming, navigate, setAuthenticatedUser, t]);
+  }, [wechatSession?.id, navigate, setAuthenticatedUser, t]);
 
   const _isMock =
     (typeof import.meta !== "undefined" &&
@@ -222,6 +226,7 @@ export default function LoginPage() {
                     onClick={() => {
                       setWechatSession(null);
                       setWechatConsuming(false);
+                      wechatConsumingRef.current = false;
                       void loadWechatSession();
                     }}
                     disabled={wechatLoading}
