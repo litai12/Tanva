@@ -400,6 +400,10 @@ const DEFAULT_SEEDANCE20_V2_VENDOR_METADATA = {
       body: {
         model: "doubao-seedance-2-0-260128",
         content: "{{request.content}}",
+        generate_audio: "{{request.generateAudio}}",
+        ratio: "{{request.aspectRatio}}",
+        duration: "{{request.duration}}",
+        watermark: "{{request.watermark}}",
       },
       responseMapping: {
         taskId: ["id", "platform_id"],

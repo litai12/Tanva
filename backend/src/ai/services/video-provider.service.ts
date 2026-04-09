@@ -992,27 +992,28 @@ export class VideoProviderService {
   }
 
   private buildManagedV2PromptText(options: VideoProviderRequestDto): string {
-    let promptText = options.prompt || "";
-    const params: string[] = [];
+    return typeof options.prompt === "string" ? options.prompt.trim() : "";
+  }
 
-    if (options.aspectRatio) {
-      params.push(`--ratio ${options.aspectRatio}`);
-    }
-    if (options.duration) {
-      params.push(`--dur ${options.duration}`);
-    }
-    if (options.camerafixed !== undefined) {
-      params.push(`--camerafixed ${options.camerafixed}`);
-    }
-    if (options.watermark !== undefined) {
-      params.push(`--watermark ${options.watermark}`);
-    }
+  private normalizeManagedV2ReferenceVideos(options: VideoProviderRequestDto): string[] {
+    const candidates = [
+      ...(Array.isArray(options.referenceVideos) ? options.referenceVideos : []),
+      options.referenceVideo,
+    ];
 
-    if (params.length > 0) {
-      promptText = `${promptText} ${params.join(" ")}`.trim();
-    }
+    return candidates
+      .map((item) =>
+        typeof item === "string" ? this.normalizeManagedAssetUrlForUpstream(item) : ""
+      )
+      .filter((item, index, array) => !!item && array.indexOf(item) === index);
+  }
 
-    return promptText.trim();
+  private normalizeManagedV2ReferenceAudios(options: VideoProviderRequestDto): string[] {
+    return (Array.isArray(options.audioUrls) ? options.audioUrls : [])
+      .map((item) =>
+        typeof item === "string" ? this.normalizeManagedAssetUrlForUpstream(item) : ""
+      )
+      .filter((item, index, array) => !!item && array.indexOf(item) === index);
   }
 
   private async buildManagedV2RequestContext(
@@ -1031,11 +1032,35 @@ export class VideoProviderService {
       : [];
 
     const promptText = this.buildManagedV2PromptText(options);
-    const content: any[] = [{ type: "text", text: promptText }];
-    if (referenceImages[0]) {
+    const referenceVideos = this.normalizeManagedV2ReferenceVideos(options);
+    const referenceAudios = this.normalizeManagedV2ReferenceAudios(options);
+    const content: any[] = [];
+
+    if (promptText) {
+      content.push({ type: "text", text: promptText });
+    }
+
+    for (const imageUrl of referenceImages) {
       content.push({
         type: "image_url",
-        image_url: { url: referenceImages[0] },
+        image_url: { url: imageUrl },
+        role: "reference_image",
+      });
+    }
+
+    for (const videoUrl of referenceVideos) {
+      content.push({
+        type: "video_url",
+        video_url: { url: videoUrl },
+        role: "reference_video",
+      });
+    }
+
+    for (const audioUrl of referenceAudios) {
+      content.push({
+        type: "audio_url",
+        audio_url: { url: audioUrl },
+        role: "reference_audio",
       });
     }
 
@@ -1047,6 +1072,10 @@ export class VideoProviderService {
         promptWithParams: promptText,
         referenceImages,
         referenceImage: referenceImages[0] || "",
+        referenceVideos,
+        referenceVideo: referenceVideos[0] || "",
+        audioUrls: referenceAudios,
+        generateAudio: options.generateAudio,
         content,
       },
       vendor: {
@@ -1773,15 +1802,43 @@ export class VideoProviderService {
     }
 
     const content: any[] = [{ type: "text", text: promptText }];
+    const referenceVideos = this.normalizeManagedV2ReferenceVideos(options);
+    const referenceAudios = this.normalizeManagedV2ReferenceAudios(options);
 
     // 处理参考图片：如果是 base64，先上传到 OSS
     if (options.referenceImages && options.referenceImages.length > 0) {
-      const imageUrl = await this.uploadBase64ImageToOSS(options.referenceImages[0]);
+      const imageUrls = (
+        await Promise.all(
+          options.referenceImages
+            .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+            .map((item) => this.uploadBase64ImageToOSS(item))
+        )
+      ).filter(Boolean);
+
+      for (const imageUrl of imageUrls) {
+        content.push({
+          type: "image_url",
+          image_url: { url: imageUrl },
+          role: "reference_image",
+        });
+        this.logger.log(`📸 Seedance 参考图片已处理: ${imageUrl.substring(0, 100)}...`);
+      }
+    }
+
+    for (const videoUrl of referenceVideos) {
       content.push({
-        type: "image_url",
-        image_url: { url: imageUrl },
+        type: "video_url",
+        video_url: { url: videoUrl },
+        role: "reference_video",
       });
-      this.logger.log(`📸 Seedance 参考图片已处理: ${imageUrl.substring(0, 100)}...`);
+    }
+
+    for (const audioUrl of referenceAudios) {
+      content.push({
+        type: "audio_url",
+        audio_url: { url: audioUrl },
+        role: "reference_audio",
+      });
     }
 
     const modelId =
@@ -1789,10 +1846,26 @@ export class VideoProviderService {
         ? "doubao-seedance-2-0-260128"
         : "doubao-seedance-1-5-pro-251215";
 
-    const payload = {
+    const payload: Record<string, any> = {
       model: modelId,
       content,
     };
+
+    if (modelVersion === "2.0") {
+      if (typeof options.generateAudio === "boolean") {
+        payload.generate_audio = options.generateAudio;
+      }
+      if (typeof options.aspectRatio === "string" && options.aspectRatio.trim()) {
+        payload.ratio = options.aspectRatio.trim();
+      }
+      if (typeof options.duration === "number" && Number.isFinite(options.duration)) {
+        payload.duration = options.duration;
+      }
+      if (typeof options.watermark === "boolean") {
+        payload.watermark = options.watermark;
+      }
+    }
+
     this.logProviderPayload("doubao", payload);
 
     const response = await fetchWithTimeout(

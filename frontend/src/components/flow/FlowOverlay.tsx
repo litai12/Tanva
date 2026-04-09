@@ -11926,10 +11926,19 @@ function FlowInner() {
                   prompt: finalPrompt,
                   referenceImages:
                     referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
+                  referenceVideos: referenceVideoUrl ? [referenceVideoUrl] : undefined,
+                  audioUrls:
+                    Array.isArray(rawNodeData.audioUrls) && rawNodeData.audioUrls.length > 0
+                      ? rawNodeData.audioUrls
+                      : undefined,
                   duration: durationForAPI,
                   aspectRatio: aspectRatioForAPI,
                   provider: provider as VideoProvider,
                   resolution: rawNodeData.resolution,
+                  generateAudio:
+                    typeof rawNodeData.generateAudio === "boolean"
+                      ? rawNodeData.generateAudio
+                      : undefined,
                   seedanceModel:
                     node.type === "seedance20Video"
                       ? "seedance-2.0"

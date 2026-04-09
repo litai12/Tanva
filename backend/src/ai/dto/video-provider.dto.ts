@@ -27,6 +27,11 @@ export class VideoProviderRequestDto {
   @IsString({ each: true })
   audioUrls?: string[];
 
+  @ApiProperty({ description: '参考视频 URL 列表', required: false, type: [String] })
+  @IsOptional()
+  @IsString({ each: true })
+  referenceVideos?: string[];
+
   @ApiProperty({ description: '参考视频 URL', required: false })
   @IsOptional()
   @IsString()
@@ -102,6 +107,11 @@ export class VideoProviderRequestDto {
   @IsOptional()
   @IsBoolean()
   watermark?: boolean;
+
+  @ApiProperty({ description: '是否生成音频/音效 (Seedance 2.0)', required: false })
+  @IsOptional()
+  @IsBoolean()
+  generateAudio?: boolean;
 
   @ApiProperty({ description: '是否生成音效 (Kling)', required: false })
   @IsOptional()

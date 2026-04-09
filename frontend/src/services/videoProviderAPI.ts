@@ -11,6 +11,7 @@ export interface VideoGenerationRequest {
   prompt?: string;
   referenceImages?: string[]; // Base64 Data URI 数组
   audioUrls?: string[];
+  referenceVideos?: string[];
   duration?: number;
   aspectRatio?: string;
   provider: VideoProvider;
@@ -31,6 +32,7 @@ export interface VideoGenerationRequest {
   referenceVideo?: string;
   referenceVideoType?: "feature" | "motion" | "expression";
   keepOriginalSound?: "yes" | "no";
+  generateAudio?: boolean;
 }
 
 export interface VideoGenerationResult {
