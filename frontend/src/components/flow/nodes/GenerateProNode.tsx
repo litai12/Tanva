@@ -7,6 +7,7 @@ import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
 import GenerationProgressBar from './GenerationProgressBar';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { useAIChatStore } from '@/stores/aiChatStore';
+import { flowLetterboxBackground } from './flowNodeDarkTheme';
 import { cn } from '@/lib/utils';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import ContextMenu from '../../ui/context-menu';
@@ -530,6 +531,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   const aiProvider = useAIChatStore((state) => state.aiProvider);
   const setAIProvider = useAIChatStore((state) => state.setAIProvider);
   const chatTheme = useAIChatStore((state) => state.chatTheme);
+  const isFlowDark = chatTheme === 'black';
   const globalWebSearchEnabled = useAIChatStore((state) => state.enableWebSearch);
   const enableWebSearch = data.enableWebSearch ?? globalWebSearchEnabled;
 
@@ -1269,9 +1271,9 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
             position: 'relative',
             width: imageWidth,
             height: imageHeight,
-            background: displaySrc ? 'transparent' : '#f8f9fa',
+            background: displaySrc ? 'transparent' : (isFlowDark ? '#161616' : '#f8f9fa'),
             borderRadius: 12,
-            border: '1px solid #e5e7eb',
+            border: isFlowDark ? '1px solid #2f2f2f' : '1px solid #e5e7eb',
             overflow: 'hidden',
             cursor: displaySrc ? 'pointer' : 'default',
           }}
@@ -1288,7 +1290,16 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
             justifyContent: 'center',
           }}>
             {displaySrc ? (
-              <SmartImage src={displaySrc} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+              <SmartImage
+                src={displaySrc}
+                alt=""
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain',
+                  background: flowLetterboxBackground(isFlowDark),
+                }}
+              />
             ) : (
               <span style={{ fontSize: 12, color: '#9ca3af' }}>{lt('等待生成', 'Waiting for generation')}</span>
             )}

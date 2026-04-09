@@ -3,6 +3,15 @@ import { Handle, Position, useStore, type ReactFlowState } from 'reactflow';
 import { AlertTriangle, Download, Link2, Mic } from 'lucide-react';
 import GenerationProgressBar from './GenerationProgressBar';
 import { useLocaleText } from '@/utils/localeText';
+import {
+  flowAudioPlayerShell,
+  flowSpeechDownloadButton,
+  flowSpeechHistoryMetaColor,
+  flowSpeechHistoryPromptColor,
+  flowSpeechHistoryRow,
+  flowSpeechHistorySectionDivider,
+  useFlowNodeDarkTheme,
+} from './flowNodeDarkTheme';
 import { TENCENT_SYSTEM_VOICES } from './tencentSystemVoices';
 
 const LANGUAGE_OPTIONS = [
@@ -88,6 +97,7 @@ type Props = {
 
 function TencentSpeechNode({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
+  const isFlowDark = useFlowNodeDarkTheme();
   const [showAdvanced, setShowAdvanced] = React.useState(false);
   const [downloadingId, setDownloadingId] = React.useState<string | null>(null);
   const [voiceKeyword, setVoiceKeyword] = React.useState('');
@@ -417,10 +427,10 @@ function TencentSpeechNode({ id, data, selected }: Props) {
                 style={{
                   display: 'grid',
                   gap: 6,
-                  border: '1px solid #f0f0f0',
+                  border: isFlowDark ? '1px solid #333333' : '1px solid #f0f0f0',
                   borderRadius: 6,
                   padding: 6,
-                  background: '#fafafa',
+                  background: isFlowDark ? '#1d1d1d' : '#fafafa',
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -533,10 +543,10 @@ function TencentSpeechNode({ id, data, selected }: Props) {
                 style={{
                   display: 'grid',
                   gap: 6,
-                  border: '1px solid #f0f0f0',
+                  border: isFlowDark ? '1px solid #333333' : '1px solid #f0f0f0',
                   borderRadius: 6,
                   padding: 6,
-                  background: '#fafafa',
+                  background: isFlowDark ? '#1d1d1d' : '#fafafa',
                 }}
               >
                 <div style={{ fontSize: 11, fontWeight: 600, color: '#374151' }}>{lt('字体 font', 'Font')}</div>
@@ -639,9 +649,11 @@ function TencentSpeechNode({ id, data, selected }: Props) {
       )}
 
       {selectedHistory?.audioUrl ? (
-        <audio key={selectedHistory.audioUrl} controls style={{ width: '100%' }}>
-          <source src={selectedHistory.audioUrl} />
-        </audio>
+        <div style={flowAudioPlayerShell(isFlowDark)}>
+          <audio key={selectedHistory.audioUrl} controls style={{ width: '100%' }}>
+            <source src={selectedHistory.audioUrl} />
+          </audio>
+        </div>
       ) : null}
 
       {selectedHistory?.videoUrl ? (
@@ -659,14 +671,16 @@ function TencentSpeechNode({ id, data, selected }: Props) {
       {historyItems.length > 0 ? (
         <div
           style={{
-            borderTop: '1px solid #f0f0f0',
+            borderTop: `1px solid ${flowSpeechHistorySectionDivider(isFlowDark)}`,
             marginTop: 2,
             paddingTop: 6,
             display: 'grid',
             gap: 6,
           }}
         >
-          <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>{lt('生成记录', 'History')}</div>
+          <div style={{ fontSize: 11, color: flowSpeechHistoryMetaColor(isFlowDark), fontWeight: 600 }}>
+            {lt('生成记录', 'History')}
+          </div>
           <div style={{ display: 'grid', gap: 4, maxHeight: 168, overflowY: 'auto', paddingRight: 2 }}>
             {historyItems.map((item) => {
               const isActive = selectedHistory?.id === item.id;
@@ -682,21 +696,20 @@ function TencentSpeechNode({ id, data, selected }: Props) {
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     gap: 8,
-                    border: isActive ? '1px solid #93c5fd' : '1px solid #e5e7eb',
-                    background: isActive ? '#eff6ff' : '#fff',
                     borderRadius: 6,
                     padding: '6px 8px',
                     cursor: 'pointer',
+                    ...flowSpeechHistoryRow(isFlowDark, isActive),
                   }}
                 >
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 2 }}>
+                    <div style={{ fontSize: 10, color: flowSpeechHistoryMetaColor(isFlowDark), marginBottom: 2 }}>
                       {formatHistoryTime(item.createdAt)}
                     </div>
                     <div
                       style={{
                         fontSize: 12,
-                        color: '#111827',
+                        color: flowSpeechHistoryPromptColor(isFlowDark),
                         whiteSpace: 'nowrap',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
@@ -720,14 +733,12 @@ function TencentSpeechNode({ id, data, selected }: Props) {
                       height: 26,
                       padding: '0 8px',
                       borderRadius: 6,
-                      border: '1px solid #d1d5db',
-                      background: '#fff',
-                      color: '#374151',
                       fontSize: 11,
                       cursor: downloadingId === item.id ? 'not-allowed' : 'pointer',
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: 4,
+                      ...flowSpeechDownloadButton(isFlowDark),
                     }}
                     title={lt('下载媒体', 'Download media')}
                   >

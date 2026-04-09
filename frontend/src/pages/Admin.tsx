@@ -1208,7 +1208,7 @@ const MANAGED_MODEL_SUPPORTED_MODELS_MAP: Record<string, string[]> = {
 
 const MANAGED_MODEL_SERVICE_TYPE_MAP: Record<string, string> = {
   "kling-2.6": "kling-2.6-video",
-  "kling-3.0": "kling-video",
+  "kling-3.0": "kling-3.0-video",
   "kling-o3": "kling-o1-video",
   "vidu-q2": "vidu-video",
   "vidu-q3": "viduq3-pro-video",

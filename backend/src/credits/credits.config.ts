@@ -235,8 +235,34 @@ export const CREDIT_PRICING_CONFIG = {
   'kling-2.6-video': {
     serviceName: '可灵 Kling 2.6 视频',
     provider: 'kling',
-    creditsPerCall: 500,
+    creditsPerCall: 150,
     description: '使用可灵 Kling 2.6 生成视频',
+    dynamicPricing: {
+      noSound: {
+        std: { '5': 150, '10': 300 },
+        pro: { '5': 300, '10': 500 },
+      },
+      withSound: {
+        std: { '5': 500, '10': 1000 },
+        pro: { '5': 600, '10': 1200 },
+      },
+    },
+  },
+  'kling-3.0-video': {
+    serviceName: '可灵 Kling 3.0 视频',
+    provider: 'kling',
+    creditsPerCall: 300,
+    description: '使用可灵 Kling 3.0 生成视频',
+    dynamicPricing: {
+      noSound: {
+        std: { '5': 300, '10': 600 },
+        pro: { '5': 400, '10': 800 },
+      },
+      withSound: {
+        std: { '5': 450, '10': 900 },
+        pro: { '5': 600, '10': 1200 },
+      },
+    },
   },
   'kling-o3-video': {
     serviceName: '可灵 Kling O3 视频',

@@ -1763,3 +1763,12 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(
   outline: none !important;
   box-shadow: none !important;
 }
+
+/* Dark theme: text note node should use white content text and gray placeholder */
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node-textNote .tanva-textnote-editor {
+  color: #ffffff !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node-textNote .tanva-textnote-editor[contenteditable="true"]:empty:before {
+  color: #7a7a7a !important;
+}

@@ -717,31 +717,24 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
       {/* Model selector */}
       <div style={{ marginBottom: 8 }}>
         <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>{lt('模式', 'Mode')}</div>
-        <div style={{
-          display: 'flex',
-          gap: 4,
-          background: '#f1f5f9',
-          borderRadius: 999,
-          padding: 2
-        }}>
+        <div style={{ display: 'flex', gap: 6 }}>
           {sora2ModelOptions.map((option) => {
             const isActive = selectedModel === option.value;
             return (
-              <button key={option.value} type='button'
+              <button
+                key={option.value}
+                type="button"
                 onMouseDown={handleButtonMouseDown}
                 onClick={() => handleModelChange(option.value)}
                 style={{
                   flex: 1,
-                  height: 26,
-                  borderRadius: 999,
-                  border: 'none',
-                  background: isActive ? '#fff' : 'transparent',
-                  color: isActive ? '#111827' : '#64748b',
+                  padding: '6px 10px',
+                  borderRadius: 8,
+                  border: '1px solid #e5e7eb',
+                  background: isActive ? '#111827' : '#fff',
+                  color: isActive ? '#fff' : '#111827',
                   fontSize: 12,
-                  fontWeight: isActive ? 600 : 400,
                   cursor: 'pointer',
-                  boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.12)' : 'none',
-                  transition: 'all 0.15s ease',
                 }}
               >
                 {lt(option.labelZh, option.labelEn)}

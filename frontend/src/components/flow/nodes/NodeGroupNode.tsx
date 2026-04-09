@@ -96,7 +96,10 @@ export default function NodeGroupNode({ id, data, selected }: Props) {
         width: '100%',
         height: '100%',
         border: `2px ${collapsed ? 'solid' : 'dashed'} ${toRgba(color, selected ? 0.7 : 0.45)}`,
-        background: toRgba(color, collapsed ? (selected ? 0.16 : 0.12) : selected ? 0.12 : 0.08),
+        // Keep expanded groups transparent so internal edges remain visible.
+        background: collapsed
+          ? toRgba(color, selected ? 0.16 : 0.12)
+          : 'transparent',
         borderRadius: collapsed ? 12 : 16,
         boxShadow: selected ? `0 0 0 1px ${toRgba(color, 0.45)}` : 'none',
         position: 'relative',

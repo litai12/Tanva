@@ -1142,9 +1142,9 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   sora2Character: 0, // 角色生成节点 - 当前不单独计费
   wan26: 600, // Wan2.6生成视频 - wan26-video
   wan2R2V: 600, // 视频融合 - wan26-r2v
-  klingVideo: 600, // 可灵视频生成
-  kling26Video: 500, // 可灵2.6视频生成 - kling-v2-6
-  kling30Video: 600, // 可灵3.0视频生成 - kling-v3-0
+  klingVideo: "150-1200", // 可灵视频生成（2.6/3.0 按模型与参数阶梯计费）
+  kling26Video: "150-1200", // 可灵2.6视频生成 - kling-v2-6
+  kling30Video: "300-1200", // 可灵3.0视频生成 - kling-v3-0
   klingO3Video: 600, // 可灵O3视频生成 - Omni Video
   viduVideo: 600, // Vidu视频生成
   viduQ3: 600, // Vidu Q3 Pro视频生成
@@ -4146,7 +4146,10 @@ function FlowInner() {
   React.useEffect(() => {
     const handleGroupHotkey = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
-      if (String(event.key || "").toLowerCase() !== "g") return;
+      if ((event as any).isComposing) return;
+      const key = String(event.key || "");
+      const isGroupKey = key.toLowerCase() === "g" || event.code === "KeyG";
+      if (!isGroupKey) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (event.repeat) return;
 

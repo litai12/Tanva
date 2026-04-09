@@ -11,6 +11,12 @@ import { imageUploadService } from '@/services/imageUploadService';
 import { canvasToBlob } from '@/utils/imageConcurrency';
 import { toRenderableImageSrc } from '@/utils/imageSource';
 import { useLocaleText } from '@/utils/localeText';
+import {
+  flowLetterboxBackground,
+  flowNodeMutedWellBackground,
+  flowNodeShellChrome,
+  useFlowNodeDarkTheme,
+} from './flowNodeDarkTheme';
 
 type ImageItem = {
   id: string;
@@ -169,7 +175,8 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const projectId = useProjectContentStore((s) => s.projectId);
 
-  const borderColor = selected ? '#2563eb' : '#e5e7eb';
+  const isFlowDark = useFlowNodeDarkTheme();
+  const shell = flowNodeShellChrome(isFlowDark, !!selected);
   const boxShadow = selected
     ? '0 0 0 2px rgba(37,99,235,0.12)'
     : '0 1px 2px rgba(0,0,0,0.04)';
@@ -681,8 +688,9 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
       style={{
         width: 300,
         padding: 10,
-        background: '#fff',
-        border: `1px solid ${borderColor}`,
+        background: shell.background,
+        color: shell.color,
+        border: `1px solid ${shell.borderColor}`,
         borderRadius: 8,
         boxShadow,
         transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
@@ -694,7 +702,7 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
     >
       {/* 标题栏 */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ fontWeight: 600 }}>Image Grid</div>
+        <div style={{ fontWeight: 600, color: shell.color }}>Image Grid</div>
         <button
           onClick={combineImages}
           disabled={!canCombine}
@@ -713,8 +721,8 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
       </div>
 
       {/* 输入图片预览 */}
-      <div style={{ background: '#f9fafb', borderRadius: 6, padding: 8 }}>
-        <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 6 }}>
+      <div style={{ background: flowNodeMutedWellBackground(isFlowDark), borderRadius: 6, padding: 8 }}>
+        <div style={{ fontSize: 11, color: isFlowDark ? '#9ca3af' : '#6b7280', marginBottom: 6 }}>
           📥 {lt('输入图片', 'Input images')} ({allImages.length} {lt('张', '')})
         </div>
         {allImages.length > 0 ? (
@@ -727,7 +735,7 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
                   height: 48,
                   borderRadius: 4,
                   overflow: 'hidden',
-                  border: '1px solid #e5e7eb',
+                  border: `1px solid ${isFlowDark ? '#333333' : '#e5e7eb'}`,
                   position: 'relative',
                 }}
               >
@@ -755,12 +763,12 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
                   width: 48,
                   height: 48,
                   borderRadius: 4,
-                  background: '#e5e7eb',
+                  background: isFlowDark ? '#2a2a2a' : '#e5e7eb',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   fontSize: 11,
-                  color: '#6b7280',
+                  color: isFlowDark ? '#9ca3af' : '#6b7280',
                 }}
               >
                 +{allImages.length - MAX_PREVIEW_IMAGES}
@@ -776,7 +784,7 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
 
       {/* 网格信息 */}
       {allImages.length > 0 && (
-        <div style={{ fontSize: 11, color: '#6b7280', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ fontSize: 11, color: isFlowDark ? '#9ca3af' : '#6b7280', display: 'flex', alignItems: 'center', gap: 8 }}>
           <span>📐 {lt('网格', 'Grid')}: {gridSize}×{gridSize}</span>
           <span>|</span>
           <span>{lt('空位', 'Empty slots')}: {gridSize * gridSize - allImages.length}</span>
@@ -785,8 +793,8 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
 
       {/* 输出预览 */}
       {outputImage && (
-        <div style={{ background: '#f3f4f6', borderRadius: 6, padding: 8 }}>
-          <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 6 }}>
+        <div style={{ background: flowNodeMutedWellBackground(isFlowDark), borderRadius: 6, padding: 8 }}>
+          <div style={{ fontSize: 11, color: isFlowDark ? '#9ca3af' : '#6b7280', marginBottom: 6 }}>
             📤 {lt('输出结果', 'Output')}
           </div>
           <div
@@ -795,13 +803,18 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
               aspectRatio: '1',
               borderRadius: 4,
               overflow: 'hidden',
-              border: '1px solid #e5e7eb',
+              border: `1px solid ${isFlowDark ? '#333333' : '#e5e7eb'}`,
             }}
           >
             <SmartImage
               src={outputImage}
               alt={lt("拼合结果", "Combined result")}
-              style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff' }}
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain',
+                background: flowLetterboxBackground(isFlowDark),
+              }}
             />
           </div>
         </div>

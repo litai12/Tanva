@@ -11,6 +11,7 @@ import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import { useAIChatStore } from "@/stores/aiChatStore";
 import { useLocaleText } from "@/utils/localeText";
+import { flowImagePreviewWell, flowLetterboxBackground } from "./flowNodeDarkTheme";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "../../ui/dropdown-menu";
 
 type Props = {
@@ -436,6 +437,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
   const { status, error } = data;
   const aiProvider = useAIChatStore((state) => state.aiProvider);
   const chatTheme = useAIChatStore((state) => state.chatTheme);
+  const isFlowDark = chatTheme === "black";
   const setAIProvider = useAIChatStore((state) => state.setAIProvider);
   const rawFullValue = data.imageUrl || data.imageData;
   const fullAssetId = React.useMemo(() => parseFlowImageAssetRef(rawFullValue), [rawFullValue]);
@@ -1002,13 +1004,15 @@ function GenerateNodeInner({ id, data, selected }: Props) {
         style={{
           width: "100%",
           height: 160,
-          background: "#fff",
           borderRadius: 6,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           overflow: "hidden",
-          border: "1px solid #eef0f2",
+          ...flowImagePreviewWell(isFlowDark, {
+            background: "#fff",
+            border: "1px solid #eef0f2",
+          }),
         }}
         title={displaySrc ? lt("双击预览", "Double click to preview") : undefined}
       >
@@ -1020,7 +1024,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
               width: "100%",
               height: "100%",
               objectFit: "contain",
-              background: "#fff",
+              background: flowLetterboxBackground(isFlowDark),
             }}
           />
         ) : (

@@ -10,6 +10,7 @@ import ContextMenu from "../../ui/context-menu";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import { useLocaleText } from "@/utils/localeText";
+import { flowLetterboxBackground, FLOW_NODE_DARK_SURFACE } from "./flowNodeDarkTheme";
 
 // 长宽比图标
 const AspectRatioIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -83,6 +84,8 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
 
   // 全局状态
   const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const chatTheme = useAIChatStore((state) => state.chatTheme);
+  const isFlowDark = chatTheme === "black";
   const isProMode =
     aiProvider === 'gemini-pro' ||
     aiProvider === 'banana' ||
@@ -467,7 +470,11 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
         style={{
           width: "100%",
           aspectRatio: "1 / 1",
-          background: displaySrc ? "transparent" : "#f8f9fa",
+          background: displaySrc
+            ? "transparent"
+            : isFlowDark
+              ? FLOW_NODE_DARK_SURFACE.imageWellBg
+              : "#f8f9fa",
           borderRadius: 8,
           display: "flex",
           alignItems: "center",
@@ -485,7 +492,12 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
             loading="lazy"
             decoding="async"
             draggable={false}
-            style={{ width: "100%", height: "100%", objectFit: "contain" }}
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "contain",
+              background: flowLetterboxBackground(isFlowDark),
+            }}
           />
         ) : (
           <span style={{ fontSize: 12, color: "#9ca3af" }}>
@@ -499,8 +511,8 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
             left: 6,
             top: 6,
             fontSize: 10,
-            color: "#6b7280",
-            background: "rgba(255,255,255,0.85)",
+            color: isFlowDark ? "#d1d5db" : "#6b7280",
+            background: isFlowDark ? "rgba(22,22,22,0.9)" : "rgba(255,255,255,0.85)",
             padding: "2px 6px",
             borderRadius: 4,
             fontWeight: 500,
@@ -597,10 +609,11 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
           style={{
             position: "relative",
             width: imageWidth,
-            background: "#f8f9fa",
+            background: isFlowDark ? FLOW_NODE_DARK_SURFACE.gridFrameBg : "#f8f9fa",
             borderRadius: 12,
             overflow: "hidden",
             padding: 8,
+            border: isFlowDark ? `1px solid ${FLOW_NODE_DARK_SURFACE.imageWellBorder}` : undefined,
           }}
         >
           <div

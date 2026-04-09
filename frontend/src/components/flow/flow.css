@@ -115,18 +115,13 @@
 }
 
 .tanva-textnote .tanva-textnote-handle {
-  opacity: 0;
-  pointer-events: none;
+  opacity: 1;
+  pointer-events: auto;
   transition: opacity 0.15s ease;
 }
 
 .tanva-textnote .tanva-textnote-handle--source {
   pointer-events: auto;
-}
-
-.tanva-textnote:hover .tanva-textnote-handle,
-.tanva-textnote .tanva-textnote-handle:focus-visible {
-  opacity: 1;
 }
 
 .tanva-flow-connecting .tanva-textnote .tanva-textnote-handle--source {

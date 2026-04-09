@@ -1,6 +1,7 @@
 import React from 'react';
 import { Handle, Position, NodeResizer, useReactFlow } from 'reactflow';
 import { useLocaleText } from '@/utils/localeText';
+import { useAIChatStore } from '@/stores/aiChatStore';
 
 type Props = {
   id: string;
@@ -8,20 +9,17 @@ type Props = {
   selected?: boolean;
 };
 
-const handleConfigs = [
-  { key: 'top', position: Position.Top, style: { top: 0, left: '50%', transform: 'translate(-50%, -50%)' } },
-  { key: 'bottom', position: Position.Bottom, style: { bottom: 0, left: '50%', transform: 'translate(-50%, 50%)' } },
-  { key: 'left', position: Position.Left, style: { left: 0, top: '50%', transform: 'translate(-50%, -50%)' } },
-  { key: 'right', position: Position.Right, style: { right: 0, top: '50%', transform: 'translate(50%, -50%)' } },
-] as const;
-
 function TextNoteNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const rf = useReactFlow();
+  const isDarkTheme = useAIChatStore((state) => state.chatTheme === 'black');
   const [value, setValue] = React.useState<string>(data.text || '');
-  const noteBackground = '#f3ead2';
+  const [hover, setHover] = React.useState<string | null>(null);
+  const noteBackground = isDarkTheme ? '#1c1c1c' : '#f2f3f5';
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
-  const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
+  const boxShadow = selected
+    ? '0 0 0 2px rgba(37,99,235,0.12)'
+    : '0 1px 2px rgba(0,0,0,0.04)';
   const width = data.boxW || 220;
   const height = data.boxH || 120;
   const editorRef = React.useRef<HTMLDivElement | null>(null);
@@ -162,11 +160,11 @@ function TextNoteNodeInner({ id, data, selected }: Props) {
         style={{
           width: '100%',
           minHeight: Math.max(60, height - 24),
-          borderRadius: 12,
+          borderRadius: 10,
           background: noteBackground,
-          fontSize: 18,
-          fontWeight: 600,
-          color: '#111827',
+          fontSize: 14,
+          fontWeight: 400,
+          color: isDarkTheme ? '#ffffff' : '#111827',
           textAlign: 'center',
           outline: 'none',
           lineHeight: 1.4,
@@ -180,32 +178,30 @@ function TextNoteNodeInner({ id, data, selected }: Props) {
           pointerEvents: 'auto',
         }}
       />
-      {handleConfigs.map((cfg) => (
-        <React.Fragment key={cfg.key}>
-          <Handle
-            type="source"
-            id={`text-${cfg.key}-out`}
-            position={cfg.position}
-            style={{
-              ...(cfg.style as React.CSSProperties),
-              opacity: 0,
-              pointerEvents: 'none',
-            }}
-            className="tanva-textnote-handle tanva-textnote-handle--source"
-          />
-          <Handle
-            type="target"
-            id={`text-${cfg.key}-in`}
-            position={cfg.position}
-            style={{
-              ...(cfg.style as React.CSSProperties),
-              opacity: 0,
-              pointerEvents: 'none',
-            }}
-            className="tanva-textnote-handle tanva-textnote-handle--target"
-          />
-        </React.Fragment>
-      ))}
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="text"
+        style={{ top: '50%' }}
+        className="tanva-textnote-handle tanva-textnote-handle--target"
+        onMouseEnter={() => setHover('prompt-in')}
+        onMouseLeave={() => setHover(null)}
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="text-right-out"
+        style={{ top: '50%' }}
+        className="tanva-textnote-handle tanva-textnote-handle--source"
+        onMouseEnter={() => setHover('prompt-out')}
+        onMouseLeave={() => setHover(null)}
+      />
+      {hover === 'prompt-in' && (
+        <div className="flow-tooltip" style={{ left: -8, top: '50%', transform: 'translate(-100%, -50%)' }}>prompt</div>
+      )}
+      {hover === 'prompt-out' && (
+        <div className="flow-tooltip" style={{ right: -8, top: '50%', transform: 'translate(100%, -50%)' }}>prompt</div>
+      )}
     </div>
   );
 }

@@ -6,6 +6,12 @@ import SmartImage from "../../ui/SmartImage";
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import { useAIChatStore } from "@/stores/aiChatStore";
 import { useLocaleText } from "@/utils/localeText";
+import {
+  flowImagePreviewWell,
+  flowLetterboxBackground,
+  useFlowNodeDarkTheme,
+  FLOW_NODE_DARK_SURFACE,
+} from "./flowNodeDarkTheme";
 import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 
@@ -448,6 +454,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
   const boxShadow = selected
     ? "0 0 0 2px rgba(37,99,235,0.12)"
     : "0 1px 2px rgba(0,0,0,0.04)";
+  const isFlowDark = useFlowNodeDarkTheme();
 
   const previewOverrideAssetId = React.useMemo(
     () => parseFlowImageAssetRef(previewOverrideValue),
@@ -562,14 +569,16 @@ function Generate4NodeInner({ id, data, selected }: Props) {
         style={{
           width: "100%",
           aspectRatio: "1 / 1",
-          background: "#fff",
           borderRadius: 6,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           overflow: "hidden",
-          border: "1px solid #eef0f2",
           position: "relative",
+          ...flowImagePreviewWell(isFlowDark, {
+            background: "#fff",
+            border: "1px solid #eef0f2",
+          }),
         }}
         title={img ? lt("双击全屏预览", "Double click for full-screen preview") : undefined}
       >
@@ -581,7 +590,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
               width: "100%",
               height: "100%",
               objectFit: "contain",
-              background: "#fff",
+              background: flowLetterboxBackground(isFlowDark),
             }}
           />
         ) : slotErr ? (
@@ -608,8 +617,8 @@ function Generate4NodeInner({ id, data, selected }: Props) {
             left: 6,
             top: 6,
             fontSize: 11,
-            color: "#6b7280",
-            background: "rgba(255,255,255,0.7)",
+            color: isFlowDark ? "#d1d5db" : "#6b7280",
+            background: isFlowDark ? "rgba(22,22,22,0.88)" : "rgba(255,255,255,0.7)",
             padding: "1px 4px",
             borderRadius: 4,
           }}
@@ -937,7 +946,21 @@ function Generate4NodeInner({ id, data, selected }: Props) {
       )}
 
       {/* 2x2 预览网格 */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 6,
+          ...(isFlowDark
+            ? {
+                padding: 6,
+                background: FLOW_NODE_DARK_SURFACE.gridFrameBg,
+                borderRadius: 8,
+                border: `1px solid ${FLOW_NODE_DARK_SURFACE.imageWellBorder}`,
+              }
+            : {}),
+        }}
+      >
         {Array.from({ length: 4 }).map((_, i) => renderCell(i))}
       </div>
 
