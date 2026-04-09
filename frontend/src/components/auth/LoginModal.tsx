@@ -30,7 +30,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
   const [wechatError, setWechatError] = useState<string | null>(null);
   const [wechatConsuming, setWechatConsuming] = useState(false);
 
-  const { login, loginWithSms, error: authError } = useAuthStore();
+  const { login, loginWithSms, error: authError, setAuthenticatedUser } = useAuthStore();
 
   // 监听 auth-expired 事件
   useEffect(() => {
@@ -130,8 +130,9 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
 
         if (next.status === 'authorized') {
           setWechatConsuming(true);
-          await authApi.consumeWechatOfficialSession(next.id);
+          const result = await authApi.consumeWechatOfficialSession(next.id);
           if (cancelled) return;
+          setAuthenticatedUser(result.user, 'server');
           tokenRefreshManager.onLoginSuccess();
           handleClose();
           onSuccess?.();
@@ -159,7 +160,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
       cancelled = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [handleClose, isOpen, onSuccess, t, tab, wechatConsuming, wechatSession]);
+  }, [handleClose, isOpen, onSuccess, setAuthenticatedUser, t, tab, wechatConsuming, wechatSession]);
 
   useEffect(() => {
     if (sendCooldown <= 0) return;

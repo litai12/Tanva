@@ -26,7 +26,7 @@ export default function LoginPage() {
   const [wechatConsuming, setWechatConsuming] = useState(false);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { login, loginWithSms, error, user } = useAuthStore();
+  const { login, loginWithSms, error, user, setAuthenticatedUser } = useAuthStore();
   const watchaError = searchParams.get("watcha_error");
   const hasAgreedTerms = tab === "wechat" ? true : agreeTerms;
 
@@ -63,6 +63,7 @@ export default function LoginPage() {
           setWechatConsuming(true);
           const result = await authApi.consumeWechatOfficialSession(next.id);
           if (cancelled) return;
+          setAuthenticatedUser(result.user, "server");
           navigate(result.returnTo || "/app", { replace: true });
           return;
         }
@@ -89,7 +90,7 @@ export default function LoginPage() {
         window.clearTimeout(timer);
       }
     };
-  }, [wechatSession?.id, wechatConsuming, navigate, t]);
+  }, [wechatSession?.id, wechatConsuming, navigate, setAuthenticatedUser, t]);
 
   const _isMock =
     (typeof import.meta !== "undefined" &&

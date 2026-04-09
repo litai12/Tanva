@@ -8,6 +8,7 @@ type AuthState = {
   initializing: boolean; // 区分初始化加载和操作加载
   error: string | null;
   connection: 'mock' | 'server' | 'refresh' | 'local' | null;
+  setAuthenticatedUser: (user: UserInfo, connection?: AuthState['connection']) => void;
   init: () => Promise<void>;
   login: (phone: string, password: string) => Promise<void>;
   loginWithSms: (phone: string, code: string) => Promise<void>;
@@ -23,6 +24,9 @@ export const useAuthStore = create<AuthState>((set) => ({
   initializing: false, // 初始化状态
   error: null,
   connection: null,
+  setAuthenticatedUser: (user, connection = 'server') => {
+    set({ user, connection, error: null, loading: false, initializing: false });
+  },
   init: async () => {
     set({ initializing: true, error: null });
     try {
