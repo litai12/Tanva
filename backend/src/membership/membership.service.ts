@@ -640,11 +640,22 @@ export class MembershipService {
         },
       });
 
+      let expiredLots = 0;
+      let expiredCredits = 0;
+
+      for (const subscription of activeSubscriptions) {
+        const result = await this.expireSubscriptionLots(tx, subscription, now, reason);
+        expiredLots += result.expiredLots;
+        expiredCredits += result.expiredCredits;
+      }
+
       await this.upsertInactiveEntitlementSnapshot(tx, userId, now);
 
       return {
         success: true,
         expiredSubscriptions: activeSubscriptions.length,
+        expiredLots,
+        expiredCredits,
         expiredAt: now,
       };
     });
@@ -697,6 +708,89 @@ export class MembershipService {
         },
       });
     }
+  }
+
+  private async expireSubscriptionLots(
+    tx: Prisma.TransactionClient,
+    subscription: {
+      id: string;
+      userId: string;
+      membershipPlanId: string;
+    },
+    now: Date,
+    reason: string,
+  ) {
+    const lots = await tx.creditLot.findMany({
+      where: {
+        subscriptionId: subscription.id,
+        validityType: 'membership_bound',
+        status: 'active',
+      },
+      orderBy: [{ expiresAt: 'asc' }, { createdAt: 'asc' }],
+    });
+
+    const account = await tx.creditAccount.findUnique({
+      where: { userId: subscription.userId },
+    });
+
+    let accountBalance = account?.balance ?? 0;
+    let expiredLots = 0;
+    let expiredCredits = 0;
+
+    for (const lot of lots) {
+      if (lot.remainingAmount <= 0) {
+        await tx.creditLot.update({
+          where: { id: lot.id },
+          data: { status: 'expired', remainingAmount: 0 },
+        });
+        expiredLots += 1;
+        continue;
+      }
+
+      const balanceBefore = accountBalance;
+      accountBalance = Math.max(0, accountBalance - lot.remainingAmount);
+      expiredCredits += lot.remainingAmount;
+      expiredLots += 1;
+
+      await tx.creditLot.update({
+        where: { id: lot.id },
+        data: {
+          remainingAmount: 0,
+          status: 'expired',
+        },
+      });
+
+      if (account) {
+        await tx.creditAccount.update({
+          where: { id: account.id },
+          data: { balance: accountBalance },
+        });
+      }
+
+      await tx.creditTransaction.create({
+        data: {
+          accountId: lot.accountId,
+          type: TransactionType.EXPIRE,
+          amount: -lot.remainingAmount,
+          balanceBefore,
+          balanceAfter: accountBalance,
+          description: '会员积分到期清理',
+          creditLotId: lot.id,
+          businessType: 'membership_expire',
+          subscriptionId: subscription.id,
+          membershipPlanId: subscription.membershipPlanId,
+          metadata: {
+            expiredAt: now.toISOString(),
+            reason,
+          },
+        },
+      });
+    }
+
+    return {
+      expiredLots,
+      expiredCredits,
+    };
   }
 
   async adminAdjustMembershipPeriod(
@@ -953,6 +1047,8 @@ export class MembershipService {
         orderBy: [{ currentPeriodEndAt: 'asc' }, { createdAt: 'asc' }],
       });
 
+      let expiredLots = 0;
+      let expiredCredits = 0;
       let resetSnapshots = 0;
 
       for (const subscription of expiredSubscriptions) {
@@ -963,6 +1059,19 @@ export class MembershipService {
             expiredAt: subscription.expiredAt ?? now,
           },
         });
+
+        const result = await this.expireSubscriptionLots(
+          tx,
+          {
+            id: subscription.id,
+            userId: subscription.userId,
+            membershipPlanId: subscription.membershipPlanId,
+          },
+          now,
+          'membership_period_elapsed',
+        );
+        expiredLots += result.expiredLots;
+        expiredCredits += result.expiredCredits;
 
         const hasAnyActiveSubscription = await tx.userMembershipSubscription.count({
           where: {
@@ -996,8 +1105,8 @@ export class MembershipService {
 
       return {
         expiredSubscriptions: expiredSubscriptions.length,
-        expiredLots: 0,
-        expiredCredits: 0,
+        expiredLots,
+        expiredCredits,
         resetSnapshots,
       };
     });

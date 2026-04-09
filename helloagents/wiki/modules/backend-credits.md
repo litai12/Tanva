@@ -79,7 +79,7 @@
   - 新增 `GET /api/payment/membership-plans`，以及会员订单创建校验：金额必须匹配已启用套餐，会员订单 `credits` 固定为 `0`。
 - 会员 P1 到期收口：
   - 新增 `MembershipSchedulerService`，按小时扫描已过期订阅。
-  - `MembershipService.expireElapsedMemberships()` 会把到期订阅标记为 `expired`，并把权益快照回落到 `free/inactive`；到期本身不再回收已发放积分。
+  - `MembershipService.expireElapsedMemberships()` 会把到期订阅标记为 `expired`，将关联的 `membership_bound` lot 归零并写入 `membership_expire` 流水，同时把权益快照回落到 `free/inactive`。
 - 会员 P1 权益调度：
   - `CreditsService.issueFreeUserMonthlyQuotaCredits()` 会按 `membershipRefreshCycleDays` 为非会员用户发放 `freeUserMonthlyQuotaCredits`，lot 类型为 `sourceType=subscription` + `validityType=fixed_window`，并记录 `free_monthly_quota` 流水；按用户注册时间锚定周期、按周期幂等。
   - `MembershipService.issueDailyMembershipGiftCredits()` 会为活跃会员按套餐 `dailyGiftCredits` 每日发放一笔 `sourceType=gift` + `validityType=permanent` 的赠送积分，并记录 `membership_daily_gift` 流水；按订阅 + 自然日幂等。
