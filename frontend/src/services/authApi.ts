@@ -20,6 +20,16 @@ export type GoogleApiKeyInfo = {
   mode: "official" | "custom";
 };
 
+export type WechatOfficialLoginSession = {
+  id: string;
+  sceneKey?: string;
+  status: "pending" | "authorized" | "expired";
+  qrCodeUrl: string | null;
+  expiresAt: string;
+  authorizedAt?: string | null;
+  returnTo: string;
+};
+
 const isMock = import.meta.env.VITE_AUTH_MODE === "mock";
 
 // 后端基础地址，统一从 .env 中读取：
@@ -166,6 +176,79 @@ export const authApi = {
   getWatchaAuthorizeUrl(returnTo = "/app") {
     const params = new URLSearchParams({ returnTo });
     return `${base}/api/auth/watcha/authorize?${params.toString()}`;
+  },
+
+  async createWechatOfficialSession(returnTo = "/app") {
+    if (isMock) {
+      await delay(200);
+      return {
+        id: `wechat_session_${Date.now()}`,
+        sceneKey: `mock_${Date.now()}`,
+        status: "pending" as const,
+        qrCodeUrl: null,
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+        returnTo,
+      };
+    }
+    const res = await fetchWithAuth(`${base}/api/auth/wechat-official/sessions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ returnTo }),
+      credentials: "include",
+      auth: "omit",
+      allowRefresh: false,
+    });
+    return json<WechatOfficialLoginSession>(res);
+  },
+
+  async getWechatOfficialSessionStatus(sessionId: string) {
+    if (isMock) {
+      await delay(200);
+      return {
+        id: sessionId,
+        status: "expired" as const,
+        qrCodeUrl: null,
+        expiresAt: new Date().toISOString(),
+        returnTo: "/app",
+      };
+    }
+    const res = await fetchWithAuth(
+      `${base}/api/auth/wechat-official/sessions/${encodeURIComponent(sessionId)}`,
+      {
+        credentials: "include",
+        auth: "omit",
+        allowRefresh: false,
+      }
+    );
+    return json<WechatOfficialLoginSession>(res);
+  },
+
+  async consumeWechatOfficialSession(sessionId: string) {
+    if (isMock) {
+      await delay(200);
+      throw new Error("Mock 模式下未启用公众号扫码登录");
+    }
+    const res = await fetchWithAuth(
+      `${base}/api/auth/wechat-official/sessions/${encodeURIComponent(sessionId)}/consume`,
+      {
+        method: "POST",
+        credentials: "include",
+        auth: "omit",
+        allowRefresh: false,
+      }
+    );
+    const out = await json<{
+      user: UserInfo;
+      tokens?: { accessToken?: string; refreshToken?: string };
+      returnTo: string;
+    }>(res);
+    if (out.tokens) {
+      setTokens(out.tokens);
+    }
+    saveSession(out.user);
+    setStoredTokenExpiry(Date.now() + 24 * 60 * 60 * 1000);
+    setStoredLastAuthAt(Date.now());
+    return out;
   },
 
   async meDetailed(): Promise<{

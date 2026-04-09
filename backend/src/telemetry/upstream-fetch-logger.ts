@@ -7,16 +7,7 @@ type PatchedFetch = typeof fetch & {
   __tanvaUpstreamLoggingPatched?: boolean;
 };
 
-const MAX_BODY_TEXT_LENGTH = 200_000;
-const MAX_FIELD_STRING_LENGTH = 20_000;
 const logger = new Logger('UpstreamFetchLogger');
-const SENSITIVE_HEADERS = new Set([
-  'authorization',
-  'cookie',
-  'set-cookie',
-  'x-api-key',
-  'proxy-authorization',
-]);
 
 const isEnabled = (value: unknown, defaultValue: boolean): boolean => {
   if (value == null || value === '') return defaultValue;
@@ -60,18 +51,10 @@ const toBase64Meta = (value: string) => {
 
 const sanitizeString = (value: string): unknown => {
   if (isLikelyImageBase64(value)) {
-    return toBase64Meta(value);
-  }
-
-  if (value.length <= MAX_FIELD_STRING_LENGTH) {
     return value;
   }
 
-  return {
-    kind: 'truncated_string',
-    length: value.length,
-    preview: value.slice(0, MAX_FIELD_STRING_LENGTH),
-  };
+  return value;
 };
 
 const sanitizeValue = (value: unknown): unknown => {
@@ -94,7 +77,7 @@ const sanitizeValue = (value: unknown): unknown => {
     for (const [key, entryValue] of value.entries()) {
       if (!entries[key]) entries[key] = [];
       if (typeof entryValue === 'string') {
-        entries[key].push(sanitizeString(entryValue));
+        entries[key].push(entryValue);
       } else {
         entries[key].push({
           kind: 'binary_form_entry',
@@ -128,16 +111,9 @@ const sanitizeValue = (value: unknown): unknown => {
   return value;
 };
 
-const sanitizeHeaders = (headers: Headers): Record<string, unknown> => {
+const normalizeHeaders = (headers: Headers): Record<string, unknown> => {
   const normalized: Record<string, unknown> = {};
   headers.forEach((value, key) => {
-    if (SENSITIVE_HEADERS.has(key.toLowerCase())) {
-      normalized[key] = {
-        kind: 'redacted',
-        length: value.length,
-      };
-      return;
-    }
     normalized[key] = value;
   });
   return normalized;
@@ -146,22 +122,22 @@ const sanitizeHeaders = (headers: Headers): Record<string, unknown> => {
 const tryParseBody = (bodyText: string, contentType: string | null): unknown => {
   if (!bodyText) return null;
 
-  const trimmed = bodyText.slice(0, MAX_BODY_TEXT_LENGTH).trim();
+  const trimmed = bodyText.trim();
   if (!trimmed) return null;
 
   if (contentType?.includes('application/json')) {
     try {
-      return sanitizeValue(JSON.parse(trimmed));
+      return JSON.parse(trimmed);
     } catch {
-      return sanitizeString(trimmed);
+      return trimmed;
     }
   }
 
   if (contentType?.includes('application/x-www-form-urlencoded')) {
-    return sanitizeValue(new URLSearchParams(trimmed));
+    return Object.fromEntries(new URLSearchParams(trimmed).entries());
   }
 
-  return sanitizeString(trimmed);
+  return trimmed;
 };
 
 const readResponseBody = async (response: Response): Promise<unknown> => {
@@ -190,7 +166,7 @@ const readResponseBody = async (response: Response): Promise<unknown> => {
       };
     }
 
-    const bodyText = new TextDecoder().decode(buffer.slice(0, MAX_BODY_TEXT_LENGTH));
+    const bodyText = new TextDecoder().decode(buffer);
     return tryParseBody(bodyText, contentType);
   } catch (error) {
     return {
@@ -282,11 +258,11 @@ export const installUpstreamFetchLogger = (): void => {
     const activeSpan = trace.getSpan(context.active())?.spanContext();
     const requestContext = getRequestContext();
     const requestBody = await readRequestBody(request);
-    const requestHeaders = sanitizeHeaders(request.headers);
+    const requestHeaders = normalizeHeaders(request.headers);
 
     try {
       const response = await originalFetch(request);
-      const responseHeaders = sanitizeHeaders(response.headers);
+      const responseHeaders = normalizeHeaders(response.headers);
       const responseBody = await readResponseBody(response);
       void ingestUpstreamRequestLog({
         trace_id: activeSpan?.traceId || requestContext?.traceId || null,

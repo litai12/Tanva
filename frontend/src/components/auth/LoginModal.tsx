@@ -4,24 +4,31 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuthStore } from '@/stores/authStore';
 import { tokenRefreshManager } from '@/services/tokenRefreshManager';
-import { X } from 'lucide-react';
-import { authApi } from '@/services/authApi';
+import { Eye, EyeOff, Loader2, MessageCircle, RefreshCw, X } from 'lucide-react';
+import { authApi, type WechatOfficialLoginSession } from '@/services/authApi';
 import { useTranslation } from 'react-i18next';
 
 type LoginModalProps = {
   onSuccess?: () => void;
 };
 
+type LoginTab = 'wechat' | 'password' | 'sms';
+
 export default function LoginModal({ onSuccess }: LoginModalProps) {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
-  const [tab, setTab] = useState<'password' | 'sms'>('password');
+  const [tab, setTab] = useState<LoginTab>('wechat');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [code, setCode] = useState('');
   const [localError, setLocalError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [sendCooldown, setSendCooldown] = useState(0);
+  const [wechatSession, setWechatSession] = useState<WechatOfficialLoginSession | null>(null);
+  const [wechatLoading, setWechatLoading] = useState(false);
+  const [wechatError, setWechatError] = useState<string | null>(null);
+  const [wechatConsuming, setWechatConsuming] = useState(false);
 
   const { login, loginWithSms, error: authError } = useAuthStore();
 
@@ -29,6 +36,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
   useEffect(() => {
     const handleAuthExpired = () => {
       console.log('[LoginModal] 收到登录过期事件，显示弹窗');
+      setTab('wechat');
       setIsOpen(true);
     };
 
@@ -41,6 +49,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
     const unsubscribe = tokenRefreshManager.subscribe((event) => {
       if (event === 'login-required') {
         console.log('[LoginModal] TokenRefreshManager 请求登录');
+        setTab('wechat');
         setIsOpen(true);
       }
     });
@@ -51,14 +60,36 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
 
   const handleClose = useCallback(() => {
     setIsOpen(false);
+    setTab('wechat');
     setLocalError(null);
     setPhone('');
     setPassword('');
+    setShowPassword(false);
     setCode('');
+    setSendCooldown(0);
+    setWechatSession(null);
+    setWechatLoading(false);
+    setWechatError(null);
+    setWechatConsuming(false);
   }, []);
+
+  const loadWechatSession = useCallback(async () => {
+    setWechatLoading(true);
+    setWechatError(null);
+    try {
+      const session = await authApi.createWechatOfficialSession('/app');
+      setWechatSession(session);
+    } catch (err: any) {
+      setWechatError(err?.message || t('auth.login.wechatLoadFailed'));
+    } finally {
+      setWechatLoading(false);
+    }
+  }, [t]);
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
+    if (tab === 'wechat') return;
+
     setLocalError(null);
     setIsSubmitting(true);
 
@@ -69,13 +100,8 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
         await loginWithSms(phone, code);
       }
 
-      // 登录成功，通知 tokenRefreshManager
       tokenRefreshManager.onLoginSuccess();
-
-      // 关闭弹窗
       handleClose();
-
-      // 触发成功回调
       onSuccess?.();
     } catch (err: any) {
       setLocalError(err?.message || t('auth.modal.loginFailed'));
@@ -83,6 +109,57 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
       setIsSubmitting(false);
     }
   }, [handleClose, login, loginWithSms, onSuccess, tab, phone, password, code, t]);
+
+  useEffect(() => {
+    if (!isOpen || tab !== 'wechat' || wechatSession || wechatLoading || wechatConsuming) return;
+    void loadWechatSession();
+  }, [isOpen, tab, wechatSession, wechatLoading, wechatConsuming, loadWechatSession]);
+
+  useEffect(() => {
+    let timer: number | undefined;
+    let cancelled = false;
+
+    const poll = async () => {
+      if (!wechatSession?.id || wechatConsuming || !isOpen || tab !== 'wechat') return;
+
+      try {
+        const next = await authApi.getWechatOfficialSessionStatus(wechatSession.id);
+        if (cancelled) return;
+
+        setWechatSession(next);
+
+        if (next.status === 'authorized') {
+          setWechatConsuming(true);
+          await authApi.consumeWechatOfficialSession(next.id);
+          if (cancelled) return;
+          tokenRefreshManager.onLoginSuccess();
+          handleClose();
+          onSuccess?.();
+          return;
+        }
+
+        if (next.status === 'expired') {
+          return;
+        }
+      } catch (err: any) {
+        if (cancelled) return;
+        setWechatError(err?.message || t('auth.login.wechatLoadFailed'));
+      } finally {
+        if (!cancelled && isOpen && tab === 'wechat' && wechatSession?.id) {
+          timer = window.setTimeout(poll, 2000);
+        }
+      }
+    };
+
+    if (isOpen && tab === 'wechat' && wechatSession?.id) {
+      timer = window.setTimeout(poll, 1500);
+    }
+
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [handleClose, isOpen, onSuccess, t, tab, wechatConsuming, wechatSession]);
 
   useEffect(() => {
     if (sendCooldown <= 0) return;
@@ -132,11 +209,28 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
             <button
               type="button"
               className={
+                tab === 'wechat'
+                  ? 'text-gray-700 font-semibold'
+                  : 'text-slate-400 hover:text-slate-600'
+              }
+              onClick={() => {
+                setLocalError(null);
+                setTab('wechat');
+              }}
+            >
+              微信登录
+            </button>
+            <button
+              type="button"
+              className={
                 tab === 'password'
                   ? 'text-gray-700 font-semibold'
                   : 'text-slate-400 hover:text-slate-600'
               }
-              onClick={() => setTab('password')}
+              onClick={() => {
+                setLocalError(null);
+                setTab('password');
+              }}
             >
               {t('auth.login.passwordTab')}
             </button>
@@ -147,82 +241,145 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
                   ? 'text-gray-700 font-semibold'
                   : 'text-slate-400 hover:text-slate-600'
               }
-              onClick={() => setTab('sms')}
+              onClick={() => {
+                setLocalError(null);
+                setTab('sms');
+              }}
             >
               {t('auth.login.smsTab')}
             </button>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <Input
-              placeholder={t('auth.login.phonePlaceholder')}
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              required
-              autoFocus
-            />
-
-            {tab === 'password' ? (
-              <Input
-                placeholder={t('auth.login.passwordPlaceholder')}
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            ) : (
-              <div className="flex gap-2">
-                <Input
-                  placeholder={t('auth.login.codePlaceholder')}
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  required
-                />
-                <Button
+          {tab === 'wechat' ? (
+            <div className="space-y-4">
+              <div className="flex flex-col items-center px-2 py-2 text-center">
+                <div className="mb-3 flex items-center gap-2 text-slate-700">
+                  <MessageCircle className="h-5 w-5" />
+                  <span className="text-sm font-medium">{t('auth.login.wechatTitle')}</span>
+                </div>
+                <button
                   type="button"
-                  variant="outline"
-                  className="whitespace-nowrap flex-shrink-0 min-w-[64px] rounded-xl"
-                  onClick={async () => {
-                    if (sendCooldown > 0) return;
-                    if (!phone) {
-                      window.dispatchEvent(new CustomEvent('toast', { detail: { message: t('auth.login.phoneRequired'), type: 'error' } }));
-                      return;
-                    }
-                    if (!/^1[3-9]\d{9}$/.test(phone)) {
-                      window.dispatchEvent(new CustomEvent('toast', { detail: { message: t('auth.login.phoneInvalid'), type: 'error' } }));
-                      return;
-                    }
-                    try {
-                      await authApi.sendSms({ phone });
-                      // 不自动填充验证码；始终提示用户手动输入短信收到的验证码
-                      setLocalError(null);
-                      window.dispatchEvent(new CustomEvent('toast', { detail: { message: t('auth.login.smsSent'), type: 'success' } }));
-                      setSendCooldown(60);
-                    } catch (err: any) {
-                      window.dispatchEvent(new CustomEvent('toast', { detail: { message: err?.message || t('auth.register.sendFailed'), type: 'error' } }));
-                    }
+                  className="group relative rounded-2xl bg-white p-3 shadow-sm"
+                  onClick={() => {
+                    setWechatSession(null);
+                    setWechatConsuming(false);
+                    void loadWechatSession();
                   }}
-                  disabled={sendCooldown > 0}
+                  disabled={wechatLoading}
                 >
-                  {sendCooldown > 0
-                    ? t('auth.login.resendCode', { seconds: sendCooldown })
-                    : t('auth.login.sendCode')}
-                </Button>
+                  {wechatSession?.qrCodeUrl ? (
+                    <img
+                      src={wechatSession.qrCodeUrl}
+                      alt={t('auth.login.wechatScanAlt')}
+                      className="h-44 w-44 rounded-xl object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-44 w-44 items-center justify-center rounded-xl bg-slate-100 px-4 text-xs text-slate-500">
+                      {wechatLoading ? t('auth.login.wechatLoading') : t('auth.login.wechatUnavailable')}
+                    </div>
+                  )}
+                  <div className="absolute inset-3 flex items-center justify-center rounded-xl bg-black/0 opacity-0 transition-all duration-200 group-hover:bg-black/40 group-hover:opacity-100">
+                    <RefreshCw className={`h-5 w-5 text-white ${wechatLoading ? 'animate-spin' : ''}`} />
+                  </div>
+                </button>
+                <p className="mt-4 text-sm text-slate-700">
+                  {wechatConsuming
+                    ? t('auth.login.wechatAuthorizing')
+                    : wechatSession?.status === 'expired'
+                    ? t('auth.login.wechatExpired')
+                    : t('auth.login.wechatHint')}
+                </p>
+                {wechatError ? <p className="mt-3 text-xs text-red-500">{wechatError}</p> : null}
               </div>
-            )}
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <Input
+                placeholder={t('auth.login.phonePlaceholder')}
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                required
+                autoFocus
+              />
 
-            {displayError && (
-              <div className="text-red-500 text-sm">{displayError}</div>
-            )}
+              {tab === 'password' ? (
+                <div className="relative">
+                  <Input
+                    placeholder={t('auth.login.passwordPlaceholder')}
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((value) => !value)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    {showPassword ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <Input
+                    placeholder={t('auth.login.codePlaceholder')}
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    required
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="whitespace-nowrap flex-shrink-0 min-w-[64px] rounded-xl"
+                    onClick={async () => {
+                      if (sendCooldown > 0) return;
+                      if (!phone) {
+                        window.dispatchEvent(new CustomEvent('toast', { detail: { message: t('auth.login.phoneRequired'), type: 'error' } }));
+                        return;
+                      }
+                      if (!/^1[3-9]\d{9}$/.test(phone)) {
+                        window.dispatchEvent(new CustomEvent('toast', { detail: { message: t('auth.login.phoneInvalid'), type: 'error' } }));
+                        return;
+                      }
+                      try {
+                        await authApi.sendSms({ phone });
+                        setLocalError(null);
+                        window.dispatchEvent(new CustomEvent('toast', { detail: { message: t('auth.login.smsSent'), type: 'success' } }));
+                        setSendCooldown(60);
+                      } catch (err: any) {
+                        window.dispatchEvent(new CustomEvent('toast', { detail: { message: err?.message || t('auth.register.sendFailed'), type: 'error' } }));
+                      }
+                    }}
+                    disabled={sendCooldown > 0}
+                  >
+                    {sendCooldown > 0
+                      ? t('auth.login.resendCode', { seconds: sendCooldown })
+                      : t('auth.login.sendCode')}
+                  </Button>
+                </div>
+              )}
 
-            <Button
-              type="submit"
-              className="w-full bg-gray-700 hover:bg-gray-800 text-white rounded-xl"
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? t('auth.login.submitting') : t('auth.modal.relogin')}
-            </Button>
-          </form>
+              {displayError && (
+                <div className="text-red-500 text-sm">{displayError}</div>
+              )}
+
+              <Button
+                type="submit"
+                className="w-full bg-gray-700 hover:bg-gray-800 text-white rounded-xl"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {t('auth.login.submitting')}
+                  </>
+                ) : (
+                  t('auth.modal.relogin')
+                )}
+              </Button>
+            </form>
+          )}
         </div>
       </div>
     </div>

@@ -6,6 +6,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Added
+- 认证系统新增“公众号扫码登录”闭环：后端支持带参数二维码会话、微信公众平台回调验签与 `subscribe/SCAN` 自动登录；前端登录页新增公众号扫码二维码面板与轮询消费登录会话。
 - Credits Backend 基础设施新增多形态积分 groundwork：Prisma 增加 `CreditLot` / `CreditConsumePolicy`，`CreditTransaction` 增加 lot / policy 审计字段；后端新增 `credit-lot-policy.ts` 用于 lot 过滤、优先级排序和扣减规划。
 - Credits Backend 已将三条发放链路接入 lot：充值成功、管理员补发、新用户注册赠送；当前均按 permanent lot 落库，为后续切换到 lot 真值扣减做准备。
 - Credits Backend 进一步接入每日签到 lot 化、hybrid lot 扣减与 lot 级退款恢复；`CreditConsumePolicy` 支持读取 `global_default` 配置并在 migration 中完成初始化。
@@ -24,6 +25,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- 登录页与登录弹窗统一改为三标签结构：`微信登录 / 密码登录 / 验证码登录`，默认进入微信登录；公众号扫码登录不再与手机号表单同时展开，减少界面拥挤与选择成本（`frontend/src/pages/auth/Login.tsx`, `frontend/src/components/auth/LoginModal.tsx`）。
+- 公众号明文模式回调新增 OpenObserve 结构化事件日志：收到 `/api/auth/wechat-official/callback` 时会把原始 XML 明文写入 `backend_events` 流，并在命中扫码登录授权后追加一条授权成功事件，便于直接在 OpenObserve 中排查公众号回调内容（`backend/src/auth/auth.service.ts`, `backend/src/telemetry/openobserve-telemetry.service.ts`）。
+- OpenObserve 改为默认保留明文请求日志并在生产默认开启：`backend_requests` 新增原始请求头/请求体，`upstream_requests` 不再对文本 header/body 做脱敏或截断，`frontend_error` 前端上报在生产默认开启，后端 tracing 也改为生产默认启用（`backend/src/telemetry/*`, `frontend/src/bootstrap/runtimeStability.ts`）。
 - Canvas：`ImageContainer` 的“高清放大”现在会先读取原图尺寸并推导最近似长宽比，一并传给 `gemini-3-pro-image-preview`；同时强化提示词，明确要求保持原始宽高比、禁止裁切/补边/拉伸/改构图，降低 4K 放大时输出尺寸漂移的概率（`frontend/src/components/canvas/ImageContainer.tsx`）。
 - Membership Backend 调整到期口径：订阅积分优先消耗，会员到期时重置订阅积分；免费用户继续按 30 天周期发放 `freeUserMonthlyQuotaCredits`（默认 `500`）。
 - 后台权限新增 `normal_admin`（普通管理）角色：后端仅放行 `概览、用户管理、API统计、API记录、公共模板、水印白名单` 对应接口，`admin` 仍保留全量后台权限（`backend/src/admin/admin.controller.ts`, `backend/src/admin/dto/admin.dto.ts`）。

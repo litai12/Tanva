@@ -4,15 +4,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { useAuthStore } from "@/stores/authStore";
-import { Loader2, Eye, EyeOff, Check } from "lucide-react";
-import { authApi } from "@/services/authApi";
+import { Loader2, Eye, EyeOff, Check, MessageCircle, RefreshCw } from "lucide-react";
+import { authApi, type WechatOfficialLoginSession } from "@/services/authApi";
 import ForgotPasswordModal from "@/components/auth/ForgotPasswordModal";
 import { useTranslation } from "react-i18next";
 import watchaIcon from "@/assets/1752064513_guan-cha-insights.webp";
 
 export default function LoginPage() {
   const { t } = useTranslation();
-  const [tab, setTab] = useState<"password" | "sms">("password");
+  const [tab, setTab] = useState<"wechat" | "password" | "sms">("wechat");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [phone, setPhone] = useState("");
@@ -20,10 +20,15 @@ export default function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(false); // 默认不勾选，必须手动同意
+  const [wechatSession, setWechatSession] = useState<WechatOfficialLoginSession | null>(null);
+  const [wechatLoading, setWechatLoading] = useState(false);
+  const [wechatError, setWechatError] = useState<string | null>(null);
+  const [wechatConsuming, setWechatConsuming] = useState(false);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { login, loginWithSms, error, user } = useAuthStore();
   const watchaError = searchParams.get("watcha_error");
+  const hasAgreedTerms = tab === "wechat" ? true : agreeTerms;
 
   useEffect(() => {
     if (user) {
@@ -43,13 +48,57 @@ export default function LoginPage() {
     );
   }, [watchaError]);
 
+  useEffect(() => {
+    let timer: number | undefined;
+    let cancelled = false;
+
+    const poll = async () => {
+      if (!wechatSession?.id || wechatConsuming) return;
+      try {
+        const next = await authApi.getWechatOfficialSessionStatus(wechatSession.id);
+        if (cancelled) return;
+        setWechatSession(next);
+
+        if (next.status === "authorized") {
+          setWechatConsuming(true);
+          const result = await authApi.consumeWechatOfficialSession(next.id);
+          if (cancelled) return;
+          navigate(result.returnTo || "/app", { replace: true });
+          return;
+        }
+        if (next.status === "expired") {
+          return;
+        }
+      } catch (err: any) {
+        if (cancelled) return;
+        setWechatError(err?.message || t("auth.login.wechatLoadFailed"));
+      } finally {
+        if (!cancelled && wechatSession?.id) {
+          timer = window.setTimeout(poll, 2000);
+        }
+      }
+    };
+
+    if (wechatSession?.id) {
+      timer = window.setTimeout(poll, 1500);
+    }
+
+    return () => {
+      cancelled = true;
+      if (timer) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [wechatSession?.id, wechatConsuming, navigate, t]);
+
   const _isMock =
     (typeof import.meta !== "undefined" &&
       (import.meta as any).env?.VITE_AUTH_MODE) === "mock";
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!agreeTerms) {
+    if (tab === "wechat") return;
+    if (!hasAgreedTerms) {
       alert(t("auth.agreements.mustAgree"));
       return;
     }
@@ -70,6 +119,24 @@ export default function LoginPage() {
   const onWatchaLogin = () => {
     window.location.href = authApi.getWatchaAuthorizeUrl("/app");
   };
+
+  const loadWechatSession = async () => {
+    setWechatLoading(true);
+    setWechatError(null);
+    try {
+      const session = await authApi.createWechatOfficialSession("/app");
+      setWechatSession(session);
+    } catch (err: any) {
+      setWechatError(err?.message || t("auth.login.wechatLoadFailed"));
+    } finally {
+      setWechatLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (tab !== "wechat" || wechatSession || wechatLoading || wechatConsuming) return;
+    void loadWechatSession();
+  }, [tab, wechatSession, wechatLoading, wechatConsuming]);
 
   // 发送验证码的冷却（秒）
   const [sendCooldown, setSendCooldown] = useState(0);
@@ -106,9 +173,19 @@ export default function LoginPage() {
             className='h-8 w-auto brightness-0 invert drop-shadow-lg'
           />
         </div>
-        <div className='flex gap-8'>
-          <div className='flex-1'>
+        <div className='flex justify-center'>
+          <div className='w-full max-w-xl'>
             <div className='flex gap-6 mb-8 text-sm items-center justify-center'>
+              <button
+                className={
+                  tab === "wechat"
+                    ? "text-white font-semibold drop-shadow-md transition-all duration-200"
+                    : "text-white/70 hover:text-white transition-all duration-200"
+                }
+                onClick={() => setTab("wechat")}
+              >
+                微信登录
+              </button>
               <button
                 className={
                   tab === "password"
@@ -131,8 +208,50 @@ export default function LoginPage() {
               </button>
             </div>
             {/* 固定高度容器，避免切换时跳跃 */}
-            <div className='relative min-h-[260px] transition-[min-height] px-28'>
-              {tab === "password" ? (
+            <div className='relative min-h-[320px] transition-[min-height] px-16'>
+              {tab === "wechat" ? (
+                <div className='mx-auto flex max-w-sm flex-col items-center px-5 py-6 text-center'>
+                  <div className='mb-3 flex items-center gap-2 text-white'>
+                    <MessageCircle className='h-5 w-5' />
+                    <span className='text-sm font-medium'>{t("auth.login.wechatTitle")}</span>
+                  </div>
+                  <button
+                    type='button'
+                    className='group relative rounded-2xl bg-white p-3 shadow-xl'
+                    onClick={() => {
+                      setWechatSession(null);
+                      setWechatConsuming(false);
+                      void loadWechatSession();
+                    }}
+                    disabled={wechatLoading}
+                  >
+                    {wechatSession?.qrCodeUrl ? (
+                      <img
+                        src={wechatSession.qrCodeUrl}
+                        alt={t("auth.login.wechatScanAlt")}
+                        className='h-44 w-44 rounded-xl object-cover'
+                      />
+                    ) : (
+                      <div className='flex h-44 w-44 items-center justify-center rounded-xl bg-slate-100 px-4 text-xs text-slate-500'>
+                        {wechatLoading ? t("auth.login.wechatLoading") : t("auth.login.wechatUnavailable")}
+                      </div>
+                    )}
+                    <div className='absolute inset-3 flex items-center justify-center rounded-xl bg-black/0 opacity-0 transition-all duration-200 group-hover:bg-black/40 group-hover:opacity-100'>
+                      <RefreshCw className={`h-5 w-5 text-white ${wechatLoading ? 'animate-spin' : ''}`} />
+                    </div>
+                  </button>
+                  <p className='mt-4 text-sm text-white/90'>
+                    {wechatConsuming
+                      ? t("auth.login.wechatAuthorizing")
+                      : wechatSession?.status === "expired"
+                      ? t("auth.login.wechatExpired")
+                      : t("auth.login.wechatHint")}
+                  </p>
+                  {wechatError ? (
+                    <p className='mt-3 text-xs text-red-300'>{wechatError}</p>
+                  ) : null}
+                </div>
+              ) : tab === "password" ? (
                 <form onSubmit={onSubmit} className='space-y-6'>
                   <Input
                     placeholder={t("auth.login.phonePlaceholder")}
@@ -166,7 +285,7 @@ export default function LoginPage() {
                   <Button
                     type='submit'
                     className='w-full bg-white/20 hover:bg-white/30 text-white border border-white/30 rounded-xl h-12 font-medium backdrop-blur-sm transition-all duration-200 disabled:opacity-70 hover:shadow-lg'
-                    disabled={isSubmitting || !agreeTerms}
+                    disabled={isSubmitting || !hasAgreedTerms}
                   >
                     {isSubmitting ? (
                       <>
@@ -323,7 +442,7 @@ export default function LoginPage() {
                   <Button
                     type='submit'
                     className='w-full bg-white/20 hover:bg-white/30 text-white border border-white/30 rounded-xl h-12 font-medium backdrop-blur-sm transition-all duration-200 disabled:opacity-70 hover:shadow-lg'
-                    disabled={isSubmitting || !agreeTerms}
+                    disabled={isSubmitting || !hasAgreedTerms}
                   >
                     {isSubmitting ? (
                       <>

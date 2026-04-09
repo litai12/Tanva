@@ -2,13 +2,6 @@ import { Body, Controller, HttpCode, Post, Req } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import { OpenObserveTelemetryService } from './openobserve-telemetry.service';
 
-const clampString = (value: unknown, maxLength: number): string | null => {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  return trimmed.slice(0, maxLength);
-};
-
 @Controller('telemetry')
 export class TelemetryController {
   constructor(
@@ -19,20 +12,29 @@ export class TelemetryController {
   @HttpCode(204)
   frontendError(@Body() body: unknown, @Req() req: FastifyRequest): void {
     const payload = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+    const stringifyIfNeeded = (value: unknown): string | null => {
+      if (value == null) return null;
+      if (typeof value === 'string') return value;
+      try {
+        return JSON.stringify(value);
+      } catch {
+        return String(value);
+      }
+    };
 
     const normalized = {
-      kind: clampString(payload.kind, 64) ?? 'unknown',
-      message: clampString(payload.message, 2000) ?? 'Unknown frontend error',
-      stack: clampString(payload.stack, 8000),
-      source: clampString(payload.source, 1024),
-      appVersion: clampString(payload.appVersion, 128) ?? 'unknown',
-      buildTime: clampString(payload.buildTime, 128),
-      href: clampString(payload.href, 1024),
+      kind: stringifyIfNeeded(payload.kind) ?? 'unknown',
+      message: stringifyIfNeeded(payload.message) ?? 'Unknown frontend error',
+      stack: stringifyIfNeeded(payload.stack),
+      source: stringifyIfNeeded(payload.source),
+      appVersion: stringifyIfNeeded(payload.appVersion) ?? 'unknown',
+      buildTime: stringifyIfNeeded(payload.buildTime),
+      href: stringifyIfNeeded(payload.href),
       userAgent:
-        clampString(payload.userAgent, 512) ??
-        clampString(req.headers['user-agent'], 512) ??
+        stringifyIfNeeded(payload.userAgent) ??
+        stringifyIfNeeded(req.headers['user-agent']) ??
         'unknown',
-      timestamp: clampString(payload.timestamp, 128),
+      timestamp: stringifyIfNeeded(payload.timestamp),
       ip: req.ip,
       receivedAt: new Date().toISOString(),
     };

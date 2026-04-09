@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiCookieAuth, ApiTags } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
@@ -75,6 +75,82 @@ export class AuthController {
       res.status(HttpStatus.FOUND);
       return res.redirect(redirectUrl);
     }
+  }
+
+  @Post('wechat-official/sessions')
+  @HttpCode(HttpStatus.OK)
+  async createWechatOfficialSession(@Body() body: { returnTo?: string }) {
+    return this.auth.createWechatOfficialLoginSession(body?.returnTo);
+  }
+
+  @Get('wechat-official/sessions/:id')
+  async getWechatOfficialSessionStatus(@Param('id') id: string) {
+    return this.auth.getWechatOfficialLoginSessionStatus(id);
+  }
+
+  @Post('wechat-official/sessions/:id/consume')
+  @HttpCode(HttpStatus.OK)
+  async consumeWechatOfficialSession(
+    @Param('id') id: string,
+    @Req() req: any,
+    @Res({ passthrough: true }) res: any,
+  ) {
+    const { user, tokens, returnTo } = await this.auth.consumeWechatOfficialLoginSession(
+      id,
+      {
+        ip: req.ip,
+        ua: req.headers['user-agent'],
+      },
+    );
+    this.auth.setAuthCookies(res, tokens, req);
+    return { user, tokens, returnTo };
+  }
+
+  @Get('wechat-official/callback')
+  async verifyWechatOfficialCallback(
+    @Query('signature') signature: string | undefined,
+    @Query('timestamp') timestamp: string | undefined,
+    @Query('nonce') nonce: string | undefined,
+    @Query('echostr') echostr: string | undefined,
+    @Res() res: any,
+  ) {
+    if (!this.auth.verifyWechatOfficialRequest(signature, timestamp, nonce)) {
+      res.status(HttpStatus.UNAUTHORIZED);
+      return res.send('invalid signature');
+    }
+
+    res.header('Content-Type', 'text/plain; charset=utf-8');
+    return res.send(echostr || '');
+  }
+
+  @Post('wechat-official/callback')
+  async handleWechatOfficialCallback(
+    @Query('signature') signature: string | undefined,
+    @Query('timestamp') timestamp: string | undefined,
+    @Query('nonce') nonce: string | undefined,
+    @Req() req: any,
+    @Res() res: any,
+  ) {
+    if (!this.auth.verifyWechatOfficialRequest(signature, timestamp, nonce)) {
+      res.status(HttpStatus.UNAUTHORIZED);
+      return res.send('invalid signature');
+    }
+
+    const rawBody =
+      typeof req.body === 'string'
+        ? req.body
+        : typeof req.rawBody === 'string'
+        ? req.rawBody
+        : '';
+
+    const responseXml = await this.auth.handleWechatOfficialCallback(rawBody);
+    if (typeof responseXml === 'string' && responseXml.trim().startsWith('<xml>')) {
+      res.header('Content-Type', 'application/xml; charset=utf-8');
+      return res.send(responseXml);
+    }
+
+    res.header('Content-Type', 'text/plain; charset=utf-8');
+    return res.send(responseXml || 'success');
   }
 
   // 发送短信（生产需要配置阿里云并推荐配置 REDIS_URL；开发时可启用 SMS_DEBUG=true 返回调试码）
