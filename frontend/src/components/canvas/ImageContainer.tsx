@@ -406,6 +406,48 @@ const buildTextEditPrompt = (
   return lines.join("\n");
 };
 
+const HD_UPSCALE_ASPECT_RATIOS = [
+  "1:1",
+  "2:3",
+  "3:2",
+  "3:4",
+  "4:3",
+  "4:5",
+  "5:4",
+  "9:16",
+  "16:9",
+  "21:9",
+] as const;
+
+type HdUpscaleAspectRatio = (typeof HD_UPSCALE_ASPECT_RATIOS)[number];
+
+const getClosestHdUpscaleAspectRatio = (
+  width: number,
+  height: number
+): HdUpscaleAspectRatio | undefined => {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return undefined;
+  }
+
+  const targetRatio = width / height;
+  let bestMatch: HdUpscaleAspectRatio | undefined;
+  let smallestDiff = Number.POSITIVE_INFINITY;
+
+  for (const ratio of HD_UPSCALE_ASPECT_RATIOS) {
+    const [w, h] = ratio.split(":").map(Number);
+    if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
+      continue;
+    }
+    const diff = Math.abs(targetRatio - w / h);
+    if (diff < smallestDiff) {
+      smallestDiff = diff;
+      bestMatch = ratio;
+    }
+  }
+
+  return bestMatch;
+};
+
 const _composeExpandedImage = async (
   sourceDataUrl: string,
   originalBounds: Bounds,
@@ -3101,6 +3143,18 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             throw new Error("无法获取原图");
           }
 
+          const baseImageElement = await loadImageElement(baseImage);
+          const sourceWidth = Math.max(
+            1,
+            baseImageElement.naturalWidth || baseImageElement.width || 1
+          );
+          const sourceHeight = Math.max(
+            1,
+            baseImageElement.naturalHeight || baseImageElement.height || 1
+          );
+          const aspectRatio =
+            getClosestHdUpscaleAspectRatio(sourceWidth, sourceHeight);
+
           window.dispatchEvent(
             new CustomEvent("toast", {
               detail: {
@@ -3118,15 +3172,19 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             aiProvider: HD_UPSCALE_PROVIDER,
             model: HD_UPSCALE_MODEL,
             imageSize: "4K",
+            aspectRatio,
+            sourceWidth,
+            sourceHeight,
           });
 
           const editResult = await aiImageService.editImage({
             prompt:
-              "请将这张图片进行高清放大处理，提升分辨率到4K级别，保持原图的所有细节、颜色、构图和风格完全不变，只增强清晰度和分辨率，不要添加或修改任何内容",
+              "请将这张图片进行高清放大处理，提升分辨率到4K级别，保持原图的所有细节、颜色、构图和风格完全不变，只增强清晰度和分辨率，不要添加或修改任何内容。必须保持原始宽高比，禁止裁切、补边、拉伸、透视变化或改动构图。",
             sourceImage: baseImage,
             model: HD_UPSCALE_MODEL,
             aiProvider: HD_UPSCALE_PROVIDER,
             outputFormat: "png",
+            aspectRatio,
             imageSize: "4K",
             imageOnly: true,
           });

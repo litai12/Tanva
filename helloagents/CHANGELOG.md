@@ -24,6 +24,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- Canvas：`ImageContainer` 的“高清放大”现在会先读取原图尺寸并推导最近似长宽比，一并传给 `gemini-3-pro-image-preview`；同时强化提示词，明确要求保持原始宽高比、禁止裁切/补边/拉伸/改构图，降低 4K 放大时输出尺寸漂移的概率（`frontend/src/components/canvas/ImageContainer.tsx`）。
 - Membership Backend 调整到期口径：订阅积分优先消耗，会员到期时重置订阅积分；免费用户继续按 30 天周期发放 `freeUserMonthlyQuotaCredits`（默认 `500`）。
 - 后台权限新增 `normal_admin`（普通管理）角色：后端仅放行 `概览、用户管理、API统计、API记录、公共模板、水印白名单` 对应接口，`admin` 仍保留全量后台权限（`backend/src/admin/admin.controller.ts`, `backend/src/admin/dto/admin.dto.ts`）。
 - 后台页面按角色显示 Tab：`normal_admin` 只显示 `概览 / 用户管理 / API统计 / API记录 / 公共模板 / 水印白名单`；并在“用户管理”中隐藏“角色/状态”列与“详情/删除”按钮（`frontend/src/pages/Admin.tsx`, `frontend/src/components/layout/FloatingHeader.tsx`）。
