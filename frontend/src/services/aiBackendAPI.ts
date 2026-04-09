@@ -1777,6 +1777,77 @@ export async function generateWan26R2VViaAPI(request: {
 }
 
 /**
+ * 调用后端代理的 DashScope Wan2.7-i2v 接口
+ */
+export async function generateWan27I2VViaAPI(request: {
+  prompt: string;
+  media: Array<{
+    type: "first_frame" | "last_frame" | "first_clip" | "driving_audio";
+    url: string;
+  }>;
+  parameters?: {
+    resolution?: "720P" | "1080P";
+    duration?: 5 | 10 | 15;
+    prompt_extend?: boolean;
+    watermark?: boolean;
+  };
+}): Promise<AIServiceResponse<any>> {
+  const startedAt = getTimestamp();
+  const dashscopeRequest = {
+    model: "wan2.7-i2v",
+    input: {
+      prompt: request.prompt,
+      media: request.media,
+    },
+    parameters: request.parameters || {},
+  };
+
+  try {
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/ai/dashscope/generate-wan2-7-i2v`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(dashscopeRequest),
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      logApiTiming("generate-wan2-7-i2v", startedAt, {
+        success: false,
+        status: response.status,
+      });
+      return {
+        success: false,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: errorData?.message || `HTTP ${response.status}`,
+          timestamp: new Date(),
+        },
+      };
+    }
+
+    const data = await response.json();
+    logApiTiming("generate-wan2-7-i2v", startedAt, { success: true });
+    return data;
+  } catch (error) {
+    logApiTiming("generate-wan2-7-i2v", startedAt, {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      success: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "Network error",
+        timestamp: new Date(),
+      },
+    };
+  }
+}
+
+/**
  * 查询 DashScope 任务状态（用于 wan2.6 I2V 异步模式轮询）
  */
 export async function queryDashscopeTask(taskId: string): Promise<{

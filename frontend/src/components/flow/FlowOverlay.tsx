@@ -60,6 +60,7 @@ import Sora2VideoNode from "./nodes/Sora2VideoNode";
 import Sora2CharacterNode from "./nodes/Sora2CharacterNode";
 import Wan26Node from "./nodes/Wan26Node";
 import Wan2R2VNode from "./nodes/Wan2R2VNode";
+import Wan27VideoNode from "./nodes/Wan27VideoNode";
 import TextNoteNode from "./nodes/TextNoteNode";
 import StoryboardSplitNode from "./nodes/StoryboardSplitNode";
 import GenerateProNode from "./nodes/GenerateProNode";
@@ -143,6 +144,7 @@ import {
   createSora2CharacterViaAPI,
   generateWan26ViaAPI,
   generateWan26R2VViaAPI,
+  generateWan27I2VViaAPI,
   midjourneyActionViaAPI,
   querySora2CharacterTaskViaAPI,
   queryDashscopeTask,
@@ -696,6 +698,7 @@ const rawNodeTypes = {
   sora2Character: Sora2CharacterNode,
   wan26: Wan26Node,
   wan2R2V: Wan2R2VNode,
+  wan27Video: Wan27VideoNode,
   klingVideo: KlingVideoNode,
   kling26Video: Kling26VideoNode,
   kling30Video: Kling30VideoNode,
@@ -851,6 +854,7 @@ const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "sora2Character",
   "wan26",
   "wan2R2V",
+  "wan27Video",
   "klingVideo",
   "kling26Video",
   "kling30Video",
@@ -1029,11 +1033,15 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "videoFrameExtract", targetHandle: "video" },
     { nodeType: "videoToGif", targetHandle: "video" },
     { nodeType: "wan2R2V", targetHandle: "video-1" },
+    { nodeType: "wan27Video", targetHandle: "video" },
     { nodeType: "klingO1Video", targetHandle: "video" },
     { nodeType: "sora2Video", targetHandle: "character" },
     { nodeType: "sora2Character", targetHandle: "video" },
   ],
-  audio: [{ nodeType: "wan26", targetHandle: "audio" }],
+  audio: [
+    { nodeType: "wan26", targetHandle: "audio" },
+    { nodeType: "wan27Video", targetHandle: "audio" },
+  ],
   character: [{ nodeType: "sora2Video", targetHandle: "character" }],
   unknown: [
     { nodeType: "generate", targetHandle: "text" },
@@ -1072,6 +1080,7 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "sora2Video", sourceHandle: "video" },
     { nodeType: "wan26", sourceHandle: "video" },
     { nodeType: "wan2R2V", sourceHandle: "video" },
+    { nodeType: "wan27Video", sourceHandle: "video" },
     { nodeType: "klingO1Video", sourceHandle: "video-out" },
     { nodeType: "videoFrameExtract", sourceHandle: "video" },
   ],
@@ -1087,6 +1096,7 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "sora2Video", sourceHandle: "video" },
     { nodeType: "wan26", sourceHandle: "video" },
     { nodeType: "wan2R2V", sourceHandle: "video" },
+    { nodeType: "wan27Video", sourceHandle: "video" },
     { nodeType: "klingVideo", sourceHandle: "video" },
     { nodeType: "kling26Video", sourceHandle: "video" },
     { nodeType: "klingO1Video", sourceHandle: "video-out" },
@@ -1142,6 +1152,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   sora2Character: 0, // 角色生成节点 - 当前不单独计费
   wan26: 600, // Wan2.6生成视频 - wan26-video
   wan2R2V: 600, // 视频融合 - wan26-r2v
+  wan27Video: 600, // Wan2.7 I2V
   klingVideo: "150-1200", // 可灵视频生成（2.6/3.0 按模型与参数阶梯计费）
   kling26Video: "150-1200", // 可灵2.6视频生成 - kling-v2-6
   kling30Video: "300-1200", // 可灵3.0视频生成 - kling-v3-0
@@ -1192,6 +1203,7 @@ const NODE_PALETTE_ITEMS = [
   { key: "sora2Character", zh: "Sora2角色生成", en: "Sora2 Character", category: "video" },
   { key: "wan26", zh: "Wan2.6生成视频", en: "Wan2.6", category: "video" },
   { key: "wan2R2V", zh: "视频融合", en: "Wan2.6 R2V", category: "video" },
+  { key: "wan27Video", zh: "Wan2.7 视频生成", en: "Wan2.7 I2V", category: "video" },
   { key: "klingVideo", zh: "Kling视频生成", en: "Kling", category: "video" },
   // { key: "kling26Video", zh: "Kling 2.6视频生成", en: "Kling 2.6", category: "video" },
   { key: "viduVideo", zh: "Vidu视频生成", en: "Vidu", category: "video" },
@@ -1304,6 +1316,7 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   sora2Character: "video",
   wan26: "video",
   wan2R2V: "video",
+  wan27Video: "video",
   klingVideo: "video",
   kling26Video: "video",
   kling30Video: "video",
@@ -1354,6 +1367,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   sora2Character: { w: 300, h: 320 },
   wan26: { w: 300, h: 320 },
   wan2R2V: { w: 300, h: 360 },
+  wan27Video: { w: 300, h: 420 },
   klingVideo: { w: 280, h: 260 },
   kling26Video: { w: 280, h: 260 },
   kling30Video: { w: 280, h: 260 },
@@ -1410,6 +1424,11 @@ const FLOW_NODE_KEY_ALIASES: Record<string, FlowNodeType> = {
   seedance20: "seedance20Video",
   "seedance-2.0": "seedance20Video",
   "seedance-2.0-video": "seedance20Video",
+  wan27: "wan27Video",
+  "wan-27": "wan27Video",
+  "wan2.7": "wan27Video",
+  "wan-2.7": "wan27Video",
+  "wan2.7-i2v": "wan27Video",
   pathtracer: "three",
   "path-tracer": "three",
   "three-pathtracer": "three",
@@ -6409,6 +6428,21 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
+          : type === "wan27Video"
+          ? {
+              status: "idle" as const,
+              videoUrl: undefined,
+              thumbnail: undefined,
+              resolution: "720P" as const,
+              duration: 10 as const,
+              promptExtend: true,
+              watermark: true,
+              audioUrl: undefined,
+              videoVersion: 0,
+              history: [],
+              boxW: size.w,
+              boxH: size.h,
+            }
           : type === "storyboardSplit"
           ? {
               status: "idle" as const,
@@ -6729,6 +6763,7 @@ function FlowInner() {
       "sora2Video",
       "wan26",
       "wan2R2V",
+      "wan27Video",
       "klingVideo",
       "kling26Video",
       "kling30Video",
@@ -7221,9 +7256,10 @@ function FlowInner() {
           return [
             "video",
             "sora2Video",
-            "wan26",
-            "wan2R2V",
-            "klingVideo",
+      "wan26",
+      "wan2R2V",
+      "wan27Video",
+      "klingVideo",
             "kling26Video",
             "kling30Video",
             "klingO1Video",
@@ -7242,11 +7278,12 @@ function FlowInner() {
             return false;
           }
           return [
-            "video",
-            "sora2Video",
-            "wan26",
-            "wan2R2V",
-            "klingVideo",
+      "video",
+      "sora2Video",
+      "wan26",
+      "wan2R2V",
+      "wan27Video",
+      "klingVideo",
             "kling26Video",
             "kling30Video",
             "klingO1Video",
@@ -7274,6 +7311,7 @@ function FlowInner() {
             "sora2Video",
             "wan26",
             "wan2R2V",
+            "wan27Video",
             "klingVideo",
             "kling26Video",
             "klingO1Video",
@@ -7291,6 +7329,40 @@ function FlowInner() {
         }
         if (isImageHandle(targetHandle)) {
           return isImageSource(sourceNode, sourceHandle);
+        }
+        if (targetHandle === "audio") {
+          if (sourceHandle !== "audio") return false;
+          return ["audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
+            sourceNode.type || ""
+          );
+        }
+        return false;
+      }
+
+      if (targetNode.type === "wan27Video") {
+        if (targetHandle === "text") {
+          return canSourceProvideText(sourceNode, sourceHandle);
+        }
+        if (targetHandle === "image" || targetHandle === "image-2") {
+          return isImageSource(sourceNode, sourceHandle);
+        }
+        if (targetHandle === "video") {
+          if (sourceHandle !== "video" && sourceHandle !== "video-out") return false;
+          return [
+            "video",
+            "sora2Video",
+            "wan26",
+            "wan2R2V",
+            "wan27Video",
+            "klingVideo",
+            "kling26Video",
+            "kling30Video",
+            "klingO1Video",
+            "viduVideo",
+            "viduQ3",
+            "doubaoVideo",
+            "seedance20Video",
+          ].includes(sourceNode.type || "");
         }
         if (targetHandle === "audio") {
           if (sourceHandle !== "audio") return false;
@@ -7326,6 +7398,7 @@ function FlowInner() {
             "sora2Video",
             "wan2R2V",
             "wan26",
+            "wan27Video",
             "klingVideo",
             "kling26Video",
             "kling30Video",
@@ -7380,6 +7453,7 @@ function FlowInner() {
             "sora2Video",
             "wan26",
             "wan2R2V",
+            "wan27Video",
             "klingVideo",
             "kling26Video",
             "klingO1Video",
@@ -7441,7 +7515,7 @@ function FlowInner() {
           return canSourceProvideText(sourceNode, sourceHandle);
         }
         if (targetHandle === "video") {
-          return ["video", "sora2Video", "wan26", "wan2R2V", "klingVideo", "kling26Video", "kling30Video", "klingO1Video", "viduVideo", "viduQ3", "doubaoVideo", "seedance20Video"].includes(sourceNode.type || "");
+          return ["video", "sora2Video", "wan26", "wan2R2V", "wan27Video", "klingVideo", "kling26Video", "kling30Video", "klingO1Video", "viduVideo", "viduQ3", "doubaoVideo", "seedance20Video"].includes(sourceNode.type || "");
         }
         return false;
       }
@@ -7499,6 +7573,7 @@ function FlowInner() {
             "seedance20Video",
             "wan26",
             "wan2R2V",
+            "wan27Video",
           ].includes(sourceNode.type || "");
         return false;
       }
@@ -7510,6 +7585,7 @@ function FlowInner() {
             "sora2Video",
             "wan26",
             "wan2R2V",
+            "wan27Video",
             "klingVideo",
             "kling26Video",
             "kling30Video",
@@ -7532,12 +7608,14 @@ function FlowInner() {
             "sora2Video",
             "wan26",
             "wan2R2V",
+            "wan27Video",
             "klingVideo",
             "kling26Video",
             "klingO1Video",
             "viduVideo",
             "viduQ3",
             "doubaoVideo",
+            "seedance20Video",
             "genericVideo",
             "seedanceVideo",
           ];
@@ -7666,6 +7744,17 @@ function FlowInner() {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
         if (isImageHandle(params.targetHandle)) return true; // 新线会替换旧线
         if (params.targetHandle === "audio") return true; // 新线会替换旧线
+      }
+      if (targetNode?.type === "wan27Video") {
+        if (params.targetHandle === "text") return true;
+        if (
+          params.targetHandle === "image" ||
+          params.targetHandle === "image-2" ||
+          params.targetHandle === "video" ||
+          params.targetHandle === "audio"
+        ) {
+          return true;
+        }
       }
       if (targetNode?.type === "audioUpload") {
         if (params.targetHandle === "audio") return true; // 新线会替换旧线
@@ -7885,6 +7974,7 @@ function FlowInner() {
           "sora2Video",
           "wan26",
           "wan2R2V",
+          "wan27Video",
           "storyboardSplit",
           "midjourney",
           "midjourneyV7",
@@ -8132,6 +8222,17 @@ function FlowInner() {
         if (tgt?.type === "wan26" && params.targetHandle === "audio") {
           next = next.filter(
             (e) => !(e.target === params.target && e.targetHandle === "audio")
+          );
+        }
+        if (
+          tgt?.type === "wan27Video" &&
+          (params.targetHandle === "image" ||
+            params.targetHandle === "image-2" ||
+            params.targetHandle === "video" ||
+            params.targetHandle === "audio")
+        ) {
+          next = next.filter(
+            (e) => !(e.target === params.target && e.targetHandle === params.targetHandle)
           );
         }
         if (tgt?.type === "audioUpload" && params.targetHandle === "audio") {
@@ -10045,6 +10146,317 @@ function FlowInner() {
 
         return { finalPrompt, errors };
       };
+
+      if (node.type === "wan27Video") {
+        const projectId = useProjectContentStore.getState().projectId;
+        const { text: promptText, hasEdge: hasText } = getTextPromptForNode(nodeId);
+
+        if (!hasText) {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "failed",
+                      error: "缺少 TextPrompt 输入",
+                    },
+                  }
+                : n
+            )
+          );
+          return;
+        }
+
+        if (!promptText) {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: { ...n.data, status: "failed", error: "提示词为空" },
+                  }
+                : n
+            )
+          );
+          return;
+        }
+
+        const sanitizeMediaUrl = (url?: string | null) => {
+          if (!url || typeof url !== "string") return undefined;
+          const trimmed = url.trim();
+          if (!trimmed) return undefined;
+          const markdownSplit = trimmed.split("](");
+          const candidate = markdownSplit.length > 1 ? markdownSplit[0] : trimmed;
+          const spaceIdx = candidate.indexOf(" ");
+          return spaceIdx > 0 ? candidate.slice(0, spaceIdx) : candidate;
+        };
+
+        const resolveVideoUrl = (edge?: Edge): string | undefined => {
+          if (!edge) return undefined;
+          const srcNode = rf.getNode(edge.source);
+          if (!srcNode) return undefined;
+          const data = (srcNode.data as any) || {};
+          const direct =
+            data.videoUrl ||
+            data.video_url ||
+            data.output?.video_url ||
+            (Array.isArray(data.output) ? data.output[0]?.video_url : undefined) ||
+            data.raw?.output?.video_url ||
+            data.raw?.video_url ||
+            data.url ||
+            data.src;
+          const fromHistory = Array.isArray(data.history) ? data.history[0]?.videoUrl : undefined;
+          return sanitizeMediaUrl(direct) || sanitizeMediaUrl(fromHistory);
+        };
+
+        const resolveAudioUrl = (edge?: Edge): string | undefined => {
+          if (!edge) return undefined;
+          const srcNode = rf.getNode(edge.source);
+          if (!srcNode) return undefined;
+          const data = (srcNode.data as any) || {};
+          if (typeof data.audioUrl === "string" && data.audioUrl.trim()) {
+            return sanitizeMediaUrl(data.audioUrl);
+          }
+          if (Array.isArray(data.audioUrls)) {
+            const firstAudio = data.audioUrls.find(
+              (value: unknown) => typeof value === "string" && value.trim().length > 0
+            );
+            if (typeof firstAudio === "string") {
+              return sanitizeMediaUrl(firstAudio);
+            }
+          }
+          return undefined;
+        };
+
+        const uploadResolvedImageEdge = async (edge?: Edge): Promise<string | undefined> => {
+          if (!edge) return undefined;
+          const images = await resolveEdgesAsDataUrls([edge]);
+          const firstImage = images.find((value) => typeof value === "string" && value.trim().length > 0);
+          if (!firstImage) return undefined;
+          const trimmed = firstImage.trim();
+          if (isRemoteUrl(trimmed)) {
+            return normalizeStableRemoteUrl(trimmed);
+          }
+          const uploaded = await uploadImageToOSS(ensureDataUrl(trimmed), projectId);
+          return uploaded || undefined;
+        };
+
+        const firstFrameEdge = currentEdges.find(
+          (e) => e.target === nodeId && e.targetHandle === "image"
+        );
+        const lastFrameEdge = currentEdges.find(
+          (e) => e.target === nodeId && e.targetHandle === "image-2"
+        );
+        const firstClipEdge = currentEdges.find(
+          (e) => e.target === nodeId && e.targetHandle === "video"
+        );
+        const audioEdge = currentEdges.find(
+          (e) => e.target === nodeId && e.targetHandle === "audio"
+        );
+
+        try {
+          const [firstFrameUrl, lastFrameUrl] = await Promise.all([
+            uploadResolvedImageEdge(firstFrameEdge),
+            uploadResolvedImageEdge(lastFrameEdge),
+          ]);
+          const firstClipUrl = resolveVideoUrl(firstClipEdge);
+          const audioUrlFromEdge = resolveAudioUrl(audioEdge);
+          const audioUrl =
+            audioUrlFromEdge ||
+            (typeof (node.data as any)?.audioUrl === "string"
+              ? sanitizeMediaUrl((node.data as any).audioUrl)
+              : undefined);
+
+          const media: Array<{
+            type: "first_frame" | "last_frame" | "first_clip" | "driving_audio";
+            url: string;
+          }> = [];
+          if (firstFrameUrl) media.push({ type: "first_frame", url: firstFrameUrl });
+          if (lastFrameUrl) media.push({ type: "last_frame", url: lastFrameUrl });
+          if (firstClipUrl) media.push({ type: "first_clip", url: firstClipUrl });
+          if (audioUrl) media.push({ type: "driving_audio", url: audioUrl });
+
+          if (!media.length) {
+            setNodes((ns) =>
+              ns.map((n) =>
+                n.id === nodeId
+                  ? {
+                      ...n,
+                      data: {
+                        ...n.data,
+                        status: "failed",
+                        error: "至少需要连接一张图片、一个视频片段或音频",
+                      },
+                    }
+                  : n
+              )
+            );
+            return;
+          }
+
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: { ...n.data, status: "running", error: undefined },
+                  }
+                : n
+            )
+          );
+
+          const resolution = (node.data as any)?.resolution || "720P";
+          const duration = (node.data as any)?.duration || 10;
+          const promptExtend = (node.data as any)?.promptExtend !== false;
+          const watermark = (node.data as any)?.watermark !== false;
+          const generationStartedAt = Date.now();
+
+          const result = await generateWan27I2VViaAPI({
+            prompt: promptText,
+            media,
+            parameters: {
+              resolution,
+              duration,
+              prompt_extend: promptExtend,
+              watermark,
+            },
+          });
+
+          const wanApiUsageId =
+            typeof (result as any)?.apiUsageId === "string" &&
+            (result as any).apiUsageId.trim().length > 0
+              ? (result as any).apiUsageId.trim()
+              : undefined;
+
+          if (!result?.success) {
+            throw new Error(result?.error?.message || "任务提交失败");
+          }
+
+          const taskId =
+            result.data?.taskId ||
+            result.data?.task_id ||
+            result.data?.output?.task_id;
+          if (!taskId) {
+            throw new Error("未返回任务ID");
+          }
+
+          let videoUrl =
+            result.data?.videoUrl ||
+            result.data?.video_url ||
+            result.data?.output?.video_url;
+
+          if (!videoUrl) {
+            const pollInterval = 5000;
+            const maxAttempts = 180;
+
+            for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+              await new Promise((r) => setTimeout(r, pollInterval));
+              const queryResult = await queryDashscopeTask(taskId);
+              if (!queryResult.success) continue;
+
+              const status = String(queryResult.status || "").toLowerCase();
+              if (status === "succeeded" || status === "success") {
+                videoUrl = queryResult.videoUrl;
+                break;
+              }
+
+              if (status === "failed" || status === "error") {
+                if (wanApiUsageId) {
+                  try {
+                    await refundVideoTask(wanApiUsageId);
+                  } catch (refundErr) {
+                    console.warn("[Flow] Wan2.7 refund after task failed", {
+                      nodeId,
+                      apiUsageId: wanApiUsageId,
+                      error:
+                        refundErr instanceof Error
+                          ? refundErr.message
+                          : String(refundErr),
+                    });
+                  }
+                }
+                throw new Error("视频生成任务失败");
+              }
+            }
+          }
+
+          if (!videoUrl) {
+            if (wanApiUsageId) {
+              try {
+                await refundVideoTask(wanApiUsageId);
+              } catch (refundErr) {
+                console.warn("[Flow] Wan2.7 refund after poll timeout", {
+                  nodeId,
+                  apiUsageId: wanApiUsageId,
+                  error:
+                    refundErr instanceof Error ? refundErr.message : String(refundErr),
+                });
+              }
+            }
+            throw new Error("任务查询超时，请稍后重试");
+          }
+
+          if (wanApiUsageId) {
+            const processingTime = Math.max(0, Date.now() - generationStartedAt);
+            void markVideoTaskSuccess(wanApiUsageId, processingTime).catch((markErr) => {
+              console.warn("[Flow] Wan2.7 mark success failed", {
+                nodeId,
+                apiUsageId: wanApiUsageId,
+                error: markErr instanceof Error ? markErr.message : String(markErr),
+              });
+            });
+          }
+
+          const historyEntry = {
+            id: `history-${Date.now()}`,
+            videoUrl,
+            thumbnail: undefined,
+            prompt: promptText,
+            quality: media.map((item) => item.type).join("+"),
+            createdAt: new Date().toISOString(),
+          };
+
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? (() => {
+                    const previousData = (n.data as any) || {};
+                    return {
+                      ...n,
+                      data: {
+                        ...previousData,
+                        status: "succeeded",
+                        videoUrl,
+                        thumbnail: undefined,
+                        error: undefined,
+                        videoVersion: Number(previousData.videoVersion || 0) + 1,
+                        history: appendVideoHistory(
+                          previousData.history as Array<Record<string, any>> | undefined,
+                          historyEntry
+                        ),
+                      },
+                    };
+                  })()
+                : n
+            )
+          );
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : "任务提交失败";
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: { ...n.data, status: "failed", error: msg },
+                  }
+                : n
+            )
+          );
+        }
+        return;
+      }
 
       if (node.type === "wan26") {
         const projectId = useProjectContentStore.getState().projectId;
@@ -15963,6 +16375,7 @@ function FlowInner() {
             n.type === "sora2Character" ||
             n.type === "wan26" ||
             n.type === "wan2R2V" ||
+            n.type === "wan27Video" ||
             n.type === "klingVideo" ||
             n.type === "kling26Video" ||
             n.type === "kling30Video" ||

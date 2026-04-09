@@ -218,8 +218,55 @@ export class NodeConfigService {
   private normalizeNodeConfigOutput<T extends { nodeKey: string; description?: string | null; metadata?: any }>(
     config: T,
   ): T {
-    if (config.nodeKey !== 'doubaoVideo' && config.nodeKey !== 'seedance20Video') {
+    if (
+      config.nodeKey !== 'doubaoVideo' &&
+      config.nodeKey !== 'seedance20Video' &&
+      config.nodeKey !== 'wan27Video'
+    ) {
       return config;
+    }
+
+    if (config.nodeKey === 'wan27Video') {
+      const metadata = {
+        ...(config.metadata && typeof config.metadata === 'object' ? config.metadata : {}),
+        ...buildVodNodeMetadata(
+          {
+            type: 'wan27Video',
+            provider: 'dashscope',
+            supportedModels: ['wan2.7-i2v'],
+            defaultData: {
+              resolution: '720P',
+              duration: 10,
+              promptExtend: true,
+              watermark: true,
+            },
+          },
+          {
+            label: 'DashScope Wan 2.7 I2V',
+            modelName: 'Wan',
+            modelVersion: '2.7-i2v',
+            outputConfig: {
+              durations: [5, 10, 15],
+              resolutions: ['720P', '1080P'],
+            },
+            inputModes: ['text', 'first_frame', 'last_frame', 'first_clip', 'driving_audio'],
+            notes: [
+              '支持首帧/尾帧/首片段/驱动音频组合输入',
+              '当前复用 DASHSCOPE_API_KEY 作为鉴权',
+            ],
+          },
+          {
+            nodeKind: 'dashscope_video_generation',
+            upstreamDomain: 'dashscope.aliyuncs.com',
+          },
+        ),
+      };
+
+      return {
+        ...config,
+        description: '阿里百炼 Wan2.7 I2V 视频生成，走 DashScope 异步任务接口',
+        metadata,
+      };
     }
 
     const isSeedance20 = config.nodeKey === 'seedance20Video';
@@ -850,6 +897,47 @@ export class NodeConfigService {
         priceYuan: 6,
         description: '参考视频生成',
       },
+      {
+        nodeKey: 'wan27Video',
+        nameZh: 'Wan2.7视频生成',
+        nameEn: 'Wan2.7 I2V',
+        category: 'video',
+        sortOrder: 35,
+        creditsPerCall: 600,
+        serviceType: 'wan26-video',
+        priceYuan: 6,
+        description: '阿里百炼 Wan2.7 I2V 视频生成',
+        metadata: {
+          ...buildVodNodeMetadata(
+            {
+              type: 'wan27Video',
+              provider: 'dashscope',
+              supportedModels: ['wan2.7-i2v'],
+              defaultData: {
+                resolution: '720P',
+                duration: 10,
+                promptExtend: true,
+                watermark: true,
+              },
+            },
+            {
+              label: 'DashScope Wan 2.7 I2V',
+              modelName: 'Wan',
+              modelVersion: '2.7-i2v',
+              outputConfig: {
+                durations: [5, 10, 15],
+                resolutions: ['720P', '1080P'],
+              },
+              inputModes: ['text', 'first_frame', 'last_frame', 'first_clip', 'driving_audio'],
+              notes: ['支持图像、视频片段、音频混合输入'],
+            },
+            {
+              nodeKind: 'dashscope_video_generation',
+              upstreamDomain: 'dashscope.aliyuncs.com',
+            },
+          ),
+        },
+      },
 
       // 其他节点
       { nodeKey: 'videoAnalyze', nameZh: '视频分析节点', nameEn: 'Video Analysis', category: 'other', sortOrder: 30, creditsPerCall: 30, serviceType: 'gemini-video-analyze', priceYuan: 0.3, description: '分析视频内容' },
@@ -1216,6 +1304,47 @@ export class NodeConfigService {
         serviceType: 'wan26-r2v',
         priceYuan: 6,
         description: '参考视频生成',
+      },
+      {
+        nodeKey: 'wan27Video',
+        nameZh: 'Wan2.7视频生成',
+        nameEn: 'Wan2.7 I2V',
+        category: 'video',
+        sortOrder: 35,
+        creditsPerCall: 600,
+        serviceType: 'wan26-video',
+        priceYuan: 6,
+        description: '阿里百炼 Wan2.7 I2V 视频生成',
+        metadata: {
+          ...buildVodNodeMetadata(
+            {
+              type: 'wan27Video',
+              provider: 'dashscope',
+              supportedModels: ['wan2.7-i2v'],
+              defaultData: {
+                resolution: '720P',
+                duration: 10,
+                promptExtend: true,
+                watermark: true,
+              },
+            },
+            {
+              label: 'DashScope Wan 2.7 I2V',
+              modelName: 'Wan',
+              modelVersion: '2.7-i2v',
+              outputConfig: {
+                durations: [5, 10, 15],
+                resolutions: ['720P', '1080P'],
+              },
+              inputModes: ['text', 'first_frame', 'last_frame', 'first_clip', 'driving_audio'],
+              notes: ['支持图像、视频片段、音频混合输入'],
+            },
+            {
+              nodeKind: 'dashscope_video_generation',
+              upstreamDomain: 'dashscope.aliyuncs.com',
+            },
+          ),
+        },
       },
 
       // 其他节点

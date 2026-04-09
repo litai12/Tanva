@@ -1419,6 +1419,29 @@ export class AiController {
     return next;
   }
 
+  private normalizeWan27I2VBodyForUpstream(body: any): any {
+    if (!body || typeof body !== 'object') return body;
+    const next: any = { ...body };
+    if (!next.input || typeof next.input !== 'object') return next;
+
+    next.input = { ...next.input };
+    const rawMedia = next.input.media;
+    if (Array.isArray(rawMedia)) {
+      next.input.media = rawMedia
+        .map((item: any) => {
+          if (!item || typeof item !== 'object') return null;
+          const mediaItem: any = { ...item };
+          if (typeof mediaItem.url === 'string' && mediaItem.url.trim()) {
+            mediaItem.url = this.normalizeImageUrlForUpstream(mediaItem.url);
+          }
+          return mediaItem;
+        })
+        .filter((value: any) => value && typeof value.url === 'string' && value.url.trim());
+    }
+
+    return next;
+  }
+
   private normalizeWanR2VBodyForUpstream(body: any): any {
     if (!body || typeof body !== 'object') return body;
     const next: any = { ...body };
@@ -4003,6 +4026,96 @@ export class AiController {
         };
       } catch (error: any) {
         this.logger.error('❌ DashScope i2v request exception', error);
+        return {
+          success: false,
+          error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
+        };
+      }
+    }, undefined, undefined, undefined, undefined, {
+      treatReturnedFailureAsError: true,
+      skipFinalizeSuccessIf: (r: any) => this.isWanDashscopeI2VAsyncPending(r),
+    });
+  }
+
+  /**
+   * DashScope Wan2.7-i2v proxy endpoint
+   */
+  @Post('dashscope/generate-wan2-7-i2v')
+  async generateWan27I2VViaDashscope(@Body() body: any, @Req() req: any) {
+    return this.withCredits(req, 'wan26-video', 'wan2.7-i2v', async () => {
+      const dashKey = process.env.DASHSCOPE_API_KEY;
+      if (!dashKey) {
+        this.logger.error('DASHSCOPE_API_KEY not configured');
+        return {
+          success: false,
+          error: { message: 'DASHSCOPE_API_KEY not configured on server' },
+        };
+      }
+
+      const dashUrl = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis';
+      const normalizedBody = this.normalizeWan27I2VBodyForUpstream(body);
+
+      try {
+        const response = await fetch(dashUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${dashKey}`,
+            'X-DashScope-Async': 'enable',
+          },
+          body: JSON.stringify(normalizedBody),
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          this.logger.error('DashScope wan2.7-i2v create task failed', {
+            status: response.status,
+            body: data,
+          });
+          return {
+            success: false,
+            error: {
+              code: `HTTP_${response.status}`,
+              message: data?.message || this.getHttpErrorMessage(response.status),
+              details: data,
+            },
+          };
+        }
+
+        const taskId =
+          data?.taskId ||
+          data?.task_id ||
+          data?.id ||
+          data?.output?.task_id ||
+          data?.result?.task_id ||
+          data?.output?.[0]?.task_id ||
+          data?.data?.task_id ||
+          data?.data?.output?.task_id;
+
+        if (!taskId) {
+          this.logger.warn('DashScope wan2.7-i2v create response contains no task id', {
+            dataPreview: JSON.stringify(data).slice(0, 300),
+          });
+          return {
+            success: false,
+            error: {
+              message: 'DashScope 未返回任务 ID',
+              details: data,
+            },
+          };
+        }
+
+        return {
+          success: true,
+          data: {
+            taskId,
+            task_id: taskId,
+            status: 'pending',
+            raw: data,
+          },
+        };
+      } catch (error: any) {
+        this.logger.error('❌ DashScope wan2.7-i2v request exception', error);
         return {
           success: false,
           error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
