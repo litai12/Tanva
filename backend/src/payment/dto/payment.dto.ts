@@ -22,6 +22,7 @@ export interface CreateOrderDto {
   paymentMethod: PaymentMethod;
   orderType?: PaymentOrderType;
   membershipPlanId?: string;
+  metadata?: Record<string, unknown>;
 }
 
 // 订单响应

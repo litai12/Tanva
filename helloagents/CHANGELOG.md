@@ -10,7 +10,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Credits Backend 已将三条发放链路接入 lot：充值成功、管理员补发、新用户注册赠送；当前均按 permanent lot 落库，为后续切换到 lot 真值扣减做准备。
 - Credits Backend 进一步接入每日签到 lot 化、hybrid lot 扣减与 lot 级退款恢复；`CreditConsumePolicy` 支持读取 `global_default` 配置并在 migration 中完成初始化。
 - Membership Backend P0 最小闭环：新增 `MembershipPlan` / `UserMembershipSubscription` / `MembershipEntitlementSnapshot`，`PaymentOrder` 支持 `membership` 订单类型；支付成功后可激活/续期订阅，并发放 `membership_bound` 积分 lot。
-- Membership Backend P1 补齐到期收口：新增会员到期小时级扫描任务；过期订阅会被标记 `expired`，其 `membership_bound` lot 会归零并写入 `membership_expire` 流水，权益快照回落到 `free/inactive`。
+- Membership Backend P1 补齐到期收口：新增会员到期小时级扫描任务；过期订阅会被标记 `expired`，权益快照回落到 `free/inactive`，不再额外回收已发放积分。
 - Membership Backend P1 继续补齐权益调度：新增每日赠送积分衰减任务（`gift_decay`）和年费会员月度额度刷新任务（`membership_refresh`），均由 `MembershipSchedulerService` 驱动。
 - Credits/Membership Backend 进一步对齐定价策略：新增免费用户月度额度发放（`free_monthly_quota`）闭环，默认消费优先级调整为 `月卡 -> 赠送 -> 固定`，`membership_credit_policy` 新增 `freeUserMonthlyQuotaCredits` 配置项。
 - Credits/Membership Backend 继续对齐签到策略：免费签到继续走策略配置，活跃 VIP 的签到奖励改为只读取当前会员套餐 `dailyGiftCredits`，不叠加免费签到额度；第 7 天支持按倍率发放。
@@ -24,6 +24,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- Membership Backend 调整到期口径：无论是自然到期还是管理员立即到期，都只结束会员身份并回落权益快照，不再回收已发放的会员积分（`backend/src/membership/membership.service.ts`）。
 - 后台权限新增 `normal_admin`（普通管理）角色：后端仅放行 `概览、用户管理、API统计、API记录、公共模板、水印白名单` 对应接口，`admin` 仍保留全量后台权限（`backend/src/admin/admin.controller.ts`, `backend/src/admin/dto/admin.dto.ts`）。
 - 后台页面按角色显示 Tab：`normal_admin` 只显示 `概览 / 用户管理 / API统计 / API记录 / 公共模板 / 水印白名单`；并在“用户管理”中隐藏“角色/状态”列与“详情/删除”按钮（`frontend/src/pages/Admin.tsx`, `frontend/src/components/layout/FloatingHeader.tsx`）。
 - 工作流历史恢复新增来源标记：从历史版本“恢复并保存”后，新写入的 `WorkflowHistory` 会记录 `restoredFromUpdatedAt/restoredFromVersion`，前端历史列表可直接看到“恢复自哪个版本”，避免恢复生成的新记录与普通保存记录难以区分（`backend/src/projects/*`, `frontend/src/components/workflow-history/WorkflowHistoryButton.tsx`, `frontend/src/services/projectApi.ts`）。

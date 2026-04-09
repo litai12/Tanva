@@ -5,10 +5,13 @@ import {
   createMembershipOrder,
   getMembershipCurrent,
   getMembershipOrders,
+  getMembershipTransitionPreview,
   getPaymentMembershipPlans,
   getPaymentStatus,
+  scheduleMembershipPlanChange,
   type MembershipCurrentResponse,
   type MembershipOrderRecord,
+  type MembershipTransitionPreview,
   type PaymentMembershipPlan,
   type PaymentMethod,
 } from "@/services/adminApi";
@@ -16,6 +19,9 @@ import {
 const showToast = (message: string, type: "success" | "error" | "info" = "info") => {
   window.dispatchEvent(new CustomEvent("toast", { detail: { message, type } }));
 };
+
+const getPlanTotalQuotaCredits = (plan: Pick<PaymentMembershipPlan, "monthlyQuotaCredits" | "signupBonusCredits">) =>
+  Number(plan.monthlyQuotaCredits || 0) + Number(plan.signupBonusCredits || 0);
 
 interface MembershipPanelProps {
   onBack: () => void;
@@ -36,12 +42,17 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   const [showOrders, setShowOrders] = useState(false);
   const [orders, setOrders] = useState<MembershipOrderRecord[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
+  const [transitionPreview, setTransitionPreview] = useState<MembershipTransitionPreview | null>(null);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
   const selectedPlan = useMemo(
     () => plans.find((plan) => plan.code === selectedPlanCode) ?? null,
     [plans, selectedPlanCode],
+  );
+  const subscriptionPlans = useMemo(
+    () => plans.filter((plan) => plan.billingCycle === "monthly" || plan.billingCycle === "yearly"),
+    [plans],
   );
 
   const loadData = useCallback(async () => {
@@ -93,6 +104,19 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
   }, [loadData]);
+
+  useEffect(() => {
+    if (!selectedPlanCode) {
+      setTransitionPreview(null);
+      return;
+    }
+    void getMembershipTransitionPreview(selectedPlanCode)
+      .then((result) => setTransitionPreview(result))
+      .catch((error) => {
+        console.error("加载会员动作预览失败:", error);
+        setTransitionPreview(null);
+      });
+  }, [selectedPlanCode, current?.plan?.code, current?.entitlement?.currentPeriodEndAt]);
 
   const handlePaymentCompleted = useCallback(async () => {
     if (pollingRef.current) {
@@ -154,11 +178,6 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
     [],
   );
 
-  useEffect(() => {
-    if (!selectedPlanCode) return;
-    void createOrderForPlan(selectedPlanCode, paymentMethod);
-  }, [selectedPlanCode, paymentMethod, createOrderForPlan]);
-
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "paid":
@@ -186,6 +205,42 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
         return status;
     }
   };
+
+  const primaryActionLabel = useMemo(() => {
+    switch (transitionPreview?.actionType) {
+      case "upgrade":
+        return "立即升级";
+      case "downgrade":
+        return "下周期降级";
+      case "renew":
+        return "立即续费";
+      case "subscribe":
+      default:
+        return "立即开通";
+    }
+  }, [transitionPreview]);
+
+  const handlePrimaryAction = useCallback(async () => {
+    if (!selectedPlanCode) return;
+
+    if (transitionPreview?.actionType === "downgrade") {
+      setSubmitting(true);
+      try {
+        const result = await scheduleMembershipPlanChange(selectedPlanCode);
+        showToast(`已安排下周期生效：${new Date(result.effectiveAt).toLocaleString()}`, "success");
+        setQrCodeUrl(null);
+        setCurrentOrderNo(null);
+        await loadData();
+      } catch (error: any) {
+        showToast(error.message || "安排下周期降级失败", "error");
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
+    await createOrderForPlan(selectedPlanCode, paymentMethod);
+  }, [createOrderForPlan, loadData, paymentMethod, selectedPlanCode, transitionPreview?.actionType]);
 
   if (loading) {
     return (
@@ -280,6 +335,13 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                       到期时间：{new Date(current.entitlement.currentPeriodEndAt).toLocaleString()}
                     </div>
                   )}
+                  {current?.nextChange && (
+                    <div className='mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700'>
+                      已安排下周期切换至 {current.nextChange.targetPlanName}，生效时间
+                      {" "}
+                      {new Date(current.nextChange.effectiveAt).toLocaleString()}
+                    </div>
+                  )}
                 </div>
                 <div className='rounded-xl bg-white/80 px-4 py-3 text-right shadow-sm'>
                   <div className='text-xs text-slate-500'>月额度</div>
@@ -291,7 +353,13 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
             </div>
 
             <div className='grid gap-3'>
-              {plans.map((plan) => {
+              <div className='rounded-2xl border border-slate-200 bg-slate-50/70 p-4'>
+                <div className='text-sm font-semibold text-slate-800'>订阅套餐</div>
+                <div className='mt-1 text-xs text-slate-500'>
+                  同一时间仅一个套餐生效。订阅积分优先消耗，充值/体验包积分在后使用。
+                </div>
+              </div>
+              {subscriptionPlans.map((plan) => {
                 const active = plan.code === selectedPlanCode;
                 return (
                   <button
@@ -321,12 +389,12 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                     </div>
                     <div className={cn("mt-4 grid grid-cols-3 gap-2 text-sm", active ? "text-slate-100" : "text-slate-700")}>
                       <div className='rounded-xl bg-black/5 p-3'>
-                        <div className='text-xs opacity-70'>月额度</div>
-                        <div className='mt-1 font-semibold'>{plan.monthlyQuotaCredits}</div>
+                        <div className='text-xs opacity-70'>总额度</div>
+                        <div className='mt-1 font-semibold'>{getPlanTotalQuotaCredits(plan)}</div>
                       </div>
                       <div className='rounded-xl bg-black/5 p-3'>
-                        <div className='text-xs opacity-70'>开通赠送</div>
-                        <div className='mt-1 font-semibold'>{plan.signupBonusCredits}</div>
+                        <div className='text-xs opacity-70'>月额度</div>
+                        <div className='mt-1 font-semibold'>{plan.monthlyQuotaCredits}</div>
                       </div>
                       <div className='rounded-xl bg-black/5 p-3'>
                         <div className='text-xs opacity-70'>每日赠送</div>
@@ -336,6 +404,12 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                   </button>
                 );
               })}
+              <div className='rounded-2xl border border-dashed border-slate-200 bg-white p-4 text-sm text-slate-600'>
+                <div className='font-medium text-slate-800'>体验包 / 叠加积分包</div>
+                <div className='mt-2 text-xs leading-6 text-slate-500'>
+                  49 元体验包属于叠加积分包，随时购买、立即到账，不影响当前会员状态，也不会改变功能权限。
+                </div>
+              </div>
             </div>
           </div>
 
@@ -344,8 +418,17 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
               <div className='text-sm text-slate-500'>当前选择</div>
               <div className='mt-1 text-xl font-semibold text-slate-900'>{selectedPlan?.name || "请选择套餐"}</div>
               <div className='mt-2 text-sm text-slate-500'>
-                切换支付方式会自动刷新付款码。支付成功后自动更新会员状态。
+                根据当前套餐关系自动判断：开通、续费、立即升级或下周期降级。
               </div>
+              {current?.nextChange && (
+                <div className='mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700'>
+                  当前已存在待生效订阅变更：{current.nextChange.targetPlanName} 将于
+                  {" "}
+                  {new Date(current.nextChange.effectiveAt).toLocaleString()}
+                  {" "}
+                  生效。
+                </div>
+              )}
             </div>
 
             <div className='mb-4 grid grid-cols-2 gap-2'>
@@ -372,13 +455,39 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
             <div className='rounded-2xl bg-slate-50 p-4'>
               <div className='flex items-center justify-between text-sm text-slate-600'>
                 <span>应付金额</span>
-                <span className='text-lg font-semibold text-slate-900'>¥{selectedPlan?.price ?? 0}</span>
+                <span className='text-lg font-semibold text-slate-900'>¥{transitionPreview?.payableAmount ?? selectedPlan?.price ?? 0}</span>
               </div>
               {selectedPlan && (
                 <div className='mt-2 text-xs text-slate-500'>
-                  {selectedPlan.monthlyQuotaCredits} 月额度 + {selectedPlan.signupBonusCredits} 开通赠送 + 每日 {selectedPlan.dailyGiftCredits}
+                  {getPlanTotalQuotaCredits(selectedPlan)} 总额度，每日 {selectedPlan.dailyGiftCredits}
                 </div>
               )}
+              {transitionPreview?.actionType === "upgrade" && (
+                <div className='mt-2 text-xs text-emerald-600'>
+                  按剩余周期折算补差价，支付成功后权限立即切换，并即时补发 {transitionPreview.immediateCreditDelta} 订阅积分。
+                </div>
+              )}
+              {transitionPreview?.actionType === "downgrade" && (
+                <div className='mt-2 text-xs text-amber-600'>
+                  当前周期继续使用现有功能和剩余积分，到期后自动切换为所选低档套餐。
+                </div>
+              )}
+            </div>
+
+            <div className='mt-4 flex items-center gap-3'>
+              <button
+                type='button'
+                onClick={() => void handlePrimaryAction()}
+                disabled={!selectedPlanCode || submitting}
+                className='rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition-all hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60'
+              >
+                {submitting ? "处理中..." : primaryActionLabel}
+              </button>
+              <div className='text-xs text-slate-500'>
+                {transitionPreview?.actionType === "downgrade"
+                  ? "降级无需支付，直接安排到下周期"
+                  : "点击后生成付款码"}
+              </div>
             </div>
 
             <div className='mt-4 rounded-2xl border border-dashed border-slate-200 bg-white p-4 text-center'>
@@ -386,6 +495,8 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                 <div className='flex items-center justify-center py-12'>
                   <Loader2 className='h-6 w-6 animate-spin text-slate-400' />
                 </div>
+              ) : transitionPreview?.actionType === "downgrade" ? (
+                <div className='py-12 text-sm text-slate-400'>降级动作不会生成付款码，点击上方按钮即可安排下周期生效</div>
               ) : qrCodeUrl ? (
                 <>
                   <img src={qrCodeUrl} alt='会员支付二维码' className='mx-auto h-56 w-56 rounded-xl border border-slate-200 object-contain' />
@@ -397,7 +508,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                   )}
                 </>
               ) : (
-                <div className='py-12 text-sm text-slate-400'>选择套餐后自动生成付款码</div>
+                <div className='py-12 text-sm text-slate-400'>选择套餐并点击上方按钮后生成付款码</div>
               )}
             </div>
           </div>

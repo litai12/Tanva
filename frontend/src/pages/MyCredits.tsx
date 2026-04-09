@@ -407,8 +407,13 @@ const MyCredits: React.FC = () => {
             <div className="text-xs text-blue-100/90">
               {membershipCurrent?.entitlement?.membershipStatus === 'active' && membershipCurrent?.entitlement?.currentPeriodEndAt
                 ? `会员到期：${new Date(membershipCurrent.entitlement.currentPeriodEndAt).toLocaleDateString(currentLocale)}`
-                : '开通 VIP 可获得月额度、开通赠送和每日赠送积分'}
+                : '开通 VIP 可获得总额度和每日赠送积分'}
             </div>
+            {membershipCurrent?.nextChange && (
+              <div className="rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs text-white">
+                下周期切换至：{membershipCurrent.nextChange.targetPlanName} · {new Date(membershipCurrent.nextChange.effectiveAt).toLocaleDateString(currentLocale)}
+              </div>
+            )}
           </div>
           <div className="grid grid-cols-3 gap-4 mt-6">
             <div className="p-3 bg-white/10 rounded-xl">

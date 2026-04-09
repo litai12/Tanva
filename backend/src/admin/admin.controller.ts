@@ -350,6 +350,115 @@ export class AdminController {
     return this.membershipService.updateMembershipPlan(id, dto);
   }
 
+  @Get('users/:userId/membership')
+  @ApiOperation({ summary: '获取指定用户会员状态（管理员）' })
+  async getUserMembershipState(
+    @Request() req: AuthenticatedRequest,
+    @Param('userId') userId: string,
+  ) {
+    this.checkAdmin(req);
+    return this.membershipService.getAdminMembershipState(userId);
+  }
+
+  @Post('users/:userId/membership/expire')
+  @ApiOperation({ summary: '立即让用户会员到期（管理员）' })
+  async expireUserMembershipNow(
+    @Request() req: AuthenticatedRequest,
+    @Param('userId') userId: string,
+    @Body() dto: { reason?: string },
+  ) {
+    this.checkAdmin(req);
+    return this.membershipService.adminExpireMembershipNow(
+      userId,
+      dto.reason?.trim() || 'admin_expire_now',
+      req.user.id,
+    );
+  }
+
+  @Post('users/:userId/membership/adjust-period')
+  @ApiOperation({ summary: '调整用户会员时长（管理员）' })
+  async adjustUserMembershipPeriod(
+    @Request() req: AuthenticatedRequest,
+    @Param('userId') userId: string,
+    @Body() dto: { days: number; reason?: string },
+  ) {
+    this.checkAdmin(req);
+    return this.membershipService.adminAdjustMembershipPeriod(
+      userId,
+      dto.days,
+      dto.reason?.trim() || 'admin_adjust_membership_period',
+      req.user.id,
+    );
+  }
+
+  @Post('users/:userId/membership/change-plan')
+  @ApiOperation({ summary: '变更用户会员套餐（管理员）' })
+  async changeUserMembershipPlan(
+    @Request() req: AuthenticatedRequest,
+    @Param('userId') userId: string,
+    @Body()
+    dto: {
+      planCode: string;
+      effectiveMode: 'immediate' | 'next_cycle';
+      reason?: string;
+    },
+  ) {
+    this.checkAdmin(req);
+    return this.membershipService.adminScheduleMembershipChange({
+      userId,
+      planCode: dto.planCode,
+      effectiveMode: dto.effectiveMode,
+      reason: dto.reason?.trim() || 'admin_change_plan',
+      requestedBy: req.user.id,
+    });
+  }
+
+  @Get('users/:userId/membership/transition-preview')
+  @ApiOperation({ summary: '预览指定用户切换目标套餐的结果（管理员）' })
+  async getUserMembershipTransitionPreview(
+    @Request() req: AuthenticatedRequest,
+    @Param('userId') userId: string,
+    @Query('planCode') planCode?: string,
+  ) {
+    this.checkAdmin(req);
+    return this.membershipService.getUserTransitionPreview(userId, planCode || '');
+  }
+
+  @Post('membership/ops/apply-scheduled-changes')
+  @ApiOperation({ summary: '立即执行待生效订阅切换（管理员）' })
+  async applyScheduledMembershipChanges(@Request() req: AuthenticatedRequest) {
+    this.checkAdmin(req);
+    return this.membershipService.applyDueScheduledChanges();
+  }
+
+  @Post('membership/ops/expire-scan')
+  @ApiOperation({ summary: '立即执行会员到期扫描（管理员）' })
+  async expireMembershipsNow(@Request() req: AuthenticatedRequest) {
+    this.checkAdmin(req);
+    return this.membershipService.expireElapsedMemberships();
+  }
+
+  @Post('membership/ops/issue-daily-gifts')
+  @ApiOperation({ summary: '立即执行会员每日赠送发放（管理员）' })
+  async issueDailyMembershipGifts(@Request() req: AuthenticatedRequest) {
+    this.checkAdmin(req);
+    return this.membershipService.issueDailyMembershipGiftCredits();
+  }
+
+  @Post('membership/ops/decay-gifts')
+  @ApiOperation({ summary: '立即执行赠送积分衰减（管理员）' })
+  async decayMembershipGifts(@Request() req: AuthenticatedRequest) {
+    this.checkAdmin(req);
+    return this.membershipService.decayDailyGiftCredits();
+  }
+
+  @Post('membership/ops/refresh-yearly-quota')
+  @ApiOperation({ summary: '立即执行年费会员月额度刷新（管理员）' })
+  async refreshYearlyMembershipQuota(@Request() req: AuthenticatedRequest) {
+    this.checkAdmin(req);
+    return this.membershipService.refreshYearlySubscriptionQuotaLots();
+  }
+
   // ==================== 公共模板管理 ====================
 
   // 注意：categories 路由必须放在 :id 路由之前，否则 'categories' 会被当作 id 参数

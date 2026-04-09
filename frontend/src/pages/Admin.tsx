@@ -22,6 +22,16 @@ import {
   getAdminMembershipPlans,
   createAdminMembershipPlan,
   updateAdminMembershipPlan,
+  getAdminUserMembershipState,
+  getAdminUserMembershipTransitionPreview,
+  adminExpireUserMembershipNow,
+  adminAdjustUserMembershipPeriod,
+  adminChangeUserMembershipPlan,
+  adminApplyScheduledMembershipChanges,
+  adminExpireMembershipScan,
+  adminIssueDailyMembershipGifts,
+  adminDecayMembershipGifts,
+  adminRefreshYearlyMembershipQuota,
   getWatermarkWhitelist,
   addToWatermarkWhitelist,
   removeFromWatermarkWhitelist,
@@ -42,6 +52,7 @@ import {
   type MembershipCreditPolicyConfig,
   type MembershipCreditPolicyView,
   type AdminMembershipPlan,
+  type AdminMembershipStateResponse,
   type WatermarkWhitelistUser,
   type PaidUser,
   type PaidUsersSortBy,
@@ -1322,6 +1333,21 @@ function UsersTab({
   const [creditDetailTransactions, setCreditDetailTransactions] = useState<
     AdminUserCreditTransaction[]
   >([]);
+  const [membershipDrawer, setMembershipDrawer] = useState<{
+    userId: string;
+    userName: string;
+  } | null>(null);
+  const [membershipLoading, setMembershipLoading] = useState(false);
+  const [membershipState, setMembershipState] =
+    useState<AdminMembershipStateResponse | null>(null);
+  const [membershipPreview, setMembershipPreview] = useState<any | null>(null);
+  const [membershipPlans, setMembershipPlans] = useState<AdminMembershipPlan[]>([]);
+  const [membershipReason, setMembershipReason] = useState("");
+  const [membershipDays, setMembershipDays] = useState("30");
+  const [membershipPlanCode, setMembershipPlanCode] = useState("");
+  const [membershipEffectiveMode, setMembershipEffectiveMode] = useState<
+    "immediate" | "next_cycle"
+  >("immediate");
   const tableColumnCount = canManageSensitiveUserFields ? 9 : 7;
 
   const loadUsers = async () => {
@@ -1479,6 +1505,86 @@ function UsersTab({
     return channel;
   };
 
+  const loadMembershipState = async (userId: string, preferredPlanCode?: string) => {
+    setMembershipLoading(true);
+    try {
+      const result = await getAdminUserMembershipState(userId);
+      setMembershipState(result);
+      setMembershipPlanCode((current) => {
+        if (preferredPlanCode?.trim()) return preferredPlanCode.trim();
+        if (current.trim()) return current;
+        return result.current.plan?.code || "";
+      });
+    } catch (error: any) {
+      alert(error.message || "加载用户会员状态失败");
+    } finally {
+      setMembershipLoading(false);
+    }
+  };
+
+  const openMembershipDrawer = async (user: UserWithCredits) => {
+    if (membershipPlans.length === 0) {
+      try {
+        const plans = await getAdminMembershipPlans();
+        setMembershipPlans(plans.filter((plan) => plan.isActive));
+      } catch (error) {
+        console.error("加载会员套餐列表失败:", error);
+      }
+    }
+    setMembershipDrawer({
+      userId: user.id,
+      userName: user.name || user.phone,
+    });
+    setMembershipReason("");
+    setMembershipDays("30");
+    setMembershipEffectiveMode("immediate");
+    setMembershipPreview(null);
+    setMembershipState(null);
+    setMembershipPlanCode("");
+    await loadMembershipState(user.id);
+  };
+
+  const handlePreviewMembershipTransition = async () => {
+    if (!membershipDrawer) return;
+    if (!membershipPlanCode.trim()) {
+      alert("请先选择目标套餐");
+      return;
+    }
+    setMembershipLoading(true);
+    try {
+      const result = await getAdminUserMembershipTransitionPreview(
+        membershipDrawer.userId,
+        membershipPlanCode.trim(),
+      );
+      setMembershipPreview(result);
+    } catch (error: any) {
+      alert(error.message || "预览失败");
+    } finally {
+      setMembershipLoading(false);
+    }
+  };
+
+  const runMembershipAction = async (
+    runner: () => Promise<void>,
+    successMessage: string,
+  ) => {
+    if (!membershipDrawer) return;
+    setMembershipLoading(true);
+    try {
+      await runner();
+      alert(successMessage);
+      setMembershipPreview(null);
+      await Promise.all([
+        loadMembershipState(membershipDrawer.userId, membershipPlanCode.trim()),
+        loadUsers(),
+      ]);
+    } catch (error: any) {
+      alert(error.message || "执行失败");
+    } finally {
+      setMembershipLoading(false);
+    }
+  };
+
   return (
     <div>
       <div className='mb-4 flex gap-2'>
@@ -1617,6 +1723,15 @@ function UsersTab({
                           <Button
                             size='sm'
                             variant='outline'
+                            onClick={() => void openMembershipDrawer(user)}
+                          >
+                            会员
+                          </Button>
+                        )}
+                        {canManageSensitiveUserFields && (
+                          <Button
+                            size='sm'
+                            variant='outline'
                             onClick={() => loadCreditDetails(user)}
                           >
                             详情
@@ -1670,6 +1785,216 @@ function UsersTab({
             >
               下一页
             </Button>
+          </div>
+        </div>
+      )}
+
+      {membershipDrawer && (
+        <div className='fixed inset-0 z-50 bg-black/40'>
+          <div
+            className='absolute inset-0'
+            onClick={() => {
+              if (!membershipLoading) setMembershipDrawer(null);
+            }}
+          />
+          <div className='absolute right-0 top-0 h-full w-full max-w-2xl overflow-y-auto bg-white shadow-2xl'>
+            <div className='sticky top-0 z-10 border-b bg-white px-6 py-4'>
+              <div className='flex items-start justify-between gap-4'>
+                <div>
+                  <h3 className='text-lg font-semibold'>会员操作</h3>
+                  <div className='mt-1 text-sm text-gray-500'>
+                    {membershipDrawer.userName} · {membershipDrawer.userId}
+                  </div>
+                </div>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={() => setMembershipDrawer(null)}
+                  disabled={membershipLoading}
+                >
+                  关闭
+                </Button>
+              </div>
+            </div>
+
+            <div className='space-y-4 p-6'>
+              {membershipState ? (
+                <div className='grid grid-cols-1 gap-4 md:grid-cols-3'>
+                  <div className='rounded-lg border border-gray-200 p-4'>
+                    <div className='text-xs text-gray-500'>当前生效套餐</div>
+                    <div className='mt-1 text-base font-semibold text-gray-900'>
+                      {membershipState.current.plan?.name || "免费版"}
+                    </div>
+                    <div className='mt-2 text-xs text-gray-500'>
+                      到期：
+                      {" "}
+                      {membershipState.current.entitlement.currentPeriodEndAt
+                        ? new Date(
+                            membershipState.current.entitlement.currentPeriodEndAt,
+                          ).toLocaleString()
+                        : "-"}
+                    </div>
+                  </div>
+                  <div className='rounded-lg border border-gray-200 p-4'>
+                    <div className='text-xs text-gray-500'>下周期套餐</div>
+                    <div className='mt-1 text-base font-semibold text-gray-900'>
+                      {membershipState.nextChange?.targetPlanName || "未安排"}
+                    </div>
+                    <div className='mt-2 text-xs text-gray-500'>
+                      生效：
+                      {" "}
+                      {membershipState.nextChange?.effectiveAt
+                        ? new Date(membershipState.nextChange.effectiveAt).toLocaleString()
+                        : "-"}
+                    </div>
+                  </div>
+                  <div className='rounded-lg border border-gray-200 p-4'>
+                    <div className='text-xs text-gray-500'>积分结构</div>
+                    <div className='mt-1 text-sm text-gray-700'>
+                      订阅积分：{membershipState.balances.subscriptionCredits}
+                    </div>
+                    <div className='mt-1 text-sm text-gray-700'>
+                      赠送积分：{membershipState.balances.giftCredits}
+                    </div>
+                    <div className='mt-1 text-sm text-gray-700'>
+                      固定积分：{membershipState.balances.fixedCredits}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className='rounded-lg border border-dashed border-gray-200 px-4 py-6 text-center text-sm text-gray-500'>
+                  {membershipLoading ? "加载会员状态中..." : "暂无会员状态数据"}
+                </div>
+              )}
+
+              <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
+                <div>
+                  <div className='mb-1 text-sm text-gray-600'>目标套餐</div>
+                  <select
+                    className='w-full rounded-md border border-gray-300 px-3 py-2 text-sm'
+                    value={membershipPlanCode}
+                    onChange={(e) => setMembershipPlanCode(e.target.value)}
+                  >
+                    <option value=''>请选择套餐</option>
+                    {membershipPlans.map((plan) => (
+                      <option key={plan.id} value={plan.code}>
+                        {plan.name} ({plan.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <div className='mb-1 text-sm text-gray-600'>调整天数</div>
+                  <Input
+                    value={membershipDays}
+                    onChange={(e) => setMembershipDays(e.target.value)}
+                    placeholder='30 或 -7'
+                  />
+                </div>
+                <div>
+                  <div className='mb-1 text-sm text-gray-600'>生效方式</div>
+                  <select
+                    className='w-full rounded-md border border-gray-300 px-3 py-2 text-sm'
+                    value={membershipEffectiveMode}
+                    onChange={(e) =>
+                      setMembershipEffectiveMode(e.target.value as "immediate" | "next_cycle")
+                    }
+                  >
+                    <option value='immediate'>立即生效</option>
+                    <option value='next_cycle'>下周期生效</option>
+                  </select>
+                </div>
+                <div>
+                  <div className='mb-1 text-sm text-gray-600'>操作原因</div>
+                  <Input
+                    value={membershipReason}
+                    onChange={(e) => setMembershipReason(e.target.value)}
+                    placeholder='例如：客服补偿 / 手动纠正 / 用户申请换档'
+                  />
+                </div>
+              </div>
+
+              <div className='flex flex-wrap gap-2'>
+                <Button
+                  variant='outline'
+                  onClick={() => void handlePreviewMembershipTransition()}
+                  disabled={membershipLoading}
+                >
+                  预览切换结果
+                </Button>
+                <Button
+                  variant='outline'
+                  onClick={() =>
+                    void runMembershipAction(
+                      () =>
+                        adminExpireUserMembershipNow(
+                          membershipDrawer.userId,
+                          membershipReason || undefined,
+                        ),
+                      "已立即让该用户会员到期",
+                    )
+                  }
+                  disabled={membershipLoading}
+                >
+                  立即到期
+                </Button>
+                <Button
+                  variant='outline'
+                  onClick={() =>
+                    void runMembershipAction(
+                      () =>
+                        adminAdjustUserMembershipPeriod(
+                          membershipDrawer.userId,
+                          Number(membershipDays || 0),
+                          membershipReason || undefined,
+                        ),
+                      "会员时长已调整",
+                    )
+                  }
+                  disabled={membershipLoading}
+                >
+                  调整时长
+                </Button>
+                <Button
+                  onClick={() =>
+                    void runMembershipAction(
+                      async () => {
+                        if (!membershipPlanCode.trim()) {
+                          throw new Error("请先选择目标套餐");
+                        }
+                        await adminChangeUserMembershipPlan({
+                          userId: membershipDrawer.userId,
+                          planCode: membershipPlanCode.trim(),
+                          effectiveMode: membershipEffectiveMode,
+                          reason: membershipReason || undefined,
+                        });
+                      },
+                      membershipEffectiveMode === "immediate" ? "套餐已立即切换" : "已安排下周期切换",
+                    )
+                  }
+                  disabled={membershipLoading}
+                >
+                  变更套餐
+                </Button>
+              </div>
+
+              {membershipPreview && (
+                <div className='rounded-lg border border-blue-200 bg-blue-50 p-4'>
+                  <div className='text-sm font-medium text-blue-900'>切换结果预览</div>
+                  <div className='mt-2 text-sm text-blue-800'>
+                    动作：{membershipPreview.actionType} / 生效方式：{membershipPreview.effectiveMode}
+                  </div>
+                  <div className='mt-1 text-sm text-blue-800'>
+                    应付金额：¥{membershipPreview.payableAmount ?? 0} / 即时补发积分：
+                    {membershipPreview.immediateCreditDelta ?? 0}
+                  </div>
+                  <div className='mt-1 text-sm text-blue-800'>
+                    当前套餐：{membershipPreview.currentPlan?.name || "无"} / 目标套餐：
+                    {membershipPreview.targetPlan?.name || "-"}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -5843,6 +6168,7 @@ function VipManagementTab() {
   const [savingPlan, setSavingPlan] = useState(false);
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   const [planMetadataText, setPlanMetadataText] = useState("{}");
+  const [opsLoading, setOpsLoading] = useState(false);
   const [policyForm, setPolicyForm] = useState<MembershipCreditPolicyConfig>({
     dailyGiftDecayCredits: 50,
     fixedCreditExpireDays: 730,
@@ -6004,6 +6330,21 @@ function VipManagementTab() {
     }
   };
 
+  const runMembershipOp = async (
+    runner: () => Promise<any>,
+    successMessage: (result: any) => string,
+  ) => {
+    try {
+      setOpsLoading(true);
+      const result = await runner();
+      alert(successMessage(result));
+    } catch (error: any) {
+      alert(error.message || "执行失败");
+    } finally {
+      setOpsLoading(false);
+    }
+  };
+
   if (loading && !policyView) {
     return <div className='py-8 text-center text-gray-500'>加载中...</div>;
   }
@@ -6067,6 +6408,83 @@ function VipManagementTab() {
         </div>
       </div>
 
+      <div className='rounded-lg border bg-white p-6 shadow-sm'>
+        <div className='rounded-lg border border-dashed border-gray-200 p-4'>
+          <div className='text-sm font-medium text-gray-900'>验证完整性按钮</div>
+          <div className='mt-1 text-xs text-gray-500'>
+            用于立即执行定时任务对应逻辑，避免联调时等待 cron。
+          </div>
+          <div className='mt-3 flex flex-wrap gap-2'>
+            <Button
+              size='sm'
+              variant='outline'
+              onClick={() =>
+                void runMembershipOp(
+                  () => adminApplyScheduledMembershipChanges(),
+                  (result) => `待生效订阅切换已执行，应用 ${result.appliedCount ?? 0} 条`,
+                )
+              }
+              disabled={opsLoading}
+            >
+              立即执行待生效切换
+            </Button>
+            <Button
+              size='sm'
+              variant='outline'
+              onClick={() =>
+                void runMembershipOp(
+                  () => adminExpireMembershipScan(),
+                  (result) =>
+                    `到期扫描完成，expiredSubscriptions=${result.expiredSubscriptions ?? 0}，expiredLots=${result.expiredLots ?? 0}`,
+                )
+              }
+              disabled={opsLoading}
+            >
+              立即执行到期扫描
+            </Button>
+            <Button
+              size='sm'
+              variant='outline'
+              onClick={() =>
+                void runMembershipOp(
+                  () => adminIssueDailyMembershipGifts(),
+                  (result) => `每日赠送发放完成，issued=${result.issuedSubscriptions ?? 0}，granted=${result.grantedCredits ?? 0}`,
+                )
+              }
+              disabled={opsLoading}
+            >
+              立即发放每日赠送
+            </Button>
+            <Button
+              size='sm'
+              variant='outline'
+              onClick={() =>
+                void runMembershipOp(
+                  () => adminDecayMembershipGifts(),
+                  (result) => `赠送积分衰减完成，users=${result.affectedUsers ?? 0}，decayed=${result.decayedCredits ?? 0}`,
+                )
+              }
+              disabled={opsLoading}
+            >
+              立即执行赠送衰减
+            </Button>
+            <Button
+              size='sm'
+              variant='outline'
+              onClick={() =>
+                void runMembershipOp(
+                  () => adminRefreshYearlyMembershipQuota(),
+                  (result) => `年费月额度刷新完成，subscriptions=${result.refreshedSubscriptions ?? 0}，granted=${result.grantedCredits ?? 0}`,
+                )
+              }
+              disabled={opsLoading}
+            >
+              立即刷新年费月额度
+            </Button>
+          </div>
+        </div>
+      </div>
+
       <div className='grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_0.8fr]'>
         <div className='rounded-lg border bg-white p-6 shadow-sm'>
           <div className='mb-4 flex items-center justify-between'>
@@ -6088,8 +6506,8 @@ function VipManagementTab() {
                   <th className='px-3 py-2 text-left'>套餐</th>
                   <th className='px-3 py-2 text-left'>周期</th>
                   <th className='px-3 py-2 text-left'>价格</th>
+                  <th className='px-3 py-2 text-left'>总额度</th>
                   <th className='px-3 py-2 text-left'>月额度</th>
-                  <th className='px-3 py-2 text-left'>开通赠送</th>
                   <th className='px-3 py-2 text-left'>日赠送</th>
                   <th className='px-3 py-2 text-left'>状态</th>
                   <th className='px-3 py-2 text-left'>操作</th>
@@ -6104,8 +6522,8 @@ function VipManagementTab() {
                     </td>
                     <td className='px-3 py-3'>{plan.billingCycle === "yearly" ? "年费" : "月费"}</td>
                     <td className='px-3 py-3'>¥{Number(plan.price).toFixed(2)}</td>
+                    <td className='px-3 py-3'>{Number(plan.monthlyQuotaCredits) + Number(plan.signupBonusCredits)}</td>
                     <td className='px-3 py-3'>{plan.monthlyQuotaCredits}</td>
-                    <td className='px-3 py-3'>{plan.signupBonusCredits}</td>
                     <td className='px-3 py-3'>{plan.dailyGiftCredits}</td>
                     <td className='px-3 py-3'>
                       <span
@@ -6212,7 +6630,7 @@ function VipManagementTab() {
                 />
               </div>
               <div>
-                <div className='mb-1 text-sm text-gray-600'>开通赠送积分</div>
+                <div className='mb-1 text-sm text-gray-600'>附加积分</div>
                 <Input
                   type='number'
                   min='0'
@@ -6221,6 +6639,7 @@ function VipManagementTab() {
                     setPlanForm((current) => ({ ...current, signupBonusCredits: e.target.value }))
                   }
                 />
+                <div className='mt-1 text-xs text-gray-400'>用于补充套餐总额度，不再对外单独展示。</div>
               </div>
               <div>
                 <div className='mb-1 text-sm text-gray-600'>每日赠送积分</div>

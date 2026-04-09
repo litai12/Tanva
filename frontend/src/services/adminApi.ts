@@ -629,6 +629,7 @@ export interface PaymentMembershipPlan {
   monthlyQuotaCredits: number;
   signupBonusCredits: number;
   dailyGiftCredits: number;
+  sortOrder: number;
   metadata: Record<string, any> | null;
 }
 
@@ -658,6 +659,7 @@ export interface MembershipCurrentResponse {
     signupBonusCredits: number;
     dailyGiftCredits: number;
   } | null;
+  nextChange: MembershipNextChange | null;
   entitlement: {
     currentPlanCode: string;
     membershipStatus: string;
@@ -687,7 +689,23 @@ export interface MembershipMeResponse {
     imageDailyLimit: number | null;
     videoDailyLimit: number | null;
   };
+  nextChange: MembershipNextChange | null;
   current: MembershipCurrentResponse;
+}
+
+export interface MembershipNextChange {
+  id: string;
+  targetPlanId: string;
+  targetPlanCode: string;
+  targetPlanName: string;
+  targetBillingCycle: "monthly" | "yearly";
+  changeType: string;
+  effectiveMode: string;
+  status: string;
+  reason: string | null;
+  effectiveAt: string;
+  currentPeriodEndAt: string | null;
+  createdAt: string;
 }
 
 export async function getMembershipMe(): Promise<MembershipMeResponse> {
@@ -697,6 +715,48 @@ export async function getMembershipMe(): Promise<MembershipMeResponse> {
 
 export async function getMembershipCurrent(): Promise<MembershipCurrentResponse> {
   const response = await request("/api/membership/current");
+  return response.json();
+}
+
+export interface MembershipTransitionPreview {
+  actionType: "subscribe" | "renew" | "upgrade" | "downgrade";
+  effectiveMode: "immediate" | "next_cycle";
+  payableAmount: number;
+  immediateCreditDelta: number;
+  remainingRatio: number;
+  targetPlan: {
+    id: string;
+    code: string;
+    name: string;
+    billingCycle: "monthly" | "yearly";
+    price: number;
+  };
+  currentPlan: {
+    id: string;
+    code: string;
+    name: string;
+    billingCycle: "monthly" | "yearly";
+    price: number;
+  } | null;
+  nextEffectiveAt?: string;
+}
+
+export async function getMembershipTransitionPreview(planCode: string): Promise<MembershipTransitionPreview> {
+  const searchParams = new URLSearchParams({ planCode });
+  const response = await request(`/api/membership/transition-preview?${searchParams}`);
+  return response.json();
+}
+
+export async function scheduleMembershipPlanChange(planCode: string): Promise<{
+  success: boolean;
+  nextChangeId: string;
+  effectiveAt: string;
+}> {
+  const response = await request("/api/membership/change-plan", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ planCode }),
+  });
   return response.json();
 }
 
@@ -734,6 +794,96 @@ export async function getMembershipOrders(params?: {
   if (params?.page) searchParams.set("page", String(params.page));
   if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
   const response = await request(`/api/membership/orders?${searchParams}`);
+  return response.json();
+}
+
+export interface AdminMembershipStateResponse {
+  userId: string;
+  current: MembershipCurrentResponse;
+  nextChange: MembershipNextChange | null;
+  balances: MembershipMeResponse["balances"];
+  benefits: MembershipMeResponse["benefits"];
+}
+
+export async function getAdminUserMembershipState(userId: string): Promise<AdminMembershipStateResponse> {
+  const response = await request(`/api/admin/users/${userId}/membership`);
+  return response.json();
+}
+
+export async function adminExpireUserMembershipNow(userId: string, reason?: string) {
+  const response = await request(`/api/admin/users/${userId}/membership/expire`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ reason }),
+  });
+  return response.json();
+}
+
+export async function adminAdjustUserMembershipPeriod(userId: string, days: number, reason?: string) {
+  const response = await request(`/api/admin/users/${userId}/membership/adjust-period`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ days, reason }),
+  });
+  return response.json();
+}
+
+export async function adminChangeUserMembershipPlan(data: {
+  userId: string;
+  planCode: string;
+  effectiveMode: "immediate" | "next_cycle";
+  reason?: string;
+}) {
+  const response = await request(`/api/admin/users/${data.userId}/membership/change-plan`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      planCode: data.planCode,
+      effectiveMode: data.effectiveMode,
+      reason: data.reason,
+    }),
+  });
+  return response.json();
+}
+
+export async function getAdminUserMembershipTransitionPreview(userId: string, planCode: string) {
+  const searchParams = new URLSearchParams({ planCode });
+  const response = await request(`/api/admin/users/${userId}/membership/transition-preview?${searchParams}`);
+  return response.json();
+}
+
+export async function adminApplyScheduledMembershipChanges() {
+  const response = await request("/api/admin/membership/ops/apply-scheduled-changes", {
+    method: "POST",
+  });
+  return response.json();
+}
+
+export async function adminExpireMembershipScan() {
+  const response = await request("/api/admin/membership/ops/expire-scan", {
+    method: "POST",
+  });
+  return response.json();
+}
+
+export async function adminIssueDailyMembershipGifts() {
+  const response = await request("/api/admin/membership/ops/issue-daily-gifts", {
+    method: "POST",
+  });
+  return response.json();
+}
+
+export async function adminDecayMembershipGifts() {
+  const response = await request("/api/admin/membership/ops/decay-gifts", {
+    method: "POST",
+  });
+  return response.json();
+}
+
+export async function adminRefreshYearlyMembershipQuota() {
+  const response = await request("/api/admin/membership/ops/refresh-yearly-quota", {
+    method: "POST",
+  });
   return response.json();
 }
 

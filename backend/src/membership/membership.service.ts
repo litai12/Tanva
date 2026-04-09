@@ -8,6 +8,7 @@ import type {
   ActivatePaidMembershipOrderParams,
   ActivatePaidMembershipOrderResult,
   MembershipBillingCycle,
+  MembershipNextChangeView,
   MembershipPlanSnapshot,
 } from './membership.types';
 
@@ -22,6 +23,13 @@ export class MembershipService {
     return (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === 'P2021'
+    );
+  }
+
+  private isNullConstraintError(error: unknown): boolean {
+    return (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      (error.code === 'P2011' || error.code === 'P2012')
     );
   }
 
@@ -193,22 +201,26 @@ export class MembershipService {
   }
 
   async getCurrentMembership(userId: string) {
-    const subscription = await this.withMissingMembershipTablesFallback(
-      () =>
-        this.prisma.userMembershipSubscription.findFirst({
-          where: {
-            userId,
-            status: 'active',
-          },
-          orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
-        }),
-      () => null,
-    );
+    const [subscription, nextChange] = await Promise.all([
+      this.withMissingMembershipTablesFallback(
+        () =>
+          this.prisma.userMembershipSubscription.findFirst({
+            where: {
+              userId,
+              status: 'active',
+            },
+            orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
+          }),
+        () => null,
+      ),
+      this.getNextChange(userId),
+    ]);
 
     if (!subscription) {
       return {
         subscription: null,
         plan: null,
+        nextChange,
         entitlement: await this.getMembershipEntitlement(userId),
       };
     }
@@ -244,6 +256,7 @@ export class MembershipService {
             dailyGiftCredits: plan.dailyGiftCredits,
           }
         : null,
+      nextChange,
       entitlement: await this.getMembershipEntitlement(userId),
     };
   }
@@ -342,8 +355,486 @@ export class MembershipService {
         imageDailyLimit: null,
         videoDailyLimit: null,
       },
+      nextChange: current.nextChange,
       current,
     };
+  }
+
+  async getNextChange(userId: string): Promise<MembershipNextChangeView | null> {
+    const change = await this.withMissingMembershipTablesFallback(
+      () =>
+        this.prisma.membershipSubscriptionChange.findFirst({
+          where: {
+            userId,
+            status: 'scheduled',
+          },
+          orderBy: [{ effectiveAt: 'asc' }, { createdAt: 'asc' }],
+        }),
+      () => null,
+    );
+    if (!change) {
+      return null;
+    }
+
+    const plan = await this.withMissingMembershipTablesFallback(
+      () =>
+        this.prisma.membershipPlan.findUnique({
+          where: { id: change.targetPlanId },
+        }),
+      () => null,
+    );
+
+    return {
+      id: change.id,
+      targetPlanId: change.targetPlanId,
+      targetPlanCode: change.targetPlanCode,
+      targetPlanName: plan?.name ?? change.targetPlanCode,
+      targetBillingCycle: this.normalizeBillingCycle(change.targetBillingCycle),
+      changeType: change.changeType,
+      effectiveMode: change.effectiveMode,
+      status: change.status,
+      reason: change.reason ?? null,
+      effectiveAt: change.effectiveAt,
+      currentPeriodEndAt: change.currentPeriodEndAt ?? null,
+      createdAt: change.createdAt,
+    };
+  }
+
+  async getAdminMembershipState(userId: string) {
+    const [current, me, nextChange] = await Promise.all([
+      this.getCurrentMembership(userId),
+      this.getMembershipMe(userId),
+      this.getNextChange(userId),
+    ]);
+
+    return {
+      userId,
+      current,
+      nextChange,
+      balances: me.balances,
+      benefits: me.benefits,
+    };
+  }
+
+  async getUserTransitionPreview(userId: string, planCode: string) {
+    const targetPlan = await this.withMissingMembershipTablesFallback(
+      () =>
+        this.prisma.membershipPlan.findFirst({
+          where: { code: planCode, isActive: true },
+        }),
+      () => null,
+    );
+    if (!targetPlan) {
+      throw new NotFoundException('目标套餐不存在');
+    }
+
+    const current = await this.withMissingMembershipTablesFallback(
+      () =>
+        this.prisma.userMembershipSubscription.findFirst({
+          where: { userId, status: 'active' },
+          orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
+        }),
+      () => null,
+    );
+
+    if (!current) {
+      return {
+        actionType: 'subscribe',
+        effectiveMode: 'immediate',
+        payableAmount: Number(targetPlan.price),
+        immediateCreditDelta: targetPlan.monthlyQuotaCredits + targetPlan.signupBonusCredits,
+        remainingRatio: 1,
+        targetPlan: {
+          id: targetPlan.id,
+          code: targetPlan.code,
+          name: targetPlan.name,
+          billingCycle: this.normalizeBillingCycle(targetPlan.billingCycle),
+          price: Number(targetPlan.price),
+        },
+        currentPlan: null,
+      };
+    }
+
+    const currentPlan = await this.withMissingMembershipTablesFallback(
+      () =>
+        this.prisma.membershipPlan.findUnique({
+          where: { id: current.membershipPlanId },
+        }),
+      () => null,
+    );
+    if (!currentPlan) {
+      throw new NotFoundException('当前套餐不存在');
+    }
+
+    if (currentPlan.id === targetPlan.id) {
+      return {
+        actionType: 'renew',
+        effectiveMode: 'immediate',
+        payableAmount: Number(targetPlan.price),
+        immediateCreditDelta: targetPlan.monthlyQuotaCredits + targetPlan.signupBonusCredits,
+        remainingRatio: 1,
+        targetPlan: {
+          id: targetPlan.id,
+          code: targetPlan.code,
+          name: targetPlan.name,
+          billingCycle: this.normalizeBillingCycle(targetPlan.billingCycle),
+          price: Number(targetPlan.price),
+        },
+        currentPlan: {
+          id: currentPlan.id,
+          code: currentPlan.code,
+          name: currentPlan.name,
+          billingCycle: this.normalizeBillingCycle(currentPlan.billingCycle),
+          price: Number(currentPlan.price),
+        },
+      };
+    }
+
+    const comparison = this.comparePlanRank(currentPlan, targetPlan);
+    const remainingRatio = this.computeRemainingRatio(
+      current.currentPeriodStartAt,
+      current.currentPeriodEndAt,
+    );
+
+    if (comparison < 0) {
+      const amountDiff = Math.max(0, Number(targetPlan.price) - Number(currentPlan.price));
+      const payableAmount = this.roundMoney(Math.max(0.01, amountDiff * remainingRatio));
+      const immediateCreditDelta = Math.max(
+        0,
+        Math.round((targetPlan.monthlyQuotaCredits - currentPlan.monthlyQuotaCredits) * remainingRatio),
+      );
+      return {
+        actionType: 'upgrade',
+        effectiveMode: 'immediate',
+        payableAmount,
+        immediateCreditDelta,
+        remainingRatio,
+        targetPlan: {
+          id: targetPlan.id,
+          code: targetPlan.code,
+          name: targetPlan.name,
+          billingCycle: this.normalizeBillingCycle(targetPlan.billingCycle),
+          price: Number(targetPlan.price),
+        },
+        currentPlan: {
+          id: currentPlan.id,
+          code: currentPlan.code,
+          name: currentPlan.name,
+          billingCycle: this.normalizeBillingCycle(currentPlan.billingCycle),
+          price: Number(currentPlan.price),
+        },
+      };
+    }
+
+    return {
+      actionType: 'downgrade',
+      effectiveMode: 'next_cycle',
+      payableAmount: 0,
+      immediateCreditDelta: 0,
+      remainingRatio,
+      targetPlan: {
+        id: targetPlan.id,
+        code: targetPlan.code,
+        name: targetPlan.name,
+        billingCycle: this.normalizeBillingCycle(targetPlan.billingCycle),
+        price: Number(targetPlan.price),
+      },
+      currentPlan: {
+        id: currentPlan.id,
+        code: currentPlan.code,
+        name: currentPlan.name,
+        billingCycle: this.normalizeBillingCycle(currentPlan.billingCycle),
+        price: Number(currentPlan.price),
+      },
+      nextEffectiveAt: current.currentPeriodEndAt,
+    };
+  }
+
+  async scheduleUserDowngrade(userId: string, planCode: string) {
+    const preview = await this.getUserTransitionPreview(userId, planCode);
+    if (preview.actionType !== 'downgrade') {
+      throw new BadRequestException('仅降级套餐可走下周期生效');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.userMembershipSubscription.findFirst({
+        where: { userId, status: 'active' },
+        orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
+      });
+      if (!current) {
+        throw new NotFoundException('当前用户没有生效中的订阅');
+      }
+
+      const targetPlan = await tx.membershipPlan.findFirst({
+        where: { code: planCode, isActive: true },
+      });
+      if (!targetPlan) {
+        throw new NotFoundException('目标套餐不存在');
+      }
+
+      await tx.membershipSubscriptionChange.updateMany({
+        where: { userId, status: 'scheduled' },
+        data: {
+          status: 'cancelled',
+          cancelledAt: new Date(),
+          reason: 'replaced:user_downgrade',
+          requestedBy: userId,
+        },
+      });
+
+      const change = await tx.membershipSubscriptionChange.create({
+        data: {
+          userId,
+          currentSubscriptionId: current.id,
+          targetPlanId: targetPlan.id,
+          targetPlanCode: targetPlan.code,
+          targetBillingCycle: targetPlan.billingCycle,
+          changeType: 'downgrade',
+          effectiveMode: 'next_cycle',
+          status: 'scheduled',
+          reason: 'user_downgrade',
+          requestedBy: userId,
+          currentPeriodEndAt: current.currentPeriodEndAt,
+          effectiveAt: current.currentPeriodEndAt,
+          metadata: {
+            source: 'user',
+          },
+        },
+      });
+
+      return {
+        success: true,
+        nextChangeId: change.id,
+        effectiveAt: change.effectiveAt,
+      };
+    });
+  }
+
+  async adminExpireMembershipNow(userId: string, reason: string, requestedBy: string) {
+    const now = new Date();
+    return this.prisma.$transaction(async (tx) => {
+      const activeSubscriptions = await tx.userMembershipSubscription.findMany({
+        where: { userId, status: 'active' },
+        orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
+      });
+      if (activeSubscriptions.length === 0) {
+        throw new NotFoundException('当前用户没有生效中的订阅');
+      }
+
+      await tx.userMembershipSubscription.updateMany({
+        where: { userId, status: 'active' },
+        data: {
+          status: 'expired',
+          expiredAt: now,
+          currentPeriodEndAt: now,
+        },
+      });
+
+      await tx.membershipSubscriptionChange.updateMany({
+        where: { userId, status: 'scheduled' },
+        data: {
+          status: 'cancelled',
+          cancelledAt: now,
+          reason,
+          requestedBy,
+        },
+      });
+
+      await this.upsertInactiveEntitlementSnapshot(tx, userId, now);
+
+      return {
+        success: true,
+        expiredSubscriptions: activeSubscriptions.length,
+        expiredAt: now,
+      };
+    });
+  }
+
+  private async upsertInactiveEntitlementSnapshot(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    now: Date,
+  ) {
+    const payload = {
+      currentPlanCode: 'free',
+      membershipStatus: 'inactive',
+      currentPeriodStartAt: null,
+      currentPeriodEndAt: null,
+      pauseGiftDecay: false,
+    };
+
+    try {
+      await tx.membershipEntitlementSnapshot.upsert({
+        where: { userId },
+        create: {
+          userId,
+          ...payload,
+        },
+        update: payload,
+      });
+    } catch (error) {
+      if (!this.isNullConstraintError(error)) {
+        throw error;
+      }
+
+      // Some environments may still have old non-null snapshot columns.
+      await tx.membershipEntitlementSnapshot.upsert({
+        where: { userId },
+        create: {
+          userId,
+          currentPlanCode: 'free',
+          membershipStatus: 'inactive',
+          currentPeriodStartAt: now,
+          currentPeriodEndAt: now,
+          pauseGiftDecay: false,
+        },
+        update: {
+          currentPlanCode: 'free',
+          membershipStatus: 'inactive',
+          currentPeriodStartAt: now,
+          currentPeriodEndAt: now,
+          pauseGiftDecay: false,
+        },
+      });
+    }
+  }
+
+  async adminAdjustMembershipPeriod(
+    userId: string,
+    days: number,
+    reason: string,
+    requestedBy: string,
+  ) {
+    if (!Number.isFinite(days) || Math.trunc(days) === 0) {
+      throw new BadRequestException('days 不能为 0');
+    }
+
+    const deltaDays = Math.trunc(days);
+    return this.prisma.$transaction(async (tx) => {
+      const subscription = await tx.userMembershipSubscription.findFirst({
+        where: { userId, status: 'active' },
+        orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
+      });
+      if (!subscription) {
+        throw new NotFoundException('当前用户没有生效中的订阅');
+      }
+
+      const nextEndAt = this.addDays(subscription.currentPeriodEndAt, deltaDays);
+      if (nextEndAt <= subscription.currentPeriodStartAt) {
+        throw new BadRequestException('调整后订阅结束时间不能早于开始时间');
+      }
+
+      const updated = await tx.userMembershipSubscription.update({
+        where: { id: subscription.id },
+        data: {
+          currentPeriodEndAt: nextEndAt,
+          snapshot: this.mergeJsonObject(subscription.snapshot, {
+            adminPeriodAdjust: {
+              days: deltaDays,
+              reason,
+              requestedBy,
+              adjustedAt: new Date().toISOString(),
+            },
+          }),
+        },
+      });
+
+      await tx.membershipEntitlementSnapshot.upsert({
+        where: { userId },
+        create: {
+          userId,
+          currentPlanCode: (
+            (subscription.snapshot as Prisma.JsonObject | null)?.code as string | undefined
+          ) ?? 'free',
+          membershipStatus: 'active',
+          currentPeriodStartAt: subscription.currentPeriodStartAt,
+          currentPeriodEndAt: nextEndAt,
+          pauseGiftDecay: false,
+        },
+        update: {
+          currentPeriodEndAt: nextEndAt,
+        },
+      });
+
+      await tx.membershipSubscriptionChange.updateMany({
+        where: { userId, status: 'scheduled' },
+        data: {
+          currentPeriodEndAt: nextEndAt,
+          effectiveAt: nextEndAt,
+          metadata: this.mergeJsonObject(null, {
+            adjustedByAdmin: true,
+            reason,
+            requestedBy,
+          }),
+        },
+      });
+
+      return updated;
+    });
+  }
+
+  async adminScheduleMembershipChange(input: {
+    userId: string;
+    planCode: string;
+    effectiveMode: 'immediate' | 'next_cycle';
+    reason: string;
+    requestedBy: string;
+  }) {
+    const plan = await this.prisma.membershipPlan.findFirst({
+      where: { code: input.planCode, isActive: true },
+    });
+    if (!plan) {
+      throw new NotFoundException('目标套餐不存在');
+    }
+
+    if (input.effectiveMode === 'immediate') {
+      return this.adminApplyMembershipChangeNow({
+        userId: input.userId,
+        plan,
+        reason: input.reason,
+        requestedBy: input.requestedBy,
+      });
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const subscription = await tx.userMembershipSubscription.findFirst({
+        where: { userId: input.userId, status: 'active' },
+        orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
+      });
+      if (!subscription) {
+        throw new NotFoundException('当前用户没有生效中的订阅');
+      }
+
+      await tx.membershipSubscriptionChange.updateMany({
+        where: { userId: input.userId, status: 'scheduled' },
+        data: {
+          status: 'cancelled',
+          cancelledAt: new Date(),
+          reason: `replaced:${input.reason}`,
+          requestedBy: input.requestedBy,
+        },
+      });
+
+      return tx.membershipSubscriptionChange.create({
+        data: {
+          userId: input.userId,
+          currentSubscriptionId: subscription.id,
+          targetPlanId: plan.id,
+          targetPlanCode: plan.code,
+          targetBillingCycle: plan.billingCycle,
+          changeType: 'scheduled_change',
+          effectiveMode: 'next_cycle',
+          status: 'scheduled',
+          reason: input.reason,
+          requestedBy: input.requestedBy,
+          currentPeriodEndAt: subscription.currentPeriodEndAt,
+          effectiveAt: subscription.currentPeriodEndAt,
+          metadata: {
+            source: 'admin',
+          },
+        },
+      });
+    });
   }
 
   async decayDailyGiftCredits(now = new Date()) {
@@ -462,8 +953,6 @@ export class MembershipService {
         orderBy: [{ currentPeriodEndAt: 'asc' }, { createdAt: 'asc' }],
       });
 
-      let expiredLots = 0;
-      let expiredCredits = 0;
       let resetSnapshots = 0;
 
       for (const subscription of expiredSubscriptions) {
@@ -474,71 +963,6 @@ export class MembershipService {
             expiredAt: subscription.expiredAt ?? now,
           },
         });
-
-        const lots = await tx.creditLot.findMany({
-          where: {
-            subscriptionId: subscription.id,
-            validityType: 'membership_bound',
-            status: 'active',
-          },
-          orderBy: [{ expiresAt: 'asc' }, { createdAt: 'asc' }],
-        });
-
-        const account = await tx.creditAccount.findUnique({
-          where: { userId: subscription.userId },
-        });
-
-        let accountBalance = account?.balance ?? 0;
-
-        for (const lot of lots) {
-          if (lot.remainingAmount <= 0) {
-            await tx.creditLot.update({
-              where: { id: lot.id },
-              data: { status: 'expired', remainingAmount: 0 },
-            });
-            expiredLots += 1;
-            continue;
-          }
-
-          const balanceBefore = accountBalance;
-          accountBalance = Math.max(0, accountBalance - lot.remainingAmount);
-          expiredCredits += lot.remainingAmount;
-          expiredLots += 1;
-
-          await tx.creditLot.update({
-            where: { id: lot.id },
-            data: {
-              remainingAmount: 0,
-              status: 'expired',
-            },
-          });
-
-          if (account) {
-            await tx.creditAccount.update({
-              where: { id: account.id },
-              data: { balance: accountBalance },
-            });
-          }
-
-          await tx.creditTransaction.create({
-            data: {
-              accountId: lot.accountId,
-              type: TransactionType.EXPIRE,
-              amount: -lot.remainingAmount,
-              balanceBefore,
-              balanceAfter: accountBalance,
-              description: '会员积分到期清理',
-              creditLotId: lot.id,
-              businessType: 'membership_expire',
-              subscriptionId: subscription.id,
-              membershipPlanId: subscription.membershipPlanId,
-              metadata: {
-                expiredAt: now.toISOString(),
-                reason: 'membership_period_elapsed',
-              },
-            },
-          });
-        }
 
         const hasAnyActiveSubscription = await tx.userMembershipSubscription.count({
           where: {
@@ -572,8 +996,8 @@ export class MembershipService {
 
       return {
         expiredSubscriptions: expiredSubscriptions.length,
-        expiredLots,
-        expiredCredits,
+        expiredLots: 0,
+        expiredCredits: 0,
         resetSnapshots,
       };
     });
@@ -858,6 +1282,18 @@ export class MembershipService {
       throw new NotFoundException('会员套餐不存在');
     }
 
+    const orderMetadata =
+      order.metadata && typeof order.metadata === 'object' && !Array.isArray(order.metadata)
+        ? (order.metadata as Record<string, unknown>)
+        : null;
+    const transitionType =
+      typeof orderMetadata?.membershipTransitionType === 'string'
+        ? orderMetadata.membershipTransitionType
+        : null;
+    if (transitionType === 'upgrade') {
+      return this.applyPaidUpgradeOrder(params, order, persistedPlan, orderMetadata);
+    }
+
     const snapshot = this.buildPlanSnapshot(persistedPlan, order.planSnapshot);
     const policy = await this.businessPolicyService.getMembershipCreditPolicy();
     const cycleDays = this.resolveCycleDays(snapshot.billingCycle, policy.membershipRefreshCycleDays);
@@ -1012,6 +1448,462 @@ export class MembershipService {
     };
   }
 
+  private async applyPaidUpgradeOrder(
+    params: ActivatePaidMembershipOrderParams,
+    order: {
+      id: string;
+      membershipPlanId: string | null;
+      planSnapshot: Prisma.JsonValue | null;
+      metadata: Prisma.JsonValue | null;
+    },
+    persistedPlan: {
+      id: string;
+      code: string;
+      name: string;
+      billingCycle: string;
+      price: Prisma.Decimal;
+      monthlyQuotaCredits: number;
+      signupBonusCredits: number;
+      dailyGiftCredits: number;
+      metadata: Prisma.JsonValue | null;
+    },
+    orderMetadata: Record<string, unknown> | null,
+  ): Promise<ActivatePaidMembershipOrderResult> {
+    const activeSubscription = await params.tx.userMembershipSubscription.findFirst({
+      where: {
+        userId: params.userId,
+        status: 'active',
+      },
+      orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
+    });
+    if (!activeSubscription) {
+      throw new BadRequestException('当前没有可升级的生效订阅');
+    }
+
+    const snapshot = this.buildPlanSnapshot(persistedPlan, order.planSnapshot);
+    const immediateCreditDelta = Math.max(
+      0,
+      this.toInt(orderMetadata?.immediateCreditDelta, 0),
+    );
+
+    await params.tx.membershipSubscriptionChange.updateMany({
+      where: { userId: params.userId, status: 'scheduled' },
+      data: {
+        status: 'cancelled',
+        cancelledAt: params.paidAt,
+        reason: 'replaced:user_upgrade',
+        requestedBy: params.userId,
+      },
+    });
+
+    await params.tx.userMembershipSubscription.update({
+      where: { id: activeSubscription.id },
+      data: {
+        membershipPlanId: persistedPlan.id,
+        snapshot: snapshot as unknown as Prisma.InputJsonValue,
+        lastOrderId: order.id,
+      },
+    });
+
+    let account = await params.tx.creditAccount.findUnique({
+      where: { userId: params.userId },
+    });
+    if (!account) {
+      account = await params.tx.creditAccount.create({
+        data: {
+          userId: params.userId,
+          balance: 0,
+          totalEarned: 0,
+        },
+      });
+    }
+
+    if (immediateCreditDelta > 0) {
+      const lot = await params.tx.creditLot.create({
+        data: buildMembershipCreditLotData({
+          accountId: account.id,
+          amount: immediateCreditDelta,
+          grantedAt: params.paidAt,
+          activeAt: params.paidAt,
+          expiresAt: activeSubscription.currentPeriodEndAt,
+          orderId: order.id,
+          subscriptionId: activeSubscription.id,
+          metadata: {
+            membershipPlanId: persistedPlan.id,
+            membershipPlanCode: snapshot.code,
+            membershipPlanName: snapshot.name,
+            billingCycle: snapshot.billingCycle,
+            grantedBy: 'membership_upgrade_prorated',
+          },
+        }),
+      });
+
+      const balanceAfter = account.balance + immediateCreditDelta;
+      await params.tx.creditAccount.update({
+        where: { id: account.id },
+        data: {
+          balance: balanceAfter,
+          totalEarned: account.totalEarned + immediateCreditDelta,
+        },
+      });
+
+      await params.tx.creditTransaction.create({
+        data: {
+          accountId: account.id,
+          type: TransactionType.EARN,
+          amount: immediateCreditDelta,
+          balanceBefore: account.balance,
+          balanceAfter,
+          description: `${snapshot.name} 升级补发积分`,
+          creditLotId: lot.id,
+          businessType: 'membership_upgrade_prorated',
+          orderId: order.id,
+          subscriptionId: activeSubscription.id,
+          membershipPlanId: persistedPlan.id,
+          metadata: {
+            membershipPlanCode: snapshot.code,
+            billingCycle: snapshot.billingCycle,
+            grantedCredits: immediateCreditDelta,
+          },
+        },
+      });
+    }
+
+    const snapshotMetadata =
+      snapshot.metadata && typeof snapshot.metadata === 'object' && !Array.isArray(snapshot.metadata)
+        ? snapshot.metadata
+        : null;
+
+    await params.tx.membershipEntitlementSnapshot.upsert({
+      where: { userId: params.userId },
+      create: {
+        userId: params.userId,
+        currentPlanCode: snapshot.code,
+        membershipStatus: 'active',
+        currentPeriodStartAt: activeSubscription.currentPeriodStartAt,
+        currentPeriodEndAt: activeSubscription.currentPeriodEndAt,
+        pauseGiftDecay: Boolean(snapshotMetadata?.pauseGiftDecay),
+      },
+      update: {
+        currentPlanCode: snapshot.code,
+        membershipStatus: 'active',
+        currentPeriodStartAt: activeSubscription.currentPeriodStartAt,
+        currentPeriodEndAt: activeSubscription.currentPeriodEndAt,
+        pauseGiftDecay: Boolean(snapshotMetadata?.pauseGiftDecay),
+      },
+    });
+
+    await params.tx.membershipSubscriptionChange.create({
+      data: {
+        userId: params.userId,
+        currentSubscriptionId: activeSubscription.id,
+        targetPlanId: persistedPlan.id,
+        targetPlanCode: persistedPlan.code,
+        targetBillingCycle: persistedPlan.billingCycle,
+        changeType: 'upgrade',
+        effectiveMode: 'immediate',
+        status: 'applied',
+        reason: 'user_upgrade',
+        orderId: order.id,
+        requestedBy: params.userId,
+        currentPeriodEndAt: activeSubscription.currentPeriodEndAt,
+        effectiveAt: params.paidAt,
+        appliedAt: params.paidAt,
+        metadata: {
+          immediateCreditDelta,
+        },
+      },
+    });
+
+    return {
+      subscriptionId: activeSubscription.id,
+      grantedCredits: immediateCreditDelta,
+    };
+  }
+
+  async applyDueScheduledChanges(now = new Date()) {
+    const policy = await this.businessPolicyService.getMembershipCreditPolicy();
+    return this.prisma.$transaction(async (tx) => {
+      const changes = await tx.membershipSubscriptionChange.findMany({
+        where: {
+          status: 'scheduled',
+          effectiveMode: 'next_cycle',
+          effectiveAt: { lte: now },
+        },
+        orderBy: [{ effectiveAt: 'asc' }, { createdAt: 'asc' }],
+      });
+
+      let appliedCount = 0;
+
+      for (const change of changes) {
+        const plan = await tx.membershipPlan.findUnique({
+          where: { id: change.targetPlanId },
+        });
+        if (!plan) {
+          await tx.membershipSubscriptionChange.update({
+            where: { id: change.id },
+            data: {
+              status: 'cancelled',
+              cancelledAt: now,
+              reason: change.reason ?? 'target_plan_missing',
+            },
+          });
+          continue;
+        }
+
+        await tx.userMembershipSubscription.updateMany({
+          where: {
+            userId: change.userId,
+            status: 'active',
+          },
+          data: {
+            status: 'expired',
+            expiredAt: now,
+            currentPeriodEndAt: now,
+          },
+        });
+
+        const snapshot = this.buildPlanSnapshot(plan, null);
+        const cycleDays = this.resolveCycleDays(snapshot.billingCycle, policy.membershipRefreshCycleDays);
+        await this.createSubscriptionCycle(tx, {
+          userId: change.userId,
+          plan,
+          snapshot,
+          startAt: change.effectiveAt,
+          endAt: this.addDays(change.effectiveAt, cycleDays),
+          reason: change.reason ?? 'scheduled_change',
+        });
+
+        await tx.membershipSubscriptionChange.update({
+          where: { id: change.id },
+          data: {
+            status: 'applied',
+            appliedAt: now,
+          },
+        });
+
+        appliedCount += 1;
+      }
+
+      return { appliedCount };
+    });
+  }
+
+  private async adminApplyMembershipChangeNow(params: {
+    userId: string;
+    plan: {
+      id: string;
+      code: string;
+      name: string;
+      billingCycle: string;
+      price: Prisma.Decimal;
+      monthlyQuotaCredits: number;
+      signupBonusCredits: number;
+      dailyGiftCredits: number;
+      metadata: Prisma.JsonValue | null;
+    };
+    reason: string;
+    requestedBy: string;
+  }) {
+    const now = new Date();
+    const policy = await this.businessPolicyService.getMembershipCreditPolicy();
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.membershipSubscriptionChange.updateMany({
+        where: { userId: params.userId, status: 'scheduled' },
+        data: {
+          status: 'cancelled',
+          cancelledAt: now,
+          reason: `replaced:${params.reason}`,
+          requestedBy: params.requestedBy,
+        },
+      });
+
+      await tx.userMembershipSubscription.updateMany({
+        where: { userId: params.userId, status: 'active' },
+        data: {
+          status: 'expired',
+          expiredAt: now,
+          currentPeriodEndAt: now,
+        },
+      });
+
+      const snapshot = this.buildPlanSnapshot(params.plan, null);
+      const cycleDays = this.resolveCycleDays(snapshot.billingCycle, policy.membershipRefreshCycleDays);
+      const subscription = await this.createSubscriptionCycle(tx, {
+        userId: params.userId,
+        plan: params.plan,
+        snapshot,
+        startAt: now,
+        endAt: this.addDays(now, cycleDays),
+        reason: params.reason,
+      });
+
+      await tx.membershipSubscriptionChange.create({
+        data: {
+          userId: params.userId,
+          currentSubscriptionId: subscription.id,
+          targetPlanId: params.plan.id,
+          targetPlanCode: params.plan.code,
+          targetBillingCycle: params.plan.billingCycle,
+          changeType: 'admin_override',
+          effectiveMode: 'immediate',
+          status: 'applied',
+          reason: params.reason,
+          requestedBy: params.requestedBy,
+          effectiveAt: now,
+          appliedAt: now,
+          currentPeriodEndAt: subscription.currentPeriodEndAt,
+          metadata: {
+            source: 'admin',
+          },
+        },
+      });
+
+      return subscription;
+    });
+  }
+
+  private async createSubscriptionCycle(
+    tx: Prisma.TransactionClient,
+    params: {
+      userId: string;
+      plan: {
+        id: string;
+        code: string;
+        name: string;
+        billingCycle: string;
+        price: Prisma.Decimal;
+        monthlyQuotaCredits: number;
+        signupBonusCredits: number;
+        dailyGiftCredits: number;
+        metadata: Prisma.JsonValue | null;
+      };
+      snapshot: MembershipPlanSnapshot;
+      startAt: Date;
+      endAt: Date;
+      reason: string;
+    },
+  ) {
+    const subscription = await tx.userMembershipSubscription.create({
+      data: {
+        userId: params.userId,
+        membershipPlanId: params.plan.id,
+        status: 'active',
+        periodType: params.snapshot.billingCycle,
+        currentPeriodStartAt: params.startAt,
+        currentPeriodEndAt: params.endAt,
+        activatedAt: params.startAt,
+        snapshot: params.snapshot as unknown as Prisma.InputJsonValue,
+      },
+    });
+
+    let account = await tx.creditAccount.findUnique({
+      where: { userId: params.userId },
+    });
+    if (!account) {
+      account = await tx.creditAccount.create({
+        data: {
+          userId: params.userId,
+          balance: 0,
+          totalEarned: 0,
+        },
+      });
+    }
+
+    const grantAmount = params.snapshot.monthlyQuotaCredits + params.snapshot.signupBonusCredits;
+    const lot = await tx.creditLot.create({
+      data: buildMembershipCreditLotData({
+        accountId: account.id,
+        amount: grantAmount,
+        grantedAt: params.startAt,
+        activeAt: params.startAt,
+        expiresAt: params.endAt,
+        subscriptionId: subscription.id,
+        metadata: {
+          membershipPlanId: params.plan.id,
+          membershipPlanCode: params.snapshot.code,
+          membershipPlanName: params.snapshot.name,
+          billingCycle: params.snapshot.billingCycle,
+          grantedBy: 'membership_subscription_change',
+          reason: params.reason,
+        },
+      }),
+    });
+
+    const balanceAfter = account.balance + grantAmount;
+    await tx.creditAccount.update({
+      where: { id: account.id },
+      data: {
+        balance: balanceAfter,
+        totalEarned: account.totalEarned + grantAmount,
+      },
+    });
+
+    await tx.creditTransaction.create({
+      data: {
+        accountId: account.id,
+        type: TransactionType.EARN,
+        amount: grantAmount,
+        balanceBefore: account.balance,
+        balanceAfter,
+        description: `${params.snapshot.name} 生效发放积分`,
+        creditLotId: lot.id,
+        businessType: 'membership_admin_change',
+        subscriptionId: subscription.id,
+        membershipPlanId: params.plan.id,
+        metadata: {
+          membershipPlanCode: params.snapshot.code,
+          billingCycle: params.snapshot.billingCycle,
+          grantedCredits: grantAmount,
+          reason: params.reason,
+        },
+      },
+    });
+
+    const snapshotMetadata =
+      params.snapshot.metadata &&
+      typeof params.snapshot.metadata === 'object' &&
+      !Array.isArray(params.snapshot.metadata)
+        ? params.snapshot.metadata
+        : null;
+
+    await tx.membershipEntitlementSnapshot.upsert({
+      where: { userId: params.userId },
+      create: {
+        userId: params.userId,
+        currentPlanCode: params.snapshot.code,
+        membershipStatus: 'active',
+        currentPeriodStartAt: params.startAt,
+        currentPeriodEndAt: params.endAt,
+        pauseGiftDecay: Boolean(snapshotMetadata?.pauseGiftDecay),
+      },
+      update: {
+        currentPlanCode: params.snapshot.code,
+        membershipStatus: 'active',
+        currentPeriodStartAt: params.startAt,
+        currentPeriodEndAt: params.endAt,
+        pauseGiftDecay: Boolean(snapshotMetadata?.pauseGiftDecay),
+      },
+    });
+
+    return subscription;
+  }
+
+  private mergeJsonObject(
+    current: Prisma.JsonValue | null | undefined,
+    patch: Record<string, unknown>,
+  ): Prisma.InputJsonValue {
+    const base =
+      current && typeof current === 'object' && !Array.isArray(current)
+        ? { ...(current as Record<string, unknown>) }
+        : {};
+    return {
+      ...base,
+      ...patch,
+    } as Prisma.InputJsonValue;
+  }
+
   private buildPlanSnapshot(
     plan: {
       id: string;
@@ -1069,6 +1961,62 @@ export class MembershipService {
 
   private normalizeBillingCycle(value: string): MembershipBillingCycle {
     return value === 'yearly' ? 'yearly' : 'monthly';
+  }
+
+  private comparePlanRank(
+    currentPlan: {
+      sortOrder: number;
+      monthlyQuotaCredits: number;
+      price: Prisma.Decimal;
+      metadata: Prisma.JsonValue | null;
+    },
+    targetPlan: {
+      sortOrder: number;
+      monthlyQuotaCredits: number;
+      price: Prisma.Decimal;
+      metadata: Prisma.JsonValue | null;
+    },
+  ): number {
+    const currentRank = this.resolvePlanRank(currentPlan);
+    const targetRank = this.resolvePlanRank(targetPlan);
+    if (currentRank === targetRank) {
+      return Number(currentPlan.price) - Number(targetPlan.price);
+    }
+    return currentRank - targetRank;
+  }
+
+  private resolvePlanRank(plan: {
+    sortOrder: number;
+    monthlyQuotaCredits: number;
+    price: Prisma.Decimal;
+    metadata: Prisma.JsonValue | null;
+  }): number {
+    const metadata =
+      plan.metadata && typeof plan.metadata === 'object' && !Array.isArray(plan.metadata)
+        ? (plan.metadata as Record<string, unknown>)
+        : null;
+    const metadataTier = Number(metadata?.tierRank);
+    if (Number.isFinite(metadataTier)) {
+      return metadataTier;
+    }
+    if (Number.isFinite(plan.sortOrder) && plan.sortOrder !== 0) {
+      return plan.sortOrder;
+    }
+    if (plan.monthlyQuotaCredits > 0) {
+      return plan.monthlyQuotaCredits;
+    }
+    return Number(plan.price);
+  }
+
+  private computeRemainingRatio(startAt: Date, endAt: Date, now = new Date()): number {
+    const total = endAt.getTime() - startAt.getTime();
+    if (total <= 0) return 0;
+    const remaining = Math.max(0, endAt.getTime() - now.getTime());
+    return Math.min(1, Math.max(0, remaining / total));
+  }
+
+  private roundMoney(value: number): number {
+    return Math.round(value * 100) / 100;
   }
 
   private resolveCycleDays(cycle: MembershipBillingCycle, refreshCycleDays: number): number {

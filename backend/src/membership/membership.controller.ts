@@ -61,6 +61,30 @@ export class MembershipController {
     return this.membershipService.getMembershipEntitlement(userId as string);
   }
 
+  @Get('transition-preview')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '预览当前用户切换目标套餐的动作类型' })
+  async getMembershipTransitionPreview(
+    @Request() req: FastifyRequest & { user: AuthenticatedUser },
+    @Query('planCode') planCode?: string,
+  ) {
+    const userId = req.user.id ?? req.user.sub;
+    return this.membershipService.getUserTransitionPreview(userId as string, planCode || '');
+  }
+
+  @Post('change-plan')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '用户自助变更套餐（目前用于降级排队）' })
+  async changeMembershipPlan(
+    @Request() req: FastifyRequest & { user: AuthenticatedUser },
+    @Body() body: { planCode: string },
+  ) {
+    const userId = req.user.id ?? req.user.sub;
+    return this.membershipService.scheduleUserDowngrade(userId as string, body.planCode);
+  }
+
   @Post('orders')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()

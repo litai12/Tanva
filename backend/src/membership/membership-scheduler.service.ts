@@ -11,6 +11,7 @@ export class MembershipSchedulerService {
   private dailyGiftIssueJobRunning = false;
   private giftDecayJobRunning = false;
   private yearlyRefreshJobRunning = false;
+  private scheduledChangeJobRunning = false;
 
   constructor(
     private readonly membershipService: MembershipService,
@@ -62,6 +63,26 @@ export class MembershipSchedulerService {
       this.logger.error('会员到期扫描失败:', error);
     } finally {
       this.expiryJobRunning = false;
+    }
+  }
+
+  @Cron(CronExpression.EVERY_HOUR)
+  async handleScheduledMembershipChanges() {
+    if (this.scheduledChangeJobRunning) {
+      this.logger.warn('跳过待生效订阅切换：上一次任务尚未完成');
+      return;
+    }
+
+    this.scheduledChangeJobRunning = true;
+    try {
+      const result = await this.membershipService.applyDueScheduledChanges();
+      if (result.appliedCount > 0) {
+        this.logger.log(`待生效订阅切换完成: applied=${result.appliedCount}`);
+      }
+    } catch (error) {
+      this.logger.error('待生效订阅切换失败:', error);
+    } finally {
+      this.scheduledChangeJobRunning = false;
     }
   }
 

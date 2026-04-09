@@ -268,6 +268,7 @@ export class PaymentService implements OnModuleInit {
         monthlyQuotaCredits: plan.monthlyQuotaCredits,
         signupBonusCredits: plan.signupBonusCredits,
         dailyGiftCredits: plan.dailyGiftCredits,
+        sortOrder: plan.sortOrder,
         metadata: plan.metadata,
       })),
     };
@@ -277,22 +278,29 @@ export class PaymentService implements OnModuleInit {
     userId: string,
     input: { planCode: string; paymentMethod: PaymentMethod },
   ): Promise<PaymentOrderResponse> {
+    const preview = await this.membershipService.getUserTransitionPreview(userId, input.planCode);
     const plan = await this.prisma.membershipPlan.findFirst({
-      where: {
-        code: input.planCode,
-        isActive: true,
-      },
+      where: { code: input.planCode, isActive: true },
     });
-    if (!plan) {
-      throw new NotFoundException('会员套餐不存在');
+    if (!plan) throw new NotFoundException('会员套餐不存在');
+    if (preview.actionType === 'downgrade') {
+      throw new BadRequestException('降级套餐请走下周期生效，不创建支付订单');
     }
 
     return this.createOrder(userId, {
-      amount: Number(plan.price),
+      amount: preview.payableAmount,
       credits: 0,
       paymentMethod: input.paymentMethod,
       orderType: 'membership',
       membershipPlanId: plan.id,
+      metadata: {
+        membershipTransitionType: preview.actionType,
+        membershipEffectiveMode: preview.effectiveMode,
+        immediateCreditDelta: preview.immediateCreditDelta,
+        remainingRatio: preview.remainingRatio,
+        currentPlanCode: preview.currentPlan?.code ?? null,
+        targetPlanCode: preview.targetPlan.code,
+      },
     });
   }
 
@@ -316,7 +324,12 @@ export class PaymentService implements OnModuleInit {
       if (!plan) {
         throw new NotFoundException('会员套餐不存在');
       }
-      if (Math.abs(Number(plan.price) - amount) >= 0.01) {
+      const allowCustomMembershipAmount =
+        dto.metadata &&
+        typeof dto.metadata === 'object' &&
+        !Array.isArray(dto.metadata) &&
+        Boolean((dto.metadata as Record<string, unknown>).membershipTransitionType);
+      if (!allowCustomMembershipAmount && Math.abs(Number(plan.price) - amount) >= 0.01) {
         throw new BadRequestException('会员订单金额与套餐价格不匹配');
       }
       if (credits !== 0) {
@@ -370,6 +383,7 @@ export class PaymentService implements OnModuleInit {
         status: PaymentStatus.PENDING, qrCodeUrl, expiredAt,
         membershipPlanId,
         ...(planSnapshot ? { planSnapshot } : {}),
+        ...(dto.metadata ? { metadata: dto.metadata as Prisma.InputJsonValue } : {}),
       },
     });
 

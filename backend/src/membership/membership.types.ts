@@ -15,6 +15,21 @@ export interface MembershipPlanSnapshot {
   metadata?: Prisma.JsonObject | null;
 }
 
+export interface MembershipNextChangeView {
+  id: string;
+  targetPlanId: string;
+  targetPlanCode: string;
+  targetPlanName: string;
+  targetBillingCycle: MembershipBillingCycle;
+  changeType: string;
+  effectiveMode: string;
+  status: string;
+  reason: string | null;
+  effectiveAt: Date;
+  currentPeriodEndAt: Date | null;
+  createdAt: Date;
+}
+
 export interface ActivatePaidMembershipOrderParams {
   tx: Prisma.TransactionClient;
   userId: string;

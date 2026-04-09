@@ -343,6 +343,32 @@ model UserMembershipSubscription {
   @@index([currentPeriodEndAt, status])
 }
 
+model MembershipSubscriptionChange {
+  id                    String   @id @default(uuid())
+  userId                String
+  currentSubscriptionId String?
+  targetPlanId          String
+  targetPlanCode        String
+  targetBillingCycle    String
+  changeType            String
+  effectiveMode         String
+  status                String   @default("scheduled")
+  reason                String?
+  orderId               String?
+  requestedBy           String?
+  currentPeriodEndAt    DateTime?
+  effectiveAt           DateTime
+  metadata              Json?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  appliedAt             DateTime?
+  cancelledAt           DateTime?
+
+  @@index([userId, status, effectiveAt])
+  @@index([currentSubscriptionId, status])
+  @@index([targetPlanId, status])
+}
+
 model MembershipEntitlementSnapshot {
   userId               String   @id
   currentPlanCode      String   @default("free")
