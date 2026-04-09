@@ -7,6 +7,7 @@ import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import { useLocaleText } from "@/utils/localeText";
+import { flowImagePreviewWell, flowLetterboxBackground, useFlowNodeDarkTheme } from "./flowNodeDarkTheme";
 
 type Props = {
   id: string;
@@ -89,6 +90,7 @@ function Seedream5Node({ id, data, selected }: Props) {
 
   const [hover, setHover] = React.useState<string | null>(null);
   const [showHelp, setShowHelp] = React.useState(false);
+  const isFlowDark = useFlowNodeDarkTheme();
 
   // 检测连接的图片数量
   const imageInputCount = useStore((state) => {
@@ -325,7 +327,6 @@ function Seedream5Node({ id, data, selected }: Props) {
         style={{
           width: "100%",
           minHeight: 160,
-          background: "#fff",
           borderRadius: 6,
           display: "flex",
           flexWrap: "wrap",
@@ -334,7 +335,10 @@ function Seedream5Node({ id, data, selected }: Props) {
           alignItems: "center",
           justifyContent: "center",
           overflow: "hidden",
-          border: "1px solid #eef0f2",
+          ...flowImagePreviewWell(isFlowDark, {
+            background: "#fff",
+            border: "1px solid #eef0f2",
+          }),
         }}
       >
         {images.length > 0 ? (
@@ -348,7 +352,7 @@ function Seedream5Node({ id, data, selected }: Props) {
                 height: images.length > 1 ? 78 : "100%",
                 minHeight: images.length > 1 ? 78 : 160,
                 objectFit: "contain",
-                background: "#fff",
+                background: flowLetterboxBackground(isFlowDark),
               }}
             />
           ))
@@ -360,7 +364,7 @@ function Seedream5Node({ id, data, selected }: Props) {
               width: "100%",
               height: "100%",
               objectFit: "contain",
-              background: "#fff",
+              background: flowLetterboxBackground(isFlowDark),
             }}
           />
         ) : (

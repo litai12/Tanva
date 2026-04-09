@@ -581,7 +581,7 @@ export class NodeConfigService {
         category: 'video',
         sortOrder: 22,
         creditsPerCall: 600,
-        serviceType: 'kling-video',
+        serviceType: 'kling-3.0-video',
         priceYuan: 6,
         description: '可灵Kling 3.0视频生成，走腾讯 VOD/旧链路模型管理',
         metadata: {
@@ -998,7 +998,7 @@ export class NodeConfigService {
         category: 'video',
         sortOrder: 22,
         creditsPerCall: 600,
-        serviceType: 'kling-video',
+        serviceType: 'kling-3.0-video',
         priceYuan: 6,
         description: '可灵Kling 3.0视频生成，走腾讯 VOD/旧链路模型管理',
         metadata: {

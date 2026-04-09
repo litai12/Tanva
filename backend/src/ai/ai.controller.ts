@@ -492,6 +492,18 @@ export class AiController {
       params.seedanceModel = dto.seedanceModel;
     }
 
+    if (typeof dto.mode === 'string' && dto.mode.trim().length > 0) {
+      params.mode = dto.mode.trim().toLowerCase();
+    }
+
+    if (typeof dto.sound !== 'undefined') {
+      params.sound = dto.sound;
+    }
+
+    if (typeof dto.duration === 'number' && Number.isFinite(dto.duration)) {
+      params.duration = Math.round(dto.duration);
+    }
+
     const assignRouteParams = (route: Awaited<ReturnType<typeof this.modelRoutingService.resolveVideoModel>>) => {
       if (!route) return false;
       params.modelKey = route.model.modelKey;
@@ -503,18 +515,29 @@ export class AiController {
       return true;
     };
 
-    if (dto.provider === 'kling-o3') {
-      assignRouteParams(await this.modelRoutingService.resolveVideoModel('kling-o3'));
+    const normalizedKlingModel =
+      typeof dto.klingModel === 'string' ? dto.klingModel.trim().toLowerCase() : '';
+
+    if (
+      (dto.provider === 'kling' ||
+        dto.provider === 'kling-2.6' ||
+        dto.provider === 'kling-o3') &&
+      normalizedKlingModel === 'kling-v3-0'
+    ) {
+      assignRouteParams(await this.modelRoutingService.resolveVideoModel('kling-3.0'));
       return params;
     }
 
-    if (dto.provider === 'kling-2.6' || (dto.provider === 'kling' && dto.klingModel === 'kling-v2-6')) {
+    if (
+      (dto.provider === 'kling' || dto.provider === 'kling-2.6') &&
+      (normalizedKlingModel === '' || normalizedKlingModel === 'kling-v2-6')
+    ) {
       assignRouteParams(await this.modelRoutingService.resolveVideoModel('kling-2.6'));
       return params;
     }
 
-    if (dto.provider === 'kling' && dto.klingModel === 'kling-v3-0') {
-      assignRouteParams(await this.modelRoutingService.resolveVideoModel('kling-3.0'));
+    if (dto.provider === 'kling-o3') {
+      assignRouteParams(await this.modelRoutingService.resolveVideoModel('kling-o3'));
       return params;
     }
 
@@ -538,6 +561,29 @@ export class AiController {
     params.routedProvider = dto.provider;
     params.providerChannel = dto.provider;
     return params;
+  }
+
+  private resolveVideoProviderServiceType(dto: VideoProviderRequestDto): ServiceType {
+    const normalizedKlingModel =
+      typeof dto.klingModel === 'string' ? dto.klingModel.trim().toLowerCase() : '';
+
+    if (
+      (dto.provider === 'kling' ||
+        dto.provider === 'kling-2.6' ||
+        dto.provider === 'kling-o3') &&
+      normalizedKlingModel === 'kling-v3-0'
+    ) {
+      return 'kling-3.0-video';
+    }
+
+    if (
+      (dto.provider === 'kling' || dto.provider === 'kling-2.6') &&
+      (normalizedKlingModel === '' || normalizedKlingModel === 'kling-v2-6')
+    ) {
+      return 'kling-2.6-video';
+    }
+
+    return `${dto.provider}-video` as ServiceType;
   }
 
   private emitVideoProviderGenerationTaskLog(params: {
@@ -2456,20 +2502,34 @@ export class AiController {
           providerOptions: dto.providerOptions,
         });
         if (result.success && result.data) {
+          const text =
+            typeof result.data.text === 'string' ? result.data.text.trim() : '';
+          if (!text) {
+            throw new ServiceUnavailableException(
+              'Analysis returned empty response, please try again later',
+            );
+          }
           return {
-            text: result.data.text,
+            text,
           };
         }
         throw new Error(result.error?.message || 'Failed to analyze image');
       }
 
       // gemini 和 gemini-pro 都使用默认的 Gemini 服务
-      return this.imageGeneration.analyzeImage({
+      const result = await this.imageGeneration.analyzeImage({
         ...dto,
         sourceImage: primarySourceImage,
         sourceImages: normalizedImages,
         customApiKey,
       });
+      const text = typeof result?.text === 'string' ? result.text.trim() : '';
+      if (!text) {
+        throw new ServiceUnavailableException(
+          'Analysis returned empty response, please try again later',
+        );
+      }
+      return { text };
     }, normalizedImages.length, 0, skipCredits, this.buildCreditRequestParams(providerName));
   }
 
@@ -3182,7 +3242,6 @@ export class AiController {
    */
   @Post('generate-video-provider')
   async generateVideoProvider(@Body() dto: VideoProviderRequestDto, @Req() req: any) {
-    const serviceType: ServiceType = `${dto.provider}-video` as ServiceType;
     const userId = this.getUserId(req);
     const effectiveDto: VideoProviderRequestDto = { ...dto };
 
@@ -3193,6 +3252,7 @@ export class AiController {
         effectiveDto.watermark = false;
       }
     }
+    const serviceType = this.resolveVideoProviderServiceType(effectiveDto);
 
     // 如果没有用户ID（API Key认证），直接执行操作
     if (!userId) {
@@ -3206,12 +3266,17 @@ export class AiController {
     await this.creditsService.getOrCreateAccount(userId);
     const startTime = Date.now();
     const requestParams = await this.buildVideoProviderCreditParams(effectiveDto);
+    const billingModel =
+      effectiveDto.klingModel ||
+      effectiveDto.viduModel ||
+      effectiveDto.seedanceModel ||
+      effectiveDto.provider;
 
     // 预扣积分
     const deductResult = await this.creditsService.preDeductCredits({
       userId,
       serviceType,
-      model: effectiveDto.provider,
+      model: billingModel,
       inputImageCount: effectiveDto.referenceImages?.length || undefined,
       outputImageCount: 0,
       requestParams,

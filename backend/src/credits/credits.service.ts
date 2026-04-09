@@ -56,6 +56,7 @@ const STALE_PENDING_VIDEO_SERVICE_TYPES: ServiceType[] = [
   'wan26-video',
   'kling-video',
   'kling-2.6-video',
+  'kling-3.0-video',
   'kling-o3-video',
   'vidu-video',
   'viduq3-pro-video',
@@ -73,6 +74,7 @@ const FREE_USER_VIDEO_LIMITED_SERVICES: ServiceType[] = [
   'wan26-r2v',
   'kling-video',
   'kling-2.6-video',
+  'kling-3.0-video',
   'kling-o3-video',
   'vidu-video',
   'viduq3-pro-video',
@@ -106,6 +108,7 @@ export interface ApiUsageParams {
 }
 
 type SoraBillingModel = 'sora-2' | 'sora-2-vip' | 'sora-2-pro';
+type KlingBillingModel = 'kling-v2-6' | 'kling-v3-0' | 'kling-o3';
 
 @Injectable()
 export class CreditsService {
@@ -201,6 +204,99 @@ export class CreditsService {
     }
 
     return defaultServiceName;
+  }
+
+  private normalizeKlingBillingModel(
+    raw: unknown,
+    serviceType: ServiceType,
+  ): KlingBillingModel | null {
+    if (typeof raw === 'string') {
+      const value = raw.trim().toLowerCase();
+      if (value === 'kling-v2-6') return 'kling-v2-6';
+      if (value === 'kling-v3-0') return 'kling-v3-0';
+      if (value === 'kling-o3' || value === 'kling-v3-omni') return 'kling-o3';
+    }
+
+    if (serviceType === 'kling-3.0-video') return 'kling-v3-0';
+    if (serviceType === 'kling-2.6-video' || serviceType === 'kling-video') {
+      return 'kling-v2-6';
+    }
+    if (serviceType === 'kling-o3-video') return 'kling-o3';
+
+    return null;
+  }
+
+  private normalizeKlingMode(raw: unknown): 'std' | 'pro' {
+    if (typeof raw === 'string' && raw.trim().toLowerCase() === 'pro') {
+      return 'pro';
+    }
+    return 'std';
+  }
+
+  private normalizeKlingDuration(raw: unknown): 5 | 10 | null {
+    const value = Number(raw);
+    if (value === 5 || value === 10) return value;
+    return null;
+  }
+
+  private normalizeKlingSound(raw: unknown): boolean {
+    if (typeof raw === 'boolean') return raw;
+    if (typeof raw !== 'string') return false;
+    const value = raw.trim().toLowerCase();
+    if (['on', 'yes', 'true', '1'].includes(value)) return true;
+    if (['off', 'no', 'false', '0'].includes(value)) return false;
+    return false;
+  }
+
+  private resolveKlingModelCredits(
+    serviceType: ServiceType,
+    defaultCredits: number,
+    requestParams: any,
+  ): number {
+    const model = this.normalizeKlingBillingModel(requestParams?.klingModel, serviceType);
+    if (model !== 'kling-v2-6' && model !== 'kling-v3-0') {
+      return defaultCredits;
+    }
+
+    const duration = this.normalizeKlingDuration(requestParams?.duration);
+    if (!duration) {
+      return defaultCredits;
+    }
+
+    const mode = this.normalizeKlingMode(requestParams?.mode);
+    const hasSound = this.normalizeKlingSound(requestParams?.sound);
+    const pricing = CREDIT_PRICING_CONFIG[serviceType] as any;
+    const matrix = hasSound ? pricing?.dynamicPricing?.withSound : pricing?.dynamicPricing?.noSound;
+    const configuredCredits = Number(matrix?.[mode]?.[String(duration)]);
+    if (Number.isFinite(configuredCredits) && configuredCredits > 0) {
+      return configuredCredits;
+    }
+
+    return defaultCredits;
+  }
+
+  private resolveKlingServiceName(
+    serviceType: ServiceType,
+    defaultServiceName: string,
+    requestParams: any,
+  ): string {
+    const model = this.normalizeKlingBillingModel(requestParams?.klingModel, serviceType);
+    if (model !== 'kling-v2-6' && model !== 'kling-v3-0') {
+      return defaultServiceName;
+    }
+
+    const mode = this.normalizeKlingMode(requestParams?.mode);
+    const hasSound = this.normalizeKlingSound(requestParams?.sound);
+    const duration = this.normalizeKlingDuration(requestParams?.duration);
+
+    const modelLabel = model === 'kling-v3-0' ? 'Kling 3.0' : 'Kling 2.6';
+    const modeLabel = mode === 'pro' ? 'Pro' : 'Std';
+    const soundLabel = hasSound ? '有音效' : '无音效';
+
+    if (duration) {
+      return `可灵 ${modelLabel} 视频（${soundLabel} / ${modeLabel} / ${duration}秒）`;
+    }
+    return `可灵 ${modelLabel} 视频（${soundLabel} / ${modeLabel}）`;
   }
 
   /**
@@ -1300,6 +1396,13 @@ export class CreditsService {
       model,
     );
 
+    // 处理 Kling 2.6 / 3.0 按模型、音效、模式、时长阶梯计费
+    creditsToDeduct = this.resolveKlingModelCredits(
+      serviceType,
+      creditsToDeduct,
+      requestParams,
+    );
+
     // 处理图像生成服务的分辨率定价
     creditsToDeduct = this.resolveImageResolutionCredits(
       serviceType,
@@ -1397,11 +1500,16 @@ export class CreditsService {
       const newBalance = account.balance - deductionPlan.totalDeducted;
 
       // Sora 按模型区分显示名称：Pro 750 积分显示「Sora 2 Pro 视频生成」
-      const effectiveServiceName = this.resolveSoraServiceName(
+      let effectiveServiceName = this.resolveSoraServiceName(
         serviceType,
         pricing.serviceName,
         requestParams,
         model,
+      );
+      effectiveServiceName = this.resolveKlingServiceName(
+        serviceType,
+        effectiveServiceName,
+        requestParams,
       );
 
       // 更新账户余额

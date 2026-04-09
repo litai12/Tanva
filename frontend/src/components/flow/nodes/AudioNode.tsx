@@ -3,6 +3,12 @@ import React from "react";
 import { Handle, Position, useReactFlow, useStore, type ReactFlowState } from "reactflow";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { useLocaleText } from "@/utils/localeText";
+import {
+  useFlowNodeDarkTheme,
+  FLOW_NODE_DARK_SURFACE,
+  flowAudioPlayerShell,
+  flowNodeShellChrome,
+} from "./flowNodeDarkTheme";
 
 const MAX_AUDIO_NAME_LENGTH = 28;
 const MAX_AUDIO_SIZE = 100 * 1024 * 1024; // 100MB
@@ -120,6 +126,7 @@ const AudioContent = React.memo(
     status,
     error,
     lt,
+    isDark,
   }: {
     audioUrl?: string;
     mimeType?: string;
@@ -129,6 +136,7 @@ const AudioContent = React.memo(
     status?: string;
     error?: string;
     lt: (zhText: string, enText: string) => string;
+    isDark: boolean;
   }) => (
     <div
       onDrop={onDrop}
@@ -137,13 +145,15 @@ const AudioContent = React.memo(
       style={{
         height: COMPACT_CONTENT_HEIGHT,
         minHeight: COMPACT_CONTENT_HEIGHT,
-        background: "#f8fafc",
+        background: isDark ? FLOW_NODE_DARK_SURFACE.audioDropzoneBg : "#f8fafc",
         borderRadius: 6,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         overflow: "hidden",
-        border: "1px solid #e5e7eb",
+        border: isDark
+          ? `1px solid ${FLOW_NODE_DARK_SURFACE.audioDropzoneBorder}`
+          : "1px solid #e5e7eb",
         cursor: "pointer",
         padding: 12,
       }}
@@ -158,9 +168,11 @@ const AudioContent = React.memo(
           {error || lt("上传失败", "Upload failed")}
         </span>
       ) : audioUrl ? (
-        <audio controls style={{ width: "100%" }}>
-          <source src={audioUrl} type={mimeType || "audio/mpeg"} />
-        </audio>
+        <div style={flowAudioPlayerShell(isDark)}>
+          <audio controls style={{ width: "100%" }}>
+            <source src={audioUrl} type={mimeType || "audio/mpeg"} />
+          </audio>
+        </div>
       ) : (
         <div style={{ textAlign: "center", color: "#6b7280" }}>
           <div style={{ fontSize: 12 }}>
@@ -177,6 +189,7 @@ const AudioContent = React.memo(
 
 function AudioNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
+  const isFlowDark = useFlowNodeDarkTheme();
   const rf = useReactFlow();
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   const projectId = useProjectContentStore((state) => state.projectId);
@@ -216,10 +229,13 @@ function AudioNodeInner({ id, data, selected }: Props) {
     )
   );
 
-  const borderColor = selected ? "#2563eb" : "#e5e7eb";
+  const shell = flowNodeShellChrome(isFlowDark, !!selected);
   const boxShadow = selected
     ? "0 0 0 2px rgba(37,99,235,0.12)"
     : "0 1px 2px rgba(0,0,0,0.04)";
+  const secondaryBtn = isFlowDark
+    ? { background: "#2a2a2a", border: "1px solid #404040", color: "#e5e7eb" }
+    : { background: "#ffffff", border: "1px solid #e5e7eb", color: "#111827" };
 
   const truncatedAudioName = React.useMemo(() => {
     const name = data.audioName || "";
@@ -359,8 +375,9 @@ function AudioNodeInner({ id, data, selected }: Props) {
         width: data.boxW || 320,
         height: nodeHeight,
         padding: 8,
-        background: "#fff",
-        border: `1px solid ${borderColor}`,
+        background: shell.background,
+        color: shell.color,
+        border: `1px solid ${shell.borderColor}`,
         borderRadius: 8,
         boxShadow,
         transition: "border-color 0.15s ease, box-shadow 0.15s ease",
@@ -377,7 +394,7 @@ function AudioNodeInner({ id, data, selected }: Props) {
           marginBottom: 6,
         }}
       >
-        <div style={{ fontWeight: 600 }}>{data.label || lt("语音节点", "Audio Node")}</div>
+        <div style={{ fontWeight: 600, color: shell.color }}>{data.label || lt("语音节点", "Audio Node")}</div>
         <div style={{ display: "flex", gap: 6 }}>
           {hasInputConnection && (
             <button
@@ -386,8 +403,9 @@ function AudioNodeInner({ id, data, selected }: Props) {
                 fontSize: 12,
                 padding: "4px 8px",
                 borderRadius: 6,
-                border: "1px solid #e5e7eb",
-                background: "#fff",
+                border: secondaryBtn.border,
+                background: secondaryBtn.background,
+                color: secondaryBtn.color,
                 cursor: "pointer",
               }}
             >
@@ -401,8 +419,9 @@ function AudioNodeInner({ id, data, selected }: Props) {
                 fontSize: 12,
                 padding: "4px 8px",
                 borderRadius: 6,
-                border: "1px solid #e5e7eb",
-                background: "#fff",
+                border: secondaryBtn.border,
+                background: secondaryBtn.background,
+                color: secondaryBtn.color,
                 cursor: "pointer",
               }}
             >
@@ -424,7 +443,7 @@ function AudioNodeInner({ id, data, selected }: Props) {
         <div
           style={{
             fontSize: 12,
-            color: "#6b7280",
+            color: isFlowDark ? "#9ca3af" : "#6b7280",
             marginBottom: 4,
             whiteSpace: "nowrap",
             overflow: "hidden",
@@ -445,6 +464,7 @@ function AudioNodeInner({ id, data, selected }: Props) {
         status={data.status}
         error={data.error}
         lt={lt}
+        isDark={isFlowDark}
       />
 
       <Handle

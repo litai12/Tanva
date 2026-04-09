@@ -78,9 +78,6 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
   // 主题切换时，仅在默认黑/白之间自动同步；用户自定义颜色不覆盖。
   useEffect(() => {
     setDefaultStyle((prev) => {
-      if (prev.color !== '#000000' && prev.color !== '#ffffff') {
-        return prev;
-      }
       if (prev.color === autoDefaultTextColor) {
         return prev;
       }
@@ -111,7 +108,8 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
       id = `text_${++textIdCounter.current}`;
     }
     
-    const textStyle = { ...defaultStyle, ...style };
+    const resolvedColor = style?.color ?? autoDefaultTextColor;
+    const textStyle = { ...defaultStyle, ...style, color: resolvedColor };
     
     const paperText = new paper.PointText({
       point: [point.x, point.y],
@@ -156,7 +154,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     logger.debug(`📝 创建简单文本: ${id}`, { content, position: point });
     try { historyService.commit('create-text').catch(() => {}); } catch {}
     return textItem;
-  }, [defaultStyle, ensureDrawingLayer, setDrawMode]);
+  }, [autoDefaultTextColor, defaultStyle, ensureDrawingLayer, setDrawMode]);
 
   // 选择文本
   const selectText = useCallback((textId: string, multiSelect: boolean = false) => {

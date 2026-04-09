@@ -6,6 +6,13 @@ import { canvasToBlob, createImageBitmapLimited } from '@/utils/imageConcurrency
 import { imageUploadService } from '@/services/imageUploadService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { pickLocaleText, useLocaleText } from '@/utils/localeText';
+import {
+  flowLetterboxBackground,
+  flowNodeControlField,
+  flowNodeMutedWellBackground,
+  flowNodeShellChrome,
+  useFlowNodeDarkTheme,
+} from './flowNodeDarkTheme';
 
 type CompressionLevel = 'light' | 'balanced' | 'strong';
 
@@ -298,6 +305,7 @@ const compressBlob = async (
 
 function ImageCompressNodeInner({ id, data, selected = false }: Props) {
   const { lt } = useLocaleText();
+  const isFlowDark = useFlowNodeDarkTheme();
   const projectId = useProjectContentStore((s) => s.projectId);
   const [isProcessing, setIsProcessing] = React.useState(false);
   const levelLabels = React.useMemo(
@@ -309,7 +317,8 @@ function ImageCompressNodeInner({ id, data, selected = false }: Props) {
     [lt]
   );
 
-  const borderColor = selected ? '#2563eb' : '#e5e7eb';
+  const shell = flowNodeShellChrome(isFlowDark, !!selected);
+  const controlField = flowNodeControlField(isFlowDark);
   const boxShadow = selected
     ? '0 0 0 2px rgba(37,99,235,0.12)'
     : '0 1px 2px rgba(0,0,0,0.04)';
@@ -547,8 +556,9 @@ function ImageCompressNodeInner({ id, data, selected = false }: Props) {
       style={{
         width: 300,
         padding: 10,
-        background: '#fff',
-        border: `1px solid ${borderColor}`,
+        background: shell.background,
+        color: shell.color,
+        border: `1px solid ${shell.borderColor}`,
         borderRadius: 8,
         boxShadow,
         transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
@@ -559,7 +569,7 @@ function ImageCompressNodeInner({ id, data, selected = false }: Props) {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ fontWeight: 600 }}>Image Compress</div>
+        <div style={{ fontWeight: 600, color: shell.color }}>Image Compress</div>
         <button
           onClick={handleCompress}
           disabled={!connectedInput || isProcessing || data.status === 'processing'}
@@ -578,7 +588,7 @@ function ImageCompressNodeInner({ id, data, selected = false }: Props) {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <label htmlFor={`compress-level-${id}`} style={{ fontSize: 12, color: '#4b5563', whiteSpace: 'nowrap' }}>
+        <label htmlFor={`compress-level-${id}`} style={{ fontSize: 12, color: isFlowDark ? '#9ca3af' : '#4b5563', whiteSpace: 'nowrap' }}>
           {lt('压缩档位', 'Compression Level')}
         </label>
         <select
@@ -593,11 +603,9 @@ function ImageCompressNodeInner({ id, data, selected = false }: Props) {
           style={{
             flex: 1,
             fontSize: 12,
-            border: '1px solid #d1d5db',
             borderRadius: 6,
             padding: '6px 8px',
-            background: '#fff',
-            color: '#111827',
+            ...controlField,
           }}
         >
           {(Object.keys(PRESET_CONFIG) as CompressionLevel[]).map((key) => (
@@ -612,9 +620,9 @@ function ImageCompressNodeInner({ id, data, selected = false }: Props) {
         style={{
           width: '100%',
           height: 170,
-          background: '#f9fafb',
+          background: flowNodeMutedWellBackground(isFlowDark),
           borderRadius: 8,
-          border: '1px solid #e5e7eb',
+          border: `1px solid ${isFlowDark ? '#333333' : '#e5e7eb'}`,
           overflow: 'hidden',
         }}
       >
@@ -622,7 +630,7 @@ function ImageCompressNodeInner({ id, data, selected = false }: Props) {
           <SmartImage
             src={previewImageRef}
             alt='Compressed preview'
-            style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff' }}
+            style={{ width: '100%', height: '100%', objectFit: 'contain', background: flowLetterboxBackground(isFlowDark) }}
             loading='lazy'
           />
         ) : (
@@ -642,7 +650,7 @@ function ImageCompressNodeInner({ id, data, selected = false }: Props) {
         )}
       </div>
 
-      <div style={{ fontSize: 12, color: '#4b5563', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+      <div style={{ fontSize: 12, color: isFlowDark ? '#9ca3af' : '#4b5563', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
         <div>{lt('状态', 'Status')}: {data.status || 'idle'}</div>
         <div>{lt('体积比', 'Size Ratio')}: {displayRatio}</div>
         <div>

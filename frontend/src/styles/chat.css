@@ -879,18 +879,18 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node-tex
 
 body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node-textChat textarea,
 body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node-textChat input:not([type="checkbox"]):not([type="radio"]) {
-  background: #eef2f7 !important;
-  border: 1px solid #cbd5e1 !important;
-  color: #374151 !important;
+  background: #2a2a2a !important;
+  border: 1px solid #3d3d3d !important;
+  color: #8a8a8a !important;
 }
 
 body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node-textChat textarea::placeholder,
 body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node-textChat input:not([type="checkbox"]):not([type="radio"])::placeholder {
-  color: #6b7280 !important;
+  color: #666666 !important;
 }
 
 body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node-textChat input[type="checkbox"] {
-  accent-color: #ffffff;
+  accent-color: #8a8a8a;
 }
 
 body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .tanva-agent-toolbar {
@@ -1589,4 +1589,186 @@ body.tanva-premium-black-theme .tanva-context-menu .tanva-context-menu-item.tanv
 body.tanva-premium-black-theme .tanva-context-menu .tanva-context-menu-item svg {
   color: currentColor !important;
   stroke: currentColor !important;
+}
+
+/* Premium black theme: stronger selected-state contrast for video nodes */
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(
+  .react-flow__node-sora2Video,
+  .react-flow__node-sora2Character,
+  .react-flow__node-klingVideo,
+  .react-flow__node-kling26Video,
+  .react-flow__node-kling30Video,
+  .react-flow__node-klingO1Video,
+  .react-flow__node-viduVideo,
+  .react-flow__node-viduQ3,
+  .react-flow__node-doubaoVideo,
+  .react-flow__node-seedance20Video,
+  .react-flow__node-wan26,
+  .react-flow__node-wan2R2V
+) button {
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(
+  .react-flow__node-sora2Video,
+  .react-flow__node-sora2Character,
+  .react-flow__node-klingVideo,
+  .react-flow__node-kling26Video,
+  .react-flow__node-kling30Video,
+  .react-flow__node-klingO1Video,
+  .react-flow__node-viduVideo,
+  .react-flow__node-viduQ3,
+  .react-flow__node-doubaoVideo,
+  .react-flow__node-seedance20Video,
+  .react-flow__node-wan26,
+  .react-flow__node-wan2R2V
+) :is(
+  button:not(.tanva-video-header-btn)[style*="background: #fff"],
+  button:not(.tanva-video-header-btn)[style*="background:#fff"],
+  button:not(.tanva-video-header-btn)[style*="background: #ffffff"],
+  button:not(.tanva-video-header-btn)[style*="background:#ffffff"],
+  button:not(.tanva-video-header-btn)[style*="background: rgb(255, 255, 255)"]
+) {
+  background: #2f2f2f !important;
+  border-color: #4a4a4a !important;
+  color: #bdbdbd !important;
+  box-shadow: none !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(
+  .react-flow__node-sora2Video,
+  .react-flow__node-sora2Character,
+  .react-flow__node-klingVideo,
+  .react-flow__node-kling26Video,
+  .react-flow__node-kling30Video,
+  .react-flow__node-klingO1Video,
+  .react-flow__node-viduVideo,
+  .react-flow__node-viduQ3,
+  .react-flow__node-doubaoVideo,
+  .react-flow__node-seedance20Video,
+  .react-flow__node-wan26,
+  .react-flow__node-wan2R2V
+) button:not(.tanva-video-header-btn)[style*="background: transparent"] {
+  background: #262626 !important;
+  border-color: #3f3f3f !important;
+  color: #8f8f8f !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(
+  .react-flow__node-sora2Video,
+  .react-flow__node-sora2Character,
+  .react-flow__node-klingVideo,
+  .react-flow__node-kling26Video,
+  .react-flow__node-kling30Video,
+  .react-flow__node-klingO1Video,
+  .react-flow__node-viduVideo,
+  .react-flow__node-viduQ3,
+  .react-flow__node-doubaoVideo,
+  .react-flow__node-seedance20Video,
+  .react-flow__node-wan26,
+  .react-flow__node-wan2R2V
+) :is(
+  button:not(.tanva-video-header-btn)[style*="background: #111827"],
+  button:not(.tanva-video-header-btn)[style*="background:#111827"],
+  button:not(.tanva-video-header-btn)[style*="background: #1f2937"],
+  button:not(.tanva-video-header-btn)[style*="background:#1f2937"],
+  button:not(.tanva-video-header-btn)[style*="background: #2563eb"],
+  button:not(.tanva-video-header-btn)[style*="background:#2563eb"],
+  button:not(.tanva-video-header-btn)[style*="background: #3b82f6"],
+  button:not(.tanva-video-header-btn)[style*="background:#3b82f6"],
+  button:not(.tanva-video-header-btn)[style*="background: #eff6ff"],
+  button:not(.tanva-video-header-btn)[style*="background:#eff6ff"],
+  button:not(.tanva-video-header-btn)[style*="background: #eef2ff"],
+  button:not(.tanva-video-header-btn)[style*="background:#eef2ff"],
+  button:not(.tanva-video-header-btn)[style*="background: rgb(17, 24, 39)"],
+  button:not(.tanva-video-header-btn)[style*="background: rgb(31, 41, 55)"],
+  button:not(.tanva-video-header-btn)[style*="background: rgb(37, 99, 235)"],
+  button:not(.tanva-video-header-btn)[style*="background: rgb(59, 130, 246)"],
+  button:not(.tanva-video-header-btn)[style*="background: rgb(239, 246, 255)"],
+  button:not(.tanva-video-header-btn)[style*="background: rgb(238, 242, 255)"]
+) {
+  background: #5e5e5e !important;
+  border-color: #858585 !important;
+  color: #ffffff !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16) !important;
+}
+
+/* Sora2 segmented mode buttons: active is white in source styles, so add dedicated active/inactive contrast */
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(.react-flow__node-sora2Video, .react-flow__node-sora2Character) [style*="background: #f1f5f9"] {
+  background: #232323 !important;
+  border: 1px solid #3c3c3c !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(.react-flow__node-sora2Video, .react-flow__node-sora2Character) [style*="background: #f1f5f9"] > button[style*="background: #fff"],
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(.react-flow__node-sora2Video, .react-flow__node-sora2Character) [style*="background: #f1f5f9"] > button[style*="background: #ffffff"],
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(.react-flow__node-sora2Video, .react-flow__node-sora2Character) [style*="background: #f1f5f9"] > button[style*="background: rgb(255, 255, 255)"] {
+  background: #5e5e5e !important;
+  border: 1px solid #858585 !important;
+  color: #ffffff !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16) !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(.react-flow__node-sora2Video, .react-flow__node-sora2Character) [style*="background: #f1f5f9"] > button[style*="background: transparent"] {
+  background: #2f2f2f !important;
+  border: 1px solid #4a4a4a !important;
+  color: #9b9b9b !important;
+  box-shadow: none !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(
+  .react-flow__node-sora2Video,
+  .react-flow__node-sora2Character,
+  .react-flow__node-klingVideo,
+  .react-flow__node-kling26Video,
+  .react-flow__node-kling30Video,
+  .react-flow__node-klingO1Video,
+  .react-flow__node-viduVideo,
+  .react-flow__node-viduQ3,
+  .react-flow__node-doubaoVideo,
+  .react-flow__node-seedance20Video,
+  .react-flow__node-wan26,
+  .react-flow__node-wan2R2V
+) button:not(.tanva-video-header-btn):disabled {
+  background: #2a2a2a !important;
+  border-color: #3a3a3a !important;
+  color: #777777 !important;
+  box-shadow: none !important;
+}
+
+/* Video node: help button should have no border line in dark theme */
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(
+  .react-flow__node-klingVideo,
+  .react-flow__node-kling26Video,
+  .react-flow__node-kling30Video,
+  .react-flow__node-klingO1Video
+) .tanva-video-header-btn.tanva-video-header-help {
+  border: none !important;
+  border-color: transparent !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(
+  .react-flow__node-klingVideo,
+  .react-flow__node-kling26Video,
+  .react-flow__node-kling30Video,
+  .react-flow__node-klingO1Video
+) .tanva-video-header-btn.tanva-video-header-help:focus,
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(
+  .react-flow__node-klingVideo,
+  .react-flow__node-kling26Video,
+  .react-flow__node-kling30Video,
+  .react-flow__node-klingO1Video
+) .tanva-video-header-btn.tanva-video-header-help:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Dark theme: text note node should use white content text and gray placeholder */
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node-textNote .tanva-textnote-editor {
+  color: #ffffff !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node-textNote .tanva-textnote-editor[contenteditable="true"]:empty:before {
+  color: #7a7a7a !important;
 }

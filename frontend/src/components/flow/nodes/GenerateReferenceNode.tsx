@@ -11,6 +11,7 @@ import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import { useLocaleText } from "@/utils/localeText";
+import { flowImagePreviewWell, flowLetterboxBackground, useFlowNodeDarkTheme } from "./flowNodeDarkTheme";
 import { explainGenerateReferenceImageError } from "@/utils/flowGenerateRefErrors";
 
 type Props = {
@@ -55,6 +56,7 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
   const boxShadow = selected
     ? "0 0 0 2px rgba(37,99,235,0.12)"
     : "0 1px 2px rgba(0,0,0,0.04)";
+  const isFlowDark = useFlowNodeDarkTheme();
 
   const projectId = useProjectContentStore((state) => state.projectId);
   const history = useImageHistoryStore((state) => state.history);
@@ -206,13 +208,15 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
         style={{
           width: "100%",
           height: 140,
-          background: "#fff",
           borderRadius: 6,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           overflow: "hidden",
-          border: "1px solid #eef0f2",
+          ...flowImagePreviewWell(isFlowDark, {
+            background: "#fff",
+            border: "1px solid #eef0f2",
+          }),
         }}
         title={displaySrc ? lt("双击预览", "Double click to preview") : undefined}
       >
@@ -224,7 +228,7 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
               width: "100%",
               height: "100%",
               objectFit: "contain",
-              background: "#fff",
+              background: flowLetterboxBackground(isFlowDark),
             }}
           />
         ) : (
