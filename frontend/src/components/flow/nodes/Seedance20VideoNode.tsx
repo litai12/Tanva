@@ -14,6 +14,10 @@ function Seedance20VideoNode({ id, data, selected }: Props) {
         ...data,
         provider: "doubao" as VideoProvider,
         seedanceModel: data?.seedanceModel || "seedance-2.0",
+        seedanceMode: data?.seedanceMode || "text",
+        clipDuration: data?.clipDuration || 5,
+        resolution: data?.resolution || "720P",
+        generateAudio: typeof data?.generateAudio === "boolean" ? data.generateAudio : false,
       }}
       selected={selected}
     />

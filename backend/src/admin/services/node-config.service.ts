@@ -87,6 +87,27 @@ const buildVodNodeMetadata = (
   vod,
 });
 
+const SEEDANCE20_SUPPORTED_MODELS = ['seedance-2.0', 'seedance-2.0-fast'];
+const SEEDANCE20_ASPECT_RATIOS = ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'];
+const SEEDANCE20_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+const SEEDANCE20_RESOLUTIONS = ['480P', '720P'];
+const SEEDANCE20_INPUT_MODES = [
+  'text',
+  'first_frame',
+  'start_end',
+  'reference_images',
+  'smart_frames',
+  'reference_video',
+  'image_audio',
+  'image_video',
+  'video_audio',
+  'image_video_audio',
+];
+const SEEDANCE20_NOTES = [
+  '当前接入模型 ID: doubao-seedance-2-0-260128 / doubao-seedance-2-0-fast-260128',
+  '全能参考支持 1-9 张图片，首尾帧固定 2 张，智能多帧支持 2-10 张图片',
+];
+
 @Injectable()
 export class NodeConfigService {
   private readonly logger = new Logger(NodeConfigService.name);
@@ -404,10 +425,10 @@ export class NodeConfigService {
 
     const isSeedance20 = config.nodeKey === 'seedance20Video';
     const modelVersion = isSeedance20 ? '2.0' : '1.5-pro';
-    const supportedModels = isSeedance20 ? ['seedance-2.0'] : ['seedance-1.5-pro'];
-    const resolutions = isSeedance20 ? ['720P', '1080P'] : ['720P'];
+    const supportedModels = isSeedance20 ? SEEDANCE20_SUPPORTED_MODELS : ['seedance-1.5-pro'];
+    const resolutions = isSeedance20 ? SEEDANCE20_RESOLUTIONS : ['720P'];
     const notes = isSeedance20
-      ? ['当前接入模型 ID: doubao-seedance-2-0-260128']
+      ? SEEDANCE20_NOTES
       : ['1.5-Pro 当前接入默认分辨率限制为 720P'];
 
     const metadata = {
@@ -423,6 +444,8 @@ export class NodeConfigService {
             seedanceModel: isSeedance20 ? 'seedance-2.0' : 'seedance-1.5-pro',
             clipDuration: 5,
             resolution: '720P',
+            seedanceMode: isSeedance20 ? 'text' : undefined,
+            generateAudio: isSeedance20 ? false : undefined,
             camerafixed: false,
             watermark: false,
           },
@@ -432,11 +455,12 @@ export class NodeConfigService {
           modelName: 'Seedance',
           modelVersion,
           outputConfig: {
-            aspectRatios: ['16:9', '9:16', '1:1'],
-            durations: [3, 4, 5, 6, 7, 8, 9, 10],
+            aspectRatios: isSeedance20 ? SEEDANCE20_ASPECT_RATIOS : ['16:9', '9:16', '1:1'],
+            durations: isSeedance20 ? SEEDANCE20_DURATIONS : [3, 4, 5, 6, 7, 8, 9, 10],
             resolutions,
+            audioGeneration: isSeedance20,
           },
-          inputModes: ['text', 'image'],
+          inputModes: isSeedance20 ? SEEDANCE20_INPUT_MODES : ['text', 'image'],
           notes,
         },
         {
@@ -949,12 +973,14 @@ export class NodeConfigService {
               type: 'doubaoVideo',
               provider: 'doubao',
               modelKeys: ['seedance-2.0'],
-              supportedModels: ['seedance-2.0'],
+              supportedModels: SEEDANCE20_SUPPORTED_MODELS,
               defaultData: {
                 provider: 'doubao',
                 seedanceModel: 'seedance-2.0',
                 clipDuration: 5,
                 resolution: '720P',
+                seedanceMode: 'text',
+                generateAudio: false,
               },
             },
             {
@@ -962,12 +988,13 @@ export class NodeConfigService {
               modelName: 'Seedance',
               modelVersion: '2.0',
               outputConfig: {
-                aspectRatios: ['16:9', '9:16', '1:1'],
-                durations: [3, 4, 5, 6, 7, 8, 9, 10],
-                resolutions: ['720P', '1080P'],
+                aspectRatios: SEEDANCE20_ASPECT_RATIOS,
+                durations: SEEDANCE20_DURATIONS,
+                resolutions: SEEDANCE20_RESOLUTIONS,
+                audioGeneration: true,
               },
-              inputModes: ['text', 'image'],
-              notes: ['当前接入模型 ID: doubao-seedance-2-0-260128'],
+              inputModes: SEEDANCE20_INPUT_MODES,
+              notes: SEEDANCE20_NOTES,
             },
             {
               nodeKind: 'ark_video_generation',
@@ -1357,10 +1384,14 @@ export class NodeConfigService {
               type: 'doubaoVideo',
               provider: 'doubao',
               modelKeys: ['seedance-2.0'],
-              supportedModels: ['seedance-2.0'],
+              supportedModels: SEEDANCE20_SUPPORTED_MODELS,
               defaultData: {
                 provider: 'doubao',
                 seedanceModel: 'seedance-2.0',
+                clipDuration: 5,
+                resolution: '720P',
+                seedanceMode: 'text',
+                generateAudio: false,
                 camerafixed: false,
                 watermark: false,
               },
@@ -1370,12 +1401,13 @@ export class NodeConfigService {
               modelName: 'Seedance',
               modelVersion: '2.0',
               outputConfig: {
-                aspectRatios: ['16:9', '9:16', '1:1'],
-                durations: [3, 4, 5, 6, 7, 8, 9, 10],
-                resolutions: ['720P', '1080P'],
+                aspectRatios: SEEDANCE20_ASPECT_RATIOS,
+                durations: SEEDANCE20_DURATIONS,
+                resolutions: SEEDANCE20_RESOLUTIONS,
+                audioGeneration: true,
               },
-              inputModes: ['text', 'image'],
-              notes: ['当前接入模型 ID: doubao-seedance-2-0-260128'],
+              inputModes: SEEDANCE20_INPUT_MODES,
+              notes: SEEDANCE20_NOTES,
             },
             {
               nodeKind: 'ark_video_generation',

@@ -409,11 +409,12 @@ const DEFAULT_SEEDANCE20_V2_VENDOR_METADATA = {
         "Content-Type": "application/json",
       },
       body: {
-        model: "doubao-seedance-2-0-260128",
+        model: "{{request.seedanceUpstreamModelId}}",
         content: "{{request.content}}",
         generate_audio: "{{request.generateAudio}}",
         ratio: "{{request.aspectRatio}}",
         duration: "{{request.duration}}",
+        resolution: "{{request.resolution}}",
         watermark: "{{request.watermark}}",
       },
       responseMapping: {
@@ -434,6 +435,32 @@ const DEFAULT_SEEDANCE20_V2_VENDOR_METADATA = {
       },
     },
   },
+} as const;
+
+const SEEDANCE20_SUPPORTED_MODELS = ["seedance-2.0", "seedance-2.0-fast"];
+const SEEDANCE20_VOD_METADATA = {
+  outputConfig: {
+    aspectRatios: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
+    durations: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    resolutions: ["480P", "720P"],
+    audioGeneration: true,
+  },
+  inputModes: [
+    "text",
+    "first_frame",
+    "start_end",
+    "reference_images",
+    "smart_frames",
+    "reference_video",
+    "image_audio",
+    "image_video",
+    "video_audio",
+    "image_video_audio",
+  ],
+  notes: [
+    "当前接入模型 ID: doubao-seedance-2-0-260128 / doubao-seedance-2-0-fast-260128",
+    "全能参考支持 1-9 张图片，首尾帧固定 2 张，智能多帧支持 2-10 张图片",
+  ],
 } as const;
 
 const DEFAULT_TENCENT_VOD_VIDU_V2_VENDOR_METADATA = {
@@ -1228,7 +1255,7 @@ const MANAGED_MODEL_SUPPORTED_MODELS_MAP: Record<string, string[]> = {
   "vidu-q2": ["q2"],
   "vidu-q3": ["q3"],
   "seedance-1.5": ["seedance-1.5-pro"],
-  "seedance-2.0": ["seedance-2.0"],
+  "seedance-2.0": SEEDANCE20_SUPPORTED_MODELS,
   "sora-2": ["sora-2", "sora-2-pro"],
 };
 
@@ -1287,6 +1314,7 @@ const buildManagedNodeMetadata = (model: ManagedModelConfig): Record<string, any
       label: defaultVendor?.label || model.modelName || model.modelKey,
       modelName: defaultVendor?.modelName || model.modelName || model.modelKey,
       modelVersion: defaultVendor?.modelVersion || "",
+      ...(model.modelKey === "seedance-2.0" ? SEEDANCE20_VOD_METADATA : {}),
     };
   }
 
@@ -1325,6 +1353,12 @@ const buildManagedNodeMetadata = (model: ManagedModelConfig): Record<string, any
       seedanceModel: supportedModels[0] || "seedance-1.5-pro",
       clipDuration: 5,
       resolution: "720P",
+      ...(model.modelKey === "seedance-2.0"
+        ? {
+            seedanceMode: "text",
+            generateAudio: false,
+          }
+        : {}),
     };
   } else if (model.modelKey === "sora-2") {
     metadata.defaultData = {

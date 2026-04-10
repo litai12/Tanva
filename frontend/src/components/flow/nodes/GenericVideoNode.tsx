@@ -23,7 +23,18 @@ type ViduModel =
   | "q3"
   | "q3-pro"
   | "q3-mix";
-type SeedanceModel = "seedance-1.5-pro" | "seedance-2.0";
+type SeedanceModel = "seedance-1.5-pro" | "seedance-2.0" | "seedance-2.0-fast";
+type Seedance20Mode =
+  | "text"
+  | "first_frame"
+  | "start_end"
+  | "reference_images"
+  | "smart_frames"
+  | "reference_video"
+  | "image_audio"
+  | "image_video"
+  | "video_audio"
+  | "image_video_audio";
 type VodCapabilityMetadata = {
   label?: string;
   modelName?: string;
@@ -58,9 +69,11 @@ type Props = {
     klingModel?: "kling-v2-1" | "kling-v2-6" | "kling-v3-0";
     viduModel?: ViduModel;
     seedanceModel?: SeedanceModel;
+    seedanceMode?: Seedance20Mode;
     mode?: "std" | "pro";
     sound?: boolean;
     audioUrls?: string[];
+    generateAudio?: boolean;
     history?: VideoHistoryItem[];
     fallbackMessage?: string;
     resolution?: string;
@@ -151,6 +164,139 @@ const SUPPORTED_AUDIO_PATTERN = new RegExp(
 
 const SUPPORTED_AUDIO_ACCEPT = SUPPORTED_AUDIO_EXTENSIONS.map((ext) => `.${ext}`).join(",");
 
+const SEEDANCE20_MODE_VALUES: Seedance20Mode[] = [
+  "text",
+  "first_frame",
+  "start_end",
+  "reference_images",
+  "smart_frames",
+  "reference_video",
+  "image_audio",
+  "image_video",
+  "video_audio",
+  "image_video_audio",
+];
+
+const isSeedance20ModeValue = (value: unknown): value is Seedance20Mode =>
+  typeof value === "string" && SEEDANCE20_MODE_VALUES.includes(value as Seedance20Mode);
+
+type Seedance20ModeSpec = {
+  visibleHandles: Array<"text" | "image" | "image-2" | "video" | "audio">;
+  imageHandleMax: number;
+  image2HandleMax: number;
+  videoHandleMax: number;
+  audioHandleMax: number;
+};
+
+const getSeedance20ModeSpec = (mode: Seedance20Mode): Seedance20ModeSpec => {
+  switch (mode) {
+    case "text":
+      return {
+        visibleHandles: ["text"],
+        imageHandleMax: 0,
+        image2HandleMax: 0,
+        videoHandleMax: 0,
+        audioHandleMax: 0,
+      };
+    case "first_frame":
+      return {
+        visibleHandles: ["text", "image"],
+        imageHandleMax: 1,
+        image2HandleMax: 0,
+        videoHandleMax: 0,
+        audioHandleMax: 0,
+      };
+    case "start_end":
+      return {
+        visibleHandles: ["text", "image", "image-2"],
+        imageHandleMax: 1,
+        image2HandleMax: 1,
+        videoHandleMax: 0,
+        audioHandleMax: 0,
+      };
+    case "reference_images":
+      return {
+        visibleHandles: ["text", "image"],
+        imageHandleMax: 9,
+        image2HandleMax: 0,
+        videoHandleMax: 0,
+        audioHandleMax: 0,
+      };
+    case "smart_frames":
+      return {
+        visibleHandles: ["text", "image"],
+        imageHandleMax: 10,
+        image2HandleMax: 0,
+        videoHandleMax: 0,
+        audioHandleMax: 0,
+      };
+    case "reference_video":
+      return {
+        visibleHandles: ["text", "video"],
+        imageHandleMax: 0,
+        image2HandleMax: 0,
+        videoHandleMax: 1,
+        audioHandleMax: 0,
+      };
+    case "image_audio":
+      return {
+        visibleHandles: ["text", "image", "audio"],
+        imageHandleMax: 9,
+        image2HandleMax: 0,
+        videoHandleMax: 0,
+        audioHandleMax: 1,
+      };
+    case "image_video":
+      return {
+        visibleHandles: ["text", "image", "video"],
+        imageHandleMax: 9,
+        image2HandleMax: 0,
+        videoHandleMax: 1,
+        audioHandleMax: 0,
+      };
+    case "video_audio":
+      return {
+        visibleHandles: ["text", "video", "audio"],
+        imageHandleMax: 0,
+        image2HandleMax: 0,
+        videoHandleMax: 1,
+        audioHandleMax: 1,
+      };
+    case "image_video_audio":
+      return {
+        visibleHandles: ["text", "image", "video", "audio"],
+        imageHandleMax: 9,
+        image2HandleMax: 0,
+        videoHandleMax: 1,
+        audioHandleMax: 1,
+      };
+    default:
+      return {
+        visibleHandles: ["text"],
+        imageHandleMax: 0,
+        image2HandleMax: 0,
+        videoHandleMax: 0,
+        audioHandleMax: 0,
+      };
+  }
+};
+
+const getSeedance20HandleTopMap = (
+  handles: Array<"text" | "image" | "image-2" | "video" | "audio">
+): Record<string, string> => {
+  const positionsByCount: Record<number, string[]> = {
+    1: ["50%"],
+    2: ["35%", "65%"],
+    3: ["24%", "50%", "76%"],
+    4: ["18%", "40%", "62%", "84%"],
+  };
+  const positions = positionsByCount[handles.length] || positionsByCount[4];
+  return handles.reduce<Record<string, string>>((acc, handle, index) => {
+    acc[handle] = positions[Math.min(index, positions.length - 1)];
+    return acc;
+  }, {});
+};
+
 const isSupportedAudioFile = (file: File): boolean => {
   const mime = (file.type || "").toLowerCase();
   if (mime.startsWith("audio/")) return true;
@@ -160,6 +306,7 @@ const isSupportedAudioFile = (file: File): boolean => {
 
 function GenericVideoNodeInner({ id, data, selected }: Props) {
   const { lt, isZh } = useLocaleText();
+  const { setEdges } = useReactFlow();
   const borderColor = selected ? "#2563eb" : "#e5e7eb";
   const boxShadow = selected
     ? "0 0 0 2px rgba(37,99,235,0.12)"
@@ -198,6 +345,18 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       (edge) => edge.target === id && (edge.targetHandle === "image" || edge.targetHandle === "image-2")
     ).length;
   });
+  const hasImage2Input = useStore((state) => {
+    const edges = state.edges || [];
+    return edges.some((edge) => edge.target === id && edge.targetHandle === "image-2");
+  });
+  const hasVideoInput = useStore((state) => {
+    const edges = state.edges || [];
+    return edges.some((edge) => edge.target === id && edge.targetHandle === "video");
+  });
+  const hasAudioInput = useStore((state) => {
+    const edges = state.edges || [];
+    return edges.some((edge) => edge.target === id && edge.targetHandle === "audio");
+  });
 
   const provider = data.provider || "kling";
   const nodeConfigMetadata =
@@ -221,7 +380,45 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     data.viduModel || (provider === "viduq3-pro" ? "q3" : "q2")
   );
   const seedanceModel: SeedanceModel =
-    data.seedanceModel === "seedance-2.0" ? "seedance-2.0" : "seedance-1.5-pro";
+    data.seedanceModel === "seedance-2.0-fast"
+      ? "seedance-2.0-fast"
+      : data.seedanceModel === "seedance-2.0"
+      ? "seedance-2.0"
+      : "seedance-1.5-pro";
+  const isSeedance20Model =
+    provider === "doubao" &&
+    (seedanceModel === "seedance-2.0" || seedanceModel === "seedance-2.0-fast");
+  const inferredSeedanceMode = React.useMemo<Seedance20Mode>(() => {
+    if (!isSeedance20Model) return "text";
+    if (isSeedance20ModeValue(data.seedanceMode)) return data.seedanceMode;
+    if (hasVideoInput && hasAudioInput && imageInputCount > 0) return "image_video_audio";
+    if (hasVideoInput && hasAudioInput) return "video_audio";
+    if (hasVideoInput && imageInputCount > 0) return "image_video";
+    if (hasAudioInput && imageInputCount > 0) return "image_audio";
+    if (hasVideoInput) return "reference_video";
+    if (hasImage2Input) return "start_end";
+    if (imageInputCount >= 3) return "smart_frames";
+    if (imageInputCount >= 2) return "reference_images";
+    if (imageInputCount === 1) return "first_frame";
+    return "text";
+  }, [
+    data.seedanceMode,
+    hasAudioInput,
+    hasImage2Input,
+    hasVideoInput,
+    imageInputCount,
+    isSeedance20Model,
+  ]);
+  const seedanceMode: Seedance20Mode = inferredSeedanceMode;
+  const seedanceModeSpec = React.useMemo(
+    () => (isSeedance20Model ? getSeedance20ModeSpec(seedanceMode) : null),
+    [isSeedance20Model, seedanceMode]
+  );
+  const seedanceHandleTopMap = React.useMemo(
+    () =>
+      seedanceModeSpec ? getSeedance20HandleTopMap(seedanceModeSpec.visibleHandles) : {},
+    [seedanceModeSpec]
+  );
   const klingModel =
     data.klingModel ||
     (provider === "kling-2.6" ? "kling-v2-6" : "kling-v2-6");
@@ -288,12 +485,26 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           return lt("文生视频", "Text to video");
         case "image":
           return lt("图生视频", "Image to video");
+        case "first_frame":
+          return lt("图生视频-首帧", "Image to video - first frame");
         case "start_end":
           return lt("首尾帧", "Start-end");
         case "reference":
           return lt("参考模式", "Reference");
+        case "reference_images":
+          return lt("多图参考", "Multi-image reference");
+        case "smart_frames":
+          return lt("智能多帧", "Smart frames");
         case "reference_video":
           return lt("视频参考", "Video reference");
+        case "image_audio":
+          return lt("图片 + 音频", "Image + audio");
+        case "image_video":
+          return lt("图片 + 视频", "Image + video");
+        case "video_audio":
+          return lt("视频 + 音频", "Video + audio");
+        case "image_video_audio":
+          return lt("图片 + 视频 + 音频", "Image + video + audio");
         default:
           return mode;
       }
@@ -539,6 +750,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     () => [
       { label: "Seedance 1.5-Pro", value: "seedance-1.5-pro" as const },
       { label: "Seedance 2.0", value: "seedance-2.0" as const },
+      { label: "Seedance 2.0 Fast", value: "seedance-2.0-fast" as const },
     ],
     []
   );
@@ -570,7 +782,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     [lt, provider, vodDurationOptions]
   );
   const shouldShowAspectSelector =
-    provider === "viduq3-pro"
+    isSeedance20Model
+      ? true
+      : provider === "viduq3-pro"
       ? !hasImageInput
       : provider === "vidu"
       ? true
@@ -591,6 +805,66 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const shouldShowLegacyViduOptions =
     (provider === "vidu" || provider === "viduq3-pro") && !isVodManagedNode;
   const shouldShowLegacySeedanceOptions = provider === "doubao" && !isVodManagedNode;
+  const shouldShowSeedanceGenerateAudio =
+    isSeedance20Model &&
+    ((typeof vodConfig?.outputConfig?.audioGeneration === "boolean" &&
+      vodConfig.outputConfig.audioGeneration) ||
+      !isVodManagedNode);
+  const seedanceModeOptions = React.useMemo(
+    () => [
+      {
+        value: "text",
+        label: lt("文生视频", "Text to video"),
+        description: lt("仅文本输入", "Prompt only"),
+      },
+      {
+        value: "first_frame",
+        label: lt("图生视频-首帧", "First frame"),
+        description: lt("1 张首帧图", "1 start frame"),
+      },
+      {
+        value: "start_end",
+        label: lt("图生视频-首尾帧", "Start-end"),
+        description: lt("固定 2 张图：首帧 + 尾帧", "Exactly 2 images: start + end"),
+      },
+      {
+        value: "reference_images",
+        label: lt("全能参考", "Reference images"),
+        description: lt("1-9 张图片参考", "1-9 reference images"),
+      },
+      {
+        value: "smart_frames",
+        label: lt("智能多帧", "Smart frames"),
+        description: lt("2-10 张图片参考", "2-10 reference images"),
+      },
+      {
+        value: "reference_video",
+        label: lt("视频参考", "Video reference"),
+        description: lt("1 个视频参考", "1 reference video"),
+      },
+      {
+        value: "image_audio",
+        label: lt("图片 + 音频", "Image + audio"),
+        description: lt("多图参考 + 1 条音频", "Images + 1 audio"),
+      },
+      {
+        value: "image_video",
+        label: lt("图片 + 视频", "Image + video"),
+        description: lt("多图参考 + 1 个视频", "Images + 1 video"),
+      },
+      {
+        value: "video_audio",
+        label: lt("视频 + 音频", "Video + audio"),
+        description: lt("1 个视频 + 1 条音频", "1 video + 1 audio"),
+      },
+      {
+        value: "image_video_audio",
+        label: lt("图片 + 视频 + 音频", "Image + video + audio"),
+        description: lt("多图参考 + 1 个视频 + 1 条音频", "Images + 1 video + 1 audio"),
+      },
+    ],
+    [lt]
+  );
 
   React.useEffect(() => {
     if (!shouldShowAspectSelector) {
@@ -775,6 +1049,64 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       );
     },
     [id, seedanceModel]
+  );
+
+  const handleSeedanceModeChange = React.useCallback(
+    (value: Seedance20Mode) => {
+      if (!isSeedance20Model || value === seedanceMode) return;
+      const spec = getSeedance20ModeSpec(value);
+
+      setEdges((edges) => {
+        const targetEdges = edges.filter((edge) => edge.target === id);
+        const otherEdges = edges.filter((edge) => edge.target !== id);
+        let imageCount = 0;
+        let image2Count = 0;
+        let videoCount = 0;
+        let audioCount = 0;
+
+        const filteredTargetEdges = targetEdges.filter((edge) => {
+          switch (edge.targetHandle) {
+            case "text":
+              return spec.visibleHandles.includes("text");
+            case "image":
+              if (!spec.visibleHandles.includes("image") || imageCount >= spec.imageHandleMax) {
+                return false;
+              }
+              imageCount += 1;
+              return true;
+            case "image-2":
+              if (!spec.visibleHandles.includes("image-2") || image2Count >= spec.image2HandleMax) {
+                return false;
+              }
+              image2Count += 1;
+              return true;
+            case "video":
+              if (!spec.visibleHandles.includes("video") || videoCount >= spec.videoHandleMax) {
+                return false;
+              }
+              videoCount += 1;
+              return true;
+            case "audio":
+              if (!spec.visibleHandles.includes("audio") || audioCount >= spec.audioHandleMax) {
+                return false;
+              }
+              audioCount += 1;
+              return true;
+            default:
+              return true;
+          }
+        });
+
+        return [...otherEdges, ...filteredTargetEdges];
+      });
+
+      window.dispatchEvent(
+        new CustomEvent("flow:updateNodeData", {
+          detail: { id, patch: { seedanceMode: value } },
+        })
+      );
+    },
+    [id, isSeedance20Model, seedanceMode, setEdges]
   );
 
   const handleManagedRouteChange = React.useCallback(
@@ -1265,38 +1597,51 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         type='target'
         position={Position.Left}
         id='text'
-        style={{ top: "32%" }}
+        style={{ top: isSeedance20Model ? seedanceHandleTopMap.text || "32%" : "32%" }}
         onMouseEnter={() => setHover("text-in")}
         onMouseLeave={() => setHover(null)}
       />
-      {/* 图片输入 handle: std 模式只渲染 1 个（image），pro 模式渲染 2 个（image 首帧 + image-2 尾帧） */}
-      {/* image 首帧 */}
-      <Handle
-        type='target'
-        position={Position.Left}
-        id='image'
-        style={{ top: "60%" }}
-        onMouseEnter={() => setHover("image-in")}
-        onMouseLeave={() => setHover(null)}
-      />
+      {(isSeedance20Model
+        ? seedanceModeSpec?.visibleHandles.includes("image")
+        : true) && (
+        <Handle
+          type='target'
+          position={Position.Left}
+          id='image'
+          style={{ top: isSeedance20Model ? seedanceHandleTopMap.image || "60%" : "60%" }}
+          onMouseEnter={() => setHover("image-in")}
+          onMouseLeave={() => setHover(null)}
+        />
+      )}
       {/* image-2 尾帧: 仅 Kling 2.6/3.0 pro 模式渲染 */}
-      {isKling26Model && isProMode && (
+      {((isSeedance20Model && seedanceModeSpec?.visibleHandles.includes("image-2")) ||
+        (isKling26Model && isProMode)) && (
         <Handle
           type='target'
           position={Position.Left}
           id='image-2'
-          style={{ top: "78%" }}
+          style={{ top: isSeedance20Model ? seedanceHandleTopMap["image-2"] || "78%" : "78%" }}
           onMouseEnter={() => setHover("image-2-in")}
           onMouseLeave={() => setHover(null)}
         />
       )}
-      {/* audio targetHandle 仅 Kling 旧版（kling-v2-1）可用；2.6/3.0 只支持 sound 布尔开关，不接受连线 */}
-      {isUnifiedKlingNode && klingModel !== "kling-v2-6" && klingModel !== "kling-v3-0" && (
+      {(isSeedance20Model && seedanceModeSpec?.visibleHandles.includes("video")) && (
+        <Handle
+          type='target'
+          position={Position.Left}
+          id='video'
+          style={{ top: seedanceHandleTopMap.video || "78%" }}
+          onMouseEnter={() => setHover("video-in")}
+          onMouseLeave={() => setHover(null)}
+        />
+      )}
+      {((isSeedance20Model && seedanceModeSpec?.visibleHandles.includes("audio")) ||
+        (isUnifiedKlingNode && klingModel !== "kling-v2-6" && klingModel !== "kling-v3-0")) && (
         <Handle
           type='target'
           position={Position.Left}
           id='audio'
-          style={{ top: "78%" }}
+          style={{ top: isSeedance20Model ? seedanceHandleTopMap.audio || "78%" : "78%" }}
           onMouseEnter={() => setHover("audio-in")}
           onMouseLeave={() => setHover(null)}
         />
@@ -1312,7 +1657,11 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       {hover === "text-in" && (
         <div
           className='flow-tooltip'
-          style={{ left: -8, top: "32%", transform: "translate(-100%, -50%)" }}
+          style={{
+            left: -8,
+            top: isSeedance20Model ? seedanceHandleTopMap.text || "32%" : "32%",
+            transform: "translate(-100%, -50%)",
+          }}
         >
           prompt
         </div>
@@ -1320,23 +1669,57 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       {hover === "image-in" && (
         <div
           className='flow-tooltip'
-          style={{ left: -8, top: "60%", transform: "translate(-100%, -50%)" }}
+          style={{
+            left: -8,
+            top: isSeedance20Model ? seedanceHandleTopMap.image || "60%" : "60%",
+            transform: "translate(-100%, -50%)",
+          }}
         >
-          {isKling26Model ? (isProMode ? "image (首帧)" : "image (仅1张)") : "image"}
+          {isSeedance20Model
+            ? seedanceMode === "reference_images"
+              ? "image (1-9)"
+              : seedanceMode === "smart_frames"
+              ? "image (2-10)"
+              : "image"
+            : isKling26Model
+            ? isProMode
+              ? "image (首帧)"
+              : "image (仅1张)"
+            : "image"}
         </div>
       )}
       {hover === "image-2-in" && (
         <div
           className='flow-tooltip'
-          style={{ left: -8, top: "78%", transform: "translate(-100%, -50%)" }}
+          style={{
+            left: -8,
+            top: isSeedance20Model ? seedanceHandleTopMap["image-2"] || "78%" : "78%",
+            transform: "translate(-100%, -50%)",
+          }}
         >
           image-2 (尾帧)
+        </div>
+      )}
+      {hover === "video-in" && (
+        <div
+          className='flow-tooltip'
+          style={{
+            left: -8,
+            top: seedanceHandleTopMap.video || "78%",
+            transform: "translate(-100%, -50%)",
+          }}
+        >
+          video (参考)
         </div>
       )}
       {hover === "audio-in" && (
         <div
           className='flow-tooltip'
-          style={{ left: -8, top: "78%", transform: "translate(-100%, -50%)" }}
+          style={{
+            left: -8,
+            top: isSeedance20Model ? seedanceHandleTopMap.audio || "78%" : "78%",
+            transform: "translate(-100%, -50%)",
+          }}
         >
           audio
         </div>
@@ -1690,6 +2073,24 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         </div>
       )}
 
+      {isSeedance20Model && (
+        <div
+          className='video-dropdown'
+          style={{ marginBottom: 8, position: "relative" }}
+        >
+          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+            {lt("模式", "Mode")}
+          </div>
+          <NodeSelect
+            value={seedanceMode}
+            options={seedanceModeOptions}
+            onChange={(value) => handleSeedanceModeChange(value as Seedance20Mode)}
+            menuLabel={lt("Seedance 2.0 模式", "Seedance 2.0 modes")}
+            title={lt("选择 Seedance 2.0 模式", "Select Seedance 2.0 mode")}
+          />
+        </div>
+      )}
+
       {managedRoutesMetadata && managedRoutesMetadata.vendors.length > 1 && (
         <div className='video-dropdown' style={{ marginBottom: 8, position: "relative" }}>
           <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
@@ -1953,6 +2354,34 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           </div>
         )}
       </div>
+
+      {shouldShowSeedanceGenerateAudio && (
+        <div style={{ marginBottom: 8 }}>
+          <button
+            type='button'
+            onClick={() => {
+              const currentGenerateAudio = Boolean((data as any).generateAudio);
+              window.dispatchEvent(
+                new CustomEvent("flow:updateNodeData", {
+                  detail: { id, patch: { generateAudio: !currentGenerateAudio } },
+                })
+              );
+            }}
+            style={{
+              width: "100%",
+              padding: "6px 10px",
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              background: (data as any).generateAudio ? "#111827" : "#fff",
+              color: (data as any).generateAudio ? "#fff" : "#111827",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            {lt("有声视频", "Audio video")}: {(data as any).generateAudio ? lt("开启", "On") : lt("关闭", "Off")}
+          </button>
+        </div>
+      )}
 
       {/* Kling 专用参数：模式选择 */}
       {isUnifiedKlingNode && (

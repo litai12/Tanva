@@ -6,7 +6,11 @@ export class VideoProviderRequestDto {
   @IsEnum(['kling', 'kling-2.6', 'kling-o3', 'vidu', 'viduq3-pro', 'doubao'])
   provider!: 'kling' | 'kling-2.6' | 'kling-o3' | 'vidu' | 'viduq3-pro' | 'doubao';
 
-  @ApiProperty({ description: '视频生成模式 (Vidu: text2video/img2video/start-end2video/reference2video; Kling: text2video/image2video/image2video-tail/multi-image2video; Kling-O1: omni-video)', required: false })
+  @ApiProperty({
+    description:
+      '视频生成模式 (Vidu: text2video/img2video/start-end2video/reference2video; Kling: text2video/image2video/image2video-tail/multi-image2video; Seedance 2.0: text/first_frame/start_end/reference_images/smart_frames/reference_video/image_audio/image_video/video_audio/image_video_audio; Kling-O1: omni-video)',
+    required: false,
+  })
   @IsOptional()
   @IsString()
   videoMode?: string;
@@ -86,7 +90,7 @@ export class VideoProviderRequestDto {
   viduModel?: string;
 
   @ApiProperty({
-    description: 'Seedance 模型版本 (如 seedance-1.5-pro/seedance-2.0)',
+    description: 'Seedance 模型版本 (如 seedance-1.5-pro/seedance-2.0/seedance-2.0-fast)',
     required: false,
   })
   @IsOptional()

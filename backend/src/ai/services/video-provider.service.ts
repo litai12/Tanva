@@ -70,7 +70,7 @@ const MANAGED_TENCENT_VIDEO_MODEL_META: Record<
 
 type ViduManagedModelVersion = "q2" | "q3";
 
-type SeedanceManagedModelVersion = "1.5-pro" | "2.0";
+type SeedanceManagedModelVersion = "1.5-pro" | "2.0" | "2.0-fast";
 
 type ManagedV2ExecutionBranch = "legacy" | "v2_request_profile";
 
@@ -95,6 +95,17 @@ type ManagedV2ParsedTask = {
   modelKey: string;
   vendorKey: string;
   rawTaskId: string;
+};
+
+const resolveSeedanceUpstreamModelId = (modelVersion: SeedanceManagedModelVersion): string => {
+  switch (modelVersion) {
+    case "2.0":
+      return "doubao-seedance-2-0-260128";
+    case "2.0-fast":
+      return "doubao-seedance-2-0-fast-260128";
+    default:
+      return "doubao-seedance-1-5-pro-251215";
+  }
 };
 
 /**
@@ -1094,6 +1105,10 @@ export class VideoProviderService {
         ...options,
         prompt: options.prompt || "",
         promptWithParams: promptText,
+        seedanceUpstreamModelId:
+          modelKey.startsWith("seedance-")
+            ? resolveSeedanceUpstreamModelId(this.resolveManagedSeedanceModel(options).modelVersion)
+            : undefined,
         referenceImages,
         referenceImage: referenceImages[0] || "",
         referenceVideos,
@@ -1269,12 +1284,16 @@ export class VideoProviderService {
     const resolvedModelVersion =
       (vendorConfig.modelVersion || fallbackModelVersion).trim().toLowerCase();
     const resolution =
-      resolvedModelVersion === "1.5-pro" && requestedResolution === "1080P"
+      resolvedModelVersion === "1.5-pro"
         ? "720P"
-        : requestedResolution;
+        : requestedResolution === "480P" || requestedResolution === "720P"
+        ? requestedResolution
+        : "720P";
     const duration =
       typeof options.duration === "number" && Number.isFinite(options.duration)
-        ? Math.max(3, Math.min(10, Math.round(options.duration)))
+        ? resolvedModelVersion === "1.5-pro"
+          ? Math.max(3, Math.min(10, Math.round(options.duration)))
+          : Math.max(4, Math.min(15, Math.round(options.duration)))
         : 5;
 
     return {
@@ -1285,7 +1304,12 @@ export class VideoProviderService {
       aspectRatio: options.aspectRatio,
       duration,
       resolution,
-      audioGeneration: "Disabled",
+      audioGeneration:
+        resolvedModelVersion === "1.5-pro"
+          ? "Disabled"
+          : options.generateAudio
+          ? "Enabled"
+          : "Disabled",
       storageMode: "Temporary",
       enhancePrompt: "Enabled",
     };
@@ -1620,6 +1644,13 @@ export class VideoProviderService {
     label: string;
   } {
     const normalized = String(options.seedanceModel || "").trim().toLowerCase();
+    if (normalized === "seedance-2.0-fast" || normalized === "2.0-fast") {
+      return {
+        modelKey: "seedance-2.0",
+        modelVersion: "2.0-fast",
+        label: "Seedance 2.0 Fast",
+      };
+    }
     if (normalized === "seedance-2.0" || normalized === "2.0") {
       return {
         modelKey: "seedance-2.0",
@@ -1805,8 +1836,11 @@ export class VideoProviderService {
     apiKey: string,
     modelVersion: SeedanceManagedModelVersion = "1.5-pro"
   ): Promise<VideoGenerationResult> {
-    let promptText = options.prompt;
+    const normalizedPrompt =
+      typeof options.prompt === "string" ? options.prompt.trim() : "";
+    let promptText = normalizedPrompt;
     const params: string[] = [];
+    const isSeedance2Model = modelVersion === "2.0" || modelVersion === "2.0-fast";
 
     if (options.aspectRatio) {
       params.push(`--ratio ${options.aspectRatio}`);
@@ -1821,13 +1855,17 @@ export class VideoProviderService {
       params.push(`--watermark ${options.watermark}`);
     }
 
-    if (params.length > 0) {
+    if (!isSeedance2Model && params.length > 0) {
       promptText = `${promptText} ${params.join(" ")}`;
     }
 
-    const content: any[] = [{ type: "text", text: promptText }];
+    const content: any[] = [];
     const referenceVideos = this.normalizeManagedV2ReferenceVideos(options);
     const referenceAudios = this.normalizeManagedV2ReferenceAudios(options);
+
+    if (promptText) {
+      content.push({ type: "text", text: promptText });
+    }
 
     // 处理参考图片：如果是 base64，先上传到 OSS
     if (options.referenceImages && options.referenceImages.length > 0) {
@@ -1865,17 +1903,18 @@ export class VideoProviderService {
       });
     }
 
-    const modelId =
-      modelVersion === "2.0"
-        ? "doubao-seedance-2-0-260128"
-        : "doubao-seedance-1-5-pro-251215";
+    if (!content.length) {
+      throw new BadRequestException("Seedance 需要提供提示词或至少一种参考素材");
+    }
+
+    const modelId = resolveSeedanceUpstreamModelId(modelVersion);
 
     const payload: Record<string, any> = {
       model: modelId,
       content,
     };
 
-    if (modelVersion === "2.0") {
+    if (isSeedance2Model) {
       if (typeof options.generateAudio === "boolean") {
         payload.generate_audio = options.generateAudio;
       }
@@ -1884,6 +1923,9 @@ export class VideoProviderService {
       }
       if (typeof options.duration === "number" && Number.isFinite(options.duration)) {
         payload.duration = options.duration;
+      }
+      if (typeof options.resolution === "string" && options.resolution.trim()) {
+        payload.resolution = options.resolution.trim().toUpperCase();
       }
       if (typeof options.watermark === "boolean") {
         payload.watermark = options.watermark;
