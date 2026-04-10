@@ -6213,6 +6213,7 @@ function SettingsTab() {
 }
 
 function VipManagementTab() {
+  const TEMPLATE_LIBRARY_ACCESS_OPTIONS = ["基础可用", "全部开放"] as const;
   const FREE_TIER_BENEFITS_SETTING_KEY = "membership_free_tier_benefits";
   const DEFAULT_FREE_TIER_BENEFITS = {
     coreBenefits: "每天最多 20 张图、3 个视频",
@@ -7010,7 +7011,7 @@ function VipManagementTab() {
               </div>
               <div>
                 <div className='mb-1 text-sm text-gray-600'>模板库权限</div>
-                <Input
+                <select
                   value={planForm.templateLibraryAccess}
                   onChange={(e) =>
                     setPlanForm((current) => ({
@@ -7018,8 +7019,14 @@ function VipManagementTab() {
                       templateLibraryAccess: e.target.value,
                     }))
                   }
-                  placeholder='全部开放'
-                />
+                  className='w-full rounded-md border border-gray-300 px-3 py-2 text-sm'
+                >
+                  {TEMPLATE_LIBRARY_ACCESS_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div>
                 <div className='mb-1 text-sm text-gray-600'>邀请上限</div>
@@ -7188,7 +7195,7 @@ function VipManagementTab() {
               <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
                 <div>
                   <div className='mb-1 text-sm text-gray-600'>模板库权限</div>
-                  <Input
+                  <select
                     value={freeTierBenefits.templateLibraryAccess}
                     onChange={(e) =>
                       setFreeTierBenefits((current) => ({
@@ -7196,7 +7203,14 @@ function VipManagementTab() {
                         templateLibraryAccess: e.target.value,
                       }))
                     }
-                  />
+                    className='w-full rounded-md border border-gray-300 px-3 py-2 text-sm'
+                  >
+                    {TEMPLATE_LIBRARY_ACCESS_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <div className='mb-1 text-sm text-gray-600'>邀请上限</div>

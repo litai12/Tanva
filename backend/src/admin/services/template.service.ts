@@ -14,6 +14,8 @@ const sanitizeNullableString = (value: unknown): string | null | undefined => {
 
 @Injectable()
 export class TemplateService {
+  private static readonly FREE_TIER_BENEFITS_SETTING_KEY = 'membership_free_tier_benefits';
+
   constructor(private readonly prisma: PrismaService, private readonly oss: OssService) {}
 
   private isVipOnlyTemplate(tags?: string[] | null): boolean {
@@ -26,6 +28,74 @@ export class TemplateService {
       .filter(Boolean);
 
     return normalizedTags.some((tag) => tag === 'vip' || tag === 'vip-only' || tag === '仅vip');
+  }
+
+  private normalizeTemplateLibraryAccess(value: unknown): 'basic' | 'full' {
+    const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    if (
+      normalized === 'full' ||
+      normalized === 'all' ||
+      normalized === '全部开放' ||
+      normalized === '全部'
+    ) {
+      return 'full';
+    }
+    return 'basic';
+  }
+
+  private async getFreeTierTemplateLibraryAccess(): Promise<'basic' | 'full'> {
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: { key: TemplateService.FREE_TIER_BENEFITS_SETTING_KEY },
+      select: { value: true },
+    });
+    if (!setting?.value) {
+      return 'basic';
+    }
+
+    try {
+      const parsed = JSON.parse(setting.value);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return this.normalizeTemplateLibraryAccess(
+          (parsed as Record<string, unknown>).templateLibraryAccess,
+        );
+      }
+    } catch {
+      return 'basic';
+    }
+
+    return 'basic';
+  }
+
+  private async resolveUserTemplateLibraryAccess(userId: string): Promise<'basic' | 'full'> {
+    const subscription = await this.prisma.userMembershipSubscription.findFirst({
+      where: {
+        userId,
+        status: 'active',
+        currentPeriodStartAt: { lte: new Date() },
+        currentPeriodEndAt: { gt: new Date() },
+      },
+      select: {
+        membershipPlanId: true,
+      },
+      orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    if (!subscription?.membershipPlanId) {
+      return this.getFreeTierTemplateLibraryAccess();
+    }
+
+    const plan = await this.prisma.membershipPlan.findUnique({
+      where: { id: subscription.membershipPlanId },
+      select: { metadata: true },
+    });
+
+    if (plan?.metadata && typeof plan.metadata === 'object' && !Array.isArray(plan.metadata)) {
+      return this.normalizeTemplateLibraryAccess(
+        (plan.metadata as Record<string, unknown>).templateLibraryAccess,
+      );
+    }
+
+    return 'basic';
   }
 
   async canUserUseTemplate(templateId: string, userId: string): Promise<boolean> {
@@ -45,18 +115,7 @@ export class TemplateService {
       return true;
     }
 
-    const activeSubscription = await this.prisma.userMembershipSubscription.findFirst({
-      where: {
-        userId,
-        status: 'active',
-        currentPeriodStartAt: { lte: new Date() },
-        currentPeriodEndAt: { gt: new Date() },
-      },
-      select: { id: true },
-      orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
-    });
-
-    return Boolean(activeSubscription);
+    return (await this.resolveUserTemplateLibraryAccess(userId)) === 'full';
   }
 
   async createTemplate(dto: CreateTemplateDto, createdBy?: string) {
