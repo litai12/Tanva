@@ -25,6 +25,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- Flow/Video: `Seedance 2.0` 节点补齐官方规格，新增 `Seedance 2.0 Fast` 模型选择、模式化句柄（文本/首帧/首尾帧/多图/视频/音频组合）、`1-9` 图全能参考、`2-10` 智能多帧、`4-15s` 时长、6 种比例和 `480P/720P` 分辨率配置；运行时同步支持图/视频/音频多模态请求拼装（`frontend/src/components/flow/nodes/GenericVideoNode.tsx`, `frontend/src/components/flow/FlowOverlay.tsx`, `frontend/src/services/videoProviderAPI.ts`）。
+- Backend/Admin: Seedance 2.0 模型管理与默认节点配置同步升级，`seedance-2.0` 统一支持 `seedance-2.0 / seedance-2.0-fast` 两个模型别名，请求路由按 `seedanceUpstreamModelId` 动态下发到官方 `260128 / fast-260128` 模型 ID，并修正后台默认能力描述、输入模式和输出规格（`backend/src/ai/services/video-provider.service.ts`, `backend/src/ai/services/model-routing.service.ts`, `backend/src/admin/services/node-config.service.ts`, `frontend/src/pages/Admin.tsx`）。
 - 认证页移动端适配：`/auth/login` 与 `/auth/register` 在小屏下改为可纵向滚动的顶部对齐卡片，收紧内边距，三标签切换改为紧凑布局，验证码区和协议区适配窄屏换行，避免登录/注册页在手机端出现横向挤压和底部内容被遮挡（`frontend/src/pages/auth/Login.tsx`, `frontend/src/pages/auth/Register.tsx`）。
 - 登录页与登录弹窗统一改为三标签结构：`微信登录 / 密码登录 / 验证码登录`，默认进入微信登录；公众号扫码登录不再与手机号表单同时展开，减少界面拥挤与选择成本（`frontend/src/pages/auth/Login.tsx`, `frontend/src/components/auth/LoginModal.tsx`）。
 - 公众号明文模式回调新增 OpenObserve 结构化事件日志：收到 `/api/auth/wechat-official/callback` 时会把原始 XML 明文写入 `backend_events` 流，并在命中扫码登录授权后追加一条授权成功事件，便于直接在 OpenObserve 中排查公众号回调内容（`backend/src/auth/auth.service.ts`, `backend/src/telemetry/openobserve-telemetry.service.ts`）。

@@ -31,6 +31,8 @@
 - Seedream5 supports system setting key seedream5_provider (doubao / watcha), defaulting to doubao when missing.
 - Watcha Seedream channel env vars: WATCHA_SEEDREAM_API_KEY, optional WATCHA_SEEDREAM_ENDPOINT, optional WATCHA_SEEDREAM_MODEL.
 - Seedance（doubao）视频任务成功后，后端会将上游视频拉取并上传到 OSS，仅返回自有 OSS 公网链接给前端。
+- Seedance 2.0 现在统一走 `seedance-2.0` 模型管理键，但运行时可按请求里的 `seedanceModel` 在 `doubao-seedance-2-0-260128` 与 `doubao-seedance-2-0-fast-260128` 间切换；`ai.controller` 的 Seedance 2 权益校验也会同时识别 `2.0` 与 `2.0-fast`。
+- Seedance 2.0 直连方舟链路已支持媒体优先请求：无 prompt 但有图片/视频/音频参考时不再错误拼接 `undefined` 文本；并同步放宽到官方 `4-15s`、`480P/720P`、6 种宽高比以及多模态参考组合。
 - 异步视频计费为“先扣费 + 后确认”：创建任务后记录保持 `pending`，前端轮询成功调用 `video-task-success` 标记 `success`，失败调用 `video-task-refund` 标记失败并退款。
 - `edit-image` / `blend-images` 支持 `sourceImageUrl(s)`，后端会按 OSS 白名单拉取并转换为 dataURL。
 - Banana 文本链路（`text-chat` / `tool-selection`）支持独立于图像链路的供应商配置键 `banana_text_provider`：`auto`（Apimart→147）、`legacy_auto`（147→Apimart）、`apimart`、`legacy`。
