@@ -578,6 +578,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const viduModelFamily = normalizeViduModelForApi(viduModel);
   const isViduQ2FamilyModel = viduModelFamily === "q2";
   const isViduQ2ProMode = viduModel === "q2-pro";
+  const isCurrentViduQ3FamilyModel = viduModelFamily === "q3";
+  const isViduQ3ProMode = viduModel === "q3-pro";
+  const isViduQ3MixModel = viduModel === "q3-mix";
   const viduModelSelectionValue: "q2" | "q3" | "q3-mix" =
     viduModel === "q2-pro"
       ? "q2"
@@ -728,6 +731,26 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             patch: {
               viduModel: nextModel,
               provider: "vidu",
+              clipDuration: undefined,
+            },
+          },
+        })
+      );
+    },
+    [id, viduModel]
+  );
+
+  const handleViduQ3ModeChange = React.useCallback(
+    (value: "std" | "pro") => {
+      const nextModel: ViduModel = value === "pro" ? "q3-pro" : "q3";
+      if (nextModel === viduModel) return;
+      window.dispatchEvent(
+        new CustomEvent("flow:updateNodeData", {
+          detail: {
+            id,
+            patch: {
+              viduModel: nextModel,
+              provider: "viduq3-pro",
               clipDuration: undefined,
             },
           },
@@ -1517,6 +1540,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       {isVodManagedNode && (
         <div
           style={{
+            display: "none",
             marginBottom: 8,
             padding: "8px 10px",
             borderRadius: 10,
@@ -2008,6 +2032,43 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           </div>
         </div>
       )}
+
+      {(provider === "vidu" || provider === "viduq3-pro") &&
+        isCurrentViduQ3FamilyModel &&
+        !isViduQ3MixModel && (
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+              {lt("模式", "Mode")}
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              {[
+                { label: lt("标准", "Standard"), value: "std" as const },
+                { label: lt("专业", "Pro"), value: "pro" as const },
+              ].map((opt) => {
+                const isActive = (isViduQ3ProMode ? "pro" : "std") === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type='button'
+                    onClick={() => handleViduQ3ModeChange(opt.value)}
+                    style={{
+                      flex: 1,
+                      padding: "6px 10px",
+                      borderRadius: 8,
+                      border: "1px solid #e5e7eb",
+                      background: isActive ? "#111827" : "#fff",
+                      color: isActive ? "#fff" : "#111827",
+                      fontSize: 12,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
       {false && isKling26Model && (
         <div style={{ marginBottom: 8 }}>
