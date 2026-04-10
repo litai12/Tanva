@@ -1574,8 +1574,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 	                setRasterSource(raster, rasterSource);
 	            };
 
-	            const attemptLoadRetry = (
-	                reason: 'timeout' | 'onError',
+	            const consumeLoadAttempt = (
+	                reason: 'timeout' | 'onError' | 'proxyFallback' | 'corsFallback',
 	                options?: { useCrossOrigin?: boolean; immediate?: boolean; error?: any }
 	            ): boolean => {
 	                if (hasTerminalLoadFailure || retryCount >= IMAGE_LOAD_MAX_RETRIES) return false;
@@ -1603,6 +1603,11 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 	                }, delayMs);
 	                return true;
 	            };
+
+	            const attemptLoadRetry = (
+	                reason: 'timeout' | 'onError',
+	                options?: { useCrossOrigin?: boolean; immediate?: boolean; error?: any }
+	            ): boolean => consumeLoadAttempt(reason, options);
 
 	            const finalizeLoadFailure = (e: any, reason: 'timeout' | 'onError') => {
 	                if (hasTerminalLoadFailure) return;
@@ -2166,19 +2171,22 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                         resolvedRemoteUrl &&
                         isAssetProxyRef(rasterSource)
                     ) {
-                        hasRetriedProxyFallback = true;
-                        rasterSource = resolvedRemoteUrl;
-                        logger.upload('Proxy load failed, fallback to direct URL...');
-                        restartRasterLoad(true);
-                        return;
+                        const nextSource = resolvedRemoteUrl;
+                        if (consumeLoadAttempt('proxyFallback', { useCrossOrigin: true, error: e })) {
+                            hasRetriedProxyFallback = true;
+                            rasterSource = nextSource;
+                            logger.upload('Proxy load failed, fallback to direct URL...');
+                            return;
+                        }
                     }
 
                     // CORS load failed -> retry without crossOrigin
                     if (!hasRetriedCrossOrigin && shouldUseAnonymousCrossOrigin(rasterSource)) {
-                        hasRetriedCrossOrigin = true;
-                        logger.upload('CORS load failed, retry without crossOrigin...');
-                        restartRasterLoad(false);
-                        return;
+                        if (consumeLoadAttempt('corsFallback', { useCrossOrigin: false, error: e })) {
+                            hasRetriedCrossOrigin = true;
+                            logger.upload('CORS load failed, retry without crossOrigin...');
+                            return;
+                        }
                     }
 
                     if (attemptLoadRetry('onError', { error: e })) return;

@@ -87,7 +87,7 @@ const buildVodNodeMetadata = (
   vod,
 });
 
-const SEEDANCE20_SUPPORTED_MODELS = ['seedance-2.0', 'seedance-2.0-fast'];
+const SEEDANCE20_SUPPORTED_MODELS = ['seedance-1.5-pro', 'seedance-2.0', 'seedance-2.0-fast'];
 const SEEDANCE20_ASPECT_RATIOS = ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'];
 const SEEDANCE20_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 const SEEDANCE20_RESOLUTIONS = ['480P', '720P'];
@@ -96,7 +96,6 @@ const SEEDANCE20_INPUT_MODES = [
   'first_frame',
   'start_end',
   'reference_images',
-  'smart_frames',
   'reference_video',
   'image_audio',
   'image_video',
@@ -105,7 +104,7 @@ const SEEDANCE20_INPUT_MODES = [
 ];
 const SEEDANCE20_NOTES = [
   '当前接入模型 ID: doubao-seedance-2-0-260128 / doubao-seedance-2-0-fast-260128',
-  '全能参考支持 1-9 张图片，首尾帧固定 2 张，智能多帧支持 2-10 张图片',
+  '节点采用自动模式推导：最多支持 9 张参考图，尾帧/视频/音频各 1 路，运行时按已连接输入自动确定上游 video_mode',
 ];
 
 @Injectable()

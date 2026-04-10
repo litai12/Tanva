@@ -6,6 +6,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Added
+- Seedance 2.0 模式参数补齐：模型管理 V2 请求体新增 `video_mode` 字段，前端模式选择可完整传递至方舟上游。
 - 认证系统新增“公众号扫码登录”闭环：后端支持带参数二维码会话、微信公众平台回调验签与 `subscribe/SCAN` 自动登录；前端登录页新增公众号扫码二维码面板与轮询消费登录会话。
 - Credits Backend 基础设施新增多形态积分 groundwork：Prisma 增加 `CreditLot` / `CreditConsumePolicy`，`CreditTransaction` 增加 lot / policy 审计字段；后端新增 `credit-lot-policy.ts` 用于 lot 过滤、优先级排序和扣减规划。
 - Credits Backend 已将三条发放链路接入 lot：充值成功、管理员补发、新用户注册赠送；当前均按 permanent lot 落库，为后续切换到 lot 真值扣减做准备。
@@ -25,6 +26,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- Flow/Video: 修复 `Seedance 2.0` 在切换到 `多图参考 / 智能多帧` 后仍只能连接 1 张上游图片的问题；节点现会渲染与 `FlowOverlay` 分槽逻辑一致的 `image-slot-*` 目标句柄，确保多图连线可实际落到独立 slot（`frontend/src/components/flow/nodes/GenericVideoNode.tsx`）。
+- Flow/Video: `Seedance 2.0` 的 `多图参考 / 智能多帧` 现改为显式展示全部图片槽位句柄（最多 `9/10` 个），方便直接看到当前模式的最大接图数量与空闲 slot（`frontend/src/components/flow/nodes/GenericVideoNode.tsx`）。
+- Flow/Video: `Seedance 2.0` 改为“最大输入能力 + 自动推导模式”；前端移除手动模式切换，固定展示 `text / 9 图 / 尾帧 / video / audio` 句柄，并按当前连线自动推导 `video_mode`，旧 `smart_frames` 配置自动兼容到 `reference_images`（`frontend/src/components/flow/nodes/GenericVideoNode.tsx`, `frontend/src/components/flow/FlowOverlay.tsx`, `backend/src/admin/services/node-config.service.ts`）。
 - Flow/Video: `Seedance 2.0` 节点补齐官方规格，新增 `Seedance 2.0 Fast` 模型选择、模式化句柄（文本/首帧/首尾帧/多图/视频/音频组合）、`1-9` 图全能参考、`2-10` 智能多帧、`4-15s` 时长、6 种比例和 `480P/720P` 分辨率配置；运行时同步支持图/视频/音频多模态请求拼装（`frontend/src/components/flow/nodes/GenericVideoNode.tsx`, `frontend/src/components/flow/FlowOverlay.tsx`, `frontend/src/services/videoProviderAPI.ts`）。
 - Backend/Admin: Seedance 2.0 模型管理与默认节点配置同步升级，`seedance-2.0` 统一支持 `seedance-2.0 / seedance-2.0-fast` 两个模型别名，请求路由按 `seedanceUpstreamModelId` 动态下发到官方 `260128 / fast-260128` 模型 ID，并修正后台默认能力描述、输入模式和输出规格（`backend/src/ai/services/video-provider.service.ts`, `backend/src/ai/services/model-routing.service.ts`, `backend/src/admin/services/node-config.service.ts`, `frontend/src/pages/Admin.tsx`）。
 - 认证页移动端适配：`/auth/login` 与 `/auth/register` 在小屏下改为可纵向滚动的顶部对齐卡片，收紧内边距，三标签切换改为紧凑布局，验证码区和协议区适配窄屏换行，避免登录/注册页在手机端出现横向挤压和底部内容被遮挡（`frontend/src/pages/auth/Login.tsx`, `frontend/src/pages/auth/Register.tsx`）。

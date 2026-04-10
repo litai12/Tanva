@@ -884,7 +884,6 @@ const VIDUQ3_MAX_REFERENCE_IMAGES = 2; // Vidu Q3 支持最多 2 张参考图
 const KLING_MAX_REFERENCE_IMAGES = 2; // Kling 2.1 / 2.6 统一限制最多 2 张参考图
 const KLING_MAX_AUDIO_INPUTS = 2;
 const SEEDANCE20_REFERENCE_IMAGE_MAX = 9;
-const SEEDANCE20_SMART_FRAMES_IMAGE_MAX = 10;
 
 type Seedance20Mode =
   | "text"
@@ -910,6 +909,12 @@ const SEEDANCE20_MODE_VALUES: Seedance20Mode[] = [
   "video_audio",
   "image_video_audio",
 ];
+const isSeedance20ModeValue = (value: unknown): value is Seedance20Mode =>
+  typeof value === "string" && SEEDANCE20_MODE_VALUES.includes(value as Seedance20Mode);
+const normalizeSeedance20Mode = (value: unknown): Seedance20Mode | null => {
+  if (!isSeedance20ModeValue(value)) return null;
+  return value === "smart_frames" ? "reference_images" : value;
+};
 
 const VIDEO_SOURCE_NODE_TYPES = [
   "video",
@@ -926,6 +931,36 @@ const VIDEO_SOURCE_NODE_TYPES = [
   "doubaoVideo",
   "seedance20Video",
 ];
+
+const SEEDANCE20_IMAGE_SLOT_HANDLE_PREFIX = "image-slot-";
+const isSeedance20ImageSlotHandle = (handle?: string | null): boolean =>
+  typeof handle === "string" && handle.startsWith(SEEDANCE20_IMAGE_SLOT_HANDLE_PREFIX);
+const isSeedance20PrimaryImageHandle = (handle?: string | null): boolean =>
+  handle === "image" || isSeedance20ImageSlotHandle(handle);
+const getSeedance20ImageHandlePriority = (handle?: string | null): number => {
+  if (handle === "image") return 0;
+  if (isSeedance20ImageSlotHandle(handle)) {
+    const index = Number(String(handle).slice(SEEDANCE20_IMAGE_SLOT_HANDLE_PREFIX.length));
+    return Number.isFinite(index) ? index - 1 : 0;
+  }
+  if (handle === "image-2") return 999;
+  return 1000;
+};
+
+const isSeedance20Node = (node?: Node | null): boolean => {
+  if (!node) return false;
+  if (node.type === "seedance20Video") return true;
+  if (node.type !== "doubaoVideo") return false;
+  const nodeData = (node.data || {}) as Record<string, any>;
+  const model = String(nodeData.seedanceModel || "").trim().toLowerCase();
+  return model === "seedance-2.0" || model === "seedance-2.0-fast";
+};
+
+const getSeedance20ExplicitMode = (node?: Node | null): Seedance20Mode | null => {
+  if (!isSeedance20Node(node)) return null;
+  const nodeData = (node.data || {}) as Record<string, any>;
+  return normalizeSeedance20Mode(nodeData.seedanceMode);
+};
 
 const normalizeViduModelValue = (value?: string): "q2" | "q3" => {
   const normalized = String(value || "")
@@ -7569,15 +7604,9 @@ function FlowInner() {
           audioHandleMax: 0,
         };
       case "reference_images":
-        return {
-          imageHandleMax: SEEDANCE20_REFERENCE_IMAGE_MAX,
-          image2HandleMax: 0,
-          videoHandleMax: 0,
-          audioHandleMax: 0,
-        };
       case "smart_frames":
         return {
-          imageHandleMax: SEEDANCE20_SMART_FRAMES_IMAGE_MAX,
+          imageHandleMax: SEEDANCE20_REFERENCE_IMAGE_MAX,
           image2HandleMax: 0,
           videoHandleMax: 0,
           audioHandleMax: 0,
@@ -7628,34 +7657,37 @@ function FlowInner() {
   }, []);
 
   const inferSeedance20Mode = React.useCallback((node?: Node | null): Seedance20Mode => {
-    if (!node || node.type !== "seedance20Video") {
+    if (!isSeedance20Node(node)) {
       return "text";
     }
 
     const nodeData = (node.data || {}) as Record<string, any>;
-    if (isSeedance20ModeValue(nodeData.seedanceMode)) {
-      return nodeData.seedanceMode;
+    const normalizedLegacyMode = normalizeSeedance20Mode(nodeData.seedanceMode);
+    if (
+      normalizedLegacyMode &&
+      !rf.getEdges().some((edge) => edge.target === node.id)
+    ) {
+      return normalizedLegacyMode;
     }
 
     const nodeEdges = rf.getEdges().filter((edge) => edge.target === node.id);
-    const imageCount = nodeEdges.filter(
-      (edge) => edge.targetHandle === "image" || edge.targetHandle === "image-2"
+    const primaryImageCount = nodeEdges.filter(
+      (edge) => isSeedance20PrimaryImageHandle(edge.targetHandle)
     ).length;
     const hasImage2 = nodeEdges.some((edge) => edge.targetHandle === "image-2");
     const hasVideo = nodeEdges.some((edge) => edge.targetHandle === "video");
     const hasAudio = nodeEdges.some((edge) => edge.targetHandle === "audio");
 
-    if (hasVideo && hasAudio && imageCount > 0) return "image_video_audio";
+    if (hasImage2 && !hasVideo && !hasAudio) return "start_end";
+    if (hasVideo && hasAudio && primaryImageCount > 0) return "image_video_audio";
     if (hasVideo && hasAudio) return "video_audio";
-    if (hasVideo && imageCount > 0) return "image_video";
-    if (hasAudio && imageCount > 0) return "image_audio";
+    if (hasVideo && primaryImageCount > 0) return "image_video";
+    if (hasAudio && primaryImageCount > 0) return "image_audio";
     if (hasVideo) return "reference_video";
-    if (hasImage2) return "start_end";
-    if (imageCount >= 3) return "smart_frames";
-    if (imageCount >= 2) return "reference_images";
-    if (imageCount === 1) return "first_frame";
+    if (primaryImageCount >= 2) return "reference_images";
+    if (primaryImageCount === 1) return "first_frame";
     return "text";
-  }, [isSeedance20ModeValue, rf]);
+  }, [rf]);
 
   const appendSora2History = React.useCallback(
     (
@@ -7946,24 +7978,18 @@ function FlowInner() {
         return false;
       }
 
-      if (targetNode.type === "seedance20Video") {
-        const seedanceMode = inferSeedance20Mode(targetNode);
-        const spec = getSeedance20ModeSpec(seedanceMode);
-        if (targetHandle === "image") {
-          if (spec.imageHandleMax <= 0) return false;
+      if (isSeedance20Node(targetNode)) {
+        if (isSeedance20PrimaryImageHandle(targetHandle)) {
           return isImageSource(sourceNode, sourceHandle);
         }
         if (targetHandle === "image-2") {
-          if (spec.image2HandleMax <= 0) return false;
           return isImageSource(sourceNode, sourceHandle);
         }
         if (targetHandle === "video") {
-          if (spec.videoHandleMax <= 0) return false;
           if (sourceHandle !== "video" && sourceHandle !== "video-out") return false;
           return VIDEO_SOURCE_NODE_TYPES.includes(sourceNode.type || "");
         }
         if (targetHandle === "audio") {
-          if (spec.audioHandleMax <= 0) return false;
           if (sourceHandle !== "audio") return false;
           return ["audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
             sourceNode.type || ""
@@ -8383,26 +8409,23 @@ function FlowInner() {
         if (params.targetHandle === "text") return true;
         if (params.targetHandle === "video") return incoming.length < 1; // 只支持 1 个视频
       }
-      if (targetNode?.type === "seedance20Video") {
-        const spec = getSeedance20ModeSpec(inferSeedance20Mode(targetNode));
+      if (isSeedance20Node(targetNode)) {
         if (params.targetHandle === "text") return true;
-        if (params.targetHandle === "image") {
-          if (spec.imageHandleMax <= 0) return false;
-          return spec.imageHandleMax === 1
-            ? true
-            : currentEdges.filter(
-                (edge) => edge.target === params.target && edge.targetHandle === "image"
-              ).length < spec.imageHandleMax;
+        if (isSeedance20PrimaryImageHandle(params.targetHandle)) {
+          const primaryIncomingCount = currentEdges.filter(
+            (edge) => edge.target === params.target && isSeedance20PrimaryImageHandle(edge.targetHandle)
+          ).length;
+          const isExplicitSlot = isSeedance20ImageSlotHandle(params.targetHandle);
+          return primaryIncomingCount < SEEDANCE20_REFERENCE_IMAGE_MAX && (!isExplicitSlot || incoming.length < 1);
         }
         if (params.targetHandle === "image-2") {
-          if (spec.image2HandleMax <= 0) return false;
-          return true;
+          return incoming.length < 1;
         }
         if (params.targetHandle === "video") {
-          return spec.videoHandleMax > 0;
+          return incoming.length < 1;
         }
         if (params.targetHandle === "audio") {
-          return spec.audioHandleMax > 0;
+          return incoming.length < 1;
         }
       }
       // Doubao 视频节点
@@ -8511,40 +8534,66 @@ function FlowInner() {
       closeConnectQuickMenu({ resetSource: true });
 
       setEdges((eds) => {
+        const targetNode = params.target ? rf.getNode(params.target) : null;
+        let resolvedParams = { ...params };
+
+        if (isSeedance20Node(targetNode) && params.targetHandle === "image") {
+          const occupiedHandles = new Set(
+            eds
+              .filter(
+                (edge) =>
+                  edge.target === params.target &&
+                  isSeedance20PrimaryImageHandle(edge.targetHandle)
+              )
+              .map((edge) => edge.targetHandle)
+              .filter((handle): handle is string => typeof handle === "string")
+          );
+
+          const nextFreeHandle =
+            Array.from({ length: SEEDANCE20_REFERENCE_IMAGE_MAX }, (_, index) =>
+              `${SEEDANCE20_IMAGE_SLOT_HANDLE_PREFIX}${index + 1}`
+            ).find((handle) => !occupiedHandles.has(handle)) || params.targetHandle;
+
+          resolvedParams = {
+            ...resolvedParams,
+            targetHandle: nextFreeHandle,
+          };
+        }
+
         let next = eds;
-        const tgt = rf.getNode(params.target!);
+        const tgt = resolvedParams.target ? rf.getNode(resolvedParams.target) : null;
 
         // 如果是连接到 Image(img)，先移除旧的输入线，再添加新线
         if (
           (tgt?.type === "image" ||
             tgt?.type === "imagePro" ||
             tgt?.type === "viewAngle") &&
-          params.targetHandle === "img"
+          resolvedParams.targetHandle === "img"
         ) {
           next = next.filter(
-            (e) => !(e.target === params.target && e.targetHandle === "img")
+            (e) => !(e.target === resolvedParams.target && e.targetHandle === "img")
           );
         }
 
         // 如果是连接到 videoAnalyze(video)，先移除旧的输入线，再添加新线
-        if (tgt?.type === "videoAnalyze" && params.targetHandle === "video") {
+        if (tgt?.type === "videoAnalyze" && resolvedParams.targetHandle === "video") {
           next = next.filter(
-            (e) => !(e.target === params.target && e.targetHandle === "video")
+            (e) => !(e.target === resolvedParams.target && e.targetHandle === "video")
           );
         }
 
         // 如果是连接到 videoFrameExtract(video)，先移除旧的输入线，再添加新线
         if (
           tgt?.type === "videoFrameExtract" &&
-          params.targetHandle === "video"
+          resolvedParams.targetHandle === "video"
         ) {
           next = next.filter(
-            (e) => !(e.target === params.target && e.targetHandle === "video")
+            (e) => !(e.target === resolvedParams.target && e.targetHandle === "video")
           );
         }
-        if (tgt?.type === "videoToGif" && params.targetHandle === "video") {
+        if (tgt?.type === "videoToGif" && resolvedParams.targetHandle === "video") {
           next = next.filter(
-            (e) => !(e.target === params.target && e.targetHandle === "video")
+            (e) => !(e.target === resolvedParams.target && e.targetHandle === "video")
           );
         }
 
@@ -8575,68 +8624,68 @@ function FlowInner() {
         ];
         if (
           singleTextInputTypes.includes(tgt?.type || "") &&
-          isTextHandle(params.targetHandle)
+          isTextHandle(resolvedParams.targetHandle)
         ) {
           next = next.filter(
             (e) =>
               !(
-                e.target === params.target &&
-                e.targetHandle === params.targetHandle
+                e.target === resolvedParams.target &&
+                e.targetHandle === resolvedParams.targetHandle
               )
           );
         }
-        if (tgt?.type === "sora2Video" && params.targetHandle === "character") {
+        if (tgt?.type === "sora2Video" && resolvedParams.targetHandle === "character") {
           next = next.filter(
             (e) =>
               !(
-                e.target === params.target &&
+                e.target === resolvedParams.target &&
                 e.targetHandle === "character"
               )
           );
         }
-        if (tgt?.type === "sora2Video" && params.targetHandle === "video") {
+        if (tgt?.type === "sora2Video" && resolvedParams.targetHandle === "video") {
           const generationType = getSora2GenerationType(tgt.data);
           if (generationType === "sora2-create-character") {
             next = next.filter(
               (e) =>
                 !(
-                  e.target === params.target &&
+                  e.target === resolvedParams.target &&
                   e.targetHandle !== undefined
                 )
             );
             next = next.filter(
               (e) =>
                 !(
-                  e.target === params.target &&
+                  e.target === resolvedParams.target &&
                   e.targetHandle === undefined
                 )
             );
           }
         }
-        if (tgt?.type === "sora2Character" && params.targetHandle === "video") {
+        if (tgt?.type === "sora2Character" && resolvedParams.targetHandle === "video") {
           next = next.filter(
             (e) =>
               !(
-                e.target === params.target &&
-                e.targetHandle !== undefined
+                  e.target === resolvedParams.target &&
+                  e.targetHandle !== undefined
               )
           );
           next = next.filter(
             (e) =>
               !(
-                e.target === params.target &&
-                e.targetHandle === undefined
+                  e.target === resolvedParams.target &&
+                  e.targetHandle === undefined
               )
           );
         }
         // Vidu 视频节点：支持最多 7 张参考图
-        if (tgt?.type === "viduVideo" && params.targetHandle === "image") {
+        if (tgt?.type === "viduVideo" && resolvedParams.targetHandle === "image") {
           const targetData = ((tgt.data || {}) as Record<string, any>);
           const maxImages = getEffectiveViduMaxReferenceImages(targetData);
           let remainingToDrop = Math.max(
             0,
             next.filter(
-              (e) => e.target === params.target && e.targetHandle === "image"
+              (e) => e.target === resolvedParams.target && e.targetHandle === "image"
             ).length -
               maxImages +
               1 // +1 for the incoming edge
@@ -8645,7 +8694,7 @@ function FlowInner() {
             next = next.filter((e) => {
               if (remainingToDrop <= 0) return true;
               const isImageEdge =
-                e.target === params.target && e.targetHandle === "image";
+                e.target === resolvedParams.target && e.targetHandle === "image";
               if (isImageEdge) {
                 remainingToDrop -= 1;
                 return false;
@@ -8655,11 +8704,11 @@ function FlowInner() {
           }
         }
         // Vidu Q3 视频节点：支持最多 2 张参考图
-        if (tgt?.type === "viduQ3" && params.targetHandle === "image") {
+        if (tgt?.type === "viduQ3" && resolvedParams.targetHandle === "image") {
           let remainingToDrop = Math.max(
             0,
             next.filter(
-              (e) => e.target === params.target && e.targetHandle === "image"
+              (e) => e.target === resolvedParams.target && e.targetHandle === "image"
             ).length -
               VIDUQ3_MAX_REFERENCE_IMAGES +
               1 // +1 for the incoming edge
@@ -8668,7 +8717,7 @@ function FlowInner() {
             next = next.filter((e) => {
               if (remainingToDrop <= 0) return true;
               const isImageEdge =
-                e.target === params.target && e.targetHandle === "image";
+                e.target === resolvedParams.target && e.targetHandle === "image";
               if (isImageEdge) {
                 remainingToDrop -= 1;
                 return false;
@@ -8679,7 +8728,7 @@ function FlowInner() {
         }
         // Kling 视频节点：std 最多 1 张图，pro 最多 2 张（image + image-2）
         if ((tgt?.type === "klingVideo" || tgt?.type === "kling26Video") &&
-            (params.targetHandle === "image" || params.targetHandle === "image-2")) {
+            (resolvedParams.targetHandle === "image" || resolvedParams.targetHandle === "image-2")) {
           const nodeData = (tgt.data || {}) as Record<string, any>;
           const klingModel =
             nodeData.klingModel ||
@@ -8690,18 +8739,18 @@ function FlowInner() {
           const mode = typeof nodeData.mode === "string" ? nodeData.mode : "std";
           const maxImages = isKling26Model && mode === "pro" ? 2 : 1;
           // image-2 只能在 pro 模式下接，不能替换 image
-          if (params.targetHandle === "image-2" && !(isKling26Model && mode === "pro")) {
+          if (resolvedParams.targetHandle === "image-2" && !(isKling26Model && mode === "pro")) {
             return;
           }
           const imgEdges = next.filter(
-            (e) => e.target === params.target && (e.targetHandle === "image" || e.targetHandle === "image-2")
+            (e) => e.target === resolvedParams.target && (e.targetHandle === "image" || e.targetHandle === "image-2")
           );
           let remainingToDrop = Math.max(0, imgEdges.length - maxImages + 1);
           if (remainingToDrop > 0) {
             next = next.filter((e) => {
               if (remainingToDrop <= 0) return true;
               const isImgEdge =
-                e.target === params.target && (e.targetHandle === "image" || e.targetHandle === "image-2");
+                e.target === resolvedParams.target && (e.targetHandle === "image" || e.targetHandle === "image-2");
               if (isImgEdge) {
                 remainingToDrop -= 1;
                 return false;
@@ -8711,11 +8760,11 @@ function FlowInner() {
           }
         }
         // Kling O1 视频节点：支持最多 7 张参考图
-        if (tgt?.type === "klingO1Video" && params.targetHandle === "image") {
+        if (tgt?.type === "klingO1Video" && resolvedParams.targetHandle === "image") {
           let remainingToDrop = Math.max(
             0,
             next.filter(
-              (e) => e.target === params.target && e.targetHandle === "image"
+              (e) => e.target === resolvedParams.target && e.targetHandle === "image"
             ).length -
               7 + // Kling O1 支持最多 7 张图片
               1 // +1 for the incoming edge
@@ -8724,7 +8773,7 @@ function FlowInner() {
             next = next.filter((e) => {
               if (remainingToDrop <= 0) return true;
               const isImageEdge =
-                e.target === params.target && e.targetHandle === "image";
+                e.target === resolvedParams.target && e.targetHandle === "image";
               if (isImageEdge) {
                 remainingToDrop -= 1;
                 return false;
@@ -8734,11 +8783,11 @@ function FlowInner() {
           }
         }
         // Kling O1 视频节点：elementImg 支持最多 7 张参考图
-        if (tgt?.type === "klingO1Video" && params.targetHandle === "elementImg") {
+        if (tgt?.type === "klingO1Video" && resolvedParams.targetHandle === "elementImg") {
           let remainingToDrop = Math.max(
             0,
             next.filter(
-              (e) => e.target === params.target && e.targetHandle === "elementImg"
+              (e) => e.target === resolvedParams.target && e.targetHandle === "elementImg"
             ).length -
               7 + // elementImg 支持最多 7 张图片
               1 // +1 for the incoming edge
@@ -8747,7 +8796,7 @@ function FlowInner() {
             next = next.filter((e) => {
               if (remainingToDrop <= 0) return true;
               const isElementImgEdge =
-                e.target === params.target && e.targetHandle === "elementImg";
+                e.target === resolvedParams.target && e.targetHandle === "elementImg";
               if (isElementImgEdge) {
                 remainingToDrop -= 1;
                 return false;
@@ -8757,64 +8806,59 @@ function FlowInner() {
           }
         }
         if (
-          tgt?.type === "seedance20Video" &&
-          (params.targetHandle === "image" ||
-            params.targetHandle === "image-2" ||
-            params.targetHandle === "video" ||
-            params.targetHandle === "audio")
+          isSeedance20Node(tgt) &&
+          (isSeedance20PrimaryImageHandle(resolvedParams.targetHandle) ||
+            resolvedParams.targetHandle === "image-2" ||
+            resolvedParams.targetHandle === "video" ||
+            resolvedParams.targetHandle === "audio")
         ) {
-          const spec = getSeedance20ModeSpec(inferSeedance20Mode(tgt));
-
           if (
-            params.targetHandle === "image-2" ||
-            params.targetHandle === "video" ||
-            params.targetHandle === "audio" ||
-            (params.targetHandle === "image" && spec.imageHandleMax === 1)
+            resolvedParams.targetHandle === "image-2" ||
+            resolvedParams.targetHandle === "video" ||
+            resolvedParams.targetHandle === "audio" ||
+            isSeedance20ImageSlotHandle(resolvedParams.targetHandle)
           ) {
             next = next.filter(
-              (e) => !(e.target === params.target && e.targetHandle === params.targetHandle)
+              (e) => !(e.target === resolvedParams.target && e.targetHandle === resolvedParams.targetHandle)
             );
           }
 
-          if (params.targetHandle === "image" || params.targetHandle === "image-2") {
-            const maxImages = spec.imageHandleMax + spec.image2HandleMax;
-            if (maxImages > 0) {
-              let remainingToDrop = Math.max(
-                0,
-                next.filter(
-                  (e) =>
-                    e.target === params.target &&
-                    (e.targetHandle === "image" || e.targetHandle === "image-2")
-                ).length -
-                  maxImages +
-                  1
-              );
-              if (remainingToDrop > 0) {
-                next = next.filter((e) => {
-                  if (remainingToDrop <= 0) return true;
-                  const isSeedanceImageEdge =
-                    e.target === params.target &&
-                    (e.targetHandle === "image" || e.targetHandle === "image-2");
-                  if (isSeedanceImageEdge) {
-                    remainingToDrop -= 1;
-                    return false;
-                  }
-                  return true;
-                });
-              }
+          if (isSeedance20PrimaryImageHandle(resolvedParams.targetHandle)) {
+            let remainingToDrop = Math.max(
+              0,
+              next.filter(
+                (e) =>
+                  e.target === resolvedParams.target &&
+                  isSeedance20PrimaryImageHandle(e.targetHandle)
+              ).length -
+                SEEDANCE20_REFERENCE_IMAGE_MAX +
+                1
+            );
+            if (remainingToDrop > 0) {
+              next = next.filter((e) => {
+                if (remainingToDrop <= 0) return true;
+                const isSeedanceImageEdge =
+                  e.target === resolvedParams.target &&
+                  isSeedance20PrimaryImageHandle(e.targetHandle);
+                if (isSeedanceImageEdge) {
+                  remainingToDrop -= 1;
+                  return false;
+                }
+                return true;
+              });
             }
           }
         }
         // Sora2、Doubao 视频节点：限制参考图数量
         if (
           (tgt?.type === "sora2Video" || tgt?.type === "doubaoVideo") &&
-          params.targetHandle === "image"
+          resolvedParams.targetHandle === "image"
         ) {
           // 允许多条 image 连接，但限制总数；超过时移除最早的
           let remainingToDrop = Math.max(
             0,
             next.filter(
-              (e) => e.target === params.target && isImageHandle(e.targetHandle)
+              (e) => e.target === resolvedParams.target && isImageHandle(e.targetHandle)
             ).length -
               SORA2_MAX_REFERENCE_IMAGES +
               1 // +1 for the incoming edge
@@ -8823,7 +8867,7 @@ function FlowInner() {
             next = next.filter((e) => {
               if (remainingToDrop <= 0) return true;
               const isImageEdge =
-                e.target === params.target && isImageHandle(e.targetHandle);
+                e.target === resolvedParams.target && isImageHandle(e.targetHandle);
               if (isImageEdge) {
                 remainingToDrop -= 1;
                 return false;
@@ -8833,15 +8877,15 @@ function FlowInner() {
           }
         }
         // Kling O1 视频节点：视频输入只允许 1 条，并更新 hasVideoInput 状态
-        if (tgt?.type === "klingO1Video" && params.targetHandle === "video") {
+        if (tgt?.type === "klingO1Video" && resolvedParams.targetHandle === "video") {
           next = next.filter(
-            (e) => !(e.target === params.target && e.targetHandle === "video")
+            (e) => !(e.target === resolvedParams.target && e.targetHandle === "video")
           );
           // 更新节点的 hasVideoInput 状态
           setTimeout(() => {
             setNodes((ns) =>
               ns.map((n) =>
-                n.id === params.target
+                n.id === resolvedParams.target
                   ? { ...n, data: { ...n.data, hasVideoInput: true } }
                   : n
               )
@@ -8849,41 +8893,41 @@ function FlowInner() {
           }, 0);
         }
         // wan26 只允许单个 image 输入
-        if (tgt?.type === "wan26" && isImageHandle(params.targetHandle)) {
+        if (tgt?.type === "wan26" && isImageHandle(resolvedParams.targetHandle)) {
           next = next.filter(
-            (e) => !(e.target === params.target && isImageHandle(e.targetHandle))
+            (e) => !(e.target === resolvedParams.target && isImageHandle(e.targetHandle))
           );
         }
-        if (tgt?.type === "wan26" && params.targetHandle === "audio") {
+        if (tgt?.type === "wan26" && resolvedParams.targetHandle === "audio") {
           next = next.filter(
-            (e) => !(e.target === params.target && e.targetHandle === "audio")
+            (e) => !(e.target === resolvedParams.target && e.targetHandle === "audio")
           );
         }
         if (
           tgt?.type === "wan27Video" &&
-          (params.targetHandle === "image" ||
-            params.targetHandle === "image-2" ||
-            params.targetHandle === "video" ||
-            params.targetHandle === "audio")
+          (resolvedParams.targetHandle === "image" ||
+            resolvedParams.targetHandle === "image-2" ||
+            resolvedParams.targetHandle === "video" ||
+            resolvedParams.targetHandle === "audio")
         ) {
           next = next.filter(
-            (e) => !(e.target === params.target && e.targetHandle === params.targetHandle)
+            (e) => !(e.target === resolvedParams.target && e.targetHandle === resolvedParams.targetHandle)
           );
         }
-        if (tgt?.type === "audioUpload" && params.targetHandle === "audio") {
+        if (tgt?.type === "audioUpload" && resolvedParams.targetHandle === "audio") {
           next = next.filter(
-            (e) => !(e.target === params.target && e.targetHandle === "audio")
+            (e) => !(e.target === resolvedParams.target && e.targetHandle === "audio")
           );
         }
         if (
           (tgt?.type === "midjourneyV7" || tgt?.type === "niji7") &&
-          (params.targetHandle === "omniImage" ||
-            params.targetHandle === "omniimage")
+          (resolvedParams.targetHandle === "omniImage" ||
+            resolvedParams.targetHandle === "omniimage")
         ) {
           next = next.filter(
             (e) =>
               !(
-                e.target === params.target &&
+                e.target === resolvedParams.target &&
                 (e.targetHandle === "omniImage" ||
                   e.targetHandle === "omniimage")
               )
@@ -8892,14 +8936,14 @@ function FlowInner() {
         // wan2R2V: 每个 video-* 句柄只保留 1 条输入线
         if (
           tgt?.type === "wan2R2V" &&
-          typeof params.targetHandle === "string" &&
-          params.targetHandle.startsWith("video-")
+          typeof resolvedParams.targetHandle === "string" &&
+          resolvedParams.targetHandle.startsWith("video-")
         ) {
           next = next.filter(
             (e) =>
               !(
-                e.target === params.target &&
-                e.targetHandle === params.targetHandle
+                e.target === resolvedParams.target &&
+                e.targetHandle === resolvedParams.targetHandle
               )
           );
         }
@@ -8907,30 +8951,30 @@ function FlowInner() {
           const image1Handles = ["image1", "refer"];
           const image2Handles = ["image2", "img"];
           if (
-            params.targetHandle &&
-            image1Handles.includes(params.targetHandle)
+            resolvedParams.targetHandle &&
+            image1Handles.includes(resolvedParams.targetHandle)
           ) {
             next = next.filter(
               (e) =>
                 !(
-                  e.target === params.target &&
+                  e.target === resolvedParams.target &&
                   image1Handles.includes(e.targetHandle || "")
                 )
             );
           } else if (
-            params.targetHandle &&
-            image2Handles.includes(params.targetHandle)
+            resolvedParams.targetHandle &&
+            image2Handles.includes(resolvedParams.targetHandle)
           ) {
             next = next.filter(
               (e) =>
                 !(
-                  e.target === params.target &&
+                  e.target === resolvedParams.target &&
                   image2Handles.includes(e.targetHandle || "")
                 )
             );
           }
         }
-        const out = addEdge({ ...params, type: "default" }, next);
+        const out = addEdge({ ...resolvedParams, type: "default" }, next);
         return out;
       });
       try {
@@ -12453,15 +12497,11 @@ function FlowInner() {
           provider = rawNodeData.provider || "kling";
         }
         const seedance20Mode = node.type === "seedance20Video" ? inferSeedance20Mode(node) : undefined;
-        const seedance20ModeSpec =
-          node.type === "seedance20Video" && seedance20Mode
-            ? getSeedance20ModeSpec(seedance20Mode)
-            : undefined;
 
         // 先获取图片数量，判断是否需要 prompt
         const maxImages =
-          node.type === "seedance20Video" && seedance20ModeSpec
-            ? seedance20ModeSpec.imageHandleMax + seedance20ModeSpec.image2HandleMax
+          node.type === "seedance20Video"
+            ? SEEDANCE20_REFERENCE_IMAGE_MAX + 1
             : provider === "vidu" || provider === "viduq3-pro"
             ? getEffectiveViduMaxReferenceImages(viduNodeDataForProvider)
             : provider === "kling" || provider === "kling-2.6" || provider === "kling-o3"
@@ -12474,6 +12514,9 @@ function FlowInner() {
         );
 
         const imageHandlePriority = (handle?: string | null): number => {
+          if (node.type === "seedance20Video") {
+            return getSeedance20ImageHandlePriority(handle);
+          }
           if (handle === "image") return 0;
           if (handle === "image-2") return 1;
           if (handle === "elementImg") return 2;
@@ -12485,11 +12528,11 @@ function FlowInner() {
             if (e.target !== nodeId) return false;
             // 有视频输入时，只收集 image / image-2，排除 elementImg
             if (hasVideoInput) {
-              return e.targetHandle === "image" || e.targetHandle === "image-2";
+              return isSeedance20PrimaryImageHandle(e.targetHandle) || e.targetHandle === "image-2";
             }
             // 无视频输入时，收集 image / image-2 / elementImg
             return (
-              e.targetHandle === "image" ||
+              isSeedance20PrimaryImageHandle(e.targetHandle) ||
               e.targetHandle === "image-2" ||
               e.targetHandle === "elementImg"
             );
@@ -12533,6 +12576,15 @@ function FlowInner() {
           const hasSeedanceAudioInput = currentEdges.some(
             (e) => e.target === nodeId && e.targetHandle === "audio"
           );
+          const hasSeedanceImage2Input = currentEdges.some(
+            (e) => e.target === nodeId && e.targetHandle === "image-2"
+          );
+          const hasSeedancePrimaryImageInput = currentEdges.some(
+            (e) => e.target === nodeId && isSeedance20PrimaryImageHandle(e.targetHandle)
+          );
+          const primaryImageCount = imageEdges.filter((e) =>
+            isSeedance20PrimaryImageHandle(e.targetHandle)
+          ).length;
 
           if (seedance20Mode === "text") {
             if (!hasText || !promptText) {
@@ -12546,31 +12598,42 @@ function FlowInner() {
             }
           }
 
+          if (hasSeedanceImage2Input) {
+            if (!hasSeedancePrimaryImageInput) {
+              failCurrentVideoNode("尾帧句柄需要先连接首帧图片");
+              return;
+            }
+            if (primaryImageCount !== 1 || hasSeedanceVideoInput || hasSeedanceAudioInput) {
+              failCurrentVideoNode("尾帧句柄仅支持首尾帧模式，不能与多图/视频/音频混用");
+              return;
+            }
+          }
+
+          if (hasSeedanceAudioInput && !hasSeedanceVideoInput && primaryImageCount === 0) {
+            failCurrentVideoNode("音频参考需要与图片或视频一起使用");
+            return;
+          }
+
           switch (seedance20Mode) {
             case "first_frame":
-              if (imageCount < 1) {
+              if (primaryImageCount < 1) {
                 failCurrentVideoNode("首帧模式至少需要 1 张图片");
                 return;
               }
               break;
             case "start_end":
               if (
-                !currentEdges.some((e) => e.target === nodeId && e.targetHandle === "image") ||
-                !currentEdges.some((e) => e.target === nodeId && e.targetHandle === "image-2")
+                !hasSeedancePrimaryImageInput ||
+                !hasSeedanceImage2Input
               ) {
                 failCurrentVideoNode("首尾帧模式需要分别连接首帧和尾帧");
                 return;
               }
               break;
             case "reference_images":
-              if (imageCount < 1 || imageCount > SEEDANCE20_REFERENCE_IMAGE_MAX) {
-                failCurrentVideoNode("全能参考模式支持 1-9 张图片");
-                return;
-              }
-              break;
             case "smart_frames":
-              if (imageCount < 2 || imageCount > SEEDANCE20_SMART_FRAMES_IMAGE_MAX) {
-                failCurrentVideoNode("智能多帧模式支持 2-10 张图片");
+              if (primaryImageCount < 1 || primaryImageCount > SEEDANCE20_REFERENCE_IMAGE_MAX) {
+                failCurrentVideoNode("多图参考模式支持 1-9 张图片");
                 return;
               }
               break;
@@ -12581,13 +12644,13 @@ function FlowInner() {
               }
               break;
             case "image_audio":
-              if (imageCount < 1 || !hasSeedanceAudioInput) {
+              if (primaryImageCount < 1 || !hasSeedanceAudioInput) {
                 failCurrentVideoNode("图片 + 音频模式需要至少 1 张图和 1 条音频");
                 return;
               }
               break;
             case "image_video":
-              if (imageCount < 1 || !hasSeedanceVideoInput) {
+              if (primaryImageCount < 1 || !hasSeedanceVideoInput) {
                 failCurrentVideoNode("图片 + 视频模式需要至少 1 张图和 1 个视频");
                 return;
               }
@@ -12599,7 +12662,7 @@ function FlowInner() {
               }
               break;
             case "image_video_audio":
-              if (imageCount < 1 || !hasSeedanceVideoInput || !hasSeedanceAudioInput) {
+              if (primaryImageCount < 1 || !hasSeedanceVideoInput || !hasSeedanceAudioInput) {
                 failCurrentVideoNode("图片 + 视频 + 音频模式需要至少 1 张图、1 个视频和 1 条音频");
                 return;
               }
