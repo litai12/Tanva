@@ -12,6 +12,7 @@ export interface VideoGenerationRequest {
   referenceImages?: string[]; // Base64 Data URI 数组
   audioUrls?: string[];
   referenceVideos?: string[];
+  videoMode?: string;
   managedModelKey?: string;
   vendorKey?: string;
   platformKey?: string;
@@ -30,7 +31,7 @@ export interface VideoGenerationRequest {
   sound?: string;
   klingModel?: "kling-v2-1" | "kling-v2-6" | "kling-v3-0";
   viduModel?: "q2" | "q3";
-  seedanceModel?: "seedance-1.5-pro" | "seedance-2.0";
+  seedanceModel?: "seedance-1.5-pro" | "seedance-2.0" | "seedance-2.0-fast";
   // Kling O1 视频编辑专用参数
   referenceVideo?: string;
   referenceVideoType?: "feature" | "motion" | "expression";

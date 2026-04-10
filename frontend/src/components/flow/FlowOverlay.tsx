@@ -883,6 +883,49 @@ const VIDU_MAX_REFERENCE_IMAGES = 7; // Vidu viduq2 模型支持最多 7 张参�
 const VIDUQ3_MAX_REFERENCE_IMAGES = 2; // Vidu Q3 支持最多 2 张参考图
 const KLING_MAX_REFERENCE_IMAGES = 2; // Kling 2.1 / 2.6 统一限制最多 2 张参考图
 const KLING_MAX_AUDIO_INPUTS = 2;
+const SEEDANCE20_REFERENCE_IMAGE_MAX = 9;
+const SEEDANCE20_SMART_FRAMES_IMAGE_MAX = 10;
+
+type Seedance20Mode =
+  | "text"
+  | "first_frame"
+  | "start_end"
+  | "reference_images"
+  | "smart_frames"
+  | "reference_video"
+  | "image_audio"
+  | "image_video"
+  | "video_audio"
+  | "image_video_audio";
+
+const SEEDANCE20_MODE_VALUES: Seedance20Mode[] = [
+  "text",
+  "first_frame",
+  "start_end",
+  "reference_images",
+  "smart_frames",
+  "reference_video",
+  "image_audio",
+  "image_video",
+  "video_audio",
+  "image_video_audio",
+];
+
+const VIDEO_SOURCE_NODE_TYPES = [
+  "video",
+  "sora2Video",
+  "wan26",
+  "wan2R2V",
+  "wan27Video",
+  "klingVideo",
+  "kling26Video",
+  "kling30Video",
+  "klingO1Video",
+  "viduVideo",
+  "viduQ3",
+  "doubaoVideo",
+  "seedance20Video",
+];
 
 const normalizeViduModelValue = (value?: string): "q2" | "q3" => {
   const normalized = String(value || "")
@@ -7033,7 +7076,14 @@ function FlowInner() {
                   : type === "seedance20Video"
                   ? ("seedance-2.0" as const)
                   : undefined,
-              resolution: type === "viduVideo" || type === "viduQ3" ? ("720p" as const) : undefined,
+              seedanceMode: type === "seedance20Video" ? ("text" as const) : undefined,
+              generateAudio: type === "seedance20Video" ? false : undefined,
+              resolution:
+                type === "viduVideo" || type === "viduQ3"
+                  ? ("720p" as const)
+                  : type === "seedance20Video"
+                  ? ("720P" as const)
+                  : undefined,
               style: type === "viduVideo" || type === "viduQ3" ? ("general" as const) : undefined,
               offPeak: type === "viduVideo" || type === "viduQ3" ? false : undefined,
               // Seedance 1.5 Pro专用参数
@@ -7489,6 +7539,124 @@ function FlowInner() {
     return isKling26Model && mode === "pro";
   }, []);
 
+  const isSeedance20ModeValue = React.useCallback(
+    (value: unknown): value is Seedance20Mode =>
+      typeof value === "string" && SEEDANCE20_MODE_VALUES.includes(value as Seedance20Mode),
+    []
+  );
+
+  const getSeedance20ModeSpec = React.useCallback((mode: Seedance20Mode) => {
+    switch (mode) {
+      case "text":
+        return {
+          imageHandleMax: 0,
+          image2HandleMax: 0,
+          videoHandleMax: 0,
+          audioHandleMax: 0,
+        };
+      case "first_frame":
+        return {
+          imageHandleMax: 1,
+          image2HandleMax: 0,
+          videoHandleMax: 0,
+          audioHandleMax: 0,
+        };
+      case "start_end":
+        return {
+          imageHandleMax: 1,
+          image2HandleMax: 1,
+          videoHandleMax: 0,
+          audioHandleMax: 0,
+        };
+      case "reference_images":
+        return {
+          imageHandleMax: SEEDANCE20_REFERENCE_IMAGE_MAX,
+          image2HandleMax: 0,
+          videoHandleMax: 0,
+          audioHandleMax: 0,
+        };
+      case "smart_frames":
+        return {
+          imageHandleMax: SEEDANCE20_SMART_FRAMES_IMAGE_MAX,
+          image2HandleMax: 0,
+          videoHandleMax: 0,
+          audioHandleMax: 0,
+        };
+      case "reference_video":
+        return {
+          imageHandleMax: 0,
+          image2HandleMax: 0,
+          videoHandleMax: 1,
+          audioHandleMax: 0,
+        };
+      case "image_audio":
+        return {
+          imageHandleMax: SEEDANCE20_REFERENCE_IMAGE_MAX,
+          image2HandleMax: 0,
+          videoHandleMax: 0,
+          audioHandleMax: 1,
+        };
+      case "image_video":
+        return {
+          imageHandleMax: SEEDANCE20_REFERENCE_IMAGE_MAX,
+          image2HandleMax: 0,
+          videoHandleMax: 1,
+          audioHandleMax: 0,
+        };
+      case "video_audio":
+        return {
+          imageHandleMax: 0,
+          image2HandleMax: 0,
+          videoHandleMax: 1,
+          audioHandleMax: 1,
+        };
+      case "image_video_audio":
+        return {
+          imageHandleMax: SEEDANCE20_REFERENCE_IMAGE_MAX,
+          image2HandleMax: 0,
+          videoHandleMax: 1,
+          audioHandleMax: 1,
+        };
+      default:
+        return {
+          imageHandleMax: 0,
+          image2HandleMax: 0,
+          videoHandleMax: 0,
+          audioHandleMax: 0,
+        };
+    }
+  }, []);
+
+  const inferSeedance20Mode = React.useCallback((node?: Node | null): Seedance20Mode => {
+    if (!node || node.type !== "seedance20Video") {
+      return "text";
+    }
+
+    const nodeData = (node.data || {}) as Record<string, any>;
+    if (isSeedance20ModeValue(nodeData.seedanceMode)) {
+      return nodeData.seedanceMode;
+    }
+
+    const nodeEdges = rf.getEdges().filter((edge) => edge.target === node.id);
+    const imageCount = nodeEdges.filter(
+      (edge) => edge.targetHandle === "image" || edge.targetHandle === "image-2"
+    ).length;
+    const hasImage2 = nodeEdges.some((edge) => edge.targetHandle === "image-2");
+    const hasVideo = nodeEdges.some((edge) => edge.targetHandle === "video");
+    const hasAudio = nodeEdges.some((edge) => edge.targetHandle === "audio");
+
+    if (hasVideo && hasAudio && imageCount > 0) return "image_video_audio";
+    if (hasVideo && hasAudio) return "video_audio";
+    if (hasVideo && imageCount > 0) return "image_video";
+    if (hasAudio && imageCount > 0) return "image_audio";
+    if (hasVideo) return "reference_video";
+    if (hasImage2) return "start_end";
+    if (imageCount >= 3) return "smart_frames";
+    if (imageCount >= 2) return "reference_images";
+    if (imageCount === 1) return "first_frame";
+    return "text";
+  }, [isSeedance20ModeValue, rf]);
+
   const appendSora2History = React.useCallback(
     (
       history: Sora2VideoHistoryItem[] | undefined,
@@ -7778,8 +7946,37 @@ function FlowInner() {
         return false;
       }
 
+      if (targetNode.type === "seedance20Video") {
+        const seedanceMode = inferSeedance20Mode(targetNode);
+        const spec = getSeedance20ModeSpec(seedanceMode);
+        if (targetHandle === "image") {
+          if (spec.imageHandleMax <= 0) return false;
+          return isImageSource(sourceNode, sourceHandle);
+        }
+        if (targetHandle === "image-2") {
+          if (spec.image2HandleMax <= 0) return false;
+          return isImageSource(sourceNode, sourceHandle);
+        }
+        if (targetHandle === "video") {
+          if (spec.videoHandleMax <= 0) return false;
+          if (sourceHandle !== "video" && sourceHandle !== "video-out") return false;
+          return VIDEO_SOURCE_NODE_TYPES.includes(sourceNode.type || "");
+        }
+        if (targetHandle === "audio") {
+          if (spec.audioHandleMax <= 0) return false;
+          if (sourceHandle !== "audio") return false;
+          return ["audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
+            sourceNode.type || ""
+          );
+        }
+        if (targetHandle === "text") {
+          return canSourceProvideText(sourceNode, sourceHandle);
+        }
+        return false;
+      }
+
       if (
-        ["klingVideo", "kling26Video", "kling30Video", "viduVideo", "viduQ3", "doubaoVideo", "seedance20Video"].includes(
+        ["klingVideo", "kling26Video", "kling30Video", "viduVideo", "viduQ3", "doubaoVideo"].includes(
           targetNode.type || ""
         )
       ) {
@@ -8039,7 +8236,7 @@ function FlowInner() {
       }
       return false;
     },
-    [rf, isTextHandle, isImageHandle, textSourceTypes, isTextSourceHandle, isImageSourceHandle, canKlingNodeUseAudioInput, canKlingNodeUseImage2Input]
+    [rf, isTextHandle, isImageHandle, textSourceTypes, isTextSourceHandle, isImageSourceHandle, canKlingNodeUseAudioInput, canKlingNodeUseImage2Input, getSeedance20ModeSpec, inferSeedance20Mode]
   );
 
   // 限制：Generate(text) 仅一个连接；Generate(img) 最多6条
@@ -8186,8 +8383,30 @@ function FlowInner() {
         if (params.targetHandle === "text") return true;
         if (params.targetHandle === "video") return incoming.length < 1; // 只支持 1 个视频
       }
+      if (targetNode?.type === "seedance20Video") {
+        const spec = getSeedance20ModeSpec(inferSeedance20Mode(targetNode));
+        if (params.targetHandle === "text") return true;
+        if (params.targetHandle === "image") {
+          if (spec.imageHandleMax <= 0) return false;
+          return spec.imageHandleMax === 1
+            ? true
+            : currentEdges.filter(
+                (edge) => edge.target === params.target && edge.targetHandle === "image"
+              ).length < spec.imageHandleMax;
+        }
+        if (params.targetHandle === "image-2") {
+          if (spec.image2HandleMax <= 0) return false;
+          return true;
+        }
+        if (params.targetHandle === "video") {
+          return spec.videoHandleMax > 0;
+        }
+        if (params.targetHandle === "audio") {
+          return spec.audioHandleMax > 0;
+        }
+      }
       // Doubao 视频节点
-      if (targetNode?.type === "doubaoVideo" || targetNode?.type === "seedance20Video") {
+      if (targetNode?.type === "doubaoVideo") {
         if (params.targetHandle === "image") return true;
         if (params.targetHandle === "text") return true;
       }
@@ -8254,7 +8473,7 @@ function FlowInner() {
       }
       return false;
     },
-    [rf, isTextHandle, isImageHandle, canKlingNodeUseAudioInput, canKlingNodeUseImage2Input]
+    [rf, edges, isTextHandle, isImageHandle, canKlingNodeUseAudioInput, canKlingNodeUseImage2Input, getSeedance20ModeSpec, inferSeedance20Mode]
   );
 
   const onConnect = React.useCallback(
@@ -8349,6 +8568,7 @@ function FlowInner() {
           "kling26Video",
           "viduVideo",
           "doubaoVideo",
+          "seedance20Video",
           "minimaxSpeech",
           "tencentSpeech",
           "minimaxMusic",
@@ -8536,9 +8756,58 @@ function FlowInner() {
             });
           }
         }
+        if (
+          tgt?.type === "seedance20Video" &&
+          (params.targetHandle === "image" ||
+            params.targetHandle === "image-2" ||
+            params.targetHandle === "video" ||
+            params.targetHandle === "audio")
+        ) {
+          const spec = getSeedance20ModeSpec(inferSeedance20Mode(tgt));
+
+          if (
+            params.targetHandle === "image-2" ||
+            params.targetHandle === "video" ||
+            params.targetHandle === "audio" ||
+            (params.targetHandle === "image" && spec.imageHandleMax === 1)
+          ) {
+            next = next.filter(
+              (e) => !(e.target === params.target && e.targetHandle === params.targetHandle)
+            );
+          }
+
+          if (params.targetHandle === "image" || params.targetHandle === "image-2") {
+            const maxImages = spec.imageHandleMax + spec.image2HandleMax;
+            if (maxImages > 0) {
+              let remainingToDrop = Math.max(
+                0,
+                next.filter(
+                  (e) =>
+                    e.target === params.target &&
+                    (e.targetHandle === "image" || e.targetHandle === "image-2")
+                ).length -
+                  maxImages +
+                  1
+              );
+              if (remainingToDrop > 0) {
+                next = next.filter((e) => {
+                  if (remainingToDrop <= 0) return true;
+                  const isSeedanceImageEdge =
+                    e.target === params.target &&
+                    (e.targetHandle === "image" || e.targetHandle === "image-2");
+                  if (isSeedanceImageEdge) {
+                    remainingToDrop -= 1;
+                    return false;
+                  }
+                  return true;
+                });
+              }
+            }
+          }
+        }
         // Sora2、Doubao 视频节点：限制参考图数量
         if (
-          (tgt?.type === "sora2Video" || tgt?.type === "doubaoVideo" || tgt?.type === "seedance20Video") &&
+          (tgt?.type === "sora2Video" || tgt?.type === "doubaoVideo") &&
           params.targetHandle === "image"
         ) {
           // 允许多条 image 连接，但限制总数；超过时移除最早的
@@ -8802,6 +9071,8 @@ function FlowInner() {
       setNodes,
       isTextHandle,
       canKlingNodeUseAudioInput,
+      getSeedance20ModeSpec,
+      inferSeedance20Mode,
       lt,
       setIsConnecting,
       closeConnectQuickMenu,
@@ -12181,10 +12452,17 @@ function FlowInner() {
         } else {
           provider = rawNodeData.provider || "kling";
         }
+        const seedance20Mode = node.type === "seedance20Video" ? inferSeedance20Mode(node) : undefined;
+        const seedance20ModeSpec =
+          node.type === "seedance20Video" && seedance20Mode
+            ? getSeedance20ModeSpec(seedance20Mode)
+            : undefined;
 
         // 先获取图片数量，判断是否需要 prompt
         const maxImages =
-          provider === "vidu" || provider === "viduq3-pro"
+          node.type === "seedance20Video" && seedance20ModeSpec
+            ? seedance20ModeSpec.imageHandleMax + seedance20ModeSpec.image2HandleMax
+            : provider === "vidu" || provider === "viduq3-pro"
             ? getEffectiveViduMaxReferenceImages(viduNodeDataForProvider)
             : provider === "kling" || provider === "kling-2.6" || provider === "kling-o3"
             ? KLING_MAX_REFERENCE_IMAGES
@@ -12233,8 +12511,103 @@ function FlowInner() {
         // - 1-2张图：有prompt用reference2video，无prompt用img2video/start-end2video
         // - 3-7张图：使用reference2video（必须有prompt，无prompt时使用默认）
         let finalPrompt = promptText;
+        const failCurrentVideoNode = (message: string) => {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? { ...n, data: { ...n.data, status: "failed", error: message } }
+                : n
+            )
+          );
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message, type: "warning" },
+            })
+          );
+        };
 
-        if (provider === "vidu" || provider === "viduq3-pro") {
+        if (node.type === "seedance20Video" && seedance20Mode) {
+          const hasSeedanceVideoInput = currentEdges.some(
+            (e) => e.target === nodeId && e.targetHandle === "video"
+          );
+          const hasSeedanceAudioInput = currentEdges.some(
+            (e) => e.target === nodeId && e.targetHandle === "audio"
+          );
+
+          if (seedance20Mode === "text") {
+            if (!hasText || !promptText) {
+              failCurrentVideoNode("文生视频模式需要提供提示词");
+              return;
+            }
+          } else {
+            if (!promptText && imageCount === 0 && !hasSeedanceVideoInput && !hasSeedanceAudioInput) {
+              failCurrentVideoNode("当前模式至少需要提示词或参考素材");
+              return;
+            }
+          }
+
+          switch (seedance20Mode) {
+            case "first_frame":
+              if (imageCount < 1) {
+                failCurrentVideoNode("首帧模式至少需要 1 张图片");
+                return;
+              }
+              break;
+            case "start_end":
+              if (
+                !currentEdges.some((e) => e.target === nodeId && e.targetHandle === "image") ||
+                !currentEdges.some((e) => e.target === nodeId && e.targetHandle === "image-2")
+              ) {
+                failCurrentVideoNode("首尾帧模式需要分别连接首帧和尾帧");
+                return;
+              }
+              break;
+            case "reference_images":
+              if (imageCount < 1 || imageCount > SEEDANCE20_REFERENCE_IMAGE_MAX) {
+                failCurrentVideoNode("全能参考模式支持 1-9 张图片");
+                return;
+              }
+              break;
+            case "smart_frames":
+              if (imageCount < 2 || imageCount > SEEDANCE20_SMART_FRAMES_IMAGE_MAX) {
+                failCurrentVideoNode("智能多帧模式支持 2-10 张图片");
+                return;
+              }
+              break;
+            case "reference_video":
+              if (!hasSeedanceVideoInput) {
+                failCurrentVideoNode("视频参考模式需要连接 1 个视频");
+                return;
+              }
+              break;
+            case "image_audio":
+              if (imageCount < 1 || !hasSeedanceAudioInput) {
+                failCurrentVideoNode("图片 + 音频模式需要至少 1 张图和 1 条音频");
+                return;
+              }
+              break;
+            case "image_video":
+              if (imageCount < 1 || !hasSeedanceVideoInput) {
+                failCurrentVideoNode("图片 + 视频模式需要至少 1 张图和 1 个视频");
+                return;
+              }
+              break;
+            case "video_audio":
+              if (!hasSeedanceVideoInput || !hasSeedanceAudioInput) {
+                failCurrentVideoNode("视频 + 音频模式需要 1 个视频和 1 条音频");
+                return;
+              }
+              break;
+            case "image_video_audio":
+              if (imageCount < 1 || !hasSeedanceVideoInput || !hasSeedanceAudioInput) {
+                failCurrentVideoNode("图片 + 视频 + 音频模式需要至少 1 张图、1 个视频和 1 条音频");
+                return;
+              }
+              break;
+            default:
+              break;
+          }
+        } else if (provider === "vidu" || provider === "viduq3-pro") {
           if (imageCount === 0 && !hasText) {
             // 0张图必须有prompt
             setNodes((ns) =>
@@ -12433,20 +12806,6 @@ function FlowInner() {
               { once: true }
             );
           });
-        const failCurrentVideoNode = (message: string) => {
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? { ...n, data: { ...n.data, status: "failed", error: message } }
-                : n
-            )
-          );
-          window.dispatchEvent(
-            new CustomEvent("toast", {
-              detail: { message, type: "warning" },
-            })
-          );
-        };
         let klingAudioUrlsForAPI: string[] | undefined = undefined;
         /* 音频处理逻辑已注释
         if (provider === "kling-2.6" && (node.data as any)?.mode === "pro") {
@@ -12517,9 +12876,45 @@ function FlowInner() {
             connectedAudioUrls.length > 0 ? connectedAudioUrls : undefined;
         }
         */
+        let seedanceAudioUrlsForAPI: string[] | undefined = undefined;
+        if (node.type === "seedance20Video") {
+          const connectedAudioEdges = currentEdges.filter(
+            (e) => e.target === nodeId && e.targetHandle === "audio"
+          );
+          const resolvedAudioInputs = connectedAudioEdges
+            .map((edge) => resolveAudioFromNodeId(edge.source, new Set<string>([nodeId])))
+            .filter(
+              (
+                item
+              ): item is {
+                audioUrl: string;
+                duration?: number;
+              } => typeof item.audioUrl === "string" && item.audioUrl.length > 0
+            );
+          const connectedAudioUrls = Array.from(
+            new Set(resolvedAudioInputs.map((item) => item.audioUrl))
+          );
+
+          if (connectedAudioEdges.length > 0 && connectedAudioUrls.length === 0) {
+            failCurrentVideoNode("音频句柄已连接，但未读取到有效音频");
+            return;
+          }
+
+          if (connectedAudioUrls.length > 1) {
+            failCurrentVideoNode("Seedance 2.0 当前仅支持 1 条音频参考");
+            return;
+          }
+
+          seedanceAudioUrlsForAPI =
+            connectedAudioUrls.length > 0
+              ? connectedAudioUrls
+              : Array.isArray(rawNodeData.audioUrls) && rawNodeData.audioUrls.length > 0
+              ? rawNodeData.audioUrls.slice(0, 1)
+              : undefined;
+        }
 
         let referenceVideoUrl: string | undefined = undefined;
-        if (provider === "kling-o3") {
+        if (provider === "kling-o3" || node.type === "seedance20Video") {
           const videoEdge = currentEdges.find(
             (e) => e.target === nodeId && e.targetHandle === "video"
           );
@@ -12532,11 +12927,17 @@ function FlowInner() {
                 (sourceNode.data as any)?.src;
               if (videoUrl && typeof videoUrl === "string") {
                 referenceVideoUrl = videoUrl.trim();
-                console.log(`🎬 [Kling O1] 检测到视频输入: ${referenceVideoUrl.slice(0, 80)}...`);
+                console.log(
+                  `🎬 [${node.type === "seedance20Video" ? "Seedance 2.0" : "Kling O1"}] 检测到视频输入: ${referenceVideoUrl.slice(0, 80)}...`
+                );
 
                 // 验证视频时长（需要从源节点获取）
                 const videoDuration = (sourceNode.data as any)?.duration;
-                if (videoDuration && (videoDuration < 3 || videoDuration > 10)) {
+                if (
+                  provider === "kling-o3" &&
+                  videoDuration &&
+                  (videoDuration < 3 || videoDuration > 10)
+                ) {
                   setNodes((ns) =>
                     ns.map((n) =>
                       n.id === nodeId
@@ -12662,7 +13063,9 @@ function FlowInner() {
 
         // 根据供应商调整参数
         const aspectRatioForAPI =
-          provider === "viduq3-pro"
+          node.type === "seedance20Video"
+            ? aspectSetting || undefined
+            : provider === "viduq3-pro"
             ? referenceImageUrls.length > 0
               ? undefined
               : aspectSetting || "16:9"
@@ -12706,6 +13109,12 @@ function FlowInner() {
           ) {
             durationForAPI = clipDuration;
           } else if (
+            node.type === "seedance20Video" &&
+            clipDuration >= 4 &&
+            clipDuration <= 15
+          ) {
+            durationForAPI = clipDuration;
+          } else if (
             provider === "doubao" &&
             [3, 4, 5, 6, 8].includes(clipDuration)
           ) {
@@ -12719,6 +13128,7 @@ function FlowInner() {
             provider,
             aspectRatio: aspectRatioForAPI,
             duration: durationForAPI,
+            seedanceMode,
             referenceCount: referenceImageUrls.length,
             referenceVideo: referenceVideoUrl ? "有" : "无",
             promptPreview: finalPrompt?.slice(0, 120) || "(无提示词)",
@@ -12746,26 +13156,29 @@ function FlowInner() {
             provider === "doubao"
               ? {
                   ...managedRoutePayload,
-                  prompt: finalPrompt,
+                  prompt: finalPrompt || undefined,
                   referenceImages:
                     referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
                   referenceVideos: referenceVideoUrl ? [referenceVideoUrl] : undefined,
                   audioUrls:
-                    Array.isArray(rawNodeData.audioUrls) && rawNodeData.audioUrls.length > 0
+                    node.type === "seedance20Video"
+                      ? seedanceAudioUrlsForAPI
+                      : Array.isArray(rawNodeData.audioUrls) && rawNodeData.audioUrls.length > 0
                       ? rawNodeData.audioUrls
                       : undefined,
                   duration: durationForAPI,
                   aspectRatio: aspectRatioForAPI,
                   provider: provider as VideoProvider,
                   resolution: rawNodeData.resolution,
+                  videoMode: node.type === "seedance20Video" ? seedance20Mode : undefined,
                   generateAudio:
                     typeof rawNodeData.generateAudio === "boolean"
                       ? rawNodeData.generateAudio
                       : undefined,
                   seedanceModel:
-                    String(rawNodeData.seedanceModel || "").trim() === "seedance-2.0"
-                      ? "seedance-2.0"
-                      : "seedance-1.5-pro",
+                    node.type === "seedance20Video"
+                      ? rawNodeData.seedanceModel || "seedance-2.0"
+                      : rawNodeData.seedanceModel || "seedance-1.5-pro",
                 }
               : provider === "vidu" || provider === "viduq3-pro"
               ? {
@@ -15635,7 +16048,9 @@ function FlowInner() {
       appendSora2History,
       appendVideoHistory,
       globalWebSearchEnabled,
+      getSeedance20ModeSpec,
       imageModel,
+      inferSeedance20Mode,
       rf,
       setNodes,
       uploadImageToStableUrl,

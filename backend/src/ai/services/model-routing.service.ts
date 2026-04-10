@@ -94,11 +94,12 @@ const DEFAULT_SEEDANCE20_V2_VENDOR_METADATA = {
         'Content-Type': 'application/json',
       },
       body: {
-        model: 'doubao-seedance-2-0-260128',
+        model: '{{request.seedanceUpstreamModelId}}',
         content: '{{request.content}}',
         generate_audio: '{{request.generateAudio}}',
         ratio: '{{request.aspectRatio}}',
         duration: '{{request.duration}}',
+        resolution: '{{request.resolution}}',
         watermark: '{{request.watermark}}',
       },
       responseMapping: {

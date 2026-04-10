@@ -211,7 +211,10 @@ export class AiController {
     const normalizedSeedanceModel = String(dto.seedanceModel || '').trim().toLowerCase();
     const isSeedance2Request =
       normalizedProvider === 'doubao' &&
-      (normalizedSeedanceModel === 'seedance-2.0' || normalizedSeedanceModel === '2.0');
+      (normalizedSeedanceModel === 'seedance-2.0' ||
+        normalizedSeedanceModel === '2.0' ||
+        normalizedSeedanceModel === 'seedance-2.0-fast' ||
+        normalizedSeedanceModel === '2.0-fast');
 
     if (!isSeedance2Request || !userId) {
       return;
@@ -298,7 +301,12 @@ export class AiController {
 
   private isSeedance20Model(seedanceModel: unknown): boolean {
     const normalized = typeof seedanceModel === 'string' ? seedanceModel.trim().toLowerCase() : '';
-    return normalized === 'seedance-2.0' || normalized === '2.0';
+    return (
+      normalized === 'seedance-2.0' ||
+      normalized === '2.0' ||
+      normalized === 'seedance-2.0-fast' ||
+      normalized === '2.0-fast'
+    );
   }
 
   private isSeedance20Request(dto: VideoProviderRequestDto): boolean {
@@ -727,7 +735,7 @@ export class AiController {
 
     if (dto.provider === 'doubao') {
       const normalized = String(dto.seedanceModel || '').trim().toLowerCase();
-      const modelKey = normalized === 'seedance-2.0' || normalized === '2.0' ? 'seedance-2.0' : 'seedance-1.5';
+      const modelKey = this.isSeedance20Model(normalized) ? 'seedance-2.0' : 'seedance-1.5';
       assignRouteParams(
         await this.modelRoutingService.resolveVideoModel(modelKey, preferredVendorKey),
       );
