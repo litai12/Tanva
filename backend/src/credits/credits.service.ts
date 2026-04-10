@@ -1072,7 +1072,8 @@ export class CreditsService {
 
     if (paidOrder) return true;
     if (userProfile?.noWatermark === true) return true;
-    return typeof userProfile?.role === 'string' && userProfile.role.toLowerCase() === 'admin';
+    const role = typeof userProfile?.role === 'string' ? userProfile.role.toLowerCase() : '';
+    return role === 'admin' || role === 'normal_admin';
   }
 
   private async enforceFreeUserImageQuota(
