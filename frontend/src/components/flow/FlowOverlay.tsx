@@ -12547,14 +12547,9 @@ function FlowInner() {
         const inferredViduModel =
           rawNodeData.viduModel ||
           (node.type === "viduQ3" || rawNodeData.provider === "viduq3-pro" ? "q3" : "q2");
-        const normalizedViduModelVariant = String(inferredViduModel || "")
-          .trim()
-          .toLowerCase()
-          .replace(/[_\s]+/g, "-");
-        const isViduQ2ProMode =
-          normalizedViduModelVariant === "q2-pro" ||
-          normalizedViduModelVariant === "q2pro";
-        const viduModelForApi = normalizeViduModelForApi(inferredViduModel);
+        const normalizedViduModelVariant = normalizeViduModelValue(inferredViduModel);
+        const isViduQ2ProMode = normalizedViduModelVariant === "q2-pro";
+        const viduModelForApi = normalizeViduModelForApi(normalizedViduModelVariant);
         const viduNodeDataForProvider = {
           ...rawNodeData,
           viduModel: viduModelForApi,
@@ -13248,11 +13243,7 @@ function FlowInner() {
         const aspectRatioForAPI =
           isSeedanceNode
             ? aspectSetting || undefined
-            : provider === "viduq3-pro"
-            ? referenceImageUrls.length > 0
-              ? undefined
-              : aspectSetting || "16:9"
-            : provider === "vidu"
+            : provider === "vidu" || provider === "viduq3-pro"
             ? aspectSetting || "16:9"
             : referenceImageUrls.length > 0
             ? undefined
@@ -13400,6 +13391,7 @@ function FlowInner() {
                       ? rawNodeData.offPeak
                       : undefined,
                   viduModel: viduModelForApi,
+                  viduModelVariant: normalizedViduModelVariant,
                 }
               : {
                   ...managedRoutePayload,

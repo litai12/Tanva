@@ -1142,3 +1142,11 @@ export async function deleteNodeConfig(nodeKey: string): Promise<{ success: bool
   });
   return response.json();
 }
+
+// 强制同步节点配置到后端默认模板（用于模型管理路线切换后刷新节点参数）
+export async function syncNodeConfigs(): Promise<{ created: number; updated: number }> {
+  const response = await request("/api/admin/node-configs/sync", {
+    method: "POST",
+  });
+  return response.json();
+}

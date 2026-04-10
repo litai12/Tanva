@@ -31,6 +31,7 @@ export interface VideoGenerationRequest {
   sound?: string;
   klingModel?: "kling-v2-1" | "kling-v2-6" | "kling-v3-0";
   viduModel?: "q2" | "q3";
+  viduModelVariant?: "q2" | "q2-pro" | "q2-turbo" | "q3" | "q3-pro" | "q3-turbo";
   seedanceModel?: "seedance-1.5-pro" | "seedance-2.0" | "seedance-2.0-fast";
   // Kling O1 视频编辑专用参数
   referenceVideo?: string;

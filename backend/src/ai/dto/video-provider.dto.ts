@@ -90,6 +90,14 @@ export class VideoProviderRequestDto {
   viduModel?: string;
 
   @ApiProperty({
+    description: 'Vidu 实际模型版本 (如 q2-pro/q3-turbo，仅用于计费与日志展示)',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  viduModelVariant?: string;
+
+  @ApiProperty({
     description: 'Seedance 模型版本 (如 seedance-1.5-pro/seedance-2.0/seedance-2.0-fast)',
     required: false,
   })

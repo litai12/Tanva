@@ -571,14 +571,14 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node > d
   color: var(--tanva-mono-text) !important;
 }
 
-body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node:not(.react-flow__node-generatePro):not(.react-flow__node-nodeGroup) > div {
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node:not(.react-flow__node-generatePro) > div {
   background: var(--tanva-mono-base) !important;
   border: 1.5px solid var(--tanva-mono-border) !important;
   border-radius: 6px !important;
   box-shadow: none !important;
 }
 
-body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node.selected:not(.react-flow__node-generatePro):not(.react-flow__node-nodeGroup) > div {
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node.selected:not(.react-flow__node-generatePro) > div {
   border-color: var(--tanva-mono-selection) !important;
   border-width: 1px !important;
   box-shadow: none !important;

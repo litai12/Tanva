@@ -173,6 +173,10 @@ const SUPPORTED_AUDIO_PATTERN = new RegExp(
 
 const SUPPORTED_AUDIO_ACCEPT = SUPPORTED_AUDIO_EXTENSIONS.map((ext) => `.${ext}`).join(",");
 
+const SEEDANCE20_DOC_ASPECT_RATIOS = ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"] as const;
+const SEEDANCE20_DOC_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
+const SEEDANCE20_DOC_RESOLUTIONS = ["480P", "720P"] as const;
+
 const SEEDANCE20_MODE_VALUES: Seedance20Mode[] = ["reference_images", "start_end"];
 const SEEDANCE15_MODE_VALUES: Seedance15Mode[] = ["text", "image", "start_end"];
 
@@ -676,7 +680,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     }
     if (provider === "doubao") {
       const values = isSeedance20Model
-        ? [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        ? [...SEEDANCE20_DOC_DURATIONS]
         : [3, 4, 5, 6, 7, 8, 9, 10];
       return values.map((value) => ({ label: lt(`${value}秒`, `${value}s`), value }));
     }
@@ -684,6 +688,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   };
 
   const aspectOptions = React.useMemo(() => {
+    if (provider === "doubao" && isSeedance20Model) {
+      return [...SEEDANCE20_DOC_ASPECT_RATIOS].map((value) => ({ label: value, value }));
+    }
     if (vodAspectOptions.length > 0) {
       return vodAspectOptions;
     }
@@ -699,7 +706,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     }
     if (provider === "doubao") {
       const ratios = isSeedance20Model
-        ? ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]
+        ? [...SEEDANCE20_DOC_ASPECT_RATIOS]
         : ["16:9", "9:16", "1:1"];
       return ratios.map((value) => ({ label: value, value }));
     }
@@ -760,10 +767,15 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     },
     [seedanceModelOptions, supportedModels]
   );
-  const durationOptions = React.useMemo(
-    () => (vodDurationOptions.length > 0 ? vodDurationOptions : getDurationOptions()),
-    [isSeedance20Model, lt, provider, viduModel, vodDurationOptions]
-  );
+  const durationOptions = React.useMemo(() => {
+    if (provider === "doubao" && isSeedance20Model) {
+      return [...SEEDANCE20_DOC_DURATIONS].map((value) => ({
+        label: lt(`${value}秒`, `${value}s`),
+        value,
+      }));
+    }
+    return vodDurationOptions.length > 0 ? vodDurationOptions : getDurationOptions();
+  }, [getDurationOptions, isSeedance20Model, lt, provider, vodDurationOptions]);
   const shouldShowAspectSelector =
     isSeedanceModel
       ? true
@@ -774,14 +786,18 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       : !hasImageInput;
   const legacySeedanceResolutionOptions = React.useMemo(() => {
     if (provider !== "doubao" || isVodManagedNode) return [];
-    return isSeedance20Model ? ["480P", "720P"] : ["720P"];
+    return isSeedance20Model ? [...SEEDANCE20_DOC_RESOLUTIONS] : ["720P"];
   }, [isSeedance20Model, isVodManagedNode, provider]);
   const resolutionOptions = React.useMemo(
-    () =>
-      vodResolutionOptions.length > 0
+    () => {
+      if (provider === "doubao" && isSeedance20Model) {
+        return [...SEEDANCE20_DOC_RESOLUTIONS];
+      }
+      return vodResolutionOptions.length > 0
         ? vodResolutionOptions
-        : legacySeedanceResolutionOptions,
-    [legacySeedanceResolutionOptions, vodResolutionOptions]
+        : legacySeedanceResolutionOptions;
+    },
+    [isSeedance20Model, legacySeedanceResolutionOptions, provider, vodResolutionOptions]
   );
   const viduModelFamily = normalizeViduModelForApi(viduModel);
   const isViduQ2FamilyModel = viduModelFamily === "q2";
@@ -1811,7 +1827,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             className="tanva-video-header-btn tanva-video-header-share"
             onClick={() => copyVideoLink(data.videoUrl)}
             onMouseDown={handleButtonMouseDown}
-            title={lt("澶嶅埗閾炬帴", "Copy link")}
+            title={lt("复制链接", "Copy link")}
             style={{
               width: 36,
               height: 32,
@@ -1833,7 +1849,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             className="tanva-video-header-btn tanva-video-header-download"
             onClick={() => triggerDownload(data.videoUrl)}
             onMouseDown={handleButtonMouseDown}
-            title={lt("涓嬭浇瑙嗛", "Download video")}
+            title={lt("下载视频", "Download video")}
             style={{
               width: 36,
               height: 32,
@@ -1851,7 +1867,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           >
             {isDownloading ? (
               <span style={{ fontSize: 10, fontWeight: 600, color: "#111827" }}>
-                路路路
+                下载中
               </span>
             ) : (
               <Download size={14} />
@@ -1876,7 +1892,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         </div>
       )}
 
-      {/* 鐜╂硶璇存槑 */}
+      {/* 使用说明 */}
       {isKling26Model && showHelp && (
         <div style={{
           fontSize: 11,
@@ -1889,39 +1905,39 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           lineHeight: 1.5,
         }}>
           <div style={{ fontWeight: 600, marginBottom: 4, color: "#1e40af" }}>
-            {lt("馃幀 鐜╂硶璇存槑", "馃幀 Usage Guide")} {klingModel === "kling-v2-6" ? "(Kling 2.6)" : klingModel === "kling-v3-0" ? "(Kling 3.0)" : ""}
+            {lt("玩法说明", "Usage Guide")} {klingModel === "kling-v2-6" ? "(Kling 2.6)" : klingModel === "kling-v3-0" ? "(Kling 3.0)" : ""}
           </div>
           {klingModel === "kling-v2-6" ? (
             <>
               <div style={{ marginBottom: 3 }}>
                 <strong>{lt("标准模式（Std）", "Standard (Std)")}:</strong>{" "}
-                {lt("1寮犲浘鈫掕棰戯紙鏃犻煶鏁堬級", "1 image 鈫?video (no sound)")}
+                {lt("1 张图生成视频（无音效）", "1 image -> video (no sound)")}
               </div>
               <div style={{ marginBottom: 3 }}>
                 <strong>{lt("专业模式（Pro）", "Professional (Pro)")}:</strong>{" "}
-                {lt("1寮犲浘鈫掕棰戯紙鏈夐煶鏁堬級", "1 image 鈫?video (with sound)")}
+                {lt("1 张图生成视频（有音效）", "1 image -> video (with sound)")}
               </div>
               <div style={{ marginBottom: 3 }}>
                 <strong>{lt("首尾帧（Pro）", "Start-End (Pro)")}:</strong>{" "}
-                {lt("2 张图（首帧+尾帧）→ 视频（含音效）", "2 images (start+end) -> video (with sound)")}
+                {lt("2 张图（首帧+尾帧）生成视频（有音效）", "2 images (start+end) -> video (with sound)")}
               </div>
               <div style={{ color: "#6b7280", fontSize: 10, marginTop: 4 }}>
-                馃挕 {lt("提示：Std 仅支持 1 张图，Pro 支持 1-2 张图（首尾帧）", "Tip: Std mode = 1 image, Pro mode = 1 or 2 images (start-end)")}
+                提示：{lt("Std 仅支持 1 张图，Pro 支持 1-2 张图（首尾帧）", "Tip: Std mode = 1 image, Pro mode = 1 or 2 images (start-end)")}
               </div>
             </>
           ) : (
             <>
               <div style={{ marginBottom: 3 }}>
                 <strong>{lt("标准模式（Std）", "Standard (Std)")}:</strong>{" "}
-                {lt("1 张图 → 视频", "1 image -> video")}
+                {lt("1 张图生成视频", "1 image -> video")}
               </div>
               <div style={{ marginBottom: 3 }}>
                 <strong>{lt("专业模式（Pro）", "Professional (Pro)")}:</strong>{" "}
-                {lt("1寮犲浘鈫掕棰戯紙鍚煶鏁堬級锛?寮犲浘鈫掗灏惧抚", "1 image 鈫?video (with sound), 2 images 鈫?start-end")}
+                {lt("1 张图生成视频（有音效），2 张图支持首尾帧", "1 image -> video (with sound), 2 images -> start-end")}
               </div>
               <div style={{ color: "#6b7280", fontSize: 10, marginTop: 4 }}>
-                馃挕 {lt("Kling 3.0 已全面升级，建议优先使用", "Kling 3.0 is fully upgraded, recommended")}{" "}
-                <span style={{ color: "#059669", fontWeight: 600 }}>{lt("鈽?Pro 妯″紡鏁堟灉鏇翠匠", "鈽?Pro mode recommended")}</span>
+                提示：{lt("Kling 3.0 已全面升级，推荐优先使用", "Kling 3.0 is fully upgraded, recommended")}{" "}
+                <span style={{ color: "#059669", fontWeight: 600 }}>{lt("★ Pro 模式效果更佳", "★ Pro mode recommended")}</span>
               </div>
             </>
           )}
@@ -2758,7 +2774,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}
             onClick={() => setShowHistory(!showHistory)}
           >
-            <span style={{ fontSize: 12, fontWeight: 600, color: "#0f172a" }}>{lt("鍘嗗彶璁板綍", "History")}</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#0f172a" }}>{lt("历史记录", "History")}</span>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <span style={{ fontSize: 11, color: "#94a3b8" }}>{historyItems.length} {lt("条", "items")}</span>
               <span style={{ fontSize: 14, color: "#64748b" }}>{showHistory ? "▴" : "▾"}</span>
@@ -2806,7 +2822,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                           color: "#94a3b8",
                           fontFamily: "monospace",
                         }}
-                        title={`${lt("瑙嗛ID", "Video ID")}: ${videoId}`}
+                        title={`${lt("视频ID", "Video ID")}: ${videoId}`}
                       >
                         {videoId}
                       </span>
@@ -2819,14 +2835,14 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                           fontWeight: 600,
                         }}
                       >
-                        {lt("褰撳墠", "Current")}
+                        {lt("当前", "Current")}
                       </span>
                     )}
                   </div>
                 </div>
                 {typeof item.elapsedSeconds === "number" && (
                   <div style={{ fontSize: 11, color: "#475569" }}>
-                    {lt("鑰楁椂", "Elapsed")} {item.elapsedSeconds}s
+                    {lt("耗时", "Elapsed")} {item.elapsedSeconds}s
                   </div>
                 )}
                 <div style={{ fontSize: 11, color: "#0f172a" }}>
@@ -2846,7 +2862,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                         cursor: "pointer",
                       }}
                     >
-                      {lt("璁句负褰撳墠", "Set current")}
+                      {lt("设为当前", "Set current")}
                     </button>
                   )}
                   <button
@@ -2861,7 +2877,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                       cursor: "pointer",
                     }}
                   >
-                    {lt("澶嶅埗閾炬帴", "Copy link")}
+                    {lt("复制链接", "Copy link")}
                   </button>
                   <button
                     type='button'

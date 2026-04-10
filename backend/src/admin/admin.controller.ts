@@ -38,6 +38,7 @@ import {
   UpdateTemplateDto,
   TemplateQueryDto,
 } from './dto/template.dto';
+import { MODEL_PROVIDER_MAPPING_SETTING_KEY } from '../ai/services/model-routing.service';
 
 interface AuthenticatedUser {
   id: string;
@@ -272,13 +273,23 @@ export class AdminController {
     @Body() dto: { key: string; value: string; description?: string; metadata?: Record<string, any> },
   ) {
     this.checkAdmin(req);
-    return this.adminService.upsertSetting(
+    const setting = await this.adminService.upsertSetting(
       dto.key,
       dto.value,
       req.user.id,
       dto.description,
       dto.metadata,
     );
+
+    if (dto.key === MODEL_PROVIDER_MAPPING_SETTING_KEY) {
+      const nodeConfigSync = await this.nodeConfigService.syncAllConfigs();
+      return {
+        ...setting,
+        nodeConfigSync,
+      };
+    }
+
+    return setting;
   }
 
   @Get('membership-credit-policy')

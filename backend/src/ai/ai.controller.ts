@@ -659,6 +659,9 @@ export class AiController {
     if (dto.viduModel) {
       params.viduModel = dto.viduModel;
     }
+    if (dto.viduModelVariant) {
+      params.viduModelVariant = dto.viduModelVariant;
+    }
 
     if (dto.seedanceModel) {
       params.seedanceModel = dto.seedanceModel;
@@ -809,7 +812,7 @@ export class AiController {
         providerChannel: requestParams?.providerChannel || null,
         routedProvider: requestParams?.routedProvider || null,
         klingModel: requestParams?.klingModel || null,
-        viduModel: requestParams?.viduModel || null,
+        viduModel: requestParams?.viduModelVariant || requestParams?.viduModel || null,
         seedanceModel: requestParams?.seedanceModel || null,
       },
       receivedAt: new Date().toISOString(),
@@ -3488,6 +3491,7 @@ export class AiController {
     const requestParams = await this.buildVideoProviderCreditParams(effectiveDto);
     const billingModel =
       effectiveDto.klingModel ||
+      effectiveDto.viduModelVariant ||
       effectiveDto.viduModel ||
       effectiveDto.seedanceModel ||
       effectiveDto.provider;
