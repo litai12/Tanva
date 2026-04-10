@@ -12,6 +12,7 @@ import RegisterPage from '@/pages/auth/Register';
 import OSSDemo from '@/pages/OSSDemo';
 import Admin from '@/pages/Admin';
 import MyCredits from '@/pages/MyCredits';
+import MembershipSubscribePage from '@/pages/MembershipSubscribePage';
 import TermsOfService from '@/pages/legal/TermsOfService';
 import PrivacyPolicy from '@/pages/legal/PrivacyPolicy';
 import CommunityGuidelines from '@/pages/legal/CommunityGuidelines';
@@ -85,6 +86,7 @@ function RootRoutes() {
         <Route path="/app" element={<App />} />
         <Route path="/admin" element={<Admin />} />
         <Route path="/my-credits" element={<MyCredits />} />
+        <Route path="/membership" element={<MembershipSubscribePage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

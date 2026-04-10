@@ -51,7 +51,6 @@ import {
 } from "lucide-react";
 import MemoryDebugPanel from "@/components/debug/MemoryDebugPanel";
 import HistoryDebugPanel from "@/components/debug/HistoryDebugPanel";
-import PaymentPanel from "@/components/payment/PaymentPanel";
 import { useProjectStore } from "@/stores/projectStore";
 import ProjectManagerModal from "@/components/projects/ProjectManagerModal";
 import { useUIStore, useCanvasStore, GridStyle } from "@/stores";
@@ -516,8 +515,6 @@ const FloatingHeader: React.FC = () => {
   const [showReferralNotification, setShowReferralNotification] =
     useState(false);
   const [isGlobalHistoryOpen, setIsGlobalHistoryOpen] = useState(false);
-  const [showPaymentPanel, setShowPaymentPanel] = useState(false);
-
   // 监听网格大小变化
   useEffect(() => {
     setGridSizeInput(String(gridSize));
@@ -783,7 +780,8 @@ const FloatingHeader: React.FC = () => {
     }
   }, [dailyRewardClaiming, refreshCreditsAndDailyReward, t, user]);
 
-  const openCreditsPage = useCallback(() => {
+  /** 新标签打开积分详情页（设置内「详情」等） */
+  const openMyCreditsDetailPage = useCallback(() => {
     const base = import.meta.env.BASE_URL || "/";
     const originWithBase = `${window.location.origin}${
       base.endsWith("/") ? base : `${base}/`
@@ -791,6 +789,11 @@ const FloatingHeader: React.FC = () => {
     const href = new URL("my-credits", originWithBase).href;
     window.open(href, "_blank", "noopener,noreferrer");
   }, []);
+
+  /** 画板顶栏积分入口：套餐 + 积分统一页 */
+  const openMembershipHub = useCallback(() => {
+    navigate("/membership");
+  }, [navigate]);
 
   const topCreditsText = useMemo(() => {
     if (creditsLoading && !creditsInfo) return "...";
@@ -952,18 +955,6 @@ const FloatingHeader: React.FC = () => {
   const renderSettingsContent = () => {
     switch (activeSettingsSection) {
       case "workspace":
-        // 显示支付面板
-        if (showPaymentPanel) {
-          return (
-            <PaymentPanel
-              onBack={() => {
-                setShowPaymentPanel(false);
-                setIsSettingsOpen(false);
-              }}
-            />
-          );
-        }
-        // 显示工作区内容
         return (
           <div className='pb-6 space-y-5 '>
             {/* User Greeting Section */}
@@ -999,7 +990,7 @@ const FloatingHeader: React.FC = () => {
                   type='button'
                   onClick={() => {
                     setIsSettingsOpen(false);
-                    openCreditsPage();
+                    openMyCreditsDetailPage();
                   }}
                   className='text-sm text-slate-500 hover:text-slate-700'
                 >
@@ -1013,22 +1004,14 @@ const FloatingHeader: React.FC = () => {
                     {t("workspace.settings.workspaceTab.loading")}
                   </div>
                 ) : creditsInfo ? (
-                  <>
-                    <div className='flex items-baseline gap-2'>
-                      <span className='text-5xl font-bold text-slate-800'>
-                        {creditsInfo.balance}
-                      </span>
-                      <span className='text-base text-slate-400'>
-                        {t("workspace.settings.workspaceTab.credits.unit")}
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => setShowPaymentPanel(true)}
-                      className='px-5 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800 transition-colors text-sm'
-                    >
-                      {t("workspace.settings.workspaceTab.credits.recharge")}
-                    </button>
-                  </>
+                  <div className='flex items-baseline gap-2'>
+                    <span className='text-5xl font-bold text-slate-800'>
+                      {creditsInfo.balance}
+                    </span>
+                    <span className='text-base text-slate-400'>
+                      {t("workspace.settings.workspaceTab.credits.unit")}
+                    </span>
+                  </div>
                 ) : (
                   <div className='text-sm text-slate-500'>
                     {t("workspace.settings.workspaceTab.credits.empty")}
@@ -2004,7 +1987,7 @@ const FloatingHeader: React.FC = () => {
               size='sm'
               className='h-7 px-2.5 text-xs rounded-full border border-liquid-glass-light bg-liquid-glass-light backdrop-blur-minimal text-gray-700 hover:bg-liquid-glass-hover transition-all duration-200 flex items-center gap-1.5'
               title={t("workspace.header.myCredits")}
-              onClick={openCreditsPage}
+              onClick={openMembershipHub}
             >
               <span className='relative flex items-center justify-center w-4 h-4 rounded-full bg-gradient-to-br from-amber-300 via-amber-400 to-orange-500 shadow-[0_1px_4px_rgba(245,158,11,0.5)]'>
                 <span className='absolute inset-[1px] rounded-full bg-gradient-to-br from-amber-200/85 to-amber-500/80' />
