@@ -96,6 +96,7 @@ const DEFAULT_SEEDANCE20_V2_VENDOR_METADATA = {
       body: {
         model: '{{request.seedanceUpstreamModelId}}',
         content: '{{request.content}}',
+        video_mode: '{{request.videoMode}}',
         generate_audio: '{{request.generateAudio}}',
         ratio: '{{request.aspectRatio}}',
         duration: '{{request.duration}}',

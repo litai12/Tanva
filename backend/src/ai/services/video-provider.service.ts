@@ -1933,6 +1933,9 @@ export class VideoProviderService {
       if (typeof options.generateAudio === "boolean") {
         payload.generate_audio = options.generateAudio;
       }
+      if (typeof options.videoMode === "string" && options.videoMode.trim()) {
+        payload.video_mode = options.videoMode.trim();
+      }
       if (typeof options.aspectRatio === "string" && options.aspectRatio.trim()) {
         payload.ratio = options.aspectRatio.trim();
       }

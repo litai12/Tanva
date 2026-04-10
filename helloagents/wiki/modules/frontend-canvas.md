@@ -46,6 +46,7 @@
 - `imageUrlCache` 的 `dataUrl` 缓存绑定图片源指纹（`sourceFingerprint`）；当同一 `imageId` 更换了源图后，裁切/编辑不会复用旧缓存图，降低“偶发低清/像被压缩”的问题。
 - 裁切执行链路改为“实时源 -> Blob -> canvas -> Blob 预览（`blob:`）-> 后台上传回写远程引用”，不再依赖缓存 dataURL 作为裁切输入，降低“裁切不可用/偶发裁错源”的风险。
 - 裁切开始时会预生成新的 OSS key，并在上传中阶段显式清理旧 `remoteUrl`，避免“先显示正确裁切图，随后被旧远程源覆盖成压缩/整图挤压”的回写竞争问题。
+- 快速上传链路中的图片加载 fallback（proxy 失败回直连、CORS 失败去掉 `crossOrigin`）已统一计入 `IMAGE_LOAD_MAX_RETRIES`，避免额外 fallback 绕开重试预算后在异常源图上出现近似死循环的反复重载。
 
 ## JSON 复制/导入（Project.contentJson）
 - 右键画布菜单与 `Ctrl/Cmd+Shift+C` 支持复制画布 JSON（严格走 `sanitizeProjectContentForCloudSave` 清理内联图片引用）。

@@ -20,7 +20,7 @@ export interface VideoGenerationRequest {
   aspectRatio?: string;
   provider: VideoProvider;
   // Vidu 专用参数
-  resolution?: "540p" | "720p" | "1080p";
+  resolution?: string;
   style?: "general" | "anime";
   offPeak?: boolean;
   // Seedance 1.5 Pro专用参数
