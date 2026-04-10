@@ -6214,6 +6214,10 @@ function SettingsTab() {
 
 function VipManagementTab() {
   const TEMPLATE_LIBRARY_ACCESS_OPTIONS = ["基础可用", "全部开放"] as const;
+  const SEEDANCE2_ACCESS_OPTIONS = [
+    { value: "disabled", label: "不支持" },
+    { value: "enabled", label: "支持" },
+  ] as const;
   const FREE_TIER_BENEFITS_SETTING_KEY = "membership_free_tier_benefits";
   const DEFAULT_FREE_TIER_BENEFITS = {
     coreBenefits: "每天最多 20 张图、3 个视频",
@@ -6221,6 +6225,7 @@ function VipManagementTab() {
     inviteLimit: 5,
     imageDailyLimit: 20,
     videoDailyLimit: 3,
+    seedance2Access: "disabled",
     supportLevel: "有限技术支持",
   };
   const DEFAULT_PLAN_METADATA_TEXT = JSON.stringify(
@@ -6257,12 +6262,18 @@ function VipManagementTab() {
     return typeof value === "string" ? value : "";
   };
 
+  const getPlanSeedance2Access = (metadata?: Record<string, any> | null) => {
+    const value = getPlanMetadataObject(metadata).seedance2Access;
+    return value === "enabled" ? "enabled" : "disabled";
+  };
+
   const buildPlanMetadata = (
     baseMetadata: Record<string, any>,
     form: {
       coreBenefits: string;
       templateLibraryAccess: string;
       inviteLimit: string;
+      seedance2Access: string;
       supportLevel: string;
     },
   ) => {
@@ -6284,6 +6295,12 @@ function VipManagementTab() {
       nextMetadata.supportLevel = form.supportLevel.trim();
     } else {
       delete nextMetadata.supportLevel;
+    }
+
+    if (form.seedance2Access === "enabled") {
+      nextMetadata.seedance2Access = "enabled";
+    } else {
+      nextMetadata.seedance2Access = "disabled";
     }
 
     const inviteLimitText = form.inviteLimit.trim();
@@ -6320,6 +6337,7 @@ function VipManagementTab() {
     inviteLimit: string;
     imageDailyLimit: string;
     videoDailyLimit: string;
+    seedance2Access: string;
     supportLevel: string;
   }>({
     monthlyQuotaCredits: "500",
@@ -6330,6 +6348,7 @@ function VipManagementTab() {
     inviteLimit: String(DEFAULT_FREE_TIER_BENEFITS.inviteLimit),
     imageDailyLimit: String(DEFAULT_FREE_TIER_BENEFITS.imageDailyLimit),
     videoDailyLimit: String(DEFAULT_FREE_TIER_BENEFITS.videoDailyLimit),
+    seedance2Access: DEFAULT_FREE_TIER_BENEFITS.seedance2Access,
     supportLevel: DEFAULT_FREE_TIER_BENEFITS.supportLevel,
   });
   const [policyForm, setPolicyForm] = useState<MembershipCreditPolicyConfig>({
@@ -6351,6 +6370,7 @@ function VipManagementTab() {
     coreBenefits: string;
     templateLibraryAccess: string;
     inviteLimit: string;
+    seedance2Access: string;
     supportLevel: string;
     sortOrder: string;
     isActive: boolean;
@@ -6365,6 +6385,7 @@ function VipManagementTab() {
     coreBenefits: "",
     templateLibraryAccess: "",
     inviteLimit: "",
+    seedance2Access: "disabled",
     supportLevel: "",
     sortOrder: "0",
     isActive: true,
@@ -6406,6 +6427,8 @@ function VipManagementTab() {
               Number.isFinite(Number(raw?.videoDailyLimit)) && Number(raw.videoDailyLimit) >= 0
                 ? Math.trunc(Number(raw.videoDailyLimit))
                 : DEFAULT_FREE_TIER_BENEFITS.videoDailyLimit,
+            seedance2Access:
+              raw?.seedance2Access === "enabled" ? "enabled" : DEFAULT_FREE_TIER_BENEFITS.seedance2Access,
             supportLevel:
               typeof raw?.supportLevel === "string" && raw.supportLevel.trim()
                 ? raw.supportLevel.trim()
@@ -6426,6 +6449,7 @@ function VipManagementTab() {
         inviteLimit: String(parsedFreeTier.inviteLimit),
         imageDailyLimit: String(parsedFreeTier.imageDailyLimit),
         videoDailyLimit: String(parsedFreeTier.videoDailyLimit),
+        seedance2Access: parsedFreeTier.seedance2Access,
         supportLevel: parsedFreeTier.supportLevel,
       });
     } catch (error) {
@@ -6454,6 +6478,7 @@ function VipManagementTab() {
       coreBenefits: "",
       templateLibraryAccess: "",
       inviteLimit: "",
+      seedance2Access: "disabled",
       supportLevel: "",
       sortOrder: "0",
       isActive: true,
@@ -6483,6 +6508,7 @@ function VipManagementTab() {
       coreBenefits: getPlanCoreBenefits(plan.metadata),
       templateLibraryAccess: getPlanTemplateLibraryAccess(plan.metadata),
       inviteLimit: getPlanInviteLimit(plan.metadata),
+      seedance2Access: getPlanSeedance2Access(plan.metadata),
       supportLevel: getPlanSupportLevel(plan.metadata),
       sortOrder: String(plan.sortOrder),
       isActive: plan.isActive,
@@ -6510,6 +6536,7 @@ function VipManagementTab() {
       coreBenefits: planForm.coreBenefits,
       templateLibraryAccess: planForm.templateLibraryAccess,
       inviteLimit: planForm.inviteLimit,
+      seedance2Access: planForm.seedance2Access,
       supportLevel: planForm.supportLevel,
     });
 
@@ -6598,6 +6625,7 @@ function VipManagementTab() {
             inviteLimit: Math.trunc(inviteLimit),
             imageDailyLimit: Math.trunc(imageDailyLimit),
             videoDailyLimit: Math.trunc(videoDailyLimit),
+            seedance2Access: freeTierBenefits.seedance2Access === "enabled" ? "enabled" : "disabled",
             supportLevel: freeTierBenefits.supportLevel.trim(),
           }),
           description: "会员权益配置：免费用户档位",
@@ -6843,6 +6871,9 @@ function VipManagementTab() {
                   <div className='mb-1 text-xs text-gray-500'>
                     {`每天最多 ${freeTierBenefits.imageDailyLimit || "0"} 张图、${freeTierBenefits.videoDailyLimit || "0"} 个视频`}
                   </div>
+                  <div className='mb-1 text-xs text-gray-500'>
+                    {`Seedance 2 权益：${freeTierBenefits.seedance2Access === "enabled" ? "支持" : "不支持"}`}
+                  </div>
                   <div className='flex flex-wrap gap-2'>
                     <Button size='sm' variant='outline' onClick={() => setFreeTierModalOpen(true)}>
                       编辑
@@ -6863,8 +6894,8 @@ function VipManagementTab() {
                   <td className='px-3 py-3'>{plan.dailyGiftCredits}</td>
                   <td className='px-3 py-3'>{getPlanTemplateLibraryAccess(plan.metadata) || "-"}</td>
                   <td className='px-3 py-3'>{getPlanInviteLimit(plan.metadata) || "-"}</td>
-                  <td className='px-3 py-3'>{getPlanSupportLevel(plan.metadata) || "-"}</td>
-                  <td className='px-3 py-3'>
+                    <td className='px-3 py-3'>{getPlanSupportLevel(plan.metadata) || "-"}</td>
+                    <td className='px-3 py-3'>
                     <span
                       className={`rounded px-2 py-1 text-xs ${
                         plan.isActive
@@ -6877,6 +6908,9 @@ function VipManagementTab() {
                   </td>
                   <td className='px-3 py-3'>
                     <div className='mb-1 text-xs text-gray-500'>{getPlanCoreBenefits(plan.metadata) || "-"}</div>
+                    <div className='mb-1 text-xs text-gray-500'>
+                      {`Seedance 2 权益：${getPlanSeedance2Access(plan.metadata) === "enabled" ? "支持" : "不支持"}`}
+                    </div>
                     <div className='flex flex-wrap gap-2'>
                       <Button size='sm' variant='outline' onClick={() => handleEditPlan(plan)}>
                         编辑
@@ -7024,6 +7058,25 @@ function VipManagementTab() {
                   {TEMPLATE_LIBRARY_ACCESS_OPTIONS.map((option) => (
                     <option key={option} value={option}>
                       {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <div className='mb-1 text-sm text-gray-600'>Seedance 2 权益</div>
+                <select
+                  value={planForm.seedance2Access}
+                  onChange={(e) =>
+                    setPlanForm((current) => ({
+                      ...current,
+                      seedance2Access: e.target.value,
+                    }))
+                  }
+                  className='w-full rounded-md border border-gray-300 px-3 py-2 text-sm'
+                >
+                  {SEEDANCE2_ACCESS_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
                     </option>
                   ))}
                 </select>
@@ -7212,6 +7265,8 @@ function VipManagementTab() {
                     ))}
                   </select>
                 </div>
+              </div>
+              <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
                 <div>
                   <div className='mb-1 text-sm text-gray-600'>邀请上限</div>
                   <Input

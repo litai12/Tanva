@@ -88,6 +88,7 @@ type TraceableReq = {
 };
 
 const MANAGED_IMAGE_KEY_REGEX = /^(projects|uploads|templates|videos|ai)\//i;
+const FREE_TIER_BENEFITS_SETTING_KEY = 'membership_free_tier_benefits';
 
 @ApiTags('ai')
 @UseGuards(ApiKeyOrJwtGuard)
@@ -133,6 +134,90 @@ export class AiController {
       524: '服务器处理超时，请稍后重试或简化请求内容',
     };
     return messages[status] || `服务器返回错误 ${status}`;
+  }
+
+  private normalizeSeedance2Access(value: unknown): 'enabled' | 'disabled' {
+    const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    if (
+      normalized === 'enabled' ||
+      normalized === 'allow' ||
+      normalized === 'on' ||
+      normalized === 'true' ||
+      normalized === '支持' ||
+      normalized === '可用'
+    ) {
+      return 'enabled';
+    }
+    return 'disabled';
+  }
+
+  private async resolveUserSeedance2Access(userId: string): Promise<'enabled' | 'disabled'> {
+    const subscription = await this.prisma.userMembershipSubscription.findFirst({
+      where: {
+        userId,
+        status: 'active',
+        currentPeriodStartAt: { lte: new Date() },
+        currentPeriodEndAt: { gt: new Date() },
+      },
+      select: {
+        membershipPlanId: true,
+      },
+      orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    if (subscription?.membershipPlanId) {
+      const plan = await this.prisma.membershipPlan.findUnique({
+        where: { id: subscription.membershipPlanId },
+        select: { metadata: true },
+      });
+      if (plan?.metadata && typeof plan.metadata === 'object' && !Array.isArray(plan.metadata)) {
+        return this.normalizeSeedance2Access(
+          (plan.metadata as Record<string, unknown>).seedance2Access,
+        );
+      }
+      return 'disabled';
+    }
+
+    const freeTierSetting = await this.prisma.systemSetting.findUnique({
+      where: { key: FREE_TIER_BENEFITS_SETTING_KEY },
+      select: { value: true },
+    });
+    if (!freeTierSetting?.value) {
+      return 'disabled';
+    }
+
+    try {
+      const parsed = JSON.parse(freeTierSetting.value);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return this.normalizeSeedance2Access(
+          (parsed as Record<string, unknown>).seedance2Access,
+        );
+      }
+    } catch {
+      return 'disabled';
+    }
+
+    return 'disabled';
+  }
+
+  private async assertSeedance2Entitlement(
+    userId: string | null,
+    dto: VideoProviderRequestDto,
+  ): Promise<void> {
+    const normalizedProvider = String(dto.provider || '').trim().toLowerCase();
+    const normalizedSeedanceModel = String(dto.seedanceModel || '').trim().toLowerCase();
+    const isSeedance2Request =
+      normalizedProvider === 'doubao' &&
+      (normalizedSeedanceModel === 'seedance-2.0' || normalizedSeedanceModel === '2.0');
+
+    if (!isSeedance2Request || !userId) {
+      return;
+    }
+
+    const access = await this.resolveUserSeedance2Access(userId);
+    if (access !== 'enabled') {
+      throw new BadRequestException('当前套餐未开通 Seedance 2 权益，请升级后再试');
+    }
   }
 
   constructor(
@@ -3275,6 +3360,7 @@ export class AiController {
         effectiveDto.watermark = false;
       }
     }
+    await this.assertSeedance2Entitlement(userId, effectiveDto);
     const serviceType = this.resolveVideoProviderServiceType(effectiveDto);
 
     // 如果没有用户ID（API Key认证），直接执行操作
