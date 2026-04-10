@@ -19,7 +19,10 @@ import {
 export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao";
 type ViduModel =
   | "q2"
-  | "q3";
+  | "q2-pro"
+  | "q3"
+  | "q3-pro"
+  | "q3-mix";
 type SeedanceModel = "seedance-1.5-pro" | "seedance-2.0";
 type VodCapabilityMetadata = {
   label?: string;
@@ -96,12 +99,33 @@ const PROVIDER_CONFIG: Record<VideoProvider, { name: string; zh: string }> = {
   doubao: { name: "Seedance", zh: "Seedance" },
 };
 
+const normalizeViduModelForApi = (value?: string): "q2" | "q3" =>
+  normalizeViduModelValue(value).startsWith("q3") ? "q3" : "q2";
+
 const isViduQ3FamilyModel = (value?: string): boolean =>
-  String(value || "").trim().toLowerCase() === "q3";
+  normalizeViduModelForApi(value) === "q3";
 
 const normalizeViduModelValue = (value?: string): ViduModel => {
-  const normalized = String(value || "").trim().toLowerCase();
-  return normalized === "q2" ? "q2" : "q3";
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, "-");
+  if (normalized === "q2-pro" || normalized === "q2pro") return "q2-pro";
+  if (normalized === "q3-mix" || normalized === "q3mix") return "q3-mix";
+  if (normalized === "q3-pro" || normalized === "q3pro") return "q3-pro";
+  if (normalized === "q3") return "q3";
+  return "q2";
+};
+
+const isViduModelOptionSupported = (
+  optionValue: ViduModel,
+  supportedModels: string[]
+): boolean => {
+  if (supportedModels.length === 0) return true;
+  const value = String(optionValue).trim().toLowerCase();
+  if (supportedModels.includes(value)) return true;
+  const family = normalizeViduModelForApi(optionValue);
+  return supportedModels.includes(family);
 };
 
 const SUPPORTED_AUDIO_EXTENSIONS = [
@@ -507,6 +531,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     () => [
       { label: "Vidu Q2", value: "q2" as const },
       { label: "Vidu Q3", value: "q3" as const },
+      { label: "Vidu Q3-Mix", value: "q3-mix" as const },
     ],
     []
   );
@@ -527,7 +552,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const filteredViduModelOptions = React.useMemo(
     () =>
       supportedModels.length > 0
-        ? viduModelOptions.filter((opt) => supportedModels.includes(opt.value))
+        ? viduModelOptions.filter((opt) =>
+            isViduModelOptionSupported(opt.value, supportedModels)
+          )
         : viduModelOptions,
     [supportedModels, viduModelOptions]
   );
@@ -548,6 +575,15 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       : provider === "vidu"
       ? true
       : !hasImageInput;
+  const viduModelFamily = normalizeViduModelForApi(viduModel);
+  const isViduQ2FamilyModel = viduModelFamily === "q2";
+  const isViduQ2ProMode = viduModel === "q2-pro";
+  const viduModelSelectionValue: "q2" | "q3" | "q3-mix" =
+    viduModel === "q2-pro"
+      ? "q2"
+      : viduModel === "q3-pro"
+      ? "q3"
+      : (viduModel as "q2" | "q3" | "q3-mix");
   const shouldShowResolutionSelector = isVodManagedNode && vodResolutionOptions.length > 0;
   const shouldShowLegacyViduOptions =
     (provider === "vidu" || provider === "viduq3-pro") && !isVodManagedNode;
@@ -589,7 +625,13 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   React.useEffect(() => {
     if (!(provider === "vidu" || provider === "viduq3-pro")) return;
     if (filteredViduModelOptions.length === 0) return;
-    if (filteredViduModelOptions.some((opt) => opt.value === viduModel)) return;
+    if (
+      filteredViduModelOptions.some((opt) =>
+        isViduModelOptionSupported(viduModel, [String(opt.value)])
+      )
+    ) {
+      return;
+    }
 
     const fallbackModel = filteredViduModelOptions[0]?.value;
     if (!fallbackModel) return;
@@ -600,7 +642,10 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           id,
           patch: {
             viduModel: fallbackModel,
-            provider: isViduQ3FamilyModel(fallbackModel) ? "viduq3-pro" : "vidu",
+            provider:
+              normalizeViduModelForApi(fallbackModel) === "q3"
+                ? "viduq3-pro"
+                : "vidu",
             clipDuration: undefined,
           },
         },
@@ -659,7 +704,30 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             id,
             patch: {
               viduModel: value,
-              provider: isViduQ3FamilyModel(value) ? "viduq3-pro" : "vidu",
+              provider:
+                normalizeViduModelForApi(value) === "q3"
+                  ? "viduq3-pro"
+                  : "vidu",
+              clipDuration: undefined,
+            },
+          },
+        })
+      );
+    },
+    [id, viduModel]
+  );
+
+  const handleViduQ2ModeChange = React.useCallback(
+    (value: "std" | "pro") => {
+      const nextModel: ViduModel = value === "pro" ? "q2-pro" : "q2";
+      if (nextModel === viduModel) return;
+      window.dispatchEvent(
+        new CustomEvent("flow:updateNodeData", {
+          detail: {
+            id,
+            patch: {
+              viduModel: nextModel,
+              provider: "vidu",
               clipDuration: undefined,
             },
           },
@@ -1511,7 +1579,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                 ? klingModelLabel
                 : provider === "doubao"
                 ? filteredSeedanceModelOptions.find((opt) => opt.value === seedanceModel)?.label || "Seedance 1.5-Pro"
-                : filteredViduModelOptions.find((opt) => opt.value === viduModel)?.label || "Vidu Q2"}
+                : filteredViduModelOptions.find((opt) => opt.value === viduModelSelectionValue)?.label ||
+                  "Vidu Q2"}
             </span>
             <span style={{ fontSize: 16, lineHeight: 1 }}>
               {modelMenuOpen ? "▴" : "▾"}
@@ -1562,7 +1631,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                             ? klingModel
                             : provider === "doubao"
                             ? seedanceModel
-                            : viduModel) === opt.value
+                            : viduModelSelectionValue) === opt.value
                             ? "#2563eb"
                             : "#e5e7eb"
                         }`,
@@ -1571,7 +1640,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                             ? klingModel
                             : provider === "doubao"
                             ? seedanceModel
-                            : viduModel) === opt.value
+                            : viduModelSelectionValue) === opt.value
                             ? "#eff6ff"
                             : "#fff",
                         color:
@@ -1579,7 +1648,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                             ? klingModel
                             : provider === "doubao"
                             ? seedanceModel
-                            : viduModel) === opt.value
+                            : viduModelSelectionValue) === opt.value
                             ? "#1d4ed8"
                             : "#111827",
                         fontSize: 12,
@@ -1905,6 +1974,41 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         </div>
       )}
 
+      {(provider === "vidu" || provider === "viduq3-pro") && isViduQ2FamilyModel && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+            {lt("模式", "Mode")}
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            {[
+              { label: lt("标准", "Standard"), value: "std" as const },
+              { label: lt("专业", "Pro"), value: "pro" as const },
+            ].map((opt) => {
+              const isActive = (isViduQ2ProMode ? "pro" : "std") === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type='button'
+                  onClick={() => handleViduQ2ModeChange(opt.value)}
+                  style={{
+                    flex: 1,
+                    padding: "6px 10px",
+                    borderRadius: 8,
+                    border: "1px solid #e5e7eb",
+                    background: isActive ? "#111827" : "#fff",
+                    color: isActive ? "#fff" : "#111827",
+                    fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {false && isKling26Model && (
         <div style={{ marginBottom: 8 }}>
           <div>
@@ -2069,7 +2173,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               title={lt("选择分辨率", "Select resolution")}
             />
           </div>
-          <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+          {isViduQ2FamilyModel && !isViduQ2ProMode && (
+            <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
             <button
               type='button'
               onClick={() => {
@@ -2122,7 +2227,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             >
               {lt("错峰", "Off-peak")}: {(data as any).offPeak ? lt("开启", "On") : lt("关闭", "Off")}
             </button>
-          </div>
+            </div>
+          )}
         </>
       )}
 
