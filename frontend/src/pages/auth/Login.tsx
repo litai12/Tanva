@@ -216,10 +216,6 @@ export default function LoginPage() {
             <div className='relative min-h-[320px] transition-[min-height] px-16'>
               {tab === "wechat" ? (
                 <div className='mx-auto flex max-w-sm flex-col items-center px-5 py-6 text-center'>
-                  <div className='mb-3 flex items-center gap-2 text-white'>
-                    <MessageCircle className='h-5 w-5' />
-                    <span className='text-sm font-medium'>{t("auth.login.wechatTitle")}</span>
-                  </div>
                   <button
                     type='button'
                     className='group relative rounded-2xl bg-white p-3 shadow-xl'

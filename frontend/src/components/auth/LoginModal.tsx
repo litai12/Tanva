@@ -258,10 +258,6 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
           {tab === 'wechat' ? (
             <div className="space-y-4">
               <div className="flex flex-col items-center px-2 py-2 text-center">
-                <div className="mb-3 flex items-center gap-2 text-slate-700">
-                  <MessageCircle className="h-5 w-5" />
-                  <span className="text-sm font-medium">{t('auth.login.wechatTitle')}</span>
-                </div>
                 <button
                   type="button"
                   className="group relative rounded-2xl bg-white p-3 shadow-sm"
