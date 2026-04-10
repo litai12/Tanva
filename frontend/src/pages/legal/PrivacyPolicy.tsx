@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 
 export default function PrivacyPolicy() {
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4">
+    <div className="h-screen overflow-y-auto bg-gray-50 py-12 px-4">
       <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-sm p-8">
         <div className="mb-6">
           <Link to="/auth/login" className="text-blue-600 hover:text-blue-800 text-sm">

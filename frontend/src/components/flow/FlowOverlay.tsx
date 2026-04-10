@@ -2913,7 +2913,7 @@ function FlowInner() {
             ...(node.style || {}),
             width: targetWidth,
             height: targetHeight,
-            zIndex: 0,
+            zIndex: -1,
           },
         } as RFNode;
       })
@@ -3050,11 +3050,39 @@ function FlowInner() {
       const removeSet = new Set(ids);
       let changed = false;
       setNodes((prev: any[]) => {
-        const next = prev.filter((node) => {
-          if (!removeSet.has(node.id)) return true;
-          changed = true;
-          return false;
+        const releasedChildIds = new Set<string>();
+        prev.forEach((node) => {
+          if (!removeSet.has(node.id) || !isGroupNode(node as RFNode)) return;
+          getGroupChildIds(node as RFNode).forEach((childId) =>
+            releasedChildIds.add(String(childId))
+          );
         });
+
+        const next = prev
+          .filter((node) => {
+            if (!removeSet.has(node.id)) return true;
+            changed = true;
+            return false;
+          })
+          .map((node) => {
+            const parentId =
+              typeof (node as any).parentNode === "string"
+                ? String((node as any).parentNode)
+                : "";
+            const shouldRelease =
+              releasedChildIds.has(String(node.id)) ||
+              (parentId && removeSet.has(parentId));
+            if (!shouldRelease) return node;
+            changed = true;
+            const nextNode: any = {
+              ...node,
+              draggable: true,
+              selectable: true,
+            };
+            delete nextNode.parentNode;
+            delete nextNode.extent;
+            return nextNode;
+          });
         return next;
       });
 
@@ -3133,7 +3161,7 @@ function FlowInner() {
       style: {
         width: bounds.width,
         height: bounds.height,
-        zIndex: 0,
+        zIndex: -1,
       },
     } as any;
 
@@ -3705,23 +3733,54 @@ function FlowInner() {
     []
   );
 
-  const tplNodesToRfNodes = React.useCallback(
-    (ns: TemplateNode[]): RFNode[] =>
-      ns.map((n) => ({
+  const tplNodesToRfNodes = React.useCallback((ns: TemplateNode[]): RFNode[] => {
+    const legacyChildrenByGroupId = new Map<string, string[]>();
+    ns.forEach((node: any) => {
+      const parentId =
+        typeof node?.parentNode === "string" ? node.parentNode.trim() : "";
+      if (!parentId) return;
+      const list = legacyChildrenByGroupId.get(parentId) || [];
+      list.push(String(node.id));
+      legacyChildrenByGroupId.set(parentId, list);
+    });
+
+    return ns.map((n: any) => {
+      const type = n?.type || "default";
+      const isGroup = type === FLOW_GROUP_NODE_TYPE;
+      const data: Record<string, any> = { ...(n?.data || {}) };
+
+      if (isGroup) {
+        const explicitChildIds = Array.isArray(data.childNodeIds)
+          ? data.childNodeIds.map((id: any) => String(id))
+          : [];
+        const legacyChildIds = legacyChildrenByGroupId.get(String(n.id)) || [];
+        data.childNodeIds = Array.from(
+          new Set(
+            [...explicitChildIds, ...legacyChildIds].filter((id) => {
+              const child = ns.find((x: any) => String(x.id) === String(id));
+              return child && (child.type || "default") !== FLOW_GROUP_NODE_TYPE;
+            })
+          )
+        );
+      }
+
+      return {
         id: n.id,
-        type: (n as any).type || "default",
+        type,
         position: { x: n.position.x, y: n.position.y },
-        data: { ...(n.data || {}) },
-        width: (n as any).width,
-        height: (n as any).height,
-        style: (n as any).style ? { ...(n as any).style } : undefined,
-        parentNode: (n as any).parentNode,
-        extent: (n as any).extent,
-        selectable: (n as any).selectable,
-        draggable: (n as any).draggable,
-      })) as any,
-    []
-  );
+        data,
+        width: n.width,
+        height: n.height,
+        style: n.style ? { ...n.style } : undefined,
+        // Legacy grouped JSON may carry parentNode/extent and false draggable flags.
+        // Grouping in current implementation uses childNodeIds, so clear parent locks.
+        parentNode: undefined,
+        extent: undefined,
+        selectable: true,
+        draggable: true,
+      } as any;
+    }) as any;
+  }, []);
 
   const tplEdgesToRfEdges = React.useCallback(
     (es: TemplateEdge[]): Edge[] =>
@@ -3987,18 +4046,30 @@ function FlowInner() {
       idMap.set(node.id, generateId(node.type || "n"));
     });
 
+    const legacyChildrenByGroupOldId = new Map<string, string[]>();
+    payload.nodes.forEach((node: any) => {
+      const parentId =
+        typeof node?.parentNode === "string" ? node.parentNode.trim() : "";
+      if (!parentId) return;
+      const list = legacyChildrenByGroupOldId.get(parentId) || [];
+      list.push(String(node.id));
+      legacyChildrenByGroupOldId.set(parentId, list);
+    });
+
     const newNodes = payload.nodes.map((node) => {
       const newId = idMap.get(node.id) || generateId(node.type || "n");
       const data: any = sanitizeNodeData(node.data || {}, {
         preserveImagePayload: true,
       });
       if (node.type === FLOW_GROUP_NODE_TYPE) {
-        const rawChildren = Array.isArray(data?.childNodeIds)
-          ? data.childNodeIds
+        const explicitChildren = Array.isArray(data?.childNodeIds)
+          ? data.childNodeIds.map((childId: string) => idMap.get(childId) || null)
           : [];
-        data.childNodeIds = rawChildren
-          .map((childId: string) => idMap.get(childId) || null)
-          .filter(Boolean);
+        const legacyChildren = (legacyChildrenByGroupOldId.get(String(node.id)) || [])
+          .map((childOldId: string) => idMap.get(childOldId) || null);
+        data.childNodeIds = Array.from(
+          new Set([...explicitChildren, ...legacyChildren].filter(Boolean))
+        );
       }
       return {
         id: newId,
@@ -4012,12 +4083,10 @@ function FlowInner() {
         width: node.width,
         height: node.height,
         style: node.style ? { ...node.style } : undefined,
-        parentNode: (node as any).parentNode
-          ? idMap.get((node as any).parentNode) || undefined
-          : undefined,
-        extent: (node as any).extent,
-        selectable: (node as any).selectable,
-        draggable: (node as any).draggable,
+        parentNode: undefined,
+        extent: undefined,
+        selectable: true,
+        draggable: true,
       } as any;
     });
 
@@ -5429,17 +5498,33 @@ function FlowInner() {
         idMap.set(origId, newId);
       });
 
+      const legacyChildrenByGroupOldId = new Map<string, string[]>();
+      rawNodes.forEach((n: any, idx: number) => {
+        const origId = String(n.id || `n_${idx}`);
+        const parentId =
+          typeof n?.parentNode === "string" ? String(n.parentNode).trim() : "";
+        if (!parentId) return;
+        const list = legacyChildrenByGroupOldId.get(parentId) || [];
+        list.push(origId);
+        legacyChildrenByGroupOldId.set(parentId, list);
+      });
+
       const mappedNodes = rawNodes.map((n: any, idx: number) => {
         const origId = String(n.id || `n_${idx}`);
         const newId = idMap.get(origId) || `${origId}_${now}_${idx}`;
         const data = cleanNodeData(n.data) || {};
         if (n.type === FLOW_GROUP_NODE_TYPE) {
-          const rawChildIds = Array.isArray((data as any).childNodeIds)
-            ? (data as any).childNodeIds
+          const explicitChildren = Array.isArray((data as any).childNodeIds)
+            ? (data as any).childNodeIds.map(
+                (childId: string) => idMap.get(String(childId)) || null
+              )
             : [];
-          (data as any).childNodeIds = rawChildIds
-            .map((childId: string) => idMap.get(String(childId)) || null)
-            .filter(Boolean);
+          const legacyChildren = (
+            legacyChildrenByGroupOldId.get(origId) || []
+          ).map((childOldId: string) => idMap.get(String(childOldId)) || null);
+          (data as any).childNodeIds = Array.from(
+            new Set([...explicitChildren, ...legacyChildren].filter(Boolean))
+          );
         }
         return {
           id: newId,
@@ -5449,12 +5534,10 @@ function FlowInner() {
           width: n.width,
           height: n.height,
           style: n.style ? { ...n.style } : undefined,
-          parentNode: n.parentNode
-            ? idMap.get(String(n.parentNode)) || undefined
-            : undefined,
-          extent: n.extent,
-          selectable: n.selectable,
-          draggable: n.draggable,
+          parentNode: undefined,
+          extent: undefined,
+          selectable: true,
+          draggable: true,
         } as any;
       });
 
@@ -16418,6 +16501,7 @@ function FlowInner() {
               ...n,
               data: {
                 ...n.data,
+                isDarkTheme: isFlowBlackTheme,
                 onRenameGroup: promptGroupName,
                 onUpdateGroupName: updateGroupName,
                 onChangeGroupColor: changeGroupColor,
@@ -16492,6 +16576,7 @@ function FlowInner() {
       runningGroupIds,
       toggleGroupCollapsed,
       groupPreviewImagesByGroupId,
+      isFlowBlackTheme,
     ]
   );
 
@@ -17513,6 +17598,15 @@ function FlowInner() {
         const newId = generateId(n.type || "n");
         idMap.set(n.id, newId);
       });
+      const legacyChildrenByGroupOldId = new Map<string, string[]>();
+      tpl.nodes.forEach((n: any) => {
+        const parentId =
+          typeof n?.parentNode === "string" ? n.parentNode.trim() : "";
+        if (!parentId) return;
+        const list = legacyChildrenByGroupOldId.get(parentId) || [];
+        list.push(String(n.id));
+        legacyChildrenByGroupOldId.set(parentId, list);
+      });
       const newNodes = tpl.nodes.map((n) => {
         const newId = idMap.get(n.id) || generateId(n.type || "n");
         const data: any = { ...(n.data || {}) };
@@ -17521,10 +17615,15 @@ function FlowInner() {
         delete data.status;
         delete data.error;
         if ((n as any).type === FLOW_GROUP_NODE_TYPE) {
-          const childIds = Array.isArray(data.childNodeIds) ? data.childNodeIds : [];
-          data.childNodeIds = childIds
-            .map((childId: string) => idMap.get(childId) || null)
-            .filter(Boolean);
+          const explicitChildren = Array.isArray(data.childNodeIds)
+            ? data.childNodeIds.map((childId: string) => idMap.get(childId) || null)
+            : [];
+          const legacyChildren = (
+            legacyChildrenByGroupOldId.get(String(n.id)) || []
+          ).map((childOldId: string) => idMap.get(childOldId) || null);
+          data.childNodeIds = Array.from(
+            new Set([...explicitChildren, ...legacyChildren].filter(Boolean))
+          );
         }
         return {
           id: newId,
@@ -17537,12 +17636,10 @@ function FlowInner() {
           width: (n as any).width,
           height: (n as any).height,
           style: (n as any).style ? { ...(n as any).style } : undefined,
-          parentNode: (n as any).parentNode
-            ? idMap.get((n as any).parentNode) || undefined
-            : undefined,
-          extent: (n as any).extent,
-          selectable: (n as any).selectable,
-          draggable: (n as any).draggable,
+          parentNode: undefined,
+          extent: undefined,
+          selectable: true,
+          draggable: true,
         } as any;
       });
       const newEdges = (tpl.edges || []).map((e) => ({

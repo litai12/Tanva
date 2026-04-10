@@ -12,6 +12,7 @@ import {
   Optional,
   Req,
   BadRequestException,
+  ForbiddenException,
   Param,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
@@ -89,6 +90,8 @@ type TraceableReq = {
 
 const MANAGED_IMAGE_KEY_REGEX = /^(projects|uploads|templates|videos|ai)\//i;
 const FREE_TIER_BENEFITS_SETTING_KEY = 'membership_free_tier_benefits';
+const PRIVILEGED_ADMIN_ROLES = new Set(['admin', 'normal_admin']);
+const SEEDANCE20_MIN_RECHARGE_AMOUNT = 200;
 
 @ApiTags('ai')
 @UseGuards(ApiKeyOrJwtGuard)
@@ -284,6 +287,66 @@ export class AiController {
     }
   }
 
+  private normalizeRole(value: unknown): string {
+    return typeof value === 'string' ? value.trim().toLowerCase() : '';
+  }
+
+  private isPrivilegedAdminRole(role: unknown): boolean {
+    const normalized = this.normalizeRole(role);
+    return normalized.length > 0 && PRIVILEGED_ADMIN_ROLES.has(normalized);
+  }
+
+  private isSeedance20Model(seedanceModel: unknown): boolean {
+    const normalized = typeof seedanceModel === 'string' ? seedanceModel.trim().toLowerCase() : '';
+    return normalized === 'seedance-2.0' || normalized === '2.0';
+  }
+
+  private isSeedance20Request(dto: VideoProviderRequestDto): boolean {
+    return dto.provider === 'doubao' && this.isSeedance20Model(dto.seedanceModel);
+  }
+
+  private async getTotalPaidRechargeAmount(userId: string): Promise<number> {
+    const aggregate = await this.prisma.paymentOrder.aggregate({
+      where: {
+        userId,
+        status: 'paid',
+        orderType: 'recharge',
+      },
+      _sum: {
+        amount: true,
+      },
+    });
+
+    const total = Number(aggregate._sum.amount ?? 0);
+    return Number.isFinite(total) ? total : 0;
+  }
+
+  private async assertSeedance20Access(userId: string, req: any): Promise<void> {
+    if (this.isPrivilegedAdminRole(req?.user?.role)) {
+      return;
+    }
+
+    let userRole: string | null = null;
+    try {
+      const user = await this.usersService.findById(userId);
+      userRole = typeof user?.role === 'string' ? user.role : null;
+      if (this.isPrivilegedAdminRole(userRole)) {
+        return;
+      }
+    } catch (e) {
+      this.logger.warn('检查 Seedance 2.0 权限时读取用户角色失败', e);
+    }
+
+    const totalRechargeAmount = await this.getTotalPaidRechargeAmount(userId);
+    if (totalRechargeAmount >= SEEDANCE20_MIN_RECHARGE_AMOUNT) {
+      return;
+    }
+
+    throw new ForbiddenException(
+      `Seedance 2.0 仅对累计充值满 ¥${SEEDANCE20_MIN_RECHARGE_AMOUNT} 用户开放（当前累计 ¥${totalRechargeAmount.toFixed(2)}）`,
+    );
+  }
+
   /**
    * 检查用户是否可以跳过水印（管理员或水印白名单用户）
    */
@@ -294,8 +357,7 @@ export class AiController {
     }
     try {
       const user = await this.usersService.findById(userId);
-      const isAdmin = typeof user?.role === 'string' && user.role.toLowerCase() === 'admin';
-      return isAdmin || user?.noWatermark === true;
+      return this.isPrivilegedAdminRole(user?.role) || user?.noWatermark === true;
     } catch (e) {
       this.logger.warn('检查水印白名单失败', e);
       return false;
@@ -3381,6 +3443,10 @@ export class AiController {
   async generateVideoProvider(@Body() dto: VideoProviderRequestDto, @Req() req: any) {
     const userId = this.getUserId(req);
     const effectiveDto: VideoProviderRequestDto = { ...dto };
+
+    if (userId && this.isSeedance20Request(effectiveDto)) {
+      await this.assertSeedance20Access(userId, req);
+    }
 
     // 白名单/管理员兜底：Seedance 1.5 Pro链路即使前端传入 watermark=true，也强制关闭水印。
     if (effectiveDto.provider === 'doubao') {
