@@ -17,6 +17,7 @@ import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import { toRenderableImageSrc } from '@/utils/imageSource';
 import { useLocaleText } from '@/utils/localeText';
 import RunCreditBadge from './RunCreditBadge';
+import NodeSelect from './NodeSelect';
 
 // 长宽比图标
 const AspectRatioIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -510,10 +511,8 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   const [isEditingTitle, setIsEditingTitle] = React.useState(false);
   const [isTextFocused, setIsTextFocused] = React.useState(false); // 文字输入框是否聚焦
   const [isAspectMenuOpen, setIsAspectMenuOpen] = React.useState(false);
-  const [isImageSizeMenuOpen, setIsImageSizeMenuOpen] = React.useState(false);
   const [contextMenu, setContextMenu] = React.useState<{ x: number; y: number } | null>(null);
   const aspectMenuRef = React.useRef<HTMLDivElement>(null);
-  const imageSizeMenuRef = React.useRef<HTMLDivElement>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const titleInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -947,18 +946,6 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isAspectMenuOpen]);
-
-  // 点击外部关闭图像尺寸菜单
-  React.useEffect(() => {
-    if (!isImageSizeMenuOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (imageSizeMenuRef.current && !imageSizeMenuRef.current.contains(e.target as Node)) {
-        setIsImageSizeMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isImageSizeMenuOpen]);
 
   // 处理角点拖拽调整大小 - 以中心点为基准
   const handleResizeStart = React.useCallback((corner: string) => (e: React.MouseEvent) => {
@@ -1793,28 +1780,21 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
 
               {/* HD 图像尺寸选择按钮 - 仅 Pro 模式显示 */}
               {isProMode && (
-                <div className="relative" ref={imageSizeMenuRef}>
-                  <button
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setIsImageSizeMenuOpen(!isImageSizeMenuOpen);
-                    }}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }}
-                    onPointerDownCapture={stopNodeDrag}
-                    className={cn(
-                      "tanva-agent-toolbar-btn p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center",
-                      (isImageSizeMenuOpen || imageSizeValue) ? "tanva-agent-toolbar-btn-active bg-gray-800 text-white border-gray-800" : ""
-                    )}
+                <div className="relative">
+                  <NodeSelect
+                    value={imageSizeValue || ""}
+                    options={imageSizeOptions.map((opt) => ({
+                      value: opt.value || "",
+                      label: opt.label,
+                    }))}
+                    onChange={(nextValue) => updateImageSize((nextValue || null) as '1K' | '2K' | '4K' | null)}
+                    variant="compact"
+                    align="center"
+                    menuLabel={lt('分辨率', 'Resolution')}
                     title={imageSizeValue ? `${lt('分辨率', 'Resolution')}: ${imageSizeValue}` : lt('选择分辨率', 'Select resolution')}
-                  >
-                    <span className="font-medium text-[10px] leading-none">
-                      {imageSizeValue || 'HD'}
-                    </span>
-                  </button>
+                    className='min-w-[56px] justify-center'
+                    contentClassName='min-w-[140px]'
+                  />
                 </div>
               )}
 
@@ -1885,32 +1865,6 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
               </div>
             )}
 
-            {/* HD 图像尺寸水平选择栏 - 仅 Pro 模式显示 */}
-            {isProMode && isImageSizeMenuOpen && (
-              <div
-                className="tanva-agent-toolbar-panel bg-white rounded-full shadow-lg border border-gray-200 px-2 py-1.5 flex items-center gap-1"
-              >
-                {imageSizeOptions.map(opt => (
-                  <button
-                    key={opt.value || 'auto'}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      updateImageSize(opt.value);
-                      setIsImageSizeMenuOpen(false);
-                    }}
-                    onPointerDownCapture={stopNodeDrag}
-                    className={cn(
-                      "tanva-agent-toolbar-option px-2 py-1 text-xs rounded-md transition-colors whitespace-nowrap",
-                      imageSizeValue === opt.value
-                        ? "tanva-agent-toolbar-option-active bg-gray-800 text-white font-medium"
-                        : "text-gray-700 hover:bg-gray-100"
-                    )}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
         </>
       )}

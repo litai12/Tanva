@@ -28,6 +28,7 @@ import {
   type CreditLotStatus,
 } from './credit-lot-policy';
 import { BusinessPolicyService } from '../business-policy/business-policy.service';
+import { MODEL_PROVIDER_MAPPING_SETTING_KEY } from '../ai/services/model-routing.service';
 
 const STALE_PENDING_DEFAULT_TIMEOUT_MINUTES = 15;
 const STALE_PENDING_DEFAULT_VIDEO_TIMEOUT_MINUTES = 30;
@@ -110,6 +111,17 @@ export interface ApiUsageParams {
 
 type SoraBillingModel = 'sora-2' | 'sora-2-vip' | 'sora-2-pro';
 type KlingBillingModel = 'kling-v2-6' | 'kling-v3-0' | 'kling-o3';
+type ManagedPricingVendorConfig = {
+  vendorKey?: string;
+  creditsPerCall?: number;
+};
+type ManagedPricingModelConfig = {
+  modelKey?: string;
+  vendors?: ManagedPricingVendorConfig[];
+};
+type ManagedPricingMappingConfig = {
+  models?: ManagedPricingModelConfig[];
+};
 
 @Injectable()
 export class CreditsService {
@@ -259,6 +271,50 @@ export class CreditsService {
       return 'pro';
     }
     return 'std';
+  }
+
+  private async resolveManagedRouteCredits(requestParams: any): Promise<number | null> {
+    const modelKey =
+      typeof requestParams?.modelKey === 'string' ? requestParams.modelKey.trim() : '';
+    const vendorKey =
+      typeof requestParams?.vendorKey === 'string' ? requestParams.vendorKey.trim() : '';
+    if (!modelKey || !vendorKey) return null;
+
+    try {
+      const setting = await this.prisma.systemSetting.findUnique({
+        where: { key: MODEL_PROVIDER_MAPPING_SETTING_KEY },
+        select: { value: true },
+      });
+      const raw = typeof setting?.value === 'string' ? setting.value.trim() : '';
+      if (!raw) return null;
+
+      const parsed = JSON.parse(raw) as ManagedPricingMappingConfig;
+      const model = Array.isArray(parsed?.models)
+        ? parsed.models.find(
+            (item) =>
+              item &&
+              typeof item.modelKey === 'string' &&
+              item.modelKey.trim() === modelKey,
+          )
+        : null;
+      if (!model || !Array.isArray(model.vendors)) return null;
+
+      const vendor = model.vendors.find(
+        (item) =>
+          item &&
+          typeof item.vendorKey === 'string' &&
+          item.vendorKey.trim() === vendorKey,
+      );
+      const credits = Number(vendor?.creditsPerCall);
+      return Number.isFinite(credits) && credits >= 0 ? credits : null;
+    } catch (error) {
+      this.logger.warn(
+        `读取模型管理线路积分失败，回退服务定价: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return null;
+    }
   }
 
   private normalizeKlingDuration(raw: unknown): 5 | 10 | null {
@@ -1436,6 +1492,10 @@ export class CreditsService {
     }
 
     let creditsToDeduct: number = pricing.creditsPerCall;
+    const managedRouteCredits = await this.resolveManagedRouteCredits(requestParams);
+    if (managedRouteCredits !== null) {
+      creditsToDeduct = managedRouteCredits;
+    }
     
     // 处理Sora视频模型的特殊定价
     creditsToDeduct = this.resolveSoraModelCredits(

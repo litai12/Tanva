@@ -14,6 +14,7 @@ import { useLocaleText } from "@/utils/localeText";
 import { flowImagePreviewWell, flowLetterboxBackground } from "./flowNodeDarkTheme";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "../../ui/dropdown-menu";
 import RunCreditBadge from "./RunCreditBadge";
+import NodeSelect from "./NodeSelect";
 
 type Props = {
   id: string;
@@ -972,33 +973,20 @@ function GenerateNodeInner({ id, data, selected }: Props) {
                 color: "#6b7280",
               }}
             >
-              {lt("分辨率", "Resolution")}
-              <select
-                value={imageSizeValue}
-                onChange={(e) => updateImageSize(e.target.value)}
-                onPointerDown={stopNodeDrag}
-                onPointerDownCapture={stopNodeDrag}
-                onMouseDown={stopNodeDrag}
-                onMouseDownCapture={stopNodeDrag}
-                onClick={stopNodeDrag}
-                onClickCapture={stopNodeDrag}
-                className='nodrag nopan'
-                style={{
-                  fontSize: 12,
-                  padding: "2px 6px",
-                  borderRadius: 6,
-                  border: "1px solid #e5e7eb",
-                  background: "#fff",
-                  color: "#111827",
-                }}
-              >
-                {imageSizeOptions.map((opt) => (
-                  <option key={opt.value || "auto"} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+	              {lt("分辨率", "Resolution")}
+	              <NodeSelect
+	                value={imageSizeValue}
+	                options={imageSizeOptions.map((opt) => ({
+	                  value: opt.value,
+	                  label: opt.label,
+	                }))}
+	                onChange={updateImageSize}
+	                menuLabel={lt("分辨率", "Resolution")}
+	                title={lt("选择分辨率", "Select resolution")}
+	                className='min-w-[96px]'
+	                contentClassName='min-w-[140px]'
+	              />
+	            </label>
           )}
         </div>
       )}

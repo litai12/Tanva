@@ -12,6 +12,9 @@ export interface VideoGenerationRequest {
   referenceImages?: string[]; // Base64 Data URI 数组
   audioUrls?: string[];
   referenceVideos?: string[];
+  managedModelKey?: string;
+  vendorKey?: string;
+  platformKey?: string;
   duration?: number;
   aspectRatio?: string;
   provider: VideoProvider;

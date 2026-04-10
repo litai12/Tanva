@@ -78,6 +78,10 @@ import Seedance20VideoNode from "./nodes/Seedance20VideoNode";
 import VideoNode from "./nodes/VideoNode";
 import AudioNode from "./nodes/AudioNode";
 import VideoAnalyzeNode from "./nodes/VideoAnalyzeNode";
+import {
+  getManagedRouteCredits,
+  getManagedRouteOption,
+} from "./managedRoutePricing";
 import VideoFrameExtractNode from "./nodes/VideoFrameExtractNode";
 import VideoToGifNode from "./nodes/VideoToGifNode";
 import ImageGridNode from "./nodes/ImageGridNode";
@@ -1577,6 +1581,19 @@ const buildNodePaletteCaption = (config: Partial<NodeConfig>): string | undefine
   return undefined;
 };
 
+const resolveNodeConfigCreditsPerCall = (config: Partial<NodeConfig>): number => {
+  const metadata =
+    config.metadata && typeof config.metadata === "object"
+      ? (config.metadata as Record<string, any>)
+      : undefined;
+  const managedCredits = getManagedRouteCredits(metadata);
+  if (typeof managedCredits === "number") {
+    return managedCredits;
+  }
+  const directCredits = Number(config.creditsPerCall ?? 0);
+  return Number.isFinite(directCredits) ? directCredits : 0;
+};
+
 const nodePaletteButtonStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
@@ -2384,7 +2401,7 @@ function FlowInner() {
     const map = new Map<string, number>();
     nodePaletteConfigs.forEach((config) => {
       const resolvedType = resolveFlowNodeTypeFromConfig(config);
-      const creditsPerCall = Number(config.creditsPerCall ?? 0);
+      const creditsPerCall = resolveNodeConfigCreditsPerCall(config);
       if (!resolvedType || !Number.isFinite(creditsPerCall)) return;
       map.set(resolvedType, creditsPerCall);
     });
@@ -6727,6 +6744,29 @@ function FlowInner() {
       const data = {
         ...baseData,
         ...(paletteDefaultData || {}),
+        ...(paletteConfig
+          ? (() => {
+              const metadata =
+                paletteConfig.metadata && typeof paletteConfig.metadata === "object"
+                  ? (paletteConfig.metadata as Record<string, any>)
+                  : undefined;
+              const selectedManagedRoute = getManagedRouteOption(
+                metadata,
+                (paletteDefaultData as Record<string, any> | undefined)?.vendorKey
+              );
+              if (!selectedManagedRoute) return {};
+              return {
+                managedModelKey: metadata?.managedModelKey,
+                vendorKey: selectedManagedRoute.vendorKey,
+                platformKey:
+                  selectedManagedRoute.platformKey || selectedManagedRoute.vendorKey,
+                creditsPerCall:
+                  typeof selectedManagedRoute.creditsPerCall === "number"
+                    ? selectedManagedRoute.creditsPerCall
+                    : undefined,
+              };
+            })()
+          : {}),
         ...(paletteConfig
           ? {
               nodeConfigKey: paletteConfig.nodeKey,
@@ -12342,9 +12382,28 @@ function FlowInner() {
             promptPreview: finalPrompt?.slice(0, 120) || "(无提示词)",
           });
 
+          const managedRoutePayload = {
+            managedModelKey:
+              typeof rawNodeData.managedModelKey === "string" &&
+              rawNodeData.managedModelKey.trim().length > 0
+                ? rawNodeData.managedModelKey.trim()
+                : undefined,
+            vendorKey:
+              typeof rawNodeData.vendorKey === "string" &&
+              rawNodeData.vendorKey.trim().length > 0
+                ? rawNodeData.vendorKey.trim()
+                : undefined,
+            platformKey:
+              typeof rawNodeData.platformKey === "string" &&
+              rawNodeData.platformKey.trim().length > 0
+                ? rawNodeData.platformKey.trim()
+                : undefined,
+          };
+
           const requestPayload =
             provider === "doubao"
               ? {
+                  ...managedRoutePayload,
                   prompt: finalPrompt,
                   referenceImages:
                     referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
@@ -12368,6 +12427,7 @@ function FlowInner() {
                 }
               : provider === "vidu" || provider === "viduq3-pro"
               ? {
+                  ...managedRoutePayload,
                   prompt: finalPrompt,
                   referenceImages:
                     referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
@@ -12380,6 +12440,7 @@ function FlowInner() {
                   viduModel: rawNodeData.viduModel,
                 }
               : {
+                  ...managedRoutePayload,
                   prompt: finalPrompt,
                   referenceImages:
                     referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
@@ -16349,8 +16410,8 @@ function FlowInner() {
       nodes.map((n) => {
         const resolvedType = typeof n.type === "string" ? normalizeFlowNodeType(n.type) : null;
         const creditsPerCall =
-          (resolvedType && nodeCreditsByType.get(resolvedType)) ??
-          (typeof n.data?.creditsPerCall === "number" ? n.data.creditsPerCall : undefined);
+          (typeof n.data?.creditsPerCall === "number" ? n.data.creditsPerCall : undefined) ??
+          (resolvedType ? nodeCreditsByType.get(resolvedType) : undefined);
 
         return n.type === FLOW_GROUP_NODE_TYPE
           ? {
@@ -18476,7 +18537,7 @@ function FlowInner() {
                               caption={caption}
                               badge={badge}
                               status={config.status}
-                              credits={config.creditsPerCall}
+                              credits={resolveNodeConfigCreditsPerCall(config)}
                               disabled={isDisabled}
                               isDarkTheme={isFlowBlackTheme}
                               showZh={isZh}

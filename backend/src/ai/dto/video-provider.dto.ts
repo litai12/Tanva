@@ -117,4 +117,19 @@ export class VideoProviderRequestDto {
   @IsOptional()
   @IsString()
   sound?: string;
+
+  @ApiProperty({ description: '模型管理 modelKey', required: false })
+  @IsOptional()
+  @IsString()
+  managedModelKey?: string;
+
+  @ApiProperty({ description: '模型管理 vendorKey / 线路标识', required: false })
+  @IsOptional()
+  @IsString()
+  vendorKey?: string;
+
+  @ApiProperty({ description: '模型管理 platformKey / 渠道标识', required: false })
+  @IsOptional()
+  @IsString()
+  platformKey?: string;
 }

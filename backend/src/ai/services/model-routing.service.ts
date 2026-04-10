@@ -22,6 +22,7 @@ export interface ManagedModelVendorConfig {
   enabled?: boolean;
   route?: ModelVendorRouteType;
   provider?: string;
+  creditsPerCall?: number;
   modelName?: string;
   modelVersion?: string;
   metadata?: Record<string, any>;
@@ -770,12 +771,18 @@ export class ModelRoutingService {
     }
   }
 
-  async resolveVideoModel(modelKey: string): Promise<ResolvedManagedModelRoute | null> {
-    const [selected] = await this.resolveVideoModelCandidates(modelKey);
+  async resolveVideoModel(
+    modelKey: string,
+    preferredVendorKey?: string,
+  ): Promise<ResolvedManagedModelRoute | null> {
+    const [selected] = await this.resolveVideoModelCandidates(modelKey, preferredVendorKey);
     return selected || null;
   }
 
-  async resolveVideoModelCandidates(modelKey: string): Promise<ResolvedManagedModelRoute[]> {
+  async resolveVideoModelCandidates(
+    modelKey: string,
+    preferredVendorKey?: string,
+  ): Promise<ResolvedManagedModelRoute[]> {
     const normalizedKey = typeof modelKey === 'string' ? modelKey.trim() : '';
     if (!normalizedKey) return [];
 
@@ -800,7 +807,17 @@ export class ModelRoutingService {
     const enabledVendors = vendors.filter((item) => item.enabled !== false);
     if (!enabledVendors.length) return [];
 
+    const normalizedPreferredVendorKey =
+      typeof preferredVendorKey === 'string' ? preferredVendorKey.trim() : '';
+
     const selected =
+      (normalizedPreferredVendorKey
+        ? enabledVendors.find(
+            (item) =>
+              typeof item.vendorKey === 'string' &&
+              item.vendorKey.trim() === normalizedPreferredVendorKey,
+          )
+        : null) ||
       enabledVendors.find(
         (item) =>
           typeof item.vendorKey === 'string' &&

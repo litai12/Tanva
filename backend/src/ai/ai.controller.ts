@@ -565,6 +565,23 @@ export class AiController {
       aiProvider: dto.provider,
     };
 
+    const preferredVendorKey =
+      typeof dto.vendorKey === 'string' && dto.vendorKey.trim().length > 0
+        ? dto.vendorKey.trim()
+        : undefined;
+
+    if (typeof dto.managedModelKey === 'string' && dto.managedModelKey.trim().length > 0) {
+      params.managedModelKey = dto.managedModelKey.trim();
+    }
+
+    if (preferredVendorKey) {
+      params.vendorKey = preferredVendorKey;
+    }
+
+    if (typeof dto.platformKey === 'string' && dto.platformKey.trim().length > 0) {
+      params.platformKey = dto.platformKey.trim();
+    }
+
     if (dto.klingModel) {
       params.klingModel = dto.klingModel;
     }
@@ -589,7 +606,9 @@ export class AiController {
       params.duration = Math.round(dto.duration);
     }
 
-    const assignRouteParams = (route: Awaited<ReturnType<typeof this.modelRoutingService.resolveVideoModel>>) => {
+    const assignRouteParams = (
+      route: Awaited<ReturnType<typeof this.modelRoutingService.resolveVideoModel>>,
+    ) => {
       if (!route) return false;
       params.modelKey = route.model.modelKey;
       params.vendorKey = route.vendor.vendorKey;
@@ -609,7 +628,9 @@ export class AiController {
         dto.provider === 'kling-o3') &&
       normalizedKlingModel === 'kling-v3-0'
     ) {
-      assignRouteParams(await this.modelRoutingService.resolveVideoModel('kling-3.0'));
+      assignRouteParams(
+        await this.modelRoutingService.resolveVideoModel('kling-3.0', preferredVendorKey),
+      );
       return params;
     }
 
@@ -617,12 +638,16 @@ export class AiController {
       (dto.provider === 'kling' || dto.provider === 'kling-2.6') &&
       (normalizedKlingModel === '' || normalizedKlingModel === 'kling-v2-6')
     ) {
-      assignRouteParams(await this.modelRoutingService.resolveVideoModel('kling-2.6'));
+      assignRouteParams(
+        await this.modelRoutingService.resolveVideoModel('kling-2.6', preferredVendorKey),
+      );
       return params;
     }
 
     if (dto.provider === 'kling-o3') {
-      assignRouteParams(await this.modelRoutingService.resolveVideoModel('kling-o3'));
+      assignRouteParams(
+        await this.modelRoutingService.resolveVideoModel('kling-o3', preferredVendorKey),
+      );
       return params;
     }
 
@@ -632,14 +657,18 @@ export class AiController {
         normalized === 'q3'
           ? 'vidu-q3'
           : 'vidu-q2';
-      assignRouteParams(await this.modelRoutingService.resolveVideoModel(modelKey));
+      assignRouteParams(
+        await this.modelRoutingService.resolveVideoModel(modelKey, preferredVendorKey),
+      );
       return params;
     }
 
     if (dto.provider === 'doubao') {
       const normalized = String(dto.seedanceModel || '').trim().toLowerCase();
       const modelKey = normalized === 'seedance-2.0' || normalized === '2.0' ? 'seedance-2.0' : 'seedance-1.5';
-      assignRouteParams(await this.modelRoutingService.resolveVideoModel(modelKey));
+      assignRouteParams(
+        await this.modelRoutingService.resolveVideoModel(modelKey, preferredVendorKey),
+      );
       return params;
     }
 

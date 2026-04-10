@@ -12,6 +12,7 @@ import { toRenderableImageSrc } from "@/utils/imageSource";
 import { useLocaleText } from "@/utils/localeText";
 import { flowImagePreviewWell, flowLetterboxBackground, useFlowNodeDarkTheme } from "./flowNodeDarkTheme";
 import RunCreditBadge from "./RunCreditBadge";
+import NodeSelect from "./NodeSelect";
 
 type Props = {
   id: string;
@@ -317,31 +318,23 @@ function Nano2NodeInner({ id, data, selected }: Props) {
       </div>
 
       {/* 分辨率选择 */}
-      <div style={{ marginBottom: 6 }}>
-        <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
-          {lt("分辨率", "Resolution")}
-        </label>
-        <select
-          value={resolutionValue}
-          onChange={(e) => updateResolution(e.target.value)}
-          style={{
-            width: "100%",
-            fontSize: 12,
-            padding: "4px 6px",
-            borderRadius: 6,
-            border: "1px solid #e5e7eb",
-            outline: "none",
-            background: "#fff",
-          }}
-          onPointerDownCapture={stopNodeDrag}
-          onMouseDownCapture={stopNodeDrag}
-        >
-          <option value="0.5K">{lt("0.5K (~512px) 预览", "0.5K (~512px) Preview")}</option>
-          <option value="1K">{lt("1K (~1024px) 标准", "1K (~1024px) Standard")}</option>
-          <option value="2K">{lt("2K (~2048px) 高清", "2K (~2048px) HD")}</option>
-          <option value="4K">{lt("4K (~4096px) 超清", "4K (~4096px) Ultra HD")}</option>
-        </select>
-      </div>
+	      <div style={{ marginBottom: 6 }}>
+	        <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
+	          {lt("分辨率", "Resolution")}
+	        </label>
+	        <NodeSelect
+	          value={resolutionValue}
+	          options={[
+	            { value: "0.5K", label: lt("0.5K", "0.5K"), description: lt("~512px 预览", "~512px Preview") },
+	            { value: "1K", label: lt("1K", "1K"), description: lt("~1024px 标准", "~1024px Standard") },
+	            { value: "2K", label: lt("2K", "2K"), description: lt("~2048px 高清", "~2048px HD") },
+	            { value: "4K", label: lt("4K", "4K"), description: lt("~4096px 超清", "~4096px Ultra HD") },
+	          ]}
+	          onChange={updateResolution}
+	          menuLabel={lt("分辨率", "Resolution")}
+	          title={lt("选择分辨率", "Select resolution")}
+	        />
+	      </div>
 
       {/* Google 搜索增强选项 */}
       <div style={{ marginBottom: 8, display: "flex", gap: 12 }}>

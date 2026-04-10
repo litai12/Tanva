@@ -229,6 +229,7 @@ interface ManagedModelVendorConfig {
   enabled?: boolean;
   route?: ModelVendorRouteType;
   provider?: string;
+  creditsPerCall?: number;
   modelName?: string;
   modelVersion?: string;
   metadata?: Record<string, any>;
@@ -358,6 +359,13 @@ const buildManagedNodeConfig = (
   const matchedTemplate =
     MANAGED_NODE_TEMPLATE_OPTIONS[taskType].find((item) => item.value === flowNodeType) ||
     MANAGED_NODE_TEMPLATE_OPTIONS[taskType][0];
+  const defaultVendorCredits = (() => {
+    const vendors = Array.isArray(model.vendors) ? model.vendors : [];
+    const preferredVendor =
+      vendors.find((vendor) => vendor.vendorKey === model.defaultVendor) || vendors[0];
+    const credits = Number(preferredVendor?.creditsPerCall);
+    return Number.isFinite(credits) && credits >= 0 ? credits : 0;
+  })();
   return {
     enabled: true,
     nodeKey:
@@ -372,7 +380,9 @@ const buildManagedNodeConfig = (
     flowNodeType: matchedTemplate?.value || flowNodeType,
     category: overrides?.category || matchedTemplate?.category || (taskType === "text" ? "input" : taskType),
     creditsPerCall:
-      typeof overrides?.creditsPerCall === "number" ? overrides.creditsPerCall : 0,
+      typeof overrides?.creditsPerCall === "number"
+        ? overrides.creditsPerCall
+        : defaultVendorCredits,
     sortOrder: typeof overrides?.sortOrder === "number" ? overrides.sortOrder : undefined,
     description: overrides?.description || "",
   };
@@ -1241,11 +1251,29 @@ const buildManagedNodeMetadata = (model: ManagedModelConfig): Record<string, any
     (model.vendors || []).find((vendor) => vendor.enabled !== false) ||
     model.vendors?.[0];
   const supportedModels = MANAGED_MODEL_SUPPORTED_MODELS_MAP[model.modelKey] || [];
+  const managedRoutes = {
+    modelKey: model.modelKey,
+    defaultVendor: model.defaultVendor || defaultVendor?.vendorKey || "",
+    vendors: (model.vendors || [])
+      .filter((vendor) => vendor.enabled !== false && String(vendor.vendorKey || "").trim())
+      .map((vendor) => ({
+        vendorKey: vendor.vendorKey,
+        platformKey: vendor.platformKey,
+        label: vendor.label,
+        provider: vendor.provider,
+        route: vendor.route,
+        modelName: vendor.modelName,
+        modelVersion: vendor.modelVersion,
+        creditsPerCall:
+          typeof vendor.creditsPerCall === "number" ? vendor.creditsPerCall : undefined,
+      })),
+  };
   const metadata: Record<string, any> = {
     type: nodeConfig.flowNodeType,
     provider: defaultVendor?.provider || "",
     managedModelKey: model.modelKey,
     managedTaskType: taskType,
+    managedRoutes,
     nodeConfig,
     modelKeys: [model.modelKey],
   };
@@ -1262,10 +1290,17 @@ const buildManagedNodeMetadata = (model: ManagedModelConfig): Record<string, any
     };
   }
 
+  const defaultVendorCredits =
+    typeof defaultVendor?.creditsPerCall === "number" ? defaultVendor.creditsPerCall : undefined;
+
   if (model.modelKey.startsWith("vidu-")) {
     const defaultViduModel = supportedModels[0] || "q2";
     metadata.defaultData = {
       provider: defaultViduModel === "q2" ? "vidu" : "viduq3-pro",
+      managedModelKey: model.modelKey,
+      vendorKey: defaultVendor?.vendorKey,
+      platformKey: defaultVendor?.platformKey || defaultVendor?.vendorKey,
+      creditsPerCall: defaultVendorCredits,
       viduModel: defaultViduModel,
       resolution: "720p",
       clipDuration: defaultViduModel === "q2" ? 5 : 8,
@@ -1273,18 +1308,30 @@ const buildManagedNodeMetadata = (model: ManagedModelConfig): Record<string, any
   } else if (model.modelKey.startsWith("kling-")) {
     metadata.defaultData = {
       provider: defaultVendor?.provider || "",
+      managedModelKey: model.modelKey,
+      vendorKey: defaultVendor?.vendorKey,
+      platformKey: defaultVendor?.platformKey || defaultVendor?.vendorKey,
+      creditsPerCall: defaultVendorCredits,
       klingModel: supportedModels[0] || "kling-v2-6",
       clipDuration: 5,
     };
   } else if (model.modelKey.startsWith("seedance-")) {
     metadata.defaultData = {
       provider: defaultVendor?.provider || "doubao",
+      managedModelKey: model.modelKey,
+      vendorKey: defaultVendor?.vendorKey,
+      platformKey: defaultVendor?.platformKey || defaultVendor?.vendorKey,
+      creditsPerCall: defaultVendorCredits,
       seedanceModel: supportedModels[0] || "seedance-1.5-pro",
       clipDuration: 5,
       resolution: "720P",
     };
   } else if (model.modelKey === "sora-2") {
     metadata.defaultData = {
+      managedModelKey: model.modelKey,
+      vendorKey: defaultVendor?.vendorKey,
+      platformKey: defaultVendor?.platformKey || defaultVendor?.vendorKey,
+      creditsPerCall: defaultVendorCredits,
       generationType: "sora2",
       model: "sora-2-pro",
       clipDuration: 10,
@@ -5638,6 +5685,26 @@ function ModelManagementTab() {
                               updateEditingVendorField(vendorIndex, "provider", e.target.value)
                             }
                             placeholder='如：kling-o3'
+                          />
+                        </div>
+                        <div>
+                          <label className='mb-1 block text-sm text-gray-600'>积分消耗</label>
+                          <Input
+                            type='number'
+                            min='0'
+                            value={
+                              vendor.creditsPerCall !== undefined
+                                ? String(vendor.creditsPerCall)
+                                : ""
+                            }
+                            onChange={(e) =>
+                              updateEditingVendorField(
+                                vendorIndex,
+                                "creditsPerCall",
+                                e.target.value === "" ? undefined : Number(e.target.value)
+                              )
+                            }
+                            placeholder='如：600'
                           />
                         </div>
                         <div>

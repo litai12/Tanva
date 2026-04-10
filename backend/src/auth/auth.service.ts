@@ -663,10 +663,13 @@ export class AuthService {
       throw new BadRequestException("当前会话无需绑定手机号");
     }
     const openId = session.openId;
+    const fetchedProfile = await this.fetchWechatOfficialUserInfo(openId);
 
     const profile: WechatOfficialLoginProfile = {
       openId,
-      unionId: session.unionId,
+      unionId: fetchedProfile?.unionId || session.unionId,
+      nickname: fetchedProfile?.nickname || null,
+      avatarUrl: fetchedProfile?.avatarUrl || null,
     };
 
     const syntheticPasswordHash = await bcrypt.hash(
@@ -709,14 +712,16 @@ export class AuthService {
         return this.attachWechatIdentityToUser(tx, userByPhone.id, profile);
       }
 
-      const name = `微信用户-${openId.slice(-6)}`;
+      const name =
+        this.normalizeName(profile.nickname) || `微信用户-${openId.slice(-6)}`;
       const createdUser = await tx.user.create({
         data: {
           phone: normalizedPhone,
           passwordHash: syntheticPasswordHash,
           name,
           wechatOfficialOpenId: openId,
-          wechatUnionId: this.normalizeWechatUnionId(session.unionId),
+          wechatUnionId: this.normalizeWechatUnionId(profile.unionId),
+          avatarUrl: profile.avatarUrl || null,
         },
         select: { id: true, email: true, name: true, phone: true, role: true },
       });

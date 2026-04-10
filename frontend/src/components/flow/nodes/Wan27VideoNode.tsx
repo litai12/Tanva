@@ -7,6 +7,7 @@ import { useProjectContentStore } from "@/stores/projectContentStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
 import RunCreditBadge from "./RunCreditBadge";
+import NodeSelect from "./NodeSelect";
 
 type VideoHistoryItem = {
   id: string;
@@ -269,13 +270,23 @@ function Wan27VideoNode({ id, data, selected }: Props) {
 
       <div style={{ display: "grid", gap: 8, marginBottom: 8 }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <label style={{ fontSize: 12, color: "#475569" }}>
-            <div style={{ marginBottom: 4 }}>{lt("分辨率", "Resolution")}</div>
-            <select value={resolution} onChange={(e) => window.dispatchEvent(new CustomEvent("flow:updateNodeData", { detail: { id, patch: { resolution: e.target.value } } }))} style={{ width: "100%", padding: "6px 8px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff" }}>
-              <option value="720P">720P</option>
-              <option value="1080P">1080P</option>
-            </select>
-          </label>
+	          <label style={{ fontSize: 12, color: "#475569" }}>
+	            <div style={{ marginBottom: 4 }}>{lt("分辨率", "Resolution")}</div>
+	            <NodeSelect
+	              value={resolution}
+	              options={[
+	                { value: "720P", label: "720P" },
+	                { value: "1080P", label: "1080P" },
+	              ]}
+	              onChange={(value) =>
+	                window.dispatchEvent(
+	                  new CustomEvent("flow:updateNodeData", { detail: { id, patch: { resolution: value } } })
+	                )
+	              }
+	              menuLabel={lt("分辨率", "Resolution")}
+	              title={lt("选择分辨率", "Select resolution")}
+	            />
+	          </label>
           <label style={{ fontSize: 12, color: "#475569" }}>
             <div style={{ marginBottom: 4 }}>{lt("时长", "Duration")}</div>
             <select value={duration} onChange={(e) => window.dispatchEvent(new CustomEvent("flow:updateNodeData", { detail: { id, patch: { duration: Number(e.target.value) } } }))} style={{ width: "100%", padding: "6px 8px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff" }}>

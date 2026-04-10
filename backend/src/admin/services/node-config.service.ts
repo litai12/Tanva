@@ -53,6 +53,23 @@ interface NodeConfigMetadataLike {
   supportedModels?: unknown;
   defaultData?: unknown;
   vod?: unknown;
+  managedModelKey?: unknown;
+  managedRoutes?: unknown;
+}
+
+interface ManagedRouteView {
+  modelKey: string;
+  defaultVendor?: string;
+  vendors: Array<{
+    vendorKey: string;
+    platformKey?: string;
+    label?: string;
+    provider?: string;
+    route?: string;
+    modelName?: string;
+    modelVersion?: string;
+    creditsPerCall?: number;
+  }>;
 }
 
 const buildVodNodeMetadata = (
@@ -107,19 +124,24 @@ export class NodeConfigService {
   }
 
   private async getEnabledManagedModelKeySet(): Promise<Set<string>> {
+    const managedModelMap = await this.getManagedModelConfigMap();
+    return new Set(Array.from(managedModelMap.keys()));
+  }
+
+  private async getManagedModelConfigMap(): Promise<Map<string, ManagedModelConfig>> {
     try {
       const setting = await this.prisma.systemSetting.findUnique({
         where: { key: MODEL_PROVIDER_MAPPING_SETTING_KEY },
       });
       const raw = setting?.value?.trim();
       if (!raw) {
-        return new Set();
+        return new Map();
       }
 
       const parsed = JSON.parse(raw) as ModelProviderMappingV2Like;
       const models = Array.isArray(parsed?.models) ? parsed.models.filter(Boolean) : [];
 
-      return new Set(
+      return new Map(
         models
           .filter(
             (model) =>
@@ -128,7 +150,7 @@ export class NodeConfigService {
               typeof model.modelKey === 'string' &&
               model.modelKey.trim(),
           )
-          .map((model) => String(model.modelKey).trim()),
+          .map((model) => [String(model.modelKey).trim(), model] as const),
       );
     } catch (error) {
       this.logger.warn(
@@ -136,8 +158,65 @@ export class NodeConfigService {
           error instanceof Error ? error.message : String(error)
         }`,
       );
-      return new Set();
+      return new Map();
     }
+  }
+
+  private buildManagedRouteView(model: ManagedModelConfig): ManagedRouteView | null {
+    const modelKey = typeof model?.modelKey === 'string' ? model.modelKey.trim() : '';
+    if (!modelKey) return null;
+
+    const vendors = Array.isArray(model.vendors)
+      ? model.vendors
+          .filter(
+            (vendor) =>
+              vendor &&
+              vendor.enabled !== false &&
+              typeof vendor.vendorKey === 'string' &&
+              vendor.vendorKey.trim(),
+          )
+          .map((vendor) => {
+            const credits = Number(vendor.creditsPerCall);
+            return {
+              vendorKey: String(vendor.vendorKey).trim(),
+              platformKey:
+                typeof vendor.platformKey === 'string' && vendor.platformKey.trim()
+                  ? vendor.platformKey.trim()
+                  : undefined,
+              label:
+                typeof vendor.label === 'string' && vendor.label.trim()
+                  ? vendor.label.trim()
+                  : undefined,
+              provider:
+                typeof vendor.provider === 'string' && vendor.provider.trim()
+                  ? vendor.provider.trim()
+                  : undefined,
+              route:
+                typeof vendor.route === 'string' && vendor.route.trim()
+                  ? vendor.route.trim()
+                  : undefined,
+              modelName:
+                typeof vendor.modelName === 'string' && vendor.modelName.trim()
+                  ? vendor.modelName.trim()
+                  : undefined,
+              modelVersion:
+                typeof vendor.modelVersion === 'string' && vendor.modelVersion.trim()
+                  ? vendor.modelVersion.trim()
+                  : undefined,
+              creditsPerCall:
+                Number.isFinite(credits) && credits >= 0 ? credits : undefined,
+            };
+          })
+      : [];
+
+    return {
+      modelKey,
+      defaultVendor:
+        typeof model.defaultVendor === 'string' && model.defaultVendor.trim()
+          ? model.defaultVendor.trim()
+          : undefined,
+      vendors,
+    };
   }
 
   private hasAvailableManagedModel(
@@ -167,6 +246,7 @@ export class NodeConfigService {
     nodeKey: string,
     metadata: NodeConfigMetadataLike | null | undefined,
     enabledModelKeys: Set<string>,
+    managedModelMap: Map<string, ManagedModelConfig>,
   ): Record<string, any> | undefined {
     if (!metadata || typeof metadata !== 'object') {
       return metadata as Record<string, any> | undefined;
@@ -179,6 +259,59 @@ export class NodeConfigService {
 
     if (currentModelKeys.length > 0) {
       nextMetadata.modelKeys = currentModelKeys.filter((key) => enabledModelKeys.has(key));
+    }
+
+    const explicitManagedModelKey =
+      typeof metadata.managedModelKey === 'string' ? metadata.managedModelKey.trim() : '';
+    const targetManagedModelKey =
+      explicitManagedModelKey && managedModelMap.has(explicitManagedModelKey)
+        ? explicitManagedModelKey
+        : currentModelKeys.find((key) => managedModelMap.has(key)) || '';
+
+    if (targetManagedModelKey) {
+      const managedModel = managedModelMap.get(targetManagedModelKey);
+      const managedRoutes = managedModel ? this.buildManagedRouteView(managedModel) : null;
+      if (managedRoutes) {
+        nextMetadata.managedModelKey = targetManagedModelKey;
+        nextMetadata.managedRoutes = managedRoutes;
+
+        const selectedVendor =
+          managedRoutes.vendors.find((vendor) => vendor.vendorKey === managedRoutes.defaultVendor) ||
+          managedRoutes.vendors[0];
+
+        if (selectedVendor) {
+          if (
+            nextMetadata.defaultData &&
+            typeof nextMetadata.defaultData === 'object'
+          ) {
+            nextMetadata.defaultData = {
+              ...(nextMetadata.defaultData as Record<string, any>),
+              managedModelKey: targetManagedModelKey,
+              vendorKey: selectedVendor.vendorKey,
+              platformKey: selectedVendor.platformKey || selectedVendor.vendorKey,
+              creditsPerCall:
+                typeof selectedVendor.creditsPerCall === 'number'
+                  ? selectedVendor.creditsPerCall
+                  : (nextMetadata.defaultData as Record<string, any>).creditsPerCall,
+            };
+          }
+
+          if (nextMetadata.vod && typeof nextMetadata.vod === 'object') {
+            nextMetadata.vod = {
+              ...(nextMetadata.vod as Record<string, any>),
+              label:
+                selectedVendor.label ||
+                (nextMetadata.vod as Record<string, any>).label,
+              modelName:
+                selectedVendor.modelName ||
+                (nextMetadata.vod as Record<string, any>).modelName,
+              modelVersion:
+                selectedVendor.modelVersion ||
+                (nextMetadata.vod as Record<string, any>).modelVersion,
+            };
+          }
+        }
+      }
     }
 
     if (nodeKey === 'viduVideo') {
@@ -331,7 +464,8 @@ export class NodeConfigService {
       where: { isVisible: true },
       orderBy: [{ sortOrder: 'asc' }], // 先按 sortOrder 粗排，后面再自定义分类顺序
     });
-    const enabledManagedModelKeys = await this.getEnabledManagedModelKeySet();
+    const managedModelMap = await this.getManagedModelConfigMap();
+    const enabledManagedModelKeys = new Set(Array.from(managedModelMap.keys()));
 
     // 自定义分类顺序：输入(input) → 图像(image) → 视频(video) → 其他(other)
     const categoryOrder: Record<string, number> = {
@@ -366,13 +500,24 @@ export class NodeConfigService {
           metadata: config.metadata,
         });
 
+        const normalizedMetadata = this.normalizeManagedNodeMetadata(
+          normalizedConfig.nodeKey,
+          normalizedConfig.metadata as NodeConfigMetadataLike | undefined,
+          enabledManagedModelKeys,
+          managedModelMap,
+        );
+        const managedRoutes = normalizedMetadata?.managedRoutes as ManagedRouteView | undefined;
+        const selectedVendor =
+          managedRoutes?.vendors?.find((vendor) => vendor.vendorKey === managedRoutes.defaultVendor) ||
+          managedRoutes?.vendors?.[0];
+
         return {
           ...normalizedConfig,
-          metadata: this.normalizeManagedNodeMetadata(
-            normalizedConfig.nodeKey,
-            normalizedConfig.metadata as NodeConfigMetadataLike | undefined,
-            enabledManagedModelKeys,
-          ),
+          creditsPerCall:
+            typeof selectedVendor?.creditsPerCall === 'number'
+              ? selectedVendor.creditsPerCall
+              : normalizedConfig.creditsPerCall,
+          metadata: normalizedMetadata,
         };
       })
       .filter((config) =>

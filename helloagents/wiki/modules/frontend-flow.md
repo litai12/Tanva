@@ -26,6 +26,9 @@
 - `Vidu` 节点内的模型下拉也受模型管理约束：
   - 后端会把 `viduVideo.metadata.supportedModels` 裁剪为当前仍启用的 `vidu-q2 / vidu-q3` 子集；前端从模型管理导入节点配置时也只会写入 `q2 / q3`。
   - 若画布上已有旧节点指向已删除子模型，前端会自动回退到第一个仍可用的 `viduModel`。
+- 模型管理里的线路价格会覆盖节点管理价格：
+  - 公开节点配置接口会把 `model_provider_mapping_v2` 中默认 vendor 的 `creditsPerCall` 动态回填到对应 Flow 节点。
+  - 画布上的模型管理视频节点支持切换 `vendorKey` 线路；切换后运行按钮旁的积分徽标会即时回显该线路价格，并把 `managedModelKey/vendorKey/platformKey` 一起传给后端。
 
 ## 音频节点
 - `minimaxSpeech`：文本转语音节点，输出 `audio` 句柄。

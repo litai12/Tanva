@@ -30,6 +30,7 @@
 ## 渠道与模型追踪（图像分析）
 - `POST /api/ai/analyze-image` 的计费请求参数会写入 `aiProvider/channelHint`，用于在积分流水中识别执行渠道。
 - 流水列表前端可直接展示“渠道 + 模型”，用于核对“使用了哪个渠道、哪个模型”。
+- 视频模型管理线路若在 `model_provider_mapping_v2.models[].vendors[]` 配置了 `creditsPerCall`，后端预扣积分会优先使用该线路价格，而不是节点管理/静态服务价。
 
 ## pending 收敛与自动退款
 - 异步视频链路支持前端回写成功：`POST /api/ai/video-task-success` 将 `ApiUsageRecord.responseStatus` 从 `pending` 更新为 `success`。

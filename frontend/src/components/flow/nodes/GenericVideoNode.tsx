@@ -9,6 +9,12 @@ import { useProjectContentStore } from "@/stores/projectContentStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
 import RunCreditBadge from "./RunCreditBadge";
+import NodeSelect from "./NodeSelect";
+import {
+  getManagedRouteCredits,
+  getManagedRouteOption,
+  getManagedRoutesMetadata,
+} from "../managedRoutePricing";
 
 export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao";
 type ViduModel =
@@ -40,6 +46,9 @@ type Props = {
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
     creditsPerCall?: number;
+    managedModelKey?: string;
+    vendorKey?: string;
+    platformKey?: string;
     provider: VideoProvider;
     clipDuration?: number;
     aspectRatio?: string;
@@ -134,6 +143,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const [hover, setHover] = React.useState<string | null>(null);
   const [previewAspect, setPreviewAspect] = React.useState<string>("16/9");
   const [modelMenuOpen, setModelMenuOpen] = React.useState(false);
+  const [channelMenuOpen, setChannelMenuOpen] = React.useState(false);
   const [aspectMenuOpen, setAspectMenuOpen] = React.useState(false);
   const [durationMenuOpen, setDurationMenuOpen] = React.useState(false);
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
@@ -170,6 +180,14 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     data.nodeConfigMetadata && typeof data.nodeConfigMetadata === "object"
       ? (data.nodeConfigMetadata as Record<string, any>)
       : {};
+  const managedRoutesMetadata = React.useMemo(
+    () => getManagedRoutesMetadata(nodeConfigMetadata),
+    [nodeConfigMetadata]
+  );
+  const selectedManagedRoute = React.useMemo(
+    () => getManagedRouteOption(nodeConfigMetadata, data.vendorKey),
+    [data.vendorKey, nodeConfigMetadata]
+  );
   const vodConfig =
     nodeConfigMetadata.vod && typeof nodeConfigMetadata.vod === "object"
       ? (nodeConfigMetadata.vod as VodCapabilityMetadata)
@@ -213,6 +231,10 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         : [],
     [nodeConfigMetadata.supportedModels, provider]
   );
+  const selectedCredits =
+    typeof data.creditsPerCall === "number"
+      ? data.creditsPerCall
+      : getManagedRouteCredits(nodeConfigMetadata, data.vendorKey);
   const vodAspectOptions = React.useMemo(() => {
     if (!Array.isArray(vodConfig?.outputConfig?.aspectRatios)) return [];
     return [
@@ -352,6 +374,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       const target = event.target as HTMLElement;
       if (!target.closest?.(".video-dropdown")) {
         setModelMenuOpen(false);
+        setChannelMenuOpen(false);
         setAspectMenuOpen(false);
         setDurationMenuOpen(false);
       }
@@ -537,6 +560,33 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   }, [shouldShowAspectSelector]);
 
   React.useEffect(() => {
+    if (!managedRoutesMetadata || managedRoutesMetadata.vendors.length === 0) return;
+    if (selectedManagedRoute) return;
+    const fallbackVendor =
+      managedRoutesMetadata.vendors.find(
+        (item) => item.vendorKey === managedRoutesMetadata.defaultVendor
+      ) || managedRoutesMetadata.vendors[0];
+    if (!fallbackVendor) return;
+
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: {
+          id,
+          patch: {
+            managedModelKey: managedRoutesMetadata.modelKey,
+            vendorKey: fallbackVendor.vendorKey,
+            platformKey: fallbackVendor.platformKey || fallbackVendor.vendorKey,
+            creditsPerCall:
+              typeof fallbackVendor.creditsPerCall === "number"
+                ? fallbackVendor.creditsPerCall
+                : undefined,
+          },
+        },
+      })
+    );
+  }, [id, managedRoutesMetadata, selectedManagedRoute]);
+
+  React.useEffect(() => {
     if (!(provider === "vidu" || provider === "viduq3-pro")) return;
     if (filteredViduModelOptions.length === 0) return;
     if (filteredViduModelOptions.some((opt) => opt.value === viduModel)) return;
@@ -634,6 +684,31 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       );
     },
     [id, seedanceModel]
+  );
+
+  const handleManagedRouteChange = React.useCallback(
+    (vendorKey: string) => {
+      const target = getManagedRouteOption(nodeConfigMetadata, vendorKey);
+      if (!target) return;
+      if (target.vendorKey === (data.vendorKey || "").trim()) return;
+      window.dispatchEvent(
+        new CustomEvent("flow:updateNodeData", {
+          detail: {
+            id,
+            patch: {
+              managedModelKey: managedRoutesMetadata?.modelKey,
+              vendorKey: target.vendorKey,
+              platformKey: target.platformKey || target.vendorKey,
+              creditsPerCall:
+                typeof target.creditsPerCall === "number"
+                  ? target.creditsPerCall
+                  : undefined,
+            },
+          },
+        })
+      );
+    },
+    [data.vendorKey, id, managedRoutesMetadata?.modelKey, nodeConfigMetadata]
   );
 
   React.useEffect(() => {
@@ -1203,7 +1278,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           <Video size={18} />
           <span>
             {displayTitle}
-            <RunCreditBadge credits={data.creditsPerCall} inline />
+            <RunCreditBadge credits={selectedCredits} inline />
           </span>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
@@ -1513,6 +1588,99 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                       }}
                     >
                       {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {managedRoutesMetadata && managedRoutesMetadata.vendors.length > 1 && (
+        <div className='video-dropdown' style={{ marginBottom: 8, position: "relative" }}>
+          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+            {lt("线路", "Route")}
+          </div>
+          <button
+            type='button'
+            onClick={(event) => {
+              event.stopPropagation();
+              setModelMenuOpen(false);
+              setAspectMenuOpen(false);
+              setDurationMenuOpen(false);
+              setChannelMenuOpen((open) => !open);
+            }}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "6px 10px",
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              background: "#fff",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            <span>
+              {selectedManagedRoute?.label || selectedManagedRoute?.vendorKey || lt("默认线路", "Default route")}
+              {typeof selectedManagedRoute?.creditsPerCall === "number"
+                ? ` · ${selectedManagedRoute.creditsPerCall}${lt("积分", " credits")}`
+                : ""}
+            </span>
+            <span style={{ fontSize: 16, lineHeight: 1 }}>
+              {channelMenuOpen ? "▴" : "▾"}
+            </span>
+          </button>
+          {channelMenuOpen && (
+            <div
+              className='video-dropdown-menu'
+              onClick={(event) => event.stopPropagation()}
+              style={{
+                position: "absolute",
+                zIndex: 20,
+                top: "calc(100% + 4px)",
+                left: 0,
+                right: 0,
+                background: "#fff",
+                border: "1px solid #e5e7eb",
+                borderRadius: 8,
+                padding: 8,
+                boxShadow: "0 8px 16px rgba(15,23,42,0.08)",
+              }}
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {managedRoutesMetadata.vendors.map((route) => {
+                  const isActive = route.vendorKey === selectedManagedRoute?.vendorKey;
+                  return (
+                    <button
+                      key={route.vendorKey}
+                      type='button'
+                      onClick={() => {
+                        handleManagedRouteChange(route.vendorKey);
+                        setChannelMenuOpen(false);
+                      }}
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: 8,
+                        border: `1px solid ${isActive ? "#2563eb" : "#e5e7eb"}`,
+                        background: isActive ? "#eff6ff" : "#fff",
+                        color: isActive ? "#1d4ed8" : "#111827",
+                        fontSize: 12,
+                        textAlign: "left",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <div>{route.label || route.vendorKey}</div>
+                      <div style={{ fontSize: 11, color: isActive ? "#2563eb" : "#6b7280" }}>
+                        {route.modelName || route.vendorKey}
+                        {route.modelVersion ? ` / ${route.modelVersion}` : ""}
+                        {typeof route.creditsPerCall === "number"
+                          ? ` · ${route.creditsPerCall}${lt("积分", " credits")}`
+                          : ""}
+                      </div>
                     </button>
                   );
                 })}
@@ -1849,36 +2017,25 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
             {lt("分辨率", "Resolution")}
           </div>
-          <button
-            type='button'
-            onClick={(event) => {
-              event.stopPropagation();
-              const normalizedOptions = vodResolutionOptions.map((item) => item.toUpperCase());
-              const currentResolution = String(data.resolution || normalizedOptions[0] || "720P").toUpperCase();
-              const currentIndex = normalizedOptions.indexOf(currentResolution);
-              const nextResolution =
-                normalizedOptions[(currentIndex + 1 + normalizedOptions.length) % normalizedOptions.length];
+          <NodeSelect
+            value={String(data.resolution || vodResolutionOptions[0] || "720P").toUpperCase()}
+            options={vodResolutionOptions.map((option) => {
+              const normalizedOption = String(option).toUpperCase();
+              return {
+                value: normalizedOption,
+                label: normalizedOption,
+              };
+            })}
+            onChange={(value) =>
               window.dispatchEvent(
                 new CustomEvent("flow:updateNodeData", {
-                  detail: { id, patch: { resolution: nextResolution } },
+                  detail: { id, patch: { resolution: value } },
                 })
-              );
-            }}
-            style={{
-              width: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "6px 10px",
-              borderRadius: 8,
-              border: "1px solid #e5e7eb",
-              background: "#fff",
-              fontSize: 12,
-              cursor: "pointer",
-            }}
-          >
-            <span>{String(data.resolution || vodResolutionOptions[0] || "720P").toUpperCase()}</span>
-          </button>
+              )
+            }
+            menuLabel={lt("分辨率", "Resolution")}
+            title={lt("选择分辨率", "Select resolution")}
+          />
         </div>
       )}
 
@@ -1892,42 +2049,25 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
               {lt("分辨率", "Resolution")}
             </div>
-            <button
-              type='button'
-              onClick={(event) => {
-                event.stopPropagation();
-                const currentResolution = (data as any).resolution || "720p";
+            <NodeSelect
+              value={(data as any).resolution || "720p"}
+              options={["540p", "720p", "1080p"].map((option) => ({
+                value: option,
+                label: option,
+              }))}
+              onChange={(value) =>
                 window.dispatchEvent(
                   new CustomEvent("flow:updateNodeData", {
                     detail: {
                       id,
-                      patch: {
-                        resolution:
-                          currentResolution === "720p"
-                            ? "1080p"
-                            : currentResolution === "1080p"
-                            ? "540p"
-                            : "720p",
-                      },
+                      patch: { resolution: value },
                     },
                   })
-                );
-              }}
-              style={{
-                width: "100%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "6px 10px",
-                borderRadius: 8,
-                border: "1px solid #e5e7eb",
-                background: "#fff",
-                fontSize: 12,
-                cursor: "pointer",
-              }}
-            >
-              <span>{(data as any).resolution || "720p"}</span>
-            </button>
+                )
+              }
+              menuLabel={lt("分辨率", "Resolution")}
+              title={lt("选择分辨率", "Select resolution")}
+            />
           </div>
           <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
             <button

@@ -185,9 +185,13 @@ export class VideoProviderService {
 
   private async executeManagedRouteWithFallback(
     modelKey: string,
+    preferredVendorKey: string | undefined,
     executor: (route: ResolvedManagedModelRoute) => Promise<VideoGenerationResult>,
   ): Promise<VideoGenerationResult | null> {
-    const candidates = await this.modelRoutingService.resolveVideoModelCandidates(modelKey);
+    const candidates = await this.modelRoutingService.resolveVideoModelCandidates(
+      modelKey,
+      preferredVendorKey,
+    );
     if (!candidates.length) return null;
 
     let lastError: unknown = null;
@@ -759,7 +763,10 @@ export class VideoProviderService {
   private async generateManagedKlingO3(
     options: VideoProviderRequestDto
   ): Promise<VideoGenerationResult> {
-    const managedResult = await this.executeManagedRouteWithFallback("kling-o3", async (route) => {
+    const managedResult = await this.executeManagedRouteWithFallback(
+      "kling-o3",
+      options.vendorKey,
+      async (route) => {
       if (this.shouldUseManagedV2RequestProfile(route)) {
         return this.createManagedV2Task("kling-o3", options, route);
       }
@@ -772,7 +779,8 @@ export class VideoProviderService {
         throw new ServiceUnavailableException("kling-o3 API Key 未配置");
       }
       return this.generateKlingO1(options, apiKey);
-    });
+      },
+    );
     if (managedResult) return managedResult;
 
     const apiKey = this.apiKeys["kling-o3"];
@@ -785,7 +793,10 @@ export class VideoProviderService {
   private async generateManagedKling26(
     options: VideoProviderRequestDto
   ): Promise<VideoGenerationResult> {
-    const managedResult = await this.executeManagedRouteWithFallback("kling-2.6", async (route) => {
+    const managedResult = await this.executeManagedRouteWithFallback(
+      "kling-2.6",
+      options.vendorKey,
+      async (route) => {
       if (this.shouldUseManagedV2RequestProfile(route)) {
         return this.createManagedV2Task("kling-2.6", options, route);
       }
@@ -803,7 +814,8 @@ export class VideoProviderService {
         throw new ServiceUnavailableException("kling-2.6 API Key 未配置");
       }
       return this.generateKling26(options, apiKey);
-    });
+      },
+    );
     if (managedResult) return managedResult;
 
     const apiKey = this.apiKeys["kling-2.6"];
@@ -816,7 +828,10 @@ export class VideoProviderService {
   private async generateManagedKling30(
     options: VideoProviderRequestDto
   ): Promise<VideoGenerationResult> {
-    const managedResult = await this.executeManagedRouteWithFallback("kling-3.0", async (route) => {
+    const managedResult = await this.executeManagedRouteWithFallback(
+      "kling-3.0",
+      options.vendorKey,
+      async (route) => {
       if (this.shouldUseManagedV2RequestProfile(route)) {
         return this.createManagedV2Task("kling-3.0", options, route);
       }
@@ -844,7 +859,8 @@ export class VideoProviderService {
         },
         klingO3ApiKey,
       );
-    });
+      },
+    );
     if (managedResult) return managedResult;
 
     const klingO3ApiKey = this.apiKeys["kling-o3"];
@@ -878,7 +894,10 @@ export class VideoProviderService {
     options: VideoProviderRequestDto
   ): Promise<VideoGenerationResult> {
     const resolved = this.resolveManagedViduModel(options);
-    const managedResult = await this.executeManagedRouteWithFallback(resolved.modelKey, async (route) => {
+    const managedResult = await this.executeManagedRouteWithFallback(
+      resolved.modelKey,
+      options.vendorKey,
+      async (route) => {
       if (this.shouldUseManagedV2RequestProfile(route)) {
         return this.createManagedV2Task(resolved.modelKey, options, route);
       }
@@ -908,7 +927,8 @@ export class VideoProviderService {
       throw new ServiceUnavailableException(
         `旧链路暂不支持 ${resolved.label}，请在模型管理切换到腾讯 VOD`
       );
-    });
+      },
+    );
     if (managedResult) return managedResult;
 
     throw new ServiceUnavailableException(`未找到 ${resolved.label} 的可用生成链路`);
@@ -918,7 +938,10 @@ export class VideoProviderService {
     options: VideoProviderRequestDto
   ): Promise<VideoGenerationResult> {
     const resolved = this.resolveManagedSeedanceModel(options);
-    const managedResult = await this.executeManagedRouteWithFallback(resolved.modelKey, async (route) => {
+    const managedResult = await this.executeManagedRouteWithFallback(
+      resolved.modelKey,
+      options.vendorKey,
+      async (route) => {
       if (this.shouldUseManagedV2RequestProfile(route)) {
         return this.createManagedV2Task(resolved.modelKey, options, route);
       }
@@ -937,7 +960,8 @@ export class VideoProviderService {
         throw new ServiceUnavailableException("doubao API Key 未配置");
       }
       return this.generateDoubao(options, apiKey, resolved.modelVersion);
-    });
+      },
+    );
     if (managedResult) return managedResult;
 
     throw new ServiceUnavailableException(`未找到 ${resolved.label} 的可用生成链路`);

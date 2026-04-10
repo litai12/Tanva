@@ -284,35 +284,37 @@ export default function LoginPage() {
             </div>
             {/* 固定高度容器，避免切换时跳跃 */}
             <div className='relative min-h-[320px] transition-[min-height] px-16'>
-              {tab === "wechat" ? (
-                <div className='mx-auto flex max-w-sm flex-col items-center px-5 py-6 text-center'>
-                  <button
-                    type='button'
-                    className='group relative rounded-2xl bg-white p-3 shadow-xl'
-                    onClick={() => {
-                      setWechatSession(null);
-                      setWechatConsuming(false);
-                      wechatConsumingRef.current = false;
-                      void loadWechatSession();
-                    }}
-                    disabled={wechatLoading}
-                  >
-                    {wechatSession?.qrCodeUrl ? (
-                      <img
-                        src={wechatSession.qrCodeUrl}
-                        alt={t("auth.login.wechatScanAlt")}
-                        className='h-44 w-44 rounded-xl object-cover'
-                      />
-                    ) : (
-                      <div className='flex h-44 w-44 items-center justify-center rounded-xl bg-slate-100 px-4 text-xs text-slate-500'>
-                        {wechatLoading ? t("auth.login.wechatLoading") : t("auth.login.wechatUnavailable")}
-                      </div>
-                    )}
-                    <div className='absolute inset-3 flex items-center justify-center rounded-xl bg-black/0 opacity-0 transition-all duration-200 group-hover:bg-black/40 group-hover:opacity-100'>
-                      <RefreshCw className={`h-5 w-5 text-white ${wechatLoading ? 'animate-spin' : ''}`} />
-                    </div>
-                  </button>
-                  <p className='mt-4 text-sm text-white/90'>
+	              {tab === "wechat" ? (
+	                <div className='mx-auto flex max-w-sm flex-col items-center px-5 py-6 text-center'>
+	                  {wechatSession?.status !== "needs_phone_bind" ? (
+	                    <button
+	                      type='button'
+	                      className='group relative rounded-2xl bg-white p-3 shadow-xl'
+	                      onClick={() => {
+	                        setWechatSession(null);
+	                        setWechatConsuming(false);
+	                        wechatConsumingRef.current = false;
+	                        void loadWechatSession();
+	                      }}
+	                      disabled={wechatLoading}
+	                    >
+	                      {wechatSession?.qrCodeUrl ? (
+	                        <img
+	                          src={wechatSession.qrCodeUrl}
+	                          alt={t("auth.login.wechatScanAlt")}
+	                          className='h-44 w-44 rounded-xl object-cover'
+	                        />
+	                      ) : (
+	                        <div className='flex h-44 w-44 items-center justify-center rounded-xl bg-slate-100 px-4 text-xs text-slate-500'>
+	                          {wechatLoading ? t("auth.login.wechatLoading") : t("auth.login.wechatUnavailable")}
+	                        </div>
+	                      )}
+	                      <div className='absolute inset-3 flex items-center justify-center rounded-xl bg-black/0 opacity-0 transition-all duration-200 group-hover:bg-black/40 group-hover:opacity-100'>
+	                        <RefreshCw className={`h-5 w-5 text-white ${wechatLoading ? 'animate-spin' : ''}`} />
+	                      </div>
+	                    </button>
+	                  ) : null}
+	                  <p className='mt-4 text-sm text-white/90'>
                     {wechatConsuming
                       ? t("auth.login.wechatAuthorizing")
                       : wechatBinding

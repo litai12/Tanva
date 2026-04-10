@@ -29,6 +29,9 @@
   - `banana_text_provider`：Banana 文本链路供应商（text-chat/tool-selection）
   - `seedream5_provider`：Seedream 5.0 图像链路供应商（`doubao` / `watcha`）
 - Sora2 不再通过系统设置切换供应商，统一在 `model_provider_mapping_v2` 中配置路由。
+- `model_provider_mapping_v2.models[].vendors[]` 支持直接配置 `creditsPerCall`：
+  - 同一模型可按不同线路/渠道分别配置积分消耗。
+  - Flow 前端会优先采用模型管理里的默认线路价格；若用户手动切换线路，则回显并传递对应 vendor 的价格/标识。
 - 模型管理配置 key `model_provider_mapping_v2` 中的 `models[]` 允许“真删除”：
   - 前端管理页不会再在归一化时把默认模型目录补回已保存配置。
   - 后端读取该设置时，仅在整项配置缺失时回退默认目录；若设置已存在，则以保存内容为准，不自动复活被删除模型。
