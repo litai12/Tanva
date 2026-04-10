@@ -26,7 +26,7 @@ export class MembershipService {
   private isMissingTableError(error: unknown): boolean {
     return (
       error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === 'P2021'
+      (error.code === 'P2021' || error.code === 'P2022')
     );
   }
 

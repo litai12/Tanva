@@ -197,15 +197,26 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [plansResult, currentResult] = await Promise.all([
+      const [plansResult, currentResult] = await Promise.allSettled([
         getPaymentMembershipPlans(),
         getMembershipCurrent(),
       ]);
-      setPlans(plansResult.plans || []);
-      setCurrent(currentResult);
-    } catch (error) {
-      console.error("加载会员数据失败:", error);
-      showToast("加载会员数据失败", "error");
+
+      if (plansResult.status === "fulfilled") {
+        setPlans(plansResult.value.plans || []);
+      } else {
+        console.error("加载会员套餐失败:", plansResult.reason);
+        setPlans([]);
+        showToast("加载会员套餐失败", "error");
+      }
+
+      if (currentResult.status === "fulfilled") {
+        setCurrent(currentResult.value);
+      } else {
+        // current 失败时仍允许展示套餐和支付区，避免整块不可用
+        console.warn("加载当前会员状态失败，已降级为仅展示套餐列表:", currentResult.reason);
+        setCurrent(null);
+      }
     } finally {
       setLoading(false);
     }
