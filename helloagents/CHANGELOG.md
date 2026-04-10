@@ -25,6 +25,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- 认证页移动端适配：`/auth/login` 与 `/auth/register` 在小屏下改为可纵向滚动的顶部对齐卡片，收紧内边距，三标签切换改为紧凑布局，验证码区和协议区适配窄屏换行，避免登录/注册页在手机端出现横向挤压和底部内容被遮挡（`frontend/src/pages/auth/Login.tsx`, `frontend/src/pages/auth/Register.tsx`）。
 - 登录页与登录弹窗统一改为三标签结构：`微信登录 / 密码登录 / 验证码登录`，默认进入微信登录；公众号扫码登录不再与手机号表单同时展开，减少界面拥挤与选择成本（`frontend/src/pages/auth/Login.tsx`, `frontend/src/components/auth/LoginModal.tsx`）。
 - 公众号明文模式回调新增 OpenObserve 结构化事件日志：收到 `/api/auth/wechat-official/callback` 时会把原始 XML 明文写入 `backend_events` 流，并在命中扫码登录授权后追加一条授权成功事件，便于直接在 OpenObserve 中排查公众号回调内容（`backend/src/auth/auth.service.ts`, `backend/src/telemetry/openobserve-telemetry.service.ts`）。
 - OpenObserve 改为默认保留明文请求日志并在生产默认开启：`backend_requests` 新增原始请求头/请求体，`upstream_requests` 不再对文本 header/body 做脱敏或截断，`frontend_error` 前端上报在生产默认开启，后端 tracing 也改为生产默认启用（`backend/src/telemetry/*`, `frontend/src/bootstrap/runtimeStability.ts`）。

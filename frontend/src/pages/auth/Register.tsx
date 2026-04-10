@@ -158,7 +158,7 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className='min-h-screen flex items-center justify-center relative overflow-hidden'>
+    <div className='relative flex min-h-screen items-start justify-center overflow-y-auto overflow-x-hidden px-4 py-6 sm:items-center sm:px-6 sm:py-10'>
       {/* 视频背景 */}
       <video
         autoPlay
@@ -174,15 +174,15 @@ export default function RegisterPage() {
       {/* 黑色透明蒙版 */}
       <div className='absolute inset-0 bg-black/50 z-[2]'></div>
 
-      <Card className='w-full max-w-xl p-8 relative z-10 backdrop-blur-md bg-white/10 border border-white/20 shadow-2xl'>
-        <div className='flex items-center justify-center mb-8'>
+      <Card className='relative z-10 my-auto w-full max-w-xl border border-white/20 bg-white/10 p-4 shadow-2xl backdrop-blur-md sm:p-8'>
+        <div className='mb-6 flex items-center justify-center sm:mb-8'>
           {/* <img src='/LogoText.svg' className='h-8 w-auto brightness-0 invert drop-shadow-lg mr-3' /> */}
-          <div className='text-2xl font-semibold text-white drop-shadow-md'>
+          <div className='text-center text-xl font-semibold text-white drop-shadow-md sm:text-2xl'>
             {t("auth.register.title")}
           </div>
         </div>
 
-        <form onSubmit={onSubmit} className='space-y-6'>
+        <form onSubmit={onSubmit} className='space-y-5 sm:space-y-6'>
           <Input
             placeholder={t("auth.register.phonePlaceholder")}
             value={phone}
@@ -190,7 +190,7 @@ export default function RegisterPage() {
             required
             className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12'
           />
-          <div className='flex gap-3'>
+          <div className='flex flex-col gap-3 sm:flex-row'>
             <Input
               placeholder={t("auth.login.codePlaceholder")}
               value={code}
@@ -203,7 +203,7 @@ export default function RegisterPage() {
               type='button'
               onClick={handleSendCode}
               disabled={codeCountdown > 0 || !phone.trim()}
-              className='whitespace-nowrap flex-shrink-0 min-w-[80px] rounded-xl bg-white/20 hover:bg-white/30 text-white border-white/30 backdrop-blur-sm transition-all duration-200 h-12 disabled:opacity-50'
+              className='h-12 w-full rounded-xl border-white/30 bg-white/20 text-white backdrop-blur-sm transition-all duration-200 hover:bg-white/30 disabled:opacity-50 sm:min-w-[112px] sm:w-auto sm:flex-shrink-0 sm:whitespace-nowrap'
             >
               {codeCountdown > 0
                 ? t("auth.login.resendCode", { seconds: codeCountdown })
@@ -288,11 +288,11 @@ export default function RegisterPage() {
           {error && <div className='text-red-400 text-sm drop-shadow-md'>{error}</div>}
 
           {/* 协议勾选 */}
-          <div className='flex items-center justify-center gap-2'>
+          <div className='flex items-start justify-center gap-2 sm:items-center'>
             <button
               type='button'
               onClick={() => setAgreeTerms(!agreeTerms)}
-              className={`w-3 h-3 rounded-full border-2 flex items-center justify-center transition-all ${
+              className={`mt-0.5 flex h-3 w-3 shrink-0 items-center justify-center rounded-full border-2 transition-all sm:mt-0 ${
                 agreeTerms
                   ? 'bg-white border-white'
                   : 'bg-transparent border-white/50'
@@ -302,7 +302,7 @@ export default function RegisterPage() {
             </button>
             <label
               onClick={() => setAgreeTerms(!agreeTerms)}
-              className='text-xs text-white/70 cursor-pointer'
+              className='cursor-pointer text-left text-xs leading-5 text-white/70'
             >
               {t("auth.agreements.prefix")}
               {" "}
