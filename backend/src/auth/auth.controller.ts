@@ -106,6 +106,27 @@ export class AuthController {
     return { user, tokens, returnTo };
   }
 
+  @Post('wechat-official/sessions/:id/bind-phone')
+  @HttpCode(HttpStatus.OK)
+  async bindWechatOfficialSessionPhone(
+    @Param('id') id: string,
+    @Body() body: { phone: string; code: string },
+    @Req() req: any,
+    @Res({ passthrough: true }) res: any,
+  ) {
+    const { user, tokens, returnTo } = await this.auth.bindWechatOfficialSessionPhone(
+      id,
+      body?.phone,
+      body?.code,
+      {
+        ip: req.ip,
+        ua: req.headers['user-agent'],
+      },
+    );
+    this.auth.setAuthCookies(res, tokens, req);
+    return { user, tokens, returnTo };
+  }
+
   @Get('wechat-official/callback')
   async verifyWechatOfficialCallback(
     @Query('signature') signature: string | undefined,

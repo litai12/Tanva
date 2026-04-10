@@ -63,7 +63,7 @@
 - 已接入的发放链路：
   - `PaymentService.processPaymentSuccess`：充值成功后创建 `sourceType=recharge` 的 permanent lot。
   - `CreditsService.adminAddCredits`：管理员补发积分时创建 `sourceType=manual` 的 permanent lot。
-  - `CreditsService.getOrCreateAccount`：新用户注册赠送与邀请注册额外赠送创建 `sourceType=promo` 的 permanent lot。
+  - `CreditsService.getOrCreateAccount`：首次使用时初始化 `CreditAccount`；不再发放“新用户注册赠送积分”，免费用户额度改由月度补发链路提供。
 - 已接入的限时链路：
   - `CreditsService.claimDailyReward`：免费用户签到创建 `sourceType=gift` + `validityType=fixed_window` 的 lot；付费用户签到创建 permanent lot。
   - `CreditsService.cleanupExpiredDailyRewards` 现阶段仅用于清理/兼容历史签到过期数据；新签到积分已不再写入固定时效窗口。

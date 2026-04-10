@@ -86,13 +86,25 @@ type WechatOfficialUserInfoResponse = {
   errmsg?: string;
 };
 
-type WechatOfficialSessionStatus = "pending" | "authorized" | "expired";
+type WechatOfficialSessionStatus =
+  | "pending"
+  | "needs_phone_bind"
+  | "authorized"
+  | "expired";
 
 type WechatOfficialLoginProfile = {
   openId: string;
   unionId?: string | null;
   nickname?: string | null;
   avatarUrl?: string | null;
+};
+
+type AuthenticatedUserProfile = {
+  id: string;
+  email: string | null;
+  name: string | null;
+  phone: string;
+  role: string;
 };
 
 @Injectable()
@@ -246,6 +258,70 @@ export class AuthService {
     if (!unionId) return null;
     const normalized = unionId.trim();
     return normalized || null;
+  }
+
+  private isPrimaryPhone(phone?: string | null): boolean {
+    if (!phone) return false;
+    return /^1\d{10}$/.test(phone.trim());
+  }
+
+  private async findWechatOfficialUserByIdentity(
+    tx: any,
+    profile: WechatOfficialLoginProfile
+  ): Promise<AuthenticatedUserProfile | null> {
+    const unionId = this.normalizeWechatUnionId(profile.unionId);
+
+    const byOpenId = await tx.user.findUnique({
+      where: { wechatOfficialOpenId: profile.openId },
+      select: { id: true, email: true, name: true, phone: true, role: true },
+    });
+    if (byOpenId) return byOpenId;
+
+    if (!unionId) return null;
+
+    return tx.user.findUnique({
+      where: { wechatUnionId: unionId },
+      select: { id: true, email: true, name: true, phone: true, role: true },
+    });
+  }
+
+  private async attachWechatIdentityToUser(
+    tx: any,
+    userId: string,
+    profile: WechatOfficialLoginProfile
+  ): Promise<AuthenticatedUserProfile> {
+    const unionId = this.normalizeWechatUnionId(profile.unionId);
+    const name =
+      this.normalizeName(profile.nickname) || `微信用户-${profile.openId.slice(-6)}`;
+
+    const byOpenId = await tx.user.findUnique({
+      where: { wechatOfficialOpenId: profile.openId },
+      select: { id: true },
+    });
+    if (byOpenId && byOpenId.id !== userId) {
+      throw new UnauthorizedException("该微信账号已绑定其他手机号");
+    }
+
+    if (unionId) {
+      const byUnionId = await tx.user.findUnique({
+        where: { wechatUnionId: unionId },
+        select: { id: true },
+      });
+      if (byUnionId && byUnionId.id !== userId) {
+        throw new UnauthorizedException("该微信账号已绑定其他手机号");
+      }
+    }
+
+    return tx.user.update({
+      where: { id: userId },
+      data: {
+        wechatOfficialOpenId: profile.openId,
+        wechatUnionId: unionId,
+        name,
+        avatarUrl: profile.avatarUrl || undefined,
+      },
+      select: { id: true, email: true, name: true, phone: true, role: true },
+    });
   }
 
   private sanitizeReturnTo(returnTo?: string | null): string {
@@ -442,92 +518,6 @@ export class AuthService {
     }
   }
 
-  private async pickWechatPhoneCandidate(tx: any, uniqueSeed: string) {
-    const slug =
-      uniqueSeed.replace(/[^0-9a-zA-Z]/g, "").slice(0, 16) ||
-      randomBytes(6).toString("hex");
-    for (let i = 0; i < 20; i += 1) {
-      const candidate = `wechat_${slug}_${i}`;
-      const exists = await tx.user.findUnique({ where: { phone: candidate } });
-      if (!exists) return candidate;
-    }
-    return `wechat_${slug}_${Date.now()}`;
-  }
-
-  private async upsertWechatOfficialUser(profile: WechatOfficialLoginProfile) {
-    const unionId = this.normalizeWechatUnionId(profile.unionId);
-    const name =
-      this.normalizeName(profile.nickname) || `微信用户-${profile.openId.slice(-6)}`;
-    const syntheticPasswordHash = await bcrypt.hash(
-      randomBytes(24).toString("hex"),
-      10
-    );
-
-    return this.prisma.$transaction(async (tx) => {
-      const byOpenId = await tx.user.findUnique({
-        where: { wechatOfficialOpenId: profile.openId },
-      });
-      if (byOpenId) {
-        return tx.user.update({
-          where: { id: byOpenId.id },
-          data: {
-            wechatUnionId: unionId || byOpenId.wechatUnionId,
-            name: byOpenId.name || name,
-            avatarUrl: profile.avatarUrl || byOpenId.avatarUrl,
-          },
-          select: { id: true, email: true, name: true, phone: true, role: true },
-        });
-      }
-
-      if (unionId) {
-        const byUnionId = await tx.user.findUnique({
-          where: { wechatUnionId: unionId },
-        });
-        if (byUnionId) {
-          return tx.user.update({
-            where: { id: byUnionId.id },
-            data: {
-              wechatOfficialOpenId: profile.openId,
-              name: byUnionId.name || name,
-              avatarUrl: profile.avatarUrl || byUnionId.avatarUrl,
-            },
-            select: { id: true, email: true, name: true, phone: true, role: true },
-          });
-        }
-      }
-
-      const phone = await this.pickWechatPhoneCandidate(
-        tx,
-        unionId || profile.openId
-      );
-
-      return tx.user.create({
-        data: {
-          wechatOfficialOpenId: profile.openId,
-          wechatUnionId: unionId,
-          name,
-          avatarUrl: profile.avatarUrl || null,
-          phone,
-          passwordHash: syntheticPasswordHash,
-        },
-        select: { id: true, email: true, name: true, phone: true, role: true },
-      });
-    });
-  }
-
-  async loginWithWechatOfficial(
-    profile: WechatOfficialLoginProfile,
-    meta?: { ip?: string; ua?: string }
-  ): Promise<WatchaLoginResult> {
-    const user = await this.upsertWechatOfficialUser(profile);
-
-    const tokens = await this.login(
-      { id: user.id, email: user.email || "", role: user.role },
-      meta
-    );
-    return { user, tokens };
-  }
-
   async createWechatOfficialLoginSession(returnTo?: string) {
     const config = this.getWechatOfficialConfig();
     const accessToken = await this.getWechatOfficialAccessToken();
@@ -596,6 +586,7 @@ export class AuthService {
         expiresAt: true,
         authorizedAt: true,
         returnTo: true,
+        openId: true,
       },
     });
 
@@ -622,6 +613,137 @@ export class AuthService {
       expiresAt: session.expiresAt,
       authorizedAt: session.authorizedAt,
       returnTo: session.returnTo,
+      needsPhoneBind: status === "needs_phone_bind",
+      hasScannedIdentity: Boolean(session.openId),
+    };
+  }
+
+  async bindWechatOfficialSessionPhone(
+    sessionId: string,
+    phone: string,
+    code: string,
+    meta?: { ip?: string; ua?: string }
+  ) {
+    const normalizedPhone = this.normalizePhone(phone);
+    const normalizedCode = code.trim();
+    if (!normalizedPhone || !this.isPrimaryPhone(normalizedPhone)) {
+      throw new BadRequestException("手机号格式不正确");
+    }
+    if (!normalizedCode) {
+      throw new BadRequestException("验证码不能为空");
+    }
+
+    const verify = await this.smsService.verifyCode(normalizedPhone, normalizedCode);
+    if (!verify.ok) {
+      throw new UnauthorizedException(verify.msg || "验证码错误");
+    }
+
+    const session = await this.prisma.wechatLoginSession.findUnique({
+      where: { id: sessionId },
+      select: {
+        id: true,
+        status: true,
+        expiresAt: true,
+        returnTo: true,
+        openId: true,
+        unionId: true,
+      },
+    });
+
+    if (!session) {
+      throw new BadRequestException("微信登录会话不存在");
+    }
+    if (session.expiresAt.getTime() <= Date.now()) {
+      throw new BadRequestException("微信登录二维码已过期");
+    }
+    if (!session.openId) {
+      throw new BadRequestException("尚未识别到微信身份，请先扫码确认");
+    }
+    if (session.status !== "needs_phone_bind") {
+      throw new BadRequestException("当前会话无需绑定手机号");
+    }
+    const openId = session.openId;
+
+    const profile: WechatOfficialLoginProfile = {
+      openId,
+      unionId: session.unionId,
+    };
+
+    const syntheticPasswordHash = await bcrypt.hash(
+      randomBytes(24).toString("hex"),
+      10
+    );
+
+    const user = await this.prisma.$transaction(async (tx) => {
+      const existingWechatUser = await this.findWechatOfficialUserByIdentity(
+        tx,
+        profile
+      );
+      if (existingWechatUser && this.isPrimaryPhone(existingWechatUser.phone)) {
+        if (existingWechatUser.phone !== normalizedPhone) {
+          throw new UnauthorizedException("该微信账号已绑定其他手机号");
+        }
+        return this.attachWechatIdentityToUser(tx, existingWechatUser.id, profile);
+      }
+
+      const userByPhone = await tx.user.findUnique({
+        where: { phone: normalizedPhone },
+        select: { id: true, email: true, name: true, phone: true, role: true },
+      });
+
+      if (existingWechatUser) {
+        if (userByPhone && userByPhone.id !== existingWechatUser.id) {
+          throw new UnauthorizedException("该手机号已绑定其他账号，请使用手机号登录后再处理");
+        }
+
+        await tx.user.update({
+          where: { id: existingWechatUser.id },
+          data: { phone: normalizedPhone },
+          select: { id: true },
+        });
+
+        return this.attachWechatIdentityToUser(tx, existingWechatUser.id, profile);
+      }
+
+      if (userByPhone) {
+        return this.attachWechatIdentityToUser(tx, userByPhone.id, profile);
+      }
+
+      const name = `微信用户-${openId.slice(-6)}`;
+      const createdUser = await tx.user.create({
+        data: {
+          phone: normalizedPhone,
+          passwordHash: syntheticPasswordHash,
+          name,
+          wechatOfficialOpenId: openId,
+          wechatUnionId: this.normalizeWechatUnionId(session.unionId),
+        },
+        select: { id: true, email: true, name: true, phone: true, role: true },
+      });
+
+      return createdUser;
+    });
+
+    const tokens = await this.login(
+      { id: user.id, email: user.email || "", role: user.role },
+      meta
+    );
+
+    await this.prisma.wechatLoginSession.update({
+      where: { id: session.id },
+      data: {
+        status: "authorized",
+        userId: user.id,
+        authorizedAt: new Date(),
+        consumedAt: new Date(),
+      },
+      select: { id: true },
+    });
+
+    return {
+      user,
+      tokens,
+      returnTo: this.sanitizeReturnTo(session.returnTo),
     };
   }
 
@@ -743,16 +865,21 @@ export class AuthService {
       avatarUrl: fetchedProfile?.avatarUrl || null,
     };
 
-    const user = await this.upsertWechatOfficialUser(profile);
+    const linkedUser = await this.prisma.$transaction(async (tx) => {
+      const user = await this.findWechatOfficialUserByIdentity(tx, profile);
+      if (!user) return null;
+      if (!this.isPrimaryPhone(user.phone)) return null;
+      return this.attachWechatIdentityToUser(tx, user.id, profile);
+    });
 
     await this.prisma.wechatLoginSession.update({
       where: { id: session.id },
       data: {
-        status: "authorized",
+        status: linkedUser ? "authorized" : "needs_phone_bind",
         openId: fromUserName,
         unionId: profile.unionId,
-        userId: user.id,
-        authorizedAt: new Date(),
+        userId: linkedUser?.id || null,
+        authorizedAt: linkedUser ? new Date() : null,
       },
       select: { id: true },
     });
@@ -775,7 +902,9 @@ export class AuthService {
     return this.buildWechatOfficialTextResponse(
       fromUserName,
       toUserName,
-      this.getWechatOfficialConfig(false).welcomeMessage
+      linkedUser
+        ? this.getWechatOfficialConfig(false).welcomeMessage
+        : "已识别微信身份，请返回电脑端填写手机号并验证短信后完成登录"
     );
   }
 

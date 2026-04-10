@@ -6165,13 +6165,91 @@ function SettingsTab() {
 }
 
 function VipManagementTab() {
+  const DEFAULT_PLAN_METADATA_TEXT = JSON.stringify(
+    {
+      planCode: "",
+      pauseGiftDecay: true,
+    },
+    null,
+    2,
+  );
+
+  const getPlanMetadataObject = (metadata?: Record<string, any> | null) =>
+    metadata && typeof metadata === "object" ? metadata : {};
+
+  const getPlanCoreBenefits = (metadata?: Record<string, any> | null) => {
+    const value = getPlanMetadataObject(metadata).coreBenefits;
+    return typeof value === "string" ? value : "";
+  };
+
+  const getPlanTemplateLibraryAccess = (metadata?: Record<string, any> | null) => {
+    const value = getPlanMetadataObject(metadata).templateLibraryAccess;
+    return typeof value === "string" && value.trim() ? value.trim() : "";
+  };
+
+  const getPlanInviteLimit = (metadata?: Record<string, any> | null) => {
+    const value = getPlanMetadataObject(metadata).inviteLimit;
+    if (typeof value === "number" && Number.isFinite(value)) return String(Math.trunc(value));
+    if (typeof value === "string" && value.trim()) return value.trim();
+    return "";
+  };
+
+  const getPlanSupportLevel = (metadata?: Record<string, any> | null) => {
+    const value = getPlanMetadataObject(metadata).supportLevel;
+    return typeof value === "string" ? value : "";
+  };
+
+  const buildPlanMetadata = (
+    baseMetadata: Record<string, any>,
+    form: {
+      coreBenefits: string;
+      templateLibraryAccess: string;
+      inviteLimit: string;
+      supportLevel: string;
+    },
+  ) => {
+    const nextMetadata = { ...baseMetadata };
+
+    if (form.coreBenefits.trim()) {
+      nextMetadata.coreBenefits = form.coreBenefits.trim();
+    } else {
+      delete nextMetadata.coreBenefits;
+    }
+
+    if (form.templateLibraryAccess.trim()) {
+      nextMetadata.templateLibraryAccess = form.templateLibraryAccess.trim();
+    } else {
+      delete nextMetadata.templateLibraryAccess;
+    }
+
+    if (form.supportLevel.trim()) {
+      nextMetadata.supportLevel = form.supportLevel.trim();
+    } else {
+      delete nextMetadata.supportLevel;
+    }
+
+    const inviteLimitText = form.inviteLimit.trim();
+    if (inviteLimitText) {
+      const inviteLimit = Number(inviteLimitText);
+      if (!Number.isFinite(inviteLimit) || inviteLimit < 0) {
+        throw new Error("邀请上限必须是大于等于 0 的数字");
+      }
+      nextMetadata.inviteLimit = Math.trunc(inviteLimit);
+    } else {
+      delete nextMetadata.inviteLimit;
+    }
+
+    return nextMetadata;
+  };
+
   const [plans, setPlans] = useState<AdminMembershipPlan[]>([]);
   const [policyView, setPolicyView] = useState<MembershipCreditPolicyView | null>(null);
   const [loading, setLoading] = useState(false);
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [savingPlan, setSavingPlan] = useState(false);
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
-  const [planMetadataText, setPlanMetadataText] = useState("{}");
+  const [planModalOpen, setPlanModalOpen] = useState(false);
+  const [planMetadataText, setPlanMetadataText] = useState(DEFAULT_PLAN_METADATA_TEXT);
   const [opsLoading, setOpsLoading] = useState(false);
   const [policyForm, setPolicyForm] = useState<MembershipCreditPolicyConfig>({
     dailyGiftDecayCredits: 50,
@@ -6189,6 +6267,10 @@ function VipManagementTab() {
     monthlyQuotaCredits: string;
     signupBonusCredits: string;
     dailyGiftCredits: string;
+    coreBenefits: string;
+    templateLibraryAccess: string;
+    inviteLimit: string;
+    supportLevel: string;
     sortOrder: string;
     isActive: boolean;
   }>({
@@ -6199,6 +6281,10 @@ function VipManagementTab() {
     monthlyQuotaCredits: "0",
     signupBonusCredits: "0",
     dailyGiftCredits: "0",
+    coreBenefits: "",
+    templateLibraryAccess: "",
+    inviteLimit: "",
+    supportLevel: "",
     sortOrder: "0",
     isActive: true,
   });
@@ -6227,7 +6313,7 @@ function VipManagementTab() {
 
   const resetPlanForm = () => {
     setEditingPlanId(null);
-    setPlanMetadataText("{}");
+    setPlanMetadataText(DEFAULT_PLAN_METADATA_TEXT);
     setPlanForm({
       code: "",
       name: "",
@@ -6236,9 +6322,23 @@ function VipManagementTab() {
       monthlyQuotaCredits: "0",
       signupBonusCredits: "0",
       dailyGiftCredits: "0",
+      coreBenefits: "",
+      templateLibraryAccess: "",
+      inviteLimit: "",
+      supportLevel: "",
       sortOrder: "0",
       isActive: true,
     });
+  };
+
+  const closePlanModal = () => {
+    setPlanModalOpen(false);
+    resetPlanForm();
+  };
+
+  const openCreatePlanModal = () => {
+    resetPlanForm();
+    setPlanModalOpen(true);
   };
 
   const handleEditPlan = (plan: AdminMembershipPlan) => {
@@ -6251,10 +6351,15 @@ function VipManagementTab() {
       monthlyQuotaCredits: String(plan.monthlyQuotaCredits),
       signupBonusCredits: String(plan.signupBonusCredits),
       dailyGiftCredits: String(plan.dailyGiftCredits),
+      coreBenefits: getPlanCoreBenefits(plan.metadata),
+      templateLibraryAccess: getPlanTemplateLibraryAccess(plan.metadata),
+      inviteLimit: getPlanInviteLimit(plan.metadata),
+      supportLevel: getPlanSupportLevel(plan.metadata),
       sortOrder: String(plan.sortOrder),
       isActive: plan.isActive,
     });
     setPlanMetadataText(JSON.stringify(plan.metadata || {}, null, 2));
+    setPlanModalOpen(true);
   };
 
   const parsePlanPayload = () => {
@@ -6264,10 +6369,20 @@ function VipManagementTab() {
     } catch {
       throw new Error("套餐 metadata JSON 格式不正确");
     }
+    if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+      throw new Error("套餐 metadata JSON 必须是对象");
+    }
 
     if (!planForm.code.trim() || !planForm.name.trim() || !planForm.price.trim()) {
       throw new Error("请填写套餐编码、名称和价格");
     }
+
+    metadata = buildPlanMetadata(metadata, {
+      coreBenefits: planForm.coreBenefits,
+      templateLibraryAccess: planForm.templateLibraryAccess,
+      inviteLimit: planForm.inviteLimit,
+      supportLevel: planForm.supportLevel,
+    });
 
     return {
       code: planForm.code.trim(),
@@ -6294,7 +6409,7 @@ function VipManagementTab() {
         await createAdminMembershipPlan(payload);
         alert("会员套餐已创建");
       }
-      resetPlanForm();
+      closePlanModal();
       loadVipData();
     } catch (error: any) {
       alert(error.message || "保存套餐失败");
@@ -6489,96 +6604,108 @@ function VipManagementTab() {
         </div>
       </div>
 
-      <div className='grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_0.8fr]'>
-        <div className='rounded-lg border bg-white p-6 shadow-sm'>
-          <div className='mb-4 flex items-center justify-between'>
-            <div>
-              <h3 className='text-lg font-semibold'>会员套餐列表</h3>
-              <p className='mt-1 text-sm text-gray-500'>
-                管理前台可售 VIP 套餐，支持排序、启停和额度配置。
-              </p>
-            </div>
-            <Button variant='outline' onClick={resetPlanForm}>
-              新建套餐
-            </Button>
-          </div>
-
-          <div className='overflow-x-auto'>
-            <table className='w-full text-sm'>
-              <thead className='bg-gray-50 text-gray-600'>
-                <tr>
-                  <th className='px-3 py-2 text-left'>套餐</th>
-                  <th className='px-3 py-2 text-left'>周期</th>
-                  <th className='px-3 py-2 text-left'>价格</th>
-                  <th className='px-3 py-2 text-left'>总额度</th>
-                  <th className='px-3 py-2 text-left'>月额度</th>
-                  <th className='px-3 py-2 text-left'>日赠送</th>
-                  <th className='px-3 py-2 text-left'>状态</th>
-                  <th className='px-3 py-2 text-left'>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {plans.map((plan) => (
-                  <tr key={plan.id} className='border-t align-top'>
-                    <td className='px-3 py-3'>
-                      <div className='font-medium text-gray-900'>{plan.name}</div>
-                      <div className='mt-1 font-mono text-xs text-gray-500'>{plan.code}</div>
-                    </td>
-                    <td className='px-3 py-3'>{plan.billingCycle === "yearly" ? "年费" : "月费"}</td>
-                    <td className='px-3 py-3'>¥{Number(plan.price).toFixed(2)}</td>
-                    <td className='px-3 py-3'>{Number(plan.monthlyQuotaCredits) + Number(plan.signupBonusCredits)}</td>
-                    <td className='px-3 py-3'>{plan.monthlyQuotaCredits}</td>
-                    <td className='px-3 py-3'>{plan.dailyGiftCredits}</td>
-                    <td className='px-3 py-3'>
-                      <span
-                        className={`rounded px-2 py-1 text-xs ${
-                          plan.isActive
-                            ? "bg-green-100 text-green-700"
-                            : "bg-gray-100 text-gray-600"
-                        }`}
-                      >
-                        {plan.isActive ? "启用中" : "已停用"}
-                      </span>
-                    </td>
-                    <td className='px-3 py-3'>
-                      <div className='flex flex-wrap gap-2'>
-                        <Button size='sm' variant='outline' onClick={() => handleEditPlan(plan)}>
-                          编辑
-                        </Button>
-                        <Button
-                          size='sm'
-                          variant='outline'
-                          onClick={() => handleTogglePlanActive(plan)}
-                        >
-                          {plan.isActive ? "停用" : "启用"}
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {plans.length === 0 && (
-                  <tr>
-                    <td colSpan={8} className='px-3 py-8 text-center text-gray-500'>
-                      暂无会员套餐
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className='rounded-lg border bg-white p-6 shadow-sm'>
-          <div className='mb-4'>
-            <h3 className='text-lg font-semibold'>
-              {editingPlanId ? "编辑会员套餐" : "新建会员套餐"}
-            </h3>
+      <div className='rounded-lg border bg-white p-6 shadow-sm'>
+        <div className='mb-4 flex items-center justify-between'>
+          <div>
+            <h3 className='text-lg font-semibold'>会员套餐列表</h3>
             <p className='mt-1 text-sm text-gray-500'>
-              前端展示与下单都会读这里的套餐数据，编码建议保持稳定。
+              管理前台可售 VIP 套餐，支持排序、启停和额度配置。
             </p>
           </div>
+          <Button variant='outline' onClick={openCreatePlanModal}>
+            新建套餐
+          </Button>
+        </div>
 
-          <div className='space-y-4'>
+        <div className='overflow-x-auto'>
+          <table className='w-full text-sm'>
+            <thead className='bg-gray-50 text-gray-600'>
+              <tr>
+                <th className='px-3 py-2 text-left'>套餐</th>
+                <th className='px-3 py-2 text-left'>周期</th>
+                <th className='px-3 py-2 text-left'>价格</th>
+                <th className='px-3 py-2 text-left'>总额度</th>
+                <th className='px-3 py-2 text-left'>月额度</th>
+                <th className='px-3 py-2 text-left'>日赠送</th>
+                <th className='px-3 py-2 text-left'>模板库</th>
+                <th className='px-3 py-2 text-left'>邀请上限</th>
+                <th className='px-3 py-2 text-left'>支持等级</th>
+                <th className='px-3 py-2 text-left'>状态</th>
+                <th className='px-3 py-2 text-left'>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {plans.map((plan) => (
+                <tr key={plan.id} className='border-t align-top'>
+                  <td className='px-3 py-3'>
+                    <div className='font-medium text-gray-900'>{plan.name}</div>
+                    <div className='mt-1 font-mono text-xs text-gray-500'>{plan.code}</div>
+                  </td>
+                  <td className='px-3 py-3'>{plan.billingCycle === "yearly" ? "年费" : "月费"}</td>
+                  <td className='px-3 py-3'>¥{Number(plan.price).toFixed(2)}</td>
+                  <td className='px-3 py-3'>{Number(plan.monthlyQuotaCredits) + Number(plan.signupBonusCredits)}</td>
+                  <td className='px-3 py-3'>{plan.monthlyQuotaCredits}</td>
+                  <td className='px-3 py-3'>{plan.dailyGiftCredits}</td>
+                  <td className='px-3 py-3'>{getPlanTemplateLibraryAccess(plan.metadata) || "-"}</td>
+                  <td className='px-3 py-3'>{getPlanInviteLimit(plan.metadata) || "-"}</td>
+                  <td className='px-3 py-3'>{getPlanSupportLevel(plan.metadata) || "-"}</td>
+                  <td className='px-3 py-3'>
+                    <span
+                      className={`rounded px-2 py-1 text-xs ${
+                        plan.isActive
+                          ? "bg-green-100 text-green-700"
+                          : "bg-gray-100 text-gray-600"
+                      }`}
+                    >
+                      {plan.isActive ? "启用中" : "已停用"}
+                    </span>
+                  </td>
+                  <td className='px-3 py-3'>
+                    <div className='flex flex-wrap gap-2'>
+                      <Button size='sm' variant='outline' onClick={() => handleEditPlan(plan)}>
+                        编辑
+                      </Button>
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        onClick={() => handleTogglePlanActive(plan)}
+                      >
+                        {plan.isActive ? "停用" : "启用"}
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {plans.length === 0 && (
+                <tr>
+                  <td colSpan={11} className='px-3 py-8 text-center text-gray-500'>
+                    暂无会员套餐
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {planModalOpen && (
+        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'>
+          <div className='max-h-[90vh] w-full max-w-4xl overflow-auto rounded-lg bg-white p-6 shadow-xl'>
+            <div className='mb-4 flex items-start justify-between gap-4'>
+              <div>
+                <h3 className='text-lg font-semibold'>
+                  {editingPlanId ? "编辑会员套餐" : "新建会员套餐"}
+                </h3>
+                <p className='mt-1 text-sm text-gray-500'>
+                  前端展示与下单都会读这里的套餐数据，编码建议保持稳定。
+                </p>
+              </div>
+              <Button variant='outline' onClick={closePlanModal}>
+                关闭
+              </Button>
+            </div>
+
+            <div className='space-y-4'>
             <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
               <div>
                 <div className='mb-1 text-sm text-gray-600'>套餐编码</div>
@@ -6656,6 +6783,51 @@ function VipManagementTab() {
                   }
                 />
               </div>
+              <div className='md:col-span-2'>
+                <div className='mb-1 text-sm text-gray-600'>核心权益</div>
+                <Input
+                  value={planForm.coreBenefits}
+                  onChange={(e) =>
+                    setPlanForm((current) => ({ ...current, coreBenefits: e.target.value }))
+                  }
+                  placeholder='去水印、Seedance 2 权益、积分不衰减，每日签到 50 积分'
+                />
+              </div>
+              <div>
+                <div className='mb-1 text-sm text-gray-600'>模板库权限</div>
+                <Input
+                  value={planForm.templateLibraryAccess}
+                  onChange={(e) =>
+                    setPlanForm((current) => ({
+                      ...current,
+                      templateLibraryAccess: e.target.value,
+                    }))
+                  }
+                  placeholder='全部开放'
+                />
+              </div>
+              <div>
+                <div className='mb-1 text-sm text-gray-600'>邀请上限</div>
+                <Input
+                  type='number'
+                  min='0'
+                  value={planForm.inviteLimit}
+                  onChange={(e) =>
+                    setPlanForm((current) => ({ ...current, inviteLimit: e.target.value }))
+                  }
+                  placeholder='20'
+                />
+              </div>
+              <div>
+                <div className='mb-1 text-sm text-gray-600'>支持等级</div>
+                <Input
+                  value={planForm.supportLevel}
+                  onChange={(e) =>
+                    setPlanForm((current) => ({ ...current, supportLevel: e.target.value }))
+                  }
+                  placeholder='官方支持'
+                />
+              </div>
               <div>
                 <div className='mb-1 text-sm text-gray-600'>排序</div>
                 <Input
@@ -6690,13 +6862,14 @@ function VipManagementTab() {
               <Button onClick={handleSavePlan} disabled={savingPlan}>
                 {savingPlan ? "保存中..." : editingPlanId ? "保存套餐" : "创建套餐"}
               </Button>
-              <Button variant='outline' onClick={resetPlanForm}>
-                取消编辑
+              <Button variant='outline' onClick={closePlanModal}>
+                取消
               </Button>
             </div>
           </div>
         </div>
-      </div>
+        </div>
+      )}
     </div>
   );
 }

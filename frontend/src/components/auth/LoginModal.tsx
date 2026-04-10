@@ -29,6 +29,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
   const [wechatLoading, setWechatLoading] = useState(false);
   const [wechatError, setWechatError] = useState<string | null>(null);
   const [wechatConsuming, setWechatConsuming] = useState(false);
+  const [wechatBinding, setWechatBinding] = useState(false);
   const wechatConsumingRef = useRef(false);
 
   const { login, loginWithSms, error: authError, setAuthenticatedUser } = useAuthStore();
@@ -72,6 +73,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
     setWechatLoading(false);
     setWechatError(null);
     setWechatConsuming(false);
+    setWechatBinding(false);
   }, []);
 
   const loadWechatSession = useCallback(async () => {
@@ -110,6 +112,50 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
       setIsSubmitting(false);
     }
   }, [handleClose, login, loginWithSms, onSuccess, tab, phone, password, code, t]);
+
+  const sendSmsCode = useCallback(async (targetPhone: string) => {
+    if (sendCooldown > 0) return;
+    if (!targetPhone) {
+      window.dispatchEvent(new CustomEvent('toast', { detail: { message: t('auth.login.phoneRequired'), type: 'error' } }));
+      return;
+    }
+    if (!/^1[3-9]\d{9}$/.test(targetPhone)) {
+      window.dispatchEvent(new CustomEvent('toast', { detail: { message: t('auth.login.phoneInvalid'), type: 'error' } }));
+      return;
+    }
+    try {
+      await authApi.sendSms({ phone: targetPhone });
+      setLocalError(null);
+      window.dispatchEvent(new CustomEvent('toast', { detail: { message: t('auth.login.smsSent'), type: 'success' } }));
+      setSendCooldown(60);
+    } catch (err: any) {
+      window.dispatchEvent(new CustomEvent('toast', { detail: { message: err?.message || t('auth.register.sendFailed'), type: 'error' } }));
+    }
+  }, [sendCooldown, t]);
+
+  const bindWechatPhone = useCallback(async () => {
+    if (!wechatSession?.id) return;
+    if (!phone || !code) {
+      setWechatError(t('auth.login.wechatBindIncomplete'));
+      return;
+    }
+    setWechatBinding(true);
+    setWechatError(null);
+    try {
+      const result = await authApi.bindWechatOfficialSessionPhone(wechatSession.id, {
+        phone,
+        code,
+      });
+      setAuthenticatedUser(result.user, 'server');
+      tokenRefreshManager.onLoginSuccess();
+      handleClose();
+      onSuccess?.();
+    } catch (err: any) {
+      setWechatError(err?.message || t('auth.login.wechatBindFailed'));
+    } finally {
+      setWechatBinding(false);
+    }
+  }, [code, handleClose, onSuccess, phone, setAuthenticatedUser, t, wechatSession?.id]);
 
   useEffect(() => {
     if (!isOpen || tab !== 'wechat' || wechatSession || wechatLoading || wechatConsuming) return;
@@ -287,10 +333,56 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
                 <p className="mt-4 text-sm text-slate-700">
                   {wechatConsuming
                     ? t('auth.login.wechatAuthorizing')
+                    : wechatBinding
+                    ? t('auth.login.wechatBinding')
+                    : wechatSession?.status === 'needs_phone_bind'
+                    ? t('auth.login.wechatBindHint')
                     : wechatSession?.status === 'expired'
                     ? t('auth.login.wechatExpired')
                     : t('auth.login.wechatHint')}
                 </p>
+                {wechatSession?.status === 'needs_phone_bind' ? (
+                  <div className="mt-4 w-full space-y-3 text-left">
+                    <Input
+                      placeholder={t('auth.login.phonePlaceholder')}
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                    />
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder={t('auth.login.codePlaceholder')}
+                        value={code}
+                        onChange={(e) => setCode(e.target.value)}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="whitespace-nowrap flex-shrink-0 min-w-[64px] rounded-xl"
+                        onClick={() => void sendSmsCode(phone)}
+                        disabled={sendCooldown > 0 || wechatBinding}
+                      >
+                        {sendCooldown > 0
+                          ? t('auth.login.resendCode', { seconds: sendCooldown })
+                          : t('auth.login.sendCode')}
+                      </Button>
+                    </div>
+                    <Button
+                      type="button"
+                      className="w-full bg-gray-700 hover:bg-gray-800 text-white rounded-xl"
+                      onClick={() => void bindWechatPhone()}
+                      disabled={wechatBinding}
+                    >
+                      {wechatBinding ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          {t('auth.login.wechatBindSubmitLoading')}
+                        </>
+                      ) : (
+                        t('auth.login.wechatBindSubmit')
+                      )}
+                    </Button>
+                  </div>
+                ) : null}
                 {wechatError ? <p className="mt-3 text-xs text-red-500">{wechatError}</p> : null}
               </div>
             </div>
@@ -334,25 +426,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
                     type="button"
                     variant="outline"
                     className="whitespace-nowrap flex-shrink-0 min-w-[64px] rounded-xl"
-                    onClick={async () => {
-                      if (sendCooldown > 0) return;
-                      if (!phone) {
-                        window.dispatchEvent(new CustomEvent('toast', { detail: { message: t('auth.login.phoneRequired'), type: 'error' } }));
-                        return;
-                      }
-                      if (!/^1[3-9]\d{9}$/.test(phone)) {
-                        window.dispatchEvent(new CustomEvent('toast', { detail: { message: t('auth.login.phoneInvalid'), type: 'error' } }));
-                        return;
-                      }
-                      try {
-                        await authApi.sendSms({ phone });
-                        setLocalError(null);
-                        window.dispatchEvent(new CustomEvent('toast', { detail: { message: t('auth.login.smsSent'), type: 'success' } }));
-                        setSendCooldown(60);
-                      } catch (err: any) {
-                        window.dispatchEvent(new CustomEvent('toast', { detail: { message: err?.message || t('auth.register.sendFailed'), type: 'error' } }));
-                      }
-                    }}
+                    onClick={() => void sendSmsCode(phone)}
                     disabled={sendCooldown > 0}
                   >
                     {sendCooldown > 0

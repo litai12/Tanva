@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-04-09T05:53:37.195Z",
+  "generatedAt": "2026-04-10T01:44:25.830Z",
   "project": {
     "root": ".",
     "name": "Tanva",
@@ -8,8 +8,8 @@
     "aliasPaths": []
   },
   "counts": {
-    "trackedFiles": 806,
-    "sourceFiles": 457
+    "trackedFiles": 816,
+    "sourceFiles": 460
   },
   "files": {
     "backend/check-cdn.js": {
@@ -580,8 +580,8 @@
     "backend/src/admin/admin.service.ts": {
       "path": "backend/src/admin/admin.service.ts",
       "kind": "ts",
-      "bytes": 33667,
-      "sha256": "4e13d91634d458f838afbab3845864b90d9ab21a07ca32ece6e3e1ccfe6d190f",
+      "bytes": 33980,
+      "sha256": "565881a922576b04ce90d437233f3b8c05ffca3811e4923c996fb1f69011c6a5",
       "importSpecifiers": [
         "../credits/dto/credits.dto",
         "../prisma/prisma.service",
@@ -606,6 +606,7 @@
         "tags": [
           "flow",
           "settings",
+          "subscription",
           "token"
         ],
         "apiEndpoints": [],
@@ -674,8 +675,8 @@
     "backend/src/admin/services/node-config.service.ts": {
       "path": "backend/src/admin/services/node-config.service.ts",
       "kind": "ts",
-      "bytes": 47225,
-      "sha256": "f58481b2d919bed446ce9c59dab752b1096d34ed25ce671a20caabdff4fa0cff",
+      "bytes": 51257,
+      "sha256": "0ff3f2165c6c592510a3fada5d8ef36b048e88a5790c4f56fb88c75e6986e375",
       "importSpecifiers": [
         "../../ai/services/model-routing.service",
         "../../prisma/prisma.service",
@@ -890,8 +891,8 @@
     "backend/src/ai/ai.controller.ts": {
       "path": "backend/src/ai/ai.controller.ts",
       "kind": "ts",
-      "bytes": 168763,
-      "sha256": "f36a0c7a2ad19aec55292c7b8d15378fbbdf8278b240b81cba0e81384b0aa8f0",
+      "bytes": 174394,
+      "sha256": "d99b4670230a0e791d0cdb90a3d098a2a07ca81172613e73ab350d300ca231e4",
       "importSpecifiers": [
         "../auth/guards/api-key-or-jwt.guard",
         "../credits/credits.config",
@@ -1447,8 +1448,8 @@
     "backend/src/ai/dto/video-provider.dto.ts": {
       "path": "backend/src/ai/dto/video-provider.dto.ts",
       "kind": "ts",
-      "bytes": 3199,
-      "sha256": "01da735ef7ba4c7ec4d4bfc37d710e120b74f66b9468fea3b220f76fe027d9cd",
+      "bytes": 3518,
+      "sha256": "6115961631abd1b5e21beb4e00fba8712e9f06b2fde7b180f2eac841a9ab7ba6",
       "importSpecifiers": [
         "@nestjs/swagger",
         "class-validator"
@@ -2059,8 +2060,8 @@
     "backend/src/ai/services/model-routing.service.ts": {
       "path": "backend/src/ai/services/model-routing.service.ts",
       "kind": "ts",
-      "bytes": 26382,
-      "sha256": "d641599df1b9914da4addde1582a8f7d8b0867074ae1f951b82a2d3a731b0456",
+      "bytes": 26563,
+      "sha256": "426222c5cc34ba1f3d3ec2439eb7cfc583a6752778800741555daed21adc5ef3",
       "importSpecifiers": [
         "../../prisma/prisma.service",
         "@nestjs/common"
@@ -2327,8 +2328,8 @@
     "backend/src/ai/services/video-provider.service.ts": {
       "path": "backend/src/ai/services/video-provider.service.ts",
       "kind": "ts",
-      "bytes": 97329,
-      "sha256": "a3194a57ee39b99c4227576a3383558cecd15f1bd112b6431308ab5ab9ba16bc",
+      "bytes": 99781,
+      "sha256": "fc7818dc05cf2319af3bcb60d5a0547e437275722c97a1634d9df4c9036c8bf7",
       "importSpecifiers": [
         "../../oss/oss.service",
         "../dto/video-provider.dto",
@@ -2515,8 +2516,8 @@
     "backend/src/auth/auth.controller.ts": {
       "path": "backend/src/auth/auth.controller.ts",
       "kind": "ts",
-      "bytes": 5706,
-      "sha256": "1a8f265bcc8c326e48f9534c9892f9c08f8f28447bf0ea10c8584b49d8eac8ff",
+      "bytes": 8737,
+      "sha256": "0a71c2526d871c9099970226540c7134c22a88298727962c9b879e35f264f386",
       "importSpecifiers": [
         "./auth.service",
         "./dto/login.dto",
@@ -2552,11 +2553,12 @@
     "backend/src/auth/auth.module.ts": {
       "path": "backend/src/auth/auth.module.ts",
       "kind": "ts",
-      "bytes": 928,
-      "sha256": "c10ecaf08599753f3bc5add48d88909fe41833565e87c04241912d87ea806f0d",
+      "bytes": 1014,
+      "sha256": "8b754ed149e569b65958e70affd8eda213d03ceb21f9018ea49352ea41b332cc",
       "importSpecifiers": [
         "../credits/credits.module",
         "../referral/referral.module",
+        "../telemetry/telemetry.module",
         "../users/users.module",
         "./auth.controller",
         "./auth.service",
@@ -2588,12 +2590,13 @@
     "backend/src/auth/auth.service.ts": {
       "path": "backend/src/auth/auth.service.ts",
       "kind": "ts",
-      "bytes": 22872,
-      "sha256": "9d7a4601482217edd6c5f61eb89e3e0b1503c8ebbdfd8a0398e582abab261803",
+      "bytes": 42498,
+      "sha256": "112984a7fa4ee0c222299bb3dd8193fb370a1d3d6429fe4fc544b3b2424dc54c",
       "importSpecifiers": [
         "../credits/credits.service",
         "../prisma/prisma.service",
         "../referral/referral.service",
+        "../telemetry/openobserve-telemetry.service",
         "../users/users.service",
         "./dto/register.dto",
         "./sms.service",
@@ -2617,10 +2620,13 @@
           "auth",
           "http",
           "profile",
+          "qrcode",
           "token"
         ],
         "apiEndpoints": [
           "http://localhost:5173",
+          "https://api.weixin.qq.com/cgi-bin/token",
+          "https://api.weixin.qq.com/cgi-bin/user/info",
           "https://watcha.cn/oauth/api/token",
           "https://watcha.cn/oauth/api/userinfo",
           "https://watcha.cn/oauth/authorize"
@@ -3176,8 +3182,8 @@
     "backend/src/credits/credits.config.ts": {
       "path": "backend/src/credits/credits.config.ts",
       "kind": "ts",
-      "bytes": 8867,
-      "sha256": "7cff579923a9402f425e4f1e21107cc5f6771100b58304cc9a108507fdbb6384",
+      "bytes": 9317,
+      "sha256": "de744e639fc8ac0f6365bc424675cb97080b41cc32a34eaacec3b3eee5686572",
       "importSpecifiers": [],
       "dynamicImportSpecifiers": [],
       "exports": {
@@ -3185,8 +3191,6 @@
           "CONSECUTIVE_7_DAY_BONUS_CREDITS",
           "CREDIT_PRICING_CONFIG",
           "DAILY_LOGIN_REWARD_CREDITS",
-          "DEFAULT_NEW_USER_CREDITS",
-          "INVITED_NEW_USER_BONUS_CREDITS",
           "ServiceType"
         ],
         "default": false
@@ -3269,8 +3273,8 @@
     "backend/src/credits/credits.service.ts": {
       "path": "backend/src/credits/credits.service.ts",
       "kind": "ts",
-      "bytes": 85444,
-      "sha256": "703ac4a190dda9c62f882897b777916982b6901300b2503bdce911064721f00c",
+      "bytes": 89316,
+      "sha256": "6232c10f063f1a10ef1eb7d44efd354716ff8491b4255c22aaba538f28ca0d90",
       "importSpecifiers": [
         "../business-policy/business-policy.service",
         "../prisma/prisma.service",
@@ -3650,8 +3654,8 @@
     "backend/src/membership/membership.service.ts": {
       "path": "backend/src/membership/membership.service.ts",
       "kind": "ts",
-      "bytes": 67602,
-      "sha256": "94f84ab6c7c599c01dc8b0b892dc4e1c8f48a841f66b0c607838df8e16f385d9",
+      "bytes": 66616,
+      "sha256": "5c7ce8ee36a321eb0d53bd671af2fde7846ba82cf4cbb53350e73b91909eaacf",
       "importSpecifiers": [
         "../business-policy/business-policy.service",
         "../credits/credit-lot-grants",
@@ -4522,8 +4526,8 @@
     "backend/src/telemetry/openobserve-request.interceptor.ts": {
       "path": "backend/src/telemetry/openobserve-request.interceptor.ts",
       "kind": "ts",
-      "bytes": 3193,
-      "sha256": "e5d346940767af63f84f2d083cba5b00b7b0aef0de4ffdc1558e02eec23300ab",
+      "bytes": 3324,
+      "sha256": "9026998dea749dd85d6dc055fba9ffc8051d76a005b85dde76102e344b68e052",
       "importSpecifiers": [
         "./openobserve-telemetry.service",
         "./request-context",
@@ -4558,8 +4562,8 @@
     "backend/src/telemetry/openobserve-telemetry.service.ts": {
       "path": "backend/src/telemetry/openobserve-telemetry.service.ts",
       "kind": "ts",
-      "bytes": 6553,
-      "sha256": "28ac00c5240ec4ba08c90468a23be498d7bc0b0155db342ab3a7123acff60383",
+      "bytes": 7426,
+      "sha256": "c5a29152458b0f5e85d1f655f4e60e9a2aff6264c73ca5cb816a00479c1269e8",
       "importSpecifiers": [
         "./openobserve-url",
         "./request-context",
@@ -4640,8 +4644,8 @@
     "backend/src/telemetry/telemetry.controller.ts": {
       "path": "backend/src/telemetry/telemetry.controller.ts",
       "kind": "ts",
-      "bytes": 1711,
-      "sha256": "831d76f90ecabd4672deccccfa787146e5b8372d1390e621e93def41a242a6cc",
+      "bytes": 1760,
+      "sha256": "1d23f9ca8d37d2dcb018c86a1f45243c64c9a18773a3edf7eae7cdbccf052a3e",
       "importSpecifiers": [
         "./openobserve-telemetry.service",
         "@nestjs/common",
@@ -4696,8 +4700,8 @@
     "backend/src/telemetry/tracing.ts": {
       "path": "backend/src/telemetry/tracing.ts",
       "kind": "ts",
-      "bytes": 5667,
-      "sha256": "330cc2d89c2da73aaa3af2de2ee2187389b3164063ed7a62fe4dc59f000bf983",
+      "bytes": 5647,
+      "sha256": "4b8df53a1560154b0c8fbc9e6e8f2dcbe7d989e612228300b57cc06b993c1f27",
       "importSpecifiers": [
         "./openobserve-url",
         "@opentelemetry/api",
@@ -4744,8 +4748,8 @@
     "backend/src/telemetry/upstream-fetch-logger.ts": {
       "path": "backend/src/telemetry/upstream-fetch-logger.ts",
       "kind": "ts",
-      "bytes": 10866,
-      "sha256": "a31c9cf9d4cddee24c35c7ef192cab435cba95890ffb46a08f2473e3b15887b3",
+      "bytes": 10195,
+      "sha256": "3cfb1a9ca8abb38c021cf959fcdd33e9d0cd5c13a527d9bb754f5f232c5cf82a",
       "importSpecifiers": [
         "./openobserve-url",
         "./request-context",
@@ -5234,8 +5238,8 @@
     "frontend/src/bootstrap/runtimeStability.ts": {
       "path": "frontend/src/bootstrap/runtimeStability.ts",
       "kind": "ts",
-      "bytes": 11522,
-      "sha256": "7dd7960879f86f4837cc6f5d60ea025918f8929acda8c182cfec396a7919ee60",
+      "bytes": 11489,
+      "sha256": "4cd799bc4cdf4fde86433cba9b4d3ce7d4eaefac6605f4e2df3d0d7a2210cf80",
       "importSpecifiers": [],
       "dynamicImportSpecifiers": [],
       "exports": {
@@ -5582,8 +5586,8 @@
     "frontend/src/components/auth/LoginModal.tsx": {
       "path": "frontend/src/components/auth/LoginModal.tsx",
       "kind": "tsx",
-      "bytes": 8067,
-      "sha256": "9f70a50b5dcc70d765856475e95e1da8400df840b578c57d2e583e3bffc5b108",
+      "bytes": 17117,
+      "sha256": "cdb49a3633af96d6b0172e6bb1a29e97db71df78c3306337fd7f3a34a88281a1",
       "importSpecifiers": [
         "@/components/ui/button",
         "@/components/ui/input",
@@ -5608,6 +5612,7 @@
         "tags": [
           "auth",
           "flow",
+          "qrcode",
           "token"
         ],
         "apiEndpoints": [],
@@ -6025,8 +6030,8 @@
     "frontend/src/components/canvas/ImageContainer.tsx": {
       "path": "frontend/src/components/canvas/ImageContainer.tsx",
       "kind": "tsx",
-      "bytes": 129671,
-      "sha256": "2d787f5cb40fea22baac37afc29f53c72fa0b03891e6cd89351a991b33806a5b",
+      "bytes": 131269,
+      "sha256": "83ea4e06899995296c09c0d631fee6576e089684e68a7f681e227cd1909c18e1",
       "importSpecifiers": [
         "../ui/ImagePreviewModal",
         "../ui/button",
@@ -6821,8 +6826,8 @@
     "frontend/src/components/canvas/hooks/useSimpleTextTool.ts": {
       "path": "frontend/src/components/canvas/hooks/useSimpleTextTool.ts",
       "kind": "ts",
-      "bytes": 32688,
-      "sha256": "47a09a1cff8291ad44e49b8bd615544b887b32a0602d2bd1cf6bd0c1f69d36b9",
+      "bytes": 32701,
+      "sha256": "8f64596ff994398365dee93fff46b2ff48cc3196a2314ba21709b6c4c447f112",
       "importSpecifiers": [
         "@/services/historyService",
         "@/stores/aiChatStore",
@@ -7153,8 +7158,8 @@
     "frontend/src/components/flow/FlowOverlay.tsx": {
       "path": "frontend/src/components/flow/FlowOverlay.tsx",
       "kind": "tsx",
-      "bytes": 640510,
-      "sha256": "ec8b225923559d3ebed7545f7e7ee5e762cbddab7a48af8229838b6264750b75",
+      "bytes": 656636,
+      "sha256": "2a2445218e3034518ef257a5c0a5f6f78746ba1ca4c005d8ef21128e7c2ef659",
       "importSpecifiers": [
         "./MiniMapImageOverlay",
         "./PersonalLibraryPanel",
@@ -7202,6 +7207,7 @@
         "./nodes/ViduVideoNode",
         "./nodes/ViewAngleNode",
         "./nodes/Wan26Node",
+        "./nodes/Wan27VideoNode",
         "./nodes/Wan2R2VNode",
         "./utils/mjV7PromptSanitize",
         "./utils/textSource",
@@ -7410,12 +7416,13 @@
     "frontend/src/components/flow/nodes/AnalyzeNode.tsx": {
       "path": "frontend/src/components/flow/nodes/AnalyzeNode.tsx",
       "kind": "tsx",
-      "bytes": 40931,
-      "sha256": "42ae6731a92ef8dec91162fee3ee91bcf321aa11d10cfeb7791a5015428834dc",
+      "bytes": 41339,
+      "sha256": "083ba0a4c12bfa4b7a193766ea8db79adfa93cbfa27c69b8481e746cd898485d",
       "importSpecifiers": [
         "../../ui/ImagePreviewModal",
         "../../ui/SmartImage",
         "../utils/textSource",
+        "./flowNodeDarkTheme",
         "@/hooks/useFlowImageAssetUrl",
         "@/services/aiImageService",
         "@/services/flowImageAssetStore",
@@ -7447,9 +7454,10 @@
     "frontend/src/components/flow/nodes/AudioNode.tsx": {
       "path": "frontend/src/components/flow/nodes/AudioNode.tsx",
       "kind": "tsx",
-      "bytes": 13429,
-      "sha256": "841708243626cbb8e708f80cd66f622f0237f9b5a88327c02e672ee887a25014",
+      "bytes": 14289,
+      "sha256": "91ae382c365704e5300e4b0b64cf95a46bd6635e33e35ebdcdf5ff9fc6989857",
       "importSpecifiers": [
+        "./flowNodeDarkTheme",
         "@/stores/projectContentStore",
         "@/utils/localeText",
         "react",
@@ -7477,12 +7485,13 @@
     "frontend/src/components/flow/nodes/CameraNode.tsx": {
       "path": "frontend/src/components/flow/nodes/CameraNode.tsx",
       "kind": "tsx",
-      "bytes": 11350,
-      "sha256": "f9cc7124125194d47b3dfb1021b06d2231e4ce5986c9f640fb19eec5a600d314",
+      "bytes": 11686,
+      "sha256": "92a78e75c6a5088f8ada414dbcdc8637029b5eb60fbffbd0781db92ea3b48b4e",
       "importSpecifiers": [
         "../../../stores/imageHistoryStore",
         "../../ui/ImagePreviewModal",
         "../../ui/SmartImage",
+        "./flowNodeDarkTheme",
         "@/services/AutoScreenshotService",
         "@/services/imageHistoryService",
         "@/stores/projectContentStore",
@@ -7538,11 +7547,13 @@
     "frontend/src/components/flow/nodes/Generate4Node.tsx": {
       "path": "frontend/src/components/flow/nodes/Generate4Node.tsx",
       "kind": "tsx",
-      "bytes": 33280,
-      "sha256": "3241967dad018656bcf62de6f97b0d0ea3bff8d1ba0510bfdee34b7b4b328911",
+      "bytes": 34091,
+      "sha256": "b8baf4e739068f1532db1d7ed08128c4a0b3abeb4d980ac2a3367831b4d305f3",
       "importSpecifiers": [
         "../../ui/ImagePreviewModal",
         "../../ui/SmartImage",
+        "./RunCreditBadge",
+        "./flowNodeDarkTheme",
         "@/hooks/useFlowImageAssetUrl",
         "@/services/flowImageAssetStore",
         "@/stores/aiChatStore",
@@ -7574,14 +7585,16 @@
     "frontend/src/components/flow/nodes/GenerateNode.tsx": {
       "path": "frontend/src/components/flow/nodes/GenerateNode.tsx",
       "kind": "tsx",
-      "bytes": 36469,
-      "sha256": "63e8e74921652d77d2be19e209087524fd452c0e793b61af3ebae8f3c1f13719",
+      "bytes": 36828,
+      "sha256": "4fd2ce4799a2ca402b82160522c50b01dc28991cdb640343c1aa93dd079b8c87",
       "importSpecifiers": [
         "../../../stores/imageHistoryStore",
         "../../ui/ImagePreviewModal",
         "../../ui/SmartImage",
         "../../ui/dropdown-menu",
         "./GenerationProgressBar",
+        "./RunCreditBadge",
+        "./flowNodeDarkTheme",
         "@/hooks/useFlowImageAssetUrl",
         "@/services/flowImageAssetStore",
         "@/stores/aiChatStore",
@@ -7614,13 +7627,15 @@
     "frontend/src/components/flow/nodes/GeneratePro4Node.tsx": {
       "path": "frontend/src/components/flow/nodes/GeneratePro4Node.tsx",
       "kind": "tsx",
-      "bytes": 40309,
-      "sha256": "e03913f5afdfd9a93cd5cf23e3ad1e0dbd2b7d10abf0762619a72fb9d28665b0",
+      "bytes": 41080,
+      "sha256": "1f3ebbc7d71d7599cff7960a450913468fcaab42d8f3b8d2ecfa76290a54909b",
       "importSpecifiers": [
         "../../ui/ImagePreviewModal",
         "../../ui/SmartImage",
         "../../ui/context-menu",
         "../utils/textSource",
+        "./RunCreditBadge",
+        "./flowNodeDarkTheme",
         "@/lib/utils",
         "@/stores/aiChatStore",
         "@/utils/assetProxy",
@@ -7655,8 +7670,8 @@
     "frontend/src/components/flow/nodes/GenerateProNode.tsx": {
       "path": "frontend/src/components/flow/nodes/GenerateProNode.tsx",
       "kind": "tsx",
-      "bytes": 69476,
-      "sha256": "6688876538dcbbf89ba200f97906501bce647087cc58bddd9ceb112164345312",
+      "bytes": 69992,
+      "sha256": "fb15f3bc894f5c7bdbcc75b19f6ec87167313569df0217062ba3857774f48bd4",
       "importSpecifiers": [
         "../../../stores/imageHistoryStore",
         "../../ui/ImagePreviewModal",
@@ -7665,6 +7680,8 @@
         "../../ui/dropdown-menu",
         "../utils/textSource",
         "./GenerationProgressBar",
+        "./RunCreditBadge",
+        "./flowNodeDarkTheme",
         "@/hooks/useFlowImageAssetUrl",
         "@/lib/utils",
         "@/services/flowImageAssetStore",
@@ -7701,13 +7718,15 @@
     "frontend/src/components/flow/nodes/GenerateReferenceNode.tsx": {
       "path": "frontend/src/components/flow/nodes/GenerateReferenceNode.tsx",
       "kind": "tsx",
-      "bytes": 12136,
-      "sha256": "700fe6145bd227ef7deeef5b6b9c3b1bd3b7c1b5d43bc486472b00ed9681a1fa",
+      "bytes": 12518,
+      "sha256": "cdbf745016f8bd9f0882cdcdd07b4ae47e5656132e57287486785a6518d82951",
       "importSpecifiers": [
         "../../../stores/imageHistoryStore",
         "../../ui/ImagePreviewModal",
         "../../ui/SmartImage",
         "./GenerationProgressBar",
+        "./RunCreditBadge",
+        "./flowNodeDarkTheme",
         "@/hooks/useFlowImageAssetUrl",
         "@/services/flowImageAssetStore",
         "@/stores/projectContentStore",
@@ -7766,11 +7785,12 @@
     "frontend/src/components/flow/nodes/GenericVideoNode.tsx": {
       "path": "frontend/src/components/flow/nodes/GenericVideoNode.tsx",
       "kind": "tsx",
-      "bytes": 78982,
-      "sha256": "3418fcd8bff0dff8ad1038097898d88d3694d01a7211e6293fae286f36abccb0",
+      "bytes": 79484,
+      "sha256": "980e871945fc8b57347307c388aa997f2334ec5c54dfb8a53af1c8bad105835b",
       "importSpecifiers": [
         "../../ui/SmartImage",
         "./GenerationProgressBar",
+        "./RunCreditBadge",
         "@/stores/aiChatStore",
         "@/stores/authStore",
         "@/stores/projectContentStore",
@@ -7804,10 +7824,11 @@
     "frontend/src/components/flow/nodes/ImageCompressNode.tsx": {
       "path": "frontend/src/components/flow/nodes/ImageCompressNode.tsx",
       "kind": "tsx",
-      "bytes": 24054,
-      "sha256": "d61d76b72807979e3c3c7f7dbba610d617640831c0d4a47fd110b67a9d8cbb66",
+      "bytes": 24458,
+      "sha256": "ec0f75eff720660dc3c5f11eb3939443b57b53b06530240c77b19ff479ab4c08",
       "importSpecifiers": [
         "../../ui/SmartImage",
+        "./flowNodeDarkTheme",
         "@/services/imageUploadService",
         "@/stores/projectContentStore",
         "@/utils/imageConcurrency",
@@ -7837,10 +7858,11 @@
     "frontend/src/components/flow/nodes/ImageGridNode.tsx": {
       "path": "frontend/src/components/flow/nodes/ImageGridNode.tsx",
       "kind": "tsx",
-      "bytes": 33315,
-      "sha256": "ed8da7fac95f03fa1530d061678d06f05a5d2e9262aef988e0f47f815e55dac9",
+      "bytes": 33926,
+      "sha256": "c8a5c0d28ace87195e50ade6276ba013f2920fee7317be06ec33b20755a0c760",
       "importSpecifiers": [
         "../../ui/SmartImage",
+        "./flowNodeDarkTheme",
         "@/hooks/useFlowImageAssetUrl",
         "@/services/flowImageAssetStore",
         "@/services/imageUploadService",
@@ -7961,10 +7983,11 @@
     "frontend/src/components/flow/nodes/ImageSplitNode.tsx": {
       "path": "frontend/src/components/flow/nodes/ImageSplitNode.tsx",
       "kind": "tsx",
-      "bytes": 96339,
-      "sha256": "755735327ac35035757d6ded4316886bb2bb0c1b4220aa7630c20d847756acd5",
+      "bytes": 96766,
+      "sha256": "0f5faafb7851e99f0fdfa79b518fafc3dcfbbf54261859ab9faff6ea33b4f841",
       "importSpecifiers": [
         "../../ui/SmartImage",
+        "./flowNodeDarkTheme",
         "@/hooks/useFlowImageAssetUrl",
         "@/services/flowImageAssetStore",
         "@/services/imageSplitWorkerClient",
@@ -8001,8 +8024,8 @@
     "frontend/src/components/flow/nodes/Kling26VideoNode.tsx": {
       "path": "frontend/src/components/flow/nodes/Kling26VideoNode.tsx",
       "kind": "tsx",
-      "bytes": 462,
-      "sha256": "095879b0d48856ba7d2d0237a72c811e361dcf3c63f9f5b67b0a248e368ae741",
+      "bytes": 708,
+      "sha256": "1628a11d6449bd09f0ecf3c3136ddac25c5b1ab4e71a46c34bc304ba493af02b",
       "importSpecifiers": [
         "./GenericVideoNode"
       ],
@@ -8026,8 +8049,8 @@
     "frontend/src/components/flow/nodes/Kling30VideoNode.tsx": {
       "path": "frontend/src/components/flow/nodes/Kling30VideoNode.tsx",
       "kind": "tsx",
-      "bytes": 465,
-      "sha256": "dd3f3962327c514191da33a06de9f6457d463ec909d805744be93c26caf9a62e",
+      "bytes": 711,
+      "sha256": "509ca8ebae44f2eff95b5c6d30b5e64f283aa60d60cc75b09adac235961658a7",
       "importSpecifiers": [
         "./GenericVideoNode"
       ],
@@ -8051,11 +8074,12 @@
     "frontend/src/components/flow/nodes/KlingO1VideoNode.tsx": {
       "path": "frontend/src/components/flow/nodes/KlingO1VideoNode.tsx",
       "kind": "tsx",
-      "bytes": 45911,
-      "sha256": "20745a2352c0eef07eb24f1e63ec883c2989569d98a6ac86d359e32fa2919cad",
+      "bytes": 46411,
+      "sha256": "a9846e1b306a0bbca0bb32c32c6ad915d09c17862b25fca3b15adb57ede51a66",
       "importSpecifiers": [
         "../../ui/SmartImage",
         "./GenerationProgressBar",
+        "./RunCreditBadge",
         "@/stores/authStore",
         "@/utils/assetProxy",
         "@/utils/localeText",
@@ -8085,8 +8109,8 @@
     "frontend/src/components/flow/nodes/KlingVideoNode.tsx": {
       "path": "frontend/src/components/flow/nodes/KlingVideoNode.tsx",
       "kind": "tsx",
-      "bytes": 458,
-      "sha256": "5ccca680dbd4a7cd41af2c5697fc00c7b75ce1bf44d4439ddcd8e5f64e715f57",
+      "bytes": 696,
+      "sha256": "8a830fc1047fb3f9a02eefb606b7339ec6b870d3a1ad9aa36e3feff0567c9e04",
       "importSpecifiers": [
         "./GenericVideoNode"
       ],
@@ -8110,15 +8134,18 @@
     "frontend/src/components/flow/nodes/MidjourneyNode.tsx": {
       "path": "frontend/src/components/flow/nodes/MidjourneyNode.tsx",
       "kind": "tsx",
-      "bytes": 44591,
-      "sha256": "d11b0c1a8c4f6d5b71bebfa5b8a85cba58168d2fcafe7bb97e1871f601a4dd4b",
+      "bytes": 46226,
+      "sha256": "0ef29b2887d09c58827f0e3edbd8883e0887e95ade8f025110c1a71a1fc24020",
       "importSpecifiers": [
         "../../../stores/imageHistoryStore",
         "../../ui/ImagePreviewModal",
         "../../ui/SmartImage",
         "./GenerationProgressBar",
+        "./RunCreditBadge",
+        "./flowNodeDarkTheme",
         "@/hooks/useFlowImageAssetUrl",
         "@/services/flowImageAssetStore",
+        "@/stores/aiChatStore",
         "@/stores/projectContentStore",
         "@/utils/imageSource",
         "@/utils/localeText",
@@ -8147,10 +8174,12 @@
     "frontend/src/components/flow/nodes/MinimaxMusicNode.tsx": {
       "path": "frontend/src/components/flow/nodes/MinimaxMusicNode.tsx",
       "kind": "tsx",
-      "bytes": 17831,
-      "sha256": "79bfa3ef0cf81026235e0778c8a8b109abdf901ef98d3a14b1279e1be5ba7ee4",
+      "bytes": 18616,
+      "sha256": "bf212846db7a7cd13fbfd666ede04dacba3c623784fd197f635f37e6e3b255b2",
       "importSpecifiers": [
         "./GenerationProgressBar",
+        "./RunCreditBadge",
+        "./flowNodeDarkTheme",
         "@/utils/localeText",
         "lucide-react",
         "react",
@@ -8176,10 +8205,12 @@
     "frontend/src/components/flow/nodes/MinimaxSpeechNode.tsx": {
       "path": "frontend/src/components/flow/nodes/MinimaxSpeechNode.tsx",
       "kind": "tsx",
-      "bytes": 19319,
-      "sha256": "e7a4c8c6e6fba94f1d011c6cef8aa8f26d54e1d159856852bb3d7c73698cf661",
+      "bytes": 20006,
+      "sha256": "1491427e37d737ab0a82e5292cf23b39cb851ab34b0e8c117d6e986b54fce81e",
       "importSpecifiers": [
         "./GenerationProgressBar",
+        "./RunCreditBadge",
+        "./flowNodeDarkTheme",
         "@/utils/localeText",
         "lucide-react",
         "react",
@@ -8206,13 +8237,15 @@
     "frontend/src/components/flow/nodes/Nano2Node.tsx": {
       "path": "frontend/src/components/flow/nodes/Nano2Node.tsx",
       "kind": "tsx",
-      "bytes": 15901,
-      "sha256": "a047543cc1b624384eb001cbc8b9a8054ad6adce4167f44e6e10d02b056e7ccf",
+      "bytes": 16283,
+      "sha256": "59e486ec8b92cad8698bd8f56633b54cbc631347a60e0ce8ef86ea9407ede75f",
       "importSpecifiers": [
         "../../../stores/imageHistoryStore",
         "../../ui/ImagePreviewModal",
         "../../ui/SmartImage",
         "./GenerationProgressBar",
+        "./RunCreditBadge",
+        "./flowNodeDarkTheme",
         "@/hooks/useFlowImageAssetUrl",
         "@/services/flowImageAssetStore",
         "@/stores/projectContentStore",
@@ -8243,8 +8276,8 @@
     "frontend/src/components/flow/nodes/NodeGroupNode.tsx": {
       "path": "frontend/src/components/flow/nodes/NodeGroupNode.tsx",
       "kind": "tsx",
-      "bytes": 14346,
-      "sha256": "963b907f045de58e679004d8c2352bf769e72fbef6c87a39ccc6d001065a070f",
+      "bytes": 14433,
+      "sha256": "68dd423592bdad6af791d76d0d6b3cfeab84fade969749f01611fe1dd246a7db",
       "importSpecifiers": [
         "@/components/ui/SmartImage",
         "@/utils/localeText",
@@ -8303,6 +8336,33 @@
         "envVars": []
       }
     },
+    "frontend/src/components/flow/nodes/RunCreditBadge.tsx": {
+      "path": "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
+      "kind": "tsx",
+      "bytes": 1328,
+      "sha256": "295f5e0cc7c5b26654d96f5b610a54e4c0db4a426ace376cd377ed6b48bd49e9",
+      "importSpecifiers": [
+        "@/utils/localeText",
+        "react"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "RunCreditBadge"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "flow"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
     "frontend/src/components/flow/nodes/Seedance20VideoNode.tsx": {
       "path": "frontend/src/components/flow/nodes/Seedance20VideoNode.tsx",
       "kind": "tsx",
@@ -8330,11 +8390,13 @@
     "frontend/src/components/flow/nodes/Seedream5Node.tsx": {
       "path": "frontend/src/components/flow/nodes/Seedream5Node.tsx",
       "kind": "tsx",
-      "bytes": 14498,
-      "sha256": "dd67f140a9f72cabb78b0709c0324fd88d28c1619f3ae97bbca16b7f6ed02102",
+      "bytes": 14909,
+      "sha256": "fef708512023d6ec2e880b53c645a979a592b54f6c6a6c8a1f4a6e4690b97f1d",
       "importSpecifiers": [
         "../../ui/SmartImage",
         "./GenerationProgressBar",
+        "./RunCreditBadge",
+        "./flowNodeDarkTheme",
         "@/hooks/useFlowImageAssetUrl",
         "@/services/flowImageAssetStore",
         "@/utils/imageSource",
@@ -8364,9 +8426,10 @@
     "frontend/src/components/flow/nodes/Sora2CharacterNode.tsx": {
       "path": "frontend/src/components/flow/nodes/Sora2CharacterNode.tsx",
       "kind": "tsx",
-      "bytes": 7293,
-      "sha256": "82fb9fb76ece355a547914411170589bd9ffdf85b970eb03d7c3a3d77aeaab68",
+      "bytes": 7460,
+      "sha256": "2c9991bc40e76771cd81af160283cf609191c6c2f8a7ff06934bfc6cdf5415a4",
       "importSpecifiers": [
+        "./RunCreditBadge",
         "@/utils/localeText",
         "lucide-react",
         "react",
@@ -8393,11 +8456,12 @@
     "frontend/src/components/flow/nodes/Sora2VideoNode.tsx": {
       "path": "frontend/src/components/flow/nodes/Sora2VideoNode.tsx",
       "kind": "tsx",
-      "bytes": 45656,
-      "sha256": "a71d696c89a798ece32f290258c84799234096f3afaf21b79ad4ddc0c6eb2bda",
+      "bytes": 45795,
+      "sha256": "c1ec84cf3ea56d15c2249813b1369aa8c765edc1631dc9b8a86ea33287564617",
       "importSpecifiers": [
         "../../ui/SmartImage",
         "./GenerationProgressBar",
+        "./RunCreditBadge",
         "@/services/authFetch",
         "@/stores/aiChatStore",
         "@/utils/assetProxy",
@@ -8460,10 +8524,12 @@
     "frontend/src/components/flow/nodes/TencentSpeechNode.tsx": {
       "path": "frontend/src/components/flow/nodes/TencentSpeechNode.tsx",
       "kind": "tsx",
-      "bytes": 31016,
-      "sha256": "f713f2c357644f32b43d361e3d29b5674370aa2896ae8fd93becd8462e709f08",
+      "bytes": 31665,
+      "sha256": "4f9e7e339f69b1dd3b34bcff2ccf8a1f7fb444c895f0a8044eeea50912c049e8",
       "importSpecifiers": [
         "./GenerationProgressBar",
+        "./RunCreditBadge",
+        "./flowNodeDarkTheme",
         "./tencentSystemVoices",
         "@/utils/localeText",
         "lucide-react",
@@ -8491,8 +8557,8 @@
     "frontend/src/components/flow/nodes/TextChatNode.tsx": {
       "path": "frontend/src/components/flow/nodes/TextChatNode.tsx",
       "kind": "tsx",
-      "bytes": 18226,
-      "sha256": "eb73ff903917270a2cbede0a16756232af9d0b8f94f26e2478d352ce5d1232d5",
+      "bytes": 20428,
+      "sha256": "ac207f554a58dbc1dfd91d0d648f30e9d66764aac188d1c16b9e7d86abb6f34f",
       "importSpecifiers": [
         "../utils/textSource",
         "@/services/aiImageService",
@@ -8522,9 +8588,10 @@
     "frontend/src/components/flow/nodes/TextNoteNode.tsx": {
       "path": "frontend/src/components/flow/nodes/TextNoteNode.tsx",
       "kind": "tsx",
-      "bytes": 7487,
-      "sha256": "25c20d18f0cd21dcf98b8c172ea8688f5d53f019b1ac907911b960e924b8bb00",
+      "bytes": 7353,
+      "sha256": "d3519bd7f15629cb375203a7f630cf5ac793aa02d9943c07964d2dd9fed04a88",
       "importSpecifiers": [
+        "@/stores/aiChatStore",
         "@/utils/localeText",
         "react",
         "reactflow"
@@ -8653,9 +8720,10 @@
     "frontend/src/components/flow/nodes/VideoAnalyzeNode.tsx": {
       "path": "frontend/src/components/flow/nodes/VideoAnalyzeNode.tsx",
       "kind": "tsx",
-      "bytes": 10716,
-      "sha256": "95953c129a90d433fafcd4e76a636bf33486cc9c2264d36f3e2f849347ffbaba",
+      "bytes": 11059,
+      "sha256": "74ebced5de7cf962b4b0b3f67be3d0c8d2e333731545cb41f0f89a92bf96c843",
       "importSpecifiers": [
+        "./flowNodeDarkTheme",
         "@/services/authFetch",
         "@/stores/aiChatStore",
         "@/utils/localeText",
@@ -8840,11 +8908,13 @@
     "frontend/src/components/flow/nodes/ViewAngleNode.tsx": {
       "path": "frontend/src/components/flow/nodes/ViewAngleNode.tsx",
       "kind": "tsx",
-      "bytes": 46653,
-      "sha256": "9b0a691d5fd576a9e31db7bc3e27ff546f8e2bf5bfde0961a0bbebbdd051b134",
+      "bytes": 49049,
+      "sha256": "b4e86a0fa31c463a9013eeb01a2fb104476fdb59342b3966e870c9ea477b6e8b",
       "importSpecifiers": [
         "../../ui/SmartImage",
         "./GenerationProgressBar",
+        "./RunCreditBadge",
+        "./flowNodeDarkTheme",
         "@/hooks/useFlowImageAssetUrl",
         "@/services/flowImageAssetStore",
         "@/utils/imageSource",
@@ -8875,10 +8945,11 @@
     "frontend/src/components/flow/nodes/Wan26Node.tsx": {
       "path": "frontend/src/components/flow/nodes/Wan26Node.tsx",
       "kind": "tsx",
-      "bytes": 44285,
-      "sha256": "00b7edc867dbe342aecc438231bd5ff58ec474667ec0d6b30ed606e9cc9f9204",
+      "bytes": 44670,
+      "sha256": "132645686f8f3f5357a909c24a278ff572c1609304fbe52c3e3bae5232847b71",
       "importSpecifiers": [
         "./GenerationProgressBar",
+        "./RunCreditBadge",
         "@/services/authFetch",
         "@/stores/aiChatStore",
         "@/stores/projectContentStore",
@@ -8906,14 +8977,48 @@
         "envVars": []
       }
     },
+    "frontend/src/components/flow/nodes/Wan27VideoNode.tsx": {
+      "path": "frontend/src/components/flow/nodes/Wan27VideoNode.tsx",
+      "kind": "tsx",
+      "bytes": 19675,
+      "sha256": "9acd408bd215805aa428c3667bad49d863763830d14cb6f0f52a7fa1135dd65c",
+      "importSpecifiers": [
+        "./GenerationProgressBar",
+        "./RunCreditBadge",
+        "@/stores/aiChatStore",
+        "@/stores/projectContentStore",
+        "@/utils/assetProxy",
+        "@/utils/localeText",
+        "lucide-react",
+        "react",
+        "reactflow"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [],
+        "default": true
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "flow",
+          "reactflow"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
     "frontend/src/components/flow/nodes/Wan2R2VNode.tsx": {
       "path": "frontend/src/components/flow/nodes/Wan2R2VNode.tsx",
       "kind": "tsx",
-      "bytes": 32456,
-      "sha256": "d322917056ae1701f3d56a2009f26f332b9b7304d499914334079e731e734165",
+      "bytes": 32863,
+      "sha256": "07c937a930e6a738dc3569ba22f7fac103876d7b20ab19a31130d7f1d7db7baf",
       "importSpecifiers": [
         "../../ui/SmartImage",
         "./GenerationProgressBar",
+        "./RunCreditBadge",
         "@/services/authFetch",
         "@/utils/assetProxy",
         "@/utils/localeText",
@@ -8933,6 +9038,46 @@
           "auth",
           "flow",
           "reactflow"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
+    "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts": {
+      "path": "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
+      "kind": "ts",
+      "bytes": 3551,
+      "sha256": "33c9c09ade239a853316359f4988325ade5daa188fa5165196b2ee1ba481a6b4",
+      "importSpecifiers": [
+        "@/stores/aiChatStore",
+        "react"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "FLOW_NODE_DARK_SURFACE",
+          "flowAudioPlayerShell",
+          "flowImagePreviewWell",
+          "flowLetterboxBackground",
+          "flowNodeControlField",
+          "flowNodeMutedWellBackground",
+          "flowNodeShellChrome",
+          "flowNodeWellOutlineBorder",
+          "flowSpeechDownloadButton",
+          "flowSpeechHistoryMetaColor",
+          "flowSpeechHistoryPromptColor",
+          "flowSpeechHistoryRow",
+          "flowSpeechHistorySectionDivider",
+          "useFlowNodeDarkTheme"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "flow"
         ],
         "apiEndpoints": [],
         "storageKeys": [],
@@ -10409,8 +10554,8 @@
     "frontend/src/i18n/locales/en-US.ts": {
       "path": "frontend/src/i18n/locales/en-US.ts",
       "kind": "ts",
-      "bytes": 16732,
-      "sha256": "acee4bae4f6316bbbb3852a6794234a34d08929f695f9f955c1d4c1306ae6c86",
+      "bytes": 17777,
+      "sha256": "733e8b64f6d2da0e52c1d65386bf4b925f4fe02d0524e740ee2469b76bca2554",
       "importSpecifiers": [],
       "dynamicImportSpecifiers": [],
       "exports": {
@@ -10435,8 +10580,8 @@
     "frontend/src/i18n/locales/zh-CN.ts": {
       "path": "frontend/src/i18n/locales/zh-CN.ts",
       "kind": "ts",
-      "bytes": 16312,
-      "sha256": "d885db184aceb1479d007f0f45220e3f77fcd9c139d6921280f85dba353c184b",
+      "bytes": 17313,
+      "sha256": "b30d3304bab8ba3188afb9177d6041474876f048c96dcb4b03d8f5a3316af049",
       "importSpecifiers": [],
       "dynamicImportSpecifiers": [],
       "exports": {
@@ -10592,8 +10737,8 @@
     "frontend/src/pages/Admin.tsx": {
       "path": "frontend/src/pages/Admin.tsx",
       "kind": "tsx",
-      "bytes": 284976,
-      "sha256": "1acc511f0ff96e5ab450285fe1f485e5750c324d56adcd3df1748865b6341b68",
+      "bytes": 290724,
+      "sha256": "a6e333bbacf8611d98b14f668e5675f025f3f8a196d8b7777b145d6ea1af3bae",
       "importSpecifiers": [
         "@/components/ui/button",
         "@/components/ui/input",
@@ -10902,8 +11047,8 @@
     "frontend/src/pages/auth/Login.tsx": {
       "path": "frontend/src/pages/auth/Login.tsx",
       "kind": "tsx",
-      "bytes": 18246,
-      "sha256": "96b18d2e798b4d9b76b738d7c0cb9454299b0f6e77ed39f5ee412bcf3fb2e582",
+      "bytes": 25769,
+      "sha256": "3451675ad4c8131fbde4084110531016fd56857513ab612a5961e378da7c8e7e",
       "importSpecifiers": [
         "@/assets/1752064513_guan-cha-insights.webp",
         "@/components/auth/ForgotPasswordModal",
@@ -10929,7 +11074,8 @@
         "routes": [],
         "tags": [
           "auth",
-          "flow"
+          "flow",
+          "qrcode"
         ],
         "apiEndpoints": [],
         "storageKeys": [],
@@ -11131,8 +11277,8 @@
     "frontend/src/services/adminApi.ts": {
       "path": "frontend/src/services/adminApi.ts",
       "kind": "ts",
-      "bytes": 32539,
-      "sha256": "a583cc19c62dd2a871d553074866aa53d5aa783288abfad9776fa577e718ccd0",
+      "bytes": 32581,
+      "sha256": "81a5d39a4eb3cc9ad95a7d51f64f5b391e66785de17c5a510fede27ff1619f76",
       "importSpecifiers": [
         "./authFetch"
       ],
@@ -11287,8 +11433,8 @@
     "frontend/src/services/aiBackendAPI.ts": {
       "path": "frontend/src/services/aiBackendAPI.ts",
       "kind": "ts",
-      "bytes": 51090,
-      "sha256": "35ffde6c48395587991d298f6f9b8047f7face72db08ee3f17b7f1f582c50be3",
+      "bytes": 52940,
+      "sha256": "738725d4422bbf64dbf70183c95b142fcbeacb8b438e435ba337e4eb3250908c",
       "importSpecifiers": [
         "./authFetch",
         "@/types/ai",
@@ -11316,6 +11462,7 @@
           "generateWan26R2VViaAPI",
           "generateWan26T2VViaAPI",
           "generateWan26ViaAPI",
+          "generateWan27I2VViaAPI",
           "midjourneyActionViaAPI",
           "midjourneyModalViaAPI",
           "queryDashscopeTask",
@@ -11384,8 +11531,8 @@
     "frontend/src/services/authApi.ts": {
       "path": "frontend/src/services/authApi.ts",
       "kind": "ts",
-      "bytes": 18579,
-      "sha256": "40d28bda4a709c4f3f92f3f6b8dd522f6a28a03c6998348c0dfef2c382c0e6ec",
+      "bytes": 22443,
+      "sha256": "680f70e69dfbdd0e421088221f3df6bc5cd6cc26b0c781e0ff32c31096166c62",
       "importSpecifiers": [
         "./authFetch",
         "./authTokenStorage"
@@ -11395,6 +11542,7 @@
         "named": [
           "GoogleApiKeyInfo",
           "UserInfo",
+          "WechatOfficialLoginSession",
           "authApi",
           "clearStoredLastAuthAt",
           "getStoredLastAuthAt",
@@ -11409,6 +11557,7 @@
         "tags": [
           "auth",
           "http",
+          "qrcode",
           "token"
         ],
         "apiEndpoints": [
@@ -12188,8 +12337,8 @@
     "frontend/src/services/nodeConfigService.ts": {
       "path": "frontend/src/services/nodeConfigService.ts",
       "kind": "ts",
-      "bytes": 7788,
-      "sha256": "cc781a0595ab11946993bea62a7ac05270efb8267c1a42c54654ecbdd66d702d",
+      "bytes": 8005,
+      "sha256": "af91278916270dbf44da1358791f0041e72d3ab728ca96a18b6b083fe479bf56",
       "importSpecifiers": [
         "../utils/assetProxy",
         "@/utils/localeText"
@@ -12761,8 +12910,8 @@
     "frontend/src/services/videoProviderAPI.ts": {
       "path": "frontend/src/services/videoProviderAPI.ts",
       "kind": "ts",
-      "bytes": 3775,
-      "sha256": "8ed949e0c28f31a22e91e2d26dd7e6730ac85d95fff24a457037a791c189bb4c",
+      "bytes": 3832,
+      "sha256": "4befa07024df7ef33fb83660998f1f36bace9daf60893eb4ebf850a1ff98cf91",
       "importSpecifiers": [
         "../utils/assetProxy",
         "./authFetch"
@@ -12906,8 +13055,8 @@
     "frontend/src/stores/authStore.ts": {
       "path": "frontend/src/stores/authStore.ts",
       "kind": "ts",
-      "bytes": 3089,
-      "sha256": "9d7db5a98ef1237728c7fbd641faa12dd904a04627578a72b429fc2938645e6a",
+      "bytes": 3322,
+      "sha256": "9f390d303d5737fa23d3b368d1a0eaf02b51cc164c74b2a6334defcba79d2e49",
       "importSpecifiers": [
         "@/services/authApi",
         "@/services/authTokenStorage",
@@ -15671,6 +15820,7 @@
         "localUnresolved": [
           "../credits/credits.module",
           "../referral/referral.module",
+          "../telemetry/telemetry.module",
           "../users/users.module",
           "./auth.controller",
           "./auth.service",
@@ -15690,6 +15840,7 @@
           "../credits/credits.service",
           "../prisma/prisma.service",
           "../referral/referral.service",
+          "../telemetry/openobserve-telemetry.service",
           "../users/users.service",
           "./dto/register.dto",
           "./sms.service"
@@ -17469,6 +17620,7 @@
           "frontend/src/components/flow/nodes/ViduVideoNode.tsx",
           "frontend/src/components/flow/nodes/ViewAngleNode.tsx",
           "frontend/src/components/flow/nodes/Wan26Node.tsx",
+          "frontend/src/components/flow/nodes/Wan27VideoNode.tsx",
           "frontend/src/components/flow/nodes/Wan2R2VNode.tsx",
           "frontend/src/components/flow/utils/mjV7PromptSanitize.ts",
           "frontend/src/components/flow/utils/textSource.ts"
@@ -17566,6 +17718,7 @@
       },
       "frontend/src/components/flow/nodes/AnalyzeNode.tsx": {
         "local": [
+          "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
           "frontend/src/components/flow/utils/textSource.ts",
           "frontend/src/components/ui/ImagePreviewModal.tsx",
           "frontend/src/components/ui/SmartImage.tsx"
@@ -17584,7 +17737,9 @@
         ]
       },
       "frontend/src/components/flow/nodes/AudioNode.tsx": {
-        "local": [],
+        "local": [
+          "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts"
+        ],
         "localUnresolved": [],
         "external": [
           "@/services",
@@ -17596,6 +17751,7 @@
       },
       "frontend/src/components/flow/nodes/CameraNode.tsx": {
         "local": [
+          "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
           "frontend/src/components/ui/ImagePreviewModal.tsx",
           "frontend/src/components/ui/SmartImage.tsx",
           "frontend/src/stores/imageHistoryStore.ts"
@@ -17622,6 +17778,8 @@
       },
       "frontend/src/components/flow/nodes/Generate4Node.tsx": {
         "local": [
+          "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
+          "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
           "frontend/src/components/ui/ImagePreviewModal.tsx",
           "frontend/src/components/ui/SmartImage.tsx"
         ],
@@ -17640,6 +17798,8 @@
       "frontend/src/components/flow/nodes/GenerateNode.tsx": {
         "local": [
           "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
+          "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
+          "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
           "frontend/src/components/ui/ImagePreviewModal.tsx",
           "frontend/src/components/ui/SmartImage.tsx",
           "frontend/src/components/ui/dropdown-menu.tsx",
@@ -17660,6 +17820,8 @@
       },
       "frontend/src/components/flow/nodes/GeneratePro4Node.tsx": {
         "local": [
+          "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
+          "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
           "frontend/src/components/flow/utils/textSource.ts",
           "frontend/src/components/ui/ImagePreviewModal.tsx",
           "frontend/src/components/ui/SmartImage.tsx",
@@ -17680,6 +17842,8 @@
       "frontend/src/components/flow/nodes/GenerateProNode.tsx": {
         "local": [
           "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
+          "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
+          "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
           "frontend/src/components/flow/utils/textSource.ts",
           "frontend/src/components/ui/ImagePreviewModal.tsx",
           "frontend/src/components/ui/SmartImage.tsx",
@@ -17704,6 +17868,8 @@
       "frontend/src/components/flow/nodes/GenerateReferenceNode.tsx": {
         "local": [
           "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
+          "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
+          "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
           "frontend/src/components/ui/ImagePreviewModal.tsx",
           "frontend/src/components/ui/SmartImage.tsx",
           "frontend/src/stores/imageHistoryStore.ts"
@@ -17732,6 +17898,7 @@
       "frontend/src/components/flow/nodes/GenericVideoNode.tsx": {
         "local": [
           "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
+          "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
           "frontend/src/components/ui/SmartImage.tsx"
         ],
         "localUnresolved": [],
@@ -17748,6 +17915,7 @@
       },
       "frontend/src/components/flow/nodes/ImageCompressNode.tsx": {
         "local": [
+          "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
           "frontend/src/components/ui/SmartImage.tsx"
         ],
         "localUnresolved": [],
@@ -17763,6 +17931,7 @@
       },
       "frontend/src/components/flow/nodes/ImageGridNode.tsx": {
         "local": [
+          "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
           "frontend/src/components/ui/SmartImage.tsx"
         ],
         "localUnresolved": [],
@@ -17828,6 +17997,7 @@
       },
       "frontend/src/components/flow/nodes/ImageSplitNode.tsx": {
         "local": [
+          "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
           "frontend/src/components/ui/SmartImage.tsx"
         ],
         "localUnresolved": [],
@@ -17862,6 +18032,7 @@
       "frontend/src/components/flow/nodes/KlingO1VideoNode.tsx": {
         "local": [
           "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
+          "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
           "frontend/src/components/ui/SmartImage.tsx"
         ],
         "localUnresolved": [],
@@ -17884,6 +18055,8 @@
       "frontend/src/components/flow/nodes/MidjourneyNode.tsx": {
         "local": [
           "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
+          "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
+          "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
           "frontend/src/components/ui/ImagePreviewModal.tsx",
           "frontend/src/components/ui/SmartImage.tsx",
           "frontend/src/stores/imageHistoryStore.ts"
@@ -17892,6 +18065,7 @@
         "external": [
           "@/hooks",
           "@/services",
+          "@/stores",
           "@/stores",
           "@/utils",
           "@/utils",
@@ -17902,7 +18076,9 @@
       },
       "frontend/src/components/flow/nodes/MinimaxMusicNode.tsx": {
         "local": [
-          "frontend/src/components/flow/nodes/GenerationProgressBar.tsx"
+          "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
+          "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
+          "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts"
         ],
         "localUnresolved": [],
         "external": [
@@ -17914,7 +18090,9 @@
       },
       "frontend/src/components/flow/nodes/MinimaxSpeechNode.tsx": {
         "local": [
-          "frontend/src/components/flow/nodes/GenerationProgressBar.tsx"
+          "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
+          "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
+          "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts"
         ],
         "localUnresolved": [],
         "external": [
@@ -17927,6 +18105,8 @@
       "frontend/src/components/flow/nodes/Nano2Node.tsx": {
         "local": [
           "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
+          "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
+          "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
           "frontend/src/components/ui/ImagePreviewModal.tsx",
           "frontend/src/components/ui/SmartImage.tsx",
           "frontend/src/stores/imageHistoryStore.ts"
@@ -17969,6 +18149,14 @@
           "reactflow"
         ]
       },
+      "frontend/src/components/flow/nodes/RunCreditBadge.tsx": {
+        "local": [],
+        "localUnresolved": [],
+        "external": [
+          "@/utils",
+          "react"
+        ]
+      },
       "frontend/src/components/flow/nodes/Seedance20VideoNode.tsx": {
         "local": [
           "frontend/src/components/flow/nodes/GenericVideoNode.tsx"
@@ -17979,6 +18167,8 @@
       "frontend/src/components/flow/nodes/Seedream5Node.tsx": {
         "local": [
           "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
+          "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
+          "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
           "frontend/src/components/ui/SmartImage.tsx"
         ],
         "localUnresolved": [],
@@ -17993,7 +18183,9 @@
         ]
       },
       "frontend/src/components/flow/nodes/Sora2CharacterNode.tsx": {
-        "local": [],
+        "local": [
+          "frontend/src/components/flow/nodes/RunCreditBadge.tsx"
+        ],
         "localUnresolved": [],
         "external": [
           "@/utils",
@@ -18005,6 +18197,7 @@
       "frontend/src/components/flow/nodes/Sora2VideoNode.tsx": {
         "local": [
           "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
+          "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
           "frontend/src/components/ui/SmartImage.tsx"
         ],
         "localUnresolved": [],
@@ -18030,6 +18223,8 @@
       "frontend/src/components/flow/nodes/TencentSpeechNode.tsx": {
         "local": [
           "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
+          "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
+          "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
           "frontend/src/components/flow/nodes/tencentSystemVoices.ts"
         ],
         "localUnresolved": [],
@@ -18058,6 +18253,7 @@
         "local": [],
         "localUnresolved": [],
         "external": [
+          "@/stores",
           "@/utils",
           "react",
           "reactflow"
@@ -18111,7 +18307,9 @@
         ]
       },
       "frontend/src/components/flow/nodes/VideoAnalyzeNode.tsx": {
-        "local": [],
+        "local": [
+          "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts"
+        ],
         "localUnresolved": [],
         "external": [
           "@/services",
@@ -18176,6 +18374,8 @@
       "frontend/src/components/flow/nodes/ViewAngleNode.tsx": {
         "local": [
           "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
+          "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
+          "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
           "frontend/src/components/ui/SmartImage.tsx"
         ],
         "localUnresolved": [],
@@ -18192,7 +18392,8 @@
       },
       "frontend/src/components/flow/nodes/Wan26Node.tsx": {
         "local": [
-          "frontend/src/components/flow/nodes/GenerationProgressBar.tsx"
+          "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
+          "frontend/src/components/flow/nodes/RunCreditBadge.tsx"
         ],
         "localUnresolved": [],
         "external": [
@@ -18206,9 +18407,26 @@
           "reactflow"
         ]
       },
+      "frontend/src/components/flow/nodes/Wan27VideoNode.tsx": {
+        "local": [
+          "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
+          "frontend/src/components/flow/nodes/RunCreditBadge.tsx"
+        ],
+        "localUnresolved": [],
+        "external": [
+          "@/stores",
+          "@/stores",
+          "@/utils",
+          "@/utils",
+          "lucide-react",
+          "react",
+          "reactflow"
+        ]
+      },
       "frontend/src/components/flow/nodes/Wan2R2VNode.tsx": {
         "local": [
           "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
+          "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
           "frontend/src/components/ui/SmartImage.tsx"
         ],
         "localUnresolved": [],
@@ -18219,6 +18437,14 @@
           "lucide-react",
           "react",
           "reactflow"
+        ]
+      },
+      "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts": {
+        "local": [],
+        "localUnresolved": [],
+        "external": [
+          "@/stores",
+          "react"
         ]
       },
       "frontend/src/components/flow/nodes/tencentSystemVoices.ts": {
@@ -20339,6 +20565,7 @@
         "frontend/src/components/flow/nodes/TencentSpeechNode.tsx",
         "frontend/src/components/flow/nodes/ViewAngleNode.tsx",
         "frontend/src/components/flow/nodes/Wan26Node.tsx",
+        "frontend/src/components/flow/nodes/Wan27VideoNode.tsx",
         "frontend/src/components/flow/nodes/Wan2R2VNode.tsx"
       ],
       "frontend/src/components/flow/nodes/GenericVideoNode.tsx": [
@@ -20394,6 +20621,27 @@
       ],
       "frontend/src/components/flow/nodes/PromptOptimizeNode.tsx": [
         "frontend/src/components/flow/FlowOverlay.tsx"
+      ],
+      "frontend/src/components/flow/nodes/RunCreditBadge.tsx": [
+        "frontend/src/components/flow/nodes/Generate4Node.tsx",
+        "frontend/src/components/flow/nodes/GenerateNode.tsx",
+        "frontend/src/components/flow/nodes/GeneratePro4Node.tsx",
+        "frontend/src/components/flow/nodes/GenerateProNode.tsx",
+        "frontend/src/components/flow/nodes/GenerateReferenceNode.tsx",
+        "frontend/src/components/flow/nodes/GenericVideoNode.tsx",
+        "frontend/src/components/flow/nodes/KlingO1VideoNode.tsx",
+        "frontend/src/components/flow/nodes/MidjourneyNode.tsx",
+        "frontend/src/components/flow/nodes/MinimaxMusicNode.tsx",
+        "frontend/src/components/flow/nodes/MinimaxSpeechNode.tsx",
+        "frontend/src/components/flow/nodes/Nano2Node.tsx",
+        "frontend/src/components/flow/nodes/Seedream5Node.tsx",
+        "frontend/src/components/flow/nodes/Sora2CharacterNode.tsx",
+        "frontend/src/components/flow/nodes/Sora2VideoNode.tsx",
+        "frontend/src/components/flow/nodes/TencentSpeechNode.tsx",
+        "frontend/src/components/flow/nodes/ViewAngleNode.tsx",
+        "frontend/src/components/flow/nodes/Wan26Node.tsx",
+        "frontend/src/components/flow/nodes/Wan27VideoNode.tsx",
+        "frontend/src/components/flow/nodes/Wan2R2VNode.tsx"
       ],
       "frontend/src/components/flow/nodes/Seedance20VideoNode.tsx": [
         "frontend/src/components/flow/FlowOverlay.tsx"
@@ -20452,8 +20700,32 @@
       "frontend/src/components/flow/nodes/Wan26Node.tsx": [
         "frontend/src/components/flow/FlowOverlay.tsx"
       ],
+      "frontend/src/components/flow/nodes/Wan27VideoNode.tsx": [
+        "frontend/src/components/flow/FlowOverlay.tsx"
+      ],
       "frontend/src/components/flow/nodes/Wan2R2VNode.tsx": [
         "frontend/src/components/flow/FlowOverlay.tsx"
+      ],
+      "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts": [
+        "frontend/src/components/flow/nodes/AnalyzeNode.tsx",
+        "frontend/src/components/flow/nodes/AudioNode.tsx",
+        "frontend/src/components/flow/nodes/CameraNode.tsx",
+        "frontend/src/components/flow/nodes/Generate4Node.tsx",
+        "frontend/src/components/flow/nodes/GenerateNode.tsx",
+        "frontend/src/components/flow/nodes/GeneratePro4Node.tsx",
+        "frontend/src/components/flow/nodes/GenerateProNode.tsx",
+        "frontend/src/components/flow/nodes/GenerateReferenceNode.tsx",
+        "frontend/src/components/flow/nodes/ImageCompressNode.tsx",
+        "frontend/src/components/flow/nodes/ImageGridNode.tsx",
+        "frontend/src/components/flow/nodes/ImageSplitNode.tsx",
+        "frontend/src/components/flow/nodes/MidjourneyNode.tsx",
+        "frontend/src/components/flow/nodes/MinimaxMusicNode.tsx",
+        "frontend/src/components/flow/nodes/MinimaxSpeechNode.tsx",
+        "frontend/src/components/flow/nodes/Nano2Node.tsx",
+        "frontend/src/components/flow/nodes/Seedream5Node.tsx",
+        "frontend/src/components/flow/nodes/TencentSpeechNode.tsx",
+        "frontend/src/components/flow/nodes/VideoAnalyzeNode.tsx",
+        "frontend/src/components/flow/nodes/ViewAngleNode.tsx"
       ],
       "frontend/src/components/flow/nodes/tencentSystemVoices.ts": [
         "frontend/src/components/flow/nodes/TencentSpeechNode.tsx"

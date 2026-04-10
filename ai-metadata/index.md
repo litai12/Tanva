@@ -1,24 +1,24 @@
 # AI Metadata Index
 
-- Generated: 2026-04-09T05:53:37.195Z
-- Source files indexed: 457
+- Generated: 2026-04-10T01:44:25.830Z
+- Source files indexed: 460
 - Schema version: 2
 
 ## Top tags
-- `flow`: 139
+- `flow`: 142
 - `canvas`: 122
 - `auth`: 117
 - `http`: 100
 - `token`: 50
-- `reactflow`: 47
+- `reactflow`: 48
 - `gemini`: 43
 - `settings`: 29
+- `subscription`: 21
 - `kling`: 21
-- `subscription`: 20
 - `storyboard`: 14
+- `qrcode`: 13
 - `worker`: 10
 - `profile`: 10
-- `qrcode`: 9
 - `zip`: 3
 - `artboard`: 3
 - `grs`: 1
@@ -27,7 +27,7 @@
 - (none detected)
 
 ## Directory overview
-- `frontend/src/components/flow/nodes`: 48
+- `frontend/src/components/flow/nodes`: 51
 - `frontend/src/services`: 46
 - `frontend/src/utils`: 26
 - `frontend/src/components/canvas`: 23
@@ -60,8 +60,10 @@
 
 ## Most referenced files
 - `frontend/src/components/ui/SmartImage.tsx` (referenced by 28)
+- `frontend/src/components/flow/nodes/RunCreditBadge.tsx` (referenced by 19)
+- `frontend/src/components/flow/nodes/flowNodeDarkTheme.ts` (referenced by 19)
 - `frontend/src/services/authFetch.ts` (referenced by 18)
-- `frontend/src/components/flow/nodes/GenerationProgressBar.tsx` (referenced by 15)
+- `frontend/src/components/flow/nodes/GenerationProgressBar.tsx` (referenced by 16)
 - `frontend/src/components/ui/ImagePreviewModal.tsx` (referenced by 14)
 - `frontend/src/components/ui/button.tsx` (referenced by 11)
 - `frontend/src/stores/imageHistoryStore.ts` (referenced by 9)
@@ -82,8 +84,6 @@
 - `backend/src/credits/credit-lot-ledger.ts` (referenced by 2)
 - `frontend/src/components/canvas/hooks/useSnapAlignment.ts` (referenced by 2)
 - `frontend/src/components/flow/types.ts` (referenced by 2)
-- `frontend/src/components/ui/loading-spinner.tsx` (referenced by 2)
-- `frontend/src/services/tokenRefreshManager.ts` (referenced by 2)
 
 ## How to use
 - Open `ai-metadata/index.md` for a human-readable overview.

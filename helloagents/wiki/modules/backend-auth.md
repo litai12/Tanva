@@ -17,7 +17,8 @@
 - `GET watcha/authorize`：发起观猹 OAuth2 授权跳转（支持 `returnTo`）
 - `GET watcha/callback`：处理观猹回调，自动登录并回跳前端
 - `POST wechat-official/sessions`：创建公众号扫码登录会话，返回带场景值二维码
-- `GET wechat-official/sessions/:id`：轮询公众号扫码登录状态（`pending/authorized/expired`）
+- `GET wechat-official/sessions/:id`：轮询公众号扫码登录状态（`pending/needs_phone_bind/authorized/expired`）
+- `POST wechat-official/sessions/:id/bind-phone`：扫码识别到微信身份但未绑定真实手机号时，提交手机号 + 短信验证码完成绑定并登录
 - `POST wechat-official/sessions/:id/consume`：消费已授权扫码会话，写入 cookie 并完成登录
 - `GET wechat-official/callback`：微信公众平台回调 URL 验证
 - `POST wechat-official/callback`：接收公众号 `subscribe/SCAN` 事件，完成扫码登录关联
@@ -33,5 +34,5 @@
 - 观猹 OAuth 依赖环境变量：`WATCHA_OAUTH_CLIENT_ID`、`WATCHA_OAUTH_CLIENT_SECRET`、`WATCHA_OAUTH_REDIRECT_URI`；可选 `WATCHA_OAUTH_SCOPE`、`WATCHA_OAUTH_FRONTEND_BASE_URL`、`WATCHA_OAUTH_FAILURE_PATH`。
 - 用户表新增 `watchaUserId`（唯一）用于稳定关联第三方账号；若观猹未返回可用手机号，会自动生成 `watcha_*` 形式占位手机号，仅用于账号标识。
 - 公众号扫码登录依赖环境变量：`WECHAT_OFFICIAL_APP_ID`、`WECHAT_OFFICIAL_APP_SECRET`、`WECHAT_OFFICIAL_TOKEN`；可选 `WECHAT_OFFICIAL_QR_EXPIRE_SECONDS`、`WECHAT_OFFICIAL_LOGIN_MESSAGE`。
-- 当前实现按公众号事件 `subscribe/SCAN` 直接登录：首次扫码会按 `wechatOfficialOpenId/unionId` 自动创建或复用本地账号，并生成 `wechat_*` 占位手机号。
+- 当前扫码登录以手机号为主身份：`subscribe/SCAN` 只负责识别微信身份；若该微信未绑定真实手机号，会先进入 `needs_phone_bind`，需短信验证手机号后才发放登录态。
 - 当前只实现微信公众平台 `明文模式` 回调；后台配置时不要启用仅加密模式，否则需要额外 AES 解密链路。

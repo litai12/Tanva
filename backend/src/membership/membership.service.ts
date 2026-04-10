@@ -254,6 +254,7 @@ export class MembershipService {
             monthlyQuotaCredits: plan.monthlyQuotaCredits,
             signupBonusCredits: plan.signupBonusCredits,
             dailyGiftCredits: plan.dailyGiftCredits,
+            metadata: plan.metadata,
           }
         : null,
       nextChange,
@@ -351,13 +352,33 @@ export class MembershipService {
         totalCredits: account?.balance ?? 0,
       },
       quotas: {
-        inviteLimit: null,
+        inviteLimit: this.readInviteLimitFromPlanMetadata(current.plan?.metadata),
         imageDailyLimit: null,
         videoDailyLimit: null,
       },
       nextChange: current.nextChange,
       current,
     };
+  }
+
+  private readInviteLimitFromPlanMetadata(metadata: Prisma.JsonValue | null | undefined): number | null {
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+      return null;
+    }
+
+    const rawValue = (metadata as Record<string, unknown>).inviteLimit;
+    const inviteLimit =
+      typeof rawValue === 'number'
+        ? Math.trunc(rawValue)
+        : typeof rawValue === 'string' && rawValue.trim()
+          ? Math.trunc(Number(rawValue))
+          : NaN;
+
+    if (!Number.isFinite(inviteLimit) || inviteLimit < 0) {
+      return null;
+    }
+
+    return inviteLimit;
   }
 
   async getNextChange(userId: string): Promise<MembershipNextChangeView | null> {

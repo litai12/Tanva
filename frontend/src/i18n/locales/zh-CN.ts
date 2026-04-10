@@ -113,6 +113,12 @@ const zhCN = {
       wechatRefresh: "刷新二维码",
       wechatExpired: "二维码已过期，请刷新后重试",
       wechatAuthorizing: "扫码成功，正在登录...",
+      wechatBinding: "正在校验手机号并完成登录...",
+      wechatBindHint: "微信身份已识别，请填写手机号并输入短信验证码后完成登录",
+      wechatBindSubmit: "验证手机号并登录",
+      wechatBindSubmitLoading: "验证中...",
+      wechatBindIncomplete: "请输入手机号和验证码",
+      wechatBindFailed: "手机号验证失败，请稍后重试",
       wechatLoadFailed: "微信登录二维码加载失败",
     },
     register: {

@@ -3,8 +3,6 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CREDIT_PRICING_CONFIG,
-  DEFAULT_NEW_USER_CREDITS,
-  INVITED_NEW_USER_BONUS_CREDITS,
   ServiceType,
 } from './credits.config';
 import { TransactionType, ApiResponseStatus } from './dto/credits.dto';
@@ -15,7 +13,6 @@ import {
   buildDailyRewardCreditLotData,
   buildFreeMonthlyQuotaCreditLotData,
   buildManualCreditLotData,
-  buildSignupCreditLotData,
 } from './credit-lot-grants';
 import {
   applyLotDeductionsToSnapshots,
@@ -1170,68 +1167,18 @@ export class CreditsService {
 
         const user = await tx.user.findUnique({
           where: { id: userId },
-          select: { invitedById: true, createdAt: true },
+          select: { createdAt: true },
         });
         userCreatedAt = user?.createdAt;
-        const invitedBonus = user?.invitedById ? INVITED_NEW_USER_BONUS_CREDITS : 0;
-        const initialCredits = DEFAULT_NEW_USER_CREDITS + invitedBonus;
 
-        // 创建新账户并赠送初始积分
+        // 新用户不再发放注册积分；仅初始化账户，后续按免费用户月度额度规则补发。
         const newAccount = await tx.creditAccount.create({
           data: {
             userId,
-            balance: initialCredits,
-            totalEarned: initialCredits,
+            balance: 0,
+            totalEarned: 0,
           },
         });
-
-        const signupLot = await tx.creditLot.create({
-          data: buildSignupCreditLotData({
-            accountId: newAccount.id,
-            amount: DEFAULT_NEW_USER_CREDITS,
-            metadata: {
-              reason: 'new_user_signup',
-            },
-          }),
-        });
-
-        // 记录初始赠送交易
-        await tx.creditTransaction.create({
-          data: {
-            accountId: newAccount.id,
-            type: TransactionType.EARN,
-            amount: DEFAULT_NEW_USER_CREDITS,
-            balanceBefore: 0,
-            balanceAfter: DEFAULT_NEW_USER_CREDITS,
-            description: '新用户注册赠送积分',
-            creditLotId: signupLot.id,
-          },
-        });
-
-        if (invitedBonus > 0) {
-          const invitedBonusLot = await tx.creditLot.create({
-            data: buildSignupCreditLotData({
-              accountId: newAccount.id,
-              amount: invitedBonus,
-              metadata: {
-                reason: 'invitee_signup_bonus',
-                inviterUserId: user?.invitedById ?? null,
-              },
-            }),
-          });
-          await tx.creditTransaction.create({
-            data: {
-              accountId: newAccount.id,
-              type: TransactionType.EARN,
-              amount: invitedBonus,
-              balanceBefore: DEFAULT_NEW_USER_CREDITS,
-              balanceAfter: initialCredits,
-              description: '被邀请注册额外赠送积分',
-              creditLotId: invitedBonusLot.id,
-              metadata: { inviterUserId: user?.invitedById },
-            },
-          });
-        }
 
         return newAccount;
       }, {

@@ -12,6 +12,7 @@
 ## API（前缀 `/api/admin`，节选）
 - `GET dashboard`
 - `GET users` / `GET users/:userId`
+- `DELETE users/:userId`
 - `PATCH users/:userId/status` / `PATCH users/:userId/role`
 - `POST users/:userId/credits/add` / `POST users/:userId/credits/deduct`
 - `GET api-usage/stats` / `GET api-usage/records`
@@ -22,6 +23,7 @@
 
 ## 注意事项
 - 认证/鉴权细节以 Guard 与具体实现为准（通常依赖 JWT + 用户 role/status）。
+- 删除用户时，后端会在事务内先清理用户积分账户下的 `CreditTransaction`、`CreditLot`、`CreditAnomalyRecord`，再删除 `CreditAccount`；同时清理会员订阅相关表（`UserMembershipSubscription`、`MembershipSubscriptionChange`、`MembershipEntitlementSnapshot`），避免外键冲突或孤儿数据。
 - 系统设置中与供应商切换相关的 key：
   - `banana_provider`：Banana 图像链路供应商
   - `banana_text_provider`：Banana 文本链路供应商（text-chat/tool-selection）

@@ -23,11 +23,13 @@ export type GoogleApiKeyInfo = {
 export type WechatOfficialLoginSession = {
   id: string;
   sceneKey?: string;
-  status: "pending" | "authorized" | "expired";
+  status: "pending" | "needs_phone_bind" | "authorized" | "expired";
   qrCodeUrl: string | null;
   expiresAt: string;
   authorizedAt?: string | null;
   returnTo: string;
+  needsPhoneBind?: boolean;
+  hasScannedIdentity?: boolean;
 };
 
 const isMock = import.meta.env.VITE_AUTH_MODE === "mock";
@@ -232,6 +234,56 @@ export const authApi = {
       `${base}/api/auth/wechat-official/sessions/${encodeURIComponent(sessionId)}/consume`,
       {
         method: "POST",
+        credentials: "include",
+        auth: "omit",
+        allowRefresh: false,
+      }
+    );
+    const out = await json<{
+      user: UserInfo;
+      tokens?: { accessToken?: string; refreshToken?: string };
+      returnTo: string;
+    }>(res);
+    if (out.tokens) {
+      setTokens(out.tokens);
+    }
+    saveSession(out.user);
+    setStoredTokenExpiry(Date.now() + 24 * 60 * 60 * 1000);
+    setStoredLastAuthAt(Date.now());
+    return out;
+  },
+
+  async bindWechatOfficialSessionPhone(
+    sessionId: string,
+    payload: { phone: string; code: string }
+  ) {
+    if (isMock) {
+      await delay(200);
+      if (!/^1[3-9]\d{9}$/.test(payload.phone || "")) {
+        throw new Error("手机号格式不正确");
+      }
+      if (payload.code !== FIXED_SMS_CODE) {
+        throw new Error("验证码错误（使用 336699）");
+      }
+      const user: UserInfo = {
+        id: `wechat_bind_${Date.now()}`,
+        email: "",
+        phone: payload.phone,
+        name: `微信用户-${payload.phone.slice(-4)}`,
+        role: "user",
+      };
+      saveSession(user);
+      setStoredTokenExpiry(Date.now() + 24 * 60 * 60 * 1000);
+      setStoredLastAuthAt(Date.now());
+      return { user, returnTo: "/app" };
+    }
+
+    const res = await fetchWithAuth(
+      `${base}/api/auth/wechat-official/sessions/${encodeURIComponent(sessionId)}/bind-phone`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
         credentials: "include",
         auth: "omit",
         allowRefresh: false,

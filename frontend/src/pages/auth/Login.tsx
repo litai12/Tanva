@@ -24,6 +24,7 @@ export default function LoginPage() {
   const [wechatLoading, setWechatLoading] = useState(false);
   const [wechatError, setWechatError] = useState<string | null>(null);
   const [wechatConsuming, setWechatConsuming] = useState(false);
+  const [wechatBinding, setWechatBinding] = useState(false);
   const wechatConsumingRef = useRef(false);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -123,6 +124,75 @@ export default function LoginPage() {
 
   const onWatchaLogin = () => {
     window.location.href = authApi.getWatchaAuthorizeUrl("/app");
+  };
+
+  const sendSmsCode = async (targetPhone: string) => {
+    if (sendCooldown > 0) return;
+    if (!targetPhone) {
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: {
+            message: t("auth.login.phoneRequired"),
+            type: "error",
+          },
+        })
+      );
+      return;
+    }
+    if (!/^1[3-9]\d{9}$/.test(targetPhone)) {
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: {
+            message: t("auth.login.phoneInvalid"),
+            type: "error",
+          },
+        })
+      );
+      return;
+    }
+    try {
+      await authApi.sendSms({ phone: targetPhone });
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: {
+            message: t("auth.login.smsSent"),
+            type: "success",
+          },
+        })
+      );
+      setSendCooldown(60);
+    } catch (err: any) {
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: {
+            message: err?.message || t("auth.register.sendFailed"),
+            type: "error",
+          },
+        })
+      );
+    }
+  };
+
+  const submitWechatBind = async () => {
+    if (!wechatSession?.id) return;
+    if (!phone || !code) {
+      setWechatError(t("auth.login.wechatBindIncomplete"));
+      return;
+    }
+    setWechatBinding(true);
+    setWechatError(null);
+    try {
+      const result = await authApi.bindWechatOfficialSessionPhone(wechatSession.id, {
+        phone,
+        code,
+      });
+      setAuthenticatedUser(result.user, "server");
+      navigate(result.returnTo || "/app", { replace: true });
+    } catch (err: any) {
+      setWechatError(err?.message || t("auth.login.wechatBindFailed"));
+    } finally {
+      setWechatBinding(false);
+    }
   };
 
   const loadWechatSession = async () => {
@@ -245,10 +315,58 @@ export default function LoginPage() {
                   <p className='mt-4 text-sm text-white/90'>
                     {wechatConsuming
                       ? t("auth.login.wechatAuthorizing")
+                      : wechatBinding
+                      ? t("auth.login.wechatBinding")
+                      : wechatSession?.status === "needs_phone_bind"
+                      ? t("auth.login.wechatBindHint")
                       : wechatSession?.status === "expired"
                       ? t("auth.login.wechatExpired")
                       : t("auth.login.wechatHint")}
                   </p>
+                  {wechatSession?.status === "needs_phone_bind" ? (
+                    <div className='mt-5 w-full space-y-3 text-left'>
+                      <Input
+                        placeholder={t("auth.login.phonePlaceholder")}
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12'
+                      />
+                      <div className='flex gap-3'>
+                        <Input
+                          placeholder={t("auth.login.codePlaceholder")}
+                          value={code}
+                          onChange={(e) => setCode(e.target.value)}
+                          className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12 flex-1'
+                        />
+                        <Button
+                          type='button'
+                          variant='outline'
+                          className='whitespace-nowrap flex-shrink-0 min-w-[80px] rounded-xl bg-white/20 hover:bg-white/30 text-white border-white/30 backdrop-blur-sm transition-all duration-200 h-12'
+                          onClick={() => void sendSmsCode(phone)}
+                          disabled={sendCooldown > 0 || wechatBinding}
+                        >
+                          {sendCooldown > 0
+                            ? t("auth.login.resendCode", { seconds: sendCooldown })
+                            : t("auth.login.sendCode")}
+                        </Button>
+                      </div>
+                      <Button
+                        type='button'
+                        className='w-full bg-white/20 hover:bg-white/30 text-white border border-white/30 rounded-xl h-12 font-medium backdrop-blur-sm transition-all duration-200 disabled:opacity-70 hover:shadow-lg'
+                        onClick={() => void submitWechatBind()}
+                        disabled={wechatBinding}
+                      >
+                        {wechatBinding ? (
+                          <>
+                            <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                            {t("auth.login.wechatBindSubmitLoading")}
+                          </>
+                        ) : (
+                          t("auth.login.wechatBindSubmit")
+                        )}
+                      </Button>
+                    </div>
+                  ) : null}
                   {wechatError ? (
                     <p className='mt-3 text-xs text-red-300'>{wechatError}</p>
                   ) : null}
@@ -380,55 +498,7 @@ export default function LoginPage() {
                       type='button'
                       variant='outline'
                       className='whitespace-nowrap flex-shrink-0 min-w-[80px] rounded-xl bg-white/20 hover:bg-white/30 text-white border-white/30 backdrop-blur-sm transition-all duration-200 h-12'
-                      onClick={async () => {
-                        if (sendCooldown > 0) return;
-                        if (!phone) {
-                          window.dispatchEvent(
-                            new CustomEvent("toast", {
-                              detail: {
-                                message: t("auth.login.phoneRequired"),
-                                type: "error",
-                              },
-                            })
-                          );
-                          return;
-                        }
-                        if (!/^1[3-9]\d{9}$/.test(phone)) {
-                          window.dispatchEvent(
-                            new CustomEvent("toast", {
-                              detail: {
-                                message: t("auth.login.phoneInvalid"),
-                                type: "error",
-                              },
-                            })
-                          );
-                          return;
-                        }
-                        try {
-                          await authApi.sendSms({ phone });
-                          // 如果后端返回调试码（开发模式），自动填充到输入框以便测试
-                          // 不自动填充验证码；始终提示用户手动输入短信收到的验证码
-                          window.dispatchEvent(
-                            new CustomEvent("toast", {
-                              detail: {
-                                message: t("auth.login.smsSent"),
-                                type: "success",
-                              },
-                            })
-                          );
-                          // 启动 60s 冷却
-                          setSendCooldown(60);
-                        } catch (err: any) {
-                          window.dispatchEvent(
-                            new CustomEvent("toast", {
-                              detail: {
-                                message: err?.message || t("auth.register.sendFailed"),
-                                type: "error",
-                              },
-                            })
-                          );
-                        }
-                      }}
+                      onClick={() => void sendSmsCode(phone)}
                       disabled={sendCooldown > 0}
                     >
                       {sendCooldown > 0

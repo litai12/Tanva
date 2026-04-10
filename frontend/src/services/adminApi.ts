@@ -658,6 +658,7 @@ export interface MembershipCurrentResponse {
     monthlyQuotaCredits: number;
     signupBonusCredits: number;
     dailyGiftCredits: number;
+    metadata: Record<string, any> | null;
   } | null;
   nextChange: MembershipNextChange | null;
   entitlement: {

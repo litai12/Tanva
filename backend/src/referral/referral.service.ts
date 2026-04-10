@@ -10,13 +10,85 @@ import { PrismaService } from '../prisma/prisma.service';
 // 邀请奖励配置
 const REFERRAL_INVITER_REWARD = 500; // 邀请人奖励积分
 const REFERRAL_INVITER_FIRST_RECHARGE_REWARD = 500; // 邀请好友首充额外奖励积分
-const REFERRAL_REWARD_LIMIT = 10; // 邀请奖励次数上限
+const FREE_USER_REFERRAL_REWARD_LIMIT = 5; // 免费用户邀请奖励次数上限
 const DAILY_CHECK_IN_REWARDS = [50, 50, 50, 50, 50, 50, 50]; // D1-D7 每日签到奖励
 const WEEKLY_BONUS = 150; // 满7天额外奖励
 
 @Injectable()
 export class ReferralService {
   constructor(private prisma: PrismaService) {}
+
+  private parseInviteLimitFromPlanMetadata(metadata: Prisma.JsonValue | null | undefined): number | null {
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+      return null;
+    }
+
+    const rawValue = (metadata as Record<string, unknown>).inviteLimit;
+    const parsed =
+      typeof rawValue === 'number'
+        ? Math.trunc(rawValue)
+        : typeof rawValue === 'string' && rawValue.trim()
+          ? Math.trunc(Number(rawValue))
+          : NaN;
+
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return null;
+    }
+
+    return parsed;
+  }
+
+  private async resolveInviterRewardLimit(
+    inviterUserId: string,
+    tx: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<number> {
+    const subscription = await tx.userMembershipSubscription.findFirst({
+      where: {
+        userId: inviterUserId,
+        status: 'active',
+        currentPeriodStartAt: { lte: new Date() },
+        currentPeriodEndAt: { gt: new Date() },
+      },
+      select: {
+        membershipPlanId: true,
+      },
+      orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    if (!subscription?.membershipPlanId) {
+      return FREE_USER_REFERRAL_REWARD_LIMIT;
+    }
+
+    const plan = await tx.membershipPlan.findUnique({
+      where: { id: subscription.membershipPlanId },
+      select: { metadata: true },
+    });
+
+    return (
+      this.parseInviteLimitFromPlanMetadata(plan?.metadata) ?? FREE_USER_REFERRAL_REWARD_LIMIT
+    );
+  }
+
+  private async syncInviteCodeMaxUses(
+    tx: Prisma.TransactionClient | PrismaService,
+    inviteCode: { id: string; maxUses: number },
+    inviterUserId: string,
+  ) {
+    const expectedMaxUses = await this.resolveInviterRewardLimit(inviterUserId, tx);
+    if (inviteCode.maxUses === expectedMaxUses) {
+      return {
+        ...inviteCode,
+        maxUses: expectedMaxUses,
+      };
+    }
+
+    const updated = await tx.invitationCode.update({
+      where: { id: inviteCode.id },
+      data: { maxUses: expectedMaxUses },
+    });
+
+    return updated;
+  }
 
   private wait(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -79,6 +151,9 @@ export class ReferralService {
     if (inviteCode.inviterUserId === inviteeUserId) {
       throw new BadRequestException('不能使用自己的邀请码');
     }
+    if (!inviteCode.inviterUserId) {
+      throw new BadRequestException('邀请码缺少邀请人信息');
+    }
 
     // 检查是否已经使用过邀请码（任意状态都视为已使用）
     const existingRedemption = await tx.invitationRedemption.findFirst({
@@ -89,7 +164,12 @@ export class ReferralService {
       throw new BadRequestException('您已使用过邀请码');
     }
 
-    const effectiveMaxUses = Math.min(inviteCode.maxUses, REFERRAL_REWARD_LIMIT);
+    const syncedInviteCode = await this.syncInviteCodeMaxUses(
+      tx,
+      inviteCode,
+      inviteCode.inviterUserId,
+    );
+    const effectiveMaxUses = syncedInviteCode.maxUses;
 
     // 原子化占用可发奖次数；超过上限后仍允许使用邀请码，但不再发放邀请积分
     const rewardReservation = await tx.invitationCode.updateMany({
@@ -139,15 +219,17 @@ export class ReferralService {
    * 获取或创建用户的邀请码
    */
   async getOrCreateInviteCode(userId: string) {
+    const expectedMaxUses = await this.resolveInviterRewardLimit(userId);
+
     // 先查找用户是否已有邀请码
     let inviteCode = await this.prisma.invitationCode.findFirst({
       where: { inviterUserId: userId },
     });
 
-    if (inviteCode && inviteCode.maxUses !== REFERRAL_REWARD_LIMIT) {
+    if (inviteCode && inviteCode.maxUses !== expectedMaxUses) {
       inviteCode = await this.prisma.invitationCode.update({
         where: { id: inviteCode.id },
-        data: { maxUses: REFERRAL_REWARD_LIMIT },
+        data: { maxUses: expectedMaxUses },
       });
     }
 
@@ -168,7 +250,7 @@ export class ReferralService {
         data: {
           code: finalCode,
           inviterUserId: userId,
-          maxUses: REFERRAL_REWARD_LIMIT,
+          maxUses: expectedMaxUses,
           status: 'active',
         },
       });
@@ -601,9 +683,16 @@ export class ReferralService {
     if (!inviteCode) {
       return { valid: false, message: '邀请码不存在' };
     }
+    if (!inviteCode.inviter?.id) {
+      return { valid: false, message: '邀请码缺少邀请人信息' };
+    }
 
-
-    const effectiveMaxUses = Math.min(inviteCode.maxUses, REFERRAL_REWARD_LIMIT);
+    const syncedInviteCode = await this.syncInviteCodeMaxUses(
+      this.prisma,
+      inviteCode,
+      inviteCode.inviter.id,
+    );
+    const effectiveMaxUses = syncedInviteCode.maxUses;
 
     return {
       valid: true,
