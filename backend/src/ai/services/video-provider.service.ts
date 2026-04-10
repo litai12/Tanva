@@ -1204,10 +1204,23 @@ export class VideoProviderService {
     const resolvedModelVersion =
       (vendorConfig.modelVersion || fallbackModelVersion).trim().toLowerCase() as ViduManagedModelVersion;
 
+    const explicitVideoMode = String(options.videoMode || "")
+      .trim()
+      .toLowerCase();
+    const forceStartEndMode =
+      explicitVideoMode === "start-end2video" ||
+      explicitVideoMode === "start_end" ||
+      explicitVideoMode === "start-end";
+
+    if (forceStartEndMode && normalizedImages.length < 2) {
+      throw new BadRequestException("Vidu 首尾帧模式至少需要 2 张图片（图1/图2）");
+    }
+
     const isStartEndCandidate =
-      normalizedImages.length >= 2 &&
-      !normalizedPrompt &&
-      resolvedModelVersion === "q2";
+      forceStartEndMode ||
+      (normalizedImages.length >= 2 &&
+        !normalizedPrompt &&
+        resolvedModelVersion === "q2");
 
     const primaryImages = isStartEndCandidate ? normalizedImages.slice(0, 1) : normalizedImages;
     const lastFrameUrl = isStartEndCandidate ? normalizedImages[1] : undefined;

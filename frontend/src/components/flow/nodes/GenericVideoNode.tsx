@@ -397,6 +397,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     (provider === "kling-2.6" ? "kling-v2-6" : "kling-v2-6");
   const isUnifiedKlingNode = provider === "kling" || provider === "kling-2.6";
   const isKling26Model = isUnifiedKlingNode && (klingModel === "kling-v2-6" || klingModel === "kling-v3-0");
+  const isViduNode = provider === "vidu" || provider === "viduq3-pro";
   const isProMode = ((data as any).mode || "std") === "pro";
   const providerInfo = isUnifiedKlingNode
     ? PROVIDER_CONFIG.kling
@@ -1637,7 +1638,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       )}
       {/* image-2 灏惧抚: 浠?Kling 2.6/3.0 pro 妯″紡娓叉煋 */}
       {((isSeedanceModel && seedanceModeSpec?.visibleHandles.includes("image-2")) ||
-        (isKling26Model && isProMode)) && (
+        (isKling26Model && isProMode) ||
+        isViduNode) && (
         <Handle
           type='target'
           position={Position.Left}

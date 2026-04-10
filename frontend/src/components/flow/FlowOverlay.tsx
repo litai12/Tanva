@@ -891,7 +891,7 @@ const FLOW_GROUP_LOCAL_RUN_TYPES = new Set([
   "videoToGif",
 ]);
 const SORA2_MAX_REFERENCE_IMAGES = 1;
-const VIDU_MAX_REFERENCE_IMAGES = 7; // Vidu viduq2 模型支持最多 7 张参考图
+const VIDU_MAX_REFERENCE_IMAGES = 2; // Vidu 当前统一限制最多 2 张参考图（图1/图2）
 const VIDUQ3_MAX_REFERENCE_IMAGES = 2; // Vidu Q3 支持最多 2 张参考图
 const KLING_MAX_REFERENCE_IMAGES = 2; // Kling 2.1 / 2.6 统一限制最多 2 张参考图
 const KLING_MAX_AUDIO_INPUTS = 2;
@@ -8049,7 +8049,10 @@ function FlowInner() {
         )
       ) {
         if (targetHandle === "image-2") {
-          // image-2 仅 Kling 2.6/3.0 pro 模式可用
+          // Vidu 固定用 image/image-2 表达图1/图2；Kling 仅 2.6/3.0 pro 可用 image-2
+          if (targetNode.type === "viduVideo" || targetNode.type === "viduQ3") {
+            return isImageSource(sourceNode, sourceHandle);
+          }
           if (!canKlingNodeUseImage2Input(targetNode)) return false;
           return isImageSource(sourceNode, sourceHandle);
         }
@@ -8405,20 +8408,34 @@ function FlowInner() {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
         if (params.targetHandle.startsWith("video-")) return true; // 每个 video-* 句柄最多一个，onConnect 会替换
       }
-      // Vidu 视频节点：支持最多 7 张参考图
+      // Vidu 视频节点：图1/图2双句柄，每个句柄最多 1 条，总数受模型上限控制
       if (targetNode?.type === "viduVideo") {
         const targetData = ((targetNode.data || {}) as Record<string, any>);
         const maxImages = getEffectiveViduMaxReferenceImages(targetData);
-        if (params.targetHandle === "image") {
-          return incoming.length < maxImages;
+        if (params.targetHandle === "image" || params.targetHandle === "image-2") {
+          const sameHandleCount = edges.filter(
+            (e) => e.target === params.target && e.targetHandle === params.targetHandle
+          ).length;
+          if (sameHandleCount >= 1) return false;
+          const totalImageCount = edges.filter(
+            (e) => e.target === params.target && (e.targetHandle === "image" || e.targetHandle === "image-2")
+          ).length;
+          return totalImageCount < maxImages;
         }
         if (params.targetHandle === "text") return true;
       }
 
-      // Vidu Q3 视频节点：支持最多 2 张参考图
+      // Vidu Q3 视频节点：图1/图2双句柄，每个句柄最多 1 条，总数最多 2 条
       if (targetNode?.type === "viduQ3") {
-        if (params.targetHandle === "image") {
-          return incoming.length < VIDUQ3_MAX_REFERENCE_IMAGES;
+        if (params.targetHandle === "image" || params.targetHandle === "image-2") {
+          const sameHandleCount = edges.filter(
+            (e) => e.target === params.target && e.targetHandle === params.targetHandle
+          ).length;
+          if (sameHandleCount >= 1) return false;
+          const totalImageCount = edges.filter(
+            (e) => e.target === params.target && (e.targetHandle === "image" || e.targetHandle === "image-2")
+          ).length;
+          return totalImageCount < VIDUQ3_MAX_REFERENCE_IMAGES;
         }
         if (params.targetHandle === "text") return true;
       }
@@ -8731,53 +8748,31 @@ function FlowInner() {
               )
           );
         }
-        // Vidu 视频节点：支持最多 7 张参考图
-        if (tgt?.type === "viduVideo" && params.targetHandle === "image") {
-          const targetData = ((tgt.data || {}) as Record<string, any>);
-          const maxImages = getEffectiveViduMaxReferenceImages(targetData);
-          let remainingToDrop = Math.max(
-            0,
-            next.filter(
-              (e) => e.target === params.target && e.targetHandle === "image"
-            ).length -
-              maxImages +
-              1 // +1 for the incoming edge
+        // Vidu 视频节点：image/image-2 各保留 1 条（新线替换旧线）
+        if (
+          tgt?.type === "viduVideo" &&
+          (params.targetHandle === "image" || params.targetHandle === "image-2")
+        ) {
+          next = next.filter(
+            (e) =>
+              !(
+                e.target === params.target &&
+                e.targetHandle === params.targetHandle
+              )
           );
-          if (remainingToDrop > 0) {
-            next = next.filter((e) => {
-              if (remainingToDrop <= 0) return true;
-              const isImageEdge =
-                e.target === params.target && e.targetHandle === "image";
-              if (isImageEdge) {
-                remainingToDrop -= 1;
-                return false;
-              }
-              return true;
-            });
-          }
         }
-        // Vidu Q3 视频节点：支持最多 2 张参考图
-        if (tgt?.type === "viduQ3" && params.targetHandle === "image") {
-          let remainingToDrop = Math.max(
-            0,
-            next.filter(
-              (e) => e.target === params.target && e.targetHandle === "image"
-            ).length -
-              VIDUQ3_MAX_REFERENCE_IMAGES +
-              1 // +1 for the incoming edge
+        // Vidu Q3 视频节点：image/image-2 各保留 1 条（新线替换旧线）
+        if (
+          tgt?.type === "viduQ3" &&
+          (params.targetHandle === "image" || params.targetHandle === "image-2")
+        ) {
+          next = next.filter(
+            (e) =>
+              !(
+                e.target === params.target &&
+                e.targetHandle === params.targetHandle
+              )
           );
-          if (remainingToDrop > 0) {
-            next = next.filter((e) => {
-              if (remainingToDrop <= 0) return true;
-              const isImageEdge =
-                e.target === params.target && e.targetHandle === "image";
-              if (isImageEdge) {
-                remainingToDrop -= 1;
-                return false;
-              }
-              return true;
-            });
-          }
         }
         // Kling 视频节点：std 最多 1 张图，pro 最多 2 张（image + image-2）
         if ((tgt?.type === "klingVideo" || tgt?.type === "kling26Video") &&
@@ -12624,13 +12619,16 @@ function FlowInner() {
               e.targetHandle === "elementImg"
             );
           })
-          .sort(
-            (a, b) =>
+          .sort((a, b) => {
+            const handleDelta =
               imageHandlePriority(a.targetHandle) -
-              imageHandlePriority(b.targetHandle)
-          )
+              imageHandlePriority(b.targetHandle);
+            if (handleDelta !== 0) return handleDelta;
+            return String(a.id || "").localeCompare(String(b.id || ""));
+          })
           .slice(0, maxImages);
         const imageCount = imageEdges.length;
+        const hasImage2Edge = imageEdges.some((edge) => edge.targetHandle === "image-2");
 
         // 获取 prompt
         const { text: promptText, hasEdge: hasText } =
@@ -12718,6 +12716,18 @@ function FlowInner() {
             }
           }
         } else if (provider === "vidu" || provider === "viduq3-pro") {
+          if (hasImage2Edge && !imageEdges.some((edge) => edge.targetHandle === "image")) {
+            failCurrentVideoNode("请先连接图1（image）再连接图2（image-2）");
+            return;
+          }
+          if (hasImage2Edge && imageCount < 2) {
+            failCurrentVideoNode("Vidu 图2（image-2）已连接，但缺少图1或图2资源");
+            return;
+          }
+          if (!hasImage2Edge && imageCount >= 2) {
+            failCurrentVideoNode("Vidu 两图模式请将第二张图连接到图2句柄（image-2）");
+            return;
+          }
           if (imageCount === 0 && !hasText) {
             // 0张图必须有prompt
             setNodes((ns) =>
@@ -12737,8 +12747,8 @@ function FlowInner() {
             return;
           }
 
-          // 3-7张图且无prompt时，使用默认prompt
-          if (imageCount >= 3 && !promptText) {
+          // 单图参考且无 prompt 时，补默认提示词
+          if (imageCount === 1 && !promptText && !hasImage2Edge) {
             finalPrompt = "基于图片生成视频";
           }
         } else if (
@@ -13315,6 +13325,20 @@ function FlowInner() {
               ? "start-end2video"
               : "img2video"
             : "img2video";
+        const viduVideoModeForAPI =
+          provider !== "vidu" && provider !== "viduq3-pro"
+            ? undefined
+            : hasImage2Edge
+            ? "start-end2video"
+            : imageCount === 0
+            ? "text2video"
+            : imageCount === 1
+            ? finalPrompt
+              ? "reference2video"
+              : "img2video"
+            : finalPrompt
+            ? "reference2video"
+            : "start-end2video";
 
         try {
           console.log("🎬 [Flow] Sending video request", {
@@ -13323,6 +13347,7 @@ function FlowInner() {
             aspectRatio: aspectRatioForAPI,
             duration: durationForAPI,
             seedanceMode,
+            viduVideoMode: viduVideoModeForAPI,
             referenceCount: referenceImageUrls.length,
             referenceVideo: referenceVideoUrls.length > 0 ? "有" : "无",
             promptPreview: finalPrompt?.slice(0, 120) || "(无提示词)",
@@ -13381,6 +13406,7 @@ function FlowInner() {
                   duration: durationForAPI,
                   aspectRatio: aspectRatioForAPI,
                   provider: provider as VideoProvider,
+                  videoMode: viduVideoModeForAPI,
                   resolution: rawNodeData.resolution,
                   style:
                     viduModelForApi === "q2" && !isViduQ2ProMode

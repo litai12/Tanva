@@ -798,7 +798,7 @@ export class NodeConfigService {
         creditsPerCall: 600,
         serviceType: 'kling-3.0-video',
         priceYuan: 6,
-        description: '可灵Kling 3.0视频生成，走腾讯 VOD/旧链路模型管理',
+        description: '可灵Kling 3.0视频生成',
         metadata: {
           ...buildVodNodeMetadata(
             {
@@ -840,7 +840,7 @@ export class NodeConfigService {
         creditsPerCall: 1600,
         serviceType: 'kling-o1-video',
         priceYuan: 16,
-        description: '可灵Kling 3.0-Omni视频生成，走腾讯 VOD/旧链路模型管理',
+        description: '可灵Kling 3.0-Omni视频生成',
         metadata: {
           ...buildVodNodeMetadata(
             {
@@ -1259,7 +1259,7 @@ export class NodeConfigService {
         creditsPerCall: 600,
         serviceType: 'kling-3.0-video',
         priceYuan: 6,
-        description: '可灵Kling 3.0视频生成，走腾讯 VOD/旧链路模型管理',
+        description: '可灵Kling 3.0视频生成',
         metadata: {
           type: 'klingVideo',
           provider: 'kling-o3',
@@ -1283,7 +1283,7 @@ export class NodeConfigService {
         creditsPerCall: 1600,
         serviceType: 'kling-o1-video',
         priceYuan: 16,
-        description: '可灵Kling 3.0-Omni视频生成，走腾讯 VOD/旧链路模型管理',
+        description: '可灵Kling 3.0-Omni视频生成',
         metadata: {
           type: 'klingO1Video',
           provider: 'kling-o3',
