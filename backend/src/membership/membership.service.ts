@@ -14,6 +14,10 @@ import type {
 
 @Injectable()
 export class MembershipService {
+  private static readonly FREE_TIER_BENEFITS_SETTING_KEY = 'membership_free_tier_benefits';
+  private static readonly DEFAULT_FREE_USER_IMAGE_DAILY_LIMIT = 20;
+  private static readonly DEFAULT_FREE_USER_VIDEO_DAILY_LIMIT = 3;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly businessPolicyService: BusinessPolicyService,
@@ -336,6 +340,8 @@ export class MembershipService {
       },
       { subscriptionCredits: 0, giftCredits: 0, fixedCredits: 0 },
     );
+    const freeTierBenefits = await this.getFreeTierBenefitsSetting();
+    const hasActivePlan = Boolean(current.plan);
 
     return {
       planCode: entitlement.currentPlanCode,
@@ -352,9 +358,24 @@ export class MembershipService {
         totalCredits: account?.balance ?? 0,
       },
       quotas: {
-        inviteLimit: this.readInviteLimitFromPlanMetadata(current.plan?.metadata),
-        imageDailyLimit: null,
-        videoDailyLimit: null,
+        inviteLimit: hasActivePlan
+          ? this.readInviteLimitFromPlanMetadata(current.plan?.metadata)
+          : this.readIntSettingValue(
+              freeTierBenefits?.inviteLimit,
+              null,
+            ),
+        imageDailyLimit: hasActivePlan
+          ? null
+          : this.readIntSettingValue(
+              freeTierBenefits?.imageDailyLimit,
+              MembershipService.DEFAULT_FREE_USER_IMAGE_DAILY_LIMIT,
+            ),
+        videoDailyLimit: hasActivePlan
+          ? null
+          : this.readIntSettingValue(
+              freeTierBenefits?.videoDailyLimit,
+              MembershipService.DEFAULT_FREE_USER_VIDEO_DAILY_LIMIT,
+            ),
       },
       nextChange: current.nextChange,
       current,
@@ -379,6 +400,40 @@ export class MembershipService {
     }
 
     return inviteLimit;
+  }
+
+  private async getFreeTierBenefitsSetting(): Promise<Record<string, unknown> | null> {
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: { key: MembershipService.FREE_TIER_BENEFITS_SETTING_KEY },
+      select: { value: true },
+    });
+    if (!setting?.value) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(setting.value);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      return null;
+    }
+
+    return null;
+  }
+
+  private readIntSettingValue(value: unknown, fallback: number | null): number | null {
+    const parsed =
+      typeof value === 'number'
+        ? Math.trunc(value)
+        : typeof value === 'string' && value.trim()
+          ? Math.trunc(Number(value))
+          : NaN;
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return fallback;
+    }
+    return parsed;
   }
 
   async getNextChange(userId: string): Promise<MembershipNextChangeView | null> {

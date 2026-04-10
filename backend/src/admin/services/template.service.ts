@@ -16,6 +16,49 @@ const sanitizeNullableString = (value: unknown): string | null | undefined => {
 export class TemplateService {
   constructor(private readonly prisma: PrismaService, private readonly oss: OssService) {}
 
+  private isVipOnlyTemplate(tags?: string[] | null): boolean {
+    if (!Array.isArray(tags) || tags.length === 0) {
+      return false;
+    }
+
+    const normalizedTags = tags
+      .map((tag) => String(tag).trim().toLowerCase())
+      .filter(Boolean);
+
+    return normalizedTags.some((tag) => tag === 'vip' || tag === 'vip-only' || tag === '仅vip');
+  }
+
+  async canUserUseTemplate(templateId: string, userId: string): Promise<boolean> {
+    const template = await this.prisma.publicTemplate.findUnique({
+      where: { id: templateId },
+      select: {
+        id: true,
+        tags: true,
+      },
+    });
+
+    if (!template) {
+      throw new NotFoundException('模板不存在');
+    }
+
+    if (!this.isVipOnlyTemplate(template.tags)) {
+      return true;
+    }
+
+    const activeSubscription = await this.prisma.userMembershipSubscription.findFirst({
+      where: {
+        userId,
+        status: 'active',
+        currentPeriodStartAt: { lte: new Date() },
+        currentPeriodEndAt: { gt: new Date() },
+      },
+      select: { id: true },
+      orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    return Boolean(activeSubscription);
+  }
+
   async createTemplate(dto: CreateTemplateDto, createdBy?: string) {
     let templateData = dto.templateData;
     if (!templateData && dto.templateJsonKey) {

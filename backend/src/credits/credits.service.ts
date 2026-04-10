@@ -34,6 +34,7 @@ const STALE_PENDING_DEFAULT_VIDEO_TIMEOUT_MINUTES = 30;
 const STALE_PENDING_VIDEO_REFUND_DEFAULT_CUTOVER_AT = '2026-03-28T00:00:00.000Z';
 const STALE_PENDING_DEFAULT_BATCH_SIZE = 100;
 const DAILY_REWARD_RESET_HOUR = 3;
+const FREE_TIER_BENEFITS_SETTING_KEY = 'membership_free_tier_benefits';
 const DEFAULT_FREE_USER_MONTHLY_IMAGE_LIMIT = 100;
 const DEFAULT_FREE_USER_DAILY_IMAGE_LIMIT = 20;
 const DEFAULT_FREE_USER_DAILY_VIDEO_LIMIT = 3;
@@ -851,6 +852,25 @@ export class CreditsService {
     );
   }
 
+  private async getFreeTierBenefitsSetting(): Promise<Record<string, unknown> | null> {
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: { key: FREE_TIER_BENEFITS_SETTING_KEY },
+      select: { value: true },
+    });
+    if (!setting?.value) return null;
+
+    try {
+      const parsed = JSON.parse(setting.value);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch (error) {
+      this.logger.warn(`免费用户权益配置解析失败 key=${FREE_TIER_BENEFITS_SETTING_KEY}`);
+    }
+
+    return null;
+  }
+
   private getFreeUserMonthlyImageLimit(): number {
     const raw = process.env.FREE_USER_MONTHLY_IMAGE_LIMIT;
     if (raw === undefined || raw.trim() === '') {
@@ -863,7 +883,18 @@ export class CreditsService {
     return parsed;
   }
 
-  private getFreeUserDailyImageLimit(): number {
+  private async getFreeUserDailyImageLimit(): Promise<number> {
+    const configuredValue = (await this.getFreeTierBenefitsSetting())?.imageDailyLimit;
+    const configuredLimit =
+      typeof configuredValue === 'number'
+        ? Math.trunc(configuredValue)
+        : typeof configuredValue === 'string' && configuredValue.trim()
+          ? Math.trunc(Number(configuredValue))
+          : NaN;
+    if (Number.isFinite(configuredLimit) && configuredLimit >= 0) {
+      return configuredLimit;
+    }
+
     const raw = process.env.FREE_USER_DAILY_IMAGE_LIMIT;
     if (raw === undefined || raw.trim() === '') {
       return DEFAULT_FREE_USER_DAILY_IMAGE_LIMIT;
@@ -875,7 +906,18 @@ export class CreditsService {
     return parsed;
   }
 
-  private getFreeUserDailyVideoLimit(): number {
+  private async getFreeUserDailyVideoLimit(): Promise<number> {
+    const configuredValue = (await this.getFreeTierBenefitsSetting())?.videoDailyLimit;
+    const configuredLimit =
+      typeof configuredValue === 'number'
+        ? Math.trunc(configuredValue)
+        : typeof configuredValue === 'string' && configuredValue.trim()
+          ? Math.trunc(Number(configuredValue))
+          : NaN;
+    if (Number.isFinite(configuredLimit) && configuredLimit >= 0) {
+      return configuredLimit;
+    }
+
     const raw = process.env.FREE_USER_DAILY_VIDEO_LIMIT;
     if (raw === undefined || raw.trim() === '') {
       return DEFAULT_FREE_USER_DAILY_VIDEO_LIMIT;
@@ -987,7 +1029,7 @@ export class CreditsService {
   ): Promise<void> {
     const { userId, serviceType, requestedOutputImageCount } = params;
     const monthlyLimit = this.getFreeUserMonthlyImageLimit();
-    const dailyLimit = this.getFreeUserDailyImageLimit();
+    const dailyLimit = await this.getFreeUserDailyImageLimit();
 
     if (monthlyLimit <= 0 && dailyLimit <= 0) return;
     if (!this.isFreeUserImageQuotaService(serviceType)) return;
@@ -1052,7 +1094,7 @@ export class CreditsService {
     },
   ): Promise<void> {
     const { userId, serviceType } = params;
-    const dailyLimit = this.getFreeUserDailyVideoLimit();
+    const dailyLimit = await this.getFreeUserDailyVideoLimit();
 
     if (dailyLimit <= 0) return;
     if (!this.isFreeUserVideoQuotaService(serviceType)) return;

@@ -16,6 +16,7 @@ import {
   updateUserStatus,
   updateUserRole,
   getSettings,
+  getSetting,
   upsertSetting,
   getMembershipCreditPolicy,
   updateMembershipCreditPolicy,
@@ -2737,6 +2738,29 @@ const BANANA_TEXT_PROVIDER_OPTIONS = [
 
 // 公共模板管理 Tab
 function TemplatesTab() {
+  const VIP_ONLY_TEMPLATE_TAG = "vip-only";
+  const inferTemplateScope = (tags?: string[]) => {
+    const normalizedTags = Array.isArray(tags)
+      ? tags.map((tag) => String(tag).trim().toLowerCase()).filter(Boolean)
+      : [];
+    return normalizedTags.includes(VIP_ONLY_TEMPLATE_TAG) || normalizedTags.includes("vip") || normalizedTags.includes("仅vip")
+      ? "vip-only"
+      : "all";
+  };
+
+  const applyTemplateScopeToTags = (existingTags: string[] | undefined, scope: "all" | "vip-only") => {
+    const baseTags = (existingTags || []).filter((tag) => {
+      const normalized = String(tag).trim().toLowerCase();
+      return normalized !== VIP_ONLY_TEMPLATE_TAG && normalized !== "vip" && normalized !== "仅vip";
+    });
+
+    if (scope === "vip-only") {
+      return [...baseTags, VIP_ONLY_TEMPLATE_TAG];
+    }
+
+    return baseTags;
+  };
+
   const [templates, setTemplates] = useState<PublicTemplate[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [loading, setLoading] = useState(false);
@@ -2760,6 +2784,7 @@ function TemplatesTab() {
     templateData: "",
     templateJsonKey: undefined as string | undefined,
     isActive: true,
+    templateScope: "all" as "all" | "vip-only",
   });
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [jsonFileName, setJsonFileName] = useState<string | null>(null);
@@ -2819,6 +2844,7 @@ function TemplatesTab() {
       templateData: "",
       templateJsonKey: undefined,
       isActive: true,
+      templateScope: "all",
     });
     setJsonFileName(null);
     setImageFileName(null);
@@ -2837,6 +2863,7 @@ function TemplatesTab() {
       templateData: JSON.stringify(fullTemplate.templateData, null, 2),
       templateJsonKey: undefined,
       isActive: fullTemplate.isActive ?? true,
+      templateScope: inferTemplateScope(fullTemplate.tags),
     });
     setJsonFileName(null);
     setImageFileName(null);
@@ -2852,6 +2879,7 @@ function TemplatesTab() {
         thumbnail: formData.thumbnail || undefined,
         thumbnailSmall: formData.thumbnailSmall || undefined,
         isActive: formData.isActive,
+        tags: applyTemplateScopeToTags(editingTemplate?.tags, formData.templateScope),
       };
 
       if (formData.templateJsonKey) {
@@ -3211,10 +3239,10 @@ function TemplatesTab() {
                     placeholder='输入模板名称'
                   />
                 </div>
-                <div>
-                  <label className='block text-sm text-gray-600 mb-1'>
-                    分类
-                  </label>
+              <div>
+                <label className='block text-sm text-gray-600 mb-1'>
+                  分类
+                </label>
                   <select
                     value={formData.category}
                     onChange={(e) =>
@@ -3313,6 +3341,26 @@ function TemplatesTab() {
                       删除
                     </button>
                   </div>
+                </div>
+              </div>
+
+              <div>
+                <label className='block text-sm text-gray-600 mb-1'>可用范围</label>
+                <select
+                  value={formData.templateScope}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      templateScope: e.target.value as "all" | "vip-only",
+                    })
+                  }
+                  className='w-full border rounded px-3 py-2'
+                >
+                  <option value='all'>全部</option>
+                  <option value='vip-only'>仅VIP</option>
+                </select>
+                <div className='mt-1 text-xs text-gray-500'>
+                  仅 VIP 模板会自动带上 `vip-only` tag，普通用户无法直接使用。
                 </div>
               </div>
 
@@ -6165,6 +6213,15 @@ function SettingsTab() {
 }
 
 function VipManagementTab() {
+  const FREE_TIER_BENEFITS_SETTING_KEY = "membership_free_tier_benefits";
+  const DEFAULT_FREE_TIER_BENEFITS = {
+    coreBenefits: "每天最多 20 张图、3 个视频",
+    templateLibraryAccess: "基础可用",
+    inviteLimit: 5,
+    imageDailyLimit: 20,
+    videoDailyLimit: 3,
+    supportLevel: "有限技术支持",
+  };
   const DEFAULT_PLAN_METADATA_TEXT = JSON.stringify(
     {
       planCode: "",
@@ -6249,8 +6306,31 @@ function VipManagementTab() {
   const [savingPlan, setSavingPlan] = useState(false);
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   const [planModalOpen, setPlanModalOpen] = useState(false);
+  const [freeTierModalOpen, setFreeTierModalOpen] = useState(false);
   const [planMetadataText, setPlanMetadataText] = useState(DEFAULT_PLAN_METADATA_TEXT);
   const [opsLoading, setOpsLoading] = useState(false);
+  const [savingFreeTierBenefits, setSavingFreeTierBenefits] = useState(false);
+  const [freeTierBenefits, setFreeTierBenefits] = useState<{
+    monthlyQuotaCredits: string;
+    dailyRewardCredits: string;
+    consecutive7DayRewardMultiplier: string;
+    coreBenefits: string;
+    templateLibraryAccess: string;
+    inviteLimit: string;
+    imageDailyLimit: string;
+    videoDailyLimit: string;
+    supportLevel: string;
+  }>({
+    monthlyQuotaCredits: "500",
+    dailyRewardCredits: "50",
+    consecutive7DayRewardMultiplier: "3",
+    coreBenefits: DEFAULT_FREE_TIER_BENEFITS.coreBenefits,
+    templateLibraryAccess: DEFAULT_FREE_TIER_BENEFITS.templateLibraryAccess,
+    inviteLimit: String(DEFAULT_FREE_TIER_BENEFITS.inviteLimit),
+    imageDailyLimit: String(DEFAULT_FREE_TIER_BENEFITS.imageDailyLimit),
+    videoDailyLimit: String(DEFAULT_FREE_TIER_BENEFITS.videoDailyLimit),
+    supportLevel: DEFAULT_FREE_TIER_BENEFITS.supportLevel,
+  });
   const [policyForm, setPolicyForm] = useState<MembershipCreditPolicyConfig>({
     dailyGiftDecayCredits: 50,
     fixedCreditExpireDays: 730,
@@ -6292,13 +6372,61 @@ function VipManagementTab() {
   const loadVipData = async () => {
     setLoading(true);
     try {
-      const [plansResult, policyResult] = await Promise.all([
+      const [plansResult, policyResult, freeTierSetting] = await Promise.all([
         getAdminMembershipPlans(),
         getMembershipCreditPolicy(),
+        getSetting(FREE_TIER_BENEFITS_SETTING_KEY).catch(() => null),
       ]);
       setPlans(plansResult);
       setPolicyView(policyResult);
       setPolicyForm(policyResult.effective);
+      let parsedFreeTier = DEFAULT_FREE_TIER_BENEFITS;
+      if (freeTierSetting?.value) {
+        try {
+          const raw = JSON.parse(freeTierSetting.value);
+          parsedFreeTier = {
+            coreBenefits:
+              typeof raw?.coreBenefits === "string" && raw.coreBenefits.trim()
+                ? raw.coreBenefits.trim()
+                : DEFAULT_FREE_TIER_BENEFITS.coreBenefits,
+            templateLibraryAccess:
+              typeof raw?.templateLibraryAccess === "string" && raw.templateLibraryAccess.trim()
+                ? raw.templateLibraryAccess.trim()
+                : DEFAULT_FREE_TIER_BENEFITS.templateLibraryAccess,
+            inviteLimit:
+              Number.isFinite(Number(raw?.inviteLimit)) && Number(raw.inviteLimit) >= 0
+                ? Math.trunc(Number(raw.inviteLimit))
+                : DEFAULT_FREE_TIER_BENEFITS.inviteLimit,
+            imageDailyLimit:
+              Number.isFinite(Number(raw?.imageDailyLimit)) && Number(raw.imageDailyLimit) >= 0
+                ? Math.trunc(Number(raw.imageDailyLimit))
+                : DEFAULT_FREE_TIER_BENEFITS.imageDailyLimit,
+            videoDailyLimit:
+              Number.isFinite(Number(raw?.videoDailyLimit)) && Number(raw.videoDailyLimit) >= 0
+                ? Math.trunc(Number(raw.videoDailyLimit))
+                : DEFAULT_FREE_TIER_BENEFITS.videoDailyLimit,
+            supportLevel:
+              typeof raw?.supportLevel === "string" && raw.supportLevel.trim()
+                ? raw.supportLevel.trim()
+                : DEFAULT_FREE_TIER_BENEFITS.supportLevel,
+          };
+        } catch {
+          parsedFreeTier = DEFAULT_FREE_TIER_BENEFITS;
+        }
+      }
+      setFreeTierBenefits({
+        monthlyQuotaCredits: String(policyResult.effective.freeUserMonthlyQuotaCredits),
+        dailyRewardCredits: String(policyResult.effective.dailyRewardCredits),
+        consecutive7DayRewardMultiplier: String(
+          policyResult.effective.consecutive7DayRewardMultiplier,
+        ),
+        coreBenefits: parsedFreeTier.coreBenefits,
+        templateLibraryAccess: parsedFreeTier.templateLibraryAccess,
+        inviteLimit: String(parsedFreeTier.inviteLimit),
+        imageDailyLimit: String(parsedFreeTier.imageDailyLimit),
+        videoDailyLimit: String(parsedFreeTier.videoDailyLimit),
+        supportLevel: parsedFreeTier.supportLevel,
+      });
     } catch (error) {
       console.error("加载 VIP 管理数据失败:", error);
       alert("加载 VIP 管理数据失败");
@@ -6427,6 +6555,68 @@ function VipManagementTab() {
     }
   };
 
+  const handleSaveFreeTierBenefits = async () => {
+    setSavingFreeTierBenefits(true);
+    try {
+      const monthlyQuotaCredits = Number(freeTierBenefits.monthlyQuotaCredits || 0);
+      const dailyRewardCredits = Number(freeTierBenefits.dailyRewardCredits || 0);
+      const consecutive7DayRewardMultiplier = Number(
+        freeTierBenefits.consecutive7DayRewardMultiplier || 0,
+      );
+      const inviteLimit = Number(freeTierBenefits.inviteLimit || 0);
+      const imageDailyLimit = Number(freeTierBenefits.imageDailyLimit || 0);
+      const videoDailyLimit = Number(freeTierBenefits.videoDailyLimit || 0);
+      if (!Number.isFinite(monthlyQuotaCredits) || monthlyQuotaCredits < 0) {
+        throw new Error("免费用户月额度必须是大于等于 0 的数字");
+      }
+      if (!Number.isFinite(dailyRewardCredits) || dailyRewardCredits < 0) {
+        throw new Error("免费签到积分必须是大于等于 0 的数字");
+      }
+      if (
+        !Number.isFinite(consecutive7DayRewardMultiplier) ||
+        consecutive7DayRewardMultiplier < 0
+      ) {
+        throw new Error("7日连签倍率必须是大于等于 0 的数字");
+      }
+      if (!Number.isFinite(inviteLimit) || inviteLimit < 0) {
+        throw new Error("免费用户邀请上限必须是大于等于 0 的数字");
+      }
+      if (!Number.isFinite(imageDailyLimit) || imageDailyLimit < 0) {
+        throw new Error("免费用户日生图上限必须是大于等于 0 的数字");
+      }
+      if (!Number.isFinite(videoDailyLimit) || videoDailyLimit < 0) {
+        throw new Error("免费用户日视频上限必须是大于等于 0 的数字");
+      }
+
+      await Promise.all([
+        upsertSetting({
+          key: FREE_TIER_BENEFITS_SETTING_KEY,
+          value: JSON.stringify({
+            coreBenefits: freeTierBenefits.coreBenefits.trim(),
+            templateLibraryAccess: freeTierBenefits.templateLibraryAccess.trim(),
+            inviteLimit: Math.trunc(inviteLimit),
+            imageDailyLimit: Math.trunc(imageDailyLimit),
+            videoDailyLimit: Math.trunc(videoDailyLimit),
+            supportLevel: freeTierBenefits.supportLevel.trim(),
+          }),
+          description: "会员权益配置：免费用户档位",
+        }),
+        updateMembershipCreditPolicy({
+          freeUserMonthlyQuotaCredits: Math.trunc(monthlyQuotaCredits),
+          dailyRewardCredits: Math.trunc(dailyRewardCredits),
+          consecutive7DayRewardMultiplier: Math.trunc(consecutive7DayRewardMultiplier),
+        }),
+      ]);
+      setFreeTierModalOpen(false);
+      await loadVipData();
+      alert("免费用户权益已保存");
+    } catch (error: any) {
+      alert(error.message || "保存免费用户权益失败");
+    } finally {
+      setSavingFreeTierBenefits(false);
+    }
+  };
+
   const handleSavePolicy = async () => {
     setSavingPolicy(true);
     try {
@@ -6481,14 +6671,14 @@ function VipManagementTab() {
       </div>
 
       <div className='rounded-lg border bg-white p-6 shadow-sm'>
-        <div className='mb-4 flex items-center justify-between gap-4'>
-          <div>
-            <h3 className='text-lg font-semibold'>会员积分策略</h3>
-            <p className='mt-1 text-sm text-gray-500'>
-              这里配置赠送积分衰减、固定积分时效、免费月额度、免费签到奖励和刷新周期，签到积分统一进赠送池，活跃会员期间不衰减。
-            </p>
-          </div>
-          <Button onClick={handleSavePolicy} disabled={savingPolicy}>
+          <div className='mb-4 flex items-center justify-between gap-4'>
+            <div>
+              <h3 className='text-lg font-semibold'>会员积分策略</h3>
+              <p className='mt-1 text-sm text-gray-500'>
+              这里配置赠送积分衰减、固定积分时效和刷新周期。免费用户月额度、签到积分、连签倍率已收口到“免费用户”套餐内配置。
+              </p>
+            </div>
+            <Button onClick={handleSavePolicy} disabled={savingPolicy}>
             {savingPolicy ? "保存中..." : "保存策略"}
           </Button>
         </div>
@@ -6497,9 +6687,6 @@ function VipManagementTab() {
           {[
             ["dailyGiftDecayCredits", "赠送积分日衰减", "每天自动衰减的赠送积分数量"],
             ["fixedCreditExpireDays", "固定积分有效期", "充值/后台补发积分的有效天数，0 为永久"],
-            ["freeUserMonthlyQuotaCredits", "免费用户月额度", "免费用户每个刷新周期自动发放的月卡积分"],
-            ["dailyRewardCredits", "免费签到积分", "免费用户每日签到获得的基础积分"],
-            ["consecutive7DayRewardMultiplier", "7日连签倍率", "连续签到第 7 天按基础签到积分的倍率发放"],
             ["membershipRefreshCycleDays", "会员刷新周期", "月卡/年卡配额刷新按这个周期计算"],
           ].map(([key, label, hint]) => (
             <div key={key} className='rounded-lg border border-gray-200 p-4'>
@@ -6609,7 +6796,7 @@ function VipManagementTab() {
           <div>
             <h3 className='text-lg font-semibold'>会员套餐列表</h3>
             <p className='mt-1 text-sm text-gray-500'>
-              管理前台可售 VIP 套餐，支持排序、启停和额度配置。
+              管理免费用户与前台可售 VIP 套餐，支持权益、排序、启停和额度配置。
             </p>
           </div>
           <Button variant='outline' onClick={openCreatePlanModal}>
@@ -6635,6 +6822,33 @@ function VipManagementTab() {
               </tr>
             </thead>
             <tbody>
+              <tr className='border-t align-top bg-amber-50/40'>
+                <td className='px-3 py-3'>
+                  <div className='font-medium text-gray-900'>免费用户</div>
+                  <div className='mt-1 font-mono text-xs text-gray-500'>free_user</div>
+                </td>
+                <td className='px-3 py-3'>默认</td>
+                <td className='px-3 py-3'>¥0.00</td>
+                <td className='px-3 py-3'>{freeTierBenefits.monthlyQuotaCredits || "0"}</td>
+                <td className='px-3 py-3'>{freeTierBenefits.monthlyQuotaCredits || "0"}</td>
+                <td className='px-3 py-3'>-</td>
+                <td className='px-3 py-3'>{freeTierBenefits.templateLibraryAccess || "-"}</td>
+                <td className='px-3 py-3'>{freeTierBenefits.inviteLimit || "-"}</td>
+                <td className='px-3 py-3'>{freeTierBenefits.supportLevel || "-"}</td>
+                <td className='px-3 py-3'>
+                  <span className='rounded bg-blue-100 px-2 py-1 text-xs text-blue-700'>启用中</span>
+                </td>
+                <td className='px-3 py-3'>
+                  <div className='mb-1 text-xs text-gray-500'>
+                    {`每天最多 ${freeTierBenefits.imageDailyLimit || "0"} 张图、${freeTierBenefits.videoDailyLimit || "0"} 个视频`}
+                  </div>
+                  <div className='flex flex-wrap gap-2'>
+                    <Button size='sm' variant='outline' onClick={() => setFreeTierModalOpen(true)}>
+                      编辑
+                    </Button>
+                  </div>
+                </td>
+              </tr>
               {plans.map((plan) => (
                 <tr key={plan.id} className='border-t align-top'>
                   <td className='px-3 py-3'>
@@ -6661,6 +6875,7 @@ function VipManagementTab() {
                     </span>
                   </td>
                   <td className='px-3 py-3'>
+                    <div className='mb-1 text-xs text-gray-500'>{getPlanCoreBenefits(plan.metadata) || "-"}</div>
                     <div className='flex flex-wrap gap-2'>
                       <Button size='sm' variant='outline' onClick={() => handleEditPlan(plan)}>
                         编辑
@@ -6868,6 +7083,153 @@ function VipManagementTab() {
             </div>
           </div>
         </div>
+        </div>
+      )}
+
+      {freeTierModalOpen && (
+        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'>
+          <div className='w-full max-w-2xl rounded-lg bg-white p-6 shadow-xl'>
+            <div className='mb-4 flex items-start justify-between gap-4'>
+              <div>
+                <h3 className='text-lg font-semibold'>编辑免费用户权益</h3>
+                <p className='mt-1 text-sm text-gray-500'>
+                  这里配置免费用户在权益对比表中的展示与邀请上限。
+                </p>
+              </div>
+              <Button variant='outline' onClick={() => setFreeTierModalOpen(false)}>
+                关闭
+              </Button>
+            </div>
+
+            <div className='space-y-4'>
+              <div className='grid grid-cols-1 gap-4 md:grid-cols-3'>
+                <div>
+                  <div className='mb-1 text-sm text-gray-600'>免费用户月额度积分</div>
+                  <Input
+                    type='number'
+                    min='0'
+                    value={freeTierBenefits.monthlyQuotaCredits}
+                    onChange={(e) =>
+                      setFreeTierBenefits((current) => ({
+                        ...current,
+                        monthlyQuotaCredits: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div>
+                  <div className='mb-1 text-sm text-gray-600'>免费用户日生图上限</div>
+                  <Input
+                    type='number'
+                    min='0'
+                    value={freeTierBenefits.imageDailyLimit}
+                    onChange={(e) =>
+                      setFreeTierBenefits((current) => ({
+                        ...current,
+                        imageDailyLimit: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div>
+                  <div className='mb-1 text-sm text-gray-600'>免费用户日视频上限</div>
+                  <Input
+                    type='number'
+                    min='0'
+                    value={freeTierBenefits.videoDailyLimit}
+                    onChange={(e) =>
+                      setFreeTierBenefits((current) => ({
+                        ...current,
+                        videoDailyLimit: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+              <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
+                <div>
+                  <div className='mb-1 text-sm text-gray-600'>免费签到积分</div>
+                  <Input
+                    type='number'
+                    min='0'
+                    value={freeTierBenefits.dailyRewardCredits}
+                    onChange={(e) =>
+                      setFreeTierBenefits((current) => ({
+                        ...current,
+                        dailyRewardCredits: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div className='md:max-w-xs'>
+                  <div className='mb-1 text-sm text-gray-600'>7日连签倍率</div>
+                  <Input
+                    type='number'
+                    min='0'
+                    value={freeTierBenefits.consecutive7DayRewardMultiplier}
+                    onChange={(e) =>
+                      setFreeTierBenefits((current) => ({
+                        ...current,
+                        consecutive7DayRewardMultiplier: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+              <div>
+                <div className='mb-1 text-sm text-gray-600'>核心权益</div>
+                <Input
+                  value={freeTierBenefits.coreBenefits}
+                  onChange={(e) =>
+                    setFreeTierBenefits((current) => ({ ...current, coreBenefits: e.target.value }))
+                  }
+                />
+              </div>
+              <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
+                <div>
+                  <div className='mb-1 text-sm text-gray-600'>模板库权限</div>
+                  <Input
+                    value={freeTierBenefits.templateLibraryAccess}
+                    onChange={(e) =>
+                      setFreeTierBenefits((current) => ({
+                        ...current,
+                        templateLibraryAccess: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div>
+                  <div className='mb-1 text-sm text-gray-600'>邀请上限</div>
+                  <Input
+                    type='number'
+                    min='0'
+                    value={freeTierBenefits.inviteLimit}
+                    onChange={(e) =>
+                      setFreeTierBenefits((current) => ({ ...current, inviteLimit: e.target.value }))
+                    }
+                  />
+                </div>
+              </div>
+              <div>
+                <div className='mb-1 text-sm text-gray-600'>支持等级</div>
+                <Input
+                  value={freeTierBenefits.supportLevel}
+                  onChange={(e) =>
+                    setFreeTierBenefits((current) => ({ ...current, supportLevel: e.target.value }))
+                  }
+                />
+              </div>
+
+              <div className='flex gap-3'>
+                <Button onClick={handleSaveFreeTierBenefits} disabled={savingFreeTierBenefits}>
+                  {savingFreeTierBenefits ? "保存中..." : "保存权益"}
+                </Button>
+                <Button variant='outline' onClick={() => setFreeTierModalOpen(false)}>
+                  取消
+                </Button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
