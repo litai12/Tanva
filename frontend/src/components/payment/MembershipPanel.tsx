@@ -695,6 +695,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
 
                   {filteredPlans.map((plan) => {
                     const active = plan.code === selectedPlanCode;
+                    const confirmedActive = active && userConfirmedPlan;
                     const tk = tierKeyFromPlan(plan);
                     const tierTitle = tk ? TIER_SERIF_LABEL[tk] : plan.name;
                     // const tierSub = tk ? TIER_SERIF_LABEL[tk] : "按套餐配置";
@@ -777,12 +778,12 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                           }}
                           className={cn(
                             "mt-4 w-full rounded-xl py-3 text-xs font-semibold text-white shadow-lg transition-transform sm:py-3.5 sm:text-sm",
-                            active
+                            confirmedActive
                               ? "bg-gradient-to-r from-[#6f66e8] to-[#9aa8ef] shadow-violet-950/50 ring-2 ring-white/25"
                               : "bg-gradient-to-r from-[#8E86F5] to-[#B6C3F9] shadow-violet-950/40 hover:scale-[1.01] active:scale-[0.99]",
                           )}
                         >
-                          {active ? "已选择 · 右侧扫码支付" : plan.billingCycle === "yearly" ? "订阅年计划" : "订阅月计划"}
+                          {confirmedActive ? "已选择 · 右侧扫码支付" : plan.billingCycle === "yearly" ? "订阅年计划" : "订阅月计划"}
                         </button>
 
                         <ul className="mt-4 flex flex-1 flex-col gap-1.5 text-[11px] leading-relaxed sm:gap-2 sm:text-xs">
