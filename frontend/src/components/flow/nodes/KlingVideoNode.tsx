@@ -15,7 +15,7 @@ function KlingVideoNode({ id, data, selected }: Props) {
         provider: "kling" as VideoProvider,
         creditsPerCall:
           typeof data?.creditsPerCall === "number" ? data.creditsPerCall : 600,
-        nodeConfigNameZh: data?.nodeConfigNameZh || "Kling视频生成",
+        nodeConfigNameZh: data?.nodeConfigNameZh || "Kling",
         nodeConfigNameEn: data?.nodeConfigNameEn || "Kling",
         klingModel: data?.klingModel || "kling-v2-1",
       }}

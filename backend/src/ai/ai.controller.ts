@@ -723,8 +723,16 @@ export class AiController {
 
     if (dto.provider === 'vidu' || dto.provider === 'viduq3-pro') {
       const normalized = String(dto.viduModel || '').trim().toLowerCase();
+      const isQ3Family =
+        normalized === 'q3' ||
+        normalized === 'q3-pro' ||
+        normalized === 'q3pro' ||
+        normalized === 'q3-turbo' ||
+        normalized === 'q3turbo' ||
+        normalized === 'q3-mix' ||
+        normalized === 'q3mix';
       const modelKey =
-        normalized === 'q3'
+        isQ3Family
           ? 'vidu-q3'
           : 'vidu-q2';
       assignRouteParams(

@@ -1617,11 +1617,26 @@ export class VideoProviderService {
     label: string;
   } {
     const normalized = String(options.viduModel || "").trim().toLowerCase();
-    if (normalized && normalized !== "q2" && normalized !== "q3") {
+    const isQ2Family =
+      normalized === "" ||
+      normalized === "q2" ||
+      normalized === "q2-pro" ||
+      normalized === "q2pro" ||
+      normalized === "q2-turbo" ||
+      normalized === "q2turbo";
+    const isQ3Family =
+      normalized === "q3" ||
+      normalized === "q3-pro" ||
+      normalized === "q3pro" ||
+      normalized === "q3-turbo" ||
+      normalized === "q3turbo" ||
+      normalized === "q3-mix" ||
+      normalized === "q3mix";
+    if (!isQ2Family && !isQ3Family) {
       throw new BadRequestException("暂不支持该 Vidu 模型版本，仅支持 q2 / q3");
     }
 
-    if (normalized === "q3") {
+    if (isQ3Family) {
       return {
         modelKey: "vidu-q3",
         modelVersion: "q3",
