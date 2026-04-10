@@ -1,4 +1,4 @@
-// @ts-nocheck
+﻿// @ts-nocheck
 // Flow 主画布与节点调度入口。
 import React from "react";
 import { Trash2, Plus, Upload, Download, Group, Ungroup } from "lucide-react";
@@ -885,8 +885,22 @@ const KLING_MAX_REFERENCE_IMAGES = 2; // Kling 2.1 / 2.6 统一限制最多 2 �
 const KLING_MAX_AUDIO_INPUTS = 2;
 
 const normalizeViduModelValue = (value?: string): "q2" | "q3" => {
-  const normalized = String(value || "").trim().toLowerCase();
-  return normalized === "q2" ? "q2" : "q3";
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, "-");
+  if (!normalized) return "q2";
+  if (normalized === "q2" || normalized === "q2-pro" || normalized === "q2pro") return "q2";
+  if (
+    normalized === "q3" ||
+    normalized === "q3-pro" ||
+    normalized === "q3pro" ||
+    normalized === "q3-mix" ||
+    normalized === "q3mix"
+  ) {
+    return "q3";
+  }
+  return normalized.startsWith("q3") ? "q3" : "q2";
 };
 
 const isViduQ3FamilyModel = (value?: string): boolean =>
@@ -1417,16 +1431,23 @@ const FLOW_NODE_KEY_ALIASES: Record<string, FlowNodeType> = {
   "sora-2-pro-video": "sora2Video",
   kling: "klingVideo",
   "kling-video": "klingVideo",
-  kling26: "kling26Video",
-  "kling-26": "kling26Video",
-  "kling-2.6": "kling26Video",
-  "kling-2.6-video": "kling26Video",
-  "kling-3.0": "kling30Video",
-  "kling-3.0-video": "kling30Video",
-  kling30: "kling30Video",
-  seedance20: "seedance20Video",
-  "seedance-2.0": "seedance20Video",
-  "seedance-2.0-video": "seedance20Video",
+  kling26: "klingVideo",
+  kling26video: "klingVideo",
+  "kling-26": "klingVideo",
+  "kling-2.6": "klingVideo",
+  "kling-2.6-video": "klingVideo",
+  kling30: "klingVideo",
+  kling30video: "klingVideo",
+  "kling-3.0": "klingVideo",
+  "kling-3.0-video": "klingVideo",
+  viduq3: "viduVideo",
+  viduq3video: "viduVideo",
+  "vidu-q3": "viduVideo",
+  "vidu-q3-video": "viduVideo",
+  seedance20: "doubaoVideo",
+  seedance20video: "doubaoVideo",
+  "seedance-2.0": "doubaoVideo",
+  "seedance-2.0-video": "doubaoVideo",
   wan27: "wan27Video",
   "wan-27": "wan27Video",
   "wan2.7": "wan27Video",
@@ -1475,17 +1496,17 @@ const normalizeFlowNodeType = (rawType?: string): FlowNodeType | null => {
   const trimmed = rawType.trim();
   if (!trimmed) return null;
 
+  const lowered = trimmed.toLowerCase();
+  const aliasMatched = FLOW_NODE_KEY_ALIASES[lowered];
+  if (aliasMatched) return aliasMatched;
+
   if (trimmed in FLOW_NODE_DEFAULT_SIZE) {
     return trimmed as FlowNodeType;
   }
 
-  const lowered = trimmed.toLowerCase();
   const caseInsensitive = (Object.keys(FLOW_NODE_DEFAULT_SIZE) as FlowNodeType[])
     .find((key) => key.toLowerCase() === lowered);
   if (caseInsensitive) return caseInsensitive;
-
-  const aliasMatched = FLOW_NODE_KEY_ALIASES[lowered];
-  if (aliasMatched) return aliasMatched;
 
   const canonical = canonicalizeNodeTypeKey(trimmed);
   const canonicalMatched = FLOW_NODE_CANONICAL_MAP[canonical];
@@ -1526,14 +1547,15 @@ const resolveFlowNodeTypeFromConfig = (config: Partial<NodeConfig>): string => {
       ? (metadata.nodeConfig as Record<string, unknown>)
       : undefined;
   const candidates = [
+    typeof nodeConfig?.flowNodeType === "string" ? nodeConfig.flowNodeType : undefined,
+    typeof metadata.type === "string" ? metadata.type : undefined,
+    typeof metadata.flowNodeType === "string" ? metadata.flowNodeType : undefined,
+    typeof metadata.nodeKey === "string" ? metadata.nodeKey : undefined,
+    typeof metadata.provider === "string" ? metadata.provider : undefined,
     config.nodeKey,
+    config.serviceType,
     config.nameEn,
     config.nameZh,
-    config.serviceType,
-    typeof nodeConfig?.flowNodeType === "string" ? nodeConfig.flowNodeType : undefined,
-    typeof metadata.nodeKey === "string" ? metadata.nodeKey : undefined,
-    typeof metadata.type === "string" ? metadata.type : undefined,
-    typeof metadata.provider === "string" ? metadata.provider : undefined,
   ];
 
   for (const candidate of candidates) {
@@ -1550,6 +1572,153 @@ const resolveFlowNodeTypeFromConfig = (config: Partial<NodeConfig>): string => {
   }
 
   return "";
+};
+
+const NODE_STATUS_PRIORITY: Record<NodeConfig["status"], number> = {
+  normal: 0,
+  maintenance: 1,
+  coming_soon: 2,
+  disabled: 3,
+};
+
+const UNIFIED_VIDEO_NODE_TITLES: Partial<
+  Record<FlowNodeType, { nameZh: string; nameEn: string }>
+> = {
+  klingVideo: { nameZh: "Kling视频生成", nameEn: "Kling" },
+  viduVideo: { nameZh: "Vidu视频生成", nameEn: "Vidu" },
+  doubaoVideo: { nameZh: "Seedance视频生成", nameEn: "Seedance" },
+};
+
+const mergeUniqueStrings = (...lists: Array<string[] | undefined>): string[] | undefined => {
+  const merged = lists
+    .flatMap((list) => (Array.isArray(list) ? list : []))
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean);
+  if (merged.length === 0) return undefined;
+  return Array.from(new Set(merged));
+};
+
+const mergeManagedRouteVendors = (base: unknown, incoming: unknown): any[] | undefined => {
+  const all = [...(Array.isArray(base) ? base : []), ...(Array.isArray(incoming) ? incoming : [])];
+  const map = new Map<string, Record<string, any>>();
+  all.forEach((item) => {
+    if (!item || typeof item !== "object") return;
+    const record = item as Record<string, any>;
+    const vendorKey =
+      typeof record.vendorKey === "string" ? record.vendorKey.trim() : "";
+    if (!vendorKey) return;
+    const platformKey =
+      typeof record.platformKey === "string" ? record.platformKey.trim() : "";
+    const key = `${vendorKey}::${platformKey}`;
+    map.set(key, { ...(map.get(key) || {}), ...record, vendorKey, platformKey: platformKey || undefined });
+  });
+  const merged = Array.from(map.values());
+  return merged.length > 0 ? merged : undefined;
+};
+
+const mergeNodePaletteMetadata = (
+  base?: Record<string, any>,
+  incoming?: Record<string, any>
+): Record<string, any> | undefined => {
+  if (!base && !incoming) return undefined;
+  const next: Record<string, any> = { ...(base || {}), ...(incoming || {}) };
+
+  const mergedModelKeys = mergeUniqueStrings(base?.modelKeys, incoming?.modelKeys);
+  if (mergedModelKeys) next.modelKeys = mergedModelKeys;
+
+  const mergedSupportedModels = mergeUniqueStrings(
+    base?.supportedModels,
+    incoming?.supportedModels
+  );
+  if (mergedSupportedModels) next.supportedModels = mergedSupportedModels;
+
+  const mergedNotes = mergeUniqueStrings(base?.notes, incoming?.notes);
+  if (mergedNotes) next.notes = mergedNotes;
+
+  const baseNodeConfig =
+    base?.nodeConfig && typeof base.nodeConfig === "object" ? base.nodeConfig : undefined;
+  const incomingNodeConfig =
+    incoming?.nodeConfig && typeof incoming.nodeConfig === "object"
+      ? incoming.nodeConfig
+      : undefined;
+  if (baseNodeConfig || incomingNodeConfig) {
+    next.nodeConfig = { ...(baseNodeConfig || {}), ...(incomingNodeConfig || {}) };
+  }
+
+  const baseManagedRoutes =
+    base?.managedRoutes && typeof base.managedRoutes === "object"
+      ? (base.managedRoutes as Record<string, any>)
+      : undefined;
+  const incomingManagedRoutes =
+    incoming?.managedRoutes && typeof incoming.managedRoutes === "object"
+      ? (incoming.managedRoutes as Record<string, any>)
+      : undefined;
+  if (baseManagedRoutes || incomingManagedRoutes) {
+    const mergedVendors = mergeManagedRouteVendors(
+      baseManagedRoutes?.vendors,
+      incomingManagedRoutes?.vendors
+    );
+    next.managedRoutes = {
+      ...(baseManagedRoutes || {}),
+      ...(incomingManagedRoutes || {}),
+      modelKey:
+        incomingManagedRoutes?.modelKey ||
+        baseManagedRoutes?.modelKey ||
+        next.managedRoutes?.modelKey,
+      defaultVendor:
+        incomingManagedRoutes?.defaultVendor ||
+        baseManagedRoutes?.defaultVendor ||
+        next.managedRoutes?.defaultVendor,
+      vendors: mergedVendors || incomingManagedRoutes?.vendors || baseManagedRoutes?.vendors,
+    };
+  }
+
+  return next;
+};
+
+const mergeNodePaletteConfig = (
+  base: NodeConfig,
+  incoming: NodeConfig,
+  resolvedType?: string
+): NodeConfig => {
+  const basePriority = NODE_STATUS_PRIORITY[base.status] ?? 99;
+  const incomingPriority = NODE_STATUS_PRIORITY[incoming.status] ?? 99;
+  const preferred = incomingPriority < basePriority ? incoming : base;
+  const fallback = preferred === base ? incoming : base;
+
+  const resolvedNodeType =
+    normalizeFlowNodeType(resolvedType || preferred.nodeKey || fallback.nodeKey || "") ||
+    undefined;
+  const unifiedTitle = resolvedNodeType
+    ? UNIFIED_VIDEO_NODE_TITLES[resolvedNodeType]
+    : undefined;
+  const mergedMetadata = mergeNodePaletteMetadata(base.metadata, incoming.metadata);
+
+  const preferredSortOrder = Number.isFinite(Number(preferred.sortOrder))
+    ? Number(preferred.sortOrder)
+    : Number.MAX_SAFE_INTEGER;
+  const fallbackSortOrder = Number.isFinite(Number(fallback.sortOrder))
+    ? Number(fallback.sortOrder)
+    : Number.MAX_SAFE_INTEGER;
+  const mergedSortOrder = Math.min(preferredSortOrder, fallbackSortOrder);
+
+  return {
+    ...fallback,
+    ...preferred,
+    nodeKey: resolvedNodeType || preferred.nodeKey || fallback.nodeKey,
+    nameZh: unifiedTitle?.nameZh || preferred.nameZh || fallback.nameZh,
+    nameEn: unifiedTitle?.nameEn || preferred.nameEn || fallback.nameEn,
+    status: basePriority <= incomingPriority ? base.status : incoming.status,
+    statusMessage: preferred.statusMessage || fallback.statusMessage,
+    description: preferred.description || fallback.description,
+    creditsPerCall:
+      Number.isFinite(Number(preferred.creditsPerCall)) &&
+      Number(preferred.creditsPerCall) >= 0
+        ? Number(preferred.creditsPerCall)
+        : Number(fallback.creditsPerCall) || 0,
+    sortOrder: Number.isFinite(mergedSortOrder) ? mergedSortOrder : 0,
+    metadata: mergedMetadata,
+  };
 };
 
 const buildNodePaletteCaption = (config: Partial<NodeConfig>): string | undefined => {
@@ -2368,7 +2537,7 @@ function FlowInner() {
       }
     }
 
-    return merged
+    const prepared = merged
       .map((config) => {
         // 有后端配置时沿用后台名称，避免「节点管理」改名后面板仍被写死覆盖
         if (!hasBackendConfigs && config.nodeKey === "generatePro") {
@@ -2395,6 +2564,35 @@ function FlowInner() {
         return !isHiddenFlowNodeType(resolvedType);
       })
       .filter((config) => config.status !== "disabled");
+
+    const dedupedByType = new Map<string, NodeConfig>();
+    prepared.forEach((config, index) => {
+      const resolvedType = resolveFlowNodeTypeFromConfig(config);
+      const normalizedType = normalizeFlowNodeType(resolvedType);
+      const dedupeKey = normalizedType || resolvedType || config.nodeKey || `unknown-${index}`;
+      const unifiedTitle = normalizedType ? UNIFIED_VIDEO_NODE_TITLES[normalizedType] : undefined;
+      const normalizedConfig: NodeConfig =
+        normalizedType || unifiedTitle
+          ? {
+              ...config,
+              nodeKey: normalizedType || config.nodeKey,
+              nameZh: unifiedTitle?.nameZh || config.nameZh,
+              nameEn: unifiedTitle?.nameEn || config.nameEn,
+            }
+          : config;
+
+      const existing = dedupedByType.get(dedupeKey);
+      if (!existing) {
+        dedupedByType.set(dedupeKey, normalizedConfig);
+        return;
+      }
+      dedupedByType.set(
+        dedupeKey,
+        mergeNodePaletteConfig(existing, normalizedConfig, normalizedType || resolvedType)
+      );
+    });
+
+    return Array.from(dedupedByType.values());
   }, [sortedNodeConfigs]);
 
   const nodeCreditsByType = React.useMemo(() => {
@@ -3745,9 +3943,44 @@ function FlowInner() {
     });
 
     return ns.map((n: any) => {
-      const type = n?.type || "default";
+      const rawType = typeof n?.type === "string" ? n.type : "default";
+      const type = normalizeFlowNodeType(rawType) || rawType;
       const isGroup = type === FLOW_GROUP_NODE_TYPE;
       const data: Record<string, any> = { ...(n?.data || {}) };
+
+      if (type === "klingVideo") {
+        const currentKlingModel = String(data.klingModel || "").trim();
+        if (!currentKlingModel) {
+          data.klingModel = rawType === "kling30Video" ? "kling-v3-0" : "kling-v2-6";
+        } else if (currentKlingModel === "kling-v3-0") {
+          data.klingModel = "kling-v3-0";
+        } else {
+          data.klingModel = "kling-v2-6";
+        }
+        if (data.mode !== "std" && data.mode !== "pro") {
+          data.mode = "std";
+        }
+        if (!Array.isArray(data.audioUrls)) {
+          data.audioUrls = [];
+        }
+        data.provider = "kling";
+      }
+
+      if (type === "viduVideo") {
+        const fallbackViduModel = rawType === "viduQ3" ? "q3" : "q2";
+        data.viduModel = normalizeViduModelValue(data.viduModel || fallbackViduModel);
+        data.provider = getEffectiveViduProvider(data);
+      }
+
+      if (type === "doubaoVideo") {
+        const currentSeedanceModel = String(data.seedanceModel || "").trim();
+        if (currentSeedanceModel === "seedance-2.0" || rawType === "seedance20Video") {
+          data.seedanceModel = "seedance-2.0";
+        } else {
+          data.seedanceModel = "seedance-1.5-pro";
+        }
+        data.provider = "doubao";
+      }
 
       if (isGroup) {
         const explicitChildIds = Array.isArray(data.childNodeIds)
@@ -11893,32 +12126,58 @@ function FlowInner() {
         return;
       }
 
-      // 新的视频生成节点处理逻辑（可灵 Kling、Kling O1、Vidu、Seedance 1.5 Pro）
-      const newVideoNodeTypes = ["klingVideo", "kling26Video", "kling30Video", "klingO1Video", "viduVideo", "viduQ3", "doubaoVideo", "seedance20Video"];
-      if (newVideoNodeTypes.includes(node.type || "")) {
+      // 新的视频生成节点处理逻辑（可灵 Kling、Kling O1、Vidu、Seedance）
+      const normalizedVideoNodeType = normalizeFlowNodeType(node.type || "") || node.type || "";
+      const newVideoNodeTypes = [
+        "klingVideo",
+        "kling26Video",
+        "kling30Video",
+        "klingO1Video",
+        "viduVideo",
+        "viduQ3",
+        "doubaoVideo",
+        "seedance20Video",
+      ];
+      if (newVideoNodeTypes.includes(normalizedVideoNodeType)) {
         const projectId = useProjectContentStore.getState().projectId;
         const rawNodeData = ((node.data as any) || {}) as Record<string, any>;
+        const isLegacyKling30Node = node.type === "kling30Video";
+        const isLegacyKling26Node = node.type === "kling26Video";
+        const inferredViduModel =
+          rawNodeData.viduModel ||
+          (node.type === "viduQ3" || rawNodeData.provider === "viduq3-pro" ? "q3" : "q2");
+        const normalizedViduModelVariant = String(inferredViduModel || "")
+          .trim()
+          .toLowerCase()
+          .replace(/[_\s]+/g, "-");
+        const isViduQ2ProMode =
+          normalizedViduModelVariant === "q2-pro" ||
+          normalizedViduModelVariant === "q2pro";
+        const viduModelForApi = normalizeViduModelValue(inferredViduModel);
+        const viduNodeDataForProvider = {
+          ...rawNodeData,
+          viduModel: viduModelForApi,
+        };
         // 根据节点类型确定 provider
         let provider: string;
         const klingModel =
           rawNodeData.klingModel ||
-          (node.type === "kling30Video"
+          (isLegacyKling30Node || rawNodeData.provider === "kling-o3"
             ? "kling-v3-0"
-            : node.type === "kling26Video" || rawNodeData.provider === "kling-2.6"
+            : isLegacyKling26Node || rawNodeData.provider === "kling-2.6"
             ? "kling-v2-6"
             : "kling-v2-6");
-        if (node.type === "klingO1Video") {
+        if (normalizedVideoNodeType === "klingO1Video") {
           provider = "kling-o3";
-        } else if (node.type === "kling30Video") {
-          provider = "kling-o3";
-        } else if (node.type === "klingVideo" || node.type === "kling26Video") {
-          provider = "kling-2.6";
-        } else if (node.type === "viduQ3") {
-          provider = "viduq3-pro";
-        } else if (node.type === "doubaoVideo" || node.type === "seedance20Video") {
+        } else if (normalizedVideoNodeType === "klingVideo" || normalizedVideoNodeType === "kling26Video") {
+          provider = klingModel === "kling-v3-0" ? "kling-o3" : "kling-2.6";
+        } else if (
+          normalizedVideoNodeType === "doubaoVideo" ||
+          normalizedVideoNodeType === "seedance20Video"
+        ) {
           provider = "doubao";
-        } else if (node.type === "viduVideo") {
-          provider = getEffectiveViduProvider(rawNodeData);
+        } else if (normalizedVideoNodeType === "viduVideo" || normalizedVideoNodeType === "viduQ3") {
+          provider = getEffectiveViduProvider(viduNodeDataForProvider);
         } else {
           provider = rawNodeData.provider || "kling";
         }
@@ -11926,7 +12185,7 @@ function FlowInner() {
         // 先获取图片数量，判断是否需要 prompt
         const maxImages =
           provider === "vidu" || provider === "viduq3-pro"
-            ? getEffectiveViduMaxReferenceImages(rawNodeData)
+            ? getEffectiveViduMaxReferenceImages(viduNodeDataForProvider)
             : provider === "kling" || provider === "kling-2.6" || provider === "kling-o3"
             ? KLING_MAX_REFERENCE_IMAGES
             : SORA2_MAX_REFERENCE_IMAGES;
@@ -12504,9 +12763,9 @@ function FlowInner() {
                       ? rawNodeData.generateAudio
                       : undefined,
                   seedanceModel:
-                    node.type === "seedance20Video"
+                    String(rawNodeData.seedanceModel || "").trim() === "seedance-2.0"
                       ? "seedance-2.0"
-                      : rawNodeData.seedanceModel || "seedance-1.5-pro",
+                      : "seedance-1.5-pro",
                 }
               : provider === "vidu" || provider === "viduq3-pro"
               ? {
@@ -12518,9 +12777,15 @@ function FlowInner() {
                   aspectRatio: aspectRatioForAPI,
                   provider: provider as VideoProvider,
                   resolution: rawNodeData.resolution,
-                  style: rawNodeData.style,
-                  offPeak: rawNodeData.offPeak,
-                  viduModel: rawNodeData.viduModel,
+                  style:
+                    viduModelForApi === "q2" && !isViduQ2ProMode
+                      ? rawNodeData.style
+                      : undefined,
+                  offPeak:
+                    viduModelForApi === "q2" && !isViduQ2ProMode
+                      ? rawNodeData.offPeak
+                      : undefined,
+                  viduModel: viduModelForApi,
                 }
               : {
                   ...managedRoutePayload,
@@ -12531,10 +12796,7 @@ function FlowInner() {
                   aspectRatio: aspectRatioForAPI,
                   provider: provider as VideoProvider,
                   mode: rawNodeData.mode,
-                  klingModel:
-                    node.type === "kling30Video"
-                      ? "kling-v3-0"
-                      : rawNodeData.klingModel,
+                  klingModel: klingModel === "kling-v3-0" ? "kling-v3-0" : rawNodeData.klingModel,
                   sound:
                     provider === "kling-o3" || provider === "kling-2.6" || provider === "kling"
                       ? rawNodeData.mode === "pro"
