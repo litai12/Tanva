@@ -8,6 +8,7 @@ type NodeGroupData = {
   groupName?: string;
   groupColor?: string;
   childNodeIds?: string[];
+  isDarkTheme?: boolean;
   onRenameGroup?: (groupId: string) => void;
   onUpdateGroupName?: (groupId: string, nextName: string) => void;
   onChangeGroupColor?: (groupId: string, color: string) => void;
@@ -42,6 +43,7 @@ const toRgba = (hexColor: string, alpha: number): string => {
 export default function NodeGroupNode({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const [isEditingName, setIsEditingName] = React.useState(false);
+  const isDarkTheme = data?.isDarkTheme === true;
   const defaultGroupName = lt('新建分组', 'New Group');
   const color =
     typeof data?.groupColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(data.groupColor)
@@ -92,14 +94,19 @@ export default function NodeGroupNode({ id, data, selected }: Props) {
   return (
     <div
       className='tanva-node-group'
+      data-collapsed={collapsed ? 'true' : 'false'}
       style={{
         width: '100%',
         height: '100%',
         border: `2px ${collapsed ? 'solid' : 'dashed'} ${toRgba(color, selected ? 0.7 : 0.45)}`,
-        // Keep expanded groups transparent so internal edges remain visible.
+        // Group background uses solid fills (no transparency) to avoid line haze after grouping.
         background: collapsed
-          ? toRgba(color, selected ? 0.16 : 0.12)
-          : 'transparent',
+          ? isDarkTheme
+            ? '#2f2f2f'
+            : '#e5e7eb'
+          : isDarkTheme
+          ? '#343434'
+          : '#eceff3',
         borderRadius: collapsed ? 12 : 16,
         boxShadow: selected ? `0 0 0 1px ${toRgba(color, 0.45)}` : 'none',
         position: 'relative',

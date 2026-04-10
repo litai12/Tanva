@@ -2913,7 +2913,7 @@ function FlowInner() {
             ...(node.style || {}),
             width: targetWidth,
             height: targetHeight,
-            zIndex: 0,
+            zIndex: -1,
           },
         } as RFNode;
       })
@@ -3133,7 +3133,7 @@ function FlowInner() {
       style: {
         width: bounds.width,
         height: bounds.height,
-        zIndex: 0,
+        zIndex: -1,
       },
     } as any;
 
@@ -16418,6 +16418,7 @@ function FlowInner() {
               ...n,
               data: {
                 ...n.data,
+                isDarkTheme: isFlowBlackTheme,
                 onRenameGroup: promptGroupName,
                 onUpdateGroupName: updateGroupName,
                 onChangeGroupColor: changeGroupColor,
@@ -16492,6 +16493,7 @@ function FlowInner() {
       runningGroupIds,
       toggleGroupCollapsed,
       groupPreviewImagesByGroupId,
+      isFlowBlackTheme,
     ]
   );
 
