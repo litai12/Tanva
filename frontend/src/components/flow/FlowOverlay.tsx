@@ -81,6 +81,7 @@ import VideoAnalyzeNode from "./nodes/VideoAnalyzeNode";
 import {
   getManagedRouteCredits,
   getManagedRouteOption,
+  resolveManagedRoutePricing,
 } from "./managedRoutePricing";
 import VideoFrameExtractNode from "./nodes/VideoFrameExtractNode";
 import VideoToGifNode from "./nodes/VideoToGifNode";
@@ -898,6 +899,8 @@ const KLING_MAX_AUDIO_INPUTS = 2;
 const SEEDANCE20_REFERENCE_IMAGE_MAX = 9;
 const SEEDANCE20_REFERENCE_VIDEO_MAX = 3;
 const SEEDANCE20_REFERENCE_AUDIO_MAX = 3;
+const SEEDANCE15_DURATIONS = [3, 4, 5, 6, 7, 8, 9, 10];
+const SEEDANCE20_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 const SEEDANCE_REFERENCE_IMAGE_MAX_BYTES = 30 * 1024 * 1024; // 30MB
 
 type Seedance20Mode = "reference_images" | "start_end";
@@ -1668,6 +1671,229 @@ const normalizeBananaStableImageSize = (
   return "1K";
 };
 
+const VIDEO_DYNAMIC_CREDIT_NODE_TYPES = new Set([
+  "wan26",
+  "wan2R2V",
+  "wan27Video",
+  "klingVideo",
+  "kling26Video",
+  "kling30Video",
+  "klingO1Video",
+  "viduVideo",
+  "viduQ3",
+  "doubaoVideo",
+  "seedance20Video",
+]);
+
+const KLING_DYNAMIC_CREDIT_MATRIX = {
+  "kling-v2-6": {
+    noSound: {
+      std: { 5: 150, 10: 300 },
+      pro: { 5: 300, 10: 500 },
+    },
+    withSound: {
+      std: { 5: 500, 10: 1000 },
+      pro: { 5: 600, 10: 1200 },
+    },
+  },
+  "kling-v3-0": {
+    noSound: {
+      std: { 5: 300, 10: 600 },
+      pro: { 5: 400, 10: 800 },
+    },
+    withSound: {
+      std: { 5: 450, 10: 900 },
+      pro: { 5: 600, 10: 1200 },
+    },
+  },
+} as const;
+
+const normalizeFiniteDuration = (value: unknown): number | undefined => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return undefined;
+  const rounded = Math.round(numeric);
+  return rounded > 0 ? rounded : undefined;
+};
+
+const resolveVideoDefaultDuration = (
+  nodeType: string,
+  nodeData?: Record<string, any>
+): number | undefined => {
+  const fromClip = normalizeFiniteDuration(nodeData?.clipDuration);
+  if (typeof fromClip === "number") return fromClip;
+  const fromDuration = normalizeFiniteDuration(nodeData?.duration);
+  if (typeof fromDuration === "number") return fromDuration;
+
+  if (
+    nodeType === "wan26" ||
+    nodeType === "wan2R2V" ||
+    nodeType === "wan27Video" ||
+    nodeType === "klingVideo" ||
+    nodeType === "kling26Video" ||
+    nodeType === "kling30Video" ||
+    nodeType === "viduVideo" ||
+    nodeType === "viduQ3" ||
+    nodeType === "doubaoVideo" ||
+    nodeType === "seedance20Video"
+  ) {
+    return 5;
+  }
+  return undefined;
+};
+
+const resolveVideoDefaultResolution = (
+  nodeType: string,
+  nodeData?: Record<string, any>
+): string | undefined => {
+  if (typeof nodeData?.resolution === "string" && nodeData.resolution.trim()) {
+    return nodeData.resolution.trim().toUpperCase();
+  }
+  if (nodeType === "wan27Video") return "1080P";
+  if (
+    nodeType === "wan26" ||
+    nodeType === "wan2R2V" ||
+    nodeType === "viduVideo" ||
+    nodeType === "viduQ3" ||
+    nodeType === "doubaoVideo" ||
+    nodeType === "seedance20Video"
+  ) {
+    return "720P";
+  }
+  return undefined;
+};
+
+const resolveVideoDefaultAspectRatio = (
+  nodeType: string,
+  nodeData?: Record<string, any>
+): string | undefined => {
+  if (typeof nodeData?.aspectRatio === "string" && nodeData.aspectRatio.trim()) {
+    return nodeData.aspectRatio.trim();
+  }
+  if (nodeType === "viduVideo" || nodeType === "viduQ3") {
+    return "16:9";
+  }
+  return undefined;
+};
+
+const resolveKlingModelForCredits = (
+  nodeType: string,
+  nodeData?: Record<string, any>
+): "kling-v2-6" | "kling-v3-0" | null => {
+  const rawModel = String(nodeData?.klingModel || "")
+    .trim()
+    .toLowerCase();
+  if (rawModel === "kling-v3-0") return "kling-v3-0";
+  if (rawModel === "kling-v2-6") return "kling-v2-6";
+  if (nodeType === "kling30Video") return "kling-v3-0";
+  if (nodeType === "klingVideo" || nodeType === "kling26Video") return "kling-v2-6";
+  return null;
+};
+
+const resolveKlingDynamicCredits = (
+  nodeType: string,
+  nodeData?: Record<string, any>
+): number | undefined => {
+  const model = resolveKlingModelForCredits(nodeType, nodeData);
+  if (!model) return undefined;
+
+  const duration = resolveVideoDefaultDuration(nodeType, nodeData);
+  if (duration !== 5 && duration !== 10) return undefined;
+
+  const mode =
+    typeof nodeData?.mode === "string" &&
+    nodeData.mode.trim().toLowerCase() === "pro"
+      ? "pro"
+      : "std";
+
+  const soundRaw = nodeData?.sound;
+  const hasSound =
+    mode === "pro"
+      ? true
+      : soundRaw === undefined || soundRaw === null
+      ? true
+      : soundRaw === true ||
+        String(soundRaw).trim().toLowerCase() === "on" ||
+        String(soundRaw).trim().toLowerCase() === "true";
+
+  const soundKey = hasSound ? "withSound" : "noSound";
+  const configured = KLING_DYNAMIC_CREDIT_MATRIX?.[model]?.[soundKey]?.[mode]?.[duration];
+  return typeof configured === "number" ? configured : undefined;
+};
+
+const buildVideoPricingContext = (
+  nodeType: string,
+  nodeData?: Record<string, any>
+): Record<string, any> => {
+  const context: Record<string, any> = {};
+
+  const duration = resolveVideoDefaultDuration(nodeType, nodeData);
+  if (typeof duration === "number") {
+    context.duration = duration;
+  }
+
+  const resolution = resolveVideoDefaultResolution(nodeType, nodeData);
+  if (resolution) {
+    context.resolution = resolution;
+  }
+
+  const aspectRatio = resolveVideoDefaultAspectRatio(nodeType, nodeData);
+  if (aspectRatio) {
+    context.aspectRatio = aspectRatio;
+  }
+
+  if (typeof nodeData?.seedanceModel === "string" && nodeData.seedanceModel.trim()) {
+    context.seedanceModel = nodeData.seedanceModel.trim().toLowerCase();
+  } else if (nodeType === "seedance20Video") {
+    context.seedanceModel = "seedance-2.0";
+  } else if (nodeType === "doubaoVideo") {
+    context.seedanceModel = "seedance-1.5-pro";
+  }
+
+  if (typeof nodeData?.seedanceMode === "string" && nodeData.seedanceMode.trim()) {
+    context.seedanceMode = nodeData.seedanceMode.trim().toLowerCase();
+    context.videoMode = nodeData.seedanceMode.trim().toLowerCase();
+  } else if (nodeType === "seedance20Video") {
+    context.seedanceMode = "reference_images";
+    context.videoMode = "reference_images";
+  } else if (nodeType === "doubaoVideo") {
+    context.seedanceMode = "text";
+    context.videoMode = "text";
+  }
+
+  if (typeof nodeData?.generateAudio === "boolean") {
+    context.generateAudio = nodeData.generateAudio;
+  }
+  if (typeof nodeData?.watermark === "boolean") {
+    context.watermark = nodeData.watermark;
+  }
+
+  if (typeof nodeData?.viduModel === "string" && nodeData.viduModel.trim()) {
+    context.viduModel = nodeData.viduModel.trim().toLowerCase();
+  } else if (nodeType === "viduVideo") {
+    context.viduModel = "q2";
+  } else if (nodeType === "viduQ3") {
+    context.viduModel = "q3";
+  }
+
+  const klingModel = resolveKlingModelForCredits(nodeType, nodeData);
+  if (klingModel) {
+    context.klingModel = klingModel;
+    context.mode =
+      typeof nodeData?.mode === "string" && nodeData.mode.trim()
+        ? nodeData.mode.trim().toLowerCase()
+        : "std";
+    const soundRaw = nodeData?.sound;
+    context.sound =
+      soundRaw === undefined || soundRaw === null
+        ? true
+        : soundRaw === true ||
+          String(soundRaw).trim().toLowerCase() === "on" ||
+          String(soundRaw).trim().toLowerCase() === "true";
+  }
+
+  return context;
+};
+
 const resolveStableRouteCredits = (params: {
   nodeType?: string | null;
   nodeData?: Record<string, any>;
@@ -1684,22 +1910,47 @@ const resolveStableRouteCredits = (params: {
     bananaImageRoute,
     globalImageSize,
   } = params;
-  if (bananaImageRoute !== "stable") return fallbackCredits;
   const normalizedType = normalizeFlowNodeType(nodeType || undefined);
-  if (!normalizedType || !BANANA_STABLE_DYNAMIC_NODE_TYPES.has(normalizedType)) {
-    return fallbackCredits;
+  let resolvedCredits = fallbackCredits;
+
+  if (bananaImageRoute === "stable" && normalizedType && BANANA_STABLE_DYNAMIC_NODE_TYPES.has(normalizedType)) {
+    const tier = resolveBananaStablePricingTier(aiProvider);
+    if (tier) {
+      const preferredSize =
+        typeof nodeData?.imageSize === "string" && nodeData.imageSize.trim().length > 0
+          ? nodeData.imageSize
+          : globalImageSize;
+      const normalizedSize = normalizeBananaStableImageSize(preferredSize, tier);
+      const unitCredits = Number(BANANA_STABLE_ROUTE_PRICING[tier][normalizedSize]);
+      if (Number.isFinite(unitCredits) && unitCredits > 0) {
+        const multiplier = normalizedType === "generate4" || normalizedType === "generatePro4" ? 4 : 1;
+        resolvedCredits = unitCredits * multiplier;
+      }
+    }
   }
-  const tier = resolveBananaStablePricingTier(aiProvider);
-  if (!tier) return fallbackCredits;
-  const preferredSize =
-    typeof nodeData?.imageSize === "string" && nodeData.imageSize.trim().length > 0
-      ? nodeData.imageSize
-      : globalImageSize;
-  const normalizedSize = normalizeBananaStableImageSize(preferredSize, tier);
-  const unitCredits = Number(BANANA_STABLE_ROUTE_PRICING[tier][normalizedSize]);
-  if (!Number.isFinite(unitCredits) || unitCredits <= 0) return fallbackCredits;
-  const multiplier = normalizedType === "generate4" || normalizedType === "generatePro4" ? 4 : 1;
-  return unitCredits * multiplier;
+
+  if (normalizedType && VIDEO_DYNAMIC_CREDIT_NODE_TYPES.has(normalizedType)) {
+    const metadata =
+      nodeData?.nodeConfigMetadata && typeof nodeData.nodeConfigMetadata === "object"
+        ? (nodeData.nodeConfigMetadata as Record<string, any>)
+        : undefined;
+    const vendorKey =
+      typeof nodeData?.vendorKey === "string" && nodeData.vendorKey.trim().length > 0
+        ? nodeData.vendorKey.trim()
+        : undefined;
+    const pricingContext = buildVideoPricingContext(normalizedType, nodeData);
+    const managedPricing = resolveManagedRoutePricing(metadata, vendorKey, pricingContext);
+    if (typeof managedPricing?.credits === "number" && Number.isFinite(managedPricing.credits)) {
+      resolvedCredits = managedPricing.credits;
+    }
+
+    const klingCredits = resolveKlingDynamicCredits(normalizedType, nodeData);
+    if (typeof klingCredits === "number" && Number.isFinite(klingCredits)) {
+      resolvedCredits = klingCredits;
+    }
+  }
+
+  return resolvedCredits;
 };
 
 const isManagedPaletteConfig = (config?: Partial<NodeConfig>): boolean => {
@@ -13081,6 +13332,36 @@ function FlowInner() {
           normalized.sort((a, b) => a - b);
           return normalized;
         })();
+        const nodeConfigKey =
+          typeof rawNodeData?.nodeConfigKey === "string"
+            ? rawNodeData.nodeConfigKey.trim()
+            : "";
+        const nodeSupportedSeedanceModels = (() => {
+          const rawSupported = rawNodeData?.nodeConfigMetadata?.supportedModels;
+          if (!Array.isArray(rawSupported)) return new Set<string>();
+          return new Set(
+            rawSupported
+              .map((item) => String(item).trim().toLowerCase())
+              .filter((item) => item.length > 0)
+          );
+        })();
+        const metadataSupportsSeedance20 =
+          nodeSupportedSeedanceModels.has("seedance-2.0") ||
+          nodeSupportedSeedanceModels.has("seedance-2.0-fast");
+        const effectiveConfiguredDurationOptions = (() => {
+          if (!(isSeedanceNode && isSeedance20Request)) {
+            return configuredDurationOptions;
+          }
+
+          // 兼容历史工作流：旧的 doubaoVideo 元数据通常是 3-10，切到 2.0 时不应继续拦截 15s。
+          if (nodeConfigKey === "doubaoVideo" || !metadataSupportsSeedance20) {
+            return [] as number[];
+          }
+
+          return configuredDurationOptions.filter(
+            (value) => value >= SEEDANCE20_DURATIONS[0] && value <= SEEDANCE20_DURATIONS[SEEDANCE20_DURATIONS.length - 1]
+          );
+        })();
         if (isSeedanceNode && typeof clipDuration === "number" && Number.isFinite(clipDuration)) {
           if (isSeedance20Request && (clipDuration < 4 || clipDuration > 15)) {
             failCurrentVideoNode("Seedance 2.0 生成时长仅支持 4-15 秒");
@@ -13529,8 +13810,8 @@ function FlowInner() {
         // 不同供应商支持的时长不同
         let durationForAPI: number | undefined = undefined;
         if (typeof clipDuration === "number" && Number.isFinite(clipDuration)) {
-          if (configuredDurationOptions.length > 0) {
-            if (configuredDurationOptions.includes(clipDuration)) {
+          if (effectiveConfiguredDurationOptions.length > 0) {
+            if (effectiveConfiguredDurationOptions.includes(clipDuration)) {
               durationForAPI = clipDuration;
             }
           } else if (
@@ -13577,9 +13858,19 @@ function FlowInner() {
             durationForAPI = clipDuration;
           }
           if (durationForAPI === undefined) {
+            const fallbackDurationOptions =
+              isSeedanceNode
+                ? isSeedance20Request
+                  ? SEEDANCE20_DURATIONS
+                  : SEEDANCE15_DURATIONS
+                : configuredDurationOptions;
+            const durationHintOptions =
+              effectiveConfiguredDurationOptions.length > 0
+                ? effectiveConfiguredDurationOptions
+                : fallbackDurationOptions;
             const supportedDurationText =
-              configuredDurationOptions.length > 0
-                ? `${lt("支持时长", "Supported durations")}: ${configuredDurationOptions.join("/")}${lt("秒", "s")}`
+              durationHintOptions.length > 0
+                ? `${lt("支持时长", "Supported durations")}: ${durationHintOptions.join("/")}${lt("秒", "s")}`
                 : "";
             failCurrentVideoNode(
               `${lt("当前时长不受支持", "Selected duration is not supported")}: ${clipDuration}${lt("秒", "s")}${
