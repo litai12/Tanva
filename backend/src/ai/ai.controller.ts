@@ -679,6 +679,26 @@ export class AiController {
       params.duration = Math.round(dto.duration);
     }
 
+    if (typeof dto.resolution === 'string' && dto.resolution.trim().length > 0) {
+      params.resolution = dto.resolution.trim().toUpperCase();
+    }
+
+    if (typeof dto.aspectRatio === 'string' && dto.aspectRatio.trim().length > 0) {
+      params.aspectRatio = dto.aspectRatio.trim();
+    }
+
+    if (typeof dto.videoMode === 'string' && dto.videoMode.trim().length > 0) {
+      params.videoMode = dto.videoMode.trim().toLowerCase();
+    }
+
+    if (typeof dto.generateAudio === 'boolean') {
+      params.generateAudio = dto.generateAudio;
+    }
+
+    if (typeof dto.watermark === 'boolean') {
+      params.watermark = dto.watermark;
+    }
+
     const assignRouteParams = (
       route: Awaited<ReturnType<typeof this.modelRoutingService.resolveVideoModel>>,
     ) => {

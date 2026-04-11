@@ -29,6 +29,11 @@ import {
 } from './credit-lot-policy';
 import { BusinessPolicyService } from '../business-policy/business-policy.service';
 import { MODEL_PROVIDER_MAPPING_SETTING_KEY } from '../ai/services/model-routing.service';
+import {
+  resolveManagedModelPricing,
+  type ManagedPricingMappingLike,
+  type ResolvedManagedPricing,
+} from '../ai/services/model-pricing-resolver';
 
 const STALE_PENDING_DEFAULT_TIMEOUT_MINUTES = 15;
 const STALE_PENDING_DEFAULT_VIDEO_TIMEOUT_MINUTES = 30;
@@ -111,18 +116,6 @@ export interface ApiUsageParams {
 
 type SoraBillingModel = 'sora-2' | 'sora-2-vip' | 'sora-2-pro';
 type KlingBillingModel = 'kling-v2-6' | 'kling-v3-0' | 'kling-o3';
-type ManagedPricingVendorConfig = {
-  vendorKey?: string;
-  creditsPerCall?: number;
-};
-type ManagedPricingModelConfig = {
-  modelKey?: string;
-  vendors?: ManagedPricingVendorConfig[];
-};
-type ManagedPricingMappingConfig = {
-  models?: ManagedPricingModelConfig[];
-};
-
 @Injectable()
 export class CreditsService {
   private readonly logger = new Logger(CreditsService.name);
@@ -273,7 +266,9 @@ export class CreditsService {
     return 'std';
   }
 
-  private async resolveManagedRouteCredits(requestParams: any): Promise<number | null> {
+  private async resolveManagedRoutePricing(
+    requestParams: any,
+  ): Promise<ResolvedManagedPricing | null> {
     const modelKey =
       typeof requestParams?.modelKey === 'string' ? requestParams.modelKey.trim() : '';
     const vendorKey =
@@ -288,25 +283,9 @@ export class CreditsService {
       const raw = typeof setting?.value === 'string' ? setting.value.trim() : '';
       if (!raw) return null;
 
-      const parsed = JSON.parse(raw) as ManagedPricingMappingConfig;
-      const model = Array.isArray(parsed?.models)
-        ? parsed.models.find(
-            (item) =>
-              item &&
-              typeof item.modelKey === 'string' &&
-              item.modelKey.trim() === modelKey,
-          )
-        : null;
-      if (!model || !Array.isArray(model.vendors)) return null;
-
-      const vendor = model.vendors.find(
-        (item) =>
-          item &&
-          typeof item.vendorKey === 'string' &&
-          item.vendorKey.trim() === vendorKey,
-      );
-      const credits = Number(vendor?.creditsPerCall);
-      return Number.isFinite(credits) && credits >= 0 ? credits : null;
+      const parsed = JSON.parse(raw) as ManagedPricingMappingLike;
+      const resolved = resolveManagedModelPricing(parsed, modelKey, vendorKey, requestParams);
+      return resolved.source === 'none' ? null : resolved;
     } catch (error) {
       this.logger.warn(
         `读取模型管理线路积分失败，回退服务定价: ${
@@ -381,6 +360,48 @@ export class CreditsService {
       return `可灵 ${modelLabel} 视频（${soundLabel} / ${modeLabel} / ${duration}秒）`;
     }
     return `可灵 ${modelLabel} 视频（${soundLabel} / ${modeLabel}）`;
+  }
+
+  private resolveManagedVideoServiceName(
+    serviceType: ServiceType,
+    defaultServiceName: string,
+    requestParams: any,
+  ): string {
+    if (serviceType !== 'doubao-video') {
+      return defaultServiceName;
+    }
+
+    const modelKey =
+      typeof requestParams?.modelKey === 'string' ? requestParams.modelKey.trim().toLowerCase() : '';
+    const seedanceModel =
+      typeof requestParams?.seedanceModel === 'string'
+        ? requestParams.seedanceModel.trim().toLowerCase()
+        : '';
+
+    if (
+      seedanceModel === 'seedance-2.0-fast' ||
+      seedanceModel === '2.0-fast'
+    ) {
+      return 'Seedance 2.0 Fast视频生成';
+    }
+
+    if (
+      modelKey === 'seedance-2.0' ||
+      seedanceModel === 'seedance-2.0' ||
+      seedanceModel === '2.0'
+    ) {
+      return 'Seedance 2.0视频生成';
+    }
+
+    if (
+      modelKey === 'seedance-1.5' ||
+      seedanceModel === 'seedance-1.5-pro' ||
+      seedanceModel === '1.5-pro'
+    ) {
+      return 'Seedance 1.5 Pro视频生成';
+    }
+
+    return defaultServiceName;
   }
 
   /**
@@ -1441,11 +1462,16 @@ export class CreditsService {
    * 获取所有服务定价
    */
   async getAllPricing(): Promise<PricingResponseDto[]> {
-    const staticEntries: PricingResponseDto[] = Object.entries(CREDIT_PRICING_CONFIG).map(([key, value]) => ({
-      serviceType: key,
-      ...value,
-    })) as PricingResponseDto[];
-    const extraNodeConfigs = await this.prisma.nodeConfig.findMany({
+    const staticEntries = new Map(
+      Object.entries(CREDIT_PRICING_CONFIG).map(([key, value]) => [
+        key,
+        {
+          serviceType: key,
+          ...value,
+        } as PricingResponseDto,
+      ]),
+    );
+    const nodeConfigs = await this.prisma.nodeConfig.findMany({
       where: {
         serviceType: {
           not: null,
@@ -1458,23 +1484,29 @@ export class CreditsService {
       },
     });
 
-    const known = new Set(staticEntries.map((item) => item.serviceType));
-    const dynamicEntries: PricingResponseDto[] = extraNodeConfigs
-      .filter(
-        (item) =>
-          typeof item.serviceType === 'string' &&
-          item.serviceType.trim().length > 0 &&
-          !known.has(item.serviceType.trim()),
-      )
-      .map((item) => ({
-        serviceType: String(item.serviceType).trim(),
-        serviceName: item.nameZh,
-        provider: 'custom',
-        creditsPerCall: item.creditsPerCall,
-        description: `Node-managed pricing for ${item.nameZh || item.serviceType}`,
-      }));
+    for (const item of nodeConfigs) {
+      const serviceType =
+        typeof item.serviceType === 'string' ? item.serviceType.trim() : '';
+      if (!serviceType) continue;
 
-    return staticEntries.concat(dynamicEntries);
+      const fallback = staticEntries.get(serviceType);
+      staticEntries.set(serviceType, {
+        serviceType,
+        serviceName: item.nameZh || fallback?.serviceName || serviceType,
+        provider: fallback?.provider || 'custom',
+        creditsPerCall:
+          typeof item.creditsPerCall === 'number'
+            ? item.creditsPerCall
+            : (fallback?.creditsPerCall ?? 0),
+        description:
+          fallback?.description ||
+          `Node-managed pricing for ${item.nameZh || item.serviceType}`,
+        maxInputTokens: fallback?.maxInputTokens,
+        maxContextLength: fallback?.maxContextLength,
+      });
+    }
+
+    return Array.from(staticEntries.values());
   }
 
   /**
@@ -1493,31 +1525,44 @@ export class CreditsService {
     }
 
     let creditsToDeduct: number = pricing.creditsPerCall;
-    const managedRouteCredits = await this.resolveManagedRouteCredits(requestParams);
-    if (managedRouteCredits !== null) {
-      creditsToDeduct = managedRouteCredits;
+    const managedRoutePricing = await this.resolveManagedRoutePricing(requestParams);
+    if (typeof managedRoutePricing?.price?.credits === 'number') {
+      creditsToDeduct = managedRoutePricing.price.credits;
     }
+
+    const effectiveRequestParams =
+      managedRoutePricing && requestParams && typeof requestParams === 'object'
+        ? {
+            ...requestParams,
+            pricingSnapshot: {
+              source: managedRoutePricing.source,
+              ...(managedRoutePricing.ruleKey ? { ruleKey: managedRoutePricing.ruleKey } : {}),
+              ...(managedRoutePricing.label ? { label: managedRoutePricing.label } : {}),
+              price: managedRoutePricing.price,
+            },
+          }
+        : requestParams;
     
     // 处理Sora视频模型的特殊定价
     creditsToDeduct = this.resolveSoraModelCredits(
       serviceType,
-      creditsToDeduct,
-      requestParams,
-      model,
-    );
+        creditsToDeduct,
+        effectiveRequestParams,
+        model,
+      );
 
     // 处理 Kling 2.6 / 3.0 按模型、音效、模式、时长阶梯计费
     creditsToDeduct = this.resolveKlingModelCredits(
       serviceType,
       creditsToDeduct,
-      requestParams,
+      effectiveRequestParams,
     );
 
     // 处理图像生成服务的分辨率定价
     creditsToDeduct = this.resolveImageResolutionCredits(
       serviceType,
       creditsToDeduct,
-      requestParams,
+      effectiveRequestParams,
     );
 
     return await this.prisma.$transaction(async (tx) => {
@@ -1613,13 +1658,18 @@ export class CreditsService {
       let effectiveServiceName = this.resolveSoraServiceName(
         serviceType,
         pricing.serviceName,
-        requestParams,
+        effectiveRequestParams,
         model,
       );
       effectiveServiceName = this.resolveKlingServiceName(
         serviceType,
         effectiveServiceName,
-        requestParams,
+        effectiveRequestParams,
+      );
+      effectiveServiceName = this.resolveManagedVideoServiceName(
+        serviceType,
+        effectiveServiceName,
+        effectiveRequestParams,
       );
 
       // 更新账户余额
@@ -1644,7 +1694,7 @@ export class CreditsService {
           outputTokens,
           inputImageCount,
           outputImageCount,
-          requestParams,
+          requestParams: effectiveRequestParams,
           responseStatus: ApiResponseStatus.PENDING,
           ipAddress,
           userAgent,

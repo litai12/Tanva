@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import type { ManagedPricingBook } from './model-pricing-resolver';
 
 export const MODEL_PROVIDER_MAPPING_SETTING_KEY = 'model_provider_mapping_v2';
 
@@ -23,8 +24,10 @@ export interface ManagedModelVendorConfig {
   route?: ModelVendorRouteType;
   provider?: string;
   creditsPerCall?: number;
+  priceYuan?: number;
   modelName?: string;
   modelVersion?: string;
+  pricing?: ManagedPricingBook;
   metadata?: Record<string, any>;
 }
 

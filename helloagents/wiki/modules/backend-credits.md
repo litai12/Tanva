@@ -31,6 +31,13 @@
 - `POST /api/ai/analyze-image` 的计费请求参数会写入 `aiProvider/channelHint`，用于在积分流水中识别执行渠道。
 - 流水列表前端可直接展示“渠道 + 模型”，用于核对“使用了哪个渠道、哪个模型”。
 - 视频模型管理线路若在 `model_provider_mapping_v2.models[].vendors[]` 配置了 `creditsPerCall`，后端预扣积分会优先使用该线路价格，而不是节点管理/静态服务价。
+- 若 `model_provider_mapping_v2.models[].vendors[].metadata.specPricing` 配置了规格积分规则，后端会按数组顺序匹配第一条命中的 `match/when` 条件，再回退到厂商级 `creditsPerCall`：
+  - 规则格式示例：`{ "match": { "resolution": "720P", "duration": 10 }, "creditsPerCall": 900 }`
+  - 常用匹配字段可直接复用请求参数，如 `resolution`、`duration`、`aspectRatio`、`mode`、`sound`、`modelVersion`。
+- 新定价结构优先：
+  - `model_provider_mapping_v2.models[].vendors[].pricing.defaults`：厂商默认价
+  - `model_provider_mapping_v2.models[].vendors[].pricing.rules[]`：规格组合价
+  - 命中模型管理价格时，后端会把 `pricingSnapshot` 写入 `ApiUsageRecord.requestParams`，用于审计规则来源、命中 ruleKey 和最终价格快照。
 
 ## pending 收敛与自动退款
 - 异步视频链路支持前端回写成功：`POST /api/ai/video-task-success` 将 `ApiUsageRecord.responseStatus` 从 `pending` 更新为 `success`。

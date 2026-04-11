@@ -25,12 +25,18 @@
 - 管理后台“节点管理”支持“从模型管理导入”：
   - 导入入口会读取当前动态 `model_provider_mapping_v2`，并基于选中的模型自动创建一条显式 `NodeConfig`。
   - 导入只负责加速创建；画布节点仍只认节点管理中的显式配置，不会被模型管理 JSON 直接派生。
+- 管理后台“系统设置”同时提供两种模型管理入口：
+  - `统一模型管理`：直接编辑完整 `model_provider_mapping_v2` JSON，包括模型/厂商启停、默认线路、厂商积分与 `metadata.specPricing` 规格积分规则；默认会带出当前平台已接入的图片模型（Nano Banana / Gemini 系列）与视频模型，左侧列表支持按关键字和任务类型筛选，图片模型的规格积分编辑会按模型能力维度展示，例如文生图仅显示尺寸/质量/出图数，图像编辑与参考图生成会额外显示参考图数量，图像分析则收敛为分析单价。
+  - `视频模型管理`：仅用于快速切换 sora2 / seedance / kling / vidu 的默认供应商路线。
 - `Vidu` 节点内的模型下拉也受模型管理约束：
   - 后端会把 `viduVideo.metadata.supportedModels` 裁剪为当前仍启用的 `vidu-q2 / vidu-q3` 子集；前端从模型管理导入节点配置时也只会写入 `q2 / q3`。
   - 若画布上已有旧节点指向已删除子模型，前端会自动回退到第一个仍可用的 `viduModel`。
 - 模型管理里的线路价格会覆盖节点管理价格：
   - 公开节点配置接口会把 `model_provider_mapping_v2` 中默认 vendor 的 `creditsPerCall` 动态回填到对应 Flow 节点。
   - 画布上的模型管理视频节点支持切换 `vendorKey` 线路；切换后运行按钮旁的积分徽标会即时回显该线路价格，并把 `managedModelKey/vendorKey/platformKey` 一起传给后端。
+- 统一模型管理已开始从旧 `specPricing` 过渡到正式 `pricing`：
+  - 管理台厂商卡片现在支持默认积分、默认价格(元)以及规格规则的积分/价格维护。
+  - 后端公开节点接口会优先读取 vendor `pricing.defaults`，旧 `creditsPerCall` 仍作为兼容回退。
 
 ## 音频节点
 - `minimaxSpeech`：文本转语音节点，输出 `audio` 句柄。

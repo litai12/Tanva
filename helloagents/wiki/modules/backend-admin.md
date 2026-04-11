@@ -29,8 +29,10 @@
   - `banana_text_provider`：Banana 文本链路供应商（text-chat/tool-selection）
   - `seedream5_provider`：Seedream 5.0 图像链路供应商（`doubao` / `watcha`）
 - Sora2 不再通过系统设置切换供应商，统一在 `model_provider_mapping_v2` 中配置路由。
-- `model_provider_mapping_v2.models[].vendors[]` 支持直接配置 `creditsPerCall`：
-  - 同一模型可按不同线路/渠道分别配置积分消耗。
+- `model_provider_mapping_v2.models[].vendors[]` 现支持正式 `pricing` 结构：
+  - 推荐使用 `pricing.defaults` 维护默认价，支持 `credits`、`priceYuan` 等多价格字段。
+  - 推荐使用 `pricing.rules[]` 维护规格组合价，按 `when` 条件匹配。
+  - 旧 `creditsPerCall` 与 `metadata.specPricing` 仍兼容读取，管理台保存时会同步写入新结构。
   - Flow 前端会优先采用模型管理里的默认线路价格；若用户手动切换线路，则回显并传递对应 vendor 的价格/标识。
 - 模型管理配置 key `model_provider_mapping_v2` 中的 `models[]` 允许“真删除”：
   - 前端管理页不会再在归一化时把默认模型目录补回已保存配置。
