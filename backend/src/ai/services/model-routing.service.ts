@@ -440,7 +440,7 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
       modelKey: 'seedance-2.0',
       modelName: 'Seedance 2.0',
       taskType: 'video',
-      enabled: false,
+      enabled: true,
       defaultVendor: 'seedance_api',
       vendors: [
         {

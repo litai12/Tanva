@@ -431,20 +431,34 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   );
   const pricingContext = React.useMemo(() => {
     const context: Record<string, any> = {};
-    if (typeof data.clipDuration === "number" && Number.isFinite(data.clipDuration)) {
-      context.duration = Math.round(data.clipDuration);
-    }
+    const duration =
+      typeof data.clipDuration === "number" && Number.isFinite(data.clipDuration)
+        ? Math.round(data.clipDuration)
+        : 5;
+    context.duration = duration;
+
     if (typeof data.resolution === "string" && data.resolution.trim()) {
       context.resolution = data.resolution.trim().toUpperCase();
+    } else if (provider === "vidu" || provider === "viduq3-pro" || provider === "doubao") {
+      context.resolution = "720P";
     }
+
     if (typeof data.aspectRatio === "string" && data.aspectRatio.trim()) {
       context.aspectRatio = data.aspectRatio.trim();
+    } else if (provider === "vidu" || provider === "viduq3-pro") {
+      context.aspectRatio = "16:9";
     }
+
     if (typeof (data as any).mode === "string" && String((data as any).mode).trim()) {
       context.mode = String((data as any).mode).trim().toLowerCase();
+    } else if (isUnifiedKlingNode) {
+      context.mode = "std";
     }
+
     if (typeof data.sound !== "undefined") {
       context.sound = Boolean(data.sound);
+    } else if (isUnifiedKlingNode) {
+      context.sound = true;
     }
     if (typeof data.generateAudio !== "undefined") {
       context.generateAudio = Boolean(data.generateAudio);
@@ -464,6 +478,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     if (typeof data.seedanceMode === "string" && data.seedanceMode.trim()) {
       context.videoMode = data.seedanceMode.trim().toLowerCase();
       context.seedanceMode = data.seedanceMode.trim().toLowerCase();
+    } else if (isSeedanceModel) {
+      context.videoMode = seedanceMode;
+      context.seedanceMode = seedanceMode;
     }
     return context;
   }, [
@@ -477,6 +494,10 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     data.sound,
     data.viduModel,
     data.watermark,
+    isSeedanceModel,
+    seedanceMode,
+    provider,
+    isUnifiedKlingNode,
     (data as any).mode,
   ]);
   const resolvedManagedPricing = React.useMemo(
@@ -484,10 +505,10 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     [data.vendorKey, nodeConfigMetadata, pricingContext]
   );
   const selectedCredits =
-    typeof resolvedManagedPricing?.credits === "number"
-      ? resolvedManagedPricing.credits
-      : typeof data.creditsPerCall === "number"
+    typeof data.creditsPerCall === "number"
       ? data.creditsPerCall
+      : typeof resolvedManagedPricing?.credits === "number"
+      ? resolvedManagedPricing.credits
       : getManagedRouteCredits(nodeConfigMetadata, data.vendorKey);
   const hasRunCredits = typeof selectedCredits === "number" && selectedCredits > 0;
   const vodAspectOptions = React.useMemo(() => {

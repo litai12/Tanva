@@ -371,10 +371,10 @@ body.tanva-premium-black-theme .tanva-toolbar-shell button {
   background: #1d1d1d !important;
   color: #ffffff !important;
   border-color: #1d1d1d !important;
-  width: 40px !important;
-  height: 40px !important;
-  min-width: 40px !important;
-  min-height: 40px !important;
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
   padding: 0 !important;
   border-radius: 9999px !important;
   box-shadow: none !important;
@@ -477,6 +477,28 @@ body.tanva-premium-black-theme .tanva-selection-group-toolbar button:hover:not(:
 
 body.tanva-premium-black-theme .tanva-selection-group-toolbar button:disabled {
   color: #64748b !important;
+}
+
+/* Premium black theme: image toolbar (图片下方工具栏) */
+body.tanva-premium-black-theme [data-image-toolbar] {
+  --tw-text-opacity: 1;
+  color: #ffffff !important;
+}
+
+body.tanva-premium-black-theme [data-image-toolbar] button {
+  color: #ffffff !important;
+}
+
+body.tanva-premium-black-theme [data-image-toolbar] button:hover:not(:disabled) {
+  background: transparent !important;
+}
+
+body.tanva-premium-black-theme [data-image-toolbar] button:disabled {
+  color: #666666 !important;
+}
+
+body.tanva-premium-black-theme [data-image-toolbar] button span {
+  color: #ffffff !important;
 }
 
 /* Premium black theme: left toolbar text style panel */

@@ -642,6 +642,8 @@ export class AuthService {
         authorizedAt: true,
         returnTo: true,
         openId: true,
+        nickname: true,
+        avatarUrl: true,
       },
     });
 
@@ -670,6 +672,8 @@ export class AuthService {
       returnTo: session.returnTo,
       needsPhoneBind: status === "needs_phone_bind",
       hasScannedIdentity: Boolean(session.openId),
+      nickname: session.nickname,
+      avatarUrl: session.avatarUrl,
     };
   }
 
@@ -938,6 +942,8 @@ export class AuthService {
         status: linkedUser ? "authorized" : "needs_phone_bind",
         openId: fromUserName,
         unionId: profile.unionId,
+        nickname: profile.nickname,
+        avatarUrl: profile.avatarUrl,
         userId: linkedUser?.id || null,
         authorizedAt: linkedUser ? new Date() : null,
       },

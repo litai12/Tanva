@@ -320,7 +320,9 @@ export default function LoginPage() {
                       : wechatBinding
                       ? t("auth.login.wechatBinding")
                       : wechatSession?.status === "needs_phone_bind"
-                      ? t("auth.login.wechatBindHint")
+                      ? wechatSession.nickname
+                        ? `你好，${wechatSession.nickname}，请填写手机号绑定账号`
+                        : t("auth.login.wechatBindHint")
                       : wechatSession?.status === "expired"
                       ? t("auth.login.wechatExpired")
                       : t("auth.login.wechatHint")}

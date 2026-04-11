@@ -90,7 +90,16 @@ const SmartImage = React.forwardRef<HTMLImageElement, SmartImageProps>(
         />
       );
     }
-    return <img ref={ref} {...imgProps} onError={handleError} src={finalSrc} />;
+    return (
+      <img
+        ref={ref}
+        {...imgProps}
+        loading={imgProps.loading ?? "lazy"}
+        decoding={imgProps.decoding ?? "async"}
+        onError={handleError}
+        src={finalSrc}
+      />
+    );
   }
 );
 

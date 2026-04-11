@@ -228,9 +228,12 @@ export interface AdminUserCreditTransaction {
   channel?: string | null;
   provider?: string | null;
   model?: string | null;
+  billingRemark?: string | null;
   apiResponseStatus?: string | null;
   processingTime?: number | null;
 }
+
+export interface UserCreditTransaction extends AdminUserCreditTransaction {}
 
 export async function getAdminUserCreditTransactions(
   userId: string,
@@ -308,7 +311,7 @@ export async function getMyTransactions(params?: {
   page?: number;
   pageSize?: number;
   type?: string;
-}) {
+}): Promise<{ transactions: UserCreditTransaction[]; pagination: Pagination }> {
   const searchParams = new URLSearchParams();
   if (params?.page) searchParams.set("page", String(params.page));
   if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));

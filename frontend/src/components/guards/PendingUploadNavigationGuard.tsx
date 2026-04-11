@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useUploadLeavePromptStore } from '@/stores/uploadLeavePromptStore';
 import { getPendingUploadSummary } from '@/utils/pendingUploadSummary';
@@ -11,14 +11,14 @@ function getHistoryIdx(state: unknown): number | null {
 }
 
 /**
- * 处理浏览器前进/后退导致的离开：
- * - beforeunload 无法覆盖 SPA 内部路由变化
- * - 这里用 popstate 捕获阶段拦截，并弹出自定义确认弹窗
+ * 处理浏览器前进/后退导致的页面离开：
+ * - beforeunload 不能覆盖 SPA 内部路由变化
+ * - 使用 popstate 捕获并弹出自定义确认框
  */
 export default function PendingUploadNavigationGuard() {
   const { i18n } = useTranslation();
   const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
-  const lt = (zhText: string, enText: string) => (isZh ? zhText : enText);
+  const lt = useCallback((zhText: string, enText: string) => (isZh ? zhText : enText), [isZh]);
   const location = useLocation();
   const promptOpen = useUploadLeavePromptStore((state) => state.open);
   const openPrompt = useUploadLeavePromptStore((state) => state.openPrompt);
@@ -45,7 +45,7 @@ export default function PendingUploadNavigationGuard() {
         return;
       }
 
-      // 仅在编辑器内拦截（避免影响其它页面的正常返回）
+      // 仅在编辑器页面拦截，避免影响其他页面返回行为
       if (!location.pathname.startsWith('/app')) {
         const idx = getHistoryIdx(event.state);
         if (idx !== null) historyIdxRef.current = idx;
@@ -53,7 +53,7 @@ export default function PendingUploadNavigationGuard() {
       }
 
       const summary = getPendingUploadSummary();
-      if (!summary.hasPending || promptOpen) {
+      if (!summary.hasRisk || promptOpen) {
         const idx = getHistoryIdx(event.state);
         if (idx !== null) historyIdxRef.current = idx;
         return;
@@ -67,7 +67,7 @@ export default function PendingUploadNavigationGuard() {
         delta = computed !== 0 ? computed : null;
       }
 
-      // 先把 URL/历史回滚到当前页，再弹确认（避免编辑器被卸载造成状态丢失）
+      // 先回滚 history，再提示确认，避免编辑器被直接卸载
       const revertDelta = delta !== null ? -delta : 1;
       skipNextPopRef.current = true;
       try {
@@ -79,13 +79,15 @@ export default function PendingUploadNavigationGuard() {
 
       openPrompt({
         summary,
-        title: lt('还有图片未上传完成', 'Some images are not uploaded yet'),
+        title: lt(
+          '当前画板仍有任务在运行或上传',
+          'There are running or uploading tasks on this canvas'
+        ),
         message: lt(
-          '检测到仍有上传中/待上传图片，离开可能导致图片丢失或无法保存到云端。',
-          'Detected uploading/pending images. Leaving may cause image loss or failed cloud save.'
+          '当前画板上有在运行或上传中的数据，请勿轻易离开页面；如执意离开，运行或上传中的数据即将丢失。',
+          'There are running or uploading tasks on this canvas. Do not leave now; if you leave anyway, in-flight data may be lost.'
         ),
         onConfirm: () => {
-          // 用户确认后，执行原本的前进/后退
           skipNextPopRef.current = true;
           try {
             window.history.go(delta !== null ? delta : -1);

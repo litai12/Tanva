@@ -1780,16 +1780,17 @@ export async function generateWan26R2VViaAPI(request: {
  * 调用后端代理的 DashScope Wan2.7-i2v 接口
  */
 export async function generateWan27I2VViaAPI(request: {
-  prompt: string;
+  prompt?: string;
   media: Array<{
     type: "first_frame" | "last_frame" | "first_clip" | "driving_audio";
     url: string;
   }>;
   parameters?: {
     resolution?: "720P" | "1080P";
-    duration?: 5 | 10 | 15;
+    duration?: number;
     prompt_extend?: boolean;
     watermark?: boolean;
+    seed?: number;
   };
 }): Promise<AIServiceResponse<any>> {
   const startedAt = getTimestamp();

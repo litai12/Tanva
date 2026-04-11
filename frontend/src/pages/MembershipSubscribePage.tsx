@@ -31,6 +31,7 @@ const MembershipSubscribePage: React.FC = () => {
           )}
         >
           <MembershipPanel
+            hideBackButton
             onBack={() => navigate(-1)}
             onPaymentSuccess={() => {
               window.dispatchEvent(new CustomEvent("refresh-credits"));

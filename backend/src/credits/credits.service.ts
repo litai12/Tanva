@@ -496,21 +496,32 @@ export class CreditsService {
 
   private buildLotDeductionsMetadata(
     deductions: HybridCreditDeduction[],
+    options?: {
+      billingRemark?: string | null;
+    },
   ): Prisma.InputJsonValue {
-    return {
-      deductions: deductions.map((item) =>
-        item.kind === 'lot'
-          ? {
-              kind: item.kind,
-              lotId: item.lotId,
-              amount: item.amount,
-            }
-          : {
-              kind: item.kind,
-              amount: item.amount,
-            },
-      ),
-    } as Prisma.InputJsonValue;
+    const deductionPayload = deductions.map((item) =>
+      item.kind === 'lot'
+        ? {
+            kind: item.kind,
+            lotId: item.lotId,
+            amount: item.amount,
+          }
+        : {
+            kind: item.kind,
+            amount: item.amount,
+          },
+    ) as Prisma.JsonArray;
+
+    const payload: Prisma.JsonObject = {
+      deductions: deductionPayload,
+    };
+
+    if (typeof options?.billingRemark === 'string' && options.billingRemark.trim().length > 0) {
+      payload.billingRemark = options.billingRemark.trim();
+    }
+
+    return payload as Prisma.InputJsonValue;
   }
 
   private getDailyRewardMetadata(
@@ -869,6 +880,145 @@ export class CreditsService {
     if (apiUsage.provider === 'nano2') return 'apimart';
     if (apiUsage.provider?.startsWith('banana')) return '147';
     return null;
+  }
+
+  private asNonEmptyString(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  private asNullableBoolean(value: unknown): boolean | null {
+    if (typeof value === 'boolean') return value;
+    if (typeof value !== 'string') return null;
+    const normalized = value.trim().toLowerCase();
+    if (['on', 'yes', 'true', '1'].includes(normalized)) return true;
+    if (['off', 'no', 'false', '0'].includes(normalized)) return false;
+    return null;
+  }
+
+  private formatBillingChannel(channel: string | null): string | null {
+    if (!channel) return null;
+    if (channel === 'apimart') return '普通通道(apimart)';
+    if (channel === 'tencent') return '稳定通道(腾讯)';
+    if (channel === '147') return '147通道';
+    return channel;
+  }
+
+  private resolveBillingModelLabel(
+    serviceType: ServiceType,
+    model: string | undefined,
+    requestParams?: Record<string, any> | null,
+  ): string | null {
+    const isVideoService =
+      serviceType.includes('video') ||
+      serviceType === 'sora-sd' ||
+      serviceType === 'sora-hd' ||
+      serviceType === 'wan26-r2v';
+
+    const videoModelCandidates: unknown[] = [
+      requestParams?.modelKey,
+      requestParams?.managedModelKey,
+      requestParams?.klingModel,
+      requestParams?.viduModelVariant,
+      requestParams?.viduModel,
+      requestParams?.seedanceModel,
+    ];
+    const commonCandidates: unknown[] = [requestParams?.soraModel, model, requestParams?.aiProvider];
+
+    const candidates = isVideoService
+      ? [...videoModelCandidates, ...commonCandidates]
+      : [...commonCandidates, ...videoModelCandidates];
+
+    for (const candidate of candidates) {
+      const normalized = this.asNonEmptyString(candidate);
+      if (normalized) return normalized;
+    }
+
+    return null;
+  }
+
+  private buildBillingRemark(params: {
+    serviceType: ServiceType;
+    model?: string;
+    provider?: string | null;
+    requestParams?: Prisma.JsonValue | null;
+  }): string | null {
+    const requestParams = this.asJsonObject(params.requestParams);
+    const remarkParts: string[] = [];
+
+    const modelLabel = this.resolveBillingModelLabel(
+      params.serviceType,
+      params.model,
+      requestParams,
+    );
+    if (modelLabel) {
+      remarkParts.push(`模型: ${modelLabel}`);
+    }
+
+    const imageSize = this.asNonEmptyString(requestParams?.imageSize)?.toUpperCase() ?? null;
+    const resolution =
+      this.asNonEmptyString(requestParams?.resolution)?.toUpperCase() ?? null;
+    const aspectRatio = this.asNonEmptyString(requestParams?.aspectRatio);
+    const mode = this.asNonEmptyString(requestParams?.mode)?.toLowerCase() ?? null;
+    const videoMode = this.asNonEmptyString(requestParams?.videoMode)?.toLowerCase() ?? null;
+    const durationRaw = Number(requestParams?.duration);
+    const duration = Number.isFinite(durationRaw) ? Math.max(0, Math.round(durationRaw)) : null;
+    const hasSound = this.asNullableBoolean(requestParams?.sound);
+    const generateAudio = this.asNullableBoolean(requestParams?.generateAudio);
+    const channel = this.extractChannelFromApiUsage({
+      provider: params.provider ?? null,
+      model: params.model ?? null,
+      requestParams,
+    });
+    const channelLabel = this.formatBillingChannel(channel);
+
+    const isVideoService =
+      params.serviceType.includes('video') ||
+      params.serviceType === 'sora-sd' ||
+      params.serviceType === 'sora-hd' ||
+      params.serviceType === 'wan26-r2v';
+
+    if (imageSize) {
+      remarkParts.push(`尺寸档位: ${imageSize}`);
+    }
+    if (isVideoService && duration !== null) {
+      remarkParts.push(`时长: ${duration}s`);
+    }
+    if (resolution) {
+      remarkParts.push(`分辨率: ${resolution}`);
+    }
+    if (aspectRatio) {
+      remarkParts.push(`画幅: ${aspectRatio}`);
+    }
+    if (mode) {
+      remarkParts.push(`模式: ${mode}`);
+    }
+    if (videoMode) {
+      remarkParts.push(`视频模式: ${videoMode}`);
+    }
+    if (hasSound !== null) {
+      remarkParts.push(`音效: ${hasSound ? '开' : '关'}`);
+    }
+    if (generateAudio !== null) {
+      remarkParts.push(`生成音频: ${generateAudio ? '是' : '否'}`);
+    }
+    if (channelLabel) {
+      remarkParts.push(`渠道: ${channelLabel}`);
+    }
+
+    const aiProvider = this.asNonEmptyString(requestParams?.aiProvider)?.toLowerCase() ?? '';
+    const modelLower = modelLabel?.toLowerCase() ?? '';
+    const isBananaLikeModel =
+      aiProvider.includes('banana') ||
+      aiProvider.includes('nano') ||
+      modelLower.includes('banana') ||
+      modelLower.includes('nano');
+    if (channel === 'tencent' && isBananaLikeModel) {
+      remarkParts.push('计价: 按 Google 官方原价');
+    }
+
+    return remarkParts.length > 0 ? remarkParts.join(' | ') : null;
   }
 
   private parsePositiveIntEnv(name: string, fallback: number): number {
@@ -1671,6 +1821,12 @@ export class CreditsService {
         effectiveServiceName,
         effectiveRequestParams,
       );
+      const billingRemark = this.buildBillingRemark({
+        serviceType,
+        model,
+        provider: requestedProvider || pricing.provider,
+        requestParams: effectiveRequestParams,
+      });
 
       // 更新账户余额
       await tx.creditAccount.update({
@@ -1713,7 +1869,9 @@ export class CreditsService {
           apiUsageId: apiUsage.id,
           consumePolicyCode: consumePolicy.code,
           consumePolicyVersion: consumePolicy.version,
-          metadata: this.buildLotDeductionsMetadata(deductionPlan.deductions),
+          metadata: this.buildLotDeductionsMetadata(deductionPlan.deductions, {
+            billingRemark,
+          }),
         },
       });
 
@@ -2469,6 +2627,7 @@ export class CreditsService {
     const apiUsageMap = new Map<
       string,
       {
+        serviceType: string;
         provider: string | null;
         model: string | null;
         requestParams: Prisma.JsonValue | null;
@@ -2482,6 +2641,7 @@ export class CreditsService {
         where: { id: { in: apiUsageIds } },
         select: {
           id: true,
+          serviceType: true,
           provider: true,
           model: true,
           requestParams: true,
@@ -2497,11 +2657,23 @@ export class CreditsService {
 
     const enrichedTransactions = transactions.map((tx) => {
       const usage = tx.apiUsageId ? apiUsageMap.get(tx.apiUsageId) : null;
+      const metadata = this.asJsonObject(tx.metadata);
+      const metadataBillingRemark = this.asNonEmptyString(metadata?.billingRemark);
+      const fallbackBillingRemark =
+        usage && typeof usage.serviceType === 'string'
+          ? this.buildBillingRemark({
+              serviceType: usage.serviceType as ServiceType,
+              model: usage.model ?? undefined,
+              provider: usage.provider ?? null,
+              requestParams: usage.requestParams,
+            })
+          : null;
       return {
         ...tx,
         channel: this.extractChannelFromApiUsage(usage),
         provider: usage?.provider ?? null,
         model: usage?.model ?? null,
+        billingRemark: metadataBillingRemark ?? fallbackBillingRemark,
         apiResponseStatus: usage?.responseStatus ?? null,
         processingTime: usage?.processingTime ?? null,
       };
