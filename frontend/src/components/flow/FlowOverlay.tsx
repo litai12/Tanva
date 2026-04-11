@@ -1,4 +1,4 @@
-﻿// @ts-nocheck
+// @ts-nocheck
 // Flow 主画布与节点调度入口。
 import React from "react";
 import { Trash2, Plus, Upload, Download, Group, Ungroup } from "lucide-react";
@@ -6957,11 +6957,10 @@ function FlowInner() {
               status: "idle" as const,
               videoUrl: undefined,
               thumbnail: undefined,
-              resolution: "720P" as const,
-              duration: 10 as const,
-              promptExtend: true,
-              watermark: true,
+              resolution: "1080P" as const,
+              duration: 5 as const,
               audioUrl: undefined,
+              seed: undefined,
               videoVersion: 0,
               history: [],
               boxW: size.w,
@@ -11009,9 +11008,11 @@ function FlowInner() {
 
       if (node.type === "wan27Video") {
         const projectId = useProjectContentStore.getState().projectId;
-        const { text: promptText, hasEdge: hasText } = getTextPromptForNode(nodeId);
+        const { text: promptText } = getTextPromptForNode(nodeId);
+        const promptTextNormalized =
+          typeof promptText === "string" ? promptText.trim() : "";
 
-        if (!hasText) {
+        if (promptTextNormalized.length > 5000) {
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
@@ -11020,22 +11021,8 @@ function FlowInner() {
                     data: {
                       ...n.data,
                       status: "failed",
-                      error: "缺少 TextPrompt 输入",
+                      error: "Prompt 最多支持 5000 个字符",
                     },
-                  }
-                : n
-            )
-          );
-          return;
-        }
-
-        if (!promptText) {
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? {
-                    ...n,
-                    data: { ...n.data, status: "failed", error: "提示词为空" },
                   }
                 : n
             )
@@ -11115,8 +11102,48 @@ function FlowInner() {
         const audioEdge = currentEdges.find(
           (e) => e.target === nodeId && e.targetHandle === "audio"
         );
+        const firstFrameEdgeCount = currentEdges.filter(
+          (e) => e.target === nodeId && e.targetHandle === "image"
+        ).length;
+        const lastFrameEdgeCount = currentEdges.filter(
+          (e) => e.target === nodeId && e.targetHandle === "image-2"
+        ).length;
+        const firstClipEdgeCount = currentEdges.filter(
+          (e) => e.target === nodeId && e.targetHandle === "video"
+        ).length;
+        const audioEdgeCount = currentEdges.filter(
+          (e) => e.target === nodeId && e.targetHandle === "audio"
+        ).length;
+
+        const failWan27Node = (message: string) => {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: { ...n.data, status: "failed", error: message },
+                  }
+                : n
+            )
+          );
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message, type: "warning" },
+            })
+          );
+        };
 
         try {
+          if (
+            firstFrameEdgeCount > 1 ||
+            lastFrameEdgeCount > 1 ||
+            firstClipEdgeCount > 1 ||
+            audioEdgeCount > 1
+          ) {
+            failWan27Node("Wan2.7 每个媒体句柄最多仅支持 1 条连接");
+            return;
+          }
+
           const [firstFrameUrl, lastFrameUrl] = await Promise.all([
             uploadResolvedImageEdge(firstFrameEdge),
             uploadResolvedImageEdge(lastFrameEdge),
@@ -11138,22 +11165,68 @@ function FlowInner() {
           if (firstClipUrl) media.push({ type: "first_clip", url: firstClipUrl });
           if (audioUrl) media.push({ type: "driving_audio", url: audioUrl });
 
-          if (!media.length) {
-            setNodes((ns) =>
-              ns.map((n) =>
-                n.id === nodeId
-                  ? {
-                      ...n,
-                      data: {
-                        ...n.data,
-                        status: "failed",
-                        error: "至少需要连接一张图片、一个视频片段或音频",
-                      },
-                    }
-                  : n
-              )
-            );
+          const hasFirstFrame = Boolean(firstFrameUrl);
+          const hasLastFrame = Boolean(lastFrameUrl);
+          const hasFirstClip = Boolean(firstClipUrl);
+          const hasDrivingAudio = Boolean(audioUrl);
+
+          if (!hasFirstFrame && !hasFirstClip) {
+            failWan27Node("Wan2.7 至少需要首帧图或首段视频（first_frame / first_clip）");
             return;
+          }
+
+          if (hasFirstFrame && hasFirstClip) {
+            failWan27Node("Wan2.7 不支持同时传入首帧图和首段视频，请二选一");
+            return;
+          }
+
+          if (hasDrivingAudio && !hasFirstFrame) {
+            failWan27Node("驱动音频仅支持与首帧图组合使用");
+            return;
+          }
+
+          if (hasFirstClip && hasDrivingAudio) {
+            failWan27Node("first_clip 视频续写模式暂不支持 driving_audio");
+            return;
+          }
+
+          if (hasLastFrame && !hasFirstFrame && !hasFirstClip) {
+            failWan27Node("last_frame 不能单独使用，请与 first_frame 或 first_clip 组合");
+            return;
+          }
+
+          const resolution = String((node.data as any)?.resolution || "1080P")
+            .trim()
+            .toUpperCase();
+          if (resolution !== "720P" && resolution !== "1080P") {
+            failWan27Node("Wan2.7 分辨率仅支持 720P / 1080P");
+            return;
+          }
+
+          const durationRaw = Number((node.data as any)?.duration ?? 5);
+          const duration = Math.round(durationRaw);
+          if (!Number.isFinite(durationRaw) || duration < 2 || duration > 15) {
+            failWan27Node("Wan2.7 时长仅支持 2-15 秒");
+            return;
+          }
+
+          const seedRaw = (node.data as any)?.seed;
+          let seed: number | undefined;
+          if (
+            seedRaw !== undefined &&
+            seedRaw !== null &&
+            String(seedRaw).trim().length > 0
+          ) {
+            const parsedSeed = Number(seedRaw);
+            if (
+              !Number.isInteger(parsedSeed) ||
+              parsedSeed < 0 ||
+              parsedSeed > 2147483647
+            ) {
+              failWan27Node("Seed 需为 0 - 2147483647 的整数");
+              return;
+            }
+            seed = parsedSeed;
           }
 
           setNodes((ns) =>
@@ -11167,20 +11240,19 @@ function FlowInner() {
             )
           );
 
-          const resolution = (node.data as any)?.resolution || "720P";
-          const duration = (node.data as any)?.duration || 10;
-          const promptExtend = (node.data as any)?.promptExtend !== false;
-          const watermark = (node.data as any)?.watermark !== false;
+          const promptExtend = true;
+          const watermark = true;
           const generationStartedAt = Date.now();
 
           const result = await generateWan27I2VViaAPI({
-            prompt: promptText,
+            prompt: promptTextNormalized || undefined,
             media,
             parameters: {
               resolution,
               duration,
               prompt_extend: promptExtend,
               watermark,
+              ...(typeof seed === "number" ? { seed } : {}),
             },
           });
 
@@ -12909,9 +12981,24 @@ function FlowInner() {
         }
 
         const clipDuration =
-          typeof (node.data as any)?.clipDuration === "number"
-            ? (node.data as any).clipDuration
+          typeof (node.data as any)?.clipDuration === "number" &&
+          Number.isFinite((node.data as any)?.clipDuration)
+            ? Math.round((node.data as any).clipDuration)
             : undefined;
+        const configuredDurationOptions = (() => {
+          const rawDurations = rawNodeData?.nodeConfigMetadata?.vod?.outputConfig?.durations;
+          if (!Array.isArray(rawDurations)) return [] as number[];
+          const normalized = Array.from(
+            new Set(
+              rawDurations
+                .map((item) => Number(item))
+                .filter((item) => Number.isFinite(item) && item > 0)
+                .map((item) => Math.round(item))
+            )
+          );
+          normalized.sort((a, b) => a - b);
+          return normalized;
+        })();
         if (isSeedanceNode && typeof clipDuration === "number" && Number.isFinite(clipDuration)) {
           if (isSeedance20Request && (clipDuration < 4 || clipDuration > 15)) {
             failCurrentVideoNode("Seedance 2.0 生成时长仅支持 4-15 秒");
@@ -13359,8 +13446,12 @@ function FlowInner() {
 
         // 不同供应商支持的时长不同
         let durationForAPI: number | undefined = undefined;
-        if (clipDuration) {
-          if (
+        if (typeof clipDuration === "number" && Number.isFinite(clipDuration)) {
+          if (configuredDurationOptions.length > 0) {
+            if (configuredDurationOptions.includes(clipDuration)) {
+              durationForAPI = clipDuration;
+            }
+          } else if (
             provider === "kling" &&
             (clipDuration === 5 || clipDuration === 10)
           ) {
@@ -13369,19 +13460,17 @@ function FlowInner() {
             provider === "kling-2.6" &&
             (clipDuration === 5 || clipDuration === 10)
           ) {
-            // Kling 2.6 支持 5 秒或 10 秒
             durationForAPI = clipDuration;
           } else if (
             provider === "kling-o3" &&
             clipDuration >= 3 &&
             clipDuration <= 10
           ) {
-            // Kling O1 支持 3-10 秒
             durationForAPI = clipDuration;
           } else if (
             provider === "vidu" &&
             clipDuration >= 1 &&
-            clipDuration <= 8
+            clipDuration <= 16
           ) {
             durationForAPI = clipDuration;
           } else if (
@@ -13404,6 +13493,18 @@ function FlowInner() {
             clipDuration <= 10
           ) {
             durationForAPI = clipDuration;
+          }
+          if (durationForAPI === undefined) {
+            const supportedDurationText =
+              configuredDurationOptions.length > 0
+                ? `${lt("支持时长", "Supported durations")}: ${configuredDurationOptions.join("/")}${lt("秒", "s")}`
+                : "";
+            failCurrentVideoNode(
+              `${lt("当前时长不受支持", "Selected duration is not supported")}: ${clipDuration}${lt("秒", "s")}${
+                supportedDurationText ? `。${supportedDurationText}` : ""
+              }`
+            );
+            return;
           }
         }
 
@@ -13524,6 +13625,7 @@ function FlowInner() {
                     referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
                   duration: durationForAPI,
                   aspectRatio: aspectRatioForAPI,
+                  resolution: rawNodeData.resolution,
                   provider: provider as VideoProvider,
                   mode: rawNodeData.mode,
                   klingModel: klingModel === "kling-v3-0" ? "kling-v3-0" : rawNodeData.klingModel,

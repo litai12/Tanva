@@ -957,7 +957,7 @@ export class VideoProviderService {
         return this.createManagedV2Task(resolved.modelKey, options, route);
       }
 
-      if (resolved.modelKey === "seedance-1.5" && route.route === "tencent_vod") {
+      if (route.route === "tencent_vod") {
         const result = await this.generateSeedanceViaTencent(
           options,
           route.vendor,

@@ -1,6 +1,6 @@
 import React from "react";
-import { Handle, Position } from "reactflow";
-import { Video, Download, Share2, AlertTriangle, Music4, Image as ImageIcon, Clapperboard } from "lucide-react";
+import { Handle, Position, useStore } from "reactflow";
+import { Video, Download, Share2, AlertTriangle, Music4, Image as ImageIcon, Clapperboard, HelpCircle } from "lucide-react";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { uploadAudioToOSS } from "@/stores/aiChatStore";
 import { useProjectContentStore } from "@/stores/projectContentStore";
@@ -15,8 +15,6 @@ type VideoHistoryItem = {
   thumbnail?: string;
   prompt: string;
   createdAt: string;
-  elapsedSeconds?: number;
-  quality?: string;
 };
 
 type Props = {
@@ -29,57 +27,116 @@ type Props = {
     videoVersion?: number;
     onRun?: (id: string) => void;
     creditsPerCall?: number;
-    resolution?: "720P" | "1080P";
+    resolution?: "720P" | "1080P" | string;
     duration?: number;
-    promptExtend?: boolean;
-    watermark?: boolean;
+    seed?: number | string;
     audioUrl?: string;
     history?: VideoHistoryItem[];
   };
   selected?: boolean;
 };
 
-const SUPPORTED_AUDIO_EXTENSIONS = [
-  "mp3",
-  "wav",
-  "aac",
-  "m4a",
-  "ogg",
-  "opus",
-  "flac",
-  "webm",
-  "weba",
-  "amr",
-  "aiff",
-  "aif",
-  "wma",
-];
+const AUDIO_EXT = ["mp3", "wav"];
+const AUDIO_ACCEPT = AUDIO_EXT.map((x) => `.${x}`).join(",");
+const AUDIO_PATTERN = new RegExp(`\\.(${AUDIO_EXT.join("|")})$`, "i");
+const DURATION_OPTIONS = Array.from({ length: 14 }, (_, i) => i + 2);
 
-const SUPPORTED_AUDIO_PATTERN = new RegExp(
-  `\\.(${SUPPORTED_AUDIO_EXTENSIONS.join("|")})$`,
-  "i"
-);
-const SUPPORTED_AUDIO_ACCEPT = SUPPORTED_AUDIO_EXTENSIONS.map((ext) => `.${ext}`).join(",");
-
-const isSupportedAudioFile = (file: File): boolean => {
-  const mime = (file.type || "").toLowerCase();
-  if (mime.startsWith("audio/")) return true;
-  return SUPPORTED_AUDIO_PATTERN.test((file.name || "").trim());
+const zh = {
+  promptOptional: "\u63d0\u793a\u8bcd\uff08\u53ef\u9009\uff09",
+  firstFrame: "\u9996\u5e27\u56fe\uff08first_frame\uff09",
+  lastFrame: "\u5c3e\u5e27\u56fe\uff08last_frame\uff0c\u53ef\u9009\uff09",
+  firstClip: "\u9996\u6bb5\u89c6\u9891\uff08first_clip\uff09",
+  drivingAudio: "\u9a71\u52a8\u97f3\u9891\uff08driving_audio\uff0c\u53ef\u9009\uff09",
+  outputVideo: "\u751f\u6210\u89c6\u9891\u8f93\u51fa",
+  resolution: "\u5206\u8fa8\u7387",
+  duration: "\u65f6\u957f",
+  seed: "Seed\uff08\u53ef\u9009\uff09",
+  seedHint: "\u4f8b\u5982 123456\uff0c\u8303\u56f4 0-2147483647",
+  guide: "\u73a9\u6cd5\u8bf4\u660e",
+  guideTitle: "\u8fd9\u4e48\u73a9 Wan2.7",
+  guide1: "1. \u9996\u5e27\u751f\u89c6\u9891\uff1aimage\uff08\u53ef\u52a0 audio\uff09",
+  guide2: "2. \u9996\u5c3e\u5e27\u6a21\u5f0f\uff1aimage + image-2\uff08\u53ef\u52a0 audio\uff09",
+  guide3: "3. \u89c6\u9891\u7eed\u5199\uff1avideo\uff0c\u53ef\u52a0 image-2 \u63a7\u5236\u7ed3\u5c3e",
+  highlights: "\u4eae\u70b9",
+  highlightsBody: "\u591a\u6a21\u6001\u8f93\u5165\uff0c2-15 \u79d2\uff0c\u652f\u6301 1080P\uff0cSeed \u53ef\u590d\u73b0",
+  uploadAudio: "\u4e0a\u4f20\u97f3\u9891",
+  replaceAudio: "\u91cd\u9009\u97f3\u9891",
+  clear: "\u6e05\u9664",
+  uploading: "\u4e0a\u4f20\u4e2d...",
+  uploadOk: "\u4e0a\u4f20\u6210\u529f",
+  uploadFailed: "\u4e0a\u4f20\u5931\u8d25\uff0c\u8bf7\u91cd\u8bd5",
+  uploadErr: "\u4e0a\u4f20\u51fa\u9519\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5",
+  badAudioFormat: "\u4e0d\u652f\u6301\u7684\u97f3\u9891\u683c\u5f0f\uff0c\u4ec5\u652f\u6301 mp3/wav",
+  badAudioSize: "\u97f3\u9891\u6587\u4ef6\u5927\u5c0f\u4e0d\u80fd\u8d85\u8fc7 15MB",
+  badAudioRead: "\u65e0\u6cd5\u8bfb\u53d6\u97f3\u9891\u6587\u4ef6",
+  badAudioDuration: "\u97f3\u9891\u65f6\u957f\u9700\u5728 2 \u5230 30 \u79d2\u4e4b\u95f4",
+  waiting: "\u7b49\u5f85\u751f\u6210...",
+  history: "\u5386\u53f2\u8bb0\u5f55",
+  setCurrent: "\u8bbe\u4e3a\u5f53\u524d",
+  copyLink: "\u590d\u5236\u94fe\u63a5",
+  download: "\u4e0b\u8f7d",
+  copyManual: "\u8bf7\u624b\u52a8\u590d\u5236\u4ee5\u4e0b\u94fe\u63a5\uff1a",
+  validationTitle: "\u53c2\u6570\u63d0\u793a",
+  vRes: "\u5206\u8fa8\u7387\u4ec5\u652f\u6301 720P / 1080P",
+  vDuration: "\u65f6\u957f\u4ec5\u652f\u6301 2-15 \u79d2\u6574\u6570",
+  vSeed: "Seed \u9700\u4e3a 0 \u5230 2147483647 \u7684\u6574\u6570",
+  vFirstFrameMax: "\u9996\u5e27\u53e5\u67c4\u6700\u591a\u8fde\u63a5 1 \u8def",
+  vLastFrameMax: "\u5c3e\u5e27\u53e5\u67c4\u6700\u591a\u8fde\u63a5 1 \u8def",
+  vFirstClipMax: "\u9996\u6bb5\u89c6\u9891\u53e5\u67c4\u6700\u591a\u8fde\u63a5 1 \u8def",
+  vAudioMax: "\u9a71\u52a8\u97f3\u9891\u53e5\u67c4\u6700\u591a\u8fde\u63a5 1 \u8def",
+  vNeedInput: "\u81f3\u5c11\u8fde\u63a5 image \u6216 video",
+  vFrameVsClip: "first_frame \u548c first_clip \u4e0d\u80fd\u540c\u65f6\u4f7f\u7528",
+  vAudioNeedFrame: "driving_audio \u4ec5\u652f\u6301\u4e0e first_frame \u7ec4\u5408",
+  vClipNoAudio: "first_clip \u6a21\u5f0f\u4e0d\u652f\u6301 driving_audio",
+  vLastAlone: "last_frame \u4e0d\u80fd\u5355\u72ec\u4f7f\u7528",
 };
+
+const getStyles = (selected?: boolean) => ({
+  card: {
+    width: 300,
+    padding: 10,
+    background: "#fff",
+    border: `1px solid ${selected ? "#2563eb" : "#e5e7eb"}`,
+    borderRadius: 10,
+    boxShadow: selected ? "0 0 0 2px rgba(37,99,235,0.12)" : "0 1px 2px rgba(0,0,0,0.04)",
+    position: "relative" as const,
+  },
+  input: {
+    width: "100%",
+    padding: "6px 8px",
+    borderRadius: 8,
+    border: "1px solid #e5e7eb",
+    background: "#fff",
+  },
+  iconBtn: {
+    width: 36,
+    height: 32,
+    borderRadius: 8,
+    border: "none",
+    background: "#111827",
+    color: "#fff",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+});
 
 function Wan27VideoNode({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const projectId = useProjectContentStore((s) => s.projectId);
-  const borderColor = selected ? "#2563eb" : "#e5e7eb";
-  const boxShadow = selected ? "0 0 0 2px rgba(37,99,235,0.12)" : "0 1px 2px rgba(0,0,0,0.04)";
+  const styles = getStyles(selected);
   const [hover, setHover] = React.useState<string | null>(null);
   const [previewAspect, setPreviewAspect] = React.useState<string>("16/9");
-  const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const [uploading, setUploading] = React.useState(false);
   const [message, setMessage] = React.useState<string | null>(null);
-  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [isDownloading, setIsDownloading] = React.useState(false);
   const [showHistory, setShowHistory] = React.useState(false);
+  const [showGuide, setShowGuide] = React.useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  const updateNodeData = React.useCallback((patch: Record<string, any>) => {
+    window.dispatchEvent(new CustomEvent("flow:updateNodeData", { detail: { id, patch } }));
+  }, [id]);
 
   const sanitizeMediaUrl = React.useCallback((url?: string | null) => {
     if (!url || typeof url !== "string") return undefined;
@@ -91,29 +148,63 @@ function Wan27VideoNode({ id, data, selected }: Props) {
     return spaceIdx > 0 ? candidate.slice(0, spaceIdx) : candidate;
   }, []);
 
-  const sanitizedVideoUrl = React.useMemo(
-    () => sanitizeMediaUrl(data.videoUrl),
-    [data.videoUrl, sanitizeMediaUrl]
-  );
+  const sanitizedVideoUrl = React.useMemo(() => sanitizeMediaUrl(data.videoUrl), [data.videoUrl, sanitizeMediaUrl]);
+  const historyItems = React.useMemo(() => (Array.isArray(data.history) ? data.history : []), [data.history]);
 
-  const historyItems = React.useMemo<VideoHistoryItem[]>(
-    () => (Array.isArray(data.history) ? data.history : []),
-    [data.history]
-  );
+  const resolutionRaw = typeof data.resolution === "string" ? data.resolution.trim().toUpperCase() : "1080P";
+  const resolution = resolutionRaw === "720P" || resolutionRaw === "1080P" ? resolutionRaw : "1080P";
+  const rawDuration = typeof data.duration === "number" && Number.isFinite(data.duration) ? Math.round(data.duration) : 5;
+  const duration = rawDuration >= 2 && rawDuration <= 15 ? rawDuration : 5;
+  const seedInput = data.seed === undefined || data.seed === null ? "" : String(data.seed).trim();
+  const hasRunCredits = typeof data.creditsPerCall === "number" && data.creditsPerCall > 0;
 
-  const handleChooseFile = React.useCallback(() => fileInputRef.current?.click(), []);
+  const mediaHandleStats = useStore((state: any) => {
+    const edges = state.edges || [];
+    const targetEdges = edges.filter((edge: any) => edge.target === id);
+    const count = (h: string) => targetEdges.filter((edge: any) => edge.targetHandle === h).length;
+    return { firstFrame: count("image"), lastFrame: count("image-2"), firstClip: count("video"), audio: count("audio") };
+  });
+
+  const validationMessages = React.useMemo(() => {
+    const msgs: string[] = [];
+    if (resolutionRaw !== "720P" && resolutionRaw !== "1080P") msgs.push(lt(zh.vRes, "Resolution only supports 720P / 1080P"));
+    if (!Number.isInteger(rawDuration) || rawDuration < 2 || rawDuration > 15) msgs.push(lt(zh.vDuration, "Duration only supports integer 2-15"));
+    if (seedInput) {
+      const parsed = Number(seedInput);
+      if (!Number.isInteger(parsed) || parsed < 0 || parsed > 2147483647) msgs.push(lt(zh.vSeed, "Seed must be integer 0-2147483647"));
+    }
+
+    if (mediaHandleStats.firstFrame > 1) msgs.push(lt(zh.vFirstFrameMax, "first_frame handle supports one connection"));
+    if (mediaHandleStats.lastFrame > 1) msgs.push(lt(zh.vLastFrameMax, "last_frame handle supports one connection"));
+    if (mediaHandleStats.firstClip > 1) msgs.push(lt(zh.vFirstClipMax, "first_clip handle supports one connection"));
+    if (mediaHandleStats.audio > 1) msgs.push(lt(zh.vAudioMax, "audio handle supports one connection"));
+
+    const hasFirstFrame = mediaHandleStats.firstFrame > 0;
+    const hasLastFrame = mediaHandleStats.lastFrame > 0;
+    const hasFirstClip = mediaHandleStats.firstClip > 0;
+    const hasDrivingAudio = mediaHandleStats.audio > 0 || (typeof data.audioUrl === "string" && data.audioUrl.trim().length > 0);
+
+    if (!hasFirstFrame && !hasFirstClip && !hasLastFrame && !hasDrivingAudio) msgs.push(lt(zh.vNeedInput, "Connect image or video input"));
+    if (hasFirstFrame && hasFirstClip) msgs.push(lt(zh.vFrameVsClip, "first_frame and first_clip cannot be used together"));
+    if (hasDrivingAudio && !hasFirstFrame) msgs.push(lt(zh.vAudioNeedFrame, "driving_audio requires first_frame"));
+    if (hasFirstClip && hasDrivingAudio) msgs.push(lt(zh.vClipNoAudio, "driving_audio is not supported with first_clip"));
+    if (hasLastFrame && !hasFirstFrame && !hasFirstClip) msgs.push(lt(zh.vLastAlone, "last_frame cannot be used alone"));
+
+    return Array.from(new Set(msgs));
+  }, [data.audioUrl, lt, mediaHandleStats.audio, mediaHandleStats.firstClip, mediaHandleStats.firstFrame, mediaHandleStats.lastFrame, rawDuration, resolutionRaw, seedInput]);
+
+  const handleButtonMouseDown = (event: React.MouseEvent<HTMLButtonElement>) => event.stopPropagation();
 
   const handleFileChange = React.useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setMessage(null);
-    const maxSize = 15 * 1024 * 1024;
-    if (!isSupportedAudioFile(file)) {
-      setMessage(lt("不支持的音频格式", "Unsupported audio format"));
+    if (!((file.type || "").toLowerCase().startsWith("audio/") || AUDIO_PATTERN.test((file.name || "").trim()))) {
+      setMessage(lt(zh.badAudioFormat, "Unsupported audio format, only mp3/wav is allowed"));
       return;
     }
-    if (file.size > maxSize) {
-      setMessage(lt("文件大小不能超过 15MB", "File size cannot exceed 15MB"));
+    if (file.size > 15 * 1024 * 1024) {
+      setMessage(lt(zh.badAudioSize, "Audio file size cannot exceed 15MB"));
       return;
     }
 
@@ -123,26 +214,26 @@ function Wan27VideoNode({ id, data, selected }: Props) {
     try {
       audio.src = objectUrl;
       await new Promise<void>((resolve, reject) => {
-        const t = setTimeout(() => reject(new Error("timeout")), 5000);
+        const timer = setTimeout(() => reject(new Error("timeout")), 5000);
         audio.addEventListener("loadedmetadata", () => {
-          clearTimeout(t);
+          clearTimeout(timer);
           const d = audio.duration || 0;
-          if (d < 3 || d > 30) durationOk = false;
+          if (d < 2 || d > 30) durationOk = false;
           resolve();
         });
         audio.addEventListener("error", () => {
-          clearTimeout(t);
+          clearTimeout(timer);
           reject(new Error("error"));
         });
       });
     } catch {
-      setMessage(lt("无法读取音频文件", "Unable to read audio file"));
+      setMessage(lt(zh.badAudioRead, "Unable to read audio file"));
       URL.revokeObjectURL(objectUrl);
       return;
     }
     URL.revokeObjectURL(objectUrl);
     if (!durationOk) {
-      setMessage(lt("音频时长需在 3 到 30 秒之间", "Audio duration must be between 3 and 30 seconds"));
+      setMessage(lt(zh.badAudioDuration, "Audio duration must be between 2 and 30 seconds"));
       return;
     }
 
@@ -152,39 +243,29 @@ function Wan27VideoNode({ id, data, selected }: Props) {
       if (!dataUrl) return;
       try {
         setUploading(true);
-        setMessage(lt("上传中...", "Uploading..."));
+        setMessage(lt(zh.uploading, "Uploading..."));
         const uploaded = await uploadAudioToOSS(dataUrl, projectId);
         if (!uploaded) {
-          setMessage(lt("上传失败，请重试", "Upload failed"));
+          setMessage(lt(zh.uploadFailed, "Upload failed"));
           return;
         }
-        window.dispatchEvent(new CustomEvent("flow:updateNodeData", { detail: { id, patch: { audioUrl: uploaded } } }));
-        setMessage(lt("上传成功", "Upload successful"));
+        updateNodeData({ audioUrl: uploaded });
+        setMessage(lt(zh.uploadOk, "Upload successful"));
       } catch {
-        setMessage(lt("上传出错，请稍后重试", "Upload error"));
+        setMessage(lt(zh.uploadErr, "Upload error"));
       } finally {
         setUploading(false);
       }
     };
     reader.readAsDataURL(file);
-  }, [id, lt, projectId]);
-
-  const handleButtonMouseDown = (event: React.MouseEvent) => {
-    event.stopPropagation();
-  };
-
-  const handleClearAudio = React.useCallback(() => {
-    window.dispatchEvent(new CustomEvent("flow:updateNodeData", { detail: { id, patch: { audioUrl: undefined } } }));
-    setMessage(null);
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  }, [id]);
+  }, [lt, projectId, updateNodeData]);
 
   const copyVideoLink = React.useCallback(async (url?: string) => {
     if (!url) return;
     try {
       await navigator.clipboard.writeText(url);
     } catch {
-      prompt(lt("请手动复制以下链接：", "Please manually copy this link:"), url);
+      prompt(lt(zh.copyManual, "Please manually copy this link:"), url);
     }
   }, [lt]);
 
@@ -194,7 +275,7 @@ function Wan27VideoNode({ id, data, selected }: Props) {
     try {
       const isDashScopeOss = url.includes("dashscope") && url.includes("aliyuncs.com");
       const isOssUrl = url.includes("aliyuncs.com") && !isDashScopeOss;
-      const downloadUrl = (isDashScopeOss || !isOssUrl) ? proxifyRemoteAssetUrl(url, { forceProxy: true }) : url;
+      const downloadUrl = isDashScopeOss || !isOssUrl ? proxifyRemoteAssetUrl(url, { forceProxy: true }) : url;
       const response = await fetch(downloadUrl, { mode: "cors", credentials: "omit" });
       if (response.ok) {
         const blob = await response.blob();
@@ -216,34 +297,28 @@ function Wan27VideoNode({ id, data, selected }: Props) {
   }, [isDownloading]);
 
   const handleApplyHistory = React.useCallback((item: VideoHistoryItem) => {
-    const patch: Record<string, any> = {
-      videoUrl: item.videoUrl,
-      thumbnail: item.thumbnail,
-      videoVersion: Number(data.videoVersion || 0) + 1,
-    };
+    const patch: Record<string, any> = { videoUrl: item.videoUrl, thumbnail: item.thumbnail, videoVersion: Number(data.videoVersion || 0) + 1 };
     if (data.status !== "running") {
       patch.status = "succeeded";
       patch.error = undefined;
     }
-    window.dispatchEvent(new CustomEvent("flow:updateNodeData", { detail: { id, patch } }));
-  }, [id, data.videoVersion, data.status]);
+    updateNodeData(patch);
+  }, [data.status, data.videoVersion, updateNodeData]);
 
   const formatHistoryTime = React.useCallback((iso: string) => {
-    try {
-      return new Date(iso).toLocaleString();
-    } catch {
-      return iso;
-    }
+    try { return new Date(iso).toLocaleString(); } catch { return iso; }
   }, []);
 
-  const resolution = data.resolution || "720P";
-  const duration = data.duration || 10;
-  const promptExtend = data.promptExtend !== false;
-  const watermark = data.watermark !== false;
-  const hasRunCredits = typeof data.creditsPerCall === "number" && data.creditsPerCall > 0;
+  const clearAudio = () => {
+    updateNodeData({ audioUrl: undefined });
+    setMessage(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const tooltip = (key: string, top: string, text: string) => hover === key ? <div className="flow-tooltip" style={{ left: -8, top, transform: "translate(-100%, -50%)" }}>{text}</div> : null;
 
   return (
-    <div style={{ width: 300, padding: 10, background: "#fff", border: `1px solid ${borderColor}`, borderRadius: 10, boxShadow, position: "relative" }}>
+    <div style={styles.card}>
       <Handle type="target" position={Position.Left} id="text" style={{ top: "14%" }} onMouseEnter={() => setHover("text")} onMouseLeave={() => setHover(null)} />
       <Handle type="target" position={Position.Left} id="image" style={{ top: "30%" }} onMouseEnter={() => setHover("image")} onMouseLeave={() => setHover(null)} />
       <Handle type="target" position={Position.Left} id="image-2" style={{ top: "46%" }} onMouseEnter={() => setHover("image-2")} onMouseLeave={() => setHover(null)} />
@@ -251,184 +326,103 @@ function Wan27VideoNode({ id, data, selected }: Props) {
       <Handle type="target" position={Position.Left} id="audio" style={{ top: "78%" }} onMouseEnter={() => setHover("audio")} onMouseLeave={() => setHover(null)} />
       <Handle type="source" position={Position.Right} id="video" style={{ top: "50%" }} onMouseEnter={() => setHover("video-out")} onMouseLeave={() => setHover(null)} />
 
-      {hover === "text" && <div className="flow-tooltip" style={{ left: -8, top: "14%", transform: "translate(-100%, -50%)" }}>prompt</div>}
-      {hover === "image" && <div className="flow-tooltip" style={{ left: -8, top: "30%", transform: "translate(-100%, -50%)" }}>first_frame</div>}
-      {hover === "image-2" && <div className="flow-tooltip" style={{ left: -8, top: "46%", transform: "translate(-100%, -50%)" }}>last_frame</div>}
-      {hover === "video" && <div className="flow-tooltip" style={{ left: -8, top: "62%", transform: "translate(-100%, -50%)" }}>first_clip</div>}
-      {hover === "audio" && <div className="flow-tooltip" style={{ left: -8, top: "78%", transform: "translate(-100%, -50%)" }}>driving_audio</div>}
-      {hover === "video-out" && <div className="flow-tooltip" style={{ right: -8, top: "50%", transform: "translate(100%, -50%)" }}>video</div>}
+      {tooltip("text", "14%", lt(zh.promptOptional, "Prompt (optional)"))}
+      {tooltip("image", "30%", lt(zh.firstFrame, "First frame (first_frame)"))}
+      {tooltip("image-2", "46%", lt(zh.lastFrame, "Last frame (last_frame, optional)"))}
+      {tooltip("video", "62%", lt(zh.firstClip, "First clip (first_clip)"))}
+      {tooltip("audio", "78%", lt(zh.drivingAudio, "Driving audio (driving_audio, optional)"))}
+      {hover === "video-out" && <div className="flow-tooltip" style={{ right: -8, top: "50%", transform: "translate(100%, -50%)" }}>{lt(zh.outputVideo, "Generated video output")}</div>}
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-        <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
-          <Video size={18} />
-          <span>Wan2.7</span>
-        </div>
+        <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><Video size={18} /><span>Wan2.7</span></div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <button
-            className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit"
-            onClick={() => data.onRun?.(id)}
-            onMouseDown={handleButtonMouseDown}
-            disabled={data.status === "running"}
-            style={{
-              width: 36,
-              height: 32,
-              borderRadius: 8,
-              border: "none",
-              background: data.status === "running" ? "#e5e7eb" : "#111827",
-              color: "#fff",
-              opacity: data.status === "running" ? 0.6 : 1,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 0,
-              cursor: data.status === "running" ? "not-allowed" : "pointer",
-              fontSize: 12,
-            }}
-          >
-            {hasRunCredits ? (
-              <>
-                <span className="run-text-trigger">Run</span>
-                <RunCreditBadge credits={data.creditsPerCall} runButton />
-              </>
-            ) : (
-              "Run"
-            )}
+          <button className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit" onClick={() => data.onRun?.(id)} onMouseDown={handleButtonMouseDown} disabled={data.status === "running"} style={{ ...styles.iconBtn, background: data.status === "running" ? "#e5e7eb" : "#111827", opacity: data.status === "running" ? 0.6 : 1, cursor: data.status === "running" ? "not-allowed" : "pointer", fontSize: 12 }}>
+            {hasRunCredits ? <><span className="run-text-trigger">Run</span><RunCreditBadge credits={data.creditsPerCall} runButton /></> : "Run"}
           </button>
-          <button
-            className="tanva-video-header-btn tanva-video-header-share"
-            onClick={() => copyVideoLink(data.videoUrl)}
-            onMouseDown={handleButtonMouseDown}
-            disabled={!data.videoUrl}
-            style={{
-              width: 36,
-              height: 32,
-              borderRadius: 8,
-              border: "none",
-              background: "#111827",
-              color: "#fff",
-              opacity: data.videoUrl ? 1 : 0.35,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: data.videoUrl ? "pointer" : "not-allowed",
-            }}
-          >
-            <Share2 size={14} />
-          </button>
-          <button
-            className="tanva-video-header-btn tanva-video-header-download"
-            onClick={() => triggerDownload(data.videoUrl)}
-            onMouseDown={handleButtonMouseDown}
-            disabled={!data.videoUrl || isDownloading}
-            style={{
-              width: 36,
-              height: 32,
-              borderRadius: 8,
-              border: "none",
-              background: !data.videoUrl || isDownloading ? "#e5e7eb" : "#111827",
-              color: "#fff",
-              opacity: !data.videoUrl || isDownloading ? 0.35 : 1,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: !data.videoUrl || isDownloading ? "not-allowed" : "pointer",
-            }}
-          >
-            {isDownloading ? <span style={{ fontSize: 10, fontWeight: 600, color: "#111827" }}>···</span> : <Download size={14} />}
-          </button>
+          <button className="tanva-video-header-btn tanva-video-header-share" onClick={() => copyVideoLink(data.videoUrl)} onMouseDown={handleButtonMouseDown} disabled={!data.videoUrl} style={{ ...styles.iconBtn, opacity: data.videoUrl ? 1 : 0.35, cursor: data.videoUrl ? "pointer" : "not-allowed" }}><Share2 size={14} /></button>
+          <button className="tanva-video-header-btn tanva-video-header-download" onClick={() => triggerDownload(data.videoUrl)} onMouseDown={handleButtonMouseDown} disabled={!data.videoUrl || isDownloading} style={{ ...styles.iconBtn, background: !data.videoUrl || isDownloading ? "#e5e7eb" : "#111827", opacity: !data.videoUrl || isDownloading ? 0.35 : 1, cursor: !data.videoUrl || isDownloading ? "not-allowed" : "pointer" }}>{isDownloading ? <span style={{ fontSize: 10, fontWeight: 600, color: "#111827" }}>...</span> : <Download size={14} />}</button>
         </div>
       </div>
 
       <div style={{ display: "grid", gap: 8, marginBottom: 8 }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-	          <label className="wan27-label" style={{ fontSize: 12, color: "#475569" }}>
-            <div style={{ marginBottom: 4 }}>{lt("分辨率", "Resolution")}</div>
-            <NodeSelect
-	              value={resolution}
-	              options={[
-	                { value: "720P", label: "720P" },
-	                { value: "1080P", label: "1080P" },
-	              ]}
-	              onChange={(value) =>
-	                window.dispatchEvent(
-	                  new CustomEvent("flow:updateNodeData", { detail: { id, patch: { resolution: value } } })
-	                )
-	              }
-	              menuLabel={lt("分辨率", "Resolution")}
-	              title={lt("选择分辨率", "Select resolution")}
-	            />
-	          </label>
-          <label className="wan27-label" style={{ fontSize: 12, color: "#475569" }}>
-            <div style={{ marginBottom: 4 }}>{lt("时长", "Duration")}</div>
-            <select value={duration} onChange={(e) => window.dispatchEvent(new CustomEvent("flow:updateNodeData", { detail: { id, patch: { duration: Number(e.target.value) } } }))} style={{ width: "100%", padding: "6px 8px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff" }}>
-              {[5, 10, 15].map((value) => <option key={value} value={value}>{value}s</option>)}
-            </select>
+          <label style={{ fontSize: 12, color: "#475569" }}>
+            <div style={{ marginBottom: 4 }}>{lt(zh.resolution, "Resolution")}</div>
+            <NodeSelect value={resolution} options={[{ value: "720P", label: "720P" }, { value: "1080P", label: "1080P" }]} onChange={(value) => updateNodeData({ resolution: value })} menuLabel={lt(zh.resolution, "Resolution")} title={lt("\u9009\u62e9\u5206\u8fa8\u7387", "Select resolution")} />
+          </label>
+          <label style={{ fontSize: 12, color: "#475569" }}>
+            <div style={{ marginBottom: 4 }}>{lt(zh.duration, "Duration")}</div>
+            <select value={duration} onChange={(e) => updateNodeData({ duration: Number(e.target.value) })} style={styles.input}>{DURATION_OPTIONS.map((v) => <option key={v} value={v}>{v}s</option>)}</select>
           </label>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("flow:updateNodeData", { detail: { id, patch: { promptExtend: !promptExtend } } }))} className={promptExtend ? "wan27-toggle-btn wan27-toggle-btn-active" : "wan27-toggle-btn"} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderRadius: 8, border: `1px solid ${promptExtend ? "#2563eb" : "#e5e7eb"}`, background: promptExtend ? "#eff6ff" : "#fff", fontSize: 12 }}>
-            <span>{lt("Prompt Extend", "Prompt Extend")}</span>
-            <span>{promptExtend ? "ON" : "OFF"}</span>
-          </button>
-          <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("flow:updateNodeData", { detail: { id, patch: { watermark: !watermark } } }))} className={watermark ? "wan27-toggle-btn wan27-toggle-btn-active" : "wan27-toggle-btn"} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderRadius: 8, border: `1px solid ${watermark ? "#2563eb" : "#e5e7eb"}`, background: watermark ? "#eff6ff" : "#fff", fontSize: 12 }}>
-            <span>{lt("水印", "Watermark")}</span>
-            <span>{watermark ? "ON" : "OFF"}</span>
-          </button>
-        </div>
-      </div>
 
-      <div className="wan27-audio-zone" style={{ marginTop: 8, marginBottom: 6, padding: "8px", borderRadius: 6, border: "1px solid #e2e8f0", background: "#f8fafc" }}>
-        <div className="wan27-audio-label" style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, fontSize: 11, fontWeight: 600, color: "#0f172a", flexWrap: "wrap" }}>
-          <ImageIcon size={12} />
-          <span>first_frame</span>
-          <ImageIcon size={12} />
-          <span>last_frame</span>
-          <Clapperboard size={12} />
-          <span>first_clip</span>
-          <Music4 size={12} />
-          <span>driving_audio</span>
-        </div>
-        <div style={{ display: "flex", gap: 4 }}>
-          <button type="button" className="wan27-upload-btn" onClick={handleChooseFile} disabled={uploading} style={{ flex: 1, padding: "4px 8px", borderRadius: 4, border: "1px solid #cbd5e1", background: "#fff", fontSize: 11, opacity: uploading ? 0.6 : 1 }}>
-            {uploading ? lt("上传中...", "Uploading...") : data.audioUrl ? lt("重选音频", "Replace audio") : lt("上传音频", "Upload audio")}
-          </button>
-          {data.audioUrl && <button type="button" className="wan27-clear-btn" onClick={handleClearAudio} disabled={uploading} style={{ padding: "4px 8px", borderRadius: 4, border: "1px solid #fca5a5", background: "#fff", fontSize: 11, color: "#dc2626" }}>{lt("清除", "Clear")}</button>}
-        </div>
-        {message && <div style={{ marginTop: 4, fontSize: 10, color: /成功|success/i.test(message) ? "#15803d" : "#dc2626" }}>{message}</div>}
-        <input ref={fileInputRef} type="file" accept={SUPPORTED_AUDIO_ACCEPT} style={{ display: "none" }} onChange={handleFileChange} />
-      </div>
+        <label style={{ fontSize: 12, color: "#475569" }}>
+          <div style={{ marginBottom: 4 }}>{lt(zh.seed, "Seed (optional)")}</div>
+          <input type="text" inputMode="numeric" value={seedInput} placeholder={lt(zh.seedHint, "Example: 123456, range 0-2147483647")} onChange={(e) => {
+            const value = e.target.value.trim();
+            if (!value) { updateNodeData({ seed: undefined }); return; }
+            if (/^-?\d+$/.test(value)) { updateNodeData({ seed: Number(value) }); return; }
+            updateNodeData({ seed: value });
+          }} style={styles.input} />
+        </label>
 
-      <div className="wan27-video-preview" style={{ width: "100%", aspectRatio: previewAspect, minHeight: 140, background: "#f8fafc", borderRadius: 6, border: "1px solid #eef0f2", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", marginBottom: 8 }}>
-        {sanitizedVideoUrl ? (
-          <video key={`${sanitizedVideoUrl}-${data.videoVersion || 0}`} ref={videoRef} controls style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 6, background: "#000" }} onLoadedMetadata={(e) => { const v = e.currentTarget; if (v.videoWidth && v.videoHeight) setPreviewAspect(`${v.videoWidth}/${v.videoHeight}`); }}>
-            <source src={sanitizedVideoUrl} type="video/mp4" />
-          </video>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, color: "#94a3b8" }}>
-            <Video size={24} strokeWidth={2} />
-            <div style={{ fontSize: 11 }}>{lt("等待生成...", "Waiting for generation...")}</div>
+        <button type="button" onClick={() => setShowGuide((v) => !v)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "7px 10px", borderRadius: 8, border: "1px solid #cbd5e1", background: "#fff", fontSize: 12, color: "#334155" }}><HelpCircle size={14} /><span>{lt(zh.guide, "How to use Wan2.7")}</span></button>
+
+        {showGuide && (
+          <div style={{ marginTop: -2, padding: "8px 10px", borderRadius: 8, border: "1px solid #dbeafe", background: "#f8fbff", display: "grid", gap: 4, fontSize: 11, color: "#1e3a8a", lineHeight: 1.5 }}>
+            <div style={{ fontWeight: 600 }}>{lt(zh.guideTitle, "How to play Wan2.7")}</div>
+            <div>{lt(zh.guide1, "1. First-frame mode: image (optional audio)")}</div>
+            <div>{lt(zh.guide2, "2. Start/end mode: image + image-2 (optional audio)")}</div>
+            <div>{lt(zh.guide3, "3. Continuation mode: video (+optional image-2)")}</div>
+            <div style={{ fontWeight: 600, marginTop: 2 }}>{lt(zh.highlights, "Highlights")}</div>
+            <div>{lt(zh.highlightsBody, "Multimodal input, 2-15s, 1080P, reproducible with seed")}</div>
           </div>
+        )}
+      </div>
+
+      <div style={{ marginTop: 8, marginBottom: 6, padding: "8px", borderRadius: 6, border: "1px solid #e2e8f0", background: "#f8fafc" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, fontSize: 11, fontWeight: 600, color: "#0f172a", flexWrap: "wrap" }}><ImageIcon size={12} /><span>first_frame</span><ImageIcon size={12} /><span>last_frame</span><Clapperboard size={12} /><span>first_clip</span><Music4 size={12} /><span>driving_audio</span></div>
+        <div style={{ display: "flex", gap: 4 }}>
+          <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading} style={{ flex: 1, padding: "4px 8px", borderRadius: 4, border: "1px solid #cbd5e1", background: "#fff", fontSize: 11, opacity: uploading ? 0.6 : 1 }}>{uploading ? lt(zh.uploading, "Uploading...") : data.audioUrl ? lt(zh.replaceAudio, "Replace audio") : lt(zh.uploadAudio, "Upload audio")}</button>
+          {data.audioUrl && <button type="button" onClick={clearAudio} disabled={uploading} style={{ padding: "4px 8px", borderRadius: 4, border: "1px solid #fca5a5", background: "#fff", fontSize: 11, color: "#dc2626" }}>{lt(zh.clear, "Clear")}</button>}
+        </div>
+        {message && <div style={{ marginTop: 4, fontSize: 10, color: /success|\u6210\u529f/i.test(message) ? "#15803d" : "#dc2626" }}>{message}</div>}
+        <input ref={fileInputRef} type="file" accept={AUDIO_ACCEPT} style={{ display: "none" }} onChange={handleFileChange} />
+      </div>
+
+      <div style={{ width: "100%", aspectRatio: previewAspect, minHeight: 140, background: "#f8fafc", borderRadius: 6, border: "1px solid #eef0f2", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", marginBottom: 8 }}>
+        {sanitizedVideoUrl ? (
+          <video key={`${sanitizedVideoUrl}-${data.videoVersion || 0}`} controls style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 6, background: "#000" }} onLoadedMetadata={(e) => { const v = e.currentTarget; if (v.videoWidth && v.videoHeight) setPreviewAspect(`${v.videoWidth}/${v.videoHeight}`); }}><source src={sanitizedVideoUrl} type="video/mp4" /></video>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, color: "#94a3b8" }}><Video size={24} strokeWidth={2} /><div style={{ fontSize: 11 }}>{lt(zh.waiting, "Waiting for generation...")}</div></div>
         )}
       </div>
 
       <GenerationProgressBar status={data.status || "idle"} progress={data.status === "running" ? 30 : data.status === "succeeded" ? 100 : 0} />
 
+      {validationMessages.length > 0 && (
+        <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, border: "1px solid #fcd34d", background: "#fffbeb", color: "#92400e", fontSize: 11, display: "grid", gap: 4 }}>
+          <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}><AlertTriangle size={12} /><span>{lt(zh.validationTitle, "Validation hints")}</span></div>
+          {validationMessages.map((msg, idx) => <div key={`wan27-validation-${idx}`}>{`${idx + 1}. ${msg}`}</div>)}
+        </div>
+      )}
+
       {historyItems.length > 0 && (
-        <div className="wan27-history-zone" style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#f8fafc", display: "flex", flexDirection: "column", gap: 6 }}>
-          <div className="wan27-history-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
-            <span className="wan27-history-title" style={{ fontSize: 12, fontWeight: 600, color: "#0f172a" }}>{lt("历史记录", "History")}</span>
-            <span className="wan27-history-arrow" style={{ fontSize: 14, color: "#64748b" }}>{showHistory ? "▴" : "▾"}</span>
+        <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#f8fafc", display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }} onClick={() => setShowHistory((v) => !v)}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#0f172a" }}>{lt(zh.history, "History")}</span>
+            <span style={{ fontSize: 14, color: "#64748b" }}>{showHistory ? "v" : ">"}</span>
           </div>
           {showHistory && historyItems.map((item, index) => {
             const isActive = item.videoUrl === data.videoUrl;
             return (
-              <div className="wan27-history-item" key={item.id} style={{ borderRadius: 6, border: "1px solid " + (isActive ? "#c7d2fe" : "#e2e8f0"), background: isActive ? "#eef2ff" : "#fff", padding: "6px 8px", display: "flex", flexDirection: "column", gap: 4 }}>
-                <div className="wan27-history-meta" style={{ fontSize: 11, color: "#475569" }}>#{index + 1} · {formatHistoryTime(item.createdAt)}</div>
-                <div className="wan27-history-prompt" style={{ fontSize: 11, color: "#0f172a" }}>{item.prompt.length > 80 ? `${item.prompt.slice(0, 80)}…` : item.prompt}</div>
+              <div key={item.id} style={{ borderRadius: 6, border: `1px solid ${isActive ? "#c7d2fe" : "#e2e8f0"}`, background: isActive ? "#eef2ff" : "#fff", padding: "6px 8px", display: "flex", flexDirection: "column", gap: 4 }}>
+                <div style={{ fontSize: 11, color: "#475569" }}>#{index + 1} | {formatHistoryTime(item.createdAt)}</div>
+                <div style={{ fontSize: 11, color: "#0f172a" }}>{item.prompt.length > 80 ? `${item.prompt.slice(0, 80)}...` : item.prompt}</div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {!isActive && <button type="button" className="wan27-action-btn" onClick={() => handleApplyHistory(item)} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #94a3b8", background: "#fff", fontSize: 11 }}>{lt("设为当前", "Set as current")}</button>}
-                  <button type="button" className="wan27-action-btn" onClick={() => copyVideoLink(item.videoUrl)} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #94a3b8", background: "#fff", fontSize: 11 }}>{lt("复制链接", "Copy link")}</button>
-                  <button type="button" className="wan27-action-btn" onClick={() => triggerDownload(item.videoUrl)} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #94a3b8", background: "#fff", fontSize: 11 }}>{lt("下载", "Download")}</button>
+                  {!isActive && <button type="button" onClick={() => handleApplyHistory(item)} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #94a3b8", background: "#fff", fontSize: 11 }}>{lt(zh.setCurrent, "Set as current")}</button>}
+                  <button type="button" onClick={() => copyVideoLink(item.videoUrl)} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #94a3b8", background: "#fff", fontSize: 11 }}>{lt(zh.copyLink, "Copy link")}</button>
+                  <button type="button" onClick={() => triggerDownload(item.videoUrl)} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #94a3b8", background: "#fff", fontSize: 11 }}>{lt(zh.download, "Download")}</button>
                 </div>
               </div>
             );
@@ -437,7 +431,7 @@ function Wan27VideoNode({ id, data, selected }: Props) {
       )}
 
       {data.error && (
-        <div className="wan27-error" style={{ marginTop: 6, padding: "6px 8px", background: "#fef2f2", border: "1px solid #fecdd3", borderRadius: 6, color: "#b91c1c", fontSize: 12, display: "flex", gap: 6, alignItems: "center" }}>
+        <div style={{ marginTop: 6, padding: "6px 8px", background: "#fef2f2", border: "1px solid #fecdd3", borderRadius: 6, color: "#b91c1c", fontSize: 12, display: "flex", gap: 6, alignItems: "center" }}>
           <AlertTriangle size={14} />
           <span>{data.error}</span>
         </div>

@@ -408,10 +408,10 @@ export class NodeConfigService {
             provider: 'dashscope',
             supportedModels: ['wan2.7-i2v'],
             defaultData: {
-              resolution: '720P',
-              duration: 10,
+              resolution: '1080P',
+              duration: 5,
               promptExtend: true,
-              watermark: true,
+              watermark: false,
             },
           },
           {
@@ -419,7 +419,7 @@ export class NodeConfigService {
             modelName: 'Wan',
             modelVersion: '2.7-i2v',
             outputConfig: {
-              durations: [5, 10, 15],
+              durations: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
               resolutions: ['720P', '1080P'],
             },
             inputModes: ['text', 'first_frame', 'last_frame', 'first_clip', 'driving_audio'],
@@ -1130,10 +1130,10 @@ export class NodeConfigService {
               provider: 'dashscope',
               supportedModels: ['wan2.7-i2v'],
               defaultData: {
-                resolution: '720P',
-                duration: 10,
+                resolution: '1080P',
+                duration: 5,
                 promptExtend: true,
-                watermark: true,
+                watermark: false,
               },
             },
             {
@@ -1141,7 +1141,7 @@ export class NodeConfigService {
               modelName: 'Wan',
               modelVersion: '2.7-i2v',
               outputConfig: {
-                durations: [5, 10, 15],
+                durations: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
                 resolutions: ['720P', '1080P'],
               },
               inputModes: ['text', 'first_frame', 'last_frame', 'first_clip', 'driving_audio'],
@@ -1564,10 +1564,10 @@ export class NodeConfigService {
               provider: 'dashscope',
               supportedModels: ['wan2.7-i2v'],
               defaultData: {
-                resolution: '720P',
-                duration: 10,
+                resolution: '1080P',
+                duration: 5,
                 promptExtend: true,
-                watermark: true,
+                watermark: false,
               },
             },
             {
@@ -1575,7 +1575,7 @@ export class NodeConfigService {
               modelName: 'Wan',
               modelVersion: '2.7-i2v',
               outputConfig: {
-                durations: [5, 10, 15],
+                durations: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
                 resolutions: ['720P', '1080P'],
               },
               inputModes: ['text', 'first_frame', 'last_frame', 'first_clip', 'driving_audio'],

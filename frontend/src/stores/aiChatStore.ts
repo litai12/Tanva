@@ -2906,7 +2906,7 @@ export const useAIChatStore = create<AIChatState>()(
         manualAIMode: "auto",
         autoSelectedTool: null,
         aiProvider: "banana-2.5", // 默认Fast版
-        bananaImageRoute: "normal",
+        bananaImageRoute: "stable",
         autoModeMultiplier: 1,
         sendShortcut: "enter",
         expandedPanelStyle: "transparent", // 默认透明样式
@@ -8137,7 +8137,7 @@ export const useAIChatStore = create<AIChatState>()(
             String(state.bananaImageRoute)
           )
             ? (state.bananaImageRoute as AIChatState["bananaImageRoute"])
-            : "normal",
+            : "stable",
         };
       },
       partialize: (state) => ({
