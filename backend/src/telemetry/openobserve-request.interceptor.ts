@@ -56,7 +56,7 @@ export class OpenObserveRequestInterceptor implements NestInterceptor {
       return next.handle();
     }
 
-    const emit = (statusCode: number) => {
+const emit = (statusCode: number) => {
       const user = request.user;
       const userId = user?.id || user?.userId || user?.sub || null;
       void this.openObserveTelemetryService.ingestBackendRequest({
@@ -70,7 +70,9 @@ export class OpenObserveRequestInterceptor implements NestInterceptor {
         userAgent: typeof request.headers['user-agent'] === 'string' ? request.headers['user-agent'] : null,
         userId,
         requestId: request.id || null,
+        headers: request.headers ? (request.headers as unknown as Record<string, unknown>) : null,
         query: request.query && typeof request.query === 'object' ? (request.query as Record<string, unknown>) : null,
+        body: request.body ?? null,
         receivedAt: new Date().toISOString(),
       });
     };

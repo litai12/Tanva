@@ -49,7 +49,7 @@ export const initOpenTelemetry = (): void => {
   started = true;
 
   const nodeEnv = (process.env.NODE_ENV || '').toLowerCase();
-  const defaultEnabled = nodeEnv !== 'production';
+  const defaultEnabled = true;
   const enabled = isEnabled(process.env.OPENOBSERVE_TRACING_ENABLED, defaultEnabled);
   if (!enabled) return;
 

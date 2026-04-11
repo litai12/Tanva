@@ -7,6 +7,8 @@ import { useProjectContentStore } from "@/stores/projectContentStore";
 import { fetchWithAuth } from "@/services/authFetch";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
+import RunCreditBadge from "./RunCreditBadge";
+import NodeSelect from "./NodeSelect";
 
 type VideoHistoryItem = {
   id: string;
@@ -27,6 +29,7 @@ type Props = {
     error?: string;
     videoVersion?: number;
     onRun?: (id: string) => void;
+    creditsPerCall?: number;
     size?: string; // T2V 参数：16:9、9:16、1:1、4:3、3:4
     resolution?: "720P" | "1080P"; // I2V 参数
     duration?: number; // 5、10、15
@@ -83,7 +86,6 @@ function Wan26Node({ id, data, selected }: Props) {
 
   // 菜单状态
   const [sizeMenuOpen, setSizeMenuOpen] = React.useState(false);
-  const [resolutionMenuOpen, setResolutionMenuOpen] = React.useState(false);
   const [durationMenuOpen, setDurationMenuOpen] = React.useState(false);
   const [shotMenuOpen, setShotMenuOpen] = React.useState(false);
 
@@ -297,6 +299,7 @@ function Wan26Node({ id, data, selected }: Props) {
   };
 
   const onRun = React.useCallback(() => data.onRun?.(id), [data, id]);
+  const hasRunCredits = typeof data.creditsPerCall === "number" && data.creditsPerCall > 0;
 
   // 音频上传处理
   const handleChooseFile = React.useCallback(() => {
@@ -402,7 +405,6 @@ function Wan26Node({ id, data, selected }: Props) {
       const target = event.target as HTMLElement;
       if (!target.closest?.(".wan26-dropdown")) {
         setSizeMenuOpen(false);
-        setResolutionMenuOpen(false);
         setDurationMenuOpen(false);
         setShotMenuOpen(false);
       }
@@ -559,10 +561,13 @@ function Wan26Node({ id, data, selected }: Props) {
       >
         <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
           <Video size={18} />
-          <span>{nodeTitle}</span>
+          <span>
+            {nodeTitle}
+          </span>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
           <button
+            className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit"
             onClick={onRun}
             onMouseDown={handleButtonMouseDown}
             disabled={data.status === "running"}
@@ -579,11 +584,20 @@ function Wan26Node({ id, data, selected }: Props) {
               cursor: data.status === "running" ? "not-allowed" : "pointer",
               fontSize: 12,
               opacity: data.status === "running" ? 0.6 : 1,
+              gap: 0,
             }}
           >
-            Run
+            {hasRunCredits ? (
+              <>
+                <span className="run-text-trigger">Run</span>
+                <RunCreditBadge credits={data.creditsPerCall} runButton />
+              </>
+            ) : (
+              "Run"
+            )}
           </button>
           <button
+            className="tanva-video-header-btn tanva-video-header-share"
             onClick={() => copyVideoLink(data.videoUrl)}
             onMouseDown={handleButtonMouseDown}
             title={lt("复制链接", "Copy link")}
@@ -605,6 +619,7 @@ function Wan26Node({ id, data, selected }: Props) {
             <Share2 size={14} />
           </button>
           <button
+            className="tanva-video-header-btn tanva-video-header-download"
             onClick={() => triggerDownload(data.videoUrl)}
             onMouseDown={handleButtonMouseDown}
             title={lt("下载视频", "Download video")}
@@ -656,7 +671,6 @@ function Wan26Node({ id, data, selected }: Props) {
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              setResolutionMenuOpen(false);
               setDurationMenuOpen(false);
               setShotMenuOpen(false);
               setSizeMenuOpen((open) => !open);
@@ -732,80 +746,19 @@ function Wan26Node({ id, data, selected }: Props) {
       {/* 分辨率（T2V 和 I2V 都有） */}
       <div className="wan26-dropdown" style={{ marginBottom: 8, position: "relative" }}>
         <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>{lt("分辨率", "Resolution")}</div>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            setSizeMenuOpen(false);
-            setDurationMenuOpen(false);
-            setShotMenuOpen(false);
-            setResolutionMenuOpen((open) => !open);
-          }}
-          style={{
-            width: "100%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "6px 10px",
-            borderRadius: 8,
-            border: "1px solid #e5e7eb",
-            background: "#fff",
-            fontSize: 12,
-            cursor: "pointer",
-          }}
-        >
-          <span>{data.resolution || "720P"}</span>
-          <span style={{ fontSize: 16, lineHeight: 1 }}>{resolutionMenuOpen ? "▴" : "▾"}</span>
-        </button>
-        {resolutionMenuOpen && (
-          <div
-            className="wan26-dropdown-menu"
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              position: "absolute",
-              zIndex: 20,
-              top: "calc(100% + 4px)",
-              left: 0,
-              right: 0,
-              background: "#fff",
-              border: "1px solid #e5e7eb",
-              borderRadius: 8,
-              padding: 8,
-              boxShadow: "0 8px 16px rgba(15,23,42,0.08)",
-            }}
-          >
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {["720P", "1080P"].map((opt) => {
-                const isActive = opt === data.resolution;
-                return (
-                  <button
-                    key={opt}
-                    type="button"
-                    onClick={() => {
-                      window.dispatchEvent(
-                        new CustomEvent("flow:updateNodeData", {
-                          detail: { id, patch: { resolution: opt } },
-                        })
-                      );
-                      setResolutionMenuOpen(false);
-                    }}
-                    style={{
-                      padding: "4px 10px",
-                      borderRadius: 999,
-                      border: `1px solid ${isActive ? "#2563eb" : "#e5e7eb"}`,
-                      background: isActive ? "#2563eb" : "#fff",
-                      color: isActive ? "#fff" : "#111827",
-                      fontSize: 12,
-                      cursor: "pointer",
-                    }}
-                  >
-                    {opt}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
+        <NodeSelect
+          value={data.resolution || "720P"}
+          options={["720P", "1080P"].map((opt) => ({ value: opt, label: opt }))}
+          onChange={(value) =>
+            window.dispatchEvent(
+              new CustomEvent("flow:updateNodeData", {
+                detail: { id, patch: { resolution: value } },
+              })
+            )
+          }
+          menuLabel={lt("分辨率", "Resolution")}
+          title={lt("选择分辨率", "Select resolution")}
+        />
       </div>
 
       {/* Duration 参数（T2V 和 I2V 都有） */}
@@ -813,13 +766,12 @@ function Wan26Node({ id, data, selected }: Props) {
         <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>{lt("时长", "Duration")}</div>
         <button
           type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            setSizeMenuOpen(false);
-            setResolutionMenuOpen(false);
-            setShotMenuOpen(false);
-            setDurationMenuOpen((open) => !open);
-          }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setSizeMenuOpen(false);
+              setShotMenuOpen(false);
+              setDurationMenuOpen((open) => !open);
+            }}
           style={{
             width: "100%",
             display: "flex",
@@ -892,13 +844,12 @@ function Wan26Node({ id, data, selected }: Props) {
         <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>{lt("镜头类型", "Shot type")}</div>
         <button
           type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            setSizeMenuOpen(false);
-            setResolutionMenuOpen(false);
-            setDurationMenuOpen(false);
-            setShotMenuOpen((open) => !open);
-          }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setSizeMenuOpen(false);
+              setDurationMenuOpen(false);
+              setShotMenuOpen((open) => !open);
+            }}
           style={{
             width: "100%",
             display: "flex",
@@ -1132,6 +1083,7 @@ function Wan26Node({ id, data, selected }: Props) {
 
       {historyItems.length > 0 && (
         <div
+          className="tanva-video-history"
           style={{
             marginTop: 8,
             padding: "8px 10px",
@@ -1166,6 +1118,7 @@ function Wan26Node({ id, data, selected }: Props) {
             const isActive = item.videoUrl === data.videoUrl;
             return (
               <div
+                className="tanva-video-history-item"
                 key={item.id}
                 style={{
                   borderRadius: 6,

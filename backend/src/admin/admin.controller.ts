@@ -21,6 +21,9 @@ import { CreditsAnomalyService } from '../credits/credits-anomaly.service';
 import { TransactionHistoryQueryDto } from '../credits/dto/credits.dto';
 import { TemplateService } from './services/template.service';
 import { NodeConfigService, NodeConfigDto, UpdateNodeConfigDto } from './services/node-config.service';
+import { BusinessPolicyService } from '../business-policy/business-policy.service';
+import type { UpdateMembershipCreditPolicyInput } from '../business-policy/business-policy.types';
+import { MembershipService } from '../membership/membership.service';
 import {
   UsersQueryDto,
   ApiUsageStatsQueryDto,
@@ -35,6 +38,7 @@ import {
   UpdateTemplateDto,
   TemplateQueryDto,
 } from './dto/template.dto';
+import { MODEL_PROVIDER_MAPPING_SETTING_KEY } from '../ai/services/model-routing.service';
 
 interface AuthenticatedUser {
   id: string;
@@ -42,6 +46,31 @@ interface AuthenticatedUser {
 }
 
 type AuthenticatedRequest = FastifyRequest & { user: AuthenticatedUser };
+
+type AdminPermission =
+  | 'dashboard:view'
+  | 'users:list'
+  | 'users:credits:add'
+  | 'users:credits:deduct'
+  | 'users:credits:transactions'
+  | 'api-usage:stats'
+  | 'api-usage:records'
+  | 'templates:manage'
+  | 'watermark-whitelist:manage';
+
+const FULL_ADMIN_ROLE = 'admin';
+const NORMAL_ADMIN_ROLE = 'normal_admin';
+const NORMAL_ADMIN_ALLOWED_PERMISSIONS = new Set<AdminPermission>([
+  'dashboard:view',
+  'users:list',
+  'users:credits:add',
+  'users:credits:deduct',
+  'users:credits:transactions',
+  'api-usage:stats',
+  'api-usage:records',
+  'templates:manage',
+  'watermark-whitelist:manage',
+]);
 
 @ApiTags('管理后台')
 @Controller('admin')
@@ -54,28 +83,37 @@ export class AdminController {
     private readonly creditsAnomalyService: CreditsAnomalyService,
     private readonly templateService: TemplateService,
     private readonly nodeConfigService: NodeConfigService,
+    private readonly businessPolicyService: BusinessPolicyService,
+    private readonly membershipService: MembershipService,
   ) {}
 
   /**
    * 验证管理员权限
    */
-  private checkAdmin(req: AuthenticatedRequest) {
-    if (req.user.role !== 'admin') {
-      throw new ForbiddenException('只有管理员可以访问此接口');
+  private checkAdmin(req: AuthenticatedRequest, permission?: AdminPermission) {
+    const role = typeof req.user?.role === 'string' ? req.user.role.toLowerCase() : '';
+    if (role === FULL_ADMIN_ROLE) return;
+    if (
+      role === NORMAL_ADMIN_ROLE &&
+      permission &&
+      NORMAL_ADMIN_ALLOWED_PERMISSIONS.has(permission)
+    ) {
+      return;
     }
+    throw new ForbiddenException('Only administrators can access this endpoint');
   }
 
   @Get('dashboard')
   @ApiOperation({ summary: '获取管理后台统计数据' })
   async getDashboardStats(@Request() req: AuthenticatedRequest) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'dashboard:view');
     return this.adminService.getDashboardStats();
   }
 
   @Get('users')
   @ApiOperation({ summary: '获取所有用户列表' })
   async getAllUsers(@Request() req: AuthenticatedRequest, @Query() query: UsersQueryDto) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'users:list');
     return this.adminService.getAllUsers({
       page: query.page,
       pageSize: query.pageSize,
@@ -135,7 +173,7 @@ export class AdminController {
     @Param('userId') userId: string,
     @Body() dto: { amount: number; description: string },
   ) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'users:credits:add');
     return this.creditsService.adminAddCredits(
       userId,
       dto.amount,
@@ -151,7 +189,7 @@ export class AdminController {
     @Param('userId') userId: string,
     @Body() dto: { amount: number; description: string },
   ) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'users:credits:deduct');
     return this.creditsService.adminDeductCredits(
       userId,
       dto.amount,
@@ -167,7 +205,7 @@ export class AdminController {
     @Param('userId') userId: string,
     @Query() query: TransactionHistoryQueryDto,
   ) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'users:credits:transactions');
     return this.creditsService.getTransactionHistory(userId, {
       page: query.page,
       pageSize: query.pageSize,
@@ -178,7 +216,7 @@ export class AdminController {
   @Get('api-usage/stats')
   @ApiOperation({ summary: '获取API使用统计' })
   async getApiUsageStats(@Request() req: AuthenticatedRequest, @Query() query: ApiUsageStatsQueryDto) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'api-usage:stats');
     return this.adminService.getApiUsageStats({
       startDate: query.startDate ? new Date(query.startDate) : undefined,
       endDate: query.endDate ? new Date(query.endDate) : undefined,
@@ -188,7 +226,7 @@ export class AdminController {
   @Get('api-usage/records')
   @ApiOperation({ summary: '获取所有API使用记录' })
   async getAllApiUsageRecords(@Request() req: AuthenticatedRequest, @Query() query: ApiUsageRecordsQueryDto) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'api-usage:records');
     return this.adminService.getAllApiUsageRecords({
       page: query.page,
       pageSize: query.pageSize,
@@ -235,13 +273,201 @@ export class AdminController {
     @Body() dto: { key: string; value: string; description?: string; metadata?: Record<string, any> },
   ) {
     this.checkAdmin(req);
-    return this.adminService.upsertSetting(
+    const setting = await this.adminService.upsertSetting(
       dto.key,
       dto.value,
       req.user.id,
       dto.description,
       dto.metadata,
     );
+
+    if (dto.key === MODEL_PROVIDER_MAPPING_SETTING_KEY) {
+      const nodeConfigSync = await this.nodeConfigService.syncAllConfigs();
+      return {
+        ...setting,
+        nodeConfigSync,
+      };
+    }
+
+    return setting;
+  }
+
+  @Get('membership-credit-policy')
+  @ApiOperation({ summary: '获取会员积分策略配置' })
+  async getMembershipCreditPolicy(@Request() req: AuthenticatedRequest) {
+    this.checkAdmin(req);
+    return this.businessPolicyService.getMembershipCreditPolicyView();
+  }
+
+  @Post('membership-credit-policy')
+  @ApiOperation({ summary: '更新会员积分策略配置' })
+  async updateMembershipCreditPolicy(
+    @Request() req: AuthenticatedRequest,
+    @Body() dto: UpdateMembershipCreditPolicyInput,
+  ) {
+    this.checkAdmin(req);
+    return this.businessPolicyService.updateMembershipCreditPolicy(dto, req.user.id);
+  }
+
+  @Get('membership-plans')
+  @ApiOperation({ summary: '获取会员套餐管理列表' })
+  async getAdminMembershipPlans(@Request() req: AuthenticatedRequest) {
+    this.checkAdmin(req);
+    return this.membershipService.listAllPlansForAdmin();
+  }
+
+  @Post('membership-plans')
+  @ApiOperation({ summary: '创建会员套餐' })
+  async createMembershipPlan(
+    @Request() req: AuthenticatedRequest,
+    @Body()
+    dto: {
+      code: string;
+      name: string;
+      billingCycle: string;
+      price: number;
+      monthlyQuotaCredits?: number;
+      signupBonusCredits?: number;
+      dailyGiftCredits?: number;
+      isActive?: boolean;
+      sortOrder?: number;
+      metadata?: Record<string, any>;
+    },
+  ) {
+    this.checkAdmin(req);
+    return this.membershipService.createMembershipPlan(dto);
+  }
+
+  @Patch('membership-plans/:id')
+  @ApiOperation({ summary: '更新会员套餐' })
+  async updateMembershipPlan(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body()
+    dto: {
+      code?: string;
+      name?: string;
+      billingCycle?: string;
+      price?: number;
+      monthlyQuotaCredits?: number;
+      signupBonusCredits?: number;
+      dailyGiftCredits?: number;
+      isActive?: boolean;
+      sortOrder?: number;
+      metadata?: Record<string, any>;
+    },
+  ) {
+    this.checkAdmin(req);
+    return this.membershipService.updateMembershipPlan(id, dto);
+  }
+
+  @Get('users/:userId/membership')
+  @ApiOperation({ summary: '获取指定用户会员状态（管理员）' })
+  async getUserMembershipState(
+    @Request() req: AuthenticatedRequest,
+    @Param('userId') userId: string,
+  ) {
+    this.checkAdmin(req);
+    return this.membershipService.getAdminMembershipState(userId);
+  }
+
+  @Post('users/:userId/membership/expire')
+  @ApiOperation({ summary: '立即让用户会员到期（管理员）' })
+  async expireUserMembershipNow(
+    @Request() req: AuthenticatedRequest,
+    @Param('userId') userId: string,
+    @Body() dto: { reason?: string },
+  ) {
+    this.checkAdmin(req);
+    return this.membershipService.adminExpireMembershipNow(
+      userId,
+      dto.reason?.trim() || 'admin_expire_now',
+      req.user.id,
+    );
+  }
+
+  @Post('users/:userId/membership/adjust-period')
+  @ApiOperation({ summary: '调整用户会员时长（管理员）' })
+  async adjustUserMembershipPeriod(
+    @Request() req: AuthenticatedRequest,
+    @Param('userId') userId: string,
+    @Body() dto: { days: number; reason?: string },
+  ) {
+    this.checkAdmin(req);
+    return this.membershipService.adminAdjustMembershipPeriod(
+      userId,
+      dto.days,
+      dto.reason?.trim() || 'admin_adjust_membership_period',
+      req.user.id,
+    );
+  }
+
+  @Post('users/:userId/membership/change-plan')
+  @ApiOperation({ summary: '变更用户会员套餐（管理员）' })
+  async changeUserMembershipPlan(
+    @Request() req: AuthenticatedRequest,
+    @Param('userId') userId: string,
+    @Body()
+    dto: {
+      planCode: string;
+      effectiveMode: 'immediate' | 'next_cycle';
+      reason?: string;
+    },
+  ) {
+    this.checkAdmin(req);
+    return this.membershipService.adminScheduleMembershipChange({
+      userId,
+      planCode: dto.planCode,
+      effectiveMode: dto.effectiveMode,
+      reason: dto.reason?.trim() || 'admin_change_plan',
+      requestedBy: req.user.id,
+    });
+  }
+
+  @Get('users/:userId/membership/transition-preview')
+  @ApiOperation({ summary: '预览指定用户切换目标套餐的结果（管理员）' })
+  async getUserMembershipTransitionPreview(
+    @Request() req: AuthenticatedRequest,
+    @Param('userId') userId: string,
+    @Query('planCode') planCode?: string,
+  ) {
+    this.checkAdmin(req);
+    return this.membershipService.getUserTransitionPreview(userId, planCode || '');
+  }
+
+  @Post('membership/ops/apply-scheduled-changes')
+  @ApiOperation({ summary: '立即执行待生效订阅切换（管理员）' })
+  async applyScheduledMembershipChanges(@Request() req: AuthenticatedRequest) {
+    this.checkAdmin(req);
+    return this.membershipService.applyDueScheduledChanges();
+  }
+
+  @Post('membership/ops/expire-scan')
+  @ApiOperation({ summary: '立即执行会员到期扫描（管理员）' })
+  async expireMembershipsNow(@Request() req: AuthenticatedRequest) {
+    this.checkAdmin(req);
+    return this.membershipService.expireElapsedMemberships();
+  }
+
+  @Post('membership/ops/issue-daily-gifts')
+  @ApiOperation({ summary: '立即执行会员每日赠送发放（管理员）' })
+  async issueDailyMembershipGifts(@Request() req: AuthenticatedRequest) {
+    this.checkAdmin(req);
+    return this.membershipService.issueDailyMembershipGiftCredits();
+  }
+
+  @Post('membership/ops/decay-gifts')
+  @ApiOperation({ summary: '立即执行赠送积分衰减（管理员）' })
+  async decayMembershipGifts(@Request() req: AuthenticatedRequest) {
+    this.checkAdmin(req);
+    return this.membershipService.decayDailyGiftCredits();
+  }
+
+  @Post('membership/ops/refresh-yearly-quota')
+  @ApiOperation({ summary: '立即执行年费会员月额度刷新（管理员）' })
+  async refreshYearlyMembershipQuota(@Request() req: AuthenticatedRequest) {
+    this.checkAdmin(req);
+    return this.membershipService.refreshYearlySubscriptionQuotaLots();
   }
 
   // ==================== 公共模板管理 ====================
@@ -250,7 +476,7 @@ export class AdminController {
   @Get('templates/categories')
   @ApiOperation({ summary: '获取所有模板分类' })
   async getTemplateCategories(@Request() req: AuthenticatedRequest) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'templates:manage');
     return this.templateService.getTemplateCategories();
   }
 
@@ -260,7 +486,7 @@ export class AdminController {
     @Request() req: AuthenticatedRequest,
     @Body() dto: { category: string },
   ) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'templates:manage');
     const key = 'template_categories';
     // 读取现有设置
     const existing = await this.adminService.getSetting(key);
@@ -290,7 +516,7 @@ export class AdminController {
     @Request() req: AuthenticatedRequest,
     @Param('category') category: string,
   ) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'templates:manage');
     const cat = decodeURIComponent(category).trim();
     if (!cat) {
       return { success: false, message: '分类不能为空' };
@@ -320,7 +546,7 @@ export class AdminController {
     @Request() req: AuthenticatedRequest,
     @Body() dto: CreateTemplateDto,
   ) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'templates:manage');
     return this.templateService.createTemplate(dto, req.user.id);
   }
 
@@ -330,7 +556,7 @@ export class AdminController {
     @Request() req: AuthenticatedRequest,
     @Query() query: TemplateQueryDto,
   ) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'templates:manage');
     return this.templateService.getTemplates(query);
   }
 
@@ -340,7 +566,7 @@ export class AdminController {
     @Request() req: AuthenticatedRequest,
     @Param('id') id: string,
   ) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'templates:manage');
     return this.templateService.getTemplateById(id);
   }
 
@@ -351,7 +577,7 @@ export class AdminController {
     @Param('id') id: string,
     @Body() dto: UpdateTemplateDto,
   ) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'templates:manage');
     return this.templateService.updateTemplate(id, dto, req.user.id);
   }
 
@@ -361,7 +587,7 @@ export class AdminController {
     @Request() req: AuthenticatedRequest,
     @Param('id') id: string,
   ) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'templates:manage');
     return this.templateService.deleteTemplate(id);
   }
 
@@ -373,7 +599,7 @@ export class AdminController {
     @Request() req: AuthenticatedRequest,
     @Query() query: { page?: string; pageSize?: string; search?: string },
   ) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'watermark-whitelist:manage');
     return this.adminService.getWatermarkWhitelist({
       page: query.page ? parseInt(query.page) : 1,
       pageSize: query.pageSize ? parseInt(query.pageSize) : 20,
@@ -387,7 +613,7 @@ export class AdminController {
     @Request() req: AuthenticatedRequest,
     @Param('userId') userId: string,
   ) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'watermark-whitelist:manage');
     return this.adminService.addToWatermarkWhitelist(userId);
   }
 
@@ -397,7 +623,7 @@ export class AdminController {
     @Request() req: AuthenticatedRequest,
     @Param('userId') userId: string,
   ) {
-    this.checkAdmin(req);
+    this.checkAdmin(req, 'watermark-whitelist:manage');
     return this.adminService.removeFromWatermarkWhitelist(userId);
   }
 

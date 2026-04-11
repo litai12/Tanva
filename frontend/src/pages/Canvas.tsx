@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import ZoomIndicator from '@/components/canvas/ZoomIndicator';
 import GridRenderer from '@/components/canvas/GridRenderer';
 import InteractionController from '@/components/canvas/InteractionController';
@@ -17,6 +17,7 @@ import { useLayerStore } from '@/stores';
 // import CachedImageDebug from '@/components/debug/CachedImageDebug';
 import FlowOverlay from '@/components/flow/FlowOverlay';
 import { migrateImageHistoryToRemote } from '@/services/imageHistoryService';
+import { useAIChatStore } from '@/stores/aiChatStore';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
 import GlobalZoomCapture from '@/components/canvas/GlobalZoomCapture';
@@ -24,15 +25,16 @@ import GlobalZoomCapture from '@/components/canvas/GlobalZoomCapture';
 // import { useAIImageDisplay } from '@/hooks/useAIImageDisplay';  // No longer needed after fast upload flow.
 
 const Canvas: React.FC = () => {
+    const chatTheme = useAIChatStore((state) => state.chatTheme);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [isPaperInitialized, setIsPaperInitialized] = useState(false);
     const [isPaperReady, setIsPaperReady] = useState(false); // Delay Paper.js init.
     // AI image display now goes through fast upload flow; no extra hook needed.
     // useAIImageDisplay();
 
-    const handlePaperInitialized = () => {
+    const handlePaperInitialized = useCallback(() => {
         setIsPaperInitialized(true);
-    };
+    }, []);
 
     // Delay Paper.js init to improve first-load performance.
     useEffect(() => {
@@ -55,6 +57,19 @@ const Canvas: React.FC = () => {
             try { useLayerStore.getState().ensureActiveLayer(); } catch { }
         }
     }, [isPaperInitialized]);
+
+    useEffect(() => {
+        if (typeof document === 'undefined') return;
+        const className = 'tanva-premium-black-theme';
+        if (chatTheme === 'black') {
+            document.body.classList.add(className);
+        } else {
+            document.body.classList.remove(className);
+        }
+        return () => {
+            document.body.classList.remove(className);
+        };
+    }, [chatTheme]);
 
     return (
         <div className="relative w-full h-full overflow-hidden">

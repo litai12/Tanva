@@ -7,6 +7,7 @@ import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
 import GenerationProgressBar from './GenerationProgressBar';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { useAIChatStore } from '@/stores/aiChatStore';
+import { flowLetterboxBackground } from './flowNodeDarkTheme';
 import { cn } from '@/lib/utils';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import ContextMenu from '../../ui/context-menu';
@@ -15,6 +16,8 @@ import { parseFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import { toRenderableImageSrc } from '@/utils/imageSource';
 import { useLocaleText } from '@/utils/localeText';
+import RunCreditBadge from './RunCreditBadge';
+import NodeSelect from './NodeSelect';
 
 // 长宽比图标
 const AspectRatioIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -40,10 +43,11 @@ type Props = {
     enableWebSearch?: boolean;
     error?: string;
     aspectRatio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9';
-    imageSize?: '1K' | '2K' | '4K' | null;
+    imageSize?: '0.5K' | '1K' | '2K' | '4K' | null;
     prompts?: string[];
     imageWidth?: number;
     promptHeight?: number;
+    creditsPerCall?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
   };
@@ -507,10 +511,8 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   const [isEditingTitle, setIsEditingTitle] = React.useState(false);
   const [isTextFocused, setIsTextFocused] = React.useState(false); // 文字输入框是否聚焦
   const [isAspectMenuOpen, setIsAspectMenuOpen] = React.useState(false);
-  const [isImageSizeMenuOpen, setIsImageSizeMenuOpen] = React.useState(false);
   const [contextMenu, setContextMenu] = React.useState<{ x: number; y: number } | null>(null);
   const aspectMenuRef = React.useRef<HTMLDivElement>(null);
-  const imageSizeMenuRef = React.useRef<HTMLDivElement>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const titleInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -529,6 +531,8 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   const projectId = useProjectContentStore((state) => state.projectId);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
   const setAIProvider = useAIChatStore((state) => state.setAIProvider);
+  const chatTheme = useAIChatStore((state) => state.chatTheme);
+  const isFlowDark = chatTheme === 'black';
   const globalWebSearchEnabled = useAIChatStore((state) => state.enableWebSearch);
   const enableWebSearch = data.enableWebSearch ?? globalWebSearchEnabled;
 
@@ -575,6 +579,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   const isProMode =
     aiProvider === 'gemini-pro' ||
     aiProvider === 'banana' ||
+    aiProvider === 'banana-2.5' ||
     aiProvider === 'banana-3.1' ||
     aiProvider === 'nano2';
 
@@ -872,17 +877,32 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   const aspectRatioValue = data.aspectRatio ?? '';
   const imageSizeValue = data.imageSize ?? null;
 
-  const imageSizeOptions: Array<{ label: string; value: '1K' | '2K' | '4K' | null }> = React.useMemo(() => {
+  const imageSizeOptions: Array<{ label: string; value: '0.5K' | '1K' | '2K' | '4K' | null }> = React.useMemo(() => {
+    if (currentProviderValue === 'banana-2.5') {
+      return [
+        { label: lt('自动', 'Auto'), value: null },
+        { label: '1K', value: '1K' },
+      ];
+    }
+    if (currentProviderValue === 'banana-3.1') {
+      return [
+        { label: lt('自动', 'Auto'), value: null },
+        { label: '0.5K', value: '0.5K' },
+        { label: '1K', value: '1K' },
+        { label: '2K', value: '2K' },
+        { label: '4K', value: '4K' },
+      ];
+    }
     return [
       { label: lt('自动', 'Auto'), value: null },
       { label: '1K', value: '1K' },
       { label: '2K', value: '2K' },
       { label: '4K', value: '4K' },
     ];
-  }, [lt]);
+  }, [currentProviderValue, lt]);
 
   // 更新图像尺寸
-  const updateImageSize = React.useCallback((size: '1K' | '2K' | '4K' | null) => {
+  const updateImageSize = React.useCallback((size: '0.5K' | '1K' | '2K' | '4K' | null) => {
     window.dispatchEvent(
       new CustomEvent('flow:updateNodeData', {
         detail: {
@@ -942,18 +962,6 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isAspectMenuOpen]);
-
-  // 点击外部关闭图像尺寸菜单
-  React.useEffect(() => {
-    if (!isImageSizeMenuOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (imageSizeMenuRef.current && !imageSizeMenuRef.current.contains(e.target as Node)) {
-        setIsImageSizeMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isImageSizeMenuOpen]);
 
   // 处理角点拖拽调整大小 - 以中心点为基准
   const handleResizeStart = React.useCallback((corner: string) => (e: React.MouseEvent) => {
@@ -1173,20 +1181,28 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
                 event.preventDefault();
                 event.stopPropagation();
               }}
-              className='nodrag nopan'
+              className='nodrag nopan tanva-flow-provider-mode-badge'
               title={lt('切换模型模式', 'Switch model mode')}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 padding: '1px 8px',
-                borderRadius: 999,
+                borderRadius: 50,
                 fontSize: 11,
                 fontWeight: 600,
-                color: currentProviderValue === 'banana-3.1' ? '#0f172a' : '#475569',
-                background: currentProviderValue === 'banana-3.1' ? '#e2e8f0' : '#f1f5f9',
-                border: '1px solid #e2e8f0',
                 cursor: 'pointer',
+                ...(chatTheme === 'black'
+                  ? {
+                      color: '#ffffff',
+                      background: '#343434',
+                      border: '1px solid #4a4a4a',
+                    }
+                  : {
+                      color: currentProviderValue === 'banana-3.1' ? '#0f172a' : '#475569',
+                      background: currentProviderValue === 'banana-3.1' ? '#e2e8f0' : '#f1f5f9',
+                      border: '1px solid #e2e8f0',
+                    }),
               }}
             >
               <span>{currentProviderOption.label}</span>
@@ -1260,9 +1276,9 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
             position: 'relative',
             width: imageWidth,
             height: imageHeight,
-            background: displaySrc ? 'transparent' : '#f8f9fa',
+            background: displaySrc ? 'transparent' : (isFlowDark ? '#161616' : '#f8f9fa'),
             borderRadius: 12,
-            border: '1px solid #e5e7eb',
+            border: isFlowDark ? '1px solid #2f2f2f' : '1px solid #e5e7eb',
             overflow: 'hidden',
             cursor: displaySrc ? 'pointer' : 'default',
           }}
@@ -1279,7 +1295,16 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
             justifyContent: 'center',
           }}>
             {displaySrc ? (
-              <SmartImage src={displaySrc} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+              <SmartImage
+                src={displaySrc}
+                alt=""
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain',
+                  background: flowLetterboxBackground(isFlowDark),
+                }}
+              />
             ) : (
               <span style={{ fontSize: 12, color: '#9ca3af' }}>{lt('等待生成', 'Waiting for generation')}</span>
             )}
@@ -1463,9 +1488,10 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
             }}
           >
             {index === 0 && externalPrompts.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+              <div className="tanva-agent-external-prompts" style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
                 {externalPrompts.map((extPrompt, extIndex) => (
                   <div
+                    className="tanva-agent-external-prompt-chip"
                     key={extIndex}
                     style={{
                       display: 'flex',
@@ -1477,8 +1503,9 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
                       border: '1px solid #bae6fd',
                     }}
                   >
-                    <Link style={{ width: 14, height: 14, color: '#0ea5e9', flexShrink: 0, marginTop: 2 }} />
+                    <Link className="tanva-agent-external-prompt-icon" style={{ width: 14, height: 14, color: '#0ea5e9', flexShrink: 0, marginTop: 2 }} />
                     <span
+                      className="tanva-agent-external-prompt-text"
                       style={{
                         fontSize: 13,
                         color: '#0369a1',
@@ -1740,7 +1767,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
           {/* 按钮组 */}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
             <div
-              className="inline-flex items-center gap-2 px-2 py-2 rounded-[999px] bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass"
+              className="tanva-agent-toolbar inline-flex items-center gap-2 px-2 py-2 rounded-[999px] bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass"
             >
               {/* 长宽比选择按钮 - 仅 Pro 模式显示 */}
               {isProMode && (
@@ -1757,8 +1784,8 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
                     }}
                     onPointerDownCapture={stopNodeDrag}
                     className={cn(
-                      "p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center",
-                      aspectRatioValue ? "bg-gray-800 text-white border-gray-800" : ""
+                      "tanva-agent-toolbar-btn p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center",
+                      (isAspectMenuOpen || aspectRatioValue) ? "tanva-agent-toolbar-btn-active bg-gray-800 text-white border-gray-800" : ""
                     )}
                     title={aspectRatioValue ? `${lt('长宽比', 'Aspect ratio')}: ${aspectRatioValue}` : lt('选择长宽比', 'Select aspect ratio')}
                   >
@@ -1769,28 +1796,25 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
 
               {/* HD 图像尺寸选择按钮 - 仅 Pro 模式显示 */}
               {isProMode && (
-                <div className="relative" ref={imageSizeMenuRef}>
-                  <button
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setIsImageSizeMenuOpen(!isImageSizeMenuOpen);
-                    }}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }}
-                    onPointerDownCapture={stopNodeDrag}
-                    className={cn(
-                      "p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center",
-                      imageSizeValue ? "bg-gray-800 text-white border-gray-800" : ""
-                    )}
+                <div className="relative">
+                  <NodeSelect
+                    value={imageSizeValue || ""}
+                    options={imageSizeOptions.map((opt) => ({
+                      value: opt.value || "",
+                      label: opt.label,
+                    }))}
+                    onChange={(nextValue) =>
+                      updateImageSize(
+                        (nextValue || null) as '0.5K' | '1K' | '2K' | '4K' | null
+                      )
+                    }
+                    variant="compact"
+                    align="center"
+                    menuLabel={lt('分辨率', 'Resolution')}
                     title={imageSizeValue ? `${lt('分辨率', 'Resolution')}: ${imageSizeValue}` : lt('选择分辨率', 'Select resolution')}
-                  >
-                    <span className="font-medium text-[10px] leading-none">
-                      {imageSizeValue || 'HD'}
-                    </span>
-                  </button>
+                    className='min-w-[56px] justify-center'
+                    contentClassName='min-w-[140px]'
+                  />
                 </div>
               )}
 
@@ -1803,8 +1827,8 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
                   }}
                   onPointerDownCapture={stopNodeDrag}
                   className={cn(
-                    "p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center",
-                    enableWebSearch ? "bg-gray-800 text-white border-gray-800" : ""
+                    "tanva-agent-toolbar-btn p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center",
+                    enableWebSearch ? "tanva-agent-toolbar-btn-active bg-gray-800 text-white border-gray-800" : ""
                   )}
                   title={enableWebSearch ? lt('联网已开启', 'Web search enabled') : lt('联网已关闭', 'Web search disabled')}
                 >
@@ -1826,17 +1850,18 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
                 }}
                 disabled={status === 'running'}
                 onPointerDownCapture={stopNodeDrag}
-                className="p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                className="tanva-agent-toolbar-btn p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                 title={status === 'running' ? lt('生成中...', 'Generating...') : lt('运行生成', 'Run generation')}
               >
                 <Play style={{ width: 14, height: 14 }} />
               </button>
+              <RunCreditBadge credits={data.creditsPerCall} compact />
             </div>
 
             {/* 长宽比水平选择栏 - 仅 Pro 模式显示 */}
             {isProMode && isAspectMenuOpen && (
               <div
-                className="bg-white rounded-full shadow-lg border border-gray-200 px-2 py-1.5 flex items-center gap-1"
+                className="tanva-agent-toolbar-panel bg-white rounded-full shadow-lg border border-gray-200 px-2 py-1.5 flex items-center gap-1"
               >
                 {aspectOptions.map(opt => (
                   <button
@@ -1848,9 +1873,9 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
                     }}
                     onPointerDownCapture={stopNodeDrag}
                     className={cn(
-                      "px-2 py-1 text-xs rounded-md transition-colors whitespace-nowrap",
+                      "tanva-agent-toolbar-option px-2 py-1 text-xs rounded-md transition-colors whitespace-nowrap",
                       (aspectRatioValue === opt.value || (!aspectRatioValue && opt.value === ''))
-                        ? "bg-gray-800 text-white font-medium"
+                        ? "tanva-agent-toolbar-option-active bg-gray-800 text-white font-medium"
                         : "text-gray-700 hover:bg-gray-100"
                     )}
                   >
@@ -1860,32 +1885,6 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
               </div>
             )}
 
-            {/* HD 图像尺寸水平选择栏 - 仅 Pro 模式显示 */}
-            {isProMode && isImageSizeMenuOpen && (
-              <div
-                className="bg-white rounded-full shadow-lg border border-gray-200 px-2 py-1.5 flex items-center gap-1"
-              >
-                {imageSizeOptions.map(opt => (
-                  <button
-                    key={opt.value || 'auto'}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      updateImageSize(opt.value);
-                      setIsImageSizeMenuOpen(false);
-                    }}
-                    onPointerDownCapture={stopNodeDrag}
-                    className={cn(
-                      "px-2 py-1 text-xs rounded-md transition-colors whitespace-nowrap",
-                      imageSizeValue === opt.value
-                        ? "bg-gray-800 text-white font-medium"
-                        : "text-gray-700 hover:bg-gray-100"
-                    )}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
         </>
       )}

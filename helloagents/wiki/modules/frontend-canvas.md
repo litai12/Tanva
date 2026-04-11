@@ -46,6 +46,7 @@
 - `imageUrlCache` 的 `dataUrl` 缓存绑定图片源指纹（`sourceFingerprint`）；当同一 `imageId` 更换了源图后，裁切/编辑不会复用旧缓存图，降低“偶发低清/像被压缩”的问题。
 - 裁切执行链路改为“实时源 -> Blob -> canvas -> Blob 预览（`blob:`）-> 后台上传回写远程引用”，不再依赖缓存 dataURL 作为裁切输入，降低“裁切不可用/偶发裁错源”的风险。
 - 裁切开始时会预生成新的 OSS key，并在上传中阶段显式清理旧 `remoteUrl`，避免“先显示正确裁切图，随后被旧远程源覆盖成压缩/整图挤压”的回写竞争问题。
+- 快速上传链路中的图片加载 fallback（proxy 失败回直连、CORS 失败去掉 `crossOrigin`）已统一计入 `IMAGE_LOAD_MAX_RETRIES`，避免额外 fallback 绕开重试预算后在异常源图上出现近似死循环的反复重载。
 
 ## JSON 复制/导入（Project.contentJson）
 - 右键画布菜单与 `Ctrl/Cmd+Shift+C` 支持复制画布 JSON（严格走 `sanitizeProjectContentForCloudSave` 清理内联图片引用）。
@@ -82,3 +83,10 @@
 - 显式拍照场景下，抓帧支持离屏 renderer 兜底，减少 `frameloop="demand"` + 非保留缓冲导致的白图。
 - 缓存图会标记 `data-model3d-snapshot-source`，截图服务仅使用 `runtime` 来源，不会误用预生成 preview。
 - `AutoScreenshotService` 在 runtime 帧不可用时会检查 WebGL canvas 是否近似空白；若为空则跳过绘制，避免把整块白底写入结果图。
+
+## 2026-04 workspace theme hook
+- `Canvas` toggles `body.tanva-premium-black-theme` from `aiChatStore.chatTheme`.
+- The class is removed on unmount to avoid leaking workspace theme styles into non-workspace routes.
+- `GridRenderer` now applies black-theme visibility fallback for near-black grid colors and uses stronger line alpha/width in black theme so the grid remains visible on `#000` canvas.
+- In black theme + `GridStyle.SOLID`, canvas solid background is forced to `#090909` (Surface) for consistent monochrome workspace contrast.
+- Premium dark palette alignment: toolbar shell / header cards / AI dialog / node shell use `Base #111111`; internal controls and modules use `Elevated #161616`.

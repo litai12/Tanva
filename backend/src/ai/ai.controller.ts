@@ -12,6 +12,7 @@ import {
   Optional,
   Req,
   BadRequestException,
+  ForbiddenException,
   Param,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
@@ -88,6 +89,9 @@ type TraceableReq = {
 };
 
 const MANAGED_IMAGE_KEY_REGEX = /^(projects|uploads|templates|videos|ai)\//i;
+const FREE_TIER_BENEFITS_SETTING_KEY = 'membership_free_tier_benefits';
+const PRIVILEGED_ADMIN_ROLES = new Set(['admin', 'normal_admin']);
+const SEEDANCE20_MIN_RECHARGE_AMOUNT = 200;
 
 @ApiTags('ai')
 @UseGuards(ApiKeyOrJwtGuard)
@@ -133,6 +137,93 @@ export class AiController {
       524: '服务器处理超时，请稍后重试或简化请求内容',
     };
     return messages[status] || `服务器返回错误 ${status}`;
+  }
+
+  private normalizeSeedance2Access(value: unknown): 'enabled' | 'disabled' {
+    const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    if (
+      normalized === 'enabled' ||
+      normalized === 'allow' ||
+      normalized === 'on' ||
+      normalized === 'true' ||
+      normalized === '支持' ||
+      normalized === '可用'
+    ) {
+      return 'enabled';
+    }
+    return 'disabled';
+  }
+
+  private async resolveUserSeedance2Access(userId: string): Promise<'enabled' | 'disabled'> {
+    const subscription = await this.prisma.userMembershipSubscription.findFirst({
+      where: {
+        userId,
+        status: 'active',
+        currentPeriodStartAt: { lte: new Date() },
+        currentPeriodEndAt: { gt: new Date() },
+      },
+      select: {
+        membershipPlanId: true,
+      },
+      orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    if (subscription?.membershipPlanId) {
+      const plan = await this.prisma.membershipPlan.findUnique({
+        where: { id: subscription.membershipPlanId },
+        select: { metadata: true },
+      });
+      if (plan?.metadata && typeof plan.metadata === 'object' && !Array.isArray(plan.metadata)) {
+        return this.normalizeSeedance2Access(
+          (plan.metadata as Record<string, unknown>).seedance2Access,
+        );
+      }
+      return 'disabled';
+    }
+
+    const freeTierSetting = await this.prisma.systemSetting.findUnique({
+      where: { key: FREE_TIER_BENEFITS_SETTING_KEY },
+      select: { value: true },
+    });
+    if (!freeTierSetting?.value) {
+      return 'disabled';
+    }
+
+    try {
+      const parsed = JSON.parse(freeTierSetting.value);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return this.normalizeSeedance2Access(
+          (parsed as Record<string, unknown>).seedance2Access,
+        );
+      }
+    } catch {
+      return 'disabled';
+    }
+
+    return 'disabled';
+  }
+
+  private async assertSeedance2Entitlement(
+    userId: string | null,
+    dto: VideoProviderRequestDto,
+  ): Promise<void> {
+    const normalizedProvider = String(dto.provider || '').trim().toLowerCase();
+    const normalizedSeedanceModel = String(dto.seedanceModel || '').trim().toLowerCase();
+    const isSeedance2Request =
+      normalizedProvider === 'doubao' &&
+      (normalizedSeedanceModel === 'seedance-2.0' ||
+        normalizedSeedanceModel === '2.0' ||
+        normalizedSeedanceModel === 'seedance-2.0-fast' ||
+        normalizedSeedanceModel === '2.0-fast');
+
+    if (!isSeedance2Request || !userId) {
+      return;
+    }
+
+    const access = await this.resolveUserSeedance2Access(userId);
+    if (access !== 'enabled') {
+      throw new BadRequestException('当前套餐未开通 Seedance 2 权益，请升级后再试');
+    }
   }
 
   constructor(
@@ -199,6 +290,71 @@ export class AiController {
     }
   }
 
+  private normalizeRole(value: unknown): string {
+    return typeof value === 'string' ? value.trim().toLowerCase() : '';
+  }
+
+  private isPrivilegedAdminRole(role: unknown): boolean {
+    const normalized = this.normalizeRole(role);
+    return normalized.length > 0 && PRIVILEGED_ADMIN_ROLES.has(normalized);
+  }
+
+  private isSeedance20Model(seedanceModel: unknown): boolean {
+    const normalized = typeof seedanceModel === 'string' ? seedanceModel.trim().toLowerCase() : '';
+    return (
+      normalized === 'seedance-2.0' ||
+      normalized === '2.0' ||
+      normalized === 'seedance-2.0-fast' ||
+      normalized === '2.0-fast'
+    );
+  }
+
+  private isSeedance20Request(dto: VideoProviderRequestDto): boolean {
+    return dto.provider === 'doubao' && this.isSeedance20Model(dto.seedanceModel);
+  }
+
+  private async getTotalPaidRechargeAmount(userId: string): Promise<number> {
+    const aggregate = await this.prisma.paymentOrder.aggregate({
+      where: {
+        userId,
+        status: 'paid',
+        orderType: 'recharge',
+      },
+      _sum: {
+        amount: true,
+      },
+    });
+
+    const total = Number(aggregate._sum.amount ?? 0);
+    return Number.isFinite(total) ? total : 0;
+  }
+
+  private async assertSeedance20Access(userId: string, req: any): Promise<void> {
+    if (this.isPrivilegedAdminRole(req?.user?.role)) {
+      return;
+    }
+
+    let userRole: string | null = null;
+    try {
+      const user = await this.usersService.findById(userId);
+      userRole = typeof user?.role === 'string' ? user.role : null;
+      if (this.isPrivilegedAdminRole(userRole)) {
+        return;
+      }
+    } catch (e) {
+      this.logger.warn('检查 Seedance 2.0 权限时读取用户角色失败', e);
+    }
+
+    const totalRechargeAmount = await this.getTotalPaidRechargeAmount(userId);
+    if (totalRechargeAmount >= SEEDANCE20_MIN_RECHARGE_AMOUNT) {
+      return;
+    }
+
+    throw new ForbiddenException(
+      `Seedance 2.0 仅对累计充值满 ¥${SEEDANCE20_MIN_RECHARGE_AMOUNT} 用户开放（当前累计 ¥${totalRechargeAmount.toFixed(2)}）`,
+    );
+  }
+
   /**
    * 检查用户是否可以跳过水印（管理员或水印白名单用户）
    */
@@ -209,8 +365,7 @@ export class AiController {
     }
     try {
       const user = await this.usersService.findById(userId);
-      const isAdmin = typeof user?.role === 'string' && user.role.toLowerCase() === 'admin';
-      return isAdmin || user?.noWatermark === true;
+      return this.isPrivilegedAdminRole(user?.role) || user?.noWatermark === true;
     } catch (e) {
       this.logger.warn('检查水印白名单失败', e);
       return false;
@@ -458,18 +613,28 @@ export class AiController {
   private buildCreditRequestParams(
     providerName: string | null,
     extraParams?: Record<string, any>,
+    providerOptions?: Record<string, any>,
   ): Record<string, any> {
     const aiProvider = providerName || 'gemini';
-    const channelHint = aiProvider === 'nano2'
-      ? 'apimart'
-      : aiProvider.startsWith('banana')
-      ? '147'
-      : undefined;
+    const bananaImageRoute = this.resolveBananaImageRouteFromProviderOptions(
+      providerOptions,
+    );
+    const channelHint =
+      bananaImageRoute === 'stable'
+        ? 'tencent'
+        : bananaImageRoute === 'normal'
+        ? 'apimart'
+        : aiProvider === 'nano2'
+        ? 'apimart'
+        : aiProvider.startsWith('banana')
+        ? '147'
+        : undefined;
 
     return {
       ...(extraParams || {}),
       aiProvider,
       channelHint,
+      ...(bananaImageRoute ? { bananaImageRoute } : {}),
     };
   }
 
@@ -480,6 +645,23 @@ export class AiController {
       aiProvider: dto.provider,
     };
 
+    const preferredVendorKey =
+      typeof dto.vendorKey === 'string' && dto.vendorKey.trim().length > 0
+        ? dto.vendorKey.trim()
+        : undefined;
+
+    if (typeof dto.managedModelKey === 'string' && dto.managedModelKey.trim().length > 0) {
+      params.managedModelKey = dto.managedModelKey.trim();
+    }
+
+    if (preferredVendorKey) {
+      params.vendorKey = preferredVendorKey;
+    }
+
+    if (typeof dto.platformKey === 'string' && dto.platformKey.trim().length > 0) {
+      params.platformKey = dto.platformKey.trim();
+    }
+
     if (dto.klingModel) {
       params.klingModel = dto.klingModel;
     }
@@ -487,12 +669,49 @@ export class AiController {
     if (dto.viduModel) {
       params.viduModel = dto.viduModel;
     }
+    if (dto.viduModelVariant) {
+      params.viduModelVariant = dto.viduModelVariant;
+    }
 
     if (dto.seedanceModel) {
       params.seedanceModel = dto.seedanceModel;
     }
 
-    const assignRouteParams = (route: Awaited<ReturnType<typeof this.modelRoutingService.resolveVideoModel>>) => {
+    if (typeof dto.mode === 'string' && dto.mode.trim().length > 0) {
+      params.mode = dto.mode.trim().toLowerCase();
+    }
+
+    if (typeof dto.sound !== 'undefined') {
+      params.sound = dto.sound;
+    }
+
+    if (typeof dto.duration === 'number' && Number.isFinite(dto.duration)) {
+      params.duration = Math.round(dto.duration);
+    }
+
+    if (typeof dto.resolution === 'string' && dto.resolution.trim().length > 0) {
+      params.resolution = dto.resolution.trim().toUpperCase();
+    }
+
+    if (typeof dto.aspectRatio === 'string' && dto.aspectRatio.trim().length > 0) {
+      params.aspectRatio = dto.aspectRatio.trim();
+    }
+
+    if (typeof dto.videoMode === 'string' && dto.videoMode.trim().length > 0) {
+      params.videoMode = dto.videoMode.trim().toLowerCase();
+    }
+
+    if (typeof dto.generateAudio === 'boolean') {
+      params.generateAudio = dto.generateAudio;
+    }
+
+    if (typeof dto.watermark === 'boolean') {
+      params.watermark = dto.watermark;
+    }
+
+    const assignRouteParams = (
+      route: Awaited<ReturnType<typeof this.modelRoutingService.resolveVideoModel>>,
+    ) => {
       if (!route) return false;
       params.modelKey = route.model.modelKey;
       params.vendorKey = route.vendor.vendorKey;
@@ -503,47 +722,93 @@ export class AiController {
       return true;
     };
 
+    const normalizedKlingModel =
+      typeof dto.klingModel === 'string' ? dto.klingModel.trim().toLowerCase() : '';
+
+    if (
+      (dto.provider === 'kling' ||
+        dto.provider === 'kling-2.6' ||
+        dto.provider === 'kling-o3') &&
+      normalizedKlingModel === 'kling-v3-0'
+    ) {
+      assignRouteParams(
+        await this.modelRoutingService.resolveVideoModel('kling-3.0', preferredVendorKey),
+      );
+      return params;
+    }
+
+    if (
+      (dto.provider === 'kling' || dto.provider === 'kling-2.6') &&
+      (normalizedKlingModel === '' || normalizedKlingModel === 'kling-v2-6')
+    ) {
+      assignRouteParams(
+        await this.modelRoutingService.resolveVideoModel('kling-2.6', preferredVendorKey),
+      );
+      return params;
+    }
+
     if (dto.provider === 'kling-o3') {
-      assignRouteParams(await this.modelRoutingService.resolveVideoModel('kling-o3'));
-      return params;
-    }
-
-    if (dto.provider === 'kling-2.6' || (dto.provider === 'kling' && dto.klingModel === 'kling-v2-6')) {
-      assignRouteParams(await this.modelRoutingService.resolveVideoModel('kling-2.6'));
-      return params;
-    }
-
-    if (dto.provider === 'kling' && dto.klingModel === 'kling-v3-0') {
-      assignRouteParams(await this.modelRoutingService.resolveVideoModel('kling-3.0'));
+      assignRouteParams(
+        await this.modelRoutingService.resolveVideoModel('kling-o3', preferredVendorKey),
+      );
       return params;
     }
 
     if (dto.provider === 'vidu' || dto.provider === 'viduq3-pro') {
       const normalized = String(dto.viduModel || '').trim().toLowerCase();
+      const isQ3Family =
+        normalized === 'q3' ||
+        normalized === 'q3-pro' ||
+        normalized === 'q3pro' ||
+        normalized === 'q3-turbo' ||
+        normalized === 'q3turbo' ||
+        normalized === 'q3-mix' ||
+        normalized === 'q3mix';
       const modelKey =
-        normalized === 'q2-turbo'
-          ? 'vidu-q2-turbo'
-          : normalized === 'q2-pro'
-          ? 'vidu-q2-pro'
-          : normalized === 'q3' || normalized === 'q3-pro' || normalized === 'q3-turbo'
+        isQ3Family
           ? 'vidu-q3'
-          : normalized === 'q3-mix'
-          ? 'vidu-q3-mix'
           : 'vidu-q2';
-      assignRouteParams(await this.modelRoutingService.resolveVideoModel(modelKey));
+      assignRouteParams(
+        await this.modelRoutingService.resolveVideoModel(modelKey, preferredVendorKey),
+      );
       return params;
     }
 
     if (dto.provider === 'doubao') {
       const normalized = String(dto.seedanceModel || '').trim().toLowerCase();
-      const modelKey = normalized === 'seedance-2.0' || normalized === '2.0' ? 'seedance-2.0' : 'seedance-1.5';
-      assignRouteParams(await this.modelRoutingService.resolveVideoModel(modelKey));
+      const modelKey = this.isSeedance20Model(normalized) ? 'seedance-2.0' : 'seedance-1.5';
+      assignRouteParams(
+        await this.modelRoutingService.resolveVideoModel(modelKey, preferredVendorKey),
+      );
       return params;
     }
 
     params.routedProvider = dto.provider;
     params.providerChannel = dto.provider;
     return params;
+  }
+
+  private resolveVideoProviderServiceType(dto: VideoProviderRequestDto): ServiceType {
+    const normalizedKlingModel =
+      typeof dto.klingModel === 'string' ? dto.klingModel.trim().toLowerCase() : '';
+
+    if (
+      (dto.provider === 'kling' ||
+        dto.provider === 'kling-2.6' ||
+        dto.provider === 'kling-o3') &&
+      normalizedKlingModel === 'kling-v3-0'
+    ) {
+      return 'kling-3.0-video';
+    }
+
+    if (
+      (dto.provider === 'kling' || dto.provider === 'kling-2.6') &&
+      (normalizedKlingModel === '' || normalizedKlingModel === 'kling-v2-6')
+    ) {
+      return 'kling-2.6-video';
+    }
+
+    return `${dto.provider}-video` as ServiceType;
   }
 
   private emitVideoProviderGenerationTaskLog(params: {
@@ -577,7 +842,7 @@ export class AiController {
         providerChannel: requestParams?.providerChannel || null,
         routedProvider: requestParams?.routedProvider || null,
         klingModel: requestParams?.klingModel || null,
-        viduModel: requestParams?.viduModel || null,
+        viduModel: requestParams?.viduModelVariant || requestParams?.viduModel || null,
         seedanceModel: requestParams?.seedanceModel || null,
       },
       receivedAt: new Date().toISOString(),
@@ -1182,7 +1447,34 @@ export class AiController {
     return normalized === 'banana' || normalized.startsWith('banana-');
   }
 
-  private async getBananaImageProviderMode(): Promise<string> {
+  private resolveBananaImageRouteFromProviderOptions(
+    providerOptions?: Record<string, any>,
+  ): 'normal' | 'stable' | null {
+    const nestedRouteRaw = providerOptions?.banana?.imageRoute;
+    const nestedRoute =
+      typeof nestedRouteRaw === 'string' ? nestedRouteRaw.trim().toLowerCase() : '';
+    if (nestedRoute === 'normal' || nestedRoute === 'stable') {
+      return nestedRoute as 'normal' | 'stable';
+    }
+
+    const legacyRouteRaw = providerOptions?.bananaImageRoute;
+    const legacyRoute =
+      typeof legacyRouteRaw === 'string' ? legacyRouteRaw.trim().toLowerCase() : '';
+    if (legacyRoute === 'normal' || legacyRoute === 'stable') {
+      return legacyRoute as 'normal' | 'stable';
+    }
+
+    return null;
+  }
+
+  private async getBananaImageProviderMode(
+    providerOptions?: Record<string, any>,
+  ): Promise<string> {
+    const userRoute = this.resolveBananaImageRouteFromProviderOptions(providerOptions);
+    if (userRoute) {
+      return userRoute === 'stable' ? 'tencent' : 'apimart';
+    }
+
     try {
       const setting = await this.prisma.systemSetting.findUnique({
         where: { key: 'banana_provider' },
@@ -1374,6 +1666,29 @@ export class AiController {
     next.input = { ...next.input };
     if (typeof next.input.img_url === 'string' && next.input.img_url.trim()) {
       next.input.img_url = this.normalizeImageUrlForUpstream(next.input.img_url);
+    }
+
+    return next;
+  }
+
+  private normalizeWan27I2VBodyForUpstream(body: any): any {
+    if (!body || typeof body !== 'object') return body;
+    const next: any = { ...body };
+    if (!next.input || typeof next.input !== 'object') return next;
+
+    next.input = { ...next.input };
+    const rawMedia = next.input.media;
+    if (Array.isArray(rawMedia)) {
+      next.input.media = rawMedia
+        .map((item: any) => {
+          if (!item || typeof item !== 'object') return null;
+          const mediaItem: any = { ...item };
+          if (typeof mediaItem.url === 'string' && mediaItem.url.trim()) {
+            mediaItem.url = this.normalizeImageUrlForUpstream(mediaItem.url);
+          }
+          return mediaItem;
+        })
+        .filter((value: any) => value && typeof value.url === 'string' && value.url.trim());
     }
 
     return next;
@@ -1842,7 +2157,7 @@ export class AiController {
         }
 
         throw new InternalServerErrorException('图片生成重试次数耗尽，请稍后重试。');
-      }, 0, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }));
+      }, 0, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize, aspectRatio: dto.aspectRatio }, dto.providerOptions));
 
       void this.telemetryService.ingestGenerationTask({
         traceId,
@@ -1912,7 +2227,7 @@ export class AiController {
       : 'gemini-image-edit';
     const requestUserId = this.resolveRequestUserId(req) || 'anonymous';
     const bananaImageMode = this.isBananaProviderName(providerName)
-      ? await this.getBananaImageProviderMode()
+      ? await this.getBananaImageProviderMode(dto.providerOptions)
       : 'auto';
     const tencentForcedBanana =
       this.isBananaProviderName(providerName) && bananaImageMode === 'tencent';
@@ -2093,7 +2408,7 @@ export class AiController {
       }
 
       throw new InternalServerErrorException('图片编辑重试次数耗尽，请稍后重试。');
-      }, 1, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }));
+      }, 1, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize, aspectRatio: dto.aspectRatio }, dto.providerOptions));
 
       void this.telemetryService.ingestGenerationTask({
         traceId,
@@ -2153,7 +2468,7 @@ export class AiController {
       : 'gemini-image-blend';
     const requestUserId = this.resolveRequestUserId(req) || 'anonymous';
     const bananaImageMode = this.isBananaProviderName(providerName)
-      ? await this.getBananaImageProviderMode()
+      ? await this.getBananaImageProviderMode(dto.providerOptions)
       : 'auto';
     const tencentForcedBanana =
       this.isBananaProviderName(providerName) && bananaImageMode === 'tencent';
@@ -2326,7 +2641,7 @@ export class AiController {
       }
 
       throw new InternalServerErrorException('图片融合重试次数耗尽，请稍后重试。');
-      }, dto.sourceImages?.length || 0, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }));
+      }, dto.sourceImages?.length || 0, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize, aspectRatio: dto.aspectRatio }, dto.providerOptions));
 
       void this.telemetryService.ingestGenerationTask({
         traceId,
@@ -2462,20 +2777,34 @@ export class AiController {
           providerOptions: dto.providerOptions,
         });
         if (result.success && result.data) {
+          const text =
+            typeof result.data.text === 'string' ? result.data.text.trim() : '';
+          if (!text) {
+            throw new ServiceUnavailableException(
+              'Analysis returned empty response, please try again later',
+            );
+          }
           return {
-            text: result.data.text,
+            text,
           };
         }
         throw new Error(result.error?.message || 'Failed to analyze image');
       }
 
       // gemini 和 gemini-pro 都使用默认的 Gemini 服务
-      return this.imageGeneration.analyzeImage({
+      const result = await this.imageGeneration.analyzeImage({
         ...dto,
         sourceImage: primarySourceImage,
         sourceImages: normalizedImages,
         customApiKey,
       });
+      const text = typeof result?.text === 'string' ? result.text.trim() : '';
+      if (!text) {
+        throw new ServiceUnavailableException(
+          'Analysis returned empty response, please try again later',
+        );
+      }
+      return { text };
     }, normalizedImages.length, 0, skipCredits, this.buildCreditRequestParams(providerName));
   }
 
@@ -2649,16 +2978,29 @@ export class AiController {
 
       const result = await this.withCredits(req, 'expand-image', undefined, async () => {
       const normalizedImageUrl = this.normalizeImageUrlForUpstream(dto.imageUrl);
-      const result = await this.expandImageService.expandImage(
+      const expanded = await this.expandImageService.expandImage(
         normalizedImageUrl,
         dto.expandRatios,
         dto.prompt || '扩图'
       );
 
+      const managed = await this.persistProviderImageUrlToManaged(
+        expanded.imageUrl,
+        req,
+        userId,
+      );
+
       return {
         success: true,
-        imageUrl: result.imageUrl,
-        promptId: result.promptId,
+        imageUrl: managed.url,
+        promptId: expanded.promptId,
+        metadata: {
+          sourceImageUrl: managed.sourceImageUrl,
+          uploadedToManaged: managed.uploaded,
+          imageKey: managed.key,
+          mimeType: managed.mimeType,
+          bytes: managed.bytes,
+        },
       };
       }, 1, 1);
 
@@ -3188,9 +3530,12 @@ export class AiController {
    */
   @Post('generate-video-provider')
   async generateVideoProvider(@Body() dto: VideoProviderRequestDto, @Req() req: any) {
-    const serviceType: ServiceType = `${dto.provider}-video` as ServiceType;
     const userId = this.getUserId(req);
     const effectiveDto: VideoProviderRequestDto = { ...dto };
+
+    if (userId && this.isSeedance20Request(effectiveDto)) {
+      await this.assertSeedance20Access(userId, req);
+    }
 
     // 白名单/管理员兜底：Seedance 1.5 Pro链路即使前端传入 watermark=true，也强制关闭水印。
     if (effectiveDto.provider === 'doubao') {
@@ -3199,24 +3544,33 @@ export class AiController {
         effectiveDto.watermark = false;
       }
     }
+    await this.assertSeedance2Entitlement(userId, effectiveDto);
+    const serviceType = this.resolveVideoProviderServiceType(effectiveDto);
 
     // 如果没有用户ID（API Key认证），直接执行操作
     if (!userId) {
       this.logger.debug('API Key authentication - skipping credits deduction');
       const result = await this.videoProviderService.generateVideo(effectiveDto);
-      return { ...result, apiUsageId: null };
+      const { execution: _execution, ...publicResult } = result as any;
+      return { ...publicResult, apiUsageId: null };
     }
 
     // 确保用户有积分账户
     await this.creditsService.getOrCreateAccount(userId);
     const startTime = Date.now();
     const requestParams = await this.buildVideoProviderCreditParams(effectiveDto);
+    const billingModel =
+      effectiveDto.klingModel ||
+      effectiveDto.viduModelVariant ||
+      effectiveDto.viduModel ||
+      effectiveDto.seedanceModel ||
+      effectiveDto.provider;
 
     // 预扣积分
     const deductResult = await this.creditsService.preDeductCredits({
       userId,
       serviceType,
-      model: effectiveDto.provider,
+      model: billingModel,
       inputImageCount: effectiveDto.referenceImages?.length || undefined,
       outputImageCount: 0,
       requestParams,
@@ -3239,6 +3593,17 @@ export class AiController {
 
     try {
       const result = await this.videoProviderService.generateVideo(effectiveDto);
+      const execution = (result as any)?.execution as
+        | {
+            modelKey?: string;
+            vendorKey?: string;
+            platformKey?: string;
+            route?: string;
+            providerChannel?: string;
+            routedProvider?: string;
+            fallbackUsed?: boolean;
+          }
+        | undefined;
       const normalizedStatus = String(result?.status || '').toLowerCase();
 
       if (normalizedStatus === 'failed' || normalizedStatus === 'failure') {
@@ -3252,6 +3617,15 @@ export class AiController {
       if (result?.taskId) {
         await this.creditsService.updateApiUsageRequestParams(apiUsageId, {
           taskId: result.taskId,
+          ...(execution?.modelKey ? { modelKey: execution.modelKey } : {}),
+          ...(execution?.vendorKey ? { vendorKey: execution.vendorKey } : {}),
+          ...(execution?.platformKey ? { platformKey: execution.platformKey } : {}),
+          ...(execution?.route ? { route: execution.route } : {}),
+          ...(execution?.providerChannel ? { providerChannel: execution.providerChannel } : {}),
+          ...(execution?.routedProvider ? { routedProvider: execution.routedProvider } : {}),
+          ...(typeof execution?.fallbackUsed === 'boolean'
+            ? { fallbackUsed: execution.fallbackUsed }
+            : {}),
         });
         this.emitVideoProviderGenerationTaskLog({
           stage: result.videoUrl ? 'succeeded' : 'processing',
@@ -3264,6 +3638,15 @@ export class AiController {
           requestParams: {
             ...requestParams,
             taskId: result.taskId,
+            ...(execution?.modelKey ? { modelKey: execution.modelKey } : {}),
+            ...(execution?.vendorKey ? { vendorKey: execution.vendorKey } : {}),
+            ...(execution?.platformKey ? { platformKey: execution.platformKey } : {}),
+            ...(execution?.route ? { route: execution.route } : {}),
+            ...(execution?.providerChannel ? { providerChannel: execution.providerChannel } : {}),
+            ...(execution?.routedProvider ? { routedProvider: execution.routedProvider } : {}),
+            ...(typeof execution?.fallbackUsed === 'boolean'
+              ? { fallbackUsed: execution.fallbackUsed }
+              : {}),
           },
         });
       }
@@ -3279,7 +3662,8 @@ export class AiController {
       }
 
       // 返回 apiUsageId，前端在任务失败时可请求退款
-      return { ...result, apiUsageId };
+      const { execution: _execution, ...publicResult } = result as any;
+      return { ...publicResult, apiUsageId };
     } catch (error) {
       // 创建任务失败，立即退款
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -3913,6 +4297,96 @@ export class AiController {
         };
       } catch (error: any) {
         this.logger.error('❌ DashScope i2v request exception', error);
+        return {
+          success: false,
+          error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
+        };
+      }
+    }, undefined, undefined, undefined, undefined, {
+      treatReturnedFailureAsError: true,
+      skipFinalizeSuccessIf: (r: any) => this.isWanDashscopeI2VAsyncPending(r),
+    });
+  }
+
+  /**
+   * DashScope Wan2.7-i2v proxy endpoint
+   */
+  @Post('dashscope/generate-wan2-7-i2v')
+  async generateWan27I2VViaDashscope(@Body() body: any, @Req() req: any) {
+    return this.withCredits(req, 'wan27-video', 'wan2.7-i2v', async () => {
+      const dashKey = process.env.DASHSCOPE_API_KEY;
+      if (!dashKey) {
+        this.logger.error('DASHSCOPE_API_KEY not configured');
+        return {
+          success: false,
+          error: { message: 'DASHSCOPE_API_KEY not configured on server' },
+        };
+      }
+
+      const dashUrl = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis';
+      const normalizedBody = this.normalizeWan27I2VBodyForUpstream(body);
+
+      try {
+        const response = await fetch(dashUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${dashKey}`,
+            'X-DashScope-Async': 'enable',
+          },
+          body: JSON.stringify(normalizedBody),
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          this.logger.error('DashScope wan2.7-i2v create task failed', {
+            status: response.status,
+            body: data,
+          });
+          return {
+            success: false,
+            error: {
+              code: `HTTP_${response.status}`,
+              message: data?.message || this.getHttpErrorMessage(response.status),
+              details: data,
+            },
+          };
+        }
+
+        const taskId =
+          data?.taskId ||
+          data?.task_id ||
+          data?.id ||
+          data?.output?.task_id ||
+          data?.result?.task_id ||
+          data?.output?.[0]?.task_id ||
+          data?.data?.task_id ||
+          data?.data?.output?.task_id;
+
+        if (!taskId) {
+          this.logger.warn('DashScope wan2.7-i2v create response contains no task id', {
+            dataPreview: JSON.stringify(data).slice(0, 300),
+          });
+          return {
+            success: false,
+            error: {
+              message: 'DashScope 未返回任务 ID',
+              details: data,
+            },
+          };
+        }
+
+        return {
+          success: true,
+          data: {
+            taskId,
+            task_id: taskId,
+            status: 'pending',
+            raw: data,
+          },
+        };
+      } catch (error: any) {
+        this.logger.error('❌ DashScope wan2.7-i2v request exception', error);
         return {
           success: false,
           error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },

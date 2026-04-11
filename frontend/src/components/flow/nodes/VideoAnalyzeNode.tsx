@@ -3,6 +3,12 @@ import { Handle, Position, useStore, type ReactFlowState, type Node } from 'reac
 import { fetchWithAuth } from '@/services/authFetch';
 import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
 import { useLocaleText } from '@/utils/localeText';
+import {
+  flowNodeControlField,
+  flowNodeMutedWellBackground,
+  flowNodeShellChrome,
+  useFlowNodeDarkTheme,
+} from './flowNodeDarkTheme';
 
 type Props = {
   id: string;
@@ -19,6 +25,7 @@ type Props = {
 
 function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
   const { lt } = useLocaleText();
+  const isFlowDark = useFlowNodeDarkTheme();
   const aiProvider = useAIChatStore((state) => state.aiProvider);
   const textModel = React.useMemo(
     () => getTextModelForProvider(aiProvider),
@@ -57,7 +64,8 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
     )
   );
 
-  const borderColor = selected ? '#2563eb' : '#e5e7eb';
+  const shell = flowNodeShellChrome(isFlowDark, !!selected);
+  const controlField = flowNodeControlField(isFlowDark);
   const boxShadow = selected
     ? '0 0 0 2px rgba(37,99,235,0.12)'
     : '0 1px 2px rgba(0,0,0,0.04)';
@@ -189,8 +197,9 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
       style={{
         width: 280,
         padding: 8,
-        background: '#fff',
-        border: `1px solid ${borderColor}`,
+        background: shell.background,
+        color: shell.color,
+        border: `1px solid ${shell.borderColor}`,
         borderRadius: 8,
         boxShadow,
         transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
@@ -202,7 +211,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
     >
       {/* 标题栏 */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ fontWeight: 600 }}>Video Analysis</div>
+        <div style={{ fontWeight: 600, color: shell.color }}>Video Analysis</div>
         <button
           onClick={onAnalyze}
           disabled={!canRun}
@@ -231,7 +240,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
           alignItems: 'center',
           justifyContent: 'center',
           overflow: 'hidden',
-          border: '1px solid #eef0f2',
+          border: `1px solid ${isFlowDark ? '#333333' : '#eef0f2'}`,
         }}
       >
         {effectiveVideoUrl ? (
@@ -250,7 +259,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
 
       {/* 分析提示词 */}
       <div>
-        <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4 }}>{lt('分析提示词', 'Analysis prompt')}</div>
+        <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4, color: shell.color }}>{lt('分析提示词', 'Analysis prompt')}</div>
         <textarea
           className="nodrag nopan nowheel"
           value={promptInput}
@@ -266,10 +275,8 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
             lineHeight: 1.4,
             padding: '6px 8px',
             borderRadius: 6,
-            border: '1px solid #d1d5db',
-            background: '#fff',
-            color: '#111827',
             fontFamily: 'inherit',
+            ...controlField,
           }}
           disabled={status === 'running' || isAnalyzing}
         />
@@ -281,11 +288,11 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
           minHeight: 72,
           maxHeight: 120,
           overflowY: 'auto',
-          background: '#f9fafb',
+          background: flowNodeMutedWellBackground(isFlowDark),
           borderRadius: 6,
           padding: 8,
           fontSize: 12,
-          color: '#374151',
+          color: isFlowDark ? '#d1d5db' : '#374151',
           whiteSpace: 'pre-wrap',
         }}
       >

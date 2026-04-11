@@ -8,17 +8,27 @@ import { uploadAudioToOSS } from "@/stores/aiChatStore";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
+import RunCreditBadge from "./RunCreditBadge";
+import NodeSelect from "./NodeSelect";
+import {
+  getManagedRouteCredits,
+  getManagedRouteOption,
+  getManagedRoutesMetadata,
+  resolveManagedRoutePricing,
+} from "../managedRoutePricing";
 
 export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao";
 type ViduModel =
   | "q2"
-  | "q2-turbo"
   | "q2-pro"
+  | "q2-turbo"
   | "q3"
   | "q3-pro"
-  | "q3-turbo"
-  | "q3-mix";
-type SeedanceModel = "seedance-1.5-pro" | "seedance-2.0";
+  | "q3-turbo";
+type SeedanceModel = "seedance-1.5-pro" | "seedance-2.0" | "seedance-2.0-fast";
+type Seedance20Mode = "reference_images" | "start_end";
+type Seedance15Mode = "text" | "image" | "start_end";
+type SeedanceMode = Seedance20Mode | Seedance15Mode;
 type VodCapabilityMetadata = {
   label?: string;
   modelName?: string;
@@ -43,15 +53,21 @@ type Props = {
     videoVersion?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
+    creditsPerCall?: number;
+    managedModelKey?: string;
+    vendorKey?: string;
+    platformKey?: string;
     provider: VideoProvider;
     clipDuration?: number;
     aspectRatio?: string;
     klingModel?: "kling-v2-1" | "kling-v2-6" | "kling-v3-0";
     viduModel?: ViduModel;
     seedanceModel?: SeedanceModel;
+    seedanceMode?: SeedanceMode;
     mode?: "std" | "pro";
     sound?: boolean;
     audioUrls?: string[];
+    generateAudio?: boolean;
     history?: VideoHistoryItem[];
     fallbackMessage?: string;
     resolution?: string;
@@ -90,6 +106,51 @@ const PROVIDER_CONFIG: Record<VideoProvider, { name: string; zh: string }> = {
   doubao: { name: "Seedance", zh: "Seedance" },
 };
 
+const stripVideoGenerationSuffix = (value: string): string =>
+  value
+    .replace(/\s*视频生成\s*/g, " ")
+    .replace(/\s*瑙嗛鐢熸垚\s*/g, " ")
+    .replace(/\s*video generation\s*/gi, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+const normalizeViduModelForApi = (value?: string): "q2" | "q3" =>
+  normalizeViduModelValue(value).startsWith("q3") ? "q3" : "q2";
+
+const isViduQ3FamilyModel = (value?: string): boolean =>
+  normalizeViduModelForApi(value) === "q3";
+
+const normalizeViduModelValue = (value?: string): ViduModel => {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, "-");
+  if (normalized === "q2-pro" || normalized === "q2pro") return "q2-pro";
+  if (normalized === "q2-turbo" || normalized === "q2turbo") return "q2-turbo";
+  if (
+    normalized === "q3-turbo" ||
+    normalized === "q3turbo" ||
+    normalized === "q3-mix" ||
+    normalized === "q3mix"
+  ) {
+    return "q3-turbo";
+  }
+  if (normalized === "q3-pro" || normalized === "q3pro") return "q3-pro";
+  if (normalized === "q3") return "q3";
+  return "q2";
+};
+
+const isViduModelOptionSupported = (
+  optionValue: ViduModel,
+  supportedModels: string[]
+): boolean => {
+  if (supportedModels.length === 0) return true;
+  const value = String(optionValue).trim().toLowerCase();
+  if (supportedModels.includes(value)) return true;
+  const family = normalizeViduModelForApi(optionValue);
+  return supportedModels.includes(family);
+};
+
 const SUPPORTED_AUDIO_EXTENSIONS = [
   "mp3",
   "wav",
@@ -113,6 +174,101 @@ const SUPPORTED_AUDIO_PATTERN = new RegExp(
 
 const SUPPORTED_AUDIO_ACCEPT = SUPPORTED_AUDIO_EXTENSIONS.map((ext) => `.${ext}`).join(",");
 
+const SEEDANCE20_DOC_ASPECT_RATIOS = ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"] as const;
+const SEEDANCE20_DOC_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
+const SEEDANCE20_DOC_RESOLUTIONS = ["480P", "720P"] as const;
+
+const SEEDANCE20_MODE_VALUES: Seedance20Mode[] = ["reference_images", "start_end"];
+const SEEDANCE15_MODE_VALUES: Seedance15Mode[] = ["text", "image", "start_end"];
+
+const isSeedance20ModeValue = (value: unknown): value is Seedance20Mode =>
+  typeof value === "string" && SEEDANCE20_MODE_VALUES.includes(value as Seedance20Mode);
+const isSeedance15ModeValue = (value: unknown): value is Seedance15Mode =>
+  typeof value === "string" && SEEDANCE15_MODE_VALUES.includes(value as Seedance15Mode);
+
+type SeedanceModeSpec = {
+  visibleHandles: Array<"text" | "image" | "image-2" | "video" | "audio">;
+  imageHandleMax: number;
+  image2HandleMax: number;
+  videoHandleMax: number;
+  audioHandleMax: number;
+};
+
+const getSeedance20ModeSpec = (mode: Seedance20Mode): SeedanceModeSpec => {
+  switch (mode) {
+    case "start_end":
+      return {
+        visibleHandles: ["text", "image"],
+        imageHandleMax: 2,
+        image2HandleMax: 0,
+        videoHandleMax: 0,
+        audioHandleMax: 0,
+      };
+    case "reference_images":
+      return {
+        visibleHandles: ["text", "image", "video", "audio"],
+        imageHandleMax: 9,
+        image2HandleMax: 0,
+        videoHandleMax: 3,
+        audioHandleMax: 3,
+      };
+    default:
+      return {
+        visibleHandles: ["text"],
+        imageHandleMax: 0,
+        image2HandleMax: 0,
+        videoHandleMax: 0,
+        audioHandleMax: 0,
+      };
+  }
+};
+
+const getSeedance15ModeSpec = (mode: Seedance15Mode): SeedanceModeSpec => {
+  switch (mode) {
+    case "image":
+      return {
+        visibleHandles: ["text", "image"],
+        imageHandleMax: 1,
+        image2HandleMax: 0,
+        videoHandleMax: 0,
+        audioHandleMax: 0,
+      };
+    case "start_end":
+      return {
+        visibleHandles: ["text", "image", "image-2"],
+        imageHandleMax: 1,
+        image2HandleMax: 1,
+        videoHandleMax: 0,
+        audioHandleMax: 0,
+      };
+    case "text":
+    default:
+      return {
+        visibleHandles: ["text", "image"],
+        imageHandleMax: 1,
+        image2HandleMax: 0,
+        videoHandleMax: 0,
+        audioHandleMax: 0,
+      };
+  }
+};
+
+const getSeedanceHandleTopMap = (
+  handles: Array<"text" | "image" | "image-2" | "video" | "audio">
+): Record<string, string> => {
+  const positionsByCount: Record<number, string[]> = {
+    1: ["50%"],
+    2: ["35%", "65%"],
+    3: ["24%", "50%", "76%"],
+    4: ["18%", "40%", "62%", "84%"],
+  };
+  const positions = positionsByCount[handles.length] || positionsByCount[4];
+  return handles.reduce<Record<string, string>>((acc, handle, index) => {
+    acc[handle] = positions[Math.min(index, positions.length - 1)];
+    return acc;
+  }, {});
+};
+
 const isSupportedAudioFile = (file: File): boolean => {
   const mime = (file.type || "").toLowerCase();
   if (mime.startsWith("audio/")) return true;
@@ -122,6 +278,7 @@ const isSupportedAudioFile = (file: File): boolean => {
 
 function GenericVideoNodeInner({ id, data, selected }: Props) {
   const { lt, isZh } = useLocaleText();
+  const { setEdges } = useReactFlow();
   const borderColor = selected ? "#2563eb" : "#e5e7eb";
   const boxShadow = selected
     ? "0 0 0 2px rgba(37,99,235,0.12)"
@@ -129,6 +286,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const [hover, setHover] = React.useState<string | null>(null);
   const [previewAspect, setPreviewAspect] = React.useState<string>("16/9");
   const [modelMenuOpen, setModelMenuOpen] = React.useState(false);
+  const [channelMenuOpen, setChannelMenuOpen] = React.useState(false);
   const [aspectMenuOpen, setAspectMenuOpen] = React.useState(false);
   const [durationMenuOpen, setDurationMenuOpen] = React.useState(false);
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
@@ -144,7 +302,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const [showHistory, setShowHistory] = React.useState(false);
   const [showHelp, setShowHelp] = React.useState(false);
 
-  // 检测是否有图片输入连接
+  // 妫€娴嬫槸鍚︽湁鍥剧墖杈撳叆杩炴帴
   const hasImageInput = useStore((state) => {
     const edges = state.edges || [];
     return edges.some(
@@ -152,34 +310,95 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     );
   });
 
-  // 检测图片输入数量（含 image 和 image-2）
+  // 妫€娴嬪浘鐗囪緭鍏ユ暟閲忥紙鍚?image 鍜?image-2锛?
   const imageInputCount = useStore((state) => {
     const edges = state.edges || [];
     return edges.filter(
       (edge) => edge.target === id && (edge.targetHandle === "image" || edge.targetHandle === "image-2")
     ).length;
   });
-
+  const hasImage2Input = useStore((state) => {
+    const edges = state.edges || [];
+    return edges.some((edge) => edge.target === id && edge.targetHandle === "image-2");
+  });
   const provider = data.provider || "kling";
   const nodeConfigMetadata =
     data.nodeConfigMetadata && typeof data.nodeConfigMetadata === "object"
       ? (data.nodeConfigMetadata as Record<string, any>)
       : {};
+  const managedRoutesMetadata = React.useMemo(
+    () => getManagedRoutesMetadata(nodeConfigMetadata),
+    [nodeConfigMetadata]
+  );
+  const selectedManagedRoute = React.useMemo(
+    () => getManagedRouteOption(nodeConfigMetadata, data.vendorKey),
+    [data.vendorKey, nodeConfigMetadata]
+  );
   const vodConfig =
     nodeConfigMetadata.vod && typeof nodeConfigMetadata.vod === "object"
       ? (nodeConfigMetadata.vod as VodCapabilityMetadata)
       : undefined;
   const isVodManagedNode = Boolean(vodConfig);
-  const viduModel: ViduModel =
-    data.viduModel ||
-    (provider === "viduq3-pro" ? "q3" : "q2");
+  const viduModel: ViduModel = normalizeViduModelValue(
+    data.viduModel || (provider === "viduq3-pro" ? "q3" : "q2")
+  );
   const seedanceModel: SeedanceModel =
-    data.seedanceModel === "seedance-2.0" ? "seedance-2.0" : "seedance-1.5-pro";
+    data.seedanceModel === "seedance-2.0-fast"
+      ? "seedance-2.0-fast"
+      : data.seedanceModel === "seedance-2.0"
+      ? "seedance-2.0"
+      : "seedance-1.5-pro";
+  const isSeedanceModel = provider === "doubao";
+  const isSeedance20Model =
+    isSeedanceModel &&
+    (seedanceModel === "seedance-2.0" || seedanceModel === "seedance-2.0-fast");
+  const inferredSeedanceMode = React.useMemo<SeedanceMode>(() => {
+    if (!isSeedanceModel) return "text";
+    if (isSeedance20Model) {
+      if (isSeedance20ModeValue(data.seedanceMode)) return data.seedanceMode;
+      const legacyMode = String(data.seedanceMode || "").trim().toLowerCase();
+      if (legacyMode === "start_end" || legacyMode === "first_frame") return "start_end";
+      return "reference_images";
+    }
+    const explicitMode = isSeedance15ModeValue(data.seedanceMode)
+      ? data.seedanceMode
+      : undefined;
+    if (explicitMode === "start_end") return "start_end";
+    const legacyMode = String(data.seedanceMode || "").trim().toLowerCase();
+    if (legacyMode === "start_end" || legacyMode === "first_frame") return "start_end";
+    if (legacyMode === "reference_images") return "image";
+    if (hasImage2Input) return "start_end";
+    if (imageInputCount >= 2) return "start_end";
+    if (imageInputCount === 1) return "image";
+    if (explicitMode === "image") return "image";
+    return "text";
+  }, [
+    data.seedanceMode,
+    hasImage2Input,
+    imageInputCount,
+    isSeedanceModel,
+    isSeedance20Model,
+  ]);
+  const seedanceMode: SeedanceMode = inferredSeedanceMode;
+  const seedanceModeSpec = React.useMemo(
+    () =>
+      !isSeedanceModel
+        ? null
+        : isSeedance20Model
+        ? getSeedance20ModeSpec(seedanceMode as Seedance20Mode)
+        : getSeedance15ModeSpec(seedanceMode as Seedance15Mode),
+    [isSeedance20Model, isSeedanceModel, seedanceMode]
+  );
+  const seedanceHandleTopMap = React.useMemo(
+    () => (seedanceModeSpec ? getSeedanceHandleTopMap(seedanceModeSpec.visibleHandles) : {}),
+    [seedanceModeSpec]
+  );
   const klingModel =
     data.klingModel ||
     (provider === "kling-2.6" ? "kling-v2-6" : "kling-v2-6");
   const isUnifiedKlingNode = provider === "kling" || provider === "kling-2.6";
   const isKling26Model = isUnifiedKlingNode && (klingModel === "kling-v2-6" || klingModel === "kling-v3-0");
+  const isViduNode = provider === "vidu" || provider === "viduq3-pro";
   const isProMode = ((data as any).mode || "std") === "pro";
   const providerInfo = isUnifiedKlingNode
     ? PROVIDER_CONFIG.kling
@@ -191,15 +410,107 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     const enTitle = typeof data.nodeConfigNameEn === "string" && data.nodeConfigNameEn.trim()
       ? data.nodeConfigNameEn.trim()
       : providerInfo.name;
-    return isZh ? zhTitle : enTitle;
+    const normalizedZhTitle = stripVideoGenerationSuffix(zhTitle) || providerInfo.zh;
+    const normalizedEnTitle = stripVideoGenerationSuffix(enTitle) || providerInfo.name;
+    return isZh ? normalizedZhTitle : normalizedEnTitle;
   }, [data.nodeConfigNameEn, data.nodeConfigNameZh, isZh, providerInfo.name, providerInfo.zh]);
   const supportedModels = React.useMemo(
     () =>
       Array.isArray(nodeConfigMetadata.supportedModels)
-        ? nodeConfigMetadata.supportedModels.map((item: unknown) => String(item))
+        ? Array.from(
+            new Set(
+              nodeConfigMetadata.supportedModels.map((item: unknown) =>
+                provider === "vidu" || provider === "viduq3-pro"
+                  ? normalizeViduModelValue(String(item))
+                  : String(item).trim()
+              )
+            )
+          )
         : [],
-    [nodeConfigMetadata.supportedModels]
+    [nodeConfigMetadata.supportedModels, provider]
   );
+  const pricingContext = React.useMemo(() => {
+    const context: Record<string, any> = {};
+    const duration =
+      typeof data.clipDuration === "number" && Number.isFinite(data.clipDuration)
+        ? Math.round(data.clipDuration)
+        : 5;
+    context.duration = duration;
+
+    if (typeof data.resolution === "string" && data.resolution.trim()) {
+      context.resolution = data.resolution.trim().toUpperCase();
+    } else if (provider === "vidu" || provider === "viduq3-pro" || provider === "doubao") {
+      context.resolution = "720P";
+    }
+
+    if (typeof data.aspectRatio === "string" && data.aspectRatio.trim()) {
+      context.aspectRatio = data.aspectRatio.trim();
+    } else if (provider === "vidu" || provider === "viduq3-pro") {
+      context.aspectRatio = "16:9";
+    }
+
+    if (typeof (data as any).mode === "string" && String((data as any).mode).trim()) {
+      context.mode = String((data as any).mode).trim().toLowerCase();
+    } else if (isUnifiedKlingNode) {
+      context.mode = "std";
+    }
+
+    if (typeof data.sound !== "undefined") {
+      context.sound = Boolean(data.sound);
+    } else if (isUnifiedKlingNode) {
+      context.sound = true;
+    }
+    if (typeof data.generateAudio !== "undefined") {
+      context.generateAudio = Boolean(data.generateAudio);
+    }
+    if (typeof data.watermark !== "undefined") {
+      context.watermark = Boolean(data.watermark);
+    }
+    if (typeof data.seedanceModel === "string" && data.seedanceModel.trim()) {
+      context.seedanceModel = data.seedanceModel.trim().toLowerCase();
+    }
+    if (typeof data.viduModel === "string" && data.viduModel.trim()) {
+      context.viduModel = data.viduModel.trim().toLowerCase();
+    }
+    if (typeof data.klingModel === "string" && data.klingModel.trim()) {
+      context.klingModel = data.klingModel.trim().toLowerCase();
+    }
+    if (typeof data.seedanceMode === "string" && data.seedanceMode.trim()) {
+      context.videoMode = data.seedanceMode.trim().toLowerCase();
+      context.seedanceMode = data.seedanceMode.trim().toLowerCase();
+    } else if (isSeedanceModel) {
+      context.videoMode = seedanceMode;
+      context.seedanceMode = seedanceMode;
+    }
+    return context;
+  }, [
+    data.aspectRatio,
+    data.clipDuration,
+    data.generateAudio,
+    data.klingModel,
+    data.resolution,
+    data.seedanceMode,
+    data.seedanceModel,
+    data.sound,
+    data.viduModel,
+    data.watermark,
+    isSeedanceModel,
+    seedanceMode,
+    provider,
+    isUnifiedKlingNode,
+    (data as any).mode,
+  ]);
+  const resolvedManagedPricing = React.useMemo(
+    () => resolveManagedRoutePricing(nodeConfigMetadata, data.vendorKey, pricingContext),
+    [data.vendorKey, nodeConfigMetadata, pricingContext]
+  );
+  const selectedCredits =
+    typeof data.creditsPerCall === "number"
+      ? data.creditsPerCall
+      : typeof resolvedManagedPricing?.credits === "number"
+      ? resolvedManagedPricing.credits
+      : getManagedRouteCredits(nodeConfigMetadata, data.vendorKey);
+  const hasRunCredits = typeof selectedCredits === "number" && selectedCredits > 0;
   const vodAspectOptions = React.useMemo(() => {
     if (!Array.isArray(vodConfig?.outputConfig?.aspectRatios)) return [];
     return [
@@ -226,15 +537,29 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     const labels = vodConfig.inputModes.map((mode) => {
       switch (mode) {
         case "text":
-          return lt("文生视频", "Text to video");
+          return lt("鏂囩敓瑙嗛", "Text to video");
         case "image":
-          return lt("图生视频", "Image to video");
+          return lt("鍥剧敓瑙嗛", "Image to video");
+        case "first_frame":
+          return lt("鍥剧敓瑙嗛-棣栧抚", "Image to video - first frame");
         case "start_end":
           return lt("首尾帧", "Start-end");
         case "reference":
           return lt("参考模式", "Reference");
+        case "reference_images":
+          return lt("多图参考", "Multi-image reference");
+        case "smart_frames":
+          return lt("鏅鸿兘澶氬抚", "Smart frames");
         case "reference_video":
           return lt("视频参考", "Video reference");
+        case "image_audio":
+          return lt("鍥剧墖 + 闊抽", "Image + audio");
+        case "image_video":
+          return lt("鍥剧墖 + 瑙嗛", "Image + video");
+        case "video_audio":
+          return lt("瑙嗛 + 闊抽", "Video + audio");
+        case "image_video_audio":
+          return lt("鍥剧墖 + 瑙嗛 + 闊抽", "Image + video + audio");
         default:
           return mode;
       }
@@ -264,7 +589,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
 
   const cacheBustedVideoUrl = React.useMemo(() => {
     if (!sanitizedVideoUrl) return undefined;
-    // 如果是 presigned 链接（包含 X-Amz / X-Tos 等签名字段），不要添加 cache-bust 参数（会导致签名失效）
+    // 濡傛灉鏄?presigned 閾炬帴锛堝寘鍚?X-Amz / X-Tos 绛夌鍚嶅瓧娈碉級锛屼笉瑕佹坊鍔?cache-bust 鍙傛暟锛堜細瀵艰嚧绛惧悕澶辨晥锛?
     const isPresigned =
       /[?&](?:X-Amz|X-Tos)[^=]*=/i.test(sanitizedVideoUrl) ||
       /x-amz-|x-tos-/i.test(sanitizedVideoUrl);
@@ -293,7 +618,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     }
   }, [cacheBustedVideoUrl, lt, sanitizedVideoUrl]);
 
-  // 全屏时强制设置 object-fit: contain，确保视频按原比例显示
+  // 鍏ㄥ睆鏃跺己鍒惰缃?object-fit: contain锛岀‘淇濊棰戞寜鍘熸瘮渚嬫樉绀?
   React.useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -339,6 +664,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       const target = event.target as HTMLElement;
       if (!target.closest?.(".video-dropdown")) {
         setModelMenuOpen(false);
+        setChannelMenuOpen(false);
         setAspectMenuOpen(false);
         setDurationMenuOpen(false);
       }
@@ -376,20 +702,20 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     [data.audioUrls]
   );
 
-  // 根据供应商配置不同的选项
+  // 鏍规嵁渚涘簲鍟嗛厤缃笉鍚岀殑閫夐」
   const getAspectOptions = () => {
     if (provider === "kling" || provider === "kling-2.6") {
       return [
         { label: lt("自动", "Auto"), value: "" },
-        { label: lt("横屏（16:9）", "Landscape (16:9)"), value: "16:9" },
-        { label: lt("竖屏（9:16）", "Portrait (9:16)"), value: "9:16" },
-        { label: lt("方形（1:1）", "Square (1:1)"), value: "1:1" },
+        { label: lt("横屏 (16:9)", "Landscape (16:9)"), value: "16:9" },
+        { label: lt("竖屏 (9:16)", "Portrait (9:16)"), value: "9:16" },
+        { label: lt("方形 (1:1)", "Square (1:1)"), value: "1:1" },
       ];
     }
     return [
       { label: lt("自动", "Auto"), value: "" },
-      { label: lt("横屏（16:9）", "Landscape (16:9)"), value: "16:9" },
-      { label: lt("竖屏（9:16）", "Portrait (9:16)"), value: "9:16" },
+      { label: lt("横屏 (16:9)", "Landscape (16:9)"), value: "16:9" },
+      { label: lt("竖屏 (9:16)", "Portrait (9:16)"), value: "9:16" },
     ];
   };
 
@@ -400,7 +726,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         { label: lt("10秒", "10s"), value: 10 },
       ];
     }
-    if (provider === "vidu") {
+    if (provider === "vidu" && !isViduQ3FamilyModel(viduModel)) {
       return [
         { label: lt("1秒", "1s"), value: 1 },
         { label: lt("2秒", "2s"), value: 2 },
@@ -412,7 +738,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         { label: lt("8秒", "8s"), value: 8 },
       ];
     }
-    if (provider === "viduq3-pro") {
+    if (provider === "viduq3-pro" || isViduQ3FamilyModel(viduModel)) {
       return [
         { label: lt("1秒", "1s"), value: 1 },
         { label: lt("2秒", "2s"), value: 2 },
@@ -433,18 +759,18 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       ];
     }
     if (provider === "doubao") {
-      return [
-        { label: lt("3秒", "3s"), value: 3 },
-        { label: lt("4秒", "4s"), value: 4 },
-        { label: lt("5秒", "5s"), value: 5 },
-        { label: lt("6秒", "6s"), value: 6 },
-        { label: lt("8秒", "8s"), value: 8 },
-      ];
+      const values = isSeedance20Model
+        ? [...SEEDANCE20_DOC_DURATIONS]
+        : [3, 4, 5, 6, 7, 8, 9, 10];
+      return values.map((value) => ({ label: lt(`${value}秒`, `${value}s`), value }));
     }
     return [];
   };
 
   const aspectOptions = React.useMemo(() => {
+    if (provider === "doubao" && isSeedance20Model) {
+      return [...SEEDANCE20_DOC_ASPECT_RATIOS].map((value) => ({ label: value, value }));
+    }
     if (vodAspectOptions.length > 0) {
       return vodAspectOptions;
     }
@@ -458,8 +784,14 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         { label: lt("方形 (1:1)", "Square (1:1)"), value: "1:1" },
       ];
     }
+    if (provider === "doubao") {
+      const ratios = isSeedance20Model
+        ? [...SEEDANCE20_DOC_ASPECT_RATIOS]
+        : ["16:9", "9:16", "1:1"];
+      return ratios.map((value) => ({ label: value, value }));
+    }
     return getAspectOptions();
-  }, [getAspectOptions, lt, provider, vodAspectOptions]);
+  }, [getAspectOptions, isSeedance20Model, lt, provider, vodAspectOptions]);
   const klingModelOptions = React.useMemo(
     () => [
       { label: "Kling 2.6", value: "kling-v2-6" as const },
@@ -470,12 +802,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const viduModelOptions = React.useMemo(
     () => [
       { label: "Vidu Q2", value: "q2" as const },
-      { label: "Vidu Q2-Turbo", value: "q2-turbo" as const },
-      { label: "Vidu Q2-Pro", value: "q2-pro" as const },
       { label: "Vidu Q3", value: "q3" as const },
       { label: "Vidu Q3-Turbo", value: "q3-turbo" as const },
-      { label: "Vidu Q3-Pro", value: "q3-pro" as const },
-      { label: "Vidu Q3-Mix", value: "q3-mix" as const },
     ],
     []
   );
@@ -483,6 +811,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     () => [
       { label: "Seedance 1.5-Pro", value: "seedance-1.5-pro" as const },
       { label: "Seedance 2.0", value: "seedance-2.0" as const },
+      { label: "Seedance 2.0 Fast", value: "seedance-2.0-fast" as const },
     ],
     []
   );
@@ -496,37 +825,205 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const filteredViduModelOptions = React.useMemo(
     () =>
       supportedModels.length > 0
-        ? viduModelOptions.filter((opt) => supportedModels.includes(opt.value))
+        ? viduModelOptions.filter((opt) =>
+            isViduModelOptionSupported(opt.value, supportedModels)
+          )
         : viduModelOptions,
     [supportedModels, viduModelOptions]
   );
   const filteredSeedanceModelOptions = React.useMemo(
-    () =>
-      supportedModels.length > 0
-        ? seedanceModelOptions.filter((opt) => supportedModels.includes(opt.value))
-        : seedanceModelOptions,
+    () => {
+      if (supportedModels.length === 0) return seedanceModelOptions;
+      const normalized = new Set(
+        supportedModels.map((item) => String(item).trim().toLowerCase())
+      );
+      // 2.0 与 2.0 Fast 属于同一模型族，任一可用时都展示，方便切换。
+      if (normalized.has("seedance-2.0") || normalized.has("seedance-2.0-fast")) {
+        normalized.add("seedance-2.0");
+        normalized.add("seedance-2.0-fast");
+      }
+      const filtered = seedanceModelOptions.filter((opt) => normalized.has(opt.value));
+      return filtered.length > 0 ? filtered : seedanceModelOptions;
+    },
     [seedanceModelOptions, supportedModels]
   );
-  const durationOptions = React.useMemo(
-    () => (vodDurationOptions.length > 0 ? vodDurationOptions : getDurationOptions()),
-    [lt, provider, vodDurationOptions]
-  );
+  const durationOptions = React.useMemo(() => {
+    if (provider === "doubao" && isSeedance20Model) {
+      return [...SEEDANCE20_DOC_DURATIONS].map((value) => ({
+        label: lt(`${value}秒`, `${value}s`),
+        value,
+      }));
+    }
+    return vodDurationOptions.length > 0 ? vodDurationOptions : getDurationOptions();
+  }, [getDurationOptions, isSeedance20Model, lt, provider, vodDurationOptions]);
   const shouldShowAspectSelector =
-    provider === "viduq3-pro"
+    isSeedanceModel
+      ? true
+      : provider === "viduq3-pro"
       ? !hasImageInput
       : provider === "vidu"
       ? true
       : !hasImageInput;
-  const shouldShowResolutionSelector = isVodManagedNode && vodResolutionOptions.length > 0;
+  const legacySeedanceResolutionOptions = React.useMemo(() => {
+    if (provider !== "doubao" || isVodManagedNode) return [];
+    return isSeedance20Model ? [...SEEDANCE20_DOC_RESOLUTIONS] : ["720P"];
+  }, [isSeedance20Model, isVodManagedNode, provider]);
+  const resolutionOptions = React.useMemo(
+    () => {
+      if (provider === "doubao" && isSeedance20Model) {
+        return [...SEEDANCE20_DOC_RESOLUTIONS];
+      }
+      return vodResolutionOptions.length > 0
+        ? vodResolutionOptions
+        : legacySeedanceResolutionOptions;
+    },
+    [isSeedance20Model, legacySeedanceResolutionOptions, provider, vodResolutionOptions]
+  );
+  const viduModelFamily = normalizeViduModelForApi(viduModel);
+  const isViduQ2FamilyModel = viduModelFamily === "q2";
+  const isViduQ2ProMode = viduModel === "q2-pro";
+  const isCurrentViduQ3FamilyModel = viduModelFamily === "q3";
+  const isViduQ3ProMode = viduModel === "q3-pro";
+  const isViduQ3TurboModel = viduModel === "q3-turbo";
+  const viduModelSelectionValue: "q2" | "q3" | "q3-turbo" =
+    viduModel === "q2-pro"
+      ? "q2"
+      : viduModel === "q3-pro"
+      ? "q3"
+      : (viduModel as "q2" | "q3" | "q3-turbo");
+  const shouldShowResolutionSelector = resolutionOptions.length > 0;
   const shouldShowLegacyViduOptions =
     (provider === "vidu" || provider === "viduq3-pro") && !isVodManagedNode;
-  const shouldShowLegacySeedanceOptions = provider === "doubao" && !isVodManagedNode;
+  const shouldShowLegacySeedanceOptions =
+    provider === "doubao" && !isVodManagedNode && !isSeedance20Model;
+  const shouldShowSeedanceGenerateAudio =
+    isSeedance20Model &&
+    ((typeof vodConfig?.outputConfig?.audioGeneration === "boolean" &&
+      vodConfig.outputConfig.audioGeneration) ||
+      !isVodManagedNode);
+  const seedanceConstraintTips = React.useMemo(() => {
+    if (!isSeedanceModel) return [] as string[];
+    if (isSeedance20Model) {
+      return [
+        lt("图片大小：单图建议不超过 30MB", "Image size: each image should be <= 30MB"),
+        lt("生成时长：4-15 秒", "Output duration: 4-15s"),
+        lt(
+          "分辨率/尺寸：480P、720P；21:9、16:9、4:3、1:1、3:4、9:16",
+          "Resolution/ratio: 480P, 720P; 21:9, 16:9, 4:3, 1:1, 3:4, 9:16"
+        ),
+        lt("参考视频最多 3 条；音频最多 3 条且每条≤5秒", "Video refs <=3; audio refs <=3 and <=5s each"),
+      ];
+    }
+    return [
+      lt("图片大小：单图建议不超过 30MB", "Image size: each image should be <= 30MB"),
+      lt("生成时长：3-10 秒", "Output duration: 3-10s"),
+      lt("分辨率/尺寸：720P；16:9、9:16、1:1", "Resolution/ratio: 720P; 16:9, 9:16, 1:1"),
+    ];
+  }, [isSeedance20Model, isSeedanceModel, lt]);
+  const seedanceModeOptions = React.useMemo(
+    () =>
+      isSeedance20Model
+        ? [
+            {
+              value: "reference_images",
+              label: lt("全能参考", "Omni reference"),
+              description: lt(
+                "文不限，图≤9，视频≤3，音频≤3（每条≤5秒）",
+                "Text unlimited, image<=9, video<=3, audio<=3 (<=5s each)"
+              ),
+            },
+            {
+              value: "start_end",
+              label: lt("首/尾帧（1-2图）", "Frame mode (1-2 images)"),
+              description: lt(
+                "支持首帧、尾帧、首尾帧（总共1-2张图）",
+                "Supports first/last/start-end frames (1-2 images total)"
+              ),
+            },
+          ]
+        : [
+            {
+              value: "text",
+              label: lt("文生视频", "Text to video"),
+              description: lt("支持文本/单图/文+图（最多1张图）", "Text / image / text+image (max 1 image)"),
+            },
+            {
+              value: "image",
+              label: lt("图生视频", "Image to video"),
+              description: lt("单图输入", "Single image input"),
+            },
+            {
+              value: "start_end",
+              label: lt("首尾帧（1~2图）", "Start-end frames (1-2 images)"),
+              description: lt("首帧(image) + 尾帧(image-2)，总共 1-2 张图", "Start frame (image) + end frame (image-2), 1-2 images total"),
+            },
+          ],
+    [isSeedance20Model, lt]
+  );
 
   React.useEffect(() => {
     if (!shouldShowAspectSelector) {
       setAspectMenuOpen(false);
     }
   }, [shouldShowAspectSelector]);
+
+  React.useEffect(() => {
+    if (!managedRoutesMetadata || managedRoutesMetadata.vendors.length === 0) return;
+    if (selectedManagedRoute) return;
+    const fallbackVendor =
+      managedRoutesMetadata.vendors.find(
+        (item) => item.vendorKey === managedRoutesMetadata.defaultVendor
+      ) || managedRoutesMetadata.vendors[0];
+    if (!fallbackVendor) return;
+
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: {
+          id,
+          patch: {
+            managedModelKey: managedRoutesMetadata.modelKey,
+            vendorKey: fallbackVendor.vendorKey,
+            platformKey: fallbackVendor.platformKey || fallbackVendor.vendorKey,
+            creditsPerCall:
+              typeof fallbackVendor.creditsPerCall === "number"
+                ? fallbackVendor.creditsPerCall
+                : undefined,
+          },
+        },
+      })
+    );
+  }, [id, managedRoutesMetadata, selectedManagedRoute]);
+
+  React.useEffect(() => {
+    if (!(provider === "vidu" || provider === "viduq3-pro")) return;
+    if (filteredViduModelOptions.length === 0) return;
+    if (
+      filteredViduModelOptions.some((opt) =>
+        isViduModelOptionSupported(viduModel, [String(opt.value)])
+      )
+    ) {
+      return;
+    }
+
+    const fallbackModel = filteredViduModelOptions[0]?.value;
+    if (!fallbackModel) return;
+
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: {
+          id,
+          patch: {
+            viduModel: fallbackModel,
+            provider:
+              normalizeViduModelForApi(fallbackModel) === "q3"
+                ? "viduq3-pro"
+                : "vidu",
+            clipDuration: undefined,
+          },
+        },
+      })
+    );
+  }, [filteredViduModelOptions, id, provider, viduModel]);
 
   const handleAspectChange = React.useCallback(
     (value: string) => {
@@ -579,6 +1076,50 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             id,
             patch: {
               viduModel: value,
+              provider:
+                normalizeViduModelForApi(value) === "q3"
+                  ? "viduq3-pro"
+                  : "vidu",
+              clipDuration: undefined,
+            },
+          },
+        })
+      );
+    },
+    [id, viduModel]
+  );
+
+  const handleViduQ2ModeChange = React.useCallback(
+    (value: "std" | "pro") => {
+      const nextModel: ViduModel = value === "pro" ? "q2-pro" : "q2";
+      if (nextModel === viduModel) return;
+      window.dispatchEvent(
+        new CustomEvent("flow:updateNodeData", {
+          detail: {
+            id,
+            patch: {
+              viduModel: nextModel,
+              provider: "vidu",
+              clipDuration: undefined,
+            },
+          },
+        })
+      );
+    },
+    [id, viduModel]
+  );
+
+  const handleViduQ3ModeChange = React.useCallback(
+    (value: "std" | "pro") => {
+      const nextModel: ViduModel = value === "pro" ? "q3-pro" : "q3";
+      if (nextModel === viduModel) return;
+      window.dispatchEvent(
+        new CustomEvent("flow:updateNodeData", {
+          detail: {
+            id,
+            patch: {
+              viduModel: nextModel,
+              provider: "viduq3-pro",
               clipDuration: undefined,
             },
           },
@@ -591,18 +1132,108 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const handleSeedanceModelChange = React.useCallback(
     (value: SeedanceModel) => {
       if (value === seedanceModel) return;
+      const nextMode: SeedanceMode =
+        value === "seedance-2.0" || value === "seedance-2.0-fast"
+          ? "reference_images"
+          : "text";
       window.dispatchEvent(
         new CustomEvent("flow:updateNodeData", {
           detail: {
             id,
             patch: {
               seedanceModel: value,
+              seedanceMode: nextMode,
             },
           },
         })
       );
     },
     [id, seedanceModel]
+  );
+
+  const handleSeedanceModeChange = React.useCallback(
+    (value: SeedanceMode) => {
+      if (!isSeedanceModel || value === seedanceMode) return;
+      const spec = isSeedance20Model
+        ? getSeedance20ModeSpec(value as Seedance20Mode)
+        : getSeedance15ModeSpec(value as Seedance15Mode);
+
+      setEdges((edges) => {
+        const targetEdges = edges.filter((edge) => edge.target === id);
+        const otherEdges = edges.filter((edge) => edge.target !== id);
+        let imageCount = 0;
+        let image2Count = 0;
+        let videoCount = 0;
+        let audioCount = 0;
+
+        const filteredTargetEdges = targetEdges.filter((edge) => {
+          switch (edge.targetHandle) {
+            case "text":
+              return spec.visibleHandles.includes("text");
+            case "image":
+              if (!spec.visibleHandles.includes("image") || imageCount >= spec.imageHandleMax) {
+                return false;
+              }
+              imageCount += 1;
+              return true;
+            case "image-2":
+              if (!spec.visibleHandles.includes("image-2") || image2Count >= spec.image2HandleMax) {
+                return false;
+              }
+              image2Count += 1;
+              return true;
+            case "video":
+              if (!spec.visibleHandles.includes("video") || videoCount >= spec.videoHandleMax) {
+                return false;
+              }
+              videoCount += 1;
+              return true;
+            case "audio":
+              if (!spec.visibleHandles.includes("audio") || audioCount >= spec.audioHandleMax) {
+                return false;
+              }
+              audioCount += 1;
+              return true;
+            default:
+              return true;
+          }
+        });
+
+        return [...otherEdges, ...filteredTargetEdges];
+      });
+
+      window.dispatchEvent(
+        new CustomEvent("flow:updateNodeData", {
+          detail: { id, patch: { seedanceMode: value } },
+        })
+      );
+    },
+    [id, isSeedance20Model, isSeedanceModel, seedanceMode, setEdges]
+  );
+
+  const handleManagedRouteChange = React.useCallback(
+    (vendorKey: string) => {
+      const target = getManagedRouteOption(nodeConfigMetadata, vendorKey);
+      if (!target) return;
+      if (target.vendorKey === (data.vendorKey || "").trim()) return;
+      window.dispatchEvent(
+        new CustomEvent("flow:updateNodeData", {
+          detail: {
+            id,
+            patch: {
+              managedModelKey: managedRoutesMetadata?.modelKey,
+              vendorKey: target.vendorKey,
+              platformKey: target.platformKey || target.vendorKey,
+              creditsPerCall:
+                typeof target.creditsPerCall === "number"
+                  ? target.creditsPerCall
+                  : undefined,
+            },
+          },
+        })
+      );
+    },
+    [data.vendorKey, id, managedRoutesMetadata?.modelKey, nodeConfigMetadata]
   );
 
   React.useEffect(() => {
@@ -660,14 +1291,14 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
 
       try {
         setAudioUploading(true);
-        setAudioMessage(lt("音频上传中...", "Uploading audio..."));
+        setAudioMessage(lt("闊抽涓婁紶涓?..", "Uploading audio..."));
         const uploadedUrls: string[] = [];
 
         for (const file of incomingFiles) {
           if (!isSupportedAudioFile(file)) {
             throw new Error(
               lt(
-                "不支持的音频格式，请上传常见音频文件",
+                "涓嶆敮鎸佺殑闊抽鏍煎紡锛岃涓婁紶甯歌闊抽鏂囦欢",
                 "Unsupported audio format, please upload a common audio file"
               )
             );
@@ -680,7 +1311,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               const timeoutId = window.setTimeout(() => {
                 reject(
                   new Error(
-                    lt("无法读取音频时长", "Unable to read audio duration")
+                    lt("鏃犳硶璇诲彇闊抽鏃堕暱", "Unable to read audio duration")
                   )
                 );
               }, 5000);
@@ -695,7 +1326,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                 window.clearTimeout(timeoutId);
                 reject(
                   new Error(
-                    lt("无法读取音频文件，请确认格式正确", "Unable to read audio file, please verify the format")
+                    lt("鏃犳硶璇诲彇闊抽鏂囦欢锛岃纭鏍煎紡姝ｇ‘", "Unable to read audio file, please verify the format")
                   )
                 );
               });
@@ -714,16 +1345,16 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             const reader = new FileReader();
             reader.onload = () => {
               if (typeof reader.result === "string") resolve(reader.result);
-              else reject(new Error(lt("无法读取音频数据", "Unable to read audio data")));
+              else reject(new Error(lt("鏃犳硶璇诲彇闊抽鏁版嵁", "Unable to read audio data")));
             };
             reader.onerror = () =>
-              reject(new Error(lt("无法读取音频文件", "Unable to read audio file")));
+              reject(new Error(lt("鏃犳硶璇诲彇闊抽鏂囦欢", "Unable to read audio file")));
             reader.readAsDataURL(file);
           });
 
           const uploaded = await uploadAudioToOSS(dataUrl, projectId);
           if (!uploaded) {
-            throw new Error(lt("音频上传失败，请重试", "Audio upload failed, please retry"));
+            throw new Error(lt("闊抽涓婁紶澶辫触锛岃閲嶈瘯", "Audio upload failed, please retry"));
           }
           uploadedUrls.push(uploaded);
         }
@@ -742,7 +1373,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         );
         setAudioMessage(
           lt(
-            "已上传音频，sound 将自动按 no 提交",
+            "宸蹭笂浼犻煶棰戯紝sound 灏嗚嚜鍔ㄦ寜 no 鎻愪氦",
             "Audio uploaded, sound will be submitted as no automatically"
           )
         );
@@ -750,7 +1381,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         const message =
           error instanceof Error
             ? error.message
-            : lt("音频上传失败，请稍后重试", "Audio upload failed, please retry later");
+            : lt("闊抽涓婁紶澶辫触锛岃绋嶅悗閲嶈瘯", "Audio upload failed, please retry later");
         setAudioMessage(message);
         window.dispatchEvent(
           new CustomEvent("toast", {
@@ -819,17 +1450,17 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
 
   const copyVideoLink = React.useCallback(async (url?: string) => {
     if (!url) {
-      alert(lt("没有可复制的视频链接", "No video link to copy"));
+      alert(lt("娌℃湁鍙鍒剁殑瑙嗛閾炬帴", "No video link to copy"));
       return;
     }
     try {
-      // 优先使用 Clipboard API
+      // 浼樺厛浣跨敤 Clipboard API
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(url);
         alert(lt("已复制视频链接", "Video link copied"));
         return;
       }
-      // 备用方案：使用 execCommand
+      // 澶囩敤鏂规锛氫娇鐢?execCommand
       const textArea = document.createElement("textarea");
       textArea.value = url;
       textArea.style.position = "fixed";
@@ -843,11 +1474,11 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       if (success) {
         alert(lt("已复制视频链接", "Video link copied"));
       } else {
-        alert(lt("复制失败，请手动复制：\n", "Copy failed. Please copy manually:\n") + url);
+        alert(lt("澶嶅埗澶辫触锛岃鎵嬪姩澶嶅埗锛歕n", "Copy failed. Please copy manually:\n") + url);
       }
     } catch (error) {
-      console.error(lt("复制失败:", "Copy failed:"), error);
-      // 最后的备用方案：显示链接让用户手动复制
+      console.error(lt("澶嶅埗澶辫触:", "Copy failed:"), error);
+      // 鏈€鍚庣殑澶囩敤鏂规锛氭樉绀洪摼鎺ヨ鐢ㄦ埛鎵嬪姩澶嶅埗
       prompt(lt("复制失败，请手动复制以下链接：", "Copy failed. Please copy this link manually:"), url);
     }
   }, [lt]);
@@ -862,12 +1493,12 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       setIsDownloading(true);
       setDownloadFeedback({
         type: "progress",
-        message: lt("视频下载中，请稍等...", "Downloading video..."),
+        message: lt("瑙嗛涓嬭浇涓紝璇风◢绛?..", "Downloading video..."),
       });
       try {
-        // 检测是否为 OSS URL（阿里云 OSS 支持 CORS，可直接下载）
+        // 妫€娴嬫槸鍚︿负 OSS URL锛堥樋閲屼簯 OSS 鏀寔 CORS锛屽彲鐩存帴涓嬭浇锛?
         const isOssUrl = url.includes('aliyuncs.com');
-        // 非 OSS URL 需要代理
+        // 闈?OSS URL 闇€瑕佷唬鐞?
         const downloadUrl = isOssUrl ? url : proxifyRemoteAssetUrl(url, { forceProxy: true });
         console.log(`[Video Download] Source URL: ${url}`);
         console.log(`[Video Download] Download URL: ${downloadUrl}, isOSS: ${isOssUrl}`);
@@ -881,7 +1512,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         if (response.ok) {
           const blob = await response.blob();
           console.log(`[Video Download] Blob type: ${blob.type}, size: ${blob.size}`);
-          // 确保 blob 类型正确
+          // 纭繚 blob 绫诲瀷姝ｇ‘
           const videoBlob = blob.type.startsWith('video/')
             ? blob
             : new Blob([blob], { type: 'video/mp4' });
@@ -895,11 +1526,11 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           setTimeout(() => URL.revokeObjectURL(blobUrl), 200);
           setDownloadFeedback({
             type: "success",
-            message: lt("下载完成，稍后可再次下载", "Download completed"),
+            message: lt("涓嬭浇瀹屾垚锛岀◢鍚庡彲鍐嶆涓嬭浇", "Download completed"),
           });
           scheduleFeedbackClear(2000);
         } else {
-          // 下载失败，尝试在新标签页打开
+          // 涓嬭浇澶辫触锛屽皾璇曞湪鏂版爣绛鹃〉鎵撳紑
           const link = document.createElement("a");
           link.href = url;
           link.target = "_blank";
@@ -908,17 +1539,17 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           document.body.removeChild(link);
           setDownloadFeedback({
             type: "success",
-            message: lt("已在新标签页打开视频链接", "Opened video link in new tab"),
+            message: lt("宸插湪鏂版爣绛鹃〉鎵撳紑瑙嗛閾炬帴", "Opened video link in new tab"),
           });
           scheduleFeedbackClear(3000);
         }
       } catch (error) {
-        console.error(lt("下载失败:", "Download failed:"), error);
-        // 下载失败时，尝试直接打开链接
+        console.error(lt("涓嬭浇澶辫触:", "Download failed:"), error);
+        // 涓嬭浇澶辫触鏃讹紝灏濊瘯鐩存帴鎵撳紑閾炬帴
         window.open(url, "_blank");
         setDownloadFeedback({
           type: "error",
-          message: lt("下载失败，已在新标签页打开", "Download failed, opened in new tab"),
+          message: lt("涓嬭浇澶辫触锛屽凡鍦ㄦ柊鏍囩椤垫墦寮€", "Download failed, opened in new tab"),
         });
         scheduleFeedbackClear(4000);
       } finally {
@@ -961,7 +1592,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
 
   const truncatePrompt = React.useCallback((text: string) => {
     if (!text) return lt("（无提示词）", "(No prompt)");
-    return text.length > 80 ? `${text.slice(0, 80)}…` : text;
+    return text.length > 80 ? `${text.slice(0, 80)}...` : text;
   }, [lt]);
 
   const handleMediaPointerDown = (
@@ -1068,38 +1699,52 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         type='target'
         position={Position.Left}
         id='text'
-        style={{ top: "32%" }}
+        style={{ top: isSeedanceModel ? seedanceHandleTopMap.text || "32%" : "32%" }}
         onMouseEnter={() => setHover("text-in")}
         onMouseLeave={() => setHover(null)}
       />
-      {/* 图片输入 handle: std 模式只渲染 1 个（image），pro 模式渲染 2 个（image 首帧 + image-2 尾帧） */}
-      {/* image 首帧 */}
-      <Handle
-        type='target'
-        position={Position.Left}
-        id='image'
-        style={{ top: "60%" }}
-        onMouseEnter={() => setHover("image-in")}
-        onMouseLeave={() => setHover(null)}
-      />
-      {/* image-2 尾帧: 仅 Kling 2.6/3.0 pro 模式渲染 */}
-      {isKling26Model && isProMode && (
+      {(isSeedanceModel
+        ? seedanceModeSpec?.visibleHandles.includes("image")
+        : true) && (
+        <Handle
+          type='target'
+          position={Position.Left}
+          id='image'
+          style={{ top: isSeedanceModel ? seedanceHandleTopMap.image || "60%" : "60%" }}
+          onMouseEnter={() => setHover("image-in")}
+          onMouseLeave={() => setHover(null)}
+        />
+      )}
+      {/* image-2 灏惧抚: 浠?Kling 2.6/3.0 pro 妯″紡娓叉煋 */}
+      {((isSeedanceModel && seedanceModeSpec?.visibleHandles.includes("image-2")) ||
+        (isKling26Model && isProMode) ||
+        isViduNode) && (
         <Handle
           type='target'
           position={Position.Left}
           id='image-2'
-          style={{ top: "78%" }}
+          style={{ top: isSeedanceModel ? seedanceHandleTopMap["image-2"] || "78%" : "78%" }}
           onMouseEnter={() => setHover("image-2-in")}
           onMouseLeave={() => setHover(null)}
         />
       )}
-      {/* audio targetHandle 仅 Kling 旧版（kling-v2-1）可用；2.6/3.0 只支持 sound 布尔开关，不接受连线 */}
-      {isUnifiedKlingNode && klingModel !== "kling-v2-6" && klingModel !== "kling-v3-0" && (
+      {(isSeedanceModel && seedanceModeSpec?.visibleHandles.includes("video")) && (
+        <Handle
+          type='target'
+          position={Position.Left}
+          id='video'
+          style={{ top: seedanceHandleTopMap.video || "78%" }}
+          onMouseEnter={() => setHover("video-in")}
+          onMouseLeave={() => setHover(null)}
+        />
+      )}
+      {((isSeedanceModel && seedanceModeSpec?.visibleHandles.includes("audio")) ||
+        (isUnifiedKlingNode && klingModel !== "kling-v2-6" && klingModel !== "kling-v3-0")) && (
         <Handle
           type='target'
           position={Position.Left}
           id='audio'
-          style={{ top: "78%" }}
+          style={{ top: isSeedanceModel ? seedanceHandleTopMap.audio || "78%" : "78%" }}
           onMouseEnter={() => setHover("audio-in")}
           onMouseLeave={() => setHover(null)}
         />
@@ -1115,7 +1760,11 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       {hover === "text-in" && (
         <div
           className='flow-tooltip'
-          style={{ left: -8, top: "32%", transform: "translate(-100%, -50%)" }}
+          style={{
+            left: -8,
+            top: isSeedanceModel ? seedanceHandleTopMap.text || "32%" : "32%",
+            transform: "translate(-100%, -50%)",
+          }}
         >
           prompt
         </div>
@@ -1123,25 +1772,59 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       {hover === "image-in" && (
         <div
           className='flow-tooltip'
-          style={{ left: -8, top: "60%", transform: "translate(-100%, -50%)" }}
+          style={{
+            left: -8,
+            top: isSeedanceModel ? seedanceHandleTopMap.image || "60%" : "60%",
+            transform: "translate(-100%, -50%)",
+          }}
         >
-          {isKling26Model ? (isProMode ? "image (首帧)" : "image (仅1张)") : "image"}
+          {isSeedanceModel
+            ? isSeedance20Model
+              ? seedanceMode === "reference_images"
+                ? "image (1-9)"
+                : "image (1-2)"
+              : seedanceMode === "start_end"
+              ? "image (1-2)"
+              : "image"
+            : isKling26Model
+            ? "image (图1)"
+            : "image"}
         </div>
       )}
       {hover === "image-2-in" && (
         <div
           className='flow-tooltip'
-          style={{ left: -8, top: "78%", transform: "translate(-100%, -50%)" }}
+          style={{
+            left: -8,
+            top: isSeedanceModel ? seedanceHandleTopMap["image-2"] || "78%" : "78%",
+            transform: "translate(-100%, -50%)",
+          }}
         >
-          image-2 (尾帧)
+          image-2 (图2)
+        </div>
+      )}
+      {hover === "video-in" && (
+        <div
+          className='flow-tooltip'
+          style={{
+            left: -8,
+            top: seedanceHandleTopMap.video || "78%",
+            transform: "translate(-100%, -50%)",
+          }}
+        >
+          {isSeedanceModel ? "video (1-3)" : "video"}
         </div>
       )}
       {hover === "audio-in" && (
         <div
           className='flow-tooltip'
-          style={{ left: -8, top: "78%", transform: "translate(-100%, -50%)" }}
+          style={{
+            left: -8,
+            top: isSeedanceModel ? seedanceHandleTopMap.audio || "78%" : "78%",
+            transform: "translate(-100%, -50%)",
+          }}
         >
-          audio
+          {isSeedanceModel ? "audio (1-3, <=5s)" : "audio"}
         </div>
       )}
       {hover === "video-out" && (
@@ -1170,12 +1853,15 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           }}
         >
           <Video size={18} />
-          <span>{displayTitle}</span>
+          <span>
+            {displayTitle}
+          </span>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
-          {/* 玩法说明按钮: 仅 Kling 2.6/3.0 节点显示 */}
+          {/* 鐜╂硶璇存槑鎸夐挳: 浠?Kling 2.6/3.0 鑺傜偣鏄剧ず */}
           {isKling26Model && (
             <button
+              className={`tanva-video-header-btn tanva-video-header-help ${showHelp ? "is-active" : "is-inactive"}`}
               onClick={() => setShowHelp(!showHelp)}
               style={{
                 fontSize: 12,
@@ -1188,12 +1874,13 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                 display: "flex",
                 alignItems: "center",
               }}
-              title={lt("玩法说明", "Help")}
+              title={lt("鐜╂硶璇存槑", "Help")}
             >
               <HelpCircle size={14} />
             </button>
           )}
           <button
+            className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit"
             onClick={onRun}
             onMouseDown={handleButtonMouseDown}
             disabled={data.status === "running"}
@@ -1210,11 +1897,20 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               cursor: data.status === "running" ? "not-allowed" : "pointer",
               fontSize: 12,
               opacity: data.status === "running" ? 0.6 : 1,
+              gap: 0,
             }}
           >
-            Run
+            {hasRunCredits ? (
+              <>
+                <span className="run-text-trigger">Run</span>
+                <RunCreditBadge credits={selectedCredits} runButton />
+              </>
+            ) : (
+              "Run"
+            )}
           </button>
           <button
+            className="tanva-video-header-btn tanva-video-header-share"
             onClick={() => copyVideoLink(data.videoUrl)}
             onMouseDown={handleButtonMouseDown}
             title={lt("复制链接", "Copy link")}
@@ -1236,6 +1932,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             <Share2 size={14} />
           </button>
           <button
+            className="tanva-video-header-btn tanva-video-header-download"
             onClick={() => triggerDownload(data.videoUrl)}
             onMouseDown={handleButtonMouseDown}
             title={lt("下载视频", "Download video")}
@@ -1256,7 +1953,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           >
             {isDownloading ? (
               <span style={{ fontSize: 10, fontWeight: 600, color: "#111827" }}>
-                ···
+                下载中
               </span>
             ) : (
               <Download size={14} />
@@ -1281,7 +1978,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         </div>
       )}
 
-      {/* 玩法说明 */}
+      {/* 使用说明 */}
       {isKling26Model && showHelp && (
         <div style={{
           fontSize: 11,
@@ -1294,38 +1991,38 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           lineHeight: 1.5,
         }}>
           <div style={{ fontWeight: 600, marginBottom: 4, color: "#1e40af" }}>
-            {lt("🎬 玩法说明", "🎬 Usage Guide")} {klingModel === "kling-v2-6" ? "(Kling 2.6)" : klingModel === "kling-v3-0" ? "(Kling 3.0)" : ""}
+            {lt("玩法说明", "Usage Guide")} {klingModel === "kling-v2-6" ? "(Kling 2.6)" : klingModel === "kling-v3-0" ? "(Kling 3.0)" : ""}
           </div>
           {klingModel === "kling-v2-6" ? (
             <>
               <div style={{ marginBottom: 3 }}>
                 <strong>{lt("标准模式（Std）", "Standard (Std)")}:</strong>{" "}
-                {lt("1张图→视频（无音效）", "1 image → video (no sound)")}
+                {lt("1 张图生成视频（无音效）", "1 image -> video (no sound)")}
               </div>
               <div style={{ marginBottom: 3 }}>
                 <strong>{lt("专业模式（Pro）", "Professional (Pro)")}:</strong>{" "}
-                {lt("1张图→视频（有音效）", "1 image → video (with sound)")}
+                {lt("1 张图生成视频（有音效）", "1 image -> video (with sound)")}
               </div>
               <div style={{ marginBottom: 3 }}>
                 <strong>{lt("首尾帧（Pro）", "Start-End (Pro)")}:</strong>{" "}
-                {lt("2张图（首帧+尾帧）→视频（有音效）", "2 images (start+end) → video (with sound)")}
+                {lt("2 张图（首帧+尾帧）生成视频（有音效）", "2 images (start+end) -> video (with sound)")}
               </div>
               <div style={{ color: "#6b7280", fontSize: 10, marginTop: 4 }}>
-                💡 {lt("提示：标准模式只能接1张图，专业模式可接2张图（首尾帧）", "Tip: Std mode = 1 image, Pro mode = 1 or 2 images (start-end)")}
+                提示：{lt("Std 仅支持 1 张图，Pro 支持 1-2 张图（首尾帧）", "Tip: Std mode = 1 image, Pro mode = 1 or 2 images (start-end)")}
               </div>
             </>
           ) : (
             <>
               <div style={{ marginBottom: 3 }}>
                 <strong>{lt("标准模式（Std）", "Standard (Std)")}:</strong>{" "}
-                {lt("1张图→视频", "1 image → video")}
+                {lt("1 张图生成视频", "1 image -> video")}
               </div>
               <div style={{ marginBottom: 3 }}>
                 <strong>{lt("专业模式（Pro）", "Professional (Pro)")}:</strong>{" "}
-                {lt("1张图→视频（含音效），2张图→首尾帧", "1 image → video (with sound), 2 images → start-end")}
+                {lt("1 张图生成视频（有音效），2 张图支持首尾帧", "1 image -> video (with sound), 2 images -> start-end")}
               </div>
               <div style={{ color: "#6b7280", fontSize: 10, marginTop: 4 }}>
-                💡 {lt("Kling 3.0 全面升级，建议优先使用", "Kling 3.0 is fully upgraded, recommended")}{" "}
+                提示：{lt("Kling 3.0 已全面升级，推荐优先使用", "Kling 3.0 is fully upgraded, recommended")}{" "}
                 <span style={{ color: "#059669", fontWeight: 600 }}>{lt("★ Pro 模式效果更佳", "★ Pro mode recommended")}</span>
               </div>
             </>
@@ -1336,6 +2033,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       {isVodManagedNode && (
         <div
           style={{
+            display: "none",
             marginBottom: 8,
             padding: "8px 10px",
             borderRadius: 10,
@@ -1363,7 +2061,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         </div>
       )}
 
-      {/* 模型选择 */}
+      {/* 妯″瀷閫夋嫨 */}
       {(isUnifiedKlingNode || provider === "vidu" || provider === "viduq3-pro" || provider === "doubao") && (
         <div
           className='video-dropdown'
@@ -1398,7 +2096,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                 ? klingModelLabel
                 : provider === "doubao"
                 ? filteredSeedanceModelOptions.find((opt) => opt.value === seedanceModel)?.label || "Seedance 1.5-Pro"
-                : filteredViduModelOptions.find((opt) => opt.value === viduModel)?.label || "Vidu Q2"}
+                : filteredViduModelOptions.find((opt) => opt.value === viduModelSelectionValue)?.label ||
+                  "Vidu Q2"}
             </span>
             <span style={{ fontSize: 16, lineHeight: 1 }}>
               {modelMenuOpen ? "▴" : "▾"}
@@ -1449,7 +2148,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                             ? klingModel
                             : provider === "doubao"
                             ? seedanceModel
-                            : viduModel) === opt.value
+                            : viduModelSelectionValue) === opt.value
                             ? "#2563eb"
                             : "#e5e7eb"
                         }`,
@@ -1458,7 +2157,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                             ? klingModel
                             : provider === "doubao"
                             ? seedanceModel
-                            : viduModel) === opt.value
+                            : viduModelSelectionValue) === opt.value
                             ? "#eff6ff"
                             : "#fff",
                         color:
@@ -1466,7 +2165,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                             ? klingModel
                             : provider === "doubao"
                             ? seedanceModel
-                            : viduModel) === opt.value
+                            : viduModelSelectionValue) === opt.value
                             ? "#1d4ed8"
                             : "#111827",
                         fontSize: 12,
@@ -1481,6 +2180,32 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {isSeedanceModel && (
+        <div
+          className='video-dropdown'
+          style={{ marginBottom: 8, position: "relative" }}
+        >
+          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+            {lt("模式", "Mode")}
+          </div>
+          <NodeSelect
+            value={seedanceMode}
+            options={seedanceModeOptions}
+            onChange={(value) => handleSeedanceModeChange(value as SeedanceMode)}
+            menuLabel={
+              isSeedance20Model
+                ? lt("Seedance 2.0 模式", "Seedance 2.0 modes")
+                : lt("Seedance 1.5 模式", "Seedance 1.5 modes")
+            }
+            title={
+              isSeedance20Model
+                ? lt("选择 Seedance 2.0 模式", "Select Seedance 2.0 mode")
+                : lt("选择 Seedance 1.5 模式", "Select Seedance 1.5 mode")
+            }
+          />
         </div>
       )}
 
@@ -1571,7 +2296,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         style={{ marginBottom: 8, position: "relative" }}
       >
         <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
-          {lt("时间长度", "Duration")}
+          {lt("时长", "Duration")}
         </div>
         <button
           type='button'
@@ -1655,7 +2380,35 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         )}
       </div>
 
-      {/* Kling 专用参数：模式选择 */}
+      {shouldShowSeedanceGenerateAudio && (
+        <div style={{ marginBottom: 8 }}>
+          <button
+            type='button'
+            onClick={() => {
+              const currentGenerateAudio = Boolean((data as any).generateAudio);
+              window.dispatchEvent(
+                new CustomEvent("flow:updateNodeData", {
+                  detail: { id, patch: { generateAudio: !currentGenerateAudio } },
+                })
+              );
+            }}
+            style={{
+              width: "100%",
+              padding: "6px 10px",
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              background: (data as any).generateAudio ? "#111827" : "#fff",
+              color: (data as any).generateAudio ? "#fff" : "#111827",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            {lt("关闭", "Off")}
+          </button>
+        </div>
+      )}
+
+      {/* Kling 涓撶敤鍙傛暟锛氭ā寮忛€夋嫨 */}
       {isUnifiedKlingNode && (
         <div style={{ marginBottom: 8 }}>
           <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
@@ -1699,6 +2452,78 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         </div>
       )}
 
+      {(provider === "vidu" || provider === "viduq3-pro") && isViduQ2FamilyModel && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+            {lt("模式", "Mode")}
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            {[
+              { label: lt("标准", "Standard"), value: "std" as const },
+              { label: lt("专业", "Pro"), value: "pro" as const },
+            ].map((opt) => {
+              const isActive = (isViduQ2ProMode ? "pro" : "std") === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type='button'
+                  onClick={() => handleViduQ2ModeChange(opt.value)}
+                  style={{
+                    flex: 1,
+                    padding: "6px 10px",
+                    borderRadius: 8,
+                    border: "1px solid #e5e7eb",
+                    background: isActive ? "#111827" : "#fff",
+                    color: isActive ? "#fff" : "#111827",
+                    fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {(provider === "vidu" || provider === "viduq3-pro") &&
+        isCurrentViduQ3FamilyModel &&
+        !isViduQ3TurboModel && (
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+              {lt("模式", "Mode")}
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              {[
+                { label: lt("标准", "Standard"), value: "std" as const },
+                { label: lt("专业", "Pro"), value: "pro" as const },
+              ].map((opt) => {
+                const isActive = (isViduQ3ProMode ? "pro" : "std") === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type='button'
+                    onClick={() => handleViduQ3ModeChange(opt.value)}
+                    style={{
+                      flex: 1,
+                      padding: "6px 10px",
+                      borderRadius: 8,
+                      border: "1px solid #e5e7eb",
+                      background: isActive ? "#111827" : "#fff",
+                      color: isActive ? "#fff" : "#111827",
+                      fontSize: 12,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
       {false && isKling26Model && (
         <div style={{ marginBottom: 8 }}>
           <div>
@@ -1712,7 +2537,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                 color: "#6b7280",
               }}
             >
-              <span>{lt("音频文件（最多 2 个）", "Audio files (max 2)")}</span>
+              <span>{lt("闊抽鏂囦欢锛堟渶澶?2 涓級", "Audio files (max 2)")}</span>
               <span>{audioUrls.length}/2</span>
             </div>
             <input
@@ -1741,10 +2566,10 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               }}
             >
               {audioUploading
-                ? lt("上传中...", "Uploading...")
+                ? lt("涓婁紶涓?..", "Uploading...")
                 : audioUrls.length > 0
-                ? lt("继续上传", "Upload more")
-                : lt("上传音频", "Upload audio")}
+                ? lt("缁х画涓婁紶", "Upload more")
+                : lt("涓婁紶闊抽", "Upload audio")}
             </button>
             {audioUrls.length > 0 && (
               <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
@@ -1764,7 +2589,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                     }}
                   >
                     <span style={{ color: "#334155" }}>
-                      {lt("音频", "Audio")} {index + 1}
+                      {lt("闊抽", "Audio")} {index + 1}
                     </span>
                     <button
                       type='button'
@@ -1778,7 +2603,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                         cursor: "pointer",
                       }}
                     >
-                      {lt("移除", "Remove")}
+                      {lt("绉婚櫎", "Remove")}
                     </button>
                   </div>
                 ))}
@@ -1811,40 +2636,29 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
             {lt("分辨率", "Resolution")}
           </div>
-          <button
-            type='button'
-            onClick={(event) => {
-              event.stopPropagation();
-              const normalizedOptions = vodResolutionOptions.map((item) => item.toUpperCase());
-              const currentResolution = String(data.resolution || normalizedOptions[0] || "720P").toUpperCase();
-              const currentIndex = normalizedOptions.indexOf(currentResolution);
-              const nextResolution =
-                normalizedOptions[(currentIndex + 1 + normalizedOptions.length) % normalizedOptions.length];
+          <NodeSelect
+            value={String(data.resolution || resolutionOptions[0] || "720P").toUpperCase()}
+            options={resolutionOptions.map((option) => {
+              const normalizedOption = String(option).toUpperCase();
+              return {
+                value: normalizedOption,
+                label: normalizedOption,
+              };
+            })}
+            onChange={(value) =>
               window.dispatchEvent(
                 new CustomEvent("flow:updateNodeData", {
-                  detail: { id, patch: { resolution: nextResolution } },
+                  detail: { id, patch: { resolution: value } },
                 })
-              );
-            }}
-            style={{
-              width: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "6px 10px",
-              borderRadius: 8,
-              border: "1px solid #e5e7eb",
-              background: "#fff",
-              fontSize: 12,
-              cursor: "pointer",
-            }}
-          >
-            <span>{String(data.resolution || vodResolutionOptions[0] || "720P").toUpperCase()}</span>
-          </button>
+              )
+            }
+            menuLabel={lt("分辨率", "Resolution")}
+            title={lt("选择分辨率", "Select resolution")}
+          />
         </div>
       )}
 
-      {/* Vidu 旧链路专用参数 */}
+      {/* Vidu 鏃ч摼璺笓鐢ㄥ弬鏁?*/}
       {shouldShowLegacyViduOptions && (
         <>
           <div
@@ -1854,44 +2668,28 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
               {lt("分辨率", "Resolution")}
             </div>
-            <button
-              type='button'
-              onClick={(event) => {
-                event.stopPropagation();
-                const currentResolution = (data as any).resolution || "720p";
+            <NodeSelect
+              value={(data as any).resolution || "720p"}
+              options={["540p", "720p", "1080p"].map((option) => ({
+                value: option,
+                label: option,
+              }))}
+              onChange={(value) =>
                 window.dispatchEvent(
                   new CustomEvent("flow:updateNodeData", {
                     detail: {
                       id,
-                      patch: {
-                        resolution:
-                          currentResolution === "720p"
-                            ? "1080p"
-                            : currentResolution === "1080p"
-                            ? "540p"
-                            : "720p",
-                      },
+                      patch: { resolution: value },
                     },
                   })
-                );
-              }}
-              style={{
-                width: "100%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "6px 10px",
-                borderRadius: 8,
-                border: "1px solid #e5e7eb",
-                background: "#fff",
-                fontSize: 12,
-                cursor: "pointer",
-              }}
-            >
-              <span>{(data as any).resolution || "720p"}</span>
-            </button>
+                )
+              }
+              menuLabel={lt("分辨率", "Resolution")}
+              title={lt("选择分辨率", "Select resolution")}
+            />
           </div>
-          <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+          {isViduQ2FamilyModel && !isViduQ2ProMode && (
+            <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
             <button
               type='button'
               onClick={() => {
@@ -1919,7 +2717,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                 cursor: "pointer",
               }}
             >
-              {lt("风格", "Style")}: {(data as any).style === "anime" ? lt("动漫", "Anime") : lt("通用", "General")}
+              {lt("椋庢牸", "Style")}: {(data as any).style === "anime" ? lt("鍔ㄦ极", "Anime") : lt("閫氱敤", "General")}
             </button>
             <button
               type='button'
@@ -1942,13 +2740,14 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                 cursor: "pointer",
               }}
             >
-              {lt("错峰", "Off-peak")}: {(data as any).offPeak ? lt("开启", "On") : lt("关闭", "Off")}
+              {lt("关闭", "Off")}
             </button>
-          </div>
+            </div>
+          )}
         </>
       )}
 
-      {/* Seedance 旧链路专用参数 */}
+      {/* Seedance 鏃ч摼璺笓鐢ㄥ弬鏁?*/}
       {shouldShowLegacySeedanceOptions && (
         <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
           <button
@@ -1972,7 +2771,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               cursor: "pointer",
             }}
           >
-            {lt("镜头", "Camera")}: {(data as any).camerafixed ? lt("固定", "Fixed") : lt("运动", "Dynamic")}
+            {lt("闀滃ご", "Camera")}: {(data as any).camerafixed ? lt("鍥哄畾", "Fixed") : lt("杩愬姩", "Dynamic")}
           </button>
           <button
             type='button'
@@ -1995,8 +2794,27 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               cursor: "pointer",
             }}
           >
-            {lt("水印", "Watermark")}: {(data as any).watermark ? lt("开启", "On") : lt("关闭", "Off")}
+            {lt("关闭", "Off")}
           </button>
+        </div>
+      )}
+
+      {isSeedanceModel && seedanceConstraintTips.length > 0 && (
+        <div
+          style={{
+            marginBottom: 8,
+            padding: "6px 8px",
+            borderRadius: 8,
+            border: "1px solid #e2e8f0",
+            background: "#f8fafc",
+            color: "#475569",
+            fontSize: 11,
+            lineHeight: 1.45,
+          }}
+        >
+          {seedanceConstraintTips.map((tip, index) => (
+            <div key={`${tip}-${index}`}>• {tip}</div>
+          ))}
         </div>
       )}
 
@@ -2026,6 +2844,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
 
       {historyItems.length > 0 && (
         <div
+          className="tanva-video-history"
           style={{
             marginTop: 8,
             padding: "8px 10px",
@@ -2043,20 +2862,21 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           >
             <span style={{ fontSize: 12, fontWeight: 600, color: "#0f172a" }}>{lt("历史记录", "History")}</span>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 11, color: "#94a3b8" }}>{historyItems.length} {lt("条", "items")}</span>
+            <span style={{ fontSize: 11, color: "#94a3b8" }}>{historyItems.length} {lt("条", "items")}</span>
               <span style={{ fontSize: 14, color: "#64748b" }}>{showHistory ? "▴" : "▾"}</span>
             </div>
           </div>
           {showHistory && historyItems.map((item, index) => {
             const isActive = item.videoUrl === data.videoUrl;
-            // 使用组合 key 确保唯一性：id + index
+            // 浣跨敤缁勫悎 key 纭繚鍞竴鎬э細id + index
             const uniqueKey = `${item.id}-${index}`;
 
-            // 从 URL 中提取视频 ID 作为唯一标识
+            // 浠?URL 涓彁鍙栬棰?ID 浣滀负鍞竴鏍囪瘑
             const videoId = item.videoUrl?.split('/').pop()?.split('?')[0]?.slice(-12) || '';
 
             return (
               <div
+                className="tanva-video-history-item"
                 key={uniqueKey}
                 style={{
                   borderRadius: 6,
@@ -2078,7 +2898,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                   }}
                 >
                   <span>
-                    #{index + 1} · {formatHistoryTime(item.createdAt)}
+                    #{index + 1} 路 {formatHistoryTime(item.createdAt)}
                   </span>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     {videoId && (
@@ -2157,7 +2977,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                       cursor: "pointer",
                     }}
                   >
-                    {lt("下载", "Download")}
+                    {lt("涓嬭浇", "Download")}
                   </button>
                 </div>
               </div>
@@ -2201,7 +3021,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             alignItems: "center",
           }}
         >
-          <span>ℹ️</span>
+          <span>鈩癸笍</span>
           <span>{data.fallbackMessage}</span>
         </div>
       )}
@@ -2210,3 +3030,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
 }
 
 export default React.memo(GenericVideoNodeInner);
+
+
+
+

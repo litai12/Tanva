@@ -21,6 +21,12 @@ import { canvasToBlob, createImageBitmapLimited } from '@/utils/imageConcurrency
 import SmartImage from '../../ui/SmartImage';
 import { shallow } from 'zustand/shallow';
 import { pickLocaleText, useLocaleText } from '@/utils/localeText';
+import {
+  flowNodeControlField,
+  flowNodeMutedWellBackground,
+  flowNodeShellChrome,
+  useFlowNodeDarkTheme,
+} from './flowNodeDarkTheme';
 
 // 类型定义
 type SplitRectItem = {
@@ -1140,6 +1146,7 @@ function SplitRectPreview({
 
 function ImageSplitNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
+  const isFlowDark = useFlowNodeDarkTheme();
   const rf = useReactFlow();
   const updateNodeInternals = useUpdateNodeInternals();
   const edges = useStore((state: ReactFlowState) => state.edges);
@@ -1180,7 +1187,8 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
   const customGridCount = gridCols * gridRows;
   const isCustomGridValid = customGridCount >= MIN_OUTPUT_COUNT && customGridCount <= MAX_OUTPUT_COUNT;
 
-  const borderColor = selected ? '#2563eb' : '#e5e7eb';
+  const shell = flowNodeShellChrome(isFlowDark, !!selected);
+  const controlField = flowNodeControlField(isFlowDark);
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
 
   React.useEffect(() => {
@@ -2326,8 +2334,9 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
       width: boxW,
       minHeight: boxH,
       padding: 12,
-      background: '#fff',
-      border: `1px solid ${borderColor}`,
+      background: shell.background,
+      color: shell.color,
+      border: `1px solid ${shell.borderColor}`,
       borderRadius: 8,
       boxShadow,
       transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
@@ -2352,7 +2361,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
 
       {/* 标题栏 */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <div style={{ fontWeight: 600 }}>Image Split</div>
+        <div style={{ fontWeight: 600, color: shell.color }}>Image Split</div>
         <div style={{ display: 'flex', gap: 6 }}>
           <button
             onClick={handleGenerateImageNodes}
@@ -2408,7 +2417,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
 
       {/* 分割模式配置 */}
       <div className="nodrag nopan" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <label style={{ fontSize: 12, color: '#6b7280' }}>{lt('分割模式', 'Split mode')}</label>
+        <label style={{ fontSize: 12, color: isFlowDark ? '#9ca3af' : '#6b7280' }}>{lt('分割模式', 'Split mode')}</label>
         <select
           value={splitMode}
           onChange={(e) => handleSplitModeChange(normalizeSplitMode(e.target.value))}
@@ -2422,9 +2431,8 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
           style={{
             fontSize: 12,
             padding: '2px 6px',
-            border: '1px solid #e5e7eb',
             borderRadius: 6,
-            background: '#fff',
+            ...controlField,
           }}
         >
           <option value="smart">{lt('智能分割', 'Smart split')}</option>
@@ -2434,7 +2442,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
 
       {splitMode === 'customGrid' ? (
         <div className="nodrag nopan" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <label style={{ fontSize: 12, color: '#6b7280' }}>{lt('网格（列×行）', 'Grid (cols x rows)')}</label>
+          <label style={{ fontSize: 12, color: isFlowDark ? '#9ca3af' : '#6b7280' }}>{lt('网格（列×行）', 'Grid (cols x rows)')}</label>
           <input
             type="number"
             min={1}
@@ -2452,11 +2460,11 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
               width: 56,
               fontSize: 12,
               padding: '2px 6px',
-              border: '1px solid #e5e7eb',
-              borderRadius: 6
+              borderRadius: 6,
+              ...controlField,
             }}
           />
-          <span style={{ fontSize: 12, color: '#6b7280' }}>x</span>
+          <span style={{ fontSize: 12, color: isFlowDark ? '#9ca3af' : '#6b7280' }}>x</span>
           <input
             type="number"
             min={1}
@@ -2474,8 +2482,8 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
               width: 56,
               fontSize: 12,
               padding: '2px 6px',
-              border: '1px solid #e5e7eb',
-              borderRadius: 6
+              borderRadius: 6,
+              ...controlField,
             }}
           />
           <span style={{ fontSize: 11, color: isCustomGridValid ? '#9ca3af' : '#ef4444' }}>
@@ -2484,7 +2492,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
         </div>
       ) : (
         <div className="nodrag nopan" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <label style={{ fontSize: 12, color: '#6b7280' }}>{lt('输出端口', 'Output ports')}</label>
+          <label style={{ fontSize: 12, color: isFlowDark ? '#9ca3af' : '#6b7280' }}>{lt('输出端口', 'Output ports')}</label>
           <input
             type="number"
             min={MIN_OUTPUT_COUNT}
@@ -2502,8 +2510,8 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
               width: 60,
               fontSize: 12,
               padding: '2px 6px',
-              border: '1px solid #e5e7eb',
-              borderRadius: 6
+              borderRadius: 6,
+              ...controlField,
             }}
           />
           <span style={{ fontSize: 11, color: '#9ca3af' }}>(1-50)</span>
@@ -2512,7 +2520,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
 
       {/* 输入图片预览 */}
       <div style={{
-        background: '#f9fafb',
+        background: flowNodeMutedWellBackground(isFlowDark),
         borderRadius: 6,
         padding: 8,
         marginBottom: 8,
@@ -2547,7 +2555,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
       </div>
 
       {/* 状态显示 */}
-      <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>
+      <div style={{ fontSize: 12, color: isFlowDark ? '#9ca3af' : '#6b7280', marginBottom: 8 }}>
         {lt('状态', 'Status')}: {isProcessing
           ? lt('处理中...', 'Processing...')
           : data.status === 'failed'
@@ -2569,7 +2577,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
           minHeight: 80,
           maxHeight: 150,
           overflow: 'auto',
-          background: '#f0fdf4',
+          background: isFlowDark ? 'rgba(16,185,129,0.12)' : '#f0fdf4',
           borderRadius: 6,
           padding: 8,
           display: 'flex',

@@ -10,6 +10,9 @@ import { parseFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import { toRenderableImageSrc } from '@/utils/imageSource';
 import { useLocaleText } from '@/utils/localeText';
+import { useAIChatStore } from '@/stores/aiChatStore';
+import { flowImagePreviewWell, flowLetterboxBackground } from './flowNodeDarkTheme';
+import RunCreditBadge from './RunCreditBadge';
 
 type MidjourneyMode = 'FAST' | 'RELAX';
 type AdvancedMidjourneyType = 'midjourneyV7' | 'niji7';
@@ -95,6 +98,7 @@ type Props = {
     aspectRatio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9';
     mode?: MidjourneyMode;
     presetPrompt?: string;
+    creditsPerCall?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
     // Midjourney 特有的元数据
@@ -144,6 +148,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
   const accentColor = isNiji ? '#ec4899' : '#8b5cf6';
   const accentSoft = isNiji ? '#fdf2f8' : '#faf5ff';
   const accentBorder = isNiji ? '#f9a8d4' : '#e9d5ff';
+  const isDarkTheme = useAIChatStore((state) => state.chatTheme === 'black');
   const title = isAdvanced ? (isNiji ? 'Niji 7' : 'Midjourney V7') : 'Midjourney';
   const { status, error } = data;
   const rawFullValue = data.imageUrl || data.imageData;
@@ -357,34 +362,57 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
       .map((x) => x);
     const otherButtons = withMeta.filter((x) => x.group === 'other');
 
-    const buttonStyle: React.CSSProperties = {
-      fontSize: 11,
-      height: 26,
-      borderRadius: 6,
-      border: '1px solid #e5e7eb',
-      background: '#fff',
-      cursor: 'pointer',
-      transition: 'all 0.2s ease',
-      width: '100%',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      color: '#4b5563',
-      fontWeight: 500,
-    };
+    const actionPanelBg = isDarkTheme ? '#161616' : accentSoft;
+    const actionPanelBorder = isDarkTheme ? '#2f2f2f' : accentBorder;
+    const uvLabelColor = isDarkTheme ? '#a1a1aa' : '#9ca3af';
+    const accentHoverBg = isDarkTheme
+      ? (isNiji ? 'rgba(236,72,153,0.12)' : 'rgba(139,92,246,0.14)')
+      : accentSoft;
+
+    const buttonStyle: React.CSSProperties = isDarkTheme
+      ? {
+          fontSize: 11,
+          height: 26,
+          borderRadius: 6,
+          border: '1px solid #404040',
+          background: '#252525',
+          cursor: 'pointer',
+          transition: 'all 0.2s ease',
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#e5e7eb',
+          fontWeight: 500,
+        }
+      : {
+          fontSize: 11,
+          height: 26,
+          borderRadius: 6,
+          border: '1px solid #e5e7eb',
+          background: '#fff',
+          cursor: 'pointer',
+          transition: 'all 0.2s ease',
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#4b5563',
+          fontWeight: 500,
+        };
 
     const handleMouseEnter = (e: React.MouseEvent<HTMLButtonElement>) => {
       e.currentTarget.style.borderColor = accentColor;
       e.currentTarget.style.color = accentColor;
-      e.currentTarget.style.background = accentSoft;
+      e.currentTarget.style.background = accentHoverBg;
       e.currentTarget.style.transform = 'translateY(-1px)';
       e.currentTarget.style.boxShadow = `0 2px 4px ${accentColor}1a`;
     };
 
     const handleMouseLeave = (e: React.MouseEvent<HTMLButtonElement>) => {
-      e.currentTarget.style.borderColor = '#e5e7eb';
-      e.currentTarget.style.color = '#4b5563';
-      e.currentTarget.style.background = '#fff';
+      e.currentTarget.style.borderColor = isDarkTheme ? '#404040' : '#e5e7eb';
+      e.currentTarget.style.color = isDarkTheme ? '#e5e7eb' : '#4b5563';
+      e.currentTarget.style.background = isDarkTheme ? '#252525' : '#fff';
       e.currentTarget.style.transform = 'none';
       e.currentTarget.style.boxShadow = 'none';
     };
@@ -395,9 +423,9 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
         style={{
           marginTop: 10,
           padding: '10px 12px',
-          background: accentSoft,
+          background: actionPanelBg,
           borderRadius: 8,
-          border: `1px solid ${accentBorder}`,
+          border: `1px solid ${actionPanelBorder}`,
         }}
       >
         <div style={{ fontSize: 11, color: accentColor, marginBottom: 8, fontWeight: 600 }}>
@@ -406,7 +434,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {upscaleButtons.length > 0 && (
             <div style={{ display: 'grid', gridTemplateColumns: '20px 1fr', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600 }}>U</span>
+              <span style={{ fontSize: 11, color: uvLabelColor, fontWeight: 600 }}>U</span>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
                 {upscaleButtons.map(({ btn, displayLabel }) => (
                   <button
@@ -430,7 +458,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
           
           {variationButtons.length > 0 && (
             <div style={{ display: 'grid', gridTemplateColumns: '20px 1fr', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600 }}>V</span>
+              <span style={{ fontSize: 11, color: uvLabelColor, fontWeight: 600 }}>V</span>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
                 {variationButtons.map(({ btn, displayLabel }) => (
                   <button
@@ -459,7 +487,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
               gap: 6,
               marginTop: 2,
               paddingTop: 8,
-              borderTop: `1px dashed ${accentBorder}`,
+              borderTop: `1px dashed ${isDarkTheme ? '#404040' : accentBorder}`,
               justifyContent: 'center'
             }}>
               {otherButtons.map(({ btn, displayLabel }) => (
@@ -543,7 +571,10 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <Sparkles size={16} color={accentColor} />
-            <span style={{ fontWeight: 600, color: accentColor }}>{title}</span>
+            <span style={{ fontWeight: 600, color: accentColor }}>
+              {title}
+              <RunCreditBadge credits={data.creditsPerCall} inline />
+            </span>
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
             <button
@@ -856,12 +887,14 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
                 style={{
                   width: '100%',
                   aspectRatio: '1 / 1',
-                  background: accentSoft,
                   borderRadius: 6,
                   overflow: 'hidden',
-                  border: `1px solid ${accentBorder}`,
                   cursor: 'pointer',
                   position: 'relative',
+                  ...flowImagePreviewWell(isDarkTheme, {
+                    background: accentSoft,
+                    border: `1px solid ${accentBorder}`,
+                  }),
                 }}
                 title={lt('双击预览', 'Double click to preview')}
               >
@@ -872,7 +905,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
                     width: '100%',
                     height: '100%',
                     objectFit: 'contain',
-                    background: '#fff',
+                    background: flowLetterboxBackground(isDarkTheme),
                   }}
                 />
                 {/* 图片序号标签 */}
@@ -900,13 +933,15 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
             style={{
               width: '100%',
               height: 180,
-              background: accentSoft,
               borderRadius: 8,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               overflow: 'hidden',
-              border: `1px solid ${accentBorder}`,
+              ...flowImagePreviewWell(isDarkTheme, {
+                background: accentSoft,
+                border: `1px solid ${accentBorder}`,
+              }),
             }}
             title={displaySrc ? lt('双击预览', 'Double click to preview') : undefined}
           >
@@ -918,7 +953,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
                   width: '100%',
                   height: '100%',
                   objectFit: 'contain',
-                  background: '#fff',
+                  background: flowLetterboxBackground(isDarkTheme),
                 }}
               />
             ) : (
@@ -1100,13 +1135,15 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
         style={{
           width: '100%',
           height: 180,
-          background: '#faf5ff',
           borderRadius: 8,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           overflow: 'hidden',
-          border: '1px solid #e9d5ff',
+          ...flowImagePreviewWell(isDarkTheme, {
+            background: '#faf5ff',
+            border: '1px solid #e9d5ff',
+          }),
         }}
         title={displaySrc ? lt('双击预览', 'Double click to preview') : undefined}
       >
@@ -1118,7 +1155,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
               width: '100%',
               height: '100%',
               objectFit: 'contain',
-              background: '#fff',
+              background: flowLetterboxBackground(isDarkTheme),
             }}
           />
         ) : (
@@ -1297,4 +1334,3 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
 }
 
 export default React.memo(MidjourneyNodeInner);
-

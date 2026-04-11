@@ -22,6 +22,8 @@ export type WorkflowHistoryEntry = {
   version: number;
   nodeCount: number;
   edgeCount: number;
+  restoredFromUpdatedAt?: string | null;
+  restoredFromVersion?: number | null;
   createdAt: string;
 };
 
@@ -125,7 +127,15 @@ export const projectApi = {
   },
   async saveContent(
     id: string,
-    payload: { content: ProjectContentSnapshot; version?: number; createWorkflowHistory?: boolean }
+    payload: {
+      content: ProjectContentSnapshot;
+      version?: number;
+      createWorkflowHistory?: boolean;
+      workflowHistoryMeta?: {
+        restoredFromUpdatedAt?: string;
+        restoredFromVersion?: number;
+      };
+    }
   ): Promise<{
     version: number;
     updatedAt: string | null;
@@ -138,6 +148,7 @@ export const projectApi = {
         content: payload.content,
         version: payload.version,
         createWorkflowHistory: payload.createWorkflowHistory,
+        workflowHistoryMeta: payload.workflowHistoryMeta,
       }),
     });
     const data = await json<{

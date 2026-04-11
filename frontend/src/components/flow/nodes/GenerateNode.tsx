@@ -11,7 +11,10 @@ import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import { useAIChatStore } from "@/stores/aiChatStore";
 import { useLocaleText } from "@/utils/localeText";
+import { flowImagePreviewWell, flowLetterboxBackground } from "./flowNodeDarkTheme";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "../../ui/dropdown-menu";
+import RunCreditBadge from "./RunCreditBadge";
+import NodeSelect from "./NodeSelect";
 
 type Props = {
   id: string;
@@ -38,6 +41,7 @@ type Props = {
       | "1:8";
     imageSize?: "0.5K" | "1K" | "2K" | "4K";
     presetPrompt?: string;
+    creditsPerCall?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
   };
@@ -435,6 +439,8 @@ function GenerateNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const { status, error } = data;
   const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const chatTheme = useAIChatStore((state) => state.chatTheme);
+  const isFlowDark = chatTheme === "black";
   const setAIProvider = useAIChatStore((state) => state.setAIProvider);
   const rawFullValue = data.imageUrl || data.imageData;
   const fullAssetId = React.useMemo(() => parseFlowImageAssetRef(rawFullValue), [rawFullValue]);
@@ -605,21 +611,25 @@ function GenerateNodeInner({ id, data, selected }: Props) {
     [currentProviderValue, providerToggleOptions]
   );
 
-  const showAspectRatioSelector = providerMode !== "fast";
-  const showImageSizeSelector = providerMode === "pro" || providerMode === "ultra";
+  const showAspectRatioSelector = providerMode !== "other";
+  const showImageSizeSelector = providerMode !== "other";
   const showSizeControls = showAspectRatioSelector || showImageSizeSelector;
   const showTextOutputHandle = providerMode === "ultra";
 
   const imageSizeOptions: Array<{ label: string; value: string }> = React.useMemo(() => {
+    const autoOption = { label: lt("自动", "Auto"), value: "" };
     const base = [
-      { label: lt("自动", "Auto"), value: "" },
+      autoOption,
       { label: "1K", value: "1K" },
       { label: "2K", value: "2K" },
       { label: "4K", value: "4K" },
     ];
+    if (providerMode === "fast") {
+      return [autoOption, { label: "1K", value: "1K" }];
+    }
     if (providerMode === "ultra") {
       return [
-        { label: lt("自动", "Auto"), value: "" },
+        autoOption,
         { label: "0.5K", value: "0.5K" },
         { label: "1K", value: "1K" },
         { label: "2K", value: "2K" },
@@ -730,20 +740,34 @@ function GenerateNodeInner({ id, data, selected }: Props) {
                   event.preventDefault();
                   event.stopPropagation();
                 }}
-                className='nodrag nopan'
+                className='nodrag nopan tanva-flow-provider-mode-badge'
                 title={lt("切换模型模式", "Switch model mode")}
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
                   justifyContent: "center",
                   padding: "1px 8px",
-                  borderRadius: 999,
+                  borderRadius: 50,
                   fontSize: 11,
                   fontWeight: 600,
-                  color: currentProviderValue === "banana-3.1" ? "#0f172a" : "#475569",
-                  background: currentProviderValue === "banana-3.1" ? "#e2e8f0" : "#f1f5f9",
-                  border: "1px solid #e2e8f0",
                   cursor: "pointer",
+                  ...(chatTheme === "black"
+                    ? {
+                        color: "#ffffff",
+                        background: "#343434",
+                        border: "1px solid #4a4a4a",
+                      }
+                    : {
+                        color:
+                          currentProviderValue === "banana-3.1"
+                            ? "#0f172a"
+                            : "#475569",
+                        background:
+                          currentProviderValue === "banana-3.1"
+                            ? "#e2e8f0"
+                            : "#f1f5f9",
+                        border: "1px solid #e2e8f0",
+                      }),
                 }}
               >
                 {currentProviderOption.label}
@@ -785,21 +809,47 @@ function GenerateNodeInner({ id, data, selected }: Props) {
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button
             onClick={onRun}
             disabled={status === "running"}
+            className='run-btn-with-credit'
             style={{
               fontSize: 12,
-              padding: "4px 8px",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxSizing: "border-box",
+              minHeight: 30,
+              padding: "0 10px",
               background: status === "running" ? "#e5e7eb" : "#111827",
               color: "#fff",
               borderRadius: 6,
               border: "none",
               cursor: status === "running" ? "not-allowed" : "pointer",
+              gap: 6,
             }}
+            title={
+              status === "running"
+                ? lt("生成中...", "Generating...")
+                : data.creditsPerCall
+                ? `${lt("本次消耗", "Cost")}: ${data.creditsPerCall} ${lt(
+                    "积分",
+                    "credits"
+                  )}`
+                : lt("运行生成", "Run generation")
+            }
           >
-            {status === "running" ? "Running..." : "Run"}
+            {data.creditsPerCall ? (
+              <>
+                <span className='run-text-trigger'>
+                  {status === "running" ? "Running..." : "Run"}
+                </span>
+                <RunCreditBadge credits={data.creditsPerCall} runButton />
+              </>
+            ) : (
+              <span>{status === "running" ? "Running..." : "Run"}</span>
+            )}
           </button>
           <button
             onClick={onSend}
@@ -807,7 +857,13 @@ function GenerateNodeInner({ id, data, selected }: Props) {
             title={!(data.imageData || data.imageUrl) ? lt("无可发送的图像", "No image to send") : lt("发送到画布", "Send to canvas")}
             style={{
               fontSize: 12,
-              padding: "4px 8px",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxSizing: "border-box",
+              width: 34,
+              height: 30,
+              padding: 0,
               background: !(data.imageData || data.imageUrl) ? "#e5e7eb" : "#111827",
               color: "#fff",
               borderRadius: 6,
@@ -941,33 +997,20 @@ function GenerateNodeInner({ id, data, selected }: Props) {
                 color: "#6b7280",
               }}
             >
-              {lt("分辨率", "Resolution")}
-              <select
-                value={imageSizeValue}
-                onChange={(e) => updateImageSize(e.target.value)}
-                onPointerDown={stopNodeDrag}
-                onPointerDownCapture={stopNodeDrag}
-                onMouseDown={stopNodeDrag}
-                onMouseDownCapture={stopNodeDrag}
-                onClick={stopNodeDrag}
-                onClickCapture={stopNodeDrag}
-                className='nodrag nopan'
-                style={{
-                  fontSize: 12,
-                  padding: "2px 6px",
-                  borderRadius: 6,
-                  border: "1px solid #e5e7eb",
-                  background: "#fff",
-                  color: "#111827",
-                }}
-              >
-                {imageSizeOptions.map((opt) => (
-                  <option key={opt.value || "auto"} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+	              {lt("分辨率", "Resolution")}
+	              <NodeSelect
+	                value={imageSizeValue}
+	                options={imageSizeOptions.map((opt) => ({
+	                  value: opt.value,
+	                  label: opt.label,
+	                }))}
+	                onChange={updateImageSize}
+	                menuLabel={lt("分辨率", "Resolution")}
+	                title={lt("选择分辨率", "Select resolution")}
+	                className='min-w-[96px]'
+	                contentClassName='min-w-[140px]'
+	              />
+	            </label>
           )}
         </div>
       )}
@@ -976,13 +1019,15 @@ function GenerateNodeInner({ id, data, selected }: Props) {
         style={{
           width: "100%",
           height: 160,
-          background: "#fff",
           borderRadius: 6,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           overflow: "hidden",
-          border: "1px solid #eef0f2",
+          ...flowImagePreviewWell(isFlowDark, {
+            background: "#fff",
+            border: "1px solid #eef0f2",
+          }),
         }}
         title={displaySrc ? lt("双击预览", "Double click to preview") : undefined}
       >
@@ -994,7 +1039,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
               width: "100%",
               height: "100%",
               objectFit: "contain",
-              background: "#fff",
+              background: flowLetterboxBackground(isFlowDark),
             }}
           />
         ) : (

@@ -16,6 +16,13 @@ import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import { useLocaleText } from "@/utils/localeText";
+import {
+  flowNodeControlField,
+  flowNodeMutedWellBackground,
+  flowNodeShellChrome,
+  useFlowNodeDarkTheme,
+} from "./flowNodeDarkTheme";
+import RunCreditBadge from "./RunCreditBadge";
 
 type Props = {
   id: string;
@@ -38,6 +45,7 @@ type Props = {
     lensId?: string;
     boxW?: number;
     boxH?: number;
+    creditsPerCall?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
   };
@@ -317,6 +325,9 @@ const lensFromZoom = (zoom: number): Preset => {
 
 function ViewAngleNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
+  const isFlowDark = useFlowNodeDarkTheme();
+  const shell = flowNodeShellChrome(isFlowDark, !!selected);
+  const controlField = flowNodeControlField(isFlowDark);
 
   const patchNodeData = React.useCallback(
     (patch: Record<string, unknown>) => {
@@ -568,6 +579,7 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
   ]);
 
   const rendererContainerRef = React.useRef<HTMLDivElement | null>(null);
+  const previewGridRef = React.useRef<THREE.GridHelper | null>(null);
   const sceneRef = React.useRef<THREE.Scene | null>(null);
   const rendererRef = React.useRef<THREE.WebGLRenderer | null>(null);
   const previewCameraRef = React.useRef<THREE.PerspectiveCamera | null>(null);
@@ -652,6 +664,7 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
     const grid = new THREE.GridHelper(8, 24, "#93c5fd", "#dbeafe");
     grid.position.y = -1.2;
     scene.add(grid);
+    previewGridRef.current = grid;
 
     const root = new THREE.Group();
     scene.add(root);
@@ -742,6 +755,8 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
         textureRef.current = null;
       }
 
+      previewGridRef.current = null;
+
       if (sceneRef.current) {
         sceneRef.current.traverse((obj: any) => {
           if (obj.isMesh) {
@@ -780,6 +795,29 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
       subjectMeshRef.current = null;
     };
   }, [requestRender, syncRendererSize]);
+
+  React.useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+
+    scene.background = new THREE.Color(isFlowDark ? "#252525" : "#f8fafc");
+
+    const existing = previewGridRef.current;
+    if (existing) {
+      scene.remove(existing);
+      existing.dispose();
+      previewGridRef.current = null;
+    }
+
+    const c1 = isFlowDark ? "#525252" : "#93c5fd";
+    const c2 = isFlowDark ? "#404040" : "#dbeafe";
+    const grid = new THREE.GridHelper(8, 24, c1, c2);
+    grid.position.y = -1.2;
+    scene.add(grid);
+    previewGridRef.current = grid;
+
+    requestRender();
+  }, [isFlowDark, requestRender]);
 
   React.useEffect(() => {
     const root = rootGroupRef.current;
@@ -1064,7 +1102,6 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
     }
   }, [displayPrompt]);
 
-  const borderColor = selected ? "#2563eb" : "#e5e7eb";
   const boxShadow = selected
     ? "0 0 0 2px rgba(37,99,235,0.12)"
     : "0 1px 2px rgba(0,0,0,0.04)";
@@ -1073,18 +1110,57 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
   const boxH = data.boxH || FALLBACK_SIZE.height;
   const status = data.status || "idle";
 
+  const panelBorder = isFlowDark ? "#333333" : "#e5e7eb";
+  const labelMuted = isFlowDark ? "#9ca3af" : "#6b7280";
+  const mutedHeaderBg = flowNodeMutedWellBackground(isFlowDark);
+  const viewportShellBg = isFlowDark ? "#1a1a1a" : "#f8fafc";
+  const secondaryBtn = isFlowDark
+    ? { background: "#2a2a2a", border: "1px solid #404040", color: "#e5e7eb" }
+    : { background: "#ffffff", border: "1px solid #d1d5db", color: "#374151" };
+  const disabledRunBg = isFlowDark ? "#333333" : "#e5e7eb";
+  const hintChip = isFlowDark
+    ? {
+        color: "#93c5fd",
+        background: "rgba(30,58,138,0.45)",
+        border: "1px solid rgba(96,165,250,0.5)",
+      }
+    : {
+        color: "#1e40af",
+        background: "rgba(239,246,255,0.94)",
+        border: "1px solid rgba(147,197,253,0.9)",
+      };
+  const promptPanel = isFlowDark
+    ? {
+        border: "1px solid rgba(52,211,153,0.35)",
+        background: "rgba(6,78,59,0.35)",
+        text: "#6ee7b7",
+        copyBorder: "1px solid rgba(52,211,153,0.45)",
+        copyBg: "#2a2a2a",
+        copyColor: "#6ee7b7",
+        copyColorActive: "#34d399",
+      }
+    : {
+        border: "1px solid rgba(16,185,129,0.28)",
+        background: "#ecfdf5",
+        text: "#047857",
+        copyBorder: "1px solid #a7f3d0",
+        copyBg: "#ffffff",
+        copyColor: "#047857",
+        copyColorActive: "#059669",
+      };
+
   return (
     <div
       style={{
         width: boxW,
         height: boxH,
         padding: 10,
-        background: "#ffffff",
-        border: `1px solid ${borderColor}`,
+        background: shell.background,
+        border: `1px solid ${shell.borderColor}`,
         borderRadius: 10,
         boxShadow,
         transition: "border-color 0.15s ease, box-shadow 0.15s ease",
-        color: "#111827",
+        color: shell.color,
         display: "flex",
         flexDirection: "column",
         gap: 8,
@@ -1118,10 +1194,10 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
         }}
       >
         <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#111827" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: shell.color }}>
             {lt("视角变换", "View Angle")}
           </div>
-          <div style={{ fontSize: 11, color: "#6b7280" }}>
+          <div style={{ fontSize: 11, color: labelMuted }}>
             {lt("3D 控制生成新机位", "3D camera driven re-view")}
           </div>
         </div>
@@ -1135,9 +1211,9 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
               width: 28,
               height: 26,
               borderRadius: 6,
-              border: "1px solid #d1d5db",
-              background: "#ffffff",
-              color: "#374151",
+              border: secondaryBtn.border,
+              background: secondaryBtn.background,
+              color: secondaryBtn.color,
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
@@ -1157,7 +1233,7 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
               border: "none",
               background:
                 !hasImageConnection || status === "running"
-                  ? "#e5e7eb"
+                  ? disabledRunBg
                   : "#111827",
               color: "#ffffff",
               fontSize: 12,
@@ -1171,6 +1247,7 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
               ? lt("生成中...", "Running...")
               : lt("渲染", "Render")}
           </button>
+          <RunCreditBadge credits={data.creditsPerCall} compact />
           <button
             onClick={onSend}
             disabled={!resultFullSrc}
@@ -1181,7 +1258,7 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
               height: 26,
               borderRadius: 6,
               border: "none",
-              background: resultFullSrc ? "#111827" : "#e5e7eb",
+              background: resultFullSrc ? "#111827" : disabledRunBg,
               color: resultFullSrc ? "#ffffff" : "#9ca3af",
               display: "inline-flex",
               alignItems: "center",
@@ -1203,10 +1280,10 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
       >
         <div
           style={{
-            border: "1px solid #e5e7eb",
+            border: `1px solid ${panelBorder}`,
             borderRadius: 8,
             overflow: "hidden",
-            background: "#ffffff",
+            background: shell.background,
           }}
         >
           <div
@@ -1214,10 +1291,10 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
               fontSize: 10,
               letterSpacing: 0.4,
               textTransform: "uppercase",
-              color: "#6b7280",
+              color: labelMuted,
               padding: "6px 8px",
-              borderBottom: "1px solid #e5e7eb",
-              background: "#f9fafb",
+              borderBottom: `1px solid ${panelBorder}`,
+              background: mutedHeaderBg,
             }}
           >
             {lt("源图", "Source")}
@@ -1228,7 +1305,7 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              background: "#ffffff",
+              background: flowNodeMutedWellBackground(isFlowDark),
             }}
           >
             {sourcePreviewSrc ? (
@@ -1238,7 +1315,7 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
                 style={{ width: "100%", height: "100%", objectFit: "cover" }}
               />
             ) : (
-              <span style={{ fontSize: 11, color: "#6b7280" }}>
+              <span style={{ fontSize: 11, color: labelMuted }}>
                 {lt("连接图片输入", "Connect image input")}
               </span>
             )}
@@ -1247,10 +1324,10 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
 
         <div
           style={{
-            border: "1px solid #e5e7eb",
+            border: `1px solid ${panelBorder}`,
             borderRadius: 8,
             overflow: "hidden",
-            background: "#ffffff",
+            background: shell.background,
           }}
         >
           <div
@@ -1258,10 +1335,10 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
               fontSize: 10,
               letterSpacing: 0.4,
               textTransform: "uppercase",
-              color: "#6b7280",
+              color: labelMuted,
               padding: "6px 8px",
-              borderBottom: "1px solid #e5e7eb",
-              background: "#f9fafb",
+              borderBottom: `1px solid ${panelBorder}`,
+              background: mutedHeaderBg,
             }}
           >
             {lt("结果", "Result")}
@@ -1272,7 +1349,7 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              background: "#ffffff",
+              background: flowNodeMutedWellBackground(isFlowDark),
             }}
           >
             {resultDisplaySrc ? (
@@ -1282,7 +1359,7 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
                 style={{ width: "100%", height: "100%", objectFit: "cover" }}
               />
             ) : (
-              <span style={{ fontSize: 11, color: "#6b7280" }}>
+              <span style={{ fontSize: 11, color: labelMuted }}>
                 {lt("尚未生成", "No result")}
               </span>
             )}
@@ -1295,10 +1372,10 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
         style={{
           position: "relative",
           height: 198,
-          border: "1px solid #e5e7eb",
+          border: `1px solid ${panelBorder}`,
           borderRadius: 8,
           overflow: "hidden",
-          background: "#f8fafc",
+          background: viewportShellBg,
           cursor: dragRef.current
             ? dragRef.current.mode === "scene"
               ? "grabbing"
@@ -1326,9 +1403,9 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
             top: 8,
             right: 8,
             fontSize: 10,
-            color: "#1e40af",
-            background: "rgba(239,246,255,0.94)",
-            border: "1px solid rgba(147,197,253,0.9)",
+            color: hintChip.color,
+            background: hintChip.background,
+            border: hintChip.border,
             borderRadius: 999,
             padding: "3px 8px",
           }}
@@ -1345,7 +1422,7 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
         }}
       >
         <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-          <span style={{ fontSize: 10, color: "#6b7280" }}>H</span>
+          <span style={{ fontSize: 10, color: labelMuted }}>H</span>
           <select
             value={directionPreset.id}
             onChange={(event) => updateDirection(event.target.value)}
@@ -1353,11 +1430,9 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
             style={{
               height: 28,
               borderRadius: 6,
-              border: "1px solid #d1d5db",
-              background: "#ffffff",
-              color: "#111827",
               fontSize: 12,
               padding: "0 8px",
+              ...controlField,
             }}
           >
             {DIRECTION_PRESETS.map((item) => (
@@ -1369,7 +1444,7 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
         </label>
 
         <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-          <span style={{ fontSize: 10, color: "#6b7280" }}>V</span>
+          <span style={{ fontSize: 10, color: labelMuted }}>V</span>
           <select
             value={verticalPreset.id}
             onChange={(event) => updateVertical(event.target.value)}
@@ -1377,11 +1452,9 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
             style={{
               height: 28,
               borderRadius: 6,
-              border: "1px solid #d1d5db",
-              background: "#ffffff",
-              color: "#111827",
               fontSize: 12,
               padding: "0 8px",
+              ...controlField,
             }}
           >
             {VERTICAL_PRESETS.map((item) => (
@@ -1393,7 +1466,7 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
         </label>
 
         <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-          <span style={{ fontSize: 10, color: "#6b7280" }}>Z</span>
+          <span style={{ fontSize: 10, color: labelMuted }}>Z</span>
           <select
             value={shotPreset.id}
             onChange={(event) => updateShot(event.target.value)}
@@ -1401,11 +1474,9 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
             style={{
               height: 28,
               borderRadius: 6,
-              border: "1px solid #d1d5db",
-              background: "#ffffff",
-              color: "#111827",
               fontSize: 12,
               padding: "0 8px",
+              ...controlField,
             }}
           >
             {SHOT_PRESETS.map((item) => (
@@ -1417,7 +1488,7 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
         </label>
 
         <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-          <span style={{ fontSize: 10, color: "#6b7280" }}>
+          <span style={{ fontSize: 10, color: labelMuted }}>
             {lt("镜头", "Lens")}
           </span>
           <select
@@ -1427,11 +1498,9 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
             style={{
               height: 28,
               borderRadius: 6,
-              border: "1px solid #d1d5db",
-              background: "#ffffff",
-              color: "#111827",
               fontSize: 12,
               padding: "0 8px",
+              ...controlField,
             }}
           >
             {LENS_PRESETS.map((item) => (
@@ -1453,53 +1522,53 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
         <div
           style={{
             borderRadius: 6,
-            border: "1px solid #e5e7eb",
-            background: "#f9fafb",
+            border: `1px solid ${panelBorder}`,
+            background: mutedHeaderBg,
             padding: "5px 6px",
           }}
         >
-          <div style={{ fontSize: 10, color: "#6b7280" }}>AZ</div>
+          <div style={{ fontSize: 10, color: labelMuted }}>AZ</div>
           <div style={{ fontSize: 12, fontWeight: 600 }}>{toFixedNumber(controlValues.azimuth)}°</div>
         </div>
         <div
           style={{
             borderRadius: 6,
-            border: "1px solid #e5e7eb",
-            background: "#f9fafb",
+            border: `1px solid ${panelBorder}`,
+            background: mutedHeaderBg,
             padding: "5px 6px",
           }}
         >
-          <div style={{ fontSize: 10, color: "#6b7280" }}>EL</div>
+          <div style={{ fontSize: 10, color: labelMuted }}>EL</div>
           <div style={{ fontSize: 12, fontWeight: 600 }}>{toFixedNumber(controlValues.elevation)}°</div>
         </div>
         <div
           style={{
             borderRadius: 6,
-            border: "1px solid #e5e7eb",
-            background: "#f9fafb",
+            border: `1px solid ${panelBorder}`,
+            background: mutedHeaderBg,
             padding: "5px 6px",
           }}
         >
-          <div style={{ fontSize: 10, color: "#6b7280" }}>{lt("距离", "Dist")}</div>
+          <div style={{ fontSize: 10, color: labelMuted }}>{lt("距离", "Dist")}</div>
           <div style={{ fontSize: 12, fontWeight: 600 }}>{toFixedNumber(controlValues.distance)}</div>
         </div>
         <div
           style={{
             borderRadius: 6,
-            border: "1px solid #e5e7eb",
-            background: "#f9fafb",
+            border: `1px solid ${panelBorder}`,
+            background: mutedHeaderBg,
             padding: "5px 6px",
           }}
         >
-          <div style={{ fontSize: 10, color: "#6b7280" }}>{lt("缩放", "Zoom")}</div>
+          <div style={{ fontSize: 10, color: labelMuted }}>{lt("缩放", "Zoom")}</div>
           <div style={{ fontSize: 12, fontWeight: 600 }}>{toFixedNumber(controlValues.zoom)}</div>
         </div>
       </div>
 
       <div
         style={{
-          border: "1px solid rgba(16,185,129,0.28)",
-          background: "#ecfdf5",
+          border: promptPanel.border,
+          background: promptPanel.background,
           borderRadius: 7,
           padding: 7,
           display: "flex",
@@ -1510,7 +1579,7 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
         <div
           style={{
             fontSize: 12,
-            color: "#047857",
+            color: promptPanel.text,
             lineHeight: 1.35,
             flex: 1,
             minWidth: 0,
@@ -1527,9 +1596,9 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
             width: 28,
             height: 26,
             borderRadius: 6,
-            border: "1px solid #a7f3d0",
-            background: "#ffffff",
-            color: copied ? "#059669" : "#047857",
+            border: promptPanel.copyBorder,
+            background: promptPanel.copyBg,
+            color: copied ? promptPanel.copyColorActive : promptPanel.copyColor,
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
@@ -1549,11 +1618,9 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
         style={{
           height: 30,
           borderRadius: 6,
-          border: "1px solid #d1d5db",
-          background: "#ffffff",
-          color: "#111827",
           fontSize: 12,
           padding: "0 8px",
+          ...controlField,
         }}
       />
 

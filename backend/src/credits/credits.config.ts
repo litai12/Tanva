@@ -235,8 +235,34 @@ export const CREDIT_PRICING_CONFIG = {
   'kling-2.6-video': {
     serviceName: '可灵 Kling 2.6 视频',
     provider: 'kling',
-    creditsPerCall: 500,
+    creditsPerCall: 150,
     description: '使用可灵 Kling 2.6 生成视频',
+    dynamicPricing: {
+      noSound: {
+        std: { '5': 150, '10': 300 },
+        pro: { '5': 300, '10': 500 },
+      },
+      withSound: {
+        std: { '5': 500, '10': 1000 },
+        pro: { '5': 600, '10': 1200 },
+      },
+    },
+  },
+  'kling-3.0-video': {
+    serviceName: '可灵 Kling 3.0 视频',
+    provider: 'kling',
+    creditsPerCall: 300,
+    description: '使用可灵 Kling 3.0 生成视频',
+    dynamicPricing: {
+      noSound: {
+        std: { '5': 300, '10': 600 },
+        pro: { '5': 400, '10': 800 },
+      },
+      withSound: {
+        std: { '5': 450, '10': 900 },
+        pro: { '5': 600, '10': 1200 },
+      },
+    },
   },
   'kling-o3-video': {
     serviceName: '可灵 Kling O3 视频',
@@ -299,12 +325,7 @@ export const CREDIT_PRICING_CONFIG = {
   },
 } as const;
 
-export type ServiceType = keyof typeof CREDIT_PRICING_CONFIG;
-
-// 默认新用户赠送积分
-export const DEFAULT_NEW_USER_CREDITS = 500;
-// 被邀请用户注册额外赠送积分
-export const INVITED_NEW_USER_BONUS_CREDITS = 500;
+export type ServiceType = string;
 
 // 每日登录奖励积分
 export const DAILY_LOGIN_REWARD_CREDITS = 50;

@@ -20,21 +20,6 @@ export interface NodeConfig {
   metadata?: Record<string, any>;
 }
 
-const buildVodNodeMetadata = (
-  base: Record<string, any>,
-  vod: Record<string, any>,
-  options?: {
-    nodeKind?: string;
-    upstreamDomain?: string;
-  }
-): Record<string, any> => ({
-  ...base,
-  nodeKind: options?.nodeKind || "vod_video_generation",
-  routeStrategy: "model_management_v2",
-  upstreamDomain: options?.upstreamDomain || "vod.tencentcloudapi.com",
-  vod,
-});
-
 // 缓存配置
 let cachedConfigs: NodeConfig[] | null = null;
 let cacheTimestamp = 0;
@@ -143,49 +128,8 @@ function getDefaultConfigs(): NodeConfig[] {
     { nodeKey: "midjourney", nameZh: "Midjourney", nameEn: "Midjourney", category: "image", status: "normal", sortOrder: 16, creditsPerCall: 50 },
     { nodeKey: "nano2", nameZh: "Nano2生成", nameEn: "Nano2", category: "image", status: "normal", sortOrder: 17, creditsPerCall: 30 },
 
-    // 视频生成节点
-    // { nodeKey: "klingVideo", nameZh: "Kling视频生成", nameEn: "Kling", category: "video", status: "maintenance", sortOrder: 20, creditsPerCall: 600 },
-    { nodeKey: "kling26Video", nameZh: "Kling 2.6视频生成", nameEn: "Kling 2.6", category: "video", status: "normal", sortOrder: 21, creditsPerCall: 600, metadata: buildVodNodeMetadata({ type: "kling26Video", provider: "kling", modelKeys: ["kling-2.6"], supportedModels: ["kling-v2-6"], defaultData: { provider: "kling", klingModel: "kling-v2-6", mode: "std", sound: true, audioUrls: [], clipDuration: 5 } }, { label: "VOD Kling 2.6", modelName: "Kling", modelVersion: "2.6", outputConfig: { aspectRatios: ["16:9", "9:16", "1:1"], durations: [5, 10], resolutions: ["720P", "1080P"], audioGeneration: true }, inputModes: ["text", "image", "start_end"], notes: ["Kling 2.6 首尾帧模式仅建议在静音场景下使用"] }) },
-    { nodeKey: "kling30Video", nameZh: "Kling 3.0视频生成", nameEn: "Kling 3.0", category: "video", status: "normal", sortOrder: 22, creditsPerCall: 600, metadata: buildVodNodeMetadata({ type: "klingVideo", provider: "kling-o3", modelKeys: ["kling-3.0"], supportedModels: ["kling-v3-0"], defaultData: { provider: "kling-o3", klingModel: "kling-v3-0", mode: "std", sound: true, audioUrls: [], clipDuration: 5 } }, { label: "VOD Kling 3.0", modelName: "Kling", modelVersion: "3.0", outputConfig: { aspectRatios: ["16:9", "9:16", "1:1"], durations: [5, 10], resolutions: ["720P", "1080P"], audioGeneration: true }, inputModes: ["text", "image"], notes: ["该节点参数按腾讯 VOD AIGC 文档约束展示"] }) },
-    {
-      nodeKey: "klingO1Video", nameZh: "Kling 3.0-Omni视频生成", nameEn: "Kling 3.0-Omni", category: "video", status: "normal", sortOrder: 23, creditsPerCall: 1600,
-      metadata: buildVodNodeMetadata({ type: "klingO1Video", provider: "kling-o3", modelKeys: ["kling-o3"], supportedModels: ["kling-o3"], defaultData: { provider: "kling-o3", mode: "std", clipDuration: 5 } }, { label: "VOD Kling 3.0-Omni", modelName: "Kling", modelVersion: "3.0-Omni", outputConfig: { aspectRatios: ["16:9", "9:16", "1:1"], durations: [3, 4, 5, 6, 7, 8, 9, 10], resolutions: ["720P", "1080P"], audioGeneration: true }, inputModes: ["text", "image", "reference_video"], notes: ["当前接入优先覆盖文生视频和图片参考模式"] })
-    },
-    {
-      nodeKey: "viduVideo", nameZh: "Vidu Q2视频生成", nameEn: "Vidu Q2", category: "video", status: "normal", sortOrder: 24, creditsPerCall: 600,
-      metadata: buildVodNodeMetadata({ type: "viduVideo", provider: "vidu", modelKeys: ["vidu-q2"], supportedModels: ["q2"], defaultData: { provider: "vidu", viduModel: "q2", resolution: "720p", clipDuration: 5 } }, { label: "VOD Vidu Q2", modelName: "Vidu", modelVersion: "q2", outputConfig: { aspectRatios: ["16:9", "9:16", "3:4", "4:3", "1:1"], durations: [1, 2, 3, 4, 5, 6, 7, 8], resolutions: ["540P", "720P", "1080P"] }, inputModes: ["text", "image"] })
-    },
-    {
-      nodeKey: "viduQ2TurboVideo", nameZh: "Vidu Q2-Turbo视频生成", nameEn: "Vidu Q2-Turbo", category: "video", status: "normal", sortOrder: 25, creditsPerCall: 600,
-      metadata: buildVodNodeMetadata({ type: "viduVideo", provider: "vidu", modelKeys: ["vidu-q2-turbo"], supportedModels: ["q2-turbo"], defaultData: { provider: "vidu", viduModel: "q2-turbo", resolution: "720p", clipDuration: 5 } }, { label: "VOD Vidu Q2-Turbo", modelName: "Vidu", modelVersion: "q2-turbo", outputConfig: { aspectRatios: ["16:9", "9:16", "3:4", "4:3", "1:1"], durations: [1, 2, 3, 4, 5, 6, 7, 8], resolutions: ["540P", "720P", "1080P"] }, inputModes: ["text", "image", "start_end"], notes: ["支持 LastFrameUrl 首尾帧模式"] })
-    },
-    {
-      nodeKey: "viduQ2ProVideo", nameZh: "Vidu Q2-Pro视频生成", nameEn: "Vidu Q2-Pro", category: "video", status: "normal", sortOrder: 26, creditsPerCall: 600,
-      metadata: buildVodNodeMetadata({ type: "viduVideo", provider: "vidu", modelKeys: ["vidu-q2-pro"], supportedModels: ["q2-pro"], defaultData: { provider: "vidu", viduModel: "q2-pro", resolution: "720p", clipDuration: 5 } }, { label: "VOD Vidu Q2-Pro", modelName: "Vidu", modelVersion: "q2-pro", outputConfig: { aspectRatios: ["16:9", "9:16", "3:4", "4:3", "1:1"], durations: [1, 2, 3, 4, 5, 6, 7, 8], resolutions: ["540P", "720P", "1080P"] }, inputModes: ["text", "image", "start_end"], notes: ["支持 LastFrameUrl 首尾帧模式"] })
-    },
-    {
-      nodeKey: "viduQ3", nameZh: "Vidu Q3 Pro视频生成", nameEn: "Vidu Q3 Pro", category: "video", status: "normal", sortOrder: 27, creditsPerCall: 800,
-      metadata: buildVodNodeMetadata({ type: "viduQ3", provider: "viduq3-pro", modelKeys: ["vidu-q3"], supportedModels: ["q3", "q3-pro", "q3-turbo"], defaultData: { provider: "viduq3-pro", viduModel: "q3", resolution: "720p", clipDuration: 8 } }, { label: "VOD Vidu Q3", modelName: "Vidu", modelVersion: "q3", outputConfig: { aspectRatios: ["16:9", "9:16", "3:4", "4:3", "1:1"], durations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], resolutions: ["540P", "720P", "1080P"] }, inputModes: ["text", "image"] })
-    },
-    {
-      nodeKey: "viduQ3MixVideo", nameZh: "Vidu Q3-Mix视频生成", nameEn: "Vidu Q3-Mix", category: "video", status: "normal", sortOrder: 28, creditsPerCall: 800,
-      metadata: buildVodNodeMetadata({ type: "viduQ3", provider: "viduq3-pro", modelKeys: ["vidu-q3-mix"], supportedModels: ["q3-mix"], defaultData: { provider: "viduq3-pro", viduModel: "q3-mix", resolution: "720p", clipDuration: 8 } }, { label: "VOD Vidu Q3-Mix", modelName: "Vidu", modelVersion: "q3-mix", outputConfig: { aspectRatios: ["16:9", "9:16", "3:4", "4:3", "1:1"], durations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], resolutions: ["540P", "720P", "1080P"] }, inputModes: ["reference"], notes: ["Q3-Mix 仅支持 Reference 模式，至少需要 1 张参考图"] })
-    },
-    {
-      nodeKey: "doubaoVideo", nameZh: "Seedance 1.5 Pro视频生成", nameEn: "Seedance 1.5 Pro", category: "video", status: "normal", sortOrder: 29, creditsPerCall: 600,
-      metadata: buildVodNodeMetadata({ type: "doubaoVideo", provider: "doubao", modelKeys: ["seedance-1.5"], supportedModels: ["seedance-1.5-pro"], defaultData: { provider: "doubao", seedanceModel: "seedance-1.5-pro", clipDuration: 5, resolution: "720P" } }, { label: "Ark Seedance 1.5-Pro", modelName: "Seedance", modelVersion: "1.5-pro", outputConfig: { aspectRatios: ["16:9", "9:16", "1:1"], durations: [3, 4, 5, 6, 7, 8, 9, 10], resolutions: ["720P"] }, inputModes: ["text", "image"], notes: ["1.5-Pro 当前接入默认分辨率限制为 720P"] }, { nodeKind: "ark_video_generation", upstreamDomain: "ark.cn-beijing.volces.com" })
-    },
-    {
-      nodeKey: "seedance20Video", nameZh: "Seedance 2.0视频生成", nameEn: "Seedance 2.0", category: "video", status: "normal", sortOrder: 30, creditsPerCall: 600,
-      metadata: buildVodNodeMetadata({ type: "doubaoVideo", provider: "doubao", modelKeys: ["seedance-2.0"], supportedModels: ["seedance-2.0"], defaultData: { provider: "doubao", seedanceModel: "seedance-2.0", clipDuration: 5, resolution: "720P" } }, { label: "Ark Seedance 2.0", modelName: "Seedance", modelVersion: "2.0", outputConfig: { aspectRatios: ["16:9", "9:16", "1:1"], durations: [3, 4, 5, 6, 7, 8, 9, 10], resolutions: ["720P", "1080P"] }, inputModes: ["text", "image"], notes: ["当前接入模型 ID: doubao-seedance-2-0-260128"] }, { nodeKind: "ark_video_generation", upstreamDomain: "ark.cn-beijing.volces.com" })
-    },
-    {
-      nodeKey: "sora2Video", nameZh: "Sora2 Pro视频生成", nameEn: "Sora2 Pro", category: "video", status: "normal", sortOrder: 31, creditsPerCall: 40,
-      metadata: { type: "sora2Video", provider: "sora2", modelKeys: ["sora-2"], supportedModels: ["sora-2", "sora-2-pro"], defaultData: { generationType: "sora2", model: "sora-2-pro", clipDuration: 10, aspectRatio: "16:9", watermark: false, thumbnailEnabled: true, privateMode: false, storyboard: false } }
-    },
-    { nodeKey: "sora2Character", nameZh: "Sora2角色生成", nameEn: "Sora2 Character", category: "video", status: "normal", sortOrder: 32, creditsPerCall: 0 },
-    { nodeKey: "wan26", nameZh: "Wan2.6视频", nameEn: "Wan2.6", category: "video", status: "normal", sortOrder: 33, creditsPerCall: 600 },
-    { nodeKey: "wan2R2V", nameZh: "Wan2参考视频", nameEn: "Wan2 R2V", category: "video", status: "normal", sortOrder: 34, creditsPerCall: 600 },
+    // 视频节点
+    { nodeKey: "wan27Video", nameZh: "Wan2.7视频生成", nameEn: "Wan2.7 I2V", category: "video", status: "normal", sortOrder: 35, creditsPerCall: 0, serviceType: "wan27-video", priceYuan: 6 },
 
     // 其他节点
     { nodeKey: "videoAnalyze", nameZh: "视频分析节点", nameEn: "Video Analysis", category: "other", status: "normal", sortOrder: 31, creditsPerCall: 30 },

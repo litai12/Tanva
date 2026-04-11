@@ -4,18 +4,11 @@ import {
   Logger,
   ServiceUnavailableException,
 } from "@nestjs/common";
-import { PrismaService } from "../../prisma/prisma.service";
 import { ModelRoutingService } from "./model-routing.service";
 import { TencentVodAigcService } from "./tencent-vod-aigc.service";
 
 type VideoQuality = "hd" | "sd";
 type Sora2GenerationModel = "sora-2" | "sora-2-vip" | "sora-2-pro";
-
-// Sora2 供应商类型
-export type Sora2Provider = "auto" | "v2" | "legacy" | "apimart";
-
-// 系统设置键名
-export const SORA2_PROVIDER_SETTING_KEY = "sora2_provider";
 
 // ==================== 旧API (普通Sora2) 配置 ====================
 const SORA2_VIDEO_MODELS: Record<VideoQuality, string> = {
@@ -182,34 +175,12 @@ export class Sora2VideoService {
     process.env.NANO2_API_KEY;
 
   constructor(
-    private readonly prisma: PrismaService,
     private readonly modelRoutingService: ModelRoutingService,
     private readonly tencentVodAigcService: TencentVodAigcService,
   ) {}
 
   /**
-   * 从数据库获取当前配置的供应商
-   */
-  async getConfiguredProvider(): Promise<Sora2Provider> {
-    try {
-      const setting = await this.prisma.systemSetting.findUnique({
-        where: { key: SORA2_PROVIDER_SETTING_KEY },
-      });
-      if (setting && ["auto", "v2", "legacy", "apimart"].includes(setting.value)) {
-        return setting.value as Sora2Provider;
-      }
-    } catch (error) {
-      this.logger.warn(
-        `读取 Sora2 供应商设置失败: ${
-          error instanceof Error ? error.message : error
-        }`
-      );
-    }
-    return "auto"; // 默认自动模式
-  }
-
-  /**
-   * 主入口方法：根据配置选择供应商
+   * 主入口方法：优先遵循模型管理路由，其余 legacy 路径走默认自动回退策略
    */
   async generateVideo(
     options: GenerateVideoOptions
@@ -220,38 +191,15 @@ export class Sora2VideoService {
       return this.generateVideoTencentVod(options, managedRoute.vendor);
     }
 
-    const provider = await this.getConfiguredProvider();
-    this.logger.log(`当前 Sora2 供应商配置: ${provider}`);
+    const managedVendorKey = managedRoute?.vendor?.vendorKey || "default";
+    const managedPlatformKey =
+      managedRoute?.vendor?.platformKey || managedRoute?.vendor?.vendorKey || "default";
+    this.logger.log(
+      `当前 Sora2 路由: ${managedPlatformKey}/${managedVendorKey} -> auto_fallback`
+    );
     const wantsApimart = this.hasApimartOnlyOptions(options);
 
-    if (provider === "apimart") {
-      if (!this.apiKeyApimart) {
-        throw new ServiceUnavailableException("APIMart Sora2 API Key 未配置");
-      }
-      this.logger.log("使用 APIMart Sora2 API (强制)");
-      return await this.generateVideoApimart(options);
-    }
-
-    // 根据配置选择供应商
-    if (provider === "v2") {
-      // 强制使用 Sora2 Pro
-      if (!this.apiKeyV2) {
-        throw new ServiceUnavailableException("Sora2 Pro API Key 未配置");
-      }
-      this.logger.log("使用Sora2 Pro API (强制)");
-      return await this.generateVideoV2(options);
-    }
-
-    if (provider === "legacy") {
-      // 强制使用普通 Sora2
-      if (!this.apiKey) {
-        throw new ServiceUnavailableException("普通Sora2 API Key 未配置");
-      }
-      this.logger.log("使用普通Sora2 API (强制)");
-      return await this.generateVideoLegacy(options);
-    }
-
-    // auto 模式：如启用 Pro 参数，优先 APIMart
+    // 默认自动模式：如启用 Pro 参数，优先 APIMart
     if (this.apiKeyApimart && wantsApimart) {
       try {
         this.logger.log("尝试使用 APIMart Sora2 API...");
@@ -265,7 +213,7 @@ export class Sora2VideoService {
       }
     }
 
-    // auto 模式：其次 Sora2 Pro，失败后回退到普通 Sora2
+    // 默认自动模式：其次 Sora2 Pro，失败后回退到普通 Sora2
     if (this.apiKeyV2) {
       try {
         this.logger.log("尝试使用Sora2 Pro API...");

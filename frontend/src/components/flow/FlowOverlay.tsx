@@ -1,7 +1,7 @@
 // @ts-nocheck
 // Flow 主画布与节点调度入口。
 import React from "react";
-import { Trash2, Plus, Upload, Download, Group, Ungroup } from "lucide-react";
+import { Trash2, Plus, Upload, Download, Group, Ungroup, Lock, Crown } from "lucide-react";
 import { fetchTemplateCategories } from "@/services/publicTemplateService";
 import { fetchWithAuth } from "@/services/authFetch";
 import SharedTemplateCard from "@/components/template/SharedTemplateCard";
@@ -60,6 +60,7 @@ import Sora2VideoNode from "./nodes/Sora2VideoNode";
 import Sora2CharacterNode from "./nodes/Sora2CharacterNode";
 import Wan26Node from "./nodes/Wan26Node";
 import Wan2R2VNode from "./nodes/Wan2R2VNode";
+import Wan27VideoNode from "./nodes/Wan27VideoNode";
 import TextNoteNode from "./nodes/TextNoteNode";
 import StoryboardSplitNode from "./nodes/StoryboardSplitNode";
 import GenerateProNode from "./nodes/GenerateProNode";
@@ -77,6 +78,11 @@ import Seedance20VideoNode from "./nodes/Seedance20VideoNode";
 import VideoNode from "./nodes/VideoNode";
 import AudioNode from "./nodes/AudioNode";
 import VideoAnalyzeNode from "./nodes/VideoAnalyzeNode";
+import {
+  getManagedRouteCredits,
+  getManagedRouteOption,
+  resolveManagedRoutePricing,
+} from "./managedRoutePricing";
 import VideoFrameExtractNode from "./nodes/VideoFrameExtractNode";
 import VideoToGifNode from "./nodes/VideoToGifNode";
 import ImageGridNode from "./nodes/ImageGridNode";
@@ -143,6 +149,7 @@ import {
   createSora2CharacterViaAPI,
   generateWan26ViaAPI,
   generateWan26R2VViaAPI,
+  generateWan27I2VViaAPI,
   midjourneyActionViaAPI,
   querySora2CharacterTaskViaAPI,
   queryDashscopeTask,
@@ -589,6 +596,18 @@ const ensureDataUrl = (imageData: string): string =>
     ? imageData
     : `data:image/png;base64,${imageData}`;
 
+const estimateDataUrlByteLength = (value: string): number | undefined => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("data:")) return undefined;
+  const commaIndex = trimmed.indexOf(",");
+  if (commaIndex < 0) return undefined;
+  const payload = trimmed.slice(commaIndex + 1).trim();
+  if (!payload) return 0;
+  const padding = payload.endsWith("==") ? 2 : payload.endsWith("=") ? 1 : 0;
+  return Math.floor((payload.length * 3) / 4) - padding;
+};
+
 const createThumbnailDataUrl = async (
   source: string,
   maxSize = 256
@@ -696,6 +715,7 @@ const rawNodeTypes = {
   sora2Character: Sora2CharacterNode,
   wan26: Wan26Node,
   wan2R2V: Wan2R2VNode,
+  wan27Video: Wan27VideoNode,
   klingVideo: KlingVideoNode,
   kling26Video: Kling26VideoNode,
   kling30Video: Kling30VideoNode,
@@ -851,6 +871,7 @@ const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "sora2Character",
   "wan26",
   "wan2R2V",
+  "wan27Video",
   "klingVideo",
   "kling26Video",
   "kling30Video",
@@ -871,10 +892,110 @@ const FLOW_GROUP_LOCAL_RUN_TYPES = new Set([
   "videoToGif",
 ]);
 const SORA2_MAX_REFERENCE_IMAGES = 1;
-const VIDU_MAX_REFERENCE_IMAGES = 7; // Vidu viduq2 模型支持最多 7 张参考图
-const VIDUQ3_MAX_REFERENCE_IMAGES = 2; // Vidu Q3 Pro 支持最多 2 张参考图
+const VIDU_MAX_REFERENCE_IMAGES = 2; // Vidu 当前统一限制最多 2 张参考图（图1/图2）
+const VIDUQ3_MAX_REFERENCE_IMAGES = 2; // Vidu Q3 支持最多 2 张参考图
 const KLING_MAX_REFERENCE_IMAGES = 2; // Kling 2.1 / 2.6 统一限制最多 2 张参考图
 const KLING_MAX_AUDIO_INPUTS = 2;
+const SEEDANCE20_REFERENCE_IMAGE_MAX = 9;
+const SEEDANCE20_REFERENCE_VIDEO_MAX = 3;
+const SEEDANCE20_REFERENCE_AUDIO_MAX = 3;
+const SEEDANCE15_DURATIONS = [3, 4, 5, 6, 7, 8, 9, 10];
+const SEEDANCE20_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+const SEEDANCE_REFERENCE_IMAGE_MAX_BYTES = 30 * 1024 * 1024; // 30MB
+
+type Seedance20Mode = "reference_images" | "start_end";
+type Seedance15Mode = "text" | "image" | "start_end";
+type SeedanceMode = Seedance20Mode | Seedance15Mode;
+
+const SEEDANCE20_MODE_VALUES: Seedance20Mode[] = ["reference_images", "start_end"];
+const SEEDANCE15_MODE_VALUES: Seedance15Mode[] = ["text", "image", "start_end"];
+
+const VIDEO_SOURCE_NODE_TYPES = [
+  "video",
+  "sora2Video",
+  "wan26",
+  "wan2R2V",
+  "wan27Video",
+  "klingVideo",
+  "kling26Video",
+  "kling30Video",
+  "klingO1Video",
+  "viduVideo",
+  "viduQ3",
+  "doubaoVideo",
+  "seedance20Video",
+];
+
+type ViduModelValue =
+  | "q2"
+  | "q2-pro"
+  | "q2-turbo"
+  | "q3"
+  | "q3-pro"
+  | "q3-turbo";
+
+const normalizeViduModelValue = (value?: string): ViduModelValue => {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, "-");
+  if (!normalized) return "q2";
+  if (normalized === "q2") return "q2";
+  if (normalized === "q2-pro" || normalized === "q2pro") return "q2-pro";
+  if (normalized === "q2-turbo" || normalized === "q2turbo") return "q2-turbo";
+  if (
+    normalized === "q3-turbo" ||
+    normalized === "q3turbo" ||
+    normalized === "q3-mix" ||
+    normalized === "q3mix"
+  ) {
+    return "q3-turbo";
+  }
+  if (
+    normalized === "q3-pro" ||
+    normalized === "q3pro"
+  ) {
+    return "q3-pro";
+  }
+  if (normalized === "q3") {
+    return "q3";
+  }
+  return normalized.startsWith("q3") ? "q3" : "q2";
+};
+
+const normalizeViduModelForApi = (value?: string): "q2" | "q3" =>
+  normalizeViduModelValue(value).startsWith("q3") ? "q3" : "q2";
+
+const normalizeSeedanceModelValue = (
+  value?: unknown
+): "seedance-1.5-pro" | "seedance-2.0" | "seedance-2.0-fast" => {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "seedance-2.0-fast" || normalized === "2.0-fast") {
+    return "seedance-2.0-fast";
+  }
+  if (normalized === "seedance-2.0" || normalized === "2.0") {
+    return "seedance-2.0";
+  }
+  return "seedance-1.5-pro";
+};
+
+const isSeedance20ModelValue = (value?: unknown): boolean => {
+  const normalized = normalizeSeedanceModelValue(value);
+  return normalized === "seedance-2.0" || normalized === "seedance-2.0-fast";
+};
+
+const isViduQ3FamilyModel = (value?: string): boolean =>
+  normalizeViduModelForApi(value) === "q3";
+
+const getEffectiveViduProvider = (nodeData?: Record<string, any>): VideoProvider =>
+  isViduQ3FamilyModel(nodeData?.viduModel) ? "viduq3-pro" : "vidu";
+
+const getEffectiveViduMaxReferenceImages = (nodeData?: Record<string, any>): number =>
+  isViduQ3FamilyModel(nodeData?.viduModel)
+    ? VIDUQ3_MAX_REFERENCE_IMAGES
+    : VIDU_MAX_REFERENCE_IMAGES;
 
 // 模板分类由后端维护，前端会在面板打开时请求；若后端无数据则从 tplIndex 推断或回退到 ['其他']
 
@@ -1013,11 +1134,15 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "videoFrameExtract", targetHandle: "video" },
     { nodeType: "videoToGif", targetHandle: "video" },
     { nodeType: "wan2R2V", targetHandle: "video-1" },
+    { nodeType: "wan27Video", targetHandle: "video" },
     { nodeType: "klingO1Video", targetHandle: "video" },
     { nodeType: "sora2Video", targetHandle: "character" },
     { nodeType: "sora2Character", targetHandle: "video" },
   ],
-  audio: [{ nodeType: "wan26", targetHandle: "audio" }],
+  audio: [
+    { nodeType: "wan26", targetHandle: "audio" },
+    { nodeType: "wan27Video", targetHandle: "audio" },
+  ],
   character: [{ nodeType: "sora2Video", targetHandle: "character" }],
   unknown: [
     { nodeType: "generate", targetHandle: "text" },
@@ -1056,6 +1181,7 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "sora2Video", sourceHandle: "video" },
     { nodeType: "wan26", sourceHandle: "video" },
     { nodeType: "wan2R2V", sourceHandle: "video" },
+    { nodeType: "wan27Video", sourceHandle: "video" },
     { nodeType: "klingO1Video", sourceHandle: "video-out" },
     { nodeType: "videoFrameExtract", sourceHandle: "video" },
   ],
@@ -1071,6 +1197,7 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "sora2Video", sourceHandle: "video" },
     { nodeType: "wan26", sourceHandle: "video" },
     { nodeType: "wan2R2V", sourceHandle: "video" },
+    { nodeType: "wan27Video", sourceHandle: "video" },
     { nodeType: "klingVideo", sourceHandle: "video" },
     { nodeType: "kling26Video", sourceHandle: "video" },
     { nodeType: "klingO1Video", sourceHandle: "video-out" },
@@ -1126,9 +1253,9 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   sora2Character: 0, // 角色生成节点 - 当前不单独计费
   wan26: 600, // Wan2.6生成视频 - wan26-video
   wan2R2V: 600, // 视频融合 - wan26-r2v
-  klingVideo: 600, // 可灵视频生成
-  kling26Video: 500, // 可灵2.6视频生成 - kling-v2-6
-  kling30Video: 600, // 可灵3.0视频生成 - kling-v3-0
+  klingVideo: "150-1200", // 可灵视频生成（2.6/3.0 按模型与参数阶梯计费）
+  kling26Video: "150-1200", // 可灵2.6视频生成 - kling-v2-6
+  kling30Video: "300-1200", // 可灵3.0视频生成 - kling-v3-0
   klingO3Video: 600, // 可灵O3视频生成 - Omni Video
   viduVideo: 600, // Vidu视频生成
   viduQ3: 600, // Vidu Q3 Pro视频生成
@@ -1172,16 +1299,17 @@ const NODE_PALETTE_ITEMS = [
   { key: "three", zh: "三维节点", en: "3D Node", category: "image" },
   { key: "viewAngle", zh: "视角变换节点", en: "View Angle", category: "image" },
   // 视频生成节点
-  { key: "sora2Video", zh: "Sora2 Pro视频生成", en: "Sora2 Pro", category: "video" },
+  { key: "sora2Video", zh: "Sora2 Pro", en: "Sora2 Pro", category: "video" },
   { key: "sora2Character", zh: "Sora2角色生成", en: "Sora2 Character", category: "video" },
-  { key: "wan26", zh: "Wan2.6生成视频", en: "Wan2.6", category: "video" },
+  { key: "wan26", zh: "Wan2.6", en: "Wan2.6", category: "video" },
   { key: "wan2R2V", zh: "视频融合", en: "Wan2.6 R2V", category: "video" },
-  { key: "klingVideo", zh: "Kling视频生成", en: "Kling", category: "video" },
+  { key: "wan27Video", zh: "Wan2.7 I2V", en: "Wan2.7 I2V", category: "video" },
+  { key: "klingVideo", zh: "Kling", en: "Kling", category: "video" },
   // { key: "kling26Video", zh: "Kling 2.6视频生成", en: "Kling 2.6", category: "video" },
-  { key: "viduVideo", zh: "Vidu视频生成", en: "Vidu", category: "video" },
+  { key: "viduVideo", zh: "Vidu", en: "Vidu", category: "video" },
   {
     key: "doubaoVideo",
-    zh: "Seedance 1.5 Pro视频生成",
+    zh: "Seedance 1.5 Pro",
     en: "Seedance 1.5 Pro",
     category: "video",
   },
@@ -1288,6 +1416,7 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   sora2Character: "video",
   wan26: "video",
   wan2R2V: "video",
+  wan27Video: "video",
   klingVideo: "video",
   kling26Video: "video",
   kling30Video: "video",
@@ -1338,6 +1467,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   sora2Character: { w: 300, h: 320 },
   wan26: { w: 300, h: 320 },
   wan2R2V: { w: 300, h: 360 },
+  wan27Video: { w: 300, h: 420 },
   klingVideo: { w: 280, h: 260 },
   kling26Video: { w: 280, h: 260 },
   kling30Video: { w: 280, h: 260 },
@@ -1369,8 +1499,6 @@ type FlowNodeType = keyof typeof FLOW_NODE_DEFAULT_SIZE;
 
 const HIDDEN_FLOW_NODE_TYPES = new Set<FlowNodeType>([
   "kling26Video",
-  "sora2Video",
-  "sora2Character",
   "nano2",
 ]);
 
@@ -1386,16 +1514,28 @@ const FLOW_NODE_KEY_ALIASES: Record<string, FlowNodeType> = {
   "sora-2-pro-video": "sora2Video",
   kling: "klingVideo",
   "kling-video": "klingVideo",
-  kling26: "kling26Video",
-  "kling-26": "kling26Video",
-  "kling-2.6": "kling26Video",
-  "kling-2.6-video": "kling26Video",
-  "kling-3.0": "kling30Video",
-  "kling-3.0-video": "kling30Video",
-  kling30: "kling30Video",
-  seedance20: "seedance20Video",
-  "seedance-2.0": "seedance20Video",
-  "seedance-2.0-video": "seedance20Video",
+  kling26: "klingVideo",
+  kling26video: "klingVideo",
+  "kling-26": "klingVideo",
+  "kling-2.6": "klingVideo",
+  "kling-2.6-video": "klingVideo",
+  kling30: "klingVideo",
+  kling30video: "klingVideo",
+  "kling-3.0": "klingVideo",
+  "kling-3.0-video": "klingVideo",
+  viduq3: "viduVideo",
+  viduq3video: "viduVideo",
+  "vidu-q3": "viduVideo",
+  "vidu-q3-video": "viduVideo",
+  seedance20: "doubaoVideo",
+  seedance20video: "doubaoVideo",
+  "seedance-2.0": "doubaoVideo",
+  "seedance-2.0-video": "doubaoVideo",
+  wan27: "wan27Video",
+  "wan-27": "wan27Video",
+  "wan2.7": "wan27Video",
+  "wan-2.7": "wan27Video",
+  "wan2.7-i2v": "wan27Video",
   pathtracer: "three",
   "path-tracer": "three",
   "three-pathtracer": "three",
@@ -1439,17 +1579,17 @@ const normalizeFlowNodeType = (rawType?: string): FlowNodeType | null => {
   const trimmed = rawType.trim();
   if (!trimmed) return null;
 
+  const lowered = trimmed.toLowerCase();
+  const aliasMatched = FLOW_NODE_KEY_ALIASES[lowered];
+  if (aliasMatched) return aliasMatched;
+
   if (trimmed in FLOW_NODE_DEFAULT_SIZE) {
     return trimmed as FlowNodeType;
   }
 
-  const lowered = trimmed.toLowerCase();
   const caseInsensitive = (Object.keys(FLOW_NODE_DEFAULT_SIZE) as FlowNodeType[])
     .find((key) => key.toLowerCase() === lowered);
   if (caseInsensitive) return caseInsensitive;
-
-  const aliasMatched = FLOW_NODE_KEY_ALIASES[lowered];
-  if (aliasMatched) return aliasMatched;
 
   const canonical = canonicalizeNodeTypeKey(trimmed);
   const canonicalMatched = FLOW_NODE_CANONICAL_MAP[canonical];
@@ -1468,6 +1608,351 @@ const isHiddenFlowNodeType = (rawType?: string): boolean => {
   return Boolean(normalized && HIDDEN_FLOW_NODE_TYPES.has(normalized));
 };
 
+type BananaStablePricingTier = "fast" | "pro" | "ultra";
+
+const BANANA_STABLE_ROUTE_PRICING: Record<
+  BananaStablePricingTier,
+  Record<"0.5K" | "1K" | "2K" | "4K", number>
+> = {
+  fast: {
+    "0.5K": 20,
+    "1K": 20,
+    "2K": 20,
+    "4K": 20,
+  },
+  pro: {
+    "0.5K": 40,
+    "1K": 40,
+    "2K": 60,
+    "4K": 120,
+  },
+  ultra: {
+    "0.5K": 20,
+    "1K": 30,
+    "2K": 45,
+    "4K": 60,
+  },
+};
+
+const BANANA_STABLE_DYNAMIC_NODE_TYPES = new Set<FlowNodeType>([
+  "generate",
+  "generate4",
+  "generatePro",
+  "generatePro4",
+]);
+
+const resolveBananaStablePricingTier = (
+  providerName?: string | null
+): BananaStablePricingTier | null => {
+  if (providerName === "banana-2.5") return "fast";
+  if (providerName === "banana-3.1" || providerName === "nano2") return "ultra";
+  if (providerName === "banana" || providerName === "gemini-pro") return "pro";
+  return null;
+};
+
+const normalizeBananaStableImageSize = (
+  rawSize: unknown,
+  tier: BananaStablePricingTier
+): "0.5K" | "1K" | "2K" | "4K" => {
+  const normalized = typeof rawSize === "string" ? rawSize.trim().toUpperCase() : "";
+  if (tier === "fast") return "1K";
+  if (tier === "pro") {
+    if (normalized === "2K" || normalized === "4K") return normalized;
+    return "1K";
+  }
+  if (
+    normalized === "0.5K" ||
+    normalized === "1K" ||
+    normalized === "2K" ||
+    normalized === "4K"
+  ) {
+    return normalized;
+  }
+  return "1K";
+};
+
+const VIDEO_DYNAMIC_CREDIT_NODE_TYPES = new Set([
+  "wan26",
+  "wan2R2V",
+  "wan27Video",
+  "klingVideo",
+  "kling26Video",
+  "kling30Video",
+  "klingO1Video",
+  "viduVideo",
+  "viduQ3",
+  "doubaoVideo",
+  "seedance20Video",
+]);
+
+const KLING_DYNAMIC_CREDIT_MATRIX = {
+  "kling-v2-6": {
+    noSound: {
+      std: { 5: 150, 10: 300 },
+      pro: { 5: 300, 10: 500 },
+    },
+    withSound: {
+      std: { 5: 500, 10: 1000 },
+      pro: { 5: 600, 10: 1200 },
+    },
+  },
+  "kling-v3-0": {
+    noSound: {
+      std: { 5: 300, 10: 600 },
+      pro: { 5: 400, 10: 800 },
+    },
+    withSound: {
+      std: { 5: 450, 10: 900 },
+      pro: { 5: 600, 10: 1200 },
+    },
+  },
+} as const;
+
+const normalizeFiniteDuration = (value: unknown): number | undefined => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return undefined;
+  const rounded = Math.round(numeric);
+  return rounded > 0 ? rounded : undefined;
+};
+
+const resolveVideoDefaultDuration = (
+  nodeType: string,
+  nodeData?: Record<string, any>
+): number | undefined => {
+  const fromClip = normalizeFiniteDuration(nodeData?.clipDuration);
+  if (typeof fromClip === "number") return fromClip;
+  const fromDuration = normalizeFiniteDuration(nodeData?.duration);
+  if (typeof fromDuration === "number") return fromDuration;
+
+  if (
+    nodeType === "wan26" ||
+    nodeType === "wan2R2V" ||
+    nodeType === "wan27Video" ||
+    nodeType === "klingVideo" ||
+    nodeType === "kling26Video" ||
+    nodeType === "kling30Video" ||
+    nodeType === "viduVideo" ||
+    nodeType === "viduQ3" ||
+    nodeType === "doubaoVideo" ||
+    nodeType === "seedance20Video"
+  ) {
+    return 5;
+  }
+  return undefined;
+};
+
+const resolveVideoDefaultResolution = (
+  nodeType: string,
+  nodeData?: Record<string, any>
+): string | undefined => {
+  if (typeof nodeData?.resolution === "string" && nodeData.resolution.trim()) {
+    return nodeData.resolution.trim().toUpperCase();
+  }
+  if (nodeType === "wan27Video") return "1080P";
+  if (
+    nodeType === "wan26" ||
+    nodeType === "wan2R2V" ||
+    nodeType === "viduVideo" ||
+    nodeType === "viduQ3" ||
+    nodeType === "doubaoVideo" ||
+    nodeType === "seedance20Video"
+  ) {
+    return "720P";
+  }
+  return undefined;
+};
+
+const resolveVideoDefaultAspectRatio = (
+  nodeType: string,
+  nodeData?: Record<string, any>
+): string | undefined => {
+  if (typeof nodeData?.aspectRatio === "string" && nodeData.aspectRatio.trim()) {
+    return nodeData.aspectRatio.trim();
+  }
+  if (nodeType === "viduVideo" || nodeType === "viduQ3") {
+    return "16:9";
+  }
+  return undefined;
+};
+
+const resolveKlingModelForCredits = (
+  nodeType: string,
+  nodeData?: Record<string, any>
+): "kling-v2-6" | "kling-v3-0" | null => {
+  const rawModel = String(nodeData?.klingModel || "")
+    .trim()
+    .toLowerCase();
+  if (rawModel === "kling-v3-0") return "kling-v3-0";
+  if (rawModel === "kling-v2-6") return "kling-v2-6";
+  if (nodeType === "kling30Video") return "kling-v3-0";
+  if (nodeType === "klingVideo" || nodeType === "kling26Video") return "kling-v2-6";
+  return null;
+};
+
+const resolveKlingDynamicCredits = (
+  nodeType: string,
+  nodeData?: Record<string, any>
+): number | undefined => {
+  const model = resolveKlingModelForCredits(nodeType, nodeData);
+  if (!model) return undefined;
+
+  const duration = resolveVideoDefaultDuration(nodeType, nodeData);
+  if (duration !== 5 && duration !== 10) return undefined;
+
+  const mode =
+    typeof nodeData?.mode === "string" &&
+    nodeData.mode.trim().toLowerCase() === "pro"
+      ? "pro"
+      : "std";
+
+  const soundRaw = nodeData?.sound;
+  const hasSound =
+    mode === "pro"
+      ? true
+      : soundRaw === undefined || soundRaw === null
+      ? true
+      : soundRaw === true ||
+        String(soundRaw).trim().toLowerCase() === "on" ||
+        String(soundRaw).trim().toLowerCase() === "true";
+
+  const soundKey = hasSound ? "withSound" : "noSound";
+  const configured = KLING_DYNAMIC_CREDIT_MATRIX?.[model]?.[soundKey]?.[mode]?.[duration];
+  return typeof configured === "number" ? configured : undefined;
+};
+
+const buildVideoPricingContext = (
+  nodeType: string,
+  nodeData?: Record<string, any>
+): Record<string, any> => {
+  const context: Record<string, any> = {};
+
+  const duration = resolveVideoDefaultDuration(nodeType, nodeData);
+  if (typeof duration === "number") {
+    context.duration = duration;
+  }
+
+  const resolution = resolveVideoDefaultResolution(nodeType, nodeData);
+  if (resolution) {
+    context.resolution = resolution;
+  }
+
+  const aspectRatio = resolveVideoDefaultAspectRatio(nodeType, nodeData);
+  if (aspectRatio) {
+    context.aspectRatio = aspectRatio;
+  }
+
+  if (typeof nodeData?.seedanceModel === "string" && nodeData.seedanceModel.trim()) {
+    context.seedanceModel = nodeData.seedanceModel.trim().toLowerCase();
+  } else if (nodeType === "seedance20Video") {
+    context.seedanceModel = "seedance-2.0";
+  } else if (nodeType === "doubaoVideo") {
+    context.seedanceModel = "seedance-1.5-pro";
+  }
+
+  if (typeof nodeData?.seedanceMode === "string" && nodeData.seedanceMode.trim()) {
+    context.seedanceMode = nodeData.seedanceMode.trim().toLowerCase();
+    context.videoMode = nodeData.seedanceMode.trim().toLowerCase();
+  } else if (nodeType === "seedance20Video") {
+    context.seedanceMode = "reference_images";
+    context.videoMode = "reference_images";
+  } else if (nodeType === "doubaoVideo") {
+    context.seedanceMode = "text";
+    context.videoMode = "text";
+  }
+
+  if (typeof nodeData?.generateAudio === "boolean") {
+    context.generateAudio = nodeData.generateAudio;
+  }
+  if (typeof nodeData?.watermark === "boolean") {
+    context.watermark = nodeData.watermark;
+  }
+
+  if (typeof nodeData?.viduModel === "string" && nodeData.viduModel.trim()) {
+    context.viduModel = nodeData.viduModel.trim().toLowerCase();
+  } else if (nodeType === "viduVideo") {
+    context.viduModel = "q2";
+  } else if (nodeType === "viduQ3") {
+    context.viduModel = "q3";
+  }
+
+  const klingModel = resolveKlingModelForCredits(nodeType, nodeData);
+  if (klingModel) {
+    context.klingModel = klingModel;
+    context.mode =
+      typeof nodeData?.mode === "string" && nodeData.mode.trim()
+        ? nodeData.mode.trim().toLowerCase()
+        : "std";
+    const soundRaw = nodeData?.sound;
+    context.sound =
+      soundRaw === undefined || soundRaw === null
+        ? true
+        : soundRaw === true ||
+          String(soundRaw).trim().toLowerCase() === "on" ||
+          String(soundRaw).trim().toLowerCase() === "true";
+  }
+
+  return context;
+};
+
+const resolveStableRouteCredits = (params: {
+  nodeType?: string | null;
+  nodeData?: Record<string, any>;
+  fallbackCredits?: number;
+  aiProvider?: string | null;
+  bananaImageRoute?: "normal" | "stable";
+  globalImageSize?: string | null;
+}): number | undefined => {
+  const {
+    nodeType,
+    nodeData,
+    fallbackCredits,
+    aiProvider,
+    bananaImageRoute,
+    globalImageSize,
+  } = params;
+  const normalizedType = normalizeFlowNodeType(nodeType || undefined);
+  let resolvedCredits = fallbackCredits;
+
+  if (bananaImageRoute === "stable" && normalizedType && BANANA_STABLE_DYNAMIC_NODE_TYPES.has(normalizedType)) {
+    const tier = resolveBananaStablePricingTier(aiProvider);
+    if (tier) {
+      const preferredSize =
+        typeof nodeData?.imageSize === "string" && nodeData.imageSize.trim().length > 0
+          ? nodeData.imageSize
+          : globalImageSize;
+      const normalizedSize = normalizeBananaStableImageSize(preferredSize, tier);
+      const unitCredits = Number(BANANA_STABLE_ROUTE_PRICING[tier][normalizedSize]);
+      if (Number.isFinite(unitCredits) && unitCredits > 0) {
+        const multiplier = normalizedType === "generate4" || normalizedType === "generatePro4" ? 4 : 1;
+        resolvedCredits = unitCredits * multiplier;
+      }
+    }
+  }
+
+  if (normalizedType && VIDEO_DYNAMIC_CREDIT_NODE_TYPES.has(normalizedType)) {
+    const metadata =
+      nodeData?.nodeConfigMetadata && typeof nodeData.nodeConfigMetadata === "object"
+        ? (nodeData.nodeConfigMetadata as Record<string, any>)
+        : undefined;
+    const vendorKey =
+      typeof nodeData?.vendorKey === "string" && nodeData.vendorKey.trim().length > 0
+        ? nodeData.vendorKey.trim()
+        : undefined;
+    const pricingContext = buildVideoPricingContext(normalizedType, nodeData);
+    const managedPricing = resolveManagedRoutePricing(metadata, vendorKey, pricingContext);
+    if (typeof managedPricing?.credits === "number" && Number.isFinite(managedPricing.credits)) {
+      resolvedCredits = managedPricing.credits;
+    }
+
+    const klingCredits = resolveKlingDynamicCredits(normalizedType, nodeData);
+    if (typeof klingCredits === "number" && Number.isFinite(klingCredits)) {
+      resolvedCredits = klingCredits;
+    }
+  }
+
+  return resolvedCredits;
+};
+
 const isManagedPaletteConfig = (config?: Partial<NodeConfig>): boolean => {
   const metadata = (config?.metadata ?? {}) as Record<string, unknown>;
   return Boolean(
@@ -1478,6 +1963,11 @@ const isManagedPaletteConfig = (config?: Partial<NodeConfig>): boolean => {
   );
 };
 
+const isModelBackedPaletteConfig = (config?: Partial<NodeConfig>): boolean => {
+  const metadata = (config?.metadata ?? {}) as Record<string, unknown>;
+  return Array.isArray(metadata.modelKeys) && metadata.modelKeys.length > 0;
+};
+
 const resolveFlowNodeTypeFromConfig = (config: Partial<NodeConfig>): string => {
   const metadata = (config.metadata ?? {}) as Record<string, unknown>;
   const nodeConfig =
@@ -1485,14 +1975,15 @@ const resolveFlowNodeTypeFromConfig = (config: Partial<NodeConfig>): string => {
       ? (metadata.nodeConfig as Record<string, unknown>)
       : undefined;
   const candidates = [
+    typeof nodeConfig?.flowNodeType === "string" ? nodeConfig.flowNodeType : undefined,
+    typeof metadata.type === "string" ? metadata.type : undefined,
+    typeof metadata.flowNodeType === "string" ? metadata.flowNodeType : undefined,
+    typeof metadata.nodeKey === "string" ? metadata.nodeKey : undefined,
+    typeof metadata.provider === "string" ? metadata.provider : undefined,
     config.nodeKey,
+    config.serviceType,
     config.nameEn,
     config.nameZh,
-    config.serviceType,
-    typeof nodeConfig?.flowNodeType === "string" ? nodeConfig.flowNodeType : undefined,
-    typeof metadata.nodeKey === "string" ? metadata.nodeKey : undefined,
-    typeof metadata.type === "string" ? metadata.type : undefined,
-    typeof metadata.provider === "string" ? metadata.provider : undefined,
   ];
 
   for (const candidate of candidates) {
@@ -1509,6 +2000,153 @@ const resolveFlowNodeTypeFromConfig = (config: Partial<NodeConfig>): string => {
   }
 
   return "";
+};
+
+const NODE_STATUS_PRIORITY: Record<NodeConfig["status"], number> = {
+  normal: 0,
+  maintenance: 1,
+  coming_soon: 2,
+  disabled: 3,
+};
+
+const UNIFIED_VIDEO_NODE_TITLES: Partial<
+  Record<FlowNodeType, { nameZh: string; nameEn: string }>
+> = {
+  klingVideo: { nameZh: "Kling", nameEn: "Kling" },
+  viduVideo: { nameZh: "Vidu", nameEn: "Vidu" },
+  doubaoVideo: { nameZh: "Seedance", nameEn: "Seedance" },
+};
+
+const mergeUniqueStrings = (...lists: Array<string[] | undefined>): string[] | undefined => {
+  const merged = lists
+    .flatMap((list) => (Array.isArray(list) ? list : []))
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean);
+  if (merged.length === 0) return undefined;
+  return Array.from(new Set(merged));
+};
+
+const mergeManagedRouteVendors = (base: unknown, incoming: unknown): any[] | undefined => {
+  const all = [...(Array.isArray(base) ? base : []), ...(Array.isArray(incoming) ? incoming : [])];
+  const map = new Map<string, Record<string, any>>();
+  all.forEach((item) => {
+    if (!item || typeof item !== "object") return;
+    const record = item as Record<string, any>;
+    const vendorKey =
+      typeof record.vendorKey === "string" ? record.vendorKey.trim() : "";
+    if (!vendorKey) return;
+    const platformKey =
+      typeof record.platformKey === "string" ? record.platformKey.trim() : "";
+    const key = `${vendorKey}::${platformKey}`;
+    map.set(key, { ...(map.get(key) || {}), ...record, vendorKey, platformKey: platformKey || undefined });
+  });
+  const merged = Array.from(map.values());
+  return merged.length > 0 ? merged : undefined;
+};
+
+const mergeNodePaletteMetadata = (
+  base?: Record<string, any>,
+  incoming?: Record<string, any>
+): Record<string, any> | undefined => {
+  if (!base && !incoming) return undefined;
+  const next: Record<string, any> = { ...(base || {}), ...(incoming || {}) };
+
+  const mergedModelKeys = mergeUniqueStrings(base?.modelKeys, incoming?.modelKeys);
+  if (mergedModelKeys) next.modelKeys = mergedModelKeys;
+
+  const mergedSupportedModels = mergeUniqueStrings(
+    base?.supportedModels,
+    incoming?.supportedModels
+  );
+  if (mergedSupportedModels) next.supportedModels = mergedSupportedModels;
+
+  const mergedNotes = mergeUniqueStrings(base?.notes, incoming?.notes);
+  if (mergedNotes) next.notes = mergedNotes;
+
+  const baseNodeConfig =
+    base?.nodeConfig && typeof base.nodeConfig === "object" ? base.nodeConfig : undefined;
+  const incomingNodeConfig =
+    incoming?.nodeConfig && typeof incoming.nodeConfig === "object"
+      ? incoming.nodeConfig
+      : undefined;
+  if (baseNodeConfig || incomingNodeConfig) {
+    next.nodeConfig = { ...(baseNodeConfig || {}), ...(incomingNodeConfig || {}) };
+  }
+
+  const baseManagedRoutes =
+    base?.managedRoutes && typeof base.managedRoutes === "object"
+      ? (base.managedRoutes as Record<string, any>)
+      : undefined;
+  const incomingManagedRoutes =
+    incoming?.managedRoutes && typeof incoming.managedRoutes === "object"
+      ? (incoming.managedRoutes as Record<string, any>)
+      : undefined;
+  if (baseManagedRoutes || incomingManagedRoutes) {
+    const mergedVendors = mergeManagedRouteVendors(
+      baseManagedRoutes?.vendors,
+      incomingManagedRoutes?.vendors
+    );
+    next.managedRoutes = {
+      ...(baseManagedRoutes || {}),
+      ...(incomingManagedRoutes || {}),
+      modelKey:
+        incomingManagedRoutes?.modelKey ||
+        baseManagedRoutes?.modelKey ||
+        next.managedRoutes?.modelKey,
+      defaultVendor:
+        incomingManagedRoutes?.defaultVendor ||
+        baseManagedRoutes?.defaultVendor ||
+        next.managedRoutes?.defaultVendor,
+      vendors: mergedVendors || incomingManagedRoutes?.vendors || baseManagedRoutes?.vendors,
+    };
+  }
+
+  return next;
+};
+
+const mergeNodePaletteConfig = (
+  base: NodeConfig,
+  incoming: NodeConfig,
+  resolvedType?: string
+): NodeConfig => {
+  const basePriority = NODE_STATUS_PRIORITY[base.status] ?? 99;
+  const incomingPriority = NODE_STATUS_PRIORITY[incoming.status] ?? 99;
+  const preferred = incomingPriority < basePriority ? incoming : base;
+  const fallback = preferred === base ? incoming : base;
+
+  const resolvedNodeType =
+    normalizeFlowNodeType(resolvedType || preferred.nodeKey || fallback.nodeKey || "") ||
+    undefined;
+  const unifiedTitle = resolvedNodeType
+    ? UNIFIED_VIDEO_NODE_TITLES[resolvedNodeType]
+    : undefined;
+  const mergedMetadata = mergeNodePaletteMetadata(base.metadata, incoming.metadata);
+
+  const preferredSortOrder = Number.isFinite(Number(preferred.sortOrder))
+    ? Number(preferred.sortOrder)
+    : Number.MAX_SAFE_INTEGER;
+  const fallbackSortOrder = Number.isFinite(Number(fallback.sortOrder))
+    ? Number(fallback.sortOrder)
+    : Number.MAX_SAFE_INTEGER;
+  const mergedSortOrder = Math.min(preferredSortOrder, fallbackSortOrder);
+
+  return {
+    ...fallback,
+    ...preferred,
+    nodeKey: resolvedNodeType || preferred.nodeKey || fallback.nodeKey,
+    nameZh: unifiedTitle?.nameZh || preferred.nameZh || fallback.nameZh,
+    nameEn: unifiedTitle?.nameEn || preferred.nameEn || fallback.nameEn,
+    status: basePriority <= incomingPriority ? base.status : incoming.status,
+    statusMessage: preferred.statusMessage || fallback.statusMessage,
+    description: preferred.description || fallback.description,
+    creditsPerCall:
+      Number.isFinite(Number(preferred.creditsPerCall)) &&
+      Number(preferred.creditsPerCall) >= 0
+        ? Number(preferred.creditsPerCall)
+        : Number(fallback.creditsPerCall) || 0,
+    sortOrder: Number.isFinite(mergedSortOrder) ? mergedSortOrder : 0,
+    metadata: mergedMetadata,
+  };
 };
 
 const buildNodePaletteCaption = (config: Partial<NodeConfig>): string | undefined => {
@@ -1540,6 +2178,19 @@ const buildNodePaletteCaption = (config: Partial<NodeConfig>): string | undefine
   return undefined;
 };
 
+const resolveNodeConfigCreditsPerCall = (config: Partial<NodeConfig>): number => {
+  const metadata =
+    config.metadata && typeof config.metadata === "object"
+      ? (config.metadata as Record<string, any>)
+      : undefined;
+  const managedCredits = getManagedRouteCredits(metadata);
+  if (typeof managedCredits === "number") {
+    return managedCredits;
+  }
+  const directCredits = Number(config.creditsPerCall ?? 0);
+  return Number.isFinite(directCredits) ? directCredits : 0;
+};
+
 const nodePaletteButtonStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
@@ -1556,6 +2207,7 @@ const nodePaletteButtonStyle: React.CSSProperties = {
   transition: "all 0.18s ease",
   width: "100%",
   textAlign: "left",
+  position: "relative",
 };
 
 const nodePaletteZhStyle: React.CSSProperties = {
@@ -1659,7 +2311,7 @@ const getNodePaletteGroupKey = (
   )
     .trim()
     .toLowerCase();
-  if (managedTaskType === "text" || managedTaskType === "input") return "text";
+  if (managedTaskType === "text") return "text";
   if (managedTaskType === "image") return "image";
   if (managedTaskType === "video") return "video";
   if (managedTaskType === "audio") return "audio";
@@ -1704,12 +2356,30 @@ const getNodePaletteGroupKey = (
   return "other";
 };
 
-const setNodePaletteHover = (target: HTMLElement, hovered: boolean) => {
-  target.style.background = hovered ? "#f8fafc" : "#fff";
-  target.style.borderColor = hovered ? "#d5dae3" : "#e5e7eb";
+const setNodePaletteHover = (
+  target: HTMLElement,
+  hovered: boolean,
+  isDarkTheme = false
+) => {
+  target.style.background = isDarkTheme
+    ? hovered
+      ? "#262626"
+      : "#1d1d1d"
+    : hovered
+      ? "#f8fafc"
+      : "#fff";
+  target.style.borderColor = isDarkTheme
+    ? hovered
+      ? "#4b4b4b"
+      : "#333333"
+    : hovered
+      ? "#d5dae3"
+      : "#e5e7eb";
   target.style.transform = hovered ? "translateY(-1px)" : "translateY(0)";
   target.style.boxShadow = hovered
-    ? "0 12px 26px rgba(15, 23, 42, 0.12)"
+    ? isDarkTheme
+      ? "0 12px 26px rgba(0, 0, 0, 0.38)"
+      : "0 12px 26px rgba(15, 23, 42, 0.12)"
     : "none";
 };
 
@@ -1721,8 +2391,23 @@ const NodePaletteButton: React.FC<{
   status?: string;
   credits?: number | string;
   disabled?: boolean;
+  isDarkTheme?: boolean;
+  showZh?: boolean;
+  vipOnly?: boolean;
   onClick: () => void;
-}> = ({ zh, en, caption, badge, status, credits, disabled, onClick }) => {
+}> = ({
+  zh,
+  en,
+  caption,
+  badge,
+  status,
+  credits,
+  disabled,
+  isDarkTheme = false,
+  showZh = true,
+  vipOnly = false,
+  onClick,
+}) => {
   const creditsDisplay =
     credits !== undefined && credits !== 0
       ? typeof credits === "string"
@@ -1730,53 +2415,104 @@ const NodePaletteButton: React.FC<{
         : credits.toString()
       : null;
 
+  // 跳转到会员开通页面
+  const handleVipClick = () => {
+    const base = import.meta.env.BASE_URL || "/";
+    const originWithBase = `${window.location.origin}${base.endsWith("/") ? base : `${base}/`}`;
+    const href = new URL("membership", originWithBase).href;
+    window.open(href, "_blank", "noopener,noreferrer");
+  };
+
   const getBadgeStyle = (statusCode?: string): React.CSSProperties => {
     if (statusCode === "maintenance") {
       return {
         ...nodePaletteBadgeStyle,
-        color: "#dc2626",
-        background: "#fee2e2",
-        border: "1px solid #fca5a5",
+        color: isDarkTheme ? "#fca5a5" : "#dc2626",
+        background: isDarkTheme ? "#3a1f1f" : "#fee2e2",
+        border: isDarkTheme ? "1px solid #7f1d1d" : "1px solid #fca5a5",
       };
     }
     if (statusCode === "coming_soon") {
       return {
         ...nodePaletteBadgeStyle,
-        color: "#d97706",
-        background: "#fef3c7",
-        border: "1px solid #fcd34d",
+        color: isDarkTheme ? "#fcd34d" : "#d97706",
+        background: isDarkTheme ? "#3a2e16" : "#fef3c7",
+        border: isDarkTheme ? "1px solid #7c5a14" : "1px solid #fcd34d",
       };
     }
     return nodePaletteBadgeStyle;
   };
 
+  // VIP-only 样式
+  const isVipLocked = vipOnly && !disabled;
   const buttonStyle: React.CSSProperties = {
     ...nodePaletteButtonStyle,
-    ...(disabled ? {
-      opacity: 0.6,
-      cursor: "not-allowed",
-      background: "#f9fafb",
+    ...(isDarkTheme
+      ? {
+          border: "1px solid #333333",
+          background: "#1d1d1d",
+          color: "#ffffff",
+          justifyContent: showZh ? "space-between" : "flex-start",
+        }
+      : {}),
+    ...(disabled || isVipLocked ? {
+      opacity: isDarkTheme ? 0.75 : 0.6,
+      cursor: isVipLocked ? "pointer" : "not-allowed",
+      background: isDarkTheme ? "#171717" : "#f9fafb",
+      color: isDarkTheme ? "#666666" : "#0f172a",
     } : {}),
   };
 
   return (
     <button
-      onClick={disabled ? undefined : onClick}
+      onClick={isVipLocked ? handleVipClick : (disabled ? undefined : onClick)}
       style={buttonStyle}
-      onMouseEnter={(e) => !disabled && setNodePaletteHover(e.currentTarget, true)}
-      onMouseLeave={(e) => !disabled && setNodePaletteHover(e.currentTarget, false)}
-      disabled={disabled}
+      onMouseEnter={(e) =>
+        !(disabled || isVipLocked) && setNodePaletteHover(e.currentTarget, true, isDarkTheme)
+      }
+      onMouseLeave={(e) =>
+        !(disabled || isVipLocked) && setNodePaletteHover(e.currentTarget, false, isDarkTheme)
+      }
+      disabled={disabled && !isVipLocked}
+      title={isVipLocked ? (isDarkTheme ? "Click to open VIP subscription" : "点击开通VIP会员") : undefined}
     >
       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4, flex: 1 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, width: "100%" }}>
-          <span style={nodePaletteEnCodeStyle}>{en}</span>
+          <span
+            style={{
+              ...nodePaletteEnCodeStyle,
+              color: isDarkTheme ? "#ffffff" : nodePaletteEnCodeStyle.color,
+            }}
+          >
+            {en}
+          </span>
           {badge ? <span style={getBadgeStyle(status)}>{badge}</span> : null}
+          {/* VIP 锁定标识 */}
+          {isVipLocked && (
+            <span
+              style={{
+                ...nodePaletteBadgeStyle,
+                display: "flex",
+                alignItems: "center",
+                gap: 3,
+                color: isDarkTheme ? "#fcd34d" : "#92400e",
+                background: isDarkTheme ? "#3a2e16" : "#fef3c7",
+                border: isDarkTheme ? "1px solid #7c5a14" : "1px solid #fcd34d",
+                fontSize: 10,
+                padding: "2px 6px",
+                borderRadius: 6,
+              }}
+            >
+              <Crown size={10} />
+              <span>VIP</span>
+            </span>
+          )}
         </div>
         {caption ? (
           <div
             style={{
               fontSize: 11,
-              color: "#6b7280",
+              color: isDarkTheme ? "#888888" : "#6b7280",
               lineHeight: 1.4,
               maxWidth: "100%",
               whiteSpace: "nowrap",
@@ -1788,11 +2524,56 @@ const NodePaletteButton: React.FC<{
             {caption}
           </div>
         ) : null}
+        {/* VIP 锁定提示 */}
+        {isVipLocked && (
+          <div
+            style={{
+              fontSize: 10,
+              color: isDarkTheme ? "#fcd34d" : "#d97706",
+              fontWeight: 500,
+              marginTop: 2,
+            }}
+          >
+            {isDarkTheme ? "Click to unlock" : "点击开通VIP解锁"}
+          </div>
+        )}
         {/* {creditsDisplay && (
           <span style={nodePaletteCreditsStyle}>消耗{creditsDisplay}积分</span>
         )} */}
       </div>
-      <span style={nodePaletteZhStyle}>{zh}</span>
+      {showZh ? (
+        <span
+          style={{
+            ...nodePaletteZhStyle,
+            background: isDarkTheme ? "#262626" : nodePaletteZhStyle.background,
+            color: isDarkTheme ? "#ffffff" : nodePaletteZhStyle.color,
+            border: isDarkTheme ? "1px solid #404040" : "none",
+          }}
+        >
+          {zh}
+        </span>
+      ) : null}
+      {/* VIP 锁定图标 */}
+      {isVipLocked && (
+        <div
+          style={{
+            position: "absolute",
+            top: -8,
+            right: -8,
+            width: 24,
+            height: 24,
+            borderRadius: "50%",
+            background: "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            boxShadow: "0 2px 8px rgba(245, 158, 11, 0.4)",
+            zIndex: 10,
+          }}
+        >
+          <Lock size={12} color="#fff" />
+        </div>
+      )}
     </button>
   );
 };
@@ -1810,7 +2591,8 @@ const UserTemplateCard: React.FC<{
   };
   onInstantiate: () => Promise<void>;
   onDelete: () => Promise<void>;
-}> = ({ item, onInstantiate, onDelete }) => {
+  isDarkTheme?: boolean;
+}> = ({ item, onInstantiate, onDelete, isDarkTheme = false }) => {
   const [isHovered, setIsHovered] = React.useState(false);
 
   return (
@@ -1819,10 +2601,10 @@ const UserTemplateCard: React.FC<{
         display: "flex",
         alignItems: "stretch",
         gap: 18,
-        border: "1px solid #e5e7eb",
+        border: isDarkTheme ? "1px solid #404040" : "1px solid #e5e7eb",
         borderRadius: 12,
         padding: "18px 20px",
-        background: "#fff",
+        background: isDarkTheme ? "#1d1d1d" : "#fff",
         cursor: "pointer",
         transition: "all 0.2s ease",
         position: "relative",
@@ -1831,15 +2613,17 @@ const UserTemplateCard: React.FC<{
         overflow: "hidden",
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = "#18181b";
-        e.currentTarget.style.background = "#f4f4f5";
+        e.currentTarget.style.borderColor = isDarkTheme ? "#5a5a5a" : "#18181b";
+        e.currentTarget.style.background = isDarkTheme ? "#262626" : "#f4f4f5";
         e.currentTarget.style.transform = "translateY(-2px)";
-        e.currentTarget.style.boxShadow = "0 16px 32px rgba(0, 0, 0, 0.12)";
+        e.currentTarget.style.boxShadow = isDarkTheme
+          ? "0 16px 32px rgba(0, 0, 0, 0.45)"
+          : "0 16px 32px rgba(0, 0, 0, 0.12)";
         setIsHovered(true);
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = "#e5e7eb";
-        e.currentTarget.style.background = "#fff";
+        e.currentTarget.style.borderColor = isDarkTheme ? "#404040" : "#e5e7eb";
+        e.currentTarget.style.background = isDarkTheme ? "#1d1d1d" : "#fff";
         e.currentTarget.style.transform = "translateY(0)";
         e.currentTarget.style.boxShadow = "none";
         setIsHovered(false);
@@ -1854,7 +2638,11 @@ const UserTemplateCard: React.FC<{
           flex: "0 0 50%",
           maxWidth: "50%",
           height: "100%",
-          background: item.thumbnail ? "transparent" : "#f3f4f6",
+          background: item.thumbnail
+            ? "transparent"
+            : isDarkTheme
+              ? "#171717"
+              : "#f3f4f6",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -1868,7 +2656,9 @@ const UserTemplateCard: React.FC<{
             style={{ width: "100%", height: "100%", objectFit: "cover" }}
           />
         ) : (
-          <div style={{ fontSize: 12, color: "#9ca3af" }}>暂无预览</div>
+          <div style={{ fontSize: 12, color: isDarkTheme ? "#666666" : "#9ca3af" }}>
+            暂无预览
+          </div>
         )}
       </div>
       <div
@@ -1885,23 +2675,23 @@ const UserTemplateCard: React.FC<{
             style={{
               fontSize: 15,
               fontWeight: 600,
-              color: "#111827",
+              color: isDarkTheme ? "#ffffff" : "#111827",
               marginBottom: 6,
             }}
           >
             {item.name}
           </div>
-          <div style={{ fontSize: 12, color: "#6b7280" }}>
+          <div style={{ fontSize: 12, color: isDarkTheme ? "#888888" : "#6b7280" }}>
             更新于 {new Date(item.updatedAt).toLocaleString()}
           </div>
         </div>
         {item.category ? (
-          <div style={{ fontSize: 12, color: "#9ca3af" }}>
+          <div style={{ fontSize: 12, color: isDarkTheme ? "#666666" : "#9ca3af" }}>
             分类：{item.category}
           </div>
         ) : null}
         {item.tags?.length ? (
-          <div style={{ fontSize: 12, color: "#9ca3af" }}>
+          <div style={{ fontSize: 12, color: isDarkTheme ? "#666666" : "#9ca3af" }}>
             标签：{item.tags.join(" / ")}
           </div>
         ) : null}
@@ -1916,8 +2706,8 @@ const UserTemplateCard: React.FC<{
             width: 28,
             height: 28,
             borderRadius: 6,
-            border: "1px solid #fecaca",
-            background: "#fff",
+            border: isDarkTheme ? "1px solid #5a2a2a" : "1px solid #fecaca",
+            background: isDarkTheme ? "#262626" : "#fff",
             color: "#ef4444",
             display: "flex",
             alignItems: "center",
@@ -1930,13 +2720,13 @@ const UserTemplateCard: React.FC<{
             await onDelete();
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = "#fee2e2";
-            e.currentTarget.style.borderColor = "#fca5a5";
+            e.currentTarget.style.background = isDarkTheme ? "#3a1f1f" : "#fee2e2";
+            e.currentTarget.style.borderColor = isDarkTheme ? "#7f1d1d" : "#fca5a5";
             e.currentTarget.style.transform = "scale(1.05)";
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.background = "#fff";
-            e.currentTarget.style.borderColor = "#fecaca";
+            e.currentTarget.style.background = isDarkTheme ? "#262626" : "#fff";
+            e.currentTarget.style.borderColor = isDarkTheme ? "#5a2a2a" : "#fecaca";
             e.currentTarget.style.transform = "scale(1)";
           }}
           title='删除模板'
@@ -1951,7 +2741,8 @@ const UserTemplateCard: React.FC<{
 const AddTemplateCard: React.FC<{
   onAdd: () => Promise<void>;
   label?: string;
-}> = ({ onAdd, label }) => {
+  isDarkTheme?: boolean;
+}> = ({ onAdd, label, isDarkTheme = false }) => {
   const [isLoading, setIsLoading] = React.useState(false);
 
   return (
@@ -1971,13 +2762,13 @@ const AddTemplateCard: React.FC<{
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        border: "1px dashed #a1a1aa",
+        border: isDarkTheme ? "1px dashed #404040" : "1px dashed #a1a1aa",
         borderRadius: 12,
         padding: "18px 20px",
         minHeight: 130,
         height: 130,
-        background: "#fafafa",
-        color: "#18181b",
+        background: isDarkTheme ? "#171717" : "#fafafa",
+        color: isDarkTheme ? "#ffffff" : "#18181b",
         cursor: isLoading ? "wait" : "pointer",
         transition: "all 0.15s ease",
         gap: 10,
@@ -1986,14 +2777,16 @@ const AddTemplateCard: React.FC<{
       }}
       onMouseEnter={(e) => {
         if (isLoading) return;
-        e.currentTarget.style.background = "#f4f4f5";
-        e.currentTarget.style.borderColor = "#71717a";
+        e.currentTarget.style.background = isDarkTheme ? "#262626" : "#f4f4f5";
+        e.currentTarget.style.borderColor = isDarkTheme ? "#666666" : "#71717a";
         e.currentTarget.style.transform = "translateY(-2px)";
-        e.currentTarget.style.boxShadow = "0 12px 24px rgba(0, 0, 0, 0.12)";
+        e.currentTarget.style.boxShadow = isDarkTheme
+          ? "0 12px 24px rgba(0, 0, 0, 0.4)"
+          : "0 12px 24px rgba(0, 0, 0, 0.12)";
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.background = "#fafafa";
-        e.currentTarget.style.borderColor = "#a1a1aa";
+        e.currentTarget.style.background = isDarkTheme ? "#171717" : "#fafafa";
+        e.currentTarget.style.borderColor = isDarkTheme ? "#404040" : "#a1a1aa";
         e.currentTarget.style.transform = "translateY(0)";
         e.currentTarget.style.boxShadow = "none";
       }}
@@ -2008,18 +2801,19 @@ const AddTemplateCard: React.FC<{
 const TemplatePlaceholder: React.FC<{
   label: string;
   subtitle: string;
-}> = ({ label, subtitle }) => (
+  isDarkTheme?: boolean;
+}> = ({ label, subtitle, isDarkTheme = false }) => (
   <div
     style={{
       display: "flex",
       alignItems: "stretch",
       gap: 18,
-      border: "1px dashed #d1d5db",
+      border: isDarkTheme ? "1px dashed #404040" : "1px dashed #d1d5db",
       borderRadius: 12,
       padding: "15px",
       minHeight: 160,
       height: 160,
-      background: "#f9fafb",
+      background: isDarkTheme ? "#171717" : "#f9fafb",
       transition: "all 0.2s ease",
     }}
   >
@@ -2031,9 +2825,9 @@ const TemplatePlaceholder: React.FC<{
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: "#f3f4f6",
+        background: isDarkTheme ? "#1d1d1d" : "#f3f4f6",
         borderRadius: 8,
-        color: "#94a3b8",
+        color: isDarkTheme ? "#666666" : "#94a3b8",
       }}
     >
       <Plus size={28} strokeWidth={2} />
@@ -2045,11 +2839,19 @@ const TemplatePlaceholder: React.FC<{
         flexDirection: "column",
         gap: 8,
         justifyContent: "center",
-        color: "#94a3b8",
+        color: isDarkTheme ? "#888888" : "#94a3b8",
         fontSize: 13,
       }}
     >
-      <div style={{ fontSize: 15, fontWeight: 600 }}>{label}</div>
+      <div
+        style={{
+          fontSize: 15,
+          fontWeight: 600,
+          color: isDarkTheme ? "#ffffff" : "inherit",
+        }}
+      >
+        {label}
+      </div>
       <div>{subtitle}</div>
     </div>
   </div>
@@ -2129,14 +2931,17 @@ function useFlowViewport() {
 // ];
 
 function FlowInner() {
-  const { lt } = useLocaleText();
+  const { lt, isZh } = useLocaleText();
   const [nodes, setNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   // Alt+拖拽复制相关状态（在 onNodesChange 中做位置重映射，让“副本在动、原节点不动”）
   const altDragStartRef = React.useRef<any>(null);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
   const imageSize = useAIChatStore((state) => state.imageSize);
   const globalWebSearchEnabled = useAIChatStore((state) => state.enableWebSearch);
+  const chatTheme = useAIChatStore((state) => state.chatTheme);
+  const isFlowBlackTheme = chatTheme === "black";
   const imageModel = React.useMemo(
     () => getImageModelForProvider(aiProvider),
     [aiProvider]
@@ -2153,6 +2958,20 @@ function FlowInner() {
   const [nodeConfigs, setNodeConfigs] = React.useState<NodeConfig[]>([]);
   React.useEffect(() => {
     fetchNodeConfigs().then(setNodeConfigs).catch(console.error);
+  }, []);
+
+  // VIP 会员状态
+  const [membershipActive, setMembershipActive] = React.useState(false);
+  React.useEffect(() => {
+    import("@/services/adminApi").then(({ getMembershipCurrent }) => {
+      getMembershipCurrent()
+        .then((data) => {
+          setMembershipActive(data?.entitlement?.membershipStatus === "active");
+        })
+        .catch(() => {
+          setMembershipActive(false);
+        });
+    }).catch(() => {});
   }, []);
 
   // 管理端保存后：localStorage 仅其它标签页能收到 storage 事件；同窗口用 NODE_CONFIG_SYNC_DOM_EVENT
@@ -2223,12 +3042,13 @@ function FlowInner() {
 
       for (const fallback of fallbackConfigs) {
         if (!fallback.nodeKey || existingNodeKeys.has(fallback.nodeKey)) continue;
+        if (isModelBackedPaletteConfig(fallback)) continue;
         existingNodeKeys.add(fallback.nodeKey);
         merged.push(fallback);
       }
     }
 
-    return merged
+    const prepared = merged
       .map((config) => {
         // 有后端配置时沿用后台名称，避免「节点管理」改名后面板仍被写死覆盖
         if (!hasBackendConfigs && config.nodeKey === "generatePro") {
@@ -2255,7 +3075,47 @@ function FlowInner() {
         return !isHiddenFlowNodeType(resolvedType);
       })
       .filter((config) => config.status !== "disabled");
+
+    const dedupedByType = new Map<string, NodeConfig>();
+    prepared.forEach((config, index) => {
+      const resolvedType = resolveFlowNodeTypeFromConfig(config);
+      const normalizedType = normalizeFlowNodeType(resolvedType);
+      const dedupeKey = normalizedType || resolvedType || config.nodeKey || `unknown-${index}`;
+      const unifiedTitle = normalizedType ? UNIFIED_VIDEO_NODE_TITLES[normalizedType] : undefined;
+      const normalizedConfig: NodeConfig =
+        normalizedType || unifiedTitle
+          ? {
+              ...config,
+              nodeKey: normalizedType || config.nodeKey,
+              nameZh: unifiedTitle?.nameZh || config.nameZh,
+              nameEn: unifiedTitle?.nameEn || config.nameEn,
+            }
+          : config;
+
+      const existing = dedupedByType.get(dedupeKey);
+      if (!existing) {
+        dedupedByType.set(dedupeKey, normalizedConfig);
+        return;
+      }
+      dedupedByType.set(
+        dedupeKey,
+        mergeNodePaletteConfig(existing, normalizedConfig, normalizedType || resolvedType)
+      );
+    });
+
+    return Array.from(dedupedByType.values());
   }, [sortedNodeConfigs]);
+
+  const nodeCreditsByType = React.useMemo(() => {
+    const map = new Map<string, number>();
+    nodePaletteConfigs.forEach((config) => {
+      const resolvedType = resolveFlowNodeTypeFromConfig(config);
+      const creditsPerCall = resolveNodeConfigCreditsPerCall(config);
+      if (!resolvedType || !Number.isFinite(creditsPerCall)) return;
+      map.set(resolvedType, creditsPerCall);
+    });
+    return map;
+  }, [nodePaletteConfigs]);
 
   const groupedNodePaletteConfigs = React.useMemo(() => {
     const grouped: Record<
@@ -2762,7 +3622,7 @@ function FlowInner() {
             ...(node.style || {}),
             width: targetWidth,
             height: targetHeight,
-            zIndex: 0,
+            zIndex: -1,
           },
         } as RFNode;
       })
@@ -2899,11 +3759,39 @@ function FlowInner() {
       const removeSet = new Set(ids);
       let changed = false;
       setNodes((prev: any[]) => {
-        const next = prev.filter((node) => {
-          if (!removeSet.has(node.id)) return true;
-          changed = true;
-          return false;
+        const releasedChildIds = new Set<string>();
+        prev.forEach((node) => {
+          if (!removeSet.has(node.id) || !isGroupNode(node as RFNode)) return;
+          getGroupChildIds(node as RFNode).forEach((childId) =>
+            releasedChildIds.add(String(childId))
+          );
         });
+
+        const next = prev
+          .filter((node) => {
+            if (!removeSet.has(node.id)) return true;
+            changed = true;
+            return false;
+          })
+          .map((node) => {
+            const parentId =
+              typeof (node as any).parentNode === "string"
+                ? String((node as any).parentNode)
+                : "";
+            const shouldRelease =
+              releasedChildIds.has(String(node.id)) ||
+              (parentId && removeSet.has(parentId));
+            if (!shouldRelease) return node;
+            changed = true;
+            const nextNode: any = {
+              ...node,
+              draggable: true,
+              selectable: true,
+            };
+            delete nextNode.parentNode;
+            delete nextNode.extent;
+            return nextNode;
+          });
         return next;
       });
 
@@ -2982,7 +3870,7 @@ function FlowInner() {
       style: {
         width: bounds.width,
         height: bounds.height,
-        zIndex: 0,
+        zIndex: -1,
       },
     } as any;
 
@@ -3554,23 +4442,92 @@ function FlowInner() {
     []
   );
 
-  const tplNodesToRfNodes = React.useCallback(
-    (ns: TemplateNode[]): RFNode[] =>
-      ns.map((n) => ({
+  const tplNodesToRfNodes = React.useCallback((ns: TemplateNode[]): RFNode[] => {
+    const legacyChildrenByGroupId = new Map<string, string[]>();
+    ns.forEach((node: any) => {
+      const parentId =
+        typeof node?.parentNode === "string" ? node.parentNode.trim() : "";
+      if (!parentId) return;
+      const list = legacyChildrenByGroupId.get(parentId) || [];
+      list.push(String(node.id));
+      legacyChildrenByGroupId.set(parentId, list);
+    });
+
+    return ns.map((n: any) => {
+      const rawType = typeof n?.type === "string" ? n.type : "default";
+      const type = normalizeFlowNodeType(rawType) || rawType;
+      const isGroup = type === FLOW_GROUP_NODE_TYPE;
+      const data: Record<string, any> = { ...(n?.data || {}) };
+
+      if (type === "klingVideo") {
+        const currentKlingModel = String(data.klingModel || "").trim();
+        if (!currentKlingModel) {
+          data.klingModel = rawType === "kling30Video" ? "kling-v3-0" : "kling-v2-6";
+        } else if (currentKlingModel === "kling-v3-0") {
+          data.klingModel = "kling-v3-0";
+        } else {
+          data.klingModel = "kling-v2-6";
+        }
+        if (data.mode !== "std" && data.mode !== "pro") {
+          data.mode = "std";
+        }
+        if (!Array.isArray(data.audioUrls)) {
+          data.audioUrls = [];
+        }
+        data.provider = "kling";
+      }
+
+      if (type === "viduVideo") {
+        const fallbackViduModel = rawType === "viduQ3" ? "q3" : "q2";
+        data.viduModel = normalizeViduModelValue(data.viduModel || fallbackViduModel);
+        data.provider = getEffectiveViduProvider(data);
+      }
+
+      if (type === "doubaoVideo") {
+        const currentSeedanceModel = String(data.seedanceModel || "").trim();
+        const normalizedSeedanceModel = normalizeSeedanceModelValue(
+          currentSeedanceModel ||
+            (rawType === "seedance20Video" ? "seedance-2.0" : "seedance-1.5-pro")
+        );
+        data.seedanceModel =
+          rawType === "seedance20Video" && normalizedSeedanceModel === "seedance-1.5-pro"
+            ? "seedance-2.0"
+            : normalizedSeedanceModel;
+        data.provider = "doubao";
+      }
+
+      if (isGroup) {
+        const explicitChildIds = Array.isArray(data.childNodeIds)
+          ? data.childNodeIds.map((id: any) => String(id))
+          : [];
+        const legacyChildIds = legacyChildrenByGroupId.get(String(n.id)) || [];
+        data.childNodeIds = Array.from(
+          new Set(
+            [...explicitChildIds, ...legacyChildIds].filter((id) => {
+              const child = ns.find((x: any) => String(x.id) === String(id));
+              return child && (child.type || "default") !== FLOW_GROUP_NODE_TYPE;
+            })
+          )
+        );
+      }
+
+      return {
         id: n.id,
-        type: (n as any).type || "default",
+        type,
         position: { x: n.position.x, y: n.position.y },
-        data: { ...(n.data || {}) },
-        width: (n as any).width,
-        height: (n as any).height,
-        style: (n as any).style ? { ...(n as any).style } : undefined,
-        parentNode: (n as any).parentNode,
-        extent: (n as any).extent,
-        selectable: (n as any).selectable,
-        draggable: (n as any).draggable,
-      })) as any,
-    []
-  );
+        data,
+        width: n.width,
+        height: n.height,
+        style: n.style ? { ...n.style } : undefined,
+        // Legacy grouped JSON may carry parentNode/extent and false draggable flags.
+        // Grouping in current implementation uses childNodeIds, so clear parent locks.
+        parentNode: undefined,
+        extent: undefined,
+        selectable: true,
+        draggable: true,
+      } as any;
+    }) as any;
+  }, []);
 
   const tplEdgesToRfEdges = React.useCallback(
     (es: TemplateEdge[]): Edge[] =>
@@ -3836,18 +4793,30 @@ function FlowInner() {
       idMap.set(node.id, generateId(node.type || "n"));
     });
 
+    const legacyChildrenByGroupOldId = new Map<string, string[]>();
+    payload.nodes.forEach((node: any) => {
+      const parentId =
+        typeof node?.parentNode === "string" ? node.parentNode.trim() : "";
+      if (!parentId) return;
+      const list = legacyChildrenByGroupOldId.get(parentId) || [];
+      list.push(String(node.id));
+      legacyChildrenByGroupOldId.set(parentId, list);
+    });
+
     const newNodes = payload.nodes.map((node) => {
       const newId = idMap.get(node.id) || generateId(node.type || "n");
       const data: any = sanitizeNodeData(node.data || {}, {
         preserveImagePayload: true,
       });
       if (node.type === FLOW_GROUP_NODE_TYPE) {
-        const rawChildren = Array.isArray(data?.childNodeIds)
-          ? data.childNodeIds
+        const explicitChildren = Array.isArray(data?.childNodeIds)
+          ? data.childNodeIds.map((childId: string) => idMap.get(childId) || null)
           : [];
-        data.childNodeIds = rawChildren
-          .map((childId: string) => idMap.get(childId) || null)
-          .filter(Boolean);
+        const legacyChildren = (legacyChildrenByGroupOldId.get(String(node.id)) || [])
+          .map((childOldId: string) => idMap.get(childOldId) || null);
+        data.childNodeIds = Array.from(
+          new Set([...explicitChildren, ...legacyChildren].filter(Boolean))
+        );
       }
       return {
         id: newId,
@@ -3861,12 +4830,10 @@ function FlowInner() {
         width: node.width,
         height: node.height,
         style: node.style ? { ...node.style } : undefined,
-        parentNode: (node as any).parentNode
-          ? idMap.get((node as any).parentNode) || undefined
-          : undefined,
-        extent: (node as any).extent,
-        selectable: (node as any).selectable,
-        draggable: (node as any).draggable,
+        parentNode: undefined,
+        extent: undefined,
+        selectable: true,
+        draggable: true,
       } as any;
     });
 
@@ -4041,7 +5008,10 @@ function FlowInner() {
   React.useEffect(() => {
     const handleGroupHotkey = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
-      if (String(event.key || "").toLowerCase() !== "g") return;
+      if ((event as any).isComposing) return;
+      const key = String(event.key || "");
+      const isGroupKey = key.toLowerCase() === "g" || event.code === "KeyG";
+      if (!isGroupKey) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (event.repeat) return;
 
@@ -5275,17 +6245,33 @@ function FlowInner() {
         idMap.set(origId, newId);
       });
 
+      const legacyChildrenByGroupOldId = new Map<string, string[]>();
+      rawNodes.forEach((n: any, idx: number) => {
+        const origId = String(n.id || `n_${idx}`);
+        const parentId =
+          typeof n?.parentNode === "string" ? String(n.parentNode).trim() : "";
+        if (!parentId) return;
+        const list = legacyChildrenByGroupOldId.get(parentId) || [];
+        list.push(origId);
+        legacyChildrenByGroupOldId.set(parentId, list);
+      });
+
       const mappedNodes = rawNodes.map((n: any, idx: number) => {
         const origId = String(n.id || `n_${idx}`);
         const newId = idMap.get(origId) || `${origId}_${now}_${idx}`;
         const data = cleanNodeData(n.data) || {};
         if (n.type === FLOW_GROUP_NODE_TYPE) {
-          const rawChildIds = Array.isArray((data as any).childNodeIds)
-            ? (data as any).childNodeIds
+          const explicitChildren = Array.isArray((data as any).childNodeIds)
+            ? (data as any).childNodeIds.map(
+                (childId: string) => idMap.get(String(childId)) || null
+              )
             : [];
-          (data as any).childNodeIds = rawChildIds
-            .map((childId: string) => idMap.get(String(childId)) || null)
-            .filter(Boolean);
+          const legacyChildren = (
+            legacyChildrenByGroupOldId.get(origId) || []
+          ).map((childOldId: string) => idMap.get(String(childOldId)) || null);
+          (data as any).childNodeIds = Array.from(
+            new Set([...explicitChildren, ...legacyChildren].filter(Boolean))
+          );
         }
         return {
           id: newId,
@@ -5295,12 +6281,10 @@ function FlowInner() {
           width: n.width,
           height: n.height,
           style: n.style ? { ...n.style } : undefined,
-          parentNode: n.parentNode
-            ? idMap.get(String(n.parentNode)) || undefined
-            : undefined,
-          extent: n.extent,
-          selectable: n.selectable,
-          draggable: n.draggable,
+          parentNode: undefined,
+          extent: undefined,
+          selectable: true,
+          draggable: true,
         } as any;
       });
 
@@ -6301,6 +7285,20 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
+          : type === "wan27Video"
+          ? {
+              status: "idle" as const,
+              videoUrl: undefined,
+              thumbnail: undefined,
+              resolution: "1080P" as const,
+              duration: 5 as const,
+              audioUrl: undefined,
+              seed: undefined,
+              videoVersion: 0,
+              history: [],
+              boxW: size.w,
+              boxH: size.h,
+            }
           : type === "storyboardSplit"
           ? {
               status: "idle" as const,
@@ -6548,7 +7546,19 @@ function FlowInner() {
                   : type === "seedance20Video"
                   ? ("seedance-2.0" as const)
                   : undefined,
-              resolution: type === "viduVideo" || type === "viduQ3" ? ("720p" as const) : undefined,
+              seedanceMode:
+                type === "seedance20Video"
+                  ? ("reference_images" as const)
+                  : type === "doubaoVideo"
+                  ? ("text" as const)
+                  : undefined,
+              generateAudio: type === "seedance20Video" ? false : undefined,
+              resolution:
+                type === "viduVideo" || type === "viduQ3"
+                  ? ("720p" as const)
+                  : type === "seedance20Video" || type === "doubaoVideo"
+                  ? ("720P" as const)
+                  : undefined,
               style: type === "viduVideo" || type === "viduQ3" ? ("general" as const) : undefined,
               offPeak: type === "viduVideo" || type === "viduQ3" ? false : undefined,
               // Seedance 1.5 Pro专用参数
@@ -6575,6 +7585,29 @@ function FlowInner() {
       const data = {
         ...baseData,
         ...(paletteDefaultData || {}),
+        ...(paletteConfig
+          ? (() => {
+              const metadata =
+                paletteConfig.metadata && typeof paletteConfig.metadata === "object"
+                  ? (paletteConfig.metadata as Record<string, any>)
+                  : undefined;
+              const selectedManagedRoute = getManagedRouteOption(
+                metadata,
+                (paletteDefaultData as Record<string, any> | undefined)?.vendorKey
+              );
+              if (!selectedManagedRoute) return {};
+              return {
+                managedModelKey: metadata?.managedModelKey,
+                vendorKey: selectedManagedRoute.vendorKey,
+                platformKey:
+                  selectedManagedRoute.platformKey || selectedManagedRoute.vendorKey,
+                creditsPerCall:
+                  typeof selectedManagedRoute.creditsPerCall === "number"
+                    ? selectedManagedRoute.creditsPerCall
+                    : undefined,
+              };
+            })()
+          : {}),
         ...(paletteConfig
           ? {
               nodeConfigKey: paletteConfig.nodeKey,
@@ -6621,6 +7654,7 @@ function FlowInner() {
       "sora2Video",
       "wan26",
       "wan2R2V",
+      "wan27Video",
       "klingVideo",
       "kling26Video",
       "kling30Video",
@@ -6980,6 +8014,143 @@ function FlowInner() {
     return isKling26Model && mode === "pro";
   }, []);
 
+  const isSeedance20ModeValue = React.useCallback(
+    (value: unknown): value is Seedance20Mode =>
+      typeof value === "string" && SEEDANCE20_MODE_VALUES.includes(value as Seedance20Mode),
+    []
+  );
+  const isSeedance15ModeValue = React.useCallback(
+    (value: unknown): value is Seedance15Mode =>
+      typeof value === "string" && SEEDANCE15_MODE_VALUES.includes(value as Seedance15Mode),
+    []
+  );
+
+  const isSeedanceVideoNode = React.useCallback((node?: Node | null): boolean => {
+    if (!node) return false;
+    const nodeData = (node.data || {}) as Record<string, any>;
+    return (
+      node.type === "doubaoVideo" ||
+      node.type === "seedance20Video" ||
+      nodeData.provider === "doubao"
+    );
+  }, []);
+
+  const resolveSeedanceProfile = React.useCallback(
+    (
+      node?: Node | null
+    ): {
+      isSeedance20: boolean;
+      model: "seedance-1.5-pro" | "seedance-2.0" | "seedance-2.0-fast";
+    } | null => {
+      if (!isSeedanceVideoNode(node)) return null;
+      const nodeData = (node?.data || {}) as Record<string, any>;
+      const model = normalizeSeedanceModelValue(nodeData.seedanceModel);
+      return {
+        isSeedance20: isSeedance20ModelValue(model),
+        model,
+      };
+    },
+    [isSeedanceVideoNode]
+  );
+
+  const inferSeedanceMode = React.useCallback(
+    (node?: Node | null): SeedanceMode => {
+      const profile = resolveSeedanceProfile(node);
+      if (!node || !profile) return "text";
+
+      const nodeData = (node.data || {}) as Record<string, any>;
+      const legacyMode = String(nodeData.seedanceMode || "").trim().toLowerCase();
+      if (profile.isSeedance20) {
+        if (isSeedance20ModeValue(nodeData.seedanceMode)) {
+          return nodeData.seedanceMode;
+        }
+        if (legacyMode === "start_end" || legacyMode === "first_frame") {
+          return "start_end";
+        }
+        return "reference_images";
+      }
+
+      const explicitMode = isSeedance15ModeValue(nodeData.seedanceMode)
+        ? nodeData.seedanceMode
+        : undefined;
+      if (explicitMode === "start_end") return "start_end";
+      if (legacyMode === "start_end") return "start_end";
+      if (legacyMode === "first_frame") return "start_end";
+      if (legacyMode === "reference_images") return "image";
+
+      const nodeEdges = rf.getEdges().filter((edge) => edge.target === node.id);
+      const hasImage2 = nodeEdges.some((edge) => edge.targetHandle === "image-2");
+      const totalImageCount = nodeEdges.filter(
+        (edge) => edge.targetHandle === "image" || edge.targetHandle === "image-2"
+      ).length;
+      if (hasImage2) return "start_end";
+      if (totalImageCount >= 2) return "start_end";
+      if (totalImageCount === 1) return "image";
+      if (explicitMode === "image") return "image";
+      return "text";
+    },
+    [
+      isSeedance15ModeValue,
+      isSeedance20ModeValue,
+      resolveSeedanceProfile,
+      rf,
+    ]
+  );
+
+  const getSeedanceModeSpec = React.useCallback(
+    (node?: Node | null) => {
+      const profile = resolveSeedanceProfile(node);
+      if (!profile) {
+        return {
+          imageHandleMax: 0,
+          image2HandleMax: 0,
+          videoHandleMax: 0,
+          audioHandleMax: 0,
+        };
+      }
+      const mode = inferSeedanceMode(node);
+      if (profile.isSeedance20) {
+        if (mode === "start_end") {
+          return {
+            imageHandleMax: 2,
+            image2HandleMax: 0,
+            videoHandleMax: 0,
+            audioHandleMax: 0,
+          };
+        }
+        return {
+          imageHandleMax: SEEDANCE20_REFERENCE_IMAGE_MAX,
+          image2HandleMax: 0,
+          videoHandleMax: SEEDANCE20_REFERENCE_VIDEO_MAX,
+          audioHandleMax: SEEDANCE20_REFERENCE_AUDIO_MAX,
+        };
+      }
+      if (mode === "image") {
+        return {
+          imageHandleMax: 1,
+          image2HandleMax: 0,
+          videoHandleMax: 0,
+          audioHandleMax: 0,
+        };
+      }
+      if (mode === "start_end") {
+        return {
+          imageHandleMax: 1,
+          image2HandleMax: 1,
+          videoHandleMax: 0,
+          audioHandleMax: 0,
+        };
+      }
+      return {
+        imageHandleMax: 1,
+        image2HandleMax: 0,
+        videoHandleMax: 0,
+        audioHandleMax: 0,
+      };
+    },
+    [inferSeedanceMode, resolveSeedanceProfile]
+  );
+
   const appendSora2History = React.useCallback(
     (
       history: Sora2VideoHistoryItem[] | undefined,
@@ -7113,9 +8284,10 @@ function FlowInner() {
           return [
             "video",
             "sora2Video",
-            "wan26",
-            "wan2R2V",
-            "klingVideo",
+      "wan26",
+      "wan2R2V",
+      "wan27Video",
+      "klingVideo",
             "kling26Video",
             "kling30Video",
             "klingO1Video",
@@ -7134,11 +8306,12 @@ function FlowInner() {
             return false;
           }
           return [
-            "video",
-            "sora2Video",
-            "wan26",
-            "wan2R2V",
-            "klingVideo",
+      "video",
+      "sora2Video",
+      "wan26",
+      "wan2R2V",
+      "wan27Video",
+      "klingVideo",
             "kling26Video",
             "kling30Video",
             "klingO1Video",
@@ -7166,6 +8339,7 @@ function FlowInner() {
             "sora2Video",
             "wan26",
             "wan2R2V",
+            "wan27Video",
             "klingVideo",
             "kling26Video",
             "klingO1Video",
@@ -7183,6 +8357,40 @@ function FlowInner() {
         }
         if (isImageHandle(targetHandle)) {
           return isImageSource(sourceNode, sourceHandle);
+        }
+        if (targetHandle === "audio") {
+          if (sourceHandle !== "audio") return false;
+          return ["audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
+            sourceNode.type || ""
+          );
+        }
+        return false;
+      }
+
+      if (targetNode.type === "wan27Video") {
+        if (targetHandle === "text") {
+          return canSourceProvideText(sourceNode, sourceHandle);
+        }
+        if (targetHandle === "image" || targetHandle === "image-2") {
+          return isImageSource(sourceNode, sourceHandle);
+        }
+        if (targetHandle === "video") {
+          if (sourceHandle !== "video" && sourceHandle !== "video-out") return false;
+          return [
+            "video",
+            "sora2Video",
+            "wan26",
+            "wan2R2V",
+            "wan27Video",
+            "klingVideo",
+            "kling26Video",
+            "kling30Video",
+            "klingO1Video",
+            "viduVideo",
+            "viduQ3",
+            "doubaoVideo",
+            "seedance20Video",
+          ].includes(sourceNode.type || "");
         }
         if (targetHandle === "audio") {
           if (sourceHandle !== "audio") return false;
@@ -7218,6 +8426,7 @@ function FlowInner() {
             "sora2Video",
             "wan2R2V",
             "wan26",
+            "wan27Video",
             "klingVideo",
             "kling26Video",
             "kling30Video",
@@ -7231,13 +8440,49 @@ function FlowInner() {
         return false;
       }
 
+      if (isSeedanceVideoNode(targetNode)) {
+        const spec = getSeedanceModeSpec(targetNode);
+        const incomingCount = rf
+          .getEdges()
+          .filter(
+            (edge) => edge.target === targetNode.id && edge.targetHandle === targetHandle
+          ).length;
+        if (targetHandle === "image") {
+          if (spec.imageHandleMax <= 0) return false;
+          return isImageSource(sourceNode, sourceHandle);
+        }
+        if (targetHandle === "image-2") {
+          if (spec.image2HandleMax <= 0) return false;
+          return isImageSource(sourceNode, sourceHandle);
+        }
+        if (targetHandle === "video") {
+          if (spec.videoHandleMax <= 0 || incomingCount >= spec.videoHandleMax) return false;
+          if (sourceHandle !== "video" && sourceHandle !== "video-out") return false;
+          return VIDEO_SOURCE_NODE_TYPES.includes(sourceNode.type || "");
+        }
+        if (targetHandle === "audio") {
+          if (spec.audioHandleMax <= 0 || incomingCount >= spec.audioHandleMax) return false;
+          if (sourceHandle !== "audio") return false;
+          return ["audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
+            sourceNode.type || ""
+          );
+        }
+        if (targetHandle === "text") {
+          return canSourceProvideText(sourceNode, sourceHandle);
+        }
+        return false;
+      }
+
       if (
-        ["klingVideo", "kling26Video", "kling30Video", "viduVideo", "viduQ3", "doubaoVideo", "seedance20Video"].includes(
+        ["klingVideo", "kling26Video", "kling30Video", "viduVideo", "viduQ3", "doubaoVideo"].includes(
           targetNode.type || ""
         )
       ) {
         if (targetHandle === "image-2") {
-          // image-2 仅 Kling 2.6/3.0 pro 模式可用
+          // Vidu 固定用 image/image-2 表达图1/图2；Kling 仅 2.6/3.0 pro 可用 image-2
+          if (targetNode.type === "viduVideo" || targetNode.type === "viduQ3") {
+            return isImageSource(sourceNode, sourceHandle);
+          }
           if (!canKlingNodeUseImage2Input(targetNode)) return false;
           return isImageSource(sourceNode, sourceHandle);
         }
@@ -7272,6 +8517,7 @@ function FlowInner() {
             "sora2Video",
             "wan26",
             "wan2R2V",
+            "wan27Video",
             "klingVideo",
             "kling26Video",
             "klingO1Video",
@@ -7333,7 +8579,7 @@ function FlowInner() {
           return canSourceProvideText(sourceNode, sourceHandle);
         }
         if (targetHandle === "video") {
-          return ["video", "sora2Video", "wan26", "wan2R2V", "klingVideo", "kling26Video", "kling30Video", "klingO1Video", "viduVideo", "viduQ3", "doubaoVideo", "seedance20Video"].includes(sourceNode.type || "");
+          return ["video", "sora2Video", "wan26", "wan2R2V", "wan27Video", "klingVideo", "kling26Video", "kling30Video", "klingO1Video", "viduVideo", "viduQ3", "doubaoVideo", "seedance20Video"].includes(sourceNode.type || "");
         }
         return false;
       }
@@ -7391,6 +8637,7 @@ function FlowInner() {
             "seedance20Video",
             "wan26",
             "wan2R2V",
+            "wan27Video",
           ].includes(sourceNode.type || "");
         return false;
       }
@@ -7402,6 +8649,7 @@ function FlowInner() {
             "sora2Video",
             "wan26",
             "wan2R2V",
+            "wan27Video",
             "klingVideo",
             "kling26Video",
             "kling30Video",
@@ -7424,12 +8672,14 @@ function FlowInner() {
             "sora2Video",
             "wan26",
             "wan2R2V",
+            "wan27Video",
             "klingVideo",
             "kling26Video",
             "klingO1Video",
             "viduVideo",
             "viduQ3",
             "doubaoVideo",
+            "seedance20Video",
             "genericVideo",
             "seedanceVideo",
           ];
@@ -7487,7 +8737,18 @@ function FlowInner() {
       }
       return false;
     },
-    [rf, isTextHandle, isImageHandle, textSourceTypes, isTextSourceHandle, isImageSourceHandle, canKlingNodeUseAudioInput, canKlingNodeUseImage2Input]
+    [
+      rf,
+      isTextHandle,
+      isImageHandle,
+      textSourceTypes,
+      isTextSourceHandle,
+      isImageSourceHandle,
+      canKlingNodeUseAudioInput,
+      canKlingNodeUseImage2Input,
+      getSeedanceModeSpec,
+      isSeedanceVideoNode,
+    ]
   );
 
   // 限制：Generate(text) 仅一个连接；Generate(img) 最多6条
@@ -7559,6 +8820,17 @@ function FlowInner() {
         if (isImageHandle(params.targetHandle)) return true; // 新线会替换旧线
         if (params.targetHandle === "audio") return true; // 新线会替换旧线
       }
+      if (targetNode?.type === "wan27Video") {
+        if (params.targetHandle === "text") return true;
+        if (
+          params.targetHandle === "image" ||
+          params.targetHandle === "image-2" ||
+          params.targetHandle === "video" ||
+          params.targetHandle === "audio"
+        ) {
+          return true;
+        }
+      }
       if (targetNode?.type === "audioUpload") {
         if (params.targetHandle === "audio") return true; // 新线会替换旧线
       }
@@ -7566,18 +8838,34 @@ function FlowInner() {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
         if (params.targetHandle.startsWith("video-")) return true; // 每个 video-* 句柄最多一个，onConnect 会替换
       }
-      // Vidu 视频节点：支持最多 7 张参考图
+      // Vidu 视频节点：图1/图2双句柄，每个句柄最多 1 条，总数受模型上限控制
       if (targetNode?.type === "viduVideo") {
-        if (params.targetHandle === "image") {
-          return incoming.length < VIDU_MAX_REFERENCE_IMAGES;
+        const targetData = ((targetNode.data || {}) as Record<string, any>);
+        const maxImages = getEffectiveViduMaxReferenceImages(targetData);
+        if (params.targetHandle === "image" || params.targetHandle === "image-2") {
+          const sameHandleCount = edges.filter(
+            (e) => e.target === params.target && e.targetHandle === params.targetHandle
+          ).length;
+          const totalImageCount = edges.filter(
+            (e) => e.target === params.target && (e.targetHandle === "image" || e.targetHandle === "image-2")
+          ).length;
+          const projectedTotal = totalImageCount - sameHandleCount + 1;
+          return projectedTotal <= maxImages;
         }
         if (params.targetHandle === "text") return true;
       }
 
-      // Vidu Q3 视频节点：支持最多 2 张参考图
+      // Vidu Q3 视频节点：图1/图2双句柄，每个句柄最多 1 条，总数最多 2 条
       if (targetNode?.type === "viduQ3") {
-        if (params.targetHandle === "image") {
-          return incoming.length < VIDUQ3_MAX_REFERENCE_IMAGES;
+        if (params.targetHandle === "image" || params.targetHandle === "image-2") {
+          const sameHandleCount = edges.filter(
+            (e) => e.target === params.target && e.targetHandle === params.targetHandle
+          ).length;
+          const totalImageCount = edges.filter(
+            (e) => e.target === params.target && (e.targetHandle === "image" || e.targetHandle === "image-2")
+          ).length;
+          const projectedTotal = totalImageCount - sameHandleCount + 1;
+          return projectedTotal <= VIDUQ3_MAX_REFERENCE_IMAGES;
         }
         if (params.targetHandle === "text") return true;
       }
@@ -7621,8 +8909,44 @@ function FlowInner() {
         if (params.targetHandle === "text") return true;
         if (params.targetHandle === "video") return incoming.length < 1; // 只支持 1 个视频
       }
+      if (isSeedanceVideoNode(targetNode)) {
+        const spec = getSeedanceModeSpec(targetNode);
+        if (params.targetHandle === "text") return true;
+        if (params.targetHandle === "image") {
+          if (spec.imageHandleMax <= 0) return false;
+          return (
+            currentEdges.filter(
+              (edge) => edge.target === params.target && edge.targetHandle === "image"
+            ).length < spec.imageHandleMax
+          );
+        }
+        if (params.targetHandle === "image-2") {
+          if (spec.image2HandleMax <= 0) return false;
+          return (
+            currentEdges.filter(
+              (edge) => edge.target === params.target && edge.targetHandle === "image-2"
+            ).length < spec.image2HandleMax
+          );
+        }
+        if (params.targetHandle === "video") {
+          return (
+            spec.videoHandleMax > 0 &&
+            currentEdges.filter(
+              (edge) => edge.target === params.target && edge.targetHandle === "video"
+            ).length < spec.videoHandleMax
+          );
+        }
+        if (params.targetHandle === "audio") {
+          return (
+            spec.audioHandleMax > 0 &&
+            currentEdges.filter(
+              (edge) => edge.target === params.target && edge.targetHandle === "audio"
+            ).length < spec.audioHandleMax
+          );
+        }
+      }
       // Doubao 视频节点
-      if (targetNode?.type === "doubaoVideo" || targetNode?.type === "seedance20Video") {
+      if (targetNode?.type === "doubaoVideo") {
         if (params.targetHandle === "image") return true;
         if (params.targetHandle === "text") return true;
       }
@@ -7689,7 +9013,16 @@ function FlowInner() {
       }
       return false;
     },
-    [rf, isTextHandle, isImageHandle, canKlingNodeUseAudioInput, canKlingNodeUseImage2Input]
+    [
+      rf,
+      edges,
+      isTextHandle,
+      isImageHandle,
+      canKlingNodeUseAudioInput,
+      canKlingNodeUseImage2Input,
+      getSeedanceModeSpec,
+      isSeedanceVideoNode,
+    ]
   );
 
   const onConnect = React.useCallback(
@@ -7775,6 +9108,7 @@ function FlowInner() {
           "sora2Video",
           "wan26",
           "wan2R2V",
+          "wan27Video",
           "storyboardSplit",
           "midjourney",
           "midjourneyV7",
@@ -7783,6 +9117,7 @@ function FlowInner() {
           "kling26Video",
           "viduVideo",
           "doubaoVideo",
+          "seedance20Video",
           "minimaxSpeech",
           "tencentSpeech",
           "minimaxMusic",
@@ -7843,51 +9178,31 @@ function FlowInner() {
               )
           );
         }
-        // Vidu 视频节点：支持最多 7 张参考图
-        if (tgt?.type === "viduVideo" && params.targetHandle === "image") {
-          let remainingToDrop = Math.max(
-            0,
-            next.filter(
-              (e) => e.target === params.target && e.targetHandle === "image"
-            ).length -
-              VIDU_MAX_REFERENCE_IMAGES +
-              1 // +1 for the incoming edge
+        // Vidu 视频节点：image/image-2 各保留 1 条（新线替换旧线）
+        if (
+          tgt?.type === "viduVideo" &&
+          (params.targetHandle === "image" || params.targetHandle === "image-2")
+        ) {
+          next = next.filter(
+            (e) =>
+              !(
+                e.target === params.target &&
+                e.targetHandle === params.targetHandle
+              )
           );
-          if (remainingToDrop > 0) {
-            next = next.filter((e) => {
-              if (remainingToDrop <= 0) return true;
-              const isImageEdge =
-                e.target === params.target && e.targetHandle === "image";
-              if (isImageEdge) {
-                remainingToDrop -= 1;
-                return false;
-              }
-              return true;
-            });
-          }
         }
-        // Vidu Q3 视频节点：支持最多 2 张参考图
-        if (tgt?.type === "viduQ3" && params.targetHandle === "image") {
-          let remainingToDrop = Math.max(
-            0,
-            next.filter(
-              (e) => e.target === params.target && e.targetHandle === "image"
-            ).length -
-              VIDUQ3_MAX_REFERENCE_IMAGES +
-              1 // +1 for the incoming edge
+        // Vidu Q3 视频节点：image/image-2 各保留 1 条（新线替换旧线）
+        if (
+          tgt?.type === "viduQ3" &&
+          (params.targetHandle === "image" || params.targetHandle === "image-2")
+        ) {
+          next = next.filter(
+            (e) =>
+              !(
+                e.target === params.target &&
+                e.targetHandle === params.targetHandle
+              )
           );
-          if (remainingToDrop > 0) {
-            next = next.filter((e) => {
-              if (remainingToDrop <= 0) return true;
-              const isImageEdge =
-                e.target === params.target && e.targetHandle === "image";
-              if (isImageEdge) {
-                remainingToDrop -= 1;
-                return false;
-              }
-              return true;
-            });
-          }
         }
         // Kling 视频节点：std 最多 1 张图，pro 最多 2 张（image + image-2）
         if ((tgt?.type === "klingVideo" || tgt?.type === "kling26Video") &&
@@ -7968,9 +9283,86 @@ function FlowInner() {
             });
           }
         }
-        // Sora2、Doubao 视频节点：限制参考图数量
         if (
-          (tgt?.type === "sora2Video" || tgt?.type === "doubaoVideo" || tgt?.type === "seedance20Video") &&
+          isSeedanceVideoNode(tgt) &&
+          (params.targetHandle === "image" ||
+            params.targetHandle === "image-2" ||
+            params.targetHandle === "video" ||
+            params.targetHandle === "audio")
+        ) {
+          const spec = getSeedanceModeSpec(tgt);
+          const applyHandleLimit = (handle: "image" | "image-2" | "video" | "audio", max: number) => {
+            if (max <= 0) {
+              next = next.filter(
+                (e) => !(e.target === params.target && e.targetHandle === handle)
+              );
+              return;
+            }
+            if (max === 1) {
+              next = next.filter(
+                (e) => !(e.target === params.target && e.targetHandle === handle)
+              );
+              return;
+            }
+            let remainingToDrop = Math.max(
+              0,
+              next.filter((e) => e.target === params.target && e.targetHandle === handle).length -
+                max +
+                1
+            );
+            if (remainingToDrop <= 0) return;
+            next = next.filter((e) => {
+              if (remainingToDrop <= 0) return true;
+              if (e.target === params.target && e.targetHandle === handle) {
+                remainingToDrop -= 1;
+                return false;
+              }
+              return true;
+            });
+          };
+
+          if (params.targetHandle === "image") {
+            applyHandleLimit("image", spec.imageHandleMax);
+          } else if (params.targetHandle === "image-2") {
+            applyHandleLimit("image-2", spec.image2HandleMax);
+          } else if (params.targetHandle === "video") {
+            applyHandleLimit("video", spec.videoHandleMax);
+          } else if (params.targetHandle === "audio") {
+            applyHandleLimit("audio", spec.audioHandleMax);
+          }
+
+          if (params.targetHandle === "image" || params.targetHandle === "image-2") {
+            const maxImages = spec.imageHandleMax + spec.image2HandleMax;
+            if (maxImages > 0) {
+              let remainingToDrop = Math.max(
+                0,
+                next.filter(
+                  (e) =>
+                    e.target === params.target &&
+                    (e.targetHandle === "image" || e.targetHandle === "image-2")
+                ).length -
+                  maxImages +
+                  1
+              );
+              if (remainingToDrop > 0) {
+                next = next.filter((e) => {
+                  if (remainingToDrop <= 0) return true;
+                  const isSeedanceImageEdge =
+                    e.target === params.target &&
+                    (e.targetHandle === "image" || e.targetHandle === "image-2");
+                  if (isSeedanceImageEdge) {
+                    remainingToDrop -= 1;
+                    return false;
+                  }
+                  return true;
+                });
+              }
+            }
+          }
+        }
+        // Sora2 视频节点：限制参考图数量
+        if (
+          tgt?.type === "sora2Video" &&
           params.targetHandle === "image"
         ) {
           // 允许多条 image 连接，但限制总数；超过时移除最早的
@@ -8020,6 +9412,17 @@ function FlowInner() {
         if (tgt?.type === "wan26" && params.targetHandle === "audio") {
           next = next.filter(
             (e) => !(e.target === params.target && e.targetHandle === "audio")
+          );
+        }
+        if (
+          tgt?.type === "wan27Video" &&
+          (params.targetHandle === "image" ||
+            params.targetHandle === "image-2" ||
+            params.targetHandle === "video" ||
+            params.targetHandle === "audio")
+        ) {
+          next = next.filter(
+            (e) => !(e.target === params.target && e.targetHandle === params.targetHandle)
           );
         }
         if (tgt?.type === "audioUpload" && params.targetHandle === "audio") {
@@ -8223,6 +9626,8 @@ function FlowInner() {
       setNodes,
       isTextHandle,
       canKlingNodeUseAudioInput,
+      getSeedanceModeSpec,
+      isSeedanceVideoNode,
       lt,
       setIsConnecting,
       closeConnectQuickMenu,
@@ -9934,6 +11339,390 @@ function FlowInner() {
         return { finalPrompt, errors };
       };
 
+      if (node.type === "wan27Video") {
+        const projectId = useProjectContentStore.getState().projectId;
+        const { text: promptText } = getTextPromptForNode(nodeId);
+        const promptTextNormalized =
+          typeof promptText === "string" ? promptText.trim() : "";
+
+        if (promptTextNormalized.length > 5000) {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "failed",
+                      error: "Prompt 最多支持 5000 个字符",
+                    },
+                  }
+                : n
+            )
+          );
+          return;
+        }
+
+        const sanitizeMediaUrl = (url?: string | null) => {
+          if (!url || typeof url !== "string") return undefined;
+          const trimmed = url.trim();
+          if (!trimmed) return undefined;
+          const markdownSplit = trimmed.split("](");
+          const candidate = markdownSplit.length > 1 ? markdownSplit[0] : trimmed;
+          const spaceIdx = candidate.indexOf(" ");
+          return spaceIdx > 0 ? candidate.slice(0, spaceIdx) : candidate;
+        };
+
+        const resolveVideoUrl = (edge?: Edge): string | undefined => {
+          if (!edge) return undefined;
+          const srcNode = rf.getNode(edge.source);
+          if (!srcNode) return undefined;
+          const data = (srcNode.data as any) || {};
+          const direct =
+            data.videoUrl ||
+            data.video_url ||
+            data.output?.video_url ||
+            (Array.isArray(data.output) ? data.output[0]?.video_url : undefined) ||
+            data.raw?.output?.video_url ||
+            data.raw?.video_url ||
+            data.url ||
+            data.src;
+          const fromHistory = Array.isArray(data.history) ? data.history[0]?.videoUrl : undefined;
+          return sanitizeMediaUrl(direct) || sanitizeMediaUrl(fromHistory);
+        };
+
+        const resolveAudioUrl = (edge?: Edge): string | undefined => {
+          if (!edge) return undefined;
+          const srcNode = rf.getNode(edge.source);
+          if (!srcNode) return undefined;
+          const data = (srcNode.data as any) || {};
+          if (typeof data.audioUrl === "string" && data.audioUrl.trim()) {
+            return sanitizeMediaUrl(data.audioUrl);
+          }
+          if (Array.isArray(data.audioUrls)) {
+            const firstAudio = data.audioUrls.find(
+              (value: unknown) => typeof value === "string" && value.trim().length > 0
+            );
+            if (typeof firstAudio === "string") {
+              return sanitizeMediaUrl(firstAudio);
+            }
+          }
+          return undefined;
+        };
+
+        const uploadResolvedImageEdge = async (edge?: Edge): Promise<string | undefined> => {
+          if (!edge) return undefined;
+          const images = await resolveEdgesAsDataUrls([edge]);
+          const firstImage = images.find((value) => typeof value === "string" && value.trim().length > 0);
+          if (!firstImage) return undefined;
+          const trimmed = firstImage.trim();
+          if (isRemoteUrl(trimmed)) {
+            return normalizeStableRemoteUrl(trimmed);
+          }
+          const uploaded = await uploadImageToOSS(ensureDataUrl(trimmed), projectId);
+          return uploaded || undefined;
+        };
+
+        const firstFrameEdge = currentEdges.find(
+          (e) => e.target === nodeId && e.targetHandle === "image"
+        );
+        const lastFrameEdge = currentEdges.find(
+          (e) => e.target === nodeId && e.targetHandle === "image-2"
+        );
+        const firstClipEdge = currentEdges.find(
+          (e) => e.target === nodeId && e.targetHandle === "video"
+        );
+        const audioEdge = currentEdges.find(
+          (e) => e.target === nodeId && e.targetHandle === "audio"
+        );
+        const firstFrameEdgeCount = currentEdges.filter(
+          (e) => e.target === nodeId && e.targetHandle === "image"
+        ).length;
+        const lastFrameEdgeCount = currentEdges.filter(
+          (e) => e.target === nodeId && e.targetHandle === "image-2"
+        ).length;
+        const firstClipEdgeCount = currentEdges.filter(
+          (e) => e.target === nodeId && e.targetHandle === "video"
+        ).length;
+        const audioEdgeCount = currentEdges.filter(
+          (e) => e.target === nodeId && e.targetHandle === "audio"
+        ).length;
+
+        const failWan27Node = (message: string) => {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: { ...n.data, status: "failed", error: message },
+                  }
+                : n
+            )
+          );
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message, type: "warning" },
+            })
+          );
+        };
+
+        try {
+          if (
+            firstFrameEdgeCount > 1 ||
+            lastFrameEdgeCount > 1 ||
+            firstClipEdgeCount > 1 ||
+            audioEdgeCount > 1
+          ) {
+            failWan27Node("Wan2.7 每个媒体句柄最多仅支持 1 条连接");
+            return;
+          }
+
+          const [firstFrameUrl, lastFrameUrl] = await Promise.all([
+            uploadResolvedImageEdge(firstFrameEdge),
+            uploadResolvedImageEdge(lastFrameEdge),
+          ]);
+          const firstClipUrl = resolveVideoUrl(firstClipEdge);
+          const audioUrlFromEdge = resolveAudioUrl(audioEdge);
+          const audioUrl =
+            audioUrlFromEdge ||
+            (typeof (node.data as any)?.audioUrl === "string"
+              ? sanitizeMediaUrl((node.data as any).audioUrl)
+              : undefined);
+
+          const media: Array<{
+            type: "first_frame" | "last_frame" | "first_clip" | "driving_audio";
+            url: string;
+          }> = [];
+          if (firstFrameUrl) media.push({ type: "first_frame", url: firstFrameUrl });
+          if (lastFrameUrl) media.push({ type: "last_frame", url: lastFrameUrl });
+          if (firstClipUrl) media.push({ type: "first_clip", url: firstClipUrl });
+          if (audioUrl) media.push({ type: "driving_audio", url: audioUrl });
+
+          const hasFirstFrame = Boolean(firstFrameUrl);
+          const hasLastFrame = Boolean(lastFrameUrl);
+          const hasFirstClip = Boolean(firstClipUrl);
+          const hasDrivingAudio = Boolean(audioUrl);
+
+          if (!hasFirstFrame && !hasFirstClip) {
+            failWan27Node("Wan2.7 至少需要首帧图或首段视频（first_frame / first_clip）");
+            return;
+          }
+
+          if (hasFirstFrame && hasFirstClip) {
+            failWan27Node("Wan2.7 不支持同时传入首帧图和首段视频，请二选一");
+            return;
+          }
+
+          if (hasDrivingAudio && !hasFirstFrame) {
+            failWan27Node("驱动音频仅支持与首帧图组合使用");
+            return;
+          }
+
+          if (hasFirstClip && hasDrivingAudio) {
+            failWan27Node("first_clip 视频续写模式暂不支持 driving_audio");
+            return;
+          }
+
+          if (hasLastFrame && !hasFirstFrame && !hasFirstClip) {
+            failWan27Node("last_frame 不能单独使用，请与 first_frame 或 first_clip 组合");
+            return;
+          }
+
+          const resolution = String((node.data as any)?.resolution || "1080P")
+            .trim()
+            .toUpperCase();
+          if (resolution !== "720P" && resolution !== "1080P") {
+            failWan27Node("Wan2.7 分辨率仅支持 720P / 1080P");
+            return;
+          }
+
+          const durationRaw = Number((node.data as any)?.duration ?? 5);
+          const duration = Math.round(durationRaw);
+          if (!Number.isFinite(durationRaw) || duration < 2 || duration > 15) {
+            failWan27Node("Wan2.7 时长仅支持 2-15 秒");
+            return;
+          }
+
+          const seedRaw = (node.data as any)?.seed;
+          let seed: number | undefined;
+          if (
+            seedRaw !== undefined &&
+            seedRaw !== null &&
+            String(seedRaw).trim().length > 0
+          ) {
+            const parsedSeed = Number(seedRaw);
+            if (
+              !Number.isInteger(parsedSeed) ||
+              parsedSeed < 0 ||
+              parsedSeed > 2147483647
+            ) {
+              failWan27Node("Seed 需为 0 - 2147483647 的整数");
+              return;
+            }
+            seed = parsedSeed;
+          }
+
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: { ...n.data, status: "running", error: undefined },
+                  }
+                : n
+            )
+          );
+
+          const promptExtend = true;
+          const watermark = true;
+          const generationStartedAt = Date.now();
+
+          const result = await generateWan27I2VViaAPI({
+            prompt: promptTextNormalized || undefined,
+            media,
+            parameters: {
+              resolution,
+              duration,
+              prompt_extend: promptExtend,
+              watermark,
+              ...(typeof seed === "number" ? { seed } : {}),
+            },
+          });
+
+          const wanApiUsageId =
+            typeof (result as any)?.apiUsageId === "string" &&
+            (result as any).apiUsageId.trim().length > 0
+              ? (result as any).apiUsageId.trim()
+              : undefined;
+
+          if (!result?.success) {
+            throw new Error(result?.error?.message || "任务提交失败");
+          }
+
+          const taskId =
+            result.data?.taskId ||
+            result.data?.task_id ||
+            result.data?.output?.task_id;
+          if (!taskId) {
+            throw new Error("未返回任务ID");
+          }
+
+          let videoUrl =
+            result.data?.videoUrl ||
+            result.data?.video_url ||
+            result.data?.output?.video_url;
+
+          if (!videoUrl) {
+            const pollInterval = 5000;
+            const maxAttempts = 180;
+
+            for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+              await new Promise((r) => setTimeout(r, pollInterval));
+              const queryResult = await queryDashscopeTask(taskId);
+              if (!queryResult.success) continue;
+
+              const status = String(queryResult.status || "").toLowerCase();
+              if (status === "succeeded" || status === "success") {
+                videoUrl = queryResult.videoUrl;
+                break;
+              }
+
+              if (status === "failed" || status === "error") {
+                if (wanApiUsageId) {
+                  try {
+                    await refundVideoTask(wanApiUsageId);
+                  } catch (refundErr) {
+                    console.warn("[Flow] Wan2.7 refund after task failed", {
+                      nodeId,
+                      apiUsageId: wanApiUsageId,
+                      error:
+                        refundErr instanceof Error
+                          ? refundErr.message
+                          : String(refundErr),
+                    });
+                  }
+                }
+                throw new Error("视频生成任务失败");
+              }
+            }
+          }
+
+          if (!videoUrl) {
+            if (wanApiUsageId) {
+              try {
+                await refundVideoTask(wanApiUsageId);
+              } catch (refundErr) {
+                console.warn("[Flow] Wan2.7 refund after poll timeout", {
+                  nodeId,
+                  apiUsageId: wanApiUsageId,
+                  error:
+                    refundErr instanceof Error ? refundErr.message : String(refundErr),
+                });
+              }
+            }
+            throw new Error("任务查询超时，请稍后重试");
+          }
+
+          if (wanApiUsageId) {
+            const processingTime = Math.max(0, Date.now() - generationStartedAt);
+            void markVideoTaskSuccess(wanApiUsageId, processingTime).catch((markErr) => {
+              console.warn("[Flow] Wan2.7 mark success failed", {
+                nodeId,
+                apiUsageId: wanApiUsageId,
+                error: markErr instanceof Error ? markErr.message : String(markErr),
+              });
+            });
+          }
+
+          const historyEntry = {
+            id: `history-${Date.now()}`,
+            videoUrl,
+            thumbnail: undefined,
+            prompt: promptText,
+            quality: media.map((item) => item.type).join("+"),
+            createdAt: new Date().toISOString(),
+          };
+
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? (() => {
+                    const previousData = (n.data as any) || {};
+                    return {
+                      ...n,
+                      data: {
+                        ...previousData,
+                        status: "succeeded",
+                        videoUrl,
+                        thumbnail: undefined,
+                        error: undefined,
+                        videoVersion: Number(previousData.videoVersion || 0) + 1,
+                        history: appendVideoHistory(
+                          previousData.history as Array<Record<string, any>> | undefined,
+                          historyEntry
+                        ),
+                      },
+                    };
+                  })()
+                : n
+            )
+          );
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : "任务提交失败";
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: { ...n.data, status: "failed", error: msg },
+                  }
+                : n
+            )
+          );
+        }
+        return;
+      }
+
       if (node.type === "wan26") {
         const projectId = useProjectContentStore.getState().projectId;
         const { text: promptText, hasEdge: hasText } =
@@ -11236,41 +13025,73 @@ function FlowInner() {
         return;
       }
 
-      // 新的视频生成节点处理逻辑（可灵 Kling、Kling O1、Vidu、Seedance 1.5 Pro）
-      const newVideoNodeTypes = ["klingVideo", "kling26Video", "kling30Video", "klingO1Video", "viduVideo", "viduQ3", "doubaoVideo", "seedance20Video"];
-      if (newVideoNodeTypes.includes(node.type || "")) {
+      // 新的视频生成节点处理逻辑（可灵 Kling、Kling O1、Vidu、Seedance）
+      const normalizedVideoNodeType = normalizeFlowNodeType(node.type || "") || node.type || "";
+      const newVideoNodeTypes = [
+        "klingVideo",
+        "kling26Video",
+        "kling30Video",
+        "klingO1Video",
+        "viduVideo",
+        "viduQ3",
+        "doubaoVideo",
+        "seedance20Video",
+      ];
+      if (newVideoNodeTypes.includes(normalizedVideoNodeType)) {
         const projectId = useProjectContentStore.getState().projectId;
+        const rawNodeData = ((node.data as any) || {}) as Record<string, any>;
+        const isLegacyKling30Node = node.type === "kling30Video";
+        const isLegacyKling26Node = node.type === "kling26Video";
+        const inferredViduModel =
+          rawNodeData.viduModel ||
+          (node.type === "viduQ3" || rawNodeData.provider === "viduq3-pro" ? "q3" : "q2");
+        const normalizedViduModelVariant = normalizeViduModelValue(inferredViduModel);
+        const isViduQ2ProMode = normalizedViduModelVariant === "q2-pro";
+        const viduModelForApi = normalizeViduModelForApi(normalizedViduModelVariant);
+        const viduNodeDataForProvider = {
+          ...rawNodeData,
+          viduModel: viduModelForApi,
+        };
         // 根据节点类型确定 provider
         let provider: string;
         const klingModel =
-          (node.data as any)?.klingModel ||
-          (node.type === "kling30Video"
+          rawNodeData.klingModel ||
+          (isLegacyKling30Node || rawNodeData.provider === "kling-o3"
             ? "kling-v3-0"
-            : node.type === "kling26Video" || (node.data as any)?.provider === "kling-2.6"
+            : isLegacyKling26Node || rawNodeData.provider === "kling-2.6"
             ? "kling-v2-6"
             : "kling-v2-6");
-        if (node.type === "klingO1Video") {
+        if (normalizedVideoNodeType === "klingO1Video") {
           provider = "kling-o3";
-        } else if (node.type === "kling30Video") {
-          provider = "kling-o3";
-        } else if (node.type === "klingVideo" || node.type === "kling26Video") {
-          provider = "kling-2.6";
-        } else if (node.type === "viduQ3") {
-          provider = "viduq3-pro";
-        } else if (node.type === "doubaoVideo" || node.type === "seedance20Video") {
+        } else if (normalizedVideoNodeType === "klingVideo" || normalizedVideoNodeType === "kling26Video") {
+          provider = klingModel === "kling-v3-0" ? "kling-o3" : "kling-2.6";
+        } else if (
+          normalizedVideoNodeType === "doubaoVideo" ||
+          normalizedVideoNodeType === "seedance20Video"
+        ) {
           provider = "doubao";
-        } else if (node.type === "viduVideo") {
-          provider = "vidu";
+        } else if (normalizedVideoNodeType === "viduVideo" || normalizedVideoNodeType === "viduQ3") {
+          provider = getEffectiveViduProvider(viduNodeDataForProvider);
         } else {
-          provider = (node.data as any)?.provider || "kling";
+          provider = rawNodeData.provider || "kling";
         }
+        const isSeedanceNode = provider === "doubao";
+        const seedanceModelForRequest = normalizeSeedanceModelValue(
+          rawNodeData.seedanceModel ||
+            (normalizedVideoNodeType === "seedance20Video"
+              ? "seedance-2.0"
+              : "seedance-1.5-pro")
+        );
+        const isSeedance20Request = isSeedance20ModelValue(seedanceModelForRequest);
+        const seedanceMode = isSeedanceNode ? inferSeedanceMode(node) : undefined;
+        const seedanceModeSpec = isSeedanceNode ? getSeedanceModeSpec(node) : undefined;
 
         // 先获取图片数量，判断是否需要 prompt
         const maxImages =
-          provider === "vidu"
-            ? VIDU_MAX_REFERENCE_IMAGES
-            : provider === "viduq3-pro"
-            ? VIDUQ3_MAX_REFERENCE_IMAGES
+          isSeedanceNode && seedanceModeSpec
+            ? seedanceModeSpec.imageHandleMax + seedanceModeSpec.image2HandleMax
+            : provider === "vidu" || provider === "viduq3-pro"
+            ? getEffectiveViduMaxReferenceImages(viduNodeDataForProvider)
             : provider === "kling" || provider === "kling-2.6" || provider === "kling-o3"
             ? KLING_MAX_REFERENCE_IMAGES
             : SORA2_MAX_REFERENCE_IMAGES;
@@ -11301,13 +13122,16 @@ function FlowInner() {
               e.targetHandle === "elementImg"
             );
           })
-          .sort(
-            (a, b) =>
+          .sort((a, b) => {
+            const handleDelta =
               imageHandlePriority(a.targetHandle) -
-              imageHandlePriority(b.targetHandle)
-          )
+              imageHandlePriority(b.targetHandle);
+            if (handleDelta !== 0) return handleDelta;
+            return String(a.id || "").localeCompare(String(b.id || ""));
+          })
           .slice(0, maxImages);
         const imageCount = imageEdges.length;
+        const hasImage2Edge = imageEdges.some((edge) => edge.targetHandle === "image-2");
 
         // 获取 prompt
         const { text: promptText, hasEdge: hasText } =
@@ -11318,8 +13142,95 @@ function FlowInner() {
         // - 1-2张图：有prompt用reference2video，无prompt用img2video/start-end2video
         // - 3-7张图：使用reference2video（必须有prompt，无prompt时使用默认）
         let finalPrompt = promptText;
+        const failCurrentVideoNode = (message: string) => {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? { ...n, data: { ...n.data, status: "failed", error: message } }
+                : n
+            )
+          );
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message, type: "warning" },
+            })
+          );
+        };
 
-        if (provider === "vidu" || provider === "viduq3-pro") {
+        if (isSeedanceNode && seedanceMode && seedanceModeSpec) {
+          const seedanceImageCount = currentEdges.filter(
+            (e) => e.target === nodeId && e.targetHandle === "image"
+          ).length;
+          const seedanceImage2Count = currentEdges.filter(
+            (e) => e.target === nodeId && e.targetHandle === "image-2"
+          ).length;
+          const seedanceVideoCount = currentEdges.filter(
+            (e) => e.target === nodeId && e.targetHandle === "video"
+          ).length;
+          const seedanceAudioCount = currentEdges.filter(
+            (e) => e.target === nodeId && e.targetHandle === "audio"
+          ).length;
+          const seedanceTotalImageCount = seedanceImageCount + seedanceImage2Count;
+
+          if (isSeedance20Request) {
+            if (seedanceMode === "start_end") {
+              if (seedanceTotalImageCount < 1 || seedanceTotalImageCount > 2) {
+                failCurrentVideoNode("Seedance 2.0 帧模式需要 1-2 张图片");
+                return;
+              }
+            } else if (
+              !promptText &&
+              seedanceTotalImageCount === 0 &&
+              seedanceVideoCount === 0 &&
+              seedanceAudioCount === 0
+            ) {
+              failCurrentVideoNode("全能参考模式至少需要提示词或参考素材");
+              return;
+            }
+
+            if (seedanceImageCount > seedanceModeSpec.imageHandleMax) {
+              failCurrentVideoNode("Seedance 2.0 最多支持 9 张图片参考");
+              return;
+            }
+            if (seedanceVideoCount > seedanceModeSpec.videoHandleMax) {
+              failCurrentVideoNode("Seedance 2.0 最多支持 3 条视频参考");
+              return;
+            }
+            if (seedanceAudioCount > seedanceModeSpec.audioHandleMax) {
+              failCurrentVideoNode("Seedance 2.0 最多支持 3 条音频参考");
+              return;
+            }
+          } else {
+            if (seedanceMode === "text") {
+              if (!hasText || !promptText) {
+                failCurrentVideoNode("文生视频模式需要提供提示词");
+                return;
+              }
+            } else if (seedanceMode === "image") {
+              if (seedanceImageCount < 1) {
+                failCurrentVideoNode("图生视频模式至少需要连接 1 张图片");
+                return;
+              }
+            } else if (seedanceMode === "start_end") {
+              if (seedanceTotalImageCount < 1 || seedanceTotalImageCount > 2) {
+                failCurrentVideoNode("首尾帧模式需要 1-2 张图片");
+                return;
+              }
+            }
+          }
+        } else if (provider === "vidu" || provider === "viduq3-pro") {
+          if (hasImage2Edge && !imageEdges.some((edge) => edge.targetHandle === "image")) {
+            failCurrentVideoNode("请先连接图1（image）再连接图2（image-2）");
+            return;
+          }
+          if (hasImage2Edge && imageCount < 2) {
+            failCurrentVideoNode("Vidu 图2（image-2）已连接，但缺少图1或图2资源");
+            return;
+          }
+          if (!hasImage2Edge && imageCount >= 2) {
+            failCurrentVideoNode("Vidu 两图模式请将第二张图连接到图2句柄（image-2）");
+            return;
+          }
           if (imageCount === 0 && !hasText) {
             // 0张图必须有prompt
             setNodes((ns) =>
@@ -11339,8 +13250,8 @@ function FlowInner() {
             return;
           }
 
-          // 3-7张图且无prompt时，使用默认prompt
-          if (imageCount >= 3 && !promptText) {
+          // 单图参考且无 prompt 时，补默认提示词
+          if (imageCount === 1 && !promptText && !hasImage2Edge) {
             finalPrompt = "基于图片生成视频";
           }
         } else if (
@@ -11403,9 +13314,64 @@ function FlowInner() {
         }
 
         const clipDuration =
-          typeof (node.data as any)?.clipDuration === "number"
-            ? (node.data as any).clipDuration
+          typeof (node.data as any)?.clipDuration === "number" &&
+          Number.isFinite((node.data as any)?.clipDuration)
+            ? Math.round((node.data as any).clipDuration)
             : undefined;
+        const configuredDurationOptions = (() => {
+          const rawDurations = rawNodeData?.nodeConfigMetadata?.vod?.outputConfig?.durations;
+          if (!Array.isArray(rawDurations)) return [] as number[];
+          const normalized = Array.from(
+            new Set(
+              rawDurations
+                .map((item) => Number(item))
+                .filter((item) => Number.isFinite(item) && item > 0)
+                .map((item) => Math.round(item))
+            )
+          );
+          normalized.sort((a, b) => a - b);
+          return normalized;
+        })();
+        const nodeConfigKey =
+          typeof rawNodeData?.nodeConfigKey === "string"
+            ? rawNodeData.nodeConfigKey.trim()
+            : "";
+        const nodeSupportedSeedanceModels = (() => {
+          const rawSupported = rawNodeData?.nodeConfigMetadata?.supportedModels;
+          if (!Array.isArray(rawSupported)) return new Set<string>();
+          return new Set(
+            rawSupported
+              .map((item) => String(item).trim().toLowerCase())
+              .filter((item) => item.length > 0)
+          );
+        })();
+        const metadataSupportsSeedance20 =
+          nodeSupportedSeedanceModels.has("seedance-2.0") ||
+          nodeSupportedSeedanceModels.has("seedance-2.0-fast");
+        const effectiveConfiguredDurationOptions = (() => {
+          if (!(isSeedanceNode && isSeedance20Request)) {
+            return configuredDurationOptions;
+          }
+
+          // 兼容历史工作流：旧的 doubaoVideo 元数据通常是 3-10，切到 2.0 时不应继续拦截 15s。
+          if (nodeConfigKey === "doubaoVideo" || !metadataSupportsSeedance20) {
+            return [] as number[];
+          }
+
+          return configuredDurationOptions.filter(
+            (value) => value >= SEEDANCE20_DURATIONS[0] && value <= SEEDANCE20_DURATIONS[SEEDANCE20_DURATIONS.length - 1]
+          );
+        })();
+        if (isSeedanceNode && typeof clipDuration === "number" && Number.isFinite(clipDuration)) {
+          if (isSeedance20Request && (clipDuration < 4 || clipDuration > 15)) {
+            failCurrentVideoNode("Seedance 2.0 生成时长仅支持 4-15 秒");
+            return;
+          }
+          if (!isSeedance20Request && (clipDuration < 3 || clipDuration > 10)) {
+            failCurrentVideoNode("Seedance 1.5 生成时长仅支持 3-10 秒");
+            return;
+          }
+        }
         const aspectSetting =
           typeof (node.data as any)?.aspectRatio === "string"
             ? (node.data as any).aspectRatio
@@ -11518,20 +13484,6 @@ function FlowInner() {
               { once: true }
             );
           });
-        const failCurrentVideoNode = (message: string) => {
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? { ...n, data: { ...n.data, status: "failed", error: message } }
-                : n
-            )
-          );
-          window.dispatchEvent(
-            new CustomEvent("toast", {
-              detail: { message, type: "warning" },
-            })
-          );
-        };
         let klingAudioUrlsForAPI: string[] | undefined = undefined;
         /* 音频处理逻辑已注释
         if (provider === "kling-2.6" && (node.data as any)?.mode === "pro") {
@@ -11602,44 +13554,127 @@ function FlowInner() {
             connectedAudioUrls.length > 0 ? connectedAudioUrls : undefined;
         }
         */
+        let seedanceAudioUrlsForAPI: string[] | undefined = undefined;
+        if (isSeedanceNode && isSeedance20Request) {
+          const connectedAudioEdges = currentEdges.filter(
+            (e) => e.target === nodeId && e.targetHandle === "audio"
+          );
+          const resolvedAudioInputs = connectedAudioEdges
+            .map((edge) => resolveAudioFromNodeId(edge.source, new Set<string>([nodeId])))
+            .filter(
+              (
+                item
+              ): item is {
+                audioUrl: string;
+                duration?: number;
+              } => typeof item.audioUrl === "string" && item.audioUrl.length > 0
+            );
+          const connectedAudioUrls = Array.from(
+            new Set(resolvedAudioInputs.map((item) => item.audioUrl))
+          );
+
+          if (connectedAudioEdges.length > 0 && connectedAudioUrls.length === 0) {
+            failCurrentVideoNode("音频句柄已连接，但未读取到有效音频");
+            return;
+          }
+
+          if (connectedAudioUrls.length > SEEDANCE20_REFERENCE_AUDIO_MAX) {
+            failCurrentVideoNode("Seedance 2.0 最多支持 3 条音频参考");
+            return;
+          }
+
+          const connectedAudioDurationHints = new Map<string, number>();
+          resolvedAudioInputs.forEach((item) => {
+            if (
+              typeof item.duration === "number" &&
+              Number.isFinite(item.duration) &&
+              item.duration > 0 &&
+              !connectedAudioDurationHints.has(item.audioUrl)
+            ) {
+              connectedAudioDurationHints.set(item.audioUrl, item.duration);
+            }
+          });
+
+          for (const audioUrl of connectedAudioUrls.slice(0, SEEDANCE20_REFERENCE_AUDIO_MAX)) {
+            const hintedDuration = connectedAudioDurationHints.get(audioUrl);
+            const duration =
+              typeof hintedDuration === "number" && Number.isFinite(hintedDuration)
+                ? hintedDuration
+                : await readAudioDurationFromUrl(audioUrl);
+            if (duration > 5) {
+              failCurrentVideoNode(
+                `Seedance 2.0 音频每条需不超过 5 秒，当前约 ${duration.toFixed(1)} 秒`
+              );
+              return;
+            }
+          }
+
+          seedanceAudioUrlsForAPI =
+            connectedAudioUrls.length > 0
+              ? connectedAudioUrls.slice(0, SEEDANCE20_REFERENCE_AUDIO_MAX)
+              : Array.isArray(rawNodeData.audioUrls) && rawNodeData.audioUrls.length > 0
+              ? rawNodeData.audioUrls.slice(0, SEEDANCE20_REFERENCE_AUDIO_MAX)
+              : undefined;
+        }
 
         let referenceVideoUrl: string | undefined = undefined;
-        if (provider === "kling-o3") {
-          const videoEdge = currentEdges.find(
+        let referenceVideoUrls: string[] = [];
+        if (provider === "kling-o3" || (isSeedanceNode && isSeedance20Request)) {
+          const videoEdges = currentEdges.filter(
             (e) => e.target === nodeId && e.targetHandle === "video"
           );
-          if (videoEdge) {
-            const sourceNode = rf.getNode(videoEdge.source);
-            if (sourceNode) {
-              const videoUrl =
-                (sourceNode.data as any)?.videoUrl ||
-                (sourceNode.data as any)?.url ||
-                (sourceNode.data as any)?.src;
-              if (videoUrl && typeof videoUrl === "string") {
-                referenceVideoUrl = videoUrl.trim();
-                console.log(`🎬 [Kling O1] 检测到视频输入: ${referenceVideoUrl.slice(0, 80)}...`);
+          const resolvedVideoUrls: string[] = [];
 
-                // 验证视频时长（需要从源节点获取）
-                const videoDuration = (sourceNode.data as any)?.duration;
-                if (videoDuration && (videoDuration < 3 || videoDuration > 10)) {
-                  setNodes((ns) =>
-                    ns.map((n) =>
-                      n.id === nodeId
-                        ? {
-                            ...n,
-                            data: {
-                              ...n.data,
-                              status: "failed",
-                              error: `视频时长必须在 3-10 秒之间，当前视频时长为 ${videoDuration} 秒`,
-                            },
-                          }
-                        : n
-                    )
-                  );
-                  return;
-                }
-              }
+          for (const videoEdge of videoEdges) {
+            const sourceNode = rf.getNode(videoEdge.source);
+            if (!sourceNode) continue;
+            const videoUrl =
+              (sourceNode.data as any)?.videoUrl ||
+              (sourceNode.data as any)?.url ||
+              (sourceNode.data as any)?.src;
+            if (!videoUrl || typeof videoUrl !== "string") continue;
+
+            const normalizedVideoUrl = videoUrl.trim();
+            if (!normalizedVideoUrl) continue;
+            resolvedVideoUrls.push(normalizedVideoUrl);
+
+            // 验证视频时长（需要从源节点获取）
+            const videoDuration = (sourceNode.data as any)?.duration;
+            if (
+              provider === "kling-o3" &&
+              videoDuration &&
+              (videoDuration < 3 || videoDuration > 10)
+            ) {
+              setNodes((ns) =>
+                ns.map((n) =>
+                  n.id === nodeId
+                    ? {
+                        ...n,
+                        data: {
+                          ...n.data,
+                          status: "failed",
+                          error: `视频时长必须在 3-10 秒之间，当前视频时长为 ${videoDuration} 秒`,
+                        },
+                      }
+                    : n
+                )
+              );
+              return;
             }
+          }
+
+          referenceVideoUrls = Array.from(new Set(resolvedVideoUrls));
+          if (isSeedanceNode && isSeedance20Request) {
+            referenceVideoUrls = referenceVideoUrls.slice(0, SEEDANCE20_REFERENCE_VIDEO_MAX);
+          } else {
+            referenceVideoUrls = referenceVideoUrls.slice(0, 1);
+          }
+          referenceVideoUrl = referenceVideoUrls[0];
+
+          if (referenceVideoUrl) {
+            console.log(
+              `🎬 [${isSeedanceNode && isSeedance20Request ? "Seedance 2.0" : "Kling O1"}] 检测到视频输入: ${referenceVideoUrl.slice(0, 80)}...`
+            );
           }
         }
 
@@ -11690,6 +13725,23 @@ function FlowInner() {
                   referenceImageUrls.push(normalizeStableRemoteUrl(trimmed));
                 } else {
                   const dataUrl = ensureDataUrl(trimmed);
+                  if (isSeedanceNode) {
+                    const bytes = estimateDataUrlByteLength(dataUrl);
+                    if (
+                      typeof bytes === "number" &&
+                      Number.isFinite(bytes) &&
+                      bytes > SEEDANCE_REFERENCE_IMAGE_MAX_BYTES
+                    ) {
+                      failCurrentVideoNode(
+                        `Seedance 图片单图需不超过 30MB，当前约 ${(
+                          bytes /
+                          1024 /
+                          1024
+                        ).toFixed(1)}MB`
+                      );
+                      return;
+                    }
+                  }
                   const uploaded = await uploadImageToOSS(dataUrl, projectId);
                   if (!uploaded) {
                     setNodes((ns) =>
@@ -11747,11 +13799,9 @@ function FlowInner() {
 
         // 根据供应商调整参数
         const aspectRatioForAPI =
-          provider === "viduq3-pro"
-            ? referenceImageUrls.length > 0
-              ? undefined
-              : aspectSetting || "16:9"
-            : provider === "vidu"
+          isSeedanceNode
+            ? aspectSetting || undefined
+            : provider === "vidu" || provider === "viduq3-pro"
             ? aspectSetting || "16:9"
             : referenceImageUrls.length > 0
             ? undefined
@@ -11759,8 +13809,12 @@ function FlowInner() {
 
         // 不同供应商支持的时长不同
         let durationForAPI: number | undefined = undefined;
-        if (clipDuration) {
-          if (
+        if (typeof clipDuration === "number" && Number.isFinite(clipDuration)) {
+          if (effectiveConfiguredDurationOptions.length > 0) {
+            if (effectiveConfiguredDurationOptions.includes(clipDuration)) {
+              durationForAPI = clipDuration;
+            }
+          } else if (
             provider === "kling" &&
             (clipDuration === 5 || clipDuration === 10)
           ) {
@@ -11769,19 +13823,17 @@ function FlowInner() {
             provider === "kling-2.6" &&
             (clipDuration === 5 || clipDuration === 10)
           ) {
-            // Kling 2.6 支持 5 秒或 10 秒
             durationForAPI = clipDuration;
           } else if (
             provider === "kling-o3" &&
             clipDuration >= 3 &&
             clipDuration <= 10
           ) {
-            // Kling O1 支持 3-10 秒
             durationForAPI = clipDuration;
           } else if (
             provider === "vidu" &&
             clipDuration >= 1 &&
-            clipDuration <= 8
+            clipDuration <= 16
           ) {
             durationForAPI = clipDuration;
           } else if (
@@ -11791,12 +13843,74 @@ function FlowInner() {
           ) {
             durationForAPI = clipDuration;
           } else if (
+            isSeedanceNode &&
+            isSeedance20Request &&
+            clipDuration >= 4 &&
+            clipDuration <= 15
+          ) {
+            durationForAPI = clipDuration;
+          } else if (
             provider === "doubao" &&
-            [3, 4, 5, 6, 8].includes(clipDuration)
+            !isSeedance20Request &&
+            clipDuration >= 3 &&
+            clipDuration <= 10
           ) {
             durationForAPI = clipDuration;
           }
+          if (durationForAPI === undefined) {
+            const fallbackDurationOptions =
+              isSeedanceNode
+                ? isSeedance20Request
+                  ? SEEDANCE20_DURATIONS
+                  : SEEDANCE15_DURATIONS
+                : configuredDurationOptions;
+            const durationHintOptions =
+              effectiveConfiguredDurationOptions.length > 0
+                ? effectiveConfiguredDurationOptions
+                : fallbackDurationOptions;
+            const supportedDurationText =
+              durationHintOptions.length > 0
+                ? `${lt("支持时长", "Supported durations")}: ${durationHintOptions.join("/")}${lt("秒", "s")}`
+                : "";
+            failCurrentVideoNode(
+              `${lt("当前时长不受支持", "Selected duration is not supported")}: ${clipDuration}${lt("秒", "s")}${
+                supportedDurationText ? `。${supportedDurationText}` : ""
+              }`
+            );
+            return;
+          }
         }
+
+        const seedanceVideoModeForAPI =
+          !isSeedanceNode || !seedanceMode
+            ? undefined
+            : isSeedance20Request
+            ? seedanceMode === "start_end"
+              ? imageCount >= 2
+                ? "start_end"
+                : "first_frame"
+              : "reference_images"
+            : seedanceMode === "text"
+            ? "text2video"
+            : seedanceMode === "start_end"
+            ? imageCount >= 2
+              ? "start-end2video"
+              : "img2video"
+            : "img2video";
+        const viduVideoModeForAPI =
+          provider !== "vidu" && provider !== "viduq3-pro"
+            ? undefined
+            : hasImage2Edge
+            ? "start-end2video"
+            : imageCount === 0
+            ? "text2video"
+            : imageCount === 1
+            ? finalPrompt
+              ? "reference2video"
+              : "img2video"
+            : finalPrompt
+            ? "reference2video"
+            : "start-end2video";
 
         try {
           console.log("🎬 [Flow] Sending video request", {
@@ -11804,52 +13918,90 @@ function FlowInner() {
             provider,
             aspectRatio: aspectRatioForAPI,
             duration: durationForAPI,
+            seedanceMode,
+            viduVideoMode: viduVideoModeForAPI,
             referenceCount: referenceImageUrls.length,
-            referenceVideo: referenceVideoUrl ? "有" : "无",
+            referenceVideo: referenceVideoUrls.length > 0 ? "有" : "无",
             promptPreview: finalPrompt?.slice(0, 120) || "(无提示词)",
           });
 
-          const rawNodeData = ((node.data as any) || {}) as Record<string, any>;
+          const managedRoutePayload = {
+            managedModelKey:
+              typeof rawNodeData.managedModelKey === "string" &&
+              rawNodeData.managedModelKey.trim().length > 0
+                ? rawNodeData.managedModelKey.trim()
+                : undefined,
+            vendorKey:
+              typeof rawNodeData.vendorKey === "string" &&
+              rawNodeData.vendorKey.trim().length > 0
+                ? rawNodeData.vendorKey.trim()
+                : undefined,
+            platformKey:
+              typeof rawNodeData.platformKey === "string" &&
+              rawNodeData.platformKey.trim().length > 0
+                ? rawNodeData.platformKey.trim()
+                : undefined,
+          };
+
           const requestPayload =
             provider === "doubao"
               ? {
-                  prompt: finalPrompt,
+                  ...managedRoutePayload,
+                  prompt: finalPrompt || undefined,
                   referenceImages:
                     referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
+                  referenceVideos:
+                    referenceVideoUrls.length > 0 ? referenceVideoUrls : undefined,
+                  audioUrls:
+                    isSeedanceNode && isSeedance20Request
+                      ? seedanceAudioUrlsForAPI
+                      : Array.isArray(rawNodeData.audioUrls) && rawNodeData.audioUrls.length > 0
+                      ? rawNodeData.audioUrls
+                      : undefined,
                   duration: durationForAPI,
                   aspectRatio: aspectRatioForAPI,
                   provider: provider as VideoProvider,
                   resolution: rawNodeData.resolution,
-                  seedanceModel:
-                    node.type === "seedance20Video"
-                      ? "seedance-2.0"
-                      : rawNodeData.seedanceModel || "seedance-1.5-pro",
+                  videoMode: seedanceVideoModeForAPI,
+                  generateAudio:
+                    isSeedance20Request && typeof rawNodeData.generateAudio === "boolean"
+                      ? rawNodeData.generateAudio
+                      : undefined,
+                  seedanceModel: seedanceModelForRequest,
                 }
               : provider === "vidu" || provider === "viduq3-pro"
               ? {
+                  ...managedRoutePayload,
                   prompt: finalPrompt,
                   referenceImages:
                     referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
                   duration: durationForAPI,
                   aspectRatio: aspectRatioForAPI,
                   provider: provider as VideoProvider,
+                  videoMode: viduVideoModeForAPI,
                   resolution: rawNodeData.resolution,
-                  style: rawNodeData.style,
-                  offPeak: rawNodeData.offPeak,
-                  viduModel: rawNodeData.viduModel,
+                  style:
+                    viduModelForApi === "q2" && !isViduQ2ProMode
+                      ? rawNodeData.style
+                      : undefined,
+                  offPeak:
+                    viduModelForApi === "q2" && !isViduQ2ProMode
+                      ? rawNodeData.offPeak
+                      : undefined,
+                  viduModel: viduModelForApi,
+                  viduModelVariant: normalizedViduModelVariant,
                 }
               : {
+                  ...managedRoutePayload,
                   prompt: finalPrompt,
                   referenceImages:
                     referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
                   duration: durationForAPI,
                   aspectRatio: aspectRatioForAPI,
+                  resolution: rawNodeData.resolution,
                   provider: provider as VideoProvider,
                   mode: rawNodeData.mode,
-                  klingModel:
-                    node.type === "kling30Video"
-                      ? "kling-v3-0"
-                      : rawNodeData.klingModel,
+                  klingModel: klingModel === "kling-v3-0" ? "kling-v3-0" : rawNodeData.klingModel,
                   sound:
                     provider === "kling-o3" || provider === "kling-2.6" || provider === "kling"
                       ? rawNodeData.mode === "pro"
@@ -13855,6 +16007,20 @@ function FlowInner() {
       const enableWebSearchForNode =
         (node.type === "generatePro" || node.type === "generatePro4") &&
         Boolean((node.data as any)?.enableWebSearch ?? globalWebSearchEnabled);
+      const resolveBananaRouteProviderOptions = (
+        providerName: string
+      ): AIImageGenerateRequest["providerOptions"] | undefined => {
+        const normalized = providerName.trim().toLowerCase();
+        if (normalized === "banana" || normalized.startsWith("banana-")) {
+          return {
+            banana: {
+              imageRoute: bananaImageRoute,
+            },
+          };
+        }
+        return undefined;
+      };
+      const providerOptions = resolveBananaRouteProviderOptions(aiProvider);
 
       // 根据节点类型和全局模式选择模型
       const nodeSpecificModel = (() => {
@@ -13937,6 +16103,7 @@ function FlowInner() {
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
+                providerOptions,
                 ...(enableWebSearchForNode ? {
                   enableWebSearch: true,
                   googleSearch: true,
@@ -13954,6 +16121,7 @@ function FlowInner() {
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
+                providerOptions,
               });
             } else {
               result = await blendImagesViaAPI({
@@ -13966,6 +16134,7 @@ function FlowInner() {
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
+                providerOptions,
               });
             }
 
@@ -14207,6 +16376,7 @@ function FlowInner() {
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
+                providerOptions,
                 ...(enableWebSearchForNode ? {
                   enableWebSearch: true,
                   googleSearch: true,
@@ -14224,6 +16394,7 @@ function FlowInner() {
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
+                providerOptions,
               });
             } else {
               result = await blendImagesViaAPI({
@@ -14236,6 +16407,7 @@ function FlowInner() {
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
+                providerOptions,
               });
             }
 
@@ -14459,6 +16631,7 @@ function FlowInner() {
           model: string,
           imageSizeOverride?: "0.5K" | "1K" | "2K" | "4K"
         ) => {
+          const requestProviderOptions = resolveBananaRouteProviderOptions(provider);
           const remoteInputs = imageDatas.filter(isRemoteUrl);
           const hasOnlyRemote =
             imageDatas.length > 0 && remoteInputs.length === imageDatas.length;
@@ -14471,6 +16644,7 @@ function FlowInner() {
               model,
               aspectRatio: effectiveAspectRatio,
               imageSize: requestImageSize,
+              providerOptions: requestProviderOptions,
               ...(enableWebSearchForNode ? { enableWebSearch: true } : {}),
             });
           }
@@ -14491,6 +16665,7 @@ function FlowInner() {
               model,
               aspectRatio: effectiveAspectRatio,
               imageSize: requestImageSize,
+              providerOptions: requestProviderOptions,
             });
           }
           return await blendImagesViaAPI({
@@ -14503,6 +16678,7 @@ function FlowInner() {
             model,
             aspectRatio: effectiveAspectRatio,
             imageSize: requestImageSize,
+            providerOptions: requestProviderOptions,
           });
         };
 
@@ -14688,7 +16864,9 @@ function FlowInner() {
       appendSora2History,
       appendVideoHistory,
       globalWebSearchEnabled,
+      getSeedanceModeSpec,
       imageModel,
+      inferSeedanceMode,
       rf,
       setNodes,
       uploadImageToStableUrl,
@@ -15284,7 +17462,7 @@ function FlowInner() {
         })
       );
     },
-    [rf]
+    [rf, aiProvider, bananaImageRoute, imageModel, imageSize, globalWebSearchEnabled]
   );
 
   const runGroupNodes = React.useCallback(
@@ -15455,6 +17633,9 @@ function FlowInner() {
     });
     if (!started) return;
     globalRunStopRequestedRef.current = false;
+    try {
+      (window as Window & { __tanvaFlowGlobalRunning?: boolean }).__tanvaFlowGlobalRunning = true;
+    } catch {}
 
     window.dispatchEvent(
       new CustomEvent("flow:global-run-state", {
@@ -15681,6 +17862,9 @@ function FlowInner() {
     } finally {
       setIsGlobalRunning(false);
       globalRunStopRequestedRef.current = false;
+      try {
+        (window as Window & { __tanvaFlowGlobalRunning?: boolean }).__tanvaFlowGlobalRunning = false;
+      } catch {}
       window.dispatchEvent(
         new CustomEvent("flow:global-run-state", {
           detail: { running: false },
@@ -15805,12 +17989,26 @@ function FlowInner() {
   // 在 node 渲染前为 Generate 节点注入 onRun 回调
   const nodesWithHandlers = React.useMemo(
     () =>
-      nodes.map((n) =>
-        n.type === FLOW_GROUP_NODE_TYPE
+      nodes.map((n) => {
+        const resolvedType = typeof n.type === "string" ? normalizeFlowNodeType(n.type) : null;
+        const defaultCreditsPerCall =
+          (typeof n.data?.creditsPerCall === "number" ? n.data.creditsPerCall : undefined) ??
+          (resolvedType ? nodeCreditsByType.get(resolvedType) : undefined);
+        const creditsPerCall = resolveStableRouteCredits({
+          nodeType: typeof n.type === "string" ? n.type : resolvedType || undefined,
+          nodeData: (n.data || {}) as Record<string, any>,
+          fallbackCredits: defaultCreditsPerCall,
+          aiProvider,
+          bananaImageRoute,
+          globalImageSize: imageSize || null,
+        });
+
+        return n.type === FLOW_GROUP_NODE_TYPE
           ? {
               ...n,
               data: {
                 ...n.data,
+                isDarkTheme: isFlowBlackTheme,
                 onRenameGroup: promptGroupName,
                 onUpdateGroupName: updateGroupName,
                 onChangeGroupColor: changeGroupColor,
@@ -15837,13 +18035,30 @@ function FlowInner() {
         n.type === "minimaxSpeech" ||
         n.type === "tencentSpeech" ||
         n.type === "minimaxMusic"
-          ? { ...n, data: { ...n.data, onRun: runNode, onSend: onSendHandler } }
+          ? {
+              ...n,
+              data: {
+                ...n.data,
+                onRun: runNode,
+                onSend: onSendHandler,
+                creditsPerCall,
+              },
+            }
           : n.type === "image" || n.type === "imagePro"
-          ? { ...n, data: { ...n.data, onRun: runNode, onSend: onSendHandler } }
+          ? {
+              ...n,
+              data: {
+                ...n.data,
+                onRun: runNode,
+                onSend: onSendHandler,
+                creditsPerCall,
+              },
+            }
           : n.type === "sora2Video" ||
             n.type === "sora2Character" ||
             n.type === "wan26" ||
             n.type === "wan2R2V" ||
+            n.type === "wan27Video" ||
             n.type === "klingVideo" ||
             n.type === "kling26Video" ||
             n.type === "kling30Video" ||
@@ -15852,11 +18067,15 @@ function FlowInner() {
             n.type === "viduQ3" ||
             n.type === "doubaoVideo" ||
             n.type === "seedance20Video"
-          ? { ...n, data: { ...n.data, onRun: runNode } }
+          ? { ...n, data: { ...n.data, onRun: runNode, creditsPerCall } }
           : n
-      ),
+      }),
     [
       nodes,
+      nodeCreditsByType,
+      aiProvider,
+      bananaImageRoute,
+      imageSize,
       runNode,
       onSendHandler,
       promptGroupName,
@@ -15867,6 +18086,7 @@ function FlowInner() {
       runningGroupIds,
       toggleGroupCollapsed,
       groupPreviewImagesByGroupId,
+      isFlowBlackTheme,
     ]
   );
 
@@ -16888,6 +19108,15 @@ function FlowInner() {
         const newId = generateId(n.type || "n");
         idMap.set(n.id, newId);
       });
+      const legacyChildrenByGroupOldId = new Map<string, string[]>();
+      tpl.nodes.forEach((n: any) => {
+        const parentId =
+          typeof n?.parentNode === "string" ? n.parentNode.trim() : "";
+        if (!parentId) return;
+        const list = legacyChildrenByGroupOldId.get(parentId) || [];
+        list.push(String(n.id));
+        legacyChildrenByGroupOldId.set(parentId, list);
+      });
       const newNodes = tpl.nodes.map((n) => {
         const newId = idMap.get(n.id) || generateId(n.type || "n");
         const data: any = { ...(n.data || {}) };
@@ -16896,10 +19125,15 @@ function FlowInner() {
         delete data.status;
         delete data.error;
         if ((n as any).type === FLOW_GROUP_NODE_TYPE) {
-          const childIds = Array.isArray(data.childNodeIds) ? data.childNodeIds : [];
-          data.childNodeIds = childIds
-            .map((childId: string) => idMap.get(childId) || null)
-            .filter(Boolean);
+          const explicitChildren = Array.isArray(data.childNodeIds)
+            ? data.childNodeIds.map((childId: string) => idMap.get(childId) || null)
+            : [];
+          const legacyChildren = (
+            legacyChildrenByGroupOldId.get(String(n.id)) || []
+          ).map((childOldId: string) => idMap.get(childOldId) || null);
+          data.childNodeIds = Array.from(
+            new Set([...explicitChildren, ...legacyChildren].filter(Boolean))
+          );
         }
         return {
           id: newId,
@@ -16912,12 +19146,10 @@ function FlowInner() {
           width: (n as any).width,
           height: (n as any).height,
           style: (n as any).style ? { ...(n as any).style } : undefined,
-          parentNode: (n as any).parentNode
-            ? idMap.get((n as any).parentNode) || undefined
-            : undefined,
-          extent: (n as any).extent,
-          selectable: (n as any).selectable,
-          draggable: (n as any).draggable,
+          parentNode: undefined,
+          extent: undefined,
+          selectable: true,
+          draggable: true,
         } as any;
       });
       const newEdges = (tpl.edges || []).map((e) => ({
@@ -17204,6 +19436,8 @@ function FlowInner() {
     <div
       ref={containerRef}
       className={`tanva-flow-overlay absolute inset-0 ${
+        isFlowBlackTheme ? "tanva-flow-theme-mono-dark" : ""
+      } ${
         isPointerMode ? "pointer-mode" : ""
       } ${isMarqueeMode ? "marquee-mode" : ""}`}
       onDoubleClick={handleContainerDoubleClick}
@@ -17422,8 +19656,13 @@ function FlowInner() {
             const zoom = Math.max(0.1, Number(flowSnapViewport.zoom) || 1);
             const offsetX = Number(flowSnapViewport.x) || 0;
             const offsetY = Number(flowSnapViewport.y) || 0;
+            /* 节点对齐：线宽为原先一半（原先 0.8/zoom） */
+            const strokeWidth = 0.4 / zoom;
+            const dashLength = 3.5 / zoom;
             const color =
-              alignment.type === "centerX" || alignment.type === "centerY"
+              isFlowBlackTheme
+                ? "#ffffff"
+                : alignment.type === "centerX" || alignment.type === "centerY"
                 ? FLOW_SNAP_GUIDE_COLORS.center
                 : FLOW_SNAP_GUIDE_COLORS.edge;
             if (alignment.orientation === "vertical") {
@@ -17438,8 +19677,8 @@ function FlowInner() {
                   x2={x}
                   y2={y2}
                   stroke={color}
-                  strokeWidth={0.8}
-                  strokeDasharray='3.5 3.5'
+                  strokeWidth={strokeWidth}
+                  strokeDasharray={`${dashLength} ${dashLength}`}
                 />
               );
             }
@@ -17454,8 +19693,8 @@ function FlowInner() {
                 x2={x2}
                 y2={y}
                 stroke={color}
-                strokeWidth={0.8}
-                strokeDasharray='3.5 3.5'
+                strokeWidth={strokeWidth}
+                strokeDasharray={`${dashLength} ${dashLength}`}
               />
             );
           })}
@@ -17591,11 +19830,14 @@ function FlowInner() {
         {addPanel.visible && (
           <div
             style={{
-              background: "#fff",
-              border: "1px solid #e5e7eb",
+              background: isFlowBlackTheme ? "#111111" : "#fff",
+              border: isFlowBlackTheme
+                ? "1px solid #404040"
+                : "1px solid #e5e7eb",
               borderRadius: 16,
-              boxShadow:
-                "0 18px 45px rgba(0,0,0,0.12), 0 8px 16px rgba(0,0,0,0.08)",
+              boxShadow: isFlowBlackTheme
+                ? "0 22px 48px rgba(0,0,0,0.55), 0 8px 18px rgba(0,0,0,0.35)"
+                : "0 18px 45px rgba(0,0,0,0.12), 0 8px 16px rgba(0,0,0,0.08)",
               width: "60vw",
               minWidth: 720,
               maxWidth: 960,
@@ -17609,7 +19851,7 @@ function FlowInner() {
                 gap: 8,
                 padding: "10px 12px 0",
                 borderBottom: "none",
-                background: "#f5f7fa",
+                background: isFlowBlackTheme ? "#161616" : "#f5f7fa",
                 borderTopLeftRadius: 16,
                 borderTopRightRadius: 16,
               }}
@@ -17623,9 +19865,24 @@ function FlowInner() {
                       fontSize: 13,
                       fontWeight: addTab === "nodes" ? 600 : 500,
                       borderRadius: "24px 24px 0 0",
-                      border: "none",
-                      background: addTab === "nodes" ? "#fff" : "transparent",
-                      color: addTab === "nodes" ? "#111827" : "#374151",
+                      border:
+                        addTab === "nodes" && isFlowBlackTheme
+                          ? "1px solid #404040"
+                          : "none",
+                      background:
+                        addTab === "nodes"
+                          ? isFlowBlackTheme
+                            ? "#262626"
+                            : "#fff"
+                          : "transparent",
+                      color:
+                        addTab === "nodes"
+                          ? isFlowBlackTheme
+                            ? "#ffffff"
+                            : "#111827"
+                          : isFlowBlackTheme
+                            ? "#888888"
+                            : "#374151",
                       marginBottom: -2,
                       transition: "all 0.15s ease",
                       cursor: "pointer",
@@ -17642,9 +19899,24 @@ function FlowInner() {
                       fontSize: 13,
                       fontWeight: addTab === "beta" ? 600 : 500,
                       borderRadius: "24px 24px 0 0",
-                      border: "none",
-                      background: addTab === "beta" ? "#fff" : "transparent",
-                      color: addTab === "beta" ? "#111827" : "#374151",
+                      border:
+                        addTab === "beta" && isFlowBlackTheme
+                          ? "1px solid #404040"
+                          : "none",
+                      background:
+                        addTab === "beta"
+                          ? isFlowBlackTheme
+                            ? "#262626"
+                            : "#fff"
+                          : "transparent",
+                      color:
+                        addTab === "beta"
+                          ? isFlowBlackTheme
+                            ? "#ffffff"
+                            : "#111827"
+                          : isFlowBlackTheme
+                            ? "#888888"
+                            : "#374151",
                       marginBottom: -2,
                       transition: "all 0.15s ease",
                       cursor: "pointer",
@@ -17663,9 +19935,24 @@ function FlowInner() {
                       fontSize: 13,
                       fontWeight: addTab === "custom" ? 600 : 500,
                       borderRadius: "24px 24px 0 0",
-                      border: "none",
-                      background: addTab === "custom" ? "#fff" : "transparent",
-                      color: addTab === "custom" ? "#111827" : "#374151",
+                      border:
+                        addTab === "custom" && isFlowBlackTheme
+                          ? "1px solid #404040"
+                          : "none",
+                      background:
+                        addTab === "custom"
+                          ? isFlowBlackTheme
+                            ? "#262626"
+                            : "#fff"
+                          : "transparent",
+                      color:
+                        addTab === "custom"
+                          ? isFlowBlackTheme
+                            ? "#ffffff"
+                            : "#111827"
+                          : isFlowBlackTheme
+                            ? "#888888"
+                            : "#374151",
                       marginBottom: -2,
                       transition: "all 0.15s ease",
                       cursor: "pointer",
@@ -17689,15 +19976,26 @@ function FlowInner() {
                             ? 600
                             : 500,
                         borderRadius: "24px 24px 0 0",
-                        border: "none",
+                        border:
+                          addTab === "templates" && templateScope === "public"
+                            ? isFlowBlackTheme
+                              ? "1px solid #404040"
+                              : "none"
+                            : "none",
                         background:
                           addTab === "templates" && templateScope === "public"
-                            ? "#fff"
+                            ? isFlowBlackTheme
+                              ? "#262626"
+                              : "#fff"
                             : "transparent",
                         color:
                           addTab === "templates" && templateScope === "public"
-                            ? "#111827"
-                            : "#374151",
+                            ? isFlowBlackTheme
+                              ? "#ffffff"
+                              : "#111827"
+                            : isFlowBlackTheme
+                              ? "#888888"
+                              : "#374151",
                         marginBottom: -2,
                         transition: "all 0.15s ease",
                         cursor: "pointer",
@@ -17718,15 +20016,26 @@ function FlowInner() {
                             ? 600
                             : 500,
                         borderRadius: "24px 24px 0 0",
-                        border: "none",
+                        border:
+                          addTab === "templates" && templateScope === "mine"
+                            ? isFlowBlackTheme
+                              ? "1px solid #404040"
+                              : "none"
+                            : "none",
                         background:
                           addTab === "templates" && templateScope === "mine"
-                            ? "#fff"
+                            ? isFlowBlackTheme
+                              ? "#262626"
+                              : "#fff"
                             : "transparent",
                         color:
                           addTab === "templates" && templateScope === "mine"
-                            ? "#111827"
-                            : "#374151",
+                            ? isFlowBlackTheme
+                              ? "#ffffff"
+                              : "#111827"
+                            : isFlowBlackTheme
+                              ? "#888888"
+                              : "#374151",
                         marginBottom: -2,
                         transition: "all 0.15s ease",
                         cursor: "pointer",
@@ -17768,6 +20077,9 @@ function FlowInner() {
                   overflowY: "auto",
                   overflowX: "hidden",
                   paddingTop: 8,
+                  background: isFlowBlackTheme ? "#161616" : "transparent",
+                  borderRadius: isFlowBlackTheme ? 12 : 0,
+                  border: isFlowBlackTheme ? "1px solid #2b2b2b" : "none",
                 }}
               >
                 <div style={{ padding: "0 20px 20px" }}>
@@ -17775,14 +20087,33 @@ function FlowInner() {
                     <section key={group.key} style={nodePaletteSectionStyle}>
                       <div style={nodePaletteSectionHeaderStyle}>
                         <div>
-                          <div style={nodePaletteSectionTitleStyle}>
+                          <div
+                            style={{
+                              ...nodePaletteSectionTitleStyle,
+                              color: isFlowBlackTheme ? "#ffffff" : "#111827",
+                            }}
+                          >
                             {group.title}
                           </div>
-                          <div style={nodePaletteSectionSubtitleStyle}>
+                          <div
+                            style={{
+                              ...nodePaletteSectionSubtitleStyle,
+                              color: isFlowBlackTheme ? "#888888" : "#6b7280",
+                            }}
+                          >
                             {group.subtitle}
                           </div>
                         </div>
-                        <span style={nodePaletteSectionCountStyle}>
+                        <span
+                          style={{
+                            ...nodePaletteSectionCountStyle,
+                            color: isFlowBlackTheme ? "#ffffff" : "#4b5563",
+                            background: isFlowBlackTheme ? "#1d1d1d" : "#f3f4f6",
+                            border: isFlowBlackTheme
+                              ? "1px solid #404040"
+                              : "1px solid #e5e7eb",
+                          }}
+                        >
                           {group.items.length} {lt("个", "items")}
                         </span>
                       </div>
@@ -17797,17 +20128,29 @@ function FlowInner() {
                           const isDisabled =
                             config.status === "maintenance" ||
                             config.status === "coming_soon";
+                          const isVipNode = config.nodeKey === "seedance20Video" || (config.metadata as Record<string, any>)?.vipOnly === true;
+                          const isVipLocked = !membershipActive && isVipNode;
                           const badge = getStatusBadge(config.status);
+                          const rawCaption = buildNodePaletteCaption(config);
+                          const caption =
+                            !isZh &&
+                            typeof rawCaption === "string" &&
+                            /[\u3400-\u9fff]/.test(rawCaption)
+                              ? `${config.nameEn || "Node"} description`
+                              : rawCaption;
                           return (
                             <NodePaletteButton
                               key={config.nodeKey}
                               zh={config.nameZh}
                               en={config.nameEn}
-                              caption={buildNodePaletteCaption(config)}
+                              caption={caption}
                               badge={badge}
                               status={config.status}
-                              credits={config.creditsPerCall}
-                              disabled={isDisabled}
+                              credits={resolveNodeConfigCreditsPerCall(config)}
+                              disabled={isDisabled || isVipLocked}
+                              isDarkTheme={isFlowBlackTheme}
+                              showZh={isZh}
+                              vipOnly={isVipLocked}
                               onClick={() =>
                                 createNodeAtWorldCenter(
                                   resolveFlowNodeTypeFromConfig(config),
@@ -17858,6 +20201,8 @@ function FlowInner() {
                       en={item.en}
                       badge={item.badge}
                       credits={NODE_CREDITS_MAP[item.key]}
+                      isDarkTheme={isFlowBlackTheme}
+                      showZh={isZh}
                       onClick={() =>
                         createNodeAtWorldCenter(
                           item.key,
@@ -17938,6 +20283,9 @@ function FlowInner() {
                   overflowY: "auto",
                   overflowX: "hidden",
                   padding: "12px 18px 18px",
+                  background: isFlowBlackTheme ? "#161616" : "transparent",
+                  borderRadius: isFlowBlackTheme ? 12 : 0,
+                  border: isFlowBlackTheme ? "1px solid #2b2b2b" : "none",
                 }}
               >
                 {templateScope === "public" && tplIndex ? (
@@ -17961,17 +20309,33 @@ function FlowInner() {
                             borderRadius: 999,
                             border:
                               "1px solid " +
-                              (!activeBuiltinCategory ? "#18181b" : "#e5e7eb"),
+                              (!activeBuiltinCategory
+                                ? isFlowBlackTheme
+                                  ? "#404040"
+                                  : "#18181b"
+                                : isFlowBlackTheme
+                                  ? "#2f2f2f"
+                                  : "#e5e7eb"),
                             background: !activeBuiltinCategory
-                              ? "#18181b"
-                              : "#fff",
-                            color: !activeBuiltinCategory ? "#fff" : "#374151",
+                              ? isFlowBlackTheme
+                                ? "#262626"
+                                : "#18181b"
+                              : isFlowBlackTheme
+                                ? "#1d1d1d"
+                                : "#fff",
+                            color: !activeBuiltinCategory
+                              ? "#fff"
+                              : isFlowBlackTheme
+                                ? "#888888"
+                                : "#374151",
                             fontSize: 12,
                             fontWeight: !activeBuiltinCategory ? 600 : 500,
                             cursor: "pointer",
                             transition: "all 0.15s ease",
                             boxShadow: !activeBuiltinCategory
-                              ? "0 10px 18px rgba(0, 0, 0, 0.18)"
+                              ? isFlowBlackTheme
+                                ? "0 8px 16px rgba(0, 0, 0, 0.4)"
+                                : "0 10px 18px rgba(0, 0, 0, 0.18)"
                               : "none",
                           }}
                         >
@@ -17992,15 +20356,33 @@ function FlowInner() {
                                 borderRadius: 999,
                                 border:
                                   "1px solid " +
-                                  (isActive ? "#18181b" : "#e5e7eb"),
-                                background: isActive ? "#18181b" : "#fff",
-                                color: isActive ? "#fff" : "#374151",
+                                  (isActive
+                                    ? isFlowBlackTheme
+                                      ? "#404040"
+                                      : "#18181b"
+                                    : isFlowBlackTheme
+                                      ? "#2f2f2f"
+                                      : "#e5e7eb"),
+                                background: isActive
+                                  ? isFlowBlackTheme
+                                    ? "#262626"
+                                    : "#18181b"
+                                  : isFlowBlackTheme
+                                    ? "#1d1d1d"
+                                    : "#fff",
+                                color: isActive
+                                  ? "#fff"
+                                  : isFlowBlackTheme
+                                    ? "#888888"
+                                    : "#374151",
                                 fontSize: 12,
                                 fontWeight: isActive ? 600 : 500,
                                 cursor: "pointer",
                                 transition: "all 0.15s ease",
                                 boxShadow: isActive
-                                  ? "0 10px 18px rgba(0, 0, 0, 0.18)"
+                                  ? isFlowBlackTheme
+                                    ? "0 8px 16px rgba(0, 0, 0, 0.4)"
+                                    : "0 10px 18px rgba(0, 0, 0, 0.18)"
                                   : "none",
                               }}
                             >
@@ -18049,6 +20431,7 @@ function FlowInner() {
                             "我们正在准备更多创意模板",
                             "We are preparing more creative templates"
                           )}
+                          isDarkTheme={isFlowBlackTheme}
                         />
                       ))}
                     </div>
@@ -18071,9 +20454,11 @@ function FlowInner() {
                         style={{
                           padding: "6px 12px",
                           borderRadius: 999,
-                          border: "1px solid #e5e7eb",
-                          background: "#fff",
-                          color: "#374151",
+                          border: isFlowBlackTheme
+                            ? "1px solid #404040"
+                            : "1px solid #e5e7eb",
+                          background: isFlowBlackTheme ? "#1d1d1d" : "#fff",
+                          color: isFlowBlackTheme ? "#ffffff" : "#374151",
                           display: "flex",
                           alignItems: "center",
                           gap: 4,
@@ -18083,12 +20468,20 @@ function FlowInner() {
                           transition: "all 0.15s ease",
                         }}
                         onMouseEnter={(e) => {
-                          e.currentTarget.style.background = "#f9fafb";
-                          e.currentTarget.style.borderColor = "#d1d5db";
+                          e.currentTarget.style.background = isFlowBlackTheme
+                            ? "#262626"
+                            : "#f9fafb";
+                          e.currentTarget.style.borderColor = isFlowBlackTheme
+                            ? "#5a5a5a"
+                            : "#d1d5db";
                         }}
                         onMouseLeave={(e) => {
-                          e.currentTarget.style.background = "#fff";
-                          e.currentTarget.style.borderColor = "#e5e7eb";
+                          e.currentTarget.style.background = isFlowBlackTheme
+                            ? "#1d1d1d"
+                            : "#fff";
+                          e.currentTarget.style.borderColor = isFlowBlackTheme
+                            ? "#404040"
+                            : "#e5e7eb";
                         }}
                       >
                         <Upload size={14} strokeWidth={2} />
@@ -18100,9 +20493,11 @@ function FlowInner() {
                         style={{
                           padding: "6px 12px",
                           borderRadius: 999,
-                          border: "1px solid #e5e7eb",
-                          background: "#fff",
-                          color: "#374151",
+                          border: isFlowBlackTheme
+                            ? "1px solid #404040"
+                            : "1px solid #e5e7eb",
+                          background: isFlowBlackTheme ? "#1d1d1d" : "#fff",
+                          color: isFlowBlackTheme ? "#ffffff" : "#374151",
                           display: "flex",
                           alignItems: "center",
                           gap: 4,
@@ -18112,12 +20507,20 @@ function FlowInner() {
                           transition: "all 0.15s ease",
                         }}
                         onMouseEnter={(e) => {
-                          e.currentTarget.style.background = "#f9fafb";
-                          e.currentTarget.style.borderColor = "#d1d5db";
+                          e.currentTarget.style.background = isFlowBlackTheme
+                            ? "#262626"
+                            : "#f9fafb";
+                          e.currentTarget.style.borderColor = isFlowBlackTheme
+                            ? "#5a5a5a"
+                            : "#d1d5db";
                         }}
                         onMouseLeave={(e) => {
-                          e.currentTarget.style.background = "#fff";
-                          e.currentTarget.style.borderColor = "#e5e7eb";
+                          e.currentTarget.style.background = isFlowBlackTheme
+                            ? "#1d1d1d"
+                            : "#fff";
+                          e.currentTarget.style.borderColor = isFlowBlackTheme
+                            ? "#404040"
+                            : "#e5e7eb";
                         }}
                       >
                         <Download size={14} strokeWidth={2} />
@@ -18138,12 +20541,14 @@ function FlowInner() {
                             ? "保存当前为新模板"
                             : "创建我的第一个模板"
                         }
+                        isDarkTheme={isFlowBlackTheme}
                       />
                       {userTplList.map((item) => {
                         return (
                           <UserTemplateCard
                             key={item.id}
                             item={item}
+                            isDarkTheme={isFlowBlackTheme}
                             onInstantiate={async () => {
                               const anchorWorld = { ...addPanel.world };
                               const tpl = await getUserTemplate(item.id);
@@ -18187,6 +20592,7 @@ function FlowInner() {
                             "我们正在准备更多创意模板",
                             "We are preparing more creative templates"
                           )}
+                          isDarkTheme={isFlowBlackTheme}
                         />
                       ))}
                     </div>

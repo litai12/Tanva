@@ -6,6 +6,7 @@ import GenerationProgressBar from "./GenerationProgressBar";
 import { useAuthStore } from "@/stores/authStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
+import RunCreditBadge from "./RunCreditBadge";
 
 type Props = {
   id: string;
@@ -17,6 +18,7 @@ type Props = {
     videoVersion?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
+    creditsPerCall?: number;
     clipDuration?: number;
     aspectRatio?: string;
     mode?: "std" | "pro";
@@ -51,6 +53,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
   const boxShadow = selected
     ? "0 0 0 2px rgba(37,99,235,0.12)"
     : "0 1px 2px rgba(0,0,0,0.04)";
+  const hasRunCredits = typeof data.creditsPerCall === "number" && data.creditsPerCall > 0;
   const [hover, setHover] = React.useState<string | null>(null);
   const [previewAspect, setPreviewAspect] = React.useState<string>("16/9");
   const [aspectMenuOpen, setAspectMenuOpen] = React.useState(false);
@@ -607,10 +610,13 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
       >
         <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
           <Video size={18} />
-          <span>Kling O3</span>
+          <span>
+            Kling O3
+          </span>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
           <button
+            className={`tanva-video-header-btn tanva-video-header-help ${showHelp ? "is-active" : "is-inactive"}`}
             onClick={() => setShowHelp(!showHelp)}
             style={{
               fontSize: 12,
@@ -628,6 +634,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
             <HelpCircle size={14} />
           </button>
           <button
+            className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit"
             onClick={onRun}
             onMouseDown={handleButtonMouseDown}
             disabled={data.status === "running"}
@@ -644,11 +651,20 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
               cursor: data.status === "running" ? "not-allowed" : "pointer",
               fontSize: 12,
               opacity: data.status === "running" ? 0.6 : 1,
+              gap: 0,
             }}
           >
-            Run
+            {hasRunCredits ? (
+              <>
+                <span className="run-text-trigger">Run</span>
+                <RunCreditBadge credits={data.creditsPerCall} runButton />
+              </>
+            ) : (
+              "Run"
+            )}
           </button>
           <button
+            className="tanva-video-header-btn tanva-video-header-share"
             onClick={() => copyVideoLink(data.videoUrl)}
             onMouseDown={handleButtonMouseDown}
             title={lt("复制链接", "Copy link")}
@@ -670,6 +686,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
             <Share2 size={14} />
           </button>
           <button
+            className="tanva-video-header-btn tanva-video-header-download"
             onClick={() => triggerDownload(data.videoUrl)}
             onMouseDown={handleButtonMouseDown}
             title={lt("下载视频", "Download video")}
@@ -1132,6 +1149,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
       {/* 历史记录 */}
       {historyItems.length > 0 && (
         <div
+          className="tanva-video-history"
           style={{
             marginTop: 8,
             padding: "8px 10px",
@@ -1157,6 +1175,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
             const isActive = item.videoUrl === data.videoUrl;
             return (
               <div
+                className="tanva-video-history-item"
                 key={item.id}
                 style={{
                   borderRadius: 6,

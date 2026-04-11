@@ -115,18 +115,13 @@
 }
 
 .tanva-textnote .tanva-textnote-handle {
-  opacity: 0;
-  pointer-events: none;
+  opacity: 1;
+  pointer-events: auto;
   transition: opacity 0.15s ease;
 }
 
 .tanva-textnote .tanva-textnote-handle--source {
   pointer-events: auto;
-}
-
-.tanva-textnote:hover .tanva-textnote-handle,
-.tanva-textnote .tanva-textnote-handle:focus-visible {
-  opacity: 1;
 }
 
 .tanva-flow-connecting .tanva-textnote .tanva-textnote-handle--source {
@@ -588,4 +583,47 @@ video::-webkit-media-controls-fullscreen-button {
 *:-ms-fullscreen video {
   object-fit: contain !important;
   background: #000 !important;
+}
+
+/* Run button hover swap: show credits in-place and hide Run text */
+.run-btn-with-credit .run-text-trigger,
+.run-btn-with-credit .run-credit-badge {
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+}
+
+.run-btn-with-credit {
+  position: relative;
+}
+
+.run-btn-with-credit .run-text-trigger {
+  display: inline-block;
+  opacity: 1;
+}
+
+.run-btn-with-credit .run-credit-badge {
+  opacity: 0 !important;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(0.95);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.run-btn-with-credit:hover:not(:disabled) .run-text-trigger,
+.run-btn-with-credit:focus-visible:not(:disabled) .run-text-trigger {
+  opacity: 0;
+}
+
+.run-btn-with-credit:hover:not(:disabled) .run-credit-badge,
+.run-btn-with-credit:focus-visible:not(:disabled) .run-credit-badge {
+  opacity: 1 !important;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.run-btn-with-credit:disabled .run-credit-badge {
+  opacity: 0 !important;
+  transform: translate(-50%, -50%) scale(0.95);
 }

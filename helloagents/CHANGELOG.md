@@ -8,6 +8,22 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Added
 - 新增产品定价策略文档，统一整理三类积分、免费用户额度、69/199/599 档会员权益与待确认规则（`frontend/docs/39-产品定价策略.md`）。
 - 新增面向官网/支付页的会员定价展示文案，包含标题、副标题、套餐卡片、对比表、积分说明与年费展示口径（`frontend/docs/40-会员定价展示文案.md`）。
+- Flow Credits Display: run-button credit badges now resolve with effective default parameters for video nodes and apply Kling 2.6/3.0 dynamic credit matrix so displayed credits match actual deduction.
+- Workspace Safety: added global leave-risk warning banner and upgraded leave confirmation logic to cover both uploading tasks and running Flow tasks; leaving during in-flight tasks now warns about potential data loss.
+- Runtime Stability: weak-network image delivery hardening for OSS/CDN resources, including adaptive timeout/retry in frontend image fetch (`imageSource.ts`) and proxy upstream timeout/retry in backend `/api/assets/proxy`.
+- Runtime Stability: custom CDN host `tai.tarvas.cn` added to frontend managed/proxy allowlist for direct public URL and fallback proxy compatibility.
+- Admin/Model Management: 后台“系统设置”新增“统一模型管理”tab，可直接编辑完整 `model_provider_mapping_v2` JSON，并支持通过 `models[].vendors[].metadata.specPricing` 配置按规格匹配的积分规则；默认模型目录补齐平台内图片模型（Nano Banana Fast/Pro/2、图像编辑、图像融合、Gemini 图像分析），模型列表新增搜索与类型筛选，图片规格积分按模型能力维度展示，不再只覆盖视频模型。
+- Seedance 2.0 模式参数补齐：模型管理 V2 请求体新增 `video_mode` 字段，前端模式选择可完整传递至方舟上游。
+- 认证系统新增“公众号扫码登录”闭环：后端支持带参数二维码会话、微信公众平台回调验签与 `subscribe/SCAN` 自动登录；前端登录页新增公众号扫码二维码面板与轮询消费登录会话。
+- Credits Backend 基础设施新增多形态积分 groundwork：Prisma 增加 `CreditLot` / `CreditConsumePolicy`，`CreditTransaction` 增加 lot / policy 审计字段；后端新增 `credit-lot-policy.ts` 用于 lot 过滤、优先级排序和扣减规划。
+- Credits Backend 已将三条发放链路接入 lot：充值成功、管理员补发、新用户注册赠送；当前均按 permanent lot 落库，为后续切换到 lot 真值扣减做准备。
+- Credits Backend 进一步接入每日签到 lot 化、hybrid lot 扣减与 lot 级退款恢复；`CreditConsumePolicy` 支持读取 `global_default` 配置并在 migration 中完成初始化。
+- Membership Backend P0 最小闭环：新增 `MembershipPlan` / `UserMembershipSubscription` / `MembershipEntitlementSnapshot`，`PaymentOrder` 支持 `membership` 订单类型；支付成功后可激活/续期订阅，并发放 `membership_bound` 积分 lot。
+- Membership Backend P1 补齐到期收口：新增会员到期小时级扫描任务；过期订阅会被标记 `expired`，其 `membership_bound` lot 会归零并写入 `membership_expire` 流水，权益快照回落到 `free/inactive`。
+- Membership Backend P1 继续补齐权益调度：新增每日赠送积分衰减任务（`gift_decay`）和年费会员月度额度刷新任务（`membership_refresh`），均由 `MembershipSchedulerService` 驱动。
+- Credits/Membership Backend 进一步对齐定价策略：新增免费用户月度额度发放（`free_monthly_quota`）闭环，默认消费优先级调整为 `月卡 -> 赠送 -> 固定`，`membership_credit_policy` 新增 `freeUserMonthlyQuotaCredits` 配置项。
+- Credits/Membership Backend 继续对齐签到策略：免费签到继续走策略配置，活跃 VIP 的签到奖励改为只读取当前会员套餐 `dailyGiftCredits`，不叠加免费签到额度；第 7 天支持按倍率发放。
+- Membership Backend 新增读接口：`GET /api/membership/current` 返回当前订阅/套餐/权益聚合视图，`GET /api/membership/entitlement` 返回当前权益快照，供前端会员页接入。
 - 认证系统新增观猹 OAuth2 登录：后端增加 `/api/auth/watcha/authorize` + `/api/auth/watcha/callback`，支持授权回调后自动登录、绑定/创建本地账号（`watchaUserId`）。
 - 登录页在“登录”按钮下方新增观猹入口按钮，复用后端授权跳转链路并支持回调错误提示。
 - 工作流历史版本：新增 `WorkflowHistory` 表（按 `userId + projectId + updatedAt` 复合主键），后端提供查询接口；前端右上角增加 n8n 风格历史按钮与“恢复并保存”交互。
@@ -17,12 +33,30 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
-<<<<<<< HEAD
+- Flow/Video: 修复 `Seedance 2.0` 在切换到 `多图参考 / 智能多帧` 后仍只能连接 1 张上游图片的问题；节点现会渲染与 `FlowOverlay` 分槽逻辑一致的 `image-slot-*` 目标句柄，确保多图连线可实际落到独立 slot（`frontend/src/components/flow/nodes/GenericVideoNode.tsx`）。
+- Flow/Video: `Seedance 2.0` 的 `多图参考 / 智能多帧` 现改为显式展示全部图片槽位句柄（最多 `9/10` 个），方便直接看到当前模式的最大接图数量与空闲 slot（`frontend/src/components/flow/nodes/GenericVideoNode.tsx`）。
+- Flow/Video: `Seedance 2.0` 改为“最大输入能力 + 自动推导模式”；前端移除手动模式切换，固定展示 `text / 9 图 / 尾帧 / video / audio` 句柄，并按当前连线自动推导 `video_mode`，旧 `smart_frames` 配置自动兼容到 `reference_images`（`frontend/src/components/flow/nodes/GenericVideoNode.tsx`, `frontend/src/components/flow/FlowOverlay.tsx`, `backend/src/admin/services/node-config.service.ts`）。
+- Flow/Video: `Seedance 2.0` 节点补齐官方规格，新增 `Seedance 2.0 Fast` 模型选择、模式化句柄（文本/首帧/首尾帧/多图/视频/音频组合）、`1-9` 图全能参考、`2-10` 智能多帧、`4-15s` 时长、6 种比例和 `480P/720P` 分辨率配置；运行时同步支持图/视频/音频多模态请求拼装（`frontend/src/components/flow/nodes/GenericVideoNode.tsx`, `frontend/src/components/flow/FlowOverlay.tsx`, `frontend/src/services/videoProviderAPI.ts`）。
+- Backend/Admin: Seedance 2.0 模型管理与默认节点配置同步升级，`seedance-2.0` 统一支持 `seedance-2.0 / seedance-2.0-fast` 两个模型别名，请求路由按 `seedanceUpstreamModelId` 动态下发到官方 `260128 / fast-260128` 模型 ID，并修正后台默认能力描述、输入模式和输出规格（`backend/src/ai/services/video-provider.service.ts`, `backend/src/ai/services/model-routing.service.ts`, `backend/src/admin/services/node-config.service.ts`, `frontend/src/pages/Admin.tsx`）。
+- 认证页移动端适配：`/auth/login` 与 `/auth/register` 在小屏下改为可纵向滚动的顶部对齐卡片，收紧内边距，三标签切换改为紧凑布局，验证码区和协议区适配窄屏换行，避免登录/注册页在手机端出现横向挤压和底部内容被遮挡（`frontend/src/pages/auth/Login.tsx`, `frontend/src/pages/auth/Register.tsx`）。
+- 登录页与登录弹窗统一改为三标签结构：`微信登录 / 密码登录 / 验证码登录`，默认进入微信登录；公众号扫码登录不再与手机号表单同时展开，减少界面拥挤与选择成本（`frontend/src/pages/auth/Login.tsx`, `frontend/src/components/auth/LoginModal.tsx`）。
+- 公众号明文模式回调新增 OpenObserve 结构化事件日志：收到 `/api/auth/wechat-official/callback` 时会把原始 XML 明文写入 `backend_events` 流，并在命中扫码登录授权后追加一条授权成功事件，便于直接在 OpenObserve 中排查公众号回调内容（`backend/src/auth/auth.service.ts`, `backend/src/telemetry/openobserve-telemetry.service.ts`）。
+- OpenObserve 改为默认保留明文请求日志并在生产默认开启：`backend_requests` 新增原始请求头/请求体，`upstream_requests` 不再对文本 header/body 做脱敏或截断，`frontend_error` 前端上报在生产默认开启，后端 tracing 也改为生产默认启用（`backend/src/telemetry/*`, `frontend/src/bootstrap/runtimeStability.ts`）。
+- Canvas：`ImageContainer` 的“高清放大”现在会先读取原图尺寸并推导最近似长宽比，一并传给 `gemini-3-pro-image-preview`；同时强化提示词，明确要求保持原始宽高比、禁止裁切/补边/拉伸/改构图，降低 4K 放大时输出尺寸漂移的概率（`frontend/src/components/canvas/ImageContainer.tsx`）。
+- Membership Backend 调整到期口径：订阅积分优先消耗，会员到期时重置订阅积分；免费用户继续按 30 天周期发放 `freeUserMonthlyQuotaCredits`（默认 `500`）。
+
+### Fixed
+- 公众号扫码登录改用微信推荐的稳定 `stable_token` 接口获取全局 `access_token`，并在生成登录二维码遇到 `access_token is invalid or not latest` 时自动强制刷新后重试一次，降低多实例或第三方系统并发刷新 token 导致的二维码生成失败。
+- 后台权限新增 `normal_admin`（普通管理）角色：后端仅放行 `概览、用户管理、API统计、API记录、公共模板、水印白名单` 对应接口，`admin` 仍保留全量后台权限（`backend/src/admin/admin.controller.ts`, `backend/src/admin/dto/admin.dto.ts`）。
+- 后台页面按角色显示 Tab：`normal_admin` 只显示 `概览 / 用户管理 / API统计 / API记录 / 公共模板 / 水印白名单`；并在“用户管理”中隐藏“角色/状态”列与“详情/删除”按钮（`frontend/src/pages/Admin.tsx`, `frontend/src/components/layout/FloatingHeader.tsx`）。
+- 工作流历史恢复新增来源标记：从历史版本“恢复并保存”后，新写入的 `WorkflowHistory` 会记录 `restoredFromUpdatedAt/restoredFromVersion`，前端历史列表可直接看到“恢复自哪个版本”，避免恢复生成的新记录与普通保存记录难以区分（`backend/src/projects/*`, `frontend/src/components/workflow-history/WorkflowHistoryButton.tsx`, `frontend/src/services/projectApi.ts`）。
+- Backend `WorkflowHistory` 新增 7 天保留策略：项目历史查询仍返回当前项目全部现存记录，但由 `projects` 定时任务每日凌晨物理清理 7 天前数据，并为 `updatedAt` 增加索引以降低批量删除成本（`backend/src/projects/projects.service.ts`, `backend/src/projects/projects-scheduler.service.ts`, `backend/src/projects/projects.module.ts`, `backend/prisma/schema.prisma`）。
+- Workspace 顶部右侧工具区恢复手动保存与工作流历史入口：`ManualSaveButton` 与 `WorkflowHistoryButton` 重新挂载到 `FloatingHeader`，用户可再次直接保存并查看/恢复工作流历史（`frontend/src/components/layout/FloatingHeader.tsx`）。
+- Flow/Admin：将 `Vidu` 视频节点收拢为单一 `viduVideo` 入口，当前仅保留 `Q2 / Q3` 两档；移除除 `vidu-q2 / vidu-q3` 外的其余 Vidu 型号配置和暴露入口（`frontend/src/pages/Admin.tsx`, `backend/src/admin/services/node-config.service.ts`, `backend/src/ai/services/model-routing.service.ts`, `backend/src/ai/services/video-provider.service.ts`）。
+- Flow：修正节点添加面板分组逻辑，不再把所有 `category: "input"` 节点提前归入“文字类节点”；`video` 输入节点现在会按真实节点类型显示在“视频类节点”（`frontend/src/components/flow/FlowOverlay.tsx`）。
 - Workspace 顶部项目名区域新增快捷 `+` 新建入口：在当前项目名称右侧可一键新建项目；项目下拉中的“新建项目”同步复用同一创建逻辑并增加防连点状态（`frontend/src/components/layout/FloatingHeader.tsx`）。
-=======
 - Flow: tightened connection validation in FlowOverlay so text handles (text/prompt/response-text) and image handles (img/image/image*) are no longer cross-connectable by source node type alone.
 - Flow: fixed Kling video run-path image collection to include `image-2` (end frame) and enforce handle order (`image` -> `image-2`), so Kling 3.0 Pro start/end frame mode can take effect.
->>>>>>> lry_dev
 - AI `generate-image`：当上游仅返回外链 `imageUrl` 时，统一改为后端拉取并转存 OSS 后再返回；管理员/白名单仍可跳过水印，但不再直返第三方临时链接，减少云端历史过期裂图（`backend/src/ai/ai.controller.ts`）。
 - Credits Backend: `updateApiUsageStatus` 增加状态机保护，禁止 `failed -> success` 与 `success -> failed` 反向回写，减少超时自动退款与晚到成功回写造成的状态/账务不一致（`backend/src/credits/credits.service.ts`）。
 - Frontend `/my-credits`: “今日消耗 / 最近 7 天消耗 / 趋势图”改为净消耗口径（`spend - refund`，最小 0），避免失败后已退款流水仍被计入消耗（`frontend/src/pages/MyCredits.tsx`）。
@@ -379,3 +413,21 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Changed
 - `库` 面板新增独立 `项目库` 标签（与 `全局历史`、`个人素材` 并列），按当前项目 ID 过滤展示项目内历史记录，并维护独立搜索/筛选/分页状态（`frontend/src/components/panels/LibraryPanel.tsx`）。
 - `项目库` 复用历史卡片交互：单击打开详情浮层（发送到画板/下载/删除），双击打开全屏预览；删除后会按项目过滤条件刷新当前列表（`frontend/src/components/panels/LibraryPanel.tsx`）。
+
+## [Membership Credit Policy Patch - 2026-04-08]
+### Changed
+- 后端新增独立业务策略模块 `backend/src/business-policy/*`，把会员积分策略统一收口到 `SystemSetting[membership_credit_policy]`。
+- 新增管理后台接口 `GET/POST /api/admin/membership-credit-policy`，支持配置赠送衰减值、固定积分有效期、签到奖励、签到有效期、7 日连签奖励、会员刷新周期。
+- 新增管理后台接口 `GET/POST/PATCH /api/admin/membership-plans*`，支持会员套餐列表管理、创建与编辑。
+- `PaymentService.processPaymentSuccess` 与 `CreditsService.adminAddCredits` 现在按 `fixedCreditExpireDays` 创建充值/手工补发积分 lot，可在 `fixed_window` 与 `permanent` 之间切换。
+- `CreditsService.claimDailyReward` 改为读取后台配置的签到积分、签到有效期和 7 日连签奖励。
+- `MembershipService.decayDailyGiftCredits` 与 `MembershipService.refreshYearlySubscriptionQuotaLots` 改为读取后台配置，不再写死 `50/30`。
+- 任务接口文档补充到 `task/2026-04-08-tanva-membership-api.md`，覆盖后台策略接口与配置生效点。
+- 前端管理后台 `系统设置` 下新增 `VIP管理` 子页，集成会员套餐列表管理与会员积分策略配置。
+- 后台管理员正向加积分改为进入 `gift` 池，不再按固定积分处理；这部分积分会参与赠送积分衰减，并在 VIP 状态下受 `pauseGiftDecay` 保护。
+- 新增会员每日赠送积分发放任务：活跃会员按套餐 `dailyGiftCredits` 每日自动发放一笔赠送积分，幂等键按“订阅 + 自然日”控制。
+- `/my-credits` 页面挂载时新增一次静默签到兜底，再刷新余额与交易流水，避免全局自动签到与页面首屏请求存在时序竞争时，看不到当日签到记录。
+- `CreditsService.claimDailyReward` 改为在事务内锁定 `CreditAccount` 行并再次校验业务日，修复多入口同时触发签到时可重复发放的问题。
+- `grantFreeUserMonthlyQuotaIfNeeded` 改为在事务内锁定 `CreditAccount` 行后再检查本周期发放记录，修复多个并发请求同时命中账户初始化/余额查询路径时，免费月额度可能重复记交易的问题。
+- `/my-credits` 页面移除额外的静默自动签到，自动签到重新收口为应用入口单点触发，减少无意义并发请求。
+- Admin/Credits: 统一模型管理开始升级为正式定价结构，vendor 支持 `pricing.defaults + pricing.rules`，管理台可维护默认积分/默认价格与规格规则价格；后端预扣费兼容解析新旧结构，并把命中的 `pricingSnapshot` 写入 API 使用记录审计字段。

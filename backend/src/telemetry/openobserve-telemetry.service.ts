@@ -29,7 +29,20 @@ type BackendRequestLog = {
   userAgent: string | null;
   userId: string | null;
   requestId: string | null;
+  headers: Record<string, unknown> | null;
   query: Record<string, unknown> | null;
+  body: unknown;
+  receivedAt: string;
+};
+
+type BackendEventLog = {
+  traceId: string | null;
+  requestId?: string | null;
+  userId?: string | null;
+  category: string;
+  action: string;
+  message: string;
+  payload?: Record<string, unknown> | null;
   receivedAt: string;
 };
 
@@ -121,6 +134,21 @@ export class OpenObserveTelemetryService {
         ...log,
         service: 'backend',
         log_type: 'backend_request',
+      },
+    );
+  }
+
+  async ingestBackendEvent(log: BackendEventLog): Promise<void> {
+    const requestContext = getRequestContext();
+    await this.ingest(
+      this.configService.get<string>('OPENOBSERVE_BACKEND_EVENT_STREAM')?.trim() || 'backend_events',
+      {
+        ...log,
+        traceId: log.traceId || getActiveSpanContext()?.traceId || requestContext?.traceId || null,
+        requestId: log.requestId || requestContext?.requestId || null,
+        userId: log.userId || requestContext?.userId || null,
+        service: 'backend',
+        log_type: 'backend_event',
       },
     );
   }

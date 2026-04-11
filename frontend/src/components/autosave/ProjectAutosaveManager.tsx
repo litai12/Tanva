@@ -365,7 +365,7 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
       if (consumeBeforeUnloadPromptSkip()) return;
       const { dirty } = useProjectContentStore.getState();
       const pending = getPendingUploadSummary();
-      if (!dirty && !pending.hasPending) return;
+      if (!dirty && !pending.hasRisk) return;
       event.preventDefault();
        
       event.returnValue = '';

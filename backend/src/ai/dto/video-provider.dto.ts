@@ -6,7 +6,11 @@ export class VideoProviderRequestDto {
   @IsEnum(['kling', 'kling-2.6', 'kling-o3', 'vidu', 'viduq3-pro', 'doubao'])
   provider!: 'kling' | 'kling-2.6' | 'kling-o3' | 'vidu' | 'viduq3-pro' | 'doubao';
 
-  @ApiProperty({ description: '视频生成模式 (Vidu: text2video/img2video/start-end2video/reference2video; Kling: text2video/image2video/image2video-tail/multi-image2video; Kling-O1: omni-video)', required: false })
+  @ApiProperty({
+    description:
+      '视频生成模式 (Vidu: text2video/img2video/start-end2video/reference2video; Kling: text2video/image2video/image2video-tail/multi-image2video; Seedance 2.0: text/first_frame/start_end/reference_images/smart_frames/reference_video/image_audio/image_video/video_audio/image_video_audio; Kling-O1: omni-video)',
+    required: false,
+  })
   @IsOptional()
   @IsString()
   videoMode?: string;
@@ -26,6 +30,11 @@ export class VideoProviderRequestDto {
   @IsOptional()
   @IsString({ each: true })
   audioUrls?: string[];
+
+  @ApiProperty({ description: '参考视频 URL 列表', required: false, type: [String] })
+  @IsOptional()
+  @IsString({ each: true })
+  referenceVideos?: string[];
 
   @ApiProperty({ description: '参考视频 URL', required: false })
   @IsOptional()
@@ -73,7 +82,7 @@ export class VideoProviderRequestDto {
   klingModel?: string;
 
   @ApiProperty({
-    description: 'Vidu 模型版本 (如 q2/q2-turbo/q2-pro/q3/q3-mix)',
+    description: 'Vidu 模型版本 (如 q2/q3)',
     required: false,
   })
   @IsOptional()
@@ -81,7 +90,15 @@ export class VideoProviderRequestDto {
   viduModel?: string;
 
   @ApiProperty({
-    description: 'Seedance 模型版本 (如 seedance-1.5-pro/seedance-2.0)',
+    description: 'Vidu 实际模型版本 (如 q2-pro/q3-turbo，仅用于计费与日志展示)',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  viduModelVariant?: string;
+
+  @ApiProperty({
+    description: 'Seedance 模型版本 (如 seedance-1.5-pro/seedance-2.0/seedance-2.0-fast)',
     required: false,
   })
   @IsOptional()
@@ -103,8 +120,28 @@ export class VideoProviderRequestDto {
   @IsBoolean()
   watermark?: boolean;
 
+  @ApiProperty({ description: '是否生成音频/音效 (Seedance 2.0)', required: false })
+  @IsOptional()
+  @IsBoolean()
+  generateAudio?: boolean;
+
   @ApiProperty({ description: '是否生成音效 (Kling)', required: false })
   @IsOptional()
   @IsString()
   sound?: string;
+
+  @ApiProperty({ description: '模型管理 modelKey', required: false })
+  @IsOptional()
+  @IsString()
+  managedModelKey?: string;
+
+  @ApiProperty({ description: '模型管理 vendorKey / 线路标识', required: false })
+  @IsOptional()
+  @IsString()
+  vendorKey?: string;
+
+  @ApiProperty({ description: '模型管理 platformKey / 渠道标识', required: false })
+  @IsOptional()
+  @IsString()
+  platformKey?: string;
 }

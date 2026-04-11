@@ -28,10 +28,7 @@ type ManagedTencentVideoModelKey =
   | "kling-2.6"
   | "kling-3.0"
   | "vidu-q2"
-  | "vidu-q2-turbo"
-  | "vidu-q2-pro"
   | "vidu-q3"
-  | "vidu-q3-mix"
   | "seedance-1.5"
   | "seedance-2.0";
 
@@ -54,25 +51,10 @@ const MANAGED_TENCENT_VIDEO_MODEL_META: Record<
     label: "Vidu Q2",
     uploadKeyPrefix: "vidu-q2",
   },
-  "vidu-q2-turbo": {
-    prefix: `${MANAGED_VIDU_TENCENT_PREFIX}q2-turbo-`,
-    label: "Vidu Q2-Turbo",
-    uploadKeyPrefix: "vidu-q2-turbo",
-  },
-  "vidu-q2-pro": {
-    prefix: `${MANAGED_VIDU_TENCENT_PREFIX}q2-pro-`,
-    label: "Vidu Q2-Pro",
-    uploadKeyPrefix: "vidu-q2-pro",
-  },
   "vidu-q3": {
     prefix: `${MANAGED_VIDU_TENCENT_PREFIX}q3-`,
     label: "Vidu Q3",
     uploadKeyPrefix: "vidu-q3",
-  },
-  "vidu-q3-mix": {
-    prefix: `${MANAGED_VIDU_TENCENT_PREFIX}q3-mix-`,
-    label: "Vidu Q3-Mix",
-    uploadKeyPrefix: "vidu-q3-mix",
   },
   "seedance-1.5": {
     prefix: "tencentvod-seedance15-",
@@ -86,16 +68,9 @@ const MANAGED_TENCENT_VIDEO_MODEL_META: Record<
   },
 };
 
-type ViduManagedModelVersion =
-  | "q2"
-  | "q2-turbo"
-  | "q2-pro"
-  | "q3"
-  | "q3-pro"
-  | "q3-turbo"
-  | "q3-mix";
+type ViduManagedModelVersion = "q2" | "q3";
 
-type SeedanceManagedModelVersion = "1.5-pro" | "2.0";
+type SeedanceManagedModelVersion = "1.5-pro" | "2.0" | "2.0-fast";
 
 type ManagedV2ExecutionBranch = "legacy" | "v2_request_profile";
 
@@ -120,6 +95,17 @@ type ManagedV2ParsedTask = {
   modelKey: string;
   vendorKey: string;
   rawTaskId: string;
+};
+
+const resolveSeedanceUpstreamModelId = (modelVersion: SeedanceManagedModelVersion): string => {
+  switch (modelVersion) {
+    case "2.0":
+      return "doubao-seedance-2-0-260128";
+    case "2.0-fast":
+      return "doubao-seedance-2-0-fast-260128";
+    default:
+      return "doubao-seedance-1-5-pro-251215";
+  }
 };
 
 /**
@@ -154,6 +140,15 @@ export interface VideoGenerationResult {
   status: "queued" | "processing" | "succeeded" | "failed";
   videoUrl?: string;
   thumbnailUrl?: string;
+  execution?: {
+    modelKey?: string;
+    vendorKey?: string;
+    platformKey?: string;
+    route?: "legacy" | "tencent_vod";
+    providerChannel?: string;
+    routedProvider?: string;
+    fallbackUsed?: boolean;
+  };
 }
 
 @Injectable()
@@ -167,6 +162,77 @@ export class VideoProviderService {
     private readonly tencentVodAigcService: TencentVodAigcService,
     private readonly modelRoutingService: ModelRoutingService,
   ) {}
+
+  private withExecutionMetadata(
+    result: VideoGenerationResult,
+    route: ResolvedManagedModelRoute,
+    fallbackUsed: boolean,
+  ): VideoGenerationResult {
+    return {
+      ...result,
+      execution: {
+        modelKey: route.model.modelKey,
+        vendorKey: route.vendor.vendorKey,
+        platformKey: route.vendor.platformKey || route.vendor.vendorKey,
+        route: route.route,
+        providerChannel: route.vendor.platformKey || route.vendor.vendorKey,
+        routedProvider: route.vendor.provider || undefined,
+        fallbackUsed,
+      },
+    };
+  }
+
+  private summarizeError(error: unknown): string {
+    if (error instanceof Error && error.message) return error.message;
+    return String(error);
+  }
+
+  private shouldFallbackToAlternativeRoute(error: unknown): boolean {
+    if (error instanceof ServiceUnavailableException) return true;
+    if (error instanceof BadRequestException) return false;
+    const message = this.summarizeError(error);
+    return /(暂不支持|未配置|未找到|不可用|unavailable|not support|not supported)/i.test(message);
+  }
+
+  private async executeManagedRouteWithFallback(
+    modelKey: string,
+    preferredVendorKey: string | undefined,
+    executor: (route: ResolvedManagedModelRoute) => Promise<VideoGenerationResult>,
+  ): Promise<VideoGenerationResult | null> {
+    const candidates = await this.modelRoutingService.resolveVideoModelCandidates(
+      modelKey,
+      preferredVendorKey,
+    );
+    if (!candidates.length) return null;
+
+    let lastError: unknown = null;
+    for (let index = 0; index < candidates.length; index += 1) {
+      const route = candidates[index];
+      const fallbackUsed = index > 0;
+      try {
+        const result = await executor(route);
+        if (fallbackUsed) {
+          this.logger.warn(
+            `Video generation fallback succeeded for ${modelKey}: vendor=${route.vendor.vendorKey}, route=${route.route}`,
+          );
+        }
+        return this.withExecutionMetadata(result, route, fallbackUsed);
+      } catch (error) {
+        lastError = error;
+        const canFallback =
+          index < candidates.length - 1 && this.shouldFallbackToAlternativeRoute(error);
+        this.logger.warn(
+          `Video generation route failed for ${modelKey}: vendor=${route.vendor.vendorKey}, route=${route.route}, fallback=${canFallback ? "next" : "stop"}, error=${this.summarizeError(error)}`,
+        );
+        if (!canFallback) {
+          throw error;
+        }
+      }
+    }
+
+    if (lastError) throw lastError;
+    return null;
+  }
 
   private resolveOssHosts(): string[] {
     return this.oss.publicHosts();
@@ -696,6 +762,10 @@ export class VideoProviderService {
         return this.queryKling(taskId, apiKey);
       case "kling-2.6":
         return this.queryKling26(taskId, apiKey);
+      case "vidu":
+        return this.queryVidu(taskId, apiKey);
+      case "viduq3-pro":
+        return this.queryViduQ3Pro(taskId, apiKey);
       default:
         throw new Error(`不支持的供应商: ${provider}`);
     }
@@ -704,13 +774,25 @@ export class VideoProviderService {
   private async generateManagedKlingO3(
     options: VideoProviderRequestDto
   ): Promise<VideoGenerationResult> {
-    const route = await this.modelRoutingService.resolveVideoModel("kling-o3");
-    if (route && this.shouldUseManagedV2RequestProfile(route)) {
-      return this.createManagedV2Task("kling-o3", options, route);
-    }
-    if (route?.route === "tencent_vod") {
-      return this.generateKlingOmniViaTencent(options, route.vendor);
-    }
+    const managedResult = await this.executeManagedRouteWithFallback(
+      "kling-o3",
+      options.vendorKey,
+      async (route) => {
+      if (this.shouldUseManagedV2RequestProfile(route)) {
+        return this.createManagedV2Task("kling-o3", options, route);
+      }
+      if (route.route === "tencent_vod") {
+        return this.generateKlingOmniViaTencent(options, route.vendor);
+      }
+
+      const apiKey = this.apiKeys["kling-o3"];
+      if (!apiKey || apiKey.includes("xxx")) {
+        throw new ServiceUnavailableException("kling-o3 API Key 未配置");
+      }
+      return this.generateKlingO1(options, apiKey);
+      },
+    );
+    if (managedResult) return managedResult;
 
     const apiKey = this.apiKeys["kling-o3"];
     if (!apiKey || apiKey.includes("xxx")) {
@@ -722,18 +804,30 @@ export class VideoProviderService {
   private async generateManagedKling26(
     options: VideoProviderRequestDto
   ): Promise<VideoGenerationResult> {
-    const route = await this.modelRoutingService.resolveVideoModel("kling-2.6");
-    if (route && this.shouldUseManagedV2RequestProfile(route)) {
-      return this.createManagedV2Task("kling-2.6", options, route);
-    }
-    if (route?.route === "tencent_vod") {
-      const result = await this.generateKlingViaTencent(
-        options,
-        route.vendor,
-        "2.6"
-      );
-      return this.withManagedTencentTaskPrefix("kling-2.6", result);
-    }
+    const managedResult = await this.executeManagedRouteWithFallback(
+      "kling-2.6",
+      options.vendorKey,
+      async (route) => {
+      if (this.shouldUseManagedV2RequestProfile(route)) {
+        return this.createManagedV2Task("kling-2.6", options, route);
+      }
+      if (route.route === "tencent_vod") {
+        const result = await this.generateKlingViaTencent(
+          options,
+          route.vendor,
+          "2.6"
+        );
+        return this.withManagedTencentTaskPrefix("kling-2.6", result);
+      }
+
+      const apiKey = this.apiKeys["kling-2.6"];
+      if (!apiKey || apiKey.includes("xxx")) {
+        throw new ServiceUnavailableException("kling-2.6 API Key 未配置");
+      }
+      return this.generateKling26(options, apiKey);
+      },
+    );
+    if (managedResult) return managedResult;
 
     const apiKey = this.apiKeys["kling-2.6"];
     if (!apiKey || apiKey.includes("xxx")) {
@@ -745,28 +839,46 @@ export class VideoProviderService {
   private async generateManagedKling30(
     options: VideoProviderRequestDto
   ): Promise<VideoGenerationResult> {
-    const route = await this.modelRoutingService.resolveVideoModel("kling-3.0");
-    if (route && this.shouldUseManagedV2RequestProfile(route)) {
-      return this.createManagedV2Task("kling-3.0", options, route);
-    }
-    if (route?.route === "tencent_vod") {
-      const result = await this.generateKlingViaTencent(
-        options,
-        route.vendor,
-        "3.0"
+    const managedResult = await this.executeManagedRouteWithFallback(
+      "kling-3.0",
+      options.vendorKey,
+      async (route) => {
+      if (this.shouldUseManagedV2RequestProfile(route)) {
+        return this.createManagedV2Task("kling-3.0", options, route);
+      }
+      if (route.route === "tencent_vod") {
+        const result = await this.generateKlingViaTencent(
+          options,
+          route.vendor,
+          "3.0"
+        );
+        return {
+          ...result,
+          taskId: `${MANAGED_KLING30_TENCENT_TASK_PREFIX}${result.taskId}`,
+        };
+      }
+
+      const klingO3ApiKey = this.apiKeys["kling-o3"];
+      if (!klingO3ApiKey || klingO3ApiKey.includes("xxx")) {
+        throw new ServiceUnavailableException("kling-o3 API Key 未配置");
+      }
+
+      return this.generateKlingO1(
+        {
+          ...options,
+          provider: "kling-o3",
+        },
+        klingO3ApiKey,
       );
-      return {
-        ...result,
-        taskId: `${MANAGED_KLING30_TENCENT_TASK_PREFIX}${result.taskId}`,
-      };
-    }
+      },
+    );
+    if (managedResult) return managedResult;
 
     const klingO3ApiKey = this.apiKeys["kling-o3"];
     if (!klingO3ApiKey || klingO3ApiKey.includes("xxx")) {
       throw new ServiceUnavailableException("kling-o3 API Key 未配置");
     }
 
-    // `kling-3.0` managed route is backed by the omni upstream on the legacy path.
     return this.generateKlingO1(
       {
         ...options,
@@ -793,63 +905,77 @@ export class VideoProviderService {
     options: VideoProviderRequestDto
   ): Promise<VideoGenerationResult> {
     const resolved = this.resolveManagedViduModel(options);
-    const route = await this.modelRoutingService.resolveVideoModel(resolved.modelKey);
+    const managedResult = await this.executeManagedRouteWithFallback(
+      resolved.modelKey,
+      options.vendorKey,
+      async (route) => {
+      if (this.shouldUseManagedV2RequestProfile(route)) {
+        return this.createManagedV2Task(resolved.modelKey, options, route);
+      }
 
-    if (route && this.shouldUseManagedV2RequestProfile(route)) {
-      return this.createManagedV2Task(resolved.modelKey, options, route);
-    }
+      if (route.route === "tencent_vod") {
+        const result = await this.generateViduViaTencent(
+          options,
+          route.vendor,
+          resolved.modelVersion,
+        );
+        return this.withManagedTencentTaskPrefix(resolved.modelKey, result);
+      }
 
-    if (route?.route === "tencent_vod") {
-      const result = await this.generateViduViaTencent(
-        options,
-        route.vendor,
-        resolved.modelVersion,
+      const apiKey = this.apiKeys[resolved.legacyProvider];
+      if (!apiKey || apiKey.includes("xxx")) {
+        throw new ServiceUnavailableException(`${resolved.legacyProvider} API Key 未配置`);
+      }
+
+      if (resolved.modelVersion === "q2") {
+        return this.generateVidu(options, apiKey);
+      }
+
+      if (resolved.modelVersion === "q3") {
+        return this.generateViduQ3Pro(options, apiKey);
+      }
+
+      throw new ServiceUnavailableException(
+        `旧链路暂不支持 ${resolved.label}，请在模型管理切换到腾讯 VOD`
       );
-      return this.withManagedTencentTaskPrefix(resolved.modelKey, result);
-    }
-
-    const apiKey = this.apiKeys[resolved.legacyProvider];
-    if (!apiKey || apiKey.includes("xxx")) {
-      throw new ServiceUnavailableException(`${resolved.legacyProvider} API Key 未配置`);
-    }
-
-    if (resolved.modelVersion === "q2") {
-      return this.generateVidu(options, apiKey);
-    }
-
-    if (resolved.modelVersion === "q3" || resolved.modelVersion === "q3-pro") {
-      return this.generateViduQ3Pro(options, apiKey);
-    }
-
-    throw new ServiceUnavailableException(
-      `旧链路暂不支持 ${resolved.label}，请在模型管理切换到腾讯 VOD`
+      },
     );
+    if (managedResult) return managedResult;
+
+    throw new ServiceUnavailableException(`未找到 ${resolved.label} 的可用生成链路`);
   }
 
   private async generateManagedSeedance(
     options: VideoProviderRequestDto
   ): Promise<VideoGenerationResult> {
     const resolved = this.resolveManagedSeedanceModel(options);
-    const route = await this.modelRoutingService.resolveVideoModel(resolved.modelKey);
+    const managedResult = await this.executeManagedRouteWithFallback(
+      resolved.modelKey,
+      options.vendorKey,
+      async (route) => {
+      if (this.shouldUseManagedV2RequestProfile(route)) {
+        return this.createManagedV2Task(resolved.modelKey, options, route);
+      }
 
-    if (route && this.shouldUseManagedV2RequestProfile(route)) {
-      return this.createManagedV2Task(resolved.modelKey, options, route);
-    }
+      if (route.route === "tencent_vod") {
+        const result = await this.generateSeedanceViaTencent(
+          options,
+          route.vendor,
+          resolved.modelVersion
+        );
+        return this.withManagedTencentTaskPrefix(resolved.modelKey, result);
+      }
 
-    if (resolved.modelKey === "seedance-1.5" && route?.route === "tencent_vod") {
-      const result = await this.generateSeedanceViaTencent(
-        options,
-        route.vendor,
-        resolved.modelVersion
-      );
-      return this.withManagedTencentTaskPrefix(resolved.modelKey, result);
-    }
+      const apiKey = this.apiKeys.doubao;
+      if (!apiKey || apiKey.includes("xxx")) {
+        throw new ServiceUnavailableException("doubao API Key 未配置");
+      }
+      return this.generateDoubao(options, apiKey, resolved.modelVersion);
+      },
+    );
+    if (managedResult) return managedResult;
 
-    const apiKey = this.apiKeys.doubao;
-    if (!apiKey || apiKey.includes("xxx")) {
-      throw new ServiceUnavailableException("doubao API Key 未配置");
-    }
-    return this.generateDoubao(options, apiKey, resolved.modelVersion);
+    throw new ServiceUnavailableException(`未找到 ${resolved.label} 的可用生成链路`);
   }
 
   private shouldUseManagedV2RequestProfile(route: ResolvedManagedModelRoute): boolean {
@@ -901,27 +1027,28 @@ export class VideoProviderService {
   }
 
   private buildManagedV2PromptText(options: VideoProviderRequestDto): string {
-    let promptText = options.prompt || "";
-    const params: string[] = [];
+    return typeof options.prompt === "string" ? options.prompt.trim() : "";
+  }
 
-    if (options.aspectRatio) {
-      params.push(`--ratio ${options.aspectRatio}`);
-    }
-    if (options.duration) {
-      params.push(`--dur ${options.duration}`);
-    }
-    if (options.camerafixed !== undefined) {
-      params.push(`--camerafixed ${options.camerafixed}`);
-    }
-    if (options.watermark !== undefined) {
-      params.push(`--watermark ${options.watermark}`);
-    }
+  private normalizeManagedV2ReferenceVideos(options: VideoProviderRequestDto): string[] {
+    const candidates = [
+      ...(Array.isArray(options.referenceVideos) ? options.referenceVideos : []),
+      options.referenceVideo,
+    ];
 
-    if (params.length > 0) {
-      promptText = `${promptText} ${params.join(" ")}`.trim();
-    }
+    return candidates
+      .map((item) =>
+        typeof item === "string" ? this.normalizeManagedAssetUrlForUpstream(item) : ""
+      )
+      .filter((item, index, array) => !!item && array.indexOf(item) === index);
+  }
 
-    return promptText.trim();
+  private normalizeManagedV2ReferenceAudios(options: VideoProviderRequestDto): string[] {
+    return (Array.isArray(options.audioUrls) ? options.audioUrls : [])
+      .map((item) =>
+        typeof item === "string" ? this.normalizeManagedAssetUrlForUpstream(item) : ""
+      )
+      .filter((item, index, array) => !!item && array.indexOf(item) === index);
   }
 
   private async buildManagedV2RequestContext(
@@ -940,11 +1067,35 @@ export class VideoProviderService {
       : [];
 
     const promptText = this.buildManagedV2PromptText(options);
-    const content: any[] = [{ type: "text", text: promptText }];
-    if (referenceImages[0]) {
+    const referenceVideos = this.normalizeManagedV2ReferenceVideos(options);
+    const referenceAudios = this.normalizeManagedV2ReferenceAudios(options);
+    const content: any[] = [];
+
+    if (promptText) {
+      content.push({ type: "text", text: promptText });
+    }
+
+    for (const imageUrl of referenceImages) {
       content.push({
         type: "image_url",
-        image_url: { url: referenceImages[0] },
+        image_url: { url: imageUrl },
+        role: "reference_image",
+      });
+    }
+
+    for (const videoUrl of referenceVideos) {
+      content.push({
+        type: "video_url",
+        video_url: { url: videoUrl },
+        role: "reference_video",
+      });
+    }
+
+    for (const audioUrl of referenceAudios) {
+      content.push({
+        type: "audio_url",
+        audio_url: { url: audioUrl },
+        role: "reference_audio",
       });
     }
 
@@ -954,8 +1105,16 @@ export class VideoProviderService {
         ...options,
         prompt: options.prompt || "",
         promptWithParams: promptText,
+        seedanceUpstreamModelId:
+          modelKey.startsWith("seedance-")
+            ? resolveSeedanceUpstreamModelId(this.resolveManagedSeedanceModel(options).modelVersion)
+            : undefined,
         referenceImages,
         referenceImage: referenceImages[0] || "",
+        referenceVideos,
+        referenceVideo: referenceVideos[0] || "",
+        audioUrls: referenceAudios,
+        generateAudio: options.generateAudio,
         content,
       },
       vendor: {
@@ -1045,19 +1204,23 @@ export class VideoProviderService {
     const resolvedModelVersion =
       (vendorConfig.modelVersion || fallbackModelVersion).trim().toLowerCase() as ViduManagedModelVersion;
 
-    if (resolvedModelVersion === "q3-mix") {
-      if (!normalizedPrompt) {
-        throw new BadRequestException("Vidu Q3-Mix 需要提供提示词");
-      }
-      if (normalizedImages.length === 0) {
-        throw new BadRequestException("Vidu Q3-Mix 仅支持参考生视频，请至少提供 1 张参考图");
-      }
+    const explicitVideoMode = String(options.videoMode || "")
+      .trim()
+      .toLowerCase();
+    const forceStartEndMode =
+      explicitVideoMode === "start-end2video" ||
+      explicitVideoMode === "start_end" ||
+      explicitVideoMode === "start-end";
+
+    if (forceStartEndMode && normalizedImages.length < 2) {
+      throw new BadRequestException("Vidu 首尾帧模式至少需要 2 张图片（图1/图2）");
     }
 
     const isStartEndCandidate =
-      normalizedImages.length >= 2 &&
-      !normalizedPrompt &&
-      (resolvedModelVersion === "q2-turbo" || resolvedModelVersion === "q2-pro");
+      forceStartEndMode ||
+      (normalizedImages.length >= 2 &&
+        !normalizedPrompt &&
+        resolvedModelVersion === "q2");
 
     const primaryImages = isStartEndCandidate ? normalizedImages.slice(0, 1) : normalizedImages;
     const lastFrameUrl = isStartEndCandidate ? normalizedImages[1] : undefined;
@@ -1067,10 +1230,7 @@ export class VideoProviderService {
       category: "Image" as const,
       url,
       objectId: `id${index + 1}`,
-      usage:
-        resolvedModelVersion === "q3-mix"
-          ? ("Reference" as const)
-          : undefined,
+      usage: undefined,
     }));
 
     if (!normalizedPrompt && fileInfos.length === 0) {
@@ -1137,12 +1297,16 @@ export class VideoProviderService {
     const resolvedModelVersion =
       (vendorConfig.modelVersion || fallbackModelVersion).trim().toLowerCase();
     const resolution =
-      resolvedModelVersion === "1.5-pro" && requestedResolution === "1080P"
+      resolvedModelVersion === "1.5-pro"
         ? "720P"
-        : requestedResolution;
+        : requestedResolution === "480P" || requestedResolution === "720P"
+        ? requestedResolution
+        : "720P";
     const duration =
       typeof options.duration === "number" && Number.isFinite(options.duration)
-        ? Math.max(3, Math.min(10, Math.round(options.duration)))
+        ? resolvedModelVersion === "1.5-pro"
+          ? Math.max(3, Math.min(10, Math.round(options.duration)))
+          : Math.max(4, Math.min(15, Math.round(options.duration)))
         : 5;
 
     return {
@@ -1153,7 +1317,12 @@ export class VideoProviderService {
       aspectRatio: options.aspectRatio,
       duration,
       resolution,
-      audioGeneration: "Disabled",
+      audioGeneration:
+        resolvedModelVersion === "1.5-pro"
+          ? "Disabled"
+          : options.generateAudio
+          ? "Enabled"
+          : "Disabled",
       storageMode: "Temporary",
       enhancePrompt: "Enabled",
     };
@@ -1461,56 +1630,40 @@ export class VideoProviderService {
     label: string;
   } {
     const normalized = String(options.viduModel || "").trim().toLowerCase();
-    const viduModel: ViduManagedModelVersion =
-      normalized === "q2-turbo" ||
+    const isQ2Family =
+      normalized === "" ||
+      normalized === "q2" ||
       normalized === "q2-pro" ||
+      normalized === "q2pro" ||
+      normalized === "q2-turbo" ||
+      normalized === "q2turbo";
+    const isQ3Family =
       normalized === "q3" ||
       normalized === "q3-pro" ||
+      normalized === "q3pro" ||
       normalized === "q3-turbo" ||
-      normalized === "q3-mix"
-        ? (normalized as ViduManagedModelVersion)
-        : "q2";
-
-    switch (viduModel) {
-      case "q2-turbo":
-        return {
-          modelKey: "vidu-q2-turbo",
-          modelVersion: "q2-turbo",
-          legacyProvider: "vidu",
-          label: "Vidu Q2-Turbo",
-        };
-      case "q2-pro":
-        return {
-          modelKey: "vidu-q2-pro",
-          modelVersion: "q2-pro",
-          legacyProvider: "vidu",
-          label: "Vidu Q2-Pro",
-        };
-      case "q3":
-      case "q3-pro":
-      case "q3-turbo":
-        return {
-          modelKey: "vidu-q3",
-          modelVersion: viduModel,
-          legacyProvider: "viduq3-pro",
-          label: `Vidu ${viduModel.toUpperCase()}`,
-        };
-      case "q3-mix":
-        return {
-          modelKey: "vidu-q3-mix",
-          modelVersion: "q3-mix",
-          legacyProvider: "viduq3-pro",
-          label: "Vidu Q3-Mix",
-        };
-      case "q2":
-      default:
-        return {
-          modelKey: "vidu-q2",
-          modelVersion: "q2",
-          legacyProvider: "vidu",
-          label: "Vidu Q2",
-        };
+      normalized === "q3turbo" ||
+      normalized === "q3-mix" ||
+      normalized === "q3mix";
+    if (!isQ2Family && !isQ3Family) {
+      throw new BadRequestException("暂不支持该 Vidu 模型版本，仅支持 q2 / q3");
     }
+
+    if (isQ3Family) {
+      return {
+        modelKey: "vidu-q3",
+        modelVersion: "q3",
+        legacyProvider: "viduq3-pro",
+        label: "Vidu Q3",
+      };
+    }
+
+    return {
+      modelKey: "vidu-q2",
+      modelVersion: "q2",
+      legacyProvider: "vidu",
+      label: "Vidu Q2",
+    };
   }
 
   private resolveManagedSeedanceModel(options: VideoProviderRequestDto): {
@@ -1519,6 +1672,13 @@ export class VideoProviderService {
     label: string;
   } {
     const normalized = String(options.seedanceModel || "").trim().toLowerCase();
+    if (normalized === "seedance-2.0-fast" || normalized === "2.0-fast") {
+      return {
+        modelKey: "seedance-2.0",
+        modelVersion: "2.0-fast",
+        label: "Seedance 2.0 Fast",
+      };
+    }
     if (normalized === "seedance-2.0" || normalized === "2.0") {
       return {
         modelKey: "seedance-2.0",
@@ -1704,8 +1864,11 @@ export class VideoProviderService {
     apiKey: string,
     modelVersion: SeedanceManagedModelVersion = "1.5-pro"
   ): Promise<VideoGenerationResult> {
-    let promptText = options.prompt;
+    const normalizedPrompt =
+      typeof options.prompt === "string" ? options.prompt.trim() : "";
+    let promptText = normalizedPrompt;
     const params: string[] = [];
+    const isSeedance2Model = modelVersion === "2.0" || modelVersion === "2.0-fast";
 
     if (options.aspectRatio) {
       params.push(`--ratio ${options.aspectRatio}`);
@@ -1720,31 +1883,86 @@ export class VideoProviderService {
       params.push(`--watermark ${options.watermark}`);
     }
 
-    if (params.length > 0) {
+    if (!isSeedance2Model && params.length > 0) {
       promptText = `${promptText} ${params.join(" ")}`;
     }
 
-    const content: any[] = [{ type: "text", text: promptText }];
+    const content: any[] = [];
+    const referenceVideos = this.normalizeManagedV2ReferenceVideos(options);
+    const referenceAudios = this.normalizeManagedV2ReferenceAudios(options);
+
+    if (promptText) {
+      content.push({ type: "text", text: promptText });
+    }
 
     // 处理参考图片：如果是 base64，先上传到 OSS
     if (options.referenceImages && options.referenceImages.length > 0) {
-      const imageUrl = await this.uploadBase64ImageToOSS(options.referenceImages[0]);
-      content.push({
-        type: "image_url",
-        image_url: { url: imageUrl },
-      });
-      this.logger.log(`📸 Seedance 参考图片已处理: ${imageUrl.substring(0, 100)}...`);
+      const imageUrls = (
+        await Promise.all(
+          options.referenceImages
+            .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+            .map((item) => this.uploadBase64ImageToOSS(item))
+        )
+      ).filter(Boolean);
+
+      for (const imageUrl of imageUrls) {
+        content.push({
+          type: "image_url",
+          image_url: { url: imageUrl },
+          role: "reference_image",
+        });
+        this.logger.log(`📸 Seedance 参考图片已处理: ${imageUrl.substring(0, 100)}...`);
+      }
     }
 
-    const modelId =
-      modelVersion === "2.0"
-        ? "doubao-seedance-2-0-260128"
-        : "doubao-seedance-1-5-pro-251215";
+    for (const videoUrl of referenceVideos) {
+      content.push({
+        type: "video_url",
+        video_url: { url: videoUrl },
+        role: "reference_video",
+      });
+    }
 
-    const payload = {
+    for (const audioUrl of referenceAudios) {
+      content.push({
+        type: "audio_url",
+        audio_url: { url: audioUrl },
+        role: "reference_audio",
+      });
+    }
+
+    if (!content.length) {
+      throw new BadRequestException("Seedance 需要提供提示词或至少一种参考素材");
+    }
+
+    const modelId = resolveSeedanceUpstreamModelId(modelVersion);
+
+    const payload: Record<string, any> = {
       model: modelId,
       content,
     };
+
+    if (isSeedance2Model) {
+      if (typeof options.generateAudio === "boolean") {
+        payload.generate_audio = options.generateAudio;
+      }
+      if (typeof options.videoMode === "string" && options.videoMode.trim()) {
+        payload.video_mode = options.videoMode.trim();
+      }
+      if (typeof options.aspectRatio === "string" && options.aspectRatio.trim()) {
+        payload.ratio = options.aspectRatio.trim();
+      }
+      if (typeof options.duration === "number" && Number.isFinite(options.duration)) {
+        payload.duration = options.duration;
+      }
+      if (typeof options.resolution === "string" && options.resolution.trim()) {
+        payload.resolution = options.resolution.trim().toUpperCase();
+      }
+      if (typeof options.watermark === "boolean") {
+        payload.watermark = options.watermark;
+      }
+    }
+
     this.logProviderPayload("doubao", payload);
 
     const response = await fetchWithTimeout(
@@ -2401,14 +2619,14 @@ export class VideoProviderService {
       payload.style = options.style || "general";
       payload.off_peak = options.offPeak || false;
     } else if (videoMode === "img2video") {
-      payload.model = "viduq2-turbo";
+      payload.model = "viduq2";
       payload.images = [preparedReferenceImages[0]];
       payload.duration = options.duration || 5;
       payload.resolution = options.resolution || "720p";
       payload.aspect_ratio = options.aspectRatio || "16:9";
       payload.off_peak = options.offPeak || false;
     } else if (videoMode === "start-end2video") {
-      payload.model = "viduq2-turbo";
+      payload.model = "viduq2";
       payload.images = [preparedReferenceImages[0], preparedReferenceImages[1]];
       payload.duration = options.duration || 5;
       payload.resolution = options.resolution || "720p";

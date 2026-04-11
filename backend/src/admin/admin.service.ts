@@ -888,12 +888,16 @@ export class AdminService {
           tx.creditAnomalyRecord.deleteMany({ where: { accountId: account.id } }),
         );
         await tx.creditTransaction.deleteMany({ where: { accountId: account.id } });
+        await tx.creditLot.deleteMany({ where: { accountId: account.id } });
         await tx.creditAccount.delete({ where: { id: account.id } });
       }
 
       await this.runWithMissingTableTolerance(() =>
         tx.creditAnomalyRecord.deleteMany({ where: { userId } }),
       );
+      await tx.membershipSubscriptionChange.deleteMany({ where: { userId } });
+      await tx.userMembershipSubscription.deleteMany({ where: { userId } });
+      await tx.membershipEntitlementSnapshot.deleteMany({ where: { userId } });
       await tx.apiUsageRecord.deleteMany({ where: { userId } });
       await tx.globalImageHistory.deleteMany({ where: { userId } });
 

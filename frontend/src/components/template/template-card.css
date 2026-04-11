@@ -83,3 +83,51 @@
   box-shadow: 0 3px 12px rgba(0, 0, 0, 0.08);
   background: #fff;
 }
+
+body.tanva-premium-black-theme .tpl-card {
+  border-color: #2b2b2b;
+  background: #171717;
+}
+
+body.tanva-premium-black-theme .tpl-card:hover {
+  border-color: #404040;
+  background: #1d1d1d;
+  box-shadow: 0 16px 30px rgba(0, 0, 0, 0.45);
+}
+
+body.tanva-premium-black-theme .tpl-card-thumb {
+  background: #1d1d1d;
+}
+
+body.tanva-premium-black-theme .tpl-card-noimg {
+  color: #777777;
+}
+
+body.tanva-premium-black-theme .tpl-card-name {
+  color: #ffffff;
+}
+
+body.tanva-premium-black-theme .tpl-card-desc {
+  color: #888888;
+}
+
+body.tanva-premium-black-theme .tpl-card-tags {
+  color: #666666;
+}
+
+body.tanva-premium-black-theme .tpl-card-small {
+  border-color: #404040;
+  background: #171717;
+  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.35);
+}
+
+body.tanva-premium-black-theme .tpl-card-delete {
+  border-color: #5a2a2a;
+  background: #262626;
+  color: #ef4444;
+}
+
+body.tanva-premium-black-theme .tpl-card-delete:hover {
+  border-color: #7f1d1d;
+  background: #3a1f1f;
+}

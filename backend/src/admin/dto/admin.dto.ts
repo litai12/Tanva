@@ -94,7 +94,7 @@ export class UpdateUserStatusDto {
 }
 
 export class UpdateUserRoleDto {
-  @ApiProperty({ description: '用户角色', enum: ['user', 'admin'] })
+  @ApiProperty({ description: '用户角色', enum: ['user', 'admin', 'normal_admin'] })
   @IsString()
   role!: string;
 }
@@ -186,3 +186,4 @@ export class CreditAnomalyRecordsQueryDto {
   @IsDateString()
   endDate?: string;
 }
+

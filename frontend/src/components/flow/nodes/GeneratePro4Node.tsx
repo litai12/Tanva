@@ -10,6 +10,9 @@ import ContextMenu from "../../ui/context-menu";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import { useLocaleText } from "@/utils/localeText";
+import { flowLetterboxBackground, FLOW_NODE_DARK_SURFACE } from "./flowNodeDarkTheme";
+import RunCreditBadge from "./RunCreditBadge";
+import NodeSelect from "./NodeSelect";
 
 // 长宽比图标
 const AspectRatioIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -44,6 +47,7 @@ type Props = {
     imageSize?: "1K" | "2K" | "4K" | null;
     prompts?: string[];
     imageWidth?: number;
+    creditsPerCall?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
   };
@@ -73,16 +77,16 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
   const [previewIndex, setPreviewIndex] = React.useState(0);
   const [isTextFocused, setIsTextFocused] = React.useState(false);
   const [isAspectMenuOpen, setIsAspectMenuOpen] = React.useState(false);
-  const [isImageSizeMenuOpen, setIsImageSizeMenuOpen] = React.useState(false);
   const [contextMenu, setContextMenu] = React.useState<{ x: number; y: number } | null>(null);
   const aspectMenuRef = React.useRef<HTMLDivElement>(null);
-  const imageSizeMenuRef = React.useRef<HTMLDivElement>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const promptBoxRef = React.useRef<HTMLDivElement>(null);
   const imageBoxRef = React.useRef<HTMLDivElement>(null);
 
   // 全局状态
   const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const chatTheme = useAIChatStore((state) => state.chatTheme);
+  const isFlowDark = chatTheme === "black";
   const isProMode =
     aiProvider === 'gemini-pro' ||
     aiProvider === 'banana' ||
@@ -339,18 +343,6 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
     );
   }, [id]);
 
-  // 点击外部关闭菜单
-  React.useEffect(() => {
-    if (!isImageSizeMenuOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (imageSizeMenuRef.current && !imageSizeMenuRef.current.contains(e.target as Node)) {
-        setIsImageSizeMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isImageSizeMenuOpen]);
-
   React.useEffect(() => {
     if (!preview) return;
     const handler = (e: KeyboardEvent) => {
@@ -467,7 +459,11 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
         style={{
           width: "100%",
           aspectRatio: "1 / 1",
-          background: displaySrc ? "transparent" : "#f8f9fa",
+          background: displaySrc
+            ? "transparent"
+            : isFlowDark
+              ? FLOW_NODE_DARK_SURFACE.imageWellBg
+              : "#f8f9fa",
           borderRadius: 8,
           display: "flex",
           alignItems: "center",
@@ -485,7 +481,12 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
             loading="lazy"
             decoding="async"
             draggable={false}
-            style={{ width: "100%", height: "100%", objectFit: "contain" }}
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "contain",
+              background: flowLetterboxBackground(isFlowDark),
+            }}
           />
         ) : (
           <span style={{ fontSize: 12, color: "#9ca3af" }}>
@@ -499,8 +500,8 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
             left: 6,
             top: 6,
             fontSize: 10,
-            color: "#6b7280",
-            background: "rgba(255,255,255,0.85)",
+            color: isFlowDark ? "#d1d5db" : "#6b7280",
+            background: isFlowDark ? "rgba(22,22,22,0.9)" : "rgba(255,255,255,0.85)",
             padding: "2px 6px",
             borderRadius: 4,
             fontWeight: 500,
@@ -597,10 +598,11 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
           style={{
             position: "relative",
             width: imageWidth,
-            background: "#f8f9fa",
+            background: isFlowDark ? FLOW_NODE_DARK_SURFACE.gridFrameBg : "#f8f9fa",
             borderRadius: 12,
             overflow: "hidden",
             padding: 8,
+            border: isFlowDark ? `1px solid ${FLOW_NODE_DARK_SURFACE.imageWellBorder}` : undefined,
           }}
         >
           <div
@@ -758,6 +760,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
             {/* 外部连接的提示词显示（仅第一个输入框展示） */}
             {index === 0 && externalPrompts.length > 0 && (
               <div
+                className="tanva-agent-external-prompts"
                 style={{
                   display: "flex",
                   flexDirection: "column",
@@ -767,6 +770,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
               >
                 {externalPrompts.map((externalPrompt, externalIndex) => (
                   <div
+                    className="tanva-agent-external-prompt-chip"
                     key={externalIndex}
                     style={{
                       display: "flex",
@@ -779,6 +783,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
                     }}
                   >
                     <Link
+                      className="tanva-agent-external-prompt-icon"
                       style={{
                         width: 14,
                         height: 14,
@@ -788,6 +793,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
                       }}
                     />
                     <span
+                      className="tanva-agent-external-prompt-text"
                       style={{
                         fontSize: 13,
                         color: "#0369a1",
@@ -986,7 +992,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
               marginTop: 8,
             }}
           >
-          <div className='inline-flex items-center gap-2 px-2 py-2 rounded-[999px] bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass'>
+          <div className='tanva-agent-toolbar inline-flex items-center gap-2 px-2 py-2 rounded-[999px] bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass'>
             {/* 长宽比选择按钮 - 仅 Pro 模式显示 */}
             {isProMode && (
               <div className='relative' ref={aspectMenuRef}>
@@ -1002,8 +1008,8 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
                   }}
                   onPointerDownCapture={stopNodeDrag}
                   className={cn(
-                    "p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center",
-                    aspectRatioValue ? "bg-gray-800 text-white border-gray-800" : ""
+                    "tanva-agent-toolbar-btn p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center",
+                    (isAspectMenuOpen || aspectRatioValue) ? "tanva-agent-toolbar-btn-active bg-gray-800 text-white border-gray-800" : ""
                   )}
                   title={aspectRatioValue ? `${lt('长宽比', 'Aspect ratio')}: ${aspectRatioValue}` : lt("选择长宽比", "Select aspect ratio")}
                 >
@@ -1014,28 +1020,21 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
 
             {/* HD 图像尺寸选择按钮 - 仅 Pro 模式显示 */}
             {isProMode && (
-              <div className="relative" ref={imageSizeMenuRef}>
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setIsImageSizeMenuOpen(!isImageSizeMenuOpen);
-                  }}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                  }}
-                  onPointerDownCapture={stopNodeDrag}
-                  className={cn(
-                    "p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center",
-                    imageSizeValue ? "bg-gray-800 text-white border-gray-800" : ""
-                  )}
+              <div className="relative">
+                <NodeSelect
+                  value={imageSizeValue || ""}
+                  options={imageSizeOptions.map((opt) => ({
+                    value: opt.value || "",
+                    label: opt.label,
+                  }))}
+                  onChange={(nextValue) => updateImageSize((nextValue || null) as "1K" | "2K" | "4K" | null)}
+                  variant="compact"
+                  align="center"
+                  menuLabel={lt('分辨率', 'Resolution')}
                   title={imageSizeValue ? `${lt('分辨率', 'Resolution')}: ${imageSizeValue}` : lt('选择分辨率', 'Select resolution')}
-                >
-                  <span className="font-medium text-[10px] leading-none">
-                    {imageSizeValue || 'HD'}
-                  </span>
-                </button>
+                  className='min-w-[56px] justify-center'
+                  contentClassName='min-w-[140px]'
+                />
               </div>
             )}
 
@@ -1052,16 +1051,17 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
               }}
               disabled={status === "running"}
               onPointerDownCapture={stopNodeDrag}
-              className='p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed'
+              className='tanva-agent-toolbar-btn p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed'
               title={status === "running" ? lt("生成中...", "Generating...") : lt("运行生成", "Run generation")}
             >
               <Play style={{ width: 14, height: 14 }} />
             </button>
+            <RunCreditBadge credits={data.creditsPerCall} compact />
           </div>
 
           {/* 长宽比水平选择栏 - 仅 Pro 模式显示 */}
           {isProMode && isAspectMenuOpen && (
-            <div className='bg-white rounded-full shadow-lg border border-gray-200 px-2 py-1.5 flex items-center gap-1'>
+            <div className='tanva-agent-toolbar-panel bg-white rounded-full shadow-lg border border-gray-200 px-2 py-1.5 flex items-center gap-1'>
               {aspectOptions.map((opt) => (
                 <button
                   key={opt.value || "auto"}
@@ -1072,10 +1072,10 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
                   }}
                   onPointerDownCapture={stopNodeDrag}
                   className={cn(
-                    "px-2 py-1 text-xs rounded-md transition-colors whitespace-nowrap",
+                    "tanva-agent-toolbar-option px-2 py-1 text-xs rounded-md transition-colors whitespace-nowrap",
                     aspectRatioValue === opt.value ||
                       (!aspectRatioValue && opt.value === "")
-                      ? "bg-gray-800 text-white font-medium"
+                      ? "tanva-agent-toolbar-option-active bg-gray-800 text-white font-medium"
                       : "text-gray-700 hover:bg-gray-100"
                   )}
                 >
@@ -1085,30 +1085,6 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
             </div>
           )}
 
-          {/* HD 图像尺寸水平选择栏 - 仅 Pro 模式显示 */}
-          {isProMode && isImageSizeMenuOpen && (
-            <div className="bg-white rounded-full shadow-lg border border-gray-200 px-2 py-1.5 flex items-center gap-1">
-              {imageSizeOptions.map(opt => (
-                <button
-                  key={opt.value || 'auto'}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    updateImageSize(opt.value);
-                    setIsImageSizeMenuOpen(false);
-                  }}
-                  onPointerDownCapture={stopNodeDrag}
-                  className={cn(
-                    "px-2 py-1 text-xs rounded-md transition-colors whitespace-nowrap",
-                    imageSizeValue === opt.value
-                      ? "bg-gray-800 text-white font-medium"
-                      : "text-gray-700 hover:bg-gray-100"
-                  )}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          )}
           </div>
         </>
       )}

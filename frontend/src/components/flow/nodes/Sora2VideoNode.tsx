@@ -7,6 +7,7 @@ import { type Sora2VideoQuality } from '@/stores/aiChatStore';
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { fetchWithAuth } from '@/services/authFetch';
 import { useLocaleText } from '@/utils/localeText';
+import RunCreditBadge from './RunCreditBadge';
 
 type Props = {
   id: string;
@@ -18,6 +19,7 @@ type Props = {
     videoVersion?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
+    creditsPerCall?: number;
     videoQuality?: Sora2VideoQuality;
     generationType?: 'sora2' | 'sora2-create-character';
     model?: 'sora-2' | 'sora-2-pro';
@@ -75,6 +77,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
 
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
+  const hasRunCredits = typeof data.creditsPerCall === 'number' && data.creditsPerCall > 0;
   const [hover, setHover] = React.useState<string | null>(null);
   const [previewAspect, setPreviewAspect] = React.useState<string>('16/9');
   const [aspectMenuOpen, setAspectMenuOpen] = React.useState(false);
@@ -574,10 +577,13 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
           <Video size={18} />
-          <span>Sora2</span>
+          <span>
+            Sora2
+          </span>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <button
+            className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit"
             onClick={onRun}
             onMouseDown={handleButtonMouseDown}
             disabled={data.status === 'running'}
@@ -593,12 +599,21 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
               justifyContent: 'center',
               cursor: data.status === 'running' ? 'not-allowed' : 'pointer',
               fontSize: 12,
-              opacity: data.status === 'running' ? 0.6 : 1
+              opacity: data.status === 'running' ? 0.6 : 1,
+              gap: 0
             }}
           >
-            {lt('Run', 'Run')}
+            {hasRunCredits ? (
+              <>
+                <span className="run-text-trigger">{lt('Run', 'Run')}</span>
+                <RunCreditBadge credits={data.creditsPerCall} runButton />
+              </>
+            ) : (
+              lt('Run', 'Run')
+            )}
           </button>
           <button
+            className="tanva-video-header-btn tanva-video-header-share"
             onClick={() => copyVideoLink(data.videoUrl)}
             onMouseDown={handleButtonMouseDown}
             title={lt('复制链接', 'Copy link')}
@@ -620,6 +635,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
             <Share2 size={14} />
           </button>
           <button
+            className="tanva-video-header-btn tanva-video-header-download"
             onClick={() => triggerDownload(data.videoUrl)}
             onMouseDown={handleButtonMouseDown}
             title={lt('下载视频', 'Download video')}
@@ -714,31 +730,24 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
       {/* Model selector */}
       <div style={{ marginBottom: 8 }}>
         <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>{lt('模式', 'Mode')}</div>
-        <div style={{
-          display: 'flex',
-          gap: 4,
-          background: '#f1f5f9',
-          borderRadius: 999,
-          padding: 2
-        }}>
+        <div style={{ display: 'flex', gap: 6 }}>
           {sora2ModelOptions.map((option) => {
             const isActive = selectedModel === option.value;
             return (
-              <button key={option.value} type='button'
+              <button
+                key={option.value}
+                type="button"
                 onMouseDown={handleButtonMouseDown}
                 onClick={() => handleModelChange(option.value)}
                 style={{
                   flex: 1,
-                  height: 26,
-                  borderRadius: 999,
-                  border: 'none',
-                  background: isActive ? '#fff' : 'transparent',
-                  color: isActive ? '#111827' : '#64748b',
+                  padding: '6px 10px',
+                  borderRadius: 8,
+                  border: '1px solid #e5e7eb',
+                  background: isActive ? '#111827' : '#fff',
+                  color: isActive ? '#fff' : '#111827',
                   fontSize: 12,
-                  fontWeight: isActive ? 600 : 400,
                   cursor: 'pointer',
-                  boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.12)' : 'none',
-                  transition: 'all 0.15s ease',
                 }}
               >
                 {lt(option.labelZh, option.labelEn)}
@@ -991,7 +1000,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
 
       {/* History */}
       {historyItems.length > 0 && (
-        <div style={{
+        <div className='tanva-video-history' style={{
           marginTop: 8, padding: '8px 10px', borderRadius: 8, border: '1px solid #e2e8f0',
           background: '#f8fafc', display: 'flex', flexDirection: 'column', gap: 6
         }}>
@@ -1007,7 +1016,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
           {showHistory && historyItems.map((item, index) => {
             const isActive = item.videoUrl === data.videoUrl;
             return (
-              <div key={item.id}
+              <div className='tanva-video-history-item' key={item.id}
                 style={{
                   borderRadius: 6,
                   border: '1px solid ' + (isActive ? '#c7d2fe' : '#e2e8f0'),

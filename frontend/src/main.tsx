@@ -12,15 +12,30 @@ import RegisterPage from '@/pages/auth/Register';
 import OSSDemo from '@/pages/OSSDemo';
 import Admin from '@/pages/Admin';
 import MyCredits from '@/pages/MyCredits';
+import MembershipSubscribePage from '@/pages/MembershipSubscribePage';
 import TermsOfService from '@/pages/legal/TermsOfService';
 import PrivacyPolicy from '@/pages/legal/PrivacyPolicy';
 import CommunityGuidelines from '@/pages/legal/CommunityGuidelines';
 import { useAuthStore } from '@/stores/authStore';
 import { useProjectStore } from '@/stores/projectStore';
 import Workspace from '@/pages/Workspace';
-import PendingUploadLeavePrompt from '@/components/guards/PendingUploadLeavePrompt';
-import PendingUploadNavigationGuard from '@/components/guards/PendingUploadNavigationGuard';
 import { initializeRuntimeStability } from '@/bootstrap/runtimeStability';
+import { claimDailyReward } from '@/services/adminApi';
+
+const DAILY_REWARD_RESET_HOUR = 3;
+const DAILY_REWARD_AUTO_CLAIM_KEY = 'daily_reward_auto_claim_key';
+
+function getDailyRewardBusinessDayKey(date: Date): string {
+  const anchor = new Date(date);
+  if (anchor.getHours() < DAILY_REWARD_RESET_HOUR) {
+    anchor.setDate(anchor.getDate() - 1);
+  }
+
+  const year = anchor.getFullYear();
+  const month = String(anchor.getMonth() + 1).padStart(2, '0');
+  const day = String(anchor.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
 function RootRoutes() {
   const user = useAuthStore((s) => s.user);
@@ -29,6 +44,32 @@ function RootRoutes() {
   useEffect(() => {
     if (user) loadProjects();
   }, [user, loadProjects]);
+
+  useEffect(() => {
+    if (!user?.id || typeof window === 'undefined') {
+      return;
+    }
+
+    const businessDayKey = getDailyRewardBusinessDayKey(new Date());
+    const dedupeKey = `${user.id}:${businessDayKey}`;
+    const claimedKey = window.sessionStorage.getItem(DAILY_REWARD_AUTO_CLAIM_KEY);
+    if (claimedKey === dedupeKey) {
+      return;
+    }
+
+    window.sessionStorage.setItem(DAILY_REWARD_AUTO_CLAIM_KEY, dedupeKey);
+    void claimDailyReward()
+      .then((result) => {
+        if (result?.success) {
+          window.dispatchEvent(new CustomEvent('refresh-credits'));
+        }
+      })
+      .catch((error) => {
+        console.warn('Auto claim daily reward failed:', error);
+        window.sessionStorage.removeItem(DAILY_REWARD_AUTO_CLAIM_KEY);
+      });
+  }, [user?.id]);
+
   return (
     <Routes>
       <Route path="/" element={<Home />} />
@@ -43,6 +84,7 @@ function RootRoutes() {
         <Route path="/app" element={<App />} />
         <Route path="/admin" element={<Admin />} />
         <Route path="/my-credits" element={<MyCredits />} />
+        <Route path="/membership" element={<MembershipSubscribePage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
@@ -54,8 +96,6 @@ initializeRuntimeStability();
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
-      <PendingUploadNavigationGuard />
-      <PendingUploadLeavePrompt />
       <RootRoutes />
     </BrowserRouter>
   </StrictMode>,

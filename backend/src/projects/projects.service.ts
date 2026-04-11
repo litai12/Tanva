@@ -7,6 +7,7 @@ import { sanitizeDesignJson } from '../utils/designJsonSanitizer';
 
 @Injectable()
 export class ProjectsService {
+  private readonly workflowHistoryRetentionDays = 7;
   private thumbnailColumnChecked = false;
   private thumbnailColumnAvailable = false;
   private readonly projectSaveQueue = new Map<string, Promise<void>>();
@@ -197,7 +198,13 @@ export class ProjectsService {
     id: string,
     content: unknown,
     version?: number,
-    options?: { createWorkflowHistory?: boolean }
+    options?: {
+      createWorkflowHistory?: boolean;
+      workflowHistoryMeta?: {
+        restoredFromUpdatedAt?: string;
+        restoredFromVersion?: number;
+      };
+    }
   ) {
     void version;
     return this.runProjectSaveSerialized(id, async () => {
@@ -273,7 +280,13 @@ export class ProjectsService {
     }
 
     if (options?.createWorkflowHistory) {
-      await this.tryCreateWorkflowHistorySnapshot(userId, id, updated2, sanitizedContent);
+      await this.tryCreateWorkflowHistorySnapshot(
+        userId,
+        id,
+        updated2,
+        sanitizedContent,
+        options.workflowHistoryMeta
+      );
     }
 
     const persistedVersion = updated2.contentVersion ?? newVersion;
@@ -296,20 +309,38 @@ export class ProjectsService {
     const parsedLimit = Math.min(Math.max(Number.parseInt((limit || '').trim(), 10) || 30, 1), 200);
 
     try {
+      const selectWithRestoreMeta: any = {
+        updatedAt: true,
+        version: true,
+        nodeCount: true,
+        edgeCount: true,
+        createdAt: true,
+      };
+      selectWithRestoreMeta.restoredFromUpdatedAt = true;
+      selectWithRestoreMeta.restoredFromVersion = true;
+
       return await this.prisma.workflowHistory.findMany({
         where: { userId, projectId },
         orderBy: { updatedAt: 'desc' },
         take: parsedLimit,
-        select: {
-          updatedAt: true,
-          version: true,
-          nodeCount: true,
-          edgeCount: true,
-          createdAt: true,
-        },
+        select: selectWithRestoreMeta,
       });
     } catch (error: any) {
       if (this.isMissingWorkflowHistoryTable(error)) return [];
+      if (this.shouldDowngradeWorkflowHistoryRestoreFields(error)) {
+        return await this.prisma.workflowHistory.findMany({
+          where: { userId, projectId },
+          orderBy: { updatedAt: 'desc' },
+          take: parsedLimit,
+          select: {
+            updatedAt: true,
+            version: true,
+            nodeCount: true,
+            edgeCount: true,
+            createdAt: true,
+          },
+        });
+      }
       throw error;
     }
   }
@@ -342,11 +373,32 @@ export class ProjectsService {
     }
   }
 
+  async cleanupExpiredWorkflowHistory() {
+    const cutoff = new Date(Date.now() - this.workflowHistoryRetentionDays * 24 * 60 * 60 * 1000);
+    const result = await this.prisma.workflowHistory.deleteMany({
+      where: {
+        updatedAt: {
+          lt: cutoff,
+        },
+      },
+    });
+
+    return {
+      deletedCount: result.count,
+      retentionDays: this.workflowHistoryRetentionDays,
+      cutoff,
+    };
+  }
+
   private async tryCreateWorkflowHistorySnapshot(
     userId: string,
     projectId: string,
     updatedProject: any,
-    sanitizedContent: any
+    sanitizedContent: any,
+    workflowHistoryMeta?: {
+      restoredFromUpdatedAt?: string;
+      restoredFromVersion?: number;
+    }
   ) {
     try {
       const flow = sanitizedContent?.flow && typeof sanitizedContent.flow === 'object'
@@ -355,8 +407,23 @@ export class ProjectsService {
       const nodeCount = Array.isArray((flow as any)?.nodes) ? (flow as any).nodes.length : 0;
       const edgeCount = Array.isArray((flow as any)?.edges) ? (flow as any).edges.length : 0;
 
-      await this.prisma.workflowHistory.create({
-        data: {
+      const restoredFromUpdatedAt =
+        typeof workflowHistoryMeta?.restoredFromUpdatedAt === 'string' &&
+        workflowHistoryMeta.restoredFromUpdatedAt
+          ? new Date(workflowHistoryMeta.restoredFromUpdatedAt)
+          : null;
+      const restoredFromUpdatedAtValue =
+        restoredFromUpdatedAt && !Number.isNaN(restoredFromUpdatedAt.getTime())
+          ? restoredFromUpdatedAt
+          : null;
+      const restoredFromVersionValue =
+        typeof workflowHistoryMeta?.restoredFromVersion === 'number' &&
+        Number.isFinite(workflowHistoryMeta.restoredFromVersion)
+          ? workflowHistoryMeta.restoredFromVersion
+          : null;
+
+      try {
+        const createDataWithRestoreMeta: any = {
           userId,
           projectId,
           updatedAt: updatedProject.updatedAt,
@@ -364,8 +431,30 @@ export class ProjectsService {
           flow: flow as Prisma.InputJsonValue,
           nodeCount,
           edgeCount,
-        },
-      });
+        };
+        createDataWithRestoreMeta.restoredFromUpdatedAt = restoredFromUpdatedAtValue;
+        createDataWithRestoreMeta.restoredFromVersion = restoredFromVersionValue;
+
+        await this.prisma.workflowHistory.create({
+          data: createDataWithRestoreMeta,
+        });
+      } catch (error: any) {
+        if (this.shouldDowngradeWorkflowHistoryRestoreFields(error)) {
+          await this.prisma.workflowHistory.create({
+            data: {
+              userId,
+              projectId,
+              updatedAt: updatedProject.updatedAt,
+              version: updatedProject.contentVersion ?? 0,
+              flow: flow as Prisma.InputJsonValue,
+              nodeCount,
+              edgeCount,
+            },
+          });
+        } else {
+          throw error;
+        }
+      }
     } catch (error: any) {
       if (this.isMissingWorkflowHistoryTable(error)) return;
       // eslint-disable-next-line no-console
@@ -536,6 +625,21 @@ export class ProjectsService {
       message.includes('Unknown arg') ||
       message.includes('column') && message.includes('does not exist')
     );
+  }
+
+  private shouldDowngradeWorkflowHistoryRestoreFields(error: any): boolean {
+    if (!error) return false;
+    const message = typeof error.message === 'string' ? error.message : '';
+    const touchedRestoreField =
+      message.includes('restoredFromUpdatedAt') ||
+      message.includes('restoredFromVersion');
+    if (!touchedRestoreField) return false;
+
+    const isUnknownFieldOrArg =
+      message.includes('Unknown field') ||
+      message.includes('Unknown argument') ||
+      message.includes('Unknown arg');
+    return isUnknownFieldOrArg && message.includes('WorkflowHistory');
   }
 
   private async disableThumbnailColumn(): Promise<void> {

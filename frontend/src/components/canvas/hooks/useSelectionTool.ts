@@ -3,11 +3,12 @@
  * 处理选择框绘制、路径选择、区域选择等功能
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
 import type { ImageInstance, Model3DInstance, VideoInstance } from '@/types/canvas';
 import { findImagePaperItem } from '@/utils/paperImageGroupBlock';
+import { useAIChatStore } from '@/stores/aiChatStore';
 
 interface UseSelectionToolProps {
   zoom: number;
@@ -48,12 +49,29 @@ export const useSelectionTool = ({
   onTextMultiSelect,
   onTextDeselect
 }: UseSelectionToolProps) => {
+  const chatTheme = useAIChatStore((state) => state.chatTheme);
+  const selectedStrokeColor = chatTheme === 'black' ? '#cfcfcf' : null;
 
   // ========== 选择工具状态 ==========
   const [selectedPath, setSelectedPath] = useState<paper.Path | null>(null);
   const [selectedPaths, setSelectedPaths] = useState<paper.Path[]>([]);
   const [isSelectionDragging, setIsSelectionDragging] = useState(false);
   const [selectionStartPoint, setSelectionStartPoint] = useState<paper.Point | null>(null);
+
+  const getTextBoundsSafely = useCallback((paperText?: paper.PointText | null): paper.Rectangle | null => {
+    if (!paperText) return null;
+    const textAny = paperText as any;
+    if (textAny.removed || !textAny.project) return null;
+    try {
+      const bounds = paperText.bounds;
+      if (!bounds) return null;
+      if (!Number.isFinite(bounds.x) || !Number.isFinite(bounds.y)) return null;
+      if (!Number.isFinite(bounds.width) || !Number.isFinite(bounds.height)) return null;
+      return bounds;
+    } catch {
+      return null;
+    }
+  }, []);
 
   const isHelperOrSelectionItem = useCallback((item: paper.Item | null | undefined): boolean => {
     if (!item) return true;
@@ -126,6 +144,13 @@ export const useSelectionTool = ({
     path.selected = true;
     path.fullySelected = editing;
     try {
+      if (selectedStrokeColor) {
+        (path as any).selectedColor = new paper.Color(selectedStrokeColor);
+      } else if ('selectedColor' in (path as any)) {
+        delete (path as any).selectedColor;
+      }
+    } catch {}
+    try {
       path.data = { ...(path.data || {}), isPathEditing: editing };
     } catch {}
 
@@ -133,7 +158,32 @@ export const useSelectionTool = ({
       (path as any).originalStrokeWidth = path.strokeWidth;
     }
     path.strokeWidth = (path as any).originalStrokeWidth + 1;
-  }, []);
+  }, [selectedStrokeColor]);
+
+  useEffect(() => {
+    const targets: paper.Path[] = [];
+    if (selectedPath) targets.push(selectedPath);
+    if (Array.isArray(selectedPaths) && selectedPaths.length > 0) {
+      selectedPaths.forEach((path) => {
+        if (!path || targets.includes(path)) return;
+        targets.push(path);
+      });
+    }
+
+    targets.forEach((path) => {
+      try {
+        if (selectedStrokeColor) {
+          (path as any).selectedColor = new paper.Color(selectedStrokeColor);
+        } else if ('selectedColor' in (path as any)) {
+          delete (path as any).selectedColor;
+        }
+      } catch {}
+    });
+
+    try {
+      paper.view?.update();
+    } catch {}
+  }, [selectedPath, selectedPaths, selectedStrokeColor]);
 
   // 选择路径并启用编辑模式
   const handlePathSelect = useCallback((
@@ -373,8 +423,8 @@ export const useSelectionTool = ({
     // 检查文本实例是否与选择框相交
     if (selectTexts) {
       for (const textItem of textItems) {
-        if (textItem.paperText && textItem.paperText.bounds) {
-          const textBounds = textItem.paperText.bounds;
+        const textBounds = getTextBoundsSafely(textItem.paperText);
+        if (textBounds) {
           if (selectionRect.intersects(textBounds)) {
             if (!selectedTexts.includes(textItem.id)) {
               selectedTexts.push(textItem.id);
@@ -514,7 +564,7 @@ export const useSelectionTool = ({
     // 重置状态
     setIsSelectionDragging(false);
     setSelectionStartPoint(null);
-  }, [isSelectionDragging, selectionStartPoint, selectedPaths, onImageMultiSelect, onModel3DMultiSelect, onTextMultiSelect, onImageDeselect, onModel3DDeselect, onTextDeselect, imageInstances, model3DInstances, isImageLocked, isLayerVisible]);
+  }, [isSelectionDragging, selectionStartPoint, selectedPaths, onImageMultiSelect, onModel3DMultiSelect, onTextMultiSelect, onImageDeselect, onModel3DDeselect, onTextDeselect, imageInstances, model3DInstances, isImageLocked, isLayerVisible, getTextBoundsSafely]);
 
   // ========== 清除所有选择 ==========
   const clearAllSelections = useCallback(() => {
@@ -844,8 +894,9 @@ export const useSelectionTool = ({
       // 反向遍历以选择最上层的文本
       for (let i = textItems.length - 1; i >= 0; i--) {
         const textItem = textItems[i];
-        if (textItem.paperText && textItem.paperText.bounds) {
-          if (textItem.paperText.bounds.contains(point)) {
+        const textBounds = getTextBoundsSafely(textItem.paperText);
+        if (textBounds) {
+          if (textBounds.contains(point)) {
             textClicked = textItem.id;
             break;
           }
@@ -1043,6 +1094,7 @@ export const useSelectionTool = ({
     handlePathSelect,
     startSelectionBox,
     detectClickedObject,
+    getTextBoundsSafely,
     selectedPath,
     selectedPaths
   ]);

@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { MODEL_PROVIDER_MAPPING_SETTING_KEY } from '../../ai/services/model-routing.service';
+import { resolveManagedVendorPricing } from '../../ai/services/model-pricing-resolver';
 
 export interface NodeConfigDto {
   nodeKey: string;
@@ -34,19 +35,6 @@ export interface UpdateNodeConfigDto {
   metadata?: Record<string, any>;
 }
 
-interface ManagedModelNodeConfig {
-  enabled?: boolean;
-  nodeKey?: string;
-  flowNodeType?: string;
-  category?: string;
-  status?: string;
-  creditsPerCall?: number;
-  priceYuan?: number;
-  serviceType?: string;
-  sortOrder?: number;
-  description?: string;
-}
-
 interface ManagedModelConfig {
   modelKey: string;
   modelName?: string;
@@ -59,6 +47,32 @@ interface ManagedModelConfig {
 
 interface ModelProviderMappingV2Like {
   models?: ManagedModelConfig[];
+}
+
+interface NodeConfigMetadataLike {
+  modelKeys?: unknown;
+  supportedModels?: unknown;
+  defaultData?: unknown;
+  vod?: unknown;
+  managedModelKey?: unknown;
+  managedRoutes?: unknown;
+}
+
+interface ManagedRouteView {
+  modelKey: string;
+  defaultVendor?: string;
+  vendors: Array<{
+    vendorKey: string;
+    platformKey?: string;
+    label?: string;
+    provider?: string;
+    route?: string;
+    modelName?: string;
+    modelVersion?: string;
+    creditsPerCall?: number;
+    priceYuan?: number;
+    pricing?: Record<string, any>;
+  }>;
 }
 
 const buildVodNodeMetadata = (
@@ -75,6 +89,26 @@ const buildVodNodeMetadata = (
   upstreamDomain: options?.upstreamDomain || 'vod.tencentcloudapi.com',
   vod,
 });
+
+const SEEDANCE20_SUPPORTED_MODELS = ['seedance-1.5-pro', 'seedance-2.0', 'seedance-2.0-fast'];
+const SEEDANCE20_ASPECT_RATIOS = ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'];
+const SEEDANCE20_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+const SEEDANCE20_RESOLUTIONS = ['480P', '720P'];
+const SEEDANCE20_INPUT_MODES = [
+  'text',
+  'first_frame',
+  'start_end',
+  'reference_images',
+  'reference_video',
+  'image_audio',
+  'image_video',
+  'video_audio',
+  'image_video_audio',
+];
+const SEEDANCE20_NOTES = [
+  '当前接入模型 ID: doubao-seedance-2-0-260128 / doubao-seedance-2-0-fast-260128',
+  '节点采用自动模式推导：最多支持 9 张参考图，尾帧/视频/音频各 1 路，运行时按已连接输入自动确定上游 video_mode',
+];
 
 @Injectable()
 export class NodeConfigService {
@@ -112,151 +146,308 @@ export class NodeConfigService {
     return 'video';
   }
 
-  private sanitizeManagedNodeKey(modelKey: string, fallbackNodeType: string): string {
-    const source = String(modelKey || fallbackNodeType || 'managed_model')
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '');
-    return source ? `managed_${source}` : 'managed_model';
+  private async getEnabledManagedModelKeySet(): Promise<Set<string>> {
+    const managedModelMap = await this.getManagedModelConfigMap();
+    return new Set(Array.from(managedModelMap.keys()));
   }
 
-  private mergeNodeConfigLists(
-    base: Array<Record<string, any>>,
-    derived: Array<Record<string, any>>,
-  ): Array<Record<string, any>> {
-    const merged = new Map<string, Record<string, any>>();
-
-    for (const item of base) {
-      if (!item?.nodeKey) continue;
-      merged.set(String(item.nodeKey), item);
-    }
-
-    for (const item of derived) {
-      if (!item?.nodeKey) continue;
-      merged.set(String(item.nodeKey), item);
-    }
-
-    const categoryOrder: Record<string, number> = {
-      input: 0,
-      image: 1,
-      video: 2,
-      audio: 3,
-      other: 4,
-    };
-
-    return Array.from(merged.values()).sort((a, b) => {
-      const ca = categoryOrder[a.category ?? 'other'] ?? 99;
-      const cb = categoryOrder[b.category ?? 'other'] ?? 99;
-      if (ca !== cb) return ca - cb;
-      return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
-    });
-  }
-
-  private async getManagedModelNodeConfigs() {
+  private async getManagedModelConfigMap(): Promise<Map<string, ManagedModelConfig>> {
     try {
       const setting = await this.prisma.systemSetting.findUnique({
         where: { key: MODEL_PROVIDER_MAPPING_SETTING_KEY },
       });
       const raw = setting?.value?.trim();
-      if (!raw) return [];
+      if (!raw) {
+        return new Map();
+      }
 
       const parsed = JSON.parse(raw) as ModelProviderMappingV2Like;
       const models = Array.isArray(parsed?.models) ? parsed.models.filter(Boolean) : [];
 
-      return models
-        .map((model, index) => {
-          if (!model || typeof model.modelKey !== 'string' || !model.modelKey.trim()) {
-            return null;
-          }
-
-          const metadata =
-            model.metadata && typeof model.metadata === 'object' ? model.metadata : {};
-          const nodeConfig =
-            metadata.nodeConfig && typeof metadata.nodeConfig === 'object'
-              ? (metadata.nodeConfig as ManagedModelNodeConfig)
-              : null;
-
-          if (!nodeConfig || nodeConfig.enabled === false) {
-            return null;
-          }
-
-          const flowNodeType = String(nodeConfig.flowNodeType || '').trim();
-          if (!flowNodeType) {
-            return null;
-          }
-
-          const taskType = this.normalizeManagedTaskType(model.taskType);
-          const category = this.normalizeManagedNodeCategory(nodeConfig.category, taskType);
-          const nodeKey =
-            String(nodeConfig.nodeKey || '').trim() ||
-            this.sanitizeManagedNodeKey(model.modelKey, flowNodeType);
-
-          const existingModelKeys = Array.isArray((metadata as any).modelKeys)
-            ? (metadata as any).modelKeys.map((item: unknown) => String(item)).filter(Boolean)
-            : [];
-
-          return {
-            nodeKey,
-            nameZh: model.modelName || model.modelKey,
-            nameEn: model.modelKey,
-            category,
-            status:
-              nodeConfig.status ||
-              (model.enabled === false ? 'disabled' : 'normal'),
-            creditsPerCall:
-              typeof nodeConfig.creditsPerCall === 'number'
-                ? nodeConfig.creditsPerCall
-                : 0,
-            priceYuan:
-              typeof nodeConfig.priceYuan === 'number' ? nodeConfig.priceYuan : null,
-            serviceType: nodeConfig.serviceType,
-            sortOrder:
-              typeof nodeConfig.sortOrder === 'number'
-                ? nodeConfig.sortOrder
-                : 2000 + index,
-            description:
-              nodeConfig.description ||
-              `${taskType} 模型节点（模型管理）`,
-            metadata: {
-              ...metadata,
-              type: flowNodeType,
-              managedModelKey: model.modelKey,
-              managedTaskType: taskType,
-              nodeConfig: {
-                ...nodeConfig,
-                flowNodeType,
-                category,
-                nodeKey,
-              },
-              modelKeys: Array.from(new Set([...existingModelKeys, model.modelKey])),
-            },
-          };
-        })
-        .filter(Boolean);
+      return new Map(
+        models
+          .filter(
+            (model) =>
+              model &&
+              model.enabled !== false &&
+              typeof model.modelKey === 'string' &&
+              model.modelKey.trim(),
+          )
+          .map((model) => [String(model.modelKey).trim(), model] as const),
+      );
     } catch (error) {
       this.logger.warn(
-        `读取模型派生节点配置失败，已忽略: ${
+        `读取模型管理配置失败，节点可见性回退为不过滤: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
-      return [];
+      return new Map();
     }
+  }
+
+  private buildManagedRouteView(model: ManagedModelConfig): ManagedRouteView | null {
+    const modelKey = typeof model?.modelKey === 'string' ? model.modelKey.trim() : '';
+    if (!modelKey) return null;
+
+    const vendors = Array.isArray(model.vendors)
+      ? model.vendors
+          .filter(
+            (vendor) =>
+              vendor &&
+              vendor.enabled !== false &&
+              typeof vendor.vendorKey === 'string' &&
+              vendor.vendorKey.trim(),
+          )
+          .map((vendor) => {
+            const resolvedPricing = resolveManagedVendorPricing(
+              vendor as Record<string, any>,
+              {},
+            );
+            const credits =
+              typeof resolvedPricing.price.credits === 'number'
+                ? resolvedPricing.price.credits
+                : Number(vendor.creditsPerCall);
+            const priceYuan =
+              typeof resolvedPricing.price.priceYuan === 'number'
+                ? resolvedPricing.price.priceYuan
+                : Number(vendor.priceYuan);
+            return {
+              vendorKey: String(vendor.vendorKey).trim(),
+              platformKey:
+                typeof vendor.platformKey === 'string' && vendor.platformKey.trim()
+                  ? vendor.platformKey.trim()
+                  : undefined,
+              label:
+                typeof vendor.label === 'string' && vendor.label.trim()
+                  ? vendor.label.trim()
+                  : undefined,
+              provider:
+                typeof vendor.provider === 'string' && vendor.provider.trim()
+                  ? vendor.provider.trim()
+                  : undefined,
+              route:
+                typeof vendor.route === 'string' && vendor.route.trim()
+                  ? vendor.route.trim()
+                  : undefined,
+              modelName:
+                typeof vendor.modelName === 'string' && vendor.modelName.trim()
+                  ? vendor.modelName.trim()
+                  : undefined,
+              modelVersion:
+                typeof vendor.modelVersion === 'string' && vendor.modelVersion.trim()
+                  ? vendor.modelVersion.trim()
+                  : undefined,
+              creditsPerCall:
+                Number.isFinite(credits) && credits >= 0 ? credits : undefined,
+              priceYuan:
+                Number.isFinite(priceYuan) && priceYuan >= 0 ? priceYuan : undefined,
+              pricing:
+                vendor.pricing && typeof vendor.pricing === 'object'
+                  ? (vendor.pricing as Record<string, any>)
+                  : undefined,
+            };
+          })
+      : [];
+
+    return {
+      modelKey,
+      defaultVendor:
+        typeof model.defaultVendor === 'string' && model.defaultVendor.trim()
+          ? model.defaultVendor.trim()
+          : undefined,
+      vendors,
+    };
+  }
+
+  private hasAvailableManagedModel(
+    metadata: NodeConfigMetadataLike | null | undefined,
+    enabledModelKeys: Set<string>,
+  ): boolean {
+    if (!metadata || typeof metadata !== 'object') {
+      return true;
+    }
+
+    const modelKeys = Array.isArray(metadata.modelKeys)
+      ? metadata.modelKeys.map((item) => String(item).trim()).filter(Boolean)
+      : [];
+
+    if (!modelKeys.length) {
+      return true;
+    }
+
+    if (enabledModelKeys.size === 0) {
+      return false;
+    }
+
+    return modelKeys.some((key) => enabledModelKeys.has(key));
+  }
+
+  private normalizeManagedNodeMetadata(
+    nodeKey: string,
+    metadata: NodeConfigMetadataLike | null | undefined,
+    enabledModelKeys: Set<string>,
+    managedModelMap: Map<string, ManagedModelConfig>,
+  ): Record<string, any> | undefined {
+    if (!metadata || typeof metadata !== 'object') {
+      return metadata as Record<string, any> | undefined;
+    }
+
+    const nextMetadata = { ...(metadata as Record<string, any>) };
+    const currentModelKeys = Array.isArray(metadata.modelKeys)
+      ? metadata.modelKeys.map((item) => String(item).trim()).filter(Boolean)
+      : [];
+
+    if (currentModelKeys.length > 0) {
+      nextMetadata.modelKeys = currentModelKeys.filter((key) => enabledModelKeys.has(key));
+    }
+
+    const explicitManagedModelKey =
+      typeof metadata.managedModelKey === 'string' ? metadata.managedModelKey.trim() : '';
+    const targetManagedModelKey =
+      explicitManagedModelKey && managedModelMap.has(explicitManagedModelKey)
+        ? explicitManagedModelKey
+        : currentModelKeys.find((key) => managedModelMap.has(key)) || '';
+
+    if (targetManagedModelKey) {
+      const managedModel = managedModelMap.get(targetManagedModelKey);
+      const managedRoutes = managedModel ? this.buildManagedRouteView(managedModel) : null;
+      if (managedRoutes) {
+        nextMetadata.managedModelKey = targetManagedModelKey;
+        nextMetadata.managedRoutes = managedRoutes;
+
+        const selectedVendor =
+          managedRoutes.vendors.find((vendor) => vendor.vendorKey === managedRoutes.defaultVendor) ||
+          managedRoutes.vendors[0];
+
+        if (selectedVendor) {
+          if (
+            nextMetadata.defaultData &&
+            typeof nextMetadata.defaultData === 'object'
+          ) {
+            nextMetadata.defaultData = {
+              ...(nextMetadata.defaultData as Record<string, any>),
+              managedModelKey: targetManagedModelKey,
+              vendorKey: selectedVendor.vendorKey,
+              platformKey: selectedVendor.platformKey || selectedVendor.vendorKey,
+              creditsPerCall:
+                typeof selectedVendor.creditsPerCall === 'number'
+                  ? selectedVendor.creditsPerCall
+                  : (nextMetadata.defaultData as Record<string, any>).creditsPerCall,
+            };
+          }
+
+          if (nextMetadata.vod && typeof nextMetadata.vod === 'object') {
+            nextMetadata.vod = {
+              ...(nextMetadata.vod as Record<string, any>),
+              label:
+                selectedVendor.label ||
+                (nextMetadata.vod as Record<string, any>).label,
+              modelName:
+                selectedVendor.modelName ||
+                (nextMetadata.vod as Record<string, any>).modelName,
+              modelVersion:
+                selectedVendor.modelVersion ||
+                (nextMetadata.vod as Record<string, any>).modelVersion,
+            };
+          }
+        }
+      }
+    }
+
+    if (nodeKey === 'viduVideo') {
+      const supportsQ2 = enabledModelKeys.has('vidu-q2');
+      const supportsQ3Family = enabledModelKeys.has('vidu-q3');
+      const supportedModels = [
+        ...(supportsQ2 ? ['q2'] : []),
+        ...(supportsQ3Family ? ['q3'] : []),
+      ];
+
+      nextMetadata.supportedModels = supportedModels;
+
+      const defaultViduModel =
+        supportedModels.find(Boolean) || (Array.isArray(metadata.supportedModels)
+          ? metadata.supportedModels.map((item) => String(item).trim()).find(Boolean)
+          : undefined);
+
+      if (
+        nextMetadata.defaultData &&
+        typeof nextMetadata.defaultData === 'object' &&
+        defaultViduModel
+      ) {
+        nextMetadata.defaultData = {
+          ...(nextMetadata.defaultData as Record<string, any>),
+          viduModel: defaultViduModel,
+          provider:
+            defaultViduModel === 'q2'
+              ? 'vidu'
+              : 'viduq3-pro',
+        };
+      }
+    }
+
+    return nextMetadata;
   }
 
   private normalizeNodeConfigOutput<T extends { nodeKey: string; description?: string | null; metadata?: any }>(
     config: T,
   ): T {
-    if (config.nodeKey !== 'doubaoVideo' && config.nodeKey !== 'seedance20Video') {
+    if (
+      config.nodeKey !== 'doubaoVideo' &&
+      config.nodeKey !== 'seedance20Video' &&
+      config.nodeKey !== 'wan27Video'
+    ) {
       return config;
+    }
+
+    if (config.nodeKey === 'wan27Video') {
+      const metadata = {
+        ...(config.metadata && typeof config.metadata === 'object' ? config.metadata : {}),
+        ...buildVodNodeMetadata(
+          {
+            type: 'wan27Video',
+            provider: 'dashscope',
+            supportedModels: ['wan2.7-i2v'],
+            defaultData: {
+              resolution: '1080P',
+              duration: 5,
+              promptExtend: true,
+              watermark: false,
+            },
+          },
+          {
+            label: 'DashScope Wan 2.7 I2V',
+            modelName: 'Wan',
+            modelVersion: '2.7-i2v',
+            outputConfig: {
+              durations: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+              resolutions: ['720P', '1080P'],
+            },
+            inputModes: ['text', 'first_frame', 'last_frame', 'first_clip', 'driving_audio'],
+            notes: [
+              '支持首帧/尾帧/首片段/驱动音频组合输入',
+              '当前复用 DASHSCOPE_API_KEY 作为鉴权',
+            ],
+          },
+          {
+            nodeKind: 'dashscope_video_generation',
+            upstreamDomain: 'dashscope.aliyuncs.com',
+          },
+        ),
+      };
+
+      return {
+        ...config,
+        description: '阿里百炼 Wan2.7 I2V 视频生成，走 DashScope 异步任务接口',
+        metadata,
+      };
     }
 
     const isSeedance20 = config.nodeKey === 'seedance20Video';
     const modelVersion = isSeedance20 ? '2.0' : '1.5-pro';
-    const supportedModels = isSeedance20 ? ['seedance-2.0'] : ['seedance-1.5-pro'];
-    const resolutions = isSeedance20 ? ['720P', '1080P'] : ['720P'];
+    const supportedModels = isSeedance20 ? SEEDANCE20_SUPPORTED_MODELS : ['seedance-1.5-pro'];
+    const resolutions = isSeedance20 ? SEEDANCE20_RESOLUTIONS : ['720P'];
     const notes = isSeedance20
-      ? ['当前接入模型 ID: doubao-seedance-2-0-260128']
+      ? SEEDANCE20_NOTES
       : ['1.5-Pro 当前接入默认分辨率限制为 720P'];
 
     const metadata = {
@@ -272,6 +463,8 @@ export class NodeConfigService {
             seedanceModel: isSeedance20 ? 'seedance-2.0' : 'seedance-1.5-pro',
             clipDuration: 5,
             resolution: '720P',
+            seedanceMode: isSeedance20 ? 'text' : undefined,
+            generateAudio: isSeedance20 ? false : undefined,
             camerafixed: false,
             watermark: false,
           },
@@ -281,11 +474,12 @@ export class NodeConfigService {
           modelName: 'Seedance',
           modelVersion,
           outputConfig: {
-            aspectRatios: ['16:9', '9:16', '1:1'],
-            durations: [3, 4, 5, 6, 7, 8, 9, 10],
+            aspectRatios: isSeedance20 ? SEEDANCE20_ASPECT_RATIOS : ['16:9', '9:16', '1:1'],
+            durations: isSeedance20 ? SEEDANCE20_DURATIONS : [3, 4, 5, 6, 7, 8, 9, 10],
             resolutions,
+            audioGeneration: isSeedance20,
           },
-          inputModes: ['text', 'image'],
+          inputModes: isSeedance20 ? SEEDANCE20_INPUT_MODES : ['text', 'image'],
           notes,
         },
         {
@@ -313,7 +507,8 @@ export class NodeConfigService {
       where: { isVisible: true },
       orderBy: [{ sortOrder: 'asc' }], // 先按 sortOrder 粗排，后面再自定义分类顺序
     });
-    const managedConfigs = await this.getManagedModelNodeConfigs();
+    const managedModelMap = await this.getManagedModelConfigMap();
+    const enabledManagedModelKeys = new Set(Array.from(managedModelMap.keys()));
 
     // 自定义分类顺序：输入(input) → 图像(image) → 视频(video) → 其他(other)
     const categoryOrder: Record<string, number> = {
@@ -331,22 +526,55 @@ export class NodeConfigService {
       return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
     });
 
-    const dbConfigs = sorted.map((config) => this.normalizeNodeConfigOutput({
-      nodeKey: config.nodeKey,
-      nameZh: config.nameZh,
-      nameEn: config.nameEn,
-      category: config.category,
-      status: config.status,
-      statusMessage: config.statusMessage,
-      creditsPerCall: config.creditsPerCall,
-      priceYuan: config.priceYuan ? Number(config.priceYuan) : null,
-      serviceType: config.serviceType,
-      sortOrder: config.sortOrder,
-      description: config.description,
-      metadata: config.metadata,
-    }));
+    const dbConfigs = sorted
+      .map((config) => {
+        const normalizedConfig = this.normalizeNodeConfigOutput({
+          nodeKey: config.nodeKey,
+          nameZh: config.nameZh,
+          nameEn: config.nameEn,
+          category: config.category,
+          status: config.status,
+          statusMessage: config.statusMessage,
+          creditsPerCall: config.creditsPerCall,
+          priceYuan: config.priceYuan ? Number(config.priceYuan) : null,
+          serviceType: config.serviceType,
+          sortOrder: config.sortOrder,
+          description: config.description,
+          metadata: config.metadata,
+        });
 
-    return this.mergeNodeConfigLists(dbConfigs, managedConfigs as Array<Record<string, any>>);
+        const normalizedMetadata = this.normalizeManagedNodeMetadata(
+          normalizedConfig.nodeKey,
+          normalizedConfig.metadata as NodeConfigMetadataLike | undefined,
+          enabledManagedModelKeys,
+          managedModelMap,
+        );
+        const managedRoutes = normalizedMetadata?.managedRoutes as ManagedRouteView | undefined;
+        const selectedVendor =
+          managedRoutes?.vendors?.find((vendor) => vendor.vendorKey === managedRoutes.defaultVendor) ||
+          managedRoutes?.vendors?.[0];
+
+        return {
+          ...normalizedConfig,
+          creditsPerCall:
+            typeof selectedVendor?.creditsPerCall === 'number'
+              ? selectedVendor.creditsPerCall
+              : normalizedConfig.creditsPerCall,
+          priceYuan:
+            typeof selectedVendor?.priceYuan === 'number'
+              ? selectedVendor.priceYuan
+              : normalizedConfig.priceYuan,
+          metadata: normalizedMetadata,
+        };
+      })
+      .filter((config) =>
+        this.hasAvailableManagedModel(
+          config.metadata as NodeConfigMetadataLike | undefined,
+          enabledManagedModelKeys,
+        ),
+      );
+
+    return dbConfigs;
   }
 
   /**
@@ -592,9 +820,9 @@ export class NodeConfigService {
         category: 'video',
         sortOrder: 22,
         creditsPerCall: 600,
-        serviceType: 'kling-video',
+        serviceType: 'kling-3.0-video',
         priceYuan: 6,
-        description: '可灵Kling 3.0视频生成，走腾讯 VOD/旧链路模型管理',
+        description: '可灵Kling 3.0视频生成',
         metadata: {
           ...buildVodNodeMetadata(
             {
@@ -636,7 +864,7 @@ export class NodeConfigService {
         creditsPerCall: 1600,
         serviceType: 'kling-o1-video',
         priceYuan: 16,
-        description: '可灵Kling 3.0-Omni视频生成，走腾讯 VOD/旧链路模型管理',
+        description: '可灵Kling 3.0-Omni视频生成',
         metadata: {
           ...buildVodNodeMetadata(
             {
@@ -679,14 +907,14 @@ export class NodeConfigService {
         creditsPerCall: 600,
         serviceType: 'vidu-video',
         priceYuan: 6,
-        description: 'Vidu Q2视频生成',
+        description: 'Vidu 视频生成（统一入口，含 Q2 / Q3）',
         metadata: {
           ...buildVodNodeMetadata(
             {
               type: 'viduVideo',
               provider: 'vidu',
-              modelKeys: ['vidu-q2'],
-              supportedModels: ['q2'],
+              modelKeys: ['vidu-q2', 'vidu-q3'],
+              supportedModels: ['q2', 'q3'],
               defaultData: {
                 provider: 'vidu',
                 viduModel: 'q2',
@@ -695,170 +923,16 @@ export class NodeConfigService {
               },
             },
             {
-              label: 'VOD Vidu Q2',
+              label: 'VOD Vidu',
               modelName: 'Vidu',
-              modelVersion: 'q2',
-              outputConfig: {
-                aspectRatios: ['16:9', '9:16', '3:4', '4:3', '1:1'],
-                durations: [1, 2, 3, 4, 5, 6, 7, 8],
-                resolutions: ['540P', '720P', '1080P'],
-              },
-              inputModes: ['text', 'image'],
-            },
-          ),
-        },
-      },
-      {
-        nodeKey: 'viduQ2TurboVideo',
-        nameZh: 'Vidu Q2-Turbo视频生成',
-        nameEn: 'Vidu Q2-Turbo',
-        category: 'video',
-        sortOrder: 25,
-        creditsPerCall: 600,
-        serviceType: 'vidu-video',
-        priceYuan: 6,
-        description: 'Vidu Q2-Turbo视频生成，走腾讯 VOD 模型管理',
-        metadata: {
-          ...buildVodNodeMetadata(
-            {
-              type: 'viduVideo',
-              provider: 'vidu',
-              modelKeys: ['vidu-q2-turbo'],
-              supportedModels: ['q2-turbo'],
-              defaultData: {
-                provider: 'vidu',
-                viduModel: 'q2-turbo',
-                resolution: '720p',
-                clipDuration: 5,
-              },
-            },
-            {
-              label: 'VOD Vidu Q2-Turbo',
-              modelName: 'Vidu',
-              modelVersion: 'q2-turbo',
-              outputConfig: {
-                aspectRatios: ['16:9', '9:16', '3:4', '4:3', '1:1'],
-                durations: [1, 2, 3, 4, 5, 6, 7, 8],
-                resolutions: ['540P', '720P', '1080P'],
-              },
-              inputModes: ['text', 'image', 'start_end'],
-              notes: ['支持 LastFrameUrl 首尾帧模式'],
-            },
-          ),
-        },
-      },
-      {
-        nodeKey: 'viduQ2ProVideo',
-        nameZh: 'Vidu Q2-Pro视频生成',
-        nameEn: 'Vidu Q2-Pro',
-        category: 'video',
-        sortOrder: 26,
-        creditsPerCall: 600,
-        serviceType: 'vidu-video',
-        priceYuan: 6,
-        description: 'Vidu Q2-Pro视频生成，走腾讯 VOD 模型管理',
-        metadata: {
-          ...buildVodNodeMetadata(
-            {
-              type: 'viduVideo',
-              provider: 'vidu',
-              modelKeys: ['vidu-q2-pro'],
-              supportedModels: ['q2-pro'],
-              defaultData: {
-                provider: 'vidu',
-                viduModel: 'q2-pro',
-                resolution: '720p',
-                clipDuration: 5,
-              },
-            },
-            {
-              label: 'VOD Vidu Q2-Pro',
-              modelName: 'Vidu',
-              modelVersion: 'q2-pro',
-              outputConfig: {
-                aspectRatios: ['16:9', '9:16', '3:4', '4:3', '1:1'],
-                durations: [1, 2, 3, 4, 5, 6, 7, 8],
-                resolutions: ['540P', '720P', '1080P'],
-              },
-              inputModes: ['text', 'image', 'start_end'],
-              notes: ['支持 LastFrameUrl 首尾帧模式'],
-            },
-          ),
-        },
-      },
-      {
-        nodeKey: 'viduQ3',
-        nameZh: 'Vidu Q3 Pro视频生成',
-        nameEn: 'Vidu Q3 Pro',
-        category: 'video',
-        sortOrder: 27,
-        creditsPerCall: 800,
-        serviceType: 'viduq3-pro-video',
-        priceYuan: 8,
-        description: 'Vidu Q3 Pro视频生成',
-        metadata: {
-          ...buildVodNodeMetadata(
-            {
-              type: 'viduQ3',
-              provider: 'viduq3-pro',
-              modelKeys: ['vidu-q3'],
-              supportedModels: ['q3', 'q3-pro', 'q3-turbo'],
-              defaultData: {
-                provider: 'viduq3-pro',
-                viduModel: 'q3',
-                resolution: '720p',
-                clipDuration: 8,
-              },
-            },
-            {
-              label: 'VOD Vidu Q3',
-              modelName: 'Vidu',
-              modelVersion: 'q3',
+              modelVersion: 'q2 / q3',
               outputConfig: {
                 aspectRatios: ['16:9', '9:16', '3:4', '4:3', '1:1'],
                 durations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
                 resolutions: ['540P', '720P', '1080P'],
               },
-              inputModes: ['text', 'image'],
-            },
-          ),
-        },
-      },
-      {
-        nodeKey: 'viduQ3MixVideo',
-        nameZh: 'Vidu Q3-Mix视频生成',
-        nameEn: 'Vidu Q3-Mix',
-        category: 'video',
-        sortOrder: 28,
-        creditsPerCall: 800,
-        serviceType: 'viduq3-pro-video',
-        priceYuan: 8,
-        description: 'Vidu Q3-Mix视频生成，走腾讯 VOD 模型管理',
-        metadata: {
-          ...buildVodNodeMetadata(
-            {
-              type: 'viduQ3',
-              provider: 'viduq3-pro',
-              modelKeys: ['vidu-q3-mix'],
-              supportedModels: ['q3-mix'],
-              defaultData: {
-                provider: 'viduq3-pro',
-                viduModel: 'q3-mix',
-                resolution: '720p',
-                clipDuration: 8,
-              },
-            },
-            {
-              label: 'VOD Vidu Q3-Mix',
-              modelName: 'Vidu',
-              modelVersion: 'q3-mix',
-              outputConfig: {
-                aspectRatios: ['16:9', '9:16', '3:4', '4:3', '1:1'],
-                durations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
-                resolutions: ['540P', '720P', '1080P'],
-              },
-              inputModes: ['reference'],
-              notes: ['Q3-Mix 仅支持 Reference 模式，至少需要 1 张参考图'],
+              inputModes: ['text', 'image', 'reference'],
+              notes: ['Q2 / Q3 统一收拢到同一个 Vidu 节点'],
             },
           ),
         },
@@ -922,12 +996,14 @@ export class NodeConfigService {
               type: 'doubaoVideo',
               provider: 'doubao',
               modelKeys: ['seedance-2.0'],
-              supportedModels: ['seedance-2.0'],
+              supportedModels: SEEDANCE20_SUPPORTED_MODELS,
               defaultData: {
                 provider: 'doubao',
                 seedanceModel: 'seedance-2.0',
                 clipDuration: 5,
                 resolution: '720P',
+                seedanceMode: 'text',
+                generateAudio: false,
               },
             },
             {
@@ -935,12 +1011,13 @@ export class NodeConfigService {
               modelName: 'Seedance',
               modelVersion: '2.0',
               outputConfig: {
-                aspectRatios: ['16:9', '9:16', '1:1'],
-                durations: [3, 4, 5, 6, 7, 8, 9, 10],
-                resolutions: ['720P', '1080P'],
+                aspectRatios: SEEDANCE20_ASPECT_RATIOS,
+                durations: SEEDANCE20_DURATIONS,
+                resolutions: SEEDANCE20_RESOLUTIONS,
+                audioGeneration: true,
               },
-              inputModes: ['text', 'image'],
-              notes: ['当前接入模型 ID: doubao-seedance-2-0-260128'],
+              inputModes: SEEDANCE20_INPUT_MODES,
+              notes: SEEDANCE20_NOTES,
             },
             {
               nodeKind: 'ark_video_generation',
@@ -959,28 +1036,49 @@ export class NodeConfigService {
         creditsPerCall: 900,
         serviceType: 'sora-sd',
         priceYuan: 9,
-        description: 'OpenAI Sora2 Pro 视频',
+        description: 'OpenAI Sora2 Pro 视频，支持腾讯 VOD 路由',
         metadata: {
-          type: 'sora2Video',
-          provider: 'sora2',
-          modelKeys: ['sora-2'],
-          supportedModels: ['sora-2', 'sora-2-pro'],
-          defaultData: {
-            generationType: 'sora2',
-            model: 'sora-2-pro',
-            clipDuration: 10,
-            aspectRatio: '16:9',
-            watermark: false,
-            thumbnailEnabled: true,
-            privateMode: false,
-            storyboard: false,
-          },
-          billingType: 'by_model',
-          modelPricing: {
-            'sora-2': { credits: 200, priceYuan: 2 },
-            'sora-2-vip': { credits: 200, priceYuan: 2 },
-            'sora-2-pro': { credits: 750, priceYuan: 7.5 },
-          },
+          ...buildVodNodeMetadata(
+            {
+              type: 'sora2Video',
+              provider: 'sora2',
+              modelKeys: ['sora-2'],
+              supportedModels: ['sora-2', 'sora-2-pro'],
+              defaultData: {
+                generationType: 'sora2',
+                model: 'sora-2-pro',
+                clipDuration: 10,
+                aspectRatio: '16:9',
+                watermark: false,
+                thumbnailEnabled: true,
+                privateMode: false,
+                storyboard: false,
+              },
+              billingType: 'by_model',
+              modelPricing: {
+                'sora-2': { credits: 200, priceYuan: 2 },
+                'sora-2-vip': { credits: 200, priceYuan: 2 },
+                'sora-2-pro': { credits: 750, priceYuan: 7.5 },
+              },
+            },
+            {
+              label: 'VOD Sora2 (OS)',
+              modelName: 'OS',
+              modelVersion: '2.0',
+              outputConfig: {
+                aspectRatios: ['16:9', '9:16', '1:1'],
+                durations: [5, 10, 15],
+                resolutions: ['720P', '1080P'],
+                audioGeneration: true,
+              },
+              inputModes: ['text', 'image'],
+              notes: [
+                '使用腾讯云 VOD OS（Open-Sora）模型生成视频',
+                '支持文生视频和图生视频模式',
+                '视频时长支持 5/10/15 秒',
+              ],
+            },
+          ),
         },
       },
       {
@@ -1014,6 +1112,47 @@ export class NodeConfigService {
         serviceType: 'wan26-r2v',
         priceYuan: 6,
         description: '参考视频生成',
+      },
+      {
+        nodeKey: 'wan27Video',
+        nameZh: 'Wan2.7视频生成',
+        nameEn: 'Wan2.7 I2V',
+        category: 'video',
+        sortOrder: 35,
+        creditsPerCall: 600,
+        serviceType: 'wan27-video',
+        priceYuan: 6,
+        description: '阿里百炼 Wan2.7 I2V 视频生成',
+        metadata: {
+          ...buildVodNodeMetadata(
+            {
+              type: 'wan27Video',
+              provider: 'dashscope',
+              supportedModels: ['wan2.7-i2v'],
+              defaultData: {
+                resolution: '1080P',
+                duration: 5,
+                promptExtend: true,
+                watermark: false,
+              },
+            },
+            {
+              label: 'DashScope Wan 2.7 I2V',
+              modelName: 'Wan',
+              modelVersion: '2.7-i2v',
+              outputConfig: {
+                durations: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+                resolutions: ['720P', '1080P'],
+              },
+              inputModes: ['text', 'first_frame', 'last_frame', 'first_clip', 'driving_audio'],
+              notes: ['支持图像、视频片段、音频混合输入'],
+            },
+            {
+              nodeKind: 'dashscope_video_generation',
+              upstreamDomain: 'dashscope.aliyuncs.com',
+            },
+          ),
+        },
       },
 
       // 其他节点
@@ -1163,9 +1302,9 @@ export class NodeConfigService {
         category: 'video',
         sortOrder: 22,
         creditsPerCall: 600,
-        serviceType: 'kling-video',
+        serviceType: 'kling-3.0-video',
         priceYuan: 6,
-        description: '可灵Kling 3.0视频生成，走腾讯 VOD/旧链路模型管理',
+        description: '可灵Kling 3.0视频生成',
         metadata: {
           type: 'klingVideo',
           provider: 'kling-o3',
@@ -1189,7 +1328,7 @@ export class NodeConfigService {
         creditsPerCall: 1600,
         serviceType: 'kling-o1-video',
         priceYuan: 16,
-        description: '可灵Kling 3.0-Omni视频生成，走腾讯 VOD/旧链路模型管理',
+        description: '可灵Kling 3.0-Omni视频生成',
         metadata: {
           type: 'klingO1Video',
           provider: 'kling-o3',
@@ -1215,111 +1354,15 @@ export class NodeConfigService {
         creditsPerCall: 600,
         serviceType: 'vidu-video',
         priceYuan: 6,
-        description: 'Vidu Q2视频生成',
+        description: 'Vidu 视频生成（统一入口，含 Q2 / Q3 / Q3-Mix）',
         metadata: {
           type: 'viduVideo',
           provider: 'vidu',
-          modelKeys: ['vidu-q2'],
-          supportedModels: ['q2'],
+          modelKeys: ['vidu-q2', 'vidu-q3'],
+          supportedModels: ['q2', 'q3'],
           defaultData: {
             provider: 'vidu',
             viduModel: 'q2',
-            resolution: '720p',
-            style: 'general',
-            offPeak: false,
-          },
-        },
-      },
-      {
-        nodeKey: 'viduQ2TurboVideo',
-        nameZh: 'Vidu Q2-Turbo视频生成',
-        nameEn: 'Vidu Q2-Turbo',
-        category: 'video',
-        sortOrder: 25,
-        creditsPerCall: 600,
-        serviceType: 'vidu-video',
-        priceYuan: 6,
-        description: 'Vidu Q2-Turbo视频生成，走腾讯 VOD 模型管理',
-        metadata: {
-          type: 'viduVideo',
-          provider: 'vidu',
-          modelKeys: ['vidu-q2-turbo'],
-          supportedModels: ['q2-turbo'],
-          defaultData: {
-            provider: 'vidu',
-            viduModel: 'q2-turbo',
-            resolution: '720p',
-            style: 'general',
-            offPeak: false,
-          },
-        },
-      },
-      {
-        nodeKey: 'viduQ2ProVideo',
-        nameZh: 'Vidu Q2-Pro视频生成',
-        nameEn: 'Vidu Q2-Pro',
-        category: 'video',
-        sortOrder: 26,
-        creditsPerCall: 600,
-        serviceType: 'vidu-video',
-        priceYuan: 6,
-        description: 'Vidu Q2-Pro视频生成，走腾讯 VOD 模型管理',
-        metadata: {
-          type: 'viduVideo',
-          provider: 'vidu',
-          modelKeys: ['vidu-q2-pro'],
-          supportedModels: ['q2-pro'],
-          defaultData: {
-            provider: 'vidu',
-            viduModel: 'q2-pro',
-            resolution: '720p',
-            style: 'general',
-            offPeak: false,
-          },
-        },
-      },
-      {
-        nodeKey: 'viduQ3',
-        nameZh: 'Vidu Q3 Pro视频生成',
-        nameEn: 'Vidu Q3 Pro',
-        category: 'video',
-        sortOrder: 27,
-        creditsPerCall: 800,
-        serviceType: 'viduq3-pro-video',
-        priceYuan: 8,
-        description: 'Vidu Q3 Pro视频生成',
-        metadata: {
-          type: 'viduQ3',
-          provider: 'viduq3-pro',
-          modelKeys: ['vidu-q3', 'vidu-q3-mix'],
-          supportedModels: ['q3', 'q3-pro', 'q3-turbo', 'q3-mix'],
-          defaultData: {
-            provider: 'viduq3-pro',
-            viduModel: 'q3',
-            resolution: '720p',
-            style: 'general',
-            offPeak: false,
-          },
-        },
-      },
-      {
-        nodeKey: 'viduQ3MixVideo',
-        nameZh: 'Vidu Q3-Mix视频生成',
-        nameEn: 'Vidu Q3-Mix',
-        category: 'video',
-        sortOrder: 28,
-        creditsPerCall: 800,
-        serviceType: 'viduq3-pro-video',
-        priceYuan: 8,
-        description: 'Vidu Q3-Mix视频生成，走腾讯 VOD 模型管理',
-        metadata: {
-          type: 'viduQ3',
-          provider: 'viduq3-pro',
-          modelKeys: ['vidu-q3-mix'],
-          supportedModels: ['q3-mix'],
-          defaultData: {
-            provider: 'viduq3-pro',
-            viduModel: 'q3-mix',
             resolution: '720p',
             style: 'general',
             offPeak: false,
@@ -1385,10 +1428,14 @@ export class NodeConfigService {
               type: 'doubaoVideo',
               provider: 'doubao',
               modelKeys: ['seedance-2.0'],
-              supportedModels: ['seedance-2.0'],
+              supportedModels: SEEDANCE20_SUPPORTED_MODELS,
               defaultData: {
                 provider: 'doubao',
                 seedanceModel: 'seedance-2.0',
+                clipDuration: 5,
+                resolution: '720P',
+                seedanceMode: 'text',
+                generateAudio: false,
                 camerafixed: false,
                 watermark: false,
               },
@@ -1398,12 +1445,13 @@ export class NodeConfigService {
               modelName: 'Seedance',
               modelVersion: '2.0',
               outputConfig: {
-                aspectRatios: ['16:9', '9:16', '1:1'],
-                durations: [3, 4, 5, 6, 7, 8, 9, 10],
-                resolutions: ['720P', '1080P'],
+                aspectRatios: SEEDANCE20_ASPECT_RATIOS,
+                durations: SEEDANCE20_DURATIONS,
+                resolutions: SEEDANCE20_RESOLUTIONS,
+                audioGeneration: true,
               },
-              inputModes: ['text', 'image'],
-              notes: ['当前接入模型 ID: doubao-seedance-2-0-260128'],
+              inputModes: SEEDANCE20_INPUT_MODES,
+              notes: SEEDANCE20_NOTES,
             },
             {
               nodeKind: 'ark_video_generation',
@@ -1422,28 +1470,49 @@ export class NodeConfigService {
         creditsPerCall: 900,
         serviceType: 'sora-sd',
         priceYuan: 9,
-        description: 'OpenAI Sora2 Pro 视频',
+        description: 'OpenAI Sora2 Pro 视频，支持腾讯 VOD 路由',
         metadata: {
-          type: 'sora2Video',
-          provider: 'sora2',
-          modelKeys: ['sora-2'],
-          supportedModels: ['sora-2', 'sora-2-pro'],
-          defaultData: {
-            generationType: 'sora2',
-            model: 'sora-2-pro',
-            clipDuration: 10,
-            aspectRatio: '16:9',
-            watermark: false,
-            thumbnailEnabled: true,
-            privateMode: false,
-            storyboard: false,
-          },
-          billingType: 'by_model',
-          modelPricing: {
-            'sora-2': { credits: 200, priceYuan: 2 },
-            'sora-2-vip': { credits: 200, priceYuan: 2 },
-            'sora-2-pro': { credits: 750, priceYuan: 7.5 },
-          },
+          ...buildVodNodeMetadata(
+            {
+              type: 'sora2Video',
+              provider: 'sora2',
+              modelKeys: ['sora-2'],
+              supportedModels: ['sora-2', 'sora-2-pro'],
+              defaultData: {
+                generationType: 'sora2',
+                model: 'sora-2-pro',
+                clipDuration: 10,
+                aspectRatio: '16:9',
+                watermark: false,
+                thumbnailEnabled: true,
+                privateMode: false,
+                storyboard: false,
+              },
+              billingType: 'by_model',
+              modelPricing: {
+                'sora-2': { credits: 200, priceYuan: 2 },
+                'sora-2-vip': { credits: 200, priceYuan: 2 },
+                'sora-2-pro': { credits: 750, priceYuan: 7.5 },
+              },
+            },
+            {
+              label: 'VOD Sora2 (OS)',
+              modelName: 'OS',
+              modelVersion: '2.0',
+              outputConfig: {
+                aspectRatios: ['16:9', '9:16', '1:1'],
+                durations: [5, 10, 15],
+                resolutions: ['720P', '1080P'],
+                audioGeneration: true,
+              },
+              inputModes: ['text', 'image'],
+              notes: [
+                '使用腾讯云 VOD OS（Open-Sora）模型生成视频',
+                '支持文生视频和图生视频模式',
+                '视频时长支持 5/10/15 秒',
+              ],
+            },
+          ),
         },
       },
       {
@@ -1477,6 +1546,47 @@ export class NodeConfigService {
         serviceType: 'wan26-r2v',
         priceYuan: 6,
         description: '参考视频生成',
+      },
+      {
+        nodeKey: 'wan27Video',
+        nameZh: 'Wan2.7视频生成',
+        nameEn: 'Wan2.7 I2V',
+        category: 'video',
+        sortOrder: 35,
+        creditsPerCall: 600,
+        serviceType: 'wan27-video',
+        priceYuan: 6,
+        description: '阿里百炼 Wan2.7 I2V 视频生成',
+        metadata: {
+          ...buildVodNodeMetadata(
+            {
+              type: 'wan27Video',
+              provider: 'dashscope',
+              supportedModels: ['wan2.7-i2v'],
+              defaultData: {
+                resolution: '1080P',
+                duration: 5,
+                promptExtend: true,
+                watermark: false,
+              },
+            },
+            {
+              label: 'DashScope Wan 2.7 I2V',
+              modelName: 'Wan',
+              modelVersion: '2.7-i2v',
+              outputConfig: {
+                durations: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+                resolutions: ['720P', '1080P'],
+              },
+              inputModes: ['text', 'first_frame', 'last_frame', 'first_clip', 'driving_audio'],
+              notes: ['支持图像、视频片段、音频混合输入'],
+            },
+            {
+              nodeKind: 'dashscope_video_generation',
+              upstreamDomain: 'dashscope.aliyuncs.com',
+            },
+          ),
+        },
       },
 
       // 其他节点

@@ -5,9 +5,10 @@ import { CreditsSchedulerService } from './credits-scheduler.service';
 import { CreditsAnomalyService } from './credits-anomaly.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ReferralModule } from '../referral/referral.module';
+import { BusinessPolicyModule } from '../business-policy/business-policy.module';
 
 @Module({
-  imports: [PrismaModule, forwardRef(() => ReferralModule)],
+  imports: [PrismaModule, forwardRef(() => ReferralModule), BusinessPolicyModule],
   controllers: [CreditsController],
   providers: [CreditsService, CreditsSchedulerService, CreditsAnomalyService],
   exports: [CreditsService, CreditsAnomalyService],

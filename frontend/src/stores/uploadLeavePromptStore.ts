@@ -4,7 +4,13 @@ export type PendingUploadSummary = {
   inFlightUploads: number;
   pendingImageAssets: number;
   pendingFlowNodes: number;
+  runningFlowNodes: number;
+  runningChatMessages: number;
+  aiDialogGenerating: boolean;
+  globalFlowRunning: boolean;
+  hasRunning: boolean;
   hasPending: boolean;
+  hasRisk: boolean;
 };
 
 type UploadLeavePromptState = {
@@ -22,8 +28,8 @@ type UploadLeavePromptState = {
   closePrompt: () => void;
 };
 
-const DEFAULT_TITLE = '还有图片未上传完成';
-const DEFAULT_MESSAGE = '离开将中断上传，可能导致图片丢失。';
+const DEFAULT_TITLE = '当前画板仍有任务在运行或上传';
+const DEFAULT_MESSAGE = '请勿轻易离开页面；如执意离开，运行或上传中的数据可能丢失。';
 
 export const useUploadLeavePromptStore = create<UploadLeavePromptState>((set, get) => ({
   open: false,
@@ -45,4 +51,3 @@ export const useUploadLeavePromptStore = create<UploadLeavePromptState>((set, ge
   },
   closePrompt: () => set({ open: false, summary: null, onConfirm: null }),
 }));
-

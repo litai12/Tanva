@@ -1,5 +1,18 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsBoolean, IsDefined, IsNumber, IsObject, IsOptional } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsBoolean, IsDateString, IsDefined, IsNumber, IsObject, IsOptional, ValidateNested } from 'class-validator';
+
+class WorkflowHistoryMetaDto {
+  @ApiProperty({ required: false, description: '若本次保存源于恢复历史，则记录源版本时间戳' })
+  @IsOptional()
+  @IsDateString()
+  restoredFromUpdatedAt?: string;
+
+  @ApiProperty({ required: false, description: '若本次保存源于恢复历史，则记录源版本号' })
+  @IsOptional()
+  @IsNumber()
+  restoredFromVersion?: number;
+}
 
 export class UpdateProjectContentDto {
   @ApiProperty({ description: '项目内容快照' })
@@ -16,4 +29,11 @@ export class UpdateProjectContentDto {
   @IsOptional()
   @IsBoolean()
   createWorkflowHistory?: boolean;
+
+  @ApiProperty({ required: false, description: '工作流历史附加元数据（例如恢复来源）' })
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => WorkflowHistoryMetaDto)
+  workflowHistoryMeta?: WorkflowHistoryMetaDto;
 }

@@ -9,6 +9,7 @@ import { PassportModule } from '@nestjs/passport';
 import { SmsService } from './sms.service';
 import { ReferralModule } from '../referral/referral.module';
 import { CreditsModule } from '../credits/credits.module';
+import { TelemetryModule } from '../telemetry/telemetry.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { CreditsModule } from '../credits/credits.module';
     JwtModule.register({}),
     forwardRef(() => ReferralModule),
     CreditsModule,
+    TelemetryModule,
   ],
   providers: [AuthService, SmsService, JwtStrategy, RefreshJwtStrategy],
   controllers: [AuthController],

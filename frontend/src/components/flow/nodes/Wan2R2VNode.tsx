@@ -6,6 +6,7 @@ import GenerationProgressBar from "./GenerationProgressBar";
 import { fetchWithAuth } from "@/services/authFetch";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
+import RunCreditBadge from "./RunCreditBadge";
 
 type VideoHistoryItem = {
   id: string;
@@ -27,6 +28,7 @@ type Props = {
     error?: string;
     videoVersion?: number;
     onRun?: (id: string) => void;
+    creditsPerCall?: number;
     size?: string;
     duration?: number;
     shotType?: "single" | "multi";
@@ -343,6 +345,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
       </div>
     );
   };
+  const hasRunCredits = typeof data.creditsPerCall === "number" && data.creditsPerCall > 0;
 
   return (
     <div
@@ -442,10 +445,13 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
           }}
         >
           <Video size={18} />
-          <span>Wan2.6 R2V</span>
+          <span>
+            Wan2.6 R2V
+          </span>
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <button
+            className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit"
             onClick={() => data.onRun?.(id)}
             disabled={data.status === "running"}
             style={{
@@ -461,11 +467,20 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
               cursor: data.status === "running" ? "not-allowed" : "pointer",
               fontSize: 12,
               opacity: data.status === "running" ? 0.6 : 1,
+              gap: 0,
             }}
           >
-            Run
+            {hasRunCredits ? (
+              <>
+                <span className="run-text-trigger">Run</span>
+                <RunCreditBadge credits={data.creditsPerCall} runButton />
+              </>
+            ) : (
+              "Run"
+            )}
           </button>
           <button
+            className="tanva-video-header-btn tanva-video-header-share"
             onClick={() => copyVideoLink((data as any)?.videoUrl)}
             title={lt('复制链接', 'Copy link')}
             style={{
@@ -486,6 +501,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
             <Share2 size={14} />
           </button>
           <button
+            className="tanva-video-header-btn tanva-video-header-download"
             onClick={() => triggerDownload((data as any)?.videoUrl)}
             title={lt('下载视频', 'Download video')}
             style={{
@@ -779,6 +795,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
 
       {historyItems.length > 0 && (
         <div
+          className="tanva-video-history"
           style={{
             marginTop: 8,
             padding: "8px 10px",
@@ -813,6 +830,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
             const isActive = item.videoUrl === data.videoUrl;
             return (
               <div
+                className="tanva-video-history-item"
                 key={item.id}
                 style={{
                   borderRadius: 6,

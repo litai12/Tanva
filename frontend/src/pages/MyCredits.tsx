@@ -3,7 +3,6 @@ import { TrendingUp, TrendingDown, Activity, Zap, RefreshCw, AlertTriangle } fro
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
-import PaymentPanel from '@/components/payment/PaymentPanel';
 import {
   claimDailyReward,
   getDailyRewardStatus,
@@ -11,10 +10,12 @@ import {
   getCheckInCalendar,
   getMyApiUsage,
   getMyCredits,
+  getMembershipCurrent,
   getMyTransactions,
   type DailyRewardStatus,
   type ExpiringCreditsInfo,
   type CheckInCalendar,
+  type MembershipCurrentResponse,
   type UserCreditsInfo,
 } from '@/services/adminApi';
 import { cn } from '@/lib/utils';
@@ -31,6 +32,7 @@ interface Transaction {
   channel?: string | null;
   provider?: string | null;
   model?: string | null;
+  billingRemark?: string | null;
   apiResponseStatus?: string | null;
   processingTime?: number | null;
 }
@@ -126,10 +128,21 @@ const MyCredits: React.FC = () => {
   const [expiringCredits, setExpiringCredits] = useState<ExpiringCreditsInfo | null>(null);
   const [checkInCalendar, setCheckInCalendar] = useState<CheckInCalendar | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'transactions'>('overview');
-  const [showPaymentPanel, setShowPaymentPanel] = useState(false);
+  const [membershipCurrent, setMembershipCurrent] = useState<MembershipCurrentResponse | null>(null);
 
   useEffect(() => {
     loadData();
+  }, []);
+
+  useEffect(() => {
+    const handleRefreshCredits = () => {
+      loadData(false);
+    };
+
+    window.addEventListener('refresh-credits', handleRefreshCredits);
+    return () => {
+      window.removeEventListener('refresh-credits', handleRefreshCredits);
+    };
   }, []);
 
   const loadData = async (showLoading: boolean = true) => {
@@ -150,6 +163,11 @@ const MyCredits: React.FC = () => {
       setApiUsage(usageData.records || []);
       setExpiringCredits(expiringData);
       setCheckInCalendar(calendarData);
+      const membershipData = await getMembershipCurrent().catch((error) => {
+        console.warn('Failed to load membership current:', error);
+        return null;
+      });
+      setMembershipCurrent(membershipData);
     } catch (error) {
       console.error('Failed to load credits data:', error);
     } finally {
@@ -326,14 +344,14 @@ const MyCredits: React.FC = () => {
 
   if (loading) {
     return (
-        <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+        <div className="flex h-screen items-center justify-center overflow-y-auto bg-gradient-to-br from-slate-50 to-blue-50">
         <div className="text-slate-500">{t('creditsPage.loading')}</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+    <div className="h-screen overflow-y-auto bg-gradient-to-br from-slate-50 to-blue-50">
       {/* Header */}
       <div className="sticky top-0 z-10 border-b bg-white/80 backdrop-blur-xl border-slate-200/60">
         <div className="flex items-center justify-between max-w-4xl px-4 py-4 mx-auto">
@@ -359,21 +377,22 @@ const MyCredits: React.FC = () => {
       <div className="max-w-4xl px-4 py-5 mx-auto space-y-4">
         {/* 积分概览卡片 */}
         <div className="p-6 text-white shadow-xl bg-gradient-to-br from-blue-500 to-indigo-600 rounded-3xl">
-          <div className="flex items-start justify-between">
-            <div>
-              <div className="mb-1 text-sm text-blue-100 select-none">
-                {t('creditsPage.summary.available')}
-              </div>
-              <div className="text-5xl font-bold">{credits?.balance || 0}</div>
+          <div>
+            <div className="mb-1 text-sm text-blue-100 select-none">
+              {t('creditsPage.summary.available')}
             </div>
-            <button
-              type="button"
-              onClick={() => setShowPaymentPanel(true)}
-              title={t('workspace.settings.workspaceTab.credits.recharge')}
-              className="px-4 py-2 text-sm font-semibold text-white transition-all border rounded-xl bg-slate-900/85 border-slate-800/70 hover:bg-slate-900 shadow-[0_6px_20px_rgba(15,23,42,0.32)]"
-            >
-              {t('workspace.settings.workspaceTab.credits.recharge')}
-            </button>
+            <div className="text-5xl font-bold">{credits?.balance || 0}</div>
+          </div>
+          <div className="mt-4 text-xs text-blue-100/90 leading-relaxed">
+            {membershipCurrent?.plan?.name ? (
+              <span className="block sm:inline">当前：{membershipCurrent.plan.name}</span>
+            ) : null}
+            {membershipCurrent?.entitlement?.membershipStatus === 'active' &&
+            membershipCurrent?.entitlement?.currentPeriodEndAt ? (
+              <span className="block sm:mt-0 sm:inline sm:before:content-['·_'] sm:before:mx-1">
+                会员到期：{new Date(membershipCurrent.entitlement.currentPeriodEndAt).toLocaleDateString(currentLocale)}
+              </span>
+            ) : null}
           </div>
           <div className="grid grid-cols-3 gap-4 mt-6">
             <div className="p-3 bg-white/10 rounded-xl">
@@ -573,6 +592,11 @@ const MyCredits: React.FC = () => {
                                     )}
                                   </div>
                                 )}
+                                {tx.billingRemark && (
+                                  <div className="max-w-[380px] text-[11px] leading-5 text-slate-500 whitespace-normal break-words">
+                                    {tx.billingRemark}
+                                  </div>
+                                )}
                               </div>
                             </div>
                           </td>
@@ -616,25 +640,6 @@ const MyCredits: React.FC = () => {
         )}
       </div>
 
-      {showPaymentPanel && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/30"
-          onClick={() => setShowPaymentPanel(false)}
-        >
-          <div
-            className="w-full max-w-[960px] max-h-[88vh] overflow-auto bg-white border border-slate-200 shadow-[0_24px_80px_rgba(15,23,42,0.22)] rounded-3xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <PaymentPanel
-              onBack={() => setShowPaymentPanel(false)}
-              onPaymentSuccess={() => {
-                setShowPaymentPanel(false);
-                loadData(false);
-              }}
-            />
-          </div>
-        </div>
-      )}
     </div>
   );
 };

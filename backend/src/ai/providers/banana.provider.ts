@@ -20,6 +20,8 @@ import {
   TextResult,
   ToolSelectionResult,
   PaperJSResult,
+  ProviderOptionsPayload,
+  BananaImageRoute,
 } from "./ai-provider.interface";
 import { parseToolSelectionJson } from "../tool-selection-json.util";
 import { TencentVodAigcService } from "../services/tencent-vod-aigc.service";
@@ -153,7 +155,48 @@ export class BananaProvider implements IAIProvider {
     return this.apimartApiKey;
   }
 
-  private async getConfiguredImageProvider(): Promise<BananaImageProvider> {
+  private getUserBananaImageRoute(
+    providerOptions?: ProviderOptionsPayload
+  ): BananaImageRoute | null {
+    const nestedRoute =
+      typeof providerOptions?.banana?.imageRoute === "string"
+        ? providerOptions.banana.imageRoute.trim().toLowerCase()
+        : "";
+    if (nestedRoute === "normal" || nestedRoute === "stable") {
+      return nestedRoute as BananaImageRoute;
+    }
+
+    const legacyRoute =
+      typeof (providerOptions as Record<string, unknown> | undefined)?.[
+        "bananaImageRoute"
+      ] === "string"
+        ? String(
+            (providerOptions as Record<string, unknown>)["bananaImageRoute"]
+          )
+            .trim()
+            .toLowerCase()
+        : "";
+    if (legacyRoute === "normal" || legacyRoute === "stable") {
+      return legacyRoute as BananaImageRoute;
+    }
+
+    return null;
+  }
+
+  private mapUserBananaRouteToProvider(
+    route: BananaImageRoute
+  ): BananaImageProvider {
+    return route === "stable" ? "tencent" : "apimart";
+  }
+
+  private async getConfiguredImageProvider(
+    providerOptions?: ProviderOptionsPayload
+  ): Promise<BananaImageProvider> {
+    const userRoute = this.getUserBananaImageRoute(providerOptions);
+    if (userRoute) {
+      return this.mapUserBananaRouteToProvider(userRoute);
+    }
+
     try {
       const setting = await this.prisma.systemSetting.findUnique({
         where: { key: BANANA_PROVIDER_SETTING_KEY },
@@ -1631,7 +1674,9 @@ export class BananaProvider implements IAIProvider {
       `Generating image with prompt: ${request.prompt.substring(0, 50)}...`
     );
 
-    const providerMode = await this.getConfiguredImageProvider();
+    const providerMode = await this.getConfiguredImageProvider(
+      request.providerOptions
+    );
     this.logger.log(
       `[Banana/Image] mode=${providerMode}, requestedModel=${this.normalizeModelName(
         request.model || this.DEFAULT_MODEL
@@ -1860,7 +1905,9 @@ export class BananaProvider implements IAIProvider {
       `Editing image with prompt: ${request.prompt.substring(0, 50)}...`
     );
 
-    const providerMode = await this.getConfiguredImageProvider();
+    const providerMode = await this.getConfiguredImageProvider(
+      request.providerOptions
+    );
     this.logger.log(
       `[Banana/Edit] mode=${providerMode}, requestedModel=${this.normalizeModelName(
         request.model || this.DEFAULT_MODEL
@@ -2092,7 +2139,9 @@ export class BananaProvider implements IAIProvider {
       } images with prompt: ${request.prompt.substring(0, 50)}...`
     );
 
-    const providerMode = await this.getConfiguredImageProvider();
+    const providerMode = await this.getConfiguredImageProvider(
+      request.providerOptions
+    );
     this.logger.log(
       `[Banana/Blend] mode=${providerMode}, requestedModel=${this.normalizeModelName(
         request.model || this.DEFAULT_MODEL

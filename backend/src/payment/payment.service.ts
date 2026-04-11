@@ -1,7 +1,7 @@
-
 import { Injectable, BadRequestException, NotFoundException, OnModuleInit, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   PaymentMethod,
@@ -10,9 +10,13 @@ import {
   PaymentOrderResponse,
   PaymentStatusResponse,
   CREDITS_PER_YUAN,
+  type PaymentOrderType,
 } from './dto/payment.dto';
 import { TransactionType } from '../credits/dto/credits.dto';
 import { ReferralService } from '../referral/referral.service';
+import { buildRechargeCreditLotData } from '../credits/credit-lot-grants';
+import { MembershipService } from '../membership/membership.service';
+import { BusinessPolicyService } from '../business-policy/business-policy.service';
 
 // --- 🛡️ 兼容引用 ---
 const alipayLib = require('alipay-sdk');
@@ -32,6 +36,8 @@ export class PaymentService implements OnModuleInit {
     private prisma: PrismaService,
     private configService: ConfigService,
     private referralService: ReferralService,
+    private membershipService: MembershipService,
+    private readonly businessPolicyService: BusinessPolicyService,
   ) { }
 
   private isAlipaySuccessStatus(status: string | null | undefined): boolean {
@@ -250,12 +256,104 @@ export class PaymentService implements OnModuleInit {
     return `PAY${timestamp}${random}`;
   }
 
+  async getMembershipPlans() {
+    const plans = await this.membershipService.listActivePlans();
+    return {
+      plans: plans.map((plan) => ({
+        id: plan.id,
+        code: plan.code,
+        name: plan.name,
+        billingCycle: plan.billingCycle,
+        price: Number(plan.price),
+        monthlyQuotaCredits: plan.monthlyQuotaCredits,
+        signupBonusCredits: plan.signupBonusCredits,
+        dailyGiftCredits: plan.dailyGiftCredits,
+        sortOrder: plan.sortOrder,
+        metadata: plan.metadata,
+      })),
+    };
+  }
+
+  async createMembershipOrderByPlanCode(
+    userId: string,
+    input: { planCode: string; paymentMethod: PaymentMethod },
+  ): Promise<PaymentOrderResponse> {
+    const preview = await this.membershipService.getUserTransitionPreview(userId, input.planCode);
+    const plan = await this.prisma.membershipPlan.findFirst({
+      where: { code: input.planCode, isActive: true },
+    });
+    if (!plan) throw new NotFoundException('会员套餐不存在');
+    if (preview.actionType === 'downgrade') {
+      throw new BadRequestException('降级套餐请走下周期生效，不创建支付订单');
+    }
+
+    return this.createOrder(userId, {
+      amount: preview.payableAmount,
+      credits: 0,
+      paymentMethod: input.paymentMethod,
+      orderType: 'membership',
+      membershipPlanId: plan.id,
+      metadata: {
+        membershipTransitionType: preview.actionType,
+        membershipEffectiveMode: preview.effectiveMode,
+        immediateCreditDelta: preview.immediateCreditDelta,
+        remainingRatio: preview.remainingRatio,
+        currentPlanCode: preview.currentPlan?.code ?? null,
+        targetPlanCode: preview.targetPlan.code,
+      },
+    });
+  }
+
   async createOrder(userId: string, dto: CreateOrderDto): Promise<PaymentOrderResponse> {
     const { amount, credits, paymentMethod } = dto;
-    const minCredits = amount * CREDITS_PER_YUAN;
-    const maxCredits = amount * CREDITS_PER_YUAN * 10;
-    if (credits < minCredits * 0.5 || credits > maxCredits) {
-      throw new BadRequestException('积分数量不合理');
+    const orderType: PaymentOrderType = dto.orderType ?? 'recharge';
+    let membershipPlanId: string | null = null;
+    let businessCode: string | null = null;
+    let planSnapshot: Prisma.InputJsonValue | null = null;
+
+    if (orderType === 'membership') {
+      if (!dto.membershipPlanId) {
+        throw new BadRequestException('会员订单缺少 membershipPlanId');
+      }
+      const plan = await this.prisma.membershipPlan.findFirst({
+        where: {
+          id: dto.membershipPlanId,
+          isActive: true,
+        },
+      });
+      if (!plan) {
+        throw new NotFoundException('会员套餐不存在');
+      }
+      const allowCustomMembershipAmount =
+        dto.metadata &&
+        typeof dto.metadata === 'object' &&
+        !Array.isArray(dto.metadata) &&
+        Boolean((dto.metadata as Record<string, unknown>).membershipTransitionType);
+      if (!allowCustomMembershipAmount && Math.abs(Number(plan.price) - amount) >= 0.01) {
+        throw new BadRequestException('会员订单金额与套餐价格不匹配');
+      }
+      if (credits !== 0) {
+        throw new BadRequestException('会员订单 credits 必须为 0');
+      }
+      membershipPlanId = plan.id;
+      businessCode = plan.code;
+      planSnapshot = {
+        id: plan.id,
+        code: plan.code,
+        name: plan.name,
+        billingCycle: plan.billingCycle,
+        price: plan.price.toString(),
+        monthlyQuotaCredits: plan.monthlyQuotaCredits,
+        signupBonusCredits: plan.signupBonusCredits,
+        dailyGiftCredits: plan.dailyGiftCredits,
+        metadata: plan.metadata,
+      } as Prisma.InputJsonValue;
+    } else {
+      const minCredits = amount * CREDITS_PER_YUAN;
+      const maxCredits = amount * CREDITS_PER_YUAN * 10;
+      if (credits < minCredits * 0.5 || credits > maxCredits) {
+        throw new BadRequestException('积分数量不合理');
+      }
     }
 
     await this.prisma.paymentOrder.updateMany({
@@ -275,16 +373,28 @@ export class PaymentService implements OnModuleInit {
 
     const order = await this.prisma.paymentOrder.create({
       data: {
-        orderNo, userId, amount, credits, paymentMethod,
+        orderNo,
+        userId,
+        orderType: dto.orderType ?? 'recharge',
+        businessCode,
+        amount,
+        credits,
+        paymentMethod,
         status: PaymentStatus.PENDING, qrCodeUrl, expiredAt,
+        membershipPlanId,
+        ...(planSnapshot ? { planSnapshot } : {}),
+        ...(dto.metadata ? { metadata: dto.metadata as Prisma.InputJsonValue } : {}),
       },
     });
 
     return {
       orderId: order.id, orderNo: order.orderNo, amount: Number(order.amount),
       credits: order.credits, paymentMethod: order.paymentMethod as PaymentMethod,
+      orderType: order.orderType as PaymentOrderType,
+      businessCode: order.businessCode,
       status: order.status as PaymentStatus, qrCodeUrl: order.qrCodeUrl,
       expiredAt: order.expiredAt, createdAt: order.createdAt,
+      membershipPlanId: order.membershipPlanId,
     };
   }
 
@@ -429,6 +539,9 @@ export class PaymentService implements OnModuleInit {
       status: latestOrder.status as PaymentStatus,
       paidAt: latestOrder.paidAt,
       credits: latestOrder.credits,
+      orderType: latestOrder.orderType as PaymentOrderType,
+      membershipPlanId: latestOrder.membershipPlanId,
+      subscriptionId: latestOrder.subscriptionId,
     };
   }
 
@@ -538,6 +651,7 @@ export class PaymentService implements OnModuleInit {
     },
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
+      const policy = await this.businessPolicyService.getMembershipCreditPolicy();
       const currentOrder = await tx.paymentOrder.findUnique({ where: { id: orderId } });
       if (!currentOrder) return;
 
@@ -574,10 +688,46 @@ export class PaymentService implements OnModuleInit {
           }) as any,
         },
       });
+      if (currentOrder.orderType === 'membership') {
+        const activation = await this.membershipService.activatePaidMembershipOrder({
+          tx,
+          userId,
+          orderId,
+          paidAt: options?.paidAt ?? new Date(),
+        });
+        await tx.paymentOrder.update({
+          where: { id: orderId },
+          data: {
+            subscriptionId: activation.subscriptionId,
+          },
+        });
+        return;
+      }
       let account = await tx.creditAccount.findUnique({ where: { userId } });
       if (!account) account = await tx.creditAccount.create({ data: { userId, balance: 0, totalEarned: 0 } });
       const newBalance = account.balance + credits;
       await tx.creditAccount.update({ where: { id: account.id }, data: { balance: newBalance, totalEarned: account.totalEarned + credits } });
+      const creditLot = await tx.creditLot.create({
+        data: buildRechargeCreditLotData({
+          accountId: account.id,
+          amount: credits,
+          grantedAt: options?.paidAt ?? new Date(),
+          expiresAt:
+            policy.fixedCreditExpireDays > 0
+              ? new Date(
+                  (options?.paidAt ?? new Date()).getTime() +
+                    policy.fixedCreditExpireDays * 24 * 60 * 60 * 1000,
+                )
+              : null,
+          orderId: currentOrder.id,
+          metadata: {
+            orderNo: currentOrder.orderNo,
+            ...(options?.tradeNo ? { tradeNo: options.tradeNo } : {}),
+            source: options?.source ?? 'unknown',
+            paymentMethod: options?.paymentMethod ?? currentOrder.paymentMethod,
+          },
+        }),
+      });
       await tx.creditTransaction.create({
         data: {
           accountId: account.id,
@@ -586,6 +736,7 @@ export class PaymentService implements OnModuleInit {
           balanceBefore: account.balance,
           balanceAfter: newBalance,
           description: `充值`,
+          creditLotId: creditLot.id,
           metadata: {
             orderId: currentOrder.id,
             orderNo: currentOrder.orderNo,
@@ -667,9 +818,61 @@ export class PaymentService implements OnModuleInit {
         this.prisma.paymentOrder.count({ where: { userId } }),
       ]);
       return {
-        orders: orders.map(order => ({ orderId: order.id, orderNo: order.orderNo, amount: Number(order.amount), credits: order.credits, paymentMethod: order.paymentMethod, status: order.status, paidAt: order.paidAt, createdAt: order.createdAt })),
+        orders: orders.map(order => ({
+          orderId: order.id,
+          orderNo: order.orderNo,
+          amount: Number(order.amount),
+          credits: order.credits,
+          paymentMethod: order.paymentMethod,
+          orderType: order.orderType,
+          businessCode: order.businessCode,
+          membershipPlanId: order.membershipPlanId,
+          subscriptionId: order.subscriptionId,
+          status: order.status,
+          paidAt: order.paidAt,
+          createdAt: order.createdAt,
+        })),
         pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
       };
+  }
+
+  async getMembershipOrders(userId: string, page = 1, pageSize = 20) {
+    try {
+      await this.syncPendingOrdersForUser(userId, 10);
+    } catch (error) {
+      this.logger.warn(
+        `获取会员订单列表前同步支付状态失败: userId=${userId}, error=${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    const [orders, total] = await Promise.all([
+      this.prisma.paymentOrder.findMany({
+        where: { userId, orderType: 'membership' },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.paymentOrder.count({ where: { userId, orderType: 'membership' } }),
+    ]);
+
+    return {
+      items: orders.map((order) => ({
+        orderId: order.id,
+        orderNo: order.orderNo,
+        planCode: order.businessCode,
+        amount: Number(order.amount),
+        paymentMethod: order.paymentMethod,
+        orderType: order.orderType,
+        membershipPlanId: order.membershipPlanId,
+        subscriptionId: order.subscriptionId,
+        status: order.status,
+        paidAt: order.paidAt,
+        createdAt: order.createdAt,
+      })),
+      page,
+      pageSize,
+      total,
+    };
   }
 
   async confirmPayment(orderNo: string, userId: string) {
@@ -723,6 +926,9 @@ export class PaymentService implements OnModuleInit {
       success: latestOrder.status === PaymentStatus.PAID,
       credits: latestOrder.status === PaymentStatus.PAID ? latestOrder.credits : 0,
       newBalance: account?.balance ?? 0,
+      orderType: latestOrder.orderType,
+      membershipPlanId: latestOrder.membershipPlanId,
+      subscriptionId: latestOrder.subscriptionId,
     };
   }
 

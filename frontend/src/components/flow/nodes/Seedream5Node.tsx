@@ -2,11 +2,14 @@ import React from "react";
 import { Handle, Position, useStore } from "reactflow";
 import { Send as SendIcon, HelpCircle } from "lucide-react";
 import SmartImage from "../../ui/SmartImage";
+import ImagePreviewModal from "../../ui/ImagePreviewModal";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import { useLocaleText } from "@/utils/localeText";
+import { flowImagePreviewWell, flowLetterboxBackground, useFlowNodeDarkTheme } from "./flowNodeDarkTheme";
+import RunCreditBadge from "./RunCreditBadge";
 
 type Props = {
   id: string;
@@ -19,6 +22,7 @@ type Props = {
     batchCount?: number;
     size?: string;
     watermark?: boolean;
+    creditsPerCall?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
   };
@@ -89,6 +93,9 @@ function Seedream5Node({ id, data, selected }: Props) {
 
   const [hover, setHover] = React.useState<string | null>(null);
   const [showHelp, setShowHelp] = React.useState(false);
+  const [preview, setPreview] = React.useState(false);
+  const [previewIndex, setPreviewIndex] = React.useState(0);
+  const isFlowDark = useFlowNodeDarkTheme();
 
   // 检测连接的图片数量
   const imageInputCount = useStore((state) => {
@@ -145,6 +152,17 @@ function Seedream5Node({ id, data, selected }: Props) {
   const assetUrl = useFlowImageAssetUrl(assetId);
   const displaySrc = assetId ? assetUrl : buildImageSrc(firstImage);
 
+  // 预览用集合
+  const previewCollection = React.useMemo(
+    () =>
+      images.map((value, i) => ({
+        id: `${id}-${i}`,
+        src: buildImageSrc(value) || "",
+        title: lt(`第 ${i + 1} 张`, `Image ${i + 1}`),
+      })),
+    [id, images, lt]
+  );
+
   return (
     <div
       style={{
@@ -200,6 +218,7 @@ function Seedream5Node({ id, data, selected }: Props) {
           >
             {status === "running" ? "Running..." : "Run"}
           </button>
+          <RunCreditBadge credits={data.creditsPerCall} />
           <button
             onClick={onSend}
             disabled={images.length === 0}
@@ -322,10 +341,15 @@ function Seedream5Node({ id, data, selected }: Props) {
         </div>
       {/* 图片预览 */}
       <div
+        onDoubleClick={() => {
+          if (images.length > 0) {
+            setPreviewIndex(0);
+            setPreview(true);
+          }
+        }}
         style={{
           width: "100%",
           minHeight: 160,
-          background: "#fff",
           borderRadius: 6,
           display: "flex",
           flexWrap: "wrap",
@@ -334,23 +358,44 @@ function Seedream5Node({ id, data, selected }: Props) {
           alignItems: "center",
           justifyContent: "center",
           overflow: "hidden",
-          border: "1px solid #eef0f2",
+          cursor: images.length > 0 ? "pointer" : "default",
+          ...flowImagePreviewWell(isFlowDark, {
+            background: "#fff",
+            border: "1px solid #eef0f2",
+          }),
         }}
+        title={images.length > 0 ? lt("双击预览", "Double click to preview") : undefined}
       >
         {images.length > 0 ? (
           images.map((img, idx) => (
-            <SmartImage
+            <div
               key={idx}
-              src={buildImageSrc(img)}
-              alt=""
+              onDoubleClick={() => {
+                setPreviewIndex(idx);
+                setPreview(true);
+              }}
               style={{
                 width: images.length > 1 ? "calc(50% - 2px)" : "100%",
                 height: images.length > 1 ? 78 : "100%",
                 minHeight: images.length > 1 ? 78 : 160,
-                objectFit: "contain",
-                background: "#fff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                overflow: "hidden",
+                cursor: "pointer",
               }}
-            />
+            >
+              <SmartImage
+                src={buildImageSrc(img)}
+                alt=""
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "contain",
+                  background: flowLetterboxBackground(isFlowDark),
+                }}
+              />
+            </div>
           ))
         ) : displaySrc ? (
           <SmartImage
@@ -360,7 +405,7 @@ function Seedream5Node({ id, data, selected }: Props) {
               width: "100%",
               height: "100%",
               objectFit: "contain",
-              background: "#fff",
+              background: flowLetterboxBackground(isFlowDark),
             }}
           />
         ) : (
@@ -436,6 +481,20 @@ function Seedream5Node({ id, data, selected }: Props) {
           image
         </div>
       )}
+
+      {/* 图片预览弹窗 */}
+      <ImagePreviewModal
+        isOpen={preview}
+        imageSrc={previewCollection[previewIndex]?.src || ""}
+        imageTitle={lt("Seedream 图片预览", "Seedream Image Preview")}
+        onClose={() => setPreview(false)}
+        imageCollection={previewCollection}
+        currentImageId={previewCollection[previewIndex]?.id}
+        onImageChange={(imageId: string) => {
+          const i = previewCollection.findIndex((it) => it.id === imageId);
+          if (i >= 0) setPreviewIndex(i);
+        }}
+      />
     </div>
   );
 }

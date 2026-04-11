@@ -12,6 +12,7 @@
 ## API（前缀 `/api/admin`，节选）
 - `GET dashboard`
 - `GET users` / `GET users/:userId`
+- `DELETE users/:userId`
 - `PATCH users/:userId/status` / `PATCH users/:userId/role`
 - `POST users/:userId/credits/add` / `POST users/:userId/credits/deduct`
 - `GET api-usage/stats` / `GET api-usage/records`
@@ -22,8 +23,17 @@
 
 ## 注意事项
 - 认证/鉴权细节以 Guard 与具体实现为准（通常依赖 JWT + 用户 role/status）。
+- 删除用户时，后端会在事务内先清理用户积分账户下的 `CreditTransaction`、`CreditLot`、`CreditAnomalyRecord`，再删除 `CreditAccount`；同时清理会员订阅相关表（`UserMembershipSubscription`、`MembershipSubscriptionChange`、`MembershipEntitlementSnapshot`），避免外键冲突或孤儿数据。
 - 系统设置中与供应商切换相关的 key：
-  - `sora2_provider`：Sora2 视频链路供应商
   - `banana_provider`：Banana 图像链路供应商
   - `banana_text_provider`：Banana 文本链路供应商（text-chat/tool-selection）
   - `seedream5_provider`：Seedream 5.0 图像链路供应商（`doubao` / `watcha`）
+- Sora2 不再通过系统设置切换供应商，统一在 `model_provider_mapping_v2` 中配置路由。
+- `model_provider_mapping_v2.models[].vendors[]` 现支持正式 `pricing` 结构：
+  - 推荐使用 `pricing.defaults` 维护默认价，支持 `credits`、`priceYuan` 等多价格字段。
+  - 推荐使用 `pricing.rules[]` 维护规格组合价，按 `when` 条件匹配。
+  - 旧 `creditsPerCall` 与 `metadata.specPricing` 仍兼容读取，管理台保存时会同步写入新结构。
+  - Flow 前端会优先采用模型管理里的默认线路价格；若用户手动切换线路，则回显并传递对应 vendor 的价格/标识。
+- 模型管理配置 key `model_provider_mapping_v2` 中的 `models[]` 允许“真删除”：
+  - 前端管理页不会再在归一化时把默认模型目录补回已保存配置。
+  - 后端读取该设置时，仅在整项配置缺失时回退默认目录；若设置已存在，则以保存内容为准，不自动复活被删除模型。

@@ -3,6 +3,18 @@ import { Handle, Position, useStore, type ReactFlowState } from "reactflow";
 import { AlertTriangle, Download, Music2 } from "lucide-react";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { useLocaleText } from "@/utils/localeText";
+import {
+  flowAudioPlayerShell,
+  flowSpeechDownloadButton,
+  flowSpeechHistoryMetaColor,
+  flowSpeechHistoryPromptColor,
+  flowSpeechHistoryRow,
+  flowSpeechHistorySectionDivider,
+  flowNodeControlField,
+  flowNodeShellChrome,
+  useFlowNodeDarkTheme,
+} from "./flowNodeDarkTheme";
+import RunCreditBadge from "./RunCreditBadge";
 
 const PROMPT_MAX_LENGTH = 2000;
 const LYRICS_MAX_LENGTH = 3500;
@@ -30,6 +42,7 @@ type Props = {
     model?: "music-2.5+" | "music-2.5";
     history?: MusicHistoryItem[];
     selectedHistoryId?: string;
+    creditsPerCall?: number;
     onRun?: (id: string) => void;
   };
   selected?: boolean;
@@ -37,12 +50,14 @@ type Props = {
 
 function MinimaxMusicNode({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
+  const isFlowDark = useFlowNodeDarkTheme();
   const [downloadingId, setDownloadingId] = React.useState<string | null>(null);
   const [handleHover, setHandleHover] = React.useState<string | null>(null);
   const hasPromptInput = useStore((state: ReactFlowState) =>
     state.edges.some((edge) => edge.target === id && edge.targetHandle === "text")
   );
-  const borderColor = selected ? "#2563eb" : "#e5e7eb";
+  const shell = flowNodeShellChrome(isFlowDark, !!selected);
+  const controlField = flowNodeControlField(isFlowDark);
   const boxShadow = selected ? "0 0 0 2px rgba(37,99,235,0.12)" : "0 1px 2px rgba(0,0,0,0.04)";
 
   const updateNodeData = React.useCallback(
@@ -247,12 +262,12 @@ function MinimaxMusicNode({ id, data, selected }: Props) {
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
-    border: "1px solid #e5e7eb",
+    border: controlField.border as string,
     borderRadius: 6,
     padding: "6px 8px",
     fontSize: 12,
-    color: "#374151",
-    background: "#fff",
+    color: controlField.color as string,
+    background: controlField.background as string,
   };
 
   return (
@@ -260,8 +275,9 @@ function MinimaxMusicNode({ id, data, selected }: Props) {
       style={{
         width: 300,
         padding: 8,
-        background: "#fff",
-        border: `1px solid ${borderColor}`,
+        background: shell.background,
+        color: shell.color,
+        border: `1px solid ${shell.borderColor}`,
         borderRadius: 8,
         boxShadow,
         transition: "border-color 0.15s ease, box-shadow 0.15s ease",
@@ -273,7 +289,10 @@ function MinimaxMusicNode({ id, data, selected }: Props) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600 }}>
           <Music2 size={20} color="#14b8a6" strokeWidth={2.2} />
-          <span>{lt("MiniMax 音乐生成", "MiniMax Music")}</span>
+          <span>
+            {lt("MiniMax 音乐生成", "MiniMax Music")}
+            <RunCreditBadge credits={data.creditsPerCall} inline />
+          </span>
         </div>
         <button
           onClick={handleRun}
@@ -295,7 +314,7 @@ function MinimaxMusicNode({ id, data, selected }: Props) {
       </div>
 
       <div style={{ display: "grid", gap: 6 }}>
-        <label style={{ fontSize: 11, color: "#6b7280" }}>
+        <label style={{ fontSize: 11, color: isFlowDark ? "#9ca3af" : "#6b7280" }}>
           {lt("曲风提示词", "Prompt")} ({prompt.length}/{PROMPT_MAX_LENGTH})
         </label>
         <textarea
@@ -315,10 +334,9 @@ function MinimaxMusicNode({ id, data, selected }: Props) {
             resize: "vertical",
             fontSize: 12,
             lineHeight: 1.45,
-            border: "1px solid #e5e7eb",
             borderRadius: 6,
             padding: "8px 10px",
-            background: "#fff",
+            ...controlField,
           }}
         />
 
@@ -346,7 +364,7 @@ function MinimaxMusicNode({ id, data, selected }: Props) {
 
         {!isInstrumental ? (
           <>
-            <label style={{ fontSize: 11, color: "#6b7280" }}>
+            <label style={{ fontSize: 11, color: isFlowDark ? "#9ca3af" : "#6b7280" }}>
               {lt("歌词", "Lyrics")} ({lyrics.length}/{LYRICS_MAX_LENGTH})
             </label>
             <textarea
@@ -366,19 +384,18 @@ function MinimaxMusicNode({ id, data, selected }: Props) {
                 resize: "vertical",
                 fontSize: 12,
                 lineHeight: 1.45,
-                border: "1px solid #e5e7eb",
                 borderRadius: 6,
                 padding: "8px 10px",
-                background: "#fff",
+                ...controlField,
               }}
             />
           </>
         ) : (
           <div
             style={{
-              border: "1px dashed #d1fae5",
-              background: "#f0fdfa",
-              color: "#0f766e",
+              border: isFlowDark ? "1px dashed rgba(52,211,153,0.4)" : "1px dashed #d1fae5",
+              background: isFlowDark ? "rgba(16,185,129,0.12)" : "#f0fdfa",
+              color: isFlowDark ? "#6ee7b7" : "#0f766e",
               borderRadius: 6,
               fontSize: 11,
               padding: "8px 10px",
@@ -410,22 +427,24 @@ function MinimaxMusicNode({ id, data, selected }: Props) {
       ) : null}
 
       {selectedHistory?.audioUrl ? (
-        <audio key={selectedHistory.audioUrl} controls style={{ width: "100%" }}>
-          <source src={selectedHistory.audioUrl} type="audio/mpeg" />
-        </audio>
+        <div style={flowAudioPlayerShell(isFlowDark)}>
+          <audio key={selectedHistory.audioUrl} controls style={{ width: "100%" }}>
+            <source src={selectedHistory.audioUrl} type="audio/mpeg" />
+          </audio>
+        </div>
       ) : null}
 
       {historyItems.length > 0 ? (
         <div
           style={{
-            borderTop: "1px solid #f0f0f0",
+            borderTop: `1px solid ${flowSpeechHistorySectionDivider(isFlowDark)}`,
             marginTop: 2,
             paddingTop: 6,
             display: "grid",
             gap: 6,
           }}
         >
-          <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 600 }}>
+          <div style={{ fontSize: 11, color: flowSpeechHistoryMetaColor(isFlowDark), fontWeight: 600 }}>
             {lt("生成记录", "History")}
           </div>
           <div style={{ display: "grid", gap: 4, maxHeight: 168, overflowY: "auto", paddingRight: 2 }}>
@@ -443,21 +462,20 @@ function MinimaxMusicNode({ id, data, selected }: Props) {
                     alignItems: "center",
                     justifyContent: "space-between",
                     gap: 8,
-                    border: isActive ? "1px solid #93c5fd" : "1px solid #e5e7eb",
-                    background: isActive ? "#eff6ff" : "#fff",
                     borderRadius: 6,
                     padding: "6px 8px",
                     cursor: "pointer",
+                    ...flowSpeechHistoryRow(isFlowDark, isActive),
                   }}
                 >
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 2 }}>
+                    <div style={{ fontSize: 10, color: flowSpeechHistoryMetaColor(isFlowDark), marginBottom: 2 }}>
                       {formatHistoryTime(item.createdAt)}
                     </div>
                     <div
                       style={{
                         fontSize: 12,
-                        color: "#111827",
+                        color: flowSpeechHistoryPromptColor(isFlowDark),
                         whiteSpace: "nowrap",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
@@ -481,14 +499,12 @@ function MinimaxMusicNode({ id, data, selected }: Props) {
                       height: 26,
                       padding: "0 8px",
                       borderRadius: 6,
-                      border: "1px solid #d1d5db",
-                      background: "#fff",
-                      color: "#374151",
                       fontSize: 11,
                       cursor: downloadingId === item.id ? "not-allowed" : "pointer",
                       display: "inline-flex",
                       alignItems: "center",
                       gap: 4,
+                      ...flowSpeechDownloadButton(isFlowDark),
                     }}
                     title={lt("下载音频", "Download audio")}
                   >

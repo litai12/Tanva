@@ -2,6 +2,7 @@ import React from "react";
 import { Handle, Position } from "reactflow";
 import { AlertTriangle, UserRound } from "lucide-react";
 import { useLocaleText } from "@/utils/localeText";
+import RunCreditBadge from "./RunCreditBadge";
 
 type CharacterItem = {
   id?: string;
@@ -16,6 +17,7 @@ type Props = {
     status?: "idle" | "running" | "succeeded" | "failed";
     error?: string;
     onRun?: (id: string) => void;
+    creditsPerCall?: number;
     model?: "sora-2" | "sora-2-pro";
     timestamps?: string;
     taskId?: string;
@@ -100,7 +102,10 @@ function Sora2CharacterNodeInner({ id, data, selected }: Props) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
         <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
           <UserRound size={18} />
-          <span>Sora2 Character</span>
+          <span>
+            Sora2 Character
+            <RunCreditBadge credits={data.creditsPerCall} inline />
+          </span>
         </div>
         <button
           onClick={onRun}
@@ -230,4 +235,3 @@ function Sora2CharacterNodeInner({ id, data, selected }: Props) {
 }
 
 export default React.memo(Sora2CharacterNodeInner);
-

@@ -58,7 +58,8 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
         id: imageId,
         url: key, // Link key first so the asset can be persisted.
         key,
-        src: key,
+        // Runtime uses local preview first; persistence still relies on OSS key.
+        src: blobUrl,
         fileName: file.name,
         contentType: file.type,
         pendingUpload: true,

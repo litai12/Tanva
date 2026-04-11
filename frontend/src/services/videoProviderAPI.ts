@@ -11,11 +11,16 @@ export interface VideoGenerationRequest {
   prompt?: string;
   referenceImages?: string[]; // Base64 Data URI 数组
   audioUrls?: string[];
+  referenceVideos?: string[];
+  videoMode?: string;
+  managedModelKey?: string;
+  vendorKey?: string;
+  platformKey?: string;
   duration?: number;
   aspectRatio?: string;
   provider: VideoProvider;
   // Vidu 专用参数
-  resolution?: "540p" | "720p" | "1080p";
+  resolution?: string;
   style?: "general" | "anime";
   offPeak?: boolean;
   // Seedance 1.5 Pro专用参数
@@ -25,12 +30,14 @@ export interface VideoGenerationRequest {
   mode?: "std" | "pro";
   sound?: string;
   klingModel?: "kling-v2-1" | "kling-v2-6" | "kling-v3-0";
-  viduModel?: "q2" | "q2-turbo" | "q2-pro" | "q3" | "q3-pro" | "q3-turbo" | "q3-mix";
-  seedanceModel?: "seedance-1.5-pro" | "seedance-2.0";
+  viduModel?: "q2" | "q3";
+  viduModelVariant?: "q2" | "q2-pro" | "q2-turbo" | "q3" | "q3-pro" | "q3-turbo";
+  seedanceModel?: "seedance-1.5-pro" | "seedance-2.0" | "seedance-2.0-fast";
   // Kling O1 视频编辑专用参数
   referenceVideo?: string;
   referenceVideoType?: "feature" | "motion" | "expression";
   keepOriginalSound?: "yes" | "no";
+  generateAudio?: boolean;
 }
 
 export interface VideoGenerationResult {

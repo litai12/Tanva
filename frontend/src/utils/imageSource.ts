@@ -17,6 +17,11 @@ export type DataUrl = `data:${string}`;
 export type DataImageUrl = `data:image/${string}`;
 
 const DEFAULT_MANAGED_ASSET_HOST = "tai-tanva-ai.oss-cn-shenzhen.aliyuncs.com";
+const DEFAULT_IMAGE_FETCH_TIMEOUT_MS = 8_000;
+const WEAK_NETWORK_IMAGE_FETCH_TIMEOUT_MS = 12_000;
+const DEFAULT_IMAGE_FETCH_RETRIES = 1;
+const WEAK_NETWORK_IMAGE_FETCH_RETRIES = 2;
+const RETRYABLE_IMAGE_FETCH_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
 
 // 优先使用环境变量配置的 OSS/CDN 基础地址；未配置则返回 null。
 const getOssBaseUrl = (): string | null => {
@@ -33,6 +38,137 @@ const shouldAvoidSameOriginDirectBase = (baseUrl: string): boolean => {
   } catch {
     return false;
   }
+};
+
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => {
+    globalThis.setTimeout(resolve, ms);
+  });
+
+type RuntimeNetworkConnection = {
+  saveData?: boolean;
+  effectiveType?: string;
+  downlink?: number;
+  rtt?: number;
+};
+
+const isWeakNetworkRuntime = (): boolean => {
+  if (typeof navigator === "undefined") return false;
+  const navWithConnection = navigator as Navigator & {
+    connection?: RuntimeNetworkConnection;
+    mozConnection?: RuntimeNetworkConnection;
+    webkitConnection?: RuntimeNetworkConnection;
+  };
+  const conn =
+    navWithConnection.connection ||
+    navWithConnection.mozConnection ||
+    navWithConnection.webkitConnection;
+  if (!conn) return false;
+  try {
+    if (conn.saveData === true) return true;
+    const effectiveType = String(conn.effectiveType || "").toLowerCase();
+    if (
+      effectiveType === "slow-2g" ||
+      effectiveType === "2g" ||
+      effectiveType === "3g"
+    ) {
+      return true;
+    }
+    const downlink = Number(conn.downlink);
+    if (Number.isFinite(downlink) && downlink > 0 && downlink < 1.2) {
+      return true;
+    }
+    const rtt = Number(conn.rtt);
+    if (Number.isFinite(rtt) && rtt >= 450) {
+      return true;
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+};
+
+const getImageFetchPolicy = () => {
+  const weak = isWeakNetworkRuntime();
+  return {
+    timeoutMs: weak ? WEAK_NETWORK_IMAGE_FETCH_TIMEOUT_MS : DEFAULT_IMAGE_FETCH_TIMEOUT_MS,
+    retries: weak ? WEAK_NETWORK_IMAGE_FETCH_RETRIES : DEFAULT_IMAGE_FETCH_RETRIES,
+  };
+};
+
+const createTimeoutLinkedSignal = (timeoutMs: number, parentSignal?: AbortSignal) => {
+  const controller = new AbortController();
+  let abortedByTimeout = false;
+  const timer = globalThis.setTimeout(() => {
+    abortedByTimeout = true;
+    controller.abort();
+  }, Math.max(1000, timeoutMs));
+
+  const onParentAbort = () => controller.abort();
+  if (parentSignal) {
+    if (parentSignal.aborted) {
+      controller.abort();
+    } else {
+      parentSignal.addEventListener("abort", onParentAbort, { once: true });
+    }
+  }
+
+  const cleanup = () => {
+    globalThis.clearTimeout(timer);
+    if (parentSignal) parentSignal.removeEventListener("abort", onParentAbort);
+  };
+
+  return {
+    signal: controller.signal,
+    cleanup,
+    isTimeoutAbort: () => abortedByTimeout,
+  };
+};
+
+const fetchImageResponse = async (
+  url: string,
+  init?: { signal?: AbortSignal }
+): Promise<Response | null> => {
+  const policy = getImageFetchPolicy();
+  let lastError: unknown = null;
+  let lastResponse: Response | null = null;
+
+  for (let attempt = 0; attempt <= policy.retries; attempt += 1) {
+    const linked = createTimeoutLinkedSignal(policy.timeoutMs, init?.signal);
+    try {
+      const response = isBlobUrl(url)
+        ? await fetch(url, { signal: linked.signal })
+        : await fetchWithAuth(url, {
+            mode: "cors",
+            credentials: "omit",
+            auth: "omit",
+            allowRefresh: false,
+            signal: linked.signal,
+          });
+      if (
+        response.ok ||
+        !RETRYABLE_IMAGE_FETCH_STATUS.has(response.status) ||
+        attempt >= policy.retries
+      ) {
+        return response;
+      }
+      lastResponse = response;
+    } catch (error) {
+      lastError = error;
+      const canRetry = attempt < policy.retries;
+      if (!canRetry || (init?.signal?.aborted && !linked.isTimeoutAbort())) {
+        throw error;
+      }
+    } finally {
+      linked.cleanup();
+    }
+
+    await sleep(220 * (attempt + 1));
+  }
+
+  if (lastResponse) return lastResponse;
+  if (lastError) throw lastError;
+  return null;
 };
 
 export const isRemoteUrl = (value?: string | null): value is RemoteUrl =>
@@ -124,12 +260,19 @@ const BACKEND_DEFAULT_ALLOWED_HOSTS = [
   "volces.com",
   "tencentcos.cn",
   "myqcloud.com",
+  "tai-tanva-ai.oss-cn-shenzhen.aliyuncs.com",
 ];
 
 const getManagedAssetHosts = (): Set<string> => {
   const hosts = new Set<string>([DEFAULT_MANAGED_ASSET_HOST]);
   const publicBaseHost = normalizeUrlHost(getPublicAssetBaseUrl());
   if (publicBaseHost) hosts.add(publicBaseHost);
+  if (typeof window !== "undefined" && window.location?.hostname) {
+    const runtimeHost = String(window.location.hostname).trim().toLowerCase();
+    if (runtimeHost && runtimeHost !== "localhost") {
+      hosts.add(runtimeHost);
+    }
+  }
   return hosts;
 };
 
@@ -192,10 +335,17 @@ export function pickPersistedImageRefFromUploadAsset(
   asset: { url?: string; key?: string } | undefined,
   plannedKey: string
 ): string {
+  const assetKey = typeof asset?.key === "string" ? asset.key.trim() : "";
+  if (assetKey) {
+    const direct = resolvePublicAssetUrlFromKey(assetKey);
+    if (direct) return direct;
+    return assetKey;
+  }
+
   const url = typeof asset?.url === "string" ? asset.url.trim() : "";
   if (url && /^https?:\/\//i.test(url)) return url;
   const k =
-    (typeof asset?.key === "string" ? asset.key.trim() : "") ||
+    assetKey ||
     (typeof plannedKey === "string" ? plannedKey.trim() : "");
   if (k) return k;
   return url;
@@ -304,7 +454,23 @@ export const toRenderableImageSrc = (value?: string | null): string | null => {
   }
   if (isRemoteUrl(trimmed)) {
     const managedDirect = trimmed;
-    if (isLikelyManagedAssetUrl(managedDirect)) return managedDirect;
+    if (isLikelyManagedAssetUrl(managedDirect)) {
+      try {
+        const parsed = new URL(managedDirect);
+        const pathKey = parsed.pathname.replace(/^\/+/, "");
+        if (isAssetKeyRef(pathKey)) {
+          const direct = resolvePublicAssetUrlFromKey(pathKey);
+          if (direct) return direct;
+          const directBase = getOssBaseUrl();
+          if (directBase && !shouldAvoidSameOriginDirectBase(directBase)) {
+            return `${directBase}${pathKey}`;
+          }
+        }
+      } catch {
+        // ignore
+      }
+      return managedDirect;
+    }
     try {
       const parsed = new URL(managedDirect);
       const pathKey = parsed.pathname.replace(/^\/+/, "");
@@ -455,14 +621,8 @@ export const resolveImageToDataUrl = async (
     console.log(`[resolveImageToDataUrl] 尝试 fetch: ${url.slice(0, 80)}...`);
     try {
       // 资产代理是公开读接口，不应携带凭证；否则跨域下会触发 wildcard+credentials 的 CORS 拦截。
-      const response = isBlobUrl(url)
-        ? await fetch(url)
-        : await fetchWithAuth(url, {
-            mode: "cors",
-            credentials: "omit",
-            auth: "omit",
-            allowRefresh: false,
-          });
+      const response = await fetchImageResponse(url);
+      if (!response) continue;
       if (!response.ok) {
         console.warn(`[resolveImageToDataUrl] fetch 失败: ${response.status}`);
         continue;
@@ -571,14 +731,8 @@ export const resolveImageToBlob = async (
 
   for (const url of candidates) {
     try {
-      const response = isBlobUrl(url)
-        ? await fetch(url)
-        : await fetchWithAuth(url, {
-            mode: "cors",
-            credentials: "omit",
-            auth: "omit",
-            allowRefresh: false,
-          });
+      const response = await fetchImageResponse(url);
+      if (!response) continue;
       if (!response.ok) continue;
       const blob = await responseToBlob(response);
       // 验证 blob 是图片类型

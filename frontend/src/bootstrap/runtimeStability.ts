@@ -54,7 +54,7 @@ const shouldReportRuntimeErrors = (() => {
   return !["0", "false", "off", "no"].includes(raw);
 })();
 const shouldEnableTelemetry = (() => {
-  const fallback = import.meta.env.PROD ? "false" : "true";
+  const fallback = "true";
   const raw = String(import.meta.env.VITE_ENABLE_TELEMETRY ?? fallback).toLowerCase();
   return ["1", "true", "on", "yes"].includes(raw);
 })();

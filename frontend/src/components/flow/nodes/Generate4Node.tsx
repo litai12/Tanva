@@ -6,8 +6,15 @@ import SmartImage from "../../ui/SmartImage";
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import { useAIChatStore } from "@/stores/aiChatStore";
 import { useLocaleText } from "@/utils/localeText";
+import {
+  flowImagePreviewWell,
+  flowLetterboxBackground,
+  useFlowNodeDarkTheme,
+  FLOW_NODE_DARK_SURFACE,
+} from "./flowNodeDarkTheme";
 import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
+import RunCreditBadge from "./RunCreditBadge";
 
 type Props = {
   id: string;
@@ -23,6 +30,7 @@ type Props = {
     generate4PassIndex?: number;
     aspectRatio?: "1:1" | "2:3" | "3:2" | "3:4" | "4:3" | "4:5" | "5:4" | "9:16" | "16:9" | "21:9";
     imageSize?: "0.5K" | "1K" | "2K" | "4K";
+    creditsPerCall?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
     boxW?: number;
@@ -448,6 +456,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
   const boxShadow = selected
     ? "0 0 0 2px rgba(37,99,235,0.12)"
     : "0 1px 2px rgba(0,0,0,0.04)";
+  const isFlowDark = useFlowNodeDarkTheme();
 
   const previewOverrideAssetId = React.useMemo(
     () => parseFlowImageAssetRef(previewOverrideValue),
@@ -562,14 +571,16 @@ function Generate4NodeInner({ id, data, selected }: Props) {
         style={{
           width: "100%",
           aspectRatio: "1 / 1",
-          background: "#fff",
           borderRadius: 6,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           overflow: "hidden",
-          border: "1px solid #eef0f2",
           position: "relative",
+          ...flowImagePreviewWell(isFlowDark, {
+            background: "#fff",
+            border: "1px solid #eef0f2",
+          }),
         }}
         title={img ? lt("双击全屏预览", "Double click for full-screen preview") : undefined}
       >
@@ -581,7 +592,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
               width: "100%",
               height: "100%",
               objectFit: "contain",
-              background: "#fff",
+              background: flowLetterboxBackground(isFlowDark),
             }}
           />
         ) : slotErr ? (
@@ -608,8 +619,8 @@ function Generate4NodeInner({ id, data, selected }: Props) {
             left: 6,
             top: 6,
             fontSize: 11,
-            color: "#6b7280",
-            background: "rgba(255,255,255,0.7)",
+            color: isFlowDark ? "#d1d5db" : "#6b7280",
+            background: isFlowDark ? "rgba(22,22,22,0.88)" : "rgba(255,255,255,0.7)",
             padding: "1px 4px",
             borderRadius: 4,
           }}
@@ -652,6 +663,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
     [lt]
   );
   const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const chatTheme = useAIChatStore((state) => state.chatTheme);
   const providerMode = React.useMemo<"fast" | "pro" | "ultra" | "other">(() => {
     if (aiProvider === "banana-2.5") return "fast";
     if (aiProvider === "banana-3.1") return "ultra";
@@ -666,19 +678,23 @@ function Generate4NodeInner({ id, data, selected }: Props) {
     return aiProvider;
   }, [aiProvider, providerMode]);
 
-  const showAspectRatioSelector = providerMode !== "fast";
-  const showImageSizeSelector = providerMode === "pro" || providerMode === "ultra";
+  const showAspectRatioSelector = providerMode !== "other";
+  const showImageSizeSelector = providerMode !== "other";
   const showSizeControls = showAspectRatioSelector || showImageSizeSelector;
 
   const imageSizeOptions: Array<{ label: string; value: string }> = React.useMemo(() => {
+    const autoOption = { label: lt("自动", "Auto"), value: "" };
     const base = [
-      { label: lt("自动", "Auto"), value: "" },
+      autoOption,
       { label: "1K", value: "1K" },
       { label: "2K", value: "2K" },
       { label: "4K", value: "4K" },
     ];
+    if (providerMode === "fast") {
+      return [autoOption, { label: "1K", value: "1K" }];
+    }
     if (providerMode === "ultra") {
-      return [base[0], { label: "0.5K", value: "0.5K" }, ...base.slice(1)];
+      return [autoOption, { label: "0.5K", value: "0.5K" }, ...base.slice(1)];
     }
     return base;
   }, [lt, providerMode]);
@@ -698,6 +714,61 @@ function Generate4NodeInner({ id, data, selected }: Props) {
     },
     [id]
   );
+
+  const providerBadgeStyle = React.useMemo((): React.CSSProperties => {
+    const base: React.CSSProperties = {
+      padding: "1px 8px",
+      borderRadius: 50,
+      fontSize: 11,
+      fontWeight: 600,
+    };
+    if (chatTheme === "black") {
+      return {
+        ...base,
+        color: "#ffffff",
+        background: "#343434",
+        border: "1px solid #4a4a4a",
+      };
+    }
+    return {
+      ...base,
+      color: providerMode === "ultra" ? "#0f172a" : "#475569",
+      background: providerMode === "ultra" ? "#e2e8f0" : "#f1f5f9",
+      border: "1px solid #e2e8f0",
+    };
+  }, [chatTheme, providerMode]);
+
+  const headerRunButtonStyle = (running: boolean): React.CSSProperties => ({
+    fontSize: 12,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxSizing: "border-box",
+    minHeight: 30,
+    padding: "0 12px",
+    background: running ? "#e5e7eb" : "#111827",
+    color: "#fff",
+    borderRadius: 6,
+    border: "none",
+    cursor: running ? "not-allowed" : "pointer",
+    gap: 6,
+  });
+
+  const headerSendButtonStyle = (disabled: boolean): React.CSSProperties => ({
+    fontSize: 12,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxSizing: "border-box",
+    width: 34,
+    height: 30,
+    padding: 0,
+    background: disabled ? "#e5e7eb" : "#111827",
+    color: "#fff",
+    borderRadius: 6,
+    border: "none",
+    cursor: disabled ? "not-allowed" : "pointer",
+  });
 
   return (
     <div
@@ -724,49 +795,52 @@ function Generate4NodeInner({ id, data, selected }: Props) {
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ fontWeight: 600 }}>Multi Generate</div>
           <div
-            style={{
-              padding: "1px 8px",
-              borderRadius: 999,
-              fontSize: 11,
-              fontWeight: 600,
-              color: providerMode === "ultra" ? "#0f172a" : "#475569",
-              background: providerMode === "ultra" ? "#e2e8f0" : "#f1f5f9",
-              border: "1px solid #e2e8f0",
-            }}
+            className='tanva-flow-provider-mode-badge'
+            style={providerBadgeStyle}
             title={`${lt("当前全局模型模式", "Current global model mode")}: ${providerModeLabel}`}
           >
             {providerModeLabel}
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
           <button
             onClick={onRun}
             disabled={status === "running"}
-            style={{
-              fontSize: 12,
-              padding: "4px 8px",
-              background: status === "running" ? "#e5e7eb" : "#111827",
-              color: "#fff",
-              borderRadius: 6,
-              border: "none",
-              cursor: status === "running" ? "not-allowed" : "pointer",
-            }}
+            className='run-btn-with-credit'
+            style={headerRunButtonStyle(status === "running")}
+            title={
+              status === "running"
+                ? lt("生成中...", "Generating...")
+                : data.creditsPerCall
+                ? `${lt("本次消耗", "Cost")}: ${data.creditsPerCall} ${lt(
+                    "积分",
+                    "credits"
+                  )}`
+                : lt("运行生成", "Run generation")
+            }
           >
-            {status === "running" ? "Running..." : "Run"}
+            {data.creditsPerCall ? (
+              <>
+                <span className='run-text-trigger'>
+                  {status === "running" ? "Running..." : "Run"}
+                </span>
+                <RunCreditBadge credits={data.creditsPerCall} runButton />
+              </>
+            ) : (
+              <span>{status === "running" ? "Running..." : "Run"}</span>
+            )}
           </button>
           <button
             onClick={onSend}
             disabled={!(images.length || imageUrls.length)}
             title={!(images.length || imageUrls.length) ? lt("无可发送的图像", "No image to send") : lt("发送全部到画布", "Send all to canvas")}
-            style={{
-              fontSize: 12,
-              padding: "4px 8px",
-              background: !(images.length || imageUrls.length) ? "#e5e7eb" : "#111827",
-              color: "#fff",
-              borderRadius: 6,
-              border: "none",
-              cursor: !(images.length || imageUrls.length) ? "not-allowed" : "pointer",
-            }}
+            style={headerSendButtonStyle(!(images.length || imageUrls.length))}
           >
             <SendIcon size={14} strokeWidth={2} />
           </button>
@@ -899,7 +973,21 @@ function Generate4NodeInner({ id, data, selected }: Props) {
       )}
 
       {/* 2x2 预览网格 */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 6,
+          ...(isFlowDark
+            ? {
+                padding: 6,
+                background: FLOW_NODE_DARK_SURFACE.gridFrameBg,
+                borderRadius: 8,
+                border: `1px solid ${FLOW_NODE_DARK_SURFACE.imageWellBorder}`,
+              }
+            : {}),
+        }}
+      >
         {Array.from({ length: 4 }).map((_, i) => renderCell(i))}
       </div>
 

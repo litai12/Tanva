@@ -10,6 +10,7 @@ import { useProjectContentStore } from "@/stores/projectContentStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import { useLocaleText } from "@/utils/localeText";
+import { flowImagePreviewWell, flowLetterboxBackground, useFlowNodeDarkTheme } from "./flowNodeDarkTheme";
 
 type Props = {
   id: string;
@@ -32,6 +33,7 @@ function CameraNodeInner({ id, data, selected }: Props) {
   const boxShadow = selected
     ? "0 0 0 2px rgba(37,99,235,0.12)"
     : "0 1px 2px rgba(0,0,0,0.04)";
+  const isFlowDark = useFlowNodeDarkTheme();
 
   // 使用全局图片历史记录
   const projectId = useProjectContentStore((state) => state.projectId);
@@ -295,20 +297,27 @@ function CameraNodeInner({ id, data, selected }: Props) {
         onDoubleClick={() => src && setPreview(true)}
         style={{
           flex: 1,
-          background: "#fff",
           borderRadius: 6,
-          border: "1px solid #e5e7eb",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           overflow: "hidden",
+          ...flowImagePreviewWell(isFlowDark, {
+            background: "#fff",
+            border: "1px solid #e5e7eb",
+          }),
         }}
       >
         {src ? (
           <SmartImage
             src={src}
             alt=""
-            style={{ width: "100%", height: "100%", objectFit: "contain" }}
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "contain",
+              background: flowLetterboxBackground(isFlowDark),
+            }}
           />
         ) : (
           <span style={{ fontSize: 12, color: "#9ca3af" }}>

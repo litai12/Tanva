@@ -66,6 +66,7 @@ import {
 import type { StoredImageAsset } from "@/types/canvas";
 import type {
   AIImageResult,
+  BananaImageRoute,
   RunningHubGenerateOptions,
   AIProviderOptions,
   SupportedAIProvider,
@@ -470,6 +471,7 @@ let legacyMigrationInProgress = false;
 
 type AutoModeMultiplier = 1 | 2 | 4 | 8;
 export type SendShortcut = "enter" | "mod-enter";
+export type ChatTheme = "white" | "black";
 
 const toISOString = (
   value: Date | string | number | null | undefined
@@ -505,6 +507,30 @@ type AvailableTool =
   | "generatePaperJS";
 
 type AIProviderType = SupportedAIProvider;
+
+const BANANA_IMAGE_PROVIDERS: AIProviderType[] = [
+  "banana",
+  "banana-2.5",
+  "banana-3.1",
+];
+
+const isBananaImageProvider = (provider: AIProviderType): boolean =>
+  BANANA_IMAGE_PROVIDERS.includes(provider);
+
+const withBananaRouteProviderOptions = (
+  provider: AIProviderType,
+  baseOptions: AIProviderOptions | undefined,
+  route: BananaImageRoute
+): AIProviderOptions | undefined => {
+  if (!isBananaImageProvider(provider)) return baseOptions;
+  return {
+    ...(baseOptions || {}),
+    banana: {
+      ...(baseOptions?.banana || {}),
+      imageRoute: route,
+    },
+  };
+};
 
 const DEFAULT_IMAGE_MODEL = "gemini-3-pro-image-preview";
 const GEMINI_PRO_IMAGE_MODEL = "gemini-3-pro-image-preview";
@@ -2392,9 +2418,11 @@ interface AIChatState {
   manualAIMode: ManualAIMode;
   autoSelectedTool: AvailableTool | null; // Auto 模式最近一次选择的工具
   aiProvider: AIProviderType; // AI提供商选择 (gemini: Google Gemini, banana: 147 API, runninghub: SU截图转效果, midjourney: 147 Midjourney)
+  bananaImageRoute: BananaImageRoute;
   autoModeMultiplier: AutoModeMultiplier;
   sendShortcut: SendShortcut;
   expandedPanelStyle: "transparent" | "solid"; // 展开/最大化模式的面板样式
+  chatTheme: ChatTheme; // AI 对话框与工作区主题色（白/黑）
 
   // 操作方法
   showDialog: () => void;
@@ -2570,9 +2598,11 @@ interface AIChatState {
   setVideoDurationSeconds: (seconds: 3 | 4 | 5 | 6 | 8 | null) => void;
   setManualAIMode: (mode: ManualAIMode) => void;
   setAIProvider: (provider: AIProviderType) => void; // 设置AI提供商
+  setBananaImageRoute: (route: BananaImageRoute) => void;
   setAutoModeMultiplier: (multiplier: AutoModeMultiplier) => void;
   setSendShortcut: (shortcut: SendShortcut) => void;
   setExpandedPanelStyle: (style: "transparent" | "solid") => void; // 设置展开模式面板样式
+  setChatTheme: (theme: ChatTheme) => void;
 
   // 重置状态
   resetState: () => void;
@@ -2876,9 +2906,11 @@ export const useAIChatStore = create<AIChatState>()(
         manualAIMode: "auto",
         autoSelectedTool: null,
         aiProvider: "banana-2.5", // 默认Fast版
+        bananaImageRoute: "stable",
         autoModeMultiplier: 1,
         sendShortcut: "enter",
         expandedPanelStyle: "transparent", // 默认透明样式
+        chatTheme: "white",
 
         // 对话框控制
         showDialog: () => {
@@ -3593,6 +3625,12 @@ export const useAIChatStore = create<AIChatState>()(
               prompt: prompt.substring(0, 50) + "...",
             });
 
+            providerOptions = withBananaRouteProviderOptions(
+              effectiveProvider,
+              providerOptions,
+              state.bananaImageRoute
+            );
+
             const generateRequest =
               effectiveProvider === "nano2"
                 ? {
@@ -4282,6 +4320,12 @@ export const useAIChatStore = create<AIChatState>()(
               });
             }
 
+            providerOptions = withBananaRouteProviderOptions(
+              state.aiProvider,
+              providerOptions,
+              state.bananaImageRoute
+            );
+
             const buildEditRequest = async (model: string): Promise<AIImageEditRequest> => ({
               prompt,
               sourceImage: state.aiProvider === "runninghub"
@@ -4543,13 +4587,13 @@ export const useAIChatStore = create<AIChatState>()(
 		                    cropRectNormalized: preciseEditContext.cropRectNormalized,
 		                  });
 		                  if (mergedBlob) {
-		                    const mergedObjectUrl = URL.createObjectURL(mergedBlob);
+		                    const mergedDataUrl = await blobToDataUrlLimited(mergedBlob);
 		                    try {
 	                      window.dispatchEvent(
 	                        new CustomEvent("canvas:replace-image-source", {
 	                          detail: {
 	                            imageId: preciseEditContext.targetImageId,
-	                            source: mergedObjectUrl,
+	                            source: mergedDataUrl,
 	                            contentType: "image/png",
 	                            fileName: `${prompt.substring(0, 20) || "precise"}_merged.png`,
 	                            historyLabel: "precise-edit",
@@ -5069,12 +5113,18 @@ export const useAIChatStore = create<AIChatState>()(
             }, 1000);
 
             const modelToUse = getImageModelForProvider(state.aiProvider);
+            const providerOptions = withBananaRouteProviderOptions(
+              state.aiProvider,
+              undefined,
+              state.bananaImageRoute
+            );
 
             const result = await blendImagesViaAPI({
               prompt,
               sourceImageUrls,
               model: modelToUse,
               aiProvider: state.aiProvider,
+              providerOptions,
               outputFormat: "png",
               aspectRatio: state.aspectRatio || undefined,
               imageSize: state.imageSize ?? "1K", // 自动模式下优先使用1K
@@ -7939,6 +7989,7 @@ export const useAIChatStore = create<AIChatState>()(
           });
           set({ aiProvider: provider });
         },
+        setBananaImageRoute: (route) => set({ bananaImageRoute: route }),
         setAutoModeMultiplier: (multiplier) => {
           const allowed: AutoModeMultiplier[] = [1, 2, 4, 8];
           const next = allowed.includes(multiplier) ? multiplier : 1;
@@ -7951,6 +8002,10 @@ export const useAIChatStore = create<AIChatState>()(
         setExpandedPanelStyle: (style) => {
           const next = style === "solid" ? "solid" : "transparent";
           set({ expandedPanelStyle: next });
+        },
+        setChatTheme: (theme) => {
+          const next: ChatTheme = theme === "black" ? "black" : "white";
+          set({ chatTheme: next });
         },
 
         // 重置状态
@@ -8054,7 +8109,9 @@ export const useAIChatStore = create<AIChatState>()(
         ];
         const validSendShortcuts = ["enter", "mod-enter"];
         const validExpandedStyles = ["transparent", "solid"];
+        const validChatThemes = ["white", "black"];
         const validVideoRatios = ["16:9", "9:16"];
+        const validBananaImageRoutes = ["normal", "stable"];
 
         return {
           ...state,
@@ -8073,11 +8130,20 @@ export const useAIChatStore = create<AIChatState>()(
           expandedPanelStyle: validExpandedStyles.includes(String(state.expandedPanelStyle))
             ? (state.expandedPanelStyle as AIChatState["expandedPanelStyle"])
             : "transparent",
+          chatTheme: validChatThemes.includes(String(state.chatTheme))
+            ? (state.chatTheme as AIChatState["chatTheme"])
+            : "white",
+          bananaImageRoute: validBananaImageRoutes.includes(
+            String(state.bananaImageRoute)
+          )
+            ? (state.bananaImageRoute as AIChatState["bananaImageRoute"])
+            : "stable",
         };
       },
       partialize: (state) => ({
         manualAIMode: state.manualAIMode,
         aiProvider: state.aiProvider,
+        bananaImageRoute: state.bananaImageRoute,
         autoDownload: state.autoDownload,
         enableWebSearch: state.enableWebSearch,
         aspectRatio: state.aspectRatio,
@@ -8088,6 +8154,7 @@ export const useAIChatStore = create<AIChatState>()(
         autoModeMultiplier: state.autoModeMultiplier,
         sendShortcut: state.sendShortcut,
         expandedPanelStyle: state.expandedPanelStyle,
+        chatTheme: state.chatTheme,
       }),
       // 确保新字段能正确合并，使用初始状态的默认值填充缺失字段
       merge: (persistedState, currentState) => ({
