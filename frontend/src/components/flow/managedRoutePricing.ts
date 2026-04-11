@@ -7,6 +7,29 @@ export interface ManagedRouteOption {
   modelName?: string;
   modelVersion?: string;
   creditsPerCall?: number;
+  pricing?: {
+    version?: string;
+    defaults?: {
+      credits?: number;
+      priceYuan?: number;
+      costYuan?: number;
+    };
+    rules?: Array<{
+      ruleKey?: string;
+      label?: string;
+      priority?: number;
+      when?: Record<string, any>;
+      match?: Record<string, any>;
+      price?: {
+        credits?: number;
+        priceYuan?: number;
+        costYuan?: number;
+      };
+      creditsPerCall?: number;
+      priceYuan?: number;
+      costYuan?: number;
+    }>;
+  };
 }
 
 export interface ManagedRoutesMetadata {
@@ -66,6 +89,10 @@ export const getManagedRoutesMetadata = (
                 : undefined,
             creditsPerCall:
               Number.isFinite(credits) && credits >= 0 ? credits : undefined,
+            pricing:
+              vendor.pricing && typeof vendor.pricing === "object"
+                ? (vendor.pricing as ManagedRouteOption["pricing"])
+                : undefined,
           } satisfies ManagedRouteOption;
         })
         .filter(Boolean) as ManagedRouteOption[]
@@ -106,4 +133,103 @@ export const getManagedRouteCredits = (
 ): number | undefined => {
   const selected = getManagedRouteOption(metadata, vendorKey);
   return typeof selected?.creditsPerCall === "number" ? selected.creditsPerCall : undefined;
+};
+
+const normalizeComparable = (value: unknown): string | number | boolean | null => {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const lowered = trimmed.toLowerCase();
+    if (lowered === "true") return true;
+    if (lowered === "false") return false;
+    const numeric = Number(trimmed);
+    if (Number.isFinite(numeric) && `${numeric}` === trimmed) {
+      return numeric;
+    }
+    return lowered;
+  }
+  return null;
+};
+
+const matchesRule = (
+  context: Record<string, any>,
+  matcher?: Record<string, any> | null
+): boolean => {
+  if (!matcher || typeof matcher !== "object") return false;
+  const entries = Object.entries(matcher);
+  if (entries.length === 0) return false;
+  return entries.every(([field, expected]) => {
+    const actual = normalizeComparable(context[field]);
+    if (actual === null) return false;
+    if (Array.isArray(expected)) {
+      return expected.some((candidate) => normalizeComparable(candidate) === actual);
+    }
+    return normalizeComparable(expected) === actual;
+  });
+};
+
+export const resolveManagedRoutePricing = (
+  metadata?: Record<string, any> | null,
+  vendorKey?: string | null,
+  pricingContext?: Record<string, any> | null
+): { credits?: number; priceYuan?: number; ruleKey?: string; label?: string } | null => {
+  const selected = getManagedRouteOption(metadata, vendorKey);
+  if (!selected) return null;
+  const pricing = selected.pricing;
+  const context = pricingContext && typeof pricingContext === "object" ? pricingContext : {};
+
+  const rules = Array.isArray(pricing?.rules) ? [...pricing.rules] : [];
+  rules.sort((a, b) => {
+    const pa = Number(a?.priority ?? 0);
+    const pb = Number(b?.priority ?? 0);
+    return pb - pa;
+  });
+
+  for (const rule of rules) {
+    const matcher =
+      rule?.when && typeof rule.when === "object"
+        ? rule.when
+        : rule?.match && typeof rule.match === "object"
+        ? rule.match
+        : null;
+    if (!matchesRule(context, matcher)) continue;
+    const credits =
+      typeof rule?.price?.credits === "number"
+        ? rule.price.credits
+        : typeof rule?.creditsPerCall === "number"
+        ? rule.creditsPerCall
+        : undefined;
+    const priceYuan =
+      typeof rule?.price?.priceYuan === "number"
+        ? rule.price.priceYuan
+        : typeof rule?.priceYuan === "number"
+        ? rule.priceYuan
+        : undefined;
+    return {
+      ...(typeof credits === "number" ? { credits } : {}),
+      ...(typeof priceYuan === "number" ? { priceYuan } : {}),
+      ...(typeof rule?.ruleKey === "string" ? { ruleKey: rule.ruleKey } : {}),
+      ...(typeof rule?.label === "string" ? { label: rule.label } : {}),
+    };
+  }
+
+  const defaultCredits =
+    typeof pricing?.defaults?.credits === "number"
+      ? pricing.defaults.credits
+      : selected.creditsPerCall;
+  const defaultPriceYuan =
+    typeof pricing?.defaults?.priceYuan === "number"
+      ? pricing.defaults.priceYuan
+      : undefined;
+
+  if (typeof defaultCredits !== "number" && typeof defaultPriceYuan !== "number") {
+    return null;
+  }
+
+  return {
+    ...(typeof defaultCredits === "number" ? { credits: defaultCredits } : {}),
+    ...(typeof defaultPriceYuan === "number" ? { priceYuan: defaultPriceYuan } : {}),
+  };
 };

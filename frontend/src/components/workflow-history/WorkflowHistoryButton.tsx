@@ -147,7 +147,7 @@ export default function WorkflowHistoryButton({ projectId }: WorkflowHistoryButt
 
       // 保存前补传/替换本地图片引用，避免把 blob:/data:/base64 落库
       await paperSaveService.saveImmediately();
-      await flowSaveService.flushImageSplitInputImages();
+      await flowSaveService.flushFlowNodeImageRefs();
 
       const store = useProjectContentStore.getState();
       if (!store.projectId || store.projectId !== projectId || !store.content) return;

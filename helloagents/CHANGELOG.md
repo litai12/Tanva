@@ -6,6 +6,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Added
+- Admin/Model Management: 后台“系统设置”新增“统一模型管理”tab，可直接编辑完整 `model_provider_mapping_v2` JSON，并支持通过 `models[].vendors[].metadata.specPricing` 配置按规格匹配的积分规则；默认模型目录补齐平台内图片模型（Nano Banana Fast/Pro/2、图像编辑、图像融合、Gemini 图像分析），模型列表新增搜索与类型筛选，图片规格积分按模型能力维度展示，不再只覆盖视频模型。
 - Seedance 2.0 模式参数补齐：模型管理 V2 请求体新增 `video_mode` 字段，前端模式选择可完整传递至方舟上游。
 - 认证系统新增“公众号扫码登录”闭环：后端支持带参数二维码会话、微信公众平台回调验签与 `subscribe/SCAN` 自动登录；前端登录页新增公众号扫码二维码面板与轮询消费登录会话。
 - Credits Backend 基础设施新增多形态积分 groundwork：Prisma 增加 `CreditLot` / `CreditConsumePolicy`，`CreditTransaction` 增加 lot / policy 审计字段；后端新增 `credit-lot-policy.ts` 用于 lot 过滤、优先级排序和扣减规划。
@@ -37,6 +38,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - OpenObserve 改为默认保留明文请求日志并在生产默认开启：`backend_requests` 新增原始请求头/请求体，`upstream_requests` 不再对文本 header/body 做脱敏或截断，`frontend_error` 前端上报在生产默认开启，后端 tracing 也改为生产默认启用（`backend/src/telemetry/*`, `frontend/src/bootstrap/runtimeStability.ts`）。
 - Canvas：`ImageContainer` 的“高清放大”现在会先读取原图尺寸并推导最近似长宽比，一并传给 `gemini-3-pro-image-preview`；同时强化提示词，明确要求保持原始宽高比、禁止裁切/补边/拉伸/改构图，降低 4K 放大时输出尺寸漂移的概率（`frontend/src/components/canvas/ImageContainer.tsx`）。
 - Membership Backend 调整到期口径：订阅积分优先消耗，会员到期时重置订阅积分；免费用户继续按 30 天周期发放 `freeUserMonthlyQuotaCredits`（默认 `500`）。
+
+### Fixed
+- 公众号扫码登录改用微信推荐的稳定 `stable_token` 接口获取全局 `access_token`，并在生成登录二维码遇到 `access_token is invalid or not latest` 时自动强制刷新后重试一次，降低多实例或第三方系统并发刷新 token 导致的二维码生成失败。
 - 后台权限新增 `normal_admin`（普通管理）角色：后端仅放行 `概览、用户管理、API统计、API记录、公共模板、水印白名单` 对应接口，`admin` 仍保留全量后台权限（`backend/src/admin/admin.controller.ts`, `backend/src/admin/dto/admin.dto.ts`）。
 - 后台页面按角色显示 Tab：`normal_admin` 只显示 `概览 / 用户管理 / API统计 / API记录 / 公共模板 / 水印白名单`；并在“用户管理”中隐藏“角色/状态”列与“详情/删除”按钮（`frontend/src/pages/Admin.tsx`, `frontend/src/components/layout/FloatingHeader.tsx`）。
 - 工作流历史恢复新增来源标记：从历史版本“恢复并保存”后，新写入的 `WorkflowHistory` 会记录 `restoredFromUpdatedAt/restoredFromVersion`，前端历史列表可直接看到“恢复自哪个版本”，避免恢复生成的新记录与普通保存记录难以区分（`backend/src/projects/*`, `frontend/src/components/workflow-history/WorkflowHistoryButton.tsx`, `frontend/src/services/projectApi.ts`）。
@@ -420,3 +424,4 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - `CreditsService.claimDailyReward` 改为在事务内锁定 `CreditAccount` 行并再次校验业务日，修复多入口同时触发签到时可重复发放的问题。
 - `grantFreeUserMonthlyQuotaIfNeeded` 改为在事务内锁定 `CreditAccount` 行后再检查本周期发放记录，修复多个并发请求同时命中账户初始化/余额查询路径时，免费月额度可能重复记交易的问题。
 - `/my-credits` 页面移除额外的静默自动签到，自动签到重新收口为应用入口单点触发，减少无意义并发请求。
+- Admin/Credits: 统一模型管理开始升级为正式定价结构，vendor 支持 `pricing.defaults + pricing.rules`，管理台可维护默认积分/默认价格与规格规则价格；后端预扣费兼容解析新旧结构，并把命中的 `pricingSnapshot` 写入 API 使用记录审计字段。

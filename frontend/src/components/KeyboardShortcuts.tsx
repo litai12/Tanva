@@ -95,7 +95,7 @@ export default function KeyboardShortcuts() {
         if (!storeBefore.projectId || storeBefore.saving || storeBefore.manualSaving) return;
         try {
           await paperSaveService.saveImmediately();
-          await flowSaveService.flushImageSplitInputImages();
+          await flowSaveService.flushFlowNodeImageRefs();
           const store = useProjectContentStore.getState();
           const { projectId, content, version } = store;
           if (!projectId || !content) return;

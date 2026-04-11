@@ -110,7 +110,7 @@ export function useProjectAutosave(projectId: string | null) {
 
       if (getNonPersistableFlowImageNodeIds(contentToSave).length > 0) {
         try {
-          await flowSaveService.flushImageSplitInputImages();
+          await flowSaveService.flushFlowNodeImageRefs();
           const storeAfterFlush = useProjectContentStore.getState();
           if (storeAfterFlush.projectId === currentProjectId && storeAfterFlush.content) {
             contentToSave = storeAfterFlush.content;

@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { MODEL_PROVIDER_MAPPING_SETTING_KEY } from '../../ai/services/model-routing.service';
+import { resolveManagedVendorPricing } from '../../ai/services/model-pricing-resolver';
 
 export interface NodeConfigDto {
   nodeKey: string;
@@ -69,6 +70,8 @@ interface ManagedRouteView {
     modelName?: string;
     modelVersion?: string;
     creditsPerCall?: number;
+    priceYuan?: number;
+    pricing?: Record<string, any>;
   }>;
 }
 
@@ -196,7 +199,18 @@ export class NodeConfigService {
               vendor.vendorKey.trim(),
           )
           .map((vendor) => {
-            const credits = Number(vendor.creditsPerCall);
+            const resolvedPricing = resolveManagedVendorPricing(
+              vendor as Record<string, any>,
+              {},
+            );
+            const credits =
+              typeof resolvedPricing.price.credits === 'number'
+                ? resolvedPricing.price.credits
+                : Number(vendor.creditsPerCall);
+            const priceYuan =
+              typeof resolvedPricing.price.priceYuan === 'number'
+                ? resolvedPricing.price.priceYuan
+                : Number(vendor.priceYuan);
             return {
               vendorKey: String(vendor.vendorKey).trim(),
               platformKey:
@@ -225,6 +239,12 @@ export class NodeConfigService {
                   : undefined,
               creditsPerCall:
                 Number.isFinite(credits) && credits >= 0 ? credits : undefined,
+              priceYuan:
+                Number.isFinite(priceYuan) && priceYuan >= 0 ? priceYuan : undefined,
+              pricing:
+                vendor.pricing && typeof vendor.pricing === 'object'
+                  ? (vendor.pricing as Record<string, any>)
+                  : undefined,
             };
           })
       : [];
@@ -540,6 +560,10 @@ export class NodeConfigService {
             typeof selectedVendor?.creditsPerCall === 'number'
               ? selectedVendor.creditsPerCall
               : normalizedConfig.creditsPerCall,
+          priceYuan:
+            typeof selectedVendor?.priceYuan === 'number'
+              ? selectedVendor.priceYuan
+              : normalizedConfig.priceYuan,
           metadata: normalizedMetadata,
         };
       })

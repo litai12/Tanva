@@ -230,8 +230,33 @@ interface ManagedModelVendorConfig {
   route?: ModelVendorRouteType;
   provider?: string;
   creditsPerCall?: number;
+  priceYuan?: number;
   modelName?: string;
   modelVersion?: string;
+  pricing?: {
+    version?: string;
+    dimensions?: string[];
+    defaults?: {
+      credits?: number;
+      priceYuan?: number;
+      costYuan?: number;
+    };
+    rules?: Array<{
+      ruleKey?: string;
+      label?: string;
+      priority?: number;
+      when?: Record<string, any>;
+      match?: Record<string, any>;
+      price?: {
+        credits?: number;
+        priceYuan?: number;
+        costYuan?: number;
+      };
+      creditsPerCall?: number;
+      priceYuan?: number;
+      costYuan?: number;
+    }>;
+  };
   metadata?: Record<string, any>;
 }
 
@@ -261,6 +286,252 @@ interface ModelProviderMappingV2 {
   models?: ManagedModelConfig[];
 }
 
+type ManagedSpecPricingRule = {
+  ruleKey?: string;
+  label?: string;
+  match?: Record<string, any>;
+  priority?: number;
+  creditsPerCall?: number;
+  priceYuan?: number;
+  costYuan?: number;
+};
+
+const normalizeFiniteNumber = (value: unknown): number | undefined => {
+  const normalized = Number(value);
+  return Number.isFinite(normalized) ? normalized : undefined;
+};
+
+const getVendorPricingDefaults = (vendor?: Partial<ManagedModelVendorConfig>) => {
+  const defaults =
+    vendor?.pricing &&
+    typeof vendor.pricing === "object" &&
+    vendor.pricing.defaults &&
+    typeof vendor.pricing.defaults === "object"
+      ? vendor.pricing.defaults
+      : undefined;
+
+  const credits =
+    typeof defaults?.credits === "number" && Number.isFinite(defaults.credits)
+      ? defaults.credits
+      : typeof vendor?.creditsPerCall === "number" && Number.isFinite(vendor.creditsPerCall)
+      ? vendor.creditsPerCall
+      : undefined;
+  const priceYuan =
+    typeof defaults?.priceYuan === "number" && Number.isFinite(defaults.priceYuan)
+      ? defaults.priceYuan
+      : typeof vendor?.priceYuan === "number" && Number.isFinite(vendor.priceYuan)
+      ? vendor.priceYuan
+      : undefined;
+
+  return {
+    ...(credits !== undefined ? { credits } : {}),
+    ...(priceYuan !== undefined ? { priceYuan } : {}),
+  };
+};
+
+const updateVendorPricingDefaults = (
+  vendor: ManagedModelVendorConfig,
+  patch: { credits?: number; priceYuan?: number }
+): ManagedModelVendorConfig => {
+  const currentPricing =
+    vendor.pricing && typeof vendor.pricing === "object" ? { ...vendor.pricing } : {};
+  const nextDefaults =
+    currentPricing.defaults && typeof currentPricing.defaults === "object"
+      ? { ...currentPricing.defaults }
+      : {};
+
+  if ("credits" in patch) {
+    const credits = normalizeFiniteNumber(patch.credits);
+    if (credits !== undefined && credits >= 0) {
+      nextDefaults.credits = credits;
+    } else {
+      delete nextDefaults.credits;
+    }
+  }
+
+  if ("priceYuan" in patch) {
+    const priceYuan = normalizeFiniteNumber(patch.priceYuan);
+    if (priceYuan !== undefined && priceYuan >= 0) {
+      nextDefaults.priceYuan = priceYuan;
+    } else {
+      delete nextDefaults.priceYuan;
+    }
+  }
+
+  const nextPricing =
+    Object.keys(nextDefaults).length > 0
+      ? {
+          ...currentPricing,
+          version: currentPricing.version || "v1",
+          defaults: nextDefaults,
+        }
+      : Object.keys(currentPricing).length > 0
+      ? {
+          ...currentPricing,
+          defaults: undefined,
+        }
+      : undefined;
+
+  return {
+    ...vendor,
+    ...(patch.credits !== undefined ? { creditsPerCall: normalizeFiniteNumber(patch.credits) } : {}),
+    ...(patch.priceYuan !== undefined ? { priceYuan: normalizeFiniteNumber(patch.priceYuan) } : {}),
+    pricing:
+      nextPricing && Object.keys(nextPricing).some((key) => (nextPricing as any)[key] !== undefined)
+        ? nextPricing
+        : undefined,
+  };
+};
+
+const readVendorSpecPricingRules = (
+  vendor?: ManagedModelVendorConfig
+): ManagedSpecPricingRule[] => {
+  const pricingRules =
+    vendor?.pricing &&
+    typeof vendor.pricing === "object" &&
+    Array.isArray(vendor.pricing.rules)
+      ? vendor.pricing.rules
+      : [];
+  if (pricingRules.length > 0) {
+    return pricingRules
+      .filter((item) => item && typeof item === "object")
+      .map((item) => ({
+        ruleKey: typeof item.ruleKey === "string" ? item.ruleKey : "",
+        label: typeof item.label === "string" ? item.label : "",
+        priority:
+          typeof item.priority === "number" && Number.isFinite(item.priority)
+            ? item.priority
+            : undefined,
+        match:
+          item.when && typeof item.when === "object" && !Array.isArray(item.when)
+            ? { ...item.when }
+            : item.match && typeof item.match === "object" && !Array.isArray(item.match)
+            ? { ...item.match }
+            : {},
+        creditsPerCall:
+          typeof item.price?.credits === "number" && Number.isFinite(item.price.credits)
+            ? item.price.credits
+            : typeof item.creditsPerCall === "number" && Number.isFinite(item.creditsPerCall)
+            ? item.creditsPerCall
+            : 0,
+        priceYuan:
+          typeof item.price?.priceYuan === "number" && Number.isFinite(item.price.priceYuan)
+            ? item.price.priceYuan
+            : typeof item.priceYuan === "number" && Number.isFinite(item.priceYuan)
+            ? item.priceYuan
+            : undefined,
+        costYuan:
+          typeof item.price?.costYuan === "number" && Number.isFinite(item.price.costYuan)
+            ? item.price.costYuan
+            : typeof item.costYuan === "number" && Number.isFinite(item.costYuan)
+            ? item.costYuan
+            : undefined,
+      }));
+  }
+
+  const legacyRules = Array.isArray(vendor?.metadata?.specPricing) ? vendor?.metadata?.specPricing : [];
+  return legacyRules
+    .filter((item) => item && typeof item === "object")
+    .map((item) => ({
+      ruleKey: typeof item.ruleKey === "string" ? item.ruleKey : "",
+      label: typeof item.label === "string" ? item.label : "",
+      match:
+        item.match && typeof item.match === "object" && !Array.isArray(item.match)
+          ? { ...item.match }
+          : {},
+      creditsPerCall:
+        typeof item.creditsPerCall === "number" && Number.isFinite(item.creditsPerCall)
+          ? item.creditsPerCall
+          : 0,
+      priceYuan:
+        typeof item.priceYuan === "number" && Number.isFinite(item.priceYuan)
+          ? item.priceYuan
+          : undefined,
+      costYuan:
+        typeof item.costYuan === "number" && Number.isFinite(item.costYuan)
+          ? item.costYuan
+          : undefined,
+    }));
+};
+
+const writeVendorSpecPricingRules = (
+  vendor: ManagedModelVendorConfig,
+  rules: ManagedSpecPricingRule[]
+): ManagedModelVendorConfig => {
+  const cleanedRules = rules
+    .map((rule, index) => ({
+      ruleKey: String(rule.ruleKey || "").trim() || `rule_${index + 1}`,
+      label: String(rule.label || "").trim(),
+      priority:
+        typeof rule.priority === "number" && Number.isFinite(rule.priority)
+          ? rule.priority
+          : undefined,
+      when:
+        rule.match && typeof rule.match === "object" && !Array.isArray(rule.match)
+          ? Object.fromEntries(
+              Object.entries(rule.match).filter(([, value]) => {
+                if (typeof value === "string") return value.trim().length > 0;
+                return value !== undefined && value !== null && value !== "";
+              })
+            )
+          : {},
+      price: {
+        ...(typeof rule.creditsPerCall === "number" && Number.isFinite(rule.creditsPerCall)
+          ? { credits: rule.creditsPerCall }
+          : {}),
+        ...(typeof rule.priceYuan === "number" && Number.isFinite(rule.priceYuan)
+          ? { priceYuan: rule.priceYuan }
+          : {}),
+        ...(typeof rule.costYuan === "number" && Number.isFinite(rule.costYuan)
+          ? { costYuan: rule.costYuan }
+          : {}),
+      },
+      creditsPerCall:
+        typeof rule.creditsPerCall === "number" && Number.isFinite(rule.creditsPerCall)
+          ? rule.creditsPerCall
+          : undefined,
+      priceYuan:
+        typeof rule.priceYuan === "number" && Number.isFinite(rule.priceYuan)
+          ? rule.priceYuan
+          : undefined,
+      costYuan:
+        typeof rule.costYuan === "number" && Number.isFinite(rule.costYuan)
+          ? rule.costYuan
+          : undefined,
+    }))
+    .filter((rule) => Object.keys(rule.when).length > 0);
+
+  const nextMetadata =
+    vendor.metadata && typeof vendor.metadata === "object" ? { ...vendor.metadata } : {};
+  if (cleanedRules.length > 0) {
+    nextMetadata.specPricing = cleanedRules.map((rule) => ({
+      ruleKey: rule.ruleKey,
+      label: rule.label,
+      match: rule.when,
+      creditsPerCall: rule.creditsPerCall,
+      priceYuan: rule.priceYuan,
+      costYuan: rule.costYuan,
+    }));
+  } else {
+    delete nextMetadata.specPricing;
+  }
+
+  const nextPricing =
+    vendor.pricing && typeof vendor.pricing === "object" ? { ...vendor.pricing } : {};
+  if (cleanedRules.length > 0) {
+    nextPricing.version = nextPricing.version || "v1";
+    nextPricing.rules = cleanedRules;
+  } else {
+    delete nextPricing.rules;
+  }
+
+  return {
+    ...vendor,
+    pricing: Object.keys(nextPricing).length > 0 ? nextPricing : undefined,
+    metadata: Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+  };
+};
+
 const MANAGED_MODEL_TASK_TYPE_OPTIONS: Array<{
   value: ManagedModelTaskType;
   label: string;
@@ -282,6 +553,7 @@ const MANAGED_NODE_TEMPLATE_OPTIONS: Record<
   image: [
     { value: "generate", label: "图片生成节点", category: "image" },
     { value: "generatePro", label: "自定义图片节点", category: "image" },
+    { value: "seedream5", label: "Seedream 5 节点", category: "image" },
     { value: "midjourney", label: "Midjourney 节点", category: "image" },
     { value: "analysis", label: "图像分析节点", category: "image" },
   ],
@@ -295,6 +567,7 @@ const MANAGED_NODE_TEMPLATE_OPTIONS: Record<
     { value: "sora2Video", label: "Sora 2 视频节点", category: "video" },
     { value: "wan26", label: "Wan 2.6 视频节点", category: "video" },
     { value: "wan2R2V", label: "Wan 参考视频节点", category: "video" },
+    { value: "wan27Video", label: "Wan 2.7 视频节点", category: "video" },
   ],
 };
 
@@ -322,7 +595,10 @@ const inferManagedNodeTemplate = (model: Partial<ManagedModelConfig>): string =>
   if (modelKey === "seedance-1.5") return "doubaoVideo";
   if (modelKey === "seedance-2.0") return "seedance20Video";
   if (modelKey === "sora-2") return "sora2Video";
+  if (modelKey === "seedream5") return "seedream5";
   if (modelKey === "wan-2.6") return "wan26";
+  if (modelKey === "wan-2.6-r2v") return "wan2R2V";
+  if (modelKey === "wan-2.7") return "wan27Video";
 
   const taskType = normalizeManagedModelTaskType(model.taskType);
   return MANAGED_NODE_TEMPLATE_OPTIONS[taskType][0]?.value || "kling30Video";
@@ -341,6 +617,11 @@ const shouldReuseTemplateNodeKey = (modelKey?: string): boolean => {
     "sora-2",
     "seedance-1.5",
     "seedance-2.0",
+    "seedream5",
+    "midjourney",
+    "wan-2.6",
+    "wan-2.6-r2v",
+    "wan-2.7",
   ].includes(normalized);
 };
 
@@ -363,7 +644,7 @@ const buildManagedNodeConfig = (
     const vendors = Array.isArray(model.vendors) ? model.vendors : [];
     const preferredVendor =
       vendors.find((vendor) => vendor.vendorKey === model.defaultVendor) || vendors[0];
-    const credits = Number(preferredVendor?.creditsPerCall);
+    const credits = Number(getVendorPricingDefaults(preferredVendor).credits);
     return Number.isFinite(credits) && credits >= 0 ? credits : 0;
   })();
   return {
@@ -608,6 +889,598 @@ const DEFAULT_MODEL_VENDOR_PLATFORMS: ManagedVendorPlatformConfig[] = [
 ];
 
 const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
+  {
+    modelKey: "gemini-2.5-image",
+    modelName: "Nano Banana Fast",
+    taskType: "image",
+    enabled: true,
+    defaultVendor: "banana-2.5",
+    metadata: {
+      nodeConfig: buildManagedNodeConfig(
+        {
+          modelKey: "gemini-2.5-image",
+          taskType: "image",
+          vendors: [{ vendorKey: "banana-2.5", creditsPerCall: 10 }],
+          defaultVendor: "banana-2.5",
+        },
+        {
+          flowNodeType: "generate",
+          nodeKey: "generate",
+          category: "image",
+          creditsPerCall: 10,
+          description: "Nano Banana Fast 文生图",
+        }
+      ),
+    },
+    vendors: [
+      {
+        vendorKey: "banana-2.5",
+        platformKey: "banana-2.5",
+        label: "Fast / Nano Banana 2.5",
+        enabled: true,
+        route: "legacy",
+        provider: "banana-2.5",
+        modelName: "Nano Banana",
+        modelVersion: "2.5",
+        creditsPerCall: 10,
+      },
+    ],
+  },
+  {
+    modelKey: "gemini-3-pro-image",
+    modelName: "Nano Banana Pro",
+    taskType: "image",
+    enabled: true,
+    defaultVendor: "banana",
+    metadata: {
+      nodeConfig: buildManagedNodeConfig(
+        {
+          modelKey: "gemini-3-pro-image",
+          taskType: "image",
+          vendors: [{ vendorKey: "banana", creditsPerCall: 30 }],
+          defaultVendor: "banana",
+        },
+        {
+          flowNodeType: "generatePro",
+          nodeKey: "generatePro",
+          category: "image",
+          creditsPerCall: 30,
+          description: "Nano Banana Pro 高质量生图",
+        }
+      ),
+    },
+    vendors: [
+      {
+        vendorKey: "banana",
+        platformKey: "banana",
+        label: "Pro / Nano Banana Pro",
+        enabled: true,
+        route: "legacy",
+        provider: "banana",
+        modelName: "Nano Banana Pro",
+        modelVersion: "3.0",
+        creditsPerCall: 30,
+      },
+    ],
+  },
+  {
+    modelKey: "gemini-3.1-image",
+    modelName: "Nano Banana 2",
+    taskType: "image",
+    enabled: true,
+    defaultVendor: "banana-3.1",
+    metadata: {
+      nodeConfig: buildManagedNodeConfig(
+        {
+          modelKey: "gemini-3.1-image",
+          taskType: "image",
+          vendors: [{ vendorKey: "banana-3.1", creditsPerCall: 20 }],
+          defaultVendor: "banana-3.1",
+        },
+        {
+          flowNodeType: "generatePro",
+          nodeKey: "generatePro",
+          category: "image",
+          creditsPerCall: 20,
+          description: "Nano Banana 2 生图",
+        }
+      ),
+    },
+    vendors: [
+      {
+        vendorKey: "banana-3.1",
+        platformKey: "banana-3.1",
+        label: "Ultra / Nano Banana 2",
+        enabled: true,
+        route: "legacy",
+        provider: "banana-3.1",
+        modelName: "Nano Banana 2",
+        modelVersion: "3.1",
+        creditsPerCall: 20,
+      },
+    ],
+  },
+  {
+    modelKey: "gemini-image-edit",
+    modelName: "Nano Banana Pro 图像编辑",
+    taskType: "image",
+    enabled: true,
+    defaultVendor: "banana",
+    metadata: {
+      nodeConfig: buildManagedNodeConfig(
+        {
+          modelKey: "gemini-image-edit",
+          taskType: "image",
+          vendors: [{ vendorKey: "banana", creditsPerCall: 30 }],
+          defaultVendor: "banana",
+        },
+        {
+          flowNodeType: "generatePro",
+          nodeKey: "generatePro",
+          category: "image",
+          creditsPerCall: 30,
+          description: "Nano Banana Pro 图像编辑",
+        }
+      ),
+    },
+    vendors: [
+      {
+        vendorKey: "banana",
+        platformKey: "banana",
+        label: "Pro / Nano Banana Pro",
+        enabled: true,
+        route: "legacy",
+        provider: "banana",
+        modelName: "Nano Banana Pro Edit",
+        modelVersion: "3.0",
+        creditsPerCall: 30,
+      },
+    ],
+  },
+  {
+    modelKey: "gemini-3.1-image-edit",
+    modelName: "Nano Banana 2 图像编辑",
+    taskType: "image",
+    enabled: true,
+    defaultVendor: "banana-3.1",
+    metadata: {
+      nodeConfig: buildManagedNodeConfig(
+        {
+          modelKey: "gemini-3.1-image-edit",
+          taskType: "image",
+          vendors: [{ vendorKey: "banana-3.1", creditsPerCall: 20 }],
+          defaultVendor: "banana-3.1",
+        },
+        {
+          flowNodeType: "generatePro",
+          nodeKey: "generatePro",
+          category: "image",
+          creditsPerCall: 20,
+          description: "Nano Banana 2 图像编辑",
+        }
+      ),
+    },
+    vendors: [
+      {
+        vendorKey: "banana-3.1",
+        platformKey: "banana-3.1",
+        label: "Ultra / Nano Banana 2",
+        enabled: true,
+        route: "legacy",
+        provider: "banana-3.1",
+        modelName: "Nano Banana 2 Edit",
+        modelVersion: "3.1",
+        creditsPerCall: 20,
+      },
+    ],
+  },
+  {
+    modelKey: "gemini-image-blend",
+    modelName: "Nano Banana Pro 图像融合",
+    taskType: "image",
+    enabled: true,
+    defaultVendor: "banana",
+    metadata: {
+      nodeConfig: buildManagedNodeConfig(
+        {
+          modelKey: "gemini-image-blend",
+          taskType: "image",
+          vendors: [{ vendorKey: "banana", creditsPerCall: 30 }],
+          defaultVendor: "banana",
+        },
+        {
+          flowNodeType: "generateReference",
+          nodeKey: "generateReference",
+          category: "image",
+          creditsPerCall: 30,
+          description: "Nano Banana Pro 图像融合",
+        }
+      ),
+    },
+    vendors: [
+      {
+        vendorKey: "banana",
+        platformKey: "banana",
+        label: "Pro / Nano Banana Pro",
+        enabled: true,
+        route: "legacy",
+        provider: "banana",
+        modelName: "Nano Banana Pro Blend",
+        modelVersion: "3.0",
+        creditsPerCall: 30,
+      },
+    ],
+  },
+  {
+    modelKey: "gemini-3.1-image-blend",
+    modelName: "Nano Banana 2 图像融合",
+    taskType: "image",
+    enabled: true,
+    defaultVendor: "banana-3.1",
+    metadata: {
+      nodeConfig: buildManagedNodeConfig(
+        {
+          modelKey: "gemini-3.1-image-blend",
+          taskType: "image",
+          vendors: [{ vendorKey: "banana-3.1", creditsPerCall: 20 }],
+          defaultVendor: "banana-3.1",
+        },
+        {
+          flowNodeType: "generateReference",
+          nodeKey: "generateReference",
+          category: "image",
+          creditsPerCall: 20,
+          description: "Nano Banana 2 图像融合",
+        }
+      ),
+    },
+    vendors: [
+      {
+        vendorKey: "banana-3.1",
+        platformKey: "banana-3.1",
+        label: "Ultra / Nano Banana 2",
+        enabled: true,
+        route: "legacy",
+        provider: "banana-3.1",
+        modelName: "Nano Banana 2 Blend",
+        modelVersion: "3.1",
+        creditsPerCall: 20,
+      },
+    ],
+  },
+  {
+    modelKey: "gemini-image-analyze",
+    modelName: "Gemini 图像分析",
+    taskType: "image",
+    enabled: true,
+    defaultVendor: "gemini",
+    metadata: {
+      nodeConfig: buildManagedNodeConfig(
+        {
+          modelKey: "gemini-image-analyze",
+          taskType: "image",
+          vendors: [{ vendorKey: "gemini", creditsPerCall: 6 }],
+          defaultVendor: "gemini",
+        },
+        {
+          flowNodeType: "analysis",
+          nodeKey: "analysis",
+          category: "image",
+          creditsPerCall: 6,
+          description: "Gemini 图像分析",
+        }
+      ),
+    },
+    vendors: [
+      {
+        vendorKey: "gemini",
+        platformKey: "gemini",
+        label: "Gemini",
+        enabled: true,
+        route: "legacy",
+        provider: "gemini",
+        modelName: "Gemini Image Analyze",
+        modelVersion: "3.x",
+        creditsPerCall: 6,
+      },
+    ],
+  },
+  {
+    modelKey: "gemini-2.5-image-edit",
+    modelName: "Nano Banana Fast 图像编辑",
+    taskType: "image",
+    enabled: true,
+    defaultVendor: "banana-2.5",
+    metadata: {
+      nodeConfig: buildManagedNodeConfig(
+        {
+          modelKey: "gemini-2.5-image-edit",
+          taskType: "image",
+          vendors: [{ vendorKey: "banana-2.5", creditsPerCall: 30 }],
+          defaultVendor: "banana-2.5",
+        },
+        {
+          flowNodeType: "generatePro",
+          nodeKey: "generatePro",
+          category: "image",
+          creditsPerCall: 30,
+          description: "Nano Banana Fast 图像编辑",
+        }
+      ),
+    },
+    vendors: [
+      {
+        vendorKey: "banana-2.5",
+        platformKey: "banana-2.5",
+        label: "Fast / Nano Banana 2.5",
+        enabled: true,
+        route: "legacy",
+        provider: "banana-2.5",
+        modelName: "Nano Banana Edit",
+        modelVersion: "2.5",
+        creditsPerCall: 30,
+      },
+    ],
+  },
+  {
+    modelKey: "gemini-2.5-image-blend",
+    modelName: "Nano Banana Fast 图像融合",
+    taskType: "image",
+    enabled: true,
+    defaultVendor: "banana-2.5",
+    metadata: {
+      nodeConfig: buildManagedNodeConfig(
+        {
+          modelKey: "gemini-2.5-image-blend",
+          taskType: "image",
+          vendors: [{ vendorKey: "banana-2.5", creditsPerCall: 30 }],
+          defaultVendor: "banana-2.5",
+        },
+        {
+          flowNodeType: "generateReference",
+          nodeKey: "generateReference",
+          category: "image",
+          creditsPerCall: 30,
+          description: "Nano Banana Fast 图像融合",
+        }
+      ),
+    },
+    vendors: [
+      {
+        vendorKey: "banana-2.5",
+        platformKey: "banana-2.5",
+        label: "Fast / Nano Banana 2.5",
+        enabled: true,
+        route: "legacy",
+        provider: "banana-2.5",
+        modelName: "Nano Banana Blend",
+        modelVersion: "2.5",
+        creditsPerCall: 30,
+      },
+    ],
+  },
+  {
+    modelKey: "gemini-2.5-image-analyze",
+    modelName: "Nano Banana Fast 图像分析",
+    taskType: "image",
+    enabled: true,
+    defaultVendor: "banana-2.5",
+    metadata: {
+      nodeConfig: buildManagedNodeConfig(
+        {
+          modelKey: "gemini-2.5-image-analyze",
+          taskType: "image",
+          vendors: [{ vendorKey: "banana-2.5", creditsPerCall: 20 }],
+          defaultVendor: "banana-2.5",
+        },
+        {
+          flowNodeType: "analysis",
+          nodeKey: "analysis",
+          category: "image",
+          creditsPerCall: 20,
+          description: "Nano Banana Fast 图像分析",
+        }
+      ),
+    },
+    vendors: [
+      {
+        vendorKey: "banana-2.5",
+        platformKey: "banana-2.5",
+        label: "Fast / Nano Banana 2.5",
+        enabled: true,
+        route: "legacy",
+        provider: "banana-2.5",
+        modelName: "Nano Banana Analyze",
+        modelVersion: "2.5",
+        creditsPerCall: 20,
+      },
+    ],
+  },
+  {
+    modelKey: "seedream5",
+    modelName: "Seedream 5.0",
+    taskType: "image",
+    enabled: true,
+    defaultVendor: "seedream5",
+    metadata: {
+      nodeConfig: buildManagedNodeConfig(
+        {
+          modelKey: "seedream5",
+          taskType: "image",
+          vendors: [{ vendorKey: "seedream5", creditsPerCall: 30 }],
+          defaultVendor: "seedream5",
+        },
+        {
+          flowNodeType: "seedream5",
+          nodeKey: "seedream5",
+          category: "image",
+          creditsPerCall: 30,
+          description: "Seedream 5.0 图像生成",
+        }
+      ),
+    },
+    vendors: [
+      {
+        vendorKey: "seedream5",
+        platformKey: "seedream5",
+        label: "Seedream 5.0",
+        enabled: true,
+        route: "legacy",
+        provider: "seedream5",
+        modelName: "Seedream",
+        modelVersion: "5.0",
+        creditsPerCall: 30,
+      },
+    ],
+  },
+  {
+    modelKey: "midjourney",
+    modelName: "Midjourney",
+    taskType: "image",
+    enabled: true,
+    defaultVendor: "midjourney",
+    metadata: {
+      nodeConfig: buildManagedNodeConfig(
+        {
+          modelKey: "midjourney",
+          taskType: "image",
+          vendors: [{ vendorKey: "midjourney", creditsPerCall: 50 }],
+          defaultVendor: "midjourney",
+        },
+        {
+          flowNodeType: "midjourney",
+          nodeKey: "midjourney",
+          category: "image",
+          creditsPerCall: 50,
+          description: "Midjourney 生图",
+        }
+      ),
+    },
+    vendors: [
+      {
+        vendorKey: "midjourney",
+        platformKey: "midjourney",
+        label: "Midjourney",
+        enabled: true,
+        route: "legacy",
+        provider: "midjourney",
+        modelName: "Midjourney",
+        modelVersion: "fast",
+        creditsPerCall: 50,
+      },
+    ],
+  },
+  {
+    modelKey: "wan-2.6",
+    modelName: "Wan 2.6",
+    taskType: "video",
+    enabled: true,
+    defaultVendor: "dashscope",
+    metadata: {
+      nodeConfig: buildManagedNodeConfig(
+        {
+          modelKey: "wan-2.6",
+          taskType: "video",
+          vendors: [{ vendorKey: "dashscope", creditsPerCall: 600 }],
+          defaultVendor: "dashscope",
+        },
+        {
+          flowNodeType: "wan26",
+          nodeKey: "wan26",
+          category: "video",
+          creditsPerCall: 600,
+          description: "Wan 2.6 视频生成",
+        }
+      ),
+    },
+    vendors: [
+      {
+        vendorKey: "dashscope",
+        platformKey: "dashscope",
+        label: "DashScope",
+        enabled: true,
+        route: "legacy",
+        provider: "dashscope",
+        modelName: "Wan",
+        modelVersion: "2.6",
+        creditsPerCall: 600,
+      },
+    ],
+  },
+  {
+    modelKey: "wan-2.6-r2v",
+    modelName: "Wan 2.6 参考视频",
+    taskType: "video",
+    enabled: true,
+    defaultVendor: "dashscope",
+    metadata: {
+      nodeConfig: buildManagedNodeConfig(
+        {
+          modelKey: "wan-2.6-r2v",
+          taskType: "video",
+          vendors: [{ vendorKey: "dashscope", creditsPerCall: 600 }],
+          defaultVendor: "dashscope",
+        },
+        {
+          flowNodeType: "wan2R2V",
+          nodeKey: "wan2R2V",
+          category: "video",
+          creditsPerCall: 600,
+          description: "Wan 2.6 参考视频生成",
+        }
+      ),
+    },
+    vendors: [
+      {
+        vendorKey: "dashscope",
+        platformKey: "dashscope",
+        label: "DashScope",
+        enabled: true,
+        route: "legacy",
+        provider: "dashscope",
+        modelName: "Wan",
+        modelVersion: "2.6-r2v",
+        creditsPerCall: 600,
+      },
+    ],
+  },
+  {
+    modelKey: "wan-2.7",
+    modelName: "Wan 2.7",
+    taskType: "video",
+    enabled: true,
+    defaultVendor: "dashscope",
+    metadata: {
+      nodeConfig: buildManagedNodeConfig(
+        {
+          modelKey: "wan-2.7",
+          taskType: "video",
+          vendors: [{ vendorKey: "dashscope", creditsPerCall: 600 }],
+          defaultVendor: "dashscope",
+        },
+        {
+          flowNodeType: "wan27Video",
+          nodeKey: "wan27Video",
+          category: "video",
+          creditsPerCall: 600,
+          description: "Wan 2.7 I2V 视频生成",
+        }
+      ),
+    },
+    vendors: [
+      {
+        vendorKey: "dashscope",
+        platformKey: "dashscope",
+        label: "DashScope",
+        enabled: true,
+        route: "legacy",
+        provider: "dashscope",
+        modelName: "Wan",
+        modelVersion: "2.7-i2v",
+        creditsPerCall: 600,
+      },
+    ],
+  },
   {
     modelKey: "kling-2.6",
     modelName: "Kling 2.6",
@@ -855,6 +1728,12 @@ const createEmptyVendor = (): ManagedModelVendorConfig => ({
   provider: "",
   modelName: "",
   modelVersion: "",
+  pricing: {
+    version: "v1",
+    defaults: {
+      credits: 0,
+    },
+  },
 });
 
 const createEmptyModel = (): ManagedModelConfig => ({
@@ -974,9 +1853,22 @@ const normalizeModelMapping = (input?: Partial<ModelProviderMappingV2>): ModelPr
             : undefined,
       }))
     : [];
-  const mergedModelInputs = Array.isArray(input?.models)
-    ? input.models.filter(Boolean)
-    : DEFAULT_MODEL_CATALOG;
+  const defaultModelMap = new Map(
+    DEFAULT_MODEL_CATALOG.filter((model) => model?.modelKey).map((model) => [model.modelKey, model])
+  );
+  const inputModels = Array.isArray(input?.models) ? input.models.filter(Boolean) : [];
+  const inputModelMap = new Map(
+    inputModels
+      .filter((model) => typeof model?.modelKey === "string" && model.modelKey.trim())
+      .map((model) => [model.modelKey, model])
+  );
+  const mergedModelInputs = [
+    ...DEFAULT_MODEL_CATALOG.map((defaultModel) => inputModelMap.get(defaultModel.modelKey) || defaultModel),
+    ...inputModels.filter((model) => {
+      const modelKey = typeof model?.modelKey === "string" ? model.modelKey.trim() : "";
+      return !modelKey || !defaultModelMap.has(modelKey);
+    }),
+  ];
 
   const models: ManagedModelConfig[] = mergedModelInputs.length
     ? mergedModelInputs.map((model) => ({
@@ -1001,6 +1893,18 @@ const normalizeModelMapping = (input?: Partial<ModelProviderMappingV2>): ModelPr
               modelName: typeof vendor?.modelName === "string" ? vendor.modelName : "",
               modelVersion:
                 typeof vendor?.modelVersion === "string" ? vendor.modelVersion : "",
+              creditsPerCall:
+                typeof vendor?.creditsPerCall === "number" && Number.isFinite(vendor.creditsPerCall)
+                  ? vendor.creditsPerCall
+                  : undefined,
+              priceYuan:
+                typeof vendor?.priceYuan === "number" && Number.isFinite(vendor.priceYuan)
+                  ? vendor.priceYuan
+                  : undefined,
+              pricing:
+                vendor?.pricing && typeof vendor.pricing === "object"
+                  ? vendor.pricing
+                  : undefined,
               metadata:
                 vendor?.metadata && typeof vendor.metadata === "object"
                   ? vendor.metadata
@@ -1248,6 +2152,8 @@ const buildPersistedModelMapping = (input: ModelProviderMappingV2): ModelProvide
     })),
   };
 };
+
+const stringifyPrettyJson = (value: unknown) => JSON.stringify(value, null, 2);
 
 type VideoModelRouteSelection = {
   sora2: "zhenzhen" | "147" | "apimart";
@@ -1581,6 +2487,22 @@ const applyVideoModelRouteSelectionToMapping = (
   });
 };
 const MANAGED_MODEL_SUPPORTED_MODELS_MAP: Record<string, string[]> = {
+  "gemini-2.5-image": ["gemini-2.5-flash-image-preview"],
+  "gemini-2.5-image-edit": ["gemini-2.5-flash-image-preview"],
+  "gemini-2.5-image-blend": ["gemini-2.5-flash-image-preview"],
+  "gemini-2.5-image-analyze": ["gemini-2.5-flash-image-preview"],
+  "seedream5": ["doubao-seedream-5-0-260128"],
+  "midjourney": ["midjourney-fast"],
+  "wan-2.6": ["wan2.6-t2v", "wan2.6-i2v"],
+  "wan-2.6-r2v": ["wan2.6-r2v"],
+  "wan-2.7": ["wan2.7-i2v"],
+  "gemini-3-pro-image": ["gemini-3-pro-image-preview"],
+  "gemini-3.1-image": ["gemini-3.1-flash-image-preview"],
+  "gemini-image-edit": ["gemini-3-pro-image-preview"],
+  "gemini-3.1-image-edit": ["gemini-3.1-flash-image-preview"],
+  "gemini-image-blend": ["gemini-3-pro-image-preview"],
+  "gemini-3.1-image-blend": ["gemini-3.1-flash-image-preview"],
+  "gemini-image-analyze": ["gemini-3-pro-image-preview"],
   "kling-2.6": ["kling-v2-6"],
   "kling-3.0": ["kling-v3-0"],
   "kling-o3": ["kling-o3"],
@@ -1592,6 +2514,22 @@ const MANAGED_MODEL_SUPPORTED_MODELS_MAP: Record<string, string[]> = {
 };
 
 const MANAGED_MODEL_SERVICE_TYPE_MAP: Record<string, string> = {
+  "gemini-2.5-image": "gemini-2.5-image",
+  "gemini-2.5-image-edit": "gemini-2.5-image-edit",
+  "gemini-2.5-image-blend": "gemini-2.5-image-blend",
+  "gemini-2.5-image-analyze": "gemini-2.5-image-analyze",
+  "seedream5": "doubao-seedream-5-0-260128",
+  "midjourney": "midjourney-imagine",
+  "wan-2.6": "wan26-video",
+  "wan-2.6-r2v": "wan26-r2v",
+  "wan-2.7": "wan27-video",
+  "gemini-3-pro-image": "gemini-3-pro-image",
+  "gemini-3.1-image": "gemini-3.1-image",
+  "gemini-image-edit": "gemini-image-edit",
+  "gemini-3.1-image-edit": "gemini-3.1-image-edit",
+  "gemini-image-blend": "gemini-image-blend",
+  "gemini-3.1-image-blend": "gemini-3.1-image-blend",
+  "gemini-image-analyze": "gemini-image-analyze",
   "kling-2.6": "kling-2.6-video",
   "kling-3.0": "kling-3.0-video",
   "kling-o3": "kling-o1-video",
@@ -1602,6 +2540,276 @@ const MANAGED_MODEL_SERVICE_TYPE_MAP: Record<string, string> = {
   "sora-2": "sora-sd",
 };
 
+const MANAGED_MODEL_OUTPUT_CONFIG_MAP: Record<
+  string,
+  {
+    aspectRatios?: string[];
+    durations?: number[];
+    resolutions?: string[];
+    audioGeneration?: boolean;
+  }
+> = {
+  "kling-2.6": {
+    aspectRatios: ["16:9", "9:16", "1:1"],
+    durations: [5, 10],
+    resolutions: ["720P", "1080P"],
+    audioGeneration: true,
+  },
+  "kling-3.0": {
+    aspectRatios: ["16:9", "9:16", "1:1"],
+    durations: [5, 10],
+    resolutions: ["720P", "1080P"],
+    audioGeneration: true,
+  },
+  "kling-o3": {
+    aspectRatios: ["16:9", "9:16", "1:1"],
+    durations: [3, 4, 5, 6, 7, 8, 9, 10],
+    resolutions: ["720P", "1080P"],
+    audioGeneration: true,
+  },
+  "vidu-q2": {
+    aspectRatios: ["16:9", "9:16", "3:4", "4:3", "1:1"],
+    durations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+    resolutions: ["540P", "720P", "1080P"],
+  },
+  "vidu-q3": {
+    aspectRatios: ["16:9", "9:16", "3:4", "4:3", "1:1"],
+    durations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+    resolutions: ["540P", "720P", "1080P"],
+  },
+  "seedance-1.5": {
+    aspectRatios: ["16:9", "9:16", "1:1"],
+    durations: [3, 4, 5, 6, 7, 8, 9, 10],
+    resolutions: ["720P"],
+  },
+  "seedance-2.0": {
+    aspectRatios: [...SEEDANCE20_VOD_METADATA.outputConfig.aspectRatios],
+    durations: [...SEEDANCE20_VOD_METADATA.outputConfig.durations],
+    resolutions: [...SEEDANCE20_VOD_METADATA.outputConfig.resolutions],
+    audioGeneration: SEEDANCE20_VOD_METADATA.outputConfig.audioGeneration,
+  },
+  "sora-2": {
+    aspectRatios: ["16:9", "9:16", "1:1"],
+    durations: [5, 10, 15],
+    resolutions: ["720P", "1080P"],
+    audioGeneration: true,
+  },
+  "wan-2.6": {
+    aspectRatios: ["16:9", "9:16", "1:1", "4:3", "3:4"],
+    durations: [5, 10, 15],
+    resolutions: ["720P", "1080P"],
+    audioGeneration: true,
+  },
+  "wan-2.6-r2v": {
+    aspectRatios: ["16:9", "9:16", "1:1", "4:3", "3:4"],
+    durations: [5, 10, 15],
+    resolutions: ["720P", "1080P"],
+    audioGeneration: true,
+  },
+  "wan-2.7": {
+    durations: [5, 10, 15],
+    resolutions: ["720P", "1080P"],
+    audioGeneration: true,
+  },
+};
+
+
+const MANAGED_IMAGE_PRICING_CONFIG_MAP: Record<
+  string,
+  {
+    modes?: Array<{ value: string; label: string }>;
+    imageSizes?: string[];
+    qualities?: string[];
+    outputCounts?: number[];
+    referenceImageCounts?: number[];
+  }
+> = {
+  "gemini-2.5-image": {
+    modes: [{ value: "generate", label: "文生图" }],
+    imageSizes: ["768", "1024", "1536", "2048", "1K", "2K"],
+    qualities: ["standard", "hd"],
+    outputCounts: [1, 2, 4],
+    referenceImageCounts: [0],
+  },
+  "gemini-2.5-image-edit": {
+    modes: [{ value: "edit", label: "图像编辑" }],
+    imageSizes: ["768", "1024", "1536", "2048", "1K", "2K"],
+    qualities: ["standard", "hd"],
+    outputCounts: [1, 2, 4],
+    referenceImageCounts: [1, 2, 4],
+  },
+  "gemini-2.5-image-blend": {
+    modes: [{ value: "reference", label: "参考图生成" }],
+    imageSizes: ["768", "1024", "1536", "2048", "1K", "2K"],
+    qualities: ["standard", "hd"],
+    outputCounts: [1, 2, 4],
+    referenceImageCounts: [1, 2, 4],
+  },
+  "gemini-2.5-image-analyze": {
+    modes: [{ value: "analysis", label: "图像分析" }],
+    imageSizes: ["source"],
+    qualities: ["standard"],
+    outputCounts: [1],
+    referenceImageCounts: [1],
+  },
+  "seedream5": {
+    modes: [{ value: "generate", label: "文生图" }],
+    imageSizes: ["1K", "2K", "4K"],
+    qualities: ["standard", "hd"],
+    outputCounts: [1, 2, 4],
+    referenceImageCounts: [0],
+  },
+  "gemini-3-pro-image": {
+    modes: [{ value: "generate", label: "高质量文生图" }],
+    imageSizes: ["1024", "1536", "2048", "1K", "2K", "4K"],
+    qualities: ["standard", "hd", "pro"],
+    outputCounts: [1, 2, 4],
+    referenceImageCounts: [0],
+  },
+  "gemini-3.1-image": {
+    modes: [{ value: "generate", label: "文生图" }],
+    imageSizes: ["1024", "1536", "2048", "1K", "2K", "4K"],
+    qualities: ["standard", "hd", "pro"],
+    outputCounts: [1, 2, 4],
+    referenceImageCounts: [0],
+  },
+  "gemini-image-edit": {
+    modes: [{ value: "edit", label: "图像编辑" }],
+    imageSizes: ["1024", "1536", "2048", "1K", "2K", "4K"],
+    qualities: ["standard", "hd", "pro"],
+    outputCounts: [1, 2, 4],
+    referenceImageCounts: [1, 2, 4],
+  },
+  "gemini-3.1-image-edit": {
+    modes: [{ value: "edit", label: "图像编辑" }],
+    imageSizes: ["1024", "1536", "2048", "1K", "2K", "4K"],
+    qualities: ["standard", "hd", "pro"],
+    outputCounts: [1, 2, 4],
+    referenceImageCounts: [1, 2, 4],
+  },
+  "gemini-image-blend": {
+    modes: [{ value: "reference", label: "参考图生成" }],
+    imageSizes: ["1024", "1536", "2048", "1K", "2K", "4K"],
+    qualities: ["standard", "hd", "pro"],
+    outputCounts: [1, 2, 4],
+    referenceImageCounts: [1, 2, 4],
+  },
+  "gemini-3.1-image-blend": {
+    modes: [{ value: "reference", label: "参考图生成" }],
+    imageSizes: ["1024", "1536", "2048", "1K", "2K", "4K"],
+    qualities: ["standard", "hd", "pro"],
+    outputCounts: [1, 2, 4],
+    referenceImageCounts: [1, 2, 4],
+  },
+  "gemini-image-analyze": {
+    modes: [{ value: "analysis", label: "图像分析" }],
+    imageSizes: ["source"],
+    qualities: ["standard"],
+    outputCounts: [1],
+    referenceImageCounts: [1],
+  },
+  generate: {
+    modes: [{ value: "generate", label: "文生图" }],
+    imageSizes: ["768", "1024", "1536", "2048", "1K", "2K"],
+    qualities: ["standard", "hd"],
+    outputCounts: [1, 2, 4],
+    referenceImageCounts: [0],
+  },
+  generatePro: {
+    modes: [
+      { value: "generate", label: "文生图" },
+      { value: "edit", label: "编辑" },
+      { value: "reference", label: "参考图生成" },
+    ],
+    imageSizes: ["1024", "1536", "2048", "1K", "2K", "4K"],
+    qualities: ["standard", "hd", "pro"],
+    outputCounts: [1, 2, 4],
+    referenceImageCounts: [0, 1, 2, 4],
+  },
+  midjourney: {
+    modes: [
+      { value: "generate", label: "文生图" },
+      { value: "reference", label: "参考图生成" },
+    ],
+    imageSizes: ["1024", "1536", "2048"],
+    qualities: ["standard", "pro"],
+    outputCounts: [1, 4],
+    referenceImageCounts: [0, 1, 2, 4],
+  },
+  analysis: {
+    modes: [{ value: "analysis", label: "图像分析" }],
+    imageSizes: ["source"],
+    qualities: ["standard"],
+    outputCounts: [1],
+    referenceImageCounts: [1],
+  },
+};
+
+const getManagedImagePricingConfig = (model?: ManagedModelConfig, nodeConfig?: ManagedModelNodeConfig) => {
+  const modelKey = String(model?.modelKey || '').trim();
+  const flowNodeType = String(nodeConfig?.flowNodeType || '').trim();
+  return (
+    (modelKey && MANAGED_IMAGE_PRICING_CONFIG_MAP[modelKey]) ||
+    (flowNodeType && MANAGED_IMAGE_PRICING_CONFIG_MAP[flowNodeType]) ||
+    {
+      modes: [
+        { value: "generate", label: "文生图" },
+        { value: "edit", label: "编辑" },
+        { value: "reference", label: "参考图生成" },
+      ],
+      imageSizes: ["1024", "1536", "2048", "1K", "2K"],
+      qualities: ["standard", "hd", "pro"],
+      outputCounts: [1, 2, 4],
+      referenceImageCounts: [0, 1, 2, 4],
+    }
+  );
+};
+
+const readManagedModelMetadataRecord = (model?: ManagedModelConfig): Record<string, any> =>
+  model?.metadata && typeof model.metadata === "object" ? (model.metadata as Record<string, any>) : {};
+
+const getManagedModelServiceType = (model?: ManagedModelConfig): string => {
+  const metadata = readManagedModelMetadataRecord(model);
+  const explicit = String(metadata.serviceType || "").trim();
+  return explicit || (model?.modelKey ? MANAGED_MODEL_SERVICE_TYPE_MAP[model.modelKey] || "" : "");
+};
+
+const getManagedModelSupportedModels = (model?: ManagedModelConfig): string[] => {
+  const metadata = readManagedModelMetadataRecord(model);
+  const explicit = Array.isArray(metadata.supportedModels)
+    ? metadata.supportedModels
+        .map((item: unknown) => String(item || "").trim())
+        .filter(Boolean)
+    : [];
+  if (explicit.length > 0) return explicit;
+  return model?.modelKey ? MANAGED_MODEL_SUPPORTED_MODELS_MAP[model.modelKey] || [] : [];
+};
+
+const getManagedModelOutputConfig = (model?: ManagedModelConfig) => {
+  const metadata = readManagedModelMetadataRecord(model);
+  const explicit = metadata.outputConfig;
+  if (explicit && typeof explicit === "object" && !Array.isArray(explicit)) {
+    return explicit as {
+      aspectRatios?: string[];
+      durations?: number[];
+      resolutions?: string[];
+      audioGeneration?: boolean;
+    };
+  }
+  return model?.modelKey ? MANAGED_MODEL_OUTPUT_CONFIG_MAP[model.modelKey] : undefined;
+};
+
+const parseCommaSeparatedList = (value: string) =>
+  value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+const parseCommaSeparatedNumbers = (value: string) =>
+  parseCommaSeparatedList(value)
+    .map((item) => Number(item))
+    .filter((item) => Number.isFinite(item));
+
 const buildManagedNodeMetadata = (model: ManagedModelConfig): Record<string, any> => {
   const taskType = normalizeManagedModelTaskType(model.taskType);
   const nodeConfig = getManagedNodeConfig(model);
@@ -1609,7 +2817,7 @@ const buildManagedNodeMetadata = (model: ManagedModelConfig): Record<string, any
     (model.vendors || []).find((vendor) => vendor.vendorKey === model.defaultVendor) ||
     (model.vendors || []).find((vendor) => vendor.enabled !== false) ||
     model.vendors?.[0];
-  const supportedModels = MANAGED_MODEL_SUPPORTED_MODELS_MAP[model.modelKey] || [];
+  const supportedModels = getManagedModelSupportedModels(model);
   const managedRoutes = {
     modelKey: model.modelKey,
     defaultVendor: model.defaultVendor || defaultVendor?.vendorKey || "",
@@ -1623,8 +2831,12 @@ const buildManagedNodeMetadata = (model: ManagedModelConfig): Record<string, any
         route: vendor.route,
         modelName: vendor.modelName,
         modelVersion: vendor.modelVersion,
-        creditsPerCall:
-          typeof vendor.creditsPerCall === "number" ? vendor.creditsPerCall : undefined,
+        creditsPerCall: getVendorPricingDefaults(vendor).credits,
+        priceYuan: getVendorPricingDefaults(vendor).priceYuan,
+        pricing:
+          vendor.pricing && typeof vendor.pricing === "object"
+            ? vendor.pricing
+            : undefined,
       })),
   };
   const metadata: Record<string, any> = {
@@ -1642,16 +2854,17 @@ const buildManagedNodeMetadata = (model: ManagedModelConfig): Record<string, any
   }
 
   if (taskType === "video") {
+    const outputConfig = getManagedModelOutputConfig(model);
     metadata.vod = {
       label: defaultVendor?.label || model.modelName || model.modelKey,
       modelName: defaultVendor?.modelName || model.modelName || model.modelKey,
       modelVersion: defaultVendor?.modelVersion || "",
+      ...(outputConfig ? { outputConfig } : {}),
       ...(model.modelKey === "seedance-2.0" ? SEEDANCE20_VOD_METADATA : {}),
     };
   }
 
-  const defaultVendorCredits =
-    typeof defaultVendor?.creditsPerCall === "number" ? defaultVendor.creditsPerCall : undefined;
+  const defaultVendorCredits = getVendorPricingDefaults(defaultVendor).credits;
 
   if (model.modelKey.startsWith("vidu-")) {
     const defaultViduModel = supportedModels[0] || "q2";
@@ -6360,7 +7573,7 @@ function NodeConfigsTab() {
       category: nodeConfig.category || (taskType === "text" ? "input" : taskType),
       status: "normal" as const,
       creditsPerCall: nodeConfig.creditsPerCall || 0,
-      serviceType: MANAGED_MODEL_SERVICE_TYPE_MAP[model.modelKey] || undefined,
+      serviceType: getManagedModelServiceType(model) || undefined,
       sortOrder: nodeConfig.sortOrder || 0,
       isVisible: true,
       description: nodeConfig.description || `${model.modelName || model.modelKey} 节点（模型管理导入）`,
@@ -6850,14 +8063,1337 @@ function NodeConfigsTab() {
   );
 }
 
+function UnifiedModelManagementTab() {
+  const [toast, setToast] = useState<{
+    message: string;
+    type: "success" | "error";
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [statusText, setStatusText] = useState("");
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
+  const [mappingDraft, setMappingDraft] = useState<ModelProviderMappingV2>(() =>
+    buildPersistedModelMapping(JSON.parse(DEFAULT_MODEL_PROVIDER_MAPPING_TEMPLATE))
+  );
+  const [selectedModelIndex, setSelectedModelIndex] = useState(0);
+  const [selectedPlatformIndex, setSelectedPlatformIndex] = useState<number | null>(null);
+  const [modelSearch, setModelSearch] = useState("");
+  const [modelTypeFilter, setModelTypeFilter] = useState<"all" | ManagedModelTaskType>("all");
+  const [jsonModalOpen, setJsonModalOpen] = useState(false);
+  const [jsonText, setJsonText] = useState(DEFAULT_MODEL_PROVIDER_MAPPING_TEMPLATE);
+
+  const showToast = (message: string, type: "success" | "error" = "success") => {
+    setToast({ message, type });
+  };
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 2400);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  const cloneMapping = (input: ModelProviderMappingV2): ModelProviderMappingV2 =>
+    JSON.parse(stringifyPrettyJson(buildPersistedModelMapping(input)));
+
+  const createSpecRule = () => ({
+    label: "",
+    match: { resolution: "720P", duration: 5 } as Record<string, any>,
+    creditsPerCall: 0,
+    priceYuan: undefined,
+  });
+
+  const syncDraftFromObject = (input: ModelProviderMappingV2) => {
+    const normalized = cloneMapping(input);
+    setMappingDraft(normalized);
+    setJsonText(stringifyPrettyJson(normalized));
+
+    const modelCount = normalized.models?.length || 0;
+    setSelectedModelIndex((current) => {
+      if (modelCount === 0) return 0;
+      return Math.min(current, modelCount - 1);
+    });
+
+    const platformCount = normalized.platforms?.length || 0;
+    setSelectedPlatformIndex((current) => {
+      if (current === null) return platformCount > 0 ? 0 : null;
+      if (platformCount === 0) return null;
+      return Math.min(current, platformCount - 1);
+    });
+
+    return normalized;
+  };
+
+  const loadMapping = async () => {
+    setLoading(true);
+    setStatusText("");
+    try {
+      const settings = await getSettings();
+      const existing = settings.find((item) => item.key === MODEL_PROVIDER_MAPPING_SETTING_KEY);
+      const nextText = existing?.value?.trim() || DEFAULT_MODEL_PROVIDER_MAPPING_TEMPLATE;
+      const parsed = JSON.parse(nextText);
+      syncDraftFromObject(parsed);
+      setLastUpdatedAt(existing?.updatedAt || null);
+    } catch (error) {
+      console.error("加载统一模型管理配置失败:", error);
+      setStatusText("加载失败，请稍后重试");
+      showToast("加载统一模型管理配置失败", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadMapping();
+  }, []);
+
+  const parseJsonDraft = () => {
+    let parsed: ModelProviderMappingV2;
+    try {
+      parsed = JSON.parse(jsonText);
+    } catch {
+      throw new Error("JSON 格式不正确，请先修正后再导入");
+    }
+    const payloadObject = buildPersistedModelMapping(parsed);
+    validateManagedModelMapping(payloadObject);
+    return payloadObject;
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setStatusText("");
+    try {
+      const payloadObject = buildPersistedModelMapping(mappingDraft);
+      validateManagedModelMapping(payloadObject);
+      const saved = await upsertSetting({
+        key: MODEL_PROVIDER_MAPPING_SETTING_KEY,
+        value: stringifyPrettyJson(payloadObject),
+        description: "统一模型管理(JSON 映射，V2)",
+      });
+      syncDraftFromObject(payloadObject);
+      setLastUpdatedAt(saved.updatedAt);
+      setStatusText("保存成功");
+      notifyNodeConfigsUpdated();
+      showToast("统一模型管理配置已保存");
+    } catch (error: any) {
+      setStatusText("保存失败，请稍后重试");
+      showToast(error?.message || "保存失败", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleReset = () => {
+    syncDraftFromObject(JSON.parse(DEFAULT_MODEL_PROVIDER_MAPPING_TEMPLATE));
+    setStatusText("已恢复默认模板，未保存");
+  };
+
+  const applyMappingMutation = (mutator: (draft: ModelProviderMappingV2) => void) => {
+    setMappingDraft((current) => {
+      const next = cloneMapping(current);
+      mutator(next);
+      const normalized = buildPersistedModelMapping(next);
+      setJsonText(stringifyPrettyJson(normalized));
+      return normalized;
+    });
+    setStatusText("已修改，未保存");
+  };
+
+  const summary = {
+    models: mappingDraft.models?.length || 0,
+    vendors: (mappingDraft.models || []).reduce(
+      (total, model) => total + (Array.isArray(model.vendors) ? model.vendors.length : 0),
+      0
+    ),
+    platforms: mappingDraft.platforms?.length || 0,
+  };
+
+  const platformList = mappingDraft.platforms || [];
+  const modelList = mappingDraft.models || [];
+  const normalizedModelSearch = modelSearch.trim().toLowerCase();
+  const filteredModelEntries = modelList
+    .map((model, index) => ({ model, index }))
+    .filter(({ model }) => {
+      const matchesType =
+        modelTypeFilter === "all" ||
+        normalizeManagedModelTaskType(model.taskType) === modelTypeFilter;
+      if (!matchesType) return false;
+      if (!normalizedModelSearch) return true;
+      const haystacks = [model.modelName, model.modelKey, model.defaultVendor];
+      return haystacks.some((value) => String(value || "").toLowerCase().includes(normalizedModelSearch));
+    });
+  const selectedModel = modelList[selectedModelIndex];
+  const selectedModelServiceType = selectedModel ? getManagedModelServiceType(selectedModel) : "";
+  const selectedModelSupportedModels = selectedModel ? getManagedModelSupportedModels(selectedModel) : [];
+  const selectedModelOutputConfig = selectedModel ? getManagedModelOutputConfig(selectedModel) : undefined;
+  const selectedNodeConfig = selectedModel ? getManagedNodeConfig(selectedModel) : undefined;
+  const selectedManagedMetadata = selectedModel ? buildManagedNodeMetadata(selectedModel) : undefined;
+  const selectedVodConfig =
+    selectedManagedMetadata?.vod && typeof selectedManagedMetadata.vod === "object"
+      ? (selectedManagedMetadata.vod as Record<string, any>)
+      : undefined;
+  const selectedImagePricingConfig = selectedModel
+    ? getManagedImagePricingConfig(selectedModel, selectedNodeConfig)
+    : undefined;
+  const selectedPlatform =
+    selectedPlatformIndex !== null && selectedPlatformIndex >= 0
+      ? platformList[selectedPlatformIndex]
+      : undefined;
+
+  const updateSelectedPlatform = (patch: Partial<ManagedVendorPlatformConfig>) => {
+    if (selectedPlatformIndex === null) return;
+    applyMappingMutation((draft) => {
+      const target = draft.platforms?.[selectedPlatformIndex];
+      if (!target) return;
+      Object.assign(target, patch);
+    });
+  };
+
+  const addPlatform = () => {
+    applyMappingMutation((draft) => {
+      draft.platforms = [...(draft.platforms || []), createEmptyPlatform()];
+    });
+    setSelectedPlatformIndex(platformList.length);
+  };
+
+  const removePlatform = (index: number) => {
+    applyMappingMutation((draft) => {
+      draft.platforms = (draft.platforms || []).filter((_, currentIndex) => currentIndex !== index);
+    });
+    setSelectedPlatformIndex((current) => {
+      if (current === null) return null;
+      if (current === index) return null;
+      return current > index ? current - 1 : current;
+    });
+  };
+
+  const updateSelectedModel = (patch: Partial<ManagedModelConfig>) => {
+    if (!selectedModel) return;
+    applyMappingMutation((draft) => {
+      const target = draft.models?.[selectedModelIndex];
+      if (!target) return;
+      Object.assign(target, patch);
+    });
+  };
+
+  const updateSelectedModelMetadata = (patch: Record<string, any>) => {
+    if (!selectedModel) return;
+    applyMappingMutation((draft) => {
+      const target = draft.models?.[selectedModelIndex];
+      if (!target) return;
+      target.metadata = {
+        ...(target.metadata && typeof target.metadata === "object" ? target.metadata : {}),
+        ...patch,
+      };
+    });
+  };
+
+  const updateSelectedModelOutputConfig = (patch: Record<string, any>) => {
+    if (!selectedModel) return;
+    applyMappingMutation((draft) => {
+      const target = draft.models?.[selectedModelIndex];
+      if (!target) return;
+      const metadata = target.metadata && typeof target.metadata === "object" ? { ...target.metadata } : {};
+      const currentOutputConfig =
+        metadata.outputConfig && typeof metadata.outputConfig === "object" && !Array.isArray(metadata.outputConfig)
+          ? { ...metadata.outputConfig }
+          : {};
+      metadata.outputConfig = {
+        ...currentOutputConfig,
+        ...patch,
+      };
+      target.metadata = metadata;
+    });
+  };
+
+  const updateSelectedNodeConfig = (patch: Partial<ManagedModelNodeConfig>) => {
+    if (!selectedModel) return;
+    applyMappingMutation((draft) => {
+      const target = draft.models?.[selectedModelIndex];
+      if (!target) return;
+      const nodeConfig = getManagedNodeConfig(target);
+      target.metadata = {
+        ...(target.metadata && typeof target.metadata === "object" ? target.metadata : {}),
+        nodeConfig: {
+          ...nodeConfig,
+          ...patch,
+        },
+      };
+    });
+  };
+
+  const addModel = () => {
+    applyMappingMutation((draft) => {
+      draft.models = [...(draft.models || []), createEmptyModel()];
+    });
+    setSelectedModelIndex(modelList.length);
+  };
+
+  const removeModel = (index: number) => {
+    applyMappingMutation((draft) => {
+      draft.models = (draft.models || []).filter((_, currentIndex) => currentIndex !== index);
+    });
+    setSelectedModelIndex((current) => {
+      if (current <= 0) return 0;
+      if (current >= index) return current - 1;
+      return current;
+    });
+  };
+
+  const updateVendor = (vendorIndex: number, patch: Partial<ManagedModelVendorConfig>) => {
+    if (!selectedModel) return;
+    applyMappingMutation((draft) => {
+      const model = draft.models?.[selectedModelIndex];
+      const target = model?.vendors?.[vendorIndex];
+      if (!target) return;
+      Object.assign(target, patch);
+      if (patch.vendorKey && model?.defaultVendor === target.vendorKey) {
+        model.defaultVendor = patch.vendorKey;
+      }
+    });
+  };
+
+  const applyPlatformToVendor = (vendorIndex: number, platformKey: string) => {
+    if (!selectedModel) return;
+    const platform = platformList.find((item) => item.platformKey === platformKey);
+    updateVendor(vendorIndex, {
+      platformKey,
+      route: platform?.route || "legacy",
+      provider: platform?.provider || undefined,
+      label: platform?.platformName || undefined,
+    });
+  };
+
+  const updateVendorSpecRules = (
+    vendorIndex: number,
+    nextRules: ManagedSpecPricingRule[]
+  ) => {
+    if (!selectedModel) return;
+    applyMappingMutation((draft) => {
+      const model = draft.models?.[selectedModelIndex];
+      const target = model?.vendors?.[vendorIndex];
+      if (!target || !model?.vendors) return;
+      model.vendors[vendorIndex] = writeVendorSpecPricingRules(target, nextRules);
+    });
+  };
+
+  const addVendor = () => {
+    if (!selectedModel) return;
+    applyMappingMutation((draft) => {
+      const model = draft.models?.[selectedModelIndex];
+      if (!model) return;
+      model.vendors = [...(model.vendors || []), createEmptyVendor()];
+    });
+  };
+
+  const removeVendor = (vendorIndex: number) => {
+    if (!selectedModel) return;
+    applyMappingMutation((draft) => {
+      const model = draft.models?.[selectedModelIndex];
+      if (!model) return;
+      const nextVendors = (model.vendors || []).filter((_, currentIndex) => currentIndex !== vendorIndex);
+      model.vendors = nextVendors;
+      if (model.defaultVendor === (selectedModel.vendors || [])[vendorIndex]?.vendorKey) {
+        model.defaultVendor = nextVendors[0]?.vendorKey || "";
+      }
+    });
+  };
+
+  const handleImportJson = () => {
+    try {
+      const payloadObject = parseJsonDraft();
+      syncDraftFromObject(payloadObject);
+      setJsonModalOpen(false);
+      setStatusText("已导入 JSON，未保存");
+      showToast("JSON 已导入到表单", "success");
+    } catch (error: any) {
+      showToast(error?.message || "JSON 导入失败", "error");
+    }
+  };
+
+  const vendorCards = selectedModel?.vendors || [];
+
+  return (
+    <div className='space-y-4'>
+      {toast && (
+        <div className='fixed right-6 top-6 z-[70]'>
+          <div
+            className={`min-w-[240px] rounded-lg border px-4 py-3 text-sm shadow-lg ${
+              toast.type === "success"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : "border-red-200 bg-red-50 text-red-700"
+            }`}
+          >
+            {toast.message}
+          </div>
+        </div>
+      )}
+
+      <div className='bg-white rounded-lg border p-6 shadow-sm space-y-3'>
+        <div className='flex flex-wrap items-start justify-between gap-4'>
+          <div>
+            <h3 className='text-lg font-semibold mb-2'>统一模型管理</h3>
+            <p className='text-sm text-gray-500'>
+              主界面使用列表 + 表单维护模型、平台、厂商和规格价；JSON 仅作为导入/整体替换使用。
+            </p>
+            <div className='mt-2 text-xs text-gray-500'>
+              配置 Key: {MODEL_PROVIDER_MAPPING_SETTING_KEY}
+              {lastUpdatedAt
+                ? ` · 最后更新：${new Date(lastUpdatedAt).toLocaleString("zh-CN", {
+                    hour12: false,
+                  })}`
+                : ""}
+            </div>
+          </div>
+          <div className='flex flex-wrap gap-3'>
+            <Button onClick={handleSave} disabled={saving || loading}>
+              {saving ? "保存中..." : "保存设置"}
+            </Button>
+            <Button variant='outline' onClick={loadMapping} disabled={saving || loading}>
+              {loading ? "加载中..." : "重新加载"}
+            </Button>
+            <Button variant='outline' onClick={() => setJsonModalOpen(true)} disabled={saving || loading}>
+              JSON 导入/替换
+            </Button>
+            <Button variant='outline' onClick={handleReset} disabled={saving || loading}>
+              恢复默认模板
+            </Button>
+          </div>
+        </div>
+        <div className='grid gap-3 md:grid-cols-3'>
+          <div className='rounded-lg border bg-gray-50 px-4 py-3'>
+            <div className='text-xs text-gray-500'>模型数</div>
+            <div className='text-xl font-semibold'>{summary.models}</div>
+          </div>
+          <div className='rounded-lg border bg-gray-50 px-4 py-3'>
+            <div className='text-xs text-gray-500'>厂商路线数</div>
+            <div className='text-xl font-semibold'>{summary.vendors}</div>
+          </div>
+          <div className='rounded-lg border bg-gray-50 px-4 py-3'>
+            <div className='text-xs text-gray-500'>平台数</div>
+            <div className='text-xl font-semibold'>{summary.platforms}</div>
+          </div>
+        </div>
+        {statusText && <div className='text-sm text-gray-500'>{statusText}</div>}
+      </div>
+
+      <div className='grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]'>
+        <div className='space-y-4'>
+          <div className='bg-white rounded-lg border p-4 shadow-sm'>
+            <div className='mb-3 flex items-center justify-between'>
+              <h4 className='font-semibold'>模型列表</h4>
+              <Button size='sm' onClick={addModel}>新增模型</Button>
+            </div>
+            <div className='mb-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_112px]'>
+              <Input
+                value={modelSearch}
+                onChange={(e) => setModelSearch(e.target.value)}
+                placeholder='搜索模型名 / modelKey / 默认厂商'
+              />
+              <select
+                value={modelTypeFilter}
+                onChange={(e) => setModelTypeFilter(e.target.value as "all" | ManagedModelTaskType)}
+                className='w-full rounded border px-3 py-2 text-sm'
+              >
+                <option value='all'>全部类型</option>
+                <option value='image'>图片</option>
+                <option value='video'>视频</option>
+                <option value='text'>文本</option>
+              </select>
+            </div>
+            <div className='space-y-2'>
+              {modelList.length === 0 ? (
+                <div className='rounded-lg border border-dashed px-3 py-6 text-center text-sm text-gray-500'>
+                  暂无模型，点击“新增模型”开始配置。
+                </div>
+              ) : filteredModelEntries.length === 0 ? (
+                <div className='rounded-lg border border-dashed px-3 py-6 text-center text-sm text-gray-500'>
+                  没有匹配的模型，试试清空搜索或切换类型筛选。
+                </div>
+              ) : (
+                filteredModelEntries.map(({ model, index }) => {
+                  const vendors = Array.isArray(model.vendors) ? model.vendors.length : 0;
+                  const isActive = index === selectedModelIndex;
+                  return (
+                    <button
+                      key={`${model.modelKey || 'model'}-${index}`}
+                      type='button'
+                      onClick={() => setSelectedModelIndex(index)}
+                      className={`w-full rounded-lg border px-3 py-3 text-left transition ${
+                        isActive ? 'border-blue-500 bg-blue-50' : 'hover:border-gray-300'
+                      }`}
+                    >
+                      <div className='flex items-start justify-between gap-3'>
+                        <div>
+                          <div className='font-medium'>{model.modelName || '未命名模型'}</div>
+                          <div className='text-xs text-gray-500'>{model.modelKey || '未设置 modelKey'}</div>
+                          <div className='mt-1 text-xs text-gray-400'>
+                            {normalizeManagedModelTaskType(model.taskType)} · {vendors} 条厂商路线
+                          </div>
+                        </div>
+                        <span className={`rounded px-2 py-1 text-xs ${model.enabled !== false ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                          {model.enabled !== false ? '启用' : '停用'}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          <div className='bg-white rounded-lg border p-4 shadow-sm'>
+            <div className='mb-3 flex items-center justify-between'>
+              <h4 className='font-semibold'>平台列表</h4>
+              <Button size='sm' variant='outline' onClick={addPlatform}>新增平台</Button>
+            </div>
+            <div className='space-y-2'>
+              {platformList.length === 0 ? (
+                <div className='rounded-lg border border-dashed px-3 py-6 text-center text-sm text-gray-500'>暂无平台配置</div>
+              ) : (
+                platformList.map((platform, index) => {
+                  const isActive = selectedPlatformIndex === index;
+                  return (
+                    <button
+                      key={`${platform.platformKey || 'platform'}-${index}`}
+                      type='button'
+                      onClick={() => setSelectedPlatformIndex(index)}
+                      className={`w-full rounded-lg border px-3 py-3 text-left transition ${
+                        isActive ? 'border-blue-500 bg-blue-50' : 'hover:border-gray-300'
+                      }`}
+                    >
+                      <div className='font-medium'>{platform.platformName || '未命名平台'}</div>
+                      <div className='text-xs text-gray-500'>{platform.platformKey || '未设置 platformKey'}</div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className='space-y-4'>
+          <div className='bg-white rounded-lg border p-6 shadow-sm'>
+            <div className='mb-4 flex items-start justify-between gap-4'>
+              <div>
+                <h4 className='font-semibold'>模型表单</h4>
+                <p className='text-sm text-gray-500'>
+                  这里维护模型基础信息、节点模板和厂商路线。规格定价优先读取厂商下的 `pricing.rules`，并兼容旧 `specPricing`。
+                </p>
+              </div>
+              {selectedModel && (
+                <Button
+                  size='sm'
+                  variant='outline'
+                  className='text-red-600 hover:text-red-700 hover:border-red-300'
+                  onClick={() => removeModel(selectedModelIndex)}
+                >
+                  删除模型
+                </Button>
+              )}
+            </div>
+
+            {!selectedModel ? (
+              <div className='rounded-lg border border-dashed px-4 py-10 text-center text-sm text-gray-500'>
+                请选择左侧模型，或新增一个模型。
+              </div>
+            ) : (
+              <div className='space-y-6'>
+                <div className='grid gap-4 md:grid-cols-2'>
+                  <div>
+                    <label className='block text-sm text-gray-600 mb-1'>模型 Key</label>
+                    <Input
+                      value={selectedModel.modelKey || ''}
+                      onChange={(e) => updateSelectedModel({ modelKey: e.target.value })}
+                      placeholder='如：kling-3.0'
+                    />
+                  </div>
+                  <div>
+                    <label className='block text-sm text-gray-600 mb-1'>模型名称</label>
+                    <Input
+                      value={selectedModel.modelName || ''}
+                      onChange={(e) => updateSelectedModel({ modelName: e.target.value })}
+                      placeholder='如：Kling 3.0'
+                    />
+                  </div>
+                </div>
+
+                <div className='grid gap-4 md:grid-cols-3'>
+                  <div>
+                    <label className='block text-sm text-gray-600 mb-1'>任务类型</label>
+                    <select
+                      value={normalizeManagedModelTaskType(selectedModel.taskType)}
+                      onChange={(e) => updateSelectedModel({ taskType: e.target.value })}
+                      className='w-full rounded border px-3 py-2'
+                    >
+                      {MANAGED_MODEL_TASK_TYPE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className='block text-sm text-gray-600 mb-1'>默认厂商</label>
+                    <select
+                      value={selectedModel.defaultVendor || ''}
+                      onChange={(e) => updateSelectedModel({ defaultVendor: e.target.value })}
+                      className='w-full rounded border px-3 py-2'
+                    >
+                      <option value=''>请选择默认厂商</option>
+                      {vendorCards.map((vendor) => (
+                        <option key={vendor.vendorKey || Math.random()} value={vendor.vendorKey || ''}>
+                          {vendor.label || vendor.vendorKey || '未命名厂商'}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className='flex items-end'>
+                    <label className='inline-flex items-center gap-2 text-sm text-gray-600'>
+                      <input
+                        type='checkbox'
+                        checked={selectedModel.enabled !== false}
+                        onChange={(e) => updateSelectedModel({ enabled: e.target.checked })}
+                      />
+                      模型启用
+                    </label>
+                  </div>
+                </div>
+
+                <div className='rounded-lg border p-4'>
+                  <div className='mb-3 font-medium text-gray-800'>运行配置</div>
+                  <div className='grid gap-4 md:grid-cols-2'>
+                    <div>
+                      <label className='block text-sm text-gray-600 mb-1'>serviceType</label>
+                      <Input
+                        value={selectedModelServiceType}
+                        onChange={(e) => updateSelectedModelMetadata({ serviceType: e.target.value.trim() })}
+                        placeholder='如：gemini-3-pro-image / wan26-video'
+                      />
+                    </div>
+                    <div>
+                      <label className='block text-sm text-gray-600 mb-1'>supportedModels</label>
+                      <Input
+                        value={selectedModelSupportedModels.join(', ')}
+                        onChange={(e) => updateSelectedModelMetadata({ supportedModels: parseCommaSeparatedList(e.target.value) })}
+                        placeholder='逗号分隔，如：wan2.6-t2v, wan2.6-i2v'
+                      />
+                    </div>
+                  </div>
+
+                  {normalizeManagedModelTaskType(selectedModel.taskType) === 'video' && (
+                    <div className='mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4'>
+                      <div>
+                        <label className='block text-sm text-gray-600 mb-1'>比例</label>
+                        <Input
+                          value={Array.isArray(selectedModelOutputConfig?.aspectRatios) ? selectedModelOutputConfig.aspectRatios.join(', ') : ''}
+                          onChange={(e) => updateSelectedModelOutputConfig({ aspectRatios: parseCommaSeparatedList(e.target.value) })}
+                          placeholder='16:9, 9:16, 1:1'
+                        />
+                      </div>
+                      <div>
+                        <label className='block text-sm text-gray-600 mb-1'>时长</label>
+                        <Input
+                          value={Array.isArray(selectedModelOutputConfig?.durations) ? selectedModelOutputConfig.durations.join(', ') : ''}
+                          onChange={(e) => updateSelectedModelOutputConfig({ durations: parseCommaSeparatedNumbers(e.target.value) })}
+                          placeholder='5, 10, 15'
+                        />
+                      </div>
+                      <div>
+                        <label className='block text-sm text-gray-600 mb-1'>分辨率</label>
+                        <Input
+                          value={Array.isArray(selectedModelOutputConfig?.resolutions) ? selectedModelOutputConfig.resolutions.join(', ') : ''}
+                          onChange={(e) => updateSelectedModelOutputConfig({ resolutions: parseCommaSeparatedList(e.target.value) })}
+                          placeholder='720P, 1080P'
+                        />
+                      </div>
+                      <div className='flex items-end'>
+                        <label className='inline-flex items-center gap-2 text-sm text-gray-600'>
+                          <input
+                            type='checkbox'
+                            checked={selectedModelOutputConfig?.audioGeneration === true}
+                            onChange={(e) => updateSelectedModelOutputConfig({ audioGeneration: e.target.checked })}
+                          />
+                          支持音频生成
+                        </label>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className='rounded-lg border bg-gray-50 p-4'>
+                  <div className='mb-3 font-medium text-gray-800'>节点模板</div>
+                  <div className='grid gap-4 md:grid-cols-2'>
+                    <div>
+                      <label className='block text-sm text-gray-600 mb-1'>节点标识</label>
+                      <Input
+                        value={selectedNodeConfig?.nodeKey || ''}
+                        onChange={(e) => updateSelectedNodeConfig({ nodeKey: e.target.value })}
+                        placeholder='如：kling30Video'
+                      />
+                    </div>
+                    <div>
+                      <label className='block text-sm text-gray-600 mb-1'>Flow 节点模板</label>
+                      <select
+                        value={selectedNodeConfig?.flowNodeType || ''}
+                        onChange={(e) => updateSelectedNodeConfig({ flowNodeType: e.target.value })}
+                        className='w-full rounded border px-3 py-2'
+                      >
+                        {MANAGED_NODE_TEMPLATE_OPTIONS[normalizeManagedModelTaskType(selectedModel.taskType)].map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className='block text-sm text-gray-600 mb-1'>分类</label>
+                      <select
+                        value={selectedNodeConfig?.category || 'video'}
+                        onChange={(e) => updateSelectedNodeConfig({ category: e.target.value as 'input' | 'image' | 'video' })}
+                        className='w-full rounded border px-3 py-2'
+                      >
+                        <option value='input'>输入</option>
+                        <option value='image'>图片</option>
+                        <option value='video'>视频</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className='block text-sm text-gray-600 mb-1'>节点默认积分</label>
+                      <Input
+                        type='number'
+                        value={selectedNodeConfig?.creditsPerCall ?? 0}
+                        onChange={(e) => updateSelectedNodeConfig({ creditsPerCall: Number(e.target.value) || 0 })}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className='rounded-lg border p-4'>
+                  <div className='mb-3 flex items-center justify-between'>
+                    <div>
+                      <div className='font-medium text-gray-800'>厂商路线</div>
+                      <div className='text-sm text-gray-500'>每个厂商可以设置默认定价，并按规格组合覆盖积分和人民币价格。</div>
+                    </div>
+                    <Button size='sm' variant='outline' onClick={addVendor}>新增厂商</Button>
+                  </div>
+
+                  <div className='space-y-4'>
+                    {vendorCards.length === 0 ? (
+                      <div className='rounded-lg border border-dashed px-4 py-8 text-center text-sm text-gray-500'>暂无厂商路线</div>
+                    ) : (
+                      vendorCards.map((vendor, vendorIndex) => {
+                        const specRules = readVendorSpecPricingRules(vendor);
+                        const vendorPricingDefaults = getVendorPricingDefaults(vendor);
+                        return (
+                          <div key={`${vendor.vendorKey || 'vendor'}-${vendorIndex}`} className='rounded-lg border bg-gray-50 p-4'>
+                            <div className='mb-3 flex items-center justify-between'>
+                              <div className='font-medium text-gray-800'>
+                                厂商 {vendorIndex + 1} {vendor.label ? `· ${vendor.label}` : ''}
+                              </div>
+                              <Button
+                                size='sm'
+                                variant='outline'
+                                className='text-red-600 hover:text-red-700 hover:border-red-300'
+                                onClick={() => removeVendor(vendorIndex)}
+                              >
+                                删除厂商
+                              </Button>
+                            </div>
+
+                            <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-3'>
+                              <div>
+                                <label className='block text-sm text-gray-600 mb-1'>vendorKey</label>
+                                <Input
+                                  value={vendor.vendorKey || ''}
+                                  onChange={(e) => updateVendor(vendorIndex, { vendorKey: e.target.value })}
+                                />
+                              </div>
+                              <div>
+                                <label className='block text-sm text-gray-600 mb-1'>展示名称</label>
+                                <Input
+                                  value={vendor.label || ''}
+                                  onChange={(e) => updateVendor(vendorIndex, { label: e.target.value })}
+                                />
+                              </div>
+                              <div>
+                                <label className='block text-sm text-gray-600 mb-1'>绑定平台</label>
+                                <select
+                                  value={vendor.platformKey || ''}
+                                  onChange={(e) => applyPlatformToVendor(vendorIndex, e.target.value)}
+                                  className='w-full rounded border px-3 py-2'
+                                >
+                                  <option value=''>不绑定平台</option>
+                                  {platformList.map((platform) => (
+                                    <option key={platform.platformKey || Math.random()} value={platform.platformKey || ''}>
+                                      {platform.platformName || platform.platformKey || '未命名平台'}
+                                    </option>
+                                  ))}
+                                </select>
+                                <Input
+                                  className='mt-2'
+                                  value={vendor.platformKey || ''}
+                                  onChange={(e) => updateVendor(vendorIndex, { platformKey: e.target.value })}
+                                  placeholder='也可手动填写 platformKey'
+                                />
+                              </div>
+                              <div>
+                                <label className='block text-sm text-gray-600 mb-1'>provider</label>
+                                <Input
+                                  value={vendor.provider || ''}
+                                  onChange={(e) => updateVendor(vendorIndex, { provider: e.target.value })}
+                                />
+                              </div>
+                              <div>
+                                <label className='block text-sm text-gray-600 mb-1'>modelName</label>
+                                <Input
+                                  value={vendor.modelName || ''}
+                                  onChange={(e) => updateVendor(vendorIndex, { modelName: e.target.value })}
+                                />
+                              </div>
+                              <div>
+                                <label className='block text-sm text-gray-600 mb-1'>modelVersion</label>
+                                <Input
+                                  value={vendor.modelVersion || ''}
+                                  onChange={(e) => updateVendor(vendorIndex, { modelVersion: e.target.value })}
+                                />
+                              </div>
+                              <div>
+                                <label className='block text-sm text-gray-600 mb-1'>默认积分</label>
+                                <Input
+                                  type='number'
+                                  value={vendorPricingDefaults.credits ?? 0}
+                                  onChange={(e) =>
+                                    updateVendor(
+                                      vendorIndex,
+                                      updateVendorPricingDefaults(vendor, {
+                                        credits: Number(e.target.value) || 0,
+                                      })
+                                    )
+                                  }
+                                />
+                              </div>
+                              <div>
+                                <label className='block text-sm text-gray-600 mb-1'>默认价格(元)</label>
+                                <Input
+                                  type='number'
+                                  step='0.01'
+                                  value={vendorPricingDefaults.priceYuan ?? ''}
+                                  onChange={(e) =>
+                                    updateVendor(
+                                      vendorIndex,
+                                      updateVendorPricingDefaults(vendor, {
+                                        priceYuan:
+                                          e.target.value.trim() === ''
+                                            ? undefined
+                                            : Number(e.target.value),
+                                      })
+                                    )
+                                  }
+                                />
+                              </div>
+                              <div>
+                                <label className='block text-sm text-gray-600 mb-1'>线路类型</label>
+                                <select
+                                  value={vendor.route || 'legacy'}
+                                  onChange={(e) => updateVendor(vendorIndex, { route: e.target.value as ModelVendorRouteType })}
+                                  className='w-full rounded border px-3 py-2'
+                                >
+                                  <option value='legacy'>legacy</option>
+                                  <option value='tencent_vod'>tencent_vod</option>
+                                </select>
+                              </div>
+                              <div className='flex items-end gap-4'>
+                                <label className='inline-flex items-center gap-2 text-sm text-gray-600'>
+                                  <input
+                                    type='checkbox'
+                                    checked={vendor.enabled !== false}
+                                    onChange={(e) => updateVendor(vendorIndex, { enabled: e.target.checked })}
+                                  />
+                                  厂商启用
+                                </label>
+                                <label className='inline-flex items-center gap-2 text-sm text-gray-600'>
+                                  <input
+                                    type='radio'
+                                    name='defaultVendor'
+                                    checked={(selectedModel.defaultVendor || '') === (vendor.vendorKey || '') && !!vendor.vendorKey}
+                                    onChange={() => updateSelectedModel({ defaultVendor: vendor.vendorKey || '' })}
+                                  />
+                                  设为默认
+                                </label>
+                              </div>
+                            </div>
+
+                            <div className='mt-4 rounded-lg border bg-white p-4'>
+                              {(() => {
+                                const taskType = normalizeManagedModelTaskType(selectedModel.taskType);
+
+                                if (taskType === 'video') {
+                                  const resolutionOptions = Array.from(
+                                    new Set(
+                                      [
+                                        ...(Array.isArray(selectedVodConfig?.outputConfig?.resolutions)
+                                          ? selectedVodConfig.outputConfig.resolutions
+                                          : []),
+                                        ...specRules
+                                          .map((rule) => String(rule.match?.resolution || '').trim().toUpperCase())
+                                          .filter(Boolean),
+                                      ]
+                                    )
+                                  );
+                                  const durationOptions = Array.from(
+                                    new Set(
+                                      [
+                                        ...(Array.isArray(selectedVodConfig?.outputConfig?.durations)
+                                          ? selectedVodConfig.outputConfig.durations
+                                          : []),
+                                        ...specRules
+                                          .map((rule) => Number(rule.match?.duration))
+                                          .filter((value) => Number.isFinite(value) && value > 0),
+                                      ]
+                                    )
+                                  ).sort((a, b) => Number(a) - Number(b));
+                                  const advancedRuleCount = specRules.filter((rule) => {
+                                    const match = rule.match || {};
+                                    const keys = Object.keys(match);
+                                    return keys.some((key) => key !== 'resolution' && key !== 'duration');
+                                  }).length;
+
+                                  const updateMatrixCell = (resolution: string, duration: number, rawValue: string) => {
+                                    const normalizedResolution = resolution.trim().toUpperCase();
+                                    const numericDuration = Number(duration);
+                                    const nextCredits = rawValue.trim() === '' ? null : Number(rawValue);
+                                    const remainingRules = specRules.filter((rule) => {
+                                      const match = rule.match || {};
+                                      return !(
+                                        String(match.resolution || '').trim().toUpperCase() === normalizedResolution &&
+                                        Number(match.duration) === numericDuration &&
+                                        Object.keys(match).every((key) => key === 'resolution' || key === 'duration')
+                                      );
+                                    });
+
+                                    if (nextCredits !== null && Number.isFinite(nextCredits)) {
+                                      remainingRules.push({
+                                        label: `${normalizedResolution} / ${numericDuration}s`,
+                                        match: { resolution: normalizedResolution, duration: numericDuration },
+                                        creditsPerCall: nextCredits,
+                                      });
+                                    }
+
+                                    updateVendorSpecRules(vendorIndex, remainingRules);
+                                  };
+
+                                  return (
+                                    <div className='space-y-3'>
+                                      <div className='mb-3'>
+                                        <div className='font-medium text-gray-800'>视频规格定价表</div>
+                                        <div className='text-sm text-gray-500'>仅展示该模型真实支持的分辨率和时长组合，单元格填写积分。</div>
+                                      </div>
+                                      {resolutionOptions.length === 0 || durationOptions.length === 0 ? (
+                                        <div className='rounded border border-dashed px-3 py-6 text-center text-sm text-gray-500'>
+                                          当前模型未声明规格支持范围，请先补充模型规格配置。
+                                        </div>
+                                      ) : (
+                                        <div className='space-y-3'>
+                                          <div className='overflow-x-auto'>
+                                            <table className='min-w-full border-separate border-spacing-0 text-sm'>
+                                              <thead>
+                                                <tr>
+                                                  <th className='sticky left-0 bg-gray-50 border px-3 py-2 text-left'>规格</th>
+                                                  {durationOptions.map((duration) => (
+                                                    <th key={duration} className='bg-gray-50 border px-3 py-2 text-center whitespace-nowrap'>
+                                                      {duration}s
+                                                    </th>
+                                                  ))}
+                                                </tr>
+                                              </thead>
+                                              <tbody>
+                                                {resolutionOptions.map((resolution) => (
+                                                  <tr key={resolution}>
+                                                    <td className='sticky left-0 bg-white border px-3 py-2 font-medium whitespace-nowrap'>
+                                                      {resolution}
+                                                    </td>
+                                                    {durationOptions.map((duration) => {
+                                                      const existingRule = specRules.find((rule) => {
+                                                        const match = rule.match || {};
+                                                        return (
+                                                          String(match.resolution || '').trim().toUpperCase() === resolution &&
+                                                          Number(match.duration) === Number(duration) &&
+                                                          Object.keys(match).every((key) => key === 'resolution' || key === 'duration')
+                                                        );
+                                                      });
+                                                      return (
+                                                        <td key={`${resolution}-${duration}`} className='border px-2 py-2'>
+                                                          <Input
+                                                            type='number'
+                                                            value={existingRule?.creditsPerCall ?? ''}
+                                                            onChange={(e) => updateMatrixCell(resolution, Number(duration), e.target.value)}
+                                                            placeholder='-'
+                                                            className='min-w-[96px]'
+                                                          />
+                                                        </td>
+                                                      );
+                                                    })}
+                                                  </tr>
+                                                ))}
+                                              </tbody>
+                                            </table>
+                                          </div>
+
+                                          <div className='rounded-lg border bg-gray-50 px-3 py-3 text-xs text-gray-600'>
+                                            留空表示该规格未单独定价，将回退到上面的“默认定价”。
+                                            {advancedRuleCount > 0
+                                              ? ` 当前还有 ${advancedRuleCount} 条高级规则（含 resolution/duration 以外条件），请在 JSON 导入/替换里维护。`
+                                              : ''}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                }
+
+                                const imageModeOptions = selectedImagePricingConfig?.modes || [];
+                                const imageSizeOptions = selectedImagePricingConfig?.imageSizes || [];
+                                const qualityOptions = selectedImagePricingConfig?.qualities || [];
+                                const outputCountOptions = selectedImagePricingConfig?.outputCounts || [1];
+                                const referenceImageCountOptions = selectedImagePricingConfig?.referenceImageCounts || [0];
+                                const imageRules = specRules;
+                                const advancedRuleCount = imageRules.filter((rule) => {
+                                  const match = rule.match || {};
+                                  return Object.keys(match).some(
+                                    (key) => !['mode', 'imageSize', 'outputCount', 'quality', 'referenceImageCount'].includes(key)
+                                  );
+                                }).length;
+
+                                const addImageRule = () => {
+                                  updateVendorSpecRules(vendorIndex, [
+                                    ...imageRules,
+                                    {
+                                      label: '',
+                                      match: {
+                                        mode: imageModeOptions[0]?.value || 'generate',
+                                        imageSize: imageSizeOptions[0] || '1024',
+                                        outputCount: outputCountOptions[0] || 1,
+                                        quality: qualityOptions[0] || 'standard',
+                                        referenceImageCount: referenceImageCountOptions[0] || 0,
+                                      },
+                                      creditsPerCall: 0,
+                                    },
+                                  ]);
+                                };
+
+                                const patchImageRule = (
+                                  ruleIndex: number,
+                                  patch: {
+                                    label?: string;
+                                    match?: Record<string, any>;
+                                    creditsPerCall?: number;
+                                    priceYuan?: number;
+                                  }
+                                ) => {
+                                  const nextRules = imageRules.map((rule, currentIndex) => {
+                                    if (currentIndex !== ruleIndex) return rule;
+                                    return {
+                                      ...rule,
+                                      ...('label' in patch ? { label: patch.label } : {}),
+                                      ...('creditsPerCall' in patch ? { creditsPerCall: patch.creditsPerCall } : {}),
+                                      ...('priceYuan' in patch ? { priceYuan: patch.priceYuan } : {}),
+                                      ...('match' in patch
+                                        ? {
+                                            match: {
+                                              ...(rule.match || {}),
+                                              ...(patch.match || {}),
+                                            },
+                                          }
+                                        : {}),
+                                    };
+                                  });
+                                  updateVendorSpecRules(vendorIndex, nextRules);
+                                };
+
+                                return (
+                                  <div className='space-y-3'>
+                                    <div className='flex items-center justify-between'>
+                                      <div>
+                                        <div className='font-medium text-gray-800'>图片规格规则</div>
+                                        <div className='text-sm text-gray-500'>按当前模型支持的模式、尺寸、出图数量和质量组合配置定价。</div>
+                                      </div>
+                                      <Button size='sm' variant='outline' onClick={addImageRule}>
+                                        新增图片规则
+                                      </Button>
+                                    </div>
+
+                                    {imageRules.length === 0 ? (
+                                      <div className='rounded border border-dashed px-3 py-6 text-center text-sm text-gray-500'>
+                                        暂无图片规格规则，当前会直接使用厂商默认定价。
+                                      </div>
+                                    ) : (
+                                      <div className='space-y-3'>
+                                        {imageRules.map((rule, ruleIndex) => {
+                                          const match = rule.match || {};
+                                          return (
+                                            <div key={`${vendor.vendorKey || 'image-rule'}-${ruleIndex}`} className='rounded-lg border bg-gray-50 p-4'>
+                                              <div className='mb-3 flex items-center justify-between'>
+                                                <div className='font-medium text-gray-800'>
+                                                  图片规则 {ruleIndex + 1}
+                                                </div>
+                                                <Button
+                                                  size='sm'
+                                                  variant='outline'
+                                                  className='text-red-600 hover:text-red-700 hover:border-red-300'
+                                                  onClick={() => updateVendorSpecRules(vendorIndex, imageRules.filter((_, currentIndex) => currentIndex !== ruleIndex))}
+                                                >
+                                                  删除
+                                                </Button>
+                                              </div>
+                                              <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-3'>
+                                                <div>
+                                                  <label className='block text-sm text-gray-600 mb-1'>规则名称</label>
+                                                  <Input
+                                                    value={rule.label || ''}
+                                                    onChange={(e) => patchImageRule(ruleIndex, { label: e.target.value })}
+                                                    placeholder='如：1024 单张标准图'
+                                                  />
+                                                </div>
+                                                <div>
+                                                  <label className='block text-sm text-gray-600 mb-1'>模式</label>
+                                                  <select
+                                                    value={String(match.mode || imageModeOptions[0]?.value || 'generate')}
+                                                    onChange={(e) => patchImageRule(ruleIndex, { match: { mode: e.target.value } })}
+                                                    className='w-full rounded border px-3 py-2'
+                                                  >
+                                                    {imageModeOptions.map((option) => (
+                                                      <option key={option.value} value={option.value}>{option.label}</option>
+                                                    ))}
+                                                  </select>
+                                                </div>
+                                                <div>
+                                                  <label className='block text-sm text-gray-600 mb-1'>尺寸档位</label>
+                                                  <select
+                                                    value={String(match.imageSize || imageSizeOptions[0] || '1024')}
+                                                    onChange={(e) => patchImageRule(ruleIndex, { match: { imageSize: e.target.value } })}
+                                                    className='w-full rounded border px-3 py-2'
+                                                  >
+                                                    {imageSizeOptions.map((option) => (
+                                                      <option key={option} value={option}>{option}</option>
+                                                    ))}
+                                                  </select>
+                                                </div>
+                                                <div>
+                                                  <label className='block text-sm text-gray-600 mb-1'>出图数量</label>
+                                                  <select
+                                                    value={String(Number(match.outputCount) || outputCountOptions[0] || 1)}
+                                                    onChange={(e) => patchImageRule(ruleIndex, { match: { outputCount: Number(e.target.value) || 1 } })}
+                                                    className='w-full rounded border px-3 py-2'
+                                                  >
+                                                    {outputCountOptions.map((option) => (
+                                                      <option key={option} value={option}>{option}</option>
+                                                    ))}
+                                                  </select>
+                                                </div>
+                                                <div>
+                                                  <label className='block text-sm text-gray-600 mb-1'>质量档位</label>
+                                                  <select
+                                                    value={String(match.quality || qualityOptions[0] || 'standard')}
+                                                    onChange={(e) => patchImageRule(ruleIndex, { match: { quality: e.target.value } })}
+                                                    className='w-full rounded border px-3 py-2'
+                                                  >
+                                                    {qualityOptions.map((option) => (
+                                                      <option key={option} value={option}>{option}</option>
+                                                    ))}
+                                                  </select>
+                                                </div>
+                                                <div>
+                                                  <label className='block text-sm text-gray-600 mb-1'>参考图数量</label>
+                                                  <select
+                                                    value={String(Number(match.referenceImageCount) || referenceImageCountOptions[0] || 0)}
+                                                    onChange={(e) => patchImageRule(ruleIndex, { match: { referenceImageCount: Number(e.target.value) || 0 } })}
+                                                    className='w-full rounded border px-3 py-2'
+                                                  >
+                                                    {referenceImageCountOptions.map((option) => (
+                                                      <option key={option} value={option}>{option}</option>
+                                                    ))}
+                                                  </select>
+                                                </div>
+                                                <div>
+                                                  <label className='block text-sm text-gray-600 mb-1'>积分</label>
+                                                  <Input
+                                                    type='number'
+                                                    value={rule.creditsPerCall ?? 0}
+                                                    onChange={(e) => patchImageRule(ruleIndex, { creditsPerCall: Number(e.target.value) || 0 })}
+                                                  />
+                                                </div>
+                                                <div>
+                                                  <label className='block text-sm text-gray-600 mb-1'>价格(元)</label>
+                                                  <Input
+                                                    type='number'
+                                                    step='0.01'
+                                                    value={rule.priceYuan ?? ''}
+                                                    onChange={(e) =>
+                                                      patchImageRule(ruleIndex, {
+                                                        priceYuan:
+                                                          e.target.value.trim() === ''
+                                                            ? undefined
+                                                            : Number(e.target.value),
+                                                      })
+                                                    }
+                                                  />
+                                                </div>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+
+                                        <div className='rounded-lg border bg-gray-50 px-3 py-3 text-xs text-gray-600'>
+                                          当前图片模型使用规则卡片而不是矩阵，避免尺寸/数量/质量等维度组合爆炸。
+                                          {advancedRuleCount > 0
+                                            ? ` 另外还有 ${advancedRuleCount} 条高级规则（含自定义条件），请在 JSON 导入/替换里维护。`
+                                            : ''}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className='bg-white rounded-lg border p-6 shadow-sm'>
+            <div className='mb-4 flex items-start justify-between gap-4'>
+              <div>
+                <h4 className='font-semibold'>平台表单</h4>
+                <p className='text-sm text-gray-500'>维护 `platforms[]` 的平台级配置，厂商可以复用这些平台标识。</p>
+              </div>
+              {selectedPlatform && selectedPlatformIndex !== null && (
+                <Button
+                  size='sm'
+                  variant='outline'
+                  className='text-red-600 hover:text-red-700 hover:border-red-300'
+                  onClick={() => removePlatform(selectedPlatformIndex)}
+                >
+                  删除平台
+                </Button>
+              )}
+            </div>
+
+            {!selectedPlatform ? (
+              <div className='rounded-lg border border-dashed px-4 py-8 text-center text-sm text-gray-500'>
+                请选择左侧平台，或新增一个平台。
+              </div>
+            ) : (
+              <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-3'>
+                <div>
+                  <label className='block text-sm text-gray-600 mb-1'>platformKey</label>
+                  <Input
+                    value={selectedPlatform.platformKey || ''}
+                    onChange={(e) => updateSelectedPlatform({ platformKey: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className='block text-sm text-gray-600 mb-1'>平台名称</label>
+                  <Input
+                    value={selectedPlatform.platformName || ''}
+                    onChange={(e) => updateSelectedPlatform({ platformName: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className='block text-sm text-gray-600 mb-1'>provider</label>
+                  <Input
+                    value={selectedPlatform.provider || ''}
+                    onChange={(e) => updateSelectedPlatform({ provider: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className='block text-sm text-gray-600 mb-1'>route</label>
+                  <select
+                    value={selectedPlatform.route || 'legacy'}
+                    onChange={(e) => updateSelectedPlatform({ route: e.target.value as ModelVendorRouteType })}
+                    className='w-full rounded border px-3 py-2'
+                  >
+                    <option value='legacy'>legacy</option>
+                    <option value='tencent_vod'>tencent_vod</option>
+                  </select>
+                </div>
+                <div className='md:col-span-2 xl:col-span-2'>
+                  <label className='block text-sm text-gray-600 mb-1'>描述</label>
+                  <Input
+                    value={selectedPlatform.description || ''}
+                    onChange={(e) => updateSelectedPlatform({ description: e.target.value })}
+                  />
+                </div>
+                <div className='flex items-end'>
+                  <label className='inline-flex items-center gap-2 text-sm text-gray-600'>
+                    <input
+                      type='checkbox'
+                      checked={selectedPlatform.enabled !== false}
+                      onChange={(e) => updateSelectedPlatform({ enabled: e.target.checked })}
+                    />
+                    平台启用
+                  </label>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {jsonModalOpen && (
+        <div className='fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4'>
+          <div className='bg-white rounded-lg p-6 w-full max-w-5xl max-h-[90vh] overflow-auto'>
+            <div className='mb-4 flex items-start justify-between gap-4'>
+              <div>
+                <h4 className='text-lg font-semibold'>JSON 导入 / 整体替换</h4>
+                <p className='text-sm text-gray-500'>
+                  这里用于批量导入或整体替换 `model_provider_mapping_v2`。导入后会同步回列表表单，但不会自动保存。
+                </p>
+              </div>
+              <Button variant='outline' onClick={() => setJsonModalOpen(false)}>关闭</Button>
+            </div>
+            <div className='rounded-lg border bg-amber-50 px-4 py-3 text-sm text-amber-800 mb-4'>
+              <code>models[].vendors[].pricing</code> 支持默认价和规格规则，例如 <code>{`{"defaults":{"credits":600,"priceYuan":6},"rules":[{"when":{"resolution":"720P","duration":10},"price":{"credits":900,"priceYuan":9}}]}`}</code>；旧 <code>metadata.specPricing</code> 仍可导入并兼容读取。
+            </div>
+            <textarea
+              value={jsonText}
+              onChange={(e) => setJsonText(e.target.value)}
+              rows={32}
+              className='w-full rounded border border-gray-200 px-3 py-2 font-mono text-xs leading-5 outline-none focus:border-blue-400'
+              spellCheck={false}
+            />
+            <div className='mt-4 flex justify-end gap-3'>
+              <Button
+                variant='outline'
+                onClick={() => {
+                  try {
+                    const payloadObject = parseJsonDraft();
+                    setJsonText(stringifyPrettyJson(payloadObject));
+                    showToast('JSON 已格式化', 'success');
+                  } catch (error: any) {
+                    showToast(error?.message || '格式化失败', 'error');
+                  }
+                }}
+              >
+                格式化 JSON
+              </Button>
+              <Button onClick={handleImportJson}>导入到表单</Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // 主页面
 export default function Admin() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const [activeTab, setActiveTab] = useState<AdminTabKey>("dashboard");
-  const [settingsSubTab, setSettingsSubTab] = useState<"system" | "vip-management" | "model-management">(
-    "system"
-  );
+  const [settingsSubTab, setSettingsSubTab] = useState<
+    "system" | "vip-management" | "model-management" | "unified-model-management"
+  >("system");
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
@@ -7047,13 +9583,18 @@ export default function Admin() {
                 {[
                   { key: "system", label: "当前系统设置" },
                   { key: "vip-management", label: "VIP管理" },
+                  { key: "unified-model-management", label: "统一模型管理" },
                   { key: "model-management", label: "视频模型管理" },
                 ].map((tab) => (
                   <button
                     key={tab.key}
                     onClick={() =>
                       setSettingsSubTab(
-                        tab.key as "system" | "vip-management" | "model-management"
+                        tab.key as
+                          | "system"
+                          | "vip-management"
+                          | "model-management"
+                          | "unified-model-management"
                       )
                     }
                     className={`rounded-md px-4 py-2 text-sm font-medium transition ${
@@ -7070,6 +9611,7 @@ export default function Admin() {
 
             {settingsSubTab === "system" && <SettingsTab />}
             {settingsSubTab === "vip-management" && <VipManagementTab />}
+            {settingsSubTab === "unified-model-management" && <UnifiedModelManagementTab />}
             {settingsSubTab === "model-management" && <ModelManagementTab />}
           </div>
         )}

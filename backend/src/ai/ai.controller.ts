@@ -689,6 +689,26 @@ export class AiController {
       params.duration = Math.round(dto.duration);
     }
 
+    if (typeof dto.resolution === 'string' && dto.resolution.trim().length > 0) {
+      params.resolution = dto.resolution.trim().toUpperCase();
+    }
+
+    if (typeof dto.aspectRatio === 'string' && dto.aspectRatio.trim().length > 0) {
+      params.aspectRatio = dto.aspectRatio.trim();
+    }
+
+    if (typeof dto.videoMode === 'string' && dto.videoMode.trim().length > 0) {
+      params.videoMode = dto.videoMode.trim().toLowerCase();
+    }
+
+    if (typeof dto.generateAudio === 'boolean') {
+      params.generateAudio = dto.generateAudio;
+    }
+
+    if (typeof dto.watermark === 'boolean') {
+      params.watermark = dto.watermark;
+    }
+
     const assignRouteParams = (
       route: Awaited<ReturnType<typeof this.modelRoutingService.resolveVideoModel>>,
     ) => {
@@ -2958,16 +2978,29 @@ export class AiController {
 
       const result = await this.withCredits(req, 'expand-image', undefined, async () => {
       const normalizedImageUrl = this.normalizeImageUrlForUpstream(dto.imageUrl);
-      const result = await this.expandImageService.expandImage(
+      const expanded = await this.expandImageService.expandImage(
         normalizedImageUrl,
         dto.expandRatios,
         dto.prompt || '扩图'
       );
 
+      const managed = await this.persistProviderImageUrlToManaged(
+        expanded.imageUrl,
+        req,
+        userId,
+      );
+
       return {
         success: true,
-        imageUrl: result.imageUrl,
-        promptId: result.promptId,
+        imageUrl: managed.url,
+        promptId: expanded.promptId,
+        metadata: {
+          sourceImageUrl: managed.sourceImageUrl,
+          uploadedToManaged: managed.uploaded,
+          imageKey: managed.key,
+          mimeType: managed.mimeType,
+          bytes: managed.bytes,
+        },
       };
       }, 1, 1);
 
