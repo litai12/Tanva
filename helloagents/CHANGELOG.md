@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Added
+- 新增产品定价策略文档，统一整理三类积分、免费用户额度、69/199/599 档会员权益与待确认规则（`frontend/docs/39-产品定价策略.md`）。
+- 新增面向官网/支付页的会员定价展示文案，包含标题、副标题、套餐卡片、对比表、积分说明与年费展示口径（`frontend/docs/40-会员定价展示文案.md`）。
 - 认证系统新增观猹 OAuth2 登录：后端增加 `/api/auth/watcha/authorize` + `/api/auth/watcha/callback`，支持授权回调后自动登录、绑定/创建本地账号（`watchaUserId`）。
 - 登录页在“登录”按钮下方新增观猹入口按钮，复用后端授权跳转链路并支持回调错误提示。
 - 工作流历史版本：新增 `WorkflowHistory` 表（按 `userId + projectId + updatedAt` 复合主键），后端提供查询接口；前端右上角增加 n8n 风格历史按钮与“恢复并保存”交互。
