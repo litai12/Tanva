@@ -14,6 +14,7 @@ import {
   getManagedRouteCredits,
   getManagedRouteOption,
   getManagedRoutesMetadata,
+  resolveManagedRoutePricing,
 } from "../managedRoutePricing";
 
 export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao";
@@ -428,8 +429,64 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         : [],
     [nodeConfigMetadata.supportedModels, provider]
   );
+  const pricingContext = React.useMemo(() => {
+    const context: Record<string, any> = {};
+    if (typeof data.clipDuration === "number" && Number.isFinite(data.clipDuration)) {
+      context.duration = Math.round(data.clipDuration);
+    }
+    if (typeof data.resolution === "string" && data.resolution.trim()) {
+      context.resolution = data.resolution.trim().toUpperCase();
+    }
+    if (typeof data.aspectRatio === "string" && data.aspectRatio.trim()) {
+      context.aspectRatio = data.aspectRatio.trim();
+    }
+    if (typeof (data as any).mode === "string" && String((data as any).mode).trim()) {
+      context.mode = String((data as any).mode).trim().toLowerCase();
+    }
+    if (typeof data.sound !== "undefined") {
+      context.sound = Boolean(data.sound);
+    }
+    if (typeof data.generateAudio !== "undefined") {
+      context.generateAudio = Boolean(data.generateAudio);
+    }
+    if (typeof data.watermark !== "undefined") {
+      context.watermark = Boolean(data.watermark);
+    }
+    if (typeof data.seedanceModel === "string" && data.seedanceModel.trim()) {
+      context.seedanceModel = data.seedanceModel.trim().toLowerCase();
+    }
+    if (typeof data.viduModel === "string" && data.viduModel.trim()) {
+      context.viduModel = data.viduModel.trim().toLowerCase();
+    }
+    if (typeof data.klingModel === "string" && data.klingModel.trim()) {
+      context.klingModel = data.klingModel.trim().toLowerCase();
+    }
+    if (typeof data.seedanceMode === "string" && data.seedanceMode.trim()) {
+      context.videoMode = data.seedanceMode.trim().toLowerCase();
+      context.seedanceMode = data.seedanceMode.trim().toLowerCase();
+    }
+    return context;
+  }, [
+    data.aspectRatio,
+    data.clipDuration,
+    data.generateAudio,
+    data.klingModel,
+    data.resolution,
+    data.seedanceMode,
+    data.seedanceModel,
+    data.sound,
+    data.viduModel,
+    data.watermark,
+    (data as any).mode,
+  ]);
+  const resolvedManagedPricing = React.useMemo(
+    () => resolveManagedRoutePricing(nodeConfigMetadata, data.vendorKey, pricingContext),
+    [data.vendorKey, nodeConfigMetadata, pricingContext]
+  );
   const selectedCredits =
-    typeof data.creditsPerCall === "number"
+    typeof resolvedManagedPricing?.credits === "number"
+      ? resolvedManagedPricing.credits
+      : typeof data.creditsPerCall === "number"
       ? data.creditsPerCall
       : getManagedRouteCredits(nodeConfigMetadata, data.vendorKey);
   const vodAspectOptions = React.useMemo(() => {
@@ -2944,7 +3001,6 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
 }
 
 export default React.memo(GenericVideoNodeInner);
-
 
 
 

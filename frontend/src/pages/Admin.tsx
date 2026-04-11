@@ -2833,6 +2833,10 @@ const buildManagedNodeMetadata = (model: ManagedModelConfig): Record<string, any
         modelVersion: vendor.modelVersion,
         creditsPerCall: getVendorPricingDefaults(vendor).credits,
         priceYuan: getVendorPricingDefaults(vendor).priceYuan,
+        pricing:
+          vendor.pricing && typeof vendor.pricing === "object"
+            ? vendor.pricing
+            : undefined,
       })),
   };
   const metadata: Record<string, any> = {

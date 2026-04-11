@@ -71,6 +71,7 @@ interface ManagedRouteView {
     modelVersion?: string;
     creditsPerCall?: number;
     priceYuan?: number;
+    pricing?: Record<string, any>;
   }>;
 }
 
@@ -240,6 +241,10 @@ export class NodeConfigService {
                 Number.isFinite(credits) && credits >= 0 ? credits : undefined,
               priceYuan:
                 Number.isFinite(priceYuan) && priceYuan >= 0 ? priceYuan : undefined,
+              pricing:
+                vendor.pricing && typeof vendor.pricing === 'object'
+                  ? (vendor.pricing as Record<string, any>)
+                  : undefined,
             };
           })
       : [];
