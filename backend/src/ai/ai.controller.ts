@@ -2941,16 +2941,29 @@ export class AiController {
 
       const result = await this.withCredits(req, 'expand-image', undefined, async () => {
       const normalizedImageUrl = this.normalizeImageUrlForUpstream(dto.imageUrl);
-      const result = await this.expandImageService.expandImage(
+      const expanded = await this.expandImageService.expandImage(
         normalizedImageUrl,
         dto.expandRatios,
         dto.prompt || '扩图'
       );
 
+      const managed = await this.persistProviderImageUrlToManaged(
+        expanded.imageUrl,
+        req,
+        userId,
+      );
+
       return {
         success: true,
-        imageUrl: result.imageUrl,
-        promptId: result.promptId,
+        imageUrl: managed.url,
+        promptId: expanded.promptId,
+        metadata: {
+          sourceImageUrl: managed.sourceImageUrl,
+          uploadedToManaged: managed.uploaded,
+          imageKey: managed.key,
+          mimeType: managed.mimeType,
+          bytes: managed.bytes,
+        },
       };
       }, 1, 1);
 

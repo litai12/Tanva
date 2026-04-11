@@ -10,6 +10,33 @@ export type FlowSaveFlushResult = {
   failedCount: number;
 };
 
+const IMAGE_REF_SUFFIXES = [
+  'imagedata',
+  'imageurl',
+  'imageurls',
+  'images',
+  'outputimage',
+  'inputimage',
+  'inputimageurl',
+  'sourceimage',
+  'sourceimages',
+  'thumb',
+  'thumbnail',
+  'thumbnails',
+  'thumbnaildataurl',
+  'thumbnailurl',
+  'poster',
+  'cover',
+] as const;
+
+const isImageLikeKey = (key: string): boolean => {
+  const normalized = key.toLowerCase();
+  if (normalized === 'img' || normalized === 'image') return true;
+  return IMAGE_REF_SUFFIXES.some(
+    (suffix) => normalized === suffix || normalized.endsWith(suffix)
+  );
+};
+
 /**
  * Flow 保存前的图片补传：
  * - Flow 运行时允许使用 `flow-asset:`/dataURL/裸 base64 等临时引用；
@@ -126,6 +153,125 @@ async function flushImageSplitInputImages(): Promise<FlowSaveFlushResult> {
   return { changed, uploadedCount, failedCount };
 }
 
+async function flushFlowNodeImageRefs(): Promise<FlowSaveFlushResult> {
+  const store = useProjectContentStore.getState();
+  const projectId = store.projectId;
+  const content = store.content;
+  if (!content?.flow?.nodes || !Array.isArray(content.flow.nodes)) {
+    return { changed: false, uploadedCount: 0, failedCount: 0 };
+  }
+
+  const dir = projectId ? `projects/${projectId}/flow/images/` : 'uploads/flow/images/';
+  let changed = false;
+  let uploadedCount = 0;
+  let failedCount = 0;
+
+  const uploadCache = new Map<string, string>();
+
+  const uploadInlineRef = async (rawValue: string, nodeId: string, keyPath: string[]) => {
+    const normalized = normalizePersistableImageRef(rawValue);
+    if (normalized && isPersistableImageRef(normalized)) {
+      return { ok: true as const, value: normalized, uploaded: false };
+    }
+
+    const cacheKey = rawValue.trim();
+    const cached = uploadCache.get(cacheKey);
+    if (cached) {
+      return { ok: true as const, value: cached, uploaded: false };
+    }
+
+    const suffix = keyPath[keyPath.length - 1] || 'image';
+    const uploadResult = await imageUploadService.uploadImageSource(rawValue, {
+      projectId: projectId ?? undefined,
+      dir,
+      fileName: `${nodeId}_${suffix}_${Date.now()}.png`,
+    });
+
+    if (!uploadResult.success || !uploadResult.asset?.url) {
+      return { ok: false as const, value: rawValue, uploaded: false };
+    }
+
+    const persisted = (uploadResult.asset.key || uploadResult.asset.url).trim();
+    if (!persisted) {
+      return { ok: false as const, value: rawValue, uploaded: false };
+    }
+
+    uploadCache.set(cacheKey, persisted);
+    return { ok: true as const, value: persisted, uploaded: true };
+  };
+
+  const visit = async (
+    value: unknown,
+    nodeId: string,
+    pathKeys: string[]
+  ): Promise<unknown> => {
+    if (typeof value === 'string') {
+      const imageField = pathKeys.some((key) => isImageLikeKey(key));
+      if (!imageField) return value;
+
+      const trimmed = value.trim();
+      if (!trimmed) return value;
+
+      const result = await uploadInlineRef(trimmed, nodeId, pathKeys);
+      if (!result.ok) {
+        failedCount += 1;
+        return value;
+      }
+      if (result.uploaded || result.value !== value) {
+        changed = true;
+        if (result.uploaded) uploadedCount += 1;
+      }
+      return result.value;
+    }
+
+    if (Array.isArray(value)) {
+      return await mapWithLimit(
+        value.map((item, index) => ({ item, index })),
+        2,
+        async ({ item, index }) => visit(item, nodeId, [...pathKeys, String(index)])
+      );
+    }
+
+    if (value && typeof value === 'object') {
+      const entries = Object.entries(value as Record<string, unknown>);
+      const nextEntries = await mapWithLimit(
+        entries.map(([key, child]) => ({ key, child })),
+        2,
+        async ({ key, child }) => [key, await visit(child, nodeId, [...pathKeys, key])] as const
+      );
+      return Object.fromEntries(nextEntries);
+    }
+
+    return value;
+  };
+
+  const nextNodes = await mapWithLimit(
+    (content.flow.nodes as TemplateNode[]).map((node, index) => ({ node, index })),
+    2,
+    async ({ node, index }) => {
+      if (!node) return node;
+      const nodeId = typeof node.id === 'string' && node.id ? node.id : `unknown_${index}`;
+      const nextData = await visit(node.data ?? {}, nodeId, []);
+      return nextData === node.data ? node : { ...node, data: nextData as TemplateNode['data'] };
+    }
+  );
+
+  if (changed) {
+    store.updatePartial(
+      {
+        flow: {
+          ...content.flow,
+          nodes: nextNodes,
+        },
+      },
+      { markDirty: true }
+    );
+  }
+
+  return { changed, uploadedCount, failedCount };
+}
+
 export const flowSaveService = {
+  flushFlowNodeImageRefs,
   flushImageSplitInputImages,
 };

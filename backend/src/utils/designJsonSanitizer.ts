@@ -37,14 +37,41 @@ const looksLikeEmbeddedImageString = (value: string): boolean => {
   return looksLikeBase64(compact);
 };
 
-/**
- * 设计 JSON（Project.contentJson / PublicTemplate.templateData）清洗：
- * - 原本用于禁止 data: / blob: / 内联 base64 进入持久化存储
- * - 现已禁用过滤功能，直接返回原始数据，以支持模板中包含内嵌图片
- */
-export function sanitizeDesignJson<T = unknown>(input: T): T {
-  // 直接返回原始数据，不做任何过滤
-  // 如果需要深拷贝，可以使用 JSON.parse(JSON.stringify(input))
-  return input;
+function sanitizeString(value: string): string | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return value;
+  return looksLikeEmbeddedImageString(trimmed) ? undefined : value;
 }
 
+function sanitizeValue(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return sanitizeString(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => sanitizeValue(item))
+      .filter((item) => item !== undefined);
+  }
+
+  if (value && typeof value === 'object') {
+    const next: Record<string, unknown> = {};
+    Object.entries(value as Record<string, unknown>).forEach(([key, child]) => {
+      const sanitizedChild = sanitizeValue(child);
+      if (sanitizedChild === undefined) return;
+      next[key] = sanitizedChild;
+    });
+    return next;
+  }
+
+  return value;
+}
+
+/**
+ * 设计 JSON（Project.contentJson / PublicTemplate.templateData）清洗：
+ * - 禁止 data: / blob: / 内联 base64 进入持久化存储
+ * - 仅保留可长期访问的 URL / 路径 / 普通文本字段
+ */
+export function sanitizeDesignJson<T = unknown>(input: T): T {
+  return sanitizeValue(input) as T;
+}
