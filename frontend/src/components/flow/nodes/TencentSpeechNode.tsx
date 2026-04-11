@@ -297,6 +297,7 @@ function TencentSpeechNode({ id, data, selected }: Props) {
     typeof data.dstSubtitleUrl === 'string' &&
     data.dstSubtitleUrl.trim().length > 0;
   const runDisabled = data.status === 'running' || !hasVideoInput || (!hasPromptInput && !hasSpeakerUrl && !hasSubtitleUrls);
+  const hasRunCredits = typeof data.creditsPerCall === 'number' && data.creditsPerCall > 0;
 
   return (
     <div
@@ -317,12 +318,10 @@ function TencentSpeechNode({ id, data, selected }: Props) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600 }}>
           <Mic size={20} color="#0ea5e9" strokeWidth={2.2} />
-          <span>
-            {lt('腾讯语音合成', 'Tencent Speech')}
-            <RunCreditBadge credits={data.creditsPerCall} inline />
-          </span>
+          <span>{lt('腾讯语音合成', 'Tencent Speech')}</span>
         </div>
         <button
+          className="run-btn-with-credit"
           onClick={handleRun}
           onPointerDownCapture={stopNodeDrag}
           onMouseDownCapture={stopNodeDrag}
@@ -335,9 +334,22 @@ function TencentSpeechNode({ id, data, selected }: Props) {
             borderRadius: 6,
             border: 'none',
             cursor: runDisabled ? 'not-allowed' : 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 0,
           }}
         >
-          {data.status === 'running' ? lt('运行中...', 'Running...') : 'Run'}
+          {hasRunCredits ? (
+            <>
+              <span className="run-text-trigger">
+                {data.status === 'running' ? lt('运行中...', 'Running...') : 'Run'}
+              </span>
+              <RunCreditBadge credits={data.creditsPerCall} runButton />
+            </>
+          ) : (
+            data.status === 'running' ? lt('运行中...', 'Running...') : 'Run'
+          )}
         </button>
       </div>
 

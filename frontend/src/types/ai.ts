@@ -50,6 +50,12 @@ export interface MidjourneyButtonInfo {
   disabled?: boolean;
 }
 
+export type BananaImageRoute = 'normal' | 'stable';
+
+export interface BananaProviderOptions {
+  imageRoute?: BananaImageRoute;
+}
+
 export interface MidjourneyMetadata {
   taskId: string;
   buttons?: MidjourneyButtonInfo[];
@@ -65,6 +71,7 @@ export interface MidjourneyMetadata {
 }
 
 export interface AIProviderOptions {
+  banana?: BananaProviderOptions;
   runningHub?: RunningHubGenerateOptions;
   midjourney?: MidjourneyProviderOptions;
   [key: string]: unknown;

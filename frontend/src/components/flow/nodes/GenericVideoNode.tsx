@@ -432,6 +432,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     typeof data.creditsPerCall === "number"
       ? data.creditsPerCall
       : getManagedRouteCredits(nodeConfigMetadata, data.vendorKey);
+  const hasRunCredits = typeof selectedCredits === "number" && selectedCredits > 0;
   const vodAspectOptions = React.useMemo(() => {
     if (!Array.isArray(vodConfig?.outputConfig?.aspectRatios)) return [];
     return [
@@ -1776,7 +1777,6 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           <Video size={18} />
           <span>
             {displayTitle}
-            <RunCreditBadge credits={selectedCredits} inline />
           </span>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
@@ -1802,7 +1802,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             </button>
           )}
           <button
-            className="tanva-video-header-btn tanva-video-header-run"
+            className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit"
             onClick={onRun}
             onMouseDown={handleButtonMouseDown}
             disabled={data.status === "running"}
@@ -1819,9 +1819,17 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               cursor: data.status === "running" ? "not-allowed" : "pointer",
               fontSize: 12,
               opacity: data.status === "running" ? 0.6 : 1,
+              gap: 0,
             }}
           >
-            Run
+            {hasRunCredits ? (
+              <>
+                <span className="run-text-trigger">Run</span>
+                <RunCreditBadge credits={selectedCredits} runButton />
+              </>
+            ) : (
+              "Run"
+            )}
           </button>
           <button
             className="tanva-video-header-btn tanva-video-header-share"

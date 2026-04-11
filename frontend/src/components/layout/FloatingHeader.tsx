@@ -167,6 +167,8 @@ const FloatingHeader: React.FC = () => {
     setImageOnly,
     aiProvider,
     setAIProvider,
+    bananaImageRoute,
+    setBananaImageRoute,
     sendShortcut,
     setSendShortcut,
     expandedPanelStyle,
@@ -174,6 +176,10 @@ const FloatingHeader: React.FC = () => {
     chatTheme,
     setChatTheme,
   } = useAIChatStore();
+  const bananaProviderSelected =
+    aiProvider === "banana" ||
+    aiProvider === "banana-2.5" ||
+    aiProvider === "banana-3.1";
 
   // 项目（文件）管理
   const {
@@ -1546,6 +1552,77 @@ const FloatingHeader: React.FC = () => {
             </div>
 
             {/* Google API Key 设置 - 已隐藏 */}
+            <div className='p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur'>
+              <div className='mb-1 text-sm font-medium text-slate-700'>
+                {t("workspace.settings.aiTab.bananaRoute.title")}
+              </div>
+              <div className='mb-4 text-xs text-slate-500'>
+                {t("workspace.settings.aiTab.bananaRoute.desc")}
+              </div>
+              <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
+                <button
+                  type='button'
+                  onClick={() => setBananaImageRoute("normal")}
+                  className={cn(
+                    "relative rounded-xl border-2 p-4 text-left transition-all",
+                    bananaImageRoute === "normal"
+                      ? "border-sky-500 bg-sky-50"
+                      : "border-slate-200 bg-white hover:border-sky-300 hover:bg-sky-50/30"
+                  )}
+                >
+                  <div className='flex items-start justify-between'>
+                    <div className='flex-1'>
+                      <div className='flex items-center gap-2 mb-1'>
+                        <Zap className='w-4 h-4 text-sky-600' />
+                        <span className='text-sm font-medium text-slate-700'>
+                          {t("workspace.settings.aiTab.bananaRoute.normal")}
+                        </span>
+                      </div>
+                      <div className='text-xs text-slate-500'>
+                        {t("workspace.settings.aiTab.bananaRoute.normalDesc")}
+                      </div>
+                    </div>
+                    {bananaImageRoute === "normal" && (
+                      <Check className='flex-shrink-0 w-5 h-5 text-sky-600' />
+                    )}
+                  </div>
+                </button>
+
+                <button
+                  type='button'
+                  onClick={() => setBananaImageRoute("stable")}
+                  className={cn(
+                    "relative rounded-xl border-2 p-4 text-left transition-all",
+                    bananaImageRoute === "stable"
+                      ? "border-emerald-500 bg-emerald-50"
+                      : "border-slate-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/30"
+                  )}
+                >
+                  <div className='flex items-start justify-between'>
+                    <div className='flex-1'>
+                      <div className='flex items-center gap-2 mb-1'>
+                        <Star className='w-4 h-4 text-emerald-600' />
+                        <span className='text-sm font-medium text-slate-700'>
+                          {t("workspace.settings.aiTab.bananaRoute.stable")}
+                        </span>
+                      </div>
+                      <div className='text-xs text-slate-500'>
+                        {t("workspace.settings.aiTab.bananaRoute.stableDesc")}
+                      </div>
+                    </div>
+                    {bananaImageRoute === "stable" && (
+                      <Check className='flex-shrink-0 w-5 h-5 text-emerald-600' />
+                    )}
+                  </div>
+                </button>
+              </div>
+              {!bananaProviderSelected && (
+                <div className='mt-3 text-xs text-amber-600'>
+                  {t("workspace.settings.aiTab.bananaRoute.hint")}
+                </div>
+              )}
+            </div>
+
             {false && (
             <div className='p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur'>
               <div className='flex items-center gap-2 mb-4'>

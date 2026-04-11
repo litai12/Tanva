@@ -613,18 +613,28 @@ export class AiController {
   private buildCreditRequestParams(
     providerName: string | null,
     extraParams?: Record<string, any>,
+    providerOptions?: Record<string, any>,
   ): Record<string, any> {
     const aiProvider = providerName || 'gemini';
-    const channelHint = aiProvider === 'nano2'
-      ? 'apimart'
-      : aiProvider.startsWith('banana')
-      ? '147'
-      : undefined;
+    const bananaImageRoute = this.resolveBananaImageRouteFromProviderOptions(
+      providerOptions,
+    );
+    const channelHint =
+      bananaImageRoute === 'stable'
+        ? 'tencent'
+        : bananaImageRoute === 'normal'
+        ? 'apimart'
+        : aiProvider === 'nano2'
+        ? 'apimart'
+        : aiProvider.startsWith('banana')
+        ? '147'
+        : undefined;
 
     return {
       ...(extraParams || {}),
       aiProvider,
       channelHint,
+      ...(bananaImageRoute ? { bananaImageRoute } : {}),
     };
   }
 
@@ -1417,7 +1427,34 @@ export class AiController {
     return normalized === 'banana' || normalized.startsWith('banana-');
   }
 
-  private async getBananaImageProviderMode(): Promise<string> {
+  private resolveBananaImageRouteFromProviderOptions(
+    providerOptions?: Record<string, any>,
+  ): 'normal' | 'stable' | null {
+    const nestedRouteRaw = providerOptions?.banana?.imageRoute;
+    const nestedRoute =
+      typeof nestedRouteRaw === 'string' ? nestedRouteRaw.trim().toLowerCase() : '';
+    if (nestedRoute === 'normal' || nestedRoute === 'stable') {
+      return nestedRoute as 'normal' | 'stable';
+    }
+
+    const legacyRouteRaw = providerOptions?.bananaImageRoute;
+    const legacyRoute =
+      typeof legacyRouteRaw === 'string' ? legacyRouteRaw.trim().toLowerCase() : '';
+    if (legacyRoute === 'normal' || legacyRoute === 'stable') {
+      return legacyRoute as 'normal' | 'stable';
+    }
+
+    return null;
+  }
+
+  private async getBananaImageProviderMode(
+    providerOptions?: Record<string, any>,
+  ): Promise<string> {
+    const userRoute = this.resolveBananaImageRouteFromProviderOptions(providerOptions);
+    if (userRoute) {
+      return userRoute === 'stable' ? 'tencent' : 'apimart';
+    }
+
     try {
       const setting = await this.prisma.systemSetting.findUnique({
         where: { key: 'banana_provider' },
@@ -2100,7 +2137,7 @@ export class AiController {
         }
 
         throw new InternalServerErrorException('图片生成重试次数耗尽，请稍后重试。');
-      }, 0, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }));
+      }, 0, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }, dto.providerOptions));
 
       void this.telemetryService.ingestGenerationTask({
         traceId,
@@ -2170,7 +2207,7 @@ export class AiController {
       : 'gemini-image-edit';
     const requestUserId = this.resolveRequestUserId(req) || 'anonymous';
     const bananaImageMode = this.isBananaProviderName(providerName)
-      ? await this.getBananaImageProviderMode()
+      ? await this.getBananaImageProviderMode(dto.providerOptions)
       : 'auto';
     const tencentForcedBanana =
       this.isBananaProviderName(providerName) && bananaImageMode === 'tencent';
@@ -2351,7 +2388,7 @@ export class AiController {
       }
 
       throw new InternalServerErrorException('图片编辑重试次数耗尽，请稍后重试。');
-      }, 1, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }));
+      }, 1, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }, dto.providerOptions));
 
       void this.telemetryService.ingestGenerationTask({
         traceId,
@@ -2411,7 +2448,7 @@ export class AiController {
       : 'gemini-image-blend';
     const requestUserId = this.resolveRequestUserId(req) || 'anonymous';
     const bananaImageMode = this.isBananaProviderName(providerName)
-      ? await this.getBananaImageProviderMode()
+      ? await this.getBananaImageProviderMode(dto.providerOptions)
       : 'auto';
     const tencentForcedBanana =
       this.isBananaProviderName(providerName) && bananaImageMode === 'tencent';
@@ -2584,7 +2621,7 @@ export class AiController {
       }
 
       throw new InternalServerErrorException('图片融合重试次数耗尽，请稍后重试。');
-      }, dto.sourceImages?.length || 0, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }));
+      }, dto.sourceImages?.length || 0, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }, dto.providerOptions));
 
       void this.telemetryService.ingestGenerationTask({
         traceId,

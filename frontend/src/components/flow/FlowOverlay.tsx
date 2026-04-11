@@ -1605,6 +1605,103 @@ const isHiddenFlowNodeType = (rawType?: string): boolean => {
   return Boolean(normalized && HIDDEN_FLOW_NODE_TYPES.has(normalized));
 };
 
+type BananaStablePricingTier = "fast" | "pro" | "ultra";
+
+const BANANA_STABLE_ROUTE_PRICING: Record<
+  BananaStablePricingTier,
+  Record<"0.5K" | "1K" | "2K" | "4K", number>
+> = {
+  fast: {
+    "0.5K": 20,
+    "1K": 20,
+    "2K": 20,
+    "4K": 20,
+  },
+  pro: {
+    "0.5K": 40,
+    "1K": 40,
+    "2K": 60,
+    "4K": 120,
+  },
+  ultra: {
+    "0.5K": 20,
+    "1K": 30,
+    "2K": 45,
+    "4K": 60,
+  },
+};
+
+const BANANA_STABLE_DYNAMIC_NODE_TYPES = new Set<FlowNodeType>([
+  "generate",
+  "generate4",
+  "generatePro",
+  "generatePro4",
+]);
+
+const resolveBananaStablePricingTier = (
+  providerName?: string | null
+): BananaStablePricingTier | null => {
+  if (providerName === "banana-2.5") return "fast";
+  if (providerName === "banana-3.1" || providerName === "nano2") return "ultra";
+  if (providerName === "banana" || providerName === "gemini-pro") return "pro";
+  return null;
+};
+
+const normalizeBananaStableImageSize = (
+  rawSize: unknown,
+  tier: BananaStablePricingTier
+): "0.5K" | "1K" | "2K" | "4K" => {
+  const normalized = typeof rawSize === "string" ? rawSize.trim().toUpperCase() : "";
+  if (tier === "fast") return "1K";
+  if (tier === "pro") {
+    if (normalized === "2K" || normalized === "4K") return normalized;
+    return "1K";
+  }
+  if (
+    normalized === "0.5K" ||
+    normalized === "1K" ||
+    normalized === "2K" ||
+    normalized === "4K"
+  ) {
+    return normalized;
+  }
+  return "1K";
+};
+
+const resolveStableRouteCredits = (params: {
+  nodeType?: string | null;
+  nodeData?: Record<string, any>;
+  fallbackCredits?: number;
+  aiProvider?: string | null;
+  bananaImageRoute?: "normal" | "stable";
+  globalImageSize?: string | null;
+}): number | undefined => {
+  const {
+    nodeType,
+    nodeData,
+    fallbackCredits,
+    aiProvider,
+    bananaImageRoute,
+    globalImageSize,
+  } = params;
+  if (bananaImageRoute !== "stable") return fallbackCredits;
+  const normalizedType = normalizeFlowNodeType(nodeType || undefined);
+  if (!normalizedType || !BANANA_STABLE_DYNAMIC_NODE_TYPES.has(normalizedType)) {
+    return fallbackCredits;
+  }
+  const tier = resolveBananaStablePricingTier(aiProvider);
+  if (!tier) return fallbackCredits;
+  const preferredSize =
+    typeof nodeData?.imageSize === "string" && nodeData.imageSize.trim().length > 0
+      ? nodeData.imageSize
+      : globalImageSize;
+  const normalizedSize = normalizeBananaStableImageSize(preferredSize, tier);
+  const unitCredits = Number(BANANA_STABLE_ROUTE_PRICING[tier][normalizedSize]);
+  if (!Number.isFinite(unitCredits) || unitCredits <= 0) return fallbackCredits;
+  const multiplier = normalizedType === "generate4" || normalizedType === "generatePro4" ? 4 : 1;
+  return unitCredits * multiplier;
+};
+
 const isManagedPaletteConfig = (config?: Partial<NodeConfig>): boolean => {
   const metadata = (config?.metadata ?? {}) as Record<string, unknown>;
   return Boolean(
@@ -2521,6 +2618,7 @@ function FlowInner() {
   // Alt+拖拽复制相关状态（在 onNodesChange 中做位置重映射，让“副本在动、原节点不动”）
   const altDragStartRef = React.useRef<any>(null);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
   const imageSize = useAIChatStore((state) => state.imageSize);
   const globalWebSearchEnabled = useAIChatStore((state) => state.enableWebSearch);
   const chatTheme = useAIChatStore((state) => state.chatTheme);
@@ -15434,6 +15532,20 @@ function FlowInner() {
       const enableWebSearchForNode =
         (node.type === "generatePro" || node.type === "generatePro4") &&
         Boolean((node.data as any)?.enableWebSearch ?? globalWebSearchEnabled);
+      const resolveBananaRouteProviderOptions = (
+        providerName: string
+      ): AIImageGenerateRequest["providerOptions"] | undefined => {
+        const normalized = providerName.trim().toLowerCase();
+        if (normalized === "banana" || normalized.startsWith("banana-")) {
+          return {
+            banana: {
+              imageRoute: bananaImageRoute,
+            },
+          };
+        }
+        return undefined;
+      };
+      const providerOptions = resolveBananaRouteProviderOptions(aiProvider);
 
       // 根据节点类型和全局模式选择模型
       const nodeSpecificModel = (() => {
@@ -15516,6 +15628,7 @@ function FlowInner() {
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
+                providerOptions,
                 ...(enableWebSearchForNode ? {
                   enableWebSearch: true,
                   googleSearch: true,
@@ -15533,6 +15646,7 @@ function FlowInner() {
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
+                providerOptions,
               });
             } else {
               result = await blendImagesViaAPI({
@@ -15545,6 +15659,7 @@ function FlowInner() {
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
+                providerOptions,
               });
             }
 
@@ -15786,6 +15901,7 @@ function FlowInner() {
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
+                providerOptions,
                 ...(enableWebSearchForNode ? {
                   enableWebSearch: true,
                   googleSearch: true,
@@ -15803,6 +15919,7 @@ function FlowInner() {
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
+                providerOptions,
               });
             } else {
               result = await blendImagesViaAPI({
@@ -15815,6 +15932,7 @@ function FlowInner() {
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
+                providerOptions,
               });
             }
 
@@ -16038,6 +16156,7 @@ function FlowInner() {
           model: string,
           imageSizeOverride?: "0.5K" | "1K" | "2K" | "4K"
         ) => {
+          const requestProviderOptions = resolveBananaRouteProviderOptions(provider);
           const remoteInputs = imageDatas.filter(isRemoteUrl);
           const hasOnlyRemote =
             imageDatas.length > 0 && remoteInputs.length === imageDatas.length;
@@ -16050,6 +16169,7 @@ function FlowInner() {
               model,
               aspectRatio: effectiveAspectRatio,
               imageSize: requestImageSize,
+              providerOptions: requestProviderOptions,
               ...(enableWebSearchForNode ? { enableWebSearch: true } : {}),
             });
           }
@@ -16070,6 +16190,7 @@ function FlowInner() {
               model,
               aspectRatio: effectiveAspectRatio,
               imageSize: requestImageSize,
+              providerOptions: requestProviderOptions,
             });
           }
           return await blendImagesViaAPI({
@@ -16082,6 +16203,7 @@ function FlowInner() {
             model,
             aspectRatio: effectiveAspectRatio,
             imageSize: requestImageSize,
+            providerOptions: requestProviderOptions,
           });
         };
 
@@ -16865,7 +16987,7 @@ function FlowInner() {
         })
       );
     },
-    [rf]
+    [rf, aiProvider, bananaImageRoute, imageModel, imageSize, globalWebSearchEnabled]
   );
 
   const runGroupNodes = React.useCallback(
@@ -17388,9 +17510,17 @@ function FlowInner() {
     () =>
       nodes.map((n) => {
         const resolvedType = typeof n.type === "string" ? normalizeFlowNodeType(n.type) : null;
-        const creditsPerCall =
+        const defaultCreditsPerCall =
           (typeof n.data?.creditsPerCall === "number" ? n.data.creditsPerCall : undefined) ??
           (resolvedType ? nodeCreditsByType.get(resolvedType) : undefined);
+        const creditsPerCall = resolveStableRouteCredits({
+          nodeType: typeof n.type === "string" ? n.type : resolvedType || undefined,
+          nodeData: (n.data || {}) as Record<string, any>,
+          fallbackCredits: defaultCreditsPerCall,
+          aiProvider,
+          bananaImageRoute,
+          globalImageSize: imageSize || null,
+        });
 
         return n.type === FLOW_GROUP_NODE_TYPE
           ? {
@@ -17462,6 +17592,9 @@ function FlowInner() {
     [
       nodes,
       nodeCreditsByType,
+      aiProvider,
+      bananaImageRoute,
+      imageSize,
       runNode,
       onSendHandler,
       promptGroupName,

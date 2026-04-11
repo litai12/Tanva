@@ -1,16 +1,21 @@
 import React from "react";
 import { useLocaleText } from "@/utils/localeText";
+import { Star } from "lucide-react";
 
 type RunCreditBadgeProps = {
   credits?: number;
   compact?: boolean;
   inline?: boolean;
+  runButton?: boolean;
+  className?: string;
 };
 
 export default function RunCreditBadge({
   credits,
   compact = false,
   inline = false,
+  runButton = false,
+  className = "",
 }: RunCreditBadgeProps) {
   const { lt } = useLocaleText();
   const value = Number(credits);
@@ -22,7 +27,7 @@ export default function RunCreditBadge({
   if (inline) {
     return (
       <span
-        title={lt("本次运行消耗", "Credits per run")}
+        title={lt("Credits per run", "Credits per run")}
         style={{
           color: "#6b7280",
           fontSize: compact ? 11 : 12,
@@ -37,9 +42,63 @@ export default function RunCreditBadge({
     );
   }
 
+  if (runButton) {
+    return (
+      <span
+        title={lt("Credits per run", "Credits per run")}
+        className={`run-credit-badge ${className}`.trim()}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 2,
+          fontSize: 10,
+          fontWeight: 700,
+          lineHeight: 1,
+          whiteSpace: "nowrap",
+        }}
+      >
+        <span
+          aria-hidden="true"
+          style={{
+            position: "relative",
+            display: "inline-flex",
+            width: 12,
+            height: 12,
+            borderRadius: 999,
+            alignItems: "center",
+            justifyContent: "center",
+            background: "linear-gradient(135deg, #fcd34d, #f59e0b, #f97316)",
+            boxShadow: "0 1px 4px rgba(245,158,11,0.5)",
+            flexShrink: 0,
+          }}
+        >
+          <span
+            style={{
+              position: "absolute",
+              inset: 1,
+              borderRadius: 999,
+              background: "linear-gradient(135deg, rgba(253,230,138,0.85), rgba(245,158,11,0.8))",
+            }}
+          />
+          <Star
+            style={{
+              position: "relative",
+              width: 7,
+              height: 7,
+              color: "#fffbeb",
+              fill: "rgba(254,243,199,0.9)",
+            }}
+          />
+        </span>
+        {value}
+      </span>
+    );
+  }
+
   return (
     <span
-      title={lt("本次运行消耗", "Credits per run")}
+      title={lt("Credits per run", "Credits per run")}
+      className={`run-credit-badge ${className}`}
       style={{
         display: "inline-flex",
         alignItems: "center",

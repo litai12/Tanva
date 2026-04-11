@@ -299,6 +299,7 @@ function Wan26Node({ id, data, selected }: Props) {
   };
 
   const onRun = React.useCallback(() => data.onRun?.(id), [data, id]);
+  const hasRunCredits = typeof data.creditsPerCall === "number" && data.creditsPerCall > 0;
 
   // 音频上传处理
   const handleChooseFile = React.useCallback(() => {
@@ -562,12 +563,11 @@ function Wan26Node({ id, data, selected }: Props) {
           <Video size={18} />
           <span>
             {nodeTitle}
-            <RunCreditBadge credits={data.creditsPerCall} inline />
           </span>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
           <button
-            className="tanva-video-header-btn tanva-video-header-run"
+            className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit"
             onClick={onRun}
             onMouseDown={handleButtonMouseDown}
             disabled={data.status === "running"}
@@ -584,9 +584,17 @@ function Wan26Node({ id, data, selected }: Props) {
               cursor: data.status === "running" ? "not-allowed" : "pointer",
               fontSize: 12,
               opacity: data.status === "running" ? 0.6 : 1,
+              gap: 0,
             }}
           >
-            Run
+            {hasRunCredits ? (
+              <>
+                <span className="run-text-trigger">Run</span>
+                <RunCreditBadge credits={data.creditsPerCall} runButton />
+              </>
+            ) : (
+              "Run"
+            )}
           </button>
           <button
             className="tanva-video-header-btn tanva-video-header-share"

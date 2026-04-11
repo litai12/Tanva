@@ -804,6 +804,184 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .video-dropdown-menu 
   color: #7dd3fc !important;
 }
 
+/* Wan2.6 节点下拉菜单暗色主题 */
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .wan26-dropdown > button {
+  background: #252525 !important;
+  border-color: #404040 !important;
+  color: #e5e7eb !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .wan26-dropdown > button:hover {
+  background: #333333 !important;
+  border-color: #4a4a4a !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .wan26-dropdown > div {
+  background: #252525 !important;
+  border-color: #404040 !important;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.45) !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .wan26-dropdown .wan26-dropdown-menu button {
+  background: #252525 !important;
+  border-color: #404040 !important;
+  color: #e5e7eb !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .wan26-dropdown .wan26-dropdown-menu button:hover {
+  background: #333333 !important;
+  border-color: #4a4a4a !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .wan26-dropdown .wan26-dropdown-menu button[style*="background: #eff6ff"],
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .wan26-dropdown .wan26-dropdown-menu button[style*="background:#eff6ff"],
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .wan26-dropdown .wan26-dropdown-menu button[style*="background: #2563eb"],
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .wan26-dropdown .wan26-dropdown-menu button[style*="background:#2563eb"],
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .wan26-dropdown .wan26-dropdown-menu button[style*="background: rgb(239, 246, 255)"],
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .wan26-dropdown .wan26-dropdown-menu button[style*="background: rgb(37, 99, 235)"] {
+  background: #333333 !important;
+  border-color: #4a4a4a !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .wan26-dropdown .wan26-dropdown-menu button[style*="color: #1d4ed8"],
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .wan26-dropdown .wan26-dropdown-menu button[style*="color:#1d4ed8"],
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .wan26-dropdown .wan26-dropdown-menu button[style*="color: #2563eb"],
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .wan26-dropdown .wan26-dropdown-menu button[style*="color:#2563eb"],
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .wan26-dropdown .wan26-dropdown-menu button[style*="color: rgb(29, 78, 216)"],
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .wan26-dropdown .wan26-dropdown-menu button[style*="color: rgb(37, 99, 235)"] {
+  color: #7dd3fc !important;
+}
+
+/* Wan2.7 节点暗色主题样式 */
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-label {
+  color: #9ca3af !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node select {
+  background: #252525 !important;
+  border-color: #404040 !important;
+  color: #e5e7eb !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-audio-zone {
+  background: #1a1a1a !important;
+  border-color: #333333 !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-audio-zone .wan27-audio-label {
+  color: #e5e7eb !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-toggle-btn {
+  background: #252525 !important;
+  border-color: #404040 !important;
+  color: #9ca3af !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-toggle-btn-active {
+  background: rgba(37, 99, 235, 0.2) !important;
+  border-color: #3b82f6 !important;
+  color: #93c5fd !important;
+}
+
+/* Wan2.7 节点 toggle 按钮选中状态样式覆盖 */
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-toggle-btn[style*="background: rgb(239, 246, 255)"],
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-toggle-btn[style*="background: rgb(37, 99, 235)"],
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-toggle-btn[style*="background:#eff6ff"],
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-toggle-btn[style*="background: #eff6ff"],
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-toggle-btn[style*="background: #2563eb"],
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-toggle-btn[style*="background:#2563eb"] {
+  background: rgba(37, 99, 235, 0.2) !important;
+  border-color: #3b82f6 !important;
+  color: #93c5fd !important;
+}
+
+/* Wan2.7 节点音频上传按钮暗色主题 */
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-upload-btn {
+  background: #252525 !important;
+  border-color: #404040 !important;
+  color: #e5e7eb !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-upload-btn:hover {
+  background: #333333 !important;
+  border-color: #4a4a4a !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-clear-btn {
+  background: #252525 !important;
+  border-color: #dc2626 !important;
+  color: #fca5a5 !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-clear-btn:hover {
+  background: #333333 !important;
+}
+
+/* Wan2.7 节点视频预览区域暗色主题 */
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-video-preview {
+  background: #161616 !important;
+  border-color: #2f2f2f !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-video-preview span {
+  color: #9ca3af !important;
+}
+
+/* Wan2.7 节点历史记录区域暗色主题 */
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-history-zone {
+  background: #161616 !important;
+  border-color: #333333 !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-history-title {
+  color: #e5e7eb !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-history-arrow {
+  color: #9ca3af !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-history-item {
+  background: #1c1c1c !important;
+  border-color: #333333 !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-history-item[style*="border-color: rgb(199, 210, 254)"],
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-history-item[style*="border-color: rgb(238, 242, 255)"],
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-history-item[style*="background: rgb(238, 242, 255)"] {
+  background: rgba(37, 99, 235, 0.15) !important;
+  border-color: #3b82f6 !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-history-meta {
+  color: #9ca3af !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-history-prompt {
+  color: #e5e7eb !important;
+}
+
+/* Wan2.7 节点历史记录操作按钮暗色主题 */
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-action-btn {
+  background: #252525 !important;
+  border-color: #404040 !important;
+  color: #d1d5db !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-action-btn:hover {
+  background: #333333 !important;
+  border-color: #4a4a4a !important;
+  color: #e5e7eb !important;
+}
+
+/* Wan2.7 节点错误提示暗色主题 */
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-error {
+  background: rgba(239, 68, 68, 0.15) !important;
+  border-color: #dc2626 !important;
+  color: #fca5a5 !important;
+}
+
 body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node button {
   background: #343434 !important;
   border: 1px solid #4a4a4a !important;
@@ -821,6 +999,38 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .tanva-flow-provider-
   border: 1px solid #4a4a4a !important;
   color: #ffffff !important;
   border-radius: 50px !important;
+}
+
+/* GenerateNode 模型切换下拉菜单暗色主题 */
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .min-w-\[200px\] {
+  background: #252525 !important;
+  border-color: #404040 !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .min-w-\[200px\] .text-slate-400,
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .min-w-\[200px\] .uppercase {
+  color: #9ca3af !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .min-w-\[200px\] .bg-gray-100 {
+  background: #333333 !important;
+  color: #e5e7eb !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .min-w-\[200px\] .text-gray-800 {
+  color: #e5e7eb !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .min-w-\[200px\] .text-slate-600 {
+  color: #9ca3af !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .min-w-\[200px\] .text-slate-700 {
+  color: #9ca3af !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .min-w-\[200px\] .text-slate-400 {
+  color: #9ca3af !important;
 }
 
 body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node button[style*="background: #111827"],

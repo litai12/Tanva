@@ -507,14 +507,12 @@ const AIChatDialog: React.FC = () => {
     (manualAIMode === "auto" && autoSelectedTool === "generatePaperJS");
   const shouldHideImageParamControls = isVideoMode || isVectorMode;
   const showImageSizeControls =
-    !isFastMode &&
     !shouldHideImageParamControls &&
     (aiProvider === "gemini-pro" ||
       aiProvider === "banana" ||
       aiProvider === "banana-2.5" ||
       aiProvider === "banana-3.1");
   const showThinkingLevelControls =
-    !isFastMode &&
     !shouldHideImageParamControls &&
     (aiProvider === "gemini-pro" ||
       aiProvider === "banana" ||
@@ -545,6 +543,12 @@ const AIChatDialog: React.FC = () => {
   }, [isUltraMode, t]);
 
   const imageSizeOptions = useMemo(() => {
+    if (isFastMode) {
+      return [
+        { label: t("chat.common.auto"), value: null },
+        { label: "1K", value: "1K" },
+      ];
+    }
     const sizes = [
       ...(isUltraMode ? [{ label: "0.5K", value: "0.5K" }] : []),
       { label: "1K", value: "1K" },
@@ -552,7 +556,7 @@ const AIChatDialog: React.FC = () => {
       { label: "4K", value: "4K" },
     ];
     return [{ label: t("chat.common.auto"), value: null }, ...sizes];
-  }, [isUltraMode, t]);
+  }, [isFastMode, isUltraMode, t]);
 
   // 记录最新的最大化状态，供原生事件监听使用
   useEffect(() => {
@@ -668,14 +672,6 @@ const AIChatDialog: React.FC = () => {
       historyInitialHeightRef.current = rect.height;
     }
   }, [showHistory, isMaximized, customHeight]);
-
-  useEffect(() => {
-    if (isFastMode) {
-      setIsAspectOpen(false);
-      setIsImageSizeOpen(false);
-      setIsThinkingLevelOpen(false);
-    }
-  }, [isFastMode]);
 
   // 拖拽处理函数 - 只在顶部横线标识周边区域可以拖拽
   const handleDragStart = useCallback(
@@ -3420,7 +3416,7 @@ const AIChatDialog: React.FC = () => {
               </div>
 
               {/* 长宽比选择按钮 */}
-              {!isFastMode && !shouldHideImageParamControls && (
+              {!shouldHideImageParamControls && (
                 <Button
                   ref={aspectButtonRef}
                   onClick={() => setIsAspectOpen((v) => !v)}
@@ -3585,8 +3581,7 @@ const AIChatDialog: React.FC = () => {
                 </Button>
               )}
 
-              {!isFastMode &&
-                isAspectOpen &&
+              {isAspectOpen &&
                 typeof document !== "undefined" &&
                 createPortal(
                   <div

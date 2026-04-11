@@ -611,21 +611,25 @@ function GenerateNodeInner({ id, data, selected }: Props) {
     [currentProviderValue, providerToggleOptions]
   );
 
-  const showAspectRatioSelector = providerMode !== "fast";
-  const showImageSizeSelector = providerMode === "pro" || providerMode === "ultra";
+  const showAspectRatioSelector = providerMode !== "other";
+  const showImageSizeSelector = providerMode !== "other";
   const showSizeControls = showAspectRatioSelector || showImageSizeSelector;
   const showTextOutputHandle = providerMode === "ultra";
 
   const imageSizeOptions: Array<{ label: string; value: string }> = React.useMemo(() => {
+    const autoOption = { label: lt("自动", "Auto"), value: "" };
     const base = [
-      { label: lt("自动", "Auto"), value: "" },
+      autoOption,
       { label: "1K", value: "1K" },
       { label: "2K", value: "2K" },
       { label: "4K", value: "4K" },
     ];
+    if (providerMode === "fast") {
+      return [autoOption, { label: "1K", value: "1K" }];
+    }
     if (providerMode === "ultra") {
       return [
-        { label: lt("自动", "Auto"), value: "" },
+        autoOption,
         { label: "0.5K", value: "0.5K" },
         { label: "1K", value: "1K" },
         { label: "2K", value: "2K" },
@@ -809,6 +813,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
           <button
             onClick={onRun}
             disabled={status === "running"}
+            className='run-btn-with-credit'
             style={{
               fontSize: 12,
               display: "inline-flex",
@@ -816,17 +821,36 @@ function GenerateNodeInner({ id, data, selected }: Props) {
               justifyContent: "center",
               boxSizing: "border-box",
               minHeight: 30,
-              padding: "0 12px",
+              padding: "0 10px",
               background: status === "running" ? "#e5e7eb" : "#111827",
               color: "#fff",
               borderRadius: 6,
               border: "none",
               cursor: status === "running" ? "not-allowed" : "pointer",
+              gap: 6,
             }}
+            title={
+              status === "running"
+                ? lt("生成中...", "Generating...")
+                : data.creditsPerCall
+                ? `${lt("本次消耗", "Cost")}: ${data.creditsPerCall} ${lt(
+                    "积分",
+                    "credits"
+                  )}`
+                : lt("运行生成", "Run generation")
+            }
           >
-            {status === "running" ? "Running..." : "Run"}
+            {data.creditsPerCall ? (
+              <>
+                <span className='run-text-trigger'>
+                  {status === "running" ? "Running..." : "Run"}
+                </span>
+                <RunCreditBadge credits={data.creditsPerCall} runButton />
+              </>
+            ) : (
+              <span>{status === "running" ? "Running..." : "Run"}</span>
+            )}
           </button>
-          <RunCreditBadge credits={data.creditsPerCall} />
           <button
             onClick={onSend}
             disabled={!(data.imageData || data.imageUrl)}

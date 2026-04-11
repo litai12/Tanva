@@ -345,6 +345,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
       </div>
     );
   };
+  const hasRunCredits = typeof data.creditsPerCall === "number" && data.creditsPerCall > 0;
 
   return (
     <div
@@ -446,12 +447,11 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
           <Video size={18} />
           <span>
             Wan2.6 R2V
-            <RunCreditBadge credits={data.creditsPerCall} inline />
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <button
-            className="tanva-video-header-btn tanva-video-header-run"
+            className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit"
             onClick={() => data.onRun?.(id)}
             disabled={data.status === "running"}
             style={{
@@ -467,9 +467,17 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
               cursor: data.status === "running" ? "not-allowed" : "pointer",
               fontSize: 12,
               opacity: data.status === "running" ? 0.6 : 1,
+              gap: 0,
             }}
           >
-            Run
+            {hasRunCredits ? (
+              <>
+                <span className="run-text-trigger">Run</span>
+                <RunCreditBadge credits={data.creditsPerCall} runButton />
+              </>
+            ) : (
+              "Run"
+            )}
           </button>
           <button
             className="tanva-video-header-btn tanva-video-header-share"

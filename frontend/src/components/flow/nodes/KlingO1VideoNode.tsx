@@ -53,6 +53,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
   const boxShadow = selected
     ? "0 0 0 2px rgba(37,99,235,0.12)"
     : "0 1px 2px rgba(0,0,0,0.04)";
+  const hasRunCredits = typeof data.creditsPerCall === "number" && data.creditsPerCall > 0;
   const [hover, setHover] = React.useState<string | null>(null);
   const [previewAspect, setPreviewAspect] = React.useState<string>("16/9");
   const [aspectMenuOpen, setAspectMenuOpen] = React.useState(false);
@@ -611,7 +612,6 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
           <Video size={18} />
           <span>
             Kling O3
-            <RunCreditBadge credits={data.creditsPerCall} inline />
           </span>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
@@ -634,7 +634,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
             <HelpCircle size={14} />
           </button>
           <button
-            className="tanva-video-header-btn tanva-video-header-run"
+            className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit"
             onClick={onRun}
             onMouseDown={handleButtonMouseDown}
             disabled={data.status === "running"}
@@ -651,9 +651,17 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
               cursor: data.status === "running" ? "not-allowed" : "pointer",
               fontSize: 12,
               opacity: data.status === "running" ? 0.6 : 1,
+              gap: 0,
             }}
           >
-            Run
+            {hasRunCredits ? (
+              <>
+                <span className="run-text-trigger">Run</span>
+                <RunCreditBadge credits={data.creditsPerCall} runButton />
+              </>
+            ) : (
+              "Run"
+            )}
           </button>
           <button
             className="tanva-video-header-btn tanva-video-header-share"

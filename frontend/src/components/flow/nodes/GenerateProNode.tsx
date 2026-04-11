@@ -43,7 +43,7 @@ type Props = {
     enableWebSearch?: boolean;
     error?: string;
     aspectRatio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9';
-    imageSize?: '1K' | '2K' | '4K' | null;
+    imageSize?: '0.5K' | '1K' | '2K' | '4K' | null;
     prompts?: string[];
     imageWidth?: number;
     promptHeight?: number;
@@ -579,6 +579,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   const isProMode =
     aiProvider === 'gemini-pro' ||
     aiProvider === 'banana' ||
+    aiProvider === 'banana-2.5' ||
     aiProvider === 'banana-3.1' ||
     aiProvider === 'nano2';
 
@@ -876,17 +877,32 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   const aspectRatioValue = data.aspectRatio ?? '';
   const imageSizeValue = data.imageSize ?? null;
 
-  const imageSizeOptions: Array<{ label: string; value: '1K' | '2K' | '4K' | null }> = React.useMemo(() => {
+  const imageSizeOptions: Array<{ label: string; value: '0.5K' | '1K' | '2K' | '4K' | null }> = React.useMemo(() => {
+    if (currentProviderValue === 'banana-2.5') {
+      return [
+        { label: lt('自动', 'Auto'), value: null },
+        { label: '1K', value: '1K' },
+      ];
+    }
+    if (currentProviderValue === 'banana-3.1') {
+      return [
+        { label: lt('自动', 'Auto'), value: null },
+        { label: '0.5K', value: '0.5K' },
+        { label: '1K', value: '1K' },
+        { label: '2K', value: '2K' },
+        { label: '4K', value: '4K' },
+      ];
+    }
     return [
       { label: lt('自动', 'Auto'), value: null },
       { label: '1K', value: '1K' },
       { label: '2K', value: '2K' },
       { label: '4K', value: '4K' },
     ];
-  }, [lt]);
+  }, [currentProviderValue, lt]);
 
   // 更新图像尺寸
-  const updateImageSize = React.useCallback((size: '1K' | '2K' | '4K' | null) => {
+  const updateImageSize = React.useCallback((size: '0.5K' | '1K' | '2K' | '4K' | null) => {
     window.dispatchEvent(
       new CustomEvent('flow:updateNodeData', {
         detail: {
@@ -1787,7 +1803,11 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
                       value: opt.value || "",
                       label: opt.label,
                     }))}
-                    onChange={(nextValue) => updateImageSize((nextValue || null) as '1K' | '2K' | '4K' | null)}
+                    onChange={(nextValue) =>
+                      updateImageSize(
+                        (nextValue || null) as '0.5K' | '1K' | '2K' | '4K' | null
+                      )
+                    }
                     variant="compact"
                     align="center"
                     menuLabel={lt('分辨率', 'Resolution')}

@@ -317,6 +317,15 @@ const zhCN = {
           banana25: "Fast版（Nano Banana+Gemini 2.5）",
           banana25Desc: "高速稳定",
         },
+        bananaRoute: {
+          title: "Nano Banana 生图路线",
+          desc: "可在普通与稳定两种通道间切换",
+          normal: "普通通道",
+          normalDesc: "速度优先，适合日常快速生成",
+          stable: "稳定通道",
+          stableDesc: "稳定优先，高峰时更稳",
+          hint: "仅在选择 Nano Banana 提供商时生效",
+        },
         googleKey: {
           clearConfirm: "确定要清除自定义 API Key 吗？系统将恢复使用官方 Key。",
         },

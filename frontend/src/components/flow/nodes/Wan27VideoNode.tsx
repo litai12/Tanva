@@ -169,6 +169,10 @@ function Wan27VideoNode({ id, data, selected }: Props) {
     reader.readAsDataURL(file);
   }, [id, lt, projectId]);
 
+  const handleButtonMouseDown = (event: React.MouseEvent) => {
+    event.stopPropagation();
+  };
+
   const handleClearAudio = React.useCallback(() => {
     window.dispatchEvent(new CustomEvent("flow:updateNodeData", { detail: { id, patch: { audioUrl: undefined } } }));
     setMessage(null);
@@ -236,6 +240,7 @@ function Wan27VideoNode({ id, data, selected }: Props) {
   const duration = data.duration || 10;
   const promptExtend = data.promptExtend !== false;
   const watermark = data.watermark !== false;
+  const hasRunCredits = typeof data.creditsPerCall === "number" && data.creditsPerCall > 0;
 
   return (
     <div style={{ width: 300, padding: 10, background: "#fff", border: `1px solid ${borderColor}`, borderRadius: 10, boxShadow, position: "relative" }}>
@@ -256,23 +261,89 @@ function Wan27VideoNode({ id, data, selected }: Props) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
         <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
           <Video size={18} />
-          <span>
-            Wan2.7 I2V
-            <RunCreditBadge credits={data.creditsPerCall} inline />
-          </span>
+          <span>Wan2.7</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <button onClick={() => data.onRun?.(id)} disabled={data.status === "running"} style={{ width: 36, height: 32, borderRadius: 8, border: "none", background: data.status === "running" ? "#e5e7eb" : "#111827", color: "#fff", opacity: data.status === "running" ? 0.6 : 1 }}>Run</button>
-          <button onClick={() => copyVideoLink(data.videoUrl)} disabled={!data.videoUrl} style={{ width: 36, height: 32, borderRadius: 8, border: "none", background: "#111827", color: "#fff", opacity: data.videoUrl ? 1 : 0.35 }}><Share2 size={14} /></button>
-          <button onClick={() => triggerDownload(data.videoUrl)} disabled={!data.videoUrl || isDownloading} style={{ width: 36, height: 32, borderRadius: 8, border: "none", background: !data.videoUrl || isDownloading ? "#e5e7eb" : "#111827", color: "#fff", opacity: !data.videoUrl || isDownloading ? 0.35 : 1 }}>{isDownloading ? <span style={{ fontSize: 10, fontWeight: 600, color: "#111827" }}>···</span> : <Download size={14} />}</button>
+          <button
+            className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit"
+            onClick={() => data.onRun?.(id)}
+            onMouseDown={handleButtonMouseDown}
+            disabled={data.status === "running"}
+            style={{
+              width: 36,
+              height: 32,
+              borderRadius: 8,
+              border: "none",
+              background: data.status === "running" ? "#e5e7eb" : "#111827",
+              color: "#fff",
+              opacity: data.status === "running" ? 0.6 : 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 0,
+              cursor: data.status === "running" ? "not-allowed" : "pointer",
+              fontSize: 12,
+            }}
+          >
+            {hasRunCredits ? (
+              <>
+                <span className="run-text-trigger">Run</span>
+                <RunCreditBadge credits={data.creditsPerCall} runButton />
+              </>
+            ) : (
+              "Run"
+            )}
+          </button>
+          <button
+            className="tanva-video-header-btn tanva-video-header-share"
+            onClick={() => copyVideoLink(data.videoUrl)}
+            onMouseDown={handleButtonMouseDown}
+            disabled={!data.videoUrl}
+            style={{
+              width: 36,
+              height: 32,
+              borderRadius: 8,
+              border: "none",
+              background: "#111827",
+              color: "#fff",
+              opacity: data.videoUrl ? 1 : 0.35,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: data.videoUrl ? "pointer" : "not-allowed",
+            }}
+          >
+            <Share2 size={14} />
+          </button>
+          <button
+            className="tanva-video-header-btn tanva-video-header-download"
+            onClick={() => triggerDownload(data.videoUrl)}
+            onMouseDown={handleButtonMouseDown}
+            disabled={!data.videoUrl || isDownloading}
+            style={{
+              width: 36,
+              height: 32,
+              borderRadius: 8,
+              border: "none",
+              background: !data.videoUrl || isDownloading ? "#e5e7eb" : "#111827",
+              color: "#fff",
+              opacity: !data.videoUrl || isDownloading ? 0.35 : 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: !data.videoUrl || isDownloading ? "not-allowed" : "pointer",
+            }}
+          >
+            {isDownloading ? <span style={{ fontSize: 10, fontWeight: 600, color: "#111827" }}>···</span> : <Download size={14} />}
+          </button>
         </div>
       </div>
 
       <div style={{ display: "grid", gap: 8, marginBottom: 8 }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-	          <label style={{ fontSize: 12, color: "#475569" }}>
-	            <div style={{ marginBottom: 4 }}>{lt("分辨率", "Resolution")}</div>
-	            <NodeSelect
+	          <label className="wan27-label" style={{ fontSize: 12, color: "#475569" }}>
+            <div style={{ marginBottom: 4 }}>{lt("分辨率", "Resolution")}</div>
+            <NodeSelect
 	              value={resolution}
 	              options={[
 	                { value: "720P", label: "720P" },
@@ -287,7 +358,7 @@ function Wan27VideoNode({ id, data, selected }: Props) {
 	              title={lt("选择分辨率", "Select resolution")}
 	            />
 	          </label>
-          <label style={{ fontSize: 12, color: "#475569" }}>
+          <label className="wan27-label" style={{ fontSize: 12, color: "#475569" }}>
             <div style={{ marginBottom: 4 }}>{lt("时长", "Duration")}</div>
             <select value={duration} onChange={(e) => window.dispatchEvent(new CustomEvent("flow:updateNodeData", { detail: { id, patch: { duration: Number(e.target.value) } } }))} style={{ width: "100%", padding: "6px 8px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff" }}>
               {[5, 10, 15].map((value) => <option key={value} value={value}>{value}s</option>)}
@@ -295,19 +366,19 @@ function Wan27VideoNode({ id, data, selected }: Props) {
           </label>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("flow:updateNodeData", { detail: { id, patch: { promptExtend: !promptExtend } } }))} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderRadius: 8, border: `1px solid ${promptExtend ? "#2563eb" : "#e5e7eb"}`, background: promptExtend ? "#eff6ff" : "#fff", fontSize: 12 }}>
+          <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("flow:updateNodeData", { detail: { id, patch: { promptExtend: !promptExtend } } }))} className={promptExtend ? "wan27-toggle-btn wan27-toggle-btn-active" : "wan27-toggle-btn"} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderRadius: 8, border: `1px solid ${promptExtend ? "#2563eb" : "#e5e7eb"}`, background: promptExtend ? "#eff6ff" : "#fff", fontSize: 12 }}>
             <span>{lt("Prompt Extend", "Prompt Extend")}</span>
             <span>{promptExtend ? "ON" : "OFF"}</span>
           </button>
-          <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("flow:updateNodeData", { detail: { id, patch: { watermark: !watermark } } }))} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderRadius: 8, border: `1px solid ${watermark ? "#2563eb" : "#e5e7eb"}`, background: watermark ? "#eff6ff" : "#fff", fontSize: 12 }}>
+          <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("flow:updateNodeData", { detail: { id, patch: { watermark: !watermark } } }))} className={watermark ? "wan27-toggle-btn wan27-toggle-btn-active" : "wan27-toggle-btn"} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderRadius: 8, border: `1px solid ${watermark ? "#2563eb" : "#e5e7eb"}`, background: watermark ? "#eff6ff" : "#fff", fontSize: 12 }}>
             <span>{lt("水印", "Watermark")}</span>
             <span>{watermark ? "ON" : "OFF"}</span>
           </button>
         </div>
       </div>
 
-      <div style={{ marginTop: 8, marginBottom: 6, padding: "8px", borderRadius: 6, border: "1px solid #e2e8f0", background: "#f8fafc" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, fontSize: 11, fontWeight: 600, color: "#0f172a", flexWrap: "wrap" }}>
+      <div className="wan27-audio-zone" style={{ marginTop: 8, marginBottom: 6, padding: "8px", borderRadius: 6, border: "1px solid #e2e8f0", background: "#f8fafc" }}>
+        <div className="wan27-audio-label" style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, fontSize: 11, fontWeight: 600, color: "#0f172a", flexWrap: "wrap" }}>
           <ImageIcon size={12} />
           <span>first_frame</span>
           <ImageIcon size={12} />
@@ -318,16 +389,16 @@ function Wan27VideoNode({ id, data, selected }: Props) {
           <span>driving_audio</span>
         </div>
         <div style={{ display: "flex", gap: 4 }}>
-          <button type="button" onClick={handleChooseFile} disabled={uploading} style={{ flex: 1, padding: "4px 8px", borderRadius: 4, border: "1px solid #cbd5e1", background: "#fff", fontSize: 11, opacity: uploading ? 0.6 : 1 }}>
+          <button type="button" className="wan27-upload-btn" onClick={handleChooseFile} disabled={uploading} style={{ flex: 1, padding: "4px 8px", borderRadius: 4, border: "1px solid #cbd5e1", background: "#fff", fontSize: 11, opacity: uploading ? 0.6 : 1 }}>
             {uploading ? lt("上传中...", "Uploading...") : data.audioUrl ? lt("重选音频", "Replace audio") : lt("上传音频", "Upload audio")}
           </button>
-          {data.audioUrl && <button type="button" onClick={handleClearAudio} disabled={uploading} style={{ padding: "4px 8px", borderRadius: 4, border: "1px solid #fca5a5", background: "#fff", fontSize: 11, color: "#dc2626" }}>{lt("清除", "Clear")}</button>}
+          {data.audioUrl && <button type="button" className="wan27-clear-btn" onClick={handleClearAudio} disabled={uploading} style={{ padding: "4px 8px", borderRadius: 4, border: "1px solid #fca5a5", background: "#fff", fontSize: 11, color: "#dc2626" }}>{lt("清除", "Clear")}</button>}
         </div>
         {message && <div style={{ marginTop: 4, fontSize: 10, color: /成功|success/i.test(message) ? "#15803d" : "#dc2626" }}>{message}</div>}
         <input ref={fileInputRef} type="file" accept={SUPPORTED_AUDIO_ACCEPT} style={{ display: "none" }} onChange={handleFileChange} />
       </div>
 
-      <div style={{ width: "100%", aspectRatio: previewAspect, minHeight: 140, background: "#f8fafc", borderRadius: 6, border: "1px solid #eef0f2", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", marginBottom: 8 }}>
+      <div className="wan27-video-preview" style={{ width: "100%", aspectRatio: previewAspect, minHeight: 140, background: "#f8fafc", borderRadius: 6, border: "1px solid #eef0f2", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", marginBottom: 8 }}>
         {sanitizedVideoUrl ? (
           <video key={`${sanitizedVideoUrl}-${data.videoVersion || 0}`} ref={videoRef} controls style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 6, background: "#000" }} onLoadedMetadata={(e) => { const v = e.currentTarget; if (v.videoWidth && v.videoHeight) setPreviewAspect(`${v.videoWidth}/${v.videoHeight}`); }}>
             <source src={sanitizedVideoUrl} type="video/mp4" />
@@ -343,21 +414,21 @@ function Wan27VideoNode({ id, data, selected }: Props) {
       <GenerationProgressBar status={data.status || "idle"} progress={data.status === "running" ? 30 : data.status === "succeeded" ? 100 : 0} />
 
       {historyItems.length > 0 && (
-        <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#f8fafc", display: "flex", flexDirection: "column", gap: 6 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }} onClick={() => setShowHistory(!showHistory)}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: "#0f172a" }}>{lt("历史记录", "History")}</span>
-            <span style={{ fontSize: 14, color: "#64748b" }}>{showHistory ? "▴" : "▾"}</span>
+        <div className="wan27-history-zone" style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#f8fafc", display: "flex", flexDirection: "column", gap: 6 }}>
+          <div className="wan27-history-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
+            <span className="wan27-history-title" style={{ fontSize: 12, fontWeight: 600, color: "#0f172a" }}>{lt("历史记录", "History")}</span>
+            <span className="wan27-history-arrow" style={{ fontSize: 14, color: "#64748b" }}>{showHistory ? "▴" : "▾"}</span>
           </div>
           {showHistory && historyItems.map((item, index) => {
             const isActive = item.videoUrl === data.videoUrl;
             return (
-              <div key={item.id} style={{ borderRadius: 6, border: "1px solid " + (isActive ? "#c7d2fe" : "#e2e8f0"), background: isActive ? "#eef2ff" : "#fff", padding: "6px 8px", display: "flex", flexDirection: "column", gap: 4 }}>
-                <div style={{ fontSize: 11, color: "#475569" }}>#{index + 1} · {formatHistoryTime(item.createdAt)}</div>
-                <div style={{ fontSize: 11, color: "#0f172a" }}>{item.prompt.length > 80 ? `${item.prompt.slice(0, 80)}…` : item.prompt}</div>
+              <div className="wan27-history-item" key={item.id} style={{ borderRadius: 6, border: "1px solid " + (isActive ? "#c7d2fe" : "#e2e8f0"), background: isActive ? "#eef2ff" : "#fff", padding: "6px 8px", display: "flex", flexDirection: "column", gap: 4 }}>
+                <div className="wan27-history-meta" style={{ fontSize: 11, color: "#475569" }}>#{index + 1} · {formatHistoryTime(item.createdAt)}</div>
+                <div className="wan27-history-prompt" style={{ fontSize: 11, color: "#0f172a" }}>{item.prompt.length > 80 ? `${item.prompt.slice(0, 80)}…` : item.prompt}</div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {!isActive && <button type="button" onClick={() => handleApplyHistory(item)} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #94a3b8", background: "#fff", fontSize: 11 }}>{lt("设为当前", "Set as current")}</button>}
-                  <button type="button" onClick={() => copyVideoLink(item.videoUrl)} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #94a3b8", background: "#fff", fontSize: 11 }}>{lt("复制链接", "Copy link")}</button>
-                  <button type="button" onClick={() => triggerDownload(item.videoUrl)} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #94a3b8", background: "#fff", fontSize: 11 }}>{lt("下载", "Download")}</button>
+                  {!isActive && <button type="button" className="wan27-action-btn" onClick={() => handleApplyHistory(item)} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #94a3b8", background: "#fff", fontSize: 11 }}>{lt("设为当前", "Set as current")}</button>}
+                  <button type="button" className="wan27-action-btn" onClick={() => copyVideoLink(item.videoUrl)} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #94a3b8", background: "#fff", fontSize: 11 }}>{lt("复制链接", "Copy link")}</button>
+                  <button type="button" className="wan27-action-btn" onClick={() => triggerDownload(item.videoUrl)} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #94a3b8", background: "#fff", fontSize: 11 }}>{lt("下载", "Download")}</button>
                 </div>
               </div>
             );
@@ -366,7 +437,7 @@ function Wan27VideoNode({ id, data, selected }: Props) {
       )}
 
       {data.error && (
-        <div style={{ marginTop: 6, padding: "6px 8px", background: "#fef2f2", border: "1px solid #fecdd3", borderRadius: 6, color: "#b91c1c", fontSize: 12, display: "flex", gap: 6, alignItems: "center" }}>
+        <div className="wan27-error" style={{ marginTop: 6, padding: "6px 8px", background: "#fef2f2", border: "1px solid #fecdd3", borderRadius: 6, color: "#b91c1c", fontSize: 12, display: "flex", gap: 6, alignItems: "center" }}>
           <AlertTriangle size={14} />
           <span>{data.error}</span>
         </div>

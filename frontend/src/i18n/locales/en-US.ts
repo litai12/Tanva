@@ -317,6 +317,15 @@ const enUS = {
           banana25: "Domestic Fast",
           banana25Desc: "1st-gen model, fast and stable",
         },
+        bananaRoute: {
+          title: "Nano Banana Image Route",
+          desc: "Choose between normal and stable channels",
+          normal: "Normal Channel",
+          normalDesc: "Speed first for daily generation",
+          stable: "Stable Channel",
+          stableDesc: "Stability first for peak hours",
+          hint: "Only applies when Nano Banana providers are selected",
+        },
         googleKey: {
           clearConfirm:
             "Are you sure you want to clear your custom API key? The system will switch back to the official key.",
