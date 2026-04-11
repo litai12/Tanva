@@ -72,40 +72,21 @@ export class PaymentController {
   }
 
   /**
-   * 获取充值套餐列表（每个套餐独立判断首充状态）
+   * 获取充值套餐列表（固定积分档位）
    */
   @Get('packages')
   @UseGuards(JwtAuthGuard)
-  async getPackages(@Request() req: any) {
+  async getPackages() {
     const creditsPerYuan = 100;
     const amounts = [10, 30, 50, 100, 200, 500];
 
-    // 获取每个金额档位的首充状态
-    const firstRechargeStatus = await this.paymentService.getFirstRechargeStatusByAmounts(
-      req.user.sub,
-      amounts,
-    );
-
-    // 首充配置
-    const firstRechargeConfig: Record<number, { credits: number; bonus: string | null }> = {
-      10: { credits: 2000, bonus: null },
-      30: { credits: 6300, bonus: '送5%' },
-      50: { credits: 10500, bonus: '送5%' },
-      100: { credits: 22400, bonus: '送12%' },
-      200: { credits: 48000, bonus: '送20%' },
-      500: { credits: 130000, bonus: '送30%' },
-    };
-
-    // 根据每个套餐的首充状态返回对应配置
-    const packages = amounts.map(price => {
-      const isFirst = firstRechargeStatus[price];
-      if (isFirst) {
-        const config = firstRechargeConfig[price];
-        return { price, credits: config.credits, bonus: config.bonus, tag: '首充翻倍', isFirstRecharge: true };
-      } else {
-        return { price, credits: price * creditsPerYuan, bonus: null, tag: null, isFirstRecharge: false };
-      }
-    });
+    const packages = amounts.map((price) => ({
+      price,
+      credits: price * creditsPerYuan,
+      bonus: null,
+      tag: null,
+      isFirstRecharge: false,
+    }));
 
     return {
       packages,

@@ -54,12 +54,12 @@ export interface PaymentStatusResponse {
 
 // 充值套餐配置
 export const RECHARGE_PACKAGES = [
-  { price: 10, credits: 2000, bonus: null, tag: '首充翻倍' },
-  { price: 30, credits: 6300, bonus: '送5%', tag: '首充翻倍' },
-  { price: 50, credits: 10500, bonus: '送5%', tag: '首充翻倍' },
-  { price: 100, credits: 22400, bonus: '送12%', tag: '首充翻倍' },
-  { price: 200, credits: 48000, bonus: '送5%', tag: '首充翻倍' },
-  { price: 500, credits: 130000, bonus: '送30%', tag: '首充翻倍' },
+  { price: 10, credits: 1000, bonus: null, tag: null },
+  { price: 30, credits: 3000, bonus: null, tag: null },
+  { price: 50, credits: 5000, bonus: null, tag: null },
+  { price: 100, credits: 10000, bonus: null, tag: null },
+  { price: 200, credits: 20000, bonus: null, tag: null },
+  { price: 500, credits: 50000, bonus: null, tag: null },
 ];
 
 // 积分兑换比例：1元 = 100积分

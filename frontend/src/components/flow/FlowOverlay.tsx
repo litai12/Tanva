@@ -8416,11 +8416,11 @@ function FlowInner() {
           const sameHandleCount = edges.filter(
             (e) => e.target === params.target && e.targetHandle === params.targetHandle
           ).length;
-          if (sameHandleCount >= 1) return false;
           const totalImageCount = edges.filter(
             (e) => e.target === params.target && (e.targetHandle === "image" || e.targetHandle === "image-2")
           ).length;
-          return totalImageCount < maxImages;
+          const projectedTotal = totalImageCount - sameHandleCount + 1;
+          return projectedTotal <= maxImages;
         }
         if (params.targetHandle === "text") return true;
       }
@@ -8431,11 +8431,11 @@ function FlowInner() {
           const sameHandleCount = edges.filter(
             (e) => e.target === params.target && e.targetHandle === params.targetHandle
           ).length;
-          if (sameHandleCount >= 1) return false;
           const totalImageCount = edges.filter(
             (e) => e.target === params.target && (e.targetHandle === "image" || e.targetHandle === "image-2")
           ).length;
-          return totalImageCount < VIDUQ3_MAX_REFERENCE_IMAGES;
+          const projectedTotal = totalImageCount - sameHandleCount + 1;
+          return projectedTotal <= VIDUQ3_MAX_REFERENCE_IMAGES;
         }
         if (params.targetHandle === "text") return true;
       }

@@ -1708,9 +1708,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               ? "image (1-2)"
               : "image"
             : isKling26Model
-            ? isProMode
-              ? "image (棣栧抚)"
-              : "image (浠?寮?"
+            ? "image (图1)"
             : "image"}
         </div>
       )}
@@ -1723,7 +1721,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             transform: "translate(-100%, -50%)",
           }}
         >
-          image-2 (灏惧抚)
+          image-2 (图2)
         </div>
       )}
       {hover === "video-in" && (
