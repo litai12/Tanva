@@ -36,3 +36,4 @@
 - 公众号扫码登录依赖环境变量：`WECHAT_OFFICIAL_APP_ID`、`WECHAT_OFFICIAL_APP_SECRET`、`WECHAT_OFFICIAL_TOKEN`；可选 `WECHAT_OFFICIAL_QR_EXPIRE_SECONDS`、`WECHAT_OFFICIAL_LOGIN_MESSAGE`。
 - 当前扫码登录以手机号为主身份：`subscribe/SCAN` 只负责识别微信身份；若该微信未绑定真实手机号，会先进入 `needs_phone_bind`，需短信验证手机号后才发放登录态。
 - 当前只实现微信公众平台 `明文模式` 回调；后台配置时不要启用仅加密模式，否则需要额外 AES 解密链路。
+- 公众号全局 token 现通过微信推荐的 `cgi-bin/stable_token` 获取，并在生成二维码遇到 `access_token is invalid or not latest` 时自动强制刷新后重试一次，降低多实例/第三方系统并发刷新导致的失效问题。

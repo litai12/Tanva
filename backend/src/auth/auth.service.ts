@@ -68,6 +68,13 @@ type WechatOfficialAccessTokenResponse = {
   errmsg?: string;
 };
 
+type WechatOfficialStableAccessTokenRequest = {
+  grant_type: "client_credential";
+  appid: string;
+  secret: string;
+  force_refresh?: boolean;
+};
+
 type WechatOfficialQrCodeResponse = {
   ticket?: string;
   expire_seconds?: number;
@@ -467,12 +474,16 @@ export class AuthService {
       return this.wechatOfficialAccessTokenCache.token;
     }
 
-    const url = new URL("https://api.weixin.qq.com/cgi-bin/token");
-    url.searchParams.set("grant_type", "client_credential");
-    url.searchParams.set("appid", config.appId);
-    url.searchParams.set("secret", config.appSecret);
-
-    const res = await fetch(url.toString());
+    const res = await fetch("https://api.weixin.qq.com/cgi-bin/stable_token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        grant_type: "client_credential",
+        appid: config.appId,
+        secret: config.appSecret,
+        force_refresh: forceRefresh,
+      } satisfies WechatOfficialStableAccessTokenRequest),
+    });
     const data = (await res.json().catch(() => null)) as
       | WechatOfficialAccessTokenResponse
       | null;
@@ -488,6 +499,21 @@ export class AuthService {
     };
 
     return data.access_token;
+  }
+
+  private shouldRefreshWechatOfficialAccessToken(
+    error?: { errcode?: number; errmsg?: string } | null
+  ) {
+    const errCode = Number(error?.errcode);
+    const errMsg = (error?.errmsg || "").toLowerCase();
+    if (errCode === 40001 || errCode === 42001) {
+      return true;
+    }
+    return (
+      errMsg.includes("access_token is invalid") ||
+      errMsg.includes("not latest") ||
+      errMsg.includes("access token expired")
+    );
   }
 
   private async fetchWechatOfficialUserInfo(openId: string) {
@@ -520,11 +546,11 @@ export class AuthService {
 
   async createWechatOfficialLoginSession(returnTo?: string) {
     const config = this.getWechatOfficialConfig();
-    const accessToken = await this.getWechatOfficialAccessToken();
     const sceneKey = `wxlogin_${randomBytes(12).toString("hex")}`;
     const expiresAt = new Date(Date.now() + config.qrExpireSeconds * 1000);
 
-    const qrRes = await fetch(
+    let accessToken = await this.getWechatOfficialAccessToken();
+    let qrRes = await fetch(
       `https://api.weixin.qq.com/cgi-bin/qrcode/create?access_token=${encodeURIComponent(
         accessToken
       )}`,
@@ -543,9 +569,38 @@ export class AuthService {
       }
     );
 
-    const qrData = (await qrRes.json().catch(() => null)) as
+    let qrData = (await qrRes.json().catch(() => null)) as
       | WechatOfficialQrCodeResponse
       | null;
+
+    if (
+      (!qrRes.ok || !qrData?.ticket) &&
+      this.shouldRefreshWechatOfficialAccessToken(qrData)
+    ) {
+      accessToken = await this.getWechatOfficialAccessToken(true);
+      qrRes = await fetch(
+        `https://api.weixin.qq.com/cgi-bin/qrcode/create?access_token=${encodeURIComponent(
+          accessToken
+        )}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            expire_seconds: config.qrExpireSeconds,
+            action_name: "QR_STR_SCENE",
+            action_info: {
+              scene: {
+                scene_str: sceneKey,
+              },
+            },
+          }),
+        }
+      );
+
+      qrData = (await qrRes.json().catch(() => null)) as
+        | WechatOfficialQrCodeResponse
+        | null;
+    }
 
     if (!qrRes.ok || !qrData?.ticket) {
       const msg = qrData?.errmsg || `HTTP ${qrRes.status}`;
