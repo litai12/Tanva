@@ -1,7 +1,7 @@
 // @ts-nocheck
 // Flow 主画布与节点调度入口。
 import React from "react";
-import { Trash2, Plus, Upload, Download, Group, Ungroup } from "lucide-react";
+import { Trash2, Plus, Upload, Download, Group, Ungroup, Lock, Crown } from "lucide-react";
 import { fetchTemplateCategories } from "@/services/publicTemplateService";
 import { fetchWithAuth } from "@/services/authFetch";
 import SharedTemplateCard from "@/components/template/SharedTemplateCard";
@@ -1956,6 +1956,7 @@ const nodePaletteButtonStyle: React.CSSProperties = {
   transition: "all 0.18s ease",
   width: "100%",
   textAlign: "left",
+  position: "relative",
 };
 
 const nodePaletteZhStyle: React.CSSProperties = {
@@ -2141,6 +2142,7 @@ const NodePaletteButton: React.FC<{
   disabled?: boolean;
   isDarkTheme?: boolean;
   showZh?: boolean;
+  vipOnly?: boolean;
   onClick: () => void;
 }> = ({
   zh,
@@ -2152,6 +2154,7 @@ const NodePaletteButton: React.FC<{
   disabled,
   isDarkTheme = false,
   showZh = true,
+  vipOnly = false,
   onClick,
 }) => {
   const creditsDisplay =
@@ -2160,6 +2163,14 @@ const NodePaletteButton: React.FC<{
         ? credits
         : credits.toString()
       : null;
+
+  // 跳转到会员开通页面
+  const handleVipClick = () => {
+    const base = import.meta.env.BASE_URL || "/";
+    const originWithBase = `${window.location.origin}${base.endsWith("/") ? base : `${base}/`}`;
+    const href = new URL("membership", originWithBase).href;
+    window.open(href, "_blank", "noopener,noreferrer");
+  };
 
   const getBadgeStyle = (statusCode?: string): React.CSSProperties => {
     if (statusCode === "maintenance") {
@@ -2181,6 +2192,8 @@ const NodePaletteButton: React.FC<{
     return nodePaletteBadgeStyle;
   };
 
+  // VIP-only 样式
+  const isVipLocked = vipOnly && !disabled;
   const buttonStyle: React.CSSProperties = {
     ...nodePaletteButtonStyle,
     ...(isDarkTheme
@@ -2191,9 +2204,9 @@ const NodePaletteButton: React.FC<{
           justifyContent: showZh ? "space-between" : "flex-start",
         }
       : {}),
-    ...(disabled ? {
+    ...(disabled || isVipLocked ? {
       opacity: isDarkTheme ? 0.75 : 0.6,
-      cursor: "not-allowed",
+      cursor: isVipLocked ? "pointer" : "not-allowed",
       background: isDarkTheme ? "#171717" : "#f9fafb",
       color: isDarkTheme ? "#666666" : "#0f172a",
     } : {}),
@@ -2201,15 +2214,16 @@ const NodePaletteButton: React.FC<{
 
   return (
     <button
-      onClick={disabled ? undefined : onClick}
+      onClick={isVipLocked ? handleVipClick : (disabled ? undefined : onClick)}
       style={buttonStyle}
       onMouseEnter={(e) =>
-        !disabled && setNodePaletteHover(e.currentTarget, true, isDarkTheme)
+        !(disabled || isVipLocked) && setNodePaletteHover(e.currentTarget, true, isDarkTheme)
       }
       onMouseLeave={(e) =>
-        !disabled && setNodePaletteHover(e.currentTarget, false, isDarkTheme)
+        !(disabled || isVipLocked) && setNodePaletteHover(e.currentTarget, false, isDarkTheme)
       }
-      disabled={disabled}
+      disabled={disabled && !isVipLocked}
+      title={isVipLocked ? (isDarkTheme ? "Click to open VIP subscription" : "点击开通VIP会员") : undefined}
     >
       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4, flex: 1 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, width: "100%" }}>
@@ -2222,6 +2236,26 @@ const NodePaletteButton: React.FC<{
             {en}
           </span>
           {badge ? <span style={getBadgeStyle(status)}>{badge}</span> : null}
+          {/* VIP 锁定标识 */}
+          {isVipLocked && (
+            <span
+              style={{
+                ...nodePaletteBadgeStyle,
+                display: "flex",
+                alignItems: "center",
+                gap: 3,
+                color: isDarkTheme ? "#fcd34d" : "#92400e",
+                background: isDarkTheme ? "#3a2e16" : "#fef3c7",
+                border: isDarkTheme ? "1px solid #7c5a14" : "1px solid #fcd34d",
+                fontSize: 10,
+                padding: "2px 6px",
+                borderRadius: 6,
+              }}
+            >
+              <Crown size={10} />
+              <span>VIP</span>
+            </span>
+          )}
         </div>
         {caption ? (
           <div
@@ -2239,6 +2273,19 @@ const NodePaletteButton: React.FC<{
             {caption}
           </div>
         ) : null}
+        {/* VIP 锁定提示 */}
+        {isVipLocked && (
+          <div
+            style={{
+              fontSize: 10,
+              color: isDarkTheme ? "#fcd34d" : "#d97706",
+              fontWeight: 500,
+              marginTop: 2,
+            }}
+          >
+            {isDarkTheme ? "Click to unlock" : "点击开通VIP解锁"}
+          </div>
+        )}
         {/* {creditsDisplay && (
           <span style={nodePaletteCreditsStyle}>消耗{creditsDisplay}积分</span>
         )} */}
@@ -2255,6 +2302,27 @@ const NodePaletteButton: React.FC<{
           {zh}
         </span>
       ) : null}
+      {/* VIP 锁定图标 */}
+      {isVipLocked && (
+        <div
+          style={{
+            position: "absolute",
+            top: -8,
+            right: -8,
+            width: 24,
+            height: 24,
+            borderRadius: "50%",
+            background: "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            boxShadow: "0 2px 8px rgba(245, 158, 11, 0.4)",
+            zIndex: 10,
+          }}
+        >
+          <Lock size={12} color="#fff" />
+        </div>
+      )}
     </button>
   );
 };
@@ -2639,6 +2707,20 @@ function FlowInner() {
   const [nodeConfigs, setNodeConfigs] = React.useState<NodeConfig[]>([]);
   React.useEffect(() => {
     fetchNodeConfigs().then(setNodeConfigs).catch(console.error);
+  }, []);
+
+  // VIP 会员状态
+  const [membershipActive, setMembershipActive] = React.useState(false);
+  React.useEffect(() => {
+    import("@/services/adminApi").then(({ getMembershipCurrent }) => {
+      getMembershipCurrent()
+        .then((data) => {
+          setMembershipActive(data?.entitlement?.membershipStatus === "active");
+        })
+        .catch(() => {
+          setMembershipActive(false);
+        });
+    }).catch(() => {});
   }, []);
 
   // 管理端保存后：localStorage 仅其它标签页能收到 storage 事件；同窗口用 NODE_CONFIG_SYNC_DOM_EVENT
@@ -17260,6 +17342,9 @@ function FlowInner() {
     });
     if (!started) return;
     globalRunStopRequestedRef.current = false;
+    try {
+      (window as Window & { __tanvaFlowGlobalRunning?: boolean }).__tanvaFlowGlobalRunning = true;
+    } catch {}
 
     window.dispatchEvent(
       new CustomEvent("flow:global-run-state", {
@@ -17486,6 +17571,9 @@ function FlowInner() {
     } finally {
       setIsGlobalRunning(false);
       globalRunStopRequestedRef.current = false;
+      try {
+        (window as Window & { __tanvaFlowGlobalRunning?: boolean }).__tanvaFlowGlobalRunning = false;
+      } catch {}
       window.dispatchEvent(
         new CustomEvent("flow:global-run-state", {
           detail: { running: false },
@@ -19749,6 +19837,8 @@ function FlowInner() {
                           const isDisabled =
                             config.status === "maintenance" ||
                             config.status === "coming_soon";
+                          const isVipNode = config.nodeKey === "seedance20Video" || (config.metadata as Record<string, any>)?.vipOnly === true;
+                          const isVipLocked = !membershipActive && isVipNode;
                           const badge = getStatusBadge(config.status);
                           const rawCaption = buildNodePaletteCaption(config);
                           const caption =
@@ -19766,9 +19856,10 @@ function FlowInner() {
                               badge={badge}
                               status={config.status}
                               credits={resolveNodeConfigCreditsPerCall(config)}
-                              disabled={isDisabled}
+                              disabled={isDisabled || isVipLocked}
                               isDarkTheme={isFlowBlackTheme}
                               showZh={isZh}
+                              vipOnly={isVipLocked}
                               onClick={() =>
                                 createNodeAtWorldCenter(
                                   resolveFlowNodeTypeFromConfig(config),

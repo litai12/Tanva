@@ -32,6 +32,7 @@ interface Transaction {
   channel?: string | null;
   provider?: string | null;
   model?: string | null;
+  billingRemark?: string | null;
   apiResponseStatus?: string | null;
   processingTime?: number | null;
 }
@@ -589,6 +590,11 @@ const MyCredits: React.FC = () => {
                                         {t('creditsPage.transactions.model', { model: tx.model })}
                                       </span>
                                     )}
+                                  </div>
+                                )}
+                                {tx.billingRemark && (
+                                  <div className="max-w-[380px] text-[11px] leading-5 text-slate-500 whitespace-normal break-words">
+                                    {tx.billingRemark}
                                   </div>
                                 )}
                               </div>

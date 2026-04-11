@@ -153,6 +153,7 @@ export function proxifyRemoteAssetUrl(
       }
       const allowedHosts = [
         ".aliyuncs.com",
+        "tai-tanva-ai.oss-cn-shenzhen.aliyuncs.com",
         "models.kapon.cloud",
         "kechuangai.com",
         "apimart.ai",
@@ -221,6 +222,7 @@ export function proxifyRemoteAssetUrl(
     // 默认仅考虑代理 OSS/aliyuncs 公网资源，避免把任意外部 URL 变成依赖后端的"通用代理"
     const allowedHosts = [
       ".aliyuncs.com",
+      "tai-tanva-ai.oss-cn-shenzhen.aliyuncs.com",
       "models.kapon.cloud",
       "kechuangai.com",
       "apimart.ai",

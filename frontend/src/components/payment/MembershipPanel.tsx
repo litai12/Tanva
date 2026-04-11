@@ -22,6 +22,8 @@ const showToast = (message: string, type: "success" | "error" | "info" = "info")
 interface MembershipPanelProps {
   onBack: () => void;
   onPaymentSuccess?: () => void;
+  /** 独立页面时隐藏左上角返回按钮 */
+  hideBackButton?: boolean;
 }
 
 type BillingPeriod = "monthly" | "yearly";
@@ -154,7 +156,7 @@ function checkoutPlanDisplayTitle(plan: PaymentMembershipPlan): string {
 /** 套餐卡默认统一最小高度（免费 + 各档付费、选中/未选中一致，与视觉稿对齐） */
 const PLAN_CARD_MIN_H = "min-h-[520px] sm:min-h-[550px] lg:min-h-[580px] xl:min-h-[600px]";
 
-const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSuccess }) => {
+const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSuccess, hideBackButton = false }) => {
   const [plans, setPlans] = useState<PaymentMembershipPlan[]>([]);
   const [current, setCurrent] = useState<MembershipCurrentResponse | null>(null);
   const [selectedPlanCode, setSelectedPlanCode] = useState<string | null>(null);
@@ -382,27 +384,29 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   return (
     <div className={cn("min-h-0", isWhite ? "min-h-full bg-white" : "text-zinc-100")}>
       <div className={cn("flex items-center justify-between pb-5 pt-2", isWhite ? "border-b border-slate-100" : "border-b border-zinc-800/80")}>
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => {
-              if (showOrders) {
-                setShowOrders(false);
-                return;
-              }
-              if (vipMainTab === "credits" && creditOrdersOpen) {
-                paymentPanelRef.current?.closeOrders();
-                return;
-              }
-              onBack();
-            }}
-            className={cn(
-              "rounded-lg p-2 transition-colors",
-              isWhite ? "text-slate-400 hover:bg-slate-100 hover:text-slate-700" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100",
-            )}
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </button>
+        <div className={cn("flex items-center", !hideBackButton ? "gap-3" : "")}>
+          {!hideBackButton && (
+            <button
+              type="button"
+              onClick={() => {
+                if (showOrders) {
+                  setShowOrders(false);
+                  return;
+                }
+                if (vipMainTab === "credits" && creditOrdersOpen) {
+                  paymentPanelRef.current?.closeOrders();
+                  return;
+                }
+                onBack();
+              }}
+              className={cn(
+                "rounded-lg p-2 transition-colors",
+                isWhite ? "text-slate-400 hover:bg-slate-100 hover:text-slate-700" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100",
+              )}
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+          )}
           <h3 className={cn("text-lg font-medium tracking-tight", isWhite ? "text-slate-800" : "text-zinc-100")}>
             {showOrders
               ? "会员订单"

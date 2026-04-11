@@ -59,6 +59,8 @@ model WechatLoginSession {
   qrCodeUrl  String?
   openId     String?
   unionId    String?
+  nickname   String?
+  avatarUrl  String?
   userId     String?
   authorizedAt DateTime?
   consumedAt DateTime?

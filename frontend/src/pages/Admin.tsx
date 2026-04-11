@@ -2165,8 +2165,8 @@ type VideoModelRouteSelection = {
 const VIDEO_MODEL_ROUTE_DEFAULT_SELECTION: VideoModelRouteSelection = {
   sora2: "zhenzhen",
   seedance: "volcengine",
-  kling: "kapon",
-  vidu: "kapon",
+  kling: "tengxun",
+  vidu: "tengxun",
 };
 
 const VIDEO_MODEL_ROUTE_OPTIONS: Record<

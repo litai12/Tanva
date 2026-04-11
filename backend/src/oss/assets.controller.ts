@@ -5,6 +5,14 @@ import { Readable } from 'node:stream';
 import { OssService } from './oss.service';
 
 const MANAGED_ASSET_KEY_REGEX = /^(projects|uploads|templates|videos|ai)\//i;
+const DEFAULT_PROXY_UPSTREAM_TIMEOUT_MS = 12_000;
+const MAX_PROXY_UPSTREAM_RETRIES = 1;
+const RETRYABLE_PROXY_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
+
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
 
 @ApiTags('assets')
 @Controller('assets')
@@ -176,14 +184,39 @@ export class AssetsController {
     if (ifNoneMatch) upstreamHeaders['if-none-match'] = ifNoneMatch;
     if (ifModifiedSince) upstreamHeaders['if-modified-since'] = ifModifiedSince;
 
+    const upstreamTimeoutMs = (() => {
+      const raw =
+        process.env.ASSET_PROXY_UPSTREAM_TIMEOUT_MS ||
+        process.env.OSS_PROXY_TIMEOUT_MS ||
+        '';
+      const parsed = Number(raw);
+      if (!Number.isFinite(parsed)) return DEFAULT_PROXY_UPSTREAM_TIMEOUT_MS;
+      return Math.max(2_000, Math.min(60_000, Math.floor(parsed)));
+    })();
+
+    const fetchWithAbortAndTimeout = async (targetUrl: string): Promise<Response> => {
+      const timeoutController = new AbortController();
+      const timeoutId = setTimeout(() => {
+        timeoutController.abort();
+      }, upstreamTimeoutMs);
+      const onClientAbort = () => timeoutController.abort();
+      abortController.signal.addEventListener('abort', onClientAbort, { once: true });
+      try {
+        return await fetch(targetUrl, {
+          redirect: 'manual',
+          headers: upstreamHeaders,
+          signal: timeoutController.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+        abortController.signal.removeEventListener('abort', onClientAbort);
+      }
+    };
+
     const fetchWithRedirectCheck = async (inputUrl: string) => {
       let currentUrl = inputUrl;
       for (let i = 0; i < 5; i++) {
-        const res = await fetch(currentUrl, {
-          redirect: 'manual',
-          headers: upstreamHeaders,
-          signal: abortController.signal,
-        });
+        const res = await fetchWithAbortAndTimeout(currentUrl);
 
         if (res.status >= 300 && res.status < 400) {
           const location = res.headers.get('location');
@@ -218,9 +251,37 @@ export class AssetsController {
       throw new BadRequestException('Too many redirects');
     };
 
+    const fetchWithRetry = async (inputUrl: string) => {
+      let lastError: unknown = null;
+      for (let attempt = 0; attempt <= MAX_PROXY_UPSTREAM_RETRIES; attempt++) {
+        try {
+          const res = await fetchWithRedirectCheck(inputUrl);
+          if (RETRYABLE_PROXY_STATUS.has(res.status) && attempt < MAX_PROXY_UPSTREAM_RETRIES) {
+            try {
+              await res.body?.cancel();
+            } catch {
+              // ignore
+            }
+            await sleep(150 * (attempt + 1));
+            continue;
+          }
+          return res;
+        } catch (err: any) {
+          if (abortedByClient) throw err;
+          if (err instanceof BadRequestException || attempt >= MAX_PROXY_UPSTREAM_RETRIES) {
+            throw err;
+          }
+          lastError = err;
+          await sleep(150 * (attempt + 1));
+        }
+      }
+      if (lastError) throw lastError;
+      throw new BadGatewayException('Upstream fetch failed');
+    };
+
     let upstream: Response;
     try {
-      upstream = await fetchWithRedirectCheck(initialUrl);
+      upstream = await fetchWithRetry(initialUrl);
     } catch (err: any) {
       if (abortedByClient) return;
       throw new BadGatewayException(err?.message || 'Upstream fetch failed');

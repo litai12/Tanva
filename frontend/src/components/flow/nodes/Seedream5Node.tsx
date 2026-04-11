@@ -2,6 +2,7 @@ import React from "react";
 import { Handle, Position, useStore } from "reactflow";
 import { Send as SendIcon, HelpCircle } from "lucide-react";
 import SmartImage from "../../ui/SmartImage";
+import ImagePreviewModal from "../../ui/ImagePreviewModal";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
@@ -92,6 +93,8 @@ function Seedream5Node({ id, data, selected }: Props) {
 
   const [hover, setHover] = React.useState<string | null>(null);
   const [showHelp, setShowHelp] = React.useState(false);
+  const [preview, setPreview] = React.useState(false);
+  const [previewIndex, setPreviewIndex] = React.useState(0);
   const isFlowDark = useFlowNodeDarkTheme();
 
   // 检测连接的图片数量
@@ -148,6 +151,17 @@ function Seedream5Node({ id, data, selected }: Props) {
   const assetId = React.useMemo(() => parseFlowImageAssetRef(firstImage), [firstImage]);
   const assetUrl = useFlowImageAssetUrl(assetId);
   const displaySrc = assetId ? assetUrl : buildImageSrc(firstImage);
+
+  // 预览用集合
+  const previewCollection = React.useMemo(
+    () =>
+      images.map((value, i) => ({
+        id: `${id}-${i}`,
+        src: buildImageSrc(value) || "",
+        title: lt(`第 ${i + 1} 张`, `Image ${i + 1}`),
+      })),
+    [id, images, lt]
+  );
 
   return (
     <div
@@ -327,6 +341,12 @@ function Seedream5Node({ id, data, selected }: Props) {
         </div>
       {/* 图片预览 */}
       <div
+        onDoubleClick={() => {
+          if (images.length > 0) {
+            setPreviewIndex(0);
+            setPreview(true);
+          }
+        }}
         style={{
           width: "100%",
           minHeight: 160,
@@ -338,26 +358,44 @@ function Seedream5Node({ id, data, selected }: Props) {
           alignItems: "center",
           justifyContent: "center",
           overflow: "hidden",
+          cursor: images.length > 0 ? "pointer" : "default",
           ...flowImagePreviewWell(isFlowDark, {
             background: "#fff",
             border: "1px solid #eef0f2",
           }),
         }}
+        title={images.length > 0 ? lt("双击预览", "Double click to preview") : undefined}
       >
         {images.length > 0 ? (
           images.map((img, idx) => (
-            <SmartImage
+            <div
               key={idx}
-              src={buildImageSrc(img)}
-              alt=""
+              onDoubleClick={() => {
+                setPreviewIndex(idx);
+                setPreview(true);
+              }}
               style={{
                 width: images.length > 1 ? "calc(50% - 2px)" : "100%",
                 height: images.length > 1 ? 78 : "100%",
                 minHeight: images.length > 1 ? 78 : 160,
-                objectFit: "contain",
-                background: flowLetterboxBackground(isFlowDark),
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                overflow: "hidden",
+                cursor: "pointer",
               }}
-            />
+            >
+              <SmartImage
+                src={buildImageSrc(img)}
+                alt=""
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "contain",
+                  background: flowLetterboxBackground(isFlowDark),
+                }}
+              />
+            </div>
           ))
         ) : displaySrc ? (
           <SmartImage
@@ -443,6 +481,20 @@ function Seedream5Node({ id, data, selected }: Props) {
           image
         </div>
       )}
+
+      {/* 图片预览弹窗 */}
+      <ImagePreviewModal
+        isOpen={preview}
+        imageSrc={previewCollection[previewIndex]?.src || ""}
+        imageTitle={lt("Seedream 图片预览", "Seedream Image Preview")}
+        onClose={() => setPreview(false)}
+        imageCollection={previewCollection}
+        currentImageId={previewCollection[previewIndex]?.id}
+        onImageChange={(imageId: string) => {
+          const i = previewCollection.findIndex((it) => it.id === imageId);
+          if (i >= 0) setPreviewIndex(i);
+        }}
+      />
     </div>
   );
 }

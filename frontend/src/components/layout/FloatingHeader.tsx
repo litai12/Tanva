@@ -796,10 +796,15 @@ const FloatingHeader: React.FC = () => {
     window.open(href, "_blank", "noopener,noreferrer");
   }, []);
 
-  /** 画板顶栏积分入口：套餐 + 积分统一页 */
+  /** 画板顶栏积分入口：新标签打开 VIP 和积分充值页面 */
   const openMembershipHub = useCallback(() => {
-    navigate("/membership");
-  }, [navigate]);
+    const base = import.meta.env.BASE_URL || "/";
+    const originWithBase = `${window.location.origin}${
+      base.endsWith("/") ? base : `${base}/`
+    }`;
+    const href = new URL("membership", originWithBase).href;
+    window.open(href, "_blank", "noopener,noreferrer");
+  }, []);
 
   const topCreditsText = useMemo(() => {
     if (creditsLoading && !creditsInfo) return "...";

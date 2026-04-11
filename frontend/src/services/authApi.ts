@@ -30,6 +30,8 @@ export type WechatOfficialLoginSession = {
   returnTo: string;
   needsPhoneBind?: boolean;
   hasScannedIdentity?: boolean;
+  nickname?: string | null;
+  avatarUrl?: string | null;
 };
 
 const isMock = import.meta.env.VITE_AUTH_MODE === "mock";

@@ -49,10 +49,35 @@ export default function PendingUploadLeavePrompt() {
   if (summary.pendingFlowNodes > 0) {
     detailLines.push(
       lt(
-        `Flow 节点本地图片：${summary.pendingFlowNodes} 个`,
-        `Flow local images: ${summary.pendingFlowNodes} node(s)`
+        `Flow 本地图片引用：${summary.pendingFlowNodes} 处`,
+        `Flow local image refs: ${summary.pendingFlowNodes} node(s)`
       )
     );
+  }
+  if (summary.runningFlowNodes > 0) {
+    detailLines.push(
+      lt(
+        `运行中的节点：${summary.runningFlowNodes} 个`,
+        `Running flow nodes: ${summary.runningFlowNodes}`
+      )
+    );
+  }
+  if (summary.runningChatMessages > 0 || summary.aiDialogGenerating) {
+    detailLines.push(
+      lt(
+        `对话框运行中：${Math.max(
+          summary.runningChatMessages,
+          summary.aiDialogGenerating ? 1 : 0
+        )} 个任务`,
+        `AI dialog running: ${Math.max(
+          summary.runningChatMessages,
+          summary.aiDialogGenerating ? 1 : 0
+        )} task(s)`
+      )
+    );
+  }
+  if (summary.globalFlowRunning) {
+    detailLines.push(lt('全局运行：进行中', 'Global run: in progress'));
   }
 
   const handleConfirm = () => {

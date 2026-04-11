@@ -6,6 +6,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Added
+- Workspace Safety: added global leave-risk warning banner and upgraded leave confirmation logic to cover both uploading tasks and running Flow tasks; leaving during in-flight tasks now warns about potential data loss.
+- Runtime Stability: weak-network image delivery hardening for OSS/CDN resources, including adaptive timeout/retry in frontend image fetch (`imageSource.ts`) and proxy upstream timeout/retry in backend `/api/assets/proxy`.
+- Runtime Stability: custom CDN host `tai.tarvas.cn` added to frontend managed/proxy allowlist for direct public URL and fallback proxy compatibility.
 - Admin/Model Management: 后台“系统设置”新增“统一模型管理”tab，可直接编辑完整 `model_provider_mapping_v2` JSON，并支持通过 `models[].vendors[].metadata.specPricing` 配置按规格匹配的积分规则；默认模型目录补齐平台内图片模型（Nano Banana Fast/Pro/2、图像编辑、图像融合、Gemini 图像分析），模型列表新增搜索与类型筛选，图片规格积分按模型能力维度展示，不再只覆盖视频模型。
 - Seedance 2.0 模式参数补齐：模型管理 V2 请求体新增 `video_mode` 字段，前端模式选择可完整传递至方舟上游。
 - 认证系统新增“公众号扫码登录”闭环：后端支持带参数二维码会话、微信公众平台回调验签与 `subscribe/SCAN` 自动登录；前端登录页新增公众号扫码二维码面板与轮询消费登录会话。

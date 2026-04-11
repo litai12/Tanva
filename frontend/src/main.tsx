@@ -19,8 +19,6 @@ import CommunityGuidelines from '@/pages/legal/CommunityGuidelines';
 import { useAuthStore } from '@/stores/authStore';
 import { useProjectStore } from '@/stores/projectStore';
 import Workspace from '@/pages/Workspace';
-import PendingUploadLeavePrompt from '@/components/guards/PendingUploadLeavePrompt';
-import PendingUploadNavigationGuard from '@/components/guards/PendingUploadNavigationGuard';
 import { initializeRuntimeStability } from '@/bootstrap/runtimeStability';
 import { claimDailyReward } from '@/services/adminApi';
 
@@ -98,8 +96,6 @@ initializeRuntimeStability();
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
-      <PendingUploadNavigationGuard />
-      <PendingUploadLeavePrompt />
       <RootRoutes />
     </BrowserRouter>
   </StrictMode>,

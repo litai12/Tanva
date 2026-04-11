@@ -35,6 +35,41 @@
 - Backend build: passed (`npm run build` in `backend/`).
 - Frontend type check/build entry: reached Vite gate, blocked by local Node version (`20.18.1`) requiring `20.19+`.
 
+## Weak-network image delivery hardening (2026-04-12)
+
+### Frontend changes
+- Added image-fetch policy in `frontend/src/utils/imageSource.ts`:
+  - adaptive timeout/retry by runtime network quality (`navigator.connection`)
+  - retryable status handling (`408/425/429/500/502/503/504`)
+  - unified timeout-linked abort signals to prevent stuck image requests
+- Updated image source resolution (`resolveImageToDataUrl` / `resolveImageToBlob`) to use resilient fetch path instead of direct one-shot fetch.
+- Added `tai.tarvas.cn` to managed/allowed host assumptions for public asset resolution and proxy compatibility.
+- `SmartImage` and `SmoothSmartImage` now default to `loading="lazy"` and `decoding="async"` when caller does not override.
+
+### Backend changes
+- Hardened `GET /api/assets/proxy` in `backend/src/oss/assets.controller.ts`:
+  - upstream timeout guard (env: `ASSET_PROXY_UPSTREAM_TIMEOUT_MS` / `OSS_PROXY_TIMEOUT_MS`, default `12000ms`)
+  - one-round retry on retryable upstream statuses
+  - timeout and client-abort linking to stop upstream pull quickly when downstream is closed
+
+### Ops notes
+- CDN custom domain `OSS_CDN_HOST=tai.tarvas.cn` is now directly compatible with the frontend managed-host and proxy allowlist.
+- If WAN conditions are unstable in event venues, prefer direct CDN URL fetch first and fallback to `/api/assets/proxy` only for CORS/host mismatches.
+
+## Leave-risk guard hardening (2026-04-12)
+
+### Frontend changes
+- Upgraded leave-risk detection from only-uploading to `uploading + running`:
+  - pending upload tasks / pending local images
+  - running flow node status
+  - global flow run state
+- Added a global top warning banner in app workspace while risky tasks exist.
+- SPA back/forward guard and browser `beforeunload` now use the unified risk summary, showing stronger warning copy for potential data loss.
+
+### UX intent
+- Prevent accidental page leave while generation/upload is in progress.
+- Make loss risk explicit before user confirms force-leave.
+
 
 
 

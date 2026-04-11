@@ -2157,7 +2157,7 @@ export class AiController {
         }
 
         throw new InternalServerErrorException('图片生成重试次数耗尽，请稍后重试。');
-      }, 0, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }, dto.providerOptions));
+      }, 0, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize, aspectRatio: dto.aspectRatio }, dto.providerOptions));
 
       void this.telemetryService.ingestGenerationTask({
         traceId,
@@ -2408,7 +2408,7 @@ export class AiController {
       }
 
       throw new InternalServerErrorException('图片编辑重试次数耗尽，请稍后重试。');
-      }, 1, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }, dto.providerOptions));
+      }, 1, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize, aspectRatio: dto.aspectRatio }, dto.providerOptions));
 
       void this.telemetryService.ingestGenerationTask({
         traceId,
@@ -2641,7 +2641,7 @@ export class AiController {
       }
 
       throw new InternalServerErrorException('图片融合重试次数耗尽，请稍后重试。');
-      }, dto.sourceImages?.length || 0, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize }, dto.providerOptions));
+      }, dto.sourceImages?.length || 0, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize, aspectRatio: dto.aspectRatio }, dto.providerOptions));
 
       void this.telemetryService.ingestGenerationTask({
         traceId,
