@@ -3693,11 +3693,13 @@ const AIChatDialog: React.FC = () => {
 	                    <div className='flex items-center gap-1 p-2'>
 	                      {[
 	                        { label: lt("默认", "Default"), value: null },
-	                        { label: lt("3秒", "3s"), value: 3 },
 	                        { label: lt("4秒", "4s"), value: 4 },
 	                        { label: lt("5秒", "5s"), value: 5 },
 	                        { label: lt("6秒", "6s"), value: 6 },
 	                        { label: lt("8秒", "8s"), value: 8 },
+	                        { label: lt("10秒", "10s"), value: 10 },
+	                        { label: lt("12秒", "12s"), value: 12 },
+	                        { label: lt("15秒", "15s"), value: 15 },
 	                      ].map((opt) => (
                         <button
                           key={opt.label}
@@ -3710,7 +3712,7 @@ const AIChatDialog: React.FC = () => {
                           )}
                           onClick={() => {
                             setVideoDurationSeconds(
-                              opt.value as 3 | 4 | 5 | 6 | 8 | null
+                              opt.value as 4 | 5 | 6 | 8 | 10 | 12 | 15 | null
                             );
                             setIsVideoDurationOpen(false);
                           }}

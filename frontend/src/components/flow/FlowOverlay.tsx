@@ -7513,7 +7513,8 @@ function FlowInner() {
               thumbnail: undefined,
               videoVersion: 0,
               history: [],
-              clipDuration: undefined,
+              clipDuration:
+                type === "doubaoVideo" || type === "seedance20Video" ? 5 : undefined,
               aspectRatio: undefined,
               provider:
                 type === "viduVideo"

@@ -465,6 +465,39 @@ export class ModelRoutingService {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  private mergeMetadataWithFallback<T extends Record<string, any>>(
+    fallback: T,
+    current?: Record<string, any> | null,
+  ): T {
+    const merge = (baseValue: any, currentValue: any): any => {
+      if (Array.isArray(baseValue)) {
+        return Array.isArray(currentValue) ? currentValue : baseValue;
+      }
+
+      if (
+        baseValue &&
+        typeof baseValue === 'object' &&
+        !Array.isArray(baseValue)
+      ) {
+        const next: Record<string, any> = {
+          ...baseValue,
+        };
+
+        if (currentValue && typeof currentValue === 'object' && !Array.isArray(currentValue)) {
+          for (const [key, value] of Object.entries(currentValue)) {
+            next[key] = merge(baseValue[key], value);
+          }
+        }
+
+        return next;
+      }
+
+      return currentValue === undefined ? baseValue : currentValue;
+    };
+
+    return merge(fallback, current || {}) as T;
+  }
+
   getDefaultConfig(): ModelProviderMappingV2 {
     return JSON.parse(JSON.stringify(DEFAULT_MODEL_PROVIDER_MAPPING_V2));
   }
@@ -582,10 +615,12 @@ export class ModelRoutingService {
           provider: tencentVodVendor.provider || 'vidu',
           modelName: tencentVodVendor.modelName || 'Vidu',
           modelVersion: tencentVodVendor.modelVersion || (isQ3 ? 'q3' : 'q2'),
-          metadata:
+          metadata: this.mergeMetadataWithFallback(
+            DEFAULT_TENCENT_VOD_VIDU_V2_VENDOR_METADATA,
             tencentVodVendor.metadata && typeof tencentVodVendor.metadata === 'object'
               ? tencentVodVendor.metadata
-              : DEFAULT_TENCENT_VOD_VIDU_V2_VENDOR_METADATA,
+              : undefined,
+          ),
         };
 
         return this.ensureModelDefaultVendor({
@@ -692,10 +727,12 @@ export class ModelRoutingService {
           provider: tencentVodVendor.provider || 'doubao',
           modelName: tencentVodVendor.modelName || 'Seedance',
           modelVersion: tencentVodVendor.modelVersion || '1.5-pro',
-          metadata:
+          metadata: this.mergeMetadataWithFallback(
+            DEFAULT_TENCENT_VOD_SEEDANCE15_V2_VENDOR_METADATA,
             tencentVodVendor.metadata && typeof tencentVodVendor.metadata === 'object'
               ? tencentVodVendor.metadata
-              : DEFAULT_TENCENT_VOD_SEEDANCE15_V2_VENDOR_METADATA,
+              : undefined,
+          ),
         };
 
         return this.ensureModelDefaultVendor({
@@ -731,10 +768,12 @@ export class ModelRoutingService {
         provider: 'doubao',
         modelName: seedanceVendor.modelName || 'Seedance',
         modelVersion: '2.0',
-        metadata:
+        metadata: this.mergeMetadataWithFallback(
+          DEFAULT_SEEDANCE20_V2_VENDOR_METADATA,
           seedanceVendor.metadata && typeof seedanceVendor.metadata === 'object'
             ? seedanceVendor.metadata
-            : DEFAULT_SEEDANCE20_V2_VENDOR_METADATA,
+            : undefined,
+        ),
       };
 
       return this.ensureModelDefaultVendor({

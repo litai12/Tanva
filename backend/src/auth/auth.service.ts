@@ -267,6 +267,42 @@ export class AuthService {
     return normalized || null;
   }
 
+  private isSyntheticWechatName(name?: string | null): boolean {
+    const normalized = this.normalizeName(name);
+    if (!normalized) return false;
+    return /^微信用户(?:[-\s]|$)/.test(normalized) || /^用户-\w{4,}$/.test(normalized);
+  }
+
+  private buildSyntheticWechatName(openId: string): string {
+    return `用户-${openId.slice(-6)}`;
+  }
+
+  private resolveWechatDisplayName(params: {
+    userName?: string | null;
+    nickname?: string | null;
+    openId?: string | null;
+  }): string | null {
+    const normalizedUserName = this.normalizeName(params.userName);
+    if (normalizedUserName && !this.isSyntheticWechatName(normalizedUserName)) {
+      return normalizedUserName;
+    }
+
+    const normalizedNickname = this.normalizeName(params.nickname);
+    if (normalizedNickname) {
+      return normalizedNickname;
+    }
+
+    if (normalizedUserName) {
+      return normalizedUserName;
+    }
+
+    if (params.openId) {
+      return this.buildSyntheticWechatName(params.openId);
+    }
+
+    return null;
+  }
+
   private isPrimaryPhone(phone?: string | null): boolean {
     if (!phone) return false;
     return /^1\d{10}$/.test(phone.trim());
@@ -298,8 +334,19 @@ export class AuthService {
     profile: WechatOfficialLoginProfile
   ): Promise<AuthenticatedUserProfile> {
     const unionId = this.normalizeWechatUnionId(profile.unionId);
-    const name =
-      this.normalizeName(profile.nickname) || `微信用户-${profile.openId.slice(-6)}`;
+    const currentUser = await tx.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true },
+    });
+    if (!currentUser) {
+      throw new UnauthorizedException("微信登录用户不存在");
+    }
+
+    const nextDisplayName = this.resolveWechatDisplayName({
+      userName: currentUser.name,
+      nickname: profile.nickname,
+      openId: profile.openId,
+    });
 
     const byOpenId = await tx.user.findUnique({
       where: { wechatOfficialOpenId: profile.openId },
@@ -324,7 +371,9 @@ export class AuthService {
       data: {
         wechatOfficialOpenId: profile.openId,
         wechatUnionId: unionId,
-        name,
+        ...(nextDisplayName && nextDisplayName !== currentUser.name
+          ? { name: nextDisplayName }
+          : {}),
         avatarUrl: profile.avatarUrl || undefined,
       },
       select: { id: true, email: true, name: true, phone: true, role: true },
@@ -644,6 +693,11 @@ export class AuthService {
         openId: true,
         nickname: true,
         avatarUrl: true,
+        user: {
+          select: {
+            name: true,
+          },
+        },
       },
     });
 
@@ -673,6 +727,11 @@ export class AuthService {
       needsPhoneBind: status === "needs_phone_bind",
       hasScannedIdentity: Boolean(session.openId),
       nickname: session.nickname,
+      displayName: this.resolveWechatDisplayName({
+        userName: session.user?.name,
+        nickname: session.nickname,
+        openId: session.openId,
+      }),
       avatarUrl: session.avatarUrl,
     };
   }
@@ -772,7 +831,10 @@ export class AuthService {
       }
 
       const name =
-        this.normalizeName(profile.nickname) || `微信用户-${openId.slice(-6)}`;
+        this.resolveWechatDisplayName({
+          nickname: profile.nickname,
+          openId,
+        }) || this.buildSyntheticWechatName(openId);
       const createdUser = await tx.user.create({
         data: {
           phone: normalizedPhone,

@@ -314,14 +314,16 @@ export default function LoginPage() {
 	                      </div>
 	                    </button>
 	                  ) : null}
-	                  <p className='mt-4 text-sm text-white/90'>
+                  <p className='mt-4 text-sm text-white/90'>
                     {wechatConsuming
                       ? t("auth.login.wechatAuthorizing")
                       : wechatBinding
                       ? t("auth.login.wechatBinding")
                       : wechatSession?.status === "needs_phone_bind"
-                      ? wechatSession.nickname
-                        ? `你好，${wechatSession.nickname}，请填写手机号绑定账号`
+                      ? wechatSession.displayName
+                        ? t("auth.login.wechatBindHintWithName", {
+                            name: wechatSession.displayName,
+                          })
                         : t("auth.login.wechatBindHint")
                       : wechatSession?.status === "expired"
                       ? t("auth.login.wechatExpired")

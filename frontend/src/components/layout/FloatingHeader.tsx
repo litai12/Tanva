@@ -72,6 +72,7 @@ import { useProjectContentStore } from "@/stores/projectContentStore";
 import { authApi, type GoogleApiKeyInfo } from "@/services/authApi";
 import ReferralRewards from "@/components/ReferralRewards";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import MembershipPanel from "@/components/payment/MembershipPanel";
 import { useTranslation } from "react-i18next";
 import {
   claimDailyReward,
@@ -236,6 +237,7 @@ const FloatingHeader: React.FC = () => {
   // 单位/比例功能已移除
   const [showMemoryDebug, setShowMemoryDebug] = useState(false);
   const [showHistoryDebug, setShowHistoryDebug] = useState(false);
+  const [isMembershipOpen, setIsMembershipOpen] = useState(false);
   const [gridSizeInput, setGridSizeInput] = useState(String(gridSize));
   const [saveFeedback, setSaveFeedback] = useState<
     "idle" | "success" | "error"
@@ -796,14 +798,9 @@ const FloatingHeader: React.FC = () => {
     window.open(href, "_blank", "noopener,noreferrer");
   }, []);
 
-  /** 画板顶栏积分入口：新标签打开 VIP 和积分充值页面 */
+  /** 画板顶栏积分入口：打开 VIP / 积分弹窗 */
   const openMembershipHub = useCallback(() => {
-    const base = import.meta.env.BASE_URL || "/";
-    const originWithBase = `${window.location.origin}${
-      base.endsWith("/") ? base : `${base}/`
-    }`;
-    const href = new URL("membership", originWithBase).href;
-    window.open(href, "_blank", "noopener,noreferrer");
+    setIsMembershipOpen(true);
   }, []);
 
   const topCreditsText = useMemo(() => {
@@ -2308,6 +2305,31 @@ const FloatingHeader: React.FC = () => {
                     </div>
                     {renderSettingsContent()}
                   </div>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )}
+
+        {isMembershipOpen &&
+          typeof document !== "undefined" &&
+          createPortal(
+            <div
+              className='fixed inset-0 z-[1100] flex items-center justify-center bg-black/40 px-4 py-6 backdrop-blur-[2px]'
+              onClick={() => setIsMembershipOpen(false)}
+            >
+              <div
+                className='relative flex h-[min(90dvh,820px)] w-full max-w-[min(100%,1280px)] flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-[0_32px_80px_rgba(15,23,42,0.24)]'
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className='min-h-0 flex-1 overflow-y-auto overscroll-contain px-0'>
+                  <MembershipPanel
+                    onBack={() => setIsMembershipOpen(false)}
+                    onPaymentSuccess={() => {
+                      setIsMembershipOpen(false);
+                      window.dispatchEvent(new CustomEvent("refresh-credits"));
+                    }}
+                  />
                 </div>
               </div>
             </div>,

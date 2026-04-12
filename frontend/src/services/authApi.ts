@@ -31,6 +31,7 @@ export type WechatOfficialLoginSession = {
   needsPhoneBind?: boolean;
   hasScannedIdentity?: boolean;
   nickname?: string | null;
+  displayName?: string | null;
   avatarUrl?: string | null;
 };
 
@@ -271,7 +272,7 @@ export const authApi = {
         id: `wechat_bind_${Date.now()}`,
         email: "",
         phone: payload.phone,
-        name: `微信用户-${payload.phone.slice(-4)}`,
+        name: `用户-${payload.phone.slice(-4)}`,
         role: "user",
       };
       saveSession(user);

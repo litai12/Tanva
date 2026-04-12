@@ -44,6 +44,12 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Membership Backend 调整到期口径：订阅积分优先消耗，会员到期时重置订阅积分；免费用户继续按 30 天周期发放 `freeUserMonthlyQuotaCredits`（默认 `500`）。
 
 ### Fixed
+- Workspace / Membership Entry: 顶栏积分入口改为就地弹出 `MembershipPanel`，不再通过 `/membership` 路由切换页面；支付成功后仅刷新积分状态并关闭弹窗（`frontend/src/components/layout/FloatingHeader.tsx`）。
+- Backend / Seedance 2.0: 修正 `seedance_api` 直连时的 `resolution` 映射，Seedance V2 请求会把前端/节点里的 `480P/720P` 规范成上游要求的 `480p/720p`，避免规格已透传但因分辨率值格式不匹配被方舟拒绝（`backend/src/ai/services/video-provider.service.ts`）。
+- Backend / Seedance 2.0: 对 `seedance_api` 直连的 `r2v` 请求增加分支保护，检测到参考图/视频/音频模式时自动省略 `resolution`，避免方舟返回 `the parameter resolution ... is not valid for model doubao-seedance-2-0 in r2v`（`backend/src/ai/services/video-provider.service.ts`）。
+- Backend / Model Routing: 修复数据库中旧版 `model_provider_mapping_v2` 覆盖默认 Seedance 2.0 V2 metadata 时丢失规格字段的问题；现对 `requestProfile` 做默认值合并，旧配置也会自动补齐 `duration / video_mode / resolution / generate_audio` 等字段（`backend/src/ai/services/model-routing.service.ts`）。
+- Flow / Seedance 视频节点：新增节点级时长校准。画布内视频节点现在会为 Seedance 写入默认有效时长，并在模型切换或历史节点载入时将非法 `clipDuration` 自动修正到最近可用规格，避免时长面板已选择但运行请求未携带有效 `duration`（`frontend/src/components/flow/nodes/GenericVideoNode.tsx`, `frontend/src/components/flow/FlowOverlay.tsx`）。
+- AI Chat / Seedance 2.0: 修复聊天视频生成链路未显式透传 `seedanceModel` 与 `video_mode` 的问题；聊天面板视频时长选项同步校正为 `4/5/6/8/10/12/15s`，确保长宽比/时长等规格可以随请求带到上游（`frontend/src/stores/aiChatStore.ts`, `frontend/src/components/chat/AIChatDialog.tsx`）。
 - 公众号扫码登录改用微信推荐的稳定 `stable_token` 接口获取全局 `access_token`，并在生成登录二维码遇到 `access_token is invalid or not latest` 时自动强制刷新后重试一次，降低多实例或第三方系统并发刷新 token 导致的二维码生成失败。
 - 后台权限新增 `normal_admin`（普通管理）角色：后端仅放行 `概览、用户管理、API统计、API记录、公共模板、水印白名单` 对应接口，`admin` 仍保留全量后台权限（`backend/src/admin/admin.controller.ts`, `backend/src/admin/dto/admin.dto.ts`）。
 - 后台页面按角色显示 Tab：`normal_admin` 只显示 `概览 / 用户管理 / API统计 / API记录 / 公共模板 / 水印白名单`；并在“用户管理”中隐藏“角色/状态”列与“详情/删除”按钮（`frontend/src/pages/Admin.tsx`, `frontend/src/components/layout/FloatingHeader.tsx`）。
