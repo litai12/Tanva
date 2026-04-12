@@ -7,6 +7,8 @@ type PatchedFetch = typeof fetch & {
   __tanvaUpstreamLoggingPatched?: boolean;
 };
 
+type UpstreamRequestType = 'text' | 'video' | 'picture' | 'audio' | 'file' | 'binary' | 'other';
+
 const logger = new Logger('UpstreamFetchLogger');
 
 const isEnabled = (value: unknown, defaultValue: boolean): boolean => {
@@ -117,6 +119,281 @@ const normalizeHeaders = (headers: Headers): Record<string, unknown> => {
     normalized[key] = value;
   });
   return normalized;
+};
+
+const getMimeType = (contentType: string | null | undefined): string | null => {
+  const normalized = typeof contentType === 'string' ? contentType.trim().toLowerCase() : '';
+  if (!normalized) return null;
+  return normalized.split(';')[0]?.trim() || null;
+};
+
+const isVideoMimeType = (mimeType: string | null): boolean => {
+  if (!mimeType) return false;
+  return mimeType.startsWith('video/') || mimeType === 'application/vnd.apple.mpegurl';
+};
+
+const isAudioMimeType = (mimeType: string | null): boolean => {
+  if (!mimeType) return false;
+  return mimeType.startsWith('audio/');
+};
+
+const isPictureMimeType = (mimeType: string | null): boolean => {
+  if (!mimeType) return false;
+  return mimeType.startsWith('image/');
+};
+
+const TEXT_MIME_TYPES = new Set([
+  'application/json',
+  'application/problem+json',
+  'application/x-www-form-urlencoded',
+  'application/xml',
+  'text/xml',
+  'image/svg+xml',
+]);
+
+const isTextMimeType = (mimeType: string | null): boolean => {
+  if (!mimeType) return false;
+  return mimeType.startsWith('text/') || TEXT_MIME_TYPES.has(mimeType);
+};
+
+const FILE_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/zip',
+  'application/x-zip-compressed',
+  'application/x-rar-compressed',
+  'application/vnd.rar',
+  'application/x-7z-compressed',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'text/csv',
+  'application/csv',
+  'model/gltf-binary',
+  'model/gltf+json',
+]);
+
+const isFileMimeType = (mimeType: string | null): boolean => {
+  if (!mimeType) return false;
+  return FILE_MIME_TYPES.has(mimeType);
+};
+
+const isBinaryMimeType = (mimeType: string | null): boolean => {
+  if (!mimeType) return false;
+  return mimeType === 'application/octet-stream';
+};
+
+const containsKeyword = (value: string, keywords: readonly string[]): boolean => {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return false;
+
+  return keywords.some((keyword) => normalized.includes(keyword));
+};
+
+const VIDEO_KEYWORDS = [
+  'video',
+  'videos',
+  'movie',
+  'movies',
+  '.mp4',
+  '.mov',
+  '.avi',
+  '.mkv',
+  '.webm',
+  '.m3u8',
+] as const;
+
+const AUDIO_KEYWORDS = [
+  'audio',
+  'speech',
+  'voice',
+  'music',
+  'sound',
+  '.mp3',
+  '.wav',
+  '.aac',
+  '.flac',
+  '.ogg',
+  '.m4a',
+] as const;
+
+const PICTURE_KEYWORDS = [
+  'image',
+  'images',
+  'picture',
+  'pictures',
+  'photo',
+  'photos',
+  'thumbnail',
+  'poster',
+  'avatar',
+  'mask',
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.webp',
+  '.gif',
+  '.bmp',
+  '.svg',
+] as const;
+
+const FILE_KEYWORDS = [
+  'file',
+  'files',
+  'document',
+  'documents',
+  'attachment',
+  'attachments',
+  'archive',
+  'download',
+  '.pdf',
+  '.zip',
+  '.rar',
+  '.7z',
+  '.doc',
+  '.docx',
+  '.xls',
+  '.xlsx',
+  '.ppt',
+  '.pptx',
+  '.csv',
+  '.glb',
+  '.gltf',
+] as const;
+
+const BINARY_KEYWORDS = [
+  'binary',
+  'octet-stream',
+] as const;
+
+const toOriginInfo = (
+  value: unknown,
+): { origin: string | null; originHost: string | null } => {
+  if (typeof value !== 'string') {
+    return { origin: null, originHost: null };
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === 'null') {
+    return { origin: null, originHost: null };
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    return {
+      origin: parsed.origin,
+      originHost: parsed.hostname || null,
+    };
+  } catch {
+    return { origin: null, originHost: null };
+  }
+};
+
+const bodyContainsKeyword = (
+  value: unknown,
+  keywords: readonly string[],
+  depth = 0,
+): boolean => {
+  if (depth > 3 || value == null) return false;
+
+  if (typeof value === 'string') {
+    return containsKeyword(value, keywords);
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((item) => bodyContainsKeyword(item, keywords, depth + 1));
+  }
+
+  if (typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>).some(
+      ([key, nestedValue]) =>
+        containsKeyword(key, keywords) || bodyContainsKeyword(nestedValue, keywords, depth + 1),
+    );
+  }
+
+  return false;
+};
+
+const inferUpstreamRequestType = (params: {
+  url: URL;
+  requestHeaders: Record<string, unknown>;
+  requestBody: unknown;
+  responseHeaders?: Record<string, unknown> | null;
+  responseBody?: unknown;
+}): UpstreamRequestType => {
+  const requestMimeType = getMimeType(
+    typeof params.requestHeaders['content-type'] === 'string'
+      ? params.requestHeaders['content-type']
+      : null,
+  );
+  const responseMimeType = getMimeType(
+    typeof params.responseHeaders?.['content-type'] === 'string'
+      ? params.responseHeaders['content-type']
+      : null,
+  );
+  const urlText = `${params.url.pathname}${params.url.search}`.toLowerCase();
+
+  if (
+    isVideoMimeType(responseMimeType) ||
+    isVideoMimeType(requestMimeType) ||
+    containsKeyword(urlText, VIDEO_KEYWORDS) ||
+    bodyContainsKeyword(params.requestBody, VIDEO_KEYWORDS) ||
+    bodyContainsKeyword(params.responseBody, VIDEO_KEYWORDS)
+  ) {
+    return 'video';
+  }
+
+  if (
+    isAudioMimeType(responseMimeType) ||
+    isAudioMimeType(requestMimeType) ||
+    containsKeyword(urlText, AUDIO_KEYWORDS) ||
+    bodyContainsKeyword(params.requestBody, AUDIO_KEYWORDS) ||
+    bodyContainsKeyword(params.responseBody, AUDIO_KEYWORDS)
+  ) {
+    return 'audio';
+  }
+
+  if (
+    isPictureMimeType(responseMimeType) ||
+    isPictureMimeType(requestMimeType) ||
+    containsKeyword(urlText, PICTURE_KEYWORDS) ||
+    bodyContainsKeyword(params.requestBody, PICTURE_KEYWORDS) ||
+    bodyContainsKeyword(params.responseBody, PICTURE_KEYWORDS)
+  ) {
+    return 'picture';
+  }
+
+  if (
+    isFileMimeType(responseMimeType) ||
+    isFileMimeType(requestMimeType) ||
+    containsKeyword(urlText, FILE_KEYWORDS) ||
+    bodyContainsKeyword(params.requestBody, FILE_KEYWORDS) ||
+    bodyContainsKeyword(params.responseBody, FILE_KEYWORDS)
+  ) {
+    return 'file';
+  }
+
+  if (
+    isBinaryMimeType(responseMimeType) ||
+    isBinaryMimeType(requestMimeType) ||
+    containsKeyword(urlText, BINARY_KEYWORDS) ||
+    bodyContainsKeyword(params.requestBody, BINARY_KEYWORDS) ||
+    bodyContainsKeyword(params.responseBody, BINARY_KEYWORDS)
+  ) {
+    return 'binary';
+  }
+
+  if (isTextMimeType(responseMimeType) || isTextMimeType(requestMimeType)) {
+    return 'text';
+  }
+
+  if (responseMimeType || requestMimeType) {
+    return 'other';
+  }
+
+  return 'text';
 };
 
 const tryParseBody = (bodyText: string, contentType: string | null): unknown => {
@@ -259,11 +536,26 @@ export const installUpstreamFetchLogger = (): void => {
     const requestContext = getRequestContext();
     const requestBody = await readRequestBody(request);
     const requestHeaders = normalizeHeaders(request.headers);
+    const requestOriginHeader = toOriginInfo(request.headers.get('origin'));
+    const requestRefererHeader = toOriginInfo(request.headers.get('referer') || request.headers.get('referrer'));
+    const origin = requestContext?.origin || requestOriginHeader.origin || requestRefererHeader.origin || null;
+    const originHost =
+      requestContext?.originHost ||
+      requestOriginHeader.originHost ||
+      requestRefererHeader.originHost ||
+      null;
 
     try {
       const response = await originalFetch(request);
       const responseHeaders = normalizeHeaders(response.headers);
       const responseBody = await readResponseBody(response);
+      const requestType = inferUpstreamRequestType({
+        url,
+        requestHeaders,
+        requestBody,
+        responseHeaders,
+        responseBody,
+      });
       void ingestUpstreamRequestLog({
         trace_id: activeSpan?.traceId || requestContext?.traceId || null,
         span_id: activeSpan?.spanId || null,
@@ -271,6 +563,8 @@ export const installUpstreamFetchLogger = (): void => {
         user_id: requestContext?.userId || null,
         method: request.method,
         url: request.url,
+        origin,
+        origin_host: originHost,
         host: url.host,
         pathname: url.pathname,
         status_code: response.status,
@@ -279,6 +573,7 @@ export const installUpstreamFetchLogger = (): void => {
         request_body: requestBody,
         response_headers: responseHeaders,
         response_body: responseBody,
+        type: requestType,
         service_name: process.env.OPENOBSERVE_TRACE_SERVICE_NAME?.trim() || 'tanva-backend',
         received_at: new Date().toISOString(),
         log_type: 'upstream_request',
@@ -286,6 +581,11 @@ export const installUpstreamFetchLogger = (): void => {
       });
       return response;
     } catch (error) {
+      const requestType = inferUpstreamRequestType({
+        url,
+        requestHeaders,
+        requestBody,
+      });
       void ingestUpstreamRequestLog({
         trace_id: activeSpan?.traceId || requestContext?.traceId || null,
         span_id: activeSpan?.spanId || null,
@@ -293,6 +593,8 @@ export const installUpstreamFetchLogger = (): void => {
         user_id: requestContext?.userId || null,
         method: request.method,
         url: request.url,
+        origin,
+        origin_host: originHost,
         host: url.host,
         pathname: url.pathname,
         status_code: null,
@@ -300,6 +602,7 @@ export const installUpstreamFetchLogger = (): void => {
         request_headers: requestHeaders,
         request_body: requestBody,
         response_headers: null,
+        type: requestType,
         error: error instanceof Error ? error.message : String(error),
         service_name: process.env.OPENOBSERVE_TRACE_SERVICE_NAME?.trim() || 'tanva-backend',
         received_at: new Date().toISOString(),

@@ -440,3 +440,5 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - `grantFreeUserMonthlyQuotaIfNeeded` 改为在事务内锁定 `CreditAccount` 行后再检查本周期发放记录，修复多个并发请求同时命中账户初始化/余额查询路径时，免费月额度可能重复记交易的问题。
 - `/my-credits` 页面移除额外的静默自动签到，自动签到重新收口为应用入口单点触发，减少无意义并发请求。
 - Admin/Credits: 统一模型管理开始升级为正式定价结构，vendor 支持 `pricing.defaults + pricing.rules`，管理台可维护默认积分/默认价格与规格规则价格；后端预扣费兼容解析新旧结构，并把命中的 `pricingSnapshot` 写入 API 使用记录审计字段。
+- upstream request telemetry 新增 `type` 字段，按请求/响应的 MIME、URL 与 body 特征推断为 `text` / `video` / `picture`，便于在 `upstream_requests` 里区分不同媒介请求（`backend/src/telemetry/upstream-fetch-logger.ts`, `backend/src/telemetry/openobserve-telemetry.service.ts`）。
+- upstream request telemetry 扩展 `type` 枚举为 `text` / `video` / `picture` / `audio` / `file` / `binary` / `other`，并新增 `origin` / `origin_host` 记录发起请求时的来源域名，优先继承当前入站请求头，缺失时回退上游请求头中的 `Origin/Referer`（`backend/src/telemetry/request-context.ts`, `backend/src/telemetry/openobserve-request.interceptor.ts`, `backend/src/telemetry/upstream-fetch-logger.ts`, `backend/src/telemetry/openobserve-telemetry.service.ts`）。

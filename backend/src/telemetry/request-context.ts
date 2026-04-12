@@ -4,6 +4,8 @@ export type RequestContextPayload = {
   traceId?: string | null;
   requestId?: string | null;
   userId?: string | null;
+  origin?: string | null;
+  originHost?: string | null;
 };
 
 const requestContextStorage = new AsyncLocalStorage<RequestContextPayload>();

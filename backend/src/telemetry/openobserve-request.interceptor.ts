@@ -24,6 +24,29 @@ type TraceableRequest = FastifyRequest & {
   routerPath?: string;
 };
 
+const toOriginInfo = (
+  value: unknown,
+): { origin: string | null; originHost: string | null } => {
+  if (typeof value !== 'string') {
+    return { origin: null, originHost: null };
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === 'null') {
+    return { origin: null, originHost: null };
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    return {
+      origin: parsed.origin,
+      originHost: parsed.hostname || null,
+    };
+  } catch {
+    return { origin: null, originHost: null };
+  }
+};
+
 @Injectable()
 export class OpenObserveRequestInterceptor implements NestInterceptor {
   constructor(
@@ -50,6 +73,10 @@ export class OpenObserveRequestInterceptor implements NestInterceptor {
       crypto.randomUUID().replace(/-/g, '');
     request.traceId = traceId;
     reply.header('x-trace-id', traceId);
+    const originHeader = toOriginInfo(request.headers.origin);
+    const refererHeader = toOriginInfo(request.headers.referer || request.headers.referrer);
+    const requestOrigin = originHeader.origin || refererHeader.origin;
+    const requestOriginHost = originHeader.originHost || refererHeader.originHost;
 
     // Avoid recursive logging from the telemetry ingestion endpoint itself.
     if (path.startsWith('/api/telemetry/')) {
@@ -82,6 +109,8 @@ const emit = (statusCode: number) => {
       traceId,
       requestId: request.id || null,
       userId: user?.id || user?.userId || user?.sub || null,
+      origin: requestOrigin,
+      originHost: requestOriginHost,
     });
 
     return next.handle().pipe(

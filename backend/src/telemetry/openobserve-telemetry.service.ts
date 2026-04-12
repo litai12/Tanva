@@ -68,6 +68,9 @@ type UpstreamRequestLog = {
   spanId?: string | null;
   method: string;
   url: string;
+  type?: 'text' | 'video' | 'picture' | 'audio' | 'file' | 'binary' | 'other';
+  origin?: string | null;
+  originHost?: string | null;
   host: string | null;
   pathname: string | null;
   statusCode: number | null;
