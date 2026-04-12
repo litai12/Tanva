@@ -367,10 +367,15 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
     return tierKeyFromPlan(current.plan as PaymentMembershipPlan);
   }, [current?.plan]);
 
-  const isWhite = false;
+  const isWhite = useAIChatStore((state) => state.chatTheme === "white");
 
   return (
-    <div className='min-h-full bg-[#1c1c1c] text-zinc-100 p-5'>
+    <div
+      className={cn(
+        "min-h-full p-5",
+        isWhite ? "bg-white text-slate-900" : "bg-[#0a0a0f] text-zinc-100",
+      )}
+    >
       <div
         className={cn(
           "flex items-center justify-between pb-5 pt-2",

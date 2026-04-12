@@ -11696,8 +11696,7 @@ function FlowInner() {
             )
           );
 
-          const promptExtend = true;
-          const watermark = true;
+          // Prompt Extend 默开启，水印默认关闭（不暴露给前端UI）
           const generationStartedAt = Date.now();
 
           const result = await generateWan27I2VViaAPI({
@@ -11706,8 +11705,8 @@ function FlowInner() {
             parameters: {
               resolution,
               duration,
-              prompt_extend: promptExtend,
-              watermark,
+              prompt_extend: true,
+              watermark: false,
               ...(typeof seed === "number" ? { seed } : {}),
             },
           });

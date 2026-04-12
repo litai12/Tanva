@@ -453,7 +453,16 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
   };
 
   return (
-    <div className={cn("pb-6", isWhite && "bg-white", !isWhite && "bg-[#0a0a0f] text-zinc-100")}>
+    <div
+      className={cn(
+        "pb-6",
+        isWhite
+          ? "bg-white text-slate-900"
+          : embeddedInVip
+            ? "bg-transparent text-zinc-100"
+            : "bg-[#0a0a0f] text-zinc-100",
+      )}
+    >
       {/* 独立积分页顶栏；嵌入 VIP 时由 MembershipPanel 承接 */}
       {!embeddedInVip && !isWhite && (
         <div className="flex items-center justify-between border-b border-zinc-800/60 pb-6 pt-4">

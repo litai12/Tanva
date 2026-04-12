@@ -2372,7 +2372,12 @@ const FloatingHeader: React.FC = () => {
               onClick={() => setIsMembershipOpen(false)}
             >
               <div
-                className='relative flex h-[min(200dvh,1000px)] w-full max-w-[min(100%,1480px)] flex-col overflow-hidden rounded-[20px] bg-[#0a0a0f] shadow-[0_32px_80px_rgba(0,0,0,0.5)]'
+                className={cn(
+                  "relative flex h-[min(200dvh,1000px)] w-full max-w-[min(100%,1480px)] flex-col overflow-hidden rounded-[20px]",
+                  chatTheme === "white"
+                    ? "bg-white shadow-[0_32px_80px_rgba(15,23,42,0.18)]"
+                    : "bg-[#0a0a0f] shadow-[0_32px_80px_rgba(0,0,0,0.5)]"
+                )}
                 onClick={(event) => event.stopPropagation()}
               >
                 <div className='min-h-0 flex-1 overflow-y-auto overscroll-contain px-0'>
