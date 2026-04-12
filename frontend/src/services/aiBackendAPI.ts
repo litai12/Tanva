@@ -132,6 +132,9 @@ const generateUUID = () => {
   return `fallback-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 };
 
+const buildIdempotencyKey = (scope: string) =>
+  `${scope}-${Date.now()}-${generateUUID()}`;
+
 // 前端图像接口重试会导致同一次用户操作产生多条积分扣减/退款流水；
 // 统一收敛为单次请求，容错交给后端 provider 内部重试与 fallback。
 const MAX_IMAGE_GENERATION_ATTEMPTS = 1;
@@ -254,7 +257,8 @@ const mapBackendImageResult = ({
 };
 
 async function performGenerateImageRequest(
-  request: AIImageGenerateRequest
+  request: AIImageGenerateRequest,
+  idempotencyKey: string
 ): Promise<AIServiceResponse<AIImageResult>> {
   // 🔍 调试日志：前端发送的完整请求参数
   console.log("🚀 [Frontend → Backend] generate-image 请求参数:", {
@@ -275,6 +279,7 @@ async function performGenerateImageRequest(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "Idempotency-Key": idempotencyKey,
       },
       body: JSON.stringify(request),
     });
@@ -344,12 +349,13 @@ export async function generateImageViaAPI(
   request: AIImageGenerateRequest
 ): Promise<AIServiceResponse<AIImageResult>> {
   const startedAt = getTimestamp();
+  const idempotencyKey = buildIdempotencyKey("generate-image");
   let lastResponse: AIServiceResponse<AIImageResult> | undefined;
   let attempts = 0;
 
   for (let attempt = 1; attempt <= MAX_IMAGE_GENERATION_ATTEMPTS; attempt++) {
     attempts = attempt;
-    lastResponse = await performGenerateImageRequest(request);
+    lastResponse = await performGenerateImageRequest(request, idempotencyKey);
 
     if (!lastResponse.success || !lastResponse.data) {
       if (
@@ -432,7 +438,8 @@ export async function generateImageViaAPI(
  * 注意：优先使用 sourceImageUrl；若无则使用 sourceImage（base64）
  */
 async function performEditImageRequest(
-  request: AIImageEditRequest
+  request: AIImageEditRequest,
+  idempotencyKey: string
 ): Promise<AIServiceResponse<AIImageResult>> {
   // 🔍 调试日志：前端发送的完整请求参数
   console.log("🚀 [Frontend → Backend] edit-image 请求参数:", {
@@ -451,6 +458,7 @@ async function performEditImageRequest(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "Idempotency-Key": idempotencyKey,
       },
       body: JSON.stringify(request),
     });
@@ -518,12 +526,13 @@ export async function editImageViaAPI(
   request: AIImageEditRequest
 ): Promise<AIServiceResponse<AIImageResult>> {
   const startedAt = getTimestamp();
+  const idempotencyKey = buildIdempotencyKey("edit-image");
   let lastResponse: AIServiceResponse<AIImageResult> | undefined;
   let attempts = 0;
 
   for (let attempt = 1; attempt <= MAX_IMAGE_GENERATION_ATTEMPTS; attempt++) {
     attempts = attempt;
-    lastResponse = await performEditImageRequest(request);
+    lastResponse = await performEditImageRequest(request, idempotencyKey);
 
     if (!lastResponse.success || !lastResponse.data) {
       const isNetworkFailure = lastResponse.error?.code === "NETWORK_ERROR";
@@ -604,13 +613,15 @@ export async function editImageViaAPI(
 }
 
 async function performBlendImagesRequest(
-  request: AIImageBlendRequest
+  request: AIImageBlendRequest,
+  idempotencyKey: string
 ): Promise<AIServiceResponse<AIImageResult>> {
   try {
     const response = await fetchWithAuth(`${API_BASE_URL}/ai/blend-images`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "Idempotency-Key": idempotencyKey,
       },
       body: JSON.stringify(request),
     });
@@ -678,12 +689,13 @@ export async function blendImagesViaAPI(
   request: AIImageBlendRequest
 ): Promise<AIServiceResponse<AIImageResult>> {
   const startedAt = getTimestamp();
+  const idempotencyKey = buildIdempotencyKey("blend-images");
   let lastResponse: AIServiceResponse<AIImageResult> | undefined;
   let attempts = 0;
 
   for (let attempt = 1; attempt <= MAX_IMAGE_GENERATION_ATTEMPTS; attempt++) {
     attempts = attempt;
-    lastResponse = await performBlendImagesRequest(request);
+    lastResponse = await performBlendImagesRequest(request, idempotencyKey);
 
     if (!lastResponse.success || !lastResponse.data) {
       if (
@@ -1203,6 +1215,7 @@ export async function generateVideoViaAPI(
   request: VideoGenerationRequest
 ): Promise<AIServiceResponse<VideoGenerationResult>> {
   const startedAt = getTimestamp();
+  const idempotencyKey = buildIdempotencyKey("generate-video");
   try {
     const referenceImageUrls = (request.referenceImageUrls || []).filter(
       (url): url is string => typeof url === "string" && url.trim().length > 0
@@ -1218,6 +1231,7 @@ export async function generateVideoViaAPI(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "Idempotency-Key": idempotencyKey,
       },
       body: JSON.stringify(payload),
     });
@@ -1280,6 +1294,7 @@ export async function generateVideoAsyncAPI(
   request: VideoGenerationRequest
 ): Promise<AIServiceResponse<{ taskId: string; status: string; message: string }>> {
   const startedAt = getTimestamp();
+  const idempotencyKey = buildIdempotencyKey("generate-video-async");
   try {
     const referenceImageUrls = (request.referenceImageUrls || []).filter(
       (url): url is string => typeof url === "string" && url.trim().length > 0
@@ -1295,6 +1310,7 @@ export async function generateVideoAsyncAPI(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "Idempotency-Key": idempotencyKey,
       },
       body: JSON.stringify(payload),
     });

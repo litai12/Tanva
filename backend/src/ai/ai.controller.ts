@@ -539,6 +539,35 @@ export class AiController {
     return req.user?.sub || req.user?.id || null;
   }
 
+  private extractIdempotencyKey(
+    req: any,
+    requestBody?: Record<string, any>,
+  ): string | undefined {
+    const pickHeader = (headerName: string): string | undefined => {
+      const raw = req?.headers?.[headerName];
+      if (Array.isArray(raw)) {
+        const first = raw.find((item) => typeof item === 'string' && item.trim().length > 0);
+        return typeof first === 'string' ? first.trim() : undefined;
+      }
+      if (typeof raw === 'string' && raw.trim().length > 0) {
+        return raw.trim();
+      }
+      return undefined;
+    };
+
+    const bodyKey =
+      requestBody && typeof requestBody.idempotencyKey === 'string'
+        ? requestBody.idempotencyKey.trim()
+        : '';
+    const key =
+      pickHeader('idempotency-key') ||
+      pickHeader('x-idempotency-key') ||
+      pickHeader('x-request-id') ||
+      (bodyKey.length > 0 ? bodyKey : undefined);
+    if (!key) return undefined;
+    return key.slice(0, 128);
+  }
+
   /**
    * 确定图像生成服务类型
    */
@@ -722,6 +751,10 @@ export class AiController {
 
     if (typeof dto.videoMode === 'string' && dto.videoMode.trim().length > 0) {
       params.videoMode = dto.videoMode.trim().toLowerCase();
+    }
+
+    if (typeof dto.klingStoryboardMode === 'string' && dto.klingStoryboardMode.trim().length > 0) {
+      params.klingStoryboardMode = dto.klingStoryboardMode.trim().toLowerCase();
     }
 
     if (typeof dto.generateAudio === 'boolean') {
@@ -971,6 +1004,7 @@ export class AiController {
           Object.entries(requestParams).filter(([_, value]) => value !== undefined),
         )
       : undefined;
+    const idempotencyKey = this.extractIdempotencyKey(req, sanitizedRequestParams);
 
     try {
       // 预扣积分
@@ -983,6 +1017,7 @@ export class AiController {
         requestParams: sanitizedRequestParams,
         ipAddress: req.ip,
         userAgent: req.headers?.['user-agent'],
+        idempotencyKey,
       });
 
       apiUsageId = deductResult.apiUsageId;
@@ -3613,6 +3648,12 @@ export class AiController {
     await this.creditsService.getOrCreateAccount(userId);
     const startTime = Date.now();
     const requestParams = await this.buildVideoProviderCreditParams(effectiveDto);
+    const idempotencyKey = this.extractIdempotencyKey(req, {
+      ...(requestParams || {}),
+      ...(typeof (effectiveDto as any)?.idempotencyKey === 'string'
+        ? { idempotencyKey: (effectiveDto as any).idempotencyKey }
+        : {}),
+    });
     const billingModel =
       effectiveDto.klingModel ||
       effectiveDto.viduModelVariant ||
@@ -3630,6 +3671,7 @@ export class AiController {
       requestParams,
       ipAddress: req.ip,
       userAgent: req.headers?.['user-agent'],
+      idempotencyKey,
     });
 
     const apiUsageId = deductResult.apiUsageId;

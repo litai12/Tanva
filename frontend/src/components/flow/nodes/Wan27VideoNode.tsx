@@ -336,6 +336,25 @@ function Wan27VideoNode({ id, data, selected }: Props) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
         <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><Video size={18} /><span>Wan2.7</span></div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <button
+            className={`tanva-video-header-btn tanva-video-header-help ${showGuide ? "is-active" : "is-inactive"}`}
+            onClick={() => setShowGuide(!showGuide)}
+            style={{
+              width: 36,
+              height: 32,
+              borderRadius: 8,
+              border: "none",
+              background: showGuide ? "#3b82f6" : "#f3f4f6",
+              color: showGuide ? "#fff" : "#6b7280",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+            }}
+            title={lt("玩法说明", "Help")}
+          >
+            <HelpCircle size={14} />
+          </button>
           <button className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit" onClick={() => data.onRun?.(id)} onMouseDown={handleButtonMouseDown} disabled={data.status === "running"} style={{ ...styles.iconBtn, background: data.status === "running" ? "#e5e7eb" : "#111827", opacity: data.status === "running" ? 0.6 : 1, cursor: data.status === "running" ? "not-allowed" : "pointer", fontSize: 12 }}>
             {hasRunCredits ? <><span className="run-text-trigger">Run</span><RunCreditBadge credits={data.creditsPerCall} runButton /></> : "Run"}
           </button>
@@ -343,6 +362,36 @@ function Wan27VideoNode({ id, data, selected }: Props) {
           <button className="tanva-video-header-btn tanva-video-header-download" onClick={() => triggerDownload(data.videoUrl)} onMouseDown={handleButtonMouseDown} disabled={!data.videoUrl || isDownloading} style={{ ...styles.iconBtn, background: !data.videoUrl || isDownloading ? "#e5e7eb" : "#111827", opacity: !data.videoUrl || isDownloading ? 0.35 : 1, cursor: !data.videoUrl || isDownloading ? "not-allowed" : "pointer" }}>{isDownloading ? <span style={{ fontSize: 10, fontWeight: 600, color: "#111827" }}>...</span> : <Download size={14} />}</button>
         </div>
       </div>
+
+      {/* 玩法说明 */}
+      {showGuide && (
+        <div style={{
+          fontSize: 11,
+          color: "#374151",
+          background: "#f0f9ff",
+          padding: "8px",
+          borderRadius: 6,
+          marginBottom: 8,
+          border: "1px solid #bfdbfe",
+          lineHeight: 1.5,
+        }}>
+          <div style={{ fontWeight: 600, marginBottom: 4, color: "#1e40af" }}>
+            🎬 {lt(zh.guideTitle, "How to play Wan2.7")}
+          </div>
+          <div style={{ marginBottom: 3 }}>
+            <strong>{lt("首帧生视频", "First-frame mode")}:</strong> {lt("image（可加 audio）", "image (optional audio)")}
+          </div>
+          <div style={{ marginBottom: 3 }}>
+            <strong>{lt("首尾帧模式", "Start-end mode")}:</strong> {lt("image + image-2（可加 audio）", "image + image-2 (optional audio)")}
+          </div>
+          <div style={{ marginBottom: 3 }}>
+            <strong>{lt("视频续写", "Continuation mode")}:</strong> {lt("video（可加 image-2 控制结尾）", "video (optional image-2 to control ending)")}
+          </div>
+          <div style={{ color: "#6b7280", fontSize: 10, marginTop: 4 }}>
+            💡 {lt("亮点：多模态输入，2-15秒，1080P，seed 可复现", "Highlights: multimodal input, 2-15s, 1080P, reproducible with seed")}
+          </div>
+        </div>
+      )}
 
       <div style={{ display: "grid", gap: 8, marginBottom: 8 }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
@@ -365,19 +414,6 @@ function Wan27VideoNode({ id, data, selected }: Props) {
             updateNodeData({ seed: value });
           }} style={styles.input} />
         </label>
-
-        <button type="button" onClick={() => setShowGuide((v) => !v)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "7px 10px", borderRadius: 8, border: "1px solid #cbd5e1", background: "#fff", fontSize: 12, color: "#334155" }}><HelpCircle size={14} /><span>{lt(zh.guide, "How to use Wan2.7")}</span></button>
-
-        {showGuide && (
-          <div style={{ marginTop: -2, padding: "8px 10px", borderRadius: 8, border: "1px solid #dbeafe", background: "#f8fbff", display: "grid", gap: 4, fontSize: 11, color: "#1e3a8a", lineHeight: 1.5 }}>
-            <div style={{ fontWeight: 600 }}>{lt(zh.guideTitle, "How to play Wan2.7")}</div>
-            <div>{lt(zh.guide1, "1. First-frame mode: image (optional audio)")}</div>
-            <div>{lt(zh.guide2, "2. Start/end mode: image + image-2 (optional audio)")}</div>
-            <div>{lt(zh.guide3, "3. Continuation mode: video (+optional image-2)")}</div>
-            <div style={{ fontWeight: 600, marginTop: 2 }}>{lt(zh.highlights, "Highlights")}</div>
-            <div>{lt(zh.highlightsBody, "Multimodal input, 2-15s, 1080P, reproducible with seed")}</div>
-          </div>
-        )}
       </div>
 
       <div style={{ marginTop: 8, marginBottom: 6, padding: "8px", borderRadius: 6, border: "1px solid #e2e8f0", background: "#f8fafc" }}>

@@ -1,4 +1,4 @@
-// @ts-nocheck
+﻿// @ts-nocheck
 // Flow 主画布与节点调度入口。
 import React from "react";
 import { Trash2, Plus, Upload, Download, Group, Ungroup, Lock, Crown } from "lucide-react";
@@ -4096,6 +4096,7 @@ function FlowInner() {
   const [runningGroupIds, setRunningGroupIds] = React.useState<string[]>([]);
   const [isGlobalRunning, setIsGlobalRunning] = React.useState(false);
   const globalRunStopRequestedRef = React.useRef(false);
+  const runNodeLastTriggerRef = React.useRef<Map<string, number>>(new Map());
 
   const onEdgesChangeWithHistory = React.useCallback(
     (changes: any) => {
@@ -10738,6 +10739,14 @@ function FlowInner() {
   // 运行：根据输入自动选择 生图/编辑/融合（支持 generate / generate4 / generateRef）
   const runNode = React.useCallback(
     async (nodeId: string) => {
+      const triggerNow = Date.now();
+      const lastTriggerAt = runNodeLastTriggerRef.current.get(nodeId) || 0;
+      if (triggerNow - lastTriggerAt < 1500) {
+        console.log("[runNode] 节点触发过于频繁，忽略重复触发:", nodeId);
+        return;
+      }
+      runNodeLastTriggerRef.current.set(nodeId, triggerNow);
+
       console.log('[runNode] 被调用, nodeId:', nodeId);
       const node = rf.getNode(nodeId);
       if (!node) {

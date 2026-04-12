@@ -130,3 +130,14 @@
 - `credits.service.ts` now applies a Tencent-only pricing matrix for Banana image services (`channel/channelHint/executionChannel/providerChannel = tencent`).
 - Pricing matrix: Fast `1K=30`; Pro `1K/2K/4K=90/100/170`; Ultra `0.5K/1K/2K/4K=30/50/70/110`.
 - This override is limited to Tencent channel requests and does not affect non-Tencent Banana routes.
+
+## 2026-04-12 VIP69 Daily Gift Guard
+- `vip_69` plan no longer participates in `membership_daily_gift` issuance.
+- Backend now force-normalizes `vip_69` `dailyGiftCredits` to `0` in plan create/update and subscription snapshot build.
+- Daily check-in for `vip_69` uses base policy credits (same source as free-tier check-in), avoiding duplicate "签到 + 会员每日赠送" behavior.
+
+## 2026-04-13 Pre-Deduct Idempotency
+- `CreditsService.preDeductCredits` now accepts `idempotencyKey` and optional `idempotencyWindowMs`.
+- Duplicate requests in a short time window are deduplicated by `idempotencyKey` (primary) and request fingerprint (fallback), and reuse existing `apiUsageId`/spend transaction instead of creating a new charge.
+- Dedup metadata (`idempotencyKey`, `requestFingerprint`) is persisted in `ApiUsageRecord.requestParams` for audit and troubleshooting.
+- `AiController.withCredits`, `POST /api/ai/generate-video-provider`, and `POST /api/video-gif/convert` now propagate idempotency keys into credits pre-deduct.

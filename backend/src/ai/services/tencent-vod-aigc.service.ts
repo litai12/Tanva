@@ -33,6 +33,8 @@ export interface TencentVodAigcVideoFileInfo {
   url?: string;
   objectId?: string;
   usage?: 'FirstFrame' | 'Reference';
+  referenceType?: 'feature' | 'base' | 'asset' | 'style';
+  keepOriginalSound?: 'Enabled' | 'Disabled';
 }
 
 export interface TencentVodAigcCreateVideoTaskRequest {
@@ -256,7 +258,9 @@ export class TencentVodAigcService {
           const url = (item?.url || '').trim();
           const objectId = (item?.objectId || '').trim();
           const usage = (item?.usage || '').trim();
-          return { type, category, fileId, url, objectId, usage };
+          const referenceType = (item?.referenceType || '').trim().toLowerCase();
+          const keepOriginalSound = (item?.keepOriginalSound || '').trim();
+          return { type, category, fileId, url, objectId, usage, referenceType, keepOriginalSound };
         })
         .filter((item) => (item.type === 'File' ? !!item.fileId : !!item.url)) || [];
 
@@ -294,6 +298,8 @@ export class TencentVodAigcService {
               };
         if (item.objectId) result.ObjectId = item.objectId;
         if (item.usage) result.Usage = item.usage;
+        if (item.referenceType) result.ReferenceType = item.referenceType;
+        if (item.keepOriginalSound) result.KeepOriginalSound = item.keepOriginalSound;
         return result;
       });
     }

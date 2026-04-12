@@ -431,6 +431,28 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const isKling26Model = isUnifiedKlingNode && (klingModel === "kling-v2-6" || klingModel === "kling-v3-0");
   const isViduNode = provider === "vidu" || provider === "viduq3-pro";
   const isProMode = ((data as any).mode || "std") === "pro";
+  const normalizedVendorKey =
+    typeof data.vendorKey === "string" ? data.vendorKey.trim().toLowerCase() : "";
+  const normalizedPlatformKey =
+    typeof data.platformKey === "string" ? data.platformKey.trim().toLowerCase() : "";
+  const managedDefaultVendorKey = React.useMemo(() => {
+    const fromManagedRoutes =
+      nodeConfigMetadata?.managedRoutes && typeof nodeConfigMetadata.managedRoutes === "object"
+        ? String((nodeConfigMetadata.managedRoutes as Record<string, any>).defaultVendor || "")
+            .trim()
+            .toLowerCase()
+        : "";
+    return fromManagedRoutes;
+  }, [nodeConfigMetadata]);
+  const isTencentKling26Route =
+    klingModel === "kling-v2-6" &&
+    (normalizedVendorKey === "tencent_vod" ||
+      normalizedVendorKey === "tengxun" ||
+      normalizedPlatformKey === "tencent_vod" ||
+      normalizedPlatformKey === "tengxun" ||
+      ((!normalizedVendorKey && !normalizedPlatformKey) &&
+        managedDefaultVendorKey === "tencent_vod"));
+  const canUseKlingImage2Input = isKling26Model && (isProMode || isTencentKling26Route);
   const providerInfo = isUnifiedKlingNode
     ? PROVIDER_CONFIG.kling
     : PROVIDER_CONFIG[provider] || PROVIDER_CONFIG["kling"];
@@ -835,7 +857,6 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     () => [
       { label: "Vidu Q2", value: "q2" as const },
       { label: "Vidu Q3", value: "q3" as const },
-      { label: "Vidu Q3-Turbo", value: "q3-turbo" as const },
     ],
     []
   );
@@ -1854,9 +1875,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           onMouseLeave={() => setHover(null)}
         />
       )}
-      {/* image-2 灏惧抚: 浠?Kling 2.6/3.0 pro 妯″紡娓叉煋 */}
+      {/* image-2 句柄: Seedance/Vidu 与 Kling(腾讯2.6或Pro模式)可见 */}
       {((isSeedanceModel && seedanceModeSpec?.visibleHandles.includes("image-2")) ||
-        (isKling26Model && isProMode) ||
+        canUseKlingImage2Input ||
         isViduNode) && (
         <Handle
           type='target'
@@ -2143,11 +2164,24 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                 {lt("1 张图生成视频（有音效）", "1 image -> video (with sound)")}
               </div>
               <div style={{ marginBottom: 3 }}>
-                <strong>{lt("首尾帧（Pro）", "Start-End (Pro)")}:</strong>{" "}
-                {lt("2 张图（首帧+尾帧）生成视频（有音效）", "2 images (start+end) -> video (with sound)")}
+                <strong>
+                  {isTencentKling26Route
+                    ? lt("首尾帧（腾讯通道）", "Start-End (Tencent route)")
+                    : lt("首尾帧（Pro）", "Start-End (Pro)")}
+                  :
+                </strong>{" "}
+                {isTencentKling26Route
+                  ? lt("2 张图（首帧+尾帧）可直接生成视频（首尾帧将按无声发送）", "2 images (start+end) are supported directly (start-end is sent as no-audio)")
+                  : lt("2 张图（首帧+尾帧）生成视频（有音效）", "2 images (start+end) -> video (with sound)")}
               </div>
               <div style={{ color: "#6b7280", fontSize: 10, marginTop: 4 }}>
-                提示：{lt("Std 仅支持 1 张图，Pro 支持 1-2 张图（首尾帧）", "Tip: Std mode = 1 image, Pro mode = 1 or 2 images (start-end)")}
+                提示：
+                {isTencentKling26Route
+                  ? lt(
+                      "腾讯通道下 Kling 2.6：Std/Pro 均支持 1-2 张图，首尾帧按无声规则发送",
+                      "Tencent Kling 2.6: Std/Pro both support 1-2 images; start-end follows no-audio rule"
+                    )
+                  : lt("Std 仅支持 1 张图，Pro 支持 1-2 张图（首尾帧）", "Tip: Std mode = 1 image, Pro mode = 1 or 2 images (start-end)")}
               </div>
             </>
           ) : (
@@ -2331,8 +2365,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                   }}
                 >
                   {lt(
-                    "提示：Seedance 2.0 / 2.0 Fast 需开通 VIP 权益或进入水印白名单后可选",
-                    "Tip: Seedance 2.0 / 2.0 Fast requires VIP access or watermark whitelist access",
+                    "提示：Seedance 2.0 / 2.0 Fast 需开通 VIP 权益",
+                    "Tip: Seedance 2.0 / 2.0 Fast requires VIP access",
                   )}
                 </div>
               ) : null}

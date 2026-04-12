@@ -660,6 +660,13 @@ export class VideoProviderService {
     const { provider } = options;
 
     if (
+      (provider === "kling" || provider === "kling-2.6" || provider === "kling-o3") &&
+      options.klingModel === "kling-v3-0"
+    ) {
+      return this.generateManagedKling30(options);
+    }
+
+    if (
       (provider === "kling" || provider === "kling-2.6") &&
       options.klingModel === "kling-v2-6"
     ) {
@@ -668,13 +675,6 @@ export class VideoProviderService {
 
     if (provider === "kling-o3") {
       return this.generateManagedKlingO3(options);
-    }
-
-    if (
-      (provider === "kling" || provider === "kling-2.6") &&
-      options.klingModel === "kling-v3-0"
-    ) {
-      return this.generateManagedKling30(options);
     }
 
     if (provider === "vidu" || provider === "viduq3-pro") {
@@ -717,6 +717,11 @@ export class VideoProviderService {
   ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string }> {
     if (taskId.startsWith(this.managedV2TaskPrefix)) {
       return this.queryManagedV2Task(taskId);
+    }
+
+    const managedTencentTask = this.parseManagedTencentTaskId(taskId);
+    if (managedTencentTask) {
+      return this.queryManagedTencentVideoTask(taskId);
     }
 
     if (
@@ -1723,56 +1728,275 @@ export class VideoProviderService {
     return this.generateKlingViaTencent(options, vendorConfig, "3.0-Omni");
   }
 
+  private isTencentKling3ModelVersion(modelVersion: string): boolean {
+    const normalized = String(modelVersion || "").trim().toLowerCase();
+    return normalized === "3.0" || normalized === "3.0-omni";
+  }
+
+  private normalizeTencentKlingStoryboardMode(
+    rawMode: unknown
+  ): "single" | "intelligence" | "customize" {
+    const normalized = String(rawMode || "")
+      .trim()
+      .toLowerCase();
+    if (!normalized || normalized === "single" || normalized === "none" || normalized === "off") {
+      return "single";
+    }
+    if (normalized === "intelligence" || normalized === "smart") {
+      return "intelligence";
+    }
+    if (normalized === "customize" || normalized === "custom") {
+      return "customize";
+    }
+    throw new BadRequestException(
+      "Tencent Kling 分镜模式无效，仅支持 single / intelligence / customize"
+    );
+  }
+
+  private parseTencentKlingCustomStoryboardShots(
+    script: string
+  ): Array<{ index: number; prompt: string; duration: number }> {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(script);
+    } catch {
+      throw new BadRequestException("腾讯 Kling 自定义分镜脚本 JSON 格式无效");
+    }
+
+    const source = Array.isArray(parsed)
+      ? parsed
+      : parsed && typeof parsed === "object" && Array.isArray((parsed as any).multi_prompt)
+      ? (parsed as any).multi_prompt
+      : null;
+
+    if (!source) {
+      throw new BadRequestException(
+        "腾讯 Kling 自定义分镜脚本需为数组，格式示例：[{\"index\":1,\"prompt\":\"...\",\"duration\":2}]"
+      );
+    }
+
+    if (source.length < 1 || source.length > 6) {
+      throw new BadRequestException("腾讯 Kling 自定义分镜数量需在 1 到 6 之间");
+    }
+
+    return source.map((item: any, position: number) => {
+      if (!item || typeof item !== "object") {
+        throw new BadRequestException(`腾讯 Kling 自定义分镜第 ${position + 1} 项格式无效`);
+      }
+      const prompt = String((item as any).prompt || "").trim();
+      if (!prompt) {
+        throw new BadRequestException(`腾讯 Kling 自定义分镜第 ${position + 1} 项缺少 prompt`);
+      }
+      if (prompt.length > 512) {
+        throw new BadRequestException(
+          `腾讯 Kling 自定义分镜第 ${position + 1} 项 prompt 长度不能超过 512`
+        );
+      }
+
+      const durationRaw = Number((item as any).duration);
+      const duration = Math.round(durationRaw);
+      if (!Number.isFinite(durationRaw) || duration < 1) {
+        throw new BadRequestException(
+          `腾讯 Kling 自定义分镜第 ${position + 1} 项 duration 必须为大于等于 1 的数字`
+        );
+      }
+
+      const indexRaw = Number((item as any).index);
+      const index =
+        Number.isFinite(indexRaw) && Math.round(indexRaw) >= 1
+          ? Math.round(indexRaw)
+          : position + 1;
+
+      return {
+        index,
+        prompt,
+        duration,
+      };
+    });
+  }
+
+  private buildTencentKlingStoryboardExtInfo(
+    options: VideoProviderRequestDto,
+    modelVersion: string,
+    taskDuration: number
+  ): string | undefined {
+    if (!this.isTencentKling3ModelVersion(modelVersion)) {
+      return undefined;
+    }
+
+    const storyboardMode = this.normalizeTencentKlingStoryboardMode(
+      options.klingStoryboardMode
+    );
+    const additionalParameters: Record<string, any> = {};
+
+    if (storyboardMode === "single") {
+      additionalParameters.multi_shot = false;
+    } else if (storyboardMode === "intelligence") {
+      if (!String(options.prompt || "").trim()) {
+        throw new BadRequestException("腾讯 Kling 智能分镜模式需要填写提示词");
+      }
+      additionalParameters.multi_shot = true;
+      additionalParameters.shot_type = "intelligence";
+      additionalParameters.short_type = "intelligence";
+    } else {
+      const scriptRaw = String(options.klingStoryboardScript || "").trim();
+      if (!scriptRaw) {
+        throw new BadRequestException("腾讯 Kling 自定义分镜模式需要填写分镜脚本 JSON");
+      }
+      const shots = this.parseTencentKlingCustomStoryboardShots(scriptRaw);
+      const totalShotDuration = shots.reduce((sum, shot) => sum + shot.duration, 0);
+      if (totalShotDuration !== taskDuration) {
+        throw new BadRequestException(
+          `腾讯 Kling 自定义分镜总时长需等于任务时长：当前分镜总时长 ${totalShotDuration}s，任务时长 ${taskDuration}s`
+        );
+      }
+      additionalParameters.multi_shot = true;
+      additionalParameters.shot_type = "customize";
+      additionalParameters.short_type = "customize";
+      additionalParameters.multi_prompt = shots;
+    }
+
+    return JSON.stringify({
+      AdditionalParameters: JSON.stringify(additionalParameters),
+    });
+  }
+
   private async generateKlingViaTencent(
     options: VideoProviderRequestDto,
     vendorConfig: { modelName?: string; modelVersion?: string },
     fallbackModelVersion: string
   ): Promise<VideoGenerationResult> {
-    if (options.referenceVideo?.trim()) {
-      throw new BadRequestException(
-        `腾讯 VOD Kling ${fallbackModelVersion} 当前先接入文生视频/图片参考模式，暂不支持视频参考模式`
-      );
-    }
-
     const normalizedImages = Array.isArray(options.referenceImages)
       ? options.referenceImages
           .map((item) => this.normalizeManagedAssetUrlForUpstream(item))
           .filter((item) => typeof item === "string" && item.trim().length > 0)
       : [];
+    const normalizedReferenceVideo =
+      typeof options.referenceVideo === "string"
+        ? this.normalizeManagedAssetUrlForUpstream(options.referenceVideo)
+        : "";
 
-    const fileInfos = normalizedImages.map((url, index) => ({
-      type: "Url" as const,
-      category: "Image" as const,
-      url,
-      objectId: `id${index + 1}`,
-    }));
+    const modelVersion = vendorConfig.modelVersion || fallbackModelVersion;
+    const normalizedModelVersion = String(modelVersion || "").trim().toLowerCase();
+    const isKling26Model =
+      normalizedModelVersion === "2.6" || normalizedModelVersion === "2.6.0";
+    const isKling30Family = this.isTencentKling3ModelVersion(modelVersion);
+    const hasReferenceVideo =
+      typeof normalizedReferenceVideo === "string" && normalizedReferenceVideo.trim().length > 0;
+    const isStartEndMode = isKling26Model && normalizedImages.length >= 2;
 
-    const resolutionRaw =
+    if (hasReferenceVideo && !isKling30Family) {
+      throw new BadRequestException(`腾讯 VOD Kling ${fallbackModelVersion} 暂不支持视频参考模式`);
+    }
+
+    const firstFrameUrl = normalizedImages[0];
+    const lastFrameUrl =
+      !hasReferenceVideo && isStartEndMode && normalizedImages.length >= 2
+        ? normalizedImages[1]
+        : undefined;
+    const imageFileInfos = firstFrameUrl
+      ? isStartEndMode
+        ? [
+            {
+              type: "Url" as const,
+              category: "Image" as const,
+              url: firstFrameUrl,
+              usage: "FirstFrame" as const,
+            },
+          ]
+        : normalizedImages.map((url, index) => ({
+            type: "Url" as const,
+            category: "Image" as const,
+            url,
+            objectId: `id${index + 1}`,
+            usage: "Reference" as const,
+          }))
+      : [];
+    const normalizedReferenceVideoType: "feature" | "base" =
+      String(options.referenceVideoType || "").trim().toLowerCase() === "base"
+        ? "base"
+        : "feature";
+    const normalizedKeepOriginalSound: "Enabled" | "Disabled" =
+      String(options.keepOriginalSound || "").trim().toLowerCase() === "yes"
+        ? "Enabled"
+        : "Disabled";
+    const videoFileInfos = hasReferenceVideo
+      ? [
+          {
+            type: "Url" as const,
+            category: "Video" as const,
+            url: normalizedReferenceVideo,
+            referenceType: normalizedReferenceVideoType,
+            keepOriginalSound: normalizedKeepOriginalSound,
+          },
+        ]
+      : [];
+    const fileInfos = [...imageFileInfos, ...videoFileInfos];
+
+    const rawResolution =
       typeof options.resolution === "string" && options.resolution.trim()
         ? options.resolution.trim().toUpperCase()
-        : options.mode === "pro"
-        ? "1080P"
-        : "720P";
+        : "";
+    const defaultResolution = options.mode === "pro" ? "1080P" : "720P";
+    const resolutionRaw = isKling26Model
+      ? rawResolution === "720P" || rawResolution === "1080P"
+        ? rawResolution
+        : defaultResolution
+      : rawResolution || defaultResolution;
 
-    const duration =
+    const requestedDuration =
       typeof options.duration === "number" && Number.isFinite(options.duration)
-        ? Math.max(3, Math.min(15, Math.round(options.duration)))
-        : 5;
+        ? Math.round(options.duration)
+        : undefined;
+    const duration = isKling26Model
+      ? requestedDuration === 10
+        ? 10
+        : 5
+      : requestedDuration !== undefined
+      ? Math.max(3, Math.min(15, requestedDuration))
+      : 5;
 
-    const audioGeneration =
-      options.mode === "pro" || options.sound === "on" ? "Enabled" : "Disabled";
+    if (hasReferenceVideo && duration > 10) {
+      throw new BadRequestException("腾讯 Kling 视频参考模式仅支持 3~10 秒时长");
+    }
+
+    const normalizedSound =
+      typeof options.sound === "string" ? options.sound.trim().toLowerCase() : "";
+    let audioGeneration: "Enabled" | "Disabled";
+    if (normalizedSound === "on") {
+      audioGeneration = "Enabled";
+    } else if (normalizedSound === "off") {
+      audioGeneration = "Disabled";
+    } else {
+      audioGeneration = options.mode === "pro" ? "Enabled" : "Disabled";
+    }
+
+    if (isKling26Model && isStartEndMode && audioGeneration === "Enabled") {
+      this.logger.warn(
+        "Tencent Kling 2.6 start-end mode only supports no-audio, forcing OutputConfig.AudioGeneration=Disabled",
+      );
+      audioGeneration = "Disabled";
+    }
+
+    const extInfo = this.buildTencentKlingStoryboardExtInfo(
+      options,
+      modelVersion,
+      duration
+    );
 
     const { taskId } = await this.tencentVodAigcService.createVideoTask({
       modelName: vendorConfig.modelName || "Kling",
-      modelVersion: vendorConfig.modelVersion || fallbackModelVersion,
+      modelVersion,
       prompt: options.prompt,
       fileInfos,
+      lastFrameUrl,
       aspectRatio: options.aspectRatio,
       duration,
       resolution: resolutionRaw,
       audioGeneration,
       storageMode: "Temporary",
       enhancePrompt: "Enabled",
+      extInfo,
     });
 
     return {

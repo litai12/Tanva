@@ -1,4 +1,4 @@
-// @ts-nocheck
+﻿// @ts-nocheck
 /**
  * AI生图对话框组件
  * 固定在屏幕底部中央的对话框，用于AI图像生成
@@ -458,6 +458,7 @@ const AIChatDialog: React.FC = () => {
     });
   // 🔥 跟踪已提交但还未开始生成的任务数量（敲击回车时立即增加）
   const [pendingTaskCount, setPendingTaskCount] = useState(0);
+  const sendInFlightRef = useRef(false);
   // 🔥 跟踪已处理过计数减少的消息 ID（避免重复减少）
   const processedMessageIdsRef = useRef<Set<string>>(new Set());
   // 记录组件挂载时间，用来区分刷新前后的消息
@@ -1698,7 +1699,7 @@ const AIChatDialog: React.FC = () => {
   // 直接重新发送消息（不填入输入框，直接请求AI，内部处理图片数据但不显示在UI上）
   const handleDirectResend = useCallback(
     async (message: ChatMessage, resendInfo: ResendInfo | null) => {
-      if (generationStatus.isGenerating) {
+      if (generationStatus.isGenerating || sendInFlightRef.current) {
         showToast("正在生成中，请稍候", "error");
         return;
       }
@@ -1709,6 +1710,7 @@ const AIChatDialog: React.FC = () => {
         showToast("没有可发送的内容", "error");
         return;
       }
+      sendInFlightRef.current = true;
 
       // 🔥 立即增加待处理任务计数
       setPendingTaskCount((prev) => prev + 1);
@@ -1766,6 +1768,8 @@ const AIChatDialog: React.FC = () => {
       } catch (error) {
         console.error("重新发送失败:", error);
         showToast("重新发送失败", "error");
+      } finally {
+        sendInFlightRef.current = false;
       }
     },
     [
@@ -2203,17 +2207,22 @@ const AIChatDialog: React.FC = () => {
   };
 
   const handleSendOptimizedFromPanel = async (optimized: string) => {
-    if (generationStatus.isGenerating || autoOptimizing) return;
+    if (generationStatus.isGenerating || autoOptimizing || sendInFlightRef.current) return;
     if (!isVisible) {
       showDialog();
     }
     const trimmed = optimized.trim();
     if (!trimmed) return;
 
-    setIsPromptPanelOpen(false);
-    setAutoOptimizeEnabled(false);
-    clearInput();
-    await processUserInput(trimmed);
+    sendInFlightRef.current = true;
+    try {
+      setIsPromptPanelOpen(false);
+      setAutoOptimizeEnabled(false);
+      clearInput();
+      await processUserInput(trimmed);
+    } finally {
+      sendInFlightRef.current = false;
+    }
   };
 
   // 移除源图像
@@ -2341,7 +2350,12 @@ const AIChatDialog: React.FC = () => {
   // 处理发送 - 使用AI智能工具选择
   const handleSend = async () => {
     const trimmedInput = currentInput.trim();
-    if (!trimmedInput || generationStatus.isGenerating || autoOptimizing)
+    if (
+      !trimmedInput ||
+      generationStatus.isGenerating ||
+      autoOptimizing ||
+      sendInFlightRef.current
+    )
       return;
 
     if (imageInputLimitWarning) {
@@ -2353,55 +2367,60 @@ const AIChatDialog: React.FC = () => {
       showToast(manualModeWarning, "error");
       return;
     }
+    sendInFlightRef.current = true;
 
-    if (!isVisible) {
-      showDialog();
-    }
-
-    // 🔥 发送消息时自动展开历史记录面板（非最大化模式下）
-    if (!showHistory && !isMaximized) {
-      setHistoryVisibility(true, false);
-    }
-
-    // 🔥 立即增加待处理任务计数（敲击回车的反馈）
-    setPendingTaskCount((prev) => prev + 1);
-
-    let promptToSend = trimmedInput;
-
-    if (autoOptimizeEnabled) {
-      setAutoOptimizing(true);
-      try {
-        const response = await promptOptimizationService.optimizePrompt({
-          input: trimmedInput,
-          language: promptSettings.language,
-          tone: promptSettings.tone || undefined,
-          focus: promptSettings.focus || undefined,
-          lengthPreference: promptSettings.lengthPreference,
-          aiProvider,
-          model: textModel,
-        });
-
-        if (response.success && response.data) {
-          promptToSend = response.data.optimizedPrompt;
-          setCurrentInput(promptToSend);
-        } else if (response.error) {
-          console.warn(
-            "⚠️ 提示词自动扩写失败，将使用原始提示词继续。",
-            response.error
-          );
-        }
-      } catch (error) {
-        console.error(
-          "❌ 自动扩写提示词时发生异常，将使用原始提示词继续。",
-          error
-        );
-      } finally {
-        setAutoOptimizing(false);
+    try {
+      if (!isVisible) {
+        showDialog();
       }
-    }
 
-    clearInput();
-    await processUserInput(promptToSend);
+      // 🔥 发送消息时自动展开历史记录面板（非最大化模式下）
+      if (!showHistory && !isMaximized) {
+        setHistoryVisibility(true, false);
+      }
+
+      // 🔥 立即增加待处理任务计数（敲击回车的反馈）
+      setPendingTaskCount((prev) => prev + 1);
+
+      let promptToSend = trimmedInput;
+
+      if (autoOptimizeEnabled) {
+        setAutoOptimizing(true);
+        try {
+          const response = await promptOptimizationService.optimizePrompt({
+            input: trimmedInput,
+            language: promptSettings.language,
+            tone: promptSettings.tone || undefined,
+            focus: promptSettings.focus || undefined,
+            lengthPreference: promptSettings.lengthPreference,
+            aiProvider,
+            model: textModel,
+          });
+
+          if (response.success && response.data) {
+            promptToSend = response.data.optimizedPrompt;
+            setCurrentInput(promptToSend);
+          } else if (response.error) {
+            console.warn(
+              "⚠️ 提示词自动扩写失败，将使用原始提示词继续。",
+              response.error
+            );
+          }
+        } catch (error) {
+          console.error(
+            "❌ 自动扩写提示词时发生异常，将使用原始提示词继续。",
+            error
+          );
+        } finally {
+          setAutoOptimizing(false);
+        }
+      }
+
+      clearInput();
+      await processUserInput(promptToSend);
+    } finally {
+      sendInFlightRef.current = false;
+    }
   };
 
   // 处理键盘事件

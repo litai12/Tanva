@@ -7,6 +7,17 @@ import { getApiBaseUrl } from "../utils/assetProxy";
 
 export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao";
 
+const buildIdempotencyKey = (scope: string): string => {
+  try {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return `${scope}-${Date.now()}-${crypto.randomUUID()}`;
+    }
+  } catch {
+    // noop
+  }
+  return `${scope}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
+
 export interface VideoGenerationRequest {
   prompt?: string;
   referenceImages?: string[]; // Base64 Data URI 数组
@@ -30,6 +41,8 @@ export interface VideoGenerationRequest {
   mode?: "std" | "pro";
   sound?: string;
   klingModel?: "kling-v2-1" | "kling-v2-6" | "kling-v3-0";
+  klingStoryboardMode?: "single" | "intelligence" | "customize";
+  klingStoryboardScript?: string;
   viduModel?: "q2" | "q3";
   viduModelVariant?: "q2" | "q2-pro" | "q2-turbo" | "q3" | "q3-pro" | "q3-turbo";
   seedanceModel?: "seedance-1.5-pro" | "seedance-2.0" | "seedance-2.0-fast";
@@ -38,6 +51,7 @@ export interface VideoGenerationRequest {
   referenceVideoType?: "feature" | "motion" | "expression";
   keepOriginalSound?: "yes" | "no";
   generateAudio?: boolean;
+  idempotencyKey?: string;
 }
 
 export interface VideoGenerationResult {
@@ -56,14 +70,20 @@ export async function generateVideoByProvider(
   request: VideoGenerationRequest
 ): Promise<VideoGenerationResult> {
   const apiBaseUrl = getApiBaseUrl();
+  const idempotencyKey =
+    typeof request.idempotencyKey === "string" && request.idempotencyKey.trim().length > 0
+      ? request.idempotencyKey.trim().slice(0, 128)
+      : buildIdempotencyKey("video-provider");
+  const { idempotencyKey: _idempotencyKey, ...payload } = request;
   const response = await fetchWithAuth(
     `${apiBaseUrl}/api/ai/generate-video-provider`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "Idempotency-Key": idempotencyKey,
       },
-      body: JSON.stringify(request),
+      body: JSON.stringify(payload),
     }
   );
 

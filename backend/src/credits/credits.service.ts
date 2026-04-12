@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException, Inject, forwardRef, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CREDIT_PRICING_CONFIG,
@@ -39,6 +40,8 @@ const STALE_PENDING_DEFAULT_TIMEOUT_MINUTES = 15;
 const STALE_PENDING_DEFAULT_VIDEO_TIMEOUT_MINUTES = 30;
 const STALE_PENDING_VIDEO_REFUND_DEFAULT_CUTOVER_AT = '2026-03-28T00:00:00.000Z';
 const STALE_PENDING_DEFAULT_BATCH_SIZE = 100;
+const PRE_DEDUCT_IDEMPOTENCY_DEFAULT_WINDOW_MS = 15_000;
+const PRE_DEDUCT_IDEMPOTENCY_MAX_WINDOW_MS = 120_000;
 const DAILY_REWARD_RESET_HOUR = 3;
 const FREE_TIER_BENEFITS_SETTING_KEY = 'membership_free_tier_benefits';
 const DEFAULT_FREE_USER_DAILY_IMAGE_LIMIT = 20;
@@ -113,6 +116,8 @@ export interface ApiUsageParams {
   requestParams?: any;
   ipAddress?: string;
   userAgent?: string;
+  idempotencyKey?: string;
+  idempotencyWindowMs?: number;
 }
 
 type SoraBillingModel = 'sora-2' | 'sora-2-vip' | 'sora-2-pro';
@@ -694,7 +699,7 @@ export class CreditsService {
 
       let baseCredits = policy.dailyRewardCredits;
 
-      if (tierCode !== 'free') {
+      if (tierCode !== 'free' && tierCode !== 'vip_69') {
         let membershipGiftCredits = 0;
         const activeSubscription = await client.userMembershipSubscription.findFirst({
           where: {
@@ -1773,11 +1778,204 @@ export class CreditsService {
    * 预扣积分（在API调用前）
    * 返回 API 使用记录 ID，用于后续更新状态
    */
+  private normalizeIdempotencyKey(raw: unknown): string | null {
+    if (typeof raw !== 'string') return null;
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    return trimmed.slice(0, 128);
+  }
+
+  private normalizeIdempotencyWindowMs(raw: unknown): number {
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value <= 0) {
+      return PRE_DEDUCT_IDEMPOTENCY_DEFAULT_WINDOW_MS;
+    }
+    return Math.min(
+      PRE_DEDUCT_IDEMPOTENCY_MAX_WINDOW_MS,
+      Math.max(1_000, Math.round(value)),
+    );
+  }
+
+  private stripDedupMetaFromRequestParams(requestParams: unknown): unknown {
+    if (!requestParams || typeof requestParams !== 'object' || Array.isArray(requestParams)) {
+      return requestParams;
+    }
+    const objectValue = requestParams as Record<string, unknown>;
+    const cloned: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(objectValue)) {
+      if (
+        key === 'idempotencyKey' ||
+        key === 'requestFingerprint' ||
+        key === 'idempotencyWindowMs'
+      ) {
+        continue;
+      }
+      cloned[key] = value;
+    }
+    return cloned;
+  }
+
+  private stableStringifyForFingerprint(value: unknown): string {
+    if (value === null || value === undefined) return String(value);
+    if (typeof value === 'string') return JSON.stringify(value);
+    if (typeof value === 'number' || typeof value === 'boolean') return JSON.stringify(value);
+    if (Array.isArray(value)) {
+      return `[${value.map((item) => this.stableStringifyForFingerprint(item)).join(',')}]`;
+    }
+    if (typeof value === 'object') {
+      const objectValue = value as Record<string, unknown>;
+      const keys = Object.keys(objectValue).sort();
+      return `{${keys
+        .map((key) => `${JSON.stringify(key)}:${this.stableStringifyForFingerprint(objectValue[key])}`)
+        .join(',')}}`;
+    }
+    return JSON.stringify(String(value));
+  }
+
+  private buildApiUsageRequestFingerprint(params: {
+    serviceType: ServiceType;
+    model?: string;
+    inputTokens?: number;
+    outputTokens?: number;
+    inputImageCount?: number;
+    outputImageCount?: number;
+    requestParams?: unknown;
+  }): string {
+    const fingerprintPayload = {
+      serviceType: params.serviceType,
+      model: params.model || null,
+      inputTokens: params.inputTokens ?? null,
+      outputTokens: params.outputTokens ?? null,
+      inputImageCount: params.inputImageCount ?? null,
+      outputImageCount: params.outputImageCount ?? null,
+      requestParams: this.stripDedupMetaFromRequestParams(params.requestParams),
+    };
+    const serialized = this.stableStringifyForFingerprint(fingerprintPayload);
+    return createHash('sha256').update(serialized).digest('hex');
+  }
+
+  private withDedupMetaInRequestParams(
+    requestParams: unknown,
+    idempotencyKey: string | null,
+    requestFingerprint: string | null,
+  ): Record<string, any> | undefined {
+    const base =
+      requestParams && typeof requestParams === 'object' && !Array.isArray(requestParams)
+        ? { ...(requestParams as Record<string, any>) }
+        : {};
+    if (!idempotencyKey && !requestFingerprint) {
+      return Object.keys(base).length > 0 ? base : undefined;
+    }
+    if (idempotencyKey) {
+      base.idempotencyKey = idempotencyKey;
+    }
+    if (requestFingerprint) {
+      base.requestFingerprint = requestFingerprint;
+    }
+    return base;
+  }
+
+  private async findDuplicateApiUsageInWindow(
+    tx: Prisma.TransactionClient,
+    params: {
+      userId: string;
+      serviceType: ServiceType;
+      model?: string;
+      idempotencyKey: string | null;
+      requestFingerprint: string | null;
+      windowStartAt: Date;
+    },
+  ): Promise<{ apiUsageId: string; transactionId: string | null } | null> {
+    const statusFilter = {
+      in: [ApiResponseStatus.PENDING, ApiResponseStatus.SUCCESS],
+    };
+
+    let duplicate = null as { id: string } | null;
+    if (params.idempotencyKey) {
+      duplicate = await tx.apiUsageRecord.findFirst({
+        where: {
+          userId: params.userId,
+          serviceType: params.serviceType,
+          ...(params.model ? { model: params.model } : {}),
+          responseStatus: statusFilter,
+          createdAt: { gte: params.windowStartAt },
+          requestParams: {
+            path: ['idempotencyKey'],
+            equals: params.idempotencyKey,
+          },
+        },
+        select: { id: true },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
+    if (!duplicate && params.requestFingerprint) {
+      duplicate = await tx.apiUsageRecord.findFirst({
+        where: {
+          userId: params.userId,
+          serviceType: params.serviceType,
+          ...(params.model ? { model: params.model } : {}),
+          responseStatus: statusFilter,
+          createdAt: { gte: params.windowStartAt },
+          requestParams: {
+            path: ['requestFingerprint'],
+            equals: params.requestFingerprint,
+          },
+        },
+        select: { id: true },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
+    if (!duplicate) return null;
+
+    const spendTransaction = await tx.creditTransaction.findFirst({
+      where: {
+        apiUsageId: duplicate.id,
+        type: TransactionType.SPEND,
+      },
+      select: { id: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return {
+      apiUsageId: duplicate.id,
+      transactionId: spendTransaction?.id ?? null,
+    };
+  }
+
   async preDeductCredits(params: ApiUsageParams): Promise<DeductCreditsResult> {
-    const { userId, serviceType, model, inputTokens, outputTokens, inputImageCount, outputImageCount, requestParams, ipAddress, userAgent } = params;
-    const requestedProvider = typeof requestParams?.aiProvider === 'string'
-      ? requestParams.aiProvider.trim().toLowerCase()
-      : '';
+    const {
+      userId,
+      serviceType,
+      model,
+      inputTokens,
+      outputTokens,
+      inputImageCount,
+      outputImageCount,
+      requestParams,
+      ipAddress,
+      userAgent,
+      idempotencyKey,
+      idempotencyWindowMs,
+    } = params;
+    const normalizedIdempotencyKey = this.normalizeIdempotencyKey(
+      idempotencyKey ?? requestParams?.idempotencyKey,
+    );
+    const normalizedIdempotencyWindowMs = this.normalizeIdempotencyWindowMs(
+      idempotencyWindowMs ?? requestParams?.idempotencyWindowMs,
+    );
+    const requestFingerprint = normalizedIdempotencyKey
+      ? this.buildApiUsageRequestFingerprint({
+          serviceType,
+          model,
+          inputTokens,
+          outputTokens,
+          inputImageCount,
+          outputImageCount,
+          requestParams,
+        })
+      : null;
 
     const pricing = await this.resolveServicePricing(serviceType);
     if (!pricing) {
@@ -1802,12 +2000,21 @@ export class CreditsService {
             },
           }
         : requestParams;
+    const apiUsageRequestParams = this.withDedupMetaInRequestParams(
+      effectiveRequestParams,
+      normalizedIdempotencyKey,
+      requestFingerprint,
+    );
+    const requestedProvider =
+      typeof apiUsageRequestParams?.aiProvider === 'string'
+        ? apiUsageRequestParams.aiProvider.trim().toLowerCase()
+        : '';
     
     // 处理Sora视频模型的特殊定价
     creditsToDeduct = this.resolveSoraModelCredits(
       serviceType,
         creditsToDeduct,
-        effectiveRequestParams,
+        apiUsageRequestParams,
         model,
       );
 
@@ -1815,14 +2022,14 @@ export class CreditsService {
     creditsToDeduct = this.resolveKlingModelCredits(
       serviceType,
       creditsToDeduct,
-      effectiveRequestParams,
+      apiUsageRequestParams,
     );
 
     // 处理图像生成服务的分辨率定价
     creditsToDeduct = this.resolveImageResolutionCredits(
       serviceType,
       creditsToDeduct,
-      effectiveRequestParams,
+      apiUsageRequestParams,
     );
 
     return await this.prisma.$transaction(async (tx) => {
@@ -1833,6 +2040,31 @@ export class CreditsService {
 
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
+      }
+
+      if (normalizedIdempotencyKey || requestFingerprint) {
+        const duplicateUsage = await this.findDuplicateApiUsageInWindow(tx, {
+          userId,
+          serviceType,
+          model,
+          idempotencyKey: normalizedIdempotencyKey,
+          requestFingerprint,
+          windowStartAt: new Date(Date.now() - normalizedIdempotencyWindowMs),
+        });
+        if (duplicateUsage) {
+          this.logger.warn(
+            `[Credits] Duplicate pre-deduct blocked user=${userId} service=${serviceType} key=${
+              normalizedIdempotencyKey || '-'
+            } apiUsageId=${duplicateUsage.apiUsageId}`,
+          );
+          return {
+            success: true,
+            newBalance: account.balance,
+            transactionId:
+              duplicateUsage.transactionId || `duplicate:${duplicateUsage.apiUsageId}`,
+            apiUsageId: duplicateUsage.apiUsageId,
+          };
+        }
       }
 
       await this.enforceFreeUserImageQuota(tx, {
@@ -1918,24 +2150,24 @@ export class CreditsService {
       let effectiveServiceName = this.resolveSoraServiceName(
         serviceType,
         pricing.serviceName,
-        effectiveRequestParams,
+        apiUsageRequestParams,
         model,
       );
       effectiveServiceName = this.resolveKlingServiceName(
         serviceType,
         effectiveServiceName,
-        effectiveRequestParams,
+        apiUsageRequestParams,
       );
       effectiveServiceName = this.resolveManagedVideoServiceName(
         serviceType,
         effectiveServiceName,
-        effectiveRequestParams,
+        apiUsageRequestParams,
       );
       const billingRemark = this.buildBillingRemark({
         serviceType,
         model,
         provider: requestedProvider || pricing.provider,
-        requestParams: effectiveRequestParams,
+        requestParams: apiUsageRequestParams,
       });
 
       // 更新账户余额
@@ -1960,7 +2192,7 @@ export class CreditsService {
           outputTokens,
           inputImageCount,
           outputImageCount,
-          requestParams: effectiveRequestParams,
+          requestParams: apiUsageRequestParams,
           responseStatus: ApiResponseStatus.PENDING,
           ipAddress,
           userAgent,
@@ -1975,7 +2207,11 @@ export class CreditsService {
           amount: -deductionPlan.totalDeducted,
           balanceBefore: account.balance,
           balanceAfter: newBalance,
-          description: `使用 ${effectiveServiceName}${requestParams?.imageSize ? `（${requestParams.imageSize}）` : ''}`,
+          description: `Use ${effectiveServiceName}${
+            apiUsageRequestParams?.imageSize
+              ? ` (${apiUsageRequestParams.imageSize})`
+              : ''
+          }`,
           apiUsageId: apiUsage.id,
           consumePolicyCode: consumePolicy.code,
           consumePolicyVersion: consumePolicy.version,

@@ -100,7 +100,7 @@ export class MembershipService {
           price: new Prisma.Decimal(input.price),
           monthlyQuotaCredits: input.monthlyQuotaCredits ?? 0,
           signupBonusCredits: input.signupBonusCredits ?? 0,
-          dailyGiftCredits: input.dailyGiftCredits ?? 0,
+          dailyGiftCredits: this.normalizeDailyGiftCreditsForPlanCode(code, input.dailyGiftCredits ?? 0),
           isActive: input.isActive ?? true,
           sortOrder: input.sortOrder ?? 0,
           ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
@@ -144,6 +144,14 @@ export class MembershipService {
       throw new NotFoundException('会员套餐不存在');
     }
 
+    const nextCode = input.code !== undefined ? input.code.trim() : existing.code;
+    const nextDailyGiftCredits =
+      input.dailyGiftCredits !== undefined
+        ? this.normalizeDailyGiftCreditsForPlanCode(nextCode, input.dailyGiftCredits)
+        : this.isVip69PlanCode(nextCode)
+          ? 0
+          : undefined;
+
     try {
       return await this.prisma.membershipPlan.update({
         where: { id },
@@ -160,8 +168,8 @@ export class MembershipService {
           ...(input.signupBonusCredits !== undefined
             ? { signupBonusCredits: input.signupBonusCredits }
             : {}),
-          ...(input.dailyGiftCredits !== undefined
-            ? { dailyGiftCredits: input.dailyGiftCredits }
+          ...(nextDailyGiftCredits !== undefined
+            ? { dailyGiftCredits: nextDailyGiftCredits }
             : {}),
           ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
           ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
@@ -191,7 +199,7 @@ export class MembershipService {
         monthlyQuotaCredits: plan.monthlyQuotaCredits,
         signupBonusCredits: plan.signupBonusCredits,
         totalMonthlyCredits: plan.monthlyQuotaCredits + plan.signupBonusCredits,
-        dailyGiftCredits: plan.dailyGiftCredits,
+        dailyGiftCredits: this.normalizeDailyGiftCreditsForPlanCode(plan.code, plan.dailyGiftCredits),
         metadata: plan.metadata,
         ctaText: `升级 ${plan.name}`,
         isRecommended: plan.sortOrder === 10,
@@ -255,7 +263,7 @@ export class MembershipService {
             price: Number(plan.price),
             monthlyQuotaCredits: plan.monthlyQuotaCredits,
             signupBonusCredits: plan.signupBonusCredits,
-            dailyGiftCredits: plan.dailyGiftCredits,
+            dailyGiftCredits: this.normalizeDailyGiftCreditsForPlanCode(plan.code, plan.dailyGiftCredits),
             metadata: plan.metadata,
           }
         : null,
@@ -1339,7 +1347,7 @@ export class MembershipService {
         const plan = await tx.membershipPlan.findUnique({
           where: { id: subscription.membershipPlanId },
         });
-        if (!plan || plan.dailyGiftCredits <= 0) {
+        if (!plan || plan.dailyGiftCredits <= 0 || this.isVip69PlanCode(plan.code)) {
           continue;
         }
 
@@ -2109,10 +2117,15 @@ export class MembershipService {
     const billingCycle = this.normalizeBillingCycle(
       typeof snapshot?.billingCycle === 'string' ? snapshot.billingCycle : plan.billingCycle,
     );
+    const snapshotCode = typeof snapshot?.code === 'string' ? snapshot.code : plan.code;
+    const dailyGiftCredits = this.normalizeDailyGiftCreditsForPlanCode(
+      snapshotCode,
+      this.toInt(snapshot?.dailyGiftCredits, plan.dailyGiftCredits),
+    );
 
     return {
       id: typeof snapshot?.id === 'string' ? snapshot.id : plan.id,
-      code: typeof snapshot?.code === 'string' ? snapshot.code : plan.code,
+      code: snapshotCode,
       name: typeof snapshot?.name === 'string' ? snapshot.name : plan.name,
       billingCycle,
       price:
@@ -2121,7 +2134,7 @@ export class MembershipService {
           : plan.price.toString(),
       monthlyQuotaCredits: this.toInt(snapshot?.monthlyQuotaCredits, plan.monthlyQuotaCredits),
       signupBonusCredits: this.toInt(snapshot?.signupBonusCredits, plan.signupBonusCredits),
-      dailyGiftCredits: this.toInt(snapshot?.dailyGiftCredits, plan.dailyGiftCredits),
+      dailyGiftCredits,
       metadata:
         snapshot?.metadata && typeof snapshot.metadata === 'object' && !Array.isArray(snapshot.metadata)
           ? (snapshot.metadata as Prisma.JsonObject)
@@ -2129,6 +2142,30 @@ export class MembershipService {
             ? (plan.metadata as Prisma.JsonObject)
             : null,
     };
+  }
+
+  private normalizePlanCode(code: string | null | undefined): string {
+    return (code ?? '').trim().toLowerCase();
+  }
+
+  private isVip69PlanCode(code: string | null | undefined): boolean {
+    const normalized = this.normalizePlanCode(code);
+    return (
+      normalized === 'vip_69' ||
+      normalized === 'vip-69' ||
+      normalized === 'vip69' ||
+      normalized === 'vip_01' ||
+      normalized === 'vip-01' ||
+      normalized === 'vip01'
+    );
+  }
+
+  private normalizeDailyGiftCreditsForPlanCode(code: string | null | undefined, dailyGiftCredits: number): number {
+    const normalizedCredits = Number.isFinite(dailyGiftCredits) ? Math.trunc(dailyGiftCredits) : 0;
+    if (this.isVip69PlanCode(code)) {
+      return 0;
+    }
+    return normalizedCredits;
   }
 
   private toInt(value: unknown, fallback: number): number {

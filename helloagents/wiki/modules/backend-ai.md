@@ -30,6 +30,10 @@
 - `generate-image` 在上游仅返回外链 `imageUrl`（如 Seedream/Nano2）时，会统一下载并转存 OSS 后返回稳定 URL；管理员/白名单只跳过水印，不再直返第三方临时链接。
 - Seedream5 supports system setting key seedream5_provider (doubao / watcha), defaulting to doubao when missing.
 - Watcha Seedream channel env vars: WATCHA_SEEDREAM_API_KEY, optional WATCHA_SEEDREAM_ENDPOINT, optional WATCHA_SEEDREAM_MODEL.
+- Tencent route for `kling-2.6` uses official start-end mapping: first frame goes to `FileInfos` (`Usage=FirstFrame`) and tail frame goes to `LastFrameUrl`; non-start-end reference images use `Usage=Reference`.
+- Tencent `kling-2.6` output constraints are normalized server-side: duration `5/10`, resolution `720P/1080P`, and start-end mode always sends `OutputConfig.AudioGeneration=Disabled`.
+- `generateVideo` now prioritizes `klingModel=kling-v3-0` as managed `kling-3.0` routing, even if payload provider is `kling-o3`, to avoid accidentally entering `kling-3.0-omni` execution path.
+- `queryTask` now detects managed Tencent task prefixes before provider-branch routing, ensuring `kling-v3-0` polling remains correct even when request provider is `kling-o3`.
 - Seedance（doubao）视频任务成功后，后端会将上游视频拉取并上传到 OSS，仅返回自有 OSS 公网链接给前端。
 - Seedance 2.0 现在统一走 `seedance-2.0` 模型管理键，但运行时可按请求里的 `seedanceModel` 在 `doubao-seedance-2-0-260128` 与 `doubao-seedance-2-0-fast-260128` 间切换；`ai.controller` 的 Seedance 2 权益校验也会同时识别 `2.0` 与 `2.0-fast`。
 - Seedance 2.0 直连方舟链路已支持媒体优先请求：无 prompt 但有图片/视频/音频参考时不再错误拼接 `undefined` 文本；并同步放宽到官方 `4-15s`、`480P/720P`、6 种宽高比以及多模态参考组合。

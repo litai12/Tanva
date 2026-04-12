@@ -224,6 +224,8 @@ export interface AdminUserCreditTransaction {
   balanceAfter: number;
   description: string;
   createdAt: string;
+  businessType?: string | null;
+  membershipPlanId?: string | null;
   apiUsageId?: string | null;
   channel?: string | null;
   provider?: string | null;

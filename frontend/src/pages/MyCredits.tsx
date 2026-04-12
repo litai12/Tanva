@@ -28,6 +28,8 @@ interface Transaction {
   balanceAfter: number;
   description: string;
   createdAt: string;
+  businessType?: string | null;
+  membershipPlanId?: string | null;
   apiUsageId?: string | null;
   channel?: string | null;
   provider?: string | null;
@@ -251,6 +253,21 @@ const MyCredits: React.FC = () => {
       className: 'bg-yellow-100 text-yellow-700 border border-yellow-200',
     };
   };
+
+  const filteredTransactions = useMemo(() => {
+    const vip69Pattern = /vip[\s_-]*69/i;
+    return transactions.filter((tx) => {
+      const businessType = typeof tx.businessType === 'string' ? tx.businessType.trim().toLowerCase() : '';
+      const normalizedDescription = (tx.description ?? '').trim();
+      if (!normalizedDescription) {
+        return true;
+      }
+      const isVip69DailyGift =
+        (businessType === 'membership_daily_gift' || normalizedDescription.includes('每日赠送积分')) &&
+        vip69Pattern.test(normalizedDescription);
+      return !isVip69DailyGift;
+    });
+  }, [transactions]);
 
   const dailyUsageData = useMemo(() => {
     const days = 14;
@@ -539,7 +556,7 @@ const MyCredits: React.FC = () => {
 
         {activeTab === 'transactions' && (
           <div className="overflow-hidden bg-white shadow-sm rounded-2xl">
-            {transactions.length === 0 ? (
+            {filteredTransactions.length === 0 ? (
               <div className="py-12 text-sm text-center text-slate-400">{t('creditsPage.transactions.empty')}</div>
             ) : (
               <div className="max-h-[560px] overflow-auto">
@@ -555,7 +572,7 @@ const MyCredits: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {transactions.slice(0, 50).map(tx => {
+                    {filteredTransactions.slice(0, 50).map(tx => {
                       const isPositive = tx.amount > 0;
                       const durationSeconds = typeof tx.processingTime === 'number'
                         ? Math.max(0, Math.round(tx.processingTime / 1000))

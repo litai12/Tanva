@@ -8385,6 +8385,10 @@ function UnifiedModelManagementTab() {
   const [modelTypeFilter, setModelTypeFilter] = useState<"all" | ManagedModelTaskType>("all");
   const [jsonModalOpen, setJsonModalOpen] = useState(false);
   const [jsonText, setJsonText] = useState(DEFAULT_MODEL_PROVIDER_MAPPING_TEMPLATE);
+  const [uiMode, setUiMode] = useState<"simple" | "advanced">("simple");
+  const [showPlatformPanel, setShowPlatformPanel] = useState(false);
+  const [showAdvancedModelConfig, setShowAdvancedModelConfig] = useState(false);
+  const [showAdvancedVendorConfig, setShowAdvancedVendorConfig] = useState(false);
 
   const showToast = (message: string, type: "success" | "error" = "success") => {
     setToast({ message, type });
@@ -8530,6 +8534,12 @@ function UnifiedModelManagementTab() {
   const selectedModelSupportedModels = selectedModel ? getManagedModelSupportedModels(selectedModel) : [];
   const selectedModelOutputConfig = selectedModel ? getManagedModelOutputConfig(selectedModel) : undefined;
   const selectedNodeConfig = selectedModel ? getManagedNodeConfig(selectedModel) : undefined;
+  const selectedTaskType = selectedModel
+    ? normalizeManagedModelTaskType(selectedModel.taskType)
+    : "image";
+  const recommendedNodeCategory: "input" | "image" | "video" =
+    selectedTaskType === "text" ? "input" : selectedTaskType;
+  const isSimpleMode = uiMode === "simple";
   const selectedManagedMetadata = selectedModel ? buildManagedNodeMetadata(selectedModel) : undefined;
   const selectedVodConfig =
     selectedManagedMetadata?.vod && typeof selectedManagedMetadata.vod === "object"
@@ -8749,6 +8759,22 @@ function UnifiedModelManagementTab() {
             </div>
           </div>
           <div className='flex flex-wrap gap-3'>
+            <div className='inline-flex rounded-lg border p-1'>
+              <button
+                type='button'
+                className={`rounded px-3 py-1 text-sm ${uiMode === "simple" ? "bg-gray-900 text-white" : "text-gray-600"}`}
+                onClick={() => setUiMode("simple")}
+              >
+                Simple
+              </button>
+              <button
+                type='button'
+                className={`rounded px-3 py-1 text-sm ${uiMode === "advanced" ? "bg-gray-900 text-white" : "text-gray-600"}`}
+                onClick={() => setUiMode("advanced")}
+              >
+                Advanced
+              </button>
+            </div>
             <Button onClick={handleSave} disabled={saving || loading}>
               {saving ? "保存中..." : "保存设置"}
             </Button>
@@ -8845,34 +8871,46 @@ function UnifiedModelManagementTab() {
             </div>
           </div>
 
-          <div className='bg-white rounded-lg border p-4 shadow-sm'>
-            <div className='mb-3 flex items-center justify-between'>
-              <h4 className='font-semibold'>平台列表</h4>
-              <Button size='sm' variant='outline' onClick={addPlatform}>新增平台</Button>
-            </div>
-            <div className='space-y-2'>
-              {platformList.length === 0 ? (
-                <div className='rounded-lg border border-dashed px-3 py-6 text-center text-sm text-gray-500'>暂无平台配置</div>
-              ) : (
-                platformList.map((platform, index) => {
-                  const isActive = selectedPlatformIndex === index;
-                  return (
-                    <button
-                      key={`${platform.platformKey || 'platform'}-${index}`}
-                      type='button'
-                      onClick={() => setSelectedPlatformIndex(index)}
-                      className={`w-full rounded-lg border px-3 py-3 text-left transition ${
-                        isActive ? 'border-blue-500 bg-blue-50' : 'hover:border-gray-300'
-                      }`}
-                    >
-                      <div className='font-medium'>{platform.platformName || '未命名平台'}</div>
-                      <div className='text-xs text-gray-500'>{platform.platformKey || '未设置 platformKey'}</div>
-                    </button>
-                  );
-                })
-              )}
-            </div>
+          <div className='flex justify-end'>
+            <button
+              type='button'
+              className='text-xs text-gray-500 underline-offset-2 hover:underline'
+              onClick={() => setShowPlatformPanel((prev) => !prev)}
+            >
+              {showPlatformPanel || !isSimpleMode ? "收起平台管理" : "展开平台管理（高级）"}
+            </button>
           </div>
+
+          {(showPlatformPanel || !isSimpleMode) && (
+            <div className='bg-white rounded-lg border p-4 shadow-sm'>
+              <div className='mb-3 flex items-center justify-between'>
+                <h4 className='font-semibold'>平台列表</h4>
+                <Button size='sm' variant='outline' onClick={addPlatform}>新增平台</Button>
+              </div>
+              <div className='space-y-2'>
+                {platformList.length === 0 ? (
+                  <div className='rounded-lg border border-dashed px-3 py-6 text-center text-sm text-gray-500'>暂无平台配置</div>
+                ) : (
+                  platformList.map((platform, index) => {
+                    const isActive = selectedPlatformIndex === index;
+                    return (
+                      <button
+                        key={`${platform.platformKey || 'platform'}-${index}`}
+                        type='button'
+                        onClick={() => setSelectedPlatformIndex(index)}
+                        className={`w-full rounded-lg border px-3 py-3 text-left transition ${
+                          isActive ? 'border-blue-500 bg-blue-50' : 'hover:border-gray-300'
+                        }`}
+                      >
+                        <div className='font-medium'>{platform.platformName || '未命名平台'}</div>
+                        <div className='text-xs text-gray-500'>{platform.platformKey || '未设置 platformKey'}</div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className='space-y-4'>
@@ -8902,6 +8940,9 @@ function UnifiedModelManagementTab() {
               </div>
             ) : (
               <div className='space-y-6'>
+                <div className='rounded-lg border bg-blue-50 px-4 py-3 text-sm text-blue-800'>
+                  Workflow: Basic info / Capability / Node mapping / Vendor pricing
+                </div>
                 <div className='grid gap-4 md:grid-cols-2'>
                   <div>
                     <label className='block text-sm text-gray-600 mb-1'>模型 Key</label>
@@ -8962,25 +9003,42 @@ function UnifiedModelManagementTab() {
                 </div>
 
                 <div className='rounded-lg border p-4'>
-                  <div className='mb-3 font-medium text-gray-800'>运行配置</div>
-                  <div className='grid gap-4 md:grid-cols-2'>
-                    <div>
-                      <label className='block text-sm text-gray-600 mb-1'>serviceType</label>
-                      <Input
-                        value={selectedModelServiceType}
-                        onChange={(e) => updateSelectedModelMetadata({ serviceType: e.target.value.trim() })}
-                        placeholder='如：gemini-3-pro-image / wan26-video'
-                      />
-                    </div>
-                    <div>
-                      <label className='block text-sm text-gray-600 mb-1'>supportedModels</label>
-                      <Input
-                        value={selectedModelSupportedModels.join(', ')}
-                        onChange={(e) => updateSelectedModelMetadata({ supportedModels: parseCommaSeparatedList(e.target.value) })}
-                        placeholder='逗号分隔，如：wan2.6-t2v, wan2.6-i2v'
-                      />
-                    </div>
+                  <div className='mb-3 flex items-center justify-between'>
+                    <div className='font-medium text-gray-800'>能力配置</div>
+                    <button
+                      type='button'
+                      className='text-xs text-gray-500 underline-offset-2 hover:underline'
+                      onClick={() => setShowAdvancedModelConfig((prev) => !prev)}
+                    >
+                      {showAdvancedModelConfig || !isSimpleMode ? "收起高级配置" : "展开高级配置"}
+                    </button>
                   </div>
+                  {(showAdvancedModelConfig || !isSimpleMode) ? (
+                    <div className='grid gap-4 md:grid-cols-2'>
+                      <div>
+                        <label className='block text-sm text-gray-600 mb-1'>serviceType</label>
+                        <Input
+                          value={selectedModelServiceType}
+                          onChange={(e) => updateSelectedModelMetadata({ serviceType: e.target.value.trim() })}
+                          placeholder='如：gemini-3-pro-image / wan26-video'
+                        />
+                      </div>
+                      <div>
+                        <label className='block text-sm text-gray-600 mb-1'>supportedModels</label>
+                        <Input
+                          value={selectedModelSupportedModels.join(', ')}
+                          onChange={(e) => updateSelectedModelMetadata({ supportedModels: parseCommaSeparatedList(e.target.value) })}
+                          placeholder='逗号分隔，如：wan2.6-t2v, wan2.6-i2v'
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className='rounded-lg border bg-gray-50 px-3 py-2 text-xs text-gray-600'>
+                      Service: <span className='font-medium'>{selectedModelServiceType || "-"}</span>
+                      {" | "}
+                      Models: <span className='font-medium'>{selectedModelSupportedModels.join(", ") || "-"}</span>
+                    </div>
+                  )}
 
                   {normalizeManagedModelTaskType(selectedModel.taskType) === 'video' && (
                     <div className='mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4'>
@@ -9023,7 +9081,11 @@ function UnifiedModelManagementTab() {
                 </div>
 
                 <div className='rounded-lg border bg-gray-50 p-4'>
-                  <div className='mb-3 font-medium text-gray-800'>节点模板</div>
+                  <div className='mb-3 font-medium text-gray-800'>节点映射</div>
+                  <div className='mb-3 text-xs text-gray-500'>
+                    推荐分类：<span className='font-medium'>{recommendedNodeCategory}</span>
+                    {isSimpleMode ? "（简洁模式隐藏分类手动编辑）" : ""}
+                  </div>
                   <div className='grid gap-4 md:grid-cols-2'>
                     <div>
                       <label className='block text-sm text-gray-600 mb-1'>节点标识</label>
@@ -9045,18 +9107,20 @@ function UnifiedModelManagementTab() {
                         ))}
                       </select>
                     </div>
-                    <div>
-                      <label className='block text-sm text-gray-600 mb-1'>分类</label>
-                      <select
-                        value={selectedNodeConfig?.category || 'video'}
-                        onChange={(e) => updateSelectedNodeConfig({ category: e.target.value as 'input' | 'image' | 'video' })}
-                        className='w-full rounded border px-3 py-2'
-                      >
-                        <option value='input'>输入</option>
-                        <option value='image'>图片</option>
-                        <option value='video'>视频</option>
-                      </select>
-                    </div>
+                    {(!isSimpleMode || showAdvancedModelConfig) && (
+                      <div>
+                        <label className='block text-sm text-gray-600 mb-1'>分类</label>
+                        <select
+                          value={selectedNodeConfig?.category || recommendedNodeCategory}
+                          onChange={(e) => updateSelectedNodeConfig({ category: e.target.value as 'input' | 'image' | 'video' })}
+                          className='w-full rounded border px-3 py-2'
+                        >
+                          <option value='input'>输入</option>
+                          <option value='image'>图片</option>
+                          <option value='video'>视频</option>
+                        </select>
+                      </div>
+                    )}
                     <div>
                       <label className='block text-sm text-gray-600 mb-1'>节点默认积分</label>
                       <Input
@@ -9071,10 +9135,19 @@ function UnifiedModelManagementTab() {
                 <div className='rounded-lg border p-4'>
                   <div className='mb-3 flex items-center justify-between'>
                     <div>
-                      <div className='font-medium text-gray-800'>厂商路线</div>
-                      <div className='text-sm text-gray-500'>每个厂商可以设置默认定价，并按规格组合覆盖积分和人民币价格。</div>
+                      <div className='font-medium text-gray-800'>厂商路线与定价</div>
+                      <div className='text-sm text-gray-500'>默认价格在上方维护，规格差异在下方规则矩阵覆盖。</div>
                     </div>
-                    <Button size='sm' variant='outline' onClick={addVendor}>新增厂商</Button>
+                    <div className='flex items-center gap-2'>
+                      <button
+                        type='button'
+                        className='text-xs text-gray-500 underline-offset-2 hover:underline'
+                        onClick={() => setShowAdvancedVendorConfig((prev) => !prev)}
+                      >
+                        {showAdvancedVendorConfig || !isSimpleMode ? "收起厂商高级字段" : "展开厂商高级字段"}
+                      </button>
+                      <Button size='sm' variant='outline' onClick={addVendor}>新增厂商</Button>
+                    </div>
                   </div>
 
                   <div className='space-y-4'>
@@ -9129,34 +9202,40 @@ function UnifiedModelManagementTab() {
                                     </option>
                                   ))}
                                 </select>
-                                <Input
-                                  className='mt-2'
-                                  value={vendor.platformKey || ''}
-                                  onChange={(e) => updateVendor(vendorIndex, { platformKey: e.target.value })}
-                                  placeholder='也可手动填写 platformKey'
-                                />
+                                {(!isSimpleMode || showAdvancedVendorConfig) && (
+                                  <Input
+                                    className='mt-2'
+                                    value={vendor.platformKey || ''}
+                                    onChange={(e) => updateVendor(vendorIndex, { platformKey: e.target.value })}
+                                    placeholder='也可手动填写 platformKey'
+                                  />
+                                )}
                               </div>
-                              <div>
-                                <label className='block text-sm text-gray-600 mb-1'>provider</label>
-                                <Input
-                                  value={vendor.provider || ''}
-                                  onChange={(e) => updateVendor(vendorIndex, { provider: e.target.value })}
-                                />
-                              </div>
-                              <div>
-                                <label className='block text-sm text-gray-600 mb-1'>modelName</label>
-                                <Input
-                                  value={vendor.modelName || ''}
-                                  onChange={(e) => updateVendor(vendorIndex, { modelName: e.target.value })}
-                                />
-                              </div>
-                              <div>
-                                <label className='block text-sm text-gray-600 mb-1'>modelVersion</label>
-                                <Input
-                                  value={vendor.modelVersion || ''}
-                                  onChange={(e) => updateVendor(vendorIndex, { modelVersion: e.target.value })}
-                                />
-                              </div>
+                              {(!isSimpleMode || showAdvancedVendorConfig) && (
+                                <>
+                                  <div>
+                                    <label className='block text-sm text-gray-600 mb-1'>provider</label>
+                                    <Input
+                                      value={vendor.provider || ''}
+                                      onChange={(e) => updateVendor(vendorIndex, { provider: e.target.value })}
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className='block text-sm text-gray-600 mb-1'>modelName</label>
+                                    <Input
+                                      value={vendor.modelName || ''}
+                                      onChange={(e) => updateVendor(vendorIndex, { modelName: e.target.value })}
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className='block text-sm text-gray-600 mb-1'>modelVersion</label>
+                                    <Input
+                                      value={vendor.modelVersion || ''}
+                                      onChange={(e) => updateVendor(vendorIndex, { modelVersion: e.target.value })}
+                                    />
+                                  </div>
+                                </>
+                              )}
                               <div>
                                 <label className='block text-sm text-gray-600 mb-1'>默认积分</label>
                                 <Input
@@ -9202,6 +9281,19 @@ function UnifiedModelManagementTab() {
                                   <option value='tencent_vod'>tencent_vod</option>
                                 </select>
                               </div>
+                              {(!isSimpleMode || showAdvancedVendorConfig) && (
+                                <div>
+                                  <label className='block text-sm text-gray-600 mb-1'>Route type</label>
+                                  <select
+                                    value={vendor.route || 'legacy'}
+                                    onChange={(e) => updateVendor(vendorIndex, { route: e.target.value as ModelVendorRouteType })}
+                                    className='w-full rounded border px-3 py-2'
+                                  >
+                                    <option value='legacy'>legacy</option>
+                                    <option value='tencent_vod'>tencent_vod</option>
+                                  </select>
+                                </div>
+                              )}
                               <div className='flex items-end gap-4'>
                                 <label className='inline-flex items-center gap-2 text-sm text-gray-600'>
                                   <input
@@ -9565,7 +9657,7 @@ function UnifiedModelManagementTab() {
             )}
           </div>
 
-          <div className='bg-white rounded-lg border p-6 shadow-sm'>
+          <div className={`bg-white rounded-lg border p-6 shadow-sm ${isSimpleMode && !showPlatformPanel ? "hidden" : ""}`}>
             <div className='mb-4 flex items-start justify-between gap-4'>
               <div>
                 <h4 className='font-semibold'>平台表单</h4>

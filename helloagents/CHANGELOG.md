@@ -34,6 +34,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- Flow/Video: 腾讯渠道 `Kling O3` 自定义分镜改为 C 端可用上传交互（图片/视频上传替代手填 URL），运行时会把节点上传素材并入 `referenceImages/referenceVideo` 并按腾讯文档校验（图片上限 `7`，视频参考场景图片上限 `4`，视频时长 `3-10s`），确保 FileInfos 参数可直接对齐下发（`frontend/src/components/flow/nodes/KlingO3VideoNode.tsx`, `frontend/src/components/flow/FlowOverlay.tsx`）。
+- Membership/Credits: removed `VIP 69` daily membership gift behavior end-to-end. Backend now force-disables `dailyGiftCredits` for `vip_69` plans, skips `membership_daily_gift` issuance for `vip_69`, and uses base policy daily check-in credits for `vip_69`; frontend `/my-credits` hides legacy `VIP 69 ... 每日赠送积分` rows.
 - Credits/Quota: 免费用户生成配额改为按“是否存在 `paymentOrder.status=paid`”统一判定；未付费用户默认执行 `日生图20、月生图100、日视频3、月视频10`（UTC 口径），管理员角色仍豁免（`backend/src/credits/credits.service.ts`）。
 - Credits/Quota: 免费用户在 `Run` 触发超限时，后端错误文案统一追加“免费额度已用尽，请前往充值，享有更多权限后可继续生成”，覆盖日/月图与日/月视频四类上限场景（`backend/src/credits/credits.service.ts`）。
 - Chat/Banana route: stable (Tencent) now applies explicit capability guards: manual `Analysis` mode is hidden/blocked, Tencent reference-image limits are enforced (Fast=3, Pro/Ultra=14), and auto tool-selection no longer picks `analyzeImage` on stable route.
@@ -444,3 +446,30 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Admin/Credits: 统一模型管理开始升级为正式定价结构，vendor 支持 `pricing.defaults + pricing.rules`，管理台可维护默认积分/默认价格与规格规则价格；后端预扣费兼容解析新旧结构，并把命中的 `pricingSnapshot` 写入 API 使用记录审计字段。
 - upstream request telemetry 新增 `type` 字段，按请求/响应的 MIME、URL 与 body 特征推断为 `text` / `video` / `picture`，便于在 `upstream_requests` 里区分不同媒介请求（`backend/src/telemetry/upstream-fetch-logger.ts`, `backend/src/telemetry/openobserve-telemetry.service.ts`）。
 - upstream request telemetry 扩展 `type` 枚举为 `text` / `video` / `picture` / `audio` / `file` / `binary` / `other`，并新增 `origin` / `origin_host` 记录发起请求时的来源域名，优先继承当前入站请求头，缺失时回退上游请求头中的 `Origin/Referer`（`backend/src/telemetry/request-context.ts`, `backend/src/telemetry/openobserve-request.interceptor.ts`, `backend/src/telemetry/upstream-fetch-logger.ts`, `backend/src/telemetry/openobserve-telemetry.service.ts`）。
+
+## [Tencent Kling2.6 Param Alignment - 2026-04-12]
+### Changed
+- Tencent route for `kling-2.6` now maps two-image input to official start-end request shape: first frame in `FileInfos` + `LastFrameUrl`, while non-start-end image inputs are tagged as `Usage=Reference`.
+- Tencent `kling-2.6` now normalizes output params to documented capabilities: `Duration` constrained to `5/10`, `Resolution` constrained to `720P/1080P`, and start-end mode enforces `OutputConfig.AudioGeneration=Disabled`.
+- Frontend `FlowOverlay` now avoids force-setting `sound=on` for Tencent `kling-2.6`, so user-selected sound intent can be transmitted (Tencent start-end no-audio rule is still enforced by backend).
+
+## [Tencent Kling2.6 Image-2 Handle Fix - 2026-04-13]
+### Changed
+- Frontend `kling2.6` node now exposes `image-2` input in Tencent route even under `std` mode (not only `pro`), so users can actually configure start-end frames.
+- Flow connection validation and edge admission rules now allow `image-2` for Tencent `kling-v2-6` route in both `std/pro`, while non-Tencent routes keep the original `pro`-only behavior.
+- Added Tencent-route fallback detection for legacy nodes without explicit `vendorKey/platformKey`: when node metadata default vendor is `tencent_vod`, `image-2` is still enabled.
+
+## [Tencent Kling3.0 Route Alignment - 2026-04-13]
+### Changed
+- Backend `video-provider` routing now prioritizes `klingModel=kling-v3-0` and always dispatches to managed `kling-3.0` flow (even when frontend provider is `kling-o3`), preventing accidental `3.0-Omni` path selection.
+- Backend video-task query now resolves managed Tencent tasks by taskId prefix first, so `kling-v3-0` tasks are polled correctly even if frontend provider remains `kling-o3`.
+- Frontend Tencent detection for `kling-o3` no longer treats missing `vendorKey/platformKey` as Tencent by default; it now requires explicit Tencent vendor keys or metadata `managedRoutes.defaultVendor=tencent_vod`.
+- Frontend Tencent Kling parameter mapping now applies the Tencent sound behavior consistently to both `kling-2.6` and `kling-v3-0` routes (no non-Tencent `pro => sound=on` override on Tencent path).
+
+## [Billing Idempotency Patch - 2026-04-13]
+### Changed
+- Frontend AI chat send path now has local in-flight guard for `send`, `optimized send`, and `resend`, preventing duplicate trigger bursts from rapid click/Enter.
+- Frontend Flow `runNode` now has per-node in-flight guard, preventing concurrent duplicate runs of the same node before status updates settle.
+- Frontend request clients now send `Idempotency-Key` for image/video generation and `generate-video-provider` calls; retries reuse the same logical request key.
+- Backend `CreditsService.preDeductCredits` now supports idempotent pre-deduct (short-window duplicate detection by `idempotencyKey` and request fingerprint) and reuses existing `apiUsageId` instead of charging again.
+- Backend `withCredits`, `generate-video-provider`, and `video-gif/convert` now forward idempotency keys into credits pre-deduct flow.

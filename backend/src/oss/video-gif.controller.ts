@@ -65,6 +65,7 @@ export class VideoGifController {
     const fps = Math.round(this.clampNumber(dto.fps, MIN_FPS, MAX_FPS, 10));
     const width = Math.round(this.clampNumber(dto.width, MIN_WIDTH, MAX_WIDTH, 480));
     const userId = this.getUserId(req);
+    const idempotencyKey = this.extractIdempotencyKey(req);
     const serviceType: ServiceType = 'video-to-gif';
     const startTime = Date.now();
     let apiUsageId: string | null = null;
@@ -90,6 +91,7 @@ export class VideoGifController {
         },
         ipAddress: req?.ip,
         userAgent: req?.headers?.['user-agent'],
+        idempotencyKey,
       });
       apiUsageId = deductResult.apiUsageId;
 
@@ -177,6 +179,18 @@ export class VideoGifController {
 
   private getUserId(req: any): string | null {
     return req?.user?.id || req?.user?.sub || null;
+  }
+
+  private extractIdempotencyKey(req: any): string | undefined {
+    const raw = req?.headers?.['idempotency-key'] || req?.headers?.['x-idempotency-key'];
+    if (Array.isArray(raw)) {
+      const first = raw.find((item) => typeof item === 'string' && item.trim().length > 0);
+      return typeof first === 'string' ? first.trim().slice(0, 128) : undefined;
+    }
+    if (typeof raw === 'string' && raw.trim().length > 0) {
+      return raw.trim().slice(0, 128);
+    }
+    return undefined;
   }
 
   private async failAndRefund(
