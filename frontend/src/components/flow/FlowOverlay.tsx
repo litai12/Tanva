@@ -1709,10 +1709,10 @@ const BANANA_STABLE_ROUTE_PRICING: Record<
 > = {
   // Fast: Nano Banana, 仅支持 1K
   fast: {
-    "0.5K": 20,
-    "1K": 20,
-    "2K": 20,
-    "4K": 20,
+    "0.5K": 30,
+    "1K": 30,
+    "2K": 30,
+    "4K": 30,
   },
   // Pro: Nano Banana Pro
   pro: {

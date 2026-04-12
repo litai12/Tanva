@@ -372,7 +372,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   return (
     <div
       className={cn(
-        "min-h-full p-5",
+        "min-h-full px-10 pt-5",
         isWhite ? "bg-white text-slate-900" : "bg-[#0a0a0f] text-zinc-100",
       )}
     >
@@ -751,16 +751,16 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                     </button>
                     <ul
                       className={cn(
-                        "mt-5 flex flex-1 flex-col justify-between gap-2.5 text-xs leading-relaxed sm:text-sm sm:gap-3",
+                        "mt-4 flex flex-1 flex-col gap-1.5 text-[11px] leading-relaxed sm:gap-2 sm:text-xs",
                         isWhite ? "text-slate-600" : "text-zinc-400",
                       )}
                     >
                       {FREE_FEATURES.map((line) => (
-                        <li key={line} className="flex gap-2.5">
+                        <li key={line} className="flex gap-2">
                           <Check
                             className={cn(
-                              "mt-0.5 h-4 w-4 shrink-0",
-                              isWhite ? "text-slate-700" : "text-zinc-300",
+                              "mt-0.5 h-3.5 w-3.5 shrink-0",
+                              isWhite ? "text-slate-500" : "text-zinc-400",
                             )}
                             strokeWidth={2.5}
                           />

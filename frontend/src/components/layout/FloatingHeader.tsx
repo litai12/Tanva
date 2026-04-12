@@ -2373,7 +2373,7 @@ const FloatingHeader: React.FC = () => {
             >
               <div
                 className={cn(
-                  "relative flex h-[min(200dvh,1000px)] w-full max-w-[min(100%,1480px)] flex-col overflow-hidden rounded-[20px]",
+                  "relative flex h-[min(200dvh,960px)] w-full max-w-[min(100%,1500px)] flex-col overflow-hidden rounded-[10px]",
                   chatTheme === "white"
                     ? "bg-white shadow-[0_32px_80px_rgba(15,23,42,0.18)]"
                     : "bg-[#0a0a0f] shadow-[0_32px_80px_rgba(0,0,0,0.5)]"
