@@ -321,10 +321,10 @@ const zhCN = {
         bananaRoute: {
           title: "Nano Banana 生图路线",
           desc: "可在普通与稳定两种通道间切换",
-          normal: "普通通道",
-          normalDesc: "速度优先，适合日常快速生成",
-          stable: "稳定通道",
-          stableDesc: "稳定优先，高峰时更稳",
+          normal: "普通通道 三方中转",
+          normalDesc: "性价比优选闲时使用推荐，积分消耗区间 20-80积分",
+          stable: "尊享通道 官方直连",
+          stableDesc: "极速稳定高峰不宕机，积分消耗区间 30-170积分",
           hint: "仅在选择 Nano Banana 提供商时生效",
         },
         googleKey: {
