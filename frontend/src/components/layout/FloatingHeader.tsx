@@ -82,6 +82,59 @@ import {
   type UserCreditsInfo,
 } from "@/services/adminApi";
 
+// Nano Banana 通道定价常量
+type BananaPricingTier = "fast" | "pro" | "ultra";
+
+const BANANA_STABLE_ROUTE_PRICING: Record<
+  BananaPricingTier,
+  Record<"0.5K" | "1K" | "2K" | "4K", number>
+> = {
+  // 稳定通道（腾讯）- Nano Banana 定价
+  fast: { "0.5K": 30, "1K": 30, "2K": 30, "4K": 30 },
+  pro: { "0.5K": 90, "1K": 90, "2K": 100, "4K": 170 },
+  ultra: { "0.5K": 30, "1K": 50, "2K": 70, "4K": 110 },
+};
+
+const BANANA_NORMAL_ROUTE_PRICING: Record<
+  BananaPricingTier,
+  Record<"0.5K" | "1K" | "2K" | "4K", number>
+> = {
+  // 普通通道 - 旧定价（参考用）
+  fast: { "0.5K": 20, "1K": 20, "2K": 20, "4K": 20 },
+  pro: { "0.5K": 40, "1K": 40, "2K": 60, "4K": 80 },
+  ultra: { "0.5K": 30, "1K": 30, "2K": 40, "4K": 50 },
+};
+
+const resolveBananaPricingTier = (
+  provider: string | undefined
+): BananaPricingTier | null => {
+  if (provider === "banana-2.5") return "fast";
+  if (provider === "banana-3.1") return "ultra";
+  if (provider === "banana") return "pro";
+  return null;
+};
+
+const resolveBananaCredits = (
+  provider: string | undefined,
+  route: string | undefined,
+  imageSize: string = "1K"
+): number | null => {
+  const tier = resolveBananaPricingTier(provider);
+  if (!tier) return null;
+
+  const pricing =
+    route === "stable" ? BANANA_STABLE_ROUTE_PRICING : BANANA_NORMAL_ROUTE_PRICING;
+  const normalizedSize = imageSize.trim().toUpperCase() as "0.5K" | "1K" | "2K" | "4K";
+  const validSizes: Array<"0.5K" | "1K" | "2K" | "4K"> = [
+    "0.5K",
+    "1K",
+    "2K",
+    "4K",
+  ];
+  const size = validSizes.includes(normalizedSize) ? normalizedSize : "1K";
+  return pricing[tier][size];
+};
+
 const SETTINGS_SECTIONS = [
   { id: "workspace", labelKey: "workspace.settings.sections.workspace", icon: Square },
   { id: "referral", labelKey: "workspace.settings.sections.referral", icon: Gift },

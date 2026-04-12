@@ -69,6 +69,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
   const orderRequestIdRef = useRef(0);
 
   const isWhite = useAIChatStore((s) => s.chatTheme === "white");
+  const isDark = !isWhite;
 
   // 自定义积分解锁：历史累计已支付 ≥ ¥200 才显示该区域
   const [customAmountEligible, setCustomAmountEligible] = useState(false);
@@ -120,10 +121,6 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
     try {
       const result = await getPaymentOrders({ page: 1, pageSize: 200 });
       setOrders(result.orders);
-      // const totalPaid = result.orders
-      //   .filter(o => o.status === "paid")
-      //   .reduce((sum, o) => sum + o.amount, 0);
-      // setCustomAmountEligible(totalPaid >= 200);
     } catch (error) {
       console.error("加载订单失败:", error);
     } finally {
@@ -456,25 +453,25 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
   };
 
   return (
-    <div className={cn("pb-6", isWhite && "bg-white", !isWhite && "text-zinc-100")}>
+    <div className={cn("pb-6", isWhite && "bg-white", !isWhite && "bg-[#0a0a0f] text-zinc-100")}>
       {/* 独立积分页顶栏；嵌入 VIP 时由 MembershipPanel 承接 */}
       {!embeddedInVip && !isWhite && (
-        <div className="flex items-center justify-between border-b border-slate-100 pb-6 pt-4">
+        <div className="flex items-center justify-between border-b border-zinc-800/60 pb-6 pt-4">
           <div className="flex items-center gap-3">
             <button
               onClick={showOrders ? () => setShowOrders(false) : onBack}
-              className="rounded-lg p-1.5 transition-colors hover:bg-slate-100"
+              className="rounded-lg p-1.5 transition-colors hover:bg-zinc-800/80"
             >
-              <ArrowLeft className="h-5 w-5 text-slate-500" />
+              <ArrowLeft className="h-5 w-5 text-zinc-400" />
             </button>
-            <h3 className="text-lg font-medium text-slate-800">
+            <h3 className="text-lg font-medium text-zinc-100">
               {showOrders ? lt("订单记录", "Orders") : lt("积分充值", "Top Up Credits")}
             </h3>
           </div>
           {!showOrders && (
             <button
               onClick={handleShowOrders}
-              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-800"
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:bg-zinc-800/80 hover:text-zinc-100"
             >
               <FileText className="h-4 w-4" />
               {lt("订单记录", "Orders")}
@@ -506,7 +503,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
                       : "border-[#8E86F5]/70 bg-violet-500/15 text-violet-100"
                     : isWhite
                       ? "border-slate-200 text-slate-500 hover:border-slate-300"
-                      : "border-zinc-700 text-zinc-400 hover:border-zinc-500",
+                      : "border-zinc-700 text-zinc-400 hover:border-zinc-600",
                 )}
               >
                 {item.label}
@@ -529,7 +526,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
                   key={order.orderId}
                   className={cn(
                     "flex items-center justify-between rounded-xl p-4",
-                    isWhite ? "bg-slate-50" : "border border-zinc-800 bg-zinc-900/60",
+                    isWhite ? "bg-slate-50" : "border border-zinc-800/80 bg-[#0f0f15]",
                   )}
                 >
                   <div className="flex-1">
@@ -539,7 +536,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
                         → {order.credits.toLocaleString()} {lt("积分", "credits")}
                       </span>
                     </div>
-                    <div className={cn("mt-1 text-xs", isWhite ? "text-slate-400" : "text-zinc-600")}>
+                    <div className={cn("mt-1 text-xs", isWhite ? "text-slate-400" : "text-zinc-500")}>
                       {new Date(order.createdAt).toLocaleString()}
                     </div>
                   </div>
@@ -578,10 +575,10 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
                     selectedPackage === index && !customAmountMode
                       ? isWhite
                         ? "border-blue-400 bg-blue-50/50 shadow-[0_0_24px_-8px_rgba(59,130,246,0.3)]"
-                        : "border-[#8E86F5]/60 bg-violet-500/10 shadow-[0_0_24px_-8px_rgba(142,134,245,0.45)]"
+                        : "border-[#8E86F5]/70 bg-violet-500/15 shadow-[0_0_24px_-8px_rgba(142,134,245,0.5)]"
                       : isWhite
                         ? "border-slate-200 bg-white hover:border-slate-300"
-                        : "border-zinc-700/90 bg-zinc-900/50 hover:border-zinc-600",
+                        : "border-zinc-700/80 bg-[#0f0f18] hover:border-zinc-600",
                   )}
                 >
                   <div className={cn("text-2xl font-semibold", isWhite ? "text-slate-800" : "text-zinc-100")}>¥{pkg.price}</div>
@@ -629,7 +626,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
                     : "border-[#8E86F5]/60 bg-violet-500/10"
                   : isWhite
                     ? "border-dashed border-slate-300 bg-white hover:border-blue-300 hover:bg-blue-50/30"
-                    : "border-dashed border-zinc-600 bg-zinc-900/40 hover:border-violet-500/40 hover:bg-violet-500/5",
+                    : "border-dashed border-zinc-600 bg-[#0f0f18] hover:border-violet-500/50 hover:bg-violet-500/5",
               )}
             >
               {customAmountMode ? (
@@ -668,7 +665,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
                         "min-w-[120px] flex-1 rounded-lg border-2 px-3 py-2 text-lg font-semibold outline-none transition-colors",
                         isWhite
                           ? "border-blue-300 bg-white text-slate-800 placeholder:text-slate-400 focus:border-blue-500"
-                          : "border-violet-500/50 bg-zinc-950 text-zinc-100 placeholder:text-zinc-600 focus:border-violet-400",
+                          : "border-violet-500/50 bg-[#0a0a10] text-zinc-100 placeholder:text-zinc-600 focus:border-violet-400",
                       )}
                     />
                     <span className={cn("shrink-0 text-sm", isWhite ? "text-slate-500" : "text-zinc-500")}>
@@ -717,7 +714,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
                 paymentMethod === "alipay"
                   ? isWhite
                     ? "border-blue-400 bg-blue-50 text-blue-600"
-                    : "border-[#8E86F5]/70 bg-violet-500/10 text-violet-100"
+                    : "border-[#8E86F5]/70 bg-violet-500/15 text-violet-100"
                   : isWhite
                     ? "border-slate-200 text-slate-500 hover:border-slate-300"
                     : "border-zinc-700 text-zinc-500 hover:border-zinc-600",
@@ -732,7 +729,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
                 paymentMethod === "wechat"
                   ? isWhite
                     ? "border-green-400 bg-green-50 text-green-600"
-                    : "border-emerald-500/60 bg-emerald-500/10 text-emerald-100"
+                    : "border-emerald-500/70 bg-emerald-500/15 text-emerald-100"
                   : isWhite
                     ? "border-slate-200 text-slate-500 hover:border-slate-300"
                     : "border-zinc-700 text-zinc-500 hover:border-zinc-600",
@@ -746,7 +743,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
           <div
             className={cn(
               "flex aspect-square w-full items-center justify-center overflow-hidden rounded-xl border-2",
-              isWhite ? "border-slate-200 bg-white" : "border-zinc-700 bg-zinc-950",
+              isWhite ? "border-slate-200 bg-white" : "border-zinc-700/80 bg-[#0f0f18]",
             )}
           >
             {isLoading ? (
@@ -783,7 +780,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
                   disabled={isLoading}
                   className={cn(
                     "flex items-center gap-1.5 rounded px-2 py-1 transition-colors",
-                    isWhite ? "text-orange-600 hover:bg-orange-50" : "text-amber-400 hover:bg-zinc-800",
+                    isWhite ? "text-orange-600 hover:bg-orange-50" : "text-amber-400 hover:bg-zinc-800/80",
                   )}
                 >
                   <RefreshCw className={cn("h-3.5 w-3.5", isLoading && "animate-spin")} />

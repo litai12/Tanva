@@ -627,3 +627,15 @@ video::-webkit-media-controls-fullscreen-button {
   opacity: 0 !important;
   transform: translate(-50%, -50%) scale(0.95);
 }
+
+/* Video node Run button: keep "Run" text on hover, do not swap to credits */
+.tanva-video-header-run.run-btn-with-credit:hover:not(:disabled) .run-text-trigger,
+.tanva-video-header-run.run-btn-with-credit:focus-visible:not(:disabled) .run-text-trigger {
+  opacity: 1;
+}
+
+.tanva-video-header-run.run-btn-with-credit:hover:not(:disabled) .run-credit-badge,
+.tanva-video-header-run.run-btn-with-credit:focus-visible:not(:disabled) .run-credit-badge {
+  opacity: 0 !important;
+  transform: translate(-50%, -50%) scale(0.95);
+}

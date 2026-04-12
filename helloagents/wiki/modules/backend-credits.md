@@ -110,3 +110,8 @@
   - 月付会员自动续费
   - 前端会员页 / 支付页 / 弹窗统一接入套餐配置
   - lot 级对账与迁移回填工具
+
+## 2026-04-12 Tencent Banana Pricing Update
+- `credits.service.ts` now applies a Tencent-only pricing matrix for Banana image services (`channel/channelHint/executionChannel/providerChannel = tencent`).
+- Pricing matrix: Fast `1K=30`; Pro `1K/2K/4K=90/100/170`; Ultra `0.5K/1K/2K/4K=30/50/70/110`.
+- This override is limited to Tencent channel requests and does not affect non-Tencent Banana routes.

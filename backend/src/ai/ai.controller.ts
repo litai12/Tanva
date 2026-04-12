@@ -586,6 +586,7 @@ export class AiController {
     if (!value) return null;
     if (value.includes('apimart')) return 'apimart';
     if (value === 'legacy' || value.includes('147')) return '147';
+    if (value === 'stable' || value.includes('tencent') || value.includes('nano')) return 'tencent';
     return value;
   }
 

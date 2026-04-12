@@ -210,12 +210,15 @@ const MyCredits: React.FC = () => {
     ? 'en-US'
     : 'zh-CN';
 
-  const formatChannelLabel = (channel: string | null | undefined): string => {
-    if (!channel) return '';
-    const normalized = channel.trim().toLowerCase();
-    if (normalized.includes('apimart')) return 'M';
-    if (normalized === 'legacy' || normalized.includes('147')) return 'A';
-    return channel;
+  const removeChannelFromBillingRemark = (remark: string | null | undefined): string => {
+    if (!remark) return '';
+    const channelPrefixPattern = /^(?:\u6E20\u9053|channel)\s*[:\uFF1A]/i;
+    return remark
+      .split('|')
+      .map((segment) => segment.trim())
+      .filter((segment) => segment.length > 0)
+      .filter((segment) => !channelPrefixPattern.test(segment))
+      .join(' | ');
   };
 
   const getTransactionStatusMeta = (
@@ -558,6 +561,7 @@ const MyCredits: React.FC = () => {
                         ? Math.max(0, Math.round(tx.processingTime / 1000))
                         : null;
                       const statusMeta = getTransactionStatusMeta(tx.apiResponseStatus, Boolean(tx.apiUsageId));
+                      const billingRemark = removeChannelFromBillingRemark(tx.billingRemark);
 
                       return (
                         <tr key={tx.id} className="hover:bg-slate-50/60">
@@ -575,26 +579,16 @@ const MyCredits: React.FC = () => {
                               </div>
                               <div className="min-w-0">
                                 <div className="font-medium text-slate-700 truncate max-w-[240px]">{tx.description}</div>
-                                {(tx.channel || tx.model) && (
+                                {tx.model && (
                                   <div className="text-xs text-slate-500">
-                                    {tx.channel && (
-                                      <span>
-                                        {t('creditsPage.transactions.channel', {
-                                          channel: formatChannelLabel(tx.channel),
-                                        })}
-                                      </span>
-                                    )}
-                                    {tx.channel && tx.model && <span> · </span>}
-                                    {tx.model && (
-                                      <span>
-                                        {t('creditsPage.transactions.model', { model: tx.model })}
-                                      </span>
-                                    )}
+                                    <span>
+                                      {t('creditsPage.transactions.model', { model: tx.model })}
+                                    </span>
                                   </div>
                                 )}
-                                {tx.billingRemark && (
+                                {billingRemark && (
                                   <div className="max-w-[380px] text-[11px] leading-5 text-slate-500 whitespace-normal break-words">
-                                    {tx.billingRemark}
+                                    {billingRemark}
                                   </div>
                                 )}
                               </div>

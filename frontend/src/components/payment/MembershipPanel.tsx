@@ -44,11 +44,10 @@ function tierKeyFromPlan(plan: PaymentMembershipPlan): "69" | "199" | "599" | nu
 
   const mq = plan.monthlyQuotaCredits;
   const su = plan.signupBonusCredits;
-  const dg = plan.dailyGiftCredits;
-  if (mq === 60000 && su === 9000 && dg === 200) return "599";
-  if (mq === 20000 && su === 2000 && dg === 100) return "199";
-  if (mq === 7000 && su === 350 && dg === 50) return "69";
-  if (mq === 1000 && su === 500 && dg === 10) return "69";
+  if (mq === 60000 && su === 9000) return "599";
+  if (mq === 20000 && su === 2000) return "199";
+  if (mq === 7000 && su === 350) return "69";
+  if (mq === 1000 && su === 500) return "69";
 
   const s = `${plan.code} ${plan.name}`.toLowerCase();
   if (s.includes("599")) return "599";
@@ -74,8 +73,6 @@ const FREE_FEATURES: string[] = [
   "每日签到：50 积分",
   "签到/活动赠送积分进入「赠送可消退积分」池",
   "赠送积分默认每日衰减 50",
-  "每天最多生成 20 张图片",
-  "每天最多生成 3 个视频",
   "邀请上限 5",
   "模板库：基础可用",
   "支持：有限技术支持",
@@ -96,7 +93,6 @@ function vipFeatureLines(plan: PaymentMembershipPlan): { main: string[]; accent:
 
   const main = [
     `月卡积分（固定刷新）${plan.monthlyQuotaCredits} + 档位赠送 ${plan.signupBonusCredits}，合计到账 ${total}（赠送比例 ${bonusPct}）`,
-    `每日赠送积分 ${plan.dailyGiftCredits} / 日（${dailyNote}），计入「赠送可消退积分」，不归入月卡积分`,
     "折扣权益：最大折扣按 8 折计算",
     "年费在对应连续包月价格基础上统一按 8 折",
   ];
@@ -136,7 +132,7 @@ function vipFeatureLines(plan: PaymentMembershipPlan): { main: string[]; accent:
 }
 
 const TIER_SERIF_LABEL: Record<string, string> = {
-  free: "免费版",
+  free: "标准版",
   "69": "日常创作",
   "199": "专业进阶",
   "599": "旗舰尊享",
@@ -372,6 +368,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   }, [current?.plan]);
 
   const isWhite = useAIChatStore((s) => s.chatTheme === "white");
+  const isDark = !isWhite;
 
   if (loading) {
     return (
@@ -382,8 +379,13 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   }
 
   return (
-    <div className={cn("min-h-0", isWhite ? "min-h-full bg-white" : "text-zinc-100")}>
-      <div className={cn("flex items-center justify-between pb-5 pt-2", isWhite ? "border-b border-slate-100" : "border-b border-zinc-800/80")}>
+    <div className={cn("min-h-0", isWhite ? "min-h-full bg-white" : "bg-[#0a0a0f] text-zinc-100")}>
+      <div
+        className={cn(
+          "flex items-center justify-between pb-5 pt-2",
+          isWhite ? "border-b border-slate-100" : "border-b border-zinc-800/60",
+        )}
+      >
         <div className={cn("flex items-center", !hideBackButton ? "gap-3" : "")}>
           {!hideBackButton && (
             <button
@@ -401,7 +403,9 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
               }}
               className={cn(
                 "rounded-lg p-2 transition-colors",
-                isWhite ? "text-slate-400 hover:bg-slate-100 hover:text-slate-700" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100",
+                isWhite
+                  ? "text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  : "text-zinc-400 hover:bg-zinc-800/80 hover:text-zinc-100",
               )}
             >
               <ArrowLeft className="h-5 w-5" />
@@ -425,7 +429,9 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                 onClick={() => void loadData()}
                 className={cn(
                   "rounded-lg p-2 transition-colors",
-                  isWhite ? "text-slate-400 hover:bg-slate-100 hover:text-slate-700" : "text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200",
+                  isWhite
+                    ? "text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                    : "text-zinc-500 hover:bg-zinc-800/80 hover:text-zinc-200",
                 )}
               >
                 <RefreshCw className="h-4 w-4" />
@@ -443,7 +449,9 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
               }}
               className={cn(
                 "flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm transition-colors",
-                isWhite ? "text-slate-400 hover:bg-slate-100 hover:text-slate-700" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100",
+                isWhite
+                  ? "text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  : "text-zinc-400 hover:bg-zinc-800/80 hover:text-zinc-100",
               )}
             >
               <FileText className="h-4 w-4" />
@@ -467,20 +475,35 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                 <div
                   key={order.orderId}
                   className={cn(
-                    "flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-4",
-                    isWhite ? "border-slate-200 bg-white" : "border-zinc-800 bg-zinc-900/60",
+                    "flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-4",
+                    isWhite ? "border-slate-200 bg-white" : "border-zinc-800/80 bg-[#0f0f15]",
                   )}
                 >
                   <div>
-                    <div className={cn("font-medium", isWhite ? "text-slate-900" : "text-zinc-100")}>{order.planCode}</div>
-                    <div className={cn("mt-1 text-xs", isWhite ? "text-slate-500" : "text-zinc-500")}>{new Date(order.createdAt).toLocaleString()}</div>
+                    <div
+                      className={cn("font-medium", isWhite ? "text-slate-900" : "text-zinc-100")}
+                    >
+                      {order.planCode}
+                    </div>
+                    <div className={cn("mt-1 text-xs", isWhite ? "text-slate-500" : "text-zinc-500")}>
+                      {new Date(order.createdAt).toLocaleString()}
+                    </div>
                   </div>
                   <div className="flex items-center gap-4">
                     <div className="text-right">
-                      <div className={cn("font-medium", isWhite ? "text-slate-900" : "text-zinc-100")}>¥{order.amount}</div>
-                      <div className={cn("text-xs", isWhite ? "text-slate-500" : "text-zinc-500")}>{order.paymentMethod}</div>
+                      <div className={cn("font-medium", isWhite ? "text-slate-900" : "text-zinc-100")}>
+                        ¥{order.amount}
+                      </div>
+                      <div className={cn("text-xs", isWhite ? "text-slate-500" : "text-zinc-500")}>
+                        {order.paymentMethod}
+                      </div>
                     </div>
-                    <div className={cn("flex items-center gap-2 text-sm", isWhite ? "text-slate-600" : "text-zinc-400")}>
+                    <div
+                      className={cn(
+                        "flex items-center gap-2 text-sm",
+                        isWhite ? "text-slate-600" : "text-zinc-400",
+                      )}
+                    >
                       {getStatusIcon(order.status)}
                       {getStatusText(order.status)}
                     </div>
@@ -501,7 +524,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                   "inline-flex items-stretch rounded-full border p-1",
                   isWhite
                     ? "border-slate-200 bg-white shadow-[inset_0_1px_0_rgba(15,23,42,0.05)]"
-                    : "border-zinc-600/90 bg-zinc-950/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]",
+                    : "border-zinc-700/80 bg-[#12121a] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]",
                 )}
               >
                 <button
@@ -512,7 +535,9 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                   className={cn(
                     "min-w-[5.5rem] rounded-full px-5 py-2 text-sm font-medium transition-colors sm:min-w-[6.5rem]",
                     vipMainTab === "plans"
-                      ? "bg-white text-zinc-950 shadow-sm"
+                      ? isWhite
+                        ? "bg-white text-zinc-950 shadow-sm"
+                        : "bg-gradient-to-r from-[#8E86F5] to-[#9aa8ef] text-white shadow-[0_0_20px_rgba(142,134,245,0.35)]"
                       : isWhite
                         ? "text-slate-500 hover:text-slate-700"
                         : "text-zinc-400 hover:text-zinc-200",
@@ -520,7 +545,10 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                 >
                   套餐
                 </button>
-                <div className={cn("mx-0.5 w-px shrink-0 self-stretch", isWhite ? "bg-slate-200" : "bg-zinc-700")} aria-hidden />
+                <div
+                  className={cn("mx-0.5 w-px shrink-0 self-stretch", isWhite ? "bg-slate-200" : "bg-zinc-700")}
+                  aria-hidden
+                />
                 <button
                   type="button"
                   role="tab"
@@ -529,7 +557,9 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                   className={cn(
                     "min-w-[5.5rem] rounded-full px-5 py-2 text-sm font-medium transition-colors sm:min-w-[6.5rem]",
                     vipMainTab === "credits"
-                      ? "bg-white text-zinc-950 shadow-sm"
+                      ? isWhite
+                        ? "bg-white text-zinc-950 shadow-sm"
+                        : "bg-gradient-to-r from-[#8E86F5] to-[#9aa8ef] text-white shadow-[0_0_20px_rgba(142,134,245,0.35)]"
                       : isWhite
                         ? "text-slate-500 hover:text-slate-700"
                         : "text-zinc-400 hover:text-zinc-200",
@@ -551,8 +581,13 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
             />
           ) : (
             <>
-              <p className="mx-auto max-w-6xl text-center text-sm leading-relaxed text-zinc-500">
-                月卡积分按 30 天周期刷新；每日赠送归入「赠送可消退积分」。会员在续费状态下，到期日刷新为当前档位的满额月卡积分；未续费则月卡积分刷新为
+              <p
+                className={cn(
+                  "mx-auto max-w-6xl text-center text-sm leading-relaxed",
+                  isWhite ? "text-slate-500" : "text-zinc-500",
+                )}
+              >
+                月卡积分按 30 天周期刷新。会员在续费状态下，到期日刷新为当前档位的满额月卡积分；未续费则月卡积分刷新为
                 0。切换月付 / 年付查看套餐与应付金额。
               </p>
 
@@ -560,7 +595,9 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                 <div
                   className={cn(
                     "rounded-2xl border border-dashed py-16 text-center",
-                    isWhite ? "border-slate-300 bg-white text-slate-500" : "border-zinc-700 bg-zinc-900/40 text-zinc-500",
+                    isWhite
+                      ? "border-slate-300 bg-white text-slate-500"
+                      : "border-zinc-700/60 bg-[#0f0f15] text-zinc-500",
                   )}
                 >
                   暂无{billingPeriod === "monthly" ? "月付" : "年付"}套餐，请稍后再试或联系管理员
@@ -576,7 +613,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                         当前会员
                       </div>
                       <div className="mt-3 text-2xl font-bold tracking-tight text-white">
-                        {isFreeUser ? "免费版" : TIER_SERIF_LABEL[currentTierKey ?? ""] ?? current?.plan?.name ?? "会员"}
+                        {isFreeUser ? "标准版" : TIER_SERIF_LABEL[currentTierKey ?? ""] ?? current?.plan?.name ?? "会员"}
                       </div>
                       <div className="mt-1.5 text-sm text-[#8E8E93]">
                         状态：{isFreeUser ? "未开通付费会员" : "已开通"}
@@ -600,7 +637,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                         "inline-flex rounded-full border p-1",
                         isWhite
                           ? "border-slate-200 bg-white shadow-[inset_0_1px_0_rgba(15,23,42,0.04)]"
-                          : "border-zinc-700/90 bg-zinc-900/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
+                          : "border-zinc-700/70 bg-[#12121a] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
                       )}
                     >
                       <button
@@ -612,10 +649,10 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                           billingPeriod === "monthly"
                             ? isWhite
                               ? "bg-slate-100 text-slate-900 shadow-[0_0_0_1px_rgba(148,163,184,0.45)]"
-                              : "bg-zinc-950 text-white shadow-[0_0_0_1px_rgba(142,134,245,0.35)]"
+                              : "bg-gradient-to-r from-[#6f66e8] to-[#8E86F5] text-white shadow-[0_0_16px_rgba(142,134,245,0.45)]"
                             : isWhite
                               ? "text-slate-500 hover:text-slate-700"
-                              : "text-zinc-500 hover:text-zinc-300",
+                              : "text-zinc-400 hover:text-zinc-300",
                           !hasMonthly && "cursor-not-allowed opacity-40",
                         )}
                       >
@@ -630,10 +667,10 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                           billingPeriod === "yearly"
                             ? isWhite
                               ? "bg-slate-100 text-slate-900 shadow-[0_0_0_1px_rgba(148,163,184,0.45)]"
-                              : "bg-zinc-950 text-white shadow-[0_0_0_1px_rgba(142,134,245,0.35)]"
+                              : "bg-gradient-to-r from-[#6f66e8] to-[#8E86F5] text-white shadow-[0_0_16px_rgba(142,134,245,0.45)]"
                             : isWhite
                               ? "text-slate-500 hover:text-slate-700"
-                              : "text-zinc-500 hover:text-zinc-300",
+                              : "text-zinc-400 hover:text-zinc-300",
                           !hasYearly && "cursor-not-allowed opacity-40",
                         )}
                       >
@@ -661,24 +698,42 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                         : "grid-cols-1 md:grid-cols-2 lg:grid-cols-4",
                     )}
                   >
-                  {/* 免费档（与顶部「当前会员」条：图1 金冠标题 + 图2 卡面色值） */}
+                  {/* 标准档（与顶部「当前会员」条：图1 金冠标题 + 图2 卡面色值） */}
                   <div
                     className={cn(
                       "relative flex min-h-0 min-w-0 flex-col rounded-2xl border p-4 sm:p-5 xl:p-4",
                       PLAN_CARD_MIN_H,
                       isWhite
                         ? "border-slate-200 bg-white shadow-[0_12px_24px_rgba(15,23,42,0.08)]"
-                        : "border-[#252530] bg-[#121214] shadow-[0_24px_48px_rgba(0,0,0,0.45)]",
+                        : "border-zinc-800/70 bg-[#0f0f18] shadow-[0_8px_32px_rgba(0,0,0,0.5)]",
                       isFreeUser && "ring-1 ring-[#C9A227]/25",
-                      !isFreeUser && (isWhite ? "hover:border-slate-300" : "hover:border-[#3a3a48]"),
+                      !isFreeUser && (isWhite ? "hover:border-slate-300" : "hover:border-zinc-700"),
                     )}
                   >
                     <div className="flex items-center gap-2.5">
                       <Crown className="h-5 w-5 shrink-0 text-[#E8C547]" strokeWidth={1.75} aria-hidden />
-                      <div className={cn("text-2xl font-bold tracking-tight", isWhite ? "text-slate-900" : "text-white")}>{TIER_SERIF_LABEL.free}</div>
+                      <div
+                        className={cn(
+                          "text-2xl font-bold tracking-tight",
+                          isWhite ? "text-slate-900" : "text-zinc-100",
+                        )}
+                      >
+                        {TIER_SERIF_LABEL.free}
+                      </div>
                     </div>
-                    <div className={cn("mt-6 text-4xl font-bold tabular-nums tracking-tight", isWhite ? "text-slate-900" : "text-white")}>¥0</div>
-                    <div className="mt-1 text-sm text-[#8E8E93]">/ 月 · 无需订阅</div>
+                    <div
+                      className={cn(
+                        "mt-6 text-4xl font-bold tabular-nums tracking-tight",
+                        isWhite ? "text-slate-900" : "text-zinc-100",
+                      )}
+                    >
+                      ¥0
+                    </div>
+                    <div
+                      className={cn("mt-1 text-sm", isWhite ? "text-slate-500" : "text-zinc-500")}
+                    >
+                      / 月 · 无需订阅
+                    </div>
                     <button
                       type="button"
                       disabled={isFreeUser}
@@ -690,18 +745,29 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                         isFreeUser
                           ? isWhite
                             ? "cursor-default bg-slate-100 text-slate-500"
-                            : "cursor-default bg-[#2C2C2E] text-[#8E8E93]"
+                            : "cursor-default bg-[#1a1a22] text-zinc-500"
                           : isWhite
                             ? "border border-slate-300 bg-transparent text-slate-700 hover:border-[#C9A227]/40 hover:bg-slate-50"
-                            : "border border-[#3a3a48] bg-transparent text-[#D1D1D6] hover:border-[#C9A227]/40 hover:bg-[#1c1c1f]",
+                            : "border border-zinc-700 bg-transparent text-zinc-300 hover:border-[#C9A227]/40 hover:bg-[#1c1c1f]",
                       )}
                     >
-                      {isFreeUser ? "当前计划" : "了解免费版"}
+                      {isFreeUser ? "当前计划" : "了解标准版"}
                     </button>
-                    <ul className={cn("mt-5 flex flex-1 flex-col justify-between gap-2.5 text-xs leading-relaxed sm:text-sm sm:gap-3", isWhite ? "text-slate-600" : "text-[#D1D1D6]")}>
+                    <ul
+                      className={cn(
+                        "mt-5 flex flex-1 flex-col justify-between gap-2.5 text-xs leading-relaxed sm:text-sm sm:gap-3",
+                        isWhite ? "text-slate-600" : "text-zinc-400",
+                      )}
+                    >
                       {FREE_FEATURES.map((line) => (
                         <li key={line} className="flex gap-2.5">
-                          <Check className={cn("mt-0.5 h-4 w-4 shrink-0", isWhite ? "text-slate-700" : "text-white")} strokeWidth={2.5} />
+                          <Check
+                            className={cn(
+                              "mt-0.5 h-4 w-4 shrink-0",
+                              isWhite ? "text-slate-700" : "text-zinc-300",
+                            )}
+                            strokeWidth={2.5}
+                          />
                           <span>{line}</span>
                         </li>
                       ))}
@@ -730,42 +796,62 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                           PLAN_CARD_MIN_H,
                           isWhite
                             ? "bg-white shadow-[0_12px_24px_rgba(15,23,42,0.08)]"
-                            : "bg-[#121218] shadow-[0_24px_48px_rgba(0,0,0,0.45)]",
+                            : "bg-[#0f0f18] shadow-[0_8px_32px_rgba(0,0,0,0.5)]",
                           active
                             ? isWhite
                               ? "border-[#8E86F5]/45 shadow-[0_0_30px_-12px_rgba(142,134,245,0.5),inset_0_0_0_1px_rgba(182,195,249,0.24)]"
-                              : "border-[#8E86F5]/55 shadow-[0_0_40px_-12px_rgba(142,134,245,0.65),inset_0_0_0_1px_rgba(182,195,249,0.12)]"
+                              : "border-[#8E86F5]/70 shadow-[0_0_40px_-12px_rgba(142,134,245,0.6),inset_0_0_0_1.5px_rgba(142,134,245,0.3)]"
                             : isWhite
                               ? "border-slate-200 hover:border-slate-300"
-                              : "border-zinc-800/90 hover:border-zinc-600",
+                              : "border-zinc-800/60 hover:border-zinc-700",
                           currentTierKey &&
                             tierKeyFromPlan(plan) === currentTierKey &&
                             current?.entitlement?.membershipStatus === "active"
-                            ? "ring-1 ring-emerald-500/30"
+                            ? "ring-1 ring-emerald-500/40"
                             : null,
                         )}
                       >
                         {tk === "199" ? (
-                          <div className="absolute right-3 top-3 rounded-full bg-gradient-to-r from-[#8E86F5] to-[#B6C3F9] px-2.5 py-0.5 text-[10px] font-semibold text-white shadow-lg shadow-violet-950/40">
+                          <div className="absolute right-3 top-3 rounded-full bg-gradient-to-r from-[#8E86F5] to-[#9aa8ef] px-2.5 py-0.5 text-[10px] font-semibold text-white shadow-lg shadow-violet-950/60">
                             最受欢迎
                           </div>
                         ) : null}
-                        <div className={cn("pr-14 text-xl font-semibold tracking-tight xl:text-lg 2xl:text-xl", isWhite ? "text-slate-900" : "text-white")}>
+                        <div
+                          className={cn(
+                            "pr-14 text-xl font-semibold tracking-tight xl:text-lg 2xl:text-xl",
+                            isWhite ? "text-slate-900" : "text-zinc-100",
+                          )}
+                        >
                           {tierTitle}
                         </div>
                         {/* <div className="mt-1 text-xs text-zinc-500">{tierSub}</div> */}
-                        <div className="mt-1 text-[11px] text-zinc-600">{billingLabel}</div>
+                        <div
+                          className={cn("mt-1 text-[11px]", isWhite ? "text-slate-500" : "text-zinc-500")}
+                        >
+                          {billingLabel}
+                        </div>
 
                         <div className="mt-3 flex flex-wrap items-end gap-2">
-                          <span className={cn("text-3xl font-semibold tabular-nums tracking-tight xl:text-2xl 2xl:text-3xl", isWhite ? "text-slate-900" : "text-white")}>
+                          <span
+                            className={cn(
+                              "text-3xl font-semibold tabular-nums tracking-tight xl:text-2xl 2xl:text-3xl",
+                              isWhite ? "text-slate-900" : "text-zinc-100",
+                            )}
+                          >
                             ¥{plan.price}
                           </span>
-                          <span className="pb-1 text-sm text-zinc-500">
+                          <span
+                            className={cn("pb-1 text-sm", isWhite ? "text-slate-500" : "text-zinc-500")}
+                          >
                             / {plan.billingCycle === "yearly" ? "年" : "月"}
                           </span>
                         </div>
                         {equivMonthly != null ? (
-                          <div className="mt-1 text-xs text-zinc-500">约合 ¥{equivMonthly} / 月</div>
+                          <div
+                            className={cn("mt-1 text-xs", isWhite ? "text-slate-500" : "text-zinc-500")}
+                          >
+                            约合 ¥{equivMonthly} / 月
+                          </div>
                         ) : null}
 
                         <div
@@ -773,15 +859,25 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                             "mt-3 rounded-xl border px-2.5 py-2 sm:px-3 sm:py-2.5",
                             isWhite
                               ? "border-slate-200 bg-gradient-to-br from-indigo-50 to-slate-50"
-                              : "border-violet-500/20 bg-gradient-to-br from-violet-950/40 to-zinc-950/30",
+                              : "border-violet-500/25 bg-gradient-to-br from-violet-950/50 to-[#12121a]",
                           )}
                         >
-                          <div className={cn("text-xs font-medium sm:text-sm", isWhite ? "text-indigo-700" : "text-violet-100")}>
-                            <span className={isWhite ? "text-indigo-500" : "text-violet-300"}>✦</span> {planTotalCredits} 合计积分
+                          <div
+                            className={cn(
+                              "text-xs font-medium sm:text-sm",
+                              isWhite ? "text-indigo-700" : "text-violet-100",
+                            )}
+                          >
+                            <span className={isWhite ? "text-indigo-500" : "text-violet-300"}>✦</span>{" "}
+                            {planTotalCredits} 合计积分
                           </div>
-                          <div className="mt-1 text-[10px] leading-snug text-zinc-500 sm:text-[11px]">
-                            月卡 {plan.monthlyQuotaCredits}（30 天刷新）· 开通赠送 {plan.signupBonusCredits} · 每日赠送{" "}
-                            {plan.dailyGiftCredits}（赠送可消退）
+                          <div
+                            className={cn(
+                              "mt-1 text-[10px] leading-snug",
+                              isWhite ? "text-slate-500" : "text-zinc-500",
+                            )}
+                          >
+                            月卡 {plan.monthlyQuotaCredits}（30 天刷新）· 开通赠送 {plan.signupBonusCredits}
                           </div>
                         </div>
 
@@ -794,23 +890,51 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                           className={cn(
                             "mt-4 w-full rounded-xl py-3 text-xs font-semibold text-white shadow-lg transition-transform sm:py-3.5 sm:text-sm",
                             confirmedActive
-                              ? "bg-gradient-to-r from-[#6f66e8] to-[#9aa8ef] shadow-violet-950/50 ring-2 ring-white/25"
-                              : "bg-gradient-to-r from-[#8E86F5] to-[#B6C3F9] shadow-violet-950/40 hover:scale-[1.01] active:scale-[0.99]",
+                              ? "bg-gradient-to-r from-[#6f66e8] to-[#9aa8ef] shadow-violet-950/50 ring-2 ring-white/20"
+                              : "bg-gradient-to-r from-[#8E86F5] to-[#9aa8ef] shadow-violet-950/40 hover:scale-[1.01] active:scale-[0.99]",
                           )}
                         >
-                          {confirmedActive ? "已选择 · 右侧扫码支付" : plan.billingCycle === "yearly" ? "订阅年计划" : "订阅月计划"}
+                          {confirmedActive
+                            ? "已选择 · 右侧扫码支付"
+                            : plan.billingCycle === "yearly"
+                              ? "订阅年计划"
+                              : "订阅月计划"}
                         </button>
 
                         <ul className="mt-4 flex flex-1 flex-col gap-1.5 text-[11px] leading-relaxed sm:gap-2 sm:text-xs">
                           {main.map((line) => (
-                            <li key={line} className={cn("flex gap-2", isWhite ? "text-slate-600" : "text-zinc-400")}>
-                              <Check className={cn("mt-0.5 h-3.5 w-3.5 shrink-0", isWhite ? "text-slate-500" : "text-zinc-300")} strokeWidth={2.5} />
+                            <li
+                              key={line}
+                              className={cn(
+                                "flex gap-2",
+                                isWhite ? "text-slate-600" : "text-zinc-400",
+                              )}
+                            >
+                              <Check
+                                className={cn(
+                                  "mt-0.5 h-3.5 w-3.5 shrink-0",
+                                  isWhite ? "text-slate-500" : "text-zinc-400",
+                                )}
+                                strokeWidth={2.5}
+                              />
                               <span>{line}</span>
                             </li>
                           ))}
                           {accent.map((line) => (
-                            <li key={line} className={cn("flex gap-2", isWhite ? "text-indigo-600" : "text-violet-200/85")}>
-                              <Check className={cn("mt-0.5 h-3.5 w-3.5 shrink-0", isWhite ? "text-indigo-500" : "text-[#B6C3F9]")} strokeWidth={2.5} />
+                            <li
+                              key={line}
+                              className={cn(
+                                "flex gap-2",
+                                isWhite ? "text-indigo-600" : "text-violet-200",
+                              )}
+                            >
+                              <Check
+                                className={cn(
+                                  "mt-0.5 h-3.5 w-3.5 shrink-0",
+                                  isWhite ? "text-indigo-500" : "text-violet-300",
+                                )}
+                                strokeWidth={2.5}
+                              />
                               <span>{line}</span>
                             </li>
                           ))}
@@ -827,16 +951,16 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                           "relative overflow-hidden rounded-2xl border p-5 sm:p-6",
                           isWhite
                             ? "border-slate-200 bg-white shadow-[0_14px_28px_rgba(15,23,42,0.08)]"
-                            : "border-zinc-800 bg-[#0f0f14] shadow-[0_24px_48px_rgba(0,0,0,0.5)]",
+                            : "border-[#8E86F5]/30 bg-[#0f0f18] shadow-[0_8px_32px_rgba(0,0,0,0.5)]",
                         )}
                       >
                         <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#8E86F5]/60 to-transparent" />
                         <div className="mb-5">
-                          <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">结算</div>
-                          <div className={cn("mt-2 text-lg font-semibold", isWhite ? "text-slate-900" : "text-white")}>
+                          <div className={cn("text-[10px] font-semibold uppercase tracking-[0.2em]", isWhite ? "text-slate-500" : "text-zinc-500")}>结算</div>
+                          <div className={cn("mt-2 text-lg font-semibold", isWhite ? "text-slate-900" : "text-zinc-100")}>
                             当前选择 · {selectedPlan ? checkoutPlanDisplayTitle(selectedPlan) : "—"}
                           </div>
-                          <p className="mt-2 text-xs leading-relaxed text-zinc-500">
+                          <p className={cn("mt-2 text-xs leading-relaxed", isWhite ? "text-slate-500" : "text-zinc-500")}>
                             切换支付方式会自动刷新付款码。支付成功后自动更新会员状态。
                           </p>
                         </div>
@@ -855,10 +979,10 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                                 paymentMethod === item.value
                                   ? isWhite
                                     ? "border-[#8E86F5]/50 bg-violet-50 text-violet-700 shadow-[0_0_0_1px_rgba(142,134,245,0.2)]"
-                                    : "border-[#8E86F5]/70 bg-violet-500/10 text-violet-100 shadow-[0_0_0_1px_rgba(142,134,245,0.25)]"
+                                    : "border-[#8E86F5]/70 bg-violet-500/15 text-violet-100 shadow-[0_0_12px_rgba(142,134,245,0.3)]"
                                   : isWhite
                                     ? "border-slate-300 text-slate-600 hover:border-slate-400 hover:text-slate-800"
-                                    : "border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200",
+                                    : "border-zinc-700 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200",
                               )}
                             >
                               {item.label}
@@ -866,13 +990,18 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                           ))}
                         </div>
 
-                        <div className={cn("rounded-2xl border p-4", isWhite ? "border-slate-200 bg-white" : "border-zinc-800/90 bg-zinc-950/80")}>
+                        <div
+                          className={cn(
+                            "rounded-2xl border p-4",
+                            isWhite ? "border-slate-200 bg-white" : "border-zinc-800/80 bg-[#12121a]",
+                          )}
+                        >
                           <div className={cn("flex items-center justify-between gap-3 text-sm", isWhite ? "text-slate-500" : "text-zinc-400")}>
                             <span className="shrink-0">应付金额</span>
                             <span
                               className={cn(
-                                "bg-clip-text text-2xl font-semibold tabular-nums text-transparent",
-                                isWhite ? "bg-gradient-to-r from-slate-900 to-slate-700" : "bg-gradient-to-r from-white to-zinc-200",
+                                "text-2xl font-semibold tabular-nums",
+                                isWhite ? "text-slate-900" : "text-zinc-100",
                               )}
                             >
                               ¥{selectedPlan?.price ?? 0}
@@ -881,8 +1010,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                           {selectedPlan ? (
                             <div className={cn("mt-2 text-xs", isWhite ? "text-slate-500" : "text-zinc-500")}>
                               合计 {selectedPlan.monthlyQuotaCredits + selectedPlan.signupBonusCredits} 积分 · 月卡{" "}
-                              {selectedPlan.monthlyQuotaCredits}（30 天刷新）· 开通赠送 {selectedPlan.signupBonusCredits} · 每日{" "}
-                              {selectedPlan.dailyGiftCredits}（赠送可消退）
+                              {selectedPlan.monthlyQuotaCredits}（30 天刷新）· 开通赠送 {selectedPlan.signupBonusCredits}
                             </div>
                           ) : null}
                         </div>
@@ -890,7 +1018,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                         <div
                           className={cn(
                             "mt-4 rounded-2xl border border-dashed p-4 text-center xl:text-left",
-                            isWhite ? "border-slate-300 bg-white" : "border-zinc-700/80 bg-zinc-950/50",
+                            isWhite ? "border-slate-300 bg-white" : "border-zinc-700/60 bg-[#0a0a10]",
                           )}
                         >
                           {submitting ? (
@@ -904,7 +1032,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                                 alt="会员支付二维码"
                                 className={cn(
                                   "h-44 w-44 shrink-0 rounded-xl border object-contain sm:h-48 sm:w-48",
-                                  isWhite ? "border-slate-200" : "border-zinc-700",
+                                  isWhite ? "border-slate-200" : "border-zinc-700/80",
                                 )}
                               />
                               <div className="flex min-h-[176px] flex-col justify-center text-center xl:text-left">
@@ -913,11 +1041,17 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                                     ? "付款码已过期，请切换支付方式或重新点选套餐"
                                     : `请使用${paymentMethod === "alipay" ? "支付宝" : "微信"}扫码支付`}
                                 </div>
-                                {!isExpired ? <div className={cn("mt-2 text-xs", isWhite ? "text-slate-500" : "text-zinc-600")}>剩余 {countdown}s 自动失效</div> : null}
+                                {!isExpired ? (
+                                  <div className={cn("mt-2 text-xs", isWhite ? "text-slate-500" : "text-zinc-500")}>
+                                    剩余 {countdown}s 自动失效
+                                  </div>
+                                ) : null}
                               </div>
                             </div>
                           ) : (
-                            <div className={cn("py-8 text-sm", isWhite ? "text-slate-500" : "text-zinc-600")}>正在生成付款码…</div>
+                            <div className={cn("py-8 text-sm", isWhite ? "text-slate-500" : "text-zinc-600")}>
+                              正在生成付款码…
+                            </div>
                           )}
                         </div>
                       </div>

@@ -453,7 +453,12 @@ export class AdminController {
   @ApiOperation({ summary: '立即执行会员每日赠送发放（管理员）' })
   async issueDailyMembershipGifts(@Request() req: AuthenticatedRequest) {
     this.checkAdmin(req);
-    return this.membershipService.issueDailyMembershipGiftCredits();
+    return {
+      issuedSubscriptions: 0,
+      grantedCredits: 0,
+      createdLots: 0,
+      disabled: true,
+    };
   }
 
   @Post('membership/ops/decay-gifts')
