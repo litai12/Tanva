@@ -42,8 +42,6 @@ const STALE_PENDING_DEFAULT_BATCH_SIZE = 100;
 const DAILY_REWARD_RESET_HOUR = 3;
 const FREE_TIER_BENEFITS_SETTING_KEY = 'membership_free_tier_benefits';
 const DEFAULT_FREE_USER_MONTHLY_IMAGE_LIMIT = 100;
-const DEFAULT_FREE_USER_DAILY_IMAGE_LIMIT = 20;
-const DEFAULT_FREE_USER_DAILY_VIDEO_LIMIT = 3;
 const STALE_PENDING_IMAGE_SERVICE_TYPES: ServiceType[] = [
   'gemini-3-pro-image',
   'gemini-3.1-image',
@@ -116,6 +114,45 @@ export interface ApiUsageParams {
 
 type SoraBillingModel = 'sora-2' | 'sora-2-vip' | 'sora-2-pro';
 type KlingBillingModel = 'kling-v2-6' | 'kling-v3-0' | 'kling-o3';
+type BananaTencentPricingTier = 'fast' | 'pro' | 'ultra';
+
+const BANANA_TENCENT_IMAGE_SERVICE_TIERS: Partial<
+  Record<ServiceType, BananaTencentPricingTier>
+> = {
+  'gemini-2.5-image': 'fast',
+  'gemini-2.5-image-edit': 'fast',
+  'gemini-2.5-image-blend': 'fast',
+  'gemini-3-pro-image': 'pro',
+  'gemini-image-edit': 'pro',
+  'gemini-image-blend': 'pro',
+  'gemini-3.1-image': 'ultra',
+  'gemini-3.1-image-edit': 'ultra',
+  'gemini-3.1-image-blend': 'ultra',
+};
+
+const BANANA_TENCENT_RESOLUTION_PRICING: Record<
+  BananaTencentPricingTier,
+  Record<'0.5K' | '1K' | '2K' | '4K', number>
+> = {
+  fast: {
+    '0.5K': 30,
+    '1K': 30,
+    '2K': 30,
+    '4K': 30,
+  },
+  pro: {
+    '0.5K': 90,
+    '1K': 90,
+    '2K': 100,
+    '4K': 170,
+  },
+  ultra: {
+    '0.5K': 30,
+    '1K': 50,
+    '2K': 70,
+    '4K': 110,
+  },
+};
 @Injectable()
 export class CreditsService {
   private readonly logger = new Logger(CreditsService.name);
@@ -413,6 +450,14 @@ export class CreditsService {
     defaultCredits: number,
     requestParams: any,
   ): number {
+    const tencentBananaCredits = this.resolveTencentBananaResolutionCredits(
+      serviceType,
+      requestParams,
+    );
+    if (typeof tencentBananaCredits === 'number') {
+      return tencentBananaCredits;
+    }
+
     const servicePricing = (CREDIT_PRICING_CONFIG as Record<string, any>)[serviceType];
     const resolutionPricing = servicePricing?.resolutionPricing;
     if (!resolutionPricing || typeof resolutionPricing !== 'object') {
@@ -436,6 +481,62 @@ export class CreditsService {
 
     // 如果没有找到匹配的分辨率，返回默认值
     return defaultCredits;
+  }
+
+  private normalizeResolutionForBananaTencentPricing(
+    rawSize: unknown,
+    tier: BananaTencentPricingTier,
+  ): '0.5K' | '1K' | '2K' | '4K' {
+    const normalized = typeof rawSize === 'string' ? rawSize.trim().toUpperCase() : '';
+    if (tier === 'fast') return '1K';
+    if (tier === 'pro') {
+      if (normalized === '2K' || normalized === '4K') return normalized;
+      return '1K';
+    }
+    if (
+      normalized === '0.5K' ||
+      normalized === '1K' ||
+      normalized === '2K' ||
+      normalized === '4K'
+    ) {
+      return normalized;
+    }
+    return '1K';
+  }
+
+  private resolveTencentBananaResolutionCredits(
+    serviceType: ServiceType,
+    requestParams: any,
+  ): number | null {
+    const tier = BANANA_TENCENT_IMAGE_SERVICE_TIERS[serviceType];
+    if (!tier) return null;
+
+    const channelCandidates = [
+      requestParams?.channel,
+      requestParams?.providerChannel,
+      requestParams?.executionChannel,
+      requestParams?.channelHint,
+    ];
+    let channel: string | null = null;
+    for (const candidate of channelCandidates) {
+      if (typeof candidate !== 'string') continue;
+      const normalized = this.normalizeChannel(candidate);
+      if (normalized) {
+        channel = normalized;
+        break;
+      }
+    }
+    if (channel !== 'tencent') return null;
+
+    const normalizedSize = this.normalizeResolutionForBananaTencentPricing(
+      requestParams?.imageSize,
+      tier,
+    );
+    const configuredCredits = Number(BANANA_TENCENT_RESOLUTION_PRICING[tier][normalizedSize]);
+    if (!Number.isFinite(configuredCredits) || configuredCredits <= 0) {
+      return null;
+    }
+    return configuredCredits;
   }
 
   private toCreditLotCandidate(lot: {
@@ -1111,49 +1212,13 @@ export class CreditsService {
   }
 
   private async getFreeUserDailyImageLimit(): Promise<number> {
-    const configuredValue = (await this.getFreeTierBenefitsSetting())?.imageDailyLimit;
-    const configuredLimit =
-      typeof configuredValue === 'number'
-        ? Math.trunc(configuredValue)
-        : typeof configuredValue === 'string' && configuredValue.trim()
-          ? Math.trunc(Number(configuredValue))
-          : NaN;
-    if (Number.isFinite(configuredLimit) && configuredLimit >= 0) {
-      return configuredLimit;
-    }
-
-    const raw = process.env.FREE_USER_DAILY_IMAGE_LIMIT;
-    if (raw === undefined || raw.trim() === '') {
-      return DEFAULT_FREE_USER_DAILY_IMAGE_LIMIT;
-    }
-    const parsed = Number.parseInt(raw, 10);
-    if (!Number.isFinite(parsed) || parsed < 0) {
-      return DEFAULT_FREE_USER_DAILY_IMAGE_LIMIT;
-    }
-    return parsed;
+    // Standard tier: no daily image generation cap.
+    return 0;
   }
 
   private async getFreeUserDailyVideoLimit(): Promise<number> {
-    const configuredValue = (await this.getFreeTierBenefitsSetting())?.videoDailyLimit;
-    const configuredLimit =
-      typeof configuredValue === 'number'
-        ? Math.trunc(configuredValue)
-        : typeof configuredValue === 'string' && configuredValue.trim()
-          ? Math.trunc(Number(configuredValue))
-          : NaN;
-    if (Number.isFinite(configuredLimit) && configuredLimit >= 0) {
-      return configuredLimit;
-    }
-
-    const raw = process.env.FREE_USER_DAILY_VIDEO_LIMIT;
-    if (raw === undefined || raw.trim() === '') {
-      return DEFAULT_FREE_USER_DAILY_VIDEO_LIMIT;
-    }
-    const parsed = Number.parseInt(raw, 10);
-    if (!Number.isFinite(parsed) || parsed < 0) {
-      return DEFAULT_FREE_USER_DAILY_VIDEO_LIMIT;
-    }
-    return parsed;
+    // Standard tier: no daily video generation cap.
+    return 0;
   }
 
   private isFreeUserImageQuotaService(serviceType: ServiceType): boolean {

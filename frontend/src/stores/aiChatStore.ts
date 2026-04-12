@@ -49,6 +49,11 @@ import {
   toRenderableImageSrc,
 } from "@/utils/imageSource";
 import {
+  isBananaRouteProvider,
+  isTencentBananaAnalyzeSupported,
+  isTencentStableBananaRoute,
+} from "@/utils/bananaRouteCapabilities";
+import {
   blobToDataUrl as blobToDataUrlLimited,
   canvasToBlob,
   canvasToDataUrl,
@@ -508,14 +513,18 @@ type AvailableTool =
 
 type AIProviderType = SupportedAIProvider;
 
-const BANANA_IMAGE_PROVIDERS: AIProviderType[] = [
-  "banana",
-  "banana-2.5",
-  "banana-3.1",
-];
-
 const isBananaImageProvider = (provider: AIProviderType): boolean =>
-  BANANA_IMAGE_PROVIDERS.includes(provider);
+  isBananaRouteProvider(provider);
+
+const isAnalyzeDisabledOnCurrentBananaRoute = (
+  provider: AIProviderType,
+  bananaImageRoute: BananaImageRoute
+): boolean => {
+  return (
+    isTencentStableBananaRoute(provider, bananaImageRoute) &&
+    !isTencentBananaAnalyzeSupported()
+  );
+};
 
 const withBananaRouteProviderOptions = (
   provider: AIProviderType,
@@ -7061,20 +7070,30 @@ export const useAIChatStore = create<AIChatState>()(
             explicitImageCount === 1 &&
             state.sourceImagesForBlending.length === 0;
           const hasMultiExplicitImages = explicitImageCount > 1;
+          const allowAnalyzeImageTool = !isAnalyzeDisabledOnCurrentBananaRoute(
+            state.aiProvider,
+            state.bananaImageRoute
+          );
           const preferAnalyzeForMultiImage = hasMultiExplicitImages
             ? prefersAnalyzeForMultiImage(input)
             : false;
           const availableToolsForSelection: AvailableTool[] = isSingleExplicitImage
-            ? ["editImage", "analyzeImage"]
+            ? allowAnalyzeImageTool
+              ? ["editImage", "analyzeImage"]
+              : ["editImage"]
             : hasMultiExplicitImages
-              ? preferAnalyzeForMultiImage
+              ? allowAnalyzeImageTool && preferAnalyzeForMultiImage
                 ? ["analyzeImage", "blendImages"]
-                : ["blendImages", "analyzeImage"]
+                : allowAnalyzeImageTool
+                  ? ["blendImages", "analyzeImage"]
+                  : ["blendImages"]
               : [
                   "generateImage",
                   "editImage",
                   "blendImages",
-                  "analyzeImage",
+                  ...(allowAnalyzeImageTool
+                    ? (["analyzeImage"] as AvailableTool[])
+                    : []),
                   "chatResponse",
                   "generateVideo",
                   "generatePaperJS",
@@ -7155,6 +7174,7 @@ export const useAIChatStore = create<AIChatState>()(
                 if (
                   hasMultiExplicitImages &&
                   preferAnalyzeForMultiImage &&
+                  allowAnalyzeImageTool &&
                   selectedTool === "blendImages"
                 ) {
                   selectedTool = "analyzeImage";
@@ -7169,6 +7189,14 @@ export const useAIChatStore = create<AIChatState>()(
                 );
               }
             }
+          }
+
+          if (!allowAnalyzeImageTool && selectedTool === "analyzeImage") {
+            selectedTool = hasMultiExplicitImages ? "blendImages" : "editImage";
+            logProcessStep(
+              metrics,
+              "analyzeImage disabled on stable banana route, fallback tool applied"
+            );
           }
 
           if (!selectedTool) {
@@ -7263,6 +7291,14 @@ export const useAIChatStore = create<AIChatState>()(
                 break;
 
               case "analyzeImage":
+                if (
+                  isAnalyzeDisabledOnCurrentBananaRoute(
+                    state.aiProvider,
+                    state.bananaImageRoute
+                  )
+                ) {
+                  throw new Error("稳定通道暂不支持 Analysis，请切换到普通通道");
+                }
                 if (state.sourceImagesForBlending.length > 0) {
                   logProcessStep(
                     metrics,
@@ -7549,26 +7585,36 @@ export const useAIChatStore = create<AIChatState>()(
                 explicitImageCount === 1 &&
                 state.sourceImagesForBlending.length === 0;
               const hasMultiExplicitImages = explicitImageCount > 1;
+              const allowAnalyzeImageTool = !isAnalyzeDisabledOnCurrentBananaRoute(
+                state.aiProvider,
+                state.bananaImageRoute
+              );
               const preferAnalyzeForMultiImage = hasMultiExplicitImages
                 ? prefersAnalyzeForMultiImage(input)
                 : false;
 
               const availableToolsForSelection: AvailableTool[] =
                 isSingleExplicitImage
-                  ? ["editImage", "analyzeImage"]
+                  ? allowAnalyzeImageTool
+                    ? ["editImage", "analyzeImage"]
+                    : ["editImage"]
                   : hasMultiExplicitImages
-                    ? preferAnalyzeForMultiImage
+                    ? allowAnalyzeImageTool && preferAnalyzeForMultiImage
                       ? ["analyzeImage", "blendImages"]
-                      : ["blendImages", "analyzeImage"]
-                  : [
-                      "generateImage",
-                      "editImage",
-                      "blendImages",
-                      "analyzeImage",
-                      "chatResponse",
-                      "generateVideo",
-                      "generatePaperJS",
-                    ];
+                      : allowAnalyzeImageTool
+                        ? ["blendImages", "analyzeImage"]
+                        : ["blendImages"]
+                    : [
+                        "generateImage",
+                        "editImage",
+                        "blendImages",
+                        ...(allowAnalyzeImageTool
+                          ? (["analyzeImage"] as AvailableTool[])
+                          : []),
+                        "chatResponse",
+                        "generateVideo",
+                        "generatePaperJS",
+                      ];
 
               const toolSelectionRequest = {
                 userInput: input,
@@ -7593,6 +7639,7 @@ export const useAIChatStore = create<AIChatState>()(
                   if (
                     hasMultiExplicitImages &&
                     preferAnalyzeForMultiImage &&
+                    allowAnalyzeImageTool &&
                     selectedTool === "blendImages"
                   ) {
                     selectedTool = "analyzeImage";
@@ -7605,7 +7652,9 @@ export const useAIChatStore = create<AIChatState>()(
                     ? "editImage"
                     : hasMultiExplicitImages
                       ? prefersAnalyzeForMultiImage(input)
-                        ? "analyzeImage"
+                        ? allowAnalyzeImageTool
+                          ? "analyzeImage"
+                          : "blendImages"
                         : "blendImages"
                       : "chatResponse";
                   console.warn(
@@ -7618,9 +7667,17 @@ export const useAIChatStore = create<AIChatState>()(
                   ? "editImage"
                   : hasMultiExplicitImages
                     ? prefersAnalyzeForMultiImage(input)
-                      ? "analyzeImage"
+                      ? allowAnalyzeImageTool
+                        ? "analyzeImage"
+                        : "blendImages"
                       : "blendImages"
                     : "chatResponse";
+              }
+
+              if (!allowAnalyzeImageTool && selectedTool === "analyzeImage") {
+                selectedTool = hasMultiExplicitImages
+                  ? "blendImages"
+                  : "editImage";
               }
             }
           }

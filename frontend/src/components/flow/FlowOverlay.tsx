@@ -1240,10 +1240,12 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   promptOptimize: 10, // 提示词优化节点 - gemini-text
   analysis: 20, // 图像分析节点 - gemini-image-analyze
   image: 0, // 图片节点 - 不消耗积分
-  generate: "10-30", // 生成节点 - gemini-2.5-image (10) 或 gemini-3-pro-image (30)
-  generateRef: 30, // 参考图生成节点 - gemini-image-edit 或 gemini-image-blend
+  // Banana 生图节点（按模型+分辨率动态计费，Run 按当前参数实时展示）
+  generate: "20-40",
+  // 参考图生成节点在 Flow 展示区间，实际扣分以运行请求参数为准
+  generateRef: "20-40",
   viewAngle: 30, // 视角变换节点 - 基于参考图编辑
-  generate4: 120, // 生成多张图片节点 - 4次 × 30积分
+  generate4: 80, // 四图生成节点 - 4次 × 20积分
   midjourney: 50, // Midjourney生成 - midjourney-imagine
   three: 200, // 三维节点 - convert-2d-to-3d
   sora2Video: "40-400", // 视频生成节点 - sora-sd (40) 或 sora-hd (400)
@@ -1269,8 +1271,8 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   // Beta 节点
   textPromptPro: 0, // 专业提示词节点 - 输入节点，不消耗积分
   imagePro: 0, // 专业图片节点 - 不消耗积分
-  generatePro: 30, // 专业生成节点 - gemini-3-pro-image
-  generatePro4: 120, // 四图专业生成节点 - 4次 × 30积分
+  generatePro: 40, // 专业生成节点 - 1K 默认 40 积分（高分辨率实时变化）
+  generatePro4: 160, // 四图专业生成节点 - 4次 × 40积分
 };
 
 // 普通节点列表（按分类整理）
@@ -1605,10 +1607,10 @@ const isHiddenFlowNodeType = (rawType?: string): boolean => {
   return Boolean(normalized && HIDDEN_FLOW_NODE_TYPES.has(normalized));
 };
 
-type BananaStablePricingTier = "fast" | "pro" | "ultra";
+type BananaPricingTier = "fast" | "pro" | "ultra";
 
-const BANANA_STABLE_ROUTE_PRICING: Record<
-  BananaStablePricingTier,
+const BANANA_ROUTE_PRICING: Record<
+  BananaPricingTier,
   Record<"0.5K" | "1K" | "2K" | "4K", number>
 > = {
   fast: {
@@ -1621,35 +1623,63 @@ const BANANA_STABLE_ROUTE_PRICING: Record<
     "0.5K": 40,
     "1K": 40,
     "2K": 60,
-    "4K": 120,
+    "4K": 80,
   },
   ultra: {
     "0.5K": 20,
     "1K": 30,
-    "2K": 45,
-    "4K": 60,
+    "2K": 40,
+    "4K": 50,
   },
 };
 
-const BANANA_STABLE_DYNAMIC_NODE_TYPES = new Set<FlowNodeType>([
+const BANANA_DYNAMIC_NODE_TYPES = new Set<FlowNodeType>([
   "generate",
   "generate4",
+  "generateRef",
   "generatePro",
   "generatePro4",
 ]);
 
-const resolveBananaStablePricingTier = (
+const resolveBananaPricingTierByProvider = (
   providerName?: string | null
-): BananaStablePricingTier | null => {
+): BananaPricingTier | null => {
   if (providerName === "banana-2.5") return "fast";
   if (providerName === "banana-3.1" || providerName === "nano2") return "ultra";
   if (providerName === "banana" || providerName === "gemini-pro") return "pro";
   return null;
 };
 
-const normalizeBananaStableImageSize = (
+const resolveBananaPricingTierByModel = (
+  modelName?: string | null
+): BananaPricingTier | null => {
+  const normalized = typeof modelName === "string" ? modelName.trim().toLowerCase() : "";
+  if (!normalized) return null;
+  if (normalized.includes("gemini-2.5")) return "fast";
+  if (normalized.includes("gemini-3.1")) return "ultra";
+  if (normalized.includes("gemini-3") || normalized.includes("imagen-3")) return "pro";
+  return null;
+};
+
+const resolveBananaPricingTierForNode = (params: {
+  nodeType?: string | null;
+  aiProvider?: string | null;
+  globalImageModel?: string | null;
+}): BananaPricingTier | null => {
+  const { nodeType, aiProvider, globalImageModel } = params;
+  const normalizedType = normalizeFlowNodeType(nodeType || undefined);
+  const providerTier = resolveBananaPricingTierByProvider(aiProvider);
+  if (normalizedType === "generatePro" || normalizedType === "generatePro4") {
+    if (providerTier === "ultra") return "ultra";
+    if (providerTier === "fast" || providerTier === "pro") return "pro";
+    return resolveBananaPricingTierByModel(globalImageModel);
+  }
+  return resolveBananaPricingTierByModel(globalImageModel) || providerTier;
+};
+
+const normalizeBananaImageSize = (
   rawSize: unknown,
-  tier: BananaStablePricingTier
+  tier: BananaPricingTier
 ): "0.5K" | "1K" | "2K" | "4K" => {
   const normalized = typeof rawSize === "string" ? rawSize.trim().toUpperCase() : "";
   if (tier === "fast") return "1K";
@@ -1668,35 +1698,39 @@ const normalizeBananaStableImageSize = (
   return "1K";
 };
 
-const resolveStableRouteCredits = (params: {
+const resolveBananaRouteCredits = (params: {
   nodeType?: string | null;
   nodeData?: Record<string, any>;
   fallbackCredits?: number;
   aiProvider?: string | null;
   bananaImageRoute?: "normal" | "stable";
   globalImageSize?: string | null;
+  globalImageModel?: string | null;
 }): number | undefined => {
   const {
     nodeType,
     nodeData,
     fallbackCredits,
     aiProvider,
-    bananaImageRoute,
     globalImageSize,
+    globalImageModel,
   } = params;
-  if (bananaImageRoute !== "stable") return fallbackCredits;
   const normalizedType = normalizeFlowNodeType(nodeType || undefined);
-  if (!normalizedType || !BANANA_STABLE_DYNAMIC_NODE_TYPES.has(normalizedType)) {
+  if (!normalizedType || !BANANA_DYNAMIC_NODE_TYPES.has(normalizedType)) {
     return fallbackCredits;
   }
-  const tier = resolveBananaStablePricingTier(aiProvider);
+  const tier = resolveBananaPricingTierForNode({
+    nodeType: normalizedType,
+    aiProvider,
+    globalImageModel,
+  });
   if (!tier) return fallbackCredits;
   const preferredSize =
     typeof nodeData?.imageSize === "string" && nodeData.imageSize.trim().length > 0
       ? nodeData.imageSize
       : globalImageSize;
-  const normalizedSize = normalizeBananaStableImageSize(preferredSize, tier);
-  const unitCredits = Number(BANANA_STABLE_ROUTE_PRICING[tier][normalizedSize]);
+  const normalizedSize = normalizeBananaImageSize(preferredSize, tier);
+  const unitCredits = Number(BANANA_ROUTE_PRICING[tier][normalizedSize]);
   if (!Number.isFinite(unitCredits) || unitCredits <= 0) return fallbackCredits;
   const multiplier = normalizedType === "generate4" || normalizedType === "generatePro4" ? 4 : 1;
   return unitCredits * multiplier;
@@ -17703,13 +17737,14 @@ function FlowInner() {
         const defaultCreditsPerCall =
           (typeof n.data?.creditsPerCall === "number" ? n.data.creditsPerCall : undefined) ??
           (resolvedType ? nodeCreditsByType.get(resolvedType) : undefined);
-        const creditsPerCall = resolveStableRouteCredits({
+        const creditsPerCall = resolveBananaRouteCredits({
           nodeType: typeof n.type === "string" ? n.type : resolvedType || undefined,
           nodeData: (n.data || {}) as Record<string, any>,
           fallbackCredits: defaultCreditsPerCall,
           aiProvider,
           bananaImageRoute,
           globalImageSize: imageSize || null,
+          globalImageModel: imageModel || null,
         });
 
         return n.type === FLOW_GROUP_NODE_TYPE

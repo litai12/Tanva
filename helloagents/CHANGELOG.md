@@ -30,6 +30,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- Chat/Banana route: stable (Tencent) now applies explicit capability guards: manual `Analysis` mode is hidden/blocked, Tencent reference-image limits are enforced (Fast=3, Pro/Ultra=14), and auto tool-selection no longer picks `analyzeImage` on stable route.
+- Flow/Video: disabled Run-button hover credit swap for video nodes (e.g. Kling, Vidu, Seedance). Hover/focus now keeps `Run` text and no longer shows points badge in-place (`frontend/src/components/flow/flow.css`).
 - Flow/Video: 修复 `Seedance 2.0` 在切换到 `多图参考 / 智能多帧` 后仍只能连接 1 张上游图片的问题；节点现会渲染与 `FlowOverlay` 分槽逻辑一致的 `image-slot-*` 目标句柄，确保多图连线可实际落到独立 slot（`frontend/src/components/flow/nodes/GenericVideoNode.tsx`）。
 - Flow/Video: `Seedance 2.0` 的 `多图参考 / 智能多帧` 现改为显式展示全部图片槽位句柄（最多 `9/10` 个），方便直接看到当前模式的最大接图数量与空闲 slot（`frontend/src/components/flow/nodes/GenericVideoNode.tsx`）。
 - Flow/Video: `Seedance 2.0` 改为“最大输入能力 + 自动推导模式”；前端移除手动模式切换，固定展示 `text / 9 图 / 尾帧 / video / audio` 句柄，并按当前连线自动推导 `video_mode`，旧 `smart_frames` 配置自动兼容到 `reference_images`（`frontend/src/components/flow/nodes/GenericVideoNode.tsx`, `frontend/src/components/flow/FlowOverlay.tsx`, `backend/src/admin/services/node-config.service.ts`）。
