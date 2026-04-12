@@ -18113,7 +18113,7 @@ function FlowInner() {
         const defaultCreditsPerCall =
           (typeof n.data?.creditsPerCall === "number" ? n.data.creditsPerCall : undefined) ??
           (resolvedType ? nodeCreditsByType.get(resolvedType) : undefined);
-        const creditsPerCall = resolveBananaRouteCredits({
+        const creditsPerCall = resolveStableRouteCredits({
           nodeType: typeof n.type === "string" ? n.type : resolvedType || undefined,
           nodeData: (n.data || {}) as Record<string, any>,
           fallbackCredits: defaultCreditsPerCall,
