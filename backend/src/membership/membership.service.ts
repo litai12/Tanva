@@ -15,8 +15,6 @@ import type {
 @Injectable()
 export class MembershipService {
   private static readonly FREE_TIER_BENEFITS_SETTING_KEY = 'membership_free_tier_benefits';
-  private static readonly DEFAULT_FREE_USER_IMAGE_DAILY_LIMIT = 20;
-  private static readonly DEFAULT_FREE_USER_VIDEO_DAILY_LIMIT = 3;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -364,18 +362,8 @@ export class MembershipService {
               freeTierBenefits?.inviteLimit,
               null,
             ),
-        imageDailyLimit: hasActivePlan
-          ? null
-          : this.readIntSettingValue(
-              freeTierBenefits?.imageDailyLimit,
-              MembershipService.DEFAULT_FREE_USER_IMAGE_DAILY_LIMIT,
-            ),
-        videoDailyLimit: hasActivePlan
-          ? null
-          : this.readIntSettingValue(
-              freeTierBenefits?.videoDailyLimit,
-              MembershipService.DEFAULT_FREE_USER_VIDEO_DAILY_LIMIT,
-            ),
+        imageDailyLimit: null,
+        videoDailyLimit: null,
       },
       nextChange: current.nextChange,
       current,

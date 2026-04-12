@@ -44,11 +44,10 @@ function tierKeyFromPlan(plan: PaymentMembershipPlan): "69" | "199" | "599" | nu
 
   const mq = plan.monthlyQuotaCredits;
   const su = plan.signupBonusCredits;
-  const dg = plan.dailyGiftCredits;
-  if (mq === 60000 && su === 9000 && dg === 200) return "599";
-  if (mq === 20000 && su === 2000 && dg === 100) return "199";
-  if (mq === 7000 && su === 350 && dg === 50) return "69";
-  if (mq === 1000 && su === 500 && dg === 10) return "69";
+  if (mq === 60000 && su === 9000) return "599";
+  if (mq === 20000 && su === 2000) return "199";
+  if (mq === 7000 && su === 350) return "69";
+  if (mq === 1000 && su === 500) return "69";
 
   const s = `${plan.code} ${plan.name}`.toLowerCase();
   if (s.includes("599")) return "599";
@@ -74,8 +73,6 @@ const FREE_FEATURES: string[] = [
   "每日签到：50 积分",
   "签到/活动赠送积分进入「赠送可消退积分」池",
   "赠送积分默认每日衰减 50",
-  "每天最多生成 20 张图片",
-  "每天最多生成 3 个视频",
   "邀请上限 5",
   "模板库：基础可用",
   "支持：有限技术支持",
@@ -96,7 +93,6 @@ function vipFeatureLines(plan: PaymentMembershipPlan): { main: string[]; accent:
 
   const main = [
     `月卡积分（固定刷新）${plan.monthlyQuotaCredits} + 档位赠送 ${plan.signupBonusCredits}，合计到账 ${total}（赠送比例 ${bonusPct}）`,
-    `每日赠送积分 ${plan.dailyGiftCredits} / 日（${dailyNote}），计入「赠送可消退积分」，不归入月卡积分`,
     "折扣权益：最大折扣按 8 折计算",
     "年费在对应连续包月价格基础上统一按 8 折",
   ];
@@ -136,7 +132,7 @@ function vipFeatureLines(plan: PaymentMembershipPlan): { main: string[]; accent:
 }
 
 const TIER_SERIF_LABEL: Record<string, string> = {
-  free: "免费版",
+  free: "标准版",
   "69": "日常创作",
   "199": "专业进阶",
   "599": "旗舰尊享",
@@ -552,7 +548,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
           ) : (
             <>
               <p className="mx-auto max-w-6xl text-center text-sm leading-relaxed text-zinc-500">
-                月卡积分按 30 天周期刷新；每日赠送归入「赠送可消退积分」。会员在续费状态下，到期日刷新为当前档位的满额月卡积分；未续费则月卡积分刷新为
+                月卡积分按 30 天周期刷新。会员在续费状态下，到期日刷新为当前档位的满额月卡积分；未续费则月卡积分刷新为
                 0。切换月付 / 年付查看套餐与应付金额。
               </p>
 
@@ -576,7 +572,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                         当前会员
                       </div>
                       <div className="mt-3 text-2xl font-bold tracking-tight text-white">
-                        {isFreeUser ? "免费版" : TIER_SERIF_LABEL[currentTierKey ?? ""] ?? current?.plan?.name ?? "会员"}
+                        {isFreeUser ? "标准版" : TIER_SERIF_LABEL[currentTierKey ?? ""] ?? current?.plan?.name ?? "会员"}
                       </div>
                       <div className="mt-1.5 text-sm text-[#8E8E93]">
                         状态：{isFreeUser ? "未开通付费会员" : "已开通"}
@@ -661,7 +657,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                         : "grid-cols-1 md:grid-cols-2 lg:grid-cols-4",
                     )}
                   >
-                  {/* 免费档（与顶部「当前会员」条：图1 金冠标题 + 图2 卡面色值） */}
+                  {/* 标准档（与顶部「当前会员」条：图1 金冠标题 + 图2 卡面色值） */}
                   <div
                     className={cn(
                       "relative flex min-h-0 min-w-0 flex-col rounded-2xl border p-4 sm:p-5 xl:p-4",
@@ -696,7 +692,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                             : "border border-[#3a3a48] bg-transparent text-[#D1D1D6] hover:border-[#C9A227]/40 hover:bg-[#1c1c1f]",
                       )}
                     >
-                      {isFreeUser ? "当前计划" : "了解免费版"}
+                      {isFreeUser ? "当前计划" : "了解标准版"}
                     </button>
                     <ul className={cn("mt-5 flex flex-1 flex-col justify-between gap-2.5 text-xs leading-relaxed sm:text-sm sm:gap-3", isWhite ? "text-slate-600" : "text-[#D1D1D6]")}>
                       {FREE_FEATURES.map((line) => (
@@ -780,8 +776,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                             <span className={isWhite ? "text-indigo-500" : "text-violet-300"}>✦</span> {planTotalCredits} 合计积分
                           </div>
                           <div className="mt-1 text-[10px] leading-snug text-zinc-500 sm:text-[11px]">
-                            月卡 {plan.monthlyQuotaCredits}（30 天刷新）· 开通赠送 {plan.signupBonusCredits} · 每日赠送{" "}
-                            {plan.dailyGiftCredits}（赠送可消退）
+                            月卡 {plan.monthlyQuotaCredits}（30 天刷新）· 开通赠送 {plan.signupBonusCredits}
                           </div>
                         </div>
 
@@ -881,8 +876,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                           {selectedPlan ? (
                             <div className={cn("mt-2 text-xs", isWhite ? "text-slate-500" : "text-zinc-500")}>
                               合计 {selectedPlan.monthlyQuotaCredits + selectedPlan.signupBonusCredits} 积分 · 月卡{" "}
-                              {selectedPlan.monthlyQuotaCredits}（30 天刷新）· 开通赠送 {selectedPlan.signupBonusCredits} · 每日{" "}
-                              {selectedPlan.dailyGiftCredits}（赠送可消退）
+                              {selectedPlan.monthlyQuotaCredits}（30 天刷新）· 开通赠送 {selectedPlan.signupBonusCredits}
                             </div>
                           ) : null}
                         </div>

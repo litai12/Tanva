@@ -900,14 +900,14 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         {
           modelKey: "gemini-2.5-image",
           taskType: "image",
-          vendors: [{ vendorKey: "banana-2.5", creditsPerCall: 10 }],
+          vendors: [{ vendorKey: "banana-2.5", creditsPerCall: 20 }],
           defaultVendor: "banana-2.5",
         },
         {
           flowNodeType: "generate",
           nodeKey: "generate",
           category: "image",
-          creditsPerCall: 10,
+          creditsPerCall: 20,
           description: "Nano Banana Fast 文生图",
         }
       ),
@@ -922,7 +922,7 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "banana-2.5",
         modelName: "Nano Banana",
         modelVersion: "2.5",
-        creditsPerCall: 10,
+        creditsPerCall: 20,
       },
     ],
   },
@@ -937,14 +937,14 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         {
           modelKey: "gemini-3-pro-image",
           taskType: "image",
-          vendors: [{ vendorKey: "banana", creditsPerCall: 30 }],
+          vendors: [{ vendorKey: "banana", creditsPerCall: 40 }],
           defaultVendor: "banana",
         },
         {
           flowNodeType: "generatePro",
           nodeKey: "generatePro",
           category: "image",
-          creditsPerCall: 30,
+          creditsPerCall: 40,
           description: "Nano Banana Pro 高质量生图",
         }
       ),
@@ -959,7 +959,7 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "banana",
         modelName: "Nano Banana Pro",
         modelVersion: "3.0",
-        creditsPerCall: 30,
+        creditsPerCall: 40,
       },
     ],
   },
@@ -974,14 +974,14 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         {
           modelKey: "gemini-3.1-image",
           taskType: "image",
-          vendors: [{ vendorKey: "banana-3.1", creditsPerCall: 20 }],
+          vendors: [{ vendorKey: "banana-3.1", creditsPerCall: 30 }],
           defaultVendor: "banana-3.1",
         },
         {
           flowNodeType: "generatePro",
           nodeKey: "generatePro",
           category: "image",
-          creditsPerCall: 20,
+          creditsPerCall: 30,
           description: "Nano Banana 2 生图",
         }
       ),
@@ -996,7 +996,7 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "banana-3.1",
         modelName: "Nano Banana 2",
         modelVersion: "3.1",
-        creditsPerCall: 20,
+        creditsPerCall: 30,
       },
     ],
   },
@@ -1011,14 +1011,14 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         {
           modelKey: "gemini-image-edit",
           taskType: "image",
-          vendors: [{ vendorKey: "banana", creditsPerCall: 30 }],
+          vendors: [{ vendorKey: "banana", creditsPerCall: 40 }],
           defaultVendor: "banana",
         },
         {
           flowNodeType: "generatePro",
           nodeKey: "generatePro",
           category: "image",
-          creditsPerCall: 30,
+          creditsPerCall: 40,
           description: "Nano Banana Pro 图像编辑",
         }
       ),
@@ -1033,7 +1033,7 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "banana",
         modelName: "Nano Banana Pro Edit",
         modelVersion: "3.0",
-        creditsPerCall: 30,
+        creditsPerCall: 40,
       },
     ],
   },
@@ -1048,14 +1048,14 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         {
           modelKey: "gemini-3.1-image-edit",
           taskType: "image",
-          vendors: [{ vendorKey: "banana-3.1", creditsPerCall: 20 }],
+          vendors: [{ vendorKey: "banana-3.1", creditsPerCall: 30 }],
           defaultVendor: "banana-3.1",
         },
         {
           flowNodeType: "generatePro",
           nodeKey: "generatePro",
           category: "image",
-          creditsPerCall: 20,
+          creditsPerCall: 30,
           description: "Nano Banana 2 图像编辑",
         }
       ),
@@ -1070,7 +1070,7 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "banana-3.1",
         modelName: "Nano Banana 2 Edit",
         modelVersion: "3.1",
-        creditsPerCall: 20,
+        creditsPerCall: 30,
       },
     ],
   },
@@ -1085,14 +1085,14 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         {
           modelKey: "gemini-image-blend",
           taskType: "image",
-          vendors: [{ vendorKey: "banana", creditsPerCall: 30 }],
+          vendors: [{ vendorKey: "banana", creditsPerCall: 40 }],
           defaultVendor: "banana",
         },
         {
           flowNodeType: "generateReference",
           nodeKey: "generateReference",
           category: "image",
-          creditsPerCall: 30,
+          creditsPerCall: 40,
           description: "Nano Banana Pro 图像融合",
         }
       ),
@@ -1107,7 +1107,7 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "banana",
         modelName: "Nano Banana Pro Blend",
         modelVersion: "3.0",
-        creditsPerCall: 30,
+        creditsPerCall: 40,
       },
     ],
   },
@@ -1122,14 +1122,14 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         {
           modelKey: "gemini-3.1-image-blend",
           taskType: "image",
-          vendors: [{ vendorKey: "banana-3.1", creditsPerCall: 20 }],
+          vendors: [{ vendorKey: "banana-3.1", creditsPerCall: 30 }],
           defaultVendor: "banana-3.1",
         },
         {
           flowNodeType: "generateReference",
           nodeKey: "generateReference",
           category: "image",
-          creditsPerCall: 20,
+          creditsPerCall: 30,
           description: "Nano Banana 2 图像融合",
         }
       ),
@@ -1144,7 +1144,7 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "banana-3.1",
         modelName: "Nano Banana 2 Blend",
         modelVersion: "3.1",
-        creditsPerCall: 20,
+        creditsPerCall: 30,
       },
     ],
   },
@@ -1196,14 +1196,14 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         {
           modelKey: "gemini-2.5-image-edit",
           taskType: "image",
-          vendors: [{ vendorKey: "banana-2.5", creditsPerCall: 30 }],
+          vendors: [{ vendorKey: "banana-2.5", creditsPerCall: 20 }],
           defaultVendor: "banana-2.5",
         },
         {
           flowNodeType: "generatePro",
           nodeKey: "generatePro",
           category: "image",
-          creditsPerCall: 30,
+          creditsPerCall: 20,
           description: "Nano Banana Fast 图像编辑",
         }
       ),
@@ -1218,7 +1218,7 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "banana-2.5",
         modelName: "Nano Banana Edit",
         modelVersion: "2.5",
-        creditsPerCall: 30,
+        creditsPerCall: 20,
       },
     ],
   },
@@ -1233,14 +1233,14 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         {
           modelKey: "gemini-2.5-image-blend",
           taskType: "image",
-          vendors: [{ vendorKey: "banana-2.5", creditsPerCall: 30 }],
+          vendors: [{ vendorKey: "banana-2.5", creditsPerCall: 20 }],
           defaultVendor: "banana-2.5",
         },
         {
           flowNodeType: "generateReference",
           nodeKey: "generateReference",
           category: "image",
-          creditsPerCall: 30,
+          creditsPerCall: 20,
           description: "Nano Banana Fast 图像融合",
         }
       ),
@@ -1255,7 +1255,7 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "banana-2.5",
         modelName: "Nano Banana Blend",
         modelVersion: "2.5",
-        creditsPerCall: 30,
+        creditsPerCall: 20,
       },
     ],
   },
@@ -3454,7 +3454,7 @@ function UsersTab({
                   <div className='rounded-lg border border-gray-200 p-4'>
                     <div className='text-xs text-gray-500'>当前生效套餐</div>
                     <div className='mt-1 text-base font-semibold text-gray-900'>
-                      {membershipState.current.plan?.name || "免费版"}
+                      {membershipState.current.plan?.name || "标准版"}
                     </div>
                     <div className='mt-2 text-xs text-gray-500'>
                       到期：
@@ -6599,11 +6599,11 @@ function VipManagementTab() {
   ] as const;
   const FREE_TIER_BENEFITS_SETTING_KEY = "membership_free_tier_benefits";
   const DEFAULT_FREE_TIER_BENEFITS = {
-    coreBenefits: "每天最多 20 张图、3 个视频",
+    coreBenefits: "图片与视频生成不限每日次数",
     templateLibraryAccess: "基础可用",
     inviteLimit: 5,
-    imageDailyLimit: 20,
-    videoDailyLimit: 3,
+    imageDailyLimit: 0,
+    videoDailyLimit: 0,
     seedance2Access: "disabled",
     supportLevel: "有限技术支持",
   };
@@ -6798,14 +6798,8 @@ function VipManagementTab() {
               Number.isFinite(Number(raw?.inviteLimit)) && Number(raw.inviteLimit) >= 0
                 ? Math.trunc(Number(raw.inviteLimit))
                 : DEFAULT_FREE_TIER_BENEFITS.inviteLimit,
-            imageDailyLimit:
-              Number.isFinite(Number(raw?.imageDailyLimit)) && Number(raw.imageDailyLimit) >= 0
-                ? Math.trunc(Number(raw.imageDailyLimit))
-                : DEFAULT_FREE_TIER_BENEFITS.imageDailyLimit,
-            videoDailyLimit:
-              Number.isFinite(Number(raw?.videoDailyLimit)) && Number(raw.videoDailyLimit) >= 0
-                ? Math.trunc(Number(raw.videoDailyLimit))
-                : DEFAULT_FREE_TIER_BENEFITS.videoDailyLimit,
+            imageDailyLimit: DEFAULT_FREE_TIER_BENEFITS.imageDailyLimit,
+            videoDailyLimit: DEFAULT_FREE_TIER_BENEFITS.videoDailyLimit,
             seedance2Access:
               raw?.seedance2Access === "enabled" ? "enabled" : DEFAULT_FREE_TIER_BENEFITS.seedance2Access,
             supportLevel:
@@ -6971,8 +6965,8 @@ function VipManagementTab() {
         freeTierBenefits.consecutive7DayRewardMultiplier || 0,
       );
       const inviteLimit = Number(freeTierBenefits.inviteLimit || 0);
-      const imageDailyLimit = Number(freeTierBenefits.imageDailyLimit || 0);
-      const videoDailyLimit = Number(freeTierBenefits.videoDailyLimit || 0);
+      const imageDailyLimit = DEFAULT_FREE_TIER_BENEFITS.imageDailyLimit;
+      const videoDailyLimit = DEFAULT_FREE_TIER_BENEFITS.videoDailyLimit;
       if (!Number.isFinite(monthlyQuotaCredits) || monthlyQuotaCredits < 0) {
         throw new Error("免费用户月额度必须是大于等于 0 的数字");
       }
@@ -7248,7 +7242,10 @@ function VipManagementTab() {
                 </td>
                 <td className='px-3 py-3'>
                   <div className='mb-1 text-xs text-gray-500'>
-                    {`每天最多 ${freeTierBenefits.imageDailyLimit || "0"} 张图、${freeTierBenefits.videoDailyLimit || "0"} 个视频`}
+                    {Number(freeTierBenefits.imageDailyLimit || 0) <= 0 &&
+                    Number(freeTierBenefits.videoDailyLimit || 0) <= 0
+                      ? "图片与视频生成不限每日次数"
+                      : `每天最多 ${freeTierBenefits.imageDailyLimit || "0"} 张图、${freeTierBenefits.videoDailyLimit || "0"} 个视频`}
                   </div>
                   <div className='mb-1 text-xs text-gray-500'>
                     {`Seedance 2 权益：${freeTierBenefits.seedance2Access === "enabled" ? "支持" : "不支持"}`}
@@ -7541,7 +7538,7 @@ function VipManagementTab() {
             </div>
 
             <div className='space-y-4'>
-              <div className='grid grid-cols-1 gap-4 md:grid-cols-3'>
+              <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
                 <div>
                   <div className='mb-1 text-sm text-gray-600'>免费用户月额度积分</div>
                   <Input
@@ -7556,33 +7553,8 @@ function VipManagementTab() {
                     }
                   />
                 </div>
-                <div>
-                  <div className='mb-1 text-sm text-gray-600'>免费用户日生图上限</div>
-                  <Input
-                    type='number'
-                    min='0'
-                    value={freeTierBenefits.imageDailyLimit}
-                    onChange={(e) =>
-                      setFreeTierBenefits((current) => ({
-                        ...current,
-                        imageDailyLimit: e.target.value,
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <div className='mb-1 text-sm text-gray-600'>免费用户日视频上限</div>
-                  <Input
-                    type='number'
-                    min='0'
-                    value={freeTierBenefits.videoDailyLimit}
-                    onChange={(e) =>
-                      setFreeTierBenefits((current) => ({
-                        ...current,
-                        videoDailyLimit: e.target.value,
-                      }))
-                    }
-                  />
+                <div className='rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-700'>
+                  标准版图片与视频生成功能不限每日次数（固定策略）
                 </div>
               </div>
               <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>

@@ -119,11 +119,11 @@ function getDefaultConfigs(): NodeConfig[] {
     { nodeKey: "camera", nameZh: "相机节点", nameEn: "Camera", category: "input", status: "normal", sortOrder: 7, creditsPerCall: 0 },
 
     // 生图节点
-    { nodeKey: "generate", nameZh: "生成节点", nameEn: "Generate", category: "image", status: "normal", sortOrder: 10, creditsPerCall: 10 },
-    { nodeKey: "generate4", nameZh: "四图生成", nameEn: "Generate 4", category: "image", status: "normal", sortOrder: 11, creditsPerCall: 120 },
-    { nodeKey: "generatePro", nameZh: "自定义节点", nameEn: "Agent", category: "image", status: "normal", sortOrder: 12, creditsPerCall: 30 },
-    { nodeKey: "generatePro4", nameZh: "高级四图", nameEn: "Generate Pro 4", category: "image", status: "normal", sortOrder: 13, creditsPerCall: 120 },
-    { nodeKey: "generateReference", nameZh: "参考生成", nameEn: "Reference", category: "image", status: "normal", sortOrder: 14, creditsPerCall: 30 },
+    { nodeKey: "generate", nameZh: "生成节点", nameEn: "Generate", category: "image", status: "normal", sortOrder: 10, creditsPerCall: 20 },
+    { nodeKey: "generate4", nameZh: "四图生成", nameEn: "Generate 4", category: "image", status: "normal", sortOrder: 11, creditsPerCall: 80 },
+    { nodeKey: "generatePro", nameZh: "自定义节点", nameEn: "Agent", category: "image", status: "normal", sortOrder: 12, creditsPerCall: 40 },
+    { nodeKey: "generatePro4", nameZh: "高级四图", nameEn: "Generate Pro 4", category: "image", status: "normal", sortOrder: 13, creditsPerCall: 160 },
+    { nodeKey: "generateReference", nameZh: "参考生成", nameEn: "Reference", category: "image", status: "normal", sortOrder: 14, creditsPerCall: 40 },
     { nodeKey: "viewAngle", nameZh: "视角变换", nameEn: "View Angle", category: "image", status: "normal", sortOrder: 15, creditsPerCall: 30 },
     { nodeKey: "midjourney", nameZh: "Midjourney", nameEn: "Midjourney", category: "image", status: "normal", sortOrder: 16, creditsPerCall: 50 },
     { nodeKey: "nano2", nameZh: "Nano2生成", nameEn: "Nano2", category: "image", status: "normal", sortOrder: 17, creditsPerCall: 30 },
