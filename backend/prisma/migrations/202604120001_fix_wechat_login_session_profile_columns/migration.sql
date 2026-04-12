@@ -1,0 +1,3 @@
+ALTER TABLE "WechatLoginSession"
+ADD COLUMN IF NOT EXISTS "nickname" TEXT,
+ADD COLUMN IF NOT EXISTS "avatarUrl" TEXT;

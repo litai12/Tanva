@@ -6,6 +6,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Added
+- Prisma migration fix: added `202604120001_fix_wechat_login_session_profile_columns` to backfill missing `WechatLoginSession.nickname` / `avatarUrl` columns that were omitted from the initial公众号扫码登录建表 migration, preventing `/api/auth/wechat-official/sessions/:id` from failing with Prisma missing-column errors on upgraded environments.
 - Flow Credits Display: run-button credit badges now resolve with effective default parameters for video nodes and apply Kling 2.6/3.0 dynamic credit matrix so displayed credits match actual deduction.
 - Workspace Safety: added global leave-risk warning banner and upgraded leave confirmation logic to cover both uploading tasks and running Flow tasks; leaving during in-flight tasks now warns about potential data loss.
 - Runtime Stability: weak-network image delivery hardening for OSS/CDN resources, including adaptive timeout/retry in frontend image fetch (`imageSource.ts`) and proxy upstream timeout/retry in backend `/api/assets/proxy`.
