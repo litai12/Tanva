@@ -136,24 +136,24 @@ const BANANA_TENCENT_RESOLUTION_PRICING: Record<
 > = {
   // Fast: gemini-2.5-image (Nano Banana), 仅支持 1K
   fast: {
-    '0.5K': 60,
-    '1K': 60,
-    '2K': 60,
-    '4K': 60,
+    '0.5K': 30,
+    '1K': 30,
+    '2K': 30,
+    '4K': 30,
   },
   // Pro: gemini-3-pro-image (Nano Banana-Pro)
   pro: {
-    '0.5K': 40,
-    '1K': 40,
-    '2K': 60,
-    '4K': 120,
+    '0.5K': 90,
+    '1K': 90,
+    '2K': 100,
+    '4K': 170,
   },
   // Ultra: gemini-3.1-image (Nano Banana-2)
   ultra: {
-    '0.5K': 20,
-    '1K': 30,
-    '2K': 45,
-    '4K': 60,
+    '0.5K': 30,
+    '1K': 50,
+    '2K': 70,
+    '4K': 110,
   },
 };
 @Injectable()
@@ -213,6 +213,7 @@ export class CreditsService {
     if (!value) return null;
     if (value.includes('apimart')) return 'apimart';
     if (value === 'legacy' || value.includes('147')) return '147';
+    if (value === 'stable' || value.includes('tencent') || value.includes('nano')) return 'tencent';
     return value;
   }
 

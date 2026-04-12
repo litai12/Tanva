@@ -1629,7 +1629,7 @@ const BANANA_ROUTE_PRICING: Record<
     "4K": 80,
   },
   ultra: {
-    "0.5K": 20,
+    "0.5K": 30,
     "1K": 30,
     "2K": 40,
     "4K": 50,
@@ -1709,24 +1709,24 @@ const BANANA_STABLE_ROUTE_PRICING: Record<
 > = {
   // Fast: Nano Banana, 仅支持 1K
   fast: {
-    "0.5K": 60,
-    "1K": 60,
-    "2K": 60,
-    "4K": 60,
+    "0.5K": 30,
+    "1K": 30,
+    "2K": 30,
+    "4K": 30,
   },
   // Pro: Nano Banana-Pro
   pro: {
-    "0.5K": 40,
-    "1K": 40,
-    "2K": 60,
-    "4K": 120,
+    "0.5K": 90,
+    "1K": 90,
+    "2K": 100,
+    "4K": 170,
   },
   // Ultra: Nano Banana-2
   ultra: {
-    "0.5K": 20,
-    "1K": 30,
-    "2K": 45,
-    "4K": 60,
+    "0.5K": 30,
+    "1K": 50,
+    "2K": 70,
+    "4K": 110,
   },
 };
 
