@@ -1306,6 +1306,16 @@ export class MembershipService {
   }
 
   async issueDailyMembershipGiftCredits(now = new Date()) {
+    const dailyGiftEnabled = false;
+    if (!dailyGiftEnabled) {
+      void now;
+      return {
+        issuedSubscriptions: 0,
+        grantedCredits: 0,
+        createdLots: 0,
+      };
+    }
+
     return this.prisma.$transaction(async (tx) => {
       const windowStart = new Date(now);
       windowStart.setHours(0, 0, 0, 0);

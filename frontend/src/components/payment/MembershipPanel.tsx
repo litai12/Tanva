@@ -367,19 +367,10 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
     return tierKeyFromPlan(current.plan as PaymentMembershipPlan);
   }, [current?.plan]);
 
-  const isWhite = useAIChatStore((s) => s.chatTheme === "white");
-  const isDark = !isWhite;
-
-  if (loading) {
-    return (
-      <div className={cn("flex items-center justify-center py-24", isWhite && "min-h-full bg-white")}>
-        <Loader2 className={cn("h-7 w-7 animate-spin", isWhite ? "text-slate-400" : "text-zinc-500")} />
-      </div>
-    );
-  }
+  const isWhite = false;
 
   return (
-    <div className={cn("min-h-0", isWhite ? "min-h-full bg-white" : "bg-[#0a0a0f] text-zinc-100")}>
+    <div className='min-h-full bg-[#1c1c1c] text-zinc-100 p-5'>
       <div
         className={cn(
           "flex items-center justify-between pb-5 pt-2",
@@ -597,7 +588,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                     "rounded-2xl border border-dashed py-16 text-center",
                     isWhite
                       ? "border-slate-300 bg-white text-slate-500"
-                      : "border-zinc-700/60 bg-[#0f0f15] text-zinc-500",
+                      : "border-zinc-700/60 bg-[#272727] text-zinc-500",
                   )}
                 >
                   暂无{billingPeriod === "monthly" ? "月付" : "年付"}套餐，请稍后再试或联系管理员
@@ -951,7 +942,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                           "relative overflow-hidden rounded-2xl border p-5 sm:p-6",
                           isWhite
                             ? "border-slate-200 bg-white shadow-[0_14px_28px_rgba(15,23,42,0.08)]"
-                            : "border-[#8E86F5]/30 bg-[#0f0f18] shadow-[0_8px_32px_rgba(0,0,0,0.5)]",
+                            : "border-[#8E86F5]/30 bg-[#181818] shadow-[0_8px_32px_rgba(0,0,0,0.5)]",
                         )}
                       >
                         <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#8E86F5]/60 to-transparent" />

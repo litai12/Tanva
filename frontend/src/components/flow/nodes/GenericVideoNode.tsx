@@ -106,6 +106,15 @@ const PROVIDER_CONFIG: Record<VideoProvider, { name: string; zh: string }> = {
   doubao: { name: "Seedance", zh: "Seedance" },
 };
 
+const VIDEO_RUN_CREDITS_HIDDEN_PROVIDERS = new Set<VideoProvider>([
+  "kling",
+  "kling-2.6",
+  "kling-o3",
+  "vidu",
+  "viduq3-pro",
+  "doubao",
+]);
+
 const stripVideoGenerationSuffix = (value: string): string =>
   value
     .replace(/\s*视频生成\s*/g, " ")
@@ -511,6 +520,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       ? resolvedManagedPricing.credits
       : getManagedRouteCredits(nodeConfigMetadata, data.vendorKey);
   const hasRunCredits = typeof selectedCredits === "number" && selectedCredits > 0;
+  const showRunCredits = hasRunCredits && !VIDEO_RUN_CREDITS_HIDDEN_PROVIDERS.has(provider);
   const vodAspectOptions = React.useMemo(() => {
     if (!Array.isArray(vodConfig?.outputConfig?.aspectRatios)) return [];
     return [
@@ -1944,7 +1954,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               gap: 0,
             }}
           >
-            {hasRunCredits ? (
+            {showRunCredits ? (
               <>
                 <span className="run-text-trigger">Run</span>
                 <RunCreditBadge credits={selectedCredits} runButton />
