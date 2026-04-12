@@ -8,7 +8,6 @@ export class MembershipSchedulerService {
   private readonly logger = new Logger(MembershipSchedulerService.name);
   private expiryJobRunning = false;
   private freeMonthlyQuotaJobRunning = false;
-  private dailyGiftIssueJobRunning = false;
   private giftDecayJobRunning = false;
   private yearlyRefreshJobRunning = false;
   private scheduledChangeJobRunning = false;
@@ -110,24 +109,8 @@ export class MembershipSchedulerService {
 
   @Cron(CronExpression.EVERY_DAY_AT_5AM)
   async handleDailyMembershipGiftIssue() {
-    if (this.dailyGiftIssueJobRunning) {
-      this.logger.warn('跳过会员每日赠送积分发放：上一次任务尚未完成');
-      return;
-    }
-
-    this.dailyGiftIssueJobRunning = true;
-    try {
-      const result = await this.membershipService.issueDailyMembershipGiftCredits();
-      if (result.issuedSubscriptions > 0 || result.grantedCredits > 0) {
-        this.logger.log(
-          `会员每日赠送积分发放完成: subscriptions=${result.issuedSubscriptions}, grantedCredits=${result.grantedCredits}, createdLots=${result.createdLots}`,
-        );
-      }
-    } catch (error) {
-      this.logger.error('会员每日赠送积分发放失败:', error);
-    } finally {
-      this.dailyGiftIssueJobRunning = false;
-    }
+    // Product policy: VIP plans no longer issue daily gift credits.
+    return;
   }
 
   @Cron(CronExpression.EVERY_DAY_AT_4AM)

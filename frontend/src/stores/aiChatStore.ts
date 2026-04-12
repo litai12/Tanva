@@ -49,6 +49,11 @@ import {
   toRenderableImageSrc,
 } from "@/utils/imageSource";
 import {
+  isBananaRouteProvider,
+  isTencentBananaAnalyzeSupported,
+  isTencentStableBananaRoute,
+} from "@/utils/bananaRouteCapabilities";
+import {
   blobToDataUrl as blobToDataUrlLimited,
   canvasToBlob,
   canvasToDataUrl,
@@ -88,6 +93,11 @@ const IDB_SESSIONS_KEY = "local_sessions";
 const AI_CHAT_STORE_NAME = STORE_NAMES.AI_CHAT_SESSIONS;
 const AI_CHAT_VIDEO_CACHE_STORE_NAME = STORE_NAMES.AI_CHAT_VIDEO_CACHE;
 const AI_CHAT_PREFERENCES_VERSION = 1;
+const AI_CHAT_SEEDANCE_MODEL = "seedance-2.0" as const;
+const AI_CHAT_VIDEO_DURATION_OPTIONS = [4, 5, 6, 8, 10, 12, 15] as const;
+
+type AIChatVideoDurationSeconds =
+  (typeof AI_CHAT_VIDEO_DURATION_OPTIONS)[number];
 
 // 🔥 全局待生成图片计数器（防止连续快速生成时重叠）
 let generatingImageCount = 0;
@@ -508,14 +518,18 @@ type AvailableTool =
 
 type AIProviderType = SupportedAIProvider;
 
-const BANANA_IMAGE_PROVIDERS: AIProviderType[] = [
-  "banana",
-  "banana-2.5",
-  "banana-3.1",
-];
-
 const isBananaImageProvider = (provider: AIProviderType): boolean =>
-  BANANA_IMAGE_PROVIDERS.includes(provider);
+  isBananaRouteProvider(provider);
+
+const isAnalyzeDisabledOnCurrentBananaRoute = (
+  provider: AIProviderType,
+  bananaImageRoute: BananaImageRoute
+): boolean => {
+  return (
+    isTencentStableBananaRoute(provider, bananaImageRoute) &&
+    !isTencentBananaAnalyzeSupported()
+  );
+};
 
 const withBananaRouteProviderOptions = (
   provider: AIProviderType,
@@ -2414,7 +2428,7 @@ interface AIChatState {
   imageSize: "1K" | "2K" | "4K" | null; // 图像尺寸（高清设置，仅 Gemini 3）
   thinkingLevel: "high" | "low" | null; // 思考级别（仅 Gemini 3）
   videoAspectRatio: "16:9" | "9:16" | null; // 视频画面比例（Seedance）
-  videoDurationSeconds: 3 | 4 | 5 | 6 | 8 | null; // 视频时长（秒）
+  videoDurationSeconds: AIChatVideoDurationSeconds | null; // 视频时长（秒）
   manualAIMode: ManualAIMode;
   autoSelectedTool: AvailableTool | null; // Auto 模式最近一次选择的工具
   aiProvider: AIProviderType; // AI提供商选择 (gemini: Google Gemini, banana: 147 API, runninghub: SU截图转效果, midjourney: 147 Midjourney)
@@ -2595,7 +2609,7 @@ interface AIChatState {
   setImageSize: (size: "1K" | "2K" | "4K" | null) => void; // 设置图像尺寸
   setThinkingLevel: (level: "high" | "low" | null) => void; // 设置思考级别
   setVideoAspectRatio: (ratio: "16:9" | "9:16" | null) => void;
-  setVideoDurationSeconds: (seconds: 3 | 4 | 5 | 6 | 8 | null) => void;
+  setVideoDurationSeconds: (seconds: AIChatVideoDurationSeconds | null) => void;
   setManualAIMode: (mode: ManualAIMode) => void;
   setAIProvider: (provider: AIProviderType) => void; // 设置AI提供商
   setBananaImageRoute: (route: BananaImageRoute) => void;
@@ -6316,6 +6330,9 @@ export const useAIChatStore = create<AIChatState>()(
 
             const videoRequestStartedAt = Date.now();
             logProcessStep(metrics, "generateVideo calling video provider API");
+            const videoMode =
+              referenceImageUrls.length > 0 ? "reference_images" : "text";
+
             const createResult = await generateVideoByProvider({
               prompt,
               referenceImages: referenceImageUrls.length
@@ -6324,6 +6341,8 @@ export const useAIChatStore = create<AIChatState>()(
               duration: durationSeconds,
               aspectRatio,
               provider,
+              seedanceModel: AI_CHAT_SEEDANCE_MODEL,
+              videoMode,
             });
 
             logProcessStep(metrics, "generateVideo API response received");
@@ -6359,6 +6378,8 @@ export const useAIChatStore = create<AIChatState>()(
                 videoMetadata: {
                   ...(msg.videoMetadata || {}),
                   provider,
+                  seedanceModel: AI_CHAT_SEEDANCE_MODEL,
+                  videoMode,
                   aspectRatio,
                   durationSeconds,
                   apiUsageId: createResult.apiUsageId,
@@ -7061,20 +7082,30 @@ export const useAIChatStore = create<AIChatState>()(
             explicitImageCount === 1 &&
             state.sourceImagesForBlending.length === 0;
           const hasMultiExplicitImages = explicitImageCount > 1;
+          const allowAnalyzeImageTool = !isAnalyzeDisabledOnCurrentBananaRoute(
+            state.aiProvider,
+            state.bananaImageRoute
+          );
           const preferAnalyzeForMultiImage = hasMultiExplicitImages
             ? prefersAnalyzeForMultiImage(input)
             : false;
           const availableToolsForSelection: AvailableTool[] = isSingleExplicitImage
-            ? ["editImage", "analyzeImage"]
+            ? allowAnalyzeImageTool
+              ? ["editImage", "analyzeImage"]
+              : ["editImage"]
             : hasMultiExplicitImages
-              ? preferAnalyzeForMultiImage
+              ? allowAnalyzeImageTool && preferAnalyzeForMultiImage
                 ? ["analyzeImage", "blendImages"]
-                : ["blendImages", "analyzeImage"]
+                : allowAnalyzeImageTool
+                  ? ["blendImages", "analyzeImage"]
+                  : ["blendImages"]
               : [
                   "generateImage",
                   "editImage",
                   "blendImages",
-                  "analyzeImage",
+                  ...(allowAnalyzeImageTool
+                    ? (["analyzeImage"] as AvailableTool[])
+                    : []),
                   "chatResponse",
                   "generateVideo",
                   "generatePaperJS",
@@ -7155,6 +7186,7 @@ export const useAIChatStore = create<AIChatState>()(
                 if (
                   hasMultiExplicitImages &&
                   preferAnalyzeForMultiImage &&
+                  allowAnalyzeImageTool &&
                   selectedTool === "blendImages"
                 ) {
                   selectedTool = "analyzeImage";
@@ -7169,6 +7201,14 @@ export const useAIChatStore = create<AIChatState>()(
                 );
               }
             }
+          }
+
+          if (!allowAnalyzeImageTool && selectedTool === "analyzeImage") {
+            selectedTool = hasMultiExplicitImages ? "blendImages" : "editImage";
+            logProcessStep(
+              metrics,
+              "analyzeImage disabled on stable banana route, fallback tool applied"
+            );
           }
 
           if (!selectedTool) {
@@ -7263,6 +7303,14 @@ export const useAIChatStore = create<AIChatState>()(
                 break;
 
               case "analyzeImage":
+                if (
+                  isAnalyzeDisabledOnCurrentBananaRoute(
+                    state.aiProvider,
+                    state.bananaImageRoute
+                  )
+                ) {
+                  throw new Error("稳定通道暂不支持 Analysis，请切换到普通通道");
+                }
                 if (state.sourceImagesForBlending.length > 0) {
                   logProcessStep(
                     metrics,
@@ -7549,26 +7597,36 @@ export const useAIChatStore = create<AIChatState>()(
                 explicitImageCount === 1 &&
                 state.sourceImagesForBlending.length === 0;
               const hasMultiExplicitImages = explicitImageCount > 1;
+              const allowAnalyzeImageTool = !isAnalyzeDisabledOnCurrentBananaRoute(
+                state.aiProvider,
+                state.bananaImageRoute
+              );
               const preferAnalyzeForMultiImage = hasMultiExplicitImages
                 ? prefersAnalyzeForMultiImage(input)
                 : false;
 
               const availableToolsForSelection: AvailableTool[] =
                 isSingleExplicitImage
-                  ? ["editImage", "analyzeImage"]
+                  ? allowAnalyzeImageTool
+                    ? ["editImage", "analyzeImage"]
+                    : ["editImage"]
                   : hasMultiExplicitImages
-                    ? preferAnalyzeForMultiImage
+                    ? allowAnalyzeImageTool && preferAnalyzeForMultiImage
                       ? ["analyzeImage", "blendImages"]
-                      : ["blendImages", "analyzeImage"]
-                  : [
-                      "generateImage",
-                      "editImage",
-                      "blendImages",
-                      "analyzeImage",
-                      "chatResponse",
-                      "generateVideo",
-                      "generatePaperJS",
-                    ];
+                      : allowAnalyzeImageTool
+                        ? ["blendImages", "analyzeImage"]
+                        : ["blendImages"]
+                    : [
+                        "generateImage",
+                        "editImage",
+                        "blendImages",
+                        ...(allowAnalyzeImageTool
+                          ? (["analyzeImage"] as AvailableTool[])
+                          : []),
+                        "chatResponse",
+                        "generateVideo",
+                        "generatePaperJS",
+                      ];
 
               const toolSelectionRequest = {
                 userInput: input,
@@ -7593,6 +7651,7 @@ export const useAIChatStore = create<AIChatState>()(
                   if (
                     hasMultiExplicitImages &&
                     preferAnalyzeForMultiImage &&
+                    allowAnalyzeImageTool &&
                     selectedTool === "blendImages"
                   ) {
                     selectedTool = "analyzeImage";
@@ -7605,7 +7664,9 @@ export const useAIChatStore = create<AIChatState>()(
                     ? "editImage"
                     : hasMultiExplicitImages
                       ? prefersAnalyzeForMultiImage(input)
-                        ? "analyzeImage"
+                        ? allowAnalyzeImageTool
+                          ? "analyzeImage"
+                          : "blendImages"
                         : "blendImages"
                       : "chatResponse";
                   console.warn(
@@ -7618,9 +7679,17 @@ export const useAIChatStore = create<AIChatState>()(
                   ? "editImage"
                   : hasMultiExplicitImages
                     ? prefersAnalyzeForMultiImage(input)
-                      ? "analyzeImage"
+                      ? allowAnalyzeImageTool
+                        ? "analyzeImage"
+                        : "blendImages"
                       : "blendImages"
                     : "chatResponse";
+              }
+
+              if (!allowAnalyzeImageTool && selectedTool === "analyzeImage") {
+                selectedTool = hasMultiExplicitImages
+                  ? "blendImages"
+                  : "editImage";
               }
             }
           }
@@ -8111,6 +8180,7 @@ export const useAIChatStore = create<AIChatState>()(
         const validExpandedStyles = ["transparent", "solid"];
         const validChatThemes = ["white", "black"];
         const validVideoRatios = ["16:9", "9:16"];
+        const validVideoDurations = AI_CHAT_VIDEO_DURATION_OPTIONS.map(String);
         const validBananaImageRoutes = ["normal", "stable"];
 
         return {
@@ -8123,6 +8193,11 @@ export const useAIChatStore = create<AIChatState>()(
             typeof state.enableWebSearch === "boolean" ? state.enableWebSearch : false,
           videoAspectRatio: validVideoRatios.includes(String(state.videoAspectRatio))
             ? (state.videoAspectRatio as AIChatState["videoAspectRatio"])
+            : null,
+          videoDurationSeconds: validVideoDurations.includes(
+            String(state.videoDurationSeconds)
+          )
+            ? (state.videoDurationSeconds as AIChatState["videoDurationSeconds"])
             : null,
           sendShortcut: validSendShortcuts.includes(String(state.sendShortcut))
             ? (state.sendShortcut as AIChatState["sendShortcut"])

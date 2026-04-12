@@ -106,6 +106,15 @@ const PROVIDER_CONFIG: Record<VideoProvider, { name: string; zh: string }> = {
   doubao: { name: "Seedance", zh: "Seedance" },
 };
 
+const VIDEO_RUN_CREDITS_HIDDEN_PROVIDERS = new Set<VideoProvider>([
+  "kling",
+  "kling-2.6",
+  "kling-o3",
+  "vidu",
+  "viduq3-pro",
+  "doubao",
+]);
+
 const stripVideoGenerationSuffix = (value: string): string =>
   value
     .replace(/\s*视频生成\s*/g, " ")
@@ -511,6 +520,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       ? resolvedManagedPricing.credits
       : getManagedRouteCredits(nodeConfigMetadata, data.vendorKey);
   const hasRunCredits = typeof selectedCredits === "number" && selectedCredits > 0;
+  const showRunCredits = hasRunCredits && !VIDEO_RUN_CREDITS_HIDDEN_PROVIDERS.has(provider);
   const vodAspectOptions = React.useMemo(() => {
     if (!Array.isArray(vodConfig?.outputConfig?.aspectRatios)) return [];
     return [
@@ -856,6 +866,10 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     }
     return vodDurationOptions.length > 0 ? vodDurationOptions : getDurationOptions();
   }, [getDurationOptions, isSeedance20Model, lt, provider, vodDurationOptions]);
+  const durationOptionValues = React.useMemo(
+    () => durationOptions.map((option) => option.value),
+    [durationOptions]
+  );
   const shouldShowAspectSelector =
     isSeedanceModel
       ? true
@@ -896,11 +910,6 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     (provider === "vidu" || provider === "viduq3-pro") && !isVodManagedNode;
   const shouldShowLegacySeedanceOptions =
     provider === "doubao" && !isVodManagedNode && !isSeedance20Model;
-  const shouldShowSeedanceGenerateAudio =
-    isSeedance20Model &&
-    ((typeof vodConfig?.outputConfig?.audioGeneration === "boolean" &&
-      vodConfig.outputConfig.audioGeneration) ||
-      !isVodManagedNode);
   const seedanceConstraintTips = React.useMemo(() => {
     if (!isSeedanceModel) return [] as string[];
     if (isSeedance20Model) {
@@ -1049,6 +1058,40 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     [clipDuration, id]
   );
 
+  React.useEffect(() => {
+    if (durationOptionValues.length === 0) return;
+
+    const resolveNearestDuration = (target: number) => {
+      return durationOptionValues.reduce((best, current) => {
+        const currentDelta = Math.abs(current - target);
+        const bestDelta = Math.abs(best - target);
+        if (currentDelta !== bestDelta) {
+          return currentDelta < bestDelta ? current : best;
+        }
+        return current < best ? current : best;
+      }, durationOptionValues[0]);
+    };
+
+    const nextDuration =
+      typeof clipDuration === "number" && Number.isFinite(clipDuration)
+        ? durationOptionValues.includes(clipDuration)
+          ? clipDuration
+          : resolveNearestDuration(clipDuration)
+        : provider === "doubao"
+        ? 5
+        : undefined;
+
+    if (typeof nextDuration !== "number" || nextDuration === clipDuration) {
+      return;
+    }
+
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: { id, patch: { clipDuration: nextDuration } },
+      })
+    );
+  }, [clipDuration, durationOptionValues, id, provider]);
+
   const handleKlingModelChange = React.useCallback(
     (value: "kling-v2-6" | "kling-v3-0") => {
       if (value === klingModel) return;
@@ -1136,6 +1179,16 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         value === "seedance-2.0" || value === "seedance-2.0-fast"
           ? "reference_images"
           : "text";
+      const nextDuration =
+        value === "seedance-2.0" || value === "seedance-2.0-fast"
+          ? clipDuration === 3
+            ? 4
+            : clipDuration && clipDuration >= 4 && clipDuration <= 15
+            ? clipDuration
+            : 5
+          : clipDuration && clipDuration >= 3 && clipDuration <= 10
+          ? clipDuration
+          : 5;
       window.dispatchEvent(
         new CustomEvent("flow:updateNodeData", {
           detail: {
@@ -1143,12 +1196,13 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             patch: {
               seedanceModel: value,
               seedanceMode: nextMode,
+              clipDuration: nextDuration,
             },
           },
         })
       );
     },
-    [id, seedanceModel]
+    [clipDuration, id, seedanceModel]
   );
 
   const handleSeedanceModeChange = React.useCallback(
@@ -1900,7 +1954,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               gap: 0,
             }}
           >
-            {hasRunCredits ? (
+            {showRunCredits ? (
               <>
                 <span className="run-text-trigger">Run</span>
                 <RunCreditBadge credits={selectedCredits} runButton />
@@ -2379,34 +2433,6 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           </div>
         )}
       </div>
-
-      {shouldShowSeedanceGenerateAudio && (
-        <div style={{ marginBottom: 8 }}>
-          <button
-            type='button'
-            onClick={() => {
-              const currentGenerateAudio = Boolean((data as any).generateAudio);
-              window.dispatchEvent(
-                new CustomEvent("flow:updateNodeData", {
-                  detail: { id, patch: { generateAudio: !currentGenerateAudio } },
-                })
-              );
-            }}
-            style={{
-              width: "100%",
-              padding: "6px 10px",
-              borderRadius: 8,
-              border: "1px solid #e5e7eb",
-              background: (data as any).generateAudio ? "#111827" : "#fff",
-              color: (data as any).generateAudio ? "#fff" : "#111827",
-              fontSize: 12,
-              cursor: "pointer",
-            }}
-          >
-            {lt("关闭", "Off")}
-          </button>
-        </div>
-      )}
 
       {/* Kling 涓撶敤鍙傛暟锛氭ā寮忛€夋嫨 */}
       {isUnifiedKlingNode && (
@@ -3030,7 +3056,5 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
 }
 
 export default React.memo(GenericVideoNodeInner);
-
-
 
 

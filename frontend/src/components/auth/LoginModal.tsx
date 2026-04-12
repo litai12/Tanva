@@ -336,7 +336,11 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
                     : wechatBinding
                     ? t('auth.login.wechatBinding')
                     : wechatSession?.status === 'needs_phone_bind'
-                    ? t('auth.login.wechatBindHint')
+                    ? wechatSession.displayName
+                      ? t('auth.login.wechatBindHintWithName', {
+                          name: wechatSession.displayName,
+                        })
+                      : t('auth.login.wechatBindHint')
                     : wechatSession?.status === 'expired'
                     ? t('auth.login.wechatExpired')
                     : t('auth.login.wechatHint')}

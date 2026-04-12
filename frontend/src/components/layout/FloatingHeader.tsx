@@ -72,6 +72,7 @@ import { useProjectContentStore } from "@/stores/projectContentStore";
 import { authApi, type GoogleApiKeyInfo } from "@/services/authApi";
 import ReferralRewards from "@/components/ReferralRewards";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import MembershipPanel from "@/components/payment/MembershipPanel";
 import { useTranslation } from "react-i18next";
 import {
   claimDailyReward,
@@ -80,6 +81,59 @@ import {
   type DailyRewardStatus,
   type UserCreditsInfo,
 } from "@/services/adminApi";
+
+// Nano Banana 通道定价常量
+type BananaPricingTier = "fast" | "pro" | "ultra";
+
+const BANANA_STABLE_ROUTE_PRICING: Record<
+  BananaPricingTier,
+  Record<"0.5K" | "1K" | "2K" | "4K", number>
+> = {
+  // 稳定通道（腾讯）- Nano Banana 定价
+  fast: { "0.5K": 30, "1K": 30, "2K": 30, "4K": 30 },
+  pro: { "0.5K": 90, "1K": 90, "2K": 100, "4K": 170 },
+  ultra: { "0.5K": 30, "1K": 50, "2K": 70, "4K": 110 },
+};
+
+const BANANA_NORMAL_ROUTE_PRICING: Record<
+  BananaPricingTier,
+  Record<"0.5K" | "1K" | "2K" | "4K", number>
+> = {
+  // 普通通道 - 旧定价（参考用）
+  fast: { "0.5K": 20, "1K": 20, "2K": 20, "4K": 20 },
+  pro: { "0.5K": 40, "1K": 40, "2K": 60, "4K": 80 },
+  ultra: { "0.5K": 30, "1K": 30, "2K": 40, "4K": 50 },
+};
+
+const resolveBananaPricingTier = (
+  provider: string | undefined
+): BananaPricingTier | null => {
+  if (provider === "banana-2.5") return "fast";
+  if (provider === "banana-3.1") return "ultra";
+  if (provider === "banana") return "pro";
+  return null;
+};
+
+const resolveBananaCredits = (
+  provider: string | undefined,
+  route: string | undefined,
+  imageSize: string = "1K"
+): number | null => {
+  const tier = resolveBananaPricingTier(provider);
+  if (!tier) return null;
+
+  const pricing =
+    route === "stable" ? BANANA_STABLE_ROUTE_PRICING : BANANA_NORMAL_ROUTE_PRICING;
+  const normalizedSize = imageSize.trim().toUpperCase() as "0.5K" | "1K" | "2K" | "4K";
+  const validSizes: Array<"0.5K" | "1K" | "2K" | "4K"> = [
+    "0.5K",
+    "1K",
+    "2K",
+    "4K",
+  ];
+  const size = validSizes.includes(normalizedSize) ? normalizedSize : "1K";
+  return pricing[tier][size];
+};
 
 const SETTINGS_SECTIONS = [
   { id: "workspace", labelKey: "workspace.settings.sections.workspace", icon: Square },
@@ -236,6 +290,7 @@ const FloatingHeader: React.FC = () => {
   // 单位/比例功能已移除
   const [showMemoryDebug, setShowMemoryDebug] = useState(false);
   const [showHistoryDebug, setShowHistoryDebug] = useState(false);
+  const [isMembershipOpen, setIsMembershipOpen] = useState(false);
   const [gridSizeInput, setGridSizeInput] = useState(String(gridSize));
   const [saveFeedback, setSaveFeedback] = useState<
     "idle" | "success" | "error"
@@ -796,14 +851,9 @@ const FloatingHeader: React.FC = () => {
     window.open(href, "_blank", "noopener,noreferrer");
   }, []);
 
-  /** 画板顶栏积分入口：新标签打开 VIP 和积分充值页面 */
+  /** 画板顶栏积分入口：打开 VIP / 积分弹窗 */
   const openMembershipHub = useCallback(() => {
-    const base = import.meta.env.BASE_URL || "/";
-    const originWithBase = `${window.location.origin}${
-      base.endsWith("/") ? base : `${base}/`
-    }`;
-    const href = new URL("membership", originWithBase).href;
-    window.open(href, "_blank", "noopener,noreferrer");
+    setIsMembershipOpen(true);
   }, []);
 
   const topCreditsText = useMemo(() => {
@@ -2308,6 +2358,31 @@ const FloatingHeader: React.FC = () => {
                     </div>
                     {renderSettingsContent()}
                   </div>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )}
+
+        {isMembershipOpen &&
+          typeof document !== "undefined" &&
+          createPortal(
+            <div
+              className='fixed inset-0 z-[1500] flex items-center justify-center bg-black/40 px-4 py-6 backdrop-blur-[2px]'
+              onClick={() => setIsMembershipOpen(false)}
+            >
+              <div
+                className='relative flex h-[min(200dvh,1000px)] w-full max-w-[min(100%,1480px)] flex-col overflow-hidden rounded-[20px] bg-[#0a0a0f] shadow-[0_32px_80px_rgba(0,0,0,0.5)]'
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className='min-h-0 flex-1 overflow-y-auto overscroll-contain px-0'>
+                  <MembershipPanel
+                    onBack={() => setIsMembershipOpen(false)}
+                    onPaymentSuccess={() => {
+                      setIsMembershipOpen(false);
+                      window.dispatchEvent(new CustomEvent("refresh-credits"));
+                    }}
+                  />
                 </div>
               </div>
             </div>,

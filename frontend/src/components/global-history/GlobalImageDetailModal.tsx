@@ -4,6 +4,10 @@ import { Button } from '../ui/button';
 import SmartImage from '../ui/SmartImage';
 import type { GlobalImageHistoryItem } from '@/services/globalImageHistoryApi';
 import { useTranslation } from 'react-i18next';
+import {
+  getHistoryRequestPrompt,
+  getHistoryRequestThumbnail,
+} from './historyRequestInfo';
 
 const SOURCE_TYPE_LABELS: Record<string, { zh: string; en: string }> = {
   generate: { zh: '图片生成', en: 'Image Generate' },
@@ -89,6 +93,8 @@ const GlobalImageDetailModal: React.FC<GlobalImageDetailModalProps> = ({
         ? lt(sourceTypeLabel.zh, sourceTypeLabel.en)
         : item.sourceType;
   const modelInfo = resolveModelLabel(item);
+  const requestPrompt = getHistoryRequestPrompt(item);
+  const requestThumbnail = getHistoryRequestThumbnail(item);
 
   return (
     <div
@@ -177,11 +183,23 @@ const GlobalImageDetailModal: React.FC<GlobalImageDetailModalProps> = ({
                 value={item.sourceProjectName}
               />
             )}
-            {item.prompt && (
+            {requestThumbnail && (
+              <div className="space-y-2">
+                <p className="text-gray-400 text-xs">{lt('请求缩略图', 'Request Thumbnail')}</p>
+                <div className="overflow-hidden rounded-lg border border-white/10 bg-white/5">
+                  <SmartImage
+                    src={requestThumbnail}
+                    alt={lt('请求缩略图', 'Request Thumbnail')}
+                    className="h-28 w-full object-cover"
+                  />
+                </div>
+              </div>
+            )}
+            {requestPrompt && (
               <div className="space-y-1">
-                <p className="text-gray-400 text-xs">Prompt</p>
+                <p className="text-gray-400 text-xs">{lt('提示词', 'Prompt')}</p>
                 <p className="text-white text-sm bg-white/5 rounded-lg p-3 break-words">
-                  {item.prompt}
+                  {requestPrompt}
                 </p>
               </div>
             )}

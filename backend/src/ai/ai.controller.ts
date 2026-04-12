@@ -586,6 +586,7 @@ export class AiController {
     if (!value) return null;
     if (value.includes('apimart')) return 'apimart';
     if (value === 'legacy' || value.includes('147')) return '147';
+    if (value === 'stable' || value.includes('tencent') || value.includes('nano')) return 'tencent';
     return value;
   }
 
@@ -638,11 +639,49 @@ export class AiController {
     };
   }
 
+  private summarizeRequestPrompt(prompt?: string | null): string | undefined {
+    if (typeof prompt !== 'string') return undefined;
+    const trimmed = prompt.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  private extractRenderableRequestImageRefs(values: unknown[]): string[] {
+    const candidates: string[] = [];
+    for (const value of values) {
+      if (typeof value !== 'string') continue;
+      const trimmed = value.trim();
+      if (!trimmed) continue;
+      if (trimmed.startsWith('data:') || trimmed.startsWith('blob:')) continue;
+      if (/^[A-Za-z0-9+/=]{80,}$/.test(trimmed)) continue;
+      if (!candidates.includes(trimmed)) {
+        candidates.push(trimmed);
+      }
+    }
+    return candidates;
+  }
+
+  private buildRequestPromptAndImageParams(
+    prompt: string | undefined | null,
+    imageRefs?: unknown[],
+  ): Record<string, any> {
+    const requestPrompt = this.summarizeRequestPrompt(prompt);
+    const requestThumbnailUrls = this.extractRenderableRequestImageRefs(
+      Array.isArray(imageRefs) ? imageRefs : [],
+    );
+
+    return {
+      ...(requestPrompt ? { requestPrompt } : {}),
+      ...(requestThumbnailUrls[0] ? { requestThumbnailUrl: requestThumbnailUrls[0] } : {}),
+      ...(requestThumbnailUrls.length > 0 ? { requestThumbnailUrls } : {}),
+    };
+  }
+
   private async buildVideoProviderCreditParams(
     dto: VideoProviderRequestDto,
   ): Promise<Record<string, any>> {
     const params: Record<string, any> = {
       aiProvider: dto.provider,
+      ...this.buildRequestPromptAndImageParams(dto.prompt, dto.referenceImages),
     };
 
     const preferredVendorKey =
@@ -2157,7 +2196,11 @@ export class AiController {
         }
 
         throw new InternalServerErrorException('图片生成重试次数耗尽，请稍后重试。');
-      }, 0, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize, aspectRatio: dto.aspectRatio }, dto.providerOptions));
+      }, 0, 1, skipCredits, this.buildCreditRequestParams(providerName, {
+        imageSize: dto.imageSize,
+        aspectRatio: dto.aspectRatio,
+        ...this.buildRequestPromptAndImageParams(dto.prompt, normalizedImageUrlsForProvider),
+      }, dto.providerOptions));
 
       void this.telemetryService.ingestGenerationTask({
         traceId,
@@ -2408,7 +2451,14 @@ export class AiController {
       }
 
       throw new InternalServerErrorException('图片编辑重试次数耗尽，请稍后重试。');
-      }, 1, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize, aspectRatio: dto.aspectRatio }, dto.providerOptions));
+      }, 1, 1, skipCredits, this.buildCreditRequestParams(providerName, {
+        imageSize: dto.imageSize,
+        aspectRatio: dto.aspectRatio,
+        ...this.buildRequestPromptAndImageParams(dto.prompt, [
+          dto.sourceImageUrl,
+          dto.sourceImage && /^https?:\/\//i.test(dto.sourceImage) ? dto.sourceImage : undefined,
+        ]),
+      }, dto.providerOptions));
 
       void this.telemetryService.ingestGenerationTask({
         traceId,
@@ -2641,7 +2691,14 @@ export class AiController {
       }
 
       throw new InternalServerErrorException('图片融合重试次数耗尽，请稍后重试。');
-      }, dto.sourceImages?.length || 0, 1, skipCredits, this.buildCreditRequestParams(providerName, { imageSize: dto.imageSize, aspectRatio: dto.aspectRatio }, dto.providerOptions));
+      }, dto.sourceImages?.length || 0, 1, skipCredits, this.buildCreditRequestParams(providerName, {
+        imageSize: dto.imageSize,
+        aspectRatio: dto.aspectRatio,
+        ...this.buildRequestPromptAndImageParams(dto.prompt, [
+          ...(Array.isArray(dto.sourceImageUrls) ? dto.sourceImageUrls : []),
+          ...(Array.isArray(dto.sourceImages) ? dto.sourceImages : []),
+        ]),
+      }, dto.providerOptions));
 
       void this.telemetryService.ingestGenerationTask({
         traceId,
@@ -2805,7 +2862,9 @@ export class AiController {
         );
       }
       return { text };
-    }, normalizedImages.length, 0, skipCredits, this.buildCreditRequestParams(providerName));
+    }, normalizedImages.length, 0, skipCredits, this.buildCreditRequestParams(providerName, {
+      ...this.buildRequestPromptAndImageParams(dto.prompt, normalizedImages),
+    }));
   }
 
   @Post('text-chat')

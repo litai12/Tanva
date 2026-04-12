@@ -900,17 +900,21 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         {
           modelKey: "gemini-2.5-image",
           taskType: "image",
-          vendors: [{ vendorKey: "banana-2.5", creditsPerCall: 10 }],
+          vendors: [{ vendorKey: "banana-2.5", creditsPerCall: 20 }],
           defaultVendor: "banana-2.5",
         },
         {
           flowNodeType: "generate",
           nodeKey: "generate",
           category: "image",
-          creditsPerCall: 10,
+          creditsPerCall: 20,
           description: "Nano Banana Fast 文生图",
         }
       ),
+      specPricing: {
+        defaults: { credits: 20 },
+        rules: [],
+      },
     },
     vendors: [
       {
@@ -922,7 +926,11 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "banana-2.5",
         modelName: "Nano Banana",
         modelVersion: "2.5",
-        creditsPerCall: 10,
+        creditsPerCall: 20,
+        pricing: {
+          defaults: { credits: 20, priceYuan: 0.2 },
+          rules: [],
+        },
       },
     ],
   },
@@ -937,17 +945,24 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         {
           modelKey: "gemini-3-pro-image",
           taskType: "image",
-          vendors: [{ vendorKey: "banana", creditsPerCall: 30 }],
+          vendors: [{ vendorKey: "banana", creditsPerCall: 40 }],
           defaultVendor: "banana",
         },
         {
           flowNodeType: "generatePro",
           nodeKey: "generatePro",
           category: "image",
-          creditsPerCall: 30,
+          creditsPerCall: 40,
           description: "Nano Banana Pro 高质量生图",
         }
       ),
+      specPricing: {
+        defaults: { credits: 40 },
+        rules: [
+          { when: { resolution: "2K" }, price: { credits: 60, priceYuan: 0.6 } },
+          { when: { resolution: "4K" }, price: { credits: 80, priceYuan: 0.8 } },
+        ],
+      },
     },
     vendors: [
       {
@@ -959,7 +974,14 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "banana",
         modelName: "Nano Banana Pro",
         modelVersion: "3.0",
-        creditsPerCall: 30,
+        creditsPerCall: 40,
+        pricing: {
+          defaults: { credits: 40, priceYuan: 0.4 },
+          rules: [
+            { when: { resolution: "2K" }, price: { credits: 60, priceYuan: 0.6 } },
+            { when: { resolution: "4K" }, price: { credits: 80, priceYuan: 0.8 } },
+          ],
+        },
       },
     ],
   },
@@ -974,17 +996,25 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         {
           modelKey: "gemini-3.1-image",
           taskType: "image",
-          vendors: [{ vendorKey: "banana-3.1", creditsPerCall: 20 }],
+          vendors: [{ vendorKey: "banana-3.1", creditsPerCall: 30 }],
           defaultVendor: "banana-3.1",
         },
         {
           flowNodeType: "generatePro",
           nodeKey: "generatePro",
           category: "image",
-          creditsPerCall: 20,
+          creditsPerCall: 30,
           description: "Nano Banana 2 生图",
         }
       ),
+      specPricing: {
+        defaults: { credits: 30 },
+        rules: [
+          { when: { resolution: "0.5K" }, price: { credits: 30, priceYuan: 0.3 } },
+          { when: { resolution: "2K" }, price: { credits: 40, priceYuan: 0.4 } },
+          { when: { resolution: "4K" }, price: { credits: 50, priceYuan: 0.5 } },
+        ],
+      },
     },
     vendors: [
       {
@@ -996,7 +1026,15 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "banana-3.1",
         modelName: "Nano Banana 2",
         modelVersion: "3.1",
-        creditsPerCall: 20,
+        creditsPerCall: 30,
+        pricing: {
+          defaults: { credits: 30, priceYuan: 0.3 },
+          rules: [
+            { when: { resolution: "0.5K" }, price: { credits: 30, priceYuan: 0.3 } },
+            { when: { resolution: "2K" }, price: { credits: 40, priceYuan: 0.4 } },
+            { when: { resolution: "4K" }, price: { credits: 50, priceYuan: 0.5 } },
+          ],
+        },
       },
     ],
   },
@@ -1011,17 +1049,24 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         {
           modelKey: "gemini-image-edit",
           taskType: "image",
-          vendors: [{ vendorKey: "banana", creditsPerCall: 30 }],
+          vendors: [{ vendorKey: "banana", creditsPerCall: 40 }],
           defaultVendor: "banana",
         },
         {
           flowNodeType: "generatePro",
           nodeKey: "generatePro",
           category: "image",
-          creditsPerCall: 30,
+          creditsPerCall: 40,
           description: "Nano Banana Pro 图像编辑",
         }
       ),
+      specPricing: {
+        defaults: { credits: 40 },
+        rules: [
+          { when: { resolution: "2K" }, price: { credits: 60, priceYuan: 0.6 } },
+          { when: { resolution: "4K" }, price: { credits: 80, priceYuan: 0.8 } },
+        ],
+      },
     },
     vendors: [
       {
@@ -1033,7 +1078,14 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "banana",
         modelName: "Nano Banana Pro Edit",
         modelVersion: "3.0",
-        creditsPerCall: 30,
+        creditsPerCall: 40,
+        pricing: {
+          defaults: { credits: 40, priceYuan: 0.4 },
+          rules: [
+            { when: { resolution: "2K" }, price: { credits: 60, priceYuan: 0.6 } },
+            { when: { resolution: "4K" }, price: { credits: 80, priceYuan: 0.8 } },
+          ],
+        },
       },
     ],
   },
@@ -1048,17 +1100,25 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         {
           modelKey: "gemini-3.1-image-edit",
           taskType: "image",
-          vendors: [{ vendorKey: "banana-3.1", creditsPerCall: 20 }],
+          vendors: [{ vendorKey: "banana-3.1", creditsPerCall: 30 }],
           defaultVendor: "banana-3.1",
         },
         {
           flowNodeType: "generatePro",
           nodeKey: "generatePro",
           category: "image",
-          creditsPerCall: 20,
+          creditsPerCall: 30,
           description: "Nano Banana 2 图像编辑",
         }
       ),
+      specPricing: {
+        defaults: { credits: 30 },
+        rules: [
+          { when: { resolution: "0.5K" }, price: { credits: 30, priceYuan: 0.3 } },
+          { when: { resolution: "2K" }, price: { credits: 40, priceYuan: 0.4 } },
+          { when: { resolution: "4K" }, price: { credits: 50, priceYuan: 0.5 } },
+        ],
+      },
     },
     vendors: [
       {
@@ -1070,7 +1130,15 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "banana-3.1",
         modelName: "Nano Banana 2 Edit",
         modelVersion: "3.1",
-        creditsPerCall: 20,
+        creditsPerCall: 30,
+        pricing: {
+          defaults: { credits: 30, priceYuan: 0.3 },
+          rules: [
+            { when: { resolution: "0.5K" }, price: { credits: 30, priceYuan: 0.3 } },
+            { when: { resolution: "2K" }, price: { credits: 40, priceYuan: 0.4 } },
+            { when: { resolution: "4K" }, price: { credits: 50, priceYuan: 0.5 } },
+          ],
+        },
       },
     ],
   },
@@ -1085,17 +1153,24 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         {
           modelKey: "gemini-image-blend",
           taskType: "image",
-          vendors: [{ vendorKey: "banana", creditsPerCall: 30 }],
+          vendors: [{ vendorKey: "banana", creditsPerCall: 40 }],
           defaultVendor: "banana",
         },
         {
           flowNodeType: "generateReference",
           nodeKey: "generateReference",
           category: "image",
-          creditsPerCall: 30,
+          creditsPerCall: 40,
           description: "Nano Banana Pro 图像融合",
         }
       ),
+      specPricing: {
+        defaults: { credits: 40 },
+        rules: [
+          { when: { resolution: "2K" }, price: { credits: 60, priceYuan: 0.6 } },
+          { when: { resolution: "4K" }, price: { credits: 80, priceYuan: 0.8 } },
+        ],
+      },
     },
     vendors: [
       {
@@ -1107,7 +1182,14 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "banana",
         modelName: "Nano Banana Pro Blend",
         modelVersion: "3.0",
-        creditsPerCall: 30,
+        creditsPerCall: 40,
+        pricing: {
+          defaults: { credits: 40, priceYuan: 0.4 },
+          rules: [
+            { when: { resolution: "2K" }, price: { credits: 60, priceYuan: 0.6 } },
+            { when: { resolution: "4K" }, price: { credits: 80, priceYuan: 0.8 } },
+          ],
+        },
       },
     ],
   },
@@ -1122,17 +1204,25 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         {
           modelKey: "gemini-3.1-image-blend",
           taskType: "image",
-          vendors: [{ vendorKey: "banana-3.1", creditsPerCall: 20 }],
+          vendors: [{ vendorKey: "banana-3.1", creditsPerCall: 30 }],
           defaultVendor: "banana-3.1",
         },
         {
           flowNodeType: "generateReference",
           nodeKey: "generateReference",
           category: "image",
-          creditsPerCall: 20,
+          creditsPerCall: 30,
           description: "Nano Banana 2 图像融合",
         }
       ),
+      specPricing: {
+        defaults: { credits: 30 },
+        rules: [
+          { when: { resolution: "0.5K" }, price: { credits: 30, priceYuan: 0.3 } },
+          { when: { resolution: "2K" }, price: { credits: 40, priceYuan: 0.4 } },
+          { when: { resolution: "4K" }, price: { credits: 50, priceYuan: 0.5 } },
+        ],
+      },
     },
     vendors: [
       {
@@ -1144,7 +1234,15 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "banana-3.1",
         modelName: "Nano Banana 2 Blend",
         modelVersion: "3.1",
-        creditsPerCall: 20,
+        creditsPerCall: 30,
+        pricing: {
+          defaults: { credits: 30, priceYuan: 0.3 },
+          rules: [
+            { when: { resolution: "0.5K" }, price: { credits: 30, priceYuan: 0.3 } },
+            { when: { resolution: "2K" }, price: { credits: 40, priceYuan: 0.4 } },
+            { when: { resolution: "4K" }, price: { credits: 50, priceYuan: 0.5 } },
+          ],
+        },
       },
     ],
   },
@@ -1196,17 +1294,21 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         {
           modelKey: "gemini-2.5-image-edit",
           taskType: "image",
-          vendors: [{ vendorKey: "banana-2.5", creditsPerCall: 30 }],
+          vendors: [{ vendorKey: "banana-2.5", creditsPerCall: 20 }],
           defaultVendor: "banana-2.5",
         },
         {
           flowNodeType: "generatePro",
           nodeKey: "generatePro",
           category: "image",
-          creditsPerCall: 30,
+          creditsPerCall: 20,
           description: "Nano Banana Fast 图像编辑",
         }
       ),
+      specPricing: {
+        defaults: { credits: 20 },
+        rules: [],
+      },
     },
     vendors: [
       {
@@ -1218,7 +1320,11 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "banana-2.5",
         modelName: "Nano Banana Edit",
         modelVersion: "2.5",
-        creditsPerCall: 30,
+        creditsPerCall: 20,
+        pricing: {
+          defaults: { credits: 20, priceYuan: 0.2 },
+          rules: [],
+        },
       },
     ],
   },
@@ -1233,17 +1339,21 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         {
           modelKey: "gemini-2.5-image-blend",
           taskType: "image",
-          vendors: [{ vendorKey: "banana-2.5", creditsPerCall: 30 }],
+          vendors: [{ vendorKey: "banana-2.5", creditsPerCall: 20 }],
           defaultVendor: "banana-2.5",
         },
         {
           flowNodeType: "generateReference",
           nodeKey: "generateReference",
           category: "image",
-          creditsPerCall: 30,
+          creditsPerCall: 20,
           description: "Nano Banana Fast 图像融合",
         }
       ),
+      specPricing: {
+        defaults: { credits: 20 },
+        rules: [],
+      },
     },
     vendors: [
       {
@@ -1255,7 +1365,11 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "banana-2.5",
         modelName: "Nano Banana Blend",
         modelVersion: "2.5",
-        creditsPerCall: 30,
+        creditsPerCall: 20,
+        pricing: {
+          defaults: { credits: 20, priceYuan: 0.2 },
+          rules: [],
+        },
       },
     ],
   },
@@ -3454,7 +3568,7 @@ function UsersTab({
                   <div className='rounded-lg border border-gray-200 p-4'>
                     <div className='text-xs text-gray-500'>当前生效套餐</div>
                     <div className='mt-1 text-base font-semibold text-gray-900'>
-                      {membershipState.current.plan?.name || "免费版"}
+                      {membershipState.current.plan?.name || "标准版"}
                     </div>
                     <div className='mt-2 text-xs text-gray-500'>
                       到期：
@@ -4016,6 +4130,8 @@ function ApiRecordsTab() {
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
+  const [selectedRequestRecord, setSelectedRequestRecord] =
+    useState<ApiUsageRecord | null>(null);
   const [filters, setFilters] = useState({
     serviceType: "",
     provider: "",
@@ -4118,6 +4234,127 @@ function ApiRecordsTab() {
     window.open(buildOpenObserveFailureUrl(record), "_blank", "noopener,noreferrer");
   };
 
+  const isRecordObject = (value: unknown): value is Record<string, unknown> =>
+    Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+  const pickString = (...values: unknown[]): string | undefined => {
+    for (const value of values) {
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (trimmed) return trimmed;
+      }
+    }
+    return undefined;
+  };
+
+  const isRenderableImageRef = (value?: string): boolean => {
+    if (!value) return false;
+    if (value.startsWith("data:") || value.startsWith("blob:")) return false;
+    if (/^[A-Za-z0-9+/=]{80,}$/.test(value)) return false;
+    return true;
+  };
+
+  const findNestedString = (
+    value: unknown,
+    keys: readonly string[],
+    depth = 0,
+  ): string | undefined => {
+    if (depth > 2 || !isRecordObject(value)) return undefined;
+
+    for (const key of keys) {
+      const candidate = pickString(value[key]);
+      if (candidate) return candidate;
+    }
+
+    for (const nested of Object.values(value)) {
+      const candidate = findNestedString(nested, keys, depth + 1);
+      if (candidate) return candidate;
+    }
+
+    return undefined;
+  };
+
+  const findNestedImage = (value: unknown, depth = 0): string | undefined => {
+    if (depth > 2 || !isRecordObject(value)) return undefined;
+
+    const imageKeys = [
+      "requestThumbnailUrl",
+      "requestThumbnail",
+      "thumbnailUrl",
+      "thumbnail",
+      "sourceImageUrl",
+      "referenceImage",
+      "inputImageUrl",
+      "imageUrl",
+      "image",
+      "cover",
+      "poster",
+    ] as const;
+
+    const imageListKeys = [
+      "sourceImages",
+      "referenceImages",
+      "inputImages",
+      "images",
+    ] as const;
+
+    for (const key of imageKeys) {
+      const candidate = pickString(value[key]);
+      if (isRenderableImageRef(candidate)) return candidate;
+    }
+
+    for (const key of imageListKeys) {
+      const list = value[key];
+      if (!Array.isArray(list)) continue;
+      for (const entry of list) {
+        const candidate = pickString(entry);
+        if (isRenderableImageRef(candidate)) return candidate;
+      }
+    }
+
+    for (const nested of Object.values(value)) {
+      if (Array.isArray(nested)) {
+        for (const entry of nested) {
+          if (!isRecordObject(entry)) continue;
+          const candidate = findNestedImage(entry, depth + 1);
+          if (candidate) return candidate;
+        }
+        continue;
+      }
+
+      const candidate = findNestedImage(nested, depth + 1);
+      if (candidate) return candidate;
+    }
+
+    return undefined;
+  };
+
+  const getRequestPrompt = (record: ApiUsageRecord): string | undefined =>
+    pickString(
+      findNestedString(record.requestParams, [
+        "requestPrompt",
+        "originalPrompt",
+        "fullPrompt",
+        "promptText",
+        "prompt",
+        "textPrompt",
+        "inputPrompt",
+        "userPrompt",
+      ]),
+    );
+
+  const getRequestThumbnail = (record: ApiUsageRecord): string | undefined =>
+    findNestedImage(record.requestParams);
+
+  const formatRequestJson = (record: ApiUsageRecord): string => {
+    if (!record.requestParams) return "{}";
+    try {
+      return JSON.stringify(record.requestParams, null, 2);
+    } catch {
+      return String(record.requestParams);
+    }
+  };
+
   return (
     <div>
       <div className='mb-4 flex gap-2'>
@@ -4158,21 +4395,22 @@ function ApiRecordsTab() {
           <table className='w-full text-sm'>
             <thead className='bg-gray-50'>
               <tr>
-                <th className='px-4 py-3 text-left'>时间</th>
-                <th className='px-4 py-3 text-left'>用户</th>
-                <th className='px-4 py-3 text-left'>服务</th>
-                <th className='px-4 py-3 text-left'>提供商</th>
-                <th className='px-4 py-3 text-left'>渠道商</th>
-                <th className='px-4 py-3 text-right'>消耗积分</th>
-                <th className='px-4 py-3 text-right'>耗时</th>
-                <th className='px-4 py-3 text-left'>状态</th>
+                <th className='whitespace-nowrap px-4 py-3 text-left'>时间</th>
+                <th className='whitespace-nowrap px-4 py-3 text-left'>用户</th>
+                <th className='whitespace-nowrap px-4 py-3 text-left'>服务</th>
+                <th className='whitespace-nowrap px-4 py-3 text-left'>提供商</th>
+                <th className='whitespace-nowrap px-4 py-3 text-left'>渠道商</th>
+                <th className='whitespace-nowrap px-4 py-3 text-left'>请求</th>
+                <th className='whitespace-nowrap px-4 py-3 text-right'>消耗积分</th>
+                <th className='whitespace-nowrap px-4 py-3 text-right'>耗时</th>
+                <th className='whitespace-nowrap px-4 py-3 text-left'>状态</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={9}
                     className='px-4 py-8 text-center text-gray-500'
                   >
                     加载中...
@@ -4181,14 +4419,18 @@ function ApiRecordsTab() {
               ) : records.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={9}
                     className='px-4 py-8 text-center text-gray-500'
                   >
                     暂无数据
                   </td>
                 </tr>
               ) : (
-                records.map((record) => (
+                records.map((record) => {
+                  const requestPrompt = getRequestPrompt(record);
+                  const requestThumbnail = getRequestThumbnail(record);
+
+                  return (
                   <tr key={record.id} className='border-t hover:bg-gray-50'>
                     <td className='px-4 py-3 text-xs text-gray-500'>
                       {new Date(record.createdAt).toLocaleString()}
@@ -4209,6 +4451,35 @@ function ApiRecordsTab() {
                       <span className='px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-xs'>
                         {getRecordChannelLabel(record)}
                       </span>
+                    </td>
+                    <td className='px-4 py-3'>
+                      <div className='flex min-w-[220px] items-center gap-3'>
+                        {requestThumbnail ? (
+                          <img
+                            src={requestThumbnail}
+                            alt='请求缩略图'
+                            className='h-12 w-12 rounded-md border border-gray-200 object-cover'
+                            loading='lazy'
+                          />
+                        ) : (
+                          <div className='flex h-12 w-12 items-center justify-center rounded-md border border-dashed border-gray-200 bg-gray-50 text-[10px] text-gray-400'>
+                            无图
+                          </div>
+                        )}
+                        <div className='min-w-0 flex-1'>
+                          <div className='text-xs text-gray-500'>
+                            {requestPrompt ? "提示词已隐藏" : "无提示词"}
+                          </div>
+                          <Button
+                            variant='outline'
+                            size='sm'
+                            className='mt-1 h-7 px-2 text-xs'
+                            onClick={() => setSelectedRequestRecord(record)}
+                          >
+                            查看完整请求
+                          </Button>
+                        </div>
+                      </div>
                     </td>
                     <td className='px-4 py-3 text-right font-medium'>
                       {record.responseStatus === "failed" ? (
@@ -4258,7 +4529,7 @@ function ApiRecordsTab() {
                       )}
                     </td>
                   </tr>
-                ))
+                )})
               )}
             </tbody>
           </table>
@@ -4286,6 +4557,67 @@ function ApiRecordsTab() {
           >
             下一页
           </Button>
+        </div>
+      )}
+
+      {selectedRequestRecord && (
+        <div
+          className='fixed inset-0 z-[1200] flex items-center justify-center bg-black/50 p-4'
+          onClick={() => setSelectedRequestRecord(null)}
+        >
+          <div
+            className='max-h-[85vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl'
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className='flex items-center justify-between border-b px-5 py-4'>
+              <div>
+                <h3 className='text-base font-semibold text-gray-900'>完整请求</h3>
+                <p className='mt-1 text-xs text-gray-500'>
+                  {selectedRequestRecord.serviceName} · {new Date(selectedRequestRecord.createdAt).toLocaleString()}
+                </p>
+              </div>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() => setSelectedRequestRecord(null)}
+              >
+                关闭
+              </Button>
+            </div>
+
+            <div className='grid gap-5 overflow-auto p-5 md:grid-cols-[280px_minmax(0,1fr)]'>
+              <div className='space-y-4'>
+                <div>
+                  <div className='mb-2 text-xs font-medium text-gray-500'>请求缩略图</div>
+                  {getRequestThumbnail(selectedRequestRecord) ? (
+                    <img
+                      src={getRequestThumbnail(selectedRequestRecord)}
+                      alt='请求缩略图'
+                      className='h-56 w-full rounded-lg border border-gray-200 object-cover'
+                    />
+                  ) : (
+                    <div className='flex h-56 items-center justify-center rounded-lg border border-dashed border-gray-200 bg-gray-50 text-sm text-gray-400'>
+                      这条记录没有请求缩略图
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <div className='mb-2 text-xs font-medium text-gray-500'>提示词</div>
+                  <div className='max-h-56 overflow-auto rounded-lg border bg-gray-50 p-3 text-sm whitespace-pre-wrap break-words text-gray-800'>
+                    {getRequestPrompt(selectedRequestRecord) || "这条记录没有提示词"}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div className='mb-2 text-xs font-medium text-gray-500'>请求参数 JSON</div>
+                <pre className='max-h-[65vh] overflow-auto rounded-lg bg-slate-950 p-4 text-xs leading-5 text-slate-100'>
+                  {formatRequestJson(selectedRequestRecord)}
+                </pre>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -6381,11 +6713,11 @@ function VipManagementTab() {
   ] as const;
   const FREE_TIER_BENEFITS_SETTING_KEY = "membership_free_tier_benefits";
   const DEFAULT_FREE_TIER_BENEFITS = {
-    coreBenefits: "每天最多 20 张图、3 个视频",
+    coreBenefits: "图片与视频生成不限每日次数",
     templateLibraryAccess: "基础可用",
     inviteLimit: 5,
-    imageDailyLimit: 20,
-    videoDailyLimit: 3,
+    imageDailyLimit: 0,
+    videoDailyLimit: 0,
     seedance2Access: "disabled",
     supportLevel: "有限技术支持",
   };
@@ -6580,14 +6912,8 @@ function VipManagementTab() {
               Number.isFinite(Number(raw?.inviteLimit)) && Number(raw.inviteLimit) >= 0
                 ? Math.trunc(Number(raw.inviteLimit))
                 : DEFAULT_FREE_TIER_BENEFITS.inviteLimit,
-            imageDailyLimit:
-              Number.isFinite(Number(raw?.imageDailyLimit)) && Number(raw.imageDailyLimit) >= 0
-                ? Math.trunc(Number(raw.imageDailyLimit))
-                : DEFAULT_FREE_TIER_BENEFITS.imageDailyLimit,
-            videoDailyLimit:
-              Number.isFinite(Number(raw?.videoDailyLimit)) && Number(raw.videoDailyLimit) >= 0
-                ? Math.trunc(Number(raw.videoDailyLimit))
-                : DEFAULT_FREE_TIER_BENEFITS.videoDailyLimit,
+            imageDailyLimit: DEFAULT_FREE_TIER_BENEFITS.imageDailyLimit,
+            videoDailyLimit: DEFAULT_FREE_TIER_BENEFITS.videoDailyLimit,
             seedance2Access:
               raw?.seedance2Access === "enabled" ? "enabled" : DEFAULT_FREE_TIER_BENEFITS.seedance2Access,
             supportLevel:
@@ -6753,8 +7079,8 @@ function VipManagementTab() {
         freeTierBenefits.consecutive7DayRewardMultiplier || 0,
       );
       const inviteLimit = Number(freeTierBenefits.inviteLimit || 0);
-      const imageDailyLimit = Number(freeTierBenefits.imageDailyLimit || 0);
-      const videoDailyLimit = Number(freeTierBenefits.videoDailyLimit || 0);
+      const imageDailyLimit = DEFAULT_FREE_TIER_BENEFITS.imageDailyLimit;
+      const videoDailyLimit = DEFAULT_FREE_TIER_BENEFITS.videoDailyLimit;
       if (!Number.isFinite(monthlyQuotaCredits) || monthlyQuotaCredits < 0) {
         throw new Error("免费用户月额度必须是大于等于 0 的数字");
       }
@@ -7030,7 +7356,10 @@ function VipManagementTab() {
                 </td>
                 <td className='px-3 py-3'>
                   <div className='mb-1 text-xs text-gray-500'>
-                    {`每天最多 ${freeTierBenefits.imageDailyLimit || "0"} 张图、${freeTierBenefits.videoDailyLimit || "0"} 个视频`}
+                    {Number(freeTierBenefits.imageDailyLimit || 0) <= 0 &&
+                    Number(freeTierBenefits.videoDailyLimit || 0) <= 0
+                      ? "图片与视频生成不限每日次数"
+                      : `每天最多 ${freeTierBenefits.imageDailyLimit || "0"} 张图、${freeTierBenefits.videoDailyLimit || "0"} 个视频`}
                   </div>
                   <div className='mb-1 text-xs text-gray-500'>
                     {`Seedance 2 权益：${freeTierBenefits.seedance2Access === "enabled" ? "支持" : "不支持"}`}
@@ -7323,7 +7652,7 @@ function VipManagementTab() {
             </div>
 
             <div className='space-y-4'>
-              <div className='grid grid-cols-1 gap-4 md:grid-cols-3'>
+              <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
                 <div>
                   <div className='mb-1 text-sm text-gray-600'>免费用户月额度积分</div>
                   <Input
@@ -7338,33 +7667,8 @@ function VipManagementTab() {
                     }
                   />
                 </div>
-                <div>
-                  <div className='mb-1 text-sm text-gray-600'>免费用户日生图上限</div>
-                  <Input
-                    type='number'
-                    min='0'
-                    value={freeTierBenefits.imageDailyLimit}
-                    onChange={(e) =>
-                      setFreeTierBenefits((current) => ({
-                        ...current,
-                        imageDailyLimit: e.target.value,
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <div className='mb-1 text-sm text-gray-600'>免费用户日视频上限</div>
-                  <Input
-                    type='number'
-                    min='0'
-                    value={freeTierBenefits.videoDailyLimit}
-                    onChange={(e) =>
-                      setFreeTierBenefits((current) => ({
-                        ...current,
-                        videoDailyLimit: e.target.value,
-                      }))
-                    }
-                  />
+                <div className='rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-700'>
+                  标准版图片与视频生成功能不限每日次数（固定策略）
                 </div>
               </div>
               <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>

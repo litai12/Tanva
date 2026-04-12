@@ -1051,6 +1051,22 @@ export class VideoProviderService {
       .filter((item, index, array) => !!item && array.indexOf(item) === index);
   }
 
+  private normalizeSeedanceApiResolution(
+    modelKey: string,
+    route: ResolvedManagedModelRoute,
+    resolution: unknown,
+  ): string | undefined {
+    const normalized = typeof resolution === "string" ? resolution.trim() : "";
+    if (!normalized) return undefined;
+    if (!modelKey.startsWith("seedance-")) return normalized;
+    if (route.vendor.vendorKey !== "seedance_api") return normalized;
+
+    const upper = normalized.toUpperCase();
+    if (upper === "480P") return "480p";
+    if (upper === "720P") return "720p";
+    return normalized;
+  }
+
   private async buildManagedV2RequestContext(
     modelKey: string,
     options: VideoProviderRequestDto,
@@ -1069,6 +1085,11 @@ export class VideoProviderService {
     const promptText = this.buildManagedV2PromptText(options);
     const referenceVideos = this.normalizeManagedV2ReferenceVideos(options);
     const referenceAudios = this.normalizeManagedV2ReferenceAudios(options);
+    const resolutionForRequest = this.normalizeSeedanceApiResolution(
+      modelKey,
+      route,
+      options.resolution,
+    );
     const content: any[] = [];
 
     if (promptText) {
@@ -1103,6 +1124,7 @@ export class VideoProviderService {
     const baseContext: Record<string, any> = {
       request: {
         ...options,
+        resolution: resolutionForRequest,
         prompt: options.prompt || "",
         promptWithParams: promptText,
         seedanceUpstreamModelId:

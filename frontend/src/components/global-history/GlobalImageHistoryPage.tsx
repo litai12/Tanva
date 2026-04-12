@@ -7,6 +7,10 @@ import { useGlobalImageHistoryStore } from '@/stores/globalImageHistoryStore';
 import type { GlobalImageHistoryItem } from '@/services/globalImageHistoryApi';
 import GlobalImageDetailModal from './GlobalImageDetailModal';
 import { useTranslation } from 'react-i18next';
+import {
+  getHistoryRequestPrompt,
+  getHistoryRequestThumbnail,
+} from './historyRequestInfo';
 
 interface GlobalImageHistoryPageProps {
   isOpen: boolean;
@@ -107,6 +111,8 @@ const ImageCard: React.FC<ImageCardProps> = ({
     day: '2-digit',
   });
   const typeLabel = resolveSourceTypeLabel(item.sourceType);
+  const requestPrompt = getHistoryRequestPrompt(item);
+  const requestThumbnail = getHistoryRequestThumbnail(item);
 
   return (
     <div
@@ -116,11 +122,24 @@ const ImageCard: React.FC<ImageCardProps> = ({
       <div className="aspect-square">
         <SmartImage
           src={item.imageUrl}
-          alt={item.prompt || lt('图片', 'Image')}
+          alt={requestPrompt || lt('图片', 'Image')}
           className="w-full h-full object-cover"
           loading="lazy"
         />
       </div>
+      {requestThumbnail ? (
+        <div className="absolute left-2 top-2 rounded-lg border border-white/15 bg-black/55 p-1 backdrop-blur-sm">
+          <div className="text-[10px] leading-none text-white/70">
+            {lt('请求图', 'Req')}
+          </div>
+          <SmartImage
+            src={requestThumbnail}
+            alt={lt('请求缩略图', 'Request Thumbnail')}
+            className="mt-1 h-12 w-12 rounded object-cover"
+            loading="lazy"
+          />
+        </div>
+      ) : null}
       {/* 悬浮操作栏 */}
       <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-between p-2">
         <div className="flex justify-end gap-1">
@@ -139,15 +158,34 @@ const ImageCard: React.FC<ImageCardProps> = ({
             <Trash2 className="h-4 w-4" />
           </button>
         </div>
-        <div className="text-white text-xs">
-          <p className="truncate">{item.prompt || lt('无描述', 'No description')}</p>
+        <div className="flex justify-start">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect(item);
+            }}
+            className="rounded-md bg-white/20 px-2.5 py-1 text-xs text-white hover:bg-white/30"
+            title={lt('查看完整请求', 'View full request')}
+          >
+            {lt('查看完整请求', 'View Full Request')}
+          </button>
         </div>
       </div>
       {/* 底部信息 */}
       <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2 pointer-events-none">
-        <div className="flex items-center justify-between text-xs text-white/80">
-          <span>{formattedDate}</span>
-          <span className="px-1.5 py-0.5 bg-white/20 rounded text-[10px]">{typeLabel}</span>
+        <div className="space-y-1 text-xs text-white/80">
+          <div className="flex items-center justify-between">
+            <span>{formattedDate}</span>
+            <span className="px-1.5 py-0.5 bg-white/20 rounded text-[10px]">{typeLabel}</span>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate text-white/65">
+              {requestThumbnail ? lt('含请求缩略图', 'Has request thumbnail') : lt('无请求缩略图', 'No request thumbnail')}
+            </span>
+            <span className="shrink-0 text-white/65">
+              {requestPrompt ? lt('提示词已隐藏', 'Prompt hidden') : lt('无提示词', 'No prompt')}
+            </span>
+          </div>
         </div>
       </div>
     </div>

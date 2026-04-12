@@ -71,6 +71,11 @@ import type { PromptOptimizationSettings } from "@/components/chat/PromptOptimiz
 import promptOptimizationService from "@/services/promptOptimizationService";
 import { contextManager } from "@/services/contextManager";
 import { toRenderableImageSrc } from "@/utils/imageSource";
+import {
+  getTencentBananaMaxReferenceImages,
+  isTencentBananaAnalyzeSupported,
+  isTencentStableBananaRoute,
+} from "@/utils/bananaRouteCapabilities";
 
 type ManualModeOption = {
   value: ManualAIMode;
@@ -308,6 +313,7 @@ const AIChatDialog: React.FC = () => {
     setManualAIMode,
     autoSelectedTool,
     aiProvider,
+    bananaImageRoute,
     setAIProvider,
     autoModeMultiplier,
     setAutoModeMultiplier,
@@ -460,9 +466,19 @@ const AIChatDialog: React.FC = () => {
   const [showAura, setShowAura] = useState(false);
   const auraTimerRef = useRef<number | null>(null);
 
+  const isTencentStableBanana = isTencentStableBananaRoute(
+    aiProvider,
+    bananaImageRoute
+  );
+  const tencentBananaMaxRefCount = isTencentStableBanana
+    ? getTencentBananaMaxReferenceImages(aiProvider)
+    : null;
   const availableManualModeOptions = useMemo(() => {
-    return PROVIDER_MODE_OPTIONS[aiProvider] ?? BASE_MANUAL_MODE_OPTIONS;
-  }, [aiProvider]);
+    const baseOptions =
+      PROVIDER_MODE_OPTIONS[aiProvider] ?? BASE_MANUAL_MODE_OPTIONS;
+    if (!isTencentStableBanana) return baseOptions;
+    return baseOptions.filter((option) => option.value !== "analyze");
+  }, [aiProvider, isTencentStableBanana]);
   const currentManualMode =
     availableManualModeOptions.find(
       (option) => option.value === manualAIMode
@@ -2239,8 +2255,19 @@ const AIChatDialog: React.FC = () => {
         case "edit":
           return { supported: count === 1 };
         case "blend":
-          return { supported: count >= 2 };
+          if (count < 2) return { supported: false };
+          if (
+            isTencentStableBanana &&
+            tencentBananaMaxRefCount !== null &&
+            count > tencentBananaMaxRefCount
+          ) {
+            return { supported: false };
+          }
+          return { supported: true };
         case "analyze":
+          if (isTencentStableBanana && !isTencentBananaAnalyzeSupported()) {
+            return { supported: false };
+          }
           if (hasPdfForAnalysis) {
             return { supported: count === 0 };
           }
@@ -2251,13 +2278,28 @@ const AIChatDialog: React.FC = () => {
           return { supported: true };
       }
     },
-    [hasPdfForAnalysis, selectedImageCount]
+    [
+      hasPdfForAnalysis,
+      isTencentStableBanana,
+      selectedImageCount,
+      tencentBananaMaxRefCount,
+    ]
   );
 
   const isManualModeSupported = useMemo(() => {
     if (manualAIMode === "auto") return true;
     return getModeSupport(manualAIMode).supported;
   }, [getModeSupport, manualAIMode]);
+
+  const imageInputLimitWarning = useMemo(() => {
+    if (!isTencentStableBanana || tencentBananaMaxRefCount === null) return null;
+    if (selectedImageCount <= tencentBananaMaxRefCount) return null;
+    return `稳定通道下当前模型最多支持${tencentBananaMaxRefCount}张参考图，请减少图片数量`;
+  }, [
+    isTencentStableBanana,
+    selectedImageCount,
+    tencentBananaMaxRefCount,
+  ]);
 
   const manualModeWarning = useMemo(() => {
     if (manualAIMode === "auto") return null;
@@ -2269,9 +2311,19 @@ const AIChatDialog: React.FC = () => {
         : "Edit模式仅支持1张图片";
     }
     if (manualAIMode === "blend") {
+      if (
+        isTencentStableBanana &&
+        tencentBananaMaxRefCount !== null &&
+        selectedImageCount > tencentBananaMaxRefCount
+      ) {
+        return `Blend模式在稳定通道下最多支持${tencentBananaMaxRefCount}张图片`;
+      }
       return "Blend模式需要添加至少2张以上图片";
     }
     if (manualAIMode === "analyze") {
+      if (isTencentStableBanana && !isTencentBananaAnalyzeSupported()) {
+        return "稳定通道暂不支持Analysis，请切换到普通通道";
+      }
       return hasPdfForAnalysis
         ? "PDF分析模式不支持同时添加图片"
         : "Analysis模式至少需要添加1张图片";
@@ -2279,9 +2331,11 @@ const AIChatDialog: React.FC = () => {
     return `当前模式不支持${selectedImageCount}张图`;
   }, [
     hasPdfForAnalysis,
+    isTencentStableBanana,
     isManualModeSupported,
     manualAIMode,
     selectedImageCount,
+    tencentBananaMaxRefCount,
   ]);
 
   // 处理发送 - 使用AI智能工具选择
@@ -2289,6 +2343,11 @@ const AIChatDialog: React.FC = () => {
     const trimmedInput = currentInput.trim();
     if (!trimmedInput || generationStatus.isGenerating || autoOptimizing)
       return;
+
+    if (imageInputLimitWarning) {
+      showToast(imageInputLimitWarning, "error");
+      return;
+    }
 
     if (manualModeWarning) {
       showToast(manualModeWarning, "error");
@@ -2804,7 +2863,8 @@ const AIChatDialog: React.FC = () => {
     sendShortcut === "enter"
       ? lt("快捷键：Enter 发送，Shift+Enter 换行", "Shortcut: Enter to send, Shift+Enter for newline")
       : lt("快捷键：Ctrl/Cmd + Enter 发送，Enter 换行", "Shortcut: Ctrl/Cmd + Enter to send, Enter for newline");
-  const sendButtonTitle = manualModeWarning || sendShortcutHint;
+  const sendButtonTitle =
+    imageInputLimitWarning || manualModeWarning || sendShortcutHint;
 
   // 计算拖拽时是否使用自定义位置
   const useDragPosition = showHistory && !isMaximized && dragOffsetX !== null;
@@ -3693,11 +3753,13 @@ const AIChatDialog: React.FC = () => {
 	                    <div className='flex items-center gap-1 p-2'>
 	                      {[
 	                        { label: lt("默认", "Default"), value: null },
-	                        { label: lt("3秒", "3s"), value: 3 },
 	                        { label: lt("4秒", "4s"), value: 4 },
 	                        { label: lt("5秒", "5s"), value: 5 },
 	                        { label: lt("6秒", "6s"), value: 6 },
 	                        { label: lt("8秒", "8s"), value: 8 },
+	                        { label: lt("10秒", "10s"), value: 10 },
+	                        { label: lt("12秒", "12s"), value: 12 },
+	                        { label: lt("15秒", "15s"), value: 15 },
 	                      ].map((opt) => (
                         <button
                           key={opt.label}
@@ -3710,7 +3772,7 @@ const AIChatDialog: React.FC = () => {
                           )}
                           onClick={() => {
                             setVideoDurationSeconds(
-                              opt.value as 3 | 4 | 5 | 6 | 8 | null
+                              opt.value as 4 | 5 | 6 | 8 | 10 | 12 | 15 | null
                             );
                             setIsVideoDurationOpen(false);
                           }}

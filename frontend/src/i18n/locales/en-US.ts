@@ -115,6 +115,7 @@ const enUS = {
       wechatAuthorizing: "Scanned. Signing you in...",
       wechatBinding: "Verifying phone number and completing sign-in...",
       wechatBindHint: "WeChat identity recognized. Enter your phone number and SMS code to finish signing in.",
+      wechatBindHintWithName: "Hi {{name}}, enter your phone number and SMS code to finish signing in.",
       wechatBindSubmit: "Verify Phone and Sign In",
       wechatBindSubmitLoading: "Verifying...",
       wechatBindIncomplete: "Please enter your phone number and verification code.",
