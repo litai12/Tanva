@@ -34,6 +34,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- Credits/Quota: 免费用户生成配额改为按“是否存在 `paymentOrder.status=paid`”统一判定；未付费用户默认执行 `日生图20、月生图100、日视频3、月视频10`（UTC 口径），管理员角色仍豁免（`backend/src/credits/credits.service.ts`）。
+- Credits/Quota: 免费用户在 `Run` 触发超限时，后端错误文案统一追加“免费额度已用尽，请前往充值，享有更多权限后可继续生成”，覆盖日/月图与日/月视频四类上限场景（`backend/src/credits/credits.service.ts`）。
 - Chat/Banana route: stable (Tencent) now applies explicit capability guards: manual `Analysis` mode is hidden/blocked, Tencent reference-image limits are enforced (Fast=3, Pro/Ultra=14), and auto tool-selection no longer picks `analyzeImage` on stable route.
 - Flow/Video: disabled Run-button hover credit swap for video nodes (e.g. Kling, Vidu, Seedance). Hover/focus now keeps `Run` text and no longer shows points badge in-place (`frontend/src/components/flow/flow.css`).
 - Flow/Video: 修复 `Seedance 2.0` 在切换到 `多图参考 / 智能多帧` 后仍只能连接 1 张上游图片的问题；节点现会渲染与 `FlowOverlay` 分槽逻辑一致的 `image-slot-*` 目标句柄，确保多图连线可实际落到独立 slot（`frontend/src/components/flow/nodes/GenericVideoNode.tsx`）。

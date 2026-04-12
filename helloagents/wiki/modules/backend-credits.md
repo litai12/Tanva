@@ -27,6 +27,21 @@
 - `GET usage`
 - `POST admin/add` / `POST admin/deduct`（需要管理员角色）
 
+## 免费用户生成配额（按“是否有 paid 订单”判定）
+- 适用对象：无任何 `paymentOrder.status=paid` 的普通用户（`admin/normal_admin` 仍豁免）。
+- 生图上限：
+  - 每天最多 `20` 张（UTC 日）
+  - 每月最多 `100` 张（UTC 月）
+- 视频上限：
+  - 每天最多 `3` 个（UTC 日）
+  - 每月最多 `10` 个（UTC 月）
+- 计数口径：统计 `ApiUsageRecord` 中 `responseStatus in (pending, success)` 的记录，避免并发重复下单绕过配额。
+- 可通过环境变量覆盖默认值：
+  - `FREE_USER_DAILY_IMAGE_LIMIT`
+  - `FREE_USER_MONTHLY_IMAGE_LIMIT`
+  - `FREE_USER_DAILY_VIDEO_LIMIT`
+  - `FREE_USER_MONTHLY_VIDEO_LIMIT`
+
 ## 渠道与模型追踪（图像分析）
 - `POST /api/ai/analyze-image` 的计费请求参数会写入 `aiProvider/channelHint`，用于在积分流水中识别执行渠道。
 - 流水列表前端可直接展示“渠道 + 模型”，用于核对“使用了哪个渠道、哪个模型”。

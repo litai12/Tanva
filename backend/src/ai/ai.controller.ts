@@ -91,7 +91,6 @@ type TraceableReq = {
 const MANAGED_IMAGE_KEY_REGEX = /^(projects|uploads|templates|videos|ai)\//i;
 const FREE_TIER_BENEFITS_SETTING_KEY = 'membership_free_tier_benefits';
 const PRIVILEGED_ADMIN_ROLES = new Set(['admin', 'normal_admin']);
-const SEEDANCE20_MIN_RECHARGE_AMOUNT = 200;
 
 @ApiTags('ai')
 @UseGuards(ApiKeyOrJwtGuard)
@@ -206,6 +205,7 @@ export class AiController {
   private async assertSeedance2Entitlement(
     userId: string | null,
     dto: VideoProviderRequestDto,
+    req: any,
   ): Promise<void> {
     const normalizedProvider = String(dto.provider || '').trim().toLowerCase();
     const normalizedSeedanceModel = String(dto.seedanceModel || '').trim().toLowerCase();
@@ -220,9 +220,11 @@ export class AiController {
       return;
     }
 
-    const access = await this.resolveUserSeedance2Access(userId);
-    if (access !== 'enabled') {
-      throw new BadRequestException('当前套餐未开通 Seedance 2 权益，请升级后再试');
+    const access = await this.resolveSeedance2CombinedAccess(userId, req);
+    if (!access.allowed) {
+      throw new BadRequestException(
+        'Seedance 2.0 / 2.0 Fast requires VIP access or watermark whitelist access',
+      );
     }
   }
 
@@ -309,55 +311,37 @@ export class AiController {
     );
   }
 
-  private isSeedance20Request(dto: VideoProviderRequestDto): boolean {
-    return dto.provider === 'doubao' && this.isSeedance20Model(dto.seedanceModel);
-  }
+  private async resolveSeedance2CombinedAccess(
+    userId: string,
+    req: any,
+  ): Promise<{
+    allowed: boolean;
+    byVip: boolean;
+    byWhitelist: boolean;
+    byAdmin: boolean;
+  }> {
+    let byAdmin = this.isPrivilegedAdminRole(req?.user?.role);
+    let byWhitelist = false;
 
-  private async getTotalPaidRechargeAmount(userId: string): Promise<number> {
-    const aggregate = await this.prisma.paymentOrder.aggregate({
-      where: {
-        userId,
-        status: 'paid',
-        orderType: 'recharge',
-      },
-      _sum: {
-        amount: true,
-      },
-    });
-
-    const total = Number(aggregate._sum.amount ?? 0);
-    return Number.isFinite(total) ? total : 0;
-  }
-
-  private async assertSeedance20Access(userId: string, req: any): Promise<void> {
-    if (this.isPrivilegedAdminRole(req?.user?.role)) {
-      return;
-    }
-
-    let userRole: string | null = null;
     try {
       const user = await this.usersService.findById(userId);
-      userRole = typeof user?.role === 'string' ? user.role : null;
-      if (this.isPrivilegedAdminRole(userRole)) {
-        return;
-      }
+      byAdmin = byAdmin || this.isPrivilegedAdminRole(user?.role);
+      byWhitelist = byAdmin || user?.noWatermark === true;
     } catch (e) {
-      this.logger.warn('检查 Seedance 2.0 权限时读取用户角色失败', e);
+      this.logger.warn('Failed to resolve watermark whitelist for Seedance 2.0 access check', e);
+      byWhitelist = await this.canSkipWatermark(req);
     }
 
-    const totalRechargeAmount = await this.getTotalPaidRechargeAmount(userId);
-    if (totalRechargeAmount >= SEEDANCE20_MIN_RECHARGE_AMOUNT) {
-      return;
-    }
+    const byVip = (await this.resolveUserSeedance2Access(userId)) === 'enabled';
 
-    throw new ForbiddenException(
-      `Seedance 2.0 仅对累计充值满 ¥${SEEDANCE20_MIN_RECHARGE_AMOUNT} 用户开放（当前累计 ¥${totalRechargeAmount.toFixed(2)}）`,
-    );
+    return {
+      allowed: byVip || byWhitelist,
+      byVip,
+      byWhitelist,
+      byAdmin,
+    };
   }
 
-  /**
-   * 检查用户是否可以跳过水印（管理员或水印白名单用户）
-   */
   private async canSkipWatermark(req: any): Promise<boolean> {
     const userId = this.resolveRequestUserId(req);
     if (!userId) {
@@ -3587,23 +3571,34 @@ export class AiController {
    * 视频生成（通用供应商：可灵、Vidu、Seedance 1.5 Pro）
    * 返回 taskId 和 apiUsageId，前端在任务失败时可请求退款
    */
+  @Get('seedance2/access')
+  async getSeedance2Access(@Req() req: any) {
+    const userId = this.getUserId(req) || this.resolveRequestUserId(req);
+    if (!userId) {
+      return {
+        allowed: false,
+        byVip: false,
+        byWhitelist: false,
+        byAdmin: false,
+      };
+    }
+
+    return this.resolveSeedance2CombinedAccess(userId, req);
+  }
+
   @Post('generate-video-provider')
   async generateVideoProvider(@Body() dto: VideoProviderRequestDto, @Req() req: any) {
     const userId = this.getUserId(req);
     const effectiveDto: VideoProviderRequestDto = { ...dto };
 
-    if (userId && this.isSeedance20Request(effectiveDto)) {
-      await this.assertSeedance20Access(userId, req);
-    }
-
-    // 白名单/管理员兜底：Seedance 1.5 Pro链路即使前端传入 watermark=true，也强制关闭水印。
+    // Whitelist/admin users can skip watermark for doubao provider.
     if (effectiveDto.provider === 'doubao') {
       const skipWatermark = await this.canSkipWatermark(req);
       if (skipWatermark) {
         effectiveDto.watermark = false;
       }
     }
-    await this.assertSeedance2Entitlement(userId, effectiveDto);
+    await this.assertSeedance2Entitlement(userId, effectiveDto, req);
     const serviceType = this.resolveVideoProviderServiceType(effectiveDto);
 
     // 如果没有用户ID（API Key认证），直接执行操作

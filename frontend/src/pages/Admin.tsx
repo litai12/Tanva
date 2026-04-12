@@ -3015,7 +3015,7 @@ const buildManagedNodeMetadata = (model: ManagedModelConfig): Record<string, any
       ...(model.modelKey === "seedance-2.0"
         ? {
             seedanceMode: "text",
-            generateAudio: false,
+            generateAudio: true,
           }
         : {}),
     };

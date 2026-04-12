@@ -17,7 +17,7 @@ function Seedance20VideoNode({ id, data, selected }: Props) {
         seedanceMode: data?.seedanceMode || "reference_images",
         clipDuration: data?.clipDuration || 5,
         resolution: data?.resolution || "720P",
-        generateAudio: typeof data?.generateAudio === "boolean" ? data.generateAudio : false,
+        generateAudio: typeof data?.generateAudio === "boolean" ? data.generateAudio : true,
       }}
       selected={selected}
     />
