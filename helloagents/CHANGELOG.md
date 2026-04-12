@@ -6,6 +6,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Added
+- Video Pricing Ops: 新增本地导入脚本 `backend/scripts/apply-local-video-pricing-from-sheet.js`，可将 `task/视频模型官方价格表 (1).xlsx` 的视频模型价格按 `priceYuan x100 => credits` 批量写入 `model_provider_mapping_v2`，用于统一模型管理、本地积分预估与后端实际扣费共用同一份真实价格。
 - 新增产品定价策略文档，统一整理三类积分、免费用户额度、69/199/599 档会员权益与待确认规则（`frontend/docs/39-产品定价策略.md`）。
 - 新增面向官网/支付页的会员定价展示文案，包含标题、副标题、套餐卡片、对比表、积分说明与年费展示口径（`frontend/docs/40-会员定价展示文案.md`）。
 - Prisma migration fix: added `202604120001_fix_wechat_login_session_profile_columns` to backfill missing `WechatLoginSession.nickname` / `avatarUrl` columns that were omitted from the initial公众号扫码登录建表 migration, preventing `/api/auth/wechat-official/sessions/:id` from failing with Prisma missing-column errors on upgraded environments.
@@ -34,6 +35,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- Model Management / Video Pricing: `pricing.defaultAvailable=false` now marks unmatched video variants as unavailable by default. Admin adds an explicit “allow default fallback” toggle, frontend run-badge preview no longer silently falls back for those variants, and backend credit deduction rejects unmatched requests instead of charging the vendor default price.
+- Admin / Model Management: unified model management now includes a pricing preview panel for both current-model condition simulation and all-model default-spec overview, reusing the same managed route pricing resolver as frontend run badges and backend deduction.
 - Credits/Quota: 免费用户生成配额改为按“是否存在 `paymentOrder.status=paid`”统一判定；未付费用户默认执行 `日生图20、月生图100、日视频3、月视频10`（UTC 口径），管理员角色仍豁免（`backend/src/credits/credits.service.ts`）。
 - Credits/Quota: 免费用户在 `Run` 触发超限时，后端错误文案统一追加“免费额度已用尽，请前往充值，享有更多权限后可继续生成”，覆盖日/月图与日/月视频四类上限场景（`backend/src/credits/credits.service.ts`）。
 - Chat/Banana route: stable (Tencent) now applies explicit capability guards: manual `Analysis` mode is hidden/blocked, Tencent reference-image limits are enforced (Fast=3, Pro/Ultra=14), and auto tool-selection no longer picks `analyzeImage` on stable route.
@@ -444,3 +447,5 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Admin/Credits: 统一模型管理开始升级为正式定价结构，vendor 支持 `pricing.defaults + pricing.rules`，管理台可维护默认积分/默认价格与规格规则价格；后端预扣费兼容解析新旧结构，并把命中的 `pricingSnapshot` 写入 API 使用记录审计字段。
 - upstream request telemetry 新增 `type` 字段，按请求/响应的 MIME、URL 与 body 特征推断为 `text` / `video` / `picture`，便于在 `upstream_requests` 里区分不同媒介请求（`backend/src/telemetry/upstream-fetch-logger.ts`, `backend/src/telemetry/openobserve-telemetry.service.ts`）。
 - upstream request telemetry 扩展 `type` 枚举为 `text` / `video` / `picture` / `audio` / `file` / `binary` / `other`，并新增 `origin` / `origin_host` 记录发起请求时的来源域名，优先继承当前入站请求头，缺失时回退上游请求头中的 `Origin/Referer`（`backend/src/telemetry/request-context.ts`, `backend/src/telemetry/openobserve-request.interceptor.ts`, `backend/src/telemetry/upstream-fetch-logger.ts`, `backend/src/telemetry/openobserve-telemetry.service.ts`）。
+- 统一模型管理定价新增 `pricing.formula`：后端支持在 `pricing.rules[]` 之外按“基础价 + 固定/按字段乘数的增量项”组合计算价格，适配视频模型“每秒基础价 + 分辨率附加价”等线性报价，并把公式拆解写入 `pricingSnapshot.breakdown` 审计字段（`backend/src/ai/services/model-pricing-resolver.ts`, `backend/src/credits/credits.service.ts`）。
+- 视频模型管理定价进一步收口为运营可配置语义：前后端新增 canonical video pricing context（`resolution` / `duration` / `inputType` / `hasAudio` / `aspectRatio`），前端 managed route pricing 同步支持 `pricing.formula`，Admin 视频规则编辑器改为使用模型支持参数的双语下拉而非自由文本字段（`backend/src/ai/services/video-pricing-context.ts`, `frontend/src/components/flow/videoPricingContext.ts`, `frontend/src/components/flow/managedRoutePricing.ts`, `frontend/src/pages/Admin.tsx`）。

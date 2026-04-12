@@ -1,9 +1,17 @@
-import { useState, useEffect } from "react";
+import { Fragment, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 import { authApi } from "@/services/authApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  buildManagedVideoPricingContext,
+  getVideoPricingDimensions,
+  type ManagedVideoPricingDimension,
+  type ManagedVideoPricingDimensionKey,
+} from "@/components/flow/videoPricingContext";
+import { resolveManagedRoutePricing } from "@/components/flow/managedRoutePricing";
+import { buildSeedance20VendorConfig } from "@/pages/admin/modelMappingVendorDefaults";
 import { fetchWithAuth } from "@/services/authFetch";
 import {
   getDashboardStats,
@@ -235,11 +243,44 @@ interface ManagedModelVendorConfig {
   modelVersion?: string;
   pricing?: {
     version?: string;
+    defaultAvailable?: boolean;
+    unavailableReason?: string;
     dimensions?: string[];
     defaults?: {
       credits?: number;
       priceYuan?: number;
       costYuan?: number;
+    };
+    formula?: {
+      mode?: "additive";
+      base?: {
+        credits?: number;
+        priceYuan?: number;
+        costYuan?: number;
+      };
+      adjustments?: Array<{
+        key?: string;
+        label?: string;
+        when?: Record<string, any>;
+        match?: Record<string, any>;
+        price?: {
+          credits?: number;
+          priceYuan?: number;
+          costYuan?: number;
+        };
+        unitPrice?: {
+          credits?: number;
+          priceYuan?: number;
+          costYuan?: number;
+        };
+        multiplier?: {
+          field?: string;
+          value?: number;
+          min?: number;
+          max?: number;
+          round?: "none" | "ceil" | "floor" | "round";
+        };
+      }>;
     };
     rules?: Array<{
       ruleKey?: string;
@@ -296,6 +337,21 @@ type ManagedSpecPricingRule = {
   costYuan?: number;
 };
 
+type ManagedVideoFormulaAdjustment = {
+  key?: string;
+  label?: string;
+  match?: Record<string, any>;
+  fixedCredits?: number;
+  fixedPriceYuan?: number;
+  unitCredits?: number;
+  unitPriceYuan?: number;
+  multiplierField?: string;
+  multiplierValue?: number;
+  multiplierMin?: number;
+  multiplierMax?: number;
+  multiplierRound?: "none" | "ceil" | "floor" | "round";
+};
+
 const normalizeFiniteNumber = (value: unknown): number | undefined => {
   const normalized = Number(value);
   return Number.isFinite(normalized) ? normalized : undefined;
@@ -328,6 +384,19 @@ const getVendorPricingDefaults = (vendor?: Partial<ManagedModelVendorConfig>) =>
     ...(priceYuan !== undefined ? { priceYuan } : {}),
   };
 };
+
+const getVendorPricingAvailability = (vendor?: Partial<ManagedModelVendorConfig>) => {
+  const pricing =
+    vendor?.pricing && typeof vendor.pricing === "object" ? vendor.pricing : undefined;
+  return {
+    defaultAvailable: pricing?.defaultAvailable !== false,
+    unavailableReason:
+      typeof pricing?.unavailableReason === "string" ? pricing.unavailableReason : "",
+  };
+};
+
+const isVendorDefaultPricingAvailable = (vendor?: Partial<ManagedModelVendorConfig>) =>
+  getVendorPricingAvailability(vendor).defaultAvailable;
 
 const updateVendorPricingDefaults = (
   vendor: ManagedModelVendorConfig,
@@ -378,6 +447,40 @@ const updateVendorPricingDefaults = (
     ...(patch.priceYuan !== undefined ? { priceYuan: normalizeFiniteNumber(patch.priceYuan) } : {}),
     pricing:
       nextPricing && Object.keys(nextPricing).some((key) => (nextPricing as any)[key] !== undefined)
+        ? nextPricing
+        : undefined,
+  };
+};
+
+const updateVendorPricingAvailability = (
+  vendor: ManagedModelVendorConfig,
+  patch: { defaultAvailable?: boolean; unavailableReason?: string }
+): ManagedModelVendorConfig => {
+  const currentPricing =
+    vendor.pricing && typeof vendor.pricing === "object" ? { ...vendor.pricing } : {};
+  const nextPricing = { ...currentPricing };
+
+  if ("defaultAvailable" in patch) {
+    if (patch.defaultAvailable === false) {
+      nextPricing.defaultAvailable = false;
+    } else {
+      delete nextPricing.defaultAvailable;
+    }
+  }
+
+  if ("unavailableReason" in patch) {
+    const reason = String(patch.unavailableReason || "").trim();
+    if (reason) {
+      nextPricing.unavailableReason = reason;
+    } else {
+      delete nextPricing.unavailableReason;
+    }
+  }
+
+  return {
+    ...vendor,
+    pricing:
+      Object.keys(nextPricing).some((key) => (nextPricing as any)[key] !== undefined)
         ? nextPricing
         : undefined,
   };
@@ -530,6 +633,468 @@ const writeVendorSpecPricingRules = (
     pricing: Object.keys(nextPricing).length > 0 ? nextPricing : undefined,
     metadata: Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
   };
+};
+
+const readVendorVideoPricingFormula = (vendor?: ManagedModelVendorConfig) => {
+  const formula =
+    vendor?.pricing &&
+    typeof vendor.pricing === "object" &&
+    vendor.pricing.formula &&
+    typeof vendor.pricing.formula === "object"
+      ? vendor.pricing.formula
+      : undefined;
+  const base =
+    formula?.base && typeof formula.base === "object" ? formula.base : undefined;
+  const adjustments = Array.isArray(formula?.adjustments)
+    ? formula.adjustments
+        .filter((item) => item && typeof item === "object")
+        .map((item) => ({
+          key: typeof item.key === "string" ? item.key : "",
+          label: typeof item.label === "string" ? item.label : "",
+          match:
+            item.when && typeof item.when === "object" && !Array.isArray(item.when)
+              ? { ...item.when }
+              : item.match && typeof item.match === "object" && !Array.isArray(item.match)
+              ? { ...item.match }
+              : {},
+          fixedCredits:
+            typeof item.price?.credits === "number" && Number.isFinite(item.price.credits)
+              ? item.price.credits
+              : undefined,
+          fixedPriceYuan:
+            typeof item.price?.priceYuan === "number" && Number.isFinite(item.price.priceYuan)
+              ? item.price.priceYuan
+              : undefined,
+          unitCredits:
+            typeof item.unitPrice?.credits === "number" && Number.isFinite(item.unitPrice.credits)
+              ? item.unitPrice.credits
+              : undefined,
+          unitPriceYuan:
+            typeof item.unitPrice?.priceYuan === "number" && Number.isFinite(item.unitPrice.priceYuan)
+              ? item.unitPrice.priceYuan
+              : undefined,
+          multiplierField:
+            typeof item.multiplier?.field === "string" ? item.multiplier.field : "",
+          multiplierValue:
+            typeof item.multiplier?.value === "number" && Number.isFinite(item.multiplier.value)
+              ? item.multiplier.value
+              : undefined,
+          multiplierMin:
+            typeof item.multiplier?.min === "number" && Number.isFinite(item.multiplier.min)
+              ? item.multiplier.min
+              : undefined,
+          multiplierMax:
+            typeof item.multiplier?.max === "number" && Number.isFinite(item.multiplier.max)
+              ? item.multiplier.max
+              : undefined,
+          multiplierRound:
+            item.multiplier?.round === "ceil" ||
+            item.multiplier?.round === "floor" ||
+            item.multiplier?.round === "round" ||
+            item.multiplier?.round === "none"
+              ? item.multiplier.round
+              : "none",
+        }))
+    : [];
+
+  return {
+    baseCredits:
+      typeof base?.credits === "number" && Number.isFinite(base.credits) ? base.credits : undefined,
+    basePriceYuan:
+      typeof base?.priceYuan === "number" && Number.isFinite(base.priceYuan)
+        ? base.priceYuan
+        : undefined,
+    adjustments,
+  };
+};
+
+const writeVendorVideoPricingFormula = (
+  vendor: ManagedModelVendorConfig,
+  formula: {
+    baseCredits?: number;
+    basePriceYuan?: number;
+    adjustments: ManagedVideoFormulaAdjustment[];
+  }
+): ManagedModelVendorConfig => {
+  const currentPricing =
+    vendor.pricing && typeof vendor.pricing === "object" ? { ...vendor.pricing } : {};
+  const cleanedAdjustments: NonNullable<
+    NonNullable<ManagedModelVendorConfig["pricing"]>["formula"]
+  >["adjustments"] = [];
+  formula.adjustments.forEach((item, index) => {
+      const match =
+        item.match && typeof item.match === "object" && !Array.isArray(item.match)
+          ? Object.fromEntries(
+              Object.entries(item.match).filter(([, value]) => {
+                if (typeof value === "string") return value.trim().length > 0;
+                return value !== undefined && value !== null && value !== "";
+              })
+            )
+          : {};
+      const fixedCredits = normalizeFiniteNumber(item.fixedCredits);
+      const fixedPriceYuan = normalizeFiniteNumber(item.fixedPriceYuan);
+      const unitCredits = normalizeFiniteNumber(item.unitCredits);
+      const unitPriceYuan = normalizeFiniteNumber(item.unitPriceYuan);
+      const multiplierValue = normalizeFiniteNumber(item.multiplierValue);
+      const multiplierMin = normalizeFiniteNumber(item.multiplierMin);
+      const multiplierMax = normalizeFiniteNumber(item.multiplierMax);
+      const multiplierField = String(item.multiplierField || "").trim();
+      const key = String(item.key || "").trim() || `adjustment_${index + 1}`;
+      const label = String(item.label || "").trim();
+
+      if (
+        fixedCredits === undefined &&
+        fixedPriceYuan === undefined &&
+        unitCredits === undefined &&
+        unitPriceYuan === undefined
+      ) {
+        return;
+      }
+
+      cleanedAdjustments.push({
+        key,
+        ...(label ? { label } : {}),
+        ...(Object.keys(match).length > 0 ? { when: match } : {}),
+        ...(
+          fixedCredits !== undefined || fixedPriceYuan !== undefined
+            ? {
+                price: {
+                  ...(fixedCredits !== undefined ? { credits: fixedCredits } : {}),
+                  ...(fixedPriceYuan !== undefined ? { priceYuan: fixedPriceYuan } : {}),
+                },
+              }
+            : {}
+        ),
+        ...(
+          unitCredits !== undefined || unitPriceYuan !== undefined
+            ? {
+                unitPrice: {
+                  ...(unitCredits !== undefined ? { credits: unitCredits } : {}),
+                  ...(unitPriceYuan !== undefined ? { priceYuan: unitPriceYuan } : {}),
+                },
+              }
+            : {}
+        ),
+        ...(
+          multiplierField || multiplierValue !== undefined || multiplierMin !== undefined || multiplierMax !== undefined || item.multiplierRound
+            ? {
+                multiplier: {
+                  ...(multiplierField ? { field: multiplierField } : {}),
+                  ...(multiplierValue !== undefined ? { value: multiplierValue } : {}),
+                  ...(multiplierMin !== undefined ? { min: multiplierMin } : {}),
+                  ...(multiplierMax !== undefined ? { max: multiplierMax } : {}),
+                  ...(item.multiplierRound && item.multiplierRound !== "none"
+                    ? { round: item.multiplierRound }
+                    : {}),
+                },
+              }
+            : {}
+        ),
+      });
+    });
+
+  const baseCredits = normalizeFiniteNumber(formula.baseCredits);
+  const basePriceYuan = normalizeFiniteNumber(formula.basePriceYuan);
+  const nextFormula =
+    baseCredits !== undefined ||
+    basePriceYuan !== undefined ||
+    cleanedAdjustments.length > 0
+      ? {
+          mode: "additive" as const,
+          ...(baseCredits !== undefined || basePriceYuan !== undefined
+            ? {
+                base: {
+                  ...(baseCredits !== undefined ? { credits: baseCredits } : {}),
+                  ...(basePriceYuan !== undefined ? { priceYuan: basePriceYuan } : {}),
+                },
+              }
+            : {}),
+          ...(cleanedAdjustments.length > 0 ? { adjustments: cleanedAdjustments } : {}),
+        }
+      : undefined;
+
+  const nextPricing = { ...currentPricing };
+  if (nextFormula) {
+    nextPricing.version = nextPricing.version || "v1";
+    nextPricing.formula = nextFormula;
+  } else {
+    delete nextPricing.formula;
+  }
+
+  return {
+    ...vendor,
+    pricing: Object.keys(nextPricing).length > 0 ? nextPricing : undefined,
+  };
+};
+
+const getVideoPricingDimension = (
+  dimensions: ManagedVideoPricingDimension[],
+  key: ManagedVideoPricingDimensionKey
+) => dimensions.find((item) => item.key === key);
+
+const serializePricingDimensionValue = (value: string | number | boolean) =>
+  JSON.stringify(value);
+
+const parsePricingDimensionValue = (
+  rawValue: string
+): string | number | boolean | undefined => {
+  if (!rawValue) return undefined;
+  try {
+    return JSON.parse(rawValue) as string | number | boolean;
+  } catch {
+    return undefined;
+  }
+};
+
+const readVideoRuleDimensionValue = (
+  match: Record<string, any>,
+  key: ManagedVideoPricingDimensionKey
+) => {
+  const value = match[key];
+  if (typeof value === "string" && !value.trim()) return "";
+  if (value === undefined || value === null) return "";
+  return serializePricingDimensionValue(value as string | number | boolean);
+};
+
+const patchVideoRuleMatch = (
+  match: Record<string, any>,
+  key: ManagedVideoPricingDimensionKey,
+  rawValue: string
+) => {
+  const nextMatch = { ...match };
+  if (!rawValue) {
+    delete nextMatch[key];
+    return nextMatch;
+  }
+
+  const parsed = parsePricingDimensionValue(rawValue);
+  if (parsed === undefined) {
+    delete nextMatch[key];
+    return nextMatch;
+  }
+  nextMatch[key] = parsed;
+  return nextMatch;
+};
+
+const buildVideoPreviewSelection = (
+  dimensions: ManagedVideoPricingDimension[]
+): Partial<Record<ManagedVideoPricingDimensionKey, string>> =>
+  Object.fromEntries(
+    dimensions
+      .filter((dimension) => dimension.options.length > 0)
+      .map((dimension) => [
+        dimension.key,
+        serializePricingDimensionValue(dimension.options[0].value),
+      ])
+  ) as Partial<Record<ManagedVideoPricingDimensionKey, string>>;
+
+const buildVideoPreviewSelectionMatrix = (
+  dimensions: ManagedVideoPricingDimension[]
+): Array<Partial<Record<ManagedVideoPricingDimensionKey, string>>> => {
+  const activeDimensions = dimensions.filter((dimension) => dimension.options.length > 0);
+  if (activeDimensions.length === 0) return [{}];
+
+  const rows: Array<Partial<Record<ManagedVideoPricingDimensionKey, string>>> = [];
+  const walk = (
+    index: number,
+    current: Partial<Record<ManagedVideoPricingDimensionKey, string>>
+  ) => {
+    if (index >= activeDimensions.length) {
+      rows.push({ ...current });
+      return;
+    }
+
+    const dimension = activeDimensions[index];
+    for (const option of dimension.options) {
+      current[dimension.key] = serializePricingDimensionValue(option.value);
+      walk(index + 1, current);
+    }
+    delete current[dimension.key];
+  };
+
+  walk(0, {});
+  return rows;
+};
+
+const buildVideoPreviewContext = (
+  selection: Partial<Record<ManagedVideoPricingDimensionKey, string>>
+) =>
+  buildManagedVideoPricingContext(
+    Object.fromEntries(
+      (
+        Object.entries(selection) as Array<
+          [ManagedVideoPricingDimensionKey, string | undefined]
+        >
+      )
+        .map(([key, rawValue]) => [key, parsePricingDimensionValue(rawValue || "")] as const)
+        .filter((entry) => entry[1] !== undefined)
+    )
+  );
+
+const buildVideoPreviewContextWithDefaults = (
+  metadata: Record<string, any> | undefined,
+  selection: Partial<Record<ManagedVideoPricingDimensionKey, string>>
+) => {
+  const selectionContext = buildVideoPreviewContext(selection);
+  const defaultData =
+    metadata?.defaultData && typeof metadata.defaultData === "object"
+      ? (metadata.defaultData as Record<string, any>)
+      : {};
+  const modelVariant = parsePricingDimensionValue(selection.modelVariant || "");
+  const variantContext =
+    typeof modelVariant === "string" && modelVariant.trim()
+      ? defaultData.seedanceModel
+        ? { seedanceModel: modelVariant }
+        : defaultData.viduModel
+        ? { viduModel: modelVariant }
+        : defaultData.klingModel
+        ? { klingModel: modelVariant }
+        : {}
+      : {};
+  return buildManagedVideoPricingContext({
+    ...defaultData,
+    ...variantContext,
+    ...selectionContext,
+  });
+};
+
+const getVideoPreviewValueLabel = (
+  dimension: ManagedVideoPricingDimension,
+  rawValue?: string
+) => {
+  const parsed = parsePricingDimensionValue(rawValue || "");
+  if (parsed === undefined) return "Any";
+  const matched = dimension.options.find((option) => option.value === parsed);
+  return matched ? `${matched.labelZh} / ${matched.labelEn}` : String(parsed);
+};
+
+const formatVideoPreviewSummary = (
+  dimensions: ManagedVideoPricingDimension[],
+  selection: Partial<Record<ManagedVideoPricingDimensionKey, string>>
+) =>
+  dimensions
+    .filter((dimension) => {
+      const rawValue = selection[dimension.key];
+      return Boolean(rawValue);
+    })
+    .map((dimension) => `${dimension.labelZh}: ${getVideoPreviewValueLabel(dimension, selection[dimension.key])}`)
+    .join(" · ");
+
+const formatAdminPriceRange = (values: number[]) => {
+  const finiteValues = values.filter((value) => Number.isFinite(value));
+  if (finiteValues.length === 0) return "-";
+  const min = Math.min(...finiteValues);
+  const max = Math.max(...finiteValues);
+  return min === max ? `${min}` : `${min} ~ ${max}`;
+};
+
+const formatAdminYuanRange = (values: number[]) => {
+  const finiteValues = values.filter((value) => Number.isFinite(value));
+  if (finiteValues.length === 0) return "-";
+  const min = Math.min(...finiteValues);
+  const max = Math.max(...finiteValues);
+  return min === max ? `¥${min}` : `¥${min} ~ ¥${max}`;
+};
+
+const normalizePricingFieldToDimensionKey = (
+  field: string
+): ManagedVideoPricingDimensionKey | null => {
+  switch (field) {
+    case "seedanceModel":
+    case "viduModel":
+    case "klingModel":
+      return "modelVariant";
+    case "resolution":
+    case "duration":
+    case "inputType":
+    case "hasAudio":
+    case "aspectRatio":
+      return field;
+    default:
+      return null;
+  }
+};
+
+const collectVideoPricingActiveDimensionKeys = (
+  pricing:
+    | ManagedModelVendorConfig["pricing"]
+    | {
+        rules?: Array<{ when?: Record<string, any>; match?: Record<string, any> }>;
+        formula?: {
+          adjustments?: Array<{
+            when?: Record<string, any>;
+            match?: Record<string, any>;
+            multiplier?: { field?: string };
+          }>;
+        };
+      }
+    | undefined,
+  availableDimensions: ManagedVideoPricingDimension[]
+) => {
+  const keys = new Set<ManagedVideoPricingDimensionKey>();
+  const availableKeySet = new Set(availableDimensions.map((dimension) => dimension.key));
+
+  const collectMatcherKeys = (matcher: Record<string, any> | undefined | null) => {
+    Object.keys(matcher || {}).forEach((field) => {
+      const normalized = normalizePricingFieldToDimensionKey(field);
+      if (normalized && availableKeySet.has(normalized)) {
+        keys.add(normalized);
+      }
+    });
+  };
+
+  (pricing?.rules || []).forEach((rule) => {
+    collectMatcherKeys(
+      rule.when && typeof rule.when === "object"
+        ? rule.when
+        : rule.match && typeof rule.match === "object"
+        ? rule.match
+        : undefined
+    );
+  });
+
+  (pricing?.formula?.adjustments || []).forEach((adjustment) => {
+    collectMatcherKeys(
+      adjustment.when && typeof adjustment.when === "object"
+        ? adjustment.when
+        : adjustment.match && typeof adjustment.match === "object"
+        ? adjustment.match
+        : undefined
+    );
+    if (typeof adjustment.multiplier?.field === "string") {
+      const normalized = normalizePricingFieldToDimensionKey(adjustment.multiplier.field);
+      if (normalized && availableKeySet.has(normalized)) {
+        keys.add(normalized);
+      }
+    }
+  });
+
+  if (keys.size === 0) {
+    availableDimensions.forEach((dimension) => keys.add(dimension.key));
+  }
+
+  return keys;
+};
+
+const buildPricingSelectionFromMatcher = (
+  matcher: Record<string, any> | undefined,
+  availableDimensions: ManagedVideoPricingDimension[]
+): Partial<Record<ManagedVideoPricingDimensionKey, string>> => {
+  const selection: Partial<Record<ManagedVideoPricingDimensionKey, string>> = {};
+  Object.entries(matcher || {}).forEach(([field, rawValue]) => {
+    const normalized = normalizePricingFieldToDimensionKey(field);
+    if (!normalized) return;
+    if (!availableDimensions.some((dimension) => dimension.key === normalized)) return;
+    if (Array.isArray(rawValue)) return;
+    if (
+      typeof rawValue === "string" ||
+      typeof rawValue === "number" ||
+      typeof rawValue === "boolean"
+    ) {
+      selection[normalized] = serializePricingDimensionValue(rawValue);
+    }
+  });
+  return selection;
 };
 
 const MANAGED_MODEL_TASK_TYPE_OPTIONS: Array<{
@@ -1833,7 +2398,7 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_TEMPLATE = JSON.stringify(
   2
 );
 
-const createEmptyVendor = (): ManagedModelVendorConfig => ({
+const createEmptyVendor = (options?: { defaultAvailable?: boolean }): ManagedModelVendorConfig => ({
   vendorKey: "",
   platformKey: "",
   label: "",
@@ -1844,6 +2409,7 @@ const createEmptyVendor = (): ManagedModelVendorConfig => ({
   modelVersion: "",
   pricing: {
     version: "v1",
+    ...(options?.defaultAvailable === false ? { defaultAvailable: false } : {}),
     defaults: {
       credits: 0,
     },
@@ -1859,7 +2425,7 @@ const createEmptyModel = (): ManagedModelConfig => ({
   metadata: {
     nodeConfig: buildManagedNodeConfig({ taskType: "video" }),
   },
-  vendors: [createEmptyVendor()],
+  vendors: [createEmptyVendor({ defaultAvailable: false })],
 });
 
 const createEmptyPlatform = (): ManagedVendorPlatformConfig => ({
@@ -1909,6 +2475,102 @@ const getDefaultVendorMetadataTemplate = (
     : undefined;
 };
 
+const asPlainObject = (value: unknown): Record<string, any> | null => {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, any>;
+  }
+  return null;
+};
+
+const normalizeValidationComparable = (
+  value: unknown
+): string | number | boolean | null => {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const lowered = trimmed.toLowerCase();
+    if (lowered === "true") return true;
+    if (lowered === "false") return false;
+    const numeric = Number(trimmed);
+    if (Number.isFinite(numeric) && `${numeric}` === trimmed) return numeric;
+    return lowered;
+  }
+  return null;
+};
+
+const normalizeValidationCandidates = (value: unknown) => {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => normalizeValidationComparable(item))
+      .filter((item): item is string | number | boolean => item !== null);
+  }
+  const normalized = normalizeValidationComparable(value);
+  return normalized === null ? [] : [normalized];
+};
+
+const hasMatcherIntersection = (
+  left: Record<string, any>,
+  right: Record<string, any>
+) => {
+  const sharedKeys = Array.from(
+    new Set([...Object.keys(left || {}), ...Object.keys(right || {})])
+  );
+  return sharedKeys.every((key) => {
+    const leftHas = left[key] !== undefined && left[key] !== null && left[key] !== "";
+    const rightHas = right[key] !== undefined && right[key] !== null && right[key] !== "";
+    if (!leftHas || !rightHas) return true;
+    const leftCandidates = normalizeValidationCandidates(left[key]);
+    const rightCandidates = normalizeValidationCandidates(right[key]);
+    if (leftCandidates.length === 0 || rightCandidates.length === 0) return false;
+    return leftCandidates.some((candidate) => rightCandidates.includes(candidate));
+  });
+};
+
+const describePricingRule = (rule: Record<string, any>, index: number) =>
+  String(rule.label || rule.ruleKey || `rule_${index + 1}`);
+
+const collectVendorRuleOverlapIssues = (
+  model: ManagedModelConfig,
+  vendor: ManagedModelVendorConfig
+) => {
+  const rules = Array.isArray(vendor.pricing?.rules)
+    ? vendor.pricing.rules
+        .map((rule, index) => ({ rule, index }))
+        .filter(({ rule }) => rule && typeof rule === "object")
+    : [];
+  const issues: string[] = [];
+
+  for (let i = 0; i < rules.length; i += 1) {
+    const current = rules[i];
+    const currentMatcher =
+      asPlainObject(current.rule.when) || asPlainObject(current.rule.match) || null;
+    if (!currentMatcher || Object.keys(currentMatcher).length === 0) continue;
+
+    for (let j = i + 1; j < rules.length; j += 1) {
+      const next = rules[j];
+      const nextMatcher =
+        asPlainObject(next.rule.when) || asPlainObject(next.rule.match) || null;
+      if (!nextMatcher || Object.keys(nextMatcher).length === 0) continue;
+
+      if (!hasMatcherIntersection(currentMatcher, nextMatcher)) continue;
+
+      issues.push(
+        `${model.modelKey || "-"} / ${vendor.vendorKey || "-"} 的规则 "${describePricingRule(
+          current.rule as Record<string, any>,
+          current.index
+        )}" 与 "${describePricingRule(
+          next.rule as Record<string, any>,
+          next.index
+        )}" 条件有重叠，请拆分或提高区分度`
+      );
+    }
+  }
+
+  return issues;
+};
+
 const validateManagedModelMapping = (input: ModelProviderMappingV2) => {
   const issues: string[] = [];
 
@@ -1925,6 +2587,8 @@ const validateManagedModelMapping = (input: ModelProviderMappingV2) => {
           `${model.modelKey || "-"} / ${vendor.vendorKey || "-"} 缺少 metadata.requestProfile`
         );
       }
+
+      issues.push(...collectVendorRuleOverlapIssues(model, vendor));
     });
   });
 
@@ -2220,20 +2884,10 @@ const normalizeModelMapping = (input?: Partial<ModelProviderMappingV2>): ModelPr
         ...model,
         defaultVendor: "seedance_api",
         vendors: [
-          {
-            vendorKey: "seedance_api",
-            platformKey: "seedance_api",
-            label: existingVendor?.label || "Seedance API",
-            enabled: existingVendor?.enabled !== false,
-            route: "legacy",
-            provider: "doubao",
-            modelName: existingVendor?.modelName || "Seedance",
-            modelVersion: "2.0",
-            metadata:
-              existingVendor?.metadata && typeof existingVendor.metadata === "object"
-                ? existingVendor.metadata
-                : DEFAULT_SEEDANCE20_V2_VENDOR_METADATA,
-          },
+          buildSeedance20VendorConfig(
+            existingVendor,
+            DEFAULT_SEEDANCE20_V2_VENDOR_METADATA
+          ) as ManagedModelVendorConfig,
         ],
       });
     }).map((model) => ensureModelDefaultVendor(model)),
@@ -2727,6 +3381,20 @@ const MANAGED_MODEL_OUTPUT_CONFIG_MAP: Record<
   },
 };
 
+const MANAGED_MODEL_INPUT_MODES_MAP: Record<string, string[]> = {
+  "kling-2.6": ["text", "reference_images"],
+  "kling-3.0": ["text", "reference_images"],
+  "kling-o3": ["text", "reference_images", "reference_video"],
+  "vidu-q2": ["text", "reference_images", "reference_video"],
+  "vidu-q3": ["text", "reference_images", "reference_video"],
+  "seedance-1.5": ["text", "reference_images", "start_end"],
+  "seedance-2.0": [...SEEDANCE20_VOD_METADATA.inputModes],
+  "sora-2": ["text", "reference_images"],
+  "wan-2.6": ["text", "first_frame"],
+  "wan-2.6-r2v": ["first_clip"],
+  "wan-2.7": ["text", "first_frame", "first_frame+driving_audio", "first_clip"],
+};
+
 
 const MANAGED_IMAGE_PRICING_CONFIG_MAP: Record<
   string,
@@ -2913,6 +3581,17 @@ const getManagedModelOutputConfig = (model?: ManagedModelConfig) => {
   return model?.modelKey ? MANAGED_MODEL_OUTPUT_CONFIG_MAP[model.modelKey] : undefined;
 };
 
+const getManagedModelInputModes = (model?: ManagedModelConfig): string[] => {
+  const metadata = readManagedModelMetadataRecord(model);
+  const explicit = Array.isArray(metadata.inputModes)
+    ? metadata.inputModes
+        .map((item: unknown) => String(item || "").trim())
+        .filter(Boolean)
+    : [];
+  if (explicit.length > 0) return explicit;
+  return model?.modelKey ? MANAGED_MODEL_INPUT_MODES_MAP[model.modelKey] || [] : [];
+};
+
 const parseCommaSeparatedList = (value: string) =>
   value
     .split(",")
@@ -2945,8 +3624,12 @@ const buildManagedNodeMetadata = (model: ManagedModelConfig): Record<string, any
         route: vendor.route,
         modelName: vendor.modelName,
         modelVersion: vendor.modelVersion,
-        creditsPerCall: getVendorPricingDefaults(vendor).credits,
-        priceYuan: getVendorPricingDefaults(vendor).priceYuan,
+        creditsPerCall: isVendorDefaultPricingAvailable(vendor)
+          ? getVendorPricingDefaults(vendor).credits
+          : undefined,
+        priceYuan: isVendorDefaultPricingAvailable(vendor)
+          ? getVendorPricingDefaults(vendor).priceYuan
+          : undefined,
         pricing:
           vendor.pricing && typeof vendor.pricing === "object"
             ? vendor.pricing
@@ -2969,16 +3652,20 @@ const buildManagedNodeMetadata = (model: ManagedModelConfig): Record<string, any
 
   if (taskType === "video") {
     const outputConfig = getManagedModelOutputConfig(model);
+    const inputModes = getManagedModelInputModes(model);
     metadata.vod = {
       label: defaultVendor?.label || model.modelName || model.modelKey,
       modelName: defaultVendor?.modelName || model.modelName || model.modelKey,
       modelVersion: defaultVendor?.modelVersion || "",
       ...(outputConfig ? { outputConfig } : {}),
+      ...(inputModes.length > 0 ? { inputModes } : {}),
       ...(model.modelKey === "seedance-2.0" ? SEEDANCE20_VOD_METADATA : {}),
     };
   }
 
-  const defaultVendorCredits = getVendorPricingDefaults(defaultVendor).credits;
+  const defaultVendorCredits = isVendorDefaultPricingAvailable(defaultVendor)
+    ? getVendorPricingDefaults(defaultVendor).credits
+    : undefined;
 
   if (model.modelKey.startsWith("vidu-")) {
     const defaultViduModel = supportedModels[0] || "q2";
@@ -8384,7 +9071,17 @@ function UnifiedModelManagementTab() {
   const [modelSearch, setModelSearch] = useState("");
   const [modelTypeFilter, setModelTypeFilter] = useState<"all" | ManagedModelTaskType>("all");
   const [jsonModalOpen, setJsonModalOpen] = useState(false);
+  const [pricingPreviewModalOpen, setPricingPreviewModalOpen] = useState(false);
+  const [pricingPreviewTab, setPricingPreviewTab] = useState<"current" | "all">("current");
+  const [expandedPricingGroupKeys, setExpandedPricingGroupKeys] = useState<string[]>([]);
+  const [pricingGroupStatusFilter, setPricingGroupStatusFilter] = useState<
+    "all" | "available" | "partial" | "unavailable" | "unpriced"
+  >("all");
+  const [pricingGroupSortKey, setPricingGroupSortKey] = useState<
+    "default" | "min_credits_asc" | "max_credits_desc" | "span_desc"
+  >("default");
   const [jsonText, setJsonText] = useState(DEFAULT_MODEL_PROVIDER_MAPPING_TEMPLATE);
+  const [pricingPreviewVendorKey, setPricingPreviewVendorKey] = useState("");
 
   const showToast = (message: string, type: "success" | "error" = "success") => {
     setToast({ message, type });
@@ -8431,8 +9128,12 @@ function UnifiedModelManagementTab() {
     setLoading(true);
     setStatusText("");
     try {
-      const settings = await getSettings();
-      const existing = settings.find((item) => item.key === MODEL_PROVIDER_MAPPING_SETTING_KEY);
+      let existing: SystemSetting | null = null;
+      try {
+        existing = await getSetting(MODEL_PROVIDER_MAPPING_SETTING_KEY);
+      } catch {
+        existing = null;
+      }
       const nextText = existing?.value?.trim() || DEFAULT_MODEL_PROVIDER_MAPPING_TEMPLATE;
       const parsed = JSON.parse(nextText);
       syncDraftFromObject(parsed);
@@ -8529,19 +9230,459 @@ function UnifiedModelManagementTab() {
   const selectedModelServiceType = selectedModel ? getManagedModelServiceType(selectedModel) : "";
   const selectedModelSupportedModels = selectedModel ? getManagedModelSupportedModels(selectedModel) : [];
   const selectedModelOutputConfig = selectedModel ? getManagedModelOutputConfig(selectedModel) : undefined;
+  const selectedModelInputModes = selectedModel ? getManagedModelInputModes(selectedModel) : [];
   const selectedNodeConfig = selectedModel ? getManagedNodeConfig(selectedModel) : undefined;
   const selectedManagedMetadata = selectedModel ? buildManagedNodeMetadata(selectedModel) : undefined;
   const selectedVodConfig =
     selectedManagedMetadata?.vod && typeof selectedManagedMetadata.vod === "object"
       ? (selectedManagedMetadata.vod as Record<string, any>)
       : undefined;
+  const selectedVideoPricingDimensions = getVideoPricingDimensions({
+    modelVariants: selectedModelSupportedModels,
+    outputConfig: selectedModelOutputConfig,
+    inputModes:
+      Array.isArray(selectedVodConfig?.inputModes) && selectedVodConfig.inputModes.length > 0
+        ? (selectedVodConfig.inputModes as string[])
+        : selectedModelInputModes,
+  });
+  const selectedPreviewVendorCardForDimensions =
+    selectedModel?.vendors?.find((vendor) => vendor.vendorKey === pricingPreviewVendorKey) ||
+    selectedModel?.vendors?.find((vendor) => vendor.vendorKey === selectedModel?.defaultVendor) ||
+    selectedModel?.vendors?.find((vendor) => vendor.enabled !== false) ||
+    selectedModel?.vendors?.[0];
+  const selectedActiveVideoPricingDimensionKeys = collectVideoPricingActiveDimensionKeys(
+    selectedPreviewVendorCardForDimensions?.pricing,
+    selectedVideoPricingDimensions
+  );
+  const selectedPreviewVideoPricingDimensions = selectedVideoPricingDimensions.filter(
+    (dimension) => selectedActiveVideoPricingDimensionKeys.has(dimension.key)
+  );
   const selectedImagePricingConfig = selectedModel
     ? getManagedImagePricingConfig(selectedModel, selectedNodeConfig)
     : undefined;
+  const vendorCards = selectedModel?.vendors || [];
   const selectedPlatform =
     selectedPlatformIndex !== null && selectedPlatformIndex >= 0
       ? platformList[selectedPlatformIndex]
       : undefined;
+
+  useEffect(() => {
+    const nextVendorKey =
+      selectedModel?.defaultVendor ||
+      selectedModel?.vendors?.find((vendor) => vendor.enabled !== false)?.vendorKey ||
+      selectedModel?.vendors?.[0]?.vendorKey ||
+      "";
+    setPricingPreviewVendorKey(nextVendorKey);
+  }, [selectedModel?.defaultVendor, selectedModel?.modelKey, selectedModel?.vendors]);
+  const selectedModelPreviewVendorKey =
+    pricingPreviewVendorKey ||
+    selectedModel?.defaultVendor ||
+    vendorCards.find((vendor) => vendor.enabled !== false)?.vendorKey ||
+    vendorCards[0]?.vendorKey ||
+    "";
+  const selectedModelDefaultVideoPreviewSelection = buildVideoPreviewSelection(
+    selectedPreviewVideoPricingDimensions
+  );
+  const selectedModelDefaultVideoPreviewContext = buildVideoPreviewContextWithDefaults(
+    selectedManagedMetadata,
+    selectedModelDefaultVideoPreviewSelection
+  );
+  const selectedModelPreviewResult = selectedManagedMetadata
+    ? resolveManagedRoutePricing(
+        selectedManagedMetadata,
+        selectedModelPreviewVendorKey,
+        selectedModelDefaultVideoPreviewContext
+      )
+    : null;
+  const selectedPreviewVendorCard = vendorCards.find(
+    (vendor) => vendor.vendorKey === selectedModelPreviewVendorKey
+  );
+  const selectedModelPreviewSummary =
+    normalizeManagedModelTaskType(selectedModel?.taskType) === "video"
+      ? formatVideoPreviewSummary(
+          selectedPreviewVideoPricingDimensions,
+          selectedModelDefaultVideoPreviewSelection
+        )
+      : "";
+
+  const selectedConfiguredRuleRows = (
+    Array.isArray(selectedPreviewVendorCard?.pricing?.rules)
+      ? selectedPreviewVendorCard?.pricing?.rules
+      : []
+  )
+    .map((rule: any, index) => {
+      const matcher =
+        rule?.when && typeof rule.when === "object"
+          ? rule.when
+          : rule?.match && typeof rule.match === "object"
+          ? rule.match
+          : {};
+      const selection = buildPricingSelectionFromMatcher(
+        matcher as Record<string, any>,
+        selectedVideoPricingDimensions
+      );
+      return {
+        key: rule?.ruleKey || `rule_${index + 1}`,
+        label: rule?.label || rule?.ruleKey || `规则 ${index + 1}`,
+        selection,
+        credits:
+          typeof rule?.price?.credits === "number"
+            ? rule.price.credits
+            : typeof rule?.creditsPerCall === "number"
+            ? rule.creditsPerCall
+            : undefined,
+        priceYuan:
+          typeof rule?.price?.priceYuan === "number"
+            ? rule.price.priceYuan
+            : typeof rule?.priceYuan === "number"
+            ? rule.priceYuan
+            : undefined,
+      };
+    });
+
+  const selectedConfiguredRuleDimensions = selectedVideoPricingDimensions.filter((dimension) =>
+    selectedConfiguredRuleRows.some((row) => Boolean(row.selection[dimension.key]))
+  );
+
+  const selectedGroupedRuleRows = (() => {
+    const durationDimension = getVideoPricingDimension(selectedConfiguredRuleDimensions, "duration");
+    const groupedDimensions = selectedConfiguredRuleDimensions.filter(
+      (dimension) => dimension.key !== "duration"
+    );
+    const groups = new Map<
+      string,
+      {
+        key: string;
+        selection: Partial<Record<ManagedVideoPricingDimensionKey, string>>;
+        rows: typeof selectedConfiguredRuleRows;
+      }
+    >();
+
+    selectedConfiguredRuleRows.forEach((row) => {
+      const selection = Object.fromEntries(
+        groupedDimensions.map((dimension) => [dimension.key, row.selection[dimension.key] || ""])
+      ) as Partial<Record<ManagedVideoPricingDimensionKey, string>>;
+      const key =
+        groupedDimensions.length > 0
+          ? groupedDimensions
+              .map((dimension) => `${dimension.key}:${selection[dimension.key] || ""}`)
+              .join("|")
+          : "__all__";
+      const current = groups.get(key);
+      if (current) {
+        current.rows.push(row);
+      } else {
+        groups.set(key, { key, selection, rows: [row] });
+      }
+    });
+
+    return Array.from(groups.values()).map((group) => {
+      const rows = [...group.rows].sort((left, right) => {
+        const leftDuration = Number(parsePricingDimensionValue(left.selection.duration || ""));
+        const rightDuration = Number(parsePricingDimensionValue(right.selection.duration || ""));
+        if (Number.isFinite(leftDuration) && Number.isFinite(rightDuration)) {
+          return leftDuration - rightDuration;
+        }
+        return String(left.selection.duration || "").localeCompare(String(right.selection.duration || ""));
+      });
+      const creditValues = rows
+        .map((row) => row.credits)
+        .filter((value): value is number => typeof value === "number");
+      const priceYuanValues = rows
+        .map((row) => row.priceYuan)
+        .filter((value): value is number => typeof value === "number");
+      const durationLabels = rows.map((row) =>
+        durationDimension
+          ? getVideoPreviewValueLabel(durationDimension, row.selection.duration)
+          : "-"
+      );
+      return {
+        ...group,
+        rows,
+        durationRangeLabel:
+          durationLabels.length === 0
+            ? "-"
+            : durationLabels.length === 1
+            ? durationLabels[0]
+            : `${durationLabels[0]} ~ ${durationLabels[durationLabels.length - 1]}`,
+        creditRangeLabel: formatAdminPriceRange(creditValues),
+        priceYuanRangeLabel: formatAdminYuanRange(priceYuanValues),
+      };
+    });
+  })();
+
+  const selectedFormulaAdjustments = (
+    Array.isArray(selectedPreviewVendorCard?.pricing?.formula?.adjustments)
+      ? selectedPreviewVendorCard?.pricing?.formula?.adjustments
+      : []
+  ).map((adjustment: any, index) => {
+    const matcher =
+      adjustment?.when && typeof adjustment.when === "object"
+        ? adjustment.when
+        : adjustment?.match && typeof adjustment.match === "object"
+        ? adjustment.match
+        : {};
+    const selection = buildPricingSelectionFromMatcher(
+      matcher as Record<string, any>,
+      selectedVideoPricingDimensions
+    );
+    return {
+      key: adjustment?.key || `adjustment_${index + 1}`,
+      label: adjustment?.label || adjustment?.key || `函数项 ${index + 1}`,
+      selection,
+      fixedCredits:
+        typeof adjustment?.price?.credits === "number" ? adjustment.price.credits : undefined,
+      fixedPriceYuan:
+        typeof adjustment?.price?.priceYuan === "number" ? adjustment.price.priceYuan : undefined,
+      unitCredits:
+        typeof adjustment?.unitPrice?.credits === "number"
+          ? adjustment.unitPrice.credits
+          : undefined,
+      unitPriceYuan:
+        typeof adjustment?.unitPrice?.priceYuan === "number"
+          ? adjustment.unitPrice.priceYuan
+          : undefined,
+      multiplierField: adjustment?.multiplier?.field,
+    };
+  });
+
+  const selectedModelExhaustivePricingRows =
+    selectedModel &&
+    normalizeManagedModelTaskType(selectedModel.taskType) === "video" &&
+    selectedManagedMetadata &&
+    selectedModelPreviewVendorKey
+      ? buildVideoPreviewSelectionMatrix(selectedPreviewVideoPricingDimensions).map((selection, index) => {
+          const context = buildVideoPreviewContextWithDefaults(
+            selectedManagedMetadata,
+            selection
+          );
+          const resolved = resolveManagedRoutePricing(
+            selectedManagedMetadata,
+            selectedModelPreviewVendorKey,
+            context
+          );
+          return {
+            key: `${selectedModel.modelKey || "model"}-${selectedModelPreviewVendorKey}-${index}`,
+            selection,
+            summary:
+              formatVideoPreviewSummary(selectedPreviewVideoPricingDimensions, selection) ||
+              "默认规格",
+            context,
+            resolved,
+          };
+        })
+      : [];
+
+  const selectedModelExhaustivePricingStats = selectedModelExhaustivePricingRows.reduce(
+    (summary, row) => {
+      if (row.resolved?.source === "none" && row.resolved?.defaultAvailable === false) {
+        summary.unavailable += 1;
+      } else if (row.resolved?.source) {
+        summary.available += 1;
+      } else {
+        summary.unpriced += 1;
+      }
+      return summary;
+    },
+    { available: 0, unavailable: 0, unpriced: 0 }
+  );
+
+  const selectedDurationPricingDimension = getVideoPricingDimension(
+    selectedPreviewVideoPricingDimensions,
+    "duration"
+  );
+  const selectedGroupedPricingDimensions = selectedPreviewVideoPricingDimensions.filter(
+    (dimension) => dimension.key !== "duration"
+  );
+  const selectedModelGroupedPricingRows = (() => {
+    const groups = new Map<
+      string,
+      {
+        key: string;
+        baseSelection: Partial<Record<ManagedVideoPricingDimensionKey, string>>;
+        rows: typeof selectedModelExhaustivePricingRows;
+      }
+    >();
+
+    selectedModelExhaustivePricingRows.forEach((row) => {
+      const baseSelection = Object.fromEntries(
+        selectedGroupedPricingDimensions.map((dimension) => [
+          dimension.key,
+          row.selection[dimension.key] || "",
+        ])
+      ) as Partial<Record<ManagedVideoPricingDimensionKey, string>>;
+      const key =
+        selectedGroupedPricingDimensions.length > 0
+          ? selectedGroupedPricingDimensions
+              .map((dimension) => `${dimension.key}:${baseSelection[dimension.key] || ""}`)
+              .join("|")
+          : "__all__";
+      const existing = groups.get(key);
+      if (existing) {
+        existing.rows.push(row);
+      } else {
+        groups.set(key, {
+          key,
+          baseSelection,
+          rows: [row],
+        });
+      }
+    });
+
+    return Array.from(groups.values())
+      .map((group) => {
+        const sortedRows = [...group.rows].sort((left, right) => {
+          const leftValue = Number(
+            parsePricingDimensionValue(left.selection.duration || "")
+          );
+          const rightValue = Number(
+            parsePricingDimensionValue(right.selection.duration || "")
+          );
+          if (Number.isFinite(leftValue) && Number.isFinite(rightValue)) {
+            return leftValue - rightValue;
+          }
+          return String(left.selection.duration || "").localeCompare(
+            String(right.selection.duration || "")
+          );
+        });
+        const availableRows = sortedRows.filter(
+          (row) => row.resolved?.source && !(row.resolved?.source === "none")
+        );
+        const unavailableRows = sortedRows.filter(
+          (row) => row.resolved?.source === "none" && row.resolved?.defaultAvailable === false
+        );
+        const unpricedRows = sortedRows.filter((row) => !row.resolved?.source);
+        const creditValues = availableRows
+          .map((row) => row.resolved?.credits)
+          .filter((value): value is number => typeof value === "number");
+        const priceYuanValues = availableRows
+          .map((row) => row.resolved?.priceYuan)
+          .filter((value): value is number => typeof value === "number");
+        const durationLabels = sortedRows.map((row) =>
+          selectedDurationPricingDimension
+          ? getVideoPreviewValueLabel(
+              selectedDurationPricingDimension,
+              row.selection.duration
+            )
+          : "-"
+        );
+        const minCredits = creditValues.length > 0 ? Math.min(...creditValues) : undefined;
+        const maxCredits = creditValues.length > 0 ? Math.max(...creditValues) : undefined;
+
+        return {
+          ...group,
+          rows: sortedRows,
+          availableRows,
+          unavailableRows,
+          unpricedRows,
+          creditRangeLabel: formatAdminPriceRange(creditValues),
+          priceYuanRangeLabel: formatAdminYuanRange(priceYuanValues),
+          durationRangeLabel:
+            durationLabels.length === 0
+              ? "-"
+              : durationLabels.length === 1
+              ? durationLabels[0]
+              : `${durationLabels[0]} ~ ${durationLabels[durationLabels.length - 1]}`,
+          minCredits,
+          maxCredits,
+          creditsSpan:
+            minCredits !== undefined && maxCredits !== undefined ? maxCredits - minCredits : undefined,
+          status:
+            availableRows.length > 0
+              ? unavailableRows.length > 0 || unpricedRows.length > 0
+                ? "部分可计费"
+                : "可计费"
+              : unavailableRows.length > 0
+              ? "不可用"
+              : "未配置",
+          sourceSummary:
+            availableRows.length > 0
+              ? Array.from(
+                  new Set(availableRows.map((row) => row.resolved?.source || "none"))
+                ).join(" / ")
+              : unavailableRows.length > 0
+              ? "none"
+              : "-",
+          primaryMessage:
+            availableRows[0]?.resolved?.label ||
+            availableRows[0]?.resolved?.ruleKey ||
+            unavailableRows[0]?.resolved?.unavailableReason ||
+            "-",
+        };
+      })
+      .sort((left, right) => left.key.localeCompare(right.key));
+  })();
+  const filteredAndSortedGroupedPricingRows = [...selectedModelGroupedPricingRows]
+    .filter((group) => {
+      switch (pricingGroupStatusFilter) {
+        case "available":
+          return group.status === "可计费";
+        case "partial":
+          return group.status === "部分可计费";
+        case "unavailable":
+          return group.status === "不可用";
+        case "unpriced":
+          return group.status === "未配置";
+        default:
+          return true;
+      }
+    })
+    .sort((left, right) => {
+      switch (pricingGroupSortKey) {
+        case "min_credits_asc":
+          return (left.minCredits ?? Number.POSITIVE_INFINITY) - (right.minCredits ?? Number.POSITIVE_INFINITY);
+        case "max_credits_desc":
+          return (right.maxCredits ?? Number.NEGATIVE_INFINITY) - (left.maxCredits ?? Number.NEGATIVE_INFINITY);
+        case "span_desc":
+          return (right.creditsSpan ?? Number.NEGATIVE_INFINITY) - (left.creditsSpan ?? Number.NEGATIVE_INFINITY);
+        default:
+          return left.key.localeCompare(right.key);
+      }
+    });
+
+  const allModelPricingPreviewRows = modelList.map((model) => {
+    const taskType = normalizeManagedModelTaskType(model.taskType);
+    const metadata = buildManagedNodeMetadata(model);
+    const defaultVendor =
+      (model.vendors || []).find((vendor) => vendor.vendorKey === model.defaultVendor) ||
+      (model.vendors || []).find((vendor) => vendor.enabled !== false) ||
+      model.vendors?.[0];
+    const defaultVendorKey = defaultVendor?.vendorKey || "";
+    if (!metadata || !defaultVendorKey) {
+      return {
+        model,
+        taskType,
+        vendorLabel: defaultVendor?.label || defaultVendorKey || "-",
+        previewSummary: "-",
+        resolved: null,
+      };
+    }
+
+    if (taskType === "video") {
+      const dimensions = getVideoPricingDimensions({
+        modelVariants: getManagedModelSupportedModels(model),
+        outputConfig: getManagedModelOutputConfig(model),
+        inputModes: getManagedModelInputModes(model),
+      });
+      const selection = buildVideoPreviewSelection(dimensions);
+      const context = buildVideoPreviewContextWithDefaults(metadata, selection);
+      return {
+        model,
+        taskType,
+        vendorLabel: defaultVendor?.label || defaultVendorKey,
+        previewSummary: formatVideoPreviewSummary(dimensions, selection) || "默认规格",
+        resolved: resolveManagedRoutePricing(metadata, defaultVendorKey, context),
+      };
+    }
+
+    return {
+      model,
+      taskType,
+      vendorLabel: defaultVendor?.label || defaultVendorKey,
+      previewSummary: "默认价",
+      resolved: resolveManagedRoutePricing(metadata, defaultVendorKey, {}),
+    };
+  });
 
   const updateSelectedPlatform = (patch: Partial<ManagedVendorPlatformConfig>) => {
     if (selectedPlatformIndex === null) return;
@@ -8685,7 +9826,13 @@ function UnifiedModelManagementTab() {
     applyMappingMutation((draft) => {
       const model = draft.models?.[selectedModelIndex];
       if (!model) return;
-      model.vendors = [...(model.vendors || []), createEmptyVendor()];
+      model.vendors = [
+        ...(model.vendors || []),
+        createEmptyVendor({
+          defaultAvailable:
+            normalizeManagedModelTaskType(model.taskType) === "video" ? false : undefined,
+        }),
+      ];
     });
   };
 
@@ -8713,8 +9860,6 @@ function UnifiedModelManagementTab() {
       showToast(error?.message || "JSON 导入失败", "error");
     }
   };
-
-  const vendorCards = selectedModel?.vendors || [];
 
   return (
     <div className='space-y-4'>
@@ -8778,6 +9923,100 @@ function UnifiedModelManagementTab() {
           </div>
         </div>
         {statusText && <div className='text-sm text-gray-500'>{statusText}</div>}
+      </div>
+
+      <div className='bg-white rounded-lg border p-6 shadow-sm space-y-4'>
+        <div className='flex flex-wrap items-start justify-between gap-4'>
+          <div>
+            <h4 className='font-semibold'>定价预览</h4>
+            <p className='text-sm text-gray-500'>
+              入口放在首部。弹窗内通过 Tab 切换“当前模型价格表”和“全部模型价格表”。
+            </p>
+          </div>
+          <Button
+            variant='outline'
+            onClick={() => {
+              setPricingPreviewTab("current");
+              setPricingPreviewModalOpen(true);
+            }}
+            disabled={!selectedModel}
+          >
+            打开定价预览弹窗
+          </Button>
+        </div>
+
+        {!selectedModel ? (
+          <div className='rounded-lg border border-dashed px-4 py-8 text-center text-sm text-gray-500'>
+            请选择一个模型后查看试算结果。
+          </div>
+        ) : (
+          <div className='rounded-lg border bg-gray-50 p-4 space-y-4'>
+            <div className='flex flex-wrap items-start justify-between gap-4'>
+              <div>
+                <div className='font-medium text-gray-800'>
+                  {selectedModel.modelName || selectedModel.modelKey || "未命名模型"}
+                </div>
+                <div className='text-sm text-gray-500'>
+                  默认规格预览：{selectedModelPreviewSummary || "默认价"}
+                </div>
+              </div>
+              <div className='min-w-[220px]'>
+                <label className='block text-sm text-gray-600 mb-1'>预览厂商</label>
+                <select
+                  value={selectedModelPreviewVendorKey}
+                  onChange={(e) => setPricingPreviewVendorKey(e.target.value)}
+                  className='w-full rounded border px-3 py-2'
+                >
+                  {(vendorCards || [])
+                    .filter((vendor) => vendor.enabled !== false && vendor.vendorKey)
+                    .map((vendor) => (
+                      <option key={vendor.vendorKey} value={vendor.vendorKey}>
+                        {vendor.label || vendor.vendorKey}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            </div>
+
+            <div className='flex flex-wrap gap-3 text-sm'>
+              <div className='rounded-full bg-emerald-50 px-3 py-1 text-emerald-700'>
+                本地真实数据
+              </div>
+              <div className='rounded-full bg-gray-100 px-3 py-1'>
+                来源: {selectedModelPreviewResult?.source || "none"}
+              </div>
+              <div className='rounded-full bg-blue-50 px-3 py-1 text-blue-700'>
+                积分:{" "}
+                {typeof selectedModelPreviewResult?.credits === "number"
+                  ? selectedModelPreviewResult.credits
+                  : "-"}
+              </div>
+              <div className='rounded-full bg-emerald-50 px-3 py-1 text-emerald-700'>
+                价格:{" "}
+                {typeof selectedModelPreviewResult?.priceYuan === "number"
+                  ? `¥${selectedModelPreviewResult.priceYuan}`
+                  : "-"}
+              </div>
+              <div className='rounded-full bg-white px-3 py-1 text-gray-700'>
+                穷举组合: {selectedModelExhaustivePricingRows.length}
+              </div>
+              {normalizeManagedModelTaskType(selectedModel.taskType) === "video" && (
+                <>
+                  <div className='rounded-full bg-emerald-50 px-3 py-1 text-emerald-700'>
+                    可计费: {selectedModelExhaustivePricingStats.available}
+                  </div>
+                  <div className='rounded-full bg-red-50 px-3 py-1 text-red-700'>
+                    不可用: {selectedModelExhaustivePricingStats.unavailable}
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className='rounded border border-dashed bg-white px-4 py-3 text-sm text-gray-600'>
+              点击“打开定价预览弹窗”后，可在 Tab 中切换查看当前模型完整穷举价格表或全部模型默认规格总览。
+            </div>
+          </div>
+        )}
       </div>
 
       <div className='grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]'>
@@ -9072,7 +10311,7 @@ function UnifiedModelManagementTab() {
                   <div className='mb-3 flex items-center justify-between'>
                     <div>
                       <div className='font-medium text-gray-800'>厂商路线</div>
-                      <div className='text-sm text-gray-500'>每个厂商可以设置默认定价，并按规格组合覆盖积分和人民币价格。</div>
+                      <div className='text-sm text-gray-500'>每个厂商可以设置默认定价，并按规格组合覆盖积分和人民币价格；视频模型支持“未命中即不可用”的安全模式。</div>
                     </div>
                     <Button size='sm' variant='outline' onClick={addVendor}>新增厂商</Button>
                   </div>
@@ -9084,6 +10323,7 @@ function UnifiedModelManagementTab() {
                       vendorCards.map((vendor, vendorIndex) => {
                         const specRules = readVendorSpecPricingRules(vendor);
                         const vendorPricingDefaults = getVendorPricingDefaults(vendor);
+                        const vendorPricingAvailability = getVendorPricingAvailability(vendor);
                         return (
                           <div key={`${vendor.vendorKey || 'vendor'}-${vendorIndex}`} className='rounded-lg border bg-gray-50 p-4'>
                             <div className='mb-3 flex items-center justify-between'>
@@ -9158,7 +10398,12 @@ function UnifiedModelManagementTab() {
                                 />
                               </div>
                               <div>
-                                <label className='block text-sm text-gray-600 mb-1'>默认积分</label>
+                                <label className='block text-sm text-gray-600 mb-1'>
+                                  默认积分
+                                  {normalizeManagedModelTaskType(selectedModel.taskType) === "video"
+                                    ? "（开启默认回退时生效）"
+                                    : ""}
+                                </label>
                                 <Input
                                   type='number'
                                   value={vendorPricingDefaults.credits ?? 0}
@@ -9173,7 +10418,12 @@ function UnifiedModelManagementTab() {
                                 />
                               </div>
                               <div>
-                                <label className='block text-sm text-gray-600 mb-1'>默认价格(元)</label>
+                                <label className='block text-sm text-gray-600 mb-1'>
+                                  默认价格(元)
+                                  {normalizeManagedModelTaskType(selectedModel.taskType) === "video"
+                                    ? "（开启默认回退时生效）"
+                                    : ""}
+                                </label>
                                 <Input
                                   type='number'
                                   step='0.01'
@@ -9228,13 +10478,31 @@ function UnifiedModelManagementTab() {
                                 const taskType = normalizeManagedModelTaskType(selectedModel.taskType);
 
                                 if (taskType === 'video') {
+                                  const videoFormula = readVendorVideoPricingFormula(vendor);
+                                  const ensureVideoPricingSafety = (
+                                    nextVendor: ManagedModelVendorConfig
+                                  ) =>
+                                    nextVendor.pricing?.defaultAvailable === undefined
+                                      ? updateVendorPricingAvailability(nextVendor, {
+                                          defaultAvailable: false,
+                                        })
+                                      : nextVendor;
+                                  const videoPricingDimensions = selectedVideoPricingDimensions;
+                                  const simpleVideoRules = specRules.filter((rule) => {
+                                    const match = rule.match || {};
+                                    return Object.keys(match).every((key) => key === 'resolution' || key === 'duration');
+                                  });
+                                  const advancedVideoRules = specRules.filter((rule) => {
+                                    const match = rule.match || {};
+                                    return Object.keys(match).some((key) => key !== 'resolution' && key !== 'duration');
+                                  });
                                   const resolutionOptions = Array.from(
                                     new Set(
                                       [
                                         ...(Array.isArray(selectedVodConfig?.outputConfig?.resolutions)
                                           ? selectedVodConfig.outputConfig.resolutions
                                           : []),
-                                        ...specRules
+                                        ...simpleVideoRules
                                           .map((rule) => String(rule.match?.resolution || '').trim().toUpperCase())
                                           .filter(Boolean),
                                       ]
@@ -9246,23 +10514,110 @@ function UnifiedModelManagementTab() {
                                         ...(Array.isArray(selectedVodConfig?.outputConfig?.durations)
                                           ? selectedVodConfig.outputConfig.durations
                                           : []),
-                                        ...specRules
+                                        ...simpleVideoRules
                                           .map((rule) => Number(rule.match?.duration))
                                           .filter((value) => Number.isFinite(value) && value > 0),
                                       ]
                                     )
                                   ).sort((a, b) => Number(a) - Number(b));
-                                  const advancedRuleCount = specRules.filter((rule) => {
-                                    const match = rule.match || {};
-                                    const keys = Object.keys(match);
-                                    return keys.some((key) => key !== 'resolution' && key !== 'duration');
-                                  }).length;
+                                  const advancedRuleCount = advancedVideoRules.length;
+                                  const updateAdvancedVideoRules = (nextAdvancedRules: ManagedSpecPricingRule[]) => {
+                                    updateVendor(
+                                      vendorIndex,
+                                      ensureVideoPricingSafety(
+                                        writeVendorSpecPricingRules(vendor, [
+                                          ...simpleVideoRules,
+                                          ...nextAdvancedRules,
+                                        ])
+                                      )
+                                    );
+                                  };
+                                  const addAdvancedVideoRule = () => {
+                                    const defaultMatch: Record<string, any> = {};
+                                    const resolutionDimension = getVideoPricingDimension(videoPricingDimensions, "resolution");
+                                    const durationDimension = getVideoPricingDimension(videoPricingDimensions, "duration");
+                                    if (resolutionDimension?.options[0]) {
+                                      defaultMatch.resolution = resolutionDimension.options[0].value;
+                                    }
+                                    if (durationDimension?.options[0]) {
+                                      defaultMatch.duration = durationDimension.options[0].value;
+                                    }
+
+                                    if (Object.keys(defaultMatch).length === 0) {
+                                      const fallbackDimension = videoPricingDimensions[0];
+                                      if (fallbackDimension?.options[0]) {
+                                        defaultMatch[fallbackDimension.key] = fallbackDimension.options[0].value;
+                                      }
+                                    }
+
+                                    if (Object.keys(defaultMatch).length === 0) {
+                                      return;
+                                    }
+
+                                    updateAdvancedVideoRules([
+                                      ...advancedVideoRules,
+                                      {
+                                        label: "",
+                                        match: defaultMatch,
+                                        creditsPerCall: 0,
+                                      },
+                                    ]);
+                                  };
+                                  const patchAdvancedVideoRule = (
+                                    ruleIndex: number,
+                                    patch: {
+                                      label?: string;
+                                      match?: Record<string, any>;
+                                      creditsPerCall?: number;
+                                      priceYuan?: number;
+                                    }
+                                  ) => {
+                                    updateAdvancedVideoRules(
+                                      advancedVideoRules.map((rule, currentIndex) => {
+                                        if (currentIndex !== ruleIndex) return rule;
+                                        return {
+                                          ...rule,
+                                          ...("label" in patch ? { label: patch.label } : {}),
+                                          ...("creditsPerCall" in patch
+                                            ? { creditsPerCall: patch.creditsPerCall }
+                                            : {}),
+                                          ...("priceYuan" in patch ? { priceYuan: patch.priceYuan } : {}),
+                                          ...("match" in patch ? { match: patch.match } : {}),
+                                        };
+                                      })
+                                    );
+                                  };
+                                  const updateVideoFormula = (patch: {
+                                    baseCredits?: number;
+                                    basePriceYuan?: number;
+                                    adjustments?: ManagedVideoFormulaAdjustment[];
+                                  }) => {
+                                    updateVendor(
+                                      vendorIndex,
+                                      ensureVideoPricingSafety(
+                                        writeVendorVideoPricingFormula(vendor, {
+                                          baseCredits:
+                                            patch.baseCredits !== undefined
+                                              ? patch.baseCredits
+                                              : videoFormula.baseCredits,
+                                          basePriceYuan:
+                                            patch.basePriceYuan !== undefined
+                                              ? patch.basePriceYuan
+                                              : videoFormula.basePriceYuan,
+                                          adjustments:
+                                            patch.adjustments !== undefined
+                                              ? patch.adjustments
+                                              : videoFormula.adjustments,
+                                        })
+                                      )
+                                    );
+                                  };
 
                                   const updateMatrixCell = (resolution: string, duration: number, rawValue: string) => {
                                     const normalizedResolution = resolution.trim().toUpperCase();
                                     const numericDuration = Number(duration);
                                     const nextCredits = rawValue.trim() === '' ? null : Number(rawValue);
-                                    const remainingRules = specRules.filter((rule) => {
+                                    const remainingRules = simpleVideoRules.filter((rule) => {
                                       const match = rule.match || {};
                                       return !(
                                         String(match.resolution || '').trim().toUpperCase() === normalizedResolution &&
@@ -9279,14 +10634,449 @@ function UnifiedModelManagementTab() {
                                       });
                                     }
 
-                                    updateVendorSpecRules(vendorIndex, remainingRules);
+                                    updateVendor(
+                                      vendorIndex,
+                                      ensureVideoPricingSafety(
+                                        writeVendorSpecPricingRules(vendor, [
+                                          ...advancedVideoRules,
+                                          ...remainingRules,
+                                        ])
+                                      )
+                                    );
                                   };
 
                                   return (
                                     <div className='space-y-3'>
+                                      <div className='rounded-lg border bg-amber-50 p-4'>
+                                        <div className='flex flex-wrap items-start justify-between gap-4'>
+                                          <div>
+                                            <div className='font-medium text-gray-800'>未命中时的默认行为</div>
+                                            <div className='text-sm text-gray-500'>
+                                              推荐默认关闭。这样像“有声 + 视频输入 + 4K + 10s”未配置价格时，会直接视为不可用，不会误扣成默认价。
+                                            </div>
+                                          </div>
+                                          <label className='inline-flex items-center gap-2 text-sm text-gray-700'>
+                                            <input
+                                              type='checkbox'
+                                              checked={vendorPricingAvailability.defaultAvailable}
+                                              onChange={(e) =>
+                                                updateVendor(
+                                                  vendorIndex,
+                                                  updateVendorPricingAvailability(vendor, {
+                                                    defaultAvailable: e.target.checked,
+                                                  })
+                                                )
+                                              }
+                                            />
+                                            未命中条件时允许回退默认价
+                                          </label>
+                                        </div>
+                                        {!vendorPricingAvailability.defaultAvailable && (
+                                          <div className='mt-3'>
+                                            <label className='block text-sm text-gray-600 mb-1'>
+                                              不可用提示文案
+                                            </label>
+                                            <Input
+                                              value={vendorPricingAvailability.unavailableReason || ""}
+                                              onChange={(e) =>
+                                                updateVendor(
+                                                  vendorIndex,
+                                                  updateVendorPricingAvailability(vendor, {
+                                                    unavailableReason: e.target.value,
+                                                  })
+                                                )
+                                              }
+                                              placeholder='如：当前规格未开放，请补充价格规则'
+                                            />
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      <div className='rounded-lg border bg-gray-50 p-4'>
+                                        <div className='mb-3 flex items-center justify-between'>
+                                          <div>
+                                            <div className='font-medium text-gray-800'>视频条件规则</div>
+                                            <div className='text-sm text-gray-500'>用于精确配置“有声 / 输入类型 / 分辨率 / 时长”等组合价，所有条件都来自该模型已声明的支持参数。</div>
+                                          </div>
+                                          <Button
+                                            size='sm'
+                                            variant='outline'
+                                            onClick={addAdvancedVideoRule}
+                                            disabled={videoPricingDimensions.length === 0}
+                                          >
+                                            新增视频规则
+                                          </Button>
+                                        </div>
+
+                                        {advancedVideoRules.length === 0 ? (
+                                          <div className='rounded border border-dashed px-3 py-6 text-center text-sm text-gray-500'>
+                                            暂无复杂组合规则。像“有声 + 视频输入 + 4K + 10s”这类价格，可以在这里直接配置。
+                                          </div>
+                                        ) : (
+                                          <div className='space-y-3'>
+                                            {advancedVideoRules.map((rule, ruleIndex) => {
+                                              const match = rule.match || {};
+                                              return (
+                                                <div key={`${vendor.vendorKey || 'video-rule'}-${ruleIndex}`} className='rounded-lg border bg-white p-4'>
+                                                  <div className='mb-3 flex items-center justify-between'>
+                                                    <div className='font-medium text-gray-800'>视频规则 {ruleIndex + 1}</div>
+                                                    <Button
+                                                      size='sm'
+                                                      variant='outline'
+                                                      className='text-red-600 hover:text-red-700 hover:border-red-300'
+                                                      onClick={() =>
+                                                        updateAdvancedVideoRules(
+                                                          advancedVideoRules.filter((_, currentIndex) => currentIndex !== ruleIndex)
+                                                        )
+                                                      }
+                                                    >
+                                                      删除
+                                                    </Button>
+                                                  </div>
+
+                                                  <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-3'>
+                                                    <div>
+                                                      <label className='block text-sm text-gray-600 mb-1'>规则名称</label>
+                                                      <Input
+                                                        value={rule.label || ''}
+                                                        onChange={(e) => patchAdvancedVideoRule(ruleIndex, { label: e.target.value })}
+                                                        placeholder='如：有声+视频输入+4K+10秒'
+                                                      />
+                                                    </div>
+                                                    {videoPricingDimensions.map((dimension) => (
+                                                      <div key={`${ruleIndex}-${dimension.key}`}>
+                                                        <label className='block text-sm text-gray-600 mb-1'>
+                                                          {dimension.labelZh} <span className='text-gray-400'>/ {dimension.labelEn}</span>
+                                                        </label>
+                                                        <select
+                                                          value={readVideoRuleDimensionValue(match, dimension.key)}
+                                                          onChange={(e) =>
+                                                            patchAdvancedVideoRule(ruleIndex, {
+                                                              match: patchVideoRuleMatch(match, dimension.key, e.target.value),
+                                                            })
+                                                          }
+                                                          className='w-full rounded border px-3 py-2'
+                                                        >
+                                                          <option value=''>不限 / Any</option>
+                                                          {dimension.options.map((option) => (
+                                                            <option
+                                                              key={`${dimension.key}-${String(option.value)}`}
+                                                              value={serializePricingDimensionValue(option.value)}
+                                                            >
+                                                              {option.labelZh} / {option.labelEn}
+                                                            </option>
+                                                          ))}
+                                                        </select>
+                                                      </div>
+                                                    ))}
+                                                    <div>
+                                                      <label className='block text-sm text-gray-600 mb-1'>固定积分</label>
+                                                      <Input
+                                                        type='number'
+                                                        value={rule.creditsPerCall ?? ''}
+                                                        onChange={(e) =>
+                                                          patchAdvancedVideoRule(ruleIndex, {
+                                                            creditsPerCall:
+                                                              e.target.value.trim() === ''
+                                                                ? undefined
+                                                                : Number(e.target.value),
+                                                          })
+                                                        }
+                                                      />
+                                                    </div>
+                                                    <div>
+                                                      <label className='block text-sm text-gray-600 mb-1'>固定价格(元)</label>
+                                                      <Input
+                                                        type='number'
+                                                        step='0.0001'
+                                                        value={rule.priceYuan ?? ''}
+                                                        onChange={(e) =>
+                                                          patchAdvancedVideoRule(ruleIndex, {
+                                                            priceYuan:
+                                                              e.target.value.trim() === ''
+                                                                ? undefined
+                                                                : Number(e.target.value),
+                                                          })
+                                                        }
+                                                      />
+                                                    </div>
+                                                  </div>
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      <div className='rounded-lg border bg-gray-50 p-4'>
+                                        <div className='mb-3 flex items-center justify-between'>
+                                          <div>
+                                            <div className='font-medium text-gray-800'>视频线性定价</div>
+                                            <div className='text-sm text-gray-500'>适合维护“基础价 + 每秒单价 + 分辨率/输入类型/音频附加价”。精确组合价仍由上面的规则优先覆盖。</div>
+                                          </div>
+                                          <Button
+                                            size='sm'
+                                            variant='outline'
+                                            onClick={() =>
+                                              updateVideoFormula({
+                                                adjustments: [
+                                                  ...videoFormula.adjustments,
+                                                  {
+                                                    label: '',
+                                                    match: {},
+                                                    multiplierField: 'duration',
+                                                    multiplierRound: 'none',
+                                                    unitCredits: 0,
+                                                    unitPriceYuan: 0,
+                                                  },
+                                                ],
+                                              })
+                                            }
+                                          >
+                                            新增增量项
+                                          </Button>
+                                        </div>
+
+                                        <div className='grid gap-4 md:grid-cols-2'>
+                                          <div>
+                                            <label className='block text-sm text-gray-600 mb-1'>基础积分</label>
+                                            <Input
+                                              type='number'
+                                              value={videoFormula.baseCredits ?? ''}
+                                              onChange={(e) =>
+                                                updateVideoFormula({
+                                                  baseCredits:
+                                                    e.target.value.trim() === ''
+                                                      ? undefined
+                                                      : Number(e.target.value),
+                                                })
+                                              }
+                                              placeholder='可选，例如首调固定积分'
+                                            />
+                                          </div>
+                                          <div>
+                                            <label className='block text-sm text-gray-600 mb-1'>基础价格(元)</label>
+                                            <Input
+                                              type='number'
+                                              step='0.0001'
+                                              value={videoFormula.basePriceYuan ?? ''}
+                                              onChange={(e) =>
+                                                updateVideoFormula({
+                                                  basePriceYuan:
+                                                    e.target.value.trim() === ''
+                                                      ? undefined
+                                                      : Number(e.target.value),
+                                                })
+                                              }
+                                              placeholder='可选，例如起步价'
+                                            />
+                                          </div>
+                                        </div>
+
+                                        {videoFormula.adjustments.length === 0 ? (
+                                          <div className='mt-3 rounded border border-dashed px-3 py-6 text-center text-sm text-gray-500'>
+                                            暂无线性增量项，当前只会使用固定规则
+                                            {vendorPricingAvailability.defaultAvailable
+                                              ? "、默认价"
+                                              : ""}
+                                            或下方精确规格价。
+                                          </div>
+                                        ) : (
+                                          <div className='mt-4 space-y-3'>
+                                            {videoFormula.adjustments.map((adjustment, adjustmentIndex) => (
+                                              <div key={`${vendor.vendorKey || 'video-formula'}-${adjustmentIndex}`} className='rounded-lg border bg-white p-4'>
+                                                <div className='mb-3 flex items-center justify-between'>
+                                                  <div className='font-medium text-gray-800'>增量项 {adjustmentIndex + 1}</div>
+                                                  <Button
+                                                    size='sm'
+                                                    variant='outline'
+                                                    className='text-red-600 hover:text-red-700 hover:border-red-300'
+                                                    onClick={() =>
+                                                      updateVideoFormula({
+                                                        adjustments: videoFormula.adjustments.filter((_, index) => index !== adjustmentIndex),
+                                                      })
+                                                    }
+                                                  >
+                                                    删除
+                                                  </Button>
+                                                </div>
+
+                                                <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-4'>
+                                                  <div>
+                                                    <label className='block text-sm text-gray-600 mb-1'>名称</label>
+                                                    <Input
+                                                      value={adjustment.label || ''}
+                                                      onChange={(e) =>
+                                                        updateVideoFormula({
+                                                          adjustments: videoFormula.adjustments.map((item, index) =>
+                                                            index === adjustmentIndex ? { ...item, label: e.target.value } : item
+                                                          ),
+                                                        })
+                                                      }
+                                                      placeholder='如：1080P 每秒附加价'
+                                                    />
+                                                  </div>
+                                                  {videoPricingDimensions.map((dimension) => (
+                                                    <div key={`${adjustmentIndex}-${dimension.key}`}>
+                                                      <label className='block text-sm text-gray-600 mb-1'>
+                                                        条件: {dimension.labelZh} <span className='text-gray-400'>/ {dimension.labelEn}</span>
+                                                      </label>
+                                                      <select
+                                                        value={readVideoRuleDimensionValue(adjustment.match || {}, dimension.key)}
+                                                        onChange={(e) =>
+                                                          updateVideoFormula({
+                                                            adjustments: videoFormula.adjustments.map((item, index) =>
+                                                              index === adjustmentIndex
+                                                                ? {
+                                                                    ...item,
+                                                                    match: patchVideoRuleMatch(item.match || {}, dimension.key, e.target.value),
+                                                                  }
+                                                                : item
+                                                            ),
+                                                          })
+                                                        }
+                                                        className='w-full rounded border px-3 py-2'
+                                                      >
+                                                        <option value=''>不限 / Any</option>
+                                                        {dimension.options.map((option) => (
+                                                          <option
+                                                            key={`${dimension.key}-${String(option.value)}`}
+                                                            value={serializePricingDimensionValue(option.value)}
+                                                          >
+                                                            {option.labelZh} / {option.labelEn}
+                                                          </option>
+                                                        ))}
+                                                      </select>
+                                                    </div>
+                                                  ))}
+                                                  <div>
+                                                    <label className='block text-sm text-gray-600 mb-1'>乘数字段</label>
+                                                    <select
+                                                      value={adjustment.multiplierField || ''}
+                                                      onChange={(e) =>
+                                                        updateVideoFormula({
+                                                          adjustments: videoFormula.adjustments.map((item, index) =>
+                                                            index === adjustmentIndex
+                                                              ? { ...item, multiplierField: e.target.value }
+                                                              : item
+                                                          ),
+                                                        })
+                                                      }
+                                                      className='w-full rounded border px-3 py-2'
+                                                    >
+                                                      <option value=''>固定项</option>
+                                                      <option value='duration'>duration</option>
+                                                      <option value='outputCount'>outputCount</option>
+                                                    </select>
+                                                  </div>
+                                                  <div>
+                                                    <label className='block text-sm text-gray-600 mb-1'>固定积分</label>
+                                                    <Input
+                                                      type='number'
+                                                      value={adjustment.fixedCredits ?? ''}
+                                                      onChange={(e) =>
+                                                        updateVideoFormula({
+                                                          adjustments: videoFormula.adjustments.map((item, index) =>
+                                                            index === adjustmentIndex
+                                                              ? {
+                                                                  ...item,
+                                                                  fixedCredits:
+                                                                    e.target.value.trim() === ''
+                                                                      ? undefined
+                                                                      : Number(e.target.value),
+                                                                }
+                                                              : item
+                                                          ),
+                                                        })
+                                                      }
+                                                      placeholder='可选'
+                                                    />
+                                                  </div>
+                                                  <div>
+                                                    <label className='block text-sm text-gray-600 mb-1'>固定价格(元)</label>
+                                                    <Input
+                                                      type='number'
+                                                      step='0.0001'
+                                                      value={adjustment.fixedPriceYuan ?? ''}
+                                                      onChange={(e) =>
+                                                        updateVideoFormula({
+                                                          adjustments: videoFormula.adjustments.map((item, index) =>
+                                                            index === adjustmentIndex
+                                                              ? {
+                                                                  ...item,
+                                                                  fixedPriceYuan:
+                                                                    e.target.value.trim() === ''
+                                                                      ? undefined
+                                                                      : Number(e.target.value),
+                                                                }
+                                                              : item
+                                                          ),
+                                                        })
+                                                      }
+                                                      placeholder='可选'
+                                                    />
+                                                  </div>
+                                                  <div>
+                                                    <label className='block text-sm text-gray-600 mb-1'>单位积分</label>
+                                                    <Input
+                                                      type='number'
+                                                      value={adjustment.unitCredits ?? ''}
+                                                      onChange={(e) =>
+                                                        updateVideoFormula({
+                                                          adjustments: videoFormula.adjustments.map((item, index) =>
+                                                            index === adjustmentIndex
+                                                              ? {
+                                                                  ...item,
+                                                                  unitCredits:
+                                                                    e.target.value.trim() === ''
+                                                                      ? undefined
+                                                                      : Number(e.target.value),
+                                                                }
+                                                              : item
+                                                          ),
+                                                        })
+                                                      }
+                                                      placeholder='如：每秒积分'
+                                                    />
+                                                  </div>
+                                                  <div>
+                                                    <label className='block text-sm text-gray-600 mb-1'>单位价格(元)</label>
+                                                    <Input
+                                                      type='number'
+                                                      step='0.0001'
+                                                      value={adjustment.unitPriceYuan ?? ''}
+                                                      onChange={(e) =>
+                                                        updateVideoFormula({
+                                                          adjustments: videoFormula.adjustments.map((item, index) =>
+                                                            index === adjustmentIndex
+                                                              ? {
+                                                                  ...item,
+                                                                  unitPriceYuan:
+                                                                    e.target.value.trim() === ''
+                                                                      ? undefined
+                                                                      : Number(e.target.value),
+                                                                }
+                                                              : item
+                                                          ),
+                                                        })
+                                                      }
+                                                      placeholder='如：每秒价格'
+                                                    />
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+
+                                        <div className='mt-3 rounded-lg border bg-white px-3 py-3 text-xs text-gray-600'>
+                                          示例：基础每秒价可配置为“乘数字段 = duration，单位价格 = 0.25”；若“有声 + 视频输入 + 4K”每秒额外加价，可直接在增量项里选择对应条件，而不是手写字段名。
+                                        </div>
+                                      </div>
+
                                       <div className='mb-3'>
                                         <div className='font-medium text-gray-800'>视频规格定价表</div>
-                                        <div className='text-sm text-gray-500'>仅展示该模型真实支持的分辨率和时长组合，单元格填写积分。</div>
+                                        <div className='text-sm text-gray-500'>用于覆盖少量特殊规格。若矩阵命中，将优先于上面的线性定价。</div>
                                       </div>
                                       {resolutionOptions.length === 0 || durationOptions.length === 0 ? (
                                         <div className='rounded border border-dashed px-3 py-6 text-center text-sm text-gray-500'>
@@ -9340,9 +11130,12 @@ function UnifiedModelManagementTab() {
                                           </div>
 
                                           <div className='rounded-lg border bg-gray-50 px-3 py-3 text-xs text-gray-600'>
-                                            留空表示该规格未单独定价，将回退到上面的“默认定价”。
+                                            留空表示该规格未单独定价，
+                                            {vendorPricingAvailability.defaultAvailable
+                                              ? "将回退到上面的“默认定价”。"
+                                              : "且若没有其他规则/公式命中，则默认不可用。"}
                                             {advancedRuleCount > 0
-                                              ? ` 当前还有 ${advancedRuleCount} 条高级规则（含 resolution/duration 以外条件），请在 JSON 导入/替换里维护。`
+                                              ? ` 当前已配置 ${advancedRuleCount} 条复杂组合规则，命中时会优先于线性定价和矩阵价格。`
                                               : ''}
                                           </div>
                                         </div>
@@ -9644,6 +11437,397 @@ function UnifiedModelManagementTab() {
         </div>
       </div>
 
+      {pricingPreviewModalOpen && (
+        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'>
+          <div className='max-h-[92vh] w-full max-w-7xl overflow-hidden rounded-lg bg-white shadow-xl'>
+            <div className='flex items-start justify-between gap-4 border-b px-6 py-4'>
+              <div>
+                <h4 className='text-lg font-semibold'>定价预览弹窗</h4>
+                <p className='text-sm text-gray-500'>
+                  当前模型显示全部输入组合穷举结果；下方附带全部模型默认规格总览。
+                </p>
+              </div>
+              <Button variant='outline' onClick={() => setPricingPreviewModalOpen(false)}>
+                关闭
+              </Button>
+            </div>
+
+            <div className='max-h-[calc(92vh-73px)] overflow-auto px-6 py-5 space-y-6'>
+              {!selectedModel ? (
+                <div className='rounded-lg border border-dashed px-4 py-8 text-center text-sm text-gray-500'>
+                  请选择一个模型后查看试算结果。
+                </div>
+              ) : (
+                <>
+                  <div className='flex flex-wrap gap-2 border-b pb-3'>
+                    {[
+                      { key: "current" as const, label: "当前模型价格表" },
+                      { key: "all" as const, label: "全部模型价格表" },
+                    ].map((tab) => (
+                      <button
+                        key={tab.key}
+                        type='button'
+                        onClick={() => setPricingPreviewTab(tab.key)}
+                        className={`rounded-full px-4 py-2 text-sm transition ${
+                          pricingPreviewTab === tab.key
+                            ? "bg-blue-600 text-white"
+                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {pricingPreviewTab === "current" ? (
+                    <div className='rounded-lg border bg-gray-50 p-4 space-y-4'>
+                      <div className='flex flex-wrap items-start justify-between gap-4'>
+                        <div>
+                          <div className='font-medium text-gray-800'>当前模型真实定价配置</div>
+                          <div className='text-sm text-gray-500'>
+                            {selectedModel.modelName || selectedModel.modelKey || "未命名模型"}
+                          </div>
+                        </div>
+                        <div className='min-w-[240px]'>
+                          <label className='mb-1 block text-sm text-gray-600'>试算厂商</label>
+                          <select
+                            value={selectedModelPreviewVendorKey}
+                            onChange={(e) => setPricingPreviewVendorKey(e.target.value)}
+                            className='w-full rounded border px-3 py-2'
+                          >
+                            {(vendorCards || [])
+                              .filter((vendor) => vendor.enabled !== false && vendor.vendorKey)
+                              .map((vendor) => (
+                                <option key={vendor.vendorKey} value={vendor.vendorKey}>
+                                  {vendor.label || vendor.vendorKey}
+                                </option>
+                              ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      {normalizeManagedModelTaskType(selectedModel.taskType) !== "video" ? (
+                        <div className='rounded-lg border bg-white p-4 text-sm text-gray-600'>
+                          当前模型不是视频模型，穷举表只对视频模型开放；这里仍展示默认规格价格。
+                          <div className='mt-3 flex flex-wrap gap-3'>
+                            <div className='rounded-full bg-gray-100 px-3 py-1'>
+                              来源: {selectedModelPreviewResult?.source || "none"}
+                            </div>
+                            <div className='rounded-full bg-blue-50 px-3 py-1 text-blue-700'>
+                              积分:{" "}
+                              {typeof selectedModelPreviewResult?.credits === "number"
+                                ? selectedModelPreviewResult.credits
+                                : "-"}
+                            </div>
+                            <div className='rounded-full bg-emerald-50 px-3 py-1 text-emerald-700'>
+                              价格:{" "}
+                              {typeof selectedModelPreviewResult?.priceYuan === "number"
+                                ? `¥${selectedModelPreviewResult.priceYuan}`
+                                : "-"}
+                            </div>
+                          </div>
+                        </div>
+                      ) : selectedConfiguredRuleRows.length === 0 &&
+                        selectedFormulaAdjustments.length === 0 ? (
+                        <div className='rounded border border-dashed px-4 py-8 text-center text-sm text-gray-500'>
+                          当前厂商还没有配置可预览的 `pricing.rules` 或 `pricing.formula`。
+                          <div className='mt-2 text-xs text-gray-400'>
+                            vendorKey: {selectedModelPreviewVendorKey || "-"} · 原始 rules:
+                            {" "}
+                            {Array.isArray(selectedPreviewVendorCard?.pricing?.rules)
+                              ? selectedPreviewVendorCard.pricing.rules.length
+                              : 0}
+                            {" "}· 原始 formula:
+                            {" "}
+                            {Array.isArray(selectedPreviewVendorCard?.pricing?.formula?.adjustments)
+                              ? selectedPreviewVendorCard.pricing.formula.adjustments.length
+                              : 0}
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className='flex flex-wrap gap-3 text-sm'>
+                            <div className='rounded-full bg-white px-3 py-1 text-gray-700'>
+                              规则数: {selectedConfiguredRuleRows.length}
+                            </div>
+                            <div className='rounded-full bg-white px-3 py-1 text-gray-700'>
+                              函数项: {selectedFormulaAdjustments.length}
+                            </div>
+                            <div className='rounded-full bg-gray-100 px-3 py-1 text-gray-700'>
+                              原始规则:
+                              {" "}
+                              {Array.isArray(selectedPreviewVendorCard?.pricing?.rules)
+                                ? selectedPreviewVendorCard.pricing.rules.length
+                                : 0}
+                            </div>
+                            <div className='rounded-full bg-gray-100 px-3 py-1 text-gray-700'>
+                              原始公式项:
+                              {" "}
+                              {Array.isArray(selectedPreviewVendorCard?.pricing?.formula?.adjustments)
+                                ? selectedPreviewVendorCard.pricing.formula.adjustments.length
+                                : 0}
+                            </div>
+                            <div className='rounded-full bg-gray-100 px-3 py-1 text-gray-700'>
+                              来源: {selectedModelPreviewResult?.source || "none"}
+                            </div>
+                          </div>
+
+                          {selectedGroupedRuleRows.length > 0 && (
+                            <div className='rounded-lg border bg-white'>
+                              <div className='border-b px-4 py-3'>
+                                <div className='font-medium text-gray-800'>规则价格表</div>
+                                <div className='text-sm text-gray-500'>
+                                  仅展示当前厂商已配置的真实规则，不再按所有支持维度做笛卡尔积穷举。
+                                </div>
+                              </div>
+                              <div className='overflow-x-auto'>
+                                <table className='min-w-full border-separate border-spacing-0 text-sm'>
+                                  <thead>
+                                    <tr>
+                                      <th className='border bg-gray-50 px-3 py-2 text-left'>展开</th>
+                                      {selectedConfiguredRuleDimensions
+                                        .filter((dimension) => dimension.key !== "duration")
+                                        .map((dimension) => (
+                                          <th
+                                            key={`configured-rule-${dimension.key}`}
+                                            className='border bg-gray-50 px-3 py-2 text-left'
+                                          >
+                                            {dimension.labelZh}
+                                          </th>
+                                        ))}
+                                      <th className='border bg-gray-50 px-3 py-2 text-left'>时长范围</th>
+                                      <th className='border bg-gray-50 px-3 py-2 text-left'>规则说明</th>
+                                      <th className='border bg-gray-50 px-3 py-2 text-right'>积分范围</th>
+                                      <th className='border bg-gray-50 px-3 py-2 text-right'>价格范围(元)</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {selectedGroupedRuleRows.map((group) => {
+                                      const isExpanded = expandedPricingGroupKeys.includes(group.key);
+                                      return (
+                                        <Fragment key={group.key}>
+                                          <tr>
+                                            <td className='border px-3 py-2'>
+                                              <button
+                                                type='button'
+                                                className='rounded border px-2 py-1 text-xs text-gray-600 hover:bg-gray-50'
+                                                onClick={() =>
+                                                  setExpandedPricingGroupKeys((current) =>
+                                                    current.includes(group.key)
+                                                      ? current.filter((item) => item !== group.key)
+                                                      : [...current, group.key]
+                                                  )
+                                                }
+                                              >
+                                                {isExpanded ? "收起" : "展开"}
+                                              </button>
+                                            </td>
+                                            {selectedConfiguredRuleDimensions
+                                              .filter((dimension) => dimension.key !== "duration")
+                                              .map((dimension) => (
+                                                <td
+                                                  key={`${group.key}-${dimension.key}`}
+                                                  className='border px-3 py-2 text-xs text-gray-700 whitespace-nowrap'
+                                                >
+                                                  {getVideoPreviewValueLabel(
+                                                    dimension,
+                                                    group.selection[dimension.key]
+                                                  )}
+                                                </td>
+                                              ))}
+                                            <td className='border px-3 py-2 text-xs text-gray-700 whitespace-nowrap'>
+                                              {group.durationRangeLabel}
+                                            </td>
+                                            <td className='border px-3 py-2 text-xs text-gray-600'>
+                                              {group.rows[0]?.label || "-"}
+                                            </td>
+                                            <td className='border px-3 py-2 text-right'>
+                                              {group.creditRangeLabel}
+                                            </td>
+                                            <td className='border px-3 py-2 text-right'>
+                                              {group.priceYuanRangeLabel}
+                                            </td>
+                                          </tr>
+                                          {isExpanded &&
+                                            group.rows.map((row) => (
+                                              <tr key={`${group.key}-${row.key}`} className='bg-gray-50/60'>
+                                                <td className='border px-3 py-2 text-xs text-gray-500'>规则明细</td>
+                                                {selectedConfiguredRuleDimensions
+                                                  .filter((dimension) => dimension.key !== "duration")
+                                                  .map((dimension) => (
+                                                    <td
+                                                      key={`${group.key}-${row.key}-${dimension.key}`}
+                                                      className='border px-3 py-2 text-xs text-gray-500 whitespace-nowrap'
+                                                    >
+                                                      {getVideoPreviewValueLabel(
+                                                        dimension,
+                                                        row.selection[dimension.key]
+                                                      )}
+                                                    </td>
+                                                  ))}
+                                                <td className='border px-3 py-2 text-xs text-gray-700 whitespace-nowrap'>
+                                                  {selectedDurationPricingDimension
+                                                    ? getVideoPreviewValueLabel(
+                                                        selectedDurationPricingDimension,
+                                                        row.selection.duration
+                                                      )
+                                                    : "-"}
+                                                </td>
+                                                <td className='border px-3 py-2 text-xs text-gray-600'>
+                                                  {row.label}
+                                                </td>
+                                                <td className='border px-3 py-2 text-right text-xs'>
+                                                  {typeof row.credits === "number" ? row.credits : "-"}
+                                                </td>
+                                                <td className='border px-3 py-2 text-right text-xs'>
+                                                  {typeof row.priceYuan === "number" ? `¥${row.priceYuan}` : "-"}
+                                                </td>
+                                              </tr>
+                                            ))}
+                                        </Fragment>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+
+                          {selectedFormulaAdjustments.length > 0 && (
+                            <div className='rounded-lg border bg-white'>
+                              <div className='border-b px-4 py-3'>
+                                <div className='font-medium text-gray-800'>计价函数</div>
+                                <div className='text-sm text-gray-500'>
+                                  展示当前厂商配置的真实公式项，包括条件、乘数字段和单位价格。
+                                </div>
+                              </div>
+                              <div className='overflow-x-auto'>
+                                <table className='min-w-full border-separate border-spacing-0 text-sm'>
+                                  <thead>
+                                    <tr>
+                                      <th className='border bg-gray-50 px-3 py-2 text-left'>函数项</th>
+                                      <th className='border bg-gray-50 px-3 py-2 text-left'>条件</th>
+                                      <th className='border bg-gray-50 px-3 py-2 text-left'>乘数字段</th>
+                                      <th className='border bg-gray-50 px-3 py-2 text-right'>固定积分</th>
+                                      <th className='border bg-gray-50 px-3 py-2 text-right'>固定价格</th>
+                                      <th className='border bg-gray-50 px-3 py-2 text-right'>单位积分</th>
+                                      <th className='border bg-gray-50 px-3 py-2 text-right'>单位价格</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {selectedFormulaAdjustments.map((item) => (
+                                      <tr key={item.key}>
+                                        <td className='border px-3 py-2 text-xs text-gray-700'>
+                                          {item.label}
+                                        </td>
+                                        <td className='border px-3 py-2 text-xs text-gray-600'>
+                                          {formatVideoPreviewSummary(
+                                            selectedVideoPricingDimensions.filter((dimension) =>
+                                              Boolean(item.selection[dimension.key])
+                                            ),
+                                            item.selection
+                                          ) || "全部"}
+                                        </td>
+                                        <td className='border px-3 py-2 text-xs text-gray-700'>
+                                          {item.multiplierField || "-"}
+                                        </td>
+                                        <td className='border px-3 py-2 text-right'>
+                                          {typeof item.fixedCredits === "number" ? item.fixedCredits : "-"}
+                                        </td>
+                                        <td className='border px-3 py-2 text-right'>
+                                          {typeof item.fixedPriceYuan === "number"
+                                            ? `¥${item.fixedPriceYuan}`
+                                            : "-"}
+                                        </td>
+                                        <td className='border px-3 py-2 text-right'>
+                                          {typeof item.unitCredits === "number" ? item.unitCredits : "-"}
+                                        </td>
+                                        <td className='border px-3 py-2 text-right'>
+                                          {typeof item.unitPriceYuan === "number"
+                                            ? `¥${item.unitPriceYuan}`
+                                            : "-"}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <div className='rounded-lg border p-4'>
+                      <div className='mb-3'>
+                        <div className='font-medium text-gray-800'>全部模型定价总览</div>
+                        <div className='text-sm text-gray-500'>
+                          视频模型按各自默认规格试算；图片/文本模型展示默认厂商默认价。
+                        </div>
+                      </div>
+                      <div className='overflow-x-auto'>
+                        <table className='min-w-full border-separate border-spacing-0 text-sm'>
+                          <thead>
+                            <tr>
+                              <th className='bg-gray-50 border px-3 py-2 text-left'>模型</th>
+                              <th className='bg-gray-50 border px-3 py-2 text-left'>类型</th>
+                              <th className='bg-gray-50 border px-3 py-2 text-left'>默认厂商</th>
+                              <th className='bg-gray-50 border px-3 py-2 text-left'>预览规格</th>
+                              <th className='bg-gray-50 border px-3 py-2 text-left'>来源</th>
+                              <th className='bg-gray-50 border px-3 py-2 text-right'>积分</th>
+                              <th className='bg-gray-50 border px-3 py-2 text-right'>价格(元)</th>
+                              <th className='bg-gray-50 border px-3 py-2 text-left'>状态</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {allModelPricingPreviewRows.map((row) => (
+                              <tr key={`pricing-preview-${row.model.modelKey || row.model.modelName}`}>
+                                <td className='border px-3 py-2'>
+                                  <div className='font-medium text-gray-800'>
+                                    {row.model.modelName || "未命名模型"}
+                                  </div>
+                                  <div className='text-xs text-gray-500'>{row.model.modelKey || "-"}</div>
+                                </td>
+                                <td className='border px-3 py-2'>{row.taskType}</td>
+                                <td className='border px-3 py-2'>{row.vendorLabel}</td>
+                                <td className='border px-3 py-2 text-xs text-gray-600'>
+                                  {row.previewSummary || "-"}
+                                </td>
+                                <td className='border px-3 py-2'>{row.resolved?.source || "none"}</td>
+                                <td className='border px-3 py-2 text-right'>
+                                  {typeof row.resolved?.credits === "number" ? row.resolved.credits : "-"}
+                                </td>
+                                <td className='border px-3 py-2 text-right'>
+                                  {typeof row.resolved?.priceYuan === "number"
+                                    ? row.resolved.priceYuan
+                                    : "-"}
+                                </td>
+                                <td className='border px-3 py-2'>
+                                  {row.resolved?.source === "none" &&
+                                  row.resolved?.defaultAvailable === false ? (
+                                    <span className='rounded bg-red-50 px-2 py-1 text-xs text-red-700'>
+                                      默认不可用
+                                    </span>
+                                  ) : (
+                                    <span className='rounded bg-emerald-50 px-2 py-1 text-xs text-emerald-700'>
+                                      可计费
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {jsonModalOpen && (
         <div className='fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4'>
           <div className='bg-white rounded-lg p-6 w-full max-w-5xl max-h-[90vh] overflow-auto'>
@@ -9657,7 +11841,7 @@ function UnifiedModelManagementTab() {
               <Button variant='outline' onClick={() => setJsonModalOpen(false)}>关闭</Button>
             </div>
             <div className='rounded-lg border bg-amber-50 px-4 py-3 text-sm text-amber-800 mb-4'>
-              <code>models[].vendors[].pricing</code> 支持默认价和规格规则，例如 <code>{`{"defaults":{"credits":600,"priceYuan":6},"rules":[{"when":{"resolution":"720P","duration":10},"price":{"credits":900,"priceYuan":9}}]}`}</code>；旧 <code>metadata.specPricing</code> 仍可导入并兼容读取。
+              <code>models[].vendors[].pricing</code> 支持默认价、规格规则和视频公式定价，例如 <code>{`{"defaultAvailable":false,"unavailableReason":"当前规格未开放","defaults":{"credits":600,"priceYuan":6},"formula":{"base":{"priceYuan":0},"adjustments":[{"label":"基础每秒价","unitPrice":{"priceYuan":0.25},"multiplier":{"field":"duration"}},{"label":"1080P附加","when":{"resolution":"1080P"},"unitPrice":{"priceYuan":0.06},"multiplier":{"field":"duration"}}]},"rules":[{"when":{"resolution":"720P","duration":10},"price":{"credits":900,"priceYuan":9}}]}`}</code>；旧 <code>metadata.specPricing</code> 仍可导入并兼容读取。
             </div>
             <textarea
               value={jsonText}

@@ -43,7 +43,6 @@ import {
   deleteUserTemplate,
   generateId,
 } from "@/services/templateStore";
-
 import TextPromptNode from "./nodes/TextPromptNode";
 import TextPromptProNode from "./nodes/TextPromptProNode";
 import TextChatNode from "./nodes/TextChatNode";
@@ -81,8 +80,10 @@ import VideoAnalyzeNode from "./nodes/VideoAnalyzeNode";
 import {
   getManagedRouteCredits,
   getManagedRouteOption,
+  isManagedRoutePricingUnavailable,
   resolveManagedRoutePricing,
 } from "./managedRoutePricing";
+import { buildManagedVideoPricingContext } from "./videoPricingContext";
 import VideoFrameExtractNode from "./nodes/VideoFrameExtractNode";
 import VideoToGifNode from "./nodes/VideoToGifNode";
 import ImageGridNode from "./nodes/ImageGridNode";
@@ -1988,7 +1989,10 @@ const buildVideoPricingContext = (
           String(soundRaw).trim().toLowerCase() === "true";
   }
 
-  return context;
+  return buildManagedVideoPricingContext({
+    ...(nodeData || {}),
+    ...context,
+  });
 };
 
 const resolveStableRouteCredits = (params: {
@@ -2064,6 +2068,8 @@ const resolveStableRouteCredits = (params: {
     const managedPricing = resolveManagedRoutePricing(metadata, vendorKey, pricingContext);
     if (typeof managedPricing?.credits === "number" && Number.isFinite(managedPricing.credits)) {
       resolvedCredits = managedPricing.credits;
+    } else if (isManagedRoutePricingUnavailable(managedPricing)) {
+      return undefined;
     }
 
     const klingCredits = resolveKlingDynamicCredits(normalizedType, nodeData);

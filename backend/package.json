@@ -7,6 +7,7 @@
     "build": "tsc -p tsconfig.build.json",
     "dev": "ts-node-dev --respawn --transpile-only -r ./src/tracing.bootstrap.ts src/main.ts",
     "lint": "echo 'no lint configured'",
+    "test": "node --test -r ts-node/register/transpile-only test/*.test.ts",
     "sanitize:design-json": "ts-node scripts/sanitize-design-json.ts"
   },
   "dependencies": {

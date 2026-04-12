@@ -34,6 +34,7 @@ import {
   type ManagedPricingMappingLike,
   type ResolvedManagedPricing,
 } from '../ai/services/model-pricing-resolver';
+import { buildManagedVideoPricingContext } from '../ai/services/video-pricing-context';
 
 const STALE_PENDING_DEFAULT_TIMEOUT_MINUTES = 15;
 const STALE_PENDING_DEFAULT_VIDEO_TIMEOUT_MINUTES = 30;
@@ -328,8 +329,12 @@ export class CreditsService {
       if (!raw) return null;
 
       const parsed = JSON.parse(raw) as ManagedPricingMappingLike;
-      const resolved = resolveManagedModelPricing(parsed, modelKey, vendorKey, requestParams);
-      return resolved.source === 'none' ? null : resolved;
+      const pricingContext = buildManagedVideoPricingContext(requestParams);
+      const resolved = resolveManagedModelPricing(parsed, modelKey, vendorKey, pricingContext);
+      if (resolved.source === 'none' && resolved.defaultAvailable !== false) {
+        return null;
+      }
+      return resolved;
     } catch (error) {
       this.logger.warn(
         `读取模型管理线路积分失败，回退服务定价: ${
@@ -1786,6 +1791,15 @@ export class CreditsService {
 
     let creditsToDeduct: number = pricing.creditsPerCall;
     const managedRoutePricing = await this.resolveManagedRoutePricing(requestParams);
+    if (
+      managedRoutePricing?.source === 'none' &&
+      managedRoutePricing.defaultAvailable === false
+    ) {
+      throw new BadRequestException(
+        managedRoutePricing.unavailableReason ||
+          '当前规格未配置价格，暂不可用，请联系管理员补充视频定价。',
+      );
+    }
     if (typeof managedRoutePricing?.price?.credits === 'number') {
       creditsToDeduct = managedRoutePricing.price.credits;
     }
@@ -1798,6 +1812,7 @@ export class CreditsService {
               source: managedRoutePricing.source,
               ...(managedRoutePricing.ruleKey ? { ruleKey: managedRoutePricing.ruleKey } : {}),
               ...(managedRoutePricing.label ? { label: managedRoutePricing.label } : {}),
+              ...(managedRoutePricing.breakdown ? { breakdown: managedRoutePricing.breakdown } : {}),
               price: managedRoutePricing.price,
             },
           }

@@ -14,8 +14,10 @@ import {
   getManagedRouteCredits,
   getManagedRouteOption,
   getManagedRoutesMetadata,
+  isManagedRoutePricingUnavailable,
   resolveManagedRoutePricing,
 } from "../managedRoutePricing";
+import { buildManagedVideoPricingContext } from "../videoPricingContext";
 
 export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao";
 type ViduModel =
@@ -461,12 +463,14 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     [nodeConfigMetadata.supportedModels, provider]
   );
   const pricingContext = React.useMemo(() => {
-    const context: Record<string, any> = {};
     const duration =
       typeof data.clipDuration === "number" && Number.isFinite(data.clipDuration)
         ? Math.round(data.clipDuration)
         : 5;
-    context.duration = duration;
+    const context: Record<string, any> = {
+      ...data,
+      duration,
+    };
 
     if (typeof data.resolution === "string" && data.resolution.trim()) {
       context.resolution = data.resolution.trim().toUpperCase();
@@ -513,36 +517,33 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       context.videoMode = seedanceMode;
       context.seedanceMode = seedanceMode;
     }
-    return context;
+    return buildManagedVideoPricingContext(context);
   }, [
-    data.aspectRatio,
-    data.clipDuration,
-    data.generateAudio,
-    data.klingModel,
-    data.resolution,
-    data.seedanceMode,
-    data.seedanceModel,
-    data.sound,
-    data.viduModel,
-    data.watermark,
+    data,
     isSeedanceModel,
     seedanceMode,
     provider,
     isUnifiedKlingNode,
-    (data as any).mode,
   ]);
   const resolvedManagedPricing = React.useMemo(
     () => resolveManagedRoutePricing(nodeConfigMetadata, data.vendorKey, pricingContext),
     [data.vendorKey, nodeConfigMetadata, pricingContext]
   );
+  const managedPricingUnavailable = isManagedRoutePricingUnavailable(resolvedManagedPricing);
   const selectedCredits =
-    typeof data.creditsPerCall === "number"
-      ? data.creditsPerCall
-      : typeof resolvedManagedPricing?.credits === "number"
+    typeof resolvedManagedPricing?.credits === "number"
       ? resolvedManagedPricing.credits
+      : managedPricingUnavailable
+      ? undefined
+      : typeof data.creditsPerCall === "number"
+      ? data.creditsPerCall
       : getManagedRouteCredits(nodeConfigMetadata, data.vendorKey);
   const hasRunCredits = typeof selectedCredits === "number" && selectedCredits > 0;
   const showRunCredits = hasRunCredits && !VIDEO_RUN_CREDITS_HIDDEN_PROVIDERS.has(provider);
+  const runDisabled = data.status === "running" || managedPricingUnavailable;
+  const managedPricingUnavailableTitle =
+    resolvedManagedPricing?.unavailableReason ||
+    lt("当前规格未配置价格，暂不可用", "Pricing is not configured for this variant.");
   const vodAspectOptions = React.useMemo(() => {
     if (!Array.isArray(vodConfig?.outputConfig?.aspectRatios)) return [];
     return [
@@ -2022,20 +2023,21 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit"
             onClick={onRun}
             onMouseDown={handleButtonMouseDown}
-            disabled={data.status === "running"}
+            disabled={runDisabled}
+            title={managedPricingUnavailable ? managedPricingUnavailableTitle : undefined}
             style={{
               width: 36,
               height: 32,
               borderRadius: 8,
               border: "none",
-              background: data.status === "running" ? "#e5e7eb" : "#111827",
+              background: runDisabled ? "#e5e7eb" : "#111827",
               color: "#fff",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              cursor: data.status === "running" ? "not-allowed" : "pointer",
+              cursor: runDisabled ? "not-allowed" : "pointer",
               fontSize: 12,
-              opacity: data.status === "running" ? 0.6 : 1,
+              opacity: runDisabled ? 0.6 : 1,
               gap: 0,
             }}
           >
@@ -3182,5 +3184,3 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
 }
 
 export default React.memo(GenericVideoNodeInner);
-
-

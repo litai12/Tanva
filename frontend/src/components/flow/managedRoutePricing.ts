@@ -1,3 +1,5 @@
+import { buildManagedVideoPricingContext } from "./videoPricingContext";
+
 export interface ManagedRouteOption {
   vendorKey: string;
   platformKey?: string;
@@ -9,10 +11,43 @@ export interface ManagedRouteOption {
   creditsPerCall?: number;
   pricing?: {
     version?: string;
+    defaultAvailable?: boolean;
+    unavailableReason?: string;
     defaults?: {
       credits?: number;
       priceYuan?: number;
       costYuan?: number;
+    };
+    formula?: {
+      mode?: "additive";
+      base?: {
+        credits?: number;
+        priceYuan?: number;
+        costYuan?: number;
+      };
+      adjustments?: Array<{
+        key?: string;
+        label?: string;
+        when?: Record<string, any>;
+        match?: Record<string, any>;
+        price?: {
+          credits?: number;
+          priceYuan?: number;
+          costYuan?: number;
+        };
+        unitPrice?: {
+          credits?: number;
+          priceYuan?: number;
+          costYuan?: number;
+        };
+        multiplier?: {
+          field?: string;
+          value?: number;
+          min?: number;
+          max?: number;
+          round?: "none" | "ceil" | "floor" | "round";
+        };
+      }>;
     };
     rules?: Array<{
       ruleKey?: string;
@@ -132,8 +167,16 @@ export const getManagedRouteCredits = (
   vendorKey?: string | null
 ): number | undefined => {
   const selected = getManagedRouteOption(metadata, vendorKey);
+  if (selected?.pricing?.defaultAvailable === false) {
+    return undefined;
+  }
   return typeof selected?.creditsPerCall === "number" ? selected.creditsPerCall : undefined;
 };
+
+export const isManagedRoutePricingUnavailable = (pricing?: {
+  source?: "vendor_rule" | "vendor_formula" | "vendor_default" | "none";
+  defaultAvailable?: boolean;
+} | null): boolean => pricing?.source === "none" && pricing?.defaultAvailable === false;
 
 const normalizeComparable = (value: unknown): string | number | boolean | null => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -170,15 +213,229 @@ const matchesRule = (
   });
 };
 
+const normalizePriceBundle = (value: unknown) => {
+  const root = asObject(value);
+  if (!root) return null;
+
+  const credits = Number(root.credits);
+  const priceYuan = Number(root.priceYuan);
+  const costYuan = Number(root.costYuan);
+  if (
+    !Number.isFinite(credits) &&
+    !Number.isFinite(priceYuan) &&
+    !Number.isFinite(costYuan)
+  ) {
+    return null;
+  }
+
+  return {
+    ...(Number.isFinite(credits) ? { credits } : {}),
+    ...(Number.isFinite(priceYuan) ? { priceYuan } : {}),
+    ...(Number.isFinite(costYuan) ? { costYuan } : {}),
+  };
+};
+
+const mergePriceBundles = (
+  current: { credits?: number; priceYuan?: number; costYuan?: number },
+  extra:
+    | { credits?: number; priceYuan?: number; costYuan?: number }
+    | null
+    | undefined
+) => {
+  if (!extra) return current;
+
+  return {
+    ...(current.credits !== undefined || extra.credits !== undefined
+      ? { credits: (current.credits || 0) + (extra.credits || 0) }
+      : {}),
+    ...(current.priceYuan !== undefined || extra.priceYuan !== undefined
+      ? { priceYuan: (current.priceYuan || 0) + (extra.priceYuan || 0) }
+      : {}),
+    ...(current.costYuan !== undefined || extra.costYuan !== undefined
+      ? { costYuan: (current.costYuan || 0) + (extra.costYuan || 0) }
+      : {}),
+  };
+};
+
+const scalePriceBundle = (
+  price:
+    | { credits?: number; priceYuan?: number; costYuan?: number }
+    | null
+    | undefined,
+  factor: number
+) => {
+  if (!price || !Number.isFinite(factor)) return null;
+
+  return {
+    ...(typeof price.credits === "number" ? { credits: price.credits * factor } : {}),
+    ...(typeof price.priceYuan === "number"
+      ? { priceYuan: price.priceYuan * factor }
+      : {}),
+    ...(typeof price.costYuan === "number" ? { costYuan: price.costYuan * factor } : {}),
+  };
+};
+
+const applyMultiplierRounding = (
+  value: number,
+  mode?: "none" | "ceil" | "floor" | "round"
+) => {
+  switch (mode) {
+    case "ceil":
+      return Math.ceil(value);
+    case "floor":
+      return Math.floor(value);
+    case "round":
+      return Math.round(value);
+    default:
+      return value;
+  }
+};
+
+const resolveFormulaMultiplier = (
+  context: Record<string, any>,
+  multiplier?: {
+    field?: string;
+    value?: number;
+    min?: number;
+    max?: number;
+    round?: "none" | "ceil" | "floor" | "round";
+  } | null
+) => {
+  const raw =
+    typeof multiplier?.field === "string" && multiplier.field.trim()
+      ? context[multiplier.field.trim()]
+      : multiplier?.value;
+  const numeric = Number(raw);
+  let resolved = Number.isFinite(numeric) ? numeric : 1;
+
+  if (typeof multiplier?.min === "number") {
+    resolved = Math.max(resolved, multiplier.min);
+  }
+  if (typeof multiplier?.max === "number") {
+    resolved = Math.min(resolved, multiplier.max);
+  }
+
+  return applyMultiplierRounding(resolved, multiplier?.round);
+};
+
+const resolveFormulaPricing = (
+  pricing:
+    | {
+        base?: { credits?: number; priceYuan?: number; costYuan?: number };
+        adjustments?: Array<{
+          key?: string;
+          label?: string;
+          when?: Record<string, any>;
+          match?: Record<string, any>;
+          price?: { credits?: number; priceYuan?: number; costYuan?: number };
+          unitPrice?: { credits?: number; priceYuan?: number; costYuan?: number };
+          multiplier?: {
+            field?: string;
+            value?: number;
+            min?: number;
+            max?: number;
+            round?: "none" | "ceil" | "floor" | "round";
+          };
+        }>;
+      }
+    | undefined,
+  context: Record<string, any>
+) => {
+  if (!pricing) return null;
+
+  let resolvedPrice: { credits?: number; priceYuan?: number; costYuan?: number } = {};
+  const breakdown: Array<{
+    type: "base" | "adjustment";
+    key?: string;
+    label?: string;
+    multiplier?: number;
+    price: { credits?: number; priceYuan?: number; costYuan?: number };
+  }> = [];
+
+  const base = normalizePriceBundle(pricing.base);
+  if (base) {
+    resolvedPrice = mergePriceBundles(resolvedPrice, base);
+    breakdown.push({ type: "base", label: "base", price: base });
+  }
+
+  for (const adjustment of Array.isArray(pricing.adjustments) ? pricing.adjustments : []) {
+    const matcher =
+      adjustment?.when && typeof adjustment.when === "object"
+        ? adjustment.when
+        : adjustment?.match && typeof adjustment.match === "object"
+        ? adjustment.match
+        : null;
+    if (matcher && !matchesRule(context, matcher)) continue;
+
+    let component = mergePriceBundles({}, normalizePriceBundle(adjustment?.price));
+    let hasComponent =
+      component.credits !== undefined ||
+      component.priceYuan !== undefined ||
+      component.costYuan !== undefined;
+    let multiplierValue: number | undefined;
+
+    const unitPrice = normalizePriceBundle(adjustment?.unitPrice);
+    if (unitPrice) {
+      multiplierValue = resolveFormulaMultiplier(context, adjustment?.multiplier);
+      component = mergePriceBundles(component, scalePriceBundle(unitPrice, multiplierValue));
+      hasComponent =
+        hasComponent ||
+        component.credits !== undefined ||
+        component.priceYuan !== undefined ||
+        component.costYuan !== undefined;
+    }
+
+    if (!hasComponent) continue;
+
+    resolvedPrice = mergePriceBundles(resolvedPrice, component);
+    breakdown.push({
+      type: "adjustment",
+      key: typeof adjustment?.key === "string" ? adjustment.key : undefined,
+      label: typeof adjustment?.label === "string" ? adjustment.label : undefined,
+      ...(multiplierValue !== undefined ? { multiplier: multiplierValue } : {}),
+      price: component,
+    });
+  }
+
+  if (
+    resolvedPrice.credits === undefined &&
+    resolvedPrice.priceYuan === undefined &&
+    resolvedPrice.costYuan === undefined
+  ) {
+    return null;
+  }
+
+  return {
+    ...resolvedPrice,
+    breakdown,
+  };
+};
+
 export const resolveManagedRoutePricing = (
   metadata?: Record<string, any> | null,
   vendorKey?: string | null,
   pricingContext?: Record<string, any> | null
-): { credits?: number; priceYuan?: number; ruleKey?: string; label?: string } | null => {
+): {
+  credits?: number;
+  priceYuan?: number;
+  ruleKey?: string;
+  label?: string;
+  source?: "vendor_rule" | "vendor_formula" | "vendor_default" | "none";
+  defaultAvailable?: boolean;
+  unavailableReason?: string;
+  breakdown?: Array<{
+    type: "base" | "adjustment";
+    key?: string;
+    label?: string;
+    multiplier?: number;
+    price: { credits?: number; priceYuan?: number; costYuan?: number };
+  }>;
+} | null => {
   const selected = getManagedRouteOption(metadata, vendorKey);
   if (!selected) return null;
   const pricing = selected.pricing;
-  const context = pricingContext && typeof pricingContext === "object" ? pricingContext : {};
+  const rawContext = pricingContext && typeof pricingContext === "object" ? pricingContext : {};
+  const context = buildManagedVideoPricingContext(rawContext);
 
   const rules = Array.isArray(pricing?.rules) ? [...pricing.rules] : [];
   rules.sort((a, b) => {
@@ -212,6 +469,34 @@ export const resolveManagedRoutePricing = (
       ...(typeof priceYuan === "number" ? { priceYuan } : {}),
       ...(typeof rule?.ruleKey === "string" ? { ruleKey: rule.ruleKey } : {}),
       ...(typeof rule?.label === "string" ? { label: rule.label } : {}),
+      source: "vendor_rule",
+      defaultAvailable: pricing?.defaultAvailable,
+    };
+  }
+
+  const formulaResult = resolveFormulaPricing(pricing?.formula, context);
+  if (formulaResult) {
+    return {
+      ...(typeof formulaResult.credits === "number"
+        ? { credits: formulaResult.credits }
+        : {}),
+      ...(typeof formulaResult.priceYuan === "number"
+        ? { priceYuan: formulaResult.priceYuan }
+        : {}),
+      source: "vendor_formula",
+      defaultAvailable: pricing?.defaultAvailable,
+      ...(formulaResult.breakdown ? { breakdown: formulaResult.breakdown } : {}),
+    };
+  }
+
+  if (pricing?.defaultAvailable === false) {
+    return {
+      source: "none",
+      defaultAvailable: false,
+      unavailableReason:
+        typeof pricing.unavailableReason === "string" && pricing.unavailableReason.trim()
+          ? pricing.unavailableReason.trim()
+          : "当前规格未配置价格，请补充条件规则或线性定价。",
     };
   }
 
@@ -231,5 +516,7 @@ export const resolveManagedRoutePricing = (
   return {
     ...(typeof defaultCredits === "number" ? { credits: defaultCredits } : {}),
     ...(typeof defaultPriceYuan === "number" ? { priceYuan: defaultPriceYuan } : {}),
+    source: "vendor_default",
+    defaultAvailable: pricing?.defaultAvailable,
   };
 };

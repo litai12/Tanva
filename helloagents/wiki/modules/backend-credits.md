@@ -52,7 +52,15 @@
 - 新定价结构优先：
   - `model_provider_mapping_v2.models[].vendors[].pricing.defaults`：厂商默认价
   - `model_provider_mapping_v2.models[].vendors[].pricing.rules[]`：规格组合价
+  - `model_provider_mapping_v2.models[].vendors[].pricing.formula`：加法公式价（如 `duration` 每秒单价 + 命中 `resolution=480P` 时的每秒附加价）
+  - `model_provider_mapping_v2.models[].vendors[].pricing.defaultAvailable=false`：未命中规则/公式时不再回退默认价，后端会直接拒绝扣费并返回“当前规格未配置价格/暂不可用”
   - 命中模型管理价格时，后端会把 `pricingSnapshot` 写入 `ApiUsageRecord.requestParams`，用于审计规则来源、命中 ruleKey 和最终价格快照。
+- 后端解析视频模型管理价格前，会先把请求参数归一为 canonical pricing context：`resolution`、`duration`、`aspectRatio`、`inputType`、`hasAudio`。这套语义同时服务于 Admin 配置、前端积分预估和后端实际扣费。
+- 本地视频价目表导入脚本：`backend/scripts/apply-local-video-pricing-from-sheet.js`
+  - 作用：把视频报价表里的真实价格批量写入 `systemSetting.model_provider_mapping_v2`
+  - 积分换算：Excel 中 `priceYuan * 100 = credits`
+  - 策略：优先写成 `pricing.rules` 或 `pricing.formula`，并将 `defaultAvailable` 设为 `false`，未配置规格默认不可用
+  - 安全性：脚本只更新命中的视频模型 vendor 定价，不改动其它模型；执行前建议先备份当前 setting JSON
 
 ## pending 收敛与自动退款
 - 异步视频链路支持前端回写成功：`POST /api/ai/video-task-success` 将 `ApiUsageRecord.responseStatus` 从 `pending` 更新为 `success`。

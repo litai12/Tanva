@@ -75,6 +75,13 @@ interface ManagedRouteView {
   }>;
 }
 
+const isVendorDefaultPricingAvailable = (vendor?: Record<string, any>): boolean =>
+  !(
+    vendor?.pricing &&
+    typeof vendor.pricing === 'object' &&
+    (vendor.pricing as Record<string, any>).defaultAvailable === false
+  );
+
 const buildVodNodeMetadata = (
   base: Record<string, any>,
   vod: Record<string, any>,
@@ -206,11 +213,15 @@ export class NodeConfigService {
             const credits =
               typeof resolvedPricing.price.credits === 'number'
                 ? resolvedPricing.price.credits
-                : Number(vendor.creditsPerCall);
+                : !isVendorDefaultPricingAvailable(vendor as Record<string, any>)
+                  ? undefined
+                  : Number(vendor.creditsPerCall);
             const priceYuan =
               typeof resolvedPricing.price.priceYuan === 'number'
                 ? resolvedPricing.price.priceYuan
-                : Number(vendor.priceYuan);
+                : !isVendorDefaultPricingAvailable(vendor as Record<string, any>)
+                  ? undefined
+                  : Number(vendor.priceYuan);
             return {
               vendorKey: String(vendor.vendorKey).trim(),
               platformKey:
@@ -238,9 +249,13 @@ export class NodeConfigService {
                   ? vendor.modelVersion.trim()
                   : undefined,
               creditsPerCall:
-                Number.isFinite(credits) && credits >= 0 ? credits : undefined,
+                typeof credits === 'number' && Number.isFinite(credits) && credits >= 0
+                  ? credits
+                  : undefined,
               priceYuan:
-                Number.isFinite(priceYuan) && priceYuan >= 0 ? priceYuan : undefined,
+                typeof priceYuan === 'number' && Number.isFinite(priceYuan) && priceYuan >= 0
+                  ? priceYuan
+                  : undefined,
               pricing:
                 vendor.pricing && typeof vendor.pricing === 'object'
                   ? (vendor.pricing as Record<string, any>)
@@ -332,7 +347,7 @@ export class NodeConfigService {
               creditsPerCall:
                 typeof selectedVendor.creditsPerCall === 'number'
                   ? selectedVendor.creditsPerCall
-                  : (nextMetadata.defaultData as Record<string, any>).creditsPerCall,
+                  : undefined,
             };
           }
 

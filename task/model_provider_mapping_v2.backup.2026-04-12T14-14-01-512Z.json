@@ -1,0 +1,1332 @@
+{
+  "version": "v2",
+  "platforms": [
+    {
+      "platformKey": "legacy",
+      "platformName": "旧链路(Kapon)",
+      "enabled": true,
+      "route": "legacy",
+      "provider": "",
+      "description": "保留当前默认老链路，未切厂商时回退使用"
+    },
+    {
+      "platformKey": "tencent_vod",
+      "platformName": "腾讯 VOD",
+      "enabled": true,
+      "route": "tencent_vod",
+      "provider": "",
+      "description": "腾讯云 VOD AIGC 视频生成",
+      "metadata": {
+        "service": "tencent_vod",
+        "endpoint": "https://vod.tencentcloudapi.com/",
+        "upstreamDomain": "vod.tencentcloudapi.com",
+        "apiVersion": "2018-07-17",
+        "createTask": {
+          "method": "POST",
+          "action": "CreateAigcVideoTask",
+          "url": "https://vod.tencentcloudapi.com/"
+        },
+        "queryTask": {
+          "method": "POST",
+          "action": "DescribeTaskDetail",
+          "url": "https://vod.tencentcloudapi.com/"
+        },
+        "polling": {
+          "strategy": "describe_task_detail",
+          "successStatuses": [
+            "FINISH",
+            "SUCCESS",
+            "SUCCEEDED",
+            "COMPLETED"
+          ],
+          "processingStatuses": [
+            "WAITING",
+            "PROCESSING",
+            "RUNNING",
+            "QUEUED",
+            "PENDING"
+          ],
+          "failedStatuses": [
+            "FAIL",
+            "FAILED",
+            "ERROR",
+            "CANCELED",
+            "CANCELLED"
+          ]
+        },
+        "responseMapping": {
+          "taskId": [
+            "Response.TaskId"
+          ],
+          "status": [
+            "Response.Status",
+            "Response.TaskStatus"
+          ],
+          "fileId": [
+            "Response.FileId",
+            "Response.MediaInfo.FileId"
+          ],
+          "fileUrl": [
+            "Response.FileUrl",
+            "Response.MediaUrl",
+            "Response.PlayUrl"
+          ],
+          "message": [
+            "Response.Message",
+            "Response.Error.Message"
+          ],
+          "requestId": [
+            "Response.RequestId"
+          ]
+        }
+      }
+    },
+    {
+      "platformKey": "vidu_api",
+      "platformName": "Vidu API",
+      "enabled": true,
+      "route": "legacy",
+      "provider": "vidu",
+      "description": "Vidu 官方或兼容 API 渠道"
+    },
+    {
+      "platformKey": "sora2_api",
+      "platformName": "Sora 2 API",
+      "enabled": true,
+      "route": "legacy",
+      "provider": "sora2",
+      "description": "Sora 2 视频生成渠道占位"
+    },
+    {
+      "platformKey": "seedance_api",
+      "platformName": "Seedance API",
+      "enabled": true,
+      "route": "legacy",
+      "provider": "doubao",
+      "description": "Seedance 视频生成渠道占位"
+    }
+  ],
+  "models": [
+    {
+      "modelKey": "gemini-2.5-image",
+      "modelName": "Nano Banana Fast",
+      "taskType": "image",
+      "enabled": true,
+      "defaultVendor": "banana-2.5",
+      "vendors": [
+        {
+          "vendorKey": "banana-2.5",
+          "platformKey": "banana-2.5",
+          "label": "Fast / Nano Banana 2.5",
+          "enabled": true,
+          "route": "legacy",
+          "provider": "banana-2.5",
+          "modelName": "Nano Banana",
+          "modelVersion": "2.5",
+          "creditsPerCall": 10,
+          "pricing": {
+            "version": "v1",
+            "rules": [
+              {
+                "ruleKey": "rule_1",
+                "label": "",
+                "when": {
+                  "mode": "generate",
+                  "imageSize": "768",
+                  "outputCount": 1,
+                  "quality": "hd",
+                  "referenceImageCount": 0
+                },
+                "price": {
+                  "credits": 0
+                },
+                "creditsPerCall": 0
+              }
+            ]
+          },
+          "metadata": {
+            "specPricing": [
+              {
+                "ruleKey": "rule_1",
+                "label": "",
+                "match": {
+                  "mode": "generate",
+                  "imageSize": "768",
+                  "outputCount": 1,
+                  "quality": "hd",
+                  "referenceImageCount": 0
+                },
+                "creditsPerCall": 0
+              }
+            ]
+          }
+        }
+      ],
+      "metadata": {
+        "nodeConfig": {
+          "enabled": true,
+          "nodeKey": "generate",
+          "flowNodeType": "generate",
+          "category": "image",
+          "creditsPerCall": 10,
+          "description": "Nano Banana Fast 文生图"
+        }
+      }
+    },
+    {
+      "modelKey": "gemini-3-pro-image",
+      "modelName": "Nano Banana Pro",
+      "taskType": "image",
+      "enabled": true,
+      "defaultVendor": "banana",
+      "vendors": [
+        {
+          "vendorKey": "banana",
+          "platformKey": "banana",
+          "label": "Pro / Nano Banana Pro",
+          "enabled": true,
+          "route": "legacy",
+          "provider": "banana",
+          "modelName": "Nano Banana Pro",
+          "modelVersion": "3.0",
+          "creditsPerCall": 30
+        }
+      ],
+      "metadata": {
+        "nodeConfig": {
+          "enabled": true,
+          "nodeKey": "generatePro",
+          "flowNodeType": "generatePro",
+          "category": "image",
+          "creditsPerCall": 30,
+          "description": "Nano Banana Pro 高质量生图"
+        }
+      }
+    },
+    {
+      "modelKey": "gemini-3.1-image",
+      "modelName": "Nano Banana 2",
+      "taskType": "image",
+      "enabled": true,
+      "defaultVendor": "banana-3.1",
+      "vendors": [
+        {
+          "vendorKey": "banana-3.1",
+          "platformKey": "banana-3.1",
+          "label": "Ultra / Nano Banana 2",
+          "enabled": true,
+          "route": "legacy",
+          "provider": "banana-3.1",
+          "modelName": "Nano Banana 2",
+          "modelVersion": "3.1",
+          "creditsPerCall": 20
+        }
+      ],
+      "metadata": {
+        "nodeConfig": {
+          "enabled": true,
+          "nodeKey": "generatePro",
+          "flowNodeType": "generatePro",
+          "category": "image",
+          "creditsPerCall": 20,
+          "description": "Nano Banana 2 生图"
+        }
+      }
+    },
+    {
+      "modelKey": "gemini-image-edit",
+      "modelName": "Nano Banana Pro 图像编辑",
+      "taskType": "image",
+      "enabled": true,
+      "defaultVendor": "banana",
+      "vendors": [
+        {
+          "vendorKey": "banana",
+          "platformKey": "banana",
+          "label": "Pro / Nano Banana Pro",
+          "enabled": true,
+          "route": "legacy",
+          "provider": "banana",
+          "modelName": "Nano Banana Pro Edit",
+          "modelVersion": "3.0",
+          "creditsPerCall": 30
+        }
+      ],
+      "metadata": {
+        "nodeConfig": {
+          "enabled": true,
+          "nodeKey": "generatePro",
+          "flowNodeType": "generatePro",
+          "category": "image",
+          "creditsPerCall": 30,
+          "description": "Nano Banana Pro 图像编辑"
+        }
+      }
+    },
+    {
+      "modelKey": "gemini-3.1-image-edit",
+      "modelName": "Nano Banana 2 图像编辑",
+      "taskType": "image",
+      "enabled": true,
+      "defaultVendor": "banana-3.1",
+      "vendors": [
+        {
+          "vendorKey": "banana-3.1",
+          "platformKey": "banana-3.1",
+          "label": "Ultra / Nano Banana 2",
+          "enabled": true,
+          "route": "legacy",
+          "provider": "banana-3.1",
+          "modelName": "Nano Banana 2 Edit",
+          "modelVersion": "3.1",
+          "creditsPerCall": 20
+        }
+      ],
+      "metadata": {
+        "nodeConfig": {
+          "enabled": true,
+          "nodeKey": "generatePro",
+          "flowNodeType": "generatePro",
+          "category": "image",
+          "creditsPerCall": 20,
+          "description": "Nano Banana 2 图像编辑"
+        }
+      }
+    },
+    {
+      "modelKey": "gemini-image-blend",
+      "modelName": "Nano Banana Pro 图像融合",
+      "taskType": "image",
+      "enabled": true,
+      "defaultVendor": "banana",
+      "vendors": [
+        {
+          "vendorKey": "banana",
+          "platformKey": "banana",
+          "label": "Pro / Nano Banana Pro",
+          "enabled": true,
+          "route": "legacy",
+          "provider": "banana",
+          "modelName": "Nano Banana Pro Blend",
+          "modelVersion": "3.0",
+          "creditsPerCall": 30
+        }
+      ],
+      "metadata": {
+        "nodeConfig": {
+          "enabled": true,
+          "nodeKey": "generateReference",
+          "flowNodeType": "generate",
+          "category": "image",
+          "creditsPerCall": 30,
+          "description": "Nano Banana Pro 图像融合"
+        }
+      }
+    },
+    {
+      "modelKey": "gemini-3.1-image-blend",
+      "modelName": "Nano Banana 2 图像融合",
+      "taskType": "image",
+      "enabled": true,
+      "defaultVendor": "banana-3.1",
+      "vendors": [
+        {
+          "vendorKey": "banana-3.1",
+          "platformKey": "banana-3.1",
+          "label": "Ultra / Nano Banana 2",
+          "enabled": true,
+          "route": "legacy",
+          "provider": "banana-3.1",
+          "modelName": "Nano Banana 2 Blend",
+          "modelVersion": "3.1",
+          "creditsPerCall": 20
+        }
+      ],
+      "metadata": {
+        "nodeConfig": {
+          "enabled": true,
+          "nodeKey": "generateReference",
+          "flowNodeType": "generate",
+          "category": "image",
+          "creditsPerCall": 20,
+          "description": "Nano Banana 2 图像融合"
+        }
+      }
+    },
+    {
+      "modelKey": "gemini-image-analyze",
+      "modelName": "Gemini 图像分析",
+      "taskType": "image",
+      "enabled": true,
+      "defaultVendor": "gemini",
+      "vendors": [
+        {
+          "vendorKey": "gemini",
+          "platformKey": "gemini",
+          "label": "Gemini",
+          "enabled": true,
+          "route": "legacy",
+          "provider": "gemini",
+          "modelName": "Gemini Image Analyze",
+          "modelVersion": "3.x",
+          "creditsPerCall": 6
+        }
+      ],
+      "metadata": {
+        "nodeConfig": {
+          "enabled": true,
+          "nodeKey": "analysis",
+          "flowNodeType": "analysis",
+          "category": "image",
+          "creditsPerCall": 6,
+          "description": "Gemini 图像分析"
+        }
+      }
+    },
+    {
+      "modelKey": "gemini-2.5-image-edit",
+      "modelName": "Nano Banana Fast 图像编辑",
+      "taskType": "image",
+      "enabled": true,
+      "defaultVendor": "banana-2.5",
+      "vendors": [
+        {
+          "vendorKey": "banana-2.5",
+          "platformKey": "banana-2.5",
+          "label": "Fast / Nano Banana 2.5",
+          "enabled": true,
+          "route": "legacy",
+          "provider": "banana-2.5",
+          "modelName": "Nano Banana Edit",
+          "modelVersion": "2.5",
+          "creditsPerCall": 30
+        }
+      ],
+      "metadata": {
+        "nodeConfig": {
+          "enabled": true,
+          "nodeKey": "generatePro",
+          "flowNodeType": "generatePro",
+          "category": "image",
+          "creditsPerCall": 30,
+          "description": "Nano Banana Fast 图像编辑"
+        }
+      }
+    },
+    {
+      "modelKey": "gemini-2.5-image-blend",
+      "modelName": "Nano Banana Fast 图像融合",
+      "taskType": "image",
+      "enabled": true,
+      "defaultVendor": "banana-2.5",
+      "vendors": [
+        {
+          "vendorKey": "banana-2.5",
+          "platformKey": "banana-2.5",
+          "label": "Fast / Nano Banana 2.5",
+          "enabled": true,
+          "route": "legacy",
+          "provider": "banana-2.5",
+          "modelName": "Nano Banana Blend",
+          "modelVersion": "2.5",
+          "creditsPerCall": 30
+        }
+      ],
+      "metadata": {
+        "nodeConfig": {
+          "enabled": true,
+          "nodeKey": "generateReference",
+          "flowNodeType": "generate",
+          "category": "image",
+          "creditsPerCall": 30,
+          "description": "Nano Banana Fast 图像融合"
+        }
+      }
+    },
+    {
+      "modelKey": "gemini-2.5-image-analyze",
+      "modelName": "Nano Banana Fast 图像分析",
+      "taskType": "image",
+      "enabled": true,
+      "defaultVendor": "banana-2.5",
+      "vendors": [
+        {
+          "vendorKey": "banana-2.5",
+          "platformKey": "banana-2.5",
+          "label": "Fast / Nano Banana 2.5",
+          "enabled": true,
+          "route": "legacy",
+          "provider": "banana-2.5",
+          "modelName": "Nano Banana Analyze",
+          "modelVersion": "2.5",
+          "creditsPerCall": 20
+        }
+      ],
+      "metadata": {
+        "nodeConfig": {
+          "enabled": true,
+          "nodeKey": "analysis",
+          "flowNodeType": "analysis",
+          "category": "image",
+          "creditsPerCall": 20,
+          "description": "Nano Banana Fast 图像分析"
+        }
+      }
+    },
+    {
+      "modelKey": "seedream5",
+      "modelName": "Seedream 5.0",
+      "taskType": "image",
+      "enabled": true,
+      "defaultVendor": "seedream5",
+      "vendors": [
+        {
+          "vendorKey": "seedream5",
+          "platformKey": "seedream5",
+          "label": "Seedream 5.0",
+          "enabled": true,
+          "route": "legacy",
+          "provider": "seedream5",
+          "modelName": "Seedream",
+          "modelVersion": "5.0",
+          "creditsPerCall": 30
+        }
+      ],
+      "metadata": {
+        "nodeConfig": {
+          "enabled": true,
+          "nodeKey": "seedream5",
+          "flowNodeType": "seedream5",
+          "category": "image",
+          "creditsPerCall": 30,
+          "description": "Seedream 5.0 图像生成"
+        }
+      }
+    },
+    {
+      "modelKey": "midjourney",
+      "modelName": "Midjourney",
+      "taskType": "image",
+      "enabled": true,
+      "defaultVendor": "midjourney",
+      "vendors": [
+        {
+          "vendorKey": "midjourney",
+          "platformKey": "midjourney",
+          "label": "Midjourney",
+          "enabled": true,
+          "route": "legacy",
+          "provider": "midjourney",
+          "modelName": "Midjourney",
+          "modelVersion": "fast",
+          "creditsPerCall": 50
+        }
+      ],
+      "metadata": {
+        "nodeConfig": {
+          "enabled": true,
+          "nodeKey": "midjourney",
+          "flowNodeType": "midjourney",
+          "category": "image",
+          "creditsPerCall": 50,
+          "description": "Midjourney 生图"
+        }
+      }
+    },
+    {
+      "modelKey": "wan-2.6",
+      "modelName": "Wan 2.6",
+      "taskType": "video",
+      "enabled": true,
+      "defaultVendor": "dashscope",
+      "vendors": [
+        {
+          "vendorKey": "dashscope",
+          "platformKey": "dashscope",
+          "label": "DashScope",
+          "enabled": true,
+          "route": "legacy",
+          "provider": "dashscope",
+          "modelName": "Wan",
+          "modelVersion": "2.6",
+          "creditsPerCall": 600
+        }
+      ],
+      "metadata": {
+        "nodeConfig": {
+          "enabled": true,
+          "nodeKey": "wan26",
+          "flowNodeType": "wan26",
+          "category": "video",
+          "creditsPerCall": 600,
+          "description": "Wan 2.6 视频生成"
+        }
+      }
+    },
+    {
+      "modelKey": "wan-2.6-r2v",
+      "modelName": "Wan 2.6 参考视频",
+      "taskType": "video",
+      "enabled": true,
+      "defaultVendor": "dashscope",
+      "vendors": [
+        {
+          "vendorKey": "dashscope",
+          "platformKey": "dashscope",
+          "label": "DashScope",
+          "enabled": true,
+          "route": "legacy",
+          "provider": "dashscope",
+          "modelName": "Wan",
+          "modelVersion": "2.6-r2v",
+          "creditsPerCall": 600
+        }
+      ],
+      "metadata": {
+        "nodeConfig": {
+          "enabled": true,
+          "nodeKey": "wan2R2V",
+          "flowNodeType": "wan2R2V",
+          "category": "video",
+          "creditsPerCall": 600,
+          "description": "Wan 2.6 参考视频生成"
+        }
+      }
+    },
+    {
+      "modelKey": "wan-2.7",
+      "modelName": "Wan 2.7",
+      "taskType": "video",
+      "enabled": true,
+      "defaultVendor": "dashscope",
+      "vendors": [
+        {
+          "vendorKey": "dashscope",
+          "platformKey": "dashscope",
+          "label": "DashScope",
+          "enabled": true,
+          "route": "legacy",
+          "provider": "dashscope",
+          "modelName": "Wan",
+          "modelVersion": "2.7-i2v",
+          "creditsPerCall": 600
+        }
+      ],
+      "metadata": {
+        "nodeConfig": {
+          "enabled": true,
+          "nodeKey": "wan27Video",
+          "flowNodeType": "wan27Video",
+          "category": "video",
+          "creditsPerCall": 600,
+          "description": "Wan 2.7 I2V 视频生成"
+        }
+      }
+    },
+    {
+      "modelKey": "kling-2.6",
+      "modelName": "Kling 2.6",
+      "taskType": "video",
+      "enabled": true,
+      "defaultVendor": "tencent_vod",
+      "vendors": [
+        {
+          "vendorKey": "legacy",
+          "platformKey": "legacy",
+          "label": "kapon",
+          "enabled": false,
+          "route": "legacy",
+          "provider": "kling-2.6",
+          "modelName": "Kling",
+          "modelVersion": "2.6",
+          "metadata": {}
+        },
+        {
+          "vendorKey": "tencent_vod",
+          "platformKey": "tencent_vod",
+          "label": "腾旭",
+          "enabled": true,
+          "route": "tencent_vod",
+          "provider": "kling-2.6",
+          "modelName": "Kling",
+          "modelVersion": "2.6",
+          "pricing": {
+            "version": "v1",
+            "rules": [
+              {
+                "ruleKey": "rule_1",
+                "label": "720P / 5s",
+                "when": {
+                  "resolution": "720P",
+                  "duration": 5
+                },
+                "price": {
+                  "credits": 600
+                },
+                "creditsPerCall": 600
+              },
+              {
+                "ruleKey": "rule_2",
+                "label": "1080P / 5s",
+                "when": {
+                  "resolution": "1080P",
+                  "duration": 5
+                },
+                "price": {
+                  "credits": 600
+                },
+                "creditsPerCall": 600
+              },
+              {
+                "ruleKey": "rule_3",
+                "label": "720P / 10s",
+                "when": {
+                  "resolution": "720P",
+                  "duration": 10
+                },
+                "price": {
+                  "credits": 600
+                },
+                "creditsPerCall": 600
+              },
+              {
+                "ruleKey": "rule_4",
+                "label": "1080P / 10s",
+                "when": {
+                  "resolution": "1080P",
+                  "duration": 10
+                },
+                "price": {
+                  "credits": 600
+                },
+                "creditsPerCall": 600
+              }
+            ]
+          },
+          "metadata": {
+            "specPricing": [
+              {
+                "ruleKey": "rule_1",
+                "label": "720P / 5s",
+                "match": {
+                  "resolution": "720P",
+                  "duration": 5
+                },
+                "creditsPerCall": 600
+              },
+              {
+                "ruleKey": "rule_2",
+                "label": "1080P / 5s",
+                "match": {
+                  "resolution": "1080P",
+                  "duration": 5
+                },
+                "creditsPerCall": 600
+              },
+              {
+                "ruleKey": "rule_3",
+                "label": "720P / 10s",
+                "match": {
+                  "resolution": "720P",
+                  "duration": 10
+                },
+                "creditsPerCall": 600
+              },
+              {
+                "ruleKey": "rule_4",
+                "label": "1080P / 10s",
+                "match": {
+                  "resolution": "1080P",
+                  "duration": 10
+                },
+                "creditsPerCall": 600
+              }
+            ]
+          }
+        }
+      ],
+      "metadata": {
+        "nodeConfig": {
+          "enabled": true,
+          "nodeKey": "kling26Video",
+          "flowNodeType": "kling26Video",
+          "category": "video",
+          "creditsPerCall": 0,
+          "description": ""
+        }
+      }
+    },
+    {
+      "modelKey": "kling-3.0",
+      "modelName": "Kling 3.0",
+      "taskType": "video",
+      "enabled": true,
+      "defaultVendor": "tencent_vod",
+      "vendors": [
+        {
+          "vendorKey": "legacy",
+          "platformKey": "legacy",
+          "label": "kapon",
+          "enabled": false,
+          "route": "legacy",
+          "provider": "kling-o3",
+          "modelName": "Kling",
+          "modelVersion": "3.0",
+          "metadata": {}
+        },
+        {
+          "vendorKey": "tencent_vod",
+          "platformKey": "tencent_vod",
+          "label": "腾旭",
+          "enabled": true,
+          "route": "tencent_vod",
+          "provider": "kling-o3",
+          "modelName": "Kling",
+          "modelVersion": "3.0",
+          "pricing": {
+            "version": "v1",
+            "rules": [
+              {
+                "ruleKey": "rule_1",
+                "label": "720P / 5s",
+                "when": {
+                  "resolution": "720P",
+                  "duration": 5
+                },
+                "price": {
+                  "credits": 600
+                },
+                "creditsPerCall": 600
+              },
+              {
+                "ruleKey": "rule_2",
+                "label": "1080P / 5s",
+                "when": {
+                  "resolution": "1080P",
+                  "duration": 5
+                },
+                "price": {
+                  "credits": 600
+                },
+                "creditsPerCall": 600
+              },
+              {
+                "ruleKey": "rule_3",
+                "label": "720P / 10s",
+                "when": {
+                  "resolution": "720P",
+                  "duration": 10
+                },
+                "price": {
+                  "credits": 600
+                },
+                "creditsPerCall": 600
+              },
+              {
+                "ruleKey": "rule_4",
+                "label": "1080P / 10s",
+                "when": {
+                  "resolution": "1080P",
+                  "duration": 10
+                },
+                "price": {
+                  "credits": 602
+                },
+                "creditsPerCall": 602
+              }
+            ]
+          },
+          "metadata": {
+            "specPricing": [
+              {
+                "ruleKey": "rule_1",
+                "label": "720P / 5s",
+                "match": {
+                  "resolution": "720P",
+                  "duration": 5
+                },
+                "creditsPerCall": 600
+              },
+              {
+                "ruleKey": "rule_2",
+                "label": "1080P / 5s",
+                "match": {
+                  "resolution": "1080P",
+                  "duration": 5
+                },
+                "creditsPerCall": 600
+              },
+              {
+                "ruleKey": "rule_3",
+                "label": "720P / 10s",
+                "match": {
+                  "resolution": "720P",
+                  "duration": 10
+                },
+                "creditsPerCall": 600
+              },
+              {
+                "ruleKey": "rule_4",
+                "label": "1080P / 10s",
+                "match": {
+                  "resolution": "1080P",
+                  "duration": 10
+                },
+                "creditsPerCall": 602
+              }
+            ]
+          }
+        }
+      ],
+      "metadata": {
+        "nodeConfig": {
+          "enabled": true,
+          "nodeKey": "kling30Video",
+          "flowNodeType": "kling30Video",
+          "category": "video",
+          "creditsPerCall": 0,
+          "description": ""
+        }
+      }
+    },
+    {
+      "modelKey": "kling-o3",
+      "modelName": "Kling 3.0-Omni",
+      "taskType": "video",
+      "enabled": true,
+      "defaultVendor": "tencent_vod",
+      "vendors": [
+        {
+          "vendorKey": "legacy",
+          "platformKey": "legacy",
+          "label": "kapon",
+          "enabled": false,
+          "route": "legacy",
+          "provider": "kling-o3",
+          "modelName": "Kling",
+          "modelVersion": "3.0-Omni",
+          "metadata": {}
+        },
+        {
+          "vendorKey": "tencent_vod",
+          "platformKey": "tencent_vod",
+          "label": "腾旭",
+          "enabled": true,
+          "route": "tencent_vod",
+          "provider": "kling-o3",
+          "modelName": "Kling",
+          "modelVersion": "3.0-Omni",
+          "metadata": {}
+        }
+      ],
+      "metadata": {
+        "nodeConfig": {
+          "enabled": true,
+          "nodeKey": "klingO1Video",
+          "flowNodeType": "klingO1Video",
+          "category": "video",
+          "creditsPerCall": 0,
+          "description": ""
+        }
+      }
+    },
+    {
+      "modelKey": "vidu-q2",
+      "modelName": "Vidu Q2",
+      "taskType": "video",
+      "enabled": true,
+      "defaultVendor": "tencent_vod",
+      "vendors": [
+        {
+          "vendorKey": "vidu_api",
+          "platformKey": "vidu_api",
+          "label": "kapon",
+          "enabled": false,
+          "route": "legacy",
+          "provider": "vidu",
+          "modelName": "Vidu",
+          "modelVersion": "Q2",
+          "metadata": {}
+        },
+        {
+          "vendorKey": "tencent_vod",
+          "platformKey": "tencent_vod",
+          "label": "腾旭",
+          "enabled": true,
+          "route": "tencent_vod",
+          "provider": "vidu",
+          "modelName": "Vidu",
+          "modelVersion": "q2",
+          "metadata": {
+            "executionBranch": "v2_request_profile",
+            "requestProfile": {
+              "enabled": true,
+              "version": "v2",
+              "transport": "tencent_vod_aigc_video",
+              "create": {
+                "body": {
+                  "modelName": "{{vendor.modelName}}",
+                  "modelVersion": "{{vendor.modelVersion}}",
+                  "prompt": "{{vod.prompt}}",
+                  "fileInfos": "{{vod.fileInfos}}",
+                  "lastFrameUrl": "{{vod.lastFrameUrl}}",
+                  "aspectRatio": "{{vod.aspectRatio}}",
+                  "duration": "{{vod.duration}}",
+                  "resolution": "{{vod.resolution}}",
+                  "storageMode": "{{vod.storageMode}}",
+                  "enhancePrompt": "{{vod.enhancePrompt}}"
+                },
+                "responseMapping": {
+                  "taskId": [
+                    "taskId"
+                  ],
+                  "requestId": [
+                    "requestId"
+                  ]
+                }
+              },
+              "query": {
+                "responseMapping": {
+                  "status": [
+                    "status"
+                  ],
+                  "videoUrl": [
+                    "videoUrl"
+                  ],
+                  "fileId": [
+                    "fileId"
+                  ],
+                  "requestId": [
+                    "requestId"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ],
+      "metadata": {
+        "nodeConfig": {
+          "enabled": true,
+          "nodeKey": "kling26Video",
+          "flowNodeType": "kling26Video",
+          "category": "video",
+          "creditsPerCall": 0,
+          "description": ""
+        }
+      }
+    },
+    {
+      "modelKey": "vidu-q3",
+      "modelName": "Vidu Q3",
+      "taskType": "video",
+      "enabled": true,
+      "defaultVendor": "tencent_vod",
+      "vendors": [
+        {
+          "vendorKey": "vidu_api",
+          "platformKey": "vidu_api",
+          "label": "kapon",
+          "enabled": false,
+          "route": "legacy",
+          "provider": "viduq3-pro",
+          "modelName": "Vidu",
+          "modelVersion": "Q3",
+          "metadata": {}
+        },
+        {
+          "vendorKey": "tencent_vod",
+          "platformKey": "tencent_vod",
+          "label": "腾旭",
+          "enabled": true,
+          "route": "tencent_vod",
+          "provider": "vidu",
+          "modelName": "Vidu",
+          "modelVersion": "q3",
+          "metadata": {
+            "executionBranch": "v2_request_profile",
+            "requestProfile": {
+              "enabled": true,
+              "version": "v2",
+              "transport": "tencent_vod_aigc_video",
+              "create": {
+                "body": {
+                  "modelName": "{{vendor.modelName}}",
+                  "modelVersion": "{{vendor.modelVersion}}",
+                  "prompt": "{{vod.prompt}}",
+                  "fileInfos": "{{vod.fileInfos}}",
+                  "lastFrameUrl": "{{vod.lastFrameUrl}}",
+                  "aspectRatio": "{{vod.aspectRatio}}",
+                  "duration": "{{vod.duration}}",
+                  "resolution": "{{vod.resolution}}",
+                  "storageMode": "{{vod.storageMode}}",
+                  "enhancePrompt": "{{vod.enhancePrompt}}"
+                },
+                "responseMapping": {
+                  "taskId": [
+                    "taskId"
+                  ],
+                  "requestId": [
+                    "requestId"
+                  ]
+                }
+              },
+              "query": {
+                "responseMapping": {
+                  "status": [
+                    "status"
+                  ],
+                  "videoUrl": [
+                    "videoUrl"
+                  ],
+                  "fileId": [
+                    "fileId"
+                  ],
+                  "requestId": [
+                    "requestId"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ],
+      "metadata": {
+        "nodeConfig": {
+          "enabled": true,
+          "nodeKey": "viduQ3",
+          "flowNodeType": "kling26Video",
+          "category": "video",
+          "creditsPerCall": 0,
+          "description": ""
+        }
+      }
+    },
+    {
+      "modelKey": "sora-2",
+      "modelName": "Sora 2",
+      "taskType": "video",
+      "enabled": true,
+      "defaultVendor": "sora2_api",
+      "vendors": [
+        {
+          "vendorKey": "sora2_api",
+          "platformKey": "sora2_api",
+          "label": "Sora 2 API",
+          "enabled": true,
+          "route": "legacy",
+          "provider": "apimart",
+          "modelName": "Sora",
+          "modelVersion": "2.0",
+          "metadata": {
+            "channel": "apimart"
+          }
+        },
+        {
+          "vendorKey": "tencent_vod",
+          "platformKey": "tencent_vod",
+          "label": "腾讯 VOD",
+          "enabled": false,
+          "route": "tencent_vod",
+          "provider": "sora2",
+          "modelName": "OS",
+          "modelVersion": "2.0",
+          "metadata": {}
+        }
+      ],
+      "metadata": {
+        "nodeConfig": {
+          "enabled": true,
+          "nodeKey": "sora2Video",
+          "flowNodeType": "sora2Video",
+          "category": "video",
+          "creditsPerCall": 0,
+          "description": ""
+        }
+      }
+    },
+    {
+      "modelKey": "seedance-1.5",
+      "modelName": "Seedance 1.5",
+      "taskType": "video",
+      "enabled": true,
+      "defaultVendor": "seedance_api",
+      "vendors": [
+        {
+          "vendorKey": "seedance_api",
+          "platformKey": "seedance_api",
+          "label": "火山引擎",
+          "enabled": true,
+          "route": "legacy",
+          "provider": "doubao",
+          "modelName": "Seedance",
+          "modelVersion": "1.5",
+          "metadata": {}
+        },
+        {
+          "vendorKey": "tencent_vod",
+          "platformKey": "tencent_vod",
+          "label": "腾讯 VOD",
+          "enabled": false,
+          "route": "tencent_vod",
+          "provider": "doubao",
+          "modelName": "Seedance",
+          "modelVersion": "1.5-pro",
+          "metadata": {
+            "executionBranch": "v2_request_profile",
+            "requestProfile": {
+              "enabled": true,
+              "version": "v2",
+              "transport": "tencent_vod_aigc_video",
+              "create": {
+                "body": {
+                  "modelName": "{{vendor.modelName}}",
+                  "modelVersion": "{{vendor.modelVersion}}",
+                  "prompt": "{{vod.prompt}}",
+                  "fileInfos": "{{vod.fileInfos}}",
+                  "aspectRatio": "{{vod.aspectRatio}}",
+                  "duration": "{{vod.duration}}",
+                  "resolution": "{{vod.resolution}}",
+                  "audioGeneration": "{{vod.audioGeneration}}",
+                  "storageMode": "{{vod.storageMode}}",
+                  "enhancePrompt": "{{vod.enhancePrompt}}"
+                },
+                "responseMapping": {
+                  "taskId": [
+                    "taskId"
+                  ],
+                  "requestId": [
+                    "requestId"
+                  ]
+                }
+              },
+              "query": {
+                "responseMapping": {
+                  "status": [
+                    "status"
+                  ],
+                  "videoUrl": [
+                    "videoUrl"
+                  ],
+                  "fileId": [
+                    "fileId"
+                  ],
+                  "requestId": [
+                    "requestId"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ],
+      "metadata": {
+        "nodeConfig": {
+          "enabled": true,
+          "nodeKey": "doubaoVideo",
+          "flowNodeType": "doubaoVideo",
+          "category": "video",
+          "creditsPerCall": 0,
+          "description": ""
+        }
+      }
+    },
+    {
+      "modelKey": "seedance-2.0",
+      "modelName": "Seedance 2.0",
+      "taskType": "video",
+      "enabled": true,
+      "defaultVendor": "seedance_api",
+      "vendors": [
+        {
+          "vendorKey": "seedance_api",
+          "platformKey": "seedance_api",
+          "label": "火山引擎",
+          "enabled": true,
+          "route": "legacy",
+          "provider": "doubao",
+          "modelName": "Seedance",
+          "modelVersion": "2.0",
+          "metadata": {
+            "executionBranch": "v2_request_profile",
+            "requestProfile": {
+              "enabled": true,
+              "version": "v2",
+              "create": {
+                "method": "POST",
+                "path": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
+                "headers": {
+                  "Authorization": "{{auth.bearer}}",
+                  "Content-Type": "application/json"
+                },
+                "body": {
+                  "model": "doubao-seedance-2-0-260128",
+                  "content": "{{request.content}}"
+                },
+                "responseMapping": {
+                  "taskId": [
+                    "id",
+                    "platform_id"
+                  ],
+                  "status": [
+                    "status"
+                  ]
+                }
+              },
+              "query": {
+                "method": "GET",
+                "path": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/{{task.id}}",
+                "headers": {
+                  "Authorization": "{{auth.bearer}}"
+                },
+                "responseMapping": {
+                  "status": [
+                    "status"
+                  ],
+                  "videoUrl": [
+                    "content.video_url"
+                  ],
+                  "error": [
+                    "error.message",
+                    "reason"
+                  ]
+                }
+              }
+            },
+            "specPricing": [
+              {
+                "ruleKey": "rule_1",
+                "label": "480P / 6s",
+                "match": {
+                  "resolution": "480P",
+                  "duration": 6
+                },
+                "creditsPerCall": 658
+              }
+            ]
+          }
+        }
+      ],
+      "metadata": {
+        "provider": "doubao",
+        "vod": {
+          "label": "Ark Seedance 多模态",
+          "modelName": "Seedance",
+          "modelVersion": "2.0"
+        },
+        "defaultData": {
+          "provider": "doubao",
+          "seedanceModel": "seedance-2.0"
+        },
+        "nodeConfig": {
+          "enabled": true,
+          "nodeKey": "seedance20Video",
+          "flowNodeType": "seedance20Video",
+          "category": "video",
+          "creditsPerCall": 0,
+          "description": ""
+        }
+      }
+    }
+  ]
+}

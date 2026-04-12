@@ -4,6 +4,30 @@ export interface ManagedPriceBundle {
   costYuan?: number;
 }
 
+export interface ManagedPricingFormulaMultiplier {
+  field?: string;
+  value?: number;
+  min?: number;
+  max?: number;
+  round?: 'none' | 'ceil' | 'floor' | 'round';
+}
+
+export interface ManagedPricingFormulaAdjustment {
+  key?: string;
+  label?: string;
+  when?: Record<string, any>;
+  match?: Record<string, any>;
+  price?: ManagedPriceBundle;
+  unitPrice?: ManagedPriceBundle;
+  multiplier?: ManagedPricingFormulaMultiplier;
+}
+
+export interface ManagedPricingFormula {
+  mode?: 'additive';
+  base?: ManagedPriceBundle;
+  adjustments?: ManagedPricingFormulaAdjustment[];
+}
+
 export interface ManagedPricingRule {
   ruleKey?: string;
   label?: string;
@@ -19,8 +43,11 @@ export interface ManagedPricingRule {
 export interface ManagedPricingBook {
   version?: string;
   dimensions?: string[];
+  defaultAvailable?: boolean;
+  unavailableReason?: string;
   defaults?: ManagedPriceBundle;
   rules?: ManagedPricingRule[];
+  formula?: ManagedPricingFormula;
 }
 
 export interface ManagedPricingVendorLike {
@@ -41,11 +68,26 @@ export interface ManagedPricingMappingLike {
 }
 
 export interface ResolvedManagedPricing {
-  source: 'vendor_rule' | 'vendor_default' | 'legacy_rule' | 'legacy_default' | 'none';
+  source:
+    | 'vendor_rule'
+    | 'vendor_formula'
+    | 'vendor_default'
+    | 'legacy_rule'
+    | 'legacy_default'
+    | 'none';
   vendorKey?: string;
   ruleKey?: string;
   label?: string;
+  defaultAvailable?: boolean;
+  unavailableReason?: string;
   price: ManagedPriceBundle;
+  breakdown?: Array<{
+    type: 'base' | 'adjustment';
+    key?: string;
+    label?: string;
+    multiplier?: number;
+    price: ManagedPriceBundle;
+  }>;
 }
 
 const asObject = (value: unknown): Record<string, any> | null => {
@@ -164,6 +206,56 @@ const normalizePricingBook = (
 ): ManagedPricingBook | null => {
   const book = asObject(vendor?.pricing);
   const defaults = normalizePriceBundle(book?.defaults);
+  const formulaRoot = asObject(book?.formula);
+  const formulaAdjustments = Array.isArray(formulaRoot?.adjustments)
+    ? formulaRoot.adjustments
+        .filter((item) => item && typeof item === 'object')
+        .map((item) => {
+          const current = item as Record<string, any>;
+          return {
+            key:
+              typeof current.key === 'string' && current.key.trim()
+                ? current.key.trim()
+                : undefined,
+            label:
+              typeof current.label === 'string' && current.label.trim()
+                ? current.label.trim()
+                : undefined,
+            when:
+              asObject(current.when) || asObject(current.match) || undefined,
+            price: normalizePriceBundle(current.price) || undefined,
+            unitPrice: normalizePriceBundle(current.unitPrice) || undefined,
+            multiplier: asObject(current.multiplier)
+              ? {
+                  field:
+                    typeof current.multiplier.field === 'string' &&
+                    current.multiplier.field.trim()
+                      ? current.multiplier.field.trim()
+                      : undefined,
+                  value: toFiniteNumber(current.multiplier.value),
+                  min: toFiniteNumber(current.multiplier.min),
+                  max: toFiniteNumber(current.multiplier.max),
+                  round:
+                    current.multiplier.round === 'ceil' ||
+                    current.multiplier.round === 'floor' ||
+                    current.multiplier.round === 'round' ||
+                    current.multiplier.round === 'none'
+                      ? current.multiplier.round
+                      : undefined,
+                }
+              : undefined,
+          } satisfies ManagedPricingFormulaAdjustment;
+        })
+        .filter((item) => item.price || item.unitPrice)
+    : [];
+  const formula =
+    formulaRoot && (normalizePriceBundle(formulaRoot.base) || formulaAdjustments.length > 0)
+      ? {
+          mode: 'additive' as const,
+          base: normalizePriceBundle(formulaRoot.base) || undefined,
+          adjustments: formulaAdjustments,
+        }
+      : undefined;
   const normalizedRules = Array.isArray(book?.rules)
     ? book.rules
         .filter((rule) => rule && typeof rule === 'object')
@@ -207,7 +299,7 @@ const normalizePricingBook = (
     legacyDefaults ||
     null;
 
-  if (!mergedDefaults && rules.length === 0) {
+  if (!mergedDefaults && rules.length === 0 && !formula) {
     return null;
   }
 
@@ -219,8 +311,15 @@ const normalizePricingBook = (
     dimensions: Array.isArray(book?.dimensions)
       ? book.dimensions.map((item) => String(item).trim()).filter(Boolean)
       : undefined,
+    defaultAvailable:
+      typeof book?.defaultAvailable === 'boolean' ? book.defaultAvailable : undefined,
+    unavailableReason:
+      typeof book?.unavailableReason === 'string' && book.unavailableReason.trim()
+        ? book.unavailableReason.trim()
+        : undefined,
     defaults: mergedDefaults || undefined,
     rules,
+    formula,
   };
 };
 
@@ -235,6 +334,161 @@ const buildLegacyRulePrice = (
       costYuan: rule.costYuan,
     })
   );
+};
+
+const scalePriceBundle = (
+  price: ManagedPriceBundle | undefined,
+  factor: number,
+): ManagedPriceBundle | null => {
+  if (!price || !Number.isFinite(factor)) return null;
+
+  const credits =
+    typeof price.credits === 'number' ? price.credits * factor : undefined;
+  const priceYuan =
+    typeof price.priceYuan === 'number' ? price.priceYuan * factor : undefined;
+  const costYuan =
+    typeof price.costYuan === 'number' ? price.costYuan * factor : undefined;
+
+  if (
+    credits === undefined &&
+    priceYuan === undefined &&
+    costYuan === undefined
+  ) {
+    return null;
+  }
+
+  return {
+    ...(credits !== undefined ? { credits } : {}),
+    ...(priceYuan !== undefined ? { priceYuan } : {}),
+    ...(costYuan !== undefined ? { costYuan } : {}),
+  };
+};
+
+const mergePriceBundles = (
+  current: ManagedPriceBundle,
+  extra: ManagedPriceBundle | null,
+): ManagedPriceBundle => {
+  if (!extra) return current;
+
+  return {
+    ...(current.credits !== undefined || extra.credits !== undefined
+      ? { credits: (current.credits || 0) + (extra.credits || 0) }
+      : {}),
+    ...(current.priceYuan !== undefined || extra.priceYuan !== undefined
+      ? { priceYuan: (current.priceYuan || 0) + (extra.priceYuan || 0) }
+      : {}),
+    ...(current.costYuan !== undefined || extra.costYuan !== undefined
+      ? { costYuan: (current.costYuan || 0) + (extra.costYuan || 0) }
+      : {}),
+  };
+};
+
+const applyMultiplierRounding = (
+  value: number,
+  roundMode?: ManagedPricingFormulaMultiplier['round'],
+): number => {
+  switch (roundMode) {
+    case 'ceil':
+      return Math.ceil(value);
+    case 'floor':
+      return Math.floor(value);
+    case 'round':
+      return Math.round(value);
+    default:
+      return value;
+  }
+};
+
+const resolveFormulaMultiplier = (
+  multiplier: ManagedPricingFormulaMultiplier | undefined,
+  pricingContext: Record<string, any>,
+): number => {
+  const raw =
+    typeof multiplier?.field === 'string' && multiplier.field.trim()
+      ? pricingContext[multiplier.field.trim()]
+      : multiplier?.value;
+  const numeric = Number(raw);
+  let resolved = Number.isFinite(numeric) ? numeric : 1;
+
+  if (typeof multiplier?.min === 'number') {
+    resolved = Math.max(resolved, multiplier.min);
+  }
+  if (typeof multiplier?.max === 'number') {
+    resolved = Math.min(resolved, multiplier.max);
+  }
+
+  return applyMultiplierRounding(resolved, multiplier?.round);
+};
+
+const computeFormulaPricing = (
+  formula: ManagedPricingFormula | undefined,
+  pricingContext: Record<string, any>,
+): Pick<ResolvedManagedPricing, 'price' | 'label' | 'breakdown'> | null => {
+  if (!formula) return null;
+
+  let price: ManagedPriceBundle = {};
+  const breakdown: NonNullable<ResolvedManagedPricing['breakdown']> = [];
+
+  if (formula.base) {
+    price = mergePriceBundles(price, formula.base);
+    breakdown.push({
+      type: 'base',
+      label: 'base',
+      price: formula.base,
+    });
+  }
+
+  for (const adjustment of formula.adjustments || []) {
+    const matcher = asObject(adjustment.when) || asObject(adjustment.match);
+    if (matcher && !matchesPricingCondition(pricingContext, matcher)) {
+      continue;
+    }
+
+    let component: ManagedPriceBundle = {};
+    let hasComponent = false;
+
+    if (adjustment.price) {
+      component = mergePriceBundles(component, adjustment.price);
+      hasComponent = true;
+    }
+
+    let multiplierValue: number | undefined;
+    if (adjustment.unitPrice) {
+      multiplierValue = resolveFormulaMultiplier(adjustment.multiplier, pricingContext);
+      const scaled = scalePriceBundle(adjustment.unitPrice, multiplierValue);
+      component = mergePriceBundles(component, scaled);
+      hasComponent = hasComponent || Boolean(scaled);
+    }
+
+    if (!hasComponent) continue;
+
+    price = mergePriceBundles(price, component);
+    breakdown.push({
+      type: 'adjustment',
+      key: adjustment.key,
+      label: adjustment.label,
+      multiplier: multiplierValue,
+      price: component,
+    });
+  }
+
+  if (
+    price.credits === undefined &&
+    price.priceYuan === undefined &&
+    price.costYuan === undefined
+  ) {
+    return null;
+  }
+
+  return {
+    price,
+    label:
+      breakdown
+        .map((item) => item.label)
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        .join(' + ') || undefined,
+    breakdown,
+  };
 };
 
 export const resolveManagedVendorPricing = (
@@ -274,16 +528,45 @@ export const resolveManagedVendorPricing = (
     };
   }
 
+  const formulaResult = computeFormulaPricing(book.formula, pricingContext);
+  if (formulaResult) {
+    return {
+      source: 'vendor_formula',
+      vendorKey,
+      defaultAvailable: book.defaultAvailable,
+      label: formulaResult.label,
+      price: formulaResult.price,
+      breakdown: formulaResult.breakdown,
+    };
+  }
+
+  if (book.defaultAvailable === false) {
+    return {
+      source: 'none',
+      vendorKey,
+      defaultAvailable: false,
+      unavailableReason:
+        book.unavailableReason || '当前规格未配置价格，请补充条件规则或线性定价。',
+      price: {},
+    };
+  }
+
   if (book.defaults) {
     const hasStructuredPricing = !!asObject(vendor?.pricing);
     return {
       source: hasStructuredPricing ? 'vendor_default' : 'legacy_default',
       vendorKey,
+      defaultAvailable: book.defaultAvailable,
       price: book.defaults,
     };
   }
 
-  return { source: 'none', vendorKey, price: {} };
+  return {
+    source: 'none',
+    vendorKey,
+    defaultAvailable: book.defaultAvailable,
+    price: {},
+  };
 };
 
 export const resolveManagedModelPricing = (

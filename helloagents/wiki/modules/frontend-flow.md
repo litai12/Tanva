@@ -36,7 +36,11 @@
   - 画布上的模型管理视频节点支持切换 `vendorKey` 线路；切换后运行按钮旁的积分徽标会即时回显该线路价格，并把 `managedModelKey/vendorKey/platformKey` 一起传给后端。
 - 统一模型管理已开始从旧 `specPricing` 过渡到正式 `pricing`：
   - 管理台厂商卡片现在支持默认积分、默认价格(元)以及规格规则的积分/价格维护。
-  - 后端公开节点接口会优先读取 vendor `pricing.defaults`，旧 `creditsPerCall` 仍作为兼容回退。
+  - 视频模型的复杂价格条件已改为基于模型支持参数的双语下拉（如 `分辨率 / Resolution`、`输入类型 / Input Type`、`音频 / Audio`），不再要求运营手写 `mode` 等底层字段。
+  - 视频厂商可配置 `pricing.defaultAvailable=false`。此时节点预估积分、运行按钮状态和后端实际扣费都会把“未命中价格规则”的规格视为不可用，而不是静默回退默认价。
+  - 后端公开节点接口仅在 `defaultAvailable !== false` 时才会回填 vendor `pricing.defaults` / 兼容 `creditsPerCall`。
+  - 前端 `managedRoutePricing` 现已支持 `pricing.formula`，并会先把节点数据归一为 canonical video pricing context 再做积分预估，避免与后端扣费结果不一致。
+  - Admin 的统一模型管理页现在复用同一套 `managedRoutePricing` 逻辑做价格试算，支持当前模型条件预览和全部模型总览。
 
 ## 音频节点
 - `minimaxSpeech`：文本转语音节点，输出 `audio` 句柄。
