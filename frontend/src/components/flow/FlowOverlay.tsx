@@ -1701,23 +1701,27 @@ const normalizeBananaImageSize = (
   return "1K";
 };
 
-// Stable 通道下的旧版 Banana 定价常量（用于 bananaImageRoute === "stable"）
+// Stable 通道下的 Banana 定价常量（用于 bananaImageRoute === "stable"）
+// 对应腾讯稳定渠道的 Nano Banana 定价表
 const BANANA_STABLE_ROUTE_PRICING: Record<
   BananaPricingTier,
   Record<"0.5K" | "1K" | "2K" | "4K", number>
 > = {
+  // Fast: Nano Banana, 仅支持 1K
   fast: {
-    "0.5K": 20,
-    "1K": 20,
-    "2K": 20,
-    "4K": 20,
+    "0.5K": 60,
+    "1K": 60,
+    "2K": 60,
+    "4K": 60,
   },
+  // Pro: Nano Banana-Pro
   pro: {
     "0.5K": 40,
     "1K": 40,
     "2K": 60,
     "4K": 120,
   },
+  // Ultra: Nano Banana-2
   ultra: {
     "0.5K": 20,
     "1K": 30,

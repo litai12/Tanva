@@ -900,17 +900,21 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         {
           modelKey: "gemini-2.5-image",
           taskType: "image",
-          vendors: [{ vendorKey: "banana-2.5", creditsPerCall: 20 }],
+          vendors: [{ vendorKey: "banana-2.5", creditsPerCall: 60 }],
           defaultVendor: "banana-2.5",
         },
         {
           flowNodeType: "generate",
           nodeKey: "generate",
           category: "image",
-          creditsPerCall: 20,
+          creditsPerCall: 60,
           description: "Nano Banana Fast 文生图",
         }
       ),
+      specPricing: {
+        defaults: { credits: 60 },
+        rules: [],
+      },
     },
     vendors: [
       {
@@ -922,7 +926,11 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "banana-2.5",
         modelName: "Nano Banana",
         modelVersion: "2.5",
-        creditsPerCall: 20,
+        creditsPerCall: 60,
+        pricing: {
+          defaults: { credits: 60, priceYuan: 0.6 },
+          rules: [],
+        },
       },
     ],
   },
@@ -948,6 +956,13 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
           description: "Nano Banana Pro 高质量生图",
         }
       ),
+      specPricing: {
+        defaults: { credits: 40 },
+        rules: [
+          { when: { resolution: "2K" }, price: { credits: 60, priceYuan: 0.6 } },
+          { when: { resolution: "4K" }, price: { credits: 120, priceYuan: 1.2 } },
+        ],
+      },
     },
     vendors: [
       {
@@ -960,6 +975,13 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         modelName: "Nano Banana Pro",
         modelVersion: "3.0",
         creditsPerCall: 40,
+        pricing: {
+          defaults: { credits: 40, priceYuan: 0.4 },
+          rules: [
+            { when: { resolution: "2K" }, price: { credits: 60, priceYuan: 0.6 } },
+            { when: { resolution: "4K" }, price: { credits: 120, priceYuan: 1.2 } },
+          ],
+        },
       },
     ],
   },
@@ -985,6 +1007,14 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
           description: "Nano Banana 2 生图",
         }
       ),
+      specPricing: {
+        defaults: { credits: 30 },
+        rules: [
+          { when: { resolution: "0.5K" }, price: { credits: 20, priceYuan: 0.2 } },
+          { when: { resolution: "2K" }, price: { credits: 45, priceYuan: 0.45 } },
+          { when: { resolution: "4K" }, price: { credits: 60, priceYuan: 0.6 } },
+        ],
+      },
     },
     vendors: [
       {
@@ -997,6 +1027,14 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         modelName: "Nano Banana 2",
         modelVersion: "3.1",
         creditsPerCall: 30,
+        pricing: {
+          defaults: { credits: 30, priceYuan: 0.3 },
+          rules: [
+            { when: { resolution: "0.5K" }, price: { credits: 20, priceYuan: 0.2 } },
+            { when: { resolution: "2K" }, price: { credits: 45, priceYuan: 0.45 } },
+            { when: { resolution: "4K" }, price: { credits: 60, priceYuan: 0.6 } },
+          ],
+        },
       },
     ],
   },
@@ -1022,6 +1060,13 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
           description: "Nano Banana Pro 图像编辑",
         }
       ),
+      specPricing: {
+        defaults: { credits: 40 },
+        rules: [
+          { when: { resolution: "2K" }, price: { credits: 60, priceYuan: 0.6 } },
+          { when: { resolution: "4K" }, price: { credits: 120, priceYuan: 1.2 } },
+        ],
+      },
     },
     vendors: [
       {
@@ -1034,6 +1079,13 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         modelName: "Nano Banana Pro Edit",
         modelVersion: "3.0",
         creditsPerCall: 40,
+        pricing: {
+          defaults: { credits: 40, priceYuan: 0.4 },
+          rules: [
+            { when: { resolution: "2K" }, price: { credits: 60, priceYuan: 0.6 } },
+            { when: { resolution: "4K" }, price: { credits: 120, priceYuan: 1.2 } },
+          ],
+        },
       },
     ],
   },
@@ -1059,6 +1111,14 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
           description: "Nano Banana 2 图像编辑",
         }
       ),
+      specPricing: {
+        defaults: { credits: 30 },
+        rules: [
+          { when: { resolution: "0.5K" }, price: { credits: 20, priceYuan: 0.2 } },
+          { when: { resolution: "2K" }, price: { credits: 45, priceYuan: 0.45 } },
+          { when: { resolution: "4K" }, price: { credits: 60, priceYuan: 0.6 } },
+        ],
+      },
     },
     vendors: [
       {
@@ -1071,6 +1131,14 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         modelName: "Nano Banana 2 Edit",
         modelVersion: "3.1",
         creditsPerCall: 30,
+        pricing: {
+          defaults: { credits: 30, priceYuan: 0.3 },
+          rules: [
+            { when: { resolution: "0.5K" }, price: { credits: 20, priceYuan: 0.2 } },
+            { when: { resolution: "2K" }, price: { credits: 45, priceYuan: 0.45 } },
+            { when: { resolution: "4K" }, price: { credits: 60, priceYuan: 0.6 } },
+          ],
+        },
       },
     ],
   },
@@ -1096,6 +1164,13 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
           description: "Nano Banana Pro 图像融合",
         }
       ),
+      specPricing: {
+        defaults: { credits: 40 },
+        rules: [
+          { when: { resolution: "2K" }, price: { credits: 60, priceYuan: 0.6 } },
+          { when: { resolution: "4K" }, price: { credits: 120, priceYuan: 1.2 } },
+        ],
+      },
     },
     vendors: [
       {
@@ -1108,6 +1183,13 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         modelName: "Nano Banana Pro Blend",
         modelVersion: "3.0",
         creditsPerCall: 40,
+        pricing: {
+          defaults: { credits: 40, priceYuan: 0.4 },
+          rules: [
+            { when: { resolution: "2K" }, price: { credits: 60, priceYuan: 0.6 } },
+            { when: { resolution: "4K" }, price: { credits: 120, priceYuan: 1.2 } },
+          ],
+        },
       },
     ],
   },
@@ -1133,6 +1215,14 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
           description: "Nano Banana 2 图像融合",
         }
       ),
+      specPricing: {
+        defaults: { credits: 30 },
+        rules: [
+          { when: { resolution: "0.5K" }, price: { credits: 20, priceYuan: 0.2 } },
+          { when: { resolution: "2K" }, price: { credits: 45, priceYuan: 0.45 } },
+          { when: { resolution: "4K" }, price: { credits: 60, priceYuan: 0.6 } },
+        ],
+      },
     },
     vendors: [
       {
@@ -1145,6 +1235,14 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         modelName: "Nano Banana 2 Blend",
         modelVersion: "3.1",
         creditsPerCall: 30,
+        pricing: {
+          defaults: { credits: 30, priceYuan: 0.3 },
+          rules: [
+            { when: { resolution: "0.5K" }, price: { credits: 20, priceYuan: 0.2 } },
+            { when: { resolution: "2K" }, price: { credits: 45, priceYuan: 0.45 } },
+            { when: { resolution: "4K" }, price: { credits: 60, priceYuan: 0.6 } },
+          ],
+        },
       },
     ],
   },
@@ -1196,17 +1294,21 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         {
           modelKey: "gemini-2.5-image-edit",
           taskType: "image",
-          vendors: [{ vendorKey: "banana-2.5", creditsPerCall: 20 }],
+          vendors: [{ vendorKey: "banana-2.5", creditsPerCall: 60 }],
           defaultVendor: "banana-2.5",
         },
         {
           flowNodeType: "generatePro",
           nodeKey: "generatePro",
           category: "image",
-          creditsPerCall: 20,
+          creditsPerCall: 60,
           description: "Nano Banana Fast 图像编辑",
         }
       ),
+      specPricing: {
+        defaults: { credits: 60 },
+        rules: [],
+      },
     },
     vendors: [
       {
@@ -1218,7 +1320,11 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "banana-2.5",
         modelName: "Nano Banana Edit",
         modelVersion: "2.5",
-        creditsPerCall: 20,
+        creditsPerCall: 60,
+        pricing: {
+          defaults: { credits: 60, priceYuan: 0.6 },
+          rules: [],
+        },
       },
     ],
   },
@@ -1233,17 +1339,21 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         {
           modelKey: "gemini-2.5-image-blend",
           taskType: "image",
-          vendors: [{ vendorKey: "banana-2.5", creditsPerCall: 20 }],
+          vendors: [{ vendorKey: "banana-2.5", creditsPerCall: 60 }],
           defaultVendor: "banana-2.5",
         },
         {
           flowNodeType: "generateReference",
           nodeKey: "generateReference",
           category: "image",
-          creditsPerCall: 20,
+          creditsPerCall: 60,
           description: "Nano Banana Fast 图像融合",
         }
       ),
+      specPricing: {
+        defaults: { credits: 60 },
+        rules: [],
+      },
     },
     vendors: [
       {
@@ -1255,7 +1365,11 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "banana-2.5",
         modelName: "Nano Banana Blend",
         modelVersion: "2.5",
-        creditsPerCall: 20,
+        creditsPerCall: 60,
+        pricing: {
+          defaults: { credits: 60, priceYuan: 0.6 },
+          rules: [],
+        },
       },
     ],
   },
