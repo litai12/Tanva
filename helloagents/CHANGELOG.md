@@ -6,6 +6,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Added
+- Flow Credits Display: run-button credit badges now resolve with effective default parameters for video nodes and apply Kling 2.6/3.0 dynamic credit matrix so displayed credits match actual deduction.
 - Workspace Safety: added global leave-risk warning banner and upgraded leave confirmation logic to cover both uploading tasks and running Flow tasks; leaving during in-flight tasks now warns about potential data loss.
 - Runtime Stability: weak-network image delivery hardening for OSS/CDN resources, including adaptive timeout/retry in frontend image fetch (`imageSource.ts`) and proxy upstream timeout/retry in backend `/api/assets/proxy`.
 - Runtime Stability: custom CDN host `tai.tarvas.cn` added to frontend managed/proxy allowlist for direct public URL and fallback proxy compatibility.
