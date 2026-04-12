@@ -367,6 +367,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const isSeedanceModel = provider === "doubao";
   const seedance2AccessEnabled = data.seedance2AccessEnabled === true;
   const seedance2AccessResolved = data.seedance2AccessResolved === true;
+  const seedance20AvailableForCurrentUser =
+    isSeedanceModel && seedance2AccessResolved && seedance2AccessEnabled;
   const seedance20RestrictedForCurrentUser =
     isSeedanceModel && seedance2AccessResolved && !seedance2AccessEnabled;
   const isSeedance20LockedOption = React.useCallback(
@@ -863,7 +865,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   );
   const filteredSeedanceModelOptions = React.useMemo(
     () => {
-      if (seedance20RestrictedForCurrentUser) {
+      if (seedance20AvailableForCurrentUser || seedance20RestrictedForCurrentUser) {
         return seedanceModelOptions;
       }
       if (supportedModels.length === 0) return seedanceModelOptions;
@@ -878,7 +880,12 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       const filtered = seedanceModelOptions.filter((opt) => normalized.has(opt.value));
       return filtered.length > 0 ? filtered : seedanceModelOptions;
     },
-    [seedance20RestrictedForCurrentUser, seedanceModelOptions, supportedModels]
+    [
+      seedance20AvailableForCurrentUser,
+      seedance20RestrictedForCurrentUser,
+      seedanceModelOptions,
+      supportedModels,
+    ]
   );
   React.useEffect(() => {
     if (!seedance20RestrictedForCurrentUser || !isSeedance20Model) return;
