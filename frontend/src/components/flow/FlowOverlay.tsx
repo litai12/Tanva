@@ -1629,7 +1629,7 @@ const BANANA_ROUTE_PRICING: Record<
     "4K": 80,
   },
   ultra: {
-    "0.5K": 30,
+    "0.5K": 20,
     "1K": 30,
     "2K": 40,
     "4K": 50,
@@ -1702,31 +1702,31 @@ const normalizeBananaImageSize = (
 };
 
 // Stable 通道下的 Banana 定价常量（用于 bananaImageRoute === "stable"）
-// 对应腾讯稳定渠道的 Nano Banana 定价表
+// 与后端积分表保持一致
 const BANANA_STABLE_ROUTE_PRICING: Record<
   BananaPricingTier,
   Record<"0.5K" | "1K" | "2K" | "4K", number>
 > = {
   // Fast: Nano Banana, 仅支持 1K
   fast: {
-    "0.5K": 30,
-    "1K": 30,
-    "2K": 30,
-    "4K": 30,
+    "0.5K": 20,
+    "1K": 20,
+    "2K": 20,
+    "4K": 20,
   },
-  // Pro: Nano Banana-Pro
+  // Pro: Nano Banana Pro
   pro: {
-    "0.5K": 90,
-    "1K": 90,
-    "2K": 100,
-    "4K": 170,
+    "0.5K": 40,
+    "1K": 40,
+    "2K": 60,
+    "4K": 80,
   },
-  // Ultra: Nano Banana-2
+  // Ultra: Nano Banana 2
   ultra: {
-    "0.5K": 30,
-    "1K": 50,
-    "2K": 70,
-    "4K": 110,
+    "0.5K": 20,
+    "1K": 30,
+    "2K": 40,
+    "4K": 50,
   },
 };
 
@@ -2537,14 +2537,6 @@ const NodePaletteButton: React.FC<{
         : credits.toString()
       : null;
 
-  // 跳转到会员开通页面
-  const handleVipClick = () => {
-    const base = import.meta.env.BASE_URL || "/";
-    const originWithBase = `${window.location.origin}${base.endsWith("/") ? base : `${base}/`}`;
-    const href = new URL("membership", originWithBase).href;
-    window.open(href, "_blank", "noopener,noreferrer");
-  };
-
   const getBadgeStyle = (statusCode?: string): React.CSSProperties => {
     if (statusCode === "maintenance") {
       return {
@@ -2579,7 +2571,7 @@ const NodePaletteButton: React.FC<{
       : {}),
     ...(disabled || isVipLocked ? {
       opacity: isDarkTheme ? 0.75 : 0.6,
-      cursor: isVipLocked ? "pointer" : "not-allowed",
+      cursor: "not-allowed",
       background: isDarkTheme ? "#171717" : "#f9fafb",
       color: isDarkTheme ? "#666666" : "#0f172a",
     } : {}),
@@ -2587,7 +2579,8 @@ const NodePaletteButton: React.FC<{
 
   return (
     <button
-      onClick={isVipLocked ? handleVipClick : (disabled ? undefined : onClick)}
+      type='button'
+      onClick={disabled || isVipLocked ? undefined : onClick}
       style={buttonStyle}
       onMouseEnter={(e) =>
         !(disabled || isVipLocked) && setNodePaletteHover(e.currentTarget, true, isDarkTheme)
@@ -2595,8 +2588,8 @@ const NodePaletteButton: React.FC<{
       onMouseLeave={(e) =>
         !(disabled || isVipLocked) && setNodePaletteHover(e.currentTarget, false, isDarkTheme)
       }
-      disabled={disabled && !isVipLocked}
-      title={isVipLocked ? (isDarkTheme ? "Click to open VIP subscription" : "点击开通VIP会员") : undefined}
+      disabled={Boolean(disabled || isVipLocked)}
+      title={isVipLocked ? (isDarkTheme ? "VIP only" : "VIP 限定功能") : undefined}
     >
       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4, flex: 1 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, width: "100%" }}>
@@ -2656,7 +2649,7 @@ const NodePaletteButton: React.FC<{
               marginTop: 2,
             }}
           >
-            {isDarkTheme ? "Click to unlock" : "点击开通VIP解锁"}
+            {isDarkTheme ? "VIP only" : "VIP 专属"}
           </div>
         )}
         {/* {creditsDisplay && (
@@ -3084,6 +3077,8 @@ function FlowInner() {
 
   // VIP 会员状态
   const [membershipActive, setMembershipActive] = React.useState(false);
+  const [seedance2AccessEnabled, setSeedance2AccessEnabled] = React.useState(false);
+  const [seedance2AccessResolved, setSeedance2AccessResolved] = React.useState(false);
   React.useEffect(() => {
     import("@/services/adminApi").then(({ getMembershipCurrent }) => {
       getMembershipCurrent()
@@ -3094,6 +3089,25 @@ function FlowInner() {
           setMembershipActive(false);
         });
     }).catch(() => {});
+  }, []);
+
+  React.useEffect(() => {
+    import("@/services/adminApi")
+      .then(({ getSeedance2Access }) => {
+        getSeedance2Access()
+          .then((data) => {
+            setSeedance2AccessEnabled(data?.allowed === true);
+            setSeedance2AccessResolved(true);
+          })
+          .catch(() => {
+            setSeedance2AccessEnabled(false);
+            setSeedance2AccessResolved(false);
+          });
+      })
+      .catch(() => {
+        setSeedance2AccessEnabled(false);
+        setSeedance2AccessResolved(false);
+      });
   }, []);
 
   // 管理端保存后：localStorage 仅其它标签页能收到 storage 事件；同窗口用 NODE_CONFIG_SYNC_DOM_EVENT
@@ -7675,7 +7689,7 @@ function FlowInner() {
                   : type === "doubaoVideo"
                   ? ("text" as const)
                   : undefined,
-              generateAudio: type === "seedance20Video" ? false : undefined,
+              generateAudio: type === "seedance20Video" ? true : undefined,
               resolution:
                 type === "viduVideo" || type === "viduQ3"
                   ? ("720p" as const)
@@ -11696,8 +11710,7 @@ function FlowInner() {
             )
           );
 
-          const promptExtend = true;
-          const watermark = true;
+          // Prompt Extend 默开启，水印默认关闭（不暴露给前端UI）
           const generationStartedAt = Date.now();
 
           const result = await generateWan27I2VViaAPI({
@@ -11706,8 +11719,8 @@ function FlowInner() {
             parameters: {
               resolution,
               duration,
-              prompt_extend: promptExtend,
-              watermark,
+              prompt_extend: true,
+              watermark: false,
               ...(typeof seed === "number" ? { seed } : {}),
             },
           });
@@ -14087,8 +14100,10 @@ function FlowInner() {
                   resolution: rawNodeData.resolution,
                   videoMode: seedanceVideoModeForAPI,
                   generateAudio:
-                    isSeedance20Request && typeof rawNodeData.generateAudio === "boolean"
-                      ? rawNodeData.generateAudio
+                    isSeedance20Request
+                      ? typeof rawNodeData.generateAudio === "boolean"
+                        ? rawNodeData.generateAudio
+                        : true
                       : undefined,
                   seedanceModel: seedanceModelForRequest,
                 }
@@ -18191,7 +18206,16 @@ function FlowInner() {
             n.type === "viduQ3" ||
             n.type === "doubaoVideo" ||
             n.type === "seedance20Video"
-          ? { ...n, data: { ...n.data, onRun: runNode, creditsPerCall } }
+          ? {
+              ...n,
+              data: {
+                ...n.data,
+                onRun: runNode,
+                creditsPerCall,
+                seedance2AccessEnabled,
+                seedance2AccessResolved,
+              },
+            }
           : n
       }),
     [
@@ -18208,6 +18232,8 @@ function FlowInner() {
       dissolveGroups,
       runGroupNodes,
       runningGroupIds,
+      seedance2AccessEnabled,
+      seedance2AccessResolved,
       toggleGroupCollapsed,
       groupPreviewImagesByGroupId,
       isFlowBlackTheme,

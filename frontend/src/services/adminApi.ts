@@ -722,6 +722,18 @@ export async function getMembershipCurrent(): Promise<MembershipCurrentResponse>
   return response.json();
 }
 
+export interface Seedance2AccessResponse {
+  allowed: boolean;
+  byVip: boolean;
+  byWhitelist: boolean;
+  byAdmin: boolean;
+}
+
+export async function getSeedance2Access(): Promise<Seedance2AccessResponse> {
+  const response = await request("/api/ai/seedance2/access");
+  return response.json();
+}
+
 export interface MembershipTransitionPreview {
   actionType: "subscribe" | "renew" | "upgrade" | "downgrade";
   effectiveMode: "immediate" | "next_cycle";

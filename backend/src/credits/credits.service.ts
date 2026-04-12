@@ -41,7 +41,10 @@ const STALE_PENDING_VIDEO_REFUND_DEFAULT_CUTOVER_AT = '2026-03-28T00:00:00.000Z'
 const STALE_PENDING_DEFAULT_BATCH_SIZE = 100;
 const DAILY_REWARD_RESET_HOUR = 3;
 const FREE_TIER_BENEFITS_SETTING_KEY = 'membership_free_tier_benefits';
+const DEFAULT_FREE_USER_DAILY_IMAGE_LIMIT = 20;
+const DEFAULT_FREE_USER_DAILY_VIDEO_LIMIT = 3;
 const DEFAULT_FREE_USER_MONTHLY_IMAGE_LIMIT = 100;
+const DEFAULT_FREE_USER_MONTHLY_VIDEO_LIMIT = 10;
 const STALE_PENDING_IMAGE_SERVICE_TYPES: ServiceType[] = [
   'gemini-3-pro-image',
   'gemini-3.1-image',
@@ -1216,13 +1219,24 @@ export class CreditsService {
   }
 
   private async getFreeUserDailyImageLimit(): Promise<number> {
-    // Standard tier: no daily image generation cap.
-    return 0;
+    return this.parsePositiveIntEnv(
+      'FREE_USER_DAILY_IMAGE_LIMIT',
+      DEFAULT_FREE_USER_DAILY_IMAGE_LIMIT,
+    );
   }
 
   private async getFreeUserDailyVideoLimit(): Promise<number> {
-    // Standard tier: no daily video generation cap.
-    return 0;
+    return this.parsePositiveIntEnv(
+      'FREE_USER_DAILY_VIDEO_LIMIT',
+      DEFAULT_FREE_USER_DAILY_VIDEO_LIMIT,
+    );
+  }
+
+  private getFreeUserMonthlyVideoLimit(): number {
+    return this.parsePositiveIntEnv(
+      'FREE_USER_MONTHLY_VIDEO_LIMIT',
+      DEFAULT_FREE_USER_MONTHLY_VIDEO_LIMIT,
+    );
   }
 
   private isFreeUserImageQuotaService(serviceType: ServiceType): boolean {
@@ -1306,12 +1320,11 @@ export class CreditsService {
       }),
       client.user.findUnique({
         where: { id: userId },
-        select: { role: true, noWatermark: true },
+        select: { role: true },
       }),
     ]);
 
     if (paidOrder) return true;
-    if (userProfile?.noWatermark === true) return true;
     const role = typeof userProfile?.role === 'string' ? userProfile.role.toLowerCase() : '';
     return role === 'admin' || role === 'normal_admin';
   }
@@ -1357,7 +1370,7 @@ export class CreditsService {
           `免费用户日生图配额超限 userId=${userId} day=${label} used=${usedCount} requested=${requestedCount} limit=${dailyLimit}`,
         );
         throw new BadRequestException(
-          `免费用户每天最多可生图 ${dailyLimit} 张（UTC ${label}）。今日已使用 ${usedCount} 张，本次请求 ${requestedCount} 张。请明天再试或升级付费套餐。`,
+          `免费额度已用尽，请前往充值，享有更多权限后可继续生成。免费用户每天最多可生图 ${dailyLimit} 张（UTC ${label}）。今日已使用 ${usedCount} 张，本次请求 ${requestedCount} 张。`,
         );
       }
     }
@@ -1377,7 +1390,7 @@ export class CreditsService {
           `免费用户月生图配额超限 userId=${userId} month=${label} used=${usedCount} requested=${requestedCount} limit=${monthlyLimit}`,
         );
         throw new BadRequestException(
-          `免费用户每月最多可生图 ${monthlyLimit} 张（UTC ${label}）。本月已使用 ${usedCount} 张，本次请求 ${requestedCount} 张。请下月再试或升级付费套餐。`,
+          `免费额度已用尽，请前往充值，享有更多权限后可继续生成。免费用户每月最多可生图 ${monthlyLimit} 张（UTC ${label}）。本月已使用 ${usedCount} 张，本次请求 ${requestedCount} 张。`,
         );
       }
     }
@@ -1392,32 +1405,60 @@ export class CreditsService {
   ): Promise<void> {
     const { userId, serviceType } = params;
     const dailyLimit = await this.getFreeUserDailyVideoLimit();
+    const monthlyLimit = this.getFreeUserMonthlyVideoLimit();
 
-    if (dailyLimit <= 0) return;
+    if (dailyLimit <= 0 && monthlyLimit <= 0) return;
     if (!this.isFreeUserVideoQuotaService(serviceType)) return;
 
     const isQuotaExemptUser = await this.isUsageQuotaExemptUser(client, userId);
     if (isQuotaExemptUser) return;
 
-    const { start, end, label } = this.getUtcDayRange(new Date());
-    const usedCount = await this.countVideoQuotaUsage(client, {
+    const now = new Date();
+    const baseWhere: Prisma.ApiUsageRecordWhereInput = {
       userId,
       serviceType: { in: FREE_USER_VIDEO_LIMITED_SERVICES },
       responseStatus: { in: [ApiResponseStatus.PENDING, ApiResponseStatus.SUCCESS] },
-      createdAt: {
-        gte: start,
-        lt: end,
-      },
-    });
+    };
     const requestedCount = 1;
 
-    if (usedCount + requestedCount > dailyLimit) {
-      this.logger.warn(
-        `免费用户日生视频配额超限 userId=${userId} day=${label} used=${usedCount} requested=${requestedCount} limit=${dailyLimit}`,
-      );
-      throw new BadRequestException(
-        `免费用户每天最多可生成视频 ${dailyLimit} 个（UTC ${label}）。今日已使用 ${usedCount} 个，本次请求 ${requestedCount} 个。请明天再试或充值解锁。`,
-      );
+    if (dailyLimit > 0) {
+      const { start, end, label } = this.getUtcDayRange(now);
+      const usedCount = await this.countVideoQuotaUsage(client, {
+        ...baseWhere,
+        createdAt: {
+          gte: start,
+          lt: end,
+        },
+      });
+
+      if (usedCount + requestedCount > dailyLimit) {
+        this.logger.warn(
+          `免费用户日生视频配额超限 userId=${userId} day=${label} used=${usedCount} requested=${requestedCount} limit=${dailyLimit}`,
+        );
+        throw new BadRequestException(
+          `免费额度已用尽，请前往充值，享有更多权限后可继续生成。免费用户每天最多可生成视频 ${dailyLimit} 个（UTC ${label}）。今日已使用 ${usedCount} 个，本次请求 ${requestedCount} 个。`,
+        );
+      }
+    }
+
+    if (monthlyLimit > 0) {
+      const { start, end, label } = this.getUtcMonthRange(now);
+      const usedCount = await this.countVideoQuotaUsage(client, {
+        ...baseWhere,
+        createdAt: {
+          gte: start,
+          lt: end,
+        },
+      });
+
+      if (usedCount + requestedCount > monthlyLimit) {
+        this.logger.warn(
+          `免费用户月生视频配额超限 userId=${userId} month=${label} used=${usedCount} requested=${requestedCount} limit=${monthlyLimit}`,
+        );
+        throw new BadRequestException(
+          `免费额度已用尽，请前往充值，享有更多权限后可继续生成。免费用户每月最多可生成视频 ${monthlyLimit} 个（UTC ${label}）。本月已使用 ${usedCount} 个，本次请求 ${requestedCount} 个。`,
+        );
+      }
     }
   }
 

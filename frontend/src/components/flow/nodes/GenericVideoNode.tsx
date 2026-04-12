@@ -79,6 +79,8 @@ type Props = {
     nodeConfigNameZh?: string;
     nodeConfigNameEn?: string;
     nodeConfigMetadata?: Record<string, any>;
+    seedance2AccessEnabled?: boolean;
+    seedance2AccessResolved?: boolean;
   };
   selected?: boolean;
 };
@@ -189,6 +191,11 @@ const SEEDANCE20_DOC_RESOLUTIONS = ["480P", "720P"] as const;
 
 const SEEDANCE20_MODE_VALUES: Seedance20Mode[] = ["reference_images", "start_end"];
 const SEEDANCE15_MODE_VALUES: Seedance15Mode[] = ["text", "image", "start_end"];
+
+const isSeedance20ModelValue = (value: unknown): boolean => {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return normalized === "seedance-2.0" || normalized === "seedance-2.0-fast";
+};
 
 const isSeedance20ModeValue = (value: unknown): value is Seedance20Mode =>
   typeof value === "string" && SEEDANCE20_MODE_VALUES.includes(value as Seedance20Mode);
@@ -358,9 +365,22 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       ? "seedance-2.0"
       : "seedance-1.5-pro";
   const isSeedanceModel = provider === "doubao";
+  const seedance2AccessEnabled = data.seedance2AccessEnabled === true;
+  const seedance2AccessResolved = data.seedance2AccessResolved === true;
+  const seedance20RestrictedForCurrentUser =
+    isSeedanceModel && seedance2AccessResolved && !seedance2AccessEnabled;
+  const isSeedance20LockedOption = React.useCallback(
+    (value: SeedanceModel): boolean =>
+      seedance20RestrictedForCurrentUser && isSeedance20ModelValue(value),
+    [seedance20RestrictedForCurrentUser]
+  );
   const isSeedance20Model =
     isSeedanceModel &&
     (seedanceModel === "seedance-2.0" || seedanceModel === "seedance-2.0-fast");
+  const seedanceGenerateAudio =
+    isSeedance20Model && typeof data.generateAudio === "boolean"
+      ? data.generateAudio
+      : isSeedance20Model;
   const inferredSeedanceMode = React.useMemo<SeedanceMode>(() => {
     if (!isSeedanceModel) return "text";
     if (isSeedance20Model) {
@@ -843,6 +863,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   );
   const filteredSeedanceModelOptions = React.useMemo(
     () => {
+      if (seedance20RestrictedForCurrentUser) {
+        return seedanceModelOptions;
+      }
       if (supportedModels.length === 0) return seedanceModelOptions;
       const normalized = new Set(
         supportedModels.map((item) => String(item).trim().toLowerCase())
@@ -855,8 +878,25 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       const filtered = seedanceModelOptions.filter((opt) => normalized.has(opt.value));
       return filtered.length > 0 ? filtered : seedanceModelOptions;
     },
-    [seedanceModelOptions, supportedModels]
+    [seedance20RestrictedForCurrentUser, seedanceModelOptions, supportedModels]
   );
+  React.useEffect(() => {
+    if (!seedance20RestrictedForCurrentUser || !isSeedance20Model) return;
+    const nextDuration =
+      clipDuration && clipDuration >= 3 && clipDuration <= 10 ? clipDuration : 5;
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: {
+          id,
+          patch: {
+            seedanceModel: "seedance-1.5-pro",
+            seedanceMode: "text",
+            clipDuration: nextDuration,
+          },
+        },
+      })
+    );
+  }, [clipDuration, id, isSeedance20Model, seedance20RestrictedForCurrentUser]);
   const durationOptions = React.useMemo(() => {
     if (provider === "doubao" && isSeedance20Model) {
       return [...SEEDANCE20_DOC_DURATIONS].map((value) => ({
@@ -1175,6 +1215,20 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const handleSeedanceModelChange = React.useCallback(
     (value: SeedanceModel) => {
       if (value === seedanceModel) return;
+      if (isSeedance20LockedOption(value)) {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: {
+              type: "info",
+              message: lt(
+                "Seedance 2.0 / 2.0 Fast 需开通 VIP 权益或进入水印白名单后才可选择",
+                "Seedance 2.0 / 2.0 Fast requires VIP access or watermark whitelist access",
+              ),
+            },
+          })
+        );
+        return;
+      }
       const nextMode: SeedanceMode =
         value === "seedance-2.0" || value === "seedance-2.0-fast"
           ? "reference_images"
@@ -1197,13 +1251,28 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               seedanceModel: value,
               seedanceMode: nextMode,
               clipDuration: nextDuration,
+              generateAudio:
+                value === "seedance-2.0" || value === "seedance-2.0-fast"
+                  ? typeof data.generateAudio === "boolean"
+                    ? data.generateAudio
+                    : true
+                  : undefined,
             },
           },
         })
       );
     },
-    [clipDuration, id, seedanceModel]
+    [clipDuration, data.generateAudio, id, isSeedance20LockedOption, lt, seedanceModel]
   );
+
+  const handleSeedanceAudioToggle = React.useCallback(() => {
+    if (!isSeedance20Model) return;
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: { id, patch: { generateAudio: !seedanceGenerateAudio } },
+      })
+    );
+  }, [id, isSeedance20Model, seedanceGenerateAudio]);
 
   const handleSeedanceModeChange = React.useCallback(
     (value: SeedanceMode) => {
@@ -1308,6 +1377,15 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       })
     );
   }, [data.sound, id, isKling26Model]);
+
+  React.useEffect(() => {
+    if (!isSeedance20Model || typeof data.generateAudio === "boolean") return;
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: { id, patch: { generateAudio: true } },
+      })
+    );
+  }, [data.generateAudio, id, isSeedance20Model]);
 
   const handleRemoveAudioAt = React.useCallback(
     (index: number) => {
@@ -1504,14 +1582,14 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
 
   const copyVideoLink = React.useCallback(async (url?: string) => {
     if (!url) {
-      alert(lt("娌℃湁鍙鍒剁殑瑙嗛閾炬帴", "No video link to copy"));
+      alert(lt("\u6ca1\u6709\u53ef\u590d\u5236\u7684\u89c6\u9891\u94fe\u63a5", "No video link to copy"));
       return;
     }
     try {
       // 浼樺厛浣跨敤 Clipboard API
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(url);
-        alert(lt("已复制视频链接", "Video link copied"));
+        alert(lt("\u89c6\u9891\u94fe\u63a5\u5df2\u590d\u5236", "Video link copied"));
         return;
       }
       // 澶囩敤鏂规锛氫娇鐢?execCommand
@@ -1526,14 +1604,14 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       const success = document.execCommand("copy");
       document.body.removeChild(textArea);
       if (success) {
-        alert(lt("已复制视频链接", "Video link copied"));
+        alert(lt("\u89c6\u9891\u94fe\u63a5\u5df2\u590d\u5236", "Video link copied"));
       } else {
-        alert(lt("澶嶅埗澶辫触锛岃鎵嬪姩澶嶅埗锛歕n", "Copy failed. Please copy manually:\n") + url);
+        alert(lt("\u590d\u5236\u5931\u8d25\uff0c\u8bf7\u624b\u52a8\u590d\u5236\uff1a\n", "Copy failed. Please copy manually:\n") + url);
       }
     } catch (error) {
-      console.error(lt("澶嶅埗澶辫触:", "Copy failed:"), error);
+      console.error(lt("\u590d\u5236\u5931\u8d25:", "Copy failed:"), error);
       // 鏈€鍚庣殑澶囩敤鏂规锛氭樉绀洪摼鎺ヨ鐢ㄦ埛鎵嬪姩澶嶅埗
-      prompt(lt("复制失败，请手动复制以下链接：", "Copy failed. Please copy this link manually:"), url);
+      prompt(lt("\u590d\u5236\u5931\u8d25\uff0c\u8bf7\u624b\u52a8\u590d\u5236\u4ee5\u4e0b\u94fe\u63a5\uff1a", "Copy failed. Please copy this link manually:"), url);
     }
   }, [lt]);
 
@@ -1547,7 +1625,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       setIsDownloading(true);
       setDownloadFeedback({
         type: "progress",
-        message: lt("瑙嗛涓嬭浇涓紝璇风◢绛?..", "Downloading video..."),
+        message: lt("\u89c6\u9891\u4e0b\u8f7d\u4e2d\uff0c\u8bf7\u7a0d\u7b49...", "Downloading video..."),
       });
       try {
         // 妫€娴嬫槸鍚︿负 OSS URL锛堥樋閲屼簯 OSS 鏀寔 CORS锛屽彲鐩存帴涓嬭浇锛?
@@ -1580,7 +1658,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           setTimeout(() => URL.revokeObjectURL(blobUrl), 200);
           setDownloadFeedback({
             type: "success",
-            message: lt("涓嬭浇瀹屾垚锛岀◢鍚庡彲鍐嶆涓嬭浇", "Download completed"),
+            message: lt("\u4e0b\u8f7d\u5b8c\u6210", "Download completed"),
           });
           scheduleFeedbackClear(2000);
         } else {
@@ -1593,17 +1671,17 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           document.body.removeChild(link);
           setDownloadFeedback({
             type: "success",
-            message: lt("宸插湪鏂版爣绛鹃〉鎵撳紑瑙嗛閾炬帴", "Opened video link in new tab"),
+            message: lt("\u5df2\u5728\u65b0\u6807\u7b7e\u9875\u6253\u5f00\u89c6\u9891\u94fe\u63a5", "Opened video link in new tab"),
           });
           scheduleFeedbackClear(3000);
         }
       } catch (error) {
-        console.error(lt("涓嬭浇澶辫触:", "Download failed:"), error);
+        console.error(lt("\u4e0b\u8f7d\u5931\u8d25:", "Download failed:"), error);
         // 涓嬭浇澶辫触鏃讹紝灏濊瘯鐩存帴鎵撳紑閾炬帴
         window.open(url, "_blank");
         setDownloadFeedback({
           type: "error",
-          message: lt("涓嬭浇澶辫触锛屽凡鍦ㄦ柊鏍囩椤垫墦寮€", "Download failed, opened in new tab"),
+          message: lt("\u4e0b\u8f7d\u5931\u8d25\uff0c\u5df2\u5728\u65b0\u6807\u7b7e\u9875\u6253\u5f00", "Download failed, opened in new tab"),
         });
         scheduleFeedbackClear(4000);
       } finally {
@@ -2180,11 +2258,29 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                   : provider === "doubao"
                   ? filteredSeedanceModelOptions
                   : filteredViduModelOptions).map((opt) => {
+                  const selectedValue = isUnifiedKlingNode
+                    ? klingModel
+                    : provider === "doubao"
+                    ? seedanceModel
+                    : viduModelSelectionValue;
+                  const isActive = selectedValue === opt.value;
+                  const isSeedanceLocked =
+                    provider === "doubao" &&
+                    isSeedance20LockedOption(opt.value as SeedanceModel);
                   return (
                     <button
                       key={opt.value}
                       type='button'
+                      title={
+                        isSeedanceLocked
+                          ? lt(
+                              "需开通 VIP 权益或进入水印白名单后才能选择",
+                              "Requires VIP access or watermark whitelist access",
+                            )
+                          : undefined
+                      }
                       onClick={() => {
+                        if (isSeedanceLocked) return;
                         if (isUnifiedKlingNode) {
                           handleKlingModelChange(opt.value as "kling-v2-6" | "kling-v3-0");
                         } else if (provider === "doubao") {
@@ -2197,41 +2293,42 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                       style={{
                         padding: "6px 10px",
                         borderRadius: 8,
-                        border: `1px solid ${
-                          (isUnifiedKlingNode
-                            ? klingModel
-                            : provider === "doubao"
-                            ? seedanceModel
-                            : viduModelSelectionValue) === opt.value
-                            ? "#2563eb"
-                            : "#e5e7eb"
-                        }`,
-                        background:
-                          (isUnifiedKlingNode
-                            ? klingModel
-                            : provider === "doubao"
-                            ? seedanceModel
-                            : viduModelSelectionValue) === opt.value
-                            ? "#eff6ff"
-                            : "#fff",
-                        color:
-                          (isUnifiedKlingNode
-                            ? klingModel
-                            : provider === "doubao"
-                            ? seedanceModel
-                            : viduModelSelectionValue) === opt.value
-                            ? "#1d4ed8"
-                            : "#111827",
+                        border: `1px solid ${isActive ? "#2563eb" : "#e5e7eb"}`,
+                        background: isActive ? "#eff6ff" : "#fff",
+                        color: isSeedanceLocked
+                          ? "#9ca3af"
+                          : isActive
+                          ? "#1d4ed8"
+                          : "#111827",
                         fontSize: 12,
                         textAlign: "left",
-                        cursor: "pointer",
+                        cursor: isSeedanceLocked ? "not-allowed" : "pointer",
+                        opacity: isSeedanceLocked ? 0.55 : 1,
                       }}
+                      disabled={isSeedanceLocked}
                     >
                       {opt.label}
                     </button>
                   );
                 })}
               </div>
+              {provider === "doubao" && seedance20RestrictedForCurrentUser ? (
+                <div
+                  style={{
+                    marginTop: 6,
+                    paddingTop: 6,
+                    borderTop: "1px dashed #e5e7eb",
+                    fontSize: 11,
+                    color: "#6b7280",
+                    lineHeight: 1.45,
+                  }}
+                >
+                  {lt(
+                    "提示：Seedance 2.0 / 2.0 Fast 需开通 VIP 权益或进入水印白名单后可选",
+                    "Tip: Seedance 2.0 / 2.0 Fast requires VIP access or watermark whitelist access",
+                  )}
+                </div>
+              ) : null}
             </div>
           )}
         </div>
@@ -2825,6 +2922,28 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         </div>
       )}
 
+      {isSeedance20Model && (
+        <div style={{ marginBottom: 8 }}>
+          <button
+            type='button'
+            onClick={handleSeedanceAudioToggle}
+            style={{
+              width: "100%",
+              padding: "6px 10px",
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              background: seedanceGenerateAudio ? "#111827" : "#fff",
+              color: seedanceGenerateAudio ? "#fff" : "#111827",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            {lt("音频", "Audio")}:{" "}
+            {seedanceGenerateAudio ? lt("开启", "On") : lt("关闭", "Off")}
+          </button>
+        </div>
+      )}
+
       {isSeedanceModel && seedanceConstraintTips.length > 0 && (
         <div
           style={{
@@ -3003,7 +3122,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                       cursor: "pointer",
                     }}
                   >
-                    {lt("涓嬭浇", "Download")}
+                    {lt("\u4e0b\u8f7d", "Download")}
                   </button>
                 </div>
               </div>
