@@ -13,6 +13,7 @@ import {
   addCredits,
   deductCredits,
   deleteUserAccount,
+  unbindUserWechat,
   updateUserStatus,
   updateUserRole,
   getSettings,
@@ -3052,6 +3053,7 @@ function UsersTab({
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+  const [unbindingWechatUserId, setUnbindingWechatUserId] = useState<string | null>(null);
 
   // 积分操作弹窗
   const [creditModal, setCreditModal] = useState<{
@@ -3186,6 +3188,26 @@ function UsersTab({
       alert(error.message || "删除账号失败");
     } finally {
       setDeletingUserId(null);
+    }
+  };
+
+  const handleUnbindWechat = async (user: UserWithCredits) => {
+    if (!user.wechatBound) return;
+
+    const displayName = user.name || user.phone;
+    const confirmed = window.confirm(
+      `确认解绑账号「${displayName}」的微信号吗？\n手机号：${user.phone}\n解绑后该用户需要重新扫码并验证手机号才能再次绑定。`
+    );
+    if (!confirmed) return;
+
+    setUnbindingWechatUserId(user.id);
+    try {
+      await unbindUserWechat(user.id);
+      await loadUsers();
+    } catch (error: any) {
+      alert(error.message || "解绑微信失败");
+    } finally {
+      setUnbindingWechatUserId(null);
     }
   };
 
@@ -3396,6 +3418,15 @@ function UsersTab({
                       <div className='text-xs text-gray-400'>
                         {user.email || "-"}
                       </div>
+                      <div className='mt-1 text-xs'>
+                        <span
+                          className={
+                            user.wechatBound ? 'text-green-600' : 'text-gray-400'
+                          }
+                        >
+                          {user.wechatBound ? '微信已绑定' : '微信未绑定'}
+                        </span>
+                      </div>
                     </td>
                     <td className='px-4 py-3'>{user.phone}</td>
                     <td className='px-4 py-3 font-medium text-blue-600'>
@@ -3480,6 +3511,17 @@ function UsersTab({
                             onClick={() => loadCreditDetails(user)}
                           >
                             详情
+                          </Button>
+                        )}
+                        {canManageSensitiveUserFields && user.wechatBound && (
+                          <Button
+                            size='sm'
+                            variant='outline'
+                            className='border-amber-300 text-amber-700 hover:bg-amber-50'
+                            disabled={unbindingWechatUserId === user.id}
+                            onClick={() => handleUnbindWechat(user)}
+                          >
+                            {unbindingWechatUserId === user.id ? "解绑中..." : "解绑微信"}
                           </Button>
                         )}
                         {canManageSensitiveUserFields && (

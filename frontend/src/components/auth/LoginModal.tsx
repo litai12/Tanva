@@ -22,6 +22,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [code, setCode] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
   const [localError, setLocalError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [sendCooldown, setSendCooldown] = useState(0);
@@ -68,6 +69,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
     setPassword('');
     setShowPassword(false);
     setCode('');
+    setInviteCode('');
     setSendCooldown(0);
     setWechatSession(null);
     setWechatLoading(false);
@@ -145,6 +147,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
       const result = await authApi.bindWechatOfficialSessionPhone(wechatSession.id, {
         phone,
         code,
+        inviteCode: inviteCode.trim() || undefined,
       });
       setAuthenticatedUser(result.user, 'server');
       tokenRefreshManager.onLoginSuccess();
@@ -155,7 +158,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
     } finally {
       setWechatBinding(false);
     }
-  }, [code, handleClose, onSuccess, phone, setAuthenticatedUser, t, wechatSession?.id]);
+  }, [code, handleClose, inviteCode, onSuccess, phone, setAuthenticatedUser, t, wechatSession?.id]);
 
   useEffect(() => {
     if (!isOpen || tab !== 'wechat' || wechatSession || wechatLoading || wechatConsuming) return;
@@ -370,6 +373,11 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
                           : t('auth.login.sendCode')}
                       </Button>
                     </div>
+                    <Input
+                      placeholder={t('auth.register.invitePlaceholder')}
+                      value={inviteCode}
+                      onChange={(e) => setInviteCode(e.target.value)}
+                    />
                     <Button
                       type="button"
                       className="w-full bg-gray-700 hover:bg-gray-800 text-white rounded-xl"

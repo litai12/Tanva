@@ -166,6 +166,16 @@ export class AdminController {
     return this.adminService.deleteUserAccount(userId, req.user.id);
   }
 
+  @Post('users/:userId/unbind-wechat')
+  @ApiOperation({ summary: '解绑用户微信号' })
+  async unbindUserWechat(
+    @Request() req: AuthenticatedRequest,
+    @Param('userId') userId: string,
+  ) {
+    this.checkAdmin(req);
+    return this.adminService.unbindUserWechat(userId);
+  }
+
   @Post('users/:userId/credits/add')
   @ApiOperation({ summary: '为用户添加积分' })
   async addCredits(

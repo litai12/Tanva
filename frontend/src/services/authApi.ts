@@ -258,7 +258,7 @@ export const authApi = {
 
   async bindWechatOfficialSessionPhone(
     sessionId: string,
-    payload: { phone: string; code: string }
+    payload: { phone: string; code: string; inviteCode?: string }
   ) {
     if (isMock) {
       await delay(200);

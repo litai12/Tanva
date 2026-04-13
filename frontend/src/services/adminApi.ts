@@ -49,6 +49,7 @@ export interface UserWithCredits {
   name: string | null;
   role: string;
   status: string;
+  wechatBound: boolean;
   createdAt: string;
   lastLoginAt: string | null;
   creditBalance: number;
@@ -184,6 +185,13 @@ export async function updateUserRole(userId: string, role: string) {
 export async function deleteUserAccount(userId: string) {
   const response = await request(`/api/admin/users/${userId}`, {
     method: "DELETE",
+  });
+  return response.json();
+}
+
+export async function unbindUserWechat(userId: string) {
+  const response = await request(`/api/admin/users/${userId}/unbind-wechat`, {
+    method: "POST",
   });
   return response.json();
 }

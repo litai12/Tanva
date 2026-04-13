@@ -18,7 +18,7 @@
 - `GET watcha/callback`：处理观猹回调，自动登录并回跳前端
 - `POST wechat-official/sessions`：创建公众号扫码登录会话，返回带场景值二维码
 - `GET wechat-official/sessions/:id`：轮询公众号扫码登录状态（`pending/needs_phone_bind/authorized/expired`）
-- `POST wechat-official/sessions/:id/bind-phone`：扫码识别到微信身份但未绑定真实手机号时，提交手机号 + 短信验证码完成绑定并登录
+- `POST wechat-official/sessions/:id/bind-phone`：扫码识别到微信身份但未绑定真实手机号时，提交手机号 + 短信验证码完成绑定并登录；新建账号时支持额外携带可选 `inviteCode`
 - `POST wechat-official/sessions/:id/consume`：消费已授权扫码会话，写入 cookie 并完成登录
 - `GET wechat-official/callback`：微信公众平台回调 URL 验证
 - `POST wechat-official/callback`：接收公众号 `subscribe/SCAN` 事件，完成扫码登录关联

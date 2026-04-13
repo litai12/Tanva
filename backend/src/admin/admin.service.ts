@@ -29,6 +29,7 @@ export interface UserWithCredits {
   name: string | null;
   role: string;
   status: string;
+  wechatBound: boolean;
   createdAt: Date;
   lastLoginAt: Date | null;
   creditBalance: number;
@@ -308,6 +309,7 @@ export class AdminService {
       name: user.name,
       role: user.role,
       status: user.status,
+      wechatBound: Boolean(user.wechatOfficialOpenId || user.wechatUnionId),
       createdAt: user.createdAt,
       lastLoginAt: user.lastLoginAt,
       creditBalance: user.creditAccount?.balance || 0,
@@ -360,6 +362,9 @@ export class AdminService {
       name: user.name,
       role: user.role,
       status: user.status,
+      wechatOfficialOpenId: user.wechatOfficialOpenId,
+      wechatUnionId: user.wechatUnionId,
+      wechatBound: Boolean(user.wechatOfficialOpenId || user.wechatUnionId),
       createdAt: user.createdAt,
       lastLoginAt: user.lastLoginAt,
       creditAccount: user.creditAccount,
@@ -832,6 +837,44 @@ export class AdminService {
       where: { id: userId },
       data: { status },
     });
+  }
+
+  async unbindUserWechat(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        phone: true,
+        name: true,
+        wechatOfficialOpenId: true,
+        wechatUnionId: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('用户不存在');
+    }
+
+    if (!user.wechatOfficialOpenId && !user.wechatUnionId) {
+      return {
+        success: true,
+        message: '该用户当前未绑定微信',
+      };
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        wechatOfficialOpenId: null,
+        wechatUnionId: null,
+      },
+      select: { id: true },
+    });
+
+    return {
+      success: true,
+      message: '微信绑定已解除',
+    };
   }
 
   /**

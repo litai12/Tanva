@@ -740,10 +740,12 @@ export class AuthService {
     sessionId: string,
     phone: string,
     code: string,
+    inviteCode?: string,
     meta?: { ip?: string; ua?: string }
   ) {
     const normalizedPhone = this.normalizePhone(phone);
     const normalizedCode = code.trim();
+    const normalizedInviteCode = inviteCode?.trim() || null;
     if (!normalizedPhone || !this.isPrimaryPhone(normalizedPhone)) {
       throw new BadRequestException("手机号格式不正确");
     }
@@ -846,6 +848,14 @@ export class AuthService {
         },
         select: { id: true, email: true, name: true, phone: true, role: true },
       });
+
+      if (normalizedInviteCode) {
+        await this.referralService.useInviteCodeInTransaction(
+          tx,
+          createdUser.id,
+          normalizedInviteCode
+        );
+      }
 
       return createdUser;
     });

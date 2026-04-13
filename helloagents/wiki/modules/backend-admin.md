@@ -13,6 +13,7 @@
 - `GET dashboard`
 - `GET users` / `GET users/:userId`
 - `DELETE users/:userId`
+- `POST users/:userId/unbind-wechat`
 - `PATCH users/:userId/status` / `PATCH users/:userId/role`
 - `POST users/:userId/credits/add` / `POST users/:userId/credits/deduct`
 - `GET api-usage/stats` / `GET api-usage/records`

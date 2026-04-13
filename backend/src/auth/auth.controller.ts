@@ -110,7 +110,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async bindWechatOfficialSessionPhone(
     @Param('id') id: string,
-    @Body() body: { phone: string; code: string },
+    @Body() body: { phone: string; code: string; inviteCode?: string },
     @Req() req: any,
     @Res({ passthrough: true }) res: any,
   ) {
@@ -118,6 +118,7 @@ export class AuthController {
       id,
       body?.phone,
       body?.code,
+      body?.inviteCode,
       {
         ip: req.ip,
         ua: req.headers['user-agent'],
