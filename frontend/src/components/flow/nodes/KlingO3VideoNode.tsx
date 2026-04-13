@@ -1689,12 +1689,6 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                   ×
                 </button>
               </div>
-              <div style={{ marginBottom: 6, fontSize: 11, color: "#6b7280", lineHeight: 1.45 }}>
-                {lt(
-                  "仅腾讯渠道生效。按镜头填写即可，无需 JSON。系统会自动转换并发送。",
-                  "Tencent route only. Fill shot form, no JSON needed."
-                )}
-              </div>
               <div style={{ marginBottom: 8, fontSize: 11, color: "#6b7280", lineHeight: 1.45 }}>
                 {lt(
                   "输入限制：图片仅支持 jpg/jpeg/png 且不超过 10MB。参考视频仅支持 mp4/mov/avi，时长 3-10 秒且不超过 100MB。",
@@ -1712,12 +1706,6 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
               >
                 <div style={{ fontSize: 12, color: "#0f172a", fontWeight: 600, marginBottom: 4 }}>
                   {lt("参考素材上传（可选）", "Reference uploads (optional)")}
-                </div>
-                <div style={{ fontSize: 11, color: "#64748b", lineHeight: 1.45, marginBottom: 6 }}>
-                  {lt(
-                    "不需要手填 URL。上传后会自动作为腾讯 FileInfos 入参发送。",
-                    "No manual URL input. Uploaded files are sent to Tencent FileInfos automatically."
-                  )}
                 </div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
                   <button
