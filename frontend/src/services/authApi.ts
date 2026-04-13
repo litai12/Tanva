@@ -5,6 +5,7 @@ import {
   setTokens,
 } from "./authTokenStorage";
 import { fetchWithAuth } from "./authFetch";
+import { validateInviteCode } from "./referralApi";
 
 export type UserInfo = {
   id: string;
@@ -267,6 +268,12 @@ export const authApi = {
       }
       if (payload.code !== FIXED_SMS_CODE) {
         throw new Error("验证码错误（使用 336699）");
+      }
+      if (payload.inviteCode?.trim()) {
+        const result = await validateInviteCode(payload.inviteCode.trim());
+        if (!result.valid) {
+          throw new Error(result.message || "邀请码无效，请检查后重试");
+        }
       }
       const user: UserInfo = {
         id: `wechat_bind_${Date.now()}`,

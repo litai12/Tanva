@@ -4,8 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuthStore } from '@/stores/authStore';
 import { tokenRefreshManager } from '@/services/tokenRefreshManager';
-import { Eye, EyeOff, Loader2, MessageCircle, RefreshCw, X } from 'lucide-react';
+import { Check, Eye, EyeOff, Loader2, MessageCircle, RefreshCw, X } from 'lucide-react';
 import { authApi, type WechatOfficialLoginSession } from '@/services/authApi';
+import { validateInviteCode } from '@/services/referralApi';
 import { useTranslation } from 'react-i18next';
 
 type LoginModalProps = {
@@ -23,6 +24,8 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [code, setCode] = useState('');
   const [inviteCode, setInviteCode] = useState('');
+  const [inviteCodeValid, setInviteCodeValid] = useState<boolean | null>(null);
+  const [inviterName, setInviterName] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [sendCooldown, setSendCooldown] = useState(0);
@@ -70,6 +73,8 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
     setShowPassword(false);
     setCode('');
     setInviteCode('');
+    setInviteCodeValid(null);
+    setInviterName(null);
     setSendCooldown(0);
     setWechatSession(null);
     setWechatLoading(false);
@@ -141,6 +146,24 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
       setWechatError(t('auth.login.wechatBindIncomplete'));
       return;
     }
+    if (inviteCode.trim()) {
+      if (inviteCodeValid === null) {
+        const result = await validateInviteCode(inviteCode.trim());
+        setInviteCodeValid(result.valid);
+        if (result.valid && result.inviterName) {
+          setInviterName(result.inviterName);
+        } else {
+          setInviterName(null);
+        }
+        if (!result.valid) {
+          setWechatError(result.message || t('auth.register.invalidInvite'));
+          return;
+        }
+      } else if (inviteCodeValid === false) {
+        setWechatError(t('auth.register.invalidInvite'));
+        return;
+      }
+    }
     setWechatBinding(true);
     setWechatError(null);
     try {
@@ -158,7 +181,22 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
     } finally {
       setWechatBinding(false);
     }
-  }, [code, handleClose, inviteCode, onSuccess, phone, setAuthenticatedUser, t, wechatSession?.id]);
+  }, [code, handleClose, inviteCode, inviteCodeValid, onSuccess, phone, setAuthenticatedUser, t, wechatSession?.id]);
+
+  const handleInviteCodeBlur = useCallback(async () => {
+    if (!inviteCode.trim()) {
+      setInviteCodeValid(null);
+      setInviterName(null);
+      return;
+    }
+    const result = await validateInviteCode(inviteCode.trim());
+    setInviteCodeValid(result.valid);
+    if (result.valid && result.inviterName) {
+      setInviterName(result.inviterName);
+    } else {
+      setInviterName(null);
+    }
+  }, [inviteCode]);
 
   useEffect(() => {
     if (!isOpen || tab !== 'wechat' || wechatSession || wechatLoading || wechatConsuming) return;
@@ -376,8 +414,27 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
                     <Input
                       placeholder={t('auth.register.invitePlaceholder')}
                       value={inviteCode}
-                      onChange={(e) => setInviteCode(e.target.value)}
+                      onChange={(e) => {
+                        setInviteCode(e.target.value);
+                        setInviteCodeValid(null);
+                        setInviterName(null);
+                      }}
+                      onBlur={() => void handleInviteCodeBlur()}
                     />
+                    {inviteCodeValid !== null ? (
+                      <div className="flex items-center gap-2 text-xs">
+                        {inviteCodeValid ? (
+                          <Check className="h-4 w-4 text-emerald-600" />
+                        ) : (
+                          <span className="text-red-500">{t('auth.register.invalidInvite')}</span>
+                        )}
+                      </div>
+                    ) : null}
+                    {inviteCodeValid && inviterName ? (
+                      <div className="text-xs text-slate-500">
+                        {t('auth.register.inviteFrom', { name: inviterName })}
+                      </div>
+                    ) : null}
                     <Button
                       type="button"
                       className="w-full bg-gray-700 hover:bg-gray-800 text-white rounded-xl"

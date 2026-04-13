@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { useAuthStore } from "@/stores/authStore";
 import { Loader2, Eye, EyeOff, Check, MessageCircle, RefreshCw } from "lucide-react";
 import { authApi, type WechatOfficialLoginSession } from "@/services/authApi";
+import { validateInviteCode } from "@/services/referralApi";
 import ForgotPasswordModal from "@/components/auth/ForgotPasswordModal";
 import { useTranslation } from "react-i18next";
 import watchaIcon from "@/assets/1752064513_guan-cha-insights.webp";
@@ -18,6 +19,8 @@ export default function LoginPage() {
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [inviteCode, setInviteCode] = useState("");
+  const [inviteCodeValid, setInviteCodeValid] = useState<boolean | null>(null);
+  const [inviterName, setInviterName] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(false); // 默认不勾选，必须手动同意
@@ -174,11 +177,44 @@ export default function LoginPage() {
     }
   };
 
+  const handleInviteCodeBlur = async () => {
+    if (!inviteCode.trim()) {
+      setInviteCodeValid(null);
+      setInviterName(null);
+      return;
+    }
+    const result = await validateInviteCode(inviteCode.trim());
+    setInviteCodeValid(result.valid);
+    if (result.valid && result.inviterName) {
+      setInviterName(result.inviterName);
+    } else {
+      setInviterName(null);
+    }
+  };
+
   const submitWechatBind = async () => {
     if (!wechatSession?.id) return;
     if (!phone || !code) {
       setWechatError(t("auth.login.wechatBindIncomplete"));
       return;
+    }
+    if (inviteCode.trim()) {
+      if (inviteCodeValid === null) {
+        const result = await validateInviteCode(inviteCode.trim());
+        setInviteCodeValid(result.valid);
+        if (result.valid && result.inviterName) {
+          setInviterName(result.inviterName);
+        } else {
+          setInviterName(null);
+        }
+        if (!result.valid) {
+          setWechatError(result.message || t("auth.register.invalidInvite"));
+          return;
+        }
+      } else if (inviteCodeValid === false) {
+        setWechatError(t("auth.register.invalidInvite"));
+        return;
+      }
     }
     setWechatBinding(true);
     setWechatError(null);
@@ -361,9 +397,28 @@ export default function LoginPage() {
                       <Input
                         placeholder={t("auth.register.invitePlaceholder")}
                         value={inviteCode}
-                        onChange={(e) => setInviteCode(e.target.value)}
+                        onChange={(e) => {
+                          setInviteCode(e.target.value);
+                          setInviteCodeValid(null);
+                          setInviterName(null);
+                        }}
+                        onBlur={() => void handleInviteCodeBlur()}
                         className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12'
                       />
+                      {inviteCodeValid !== null ? (
+                        <div className='flex items-center gap-2 text-xs'>
+                          {inviteCodeValid ? (
+                            <Check className='h-4 w-4 text-emerald-300' />
+                          ) : (
+                            <span className='text-red-300'>{t("auth.register.invalidInvite")}</span>
+                          )}
+                        </div>
+                      ) : null}
+                      {inviteCodeValid && inviterName ? (
+                        <div className='text-xs text-white/80'>
+                          {t("auth.register.inviteFrom", { name: inviterName })}
+                        </div>
+                      ) : null}
                       <Button
                         type='button'
                         className='w-full bg-white/20 hover:bg-white/30 text-white border border-white/30 rounded-xl h-12 font-medium backdrop-blur-sm transition-all duration-200 disabled:opacity-70 hover:shadow-lg'
