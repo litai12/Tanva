@@ -1,5 +1,5 @@
 import React from "react";
-import { Handle, Position } from "reactflow";
+import { Handle, Position, useStore } from "reactflow";
 import { Send as SendIcon } from "lucide-react";
 import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
 import SmartImage from "../../ui/SmartImage";
@@ -14,6 +14,8 @@ import { useLocaleText } from "@/utils/localeText";
 import { flowImagePreviewWell, flowLetterboxBackground, useFlowNodeDarkTheme } from "./flowNodeDarkTheme";
 import { explainGenerateReferenceImageError } from "@/utils/flowGenerateRefErrors";
 import RunCreditBadge from "./RunCreditBadge";
+import { useAIChatStore } from "@/stores/aiChatStore";
+import { useImageNodeCreditsPreview } from "../hooks/useImageNodeCreditsPreview";
 
 type Props = {
   id: string;
@@ -25,6 +27,9 @@ type Props = {
     error?: string;
     referencePrompt?: string;
     creditsPerCall?: number;
+    managedModelKey?: string;
+    vendorKey?: string;
+    platformKey?: string;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
   };
@@ -42,6 +47,8 @@ const buildImageSrc = (value?: string): string | undefined => {
 function GenerateReferenceNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const { status, error } = data;
+  const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
   const rawFullValue = data.imageUrl || data.imageData;
   const fullAssetId = React.useMemo(() => parseFlowImageAssetRef(rawFullValue), [rawFullValue]);
   const fullAssetUrl = useFlowImageAssetUrl(fullAssetId);
@@ -59,6 +66,14 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
     ? "0 0 0 2px rgba(37,99,235,0.12)"
     : "0 1px 2px rgba(0,0,0,0.04)";
   const isFlowDark = useFlowNodeDarkTheme();
+  const referenceImageCount = useStore((state) => {
+    const edges = state.edges || [];
+    return edges.filter(
+      (edge) =>
+        edge.target === id &&
+        ["image2", "img", "image1", "refer"].includes(edge.targetHandle || "")
+    ).length;
+  });
 
   const projectId = useProjectContentStore((state) => state.projectId);
   const history = useImageHistoryStore((state) => state.history);
@@ -100,6 +115,19 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
   const onSend = React.useCallback(() => {
     data.onSend?.(id);
   }, [data, id]);
+
+  const { credits: backendCredits } = useImageNodeCreditsPreview({
+    nodeType: "generateRef",
+    aiProvider,
+    bananaImageRoute,
+    referenceImageCount,
+    managedModelKey: data.managedModelKey,
+    vendorKey: data.vendorKey,
+    platformKey: data.platformKey,
+    enabled: true,
+  });
+  const resolvedRunCredits =
+    typeof backendCredits === "number" ? backendCredits : data.creditsPerCall;
 
   React.useEffect(() => {
     if (typeof data.referencePrompt === "undefined") {
@@ -186,7 +214,7 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
           >
             {status === "running" ? lt("运行中...", "Running...") : "Run"}
           </button>
-          <RunCreditBadge credits={data.creditsPerCall} />
+          <RunCreditBadge credits={resolvedRunCredits} />
           <button
             onClick={onSend}
             disabled={!(data.imageData || data.imageUrl)}

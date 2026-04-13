@@ -19,6 +19,7 @@ import {
   TransactionHistoryQueryDto,
   ApiUsageQueryDto,
   PricingResponseDto,
+  CreditsPreviewDto,
 } from './dto/credits.dto';
 
 interface AuthenticatedUser {
@@ -77,6 +78,22 @@ export class CreditsController {
   @ApiResponse({ status: 200, type: [PricingResponseDto] })
   async getAllPricing(): Promise<PricingResponseDto[]> {
     return this.creditsService.getAllPricing();
+  }
+
+  @Post('preview')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '试算当前请求将消耗的积分' })
+  async previewCredits(
+    @Request() req: FastifyRequest & { user: AuthenticatedUser },
+    @Body() dto: CreditsPreviewDto,
+  ) {
+    return this.creditsService.previewCredits({
+      userId: req.user.id,
+      serviceType: dto.serviceType as any,
+      model: dto.model,
+      requestParams: dto.requestParams,
+    });
   }
 
   @Get('transactions')

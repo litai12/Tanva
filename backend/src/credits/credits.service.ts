@@ -121,6 +121,14 @@ export interface ApiUsageParams {
   idempotencyWindowMs?: number;
 }
 
+interface PreviewCreditsParams {
+  userId: string;
+  serviceType: ServiceType;
+  model?: string;
+  requestParams?: any;
+  outputImageCount?: number;
+}
+
 type SoraBillingModel = 'sora-2' | 'sora-2-vip' | 'sora-2-pro';
 type KlingBillingModel = 'kling-v2-6' | 'kling-v3-0' | 'kling-o3';
 type BananaTencentPricingTier = 'fast' | 'pro' | 'ultra';
@@ -207,6 +215,75 @@ export class CreditsService {
     }
 
     return staticPricing;
+  }
+
+  private async resolveEffectiveCreditsQuote(params: {
+    serviceType: ServiceType;
+    model?: string;
+    requestParams?: any;
+  }) {
+    const pricing = await this.resolveServicePricing(params.serviceType);
+    if (!pricing) {
+      throw new BadRequestException(`未知的服务类型: ${params.serviceType}`);
+    }
+
+    let creditsToDeduct: number = pricing.creditsPerCall;
+    const managedRoutePricing = await this.resolveManagedRoutePricing(params.requestParams);
+    if (typeof managedRoutePricing?.price?.credits === 'number') {
+      creditsToDeduct = managedRoutePricing.price.credits;
+    }
+
+    const effectiveRequestParams =
+      managedRoutePricing && params.requestParams && typeof params.requestParams === 'object'
+        ? {
+            ...params.requestParams,
+            pricingSnapshot: {
+              source: managedRoutePricing.source,
+              ...(managedRoutePricing.ruleKey ? { ruleKey: managedRoutePricing.ruleKey } : {}),
+              ...(managedRoutePricing.label ? { label: managedRoutePricing.label } : {}),
+              price: managedRoutePricing.price,
+            },
+          }
+        : params.requestParams;
+
+    const requestedProvider =
+      typeof effectiveRequestParams?.aiProvider === 'string'
+        ? effectiveRequestParams.aiProvider.trim().toLowerCase()
+        : '';
+
+    creditsToDeduct = this.resolveSoraModelCredits(
+      params.serviceType,
+      creditsToDeduct,
+      effectiveRequestParams,
+      params.model,
+    );
+
+    creditsToDeduct = this.resolveKlingModelCredits(
+      params.serviceType,
+      creditsToDeduct,
+      effectiveRequestParams,
+    );
+
+    creditsToDeduct = this.resolveImageResolutionCredits(
+      params.serviceType,
+      creditsToDeduct,
+      effectiveRequestParams,
+    );
+
+    const serviceName = this.resolveManagedVideoServiceName(
+      params.serviceType,
+      pricing.serviceName,
+      effectiveRequestParams,
+    );
+
+    return {
+      pricing,
+      creditsToDeduct,
+      managedRoutePricing,
+      effectiveRequestParams,
+      requestedProvider: requestedProvider || pricing.provider,
+      serviceName,
+    };
   }
 
   private asJsonObject(value: Prisma.JsonValue | null | undefined): Record<string, any> | null {
@@ -323,7 +400,12 @@ export class CreditsService {
     requestParams: any,
   ): Promise<ResolvedManagedPricing | null> {
     const modelKey =
-      typeof requestParams?.modelKey === 'string' ? requestParams.modelKey.trim() : '';
+      typeof requestParams?.modelKey === 'string' && requestParams.modelKey.trim().length > 0
+        ? requestParams.modelKey.trim()
+        : typeof requestParams?.managedModelKey === 'string' &&
+            requestParams.managedModelKey.trim().length > 0
+          ? requestParams.managedModelKey.trim()
+          : '';
     const vendorKey =
       typeof requestParams?.vendorKey === 'string' ? requestParams.vendorKey.trim() : '';
     if (!modelKey || !vendorKey) return null;
@@ -2016,59 +2098,20 @@ export class CreditsService {
       requestParams,
     });
 
-    const pricing = await this.resolveServicePricing(serviceType);
-    if (!pricing) {
-      throw new BadRequestException(`未知的服务类型: ${serviceType}`);
-    }
-
-    let creditsToDeduct: number = pricing.creditsPerCall;
-    const managedRoutePricing = await this.resolveManagedRoutePricing(requestParams);
-    if (typeof managedRoutePricing?.price?.credits === 'number') {
-      creditsToDeduct = managedRoutePricing.price.credits;
-    }
-
-    const effectiveRequestParams =
-      managedRoutePricing && requestParams && typeof requestParams === 'object'
-        ? {
-            ...requestParams,
-            pricingSnapshot: {
-              source: managedRoutePricing.source,
-              ...(managedRoutePricing.ruleKey ? { ruleKey: managedRoutePricing.ruleKey } : {}),
-              ...(managedRoutePricing.label ? { label: managedRoutePricing.label } : {}),
-              price: managedRoutePricing.price,
-            },
-          }
-        : requestParams;
+    const {
+      pricing,
+      creditsToDeduct,
+      effectiveRequestParams,
+      requestedProvider,
+    } = await this.resolveEffectiveCreditsQuote({
+      serviceType,
+      model,
+      requestParams,
+    });
     const apiUsageRequestParams = this.withDedupMetaInRequestParams(
       effectiveRequestParams,
       normalizedIdempotencyKey,
       requestFingerprint,
-    );
-    const requestedProvider =
-      typeof apiUsageRequestParams?.aiProvider === 'string'
-        ? apiUsageRequestParams.aiProvider.trim().toLowerCase()
-        : '';
-    
-    // 处理Sora视频模型的特殊定价
-    creditsToDeduct = this.resolveSoraModelCredits(
-      serviceType,
-        creditsToDeduct,
-        apiUsageRequestParams,
-        model,
-      );
-
-    // 处理 Kling 2.6 / 3.0 按模型、音效、模式、时长阶梯计费
-    creditsToDeduct = this.resolveKlingModelCredits(
-      serviceType,
-      creditsToDeduct,
-      apiUsageRequestParams,
-    );
-
-    // 处理图像生成服务的分辨率定价
-    creditsToDeduct = this.resolveImageResolutionCredits(
-      serviceType,
-      creditsToDeduct,
-      apiUsageRequestParams,
     );
 
     return await this.prisma.$transaction(async (tx) => {
@@ -2267,6 +2310,39 @@ export class CreditsService {
         apiUsageId: apiUsage.id,
       };
     });
+  }
+
+  async previewCredits(params: PreviewCreditsParams) {
+    const account = await this.getOrCreateAccount(params.userId);
+    const quote = await this.resolveEffectiveCreditsQuote({
+      serviceType: params.serviceType,
+      model: params.model,
+      requestParams: params.requestParams,
+    });
+
+    return {
+      serviceType: params.serviceType,
+      serviceName: quote.serviceName,
+      provider: quote.requestedProvider,
+      model: params.model ?? null,
+      credits: quote.creditsToDeduct,
+      balance: account.balance,
+      sufficient: account.balance >= quote.creditsToDeduct,
+      managedPricing:
+        quote.managedRoutePricing?.source && quote.managedRoutePricing.source !== 'none'
+          ? {
+              source: quote.managedRoutePricing.source,
+              vendorKey: quote.managedRoutePricing.vendorKey,
+              ruleKey: quote.managedRoutePricing.ruleKey,
+              label: quote.managedRoutePricing.label,
+              evaluatorKey: quote.managedRoutePricing.evaluatorKey,
+              evaluatorType: quote.managedRoutePricing.evaluatorType,
+              pricingVersion: quote.managedRoutePricing.pricingVersion,
+              price: quote.managedRoutePricing.price,
+            }
+          : null,
+      requestParams: quote.effectiveRequestParams ?? null,
+    };
   }
 
   /**

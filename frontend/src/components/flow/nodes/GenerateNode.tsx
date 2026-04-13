@@ -15,6 +15,7 @@ import { flowImagePreviewWell, flowLetterboxBackground } from "./flowNodeDarkThe
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "../../ui/dropdown-menu";
 import RunCreditBadge from "./RunCreditBadge";
 import NodeSelect from "./NodeSelect";
+import { useImageNodeCreditsPreview } from "../hooks/useImageNodeCreditsPreview";
 
 type Props = {
   id: string;
@@ -42,6 +43,9 @@ type Props = {
     imageSize?: "0.5K" | "1K" | "2K" | "4K";
     presetPrompt?: string;
     creditsPerCall?: number;
+    managedModelKey?: string;
+    vendorKey?: string;
+    platformKey?: string;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
   };
@@ -439,6 +443,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const { status, error } = data;
   const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
   const chatTheme = useAIChatStore((state) => state.chatTheme);
   const isFlowDark = chatTheme === "black";
   const setAIProvider = useAIChatStore((state) => state.setAIProvider);
@@ -639,6 +644,21 @@ function GenerateNodeInner({ id, data, selected }: Props) {
     return base;
   }, [lt, providerMode]);
 
+  const { credits: backendCredits } = useImageNodeCreditsPreview({
+    nodeType: "generate",
+    aiProvider,
+    bananaImageRoute,
+    imageSize: imageSizeValue || undefined,
+    aspectRatio: aspectRatioValue || undefined,
+    referenceImageCount: connectedInputImages.length,
+    managedModelKey: data.managedModelKey,
+    vendorKey: data.vendorKey,
+    platformKey: data.platformKey,
+    enabled: true,
+  });
+  const resolvedRunCredits =
+    typeof backendCredits === "number" ? backendCredits : data.creditsPerCall;
+
   const stopNodeDrag = React.useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
     const nativeEvent = (event as React.SyntheticEvent<Element, Event>)
@@ -832,16 +852,16 @@ function GenerateNodeInner({ id, data, selected }: Props) {
             title={
               status === "running"
                 ? lt("生成中...", "Generating...")
-                : data.creditsPerCall
-                ? `${lt("本次消耗", "Cost")}: ${data.creditsPerCall} ${lt(
+                : resolvedRunCredits
+                ? `${lt("本次消耗", "Cost")}: ${resolvedRunCredits} ${lt(
                     "积分",
                     "credits"
                   )}`
                 : lt("运行生成", "Run generation")
             }
           >
-            {data.creditsPerCall ? (
-              <RunCreditBadge credits={data.creditsPerCall} runButton />
+            {resolvedRunCredits ? (
+              <RunCreditBadge credits={resolvedRunCredits} runButton />
             ) : (
               <span>{status === "running" ? "Running..." : "Run"}</span>
             )}

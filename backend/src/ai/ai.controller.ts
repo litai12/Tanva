@@ -735,10 +735,22 @@ export class AiController {
 
     if (typeof dto.sound !== 'undefined') {
       params.sound = dto.sound;
+      if (typeof dto.sound === 'boolean') {
+        params.hasAudio = dto.sound;
+      } else if (typeof dto.sound === 'string') {
+        const normalizedSound = dto.sound.trim().toLowerCase();
+        if (['on', 'true', 'yes', '1'].includes(normalizedSound)) {
+          params.hasAudio = true;
+        } else if (['off', 'false', 'no', '0'].includes(normalizedSound)) {
+          params.hasAudio = false;
+        }
+      }
     }
 
     if (typeof dto.duration === 'number' && Number.isFinite(dto.duration)) {
-      params.duration = Math.round(dto.duration);
+      const normalizedDuration = Math.round(dto.duration);
+      params.duration = normalizedDuration;
+      params.durationSec = normalizedDuration;
     }
 
     if (typeof dto.resolution === 'string' && dto.resolution.trim().length > 0) {
@@ -750,7 +762,9 @@ export class AiController {
     }
 
     if (typeof dto.videoMode === 'string' && dto.videoMode.trim().length > 0) {
-      params.videoMode = dto.videoMode.trim().toLowerCase();
+      const normalizedVideoMode = dto.videoMode.trim().toLowerCase();
+      params.videoMode = normalizedVideoMode;
+      params.generationMode = normalizedVideoMode;
     }
 
     if (typeof dto.klingStoryboardMode === 'string' && dto.klingStoryboardMode.trim().length > 0) {
@@ -759,10 +773,46 @@ export class AiController {
 
     if (typeof dto.generateAudio === 'boolean') {
       params.generateAudio = dto.generateAudio;
+      params.hasAudio = dto.generateAudio;
     }
 
     if (typeof dto.watermark === 'boolean') {
       params.watermark = dto.watermark;
+    }
+
+    if (typeof dto.offPeak === 'boolean') {
+      params.offPeak = dto.offPeak;
+    }
+
+    const referenceImageCount = Array.isArray(dto.referenceImages) ? dto.referenceImages.length : 0;
+    const referenceVideoCount = Array.isArray(dto.referenceVideos) ? dto.referenceVideos.length : 0;
+    const audioCount = Array.isArray(dto.audioUrls) ? dto.audioUrls.length : 0;
+    params.referenceImageCount = referenceImageCount;
+    params.referenceVideoCount = referenceVideoCount;
+    params.audioInputCount = audioCount;
+    const normalizedVideoMode =
+      typeof dto.videoMode === 'string' && dto.videoMode.trim().length > 0
+        ? dto.videoMode.trim().toLowerCase()
+        : '';
+
+    if (referenceVideoCount > 0 || typeof dto.referenceVideo === 'string') {
+      params.inputType = 'video';
+      params.referenceVideo = true;
+      params.hasVideoInput = true;
+    } else if (referenceImageCount > 0) {
+      params.inputType =
+        dto.provider === 'doubao' && audioCount > 0 ? 'image_audio' : 'image';
+      params.hasVideoInput = false;
+    } else if (normalizedVideoMode === 'text' || normalizedVideoMode === 'text2video') {
+      params.inputType = 'text';
+      params.hasVideoInput = false;
+    } else if (normalizedVideoMode) {
+      params.inputType = dto.provider === 'doubao' ? 'image' : 'text';
+      params.hasVideoInput = false;
+    }
+
+    if (dto.provider === 'doubao' && typeof params.inputType !== 'string') {
+      params.inputType = normalizedVideoMode === 'text' ? 'text' : 'image';
     }
 
     const assignRouteParams = (

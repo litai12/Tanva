@@ -10,6 +10,7 @@ import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
 import RunCreditBadge from "./RunCreditBadge";
 import NodeSelect from "./NodeSelect";
+import { useBackendCreditsPreview } from "../hooks/useBackendCreditsPreview";
 import {
   getManagedRouteCredits,
   getManagedRouteOption,
@@ -106,6 +107,23 @@ const PROVIDER_CONFIG: Record<VideoProvider, { name: string; zh: string }> = {
   vidu: { name: "Vidu", zh: "Vidu" },
   "viduq3-pro": { name: "Vidu Q3", zh: "Vidu Q3" },
   doubao: { name: "Seedance", zh: "Seedance" },
+};
+
+const resolveVideoServiceType = (
+  provider: VideoProvider,
+  data: Props["data"]
+): string => {
+  const klingModel = String(data.klingModel || "").trim().toLowerCase();
+  if (
+    (provider === "kling" || provider === "kling-2.6" || provider === "kling-o3") &&
+    klingModel === "kling-v3-0"
+  ) {
+    return "kling-3.0-video";
+  }
+  if ((provider === "kling" || provider === "kling-2.6") && (!klingModel || klingModel === "kling-v2-6")) {
+    return "kling-2.6-video";
+  }
+  return `${provider}-video`;
 };
 
 const stripVideoGenerationSuffix = (value: string): string =>
@@ -585,8 +603,64 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     () => resolveManagedRoutePricing(nodeConfigMetadata, data.vendorKey, pricingContext),
     [data.vendorKey, nodeConfigMetadata, pricingContext]
   );
+  const previewRequestParams = React.useMemo(
+    () => ({
+      ...pricingContext,
+      aiProvider: data.provider,
+      managedModelKey: data.managedModelKey,
+      vendorKey: data.vendorKey,
+      platformKey: data.platformKey,
+      klingModel: data.klingModel,
+      viduModel: data.viduModel,
+      viduModelVariant: data.viduModel,
+      seedanceModel: data.seedanceModel,
+      duration:
+        typeof data.clipDuration === "number" && Number.isFinite(data.clipDuration)
+          ? Math.round(data.clipDuration)
+          : undefined,
+      resolution:
+        typeof data.resolution === "string" && data.resolution.trim()
+          ? data.resolution.trim().toUpperCase()
+          : undefined,
+      aspectRatio: data.aspectRatio,
+      videoMode: data.seedanceMode,
+      generateAudio: data.generateAudio,
+      watermark: data.watermark,
+      offPeak: data.offPeak,
+      referenceVideoType: (data as any).referenceVideoType,
+    }),
+    [
+      data.aspectRatio,
+      data.clipDuration,
+      data.generateAudio,
+      data.klingModel,
+      data.managedModelKey,
+      data.offPeak,
+      data.platformKey,
+      data.provider,
+      data.resolution,
+      data.seedanceMode,
+      data.seedanceModel,
+      data.viduModel,
+      data.vendorKey,
+      data.watermark,
+      pricingContext,
+    ]
+  );
+  const { credits: backendCredits } = useBackendCreditsPreview({
+    serviceType: resolveVideoServiceType(data.provider, data),
+    model:
+      data.klingModel ||
+      data.viduModel ||
+      data.seedanceModel ||
+      data.provider,
+    requestParams: previewRequestParams,
+    enabled: true,
+  });
   const selectedCredits =
-    typeof resolvedManagedPricing?.credits === "number"
+    typeof backendCredits === "number"
+      ? backendCredits
+      : typeof resolvedManagedPricing?.credits === "number"
       ? resolvedManagedPricing.credits
       : typeof data.creditsPerCall === "number" && !managedRoutesMetadata
       ? data.creditsPerCall
