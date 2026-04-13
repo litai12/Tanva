@@ -405,7 +405,7 @@ export class CreditsService {
         : typeof requestParams?.managedModelKey === 'string' &&
             requestParams.managedModelKey.trim().length > 0
           ? requestParams.managedModelKey.trim()
-          : '';
+          : this.inferManagedModelKeyFromRequestParams(requestParams);
     const vendorKey =
       typeof requestParams?.vendorKey === 'string' ? requestParams.vendorKey.trim() : '';
     if (!modelKey || !vendorKey) return null;
@@ -429,6 +429,63 @@ export class CreditsService {
       );
       return null;
     }
+  }
+
+  private inferManagedModelKeyFromRequestParams(requestParams: any): string {
+    const seedanceModel =
+      typeof requestParams?.seedanceModel === 'string'
+        ? requestParams.seedanceModel.trim().toLowerCase()
+        : '';
+    if (seedanceModel === 'seedance-2.0' || seedanceModel === 'seedance-2.0-fast') {
+      return 'seedance-2.0';
+    }
+    if (
+      seedanceModel === 'seedance-1.5' ||
+      seedanceModel === 'seedance-1.5-pro' ||
+      seedanceModel === '1.5-pro'
+    ) {
+      return 'seedance-1.5';
+    }
+
+    const klingModel =
+      typeof requestParams?.klingModel === 'string'
+        ? requestParams.klingModel.trim().toLowerCase()
+        : '';
+    if (klingModel === 'kling-v2-6') return 'kling-2.6';
+    if (klingModel === 'kling-v3-0') return 'kling-3.0';
+    if (klingModel === 'kling-o3' || klingModel === 'kling-v3-omni') return 'kling-o3';
+
+    const viduModelRaw =
+      typeof requestParams?.viduModelVariant === 'string' &&
+      requestParams.viduModelVariant.trim().length > 0
+        ? requestParams.viduModelVariant.trim().toLowerCase()
+        : typeof requestParams?.viduModel === 'string'
+          ? requestParams.viduModel.trim().toLowerCase()
+          : '';
+    if (viduModelRaw) {
+      if (
+        viduModelRaw === 'q3' ||
+        viduModelRaw === 'q3-pro' ||
+        viduModelRaw === 'q3pro' ||
+        viduModelRaw === 'q3-turbo' ||
+        viduModelRaw === 'q3turbo' ||
+        viduModelRaw === 'q3-mix' ||
+        viduModelRaw === 'q3mix'
+      ) {
+        return 'vidu-q3';
+      }
+      return 'vidu-q2';
+    }
+
+    const soraModel =
+      typeof requestParams?.soraModel === 'string'
+        ? requestParams.soraModel.trim().toLowerCase()
+        : '';
+    if (soraModel === 'sora-2' || soraModel === 'sora-2-vip' || soraModel === 'sora-2-pro') {
+      return 'sora-2';
+    }
+
+    return '';
   }
 
   private normalizeKlingDuration(raw: unknown): 5 | 10 | null {
