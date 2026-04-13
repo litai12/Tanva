@@ -144,10 +144,10 @@ const BANANA_TENCENT_RESOLUTION_PRICING: Record<
 > = {
   // Fast: gemini-2.5-image (Nano Banana), 仅支持 1K
   fast: {
-    '0.5K': 30,
-    '1K': 30,
-    '2K': 30,
-    '4K': 30,
+    '0.5K': 20,
+    '1K': 20,
+    '2K': 20,
+    '4K': 20,
   },
   // Pro: gemini-3-pro-image (Nano Banana-Pro)
   pro: {
@@ -219,9 +219,12 @@ export class CreditsService {
     if (!raw) return null;
     const value = raw.trim().toLowerCase();
     if (!value) return null;
+    if (value === 'normal') return 'apimart';
+    if (value === 'stable') return 'tencent';
+    if (value === 'nano2') return 'apimart';
     if (value.includes('apimart')) return 'apimart';
     if (value === 'legacy' || value.includes('147')) return '147';
-    if (value === 'stable' || value.includes('tencent') || value.includes('nano')) return 'tencent';
+    if (value.includes('tencent')) return 'tencent';
     return value;
   }
 
@@ -516,12 +519,41 @@ export class CreditsService {
     return '1K';
   }
 
+  private normalizeBananaImageRoute(
+    rawRoute: unknown,
+  ): 'normal' | 'stable' | null {
+    if (typeof rawRoute !== 'string') return null;
+    const value = rawRoute.trim().toLowerCase();
+    if (!value) return null;
+    if (value === 'normal' || value === 'apimart') return 'normal';
+    if (value === 'stable' || value === 'tencent') return 'stable';
+    return null;
+  }
+
   private resolveTencentBananaResolutionCredits(
     serviceType: ServiceType,
     requestParams: any,
   ): number | null {
     const tier = BANANA_TENCENT_IMAGE_SERVICE_TIERS[serviceType];
     if (!tier) return null;
+
+    const explicitRoute =
+      this.normalizeBananaImageRoute(requestParams?.bananaImageRoute) ||
+      this.normalizeBananaImageRoute(requestParams?.providerOptions?.banana?.imageRoute) ||
+      this.normalizeBananaImageRoute(requestParams?.providerOptions?.bananaImageRoute);
+    if (explicitRoute === 'normal') return null;
+
+    if (explicitRoute === 'stable') {
+      const normalizedSize = this.normalizeResolutionForBananaTencentPricing(
+        requestParams?.imageSize,
+        tier,
+      );
+      const configuredCredits = Number(BANANA_TENCENT_RESOLUTION_PRICING[tier][normalizedSize]);
+      if (!Number.isFinite(configuredCredits) || configuredCredits <= 0) {
+        return null;
+      }
+      return configuredCredits;
+    }
 
     const channelCandidates = [
       requestParams?.channel,
@@ -971,6 +1003,13 @@ export class CreditsService {
   } | null): string | null {
     if (!apiUsage) return null;
     const params = this.asJsonObject(apiUsage.requestParams);
+    const explicitRoute =
+      this.normalizeBananaImageRoute(params?.bananaImageRoute) ||
+      this.normalizeBananaImageRoute(params?.providerOptions?.banana?.imageRoute) ||
+      this.normalizeBananaImageRoute(params?.providerOptions?.bananaImageRoute);
+    if (explicitRoute === 'stable') return 'tencent';
+    if (explicitRoute === 'normal') return 'apimart';
+
     const candidates = [
       params?.channel,
       params?.providerChannel,
@@ -1120,17 +1159,18 @@ export class CreditsService {
       remarkParts.push(`渠道: ${channelLabel}`);
     }
 
-    const aiProvider = this.asNonEmptyString(requestParams?.aiProvider)?.toLowerCase() ?? '';
-    const modelLower = modelLabel?.toLowerCase() ?? '';
-    const isBananaLikeModel =
-      aiProvider.includes('banana') ||
-      aiProvider.includes('nano') ||
-      modelLower.includes('banana') ||
-      modelLower.includes('nano');
-    if (channel === 'tencent' && isBananaLikeModel) {
-      remarkParts.push('计价: 按 Google 官方原价');
+    const isBananaImageService = Boolean(
+      BANANA_TENCENT_IMAGE_SERVICE_TIERS[params.serviceType],
+    );
+    if (isBananaImageService) {
+      if (channel === 'tencent') {
+        remarkParts.push('计价: 按稳定通道积分价');
+      } else if (channel === 'apimart') {
+        remarkParts.push('计价: 按普通通道积分价');
+      } else if (channel === '147') {
+        remarkParts.push('计价: 按官方通道积分价');
+      }
     }
-
     return remarkParts.length > 0 ? remarkParts.join(' | ') : null;
   }
 
@@ -1909,7 +1949,7 @@ export class CreditsService {
       });
     }
 
-    if (!duplicate && params.requestFingerprint) {
+    if (!duplicate && !params.idempotencyKey && params.requestFingerprint) {
       duplicate = await tx.apiUsageRecord.findFirst({
         where: {
           userId: params.userId,
@@ -1965,17 +2005,15 @@ export class CreditsService {
     const normalizedIdempotencyWindowMs = this.normalizeIdempotencyWindowMs(
       idempotencyWindowMs ?? requestParams?.idempotencyWindowMs,
     );
-    const requestFingerprint = normalizedIdempotencyKey
-      ? this.buildApiUsageRequestFingerprint({
-          serviceType,
-          model,
-          inputTokens,
-          outputTokens,
-          inputImageCount,
-          outputImageCount,
-          requestParams,
-        })
-      : null;
+    const requestFingerprint = this.buildApiUsageRequestFingerprint({
+      serviceType,
+      model,
+      inputTokens,
+      outputTokens,
+      inputImageCount,
+      outputImageCount,
+      requestParams,
+    });
 
     const pricing = await this.resolveServicePricing(serviceType);
     if (!pricing) {

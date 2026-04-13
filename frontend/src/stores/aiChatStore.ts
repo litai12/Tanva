@@ -519,7 +519,9 @@ type AvailableTool =
 type AIProviderType = SupportedAIProvider;
 
 const isBananaImageProvider = (provider: AIProviderType): boolean =>
-  isBananaRouteProvider(provider);
+  isBananaRouteProvider(provider) ||
+  provider === "gemini-pro" ||
+  provider === "nano2";
 
 const isAnalyzeDisabledOnCurrentBananaRoute = (
   provider: AIProviderType,
@@ -3651,6 +3653,7 @@ export const useAIChatStore = create<AIChatState>()(
                     // 与 Nano2 节点保持同一请求字段集合
                     prompt,
                     aiProvider: "nano2" as const,
+                    providerOptions,
                     aspectRatio: state.aspectRatio || undefined,
                     imageSize: state.imageSize ?? "1K",
                     googleSearch: state.enableWebSearch,
@@ -8058,7 +8061,12 @@ export const useAIChatStore = create<AIChatState>()(
           });
           set({ aiProvider: provider });
         },
-        setBananaImageRoute: (route) => set({ bananaImageRoute: route }),
+        setBananaImageRoute: (route) => {
+          set({ bananaImageRoute: route });
+          if (typeof window !== "undefined") {
+            (window as any).__tanvaBananaImageRoute = route;
+          }
+        },
         setAutoModeMultiplier: (multiplier) => {
           const allowed: AutoModeMultiplier[] = [1, 2, 4, 8];
           const next = allowed.includes(multiplier) ? multiplier : 1;
@@ -8249,6 +8257,8 @@ if (typeof window !== "undefined") {
 
     // Vite/React Fast Refresh 下，模块可能被多次重新执行；清理旧订阅，避免重复订阅导致内存增长
     const globalAny = window as any;
+    globalAny.__tanvaBananaImageRoute =
+      useAIChatStore.getState().bananaImageRoute;
     const prevUnsub = globalAny.__tanvaAIChatDebugUnsubscribe;
     if (typeof prevUnsub === "function") {
       try {
@@ -8258,6 +8268,9 @@ if (typeof window !== "undefined") {
 
     globalAny.__tanvaAIChatDebugUnsubscribe = useAIChatStore.subscribe(
       (state) => {
+      if (globalAny.__tanvaBananaImageRoute !== state.bananaImageRoute) {
+        globalAny.__tanvaBananaImageRoute = state.bananaImageRoute;
+      }
       const messages = state.messages;
       if (messages === previousMessages) return;
       previousMessages = messages;

@@ -473,3 +473,17 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Frontend request clients now send `Idempotency-Key` for image/video generation and `generate-video-provider` calls; retries reuse the same logical request key.
 - Backend `CreditsService.preDeductCredits` now supports idempotent pre-deduct (short-window duplicate detection by `idempotencyKey` and request fingerprint) and reuses existing `apiUsageId` instead of charging again.
 - Backend `withCredits`, `generate-video-provider`, and `video-gif/convert` now forward idempotency keys into credits pre-deduct flow.
+
+## [CORS Header Fix For Idempotency - 2026-04-13]
+### Changed
+- Backend Fastify CORS `allowedHeaders` now explicitly allows `idempotency-key`, `x-idempotency-key`, and `x-request-id`, fixing browser-side `Failed to fetch` on `/api/ai/generate-image` preflight in cross-origin dev.
+- Stable(Tencent) Banana Fast pricing remains `30` credits in backend deduction and frontend display matrices.
+
+## [Banana Route Billing Consistency - 2026-04-13]
+### Changed
+- Backend image credit pre-deduct now writes explicit `channel` from frontend `bananaImageRoute` (`normal -> apimart`, `stable -> tencent`) to avoid route mismatch during charging.
+- Channel normalization no longer maps `nano2` to Tencent; `nano2` is normalized to `apimart` for billing channel resolution and usage remark generation.
+- Tencent Banana pricing override now treats explicit route as highest priority (`stable` always Tencent matrix, `normal` always non-Tencent matrix).
+- Pre-deduct duplicate detection now prioritizes `idempotencyKey`: when key exists it no longer falls back to `requestFingerprint` dedup in the same window, preventing two intentional consecutive runs from being merged into one billing record.
+- Frontend image request layer now injects Banana route using runtime store state first (`window.__tanvaBananaImageRoute`), then persisted preferences, and writes route into `providerOptions` for every image request call.
+- Frontend image requests now include `X-Banana-Image-Route`; backend CORS allows this header for cross-origin preflight.

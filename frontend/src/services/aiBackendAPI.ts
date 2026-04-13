@@ -135,6 +135,99 @@ const generateUUID = () => {
 const buildIdempotencyKey = (scope: string) =>
   `${scope}-${Date.now()}-${generateUUID()}`;
 
+type BananaImageRoute = "normal" | "stable";
+
+const normalizeBananaImageRoute = (value: unknown): BananaImageRoute | null => {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === "normal" || normalized === "apimart") return "normal";
+  if (normalized === "stable" || normalized === "tencent") return "stable";
+  return null;
+};
+
+const isBananaRouteCapableProvider = (
+  provider: SupportedAIProvider | undefined
+): boolean => {
+  const normalized = String(provider || "").trim().toLowerCase();
+  return (
+    normalized === "banana" ||
+    normalized === "banana-2.5" ||
+    normalized === "banana-3.1" ||
+    normalized === "gemini-pro" ||
+    normalized === "nano2"
+  );
+};
+
+const resolvePersistedBananaImageRoute = (): BananaImageRoute | null => {
+  if (typeof window === "undefined") return null;
+  try {
+    const runtimeRoute = normalizeBananaImageRoute(
+      (window as any).__tanvaBananaImageRoute
+    );
+    if (runtimeRoute) return runtimeRoute;
+
+    const raw = window.localStorage.getItem("ai-chat-preferences");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as
+      | { state?: { bananaImageRoute?: unknown }; bananaImageRoute?: unknown }
+      | null;
+    return (
+      normalizeBananaImageRoute(parsed?.state?.bananaImageRoute) ||
+      normalizeBananaImageRoute(parsed?.bananaImageRoute)
+    );
+  } catch {
+    return null;
+  }
+};
+
+const resolveRequestBananaImageRoute = (request: {
+  providerOptions?: Record<string, any>;
+}): BananaImageRoute | null => {
+  const routeFromPersisted = resolvePersistedBananaImageRoute();
+  if (routeFromPersisted) return routeFromPersisted;
+  return (
+    normalizeBananaImageRoute(request.providerOptions?.banana?.imageRoute) ||
+    normalizeBananaImageRoute(request.providerOptions?.bananaImageRoute)
+  );
+};
+
+const attachBananaRouteToProviderOptions = <T extends {
+  aiProvider?: SupportedAIProvider;
+  providerOptions?: Record<string, any>;
+}>(
+  request: T
+): { request: T; bananaImageRoute: BananaImageRoute | null } => {
+  if (!isBananaRouteCapableProvider(request.aiProvider)) {
+    return { request, bananaImageRoute: null };
+  }
+  const resolvedRoute = resolveRequestBananaImageRoute(request);
+  if (!resolvedRoute) {
+    return { request, bananaImageRoute: null };
+  }
+
+  const baseOptions =
+    request.providerOptions && typeof request.providerOptions === "object"
+      ? request.providerOptions
+      : {};
+  const bananaOptions =
+    baseOptions.banana && typeof baseOptions.banana === "object"
+      ? baseOptions.banana
+      : {};
+  const nextRequest = {
+    ...request,
+    providerOptions: {
+      ...baseOptions,
+      banana: {
+        ...bananaOptions,
+        imageRoute: resolvedRoute,
+      },
+      bananaImageRoute: resolvedRoute,
+    },
+  } as T;
+  return { request: nextRequest, bananaImageRoute: resolvedRoute };
+};
+
 // 前端图像接口重试会导致同一次用户操作产生多条积分扣减/退款流水；
 // 统一收敛为单次请求，容错交给后端 provider 内部重试与 fallback。
 const MAX_IMAGE_GENERATION_ATTEMPTS = 1;
@@ -260,18 +353,24 @@ async function performGenerateImageRequest(
   request: AIImageGenerateRequest,
   idempotencyKey: string
 ): Promise<AIServiceResponse<AIImageResult>> {
+  const { request: requestWithRoute, bananaImageRoute } =
+    attachBananaRouteToProviderOptions(request);
   // 🔍 调试日志：前端发送的完整请求参数
   console.log("🚀 [Frontend → Backend] generate-image 请求参数:", {
-    aiProvider: request.aiProvider,
-    model: request.model,
-    imageSize: request.imageSize,
-    aspectRatio: request.aspectRatio,
-    thinkingLevel: request.thinkingLevel,
-    imageOnly: request.imageOnly,
-    enableWebSearch: request.enableWebSearch,
-    googleSearch: request.googleSearch,
-    googleImageSearch: request.googleImageSearch,
-    prompt: request.prompt?.substring(0, 50) + "...",
+    aiProvider: requestWithRoute.aiProvider,
+    model: requestWithRoute.model,
+    imageSize: requestWithRoute.imageSize,
+    aspectRatio: requestWithRoute.aspectRatio,
+    thinkingLevel: requestWithRoute.thinkingLevel,
+    imageOnly: requestWithRoute.imageOnly,
+    enableWebSearch: requestWithRoute.enableWebSearch,
+    googleSearch: requestWithRoute.googleSearch,
+    googleImageSearch: requestWithRoute.googleImageSearch,
+    bananaImageRoute:
+      bananaImageRoute ||
+      requestWithRoute.providerOptions?.banana?.imageRoute ||
+      requestWithRoute.providerOptions?.bananaImageRoute,
+    prompt: requestWithRoute.prompt?.substring(0, 50) + "...",
   });
   
   try {
@@ -280,8 +379,11 @@ async function performGenerateImageRequest(
       headers: {
         "Content-Type": "application/json",
         "Idempotency-Key": idempotencyKey,
+        ...(bananaImageRoute
+          ? { "X-Banana-Image-Route": bananaImageRoute }
+          : {}),
       },
-      body: JSON.stringify(request),
+      body: JSON.stringify(requestWithRoute),
     });
 
     if (!response.ok) {
@@ -299,16 +401,16 @@ async function performGenerateImageRequest(
     const data = await response.json();
 
     const resolvedModel = resolveDefaultModel(
-      request.model,
-      request.aiProvider
+      requestWithRoute.model,
+      requestWithRoute.aiProvider
     );
 
     logAIImageResponse(
       {
         endpoint: "generate-image",
-        provider: request.aiProvider,
+        provider: requestWithRoute.aiProvider,
         model: resolvedModel,
-        prompt: request.prompt,
+        prompt: requestWithRoute.prompt,
       },
       {
         imageData: data.imageData,
@@ -322,9 +424,9 @@ async function performGenerateImageRequest(
       success: true,
       data: mapBackendImageResult({
         data,
-        prompt: request.prompt,
+        prompt: requestWithRoute.prompt,
         model: resolvedModel,
-        outputFormat: request.outputFormat || "png",
+        outputFormat: requestWithRoute.outputFormat || "png",
       }),
     };
   } catch (error) {
@@ -441,16 +543,22 @@ async function performEditImageRequest(
   request: AIImageEditRequest,
   idempotencyKey: string
 ): Promise<AIServiceResponse<AIImageResult>> {
+  const { request: requestWithRoute, bananaImageRoute } =
+    attachBananaRouteToProviderOptions(request);
   // 🔍 调试日志：前端发送的完整请求参数
   console.log("🚀 [Frontend → Backend] edit-image 请求参数:", {
-    aiProvider: request.aiProvider,
-    model: request.model,
-    imageSize: request.imageSize,
-    aspectRatio: request.aspectRatio,
-    thinkingLevel: request.thinkingLevel,
-    imageOnly: request.imageOnly,
-    prompt: request.prompt?.substring(0, 50) + "...",
-    sourceImage: request.sourceImageUrl ? request.sourceImageUrl.substring(0, 80) + '...' : (request.sourceImage?.substring(0, 80) + '...' || 'N/A'),
+    aiProvider: requestWithRoute.aiProvider,
+    model: requestWithRoute.model,
+    imageSize: requestWithRoute.imageSize,
+    aspectRatio: requestWithRoute.aspectRatio,
+    thinkingLevel: requestWithRoute.thinkingLevel,
+    imageOnly: requestWithRoute.imageOnly,
+    bananaImageRoute:
+      bananaImageRoute ||
+      requestWithRoute.providerOptions?.banana?.imageRoute ||
+      requestWithRoute.providerOptions?.bananaImageRoute,
+    prompt: requestWithRoute.prompt?.substring(0, 50) + "...",
+    sourceImage: requestWithRoute.sourceImageUrl ? requestWithRoute.sourceImageUrl.substring(0, 80) + '...' : (requestWithRoute.sourceImage?.substring(0, 80) + '...' || 'N/A'),
   });
   
   try {
@@ -459,8 +567,11 @@ async function performEditImageRequest(
       headers: {
         "Content-Type": "application/json",
         "Idempotency-Key": idempotencyKey,
+        ...(bananaImageRoute
+          ? { "X-Banana-Image-Route": bananaImageRoute }
+          : {}),
       },
-      body: JSON.stringify(request),
+      body: JSON.stringify(requestWithRoute),
     });
 
     if (!response.ok) {
@@ -478,16 +589,16 @@ async function performEditImageRequest(
     const data = await response.json();
 
     const resolvedModel = resolveDefaultModel(
-      request.model,
-      request.aiProvider
+      requestWithRoute.model,
+      requestWithRoute.aiProvider
     );
 
     logAIImageResponse(
       {
         endpoint: "edit-image",
-        provider: request.aiProvider,
+        provider: requestWithRoute.aiProvider,
         model: resolvedModel,
-        prompt: request.prompt,
+        prompt: requestWithRoute.prompt,
       },
       {
         imageData: data.imageData,
@@ -499,9 +610,9 @@ async function performEditImageRequest(
       success: true,
       data: mapBackendImageResult({
         data,
-        prompt: request.prompt,
+        prompt: requestWithRoute.prompt,
         model: resolvedModel,
-        outputFormat: request.outputFormat || "png",
+        outputFormat: requestWithRoute.outputFormat || "png",
       }),
     };
   } catch (error) {
@@ -616,14 +727,19 @@ async function performBlendImagesRequest(
   request: AIImageBlendRequest,
   idempotencyKey: string
 ): Promise<AIServiceResponse<AIImageResult>> {
+  const { request: requestWithRoute, bananaImageRoute } =
+    attachBananaRouteToProviderOptions(request);
   try {
     const response = await fetchWithAuth(`${API_BASE_URL}/ai/blend-images`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Idempotency-Key": idempotencyKey,
+        ...(bananaImageRoute
+          ? { "X-Banana-Image-Route": bananaImageRoute }
+          : {}),
       },
-      body: JSON.stringify(request),
+      body: JSON.stringify(requestWithRoute),
     });
 
     if (!response.ok) {
@@ -641,16 +757,16 @@ async function performBlendImagesRequest(
     const data = await response.json();
 
     const resolvedModel = resolveDefaultModel(
-      request.model,
-      request.aiProvider
+      requestWithRoute.model,
+      requestWithRoute.aiProvider
     );
 
     logAIImageResponse(
       {
         endpoint: "blend-images",
-        provider: request.aiProvider,
+        provider: requestWithRoute.aiProvider,
         model: resolvedModel,
-        prompt: request.prompt,
+        prompt: requestWithRoute.prompt,
       },
       {
         imageData: data.imageData,
@@ -662,9 +778,9 @@ async function performBlendImagesRequest(
       success: true,
       data: mapBackendImageResult({
         data,
-        prompt: request.prompt,
+        prompt: requestWithRoute.prompt,
         model: resolvedModel,
-        outputFormat: request.outputFormat || "png",
+        outputFormat: requestWithRoute.outputFormat || "png",
       }),
     };
   } catch (error) {

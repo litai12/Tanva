@@ -141,3 +141,12 @@
 - Duplicate requests in a short time window are deduplicated by `idempotencyKey` (primary) and request fingerprint (fallback), and reuse existing `apiUsageId`/spend transaction instead of creating a new charge.
 - Dedup metadata (`idempotencyKey`, `requestFingerprint`) is persisted in `ApiUsageRecord.requestParams` for audit and troubleshooting.
 - `AiController.withCredits`, `POST /api/ai/generate-video-provider`, and `POST /api/video-gif/convert` now propagate idempotency keys into credits pre-deduct.
+- `main.ts` CORS allowlist now includes `idempotency-key`/`x-idempotency-key`/`x-request-id`, so browser preflight for idempotent requests no longer fails with frontend `Failed to fetch`.
+
+## 2026-04-13 Banana Route Billing Consistency
+- `AiController.buildCreditRequestParams` now writes explicit billing `channel` from `bananaImageRoute` (`normal => apimart`, `stable => tencent`) before pre-deduct.
+- `CreditsService.normalizeChannel` and `AiController.normalizeChannelName` now normalize `nano2` to `apimart` (no longer treated as Tencent).
+- Tencent Banana matrix resolution now gives highest priority to explicit route: `stable` always Tencent pricing matrix, `normal` always non-Tencent pricing matrix.
+- Pre-deduct dedup now uses `idempotencyKey` as the sole primary key when present; `requestFingerprint` fallback is only used when idempotency key is absent, avoiding accidental merge of two user-initiated consecutive runs.
+- Frontend image request adapter now writes latest Banana route into `providerOptions` per-request (runtime store value first, persisted value fallback), reducing stale-route charging when users switch route and trigger run quickly.
+- Backend CORS allowlist now includes `x-banana-image-route` so request-side route header can pass browser preflight in cross-origin dev.

@@ -1709,24 +1709,24 @@ const BANANA_STABLE_ROUTE_PRICING: Record<
 > = {
   // Fast: Nano Banana, 仅支持 1K
   fast: {
-    "0.5K": 30,
-    "1K": 30,
-    "2K": 30,
-    "4K": 30,
+    "0.5K": 20,
+    "1K": 20,
+    "2K": 20,
+    "4K": 20,
   },
   // Pro: Nano Banana Pro
   pro: {
-    "0.5K": 40,
-    "1K": 40,
-    "2K": 60,
-    "4K": 80,
+    "0.5K": 90,
+    "1K": 90,
+    "2K": 100,
+    "4K": 170,
   },
   // Ultra: Nano Banana 2
   ultra: {
-    "0.5K": 20,
-    "1K": 30,
-    "2K": 40,
-    "4K": 50,
+    "0.5K": 30,
+    "1K": 50,
+    "2K": 70,
+    "4K": 110,
   },
 };
 
@@ -15808,6 +15808,8 @@ function FlowInner() {
         );
 
         try {
+          const latestBananaImageRoute =
+            useAIChatStore.getState().bananaImageRoute || bananaImageRoute;
           const nano2AspectRatio = (() => {
             const raw = (node.data as any)?.aspectRatio;
             return typeof raw === "string" && raw.trim().length ? raw.trim() : undefined;
@@ -15815,6 +15817,11 @@ function FlowInner() {
           const result = await generateImageViaAPI({
             prompt: promptText,
             aiProvider: "nano2",
+            providerOptions: {
+              banana: {
+                imageRoute: latestBananaImageRoute,
+              },
+            },
             aspectRatio: nano2AspectRatio,
             imageSize: (node.data as any)?.resolution || "1K",
             imageUrls: imageDatas.length > 0 ? imageDatas : undefined,
@@ -16318,11 +16325,18 @@ function FlowInner() {
       const resolveBananaRouteProviderOptions = (
         providerName: string
       ): AIImageGenerateRequest["providerOptions"] | undefined => {
+        const latestBananaImageRoute =
+          useAIChatStore.getState().bananaImageRoute || bananaImageRoute;
         const normalized = providerName.trim().toLowerCase();
-        if (normalized === "banana" || normalized.startsWith("banana-")) {
+        if (
+          normalized === "banana" ||
+          normalized.startsWith("banana-") ||
+          normalized === "gemini-pro" ||
+          normalized === "nano2"
+        ) {
           return {
             banana: {
-              imageRoute: bananaImageRoute,
+              imageRoute: latestBananaImageRoute,
             },
           };
         }

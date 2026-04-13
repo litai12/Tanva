@@ -179,7 +179,17 @@ async function bootstrap() {
       : true,
     credentials: true,
     methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
-    allowedHeaders: ["content-type", "authorization", "x-api-key", "x-trace-id", "traceparent"],
+    allowedHeaders: [
+      "content-type",
+      "authorization",
+      "x-api-key",
+      "x-trace-id",
+      "traceparent",
+      "idempotency-key",
+      "x-idempotency-key",
+      "x-request-id",
+      "x-banana-image-route",
+    ],
     exposedHeaders: ["x-trace-id"],
   });
 

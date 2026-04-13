@@ -90,7 +90,7 @@ const BANANA_STABLE_ROUTE_PRICING: Record<
   Record<"0.5K" | "1K" | "2K" | "4K", number>
 > = {
   // 稳定通道（腾讯）- Nano Banana 定价
-  fast: { "0.5K": 30, "1K": 30, "2K": 30, "4K": 30 },
+  fast: { "0.5K": 20, "1K": 20, "2K": 20, "4K": 20 },
   pro: { "0.5K": 90, "1K": 90, "2K": 100, "4K": 170 },
   ultra: { "0.5K": 30, "1K": 50, "2K": 70, "4K": 110 },
 };
@@ -2368,12 +2368,12 @@ const FloatingHeader: React.FC = () => {
           typeof document !== "undefined" &&
           createPortal(
             <div
-              className='fixed inset-0 z-[1500] flex items-center justify-center bg-black/40 px-4 py-6 backdrop-blur-[2px]'
+              className='fixed inset-0 z-[1300] flex items-center justify-center bg-black/40 px-4 py-6 backdrop-blur-[2px]'
               onClick={() => setIsMembershipOpen(false)}
             >
               <div
                 className={cn(
-                  "relative flex h-[min(200dvh,960px)] w-full max-w-[min(100%,1500px)] flex-col overflow-hidden rounded-[10px]",
+                  "relative flex h-[min(300dvh,760px)] w-full max-w-[min(100%,1300px)] flex-col overflow-hidden rounded-[10px]",
                   chatTheme === "white"
                     ? "bg-white shadow-[0_32px_80px_rgba(15,23,42,0.18)]"
                     : "bg-[#0a0a0f] shadow-[0_32px_80px_rgba(0,0,0,0.5)]"

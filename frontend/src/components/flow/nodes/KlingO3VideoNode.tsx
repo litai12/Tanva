@@ -1527,45 +1527,6 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
         </div>
       )}
 
-      {/* 模式选择 */}
-      <div style={{ marginBottom: 8 }}>
-        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>{lt("模式", "Mode")}</div>
-        <div style={{ display: "flex", gap: 6 }}>
-          {[
-            { label: lt("标准", "Standard"), value: "std" },
-            { label: lt("专业", "Pro"), value: "pro" },
-          ].map((opt) => {
-            const isActive = (data.mode || "std") === opt.value;
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => {
-                  if ((data.mode || "std") === opt.value) return;
-                  window.dispatchEvent(
-                    new CustomEvent("flow:updateNodeData", {
-                      detail: { id, patch: { mode: opt.value } },
-                    })
-                  );
-                }}
-                style={{
-                  flex: 1,
-                  padding: "6px 10px",
-                  borderRadius: 8,
-                  border: `1px solid #e5e7eb`,
-                  background: isActive ? "#111827" : "#fff",
-                  color: isActive ? "#fff" : "#111827",
-                  fontSize: 12,
-                  cursor: "pointer",
-                }}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
       {isTencentRoute && (
         <div style={{ marginBottom: 8, position: "relative" }}>
           <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
