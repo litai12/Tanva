@@ -17,6 +17,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(false); // 默认不勾选，必须手动同意
@@ -185,6 +186,7 @@ export default function LoginPage() {
       const result = await authApi.bindWechatOfficialSessionPhone(wechatSession.id, {
         phone,
         code,
+        inviteCode: inviteCode.trim() || undefined,
       });
       setAuthenticatedUser(result.user, "server");
       navigate(result.returnTo || "/app", { replace: true });
@@ -356,6 +358,12 @@ export default function LoginPage() {
                             : t("auth.login.sendCode")}
                         </Button>
                       </div>
+                      <Input
+                        placeholder={t("auth.register.invitePlaceholder")}
+                        value={inviteCode}
+                        onChange={(e) => setInviteCode(e.target.value)}
+                        className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12'
+                      />
                       <Button
                         type='button'
                         className='w-full bg-white/20 hover:bg-white/30 text-white border border-white/30 rounded-xl h-12 font-medium backdrop-blur-sm transition-all duration-200 disabled:opacity-70 hover:shadow-lg'
