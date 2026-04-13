@@ -105,6 +105,22 @@ const buildVodNodeMetadata = (
   vod,
 });
 
+const buildManagedImageNodeMetadata = (params: {
+  modelKeys: string[];
+  managedModelKey: string;
+  defaultData?: Record<string, any>;
+  nodeKind?: string;
+}): Record<string, any> => ({
+  modelKeys: params.modelKeys,
+  managedModelKey: params.managedModelKey,
+  routeStrategy: 'model_management_v2',
+  nodeKind: params.nodeKind || 'ai_image_generation',
+  defaultData: {
+    managedModelKey: params.managedModelKey,
+    ...(params.defaultData || {}),
+  },
+});
+
 const SEEDANCE20_SUPPORTED_MODELS = ['seedance-1.5-pro', 'seedance-2.0', 'seedance-2.0-fast'];
 const SEEDANCE20_ASPECT_RATIOS = ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'];
 const SEEDANCE20_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
@@ -1242,7 +1258,25 @@ export class NodeConfigService {
       { nodeKey: 'videoAnalyze', nameZh: '视频分析节点', nameEn: 'Video Analysis', category: 'other', sortOrder: 30, creditsPerCall: 30, serviceType: 'gemini-video-analyze', priceYuan: 0.3, description: '分析视频内容' },
       { nodeKey: 'videoFrameExtract', nameZh: '视频帧提取', nameEn: 'Frame Extract', category: 'other', sortOrder: 31, creditsPerCall: 0, description: '从视频提取帧，免费' },
       { nodeKey: 'videoToGif', nameZh: '视频转GIF', nameEn: 'Video to GIF', category: 'other', sortOrder: 32, creditsPerCall: 30, serviceType: 'video-to-gif', priceYuan: 0.3, description: '将视频片段转换为GIF' },
-      { nodeKey: 'analysis', nameZh: '图像分析节点', nameEn: 'Analysis', category: 'other', sortOrder: 33, creditsPerCall: 6, serviceType: 'gemini-image-analyze', priceYuan: 0.06, description: '分析图像内容' },
+      {
+        nodeKey: 'analysis',
+        nameZh: '图像分析节点',
+        nameEn: 'Analysis',
+        category: 'other',
+        sortOrder: 33,
+        creditsPerCall: 20,
+        serviceType: 'gemini-2.5-image-analyze',
+        priceYuan: 0.2,
+        description: '分析图像内容',
+        metadata: buildManagedImageNodeMetadata({
+          modelKeys: ['gemini-2.5-image-analyze', 'gemini-image-analyze'],
+          managedModelKey: 'gemini-2.5-image-analyze',
+          defaultData: {
+            creditsPerCall: 20,
+          },
+          nodeKind: 'ai_image_analysis',
+        }),
+      },
       { nodeKey: 'promptOptimize', nameZh: '提示词优化', nameEn: 'Optimize', category: 'other', sortOrder: 34, creditsPerCall: 2, serviceType: 'gemini-text', priceYuan: 0.02, description: 'AI优化提示词' },
       { nodeKey: 'textChat', nameZh: '文字对话', nameEn: 'Chat', category: 'other', sortOrder: 35, creditsPerCall: 2, serviceType: 'gemini-text', priceYuan: 0.02, description: 'AI文字对话' },
       { nodeKey: 'storyboardSplit', nameZh: '分镜拆解', nameEn: 'Storyboard', category: 'other', sortOrder: 36, creditsPerCall: 10, serviceType: 'gemini-text', priceYuan: 0.1, description: '拆解分镜脚本' },
@@ -1677,7 +1711,25 @@ export class NodeConfigService {
       { nodeKey: 'videoAnalyze', nameZh: '视频分析节点', nameEn: 'Video Analysis', category: 'other', sortOrder: 30, creditsPerCall: 30, serviceType: 'gemini-video-analyze', priceYuan: 0.3, description: '分析视频内容' },
       { nodeKey: 'videoFrameExtract', nameZh: '视频帧提取', nameEn: 'Frame Extract', category: 'other', sortOrder: 31, creditsPerCall: 0, description: '从视频提取帧，免费' },
       { nodeKey: 'videoToGif', nameZh: '视频转GIF', nameEn: 'Video to GIF', category: 'other', sortOrder: 32, creditsPerCall: 30, serviceType: 'video-to-gif', priceYuan: 0.3, description: '将视频片段转换为GIF' },
-      { nodeKey: 'analysis', nameZh: '图像分析节点', nameEn: 'Analysis', category: 'other', sortOrder: 33, creditsPerCall: 6, serviceType: 'gemini-image-analyze', priceYuan: 0.06, description: '分析图像内容' },
+      {
+        nodeKey: 'analysis',
+        nameZh: '图像分析节点',
+        nameEn: 'Analysis',
+        category: 'other',
+        sortOrder: 33,
+        creditsPerCall: 20,
+        serviceType: 'gemini-2.5-image-analyze',
+        priceYuan: 0.2,
+        description: '分析图像内容',
+        metadata: buildManagedImageNodeMetadata({
+          modelKeys: ['gemini-2.5-image-analyze', 'gemini-image-analyze'],
+          managedModelKey: 'gemini-2.5-image-analyze',
+          defaultData: {
+            creditsPerCall: 20,
+          },
+          nodeKind: 'ai_image_analysis',
+        }),
+      },
       { nodeKey: 'promptOptimize', nameZh: '提示词优化', nameEn: 'Optimize', category: 'other', sortOrder: 34, creditsPerCall: 2, serviceType: 'gemini-text', priceYuan: 0.02, description: 'AI优化提示词' },
       { nodeKey: 'textChat', nameZh: '文字对话', nameEn: 'Chat', category: 'other', sortOrder: 35, creditsPerCall: 2, serviceType: 'gemini-text', priceYuan: 0.02, description: 'AI文字对话' },
       { nodeKey: 'storyboardSplit', nameZh: '分镜拆解', nameEn: 'Storyboard', category: 'other', sortOrder: 36, creditsPerCall: 10, serviceType: 'gemini-text', priceYuan: 0.1, description: '拆解分镜脚本' },

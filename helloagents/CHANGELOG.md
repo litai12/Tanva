@@ -6,6 +6,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Added
+- Flow/Model Management: 图像分析节点默认配置改为挂接统一模型管理 `gemini-2.5-image-analyze`，并新增 Prisma migration `20260413203033_backfill_analysis_node_managed_routes_from_mapping` 回填既有 `NodeConfig.analysis` 的 `modelKeys / managedModelKey / managedRoutes`，避免分析节点继续停留在旧 `gemini-image-analyze` 单节点计费配置而无法命中统一模型路由。
 - 新增产品定价策略文档，统一整理三类积分、免费用户额度、69/199/599 档会员权益与待确认规则（`frontend/docs/39-产品定价策略.md`）。
 - 新增面向官网/支付页的会员定价展示文案，包含标题、副标题、套餐卡片、对比表、积分说明与年费展示口径（`frontend/docs/40-会员定价展示文案.md`）。
 - Prisma migration fix: added `202604120001_fix_wechat_login_session_profile_columns` to backfill missing `WechatLoginSession.nickname` / `avatarUrl` columns that were omitted from the initial公众号扫码登录建表 migration, preventing `/api/auth/wechat-official/sessions/:id` from failing with Prisma missing-column errors on upgraded environments.
