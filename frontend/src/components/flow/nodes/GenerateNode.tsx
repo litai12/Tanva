@@ -841,12 +841,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
             }
           >
             {data.creditsPerCall ? (
-              <>
-                <span className='run-text-trigger'>
-                  {status === "running" ? "Running..." : "Run"}
-                </span>
-                <RunCreditBadge credits={data.creditsPerCall} runButton />
-              </>
+              <RunCreditBadge credits={data.creditsPerCall} runButton />
             ) : (
               <span>{status === "running" ? "Running..." : "Run"}</span>
             )}

@@ -1167,8 +1167,10 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
             onMouseDown={handleButtonMouseDown}
             disabled={data.status === "running"}
             style={{
-              width: 36,
+              width: hasRunCredits ? "auto" : 36,
+              minWidth: hasRunCredits ? 64 : 36,
               height: 32,
+              padding: hasRunCredits ? "0 10px" : undefined,
               borderRadius: 8,
               border: "none",
               background: data.status === "running" ? "#e5e7eb" : "#111827",
@@ -1181,12 +1183,9 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
               opacity: data.status === "running" ? 0.6 : 1,
               gap: 0,
             }}
-          >
+            >
             {hasRunCredits ? (
-              <>
-                <span className="run-text-trigger">Run</span>
-                <RunCreditBadge credits={data.creditsPerCall} runButton />
-              </>
+              <RunCreditBadge credits={data.creditsPerCall} runButton />
             ) : (
               "Run"
             )}

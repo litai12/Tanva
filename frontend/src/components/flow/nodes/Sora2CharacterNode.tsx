@@ -3,6 +3,7 @@ import { Handle, Position } from "reactflow";
 import { AlertTriangle, UserRound } from "lucide-react";
 import { useLocaleText } from "@/utils/localeText";
 import RunCreditBadge from "./RunCreditBadge";
+import { useNodeRunCredits } from "../hooks/useNodeRunCredits";
 
 type CharacterItem = {
   id?: string;
@@ -36,6 +37,7 @@ function Sora2CharacterNodeInner({ id, data, selected }: Props) {
   const [hover, setHover] = React.useState<string | null>(null);
 
   const status = data.status || "idle";
+  const { credits: runCredits } = useNodeRunCredits(data.creditsPerCall);
   const model = data.model === "sora-2" || data.model === "sora-2-pro" ? data.model : "sora-2-pro";
   const timestamps = typeof data.timestamps === "string" ? data.timestamps : "1,3";
   const taskId = typeof data.taskId === "string" ? data.taskId : "";
@@ -104,7 +106,7 @@ function Sora2CharacterNodeInner({ id, data, selected }: Props) {
           <UserRound size={18} />
           <span>
             Sora2 Character
-            <RunCreditBadge credits={data.creditsPerCall} inline />
+            <RunCreditBadge credits={runCredits} inline />
           </span>
         </div>
         <button

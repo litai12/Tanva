@@ -108,15 +108,6 @@ const PROVIDER_CONFIG: Record<VideoProvider, { name: string; zh: string }> = {
   doubao: { name: "Seedance", zh: "Seedance" },
 };
 
-const VIDEO_RUN_CREDITS_HIDDEN_PROVIDERS = new Set<VideoProvider>([
-  "kling",
-  "kling-2.6",
-  "kling-o3",
-  "vidu",
-  "viduq3-pro",
-  "doubao",
-]);
-
 const stripVideoGenerationSuffix = (value: string): string =>
   value
     .replace(/\s*视频生成\s*/g, " ")
@@ -337,6 +328,14 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     const edges = state.edges || [];
     return edges.some((edge) => edge.target === id && edge.targetHandle === "image-2");
   });
+  const hasVideoInput = useStore((state) => {
+    const edges = state.edges || [];
+    return edges.some((edge) => edge.target === id && edge.targetHandle === "video");
+  });
+  const audioInputCount = useStore((state) => {
+    const edges = state.edges || [];
+    return edges.filter((edge) => edge.target === id && edge.targetHandle === "audio").length;
+  });
   const provider = data.provider || "kling";
   const nodeConfigMetadata =
     data.nodeConfigMetadata && typeof data.nodeConfigMetadata === "object"
@@ -524,9 +523,23 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     }
     if (typeof data.viduModel === "string" && data.viduModel.trim()) {
       context.viduModel = data.viduModel.trim().toLowerCase();
+      context.viduModelVariant = data.viduModel.trim().toLowerCase();
     }
     if (typeof data.klingModel === "string" && data.klingModel.trim()) {
       context.klingModel = data.klingModel.trim().toLowerCase();
+    }
+    if (typeof (data as any).offPeak === "boolean") {
+      context.offPeak = Boolean((data as any).offPeak);
+    }
+    context.referenceVideo = hasVideoInput;
+    context.hasVideoInput = hasVideoInput;
+    if (
+      typeof (data as any).referenceVideoType === "string" &&
+      String((data as any).referenceVideoType).trim()
+    ) {
+      context.referenceVideoType = String((data as any).referenceVideoType)
+        .trim()
+        .toLowerCase();
     }
     if (typeof data.seedanceMode === "string" && data.seedanceMode.trim()) {
       context.videoMode = data.seedanceMode.trim().toLowerCase();
@@ -535,19 +548,34 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       context.videoMode = seedanceMode;
       context.seedanceMode = seedanceMode;
     }
+    if (isViduNode || isSeedanceModel || provider === "kling-o3") {
+      context.inputType = hasVideoInput
+        ? "video"
+        : imageInputCount > 0
+        ? audioInputCount > 0 && isSeedanceModel
+          ? "image_audio"
+          : "image"
+        : "text";
+    }
     return context;
   }, [
+    audioInputCount,
     data.aspectRatio,
     data.clipDuration,
     data.generateAudio,
     data.klingModel,
+    (data as any).offPeak,
+    (data as any).referenceVideoType,
     data.resolution,
     data.seedanceMode,
     data.seedanceModel,
     data.sound,
     data.viduModel,
     data.watermark,
+    hasVideoInput,
+    imageInputCount,
     isSeedanceModel,
+    isViduNode,
     seedanceMode,
     provider,
     isUnifiedKlingNode,
@@ -558,13 +586,13 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     [data.vendorKey, nodeConfigMetadata, pricingContext]
   );
   const selectedCredits =
-    typeof data.creditsPerCall === "number"
-      ? data.creditsPerCall
-      : typeof resolvedManagedPricing?.credits === "number"
+    typeof resolvedManagedPricing?.credits === "number"
       ? resolvedManagedPricing.credits
+      : typeof data.creditsPerCall === "number" && !managedRoutesMetadata
+      ? data.creditsPerCall
       : getManagedRouteCredits(nodeConfigMetadata, data.vendorKey);
   const hasRunCredits = typeof selectedCredits === "number" && selectedCredits > 0;
-  const showRunCredits = hasRunCredits && !VIDEO_RUN_CREDITS_HIDDEN_PROVIDERS.has(provider);
+  const showRunCredits = hasRunCredits;
   const vodAspectOptions = React.useMemo(() => {
     if (!Array.isArray(vodConfig?.outputConfig?.aspectRatios)) return [];
     return [
@@ -2045,7 +2073,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             onMouseDown={handleButtonMouseDown}
             disabled={data.status === "running"}
             style={{
-              width: 36,
+              width: showRunCredits ? "auto" : 36,
+              minWidth: showRunCredits ? 64 : 36,
+              padding: showRunCredits ? "0 10px" : undefined,
               height: 32,
               borderRadius: 8,
               border: "none",
@@ -2059,12 +2089,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               opacity: data.status === "running" ? 0.6 : 1,
               gap: 0,
             }}
-          >
-            {showRunCredits ? (
-              <>
-                <span className="run-text-trigger">Run</span>
-                <RunCreditBadge credits={selectedCredits} runButton />
-              </>
+            >
+              {showRunCredits ? (
+              <RunCreditBadge credits={selectedCredits} runButton />
             ) : (
               "Run"
             )}
@@ -3216,5 +3243,3 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
 }
 
 export default React.memo(GenericVideoNodeInner);
-
-

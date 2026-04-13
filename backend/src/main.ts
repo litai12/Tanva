@@ -186,9 +186,12 @@ async function bootstrap() {
       "x-trace-id",
       "traceparent",
       "idempotency-key",
+<<<<<<< Updated upstream
       "x-idempotency-key",
       "x-request-id",
       "x-banana-image-route",
+=======
+>>>>>>> Stashed changes
     ],
     exposedHeaders: ["x-trace-id"],
   });

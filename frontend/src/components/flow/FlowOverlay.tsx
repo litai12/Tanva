@@ -1250,6 +1250,10 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   viewAngle: 30, // 视角变换节点 - 基于参考图编辑
   generate4: 80, // 四图生成节点 - 4次 × 20积分
   midjourney: 50, // Midjourney生成 - midjourney-imagine
+  midjourneyV7: 50, // Midjourney V7 生成
+  niji7: 50, // Niji 7 生成
+  nano2: 20, // Nano Banana 2 生图
+  seedream5: 30, // Seedream 5.0 生图
   three: 200, // 三维节点 - convert-2d-to-3d
   sora2Video: "40-400", // 视频生成节点 - sora-sd (40) 或 sora-hd (400)
   sora2Character: 0, // 角色生成节点 - 当前不单独计费
@@ -1258,6 +1262,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   klingVideo: "150-1200", // 可灵视频生成（2.6/3.0 按模型与参数阶梯计费）
   kling26Video: "150-1200", // 可灵2.6视频生成 - kling-v2-6
   kling30Video: "300-1200", // 可灵3.0视频生成 - kling-v3-0
+  klingO1Video: 600, // 可灵 O3 / Omni Video
   klingO3Video: 600, // 可灵O3视频生成 - Omni Video
   viduVideo: 600, // Vidu视频生成
   viduQ3: 600, // Vidu Q3 Pro视频生成
@@ -1644,6 +1649,19 @@ const BANANA_DYNAMIC_NODE_TYPES = new Set<FlowNodeType>([
   "generatePro4",
 ]);
 
+const IMAGE_DYNAMIC_CREDIT_NODE_TYPES = new Set<FlowNodeType>([
+  "generate",
+  "generate4",
+  "generateRef",
+  "generatePro",
+  "generatePro4",
+  "midjourney",
+  "midjourneyV7",
+  "niji7",
+  "nano2",
+  "seedream5",
+]);
+
 const resolveBananaPricingTierByProvider = (
   providerName?: string | null
 ): BananaPricingTier | null => {
@@ -1769,6 +1787,8 @@ const normalizeBananaStableImageSize = (
 };
 
 const VIDEO_DYNAMIC_CREDIT_NODE_TYPES = new Set([
+  "sora2Video",
+  "sora2Character",
   "wan26",
   "wan2R2V",
   "wan27Video",
@@ -1917,6 +1937,20 @@ const resolveKlingDynamicCredits = (
   return typeof configured === "number" ? configured : undefined;
 };
 
+const resolveSoraDynamicCredits = (
+  nodeType: string,
+  nodeData?: Record<string, any>
+): number | undefined => {
+  if (nodeType !== "sora2Video" && nodeType !== "sora2Character") {
+    return undefined;
+  }
+  const model =
+    typeof nodeData?.model === "string" && nodeData.model.trim().toLowerCase() === "sora-2"
+      ? "sora-2"
+      : "sora-2-pro";
+  return model === "sora-2" ? 200 : 750;
+};
+
 const buildVideoPricingContext = (
   nodeType: string,
   nodeData?: Record<string, any>
@@ -1936,6 +1970,16 @@ const buildVideoPricingContext = (
   const aspectRatio = resolveVideoDefaultAspectRatio(nodeType, nodeData);
   if (aspectRatio) {
     context.aspectRatio = aspectRatio;
+  }
+
+  if (
+    (nodeType === "sora2Video" || nodeType === "sora2Character") &&
+    typeof nodeData?.model === "string" &&
+    nodeData.model.trim()
+  ) {
+    const soraModel = nodeData.model.trim().toLowerCase();
+    context.model = soraModel;
+    context.soraModel = soraModel;
   }
 
   if (typeof nodeData?.seedanceModel === "string" && nodeData.seedanceModel.trim()) {
@@ -1971,6 +2015,32 @@ const buildVideoPricingContext = (
   } else if (nodeType === "viduQ3") {
     context.viduModel = "q3";
   }
+  if (typeof nodeData?.viduModelVariant === "string" && nodeData.viduModelVariant.trim()) {
+    context.viduModelVariant = nodeData.viduModelVariant.trim().toLowerCase();
+  } else if (typeof context.viduModel === "string" && context.viduModel.trim()) {
+    context.viduModelVariant = context.viduModel;
+  }
+  if (typeof nodeData?.offPeak === "boolean") {
+    context.offPeak = nodeData.offPeak;
+  }
+  if (typeof nodeData?.hasVideoInput === "boolean") {
+    context.referenceVideo = nodeData.hasVideoInput;
+    context.hasVideoInput = nodeData.hasVideoInput;
+  }
+  if (
+    typeof nodeData?.referenceVideoType === "string" &&
+    nodeData.referenceVideoType.trim()
+  ) {
+    context.referenceVideoType = nodeData.referenceVideoType.trim().toLowerCase();
+  }
+  if (nodeData?.hasVideoInput === true) {
+    context.inputType = "video";
+  } else if (typeof nodeData?.seedanceMode === "string" && nodeData.seedanceMode.trim()) {
+    const mode = nodeData.seedanceMode.trim().toLowerCase();
+    context.inputType = mode === "text" ? "text" : "image";
+  } else if (typeof nodeData?.viduModel === "string" && nodeData.viduModel.trim()) {
+    context.inputType = "text";
+  }
 
   const klingModel = resolveKlingModelForCredits(nodeType, nodeData);
   if (klingModel) {
@@ -1988,6 +2058,54 @@ const buildVideoPricingContext = (
           String(soundRaw).trim().toLowerCase() === "true";
   }
 
+  return context;
+};
+
+const buildImagePricingContext = (
+  nodeType: string,
+  nodeData?: Record<string, any>
+): Record<string, any> => {
+  const normalizedType = normalizeFlowNodeType(nodeType) || nodeType;
+  const context: Record<string, any> = {};
+
+  const rawImageSize =
+    typeof nodeData?.imageSize === "string" && nodeData.imageSize.trim().length > 0
+      ? nodeData.imageSize.trim()
+      : typeof nodeData?.resolution === "string" && nodeData.resolution.trim().length > 0
+      ? nodeData.resolution.trim()
+      : typeof nodeData?.size === "string" && nodeData.size.trim().length > 0
+      ? nodeData.size.trim()
+      : undefined;
+  if (rawImageSize) {
+    context.imageSize = rawImageSize;
+    context.resolution = rawImageSize;
+  }
+
+  const rawQuality =
+    typeof nodeData?.quality === "string" && nodeData.quality.trim().length > 0
+      ? nodeData.quality.trim()
+      : "hd";
+  context.quality = rawQuality;
+
+  const explicitOutputCount = Number(nodeData?.outputCount);
+  if (Number.isFinite(explicitOutputCount) && explicitOutputCount > 0) {
+    context.outputCount = explicitOutputCount;
+  } else if (normalizedType === "generate4" || normalizedType === "generatePro4") {
+    context.outputCount = 4;
+  } else {
+    context.outputCount = 1;
+  }
+
+  const explicitReferenceCount = Number(nodeData?.referenceImageCount);
+  if (Number.isFinite(explicitReferenceCount) && explicitReferenceCount >= 0) {
+    context.referenceImageCount = explicitReferenceCount;
+  } else if (normalizedType === "generateRef") {
+    context.referenceImageCount = 1;
+  } else {
+    context.referenceImageCount = 0;
+  }
+
+  context.mode = "generate";
   return context;
 };
 
@@ -2050,6 +2168,23 @@ const resolveStableRouteCredits = (params: {
     }
   }
 
+  // 图像节点统一模型管理定价优先级最高
+  if (normalizedType && IMAGE_DYNAMIC_CREDIT_NODE_TYPES.has(normalizedType)) {
+    const metadata =
+      nodeData?.nodeConfigMetadata && typeof nodeData.nodeConfigMetadata === "object"
+        ? (nodeData.nodeConfigMetadata as Record<string, any>)
+        : undefined;
+    const vendorKey =
+      typeof nodeData?.vendorKey === "string" && nodeData.vendorKey.trim().length > 0
+        ? nodeData.vendorKey.trim()
+        : undefined;
+    const pricingContext = buildImagePricingContext(normalizedType, nodeData);
+    const managedPricing = resolveManagedRoutePricing(metadata, vendorKey, pricingContext);
+    if (typeof managedPricing?.credits === "number" && Number.isFinite(managedPricing.credits)) {
+      resolvedCredits = managedPricing.credits;
+    }
+  }
+
   // 视频节点动态积分
   if (normalizedType && VIDEO_DYNAMIC_CREDIT_NODE_TYPES.has(normalizedType)) {
     const metadata =
@@ -2062,13 +2197,20 @@ const resolveStableRouteCredits = (params: {
         : undefined;
     const pricingContext = buildVideoPricingContext(normalizedType, nodeData);
     const managedPricing = resolveManagedRoutePricing(metadata, vendorKey, pricingContext);
-    if (typeof managedPricing?.credits === "number" && Number.isFinite(managedPricing.credits)) {
-      resolvedCredits = managedPricing.credits;
-    }
 
     const klingCredits = resolveKlingDynamicCredits(normalizedType, nodeData);
     if (typeof klingCredits === "number" && Number.isFinite(klingCredits)) {
       resolvedCredits = klingCredits;
+    }
+
+    const soraCredits = resolveSoraDynamicCredits(normalizedType, nodeData);
+    if (typeof soraCredits === "number" && Number.isFinite(soraCredits)) {
+      resolvedCredits = soraCredits;
+    }
+
+    // 统一模型管理配置优先于节点原生/旧链路动态价
+    if (typeof managedPricing?.credits === "number" && Number.isFinite(managedPricing.credits)) {
+      resolvedCredits = managedPricing.credits;
     }
   }
 
@@ -3250,6 +3392,43 @@ function FlowInner() {
       if (!resolvedType || !Number.isFinite(creditsPerCall)) return;
       map.set(resolvedType, creditsPerCall);
     });
+    return map;
+  }, [nodePaletteConfigs]);
+
+  const managedRuntimeByType = React.useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        nodeConfigKey?: string;
+        managedModelKey?: string;
+        vendorKey?: string;
+        platformKey?: string;
+        nodeConfigMetadata?: Record<string, any>;
+      }
+    >();
+
+    nodePaletteConfigs.forEach((config) => {
+      const resolvedType = resolveFlowNodeTypeFromConfig(config);
+      if (!resolvedType) return;
+      const metadata =
+        config.metadata && typeof config.metadata === "object"
+          ? (config.metadata as Record<string, any>)
+          : undefined;
+      if (!metadata) return;
+
+      const preferredRoute = getManagedRouteOption(metadata);
+      map.set(resolvedType, {
+        nodeConfigKey: config.nodeKey,
+        managedModelKey:
+          typeof metadata.managedModelKey === "string" && metadata.managedModelKey.trim()
+            ? metadata.managedModelKey.trim()
+            : undefined,
+        vendorKey: preferredRoute?.vendorKey,
+        platformKey: preferredRoute?.platformKey || preferredRoute?.vendorKey,
+        nodeConfigMetadata: metadata,
+      });
+    });
+
     return map;
   }, [nodePaletteConfigs]);
 
@@ -7739,10 +7918,7 @@ function FlowInner() {
                 vendorKey: selectedManagedRoute.vendorKey,
                 platformKey:
                   selectedManagedRoute.platformKey || selectedManagedRoute.vendorKey,
-                creditsPerCall:
-                  typeof selectedManagedRoute.creditsPerCall === "number"
-                    ? selectedManagedRoute.creditsPerCall
-                    : undefined,
+                creditsPerCall: resolveNodeConfigCreditsPerCall(paletteConfig),
               };
             })()
           : {}),
@@ -18313,12 +18489,44 @@ function FlowInner() {
     () =>
       nodes.map((n) => {
         const resolvedType = typeof n.type === "string" ? normalizeFlowNodeType(n.type) : null;
+        const managedRuntime =
+          resolvedType ? managedRuntimeByType.get(resolvedType) : undefined;
+        const mapFallbackCredits =
+          resolvedType && typeof NODE_CREDITS_MAP[resolvedType] === "number"
+            ? Number(NODE_CREDITS_MAP[resolvedType])
+            : undefined;
+        const runtimeNodeData = {
+          ...(n.data || {}),
+          ...(managedRuntime?.nodeConfigKey &&
+          (typeof n.data?.nodeConfigKey !== "string" || !n.data.nodeConfigKey.trim())
+            ? { nodeConfigKey: managedRuntime.nodeConfigKey }
+            : {}),
+          ...(managedRuntime?.managedModelKey &&
+          (typeof n.data?.managedModelKey !== "string" || !n.data.managedModelKey.trim())
+            ? { managedModelKey: managedRuntime.managedModelKey }
+            : {}),
+          ...(managedRuntime?.vendorKey &&
+          (typeof n.data?.vendorKey !== "string" || !n.data.vendorKey.trim())
+            ? { vendorKey: managedRuntime.vendorKey }
+            : {}),
+          ...(managedRuntime?.platformKey &&
+          (typeof n.data?.platformKey !== "string" || !n.data.platformKey.trim())
+            ? { platformKey: managedRuntime.platformKey }
+            : {}),
+          ...(managedRuntime?.nodeConfigMetadata &&
+          (!n.data?.nodeConfigMetadata || typeof n.data.nodeConfigMetadata !== "object")
+            ? { nodeConfigMetadata: managedRuntime.nodeConfigMetadata }
+            : {}),
+        } as Record<string, any>;
         const defaultCreditsPerCall =
-          (typeof n.data?.creditsPerCall === "number" ? n.data.creditsPerCall : undefined) ??
-          (resolvedType ? nodeCreditsByType.get(resolvedType) : undefined);
+          (typeof runtimeNodeData.creditsPerCall === "number"
+            ? runtimeNodeData.creditsPerCall
+            : undefined) ??
+          (resolvedType ? nodeCreditsByType.get(resolvedType) : undefined) ??
+          mapFallbackCredits;
         const creditsPerCall = resolveStableRouteCredits({
           nodeType: typeof n.type === "string" ? n.type : resolvedType || undefined,
-          nodeData: (n.data || {}) as Record<string, any>,
+          nodeData: runtimeNodeData,
           fallbackCredits: defaultCreditsPerCall,
           aiProvider,
           bananaImageRoute,
@@ -18330,7 +18538,7 @@ function FlowInner() {
           ? {
               ...n,
               data: {
-                ...n.data,
+                ...runtimeNodeData,
                 isDarkTheme: isFlowBlackTheme,
                 onRenameGroup: promptGroupName,
                 onUpdateGroupName: updateGroupName,
@@ -18361,7 +18569,7 @@ function FlowInner() {
           ? {
               ...n,
               data: {
-                ...n.data,
+                ...runtimeNodeData,
                 onRun: runNode,
                 onSend: onSendHandler,
                 creditsPerCall,
@@ -18371,7 +18579,7 @@ function FlowInner() {
           ? {
               ...n,
               data: {
-                ...n.data,
+                ...runtimeNodeData,
                 onRun: runNode,
                 onSend: onSendHandler,
                 creditsPerCall,
@@ -18393,7 +18601,7 @@ function FlowInner() {
           ? {
               ...n,
               data: {
-                ...n.data,
+                ...runtimeNodeData,
                 onRun: runNode,
                 creditsPerCall,
                 seedance2AccessEnabled,
@@ -18405,6 +18613,7 @@ function FlowInner() {
     [
       nodes,
       nodeCreditsByType,
+      managedRuntimeByType,
       aiProvider,
       bananaImageRoute,
       imageSize,

@@ -19,6 +19,7 @@ import {
   getSettings,
   getSetting,
   upsertSetting,
+  previewManagedPricing,
   getMembershipCreditPolicy,
   updateMembershipCreditPolicy,
   getAdminMembershipPlans,
@@ -51,6 +52,7 @@ import {
   type ApiUsageRecord,
   type Pagination,
   type SystemSetting,
+  type ManagedPricingPreviewResponse,
   type MembershipCreditPolicyConfig,
   type MembershipCreditPolicyView,
   type AdminMembershipPlan,
@@ -236,7 +238,20 @@ interface ManagedModelVendorConfig {
   modelVersion?: string;
   pricing?: {
     version?: string;
-    dimensions?: string[];
+    dimensions?: Array<
+      | string
+      | {
+          key: string;
+          label?: string;
+          type?: "string" | "number" | "boolean" | "enum";
+          required?: boolean;
+          options?: Array<{
+            value: string | number | boolean;
+            label?: string;
+          }>;
+          description?: string;
+        }
+    >;
     defaults?: {
       credits?: number;
       priceYuan?: number;
@@ -257,6 +272,47 @@ interface ManagedModelVendorConfig {
       priceYuan?: number;
       costYuan?: number;
     }>;
+    matchingRules?: Array<{
+      ruleKey?: string;
+      label?: string;
+      enabled?: boolean;
+      priority?: number;
+      evaluatorKey?: string;
+      conditions?: {
+        all?: Array<{
+          field?: string;
+          op?: "eq" | "in" | "gt" | "gte" | "lt" | "lte" | "exists";
+          value?: unknown;
+        }>;
+        any?: Array<{
+          field?: string;
+          op?: "eq" | "in" | "gt" | "gte" | "lt" | "lte" | "exists";
+          value?: unknown;
+        }>;
+      };
+    }>;
+    evaluators?: Record<
+      string,
+      {
+        type?: "fixed" | "linear" | "base_plus_linear" | "lookup_matrix";
+        priceYuan?: number;
+        credits?: number;
+        costYuan?: number;
+        unitField?: string;
+        unitPriceYuan?: number;
+        basePriceYuan?: number;
+        includedUnits?: number;
+        extraUnitPriceYuan?: number;
+        axes?: string[];
+        matrix?: Record<string, unknown>;
+      }
+    >;
+    displayConfig?: {
+      specAxes?: string[];
+      labels?: Record<string, string>;
+      presets?: Array<Record<string, string | number | boolean>>;
+      defaultSelections?: Record<string, string | number | boolean>;
+    };
   };
   metadata?: Record<string, any>;
 }
@@ -287,6 +343,16 @@ interface ModelProviderMappingV2 {
   models?: ManagedModelConfig[];
 }
 
+const getManagedVendorStateKey = (
+  model?: Pick<ManagedModelConfig, "modelKey"> | null,
+  vendor?: Pick<ManagedModelVendorConfig, "vendorKey"> | null,
+  vendorIndex?: number
+) => {
+  const modelKey = String(model?.modelKey || "").trim() || "unknown-model";
+  const resolvedVendorKey = String(vendor?.vendorKey || "").trim() || `vendor-${vendorIndex ?? 0}`;
+  return `${modelKey}::${resolvedVendorKey}::${vendorIndex ?? 0}`;
+};
+
 type ManagedSpecPricingRule = {
   ruleKey?: string;
   label?: string;
@@ -297,9 +363,166 @@ type ManagedSpecPricingRule = {
   costYuan?: number;
 };
 
+type ManagedPricingDimensionDefinition = {
+  key: string;
+  label?: string;
+  type?: "string" | "number" | "boolean" | "enum";
+  required?: boolean;
+  options?: Array<{
+    value: string | number | boolean;
+    label?: string;
+  }>;
+  description?: string;
+};
+
+type ManagedPricingConditionRow = {
+  field: string;
+  op: "eq" | "in" | "gt" | "gte" | "lt" | "lte" | "exists";
+  value: string | number | boolean | Array<string | number | boolean>;
+};
+
+type ManagedPricingMatchingRule = {
+  ruleKey: string;
+  label: string;
+  enabled: boolean;
+  priority: number;
+  evaluatorKey: string;
+  conditions: {
+    all: ManagedPricingConditionRow[];
+    any: ManagedPricingConditionRow[];
+  };
+};
+
+type ManagedPricingEvaluator =
+  | {
+      type: "fixed";
+      priceYuan?: number;
+      credits?: number;
+      costYuan?: number;
+    }
+  | {
+      type: "linear";
+      unitField?: string;
+      unitPriceYuan?: number;
+      costYuan?: number;
+    }
+  | {
+      type: "base_plus_linear";
+      basePriceYuan?: number;
+      includedUnits?: number;
+      unitField?: string;
+      extraUnitPriceYuan?: number;
+      costYuan?: number;
+    }
+  | {
+      type: "lookup_matrix";
+      axes?: string[];
+      matrix?: Record<string, unknown>;
+      costYuan?: number;
+    };
+
+type ManagedPricingV2View = {
+  version: string;
+  dimensions: ManagedPricingDimensionDefinition[];
+  matchingRules: ManagedPricingMatchingRule[];
+  evaluators: Record<string, ManagedPricingEvaluator>;
+  displayConfig: {
+    specAxes: string[];
+    labels: Record<string, string>;
+    presets: Array<Record<string, string | number | boolean>>;
+    defaultSelections: Record<string, string | number | boolean>;
+  };
+};
+
 const normalizeFiniteNumber = (value: unknown): number | undefined => {
   const normalized = Number(value);
   return Number.isFinite(normalized) ? normalized : undefined;
+};
+
+const resolvePricingV2DefaultBundle = (
+  vendor?: Partial<ManagedModelVendorConfig>
+): { credits?: number; priceYuan?: number } | undefined => {
+  const pricing =
+    vendor?.pricing && typeof vendor.pricing === "object" ? vendor.pricing : undefined;
+  const matchingRules = Array.isArray(pricing?.matchingRules) ? pricing.matchingRules : [];
+  const evaluators =
+    pricing?.evaluators && typeof pricing.evaluators === "object" ? pricing.evaluators : undefined;
+  const context =
+    pricing?.displayConfig &&
+    typeof pricing.displayConfig === "object" &&
+    !Array.isArray(pricing.displayConfig) &&
+    pricing.displayConfig.defaultSelections &&
+    typeof pricing.displayConfig.defaultSelections === "object" &&
+    !Array.isArray(pricing.displayConfig.defaultSelections)
+      ? (pricing.displayConfig.defaultSelections as Record<string, string | number | boolean>)
+      : undefined;
+
+  if (!context || matchingRules.length === 0 || !evaluators || Object.keys(evaluators).length === 0) {
+    return undefined;
+  }
+
+  const matchCondition = (condition?: { field?: string; op?: string; value?: unknown }) => {
+    const field = String(condition?.field || "").trim();
+    if (!field) return false;
+    const actual = context[field];
+    const op = condition?.op || "eq";
+    if (op === "exists") return actual !== undefined && actual !== null && actual !== "";
+    if (actual === undefined) return false;
+    if (op === "in") {
+      const list = Array.isArray(condition?.value) ? condition.value : [];
+      return list.some((item) => item === actual);
+    }
+    if (op === "eq") return condition?.value === actual;
+    const actualNumber = normalizeFiniteNumber(actual);
+    const expectedNumber = normalizeFiniteNumber(condition?.value);
+    if (actualNumber === undefined || expectedNumber === undefined) return false;
+    if (op === "gt") return actualNumber > expectedNumber;
+    if (op === "gte") return actualNumber >= expectedNumber;
+    if (op === "lt") return actualNumber < expectedNumber;
+    if (op === "lte") return actualNumber <= expectedNumber;
+    return false;
+  };
+
+  const matchedRule = [...matchingRules]
+    .filter((rule) => rule && rule.enabled !== false && rule.evaluatorKey)
+    .sort((a, b) => Number(b.priority ?? 0) - Number(a.priority ?? 0))
+    .find((rule) => {
+      const all = Array.isArray(rule.conditions?.all) ? rule.conditions.all : [];
+      const any = Array.isArray(rule.conditions?.any) ? rule.conditions.any : [];
+      const allMatched = all.every((condition) => matchCondition(condition));
+      const anyMatched = any.length === 0 || any.some((condition) => matchCondition(condition));
+      return allMatched && anyMatched;
+    });
+
+  if (!matchedRule) return undefined;
+  const evaluator =
+    matchedRule.evaluatorKey && evaluators[matchedRule.evaluatorKey]
+      ? evaluators[matchedRule.evaluatorKey]
+      : undefined;
+  if (!evaluator) return undefined;
+
+  if (evaluator.type === "fixed") {
+    const priceYuan = normalizeFiniteNumber(evaluator.priceYuan);
+    const credits =
+      normalizeFiniteNumber(evaluator.credits) ??
+      (priceYuan !== undefined ? Math.ceil(priceYuan * 100) : undefined);
+    if (priceYuan === undefined && credits === undefined) return undefined;
+    return {
+      ...(credits !== undefined ? { credits } : {}),
+      ...(priceYuan !== undefined ? { priceYuan } : {}),
+    };
+  }
+
+  if (evaluator.type === "linear") {
+    const unitField = String(evaluator.unitField || "").trim();
+    const unitValue = normalizeFiniteNumber(context[unitField]);
+    const unitPriceYuan = normalizeFiniteNumber(evaluator.unitPriceYuan);
+    if (!unitField || unitValue === undefined || unitPriceYuan === undefined) return undefined;
+    const priceYuan = Number((unitValue * unitPriceYuan).toFixed(3));
+    return { priceYuan, credits: Math.ceil(priceYuan * 100) };
+  }
+
+  return undefined;
 };
 
 const getVendorPricingDefaults = (vendor?: Partial<ManagedModelVendorConfig>) => {
@@ -324,9 +547,11 @@ const getVendorPricingDefaults = (vendor?: Partial<ManagedModelVendorConfig>) =>
       ? vendor.priceYuan
       : undefined;
 
+  const derived = credits === undefined && priceYuan === undefined ? resolvePricingV2DefaultBundle(vendor) : undefined;
+
   return {
-    ...(credits !== undefined ? { credits } : {}),
-    ...(priceYuan !== undefined ? { priceYuan } : {}),
+    ...(credits !== undefined ? { credits } : derived?.credits !== undefined ? { credits: derived.credits } : {}),
+    ...(priceYuan !== undefined ? { priceYuan } : derived?.priceYuan !== undefined ? { priceYuan: derived.priceYuan } : {}),
   };
 };
 
@@ -531,6 +756,1069 @@ const writeVendorSpecPricingRules = (
     pricing: Object.keys(nextPricing).length > 0 ? nextPricing : undefined,
     metadata: Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
   };
+};
+
+const normalizePricingDimensions = (
+  vendor?: ManagedModelVendorConfig
+): ManagedPricingDimensionDefinition[] => {
+  const raw = vendor?.pricing?.dimensions;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      if (typeof item === "string") {
+        return {
+          key: item,
+          label: item,
+          type: "string" as const,
+          required: false,
+        };
+      }
+      if (item && typeof item === "object" && typeof item.key === "string") {
+        return {
+          key: item.key,
+          label: item.label || item.key,
+          type: item.type || "string",
+          required: item.required === true,
+          options: Array.isArray(item.options)
+            ? item.options.map((option) => ({
+                value: option.value,
+                label: option.label || String(option.value),
+              }))
+            : undefined,
+          description: item.description,
+        };
+      }
+      return null;
+    })
+    .filter(Boolean) as ManagedPricingDimensionDefinition[];
+};
+
+const PRICING_FIELD_LABELS: Record<string, string> = {
+  duration: "时长（秒）",
+  durationSec: "时长（秒）",
+  resolution: "分辨率",
+  viduModel: "Vidu 型号",
+  viduModelVariant: "Vidu 型号",
+  seedanceModel: "Seedance 型号",
+  seedanceMode: "生成模式",
+  inputType: "输入类型",
+  mode: "模式",
+  sound: "声音",
+  hasAudio: "声音",
+  generateAudio: "音频生成",
+  offPeak: "错峰模式",
+  watermark: "水印",
+  referenceVideo: "视频参考",
+  referenceVideoType: "视频参考类型",
+};
+
+const stringifyLegacyOptionValue = (value: string | number | boolean) => {
+  if (typeof value === "boolean") return value ? "true" : "false";
+  return String(value);
+};
+
+const inferLegacyDimensionType = (
+  values: Array<string | number | boolean>,
+  key: string
+): ManagedPricingDimensionDefinition["type"] => {
+  if (values.every((value) => typeof value === "boolean")) return "boolean";
+  if (key === "duration" || key === "durationSec") return "number";
+  if (values.every((value) => typeof value === "number")) return "enum";
+  return "enum";
+};
+
+const buildLegacyDisplayLabel = (key: string, value: string | number | boolean) => {
+  if (typeof value === "boolean") {
+    return value ? "是" : "否";
+  }
+  if (key === "duration" || key === "durationSec") {
+    return `${value} 秒`;
+  }
+  return String(value);
+};
+
+const buildLegacyPricingV2FromRules = (
+  pricing: Record<string, any>,
+  vendor?: ManagedModelVendorConfig
+): ManagedPricingV2View | null => {
+  const rules = Array.isArray(pricing?.rules) ? pricing.rules.filter(Boolean) : [];
+  if (rules.length === 0) return null;
+
+  const fieldValueMap = new Map<string, Array<string | number | boolean>>();
+  const addFieldValue = (field: string, value: unknown) => {
+    if (!field) return;
+    const existing = fieldValueMap.get(field) || [];
+    const values = Array.isArray(value) ? value : [value];
+    values.forEach((entry) => {
+      if (
+        typeof entry !== "string" &&
+        typeof entry !== "number" &&
+        typeof entry !== "boolean"
+      ) {
+        return;
+      }
+      if (!existing.some((item) => stringifyLegacyOptionValue(item) === stringifyLegacyOptionValue(entry))) {
+        existing.push(entry);
+      }
+    });
+    fieldValueMap.set(field, existing);
+  };
+
+  rules.forEach((rule) => {
+    const when = rule?.when && typeof rule.when === "object" ? rule.when : {};
+    Object.entries(when).forEach(([field, value]) => addFieldValue(field, value));
+  });
+
+  const dimensions = Array.from(fieldValueMap.entries()).map(([field, values]) => {
+    const type = inferLegacyDimensionType(values, field);
+    return {
+      key: field,
+      label: PRICING_FIELD_LABELS[field] || field,
+      type,
+      required: true,
+      description: undefined,
+      options:
+        type === "number" && field !== "duration" && field !== "durationSec"
+          ? undefined
+          : values.map((value) => ({
+              value,
+              label: buildLegacyDisplayLabel(field, value),
+            })),
+    } satisfies ManagedPricingDimensionDefinition;
+  });
+
+  const matchingRules: ManagedPricingMatchingRule[] = rules.map((rule: Record<string, any>, index: number) => {
+    const when = rule?.when && typeof rule.when === "object" ? rule.when : {};
+    return {
+      ruleKey: String(rule?.ruleKey || "").trim() || `legacy_rule_${index + 1}`,
+      label: String(rule?.label || "").trim() || `规则 ${index + 1}`,
+      enabled: true,
+      priority: typeof rule?.priority === "number" ? rule.priority : 100,
+      evaluatorKey: String(rule?.ruleKey || "").trim() || `legacy_rule_${index + 1}_eval`,
+      conditions: {
+        all: Object.entries(when).map(([field, value]) => ({
+          field,
+          op: Array.isArray(value) ? ("in" as const) : ("eq" as const),
+          value: value as string | number | boolean | Array<string | number | boolean>,
+        })),
+        any: [],
+      },
+    };
+  });
+
+  const evaluators: Record<string, ManagedPricingEvaluator> = Object.fromEntries(
+    rules.map((rule: Record<string, any>, index: number) => {
+      const evaluatorKey = String(rule?.ruleKey || "").trim() || `legacy_rule_${index + 1}_eval`;
+      const price =
+        rule?.price && typeof rule.price === "object" && !Array.isArray(rule.price) ? rule.price : {};
+      return [
+        evaluatorKey,
+        {
+          type: "fixed",
+          priceYuan:
+            typeof price.priceYuan === "number" && Number.isFinite(price.priceYuan)
+              ? price.priceYuan
+              : typeof rule?.priceYuan === "number" && Number.isFinite(rule.priceYuan)
+              ? rule.priceYuan
+              : undefined,
+          credits:
+            typeof price.credits === "number" && Number.isFinite(price.credits)
+              ? price.credits
+              : typeof rule?.creditsPerCall === "number" && Number.isFinite(rule.creditsPerCall)
+              ? rule.creditsPerCall
+              : undefined,
+        } satisfies ManagedPricingEvaluator,
+      ] as const;
+    })
+  );
+
+  const firstRuleWhen =
+    rules[0]?.when && typeof rules[0].when === "object" && !Array.isArray(rules[0].when)
+      ? rules[0].when
+      : {};
+
+  return {
+    version: "v2",
+    dimensions,
+    matchingRules,
+    evaluators,
+    displayConfig: {
+      specAxes: dimensions.map((dimension) => dimension.key),
+      labels: Object.fromEntries(
+        dimensions.flatMap((dimension) =>
+          (dimension.options || []).map((option) => [
+            `${dimension.key}.${stringifyLegacyOptionValue(option.value)}`,
+            option.label || String(option.value),
+          ])
+        )
+      ),
+      presets: rules.slice(0, 16).map((rule) =>
+        rule?.when && typeof rule.when === "object" && !Array.isArray(rule.when) ? { ...rule.when } : {}
+      ),
+      defaultSelections:
+        Object.keys(firstRuleWhen).length > 0
+          ? { ...firstRuleWhen }
+          : {
+              ...(getVendorPricingDefaults(vendor).credits !== undefined
+                ? { credits: getVendorPricingDefaults(vendor).credits }
+                : {}),
+            },
+    },
+  };
+};
+
+const buildLegacyPricingV2FromFormula = (pricing: Record<string, any>): ManagedPricingV2View | null => {
+  const adjustments =
+    pricing?.formula?.adjustments && Array.isArray(pricing.formula.adjustments)
+      ? pricing.formula.adjustments.filter(Boolean)
+      : [];
+  if (adjustments.length === 0) return null;
+
+  const fieldValueMap = new Map<string, Array<string | number | boolean>>();
+  const linearUnitFields = new Set<string>();
+
+  adjustments.forEach((adjustment: Record<string, any>) => {
+    const when = adjustment?.when && typeof adjustment.when === "object" ? adjustment.when : {};
+    Object.entries(when).forEach(([field, value]) => {
+      const existing = fieldValueMap.get(field) || [];
+      const values = Array.isArray(value) ? value : [value];
+      values.forEach((entry) => {
+        if (
+          typeof entry !== "string" &&
+          typeof entry !== "number" &&
+          typeof entry !== "boolean"
+        ) {
+          return;
+        }
+        if (!existing.some((item) => stringifyLegacyOptionValue(item) === stringifyLegacyOptionValue(entry))) {
+          existing.push(entry);
+        }
+      });
+      fieldValueMap.set(field, existing);
+    });
+    const unitField =
+      typeof adjustment?.multiplier?.field === "string" ? adjustment.multiplier.field.trim() : "";
+    if (unitField) {
+      linearUnitFields.add(unitField);
+      if (!fieldValueMap.has(unitField)) fieldValueMap.set(unitField, []);
+    }
+  });
+
+  const dimensions = Array.from(fieldValueMap.entries()).map(([field, values]) => {
+    const type = linearUnitFields.has(field) ? "number" : inferLegacyDimensionType(values, field);
+    return {
+      key: field,
+      label: PRICING_FIELD_LABELS[field] || field,
+      type,
+      required: true,
+      description: undefined,
+      options:
+        type === "number"
+          ? undefined
+          : values.map((value) => ({
+              value,
+              label: buildLegacyDisplayLabel(field, value),
+            })),
+    } satisfies ManagedPricingDimensionDefinition;
+  });
+
+  const matchingRules: ManagedPricingMatchingRule[] = adjustments.map((adjustment: Record<string, any>, index: number) => {
+    const when = adjustment?.when && typeof adjustment.when === "object" ? adjustment.when : {};
+    return {
+      ruleKey: String(adjustment?.key || "").trim() || `legacy_formula_${index + 1}`,
+      label: String(adjustment?.label || "").trim() || `公式规则 ${index + 1}`,
+      enabled: true,
+      priority: 100 + (adjustments.length - index),
+      evaluatorKey: `${String(adjustment?.key || "").trim() || `legacy_formula_${index + 1}`}_eval`,
+      conditions: {
+        all: Object.entries(when).map(([field, value]) => ({
+          field,
+          op: Array.isArray(value) ? ("in" as const) : ("eq" as const),
+          value: value as string | number | boolean | Array<string | number | boolean>,
+        })),
+        any: [],
+      },
+    };
+  });
+
+  const evaluators: Record<string, ManagedPricingEvaluator> = Object.fromEntries(
+    adjustments.map((adjustment: Record<string, any>, index: number) => {
+      const baseKey = String(adjustment?.key || "").trim() || `legacy_formula_${index + 1}`;
+      const unitField =
+        typeof adjustment?.multiplier?.field === "string" ? adjustment.multiplier.field.trim() : "";
+      const unitPrice =
+        adjustment?.unitPrice && typeof adjustment.unitPrice === "object" ? adjustment.unitPrice : {};
+      return [
+        `${baseKey}_eval`,
+        unitField
+          ? ({
+              type: "linear",
+              unitField,
+              unitPriceYuan:
+                typeof unitPrice.priceYuan === "number" && Number.isFinite(unitPrice.priceYuan)
+                  ? unitPrice.priceYuan
+                  : 0,
+            } satisfies ManagedPricingEvaluator)
+          : ({
+              type: "fixed",
+              priceYuan:
+                typeof unitPrice.priceYuan === "number" && Number.isFinite(unitPrice.priceYuan)
+                  ? unitPrice.priceYuan
+                  : undefined,
+              credits:
+                typeof unitPrice.credits === "number" && Number.isFinite(unitPrice.credits)
+                  ? unitPrice.credits
+                  : undefined,
+            } satisfies ManagedPricingEvaluator),
+      ] as const;
+    })
+  );
+
+  const defaultSelections = Object.fromEntries(
+    dimensions.map((dimension) => {
+      if (linearUnitFields.has(dimension.key)) {
+        return [dimension.key, dimension.key === "duration" || dimension.key === "durationSec" ? 5 : 0];
+      }
+      const firstValue = dimension.options?.[0]?.value;
+      if (firstValue !== undefined) return [dimension.key, firstValue];
+      if (dimension.type === "boolean") return [dimension.key, false];
+      return [dimension.key, ""];
+    })
+  );
+
+  return {
+    version: "v2",
+    dimensions,
+    matchingRules,
+    evaluators,
+    displayConfig: {
+      specAxes: dimensions.map((dimension) => dimension.key),
+      labels: Object.fromEntries(
+        dimensions.flatMap((dimension) =>
+          (dimension.options || []).map((option) => [
+            `${dimension.key}.${stringifyLegacyOptionValue(option.value)}`,
+            option.label || String(option.value),
+          ])
+        )
+      ),
+      presets: adjustments.slice(0, 16).map((adjustment: Record<string, any>) => ({
+        ...(adjustment?.when && typeof adjustment.when === "object" && !Array.isArray(adjustment.when)
+          ? adjustment.when
+          : {}),
+        ...Array.from(linearUnitFields).reduce<Record<string, number>>((acc, field) => {
+          acc[field] = field === "duration" || field === "durationSec" ? 5 : 0;
+          return acc;
+        }, {}),
+      })),
+      defaultSelections,
+    },
+  };
+};
+
+const createEmptyPricingDimension = (): ManagedPricingDimensionDefinition => ({
+  key: "",
+  label: "",
+  type: "enum",
+  required: false,
+  options: [],
+  description: "",
+});
+
+const createEmptyMatchingRule = (): ManagedPricingMatchingRule => ({
+  ruleKey: "",
+  label: "",
+  enabled: true,
+  priority: 100,
+  evaluatorKey: "",
+  conditions: { all: [], any: [] },
+});
+
+const createEmptyConditionRow = (): ManagedPricingConditionRow => ({
+  field: "",
+  op: "eq",
+  value: "",
+});
+
+const createEvaluatorByType = (
+  type: "fixed" | "linear" | "base_plus_linear" | "lookup_matrix"
+): ManagedPricingEvaluator => {
+  if (type === "fixed") return { type, priceYuan: 0 };
+  if (type === "linear") return { type, unitField: "", unitPriceYuan: 0 };
+  if (type === "base_plus_linear") {
+    return { type, basePriceYuan: 0, includedUnits: 1, unitField: "", extraUnitPriceYuan: 0 };
+  }
+  return { type, axes: [], matrix: {} };
+};
+
+const getVendorPricingV2 = (vendor?: ManagedModelVendorConfig): ManagedPricingV2View => {
+  const pricing = vendor?.pricing && typeof vendor.pricing === "object" ? vendor.pricing : undefined;
+  const normalizedDimensions = normalizePricingDimensions(vendor);
+  const hasV2Shape =
+    Array.isArray(pricing?.matchingRules) ||
+    (pricing?.evaluators && typeof pricing.evaluators === "object") ||
+    normalizedDimensions.length > 0;
+  if (!hasV2Shape) {
+    const legacyFromRules = pricing ? buildLegacyPricingV2FromRules(pricing, vendor) : null;
+    if (legacyFromRules) return legacyFromRules;
+    const legacyFromFormula = pricing ? buildLegacyPricingV2FromFormula(pricing) : null;
+    if (legacyFromFormula) return legacyFromFormula;
+  }
+  return {
+    version: pricing?.version || "v2",
+    dimensions: normalizedDimensions,
+    matchingRules: Array.isArray(pricing?.matchingRules)
+      ? pricing?.matchingRules.map((rule: Record<string, any>) => ({
+          ruleKey: rule.ruleKey || "",
+          label: rule.label || "",
+          enabled: rule.enabled !== false,
+          priority: typeof rule.priority === "number" ? rule.priority : 100,
+          evaluatorKey: rule.evaluatorKey || "",
+          conditions: {
+            all: Array.isArray(rule.conditions?.all)
+              ? rule.conditions?.all.map((row: Record<string, any>) => ({
+                  field: row.field || "",
+                  op: row.op || "eq",
+                  value: (row.value ?? "") as string | number | boolean | Array<string | number | boolean>,
+                }))
+              : [],
+            any: Array.isArray(rule.conditions?.any)
+              ? rule.conditions?.any.map((row: Record<string, any>) => ({
+                  field: row.field || "",
+                  op: row.op || "eq",
+                  value: (row.value ?? "") as string | number | boolean | Array<string | number | boolean>,
+                }))
+              : [],
+          },
+        })) as ManagedPricingMatchingRule[]
+      : [],
+    evaluators:
+      pricing?.evaluators && typeof pricing.evaluators === "object"
+        ? ({ ...pricing.evaluators } as Record<string, ManagedPricingEvaluator>)
+        : ({} as Record<string, ManagedPricingEvaluator>),
+    displayConfig: {
+      specAxes: Array.isArray(pricing?.displayConfig?.specAxes) ? pricing?.displayConfig?.specAxes : [],
+      labels:
+        pricing?.displayConfig?.labels && typeof pricing.displayConfig.labels === "object"
+          ? { ...pricing.displayConfig.labels }
+          : {},
+      presets: Array.isArray(pricing?.displayConfig?.presets) ? pricing?.displayConfig?.presets : [],
+      defaultSelections:
+        pricing?.displayConfig?.defaultSelections &&
+        typeof pricing.displayConfig.defaultSelections === "object"
+          ? { ...pricing.displayConfig.defaultSelections }
+          : {},
+    },
+  };
+};
+
+const writeVendorPricingV2 = (
+  vendor: ManagedModelVendorConfig,
+  next: ReturnType<typeof getVendorPricingV2>
+): ManagedModelVendorConfig => {
+  const currentPricing =
+    vendor.pricing && typeof vendor.pricing === "object" ? { ...vendor.pricing } : {};
+
+  const dimensions = next.dimensions
+    .map((item) => ({
+      key: String(item.key || "").trim(),
+      label: String(item.label || "").trim() || String(item.key || "").trim(),
+      type: item.type || "string",
+      required: item.required === true,
+      options: Array.isArray(item.options)
+        ? item.options
+            .map((option) => ({
+              value: option.value,
+              label: String(option.label || option.value),
+            }))
+            .filter((option) => String(option.value).trim().length > 0)
+        : undefined,
+      description: String(item.description || "").trim() || undefined,
+    }))
+    .filter((item) => item.key);
+
+  const matchingRules = next.matchingRules
+    .map((rule, index) => ({
+      ruleKey: String(rule.ruleKey || "").trim() || `rule_v2_${index + 1}`,
+      label: String(rule.label || "").trim() || undefined,
+      enabled: rule.enabled !== false,
+      priority: typeof rule.priority === "number" ? rule.priority : 100,
+      evaluatorKey: String(rule.evaluatorKey || "").trim(),
+      conditions: {
+        all: (rule.conditions?.all || [])
+          .map((row) => ({
+            field: String(row.field || "").trim(),
+            op: row.op || "eq",
+            value: row.value,
+          }))
+          .filter((row) => row.field),
+        any: (rule.conditions?.any || [])
+          .map((row) => ({
+            field: String(row.field || "").trim(),
+            op: row.op || "eq",
+            value: row.value,
+          }))
+          .filter((row) => row.field),
+      },
+    }))
+    .filter((rule) => rule.evaluatorKey && ((rule.conditions.all?.length || 0) > 0 || (rule.conditions.any?.length || 0) > 0));
+
+  const evaluators = Object.fromEntries(
+    Object.entries(next.evaluators || {})
+      .map(([key, value]) => [String(key).trim(), value] as const)
+      .filter(([key, value]) => key && value && typeof value === "object" && typeof (value as any).type === "string")
+  );
+
+  return {
+    ...vendor,
+    pricing: {
+      ...currentPricing,
+      version: "v2",
+      dimensions,
+      matchingRules,
+      evaluators,
+      displayConfig: {
+        specAxes: (next.displayConfig.specAxes || []).filter(Boolean),
+        labels: next.displayConfig.labels || {},
+        presets: next.displayConfig.presets || [],
+        defaultSelections: next.displayConfig.defaultSelections || {},
+      },
+    },
+  };
+};
+
+const stringifyConditionValue = (value: unknown) => {
+  if (Array.isArray(value)) return value.join(", ");
+  if (typeof value === "boolean") return value ? "true" : "false";
+  return String(value ?? "");
+};
+
+const parseConditionValue = (raw: string, type?: ManagedPricingDimensionDefinition["type"], op?: string) => {
+  if (op === "in") {
+    return raw
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map((item) => {
+        if (type === "number") return Number(item);
+        if (type === "boolean") return item === "true";
+        return item;
+      });
+  }
+  if (type === "number") return raw.trim() === "" ? "" : Number(raw);
+  if (type === "boolean") return raw === "true";
+  return raw;
+};
+
+const getDimensionOptionValues = (dimension?: ManagedPricingDimensionDefinition) => {
+  if (!dimension) return [];
+  if (Array.isArray(dimension.options) && dimension.options.length > 0) {
+    return dimension.options.map((option) => option.value);
+  }
+  return [];
+};
+
+const getLookupMatrixValue = (matrix: Record<string, unknown> | undefined, path: Array<string>) => {
+  let current: unknown = matrix;
+  for (const key of path) {
+    if (!current || typeof current !== "object" || Array.isArray(current)) return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return current;
+};
+
+const setLookupMatrixValue = (
+  matrix: Record<string, unknown> | undefined,
+  path: Array<string>,
+  value: number | undefined
+): Record<string, unknown> => {
+  const next = matrix && typeof matrix === "object" && !Array.isArray(matrix)
+    ? JSON.parse(JSON.stringify(matrix))
+    : {};
+  let current: Record<string, unknown> = next;
+  path.forEach((key, index) => {
+    if (index === path.length - 1) {
+      if (value === undefined || Number.isNaN(value)) {
+        delete current[key];
+      } else {
+        current[key] = value;
+      }
+      return;
+    }
+    const child =
+      current[key] && typeof current[key] === "object" && !Array.isArray(current[key])
+        ? (current[key] as Record<string, unknown>)
+        : {};
+    current[key] = child;
+    current = child;
+  });
+  return next;
+};
+
+const validatePricingV2 = (pricing: ReturnType<typeof getVendorPricingV2>) => {
+  const issues: Array<{ level: "error" | "warning"; message: string }> = [];
+  const dimensionKeySet = new Set(pricing.dimensions.map((dimension) => dimension.key).filter(Boolean));
+  const evaluatorKeys = new Set(Object.keys(pricing.evaluators || {}));
+
+  pricing.dimensions.forEach((dimension, index) => {
+    if (!dimension.key.trim()) {
+      issues.push({ level: "error", message: `维度 #${index + 1} 缺少 key` });
+    }
+    if ((dimension.type === "enum" || dimension.type === "boolean") && (!dimension.options || dimension.options.length === 0)) {
+      issues.push({
+        level: "warning",
+        message: `维度 ${dimension.label || dimension.key || `#${index + 1}`} 是 ${dimension.type}，但未配置 options`,
+      });
+    }
+  });
+
+  pricing.matchingRules.forEach((rule, index) => {
+    if (!rule.ruleKey.trim()) {
+      issues.push({ level: "error", message: `规则 #${index + 1} 缺少 ruleKey` });
+    }
+    if (!rule.evaluatorKey.trim()) {
+      issues.push({ level: "error", message: `规则 ${rule.ruleKey || `#${index + 1}`} 未绑定 evaluatorKey` });
+    } else if (!evaluatorKeys.has(rule.evaluatorKey)) {
+      issues.push({
+        level: "error",
+        message: `规则 ${rule.ruleKey || `#${index + 1}`} 绑定的 evaluatorKey ${rule.evaluatorKey} 不存在`,
+      });
+    }
+    const allCount = rule.conditions.all.length;
+    const anyCount = rule.conditions.any.length;
+    if (allCount === 0 && anyCount === 0) {
+      issues.push({ level: "error", message: `规则 ${rule.ruleKey || `#${index + 1}`} 没有任何条件` });
+    }
+    [...rule.conditions.all, ...rule.conditions.any].forEach((condition, conditionIndex) => {
+      if (!condition.field.trim()) {
+        issues.push({
+          level: "error",
+          message: `规则 ${rule.ruleKey || `#${index + 1}`} 的条件 #${conditionIndex + 1} 缺少字段`,
+        });
+      } else if (!dimensionKeySet.has(condition.field)) {
+        issues.push({
+          level: "error",
+          message: `规则 ${rule.ruleKey || `#${index + 1}`} 使用了未定义维度 ${condition.field}`,
+        });
+      }
+    });
+  });
+
+  Object.entries(pricing.evaluators || {}).forEach(([key, evaluator]) => {
+    if (evaluator.type === "linear") {
+      if (!evaluator.unitField?.trim()) {
+        issues.push({ level: "error", message: `Evaluator ${key} 缺少 unitField` });
+      } else if (!dimensionKeySet.has(evaluator.unitField)) {
+        issues.push({ level: "error", message: `Evaluator ${key} 的 unitField ${evaluator.unitField} 未定义` });
+      }
+    }
+    if (evaluator.type === "base_plus_linear") {
+      if (!evaluator.unitField?.trim()) {
+        issues.push({ level: "error", message: `Evaluator ${key} 缺少 unitField` });
+      } else if (!dimensionKeySet.has(evaluator.unitField)) {
+        issues.push({ level: "error", message: `Evaluator ${key} 的 unitField ${evaluator.unitField} 未定义` });
+      }
+    }
+    if (evaluator.type === "lookup_matrix") {
+      const axes = Array.isArray(evaluator.axes) ? evaluator.axes.filter(Boolean) : [];
+      if (axes.length === 0) {
+        issues.push({ level: "error", message: `Evaluator ${key} 缺少 axes` });
+      }
+      axes.forEach((axis: string) => {
+        if (!dimensionKeySet.has(axis)) {
+          issues.push({ level: "error", message: `Evaluator ${key} 使用了未定义维度 ${axis}` });
+          return;
+        }
+        const dimension = pricing.dimensions.find((item) => item.key === axis);
+        if (!dimension?.options || dimension.options.length === 0) {
+          issues.push({
+            level: "warning",
+            message: `Evaluator ${key} 的轴 ${axis} 没有 options，可视化矩阵无法完整渲染`,
+          });
+        }
+      });
+    }
+  });
+
+  (pricing.displayConfig.specAxes || []).forEach((axis) => {
+    if (!dimensionKeySet.has(axis)) {
+      issues.push({ level: "warning", message: `displayConfig.specAxes 使用了未定义维度 ${axis}` });
+    }
+  });
+
+  (pricing.displayConfig.presets || []).forEach((preset, index) => {
+    pricing.dimensions.forEach((dimension) => {
+      const value = preset?.[dimension.key];
+      if ((value === undefined || value === null || value === "") && dimension.required) {
+        issues.push({
+          level: "warning",
+          message: `Preset ${index + 1} 缺少必填维度 ${dimension.label || dimension.key}`,
+        });
+      }
+    });
+  });
+
+  return issues;
+};
+
+const createEnumDimension = (
+  key: string,
+  label: string,
+  values: Array<string | number | boolean>,
+  options?: {
+    required?: boolean;
+    labels?: Record<string, string>;
+    description?: string;
+  }
+): ManagedPricingDimensionDefinition => ({
+  key,
+  label,
+  type: "enum",
+  required: options?.required === true,
+  options: values.map((value) => ({
+    value,
+    label: options?.labels?.[String(value)] || String(value),
+  })),
+  description: options?.description,
+});
+
+const createBooleanDimension = (
+  key: string,
+  label: string,
+  options?: {
+    required?: boolean;
+    trueLabel?: string;
+    falseLabel?: string;
+    description?: string;
+  }
+): ManagedPricingDimensionDefinition => ({
+  key,
+  label,
+  type: "boolean",
+  required: options?.required === true,
+  options: [
+    { value: false, label: options?.falseLabel || "否" },
+    { value: true, label: options?.trueLabel || "是" },
+  ],
+  description: options?.description,
+});
+
+const createNumberDimension = (
+  key: string,
+  label: string,
+  options?: {
+    required?: boolean;
+    description?: string;
+  }
+): ManagedPricingDimensionDefinition => ({
+  key,
+  label,
+  type: "number",
+  required: options?.required === true,
+  description: options?.description,
+});
+
+const createKling26PricingTemplate = () => ({
+  version: "v2",
+  dimensions: [
+    createEnumDimension("generationMode", "生成方式", ["i2v"], {
+      required: true,
+      labels: { i2v: "图生视频" },
+    }),
+    createBooleanDimension("hasAudio", "是否带音频", {
+      required: true,
+      falseLabel: "无声",
+      trueLabel: "有声",
+    }),
+    createEnumDimension("qualityMode", "质量档位", ["std", "pro"], {
+      required: true,
+      labels: { std: "标准（std）", pro: "高品质（pro）" },
+    }),
+    createEnumDimension("durationSec", "时长（秒）", [5, 10], {
+      required: true,
+      labels: { "5": "5 秒", "10": "10 秒" },
+    }),
+  ],
+  matchingRules: [
+    {
+      ruleKey: "kling26_i2v_rule",
+      label: "Kling 2.6 图生视频价格矩阵",
+      enabled: true,
+      priority: 100,
+      evaluatorKey: "kling26_matrix",
+      conditions: {
+        all: [{ field: "generationMode", op: "eq" as const, value: "i2v" }],
+        any: [],
+      },
+    },
+  ],
+  evaluators: {
+    kling26_matrix: {
+      type: "lookup_matrix" as const,
+      axes: ["hasAudio", "qualityMode", "durationSec"],
+      matrix: {
+        false: {
+          std: { "5": 1.5, "10": 3 },
+          pro: { "5": 3, "10": 5 },
+        },
+        true: {
+          std: { "5": 5, "10": 10 },
+          pro: { "5": 6, "10": 12 },
+        },
+      },
+    },
+  },
+  displayConfig: {
+    specAxes: ["hasAudio", "qualityMode", "durationSec"],
+    labels: {
+      "generationMode.i2v": "图生视频",
+      "hasAudio.false": "无声",
+      "hasAudio.true": "有声",
+      "qualityMode.std": "标准（std）",
+      "qualityMode.pro": "高品质（pro）",
+      "durationSec.5": "5 秒",
+      "durationSec.10": "10 秒",
+    },
+    defaultSelections: {
+      generationMode: "i2v",
+      hasAudio: false,
+      qualityMode: "std",
+      durationSec: 5,
+    },
+    presets: [
+      { generationMode: "i2v", hasAudio: false, qualityMode: "std", durationSec: 5 },
+      { generationMode: "i2v", hasAudio: false, qualityMode: "pro", durationSec: 5 },
+      { generationMode: "i2v", hasAudio: true, qualityMode: "std", durationSec: 5 },
+      { generationMode: "i2v", hasAudio: true, qualityMode: "pro", durationSec: 5 },
+      { generationMode: "i2v", hasAudio: false, qualityMode: "std", durationSec: 10 },
+      { generationMode: "i2v", hasAudio: false, qualityMode: "pro", durationSec: 10 },
+      { generationMode: "i2v", hasAudio: true, qualityMode: "std", durationSec: 10 },
+      { generationMode: "i2v", hasAudio: true, qualityMode: "pro", durationSec: 10 },
+    ],
+  },
+});
+
+const createKling30PricingTemplate = () => ({
+  version: "v2",
+  dimensions: [
+    createEnumDimension("generationMode", "生成方式", ["t2v", "i2v", "start_end_frame"], {
+      required: true,
+      labels: {
+        t2v: "文生视频",
+        i2v: "图生视频",
+        start_end_frame: "首尾帧",
+      },
+    }),
+    createBooleanDimension("hasAudio", "是否带音频", {
+      required: true,
+      falseLabel: "无声",
+      trueLabel: "有声",
+    }),
+    createEnumDimension("qualityMode", "质量档位", ["std", "pro"], {
+      required: true,
+      labels: { std: "标准（720P）", pro: "高品质（1080P）" },
+    }),
+    createEnumDimension("durationSec", "时长（秒）", [5, 10], {
+      required: true,
+      labels: { "5": "5 秒", "10": "10 秒" },
+    }),
+  ],
+  matchingRules: [
+    {
+      ruleKey: "kling30_common_rule",
+      label: "Kling 3.0 通用价格矩阵",
+      enabled: true,
+      priority: 100,
+      evaluatorKey: "kling30_matrix",
+      conditions: {
+        all: [
+          {
+            field: "generationMode",
+            op: "in" as const,
+            value: ["t2v", "i2v", "start_end_frame"],
+          },
+        ],
+        any: [],
+      },
+    },
+  ],
+  evaluators: {
+    kling30_matrix: {
+      type: "lookup_matrix" as const,
+      axes: ["hasAudio", "qualityMode", "durationSec"],
+      matrix: {
+        false: {
+          std: { "5": 3, "10": 6 },
+          pro: { "5": 4, "10": 8 },
+        },
+        true: {
+          std: { "5": 4.5, "10": 9 },
+          pro: { "5": 6, "10": 12 },
+        },
+      },
+    },
+  },
+  displayConfig: {
+    specAxes: ["generationMode", "hasAudio", "qualityMode", "durationSec"],
+    labels: {
+      "generationMode.t2v": "文生视频",
+      "generationMode.i2v": "图生视频",
+      "generationMode.start_end_frame": "首尾帧",
+      "hasAudio.false": "无声",
+      "hasAudio.true": "有声",
+      "qualityMode.std": "标准（720P）",
+      "qualityMode.pro": "高品质（1080P）",
+      "durationSec.5": "5 秒",
+      "durationSec.10": "10 秒",
+    },
+    defaultSelections: {
+      generationMode: "t2v",
+      hasAudio: false,
+      qualityMode: "std",
+      durationSec: 5,
+    },
+    presets: [
+      { generationMode: "t2v", hasAudio: false, qualityMode: "std", durationSec: 5 },
+      { generationMode: "t2v", hasAudio: false, qualityMode: "pro", durationSec: 5 },
+      { generationMode: "i2v", hasAudio: false, qualityMode: "std", durationSec: 5 },
+      { generationMode: "i2v", hasAudio: true, qualityMode: "std", durationSec: 5 },
+      { generationMode: "start_end_frame", hasAudio: false, qualityMode: "std", durationSec: 5 },
+      { generationMode: "t2v", hasAudio: false, qualityMode: "std", durationSec: 10 },
+      { generationMode: "t2v", hasAudio: true, qualityMode: "std", durationSec: 10 },
+      { generationMode: "i2v", hasAudio: true, qualityMode: "pro", durationSec: 10 },
+    ],
+  },
+});
+
+const createQ3TurboPricingTemplate = () => ({
+  version: "v2",
+  dimensions: [
+    createEnumDimension("generationMode", "生成方式", ["t2v", "i2v", "start_end_frame"], {
+      required: true,
+      labels: {
+        t2v: "文生视频",
+        i2v: "图生视频",
+        start_end_frame: "首尾帧",
+      },
+    }),
+    createEnumDimension("resolution", "分辨率", ["540P", "720P", "1080P"], {
+      required: true,
+      labels: {
+        "540P": "540P",
+        "720P": "720P",
+        "1080P": "1080P",
+      },
+    }),
+    createNumberDimension("durationSec", "时长（秒）", {
+      required: true,
+      description: "按秒线性计费",
+    }),
+  ],
+  matchingRules: [
+    {
+      ruleKey: "q3_turbo_540p_rule",
+      label: "Q3 Turbo 540P 线性计费",
+      enabled: true,
+      priority: 100,
+      evaluatorKey: "q3_turbo_540p_linear",
+      conditions: {
+        all: [
+          { field: "generationMode", op: "in" as const, value: ["t2v", "i2v", "start_end_frame"] },
+          { field: "resolution", op: "eq" as const, value: "540P" },
+        ],
+        any: [],
+      },
+    },
+    {
+      ruleKey: "q3_turbo_720p_rule",
+      label: "Q3 Turbo 720P 线性计费",
+      enabled: true,
+      priority: 110,
+      evaluatorKey: "q3_turbo_720p_linear",
+      conditions: {
+        all: [
+          { field: "generationMode", op: "in" as const, value: ["t2v", "i2v", "start_end_frame"] },
+          { field: "resolution", op: "eq" as const, value: "720P" },
+        ],
+        any: [],
+      },
+    },
+    {
+      ruleKey: "q3_turbo_1080p_rule",
+      label: "Q3 Turbo 1080P 线性计费",
+      enabled: true,
+      priority: 120,
+      evaluatorKey: "q3_turbo_1080p_linear",
+      conditions: {
+        all: [
+          { field: "generationMode", op: "in" as const, value: ["t2v", "i2v", "start_end_frame"] },
+          { field: "resolution", op: "eq" as const, value: "1080P" },
+        ],
+        any: [],
+      },
+    },
+  ],
+  evaluators: {
+    q3_turbo_540p_linear: {
+      type: "linear" as const,
+      unitField: "durationSec",
+      unitPriceYuan: 0.25,
+    },
+    q3_turbo_720p_linear: {
+      type: "linear" as const,
+      unitField: "durationSec",
+      unitPriceYuan: 0.375,
+    },
+    q3_turbo_1080p_linear: {
+      type: "linear" as const,
+      unitField: "durationSec",
+      unitPriceYuan: 0.5,
+    },
+  },
+  displayConfig: {
+    specAxes: ["generationMode", "resolution", "durationSec"],
+    labels: {
+      "generationMode.t2v": "文生视频",
+      "generationMode.i2v": "图生视频",
+      "generationMode.start_end_frame": "首尾帧",
+      "resolution.540P": "540P",
+      "resolution.720P": "720P",
+      "resolution.1080P": "1080P",
+    },
+    defaultSelections: {
+      generationMode: "t2v",
+      resolution: "540P",
+      durationSec: 5,
+    },
+    presets: [
+      { generationMode: "t2v", resolution: "540P", durationSec: 5 },
+      { generationMode: "t2v", resolution: "720P", durationSec: 5 },
+      { generationMode: "t2v", resolution: "1080P", durationSec: 5 },
+      { generationMode: "i2v", resolution: "540P", durationSec: 5 },
+      { generationMode: "i2v", resolution: "720P", durationSec: 10 },
+      { generationMode: "start_end_frame", resolution: "1080P", durationSec: 10 },
+    ],
+  },
+});
+
+const mergeFallbackStructure = <T,>(fallback: T, current?: Partial<T> | null): T => {
+  if (Array.isArray(fallback)) {
+    return (Array.isArray(current) ? current : fallback) as T;
+  }
+  if (fallback && typeof fallback === "object") {
+    const next: Record<string, unknown> = {
+      ...(fallback as Record<string, unknown>),
+    };
+    if (current && typeof current === "object" && !Array.isArray(current)) {
+      Object.entries(current as Record<string, unknown>).forEach(([key, value]) => {
+        next[key] = mergeFallbackStructure(
+          (fallback as Record<string, unknown>)[key],
+          value as never
+        );
+      });
+    }
+    return next as T;
+  }
+  return (current === undefined ? fallback : current) as T;
 };
 
 const MANAGED_MODEL_TASK_TYPE_OPTIONS: Array<{
@@ -2222,6 +3510,7 @@ const normalizeModelMapping = (input?: Partial<ModelProviderMappingV2>): ModelPr
         defaultVendor: "seedance_api",
         vendors: [
           {
+            ...(existingVendor || {}),
             vendorKey: "seedance_api",
             platformKey: "seedance_api",
             label: existingVendor?.label || "Seedance API",
@@ -2230,6 +3519,18 @@ const normalizeModelMapping = (input?: Partial<ModelProviderMappingV2>): ModelPr
             provider: "doubao",
             modelName: existingVendor?.modelName || "Seedance",
             modelVersion: "2.0",
+            creditsPerCall:
+              typeof existingVendor?.creditsPerCall === "number" && Number.isFinite(existingVendor.creditsPerCall)
+                ? existingVendor.creditsPerCall
+                : undefined,
+            priceYuan:
+              typeof existingVendor?.priceYuan === "number" && Number.isFinite(existingVendor.priceYuan)
+                ? existingVendor.priceYuan
+                : undefined,
+            pricing:
+              existingVendor?.pricing && typeof existingVendor.pricing === "object"
+                ? existingVendor.pricing
+                : undefined,
             metadata:
               existingVendor?.metadata && typeof existingVendor.metadata === "object"
                 ? existingVendor.metadata
@@ -3034,6 +4335,41 @@ const buildManagedNodeMetadata = (model: ManagedModelConfig): Record<string, any
       thumbnailEnabled: true,
       privateMode: false,
       storyboard: false,
+    };
+  } else if (model.modelKey === "wan-2.6") {
+    metadata.defaultData = {
+      provider: defaultVendor?.provider || "dashscope",
+      managedModelKey: model.modelKey,
+      vendorKey: defaultVendor?.vendorKey,
+      platformKey: defaultVendor?.platformKey || defaultVendor?.vendorKey,
+      creditsPerCall: defaultVendorCredits,
+      size: "16:9",
+      resolution: "720P",
+      duration: 5,
+      shotType: "single",
+    };
+  } else if (model.modelKey === "wan-2.6-r2v") {
+    metadata.defaultData = {
+      provider: defaultVendor?.provider || "dashscope",
+      managedModelKey: model.modelKey,
+      vendorKey: defaultVendor?.vendorKey,
+      platformKey: defaultVendor?.platformKey || defaultVendor?.vendorKey,
+      creditsPerCall: defaultVendorCredits,
+      size: "16:9",
+      duration: 5,
+      shotType: "single",
+    };
+  } else if (model.modelKey === "wan-2.7") {
+    metadata.defaultData = {
+      provider: defaultVendor?.provider || "dashscope",
+      managedModelKey: model.modelKey,
+      vendorKey: defaultVendor?.vendorKey,
+      platformKey: defaultVendor?.platformKey || defaultVendor?.vendorKey,
+      creditsPerCall: defaultVendorCredits,
+      resolution: "1080P",
+      duration: 5,
+      promptExtend: true,
+      watermark: false,
     };
   }
 
@@ -8427,10 +9763,22 @@ function UnifiedModelManagementTab() {
   const [modelTypeFilter, setModelTypeFilter] = useState<"all" | ManagedModelTaskType>("all");
   const [jsonModalOpen, setJsonModalOpen] = useState(false);
   const [jsonText, setJsonText] = useState(DEFAULT_MODEL_PROVIDER_MAPPING_TEMPLATE);
-  const [uiMode, setUiMode] = useState<"simple" | "advanced">("simple");
   const [showPlatformPanel, setShowPlatformPanel] = useState(false);
   const [showAdvancedModelConfig, setShowAdvancedModelConfig] = useState(false);
   const [showAdvancedVendorConfig, setShowAdvancedVendorConfig] = useState(false);
+  const [pricingJsonDraftByVendor, setPricingJsonDraftByVendor] = useState<Record<string, string>>({});
+  const [pricingPreviewByVendor, setPricingPreviewByVendor] = useState<
+    Record<string, ManagedPricingPreviewResponse | null>
+  >({});
+  const [pricingPreviewLoadingByVendor, setPricingPreviewLoadingByVendor] = useState<
+    Record<string, boolean>
+  >({});
+  const [pricingPresetPreviewByVendor, setPricingPresetPreviewByVendor] = useState<
+    Record<string, ManagedPricingPreviewResponse[]>
+  >({});
+  const [pricingPresetPreviewLoadingByVendor, setPricingPresetPreviewLoadingByVendor] = useState<
+    Record<string, boolean>
+  >({});
 
   const showToast = (message: string, type: "success" | "error" = "success") => {
     setToast({ message, type });
@@ -8456,6 +9804,11 @@ function UnifiedModelManagementTab() {
     const normalized = cloneMapping(input);
     setMappingDraft(normalized);
     setJsonText(stringifyPrettyJson(normalized));
+    setPricingJsonDraftByVendor({});
+    setPricingPreviewByVendor({});
+    setPricingPreviewLoadingByVendor({});
+    setPricingPresetPreviewByVendor({});
+    setPricingPresetPreviewLoadingByVendor({});
 
     const modelCount = normalized.models?.length || 0;
     setSelectedModelIndex((current) => {
@@ -8532,11 +9885,6 @@ function UnifiedModelManagementTab() {
     }
   };
 
-  const handleReset = () => {
-    syncDraftFromObject(JSON.parse(DEFAULT_MODEL_PROVIDER_MAPPING_TEMPLATE));
-    setStatusText("已恢复默认模板，未保存");
-  };
-
   const applyMappingMutation = (mutator: (draft: ModelProviderMappingV2) => void) => {
     setMappingDraft((current) => {
       const next = cloneMapping(current);
@@ -8581,7 +9929,6 @@ function UnifiedModelManagementTab() {
     : "image";
   const recommendedNodeCategory: "input" | "image" | "video" =
     selectedTaskType === "text" ? "input" : selectedTaskType;
-  const isSimpleMode = uiMode === "simple";
   const selectedManagedMetadata = selectedModel ? buildManagedNodeMetadata(selectedModel) : undefined;
   const selectedVodConfig =
     selectedManagedMetadata?.vod && typeof selectedManagedMetadata.vod === "object"
@@ -8732,6 +10079,165 @@ function UnifiedModelManagementTab() {
     });
   };
 
+  const updateVendorPricingV2 = (
+    vendorIndex: number,
+    mutator: (current: ReturnType<typeof getVendorPricingV2>) => ReturnType<typeof getVendorPricingV2>
+  ) => {
+    if (!selectedModel) return;
+    applyMappingMutation((draft) => {
+      const model = draft.models?.[selectedModelIndex];
+      const target = model?.vendors?.[vendorIndex];
+      if (!target || !model?.vendors) return;
+      const nextPricing = mutator(getVendorPricingV2(target));
+      model.vendors[vendorIndex] = writeVendorPricingV2(target, nextPricing);
+    });
+  };
+
+  const importVendorPricingV2Template = (
+    vendorIndex: number,
+    templateFactory: () => ReturnType<typeof getVendorPricingV2>,
+    label: string
+  ) => {
+    const vendor = selectedModel?.vendors?.[vendorIndex];
+    const stateKey = getManagedVendorStateKey(selectedModel, vendor, vendorIndex);
+    const nextPricing = templateFactory();
+    updateVendorPricingV2(vendorIndex, () => nextPricing);
+    setPricingJsonDraftByVendor((current) => ({
+      ...current,
+      [stateKey]: JSON.stringify(nextPricing, null, 2),
+    }));
+    setPricingPreviewByVendor((current) => ({ ...current, [stateKey]: null }));
+    setPricingPresetPreviewByVendor((current) => ({ ...current, [stateKey]: [] }));
+    showToast(`${label} 已导入，可直接试算`, "success");
+  };
+
+  const resetVendorPricingJsonDraft = (
+    vendorIndex: number,
+    vendor: ManagedModelVendorConfig
+  ) => {
+    const stateKey = getManagedVendorStateKey(selectedModel, vendor, vendorIndex);
+    const pricingV2 = getVendorPricingV2(vendor);
+    setPricingJsonDraftByVendor((current) => ({
+      ...current,
+      [stateKey]: JSON.stringify(pricingV2, null, 2),
+    }));
+  };
+
+  const applyVendorPricingJsonDraft = (
+    vendorIndex: number,
+    vendor: ManagedModelVendorConfig
+  ) => {
+    const stateKey = getManagedVendorStateKey(selectedModel, vendor, vendorIndex);
+    const currentPricing = getVendorPricingV2(vendor);
+    const raw = pricingJsonDraftByVendor[stateKey] ?? JSON.stringify(currentPricing, null, 2);
+    try {
+      const parsed = JSON.parse(raw);
+      const nextPricing = getVendorPricingV2({
+        ...vendor,
+        pricing: parsed,
+      } as ManagedModelVendorConfig);
+      updateVendorPricingV2(vendorIndex, () => nextPricing);
+      setPricingJsonDraftByVendor((current) => ({
+        ...current,
+        [stateKey]: JSON.stringify(nextPricing, null, 2),
+      }));
+      setPricingPreviewByVendor((current) => ({ ...current, [stateKey]: null }));
+      setPricingPresetPreviewByVendor((current) => ({ ...current, [stateKey]: [] }));
+      showToast("pricing.v2 JSON 已应用，可直接试算", "success");
+    } catch (error: any) {
+      showToast(error?.message || "pricing.v2 JSON 解析失败", "error");
+    }
+  };
+
+
+  const previewVendorPricing = async (vendorIndex: number, vendor: ManagedModelVendorConfig) => {
+    if (!selectedModel?.modelKey || !vendor.vendorKey) {
+      showToast("请先填写 modelKey 和 vendorKey", "error");
+      return;
+    }
+    const stateKey = getManagedVendorStateKey(selectedModel, vendor, vendorIndex);
+    const pricingV2 = getVendorPricingV2(vendor);
+    const contextBase =
+      pricingV2.displayConfig.defaultSelections && Object.keys(pricingV2.displayConfig.defaultSelections).length > 0
+        ? pricingV2.displayConfig.defaultSelections
+        : Object.fromEntries(
+            pricingV2.dimensions
+              .map((dimension) => {
+                if (Array.isArray(dimension.options) && dimension.options.length > 0) {
+                  return [dimension.key, dimension.options[0]?.value];
+                }
+                if (dimension.type === "boolean") return [dimension.key, false];
+                if (dimension.type === "number") return [dimension.key, 0];
+                return [dimension.key, ""];
+              })
+              .filter(([key]) => String(key).trim().length > 0)
+          );
+
+    setPricingPreviewLoadingByVendor((current) => ({ ...current, [stateKey]: true }));
+    try {
+      const result = await previewManagedPricing({
+        modelKey: selectedModel.modelKey,
+        vendorKey: vendor.vendorKey,
+        context: contextBase,
+        pricing: vendor.pricing as Record<string, any> | undefined,
+        metadata: vendor.metadata,
+        creditsPerCall: vendor.creditsPerCall,
+        priceYuan: vendor.priceYuan,
+      });
+      setPricingPreviewByVendor((current) => ({ ...current, [stateKey]: result }));
+      showToast(`已试算 ${vendor.vendorKey}`, "success");
+    } catch (error: any) {
+      showToast(error?.message || "试算失败", "error");
+    } finally {
+      setPricingPreviewLoadingByVendor((current) => ({ ...current, [stateKey]: false }));
+    }
+  };
+
+  const previewVendorPricingPresets = async (
+    vendorIndex: number,
+    vendor: ManagedModelVendorConfig
+  ) => {
+    if (!selectedModel?.modelKey || !vendor.vendorKey) {
+      showToast("请先填写 modelKey 和 vendorKey", "error");
+      return;
+    }
+    const stateKey = getManagedVendorStateKey(selectedModel, vendor, vendorIndex);
+    const pricingV2 = getVendorPricingV2(vendor);
+    const presets = Array.isArray(pricingV2.displayConfig.presets)
+      ? pricingV2.displayConfig.presets
+      : [];
+    if (presets.length === 0) {
+      showToast("请先添加 presets 再批量试算", "error");
+      return;
+    }
+
+    setPricingPresetPreviewLoadingByVendor((current) => ({ ...current, [stateKey]: true }));
+    try {
+      const results = await Promise.all(
+        presets.map((preset) =>
+          previewManagedPricing({
+            modelKey: selectedModel.modelKey,
+            vendorKey: vendor.vendorKey,
+            context: {
+              ...(pricingV2.displayConfig.defaultSelections || {}),
+              ...(preset || {}),
+            },
+            pricing: vendor.pricing as Record<string, any> | undefined,
+            metadata: vendor.metadata,
+            creditsPerCall: vendor.creditsPerCall,
+            priceYuan: vendor.priceYuan,
+          })
+        )
+      );
+      setPricingPresetPreviewByVendor((current) => ({ ...current, [stateKey]: results }));
+      showToast(`已批量试算 ${results.length} 个 preset`, "success");
+    } catch (error: any) {
+      showToast(error?.message || "批量试算失败", "error");
+    } finally {
+      setPricingPresetPreviewLoadingByVendor((current) => ({ ...current, [stateKey]: false }));
+    }
+  };
+
   const addVendor = () => {
     if (!selectedModel) return;
     applyMappingMutation((draft) => {
@@ -8801,22 +10307,6 @@ function UnifiedModelManagementTab() {
             </div>
           </div>
           <div className='flex flex-wrap gap-3'>
-            <div className='inline-flex rounded-lg border p-1'>
-              <button
-                type='button'
-                className={`rounded px-3 py-1 text-sm ${uiMode === "simple" ? "bg-gray-900 text-white" : "text-gray-600"}`}
-                onClick={() => setUiMode("simple")}
-              >
-                Simple
-              </button>
-              <button
-                type='button'
-                className={`rounded px-3 py-1 text-sm ${uiMode === "advanced" ? "bg-gray-900 text-white" : "text-gray-600"}`}
-                onClick={() => setUiMode("advanced")}
-              >
-                Advanced
-              </button>
-            </div>
             <Button onClick={handleSave} disabled={saving || loading}>
               {saving ? "保存中..." : "保存设置"}
             </Button>
@@ -8825,9 +10315,6 @@ function UnifiedModelManagementTab() {
             </Button>
             <Button variant='outline' onClick={() => setJsonModalOpen(true)} disabled={saving || loading}>
               JSON 导入/替换
-            </Button>
-            <Button variant='outline' onClick={handleReset} disabled={saving || loading}>
-              恢复默认模板
             </Button>
           </div>
         </div>
@@ -8919,11 +10406,11 @@ function UnifiedModelManagementTab() {
               className='text-xs text-gray-500 underline-offset-2 hover:underline'
               onClick={() => setShowPlatformPanel((prev) => !prev)}
             >
-              {showPlatformPanel || !isSimpleMode ? "收起平台管理" : "展开平台管理（高级）"}
+              {showPlatformPanel ? "收起平台管理" : "展开平台管理"}
             </button>
           </div>
 
-          {(showPlatformPanel || !isSimpleMode) && (
+          {showPlatformPanel && (
             <div className='bg-white rounded-lg border p-4 shadow-sm'>
               <div className='mb-3 flex items-center justify-between'>
                 <h4 className='font-semibold'>平台列表</h4>
@@ -8961,7 +10448,7 @@ function UnifiedModelManagementTab() {
               <div>
                 <h4 className='font-semibold'>模型表单</h4>
                 <p className='text-sm text-gray-500'>
-                  这里维护模型基础信息、节点模板和厂商路线。规格定价优先读取厂商下的 `pricing.rules`，并兼容旧 `specPricing`。
+                  这里维护模型基础信息、节点模板和厂商路线。价格配置以数据库已落地的 `pricing.v2 JSON` 为准。
                 </p>
               </div>
               {selectedModel && (
@@ -9052,10 +10539,10 @@ function UnifiedModelManagementTab() {
                       className='text-xs text-gray-500 underline-offset-2 hover:underline'
                       onClick={() => setShowAdvancedModelConfig((prev) => !prev)}
                     >
-                      {showAdvancedModelConfig || !isSimpleMode ? "收起高级配置" : "展开高级配置"}
+                      {showAdvancedModelConfig ? "收起高级配置" : "展开高级配置"}
                     </button>
                   </div>
-                  {(showAdvancedModelConfig || !isSimpleMode) ? (
+                  {showAdvancedModelConfig ? (
                     <div className='grid gap-4 md:grid-cols-2'>
                       <div>
                         <label className='block text-sm text-gray-600 mb-1'>serviceType</label>
@@ -9126,7 +10613,6 @@ function UnifiedModelManagementTab() {
                   <div className='mb-3 font-medium text-gray-800'>节点映射</div>
                   <div className='mb-3 text-xs text-gray-500'>
                     推荐分类：<span className='font-medium'>{recommendedNodeCategory}</span>
-                    {isSimpleMode ? "（简洁模式隐藏分类手动编辑）" : ""}
                   </div>
                   <div className='grid gap-4 md:grid-cols-2'>
                     <div>
@@ -9149,7 +10635,7 @@ function UnifiedModelManagementTab() {
                         ))}
                       </select>
                     </div>
-                    {(!isSimpleMode || showAdvancedModelConfig) && (
+                    {showAdvancedModelConfig && (
                       <div>
                         <label className='block text-sm text-gray-600 mb-1'>分类</label>
                         <select
@@ -9186,7 +10672,7 @@ function UnifiedModelManagementTab() {
                         className='text-xs text-gray-500 underline-offset-2 hover:underline'
                         onClick={() => setShowAdvancedVendorConfig((prev) => !prev)}
                       >
-                        {showAdvancedVendorConfig || !isSimpleMode ? "收起厂商高级字段" : "展开厂商高级字段"}
+                        {showAdvancedVendorConfig ? "收起厂商高级字段" : "展开厂商高级字段"}
                       </button>
                       <Button size='sm' variant='outline' onClick={addVendor}>新增厂商</Button>
                     </div>
@@ -9197,8 +10683,26 @@ function UnifiedModelManagementTab() {
                       <div className='rounded-lg border border-dashed px-4 py-8 text-center text-sm text-gray-500'>暂无厂商路线</div>
                     ) : (
                       vendorCards.map((vendor, vendorIndex) => {
+                        const vendorStateKey = getManagedVendorStateKey(selectedModel, vendor, vendorIndex);
                         const specRules = readVendorSpecPricingRules(vendor);
                         const vendorPricingDefaults = getVendorPricingDefaults(vendor);
+                        const pricingV2 = getVendorPricingV2(vendor);
+                        const pricingV2Issues = validatePricingV2(pricingV2);
+                        const dimensionOptions = pricingV2.dimensions.map((dimension) => ({
+                          value: dimension.key,
+                          label: dimension.label || dimension.key,
+                          type: dimension.type || "string",
+                        }));
+                        const evaluatorEntries = Object.entries(pricingV2.evaluators || {});
+                        const previewResult = pricingPreviewByVendor[vendorStateKey];
+                        const previewLoading = pricingPreviewLoadingByVendor[vendorStateKey] === true;
+                        const presetPreviewResults = pricingPresetPreviewByVendor[vendorStateKey] || [];
+                        const presetPreviewLoading =
+                          pricingPresetPreviewLoadingByVendor[vendorStateKey] === true;
+                        const hasPricingV2Errors = pricingV2Issues.some((issue) => issue.level === "error");
+                        const pricingJsonDraft =
+                          pricingJsonDraftByVendor[vendorStateKey] ??
+                          JSON.stringify(pricingV2, null, 2);
                         return (
                           <div key={`${vendor.vendorKey || 'vendor'}-${vendorIndex}`} className='rounded-lg border bg-gray-50 p-4'>
                             <div className='mb-3 flex items-center justify-between'>
@@ -9244,7 +10748,7 @@ function UnifiedModelManagementTab() {
                                     </option>
                                   ))}
                                 </select>
-                                {(!isSimpleMode || showAdvancedVendorConfig) && (
+                                {showAdvancedVendorConfig && (
                                   <Input
                                     className='mt-2'
                                     value={vendor.platformKey || ''}
@@ -9253,7 +10757,7 @@ function UnifiedModelManagementTab() {
                                   />
                                 )}
                               </div>
-                              {(!isSimpleMode || showAdvancedVendorConfig) && (
+                              {showAdvancedVendorConfig && (
                                 <>
                                   <div>
                                     <label className='block text-sm text-gray-600 mb-1'>provider</label>
@@ -9323,7 +10827,7 @@ function UnifiedModelManagementTab() {
                                   <option value='tencent_vod'>tencent_vod</option>
                                 </select>
                               </div>
-                              {(!isSimpleMode || showAdvancedVendorConfig) && (
+                              {showAdvancedVendorConfig && (
                                 <div>
                                   <label className='block text-sm text-gray-600 mb-1'>Route type</label>
                                   <select
@@ -9358,6 +10862,1319 @@ function UnifiedModelManagementTab() {
                             </div>
 
                             <div className='mt-4 rounded-lg border bg-white p-4'>
+                              <div className='mb-4 rounded-lg border border-blue-100 bg-blue-50 p-4'>
+                                <div className='mb-3 flex items-center justify-between gap-3'>
+                                  <div>
+                                    <div className='font-medium text-blue-900'>定价配置 v2</div>
+                                    <div className='text-xs text-blue-700'>
+                                      直接维护厂商下的 `pricing.v2 JSON`，并通过试算验证最终价格与积分。
+                                    </div>
+                                  </div>
+                                  <div className='flex items-center gap-2'>
+                                    <span className='rounded bg-white px-2 py-1 text-xs text-gray-600'>
+                                      version: {pricingV2.version}
+                                    </span>
+                                    <Button
+                                      size='sm'
+                                      variant='outline'
+                                      onClick={() => previewVendorPricingPresets(vendorIndex, vendor)}
+                                      disabled={
+                                        presetPreviewLoading ||
+                                        hasPricingV2Errors ||
+                                        (pricingV2.displayConfig.presets || []).length === 0
+                                      }
+                                    >
+                                      {presetPreviewLoading ? "批量试算中..." : "批量试算"}
+                                    </Button>
+                                    <Button
+                                      size='sm'
+                                      variant='outline'
+                                      onClick={() => previewVendorPricing(vendorIndex, vendor)}
+                                      disabled={previewLoading || hasPricingV2Errors}
+                                    >
+                                      {previewLoading ? "试算中..." : "试算 v2"}
+                                    </Button>
+                                  </div>
+                                </div>
+
+                                <div className='mb-4 space-y-4'>
+                                  <div className='rounded-lg border border-emerald-200 bg-emerald-50 p-3'>
+                                    <div className='mb-2 flex items-center justify-between gap-3'>
+                                      <div>
+                                        <div className='text-sm font-medium text-emerald-900'>AI / JSON 应用</div>
+                                        <div className='text-xs text-emerald-700'>
+                                          使用你们本地 AI 对话生成标准 `pricing.v2 JSON`，然后粘贴到这里直接应用。
+                                        </div>
+                                      </div>
+                                      <div className='flex items-center gap-2'>
+                                        <Button
+                                          size='sm'
+                                          variant='outline'
+                                          onClick={() => resetVendorPricingJsonDraft(vendorIndex, vendor)}
+                                        >
+                                          重置为当前配置
+                                        </Button>
+                                        <Button
+                                          size='sm'
+                                          onClick={() => applyVendorPricingJsonDraft(vendorIndex, vendor)}
+                                        >
+                                          应用 JSON
+                                        </Button>
+                                      </div>
+                                    </div>
+                                    <textarea
+                                      value={pricingJsonDraft}
+                                      onChange={(e) =>
+                                        setPricingJsonDraftByVendor((current) => ({
+                                          ...current,
+                                          [vendorStateKey]: e.target.value,
+                                        }))
+                                      }
+                                      rows={18}
+                                      className='w-full rounded border border-emerald-200 bg-white px-3 py-2 font-mono text-xs leading-5'
+                                      spellCheck={false}
+                                      placeholder='将 AI 生成的 pricing.v2 JSON 粘贴到这里'
+                                    />
+                                  </div>
+                                </div>
+
+                                <div className='space-y-4'>
+                                  {pricingV2Issues.length > 0 && (
+                                    <div className='rounded-lg border border-amber-200 bg-amber-50 p-3'>
+                                      <div className='mb-2 flex items-center justify-between'>
+                                        <div className='font-medium text-amber-900'>校验提示</div>
+                                        <div className='text-xs text-amber-700'>
+                                          {pricingV2Issues.filter((item) => item.level === "error").length} 个错误，
+                                          {pricingV2Issues.filter((item) => item.level === "warning").length} 个警告
+                                        </div>
+                                      </div>
+                                      <div className='space-y-1 text-xs'>
+                                        {pricingV2Issues.map((issue, issueIndex) => (
+                                          <div
+                                            key={`pricing-issue-${issueIndex}`}
+                                            className={issue.level === "error" ? "text-red-700" : "text-amber-800"}
+                                          >
+                                            {issue.level === "error" ? "错误" : "警告"}: {issue.message}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  <div className='hidden rounded-lg border bg-white p-3'>
+                                    <div className='mb-3 flex items-center justify-between'>
+                                      <div className='font-medium text-gray-800'>1. 维度定义</div>
+                                      <Button
+                                        size='sm'
+                                        variant='outline'
+                                        onClick={() =>
+                                          updateVendorPricingV2(vendorIndex, (current) => ({
+                                            ...current,
+                                            dimensions: [...current.dimensions, createEmptyPricingDimension()],
+                                          }))
+                                        }
+                                      >
+                                        新增维度
+                                      </Button>
+                                    </div>
+                                    <div className='space-y-3'>
+                                      {pricingV2.dimensions.length === 0 ? (
+                                        <div className='rounded border border-dashed px-3 py-4 text-sm text-gray-500'>
+                                          暂无 v2 维度。先定义报价上下文维度，例如 `generationMode / durationSec / hasAudio`。
+                                        </div>
+                                      ) : (
+                                        pricingV2.dimensions.map((dimension, dimensionIndex) => (
+                                          <div key={`${dimension.key || "dimension"}-${dimensionIndex}`} className='rounded border p-3'>
+                                            <div className='grid gap-3 md:grid-cols-4'>
+                                              <div>
+                                                <label className='block text-xs text-gray-600 mb-1'>key</label>
+                                                <Input
+                                                  value={dimension.key || ""}
+                                                  onChange={(e) =>
+                                                    updateVendorPricingV2(vendorIndex, (current) => {
+                                                      const next = [...current.dimensions];
+                                                      next[dimensionIndex] = { ...next[dimensionIndex], key: e.target.value };
+                                                      return { ...current, dimensions: next };
+                                                    })
+                                                  }
+                                                />
+                                              </div>
+                                              <div>
+                                                <label className='block text-xs text-gray-600 mb-1'>label</label>
+                                                <Input
+                                                  value={dimension.label || ""}
+                                                  onChange={(e) =>
+                                                    updateVendorPricingV2(vendorIndex, (current) => {
+                                                      const next = [...current.dimensions];
+                                                      next[dimensionIndex] = { ...next[dimensionIndex], label: e.target.value };
+                                                      return { ...current, dimensions: next };
+                                                    })
+                                                  }
+                                                />
+                                              </div>
+                                              <div>
+                                                <label className='block text-xs text-gray-600 mb-1'>type</label>
+                                                <select
+                                                  value={dimension.type || "string"}
+                                                  onChange={(e) =>
+                                                    updateVendorPricingV2(vendorIndex, (current) => {
+                                                      const next = [...current.dimensions];
+                                                      next[dimensionIndex] = { ...next[dimensionIndex], type: e.target.value as ManagedPricingDimensionDefinition["type"] };
+                                                      return { ...current, dimensions: next };
+                                                    })
+                                                  }
+                                                  className='w-full rounded border px-3 py-2'
+                                                >
+                                                  <option value='string'>string</option>
+                                                  <option value='number'>number</option>
+                                                  <option value='boolean'>boolean</option>
+                                                  <option value='enum'>enum</option>
+                                                </select>
+                                              </div>
+                                              <div className='flex items-end justify-between gap-2'>
+                                                <label className='inline-flex items-center gap-2 text-xs text-gray-600'>
+                                                  <input
+                                                    type='checkbox'
+                                                    checked={dimension.required === true}
+                                                    onChange={(e) =>
+                                                      updateVendorPricingV2(vendorIndex, (current) => {
+                                                        const next = [...current.dimensions];
+                                                        next[dimensionIndex] = { ...next[dimensionIndex], required: e.target.checked };
+                                                        return { ...current, dimensions: next };
+                                                      })
+                                                    }
+                                                  />
+                                                  required
+                                                </label>
+                                                <Button
+                                                  size='sm'
+                                                  variant='outline'
+                                                  className='text-red-600 hover:text-red-700'
+                                                  onClick={() =>
+                                                    updateVendorPricingV2(vendorIndex, (current) => ({
+                                                      ...current,
+                                                      dimensions: current.dimensions.filter((_, index) => index !== dimensionIndex),
+                                                    }))
+                                                  }
+                                                >
+                                                  删除
+                                                </Button>
+                                              </div>
+                                            </div>
+                                            {(dimension.type === "enum" || dimension.type === "boolean") && (
+                                              <div className='mt-3'>
+                                                <label className='block text-xs text-gray-600 mb-1'>options</label>
+                                                <Input
+                                                  value={(dimension.options || [])
+                                                    .map((option) => `${option.value}:${option.label || option.value}`)
+                                                    .join(", ")}
+                                                  onChange={(e) =>
+                                                    updateVendorPricingV2(vendorIndex, (current) => {
+                                                      const next = [...current.dimensions];
+                                                      next[dimensionIndex] = {
+                                                        ...next[dimensionIndex],
+                                                        options: e.target.value
+                                                          .split(",")
+                                                          .map((item) => item.trim())
+                                                          .filter(Boolean)
+                                                          .map((item) => {
+                                                            const [rawValue, rawLabel] = item.split(":");
+                                                            const normalizedValue =
+                                                              dimension.type === "boolean"
+                                                                ? rawValue.trim() === "true"
+                                                                : rawValue.trim();
+                                                            return {
+                                                              value: normalizedValue,
+                                                              label: (rawLabel || rawValue).trim(),
+                                                            };
+                                                          }),
+                                                      };
+                                                      return { ...current, dimensions: next };
+                                                    })
+                                                  }
+                                                  placeholder='例如：t2v:文生视频, i2v:图生视频'
+                                                />
+                                              </div>
+                                            )}
+                                          </div>
+                                        ))
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div className='hidden rounded-lg border bg-white p-3'>
+                                    <div className='mb-3 flex items-center justify-between'>
+                                      <div className='font-medium text-gray-800'>2. 匹配规则</div>
+                                      <Button
+                                        size='sm'
+                                        variant='outline'
+                                        onClick={() =>
+                                          updateVendorPricingV2(vendorIndex, (current) => ({
+                                            ...current,
+                                            matchingRules: [...current.matchingRules, createEmptyMatchingRule()],
+                                          }))
+                                        }
+                                      >
+                                        新增规则
+                                      </Button>
+                                    </div>
+                                    <div className='space-y-3'>
+                                      {pricingV2.matchingRules.length === 0 ? (
+                                        <div className='rounded border border-dashed px-3 py-4 text-sm text-gray-500'>
+                                          暂无 v2 匹配规则。命中规则后会通过 evaluatorKey 跳转到价格求值器。
+                                        </div>
+                                      ) : (
+                                        pricingV2.matchingRules.map((rule, ruleIndex) => (
+                                          <div key={`${rule.ruleKey || "rule"}-${ruleIndex}`} className='rounded border p-3 space-y-3'>
+                                            <div className='grid gap-3 md:grid-cols-5'>
+                                              <div>
+                                                <label className='block text-xs text-gray-600 mb-1'>ruleKey</label>
+                                                <Input
+                                                  value={rule.ruleKey || ""}
+                                                  onChange={(e) =>
+                                                    updateVendorPricingV2(vendorIndex, (current) => {
+                                                      const next = [...current.matchingRules];
+                                                      next[ruleIndex] = { ...next[ruleIndex], ruleKey: e.target.value };
+                                                      return { ...current, matchingRules: next };
+                                                    })
+                                                  }
+                                                />
+                                              </div>
+                                              <div>
+                                                <label className='block text-xs text-gray-600 mb-1'>label</label>
+                                                <Input
+                                                  value={rule.label || ""}
+                                                  onChange={(e) =>
+                                                    updateVendorPricingV2(vendorIndex, (current) => {
+                                                      const next = [...current.matchingRules];
+                                                      next[ruleIndex] = { ...next[ruleIndex], label: e.target.value };
+                                                      return { ...current, matchingRules: next };
+                                                    })
+                                                  }
+                                                />
+                                              </div>
+                                              <div>
+                                                <label className='block text-xs text-gray-600 mb-1'>priority</label>
+                                                <Input
+                                                  type='number'
+                                                  value={rule.priority ?? 100}
+                                                  onChange={(e) =>
+                                                    updateVendorPricingV2(vendorIndex, (current) => {
+                                                      const next = [...current.matchingRules];
+                                                      next[ruleIndex] = { ...next[ruleIndex], priority: Number(e.target.value) || 0 };
+                                                      return { ...current, matchingRules: next };
+                                                    })
+                                                  }
+                                                />
+                                              </div>
+                                              <div>
+                                                <label className='block text-xs text-gray-600 mb-1'>evaluatorKey</label>
+                                                <select
+                                                  value={rule.evaluatorKey || ""}
+                                                  onChange={(e) =>
+                                                    updateVendorPricingV2(vendorIndex, (current) => {
+                                                      const next = [...current.matchingRules];
+                                                      next[ruleIndex] = { ...next[ruleIndex], evaluatorKey: e.target.value };
+                                                      return { ...current, matchingRules: next };
+                                                    })
+                                                  }
+                                                  className='w-full rounded border px-3 py-2'
+                                                >
+                                                  <option value=''>请选择 evaluator</option>
+                                                  {evaluatorEntries.map(([key, evaluator]) => (
+                                                    <option key={key} value={key}>{key} ({evaluator.type})</option>
+                                                  ))}
+                                                </select>
+                                              </div>
+                                              <div className='flex items-end justify-between gap-2'>
+                                                <label className='inline-flex items-center gap-2 text-xs text-gray-600'>
+                                                  <input
+                                                    type='checkbox'
+                                                    checked={rule.enabled !== false}
+                                                    onChange={(e) =>
+                                                      updateVendorPricingV2(vendorIndex, (current) => {
+                                                        const next = [...current.matchingRules];
+                                                        next[ruleIndex] = { ...next[ruleIndex], enabled: e.target.checked };
+                                                        return { ...current, matchingRules: next };
+                                                      })
+                                                    }
+                                                  />
+                                                  enabled
+                                                </label>
+                                                <Button
+                                                  size='sm'
+                                                  variant='outline'
+                                                  className='text-red-600 hover:text-red-700'
+                                                  onClick={() =>
+                                                    updateVendorPricingV2(vendorIndex, (current) => ({
+                                                      ...current,
+                                                      matchingRules: current.matchingRules.filter((_, index) => index !== ruleIndex),
+                                                    }))
+                                                  }
+                                                >
+                                                  删除
+                                                </Button>
+                                              </div>
+                                            </div>
+
+                                            <div className='space-y-2'>
+                                              <div className='flex items-center justify-between'>
+                                                <div className='text-xs font-medium text-gray-600'>ALL 条件</div>
+                                                <Button
+                                                  size='sm'
+                                                  variant='outline'
+                                                  onClick={() =>
+                                                    updateVendorPricingV2(vendorIndex, (current) => {
+                                                      const next = [...current.matchingRules];
+                                                      const target = next[ruleIndex];
+                                                      next[ruleIndex] = {
+                                                        ...target,
+                                                        conditions: {
+                                                          all: [...(target.conditions?.all || []), createEmptyConditionRow()],
+                                                          any: target.conditions?.any || [],
+                                                        },
+                                                      };
+                                                      return { ...current, matchingRules: next };
+                                                    })
+                                                  }
+                                                >
+                                                  新增条件
+                                                </Button>
+                                              </div>
+                                              {(rule.conditions?.all || []).map((condition, conditionIndex) => {
+                                                const dimension = pricingV2.dimensions.find((item) => item.key === condition.field);
+                                                return (
+                                                  <div key={`${condition.field || "condition"}-${conditionIndex}`} className='grid gap-2 md:grid-cols-[minmax(0,1fr)_140px_minmax(0,1fr)_72px]'>
+                                                    <select
+                                                      value={condition.field || ""}
+                                                      onChange={(e) =>
+                                                        updateVendorPricingV2(vendorIndex, (current) => {
+                                                          const next = [...current.matchingRules];
+                                                          const target = next[ruleIndex];
+                                                          const rows = [...(target.conditions?.all || [])];
+                                                          rows[conditionIndex] = { ...rows[conditionIndex], field: e.target.value };
+                                                          next[ruleIndex] = { ...target, conditions: { all: rows, any: target.conditions?.any || [] } };
+                                                          return { ...current, matchingRules: next };
+                                                        })
+                                                      }
+                                                      className='w-full rounded border px-3 py-2'
+                                                    >
+                                                      <option value=''>选择字段</option>
+                                                      {dimensionOptions.map((option) => (
+                                                        <option key={option.value} value={option.value}>{option.label}</option>
+                                                      ))}
+                                                    </select>
+                                                    <select
+                                                      value={condition.op || "eq"}
+                                                      onChange={(e) =>
+                                                        updateVendorPricingV2(vendorIndex, (current) => {
+                                                          const next = [...current.matchingRules];
+                                                          const target = next[ruleIndex];
+                                                          const rows = [...(target.conditions?.all || [])];
+                                                          rows[conditionIndex] = { ...rows[conditionIndex], op: e.target.value as ManagedPricingConditionRow["op"] };
+                                                          next[ruleIndex] = { ...target, conditions: { all: rows, any: target.conditions?.any || [] } };
+                                                          return { ...current, matchingRules: next };
+                                                        })
+                                                      }
+                                                      className='w-full rounded border px-3 py-2'
+                                                    >
+                                                      <option value='eq'>eq</option>
+                                                      <option value='in'>in</option>
+                                                      <option value='gt'>gt</option>
+                                                      <option value='gte'>gte</option>
+                                                      <option value='lt'>lt</option>
+                                                      <option value='lte'>lte</option>
+                                                    </select>
+                                                    <Input
+                                                      value={stringifyConditionValue(condition.value)}
+                                                      onChange={(e) =>
+                                                        updateVendorPricingV2(vendorIndex, (current) => {
+                                                          const next = [...current.matchingRules];
+                                                          const target = next[ruleIndex];
+                                                          const rows = [...(target.conditions?.all || [])];
+                                                          rows[conditionIndex] = {
+                                                            ...rows[conditionIndex],
+                                                            value: parseConditionValue(e.target.value, dimension?.type, rows[conditionIndex]?.op),
+                                                          };
+                                                          next[ruleIndex] = { ...target, conditions: { all: rows, any: target.conditions?.any || [] } };
+                                                          return { ...current, matchingRules: next };
+                                                        })
+                                                      }
+                                                      placeholder={condition.op === "in" ? "逗号分隔多个值" : "值"}
+                                                    />
+                                                    <Button
+                                                      size='sm'
+                                                      variant='outline'
+                                                      className='text-red-600 hover:text-red-700'
+                                                      onClick={() =>
+                                                        updateVendorPricingV2(vendorIndex, (current) => {
+                                                          const next = [...current.matchingRules];
+                                                          const target = next[ruleIndex];
+                                                          next[ruleIndex] = {
+                                                            ...target,
+                                                            conditions: {
+                                                              all: (target.conditions?.all || []).filter((_, index) => index !== conditionIndex),
+                                                              any: target.conditions?.any || [],
+                                                            },
+                                                          };
+                                                          return { ...current, matchingRules: next };
+                                                        })
+                                                      }
+                                                    >
+                                                      删除
+                                                    </Button>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+
+                                            <div className='space-y-2'>
+                                              <div className='flex items-center justify-between'>
+                                                <div className='text-xs font-medium text-gray-600'>ANY 条件</div>
+                                                <Button
+                                                  size='sm'
+                                                  variant='outline'
+                                                  onClick={() =>
+                                                    updateVendorPricingV2(vendorIndex, (current) => {
+                                                      const next = [...current.matchingRules];
+                                                      const target = next[ruleIndex];
+                                                      next[ruleIndex] = {
+                                                        ...target,
+                                                        conditions: {
+                                                          all: target.conditions?.all || [],
+                                                          any: [...(target.conditions?.any || []), createEmptyConditionRow()],
+                                                        },
+                                                      };
+                                                      return { ...current, matchingRules: next };
+                                                    })
+                                                  }
+                                                >
+                                                  新增条件
+                                                </Button>
+                                              </div>
+                                              {(rule.conditions?.any || []).map((condition, conditionIndex) => {
+                                                const dimension = pricingV2.dimensions.find((item) => item.key === condition.field);
+                                                return (
+                                                  <div key={`any-${condition.field || "condition"}-${conditionIndex}`} className='grid gap-2 md:grid-cols-[minmax(0,1fr)_140px_minmax(0,1fr)_72px]'>
+                                                    <select
+                                                      value={condition.field || ""}
+                                                      onChange={(e) =>
+                                                        updateVendorPricingV2(vendorIndex, (current) => {
+                                                          const next = [...current.matchingRules];
+                                                          const target = next[ruleIndex];
+                                                          const rows = [...(target.conditions?.any || [])];
+                                                          rows[conditionIndex] = { ...rows[conditionIndex], field: e.target.value };
+                                                          next[ruleIndex] = { ...target, conditions: { all: target.conditions?.all || [], any: rows } };
+                                                          return { ...current, matchingRules: next };
+                                                        })
+                                                      }
+                                                      className='w-full rounded border px-3 py-2'
+                                                    >
+                                                      <option value=''>选择字段</option>
+                                                      {dimensionOptions.map((option) => (
+                                                        <option key={`any-${option.value}`} value={option.value}>{option.label}</option>
+                                                      ))}
+                                                    </select>
+                                                    <select
+                                                      value={condition.op || "eq"}
+                                                      onChange={(e) =>
+                                                        updateVendorPricingV2(vendorIndex, (current) => {
+                                                          const next = [...current.matchingRules];
+                                                          const target = next[ruleIndex];
+                                                          const rows = [...(target.conditions?.any || [])];
+                                                          rows[conditionIndex] = { ...rows[conditionIndex], op: e.target.value as ManagedPricingConditionRow["op"] };
+                                                          next[ruleIndex] = { ...target, conditions: { all: target.conditions?.all || [], any: rows } };
+                                                          return { ...current, matchingRules: next };
+                                                        })
+                                                      }
+                                                      className='w-full rounded border px-3 py-2'
+                                                    >
+                                                      <option value='eq'>eq</option>
+                                                      <option value='in'>in</option>
+                                                      <option value='gt'>gt</option>
+                                                      <option value='gte'>gte</option>
+                                                      <option value='lt'>lt</option>
+                                                      <option value='lte'>lte</option>
+                                                    </select>
+                                                    <Input
+                                                      value={stringifyConditionValue(condition.value)}
+                                                      onChange={(e) =>
+                                                        updateVendorPricingV2(vendorIndex, (current) => {
+                                                          const next = [...current.matchingRules];
+                                                          const target = next[ruleIndex];
+                                                          const rows = [...(target.conditions?.any || [])];
+                                                          rows[conditionIndex] = {
+                                                            ...rows[conditionIndex],
+                                                            value: parseConditionValue(e.target.value, dimension?.type, rows[conditionIndex]?.op),
+                                                          };
+                                                          next[ruleIndex] = { ...target, conditions: { all: target.conditions?.all || [], any: rows } };
+                                                          return { ...current, matchingRules: next };
+                                                        })
+                                                      }
+                                                      placeholder={condition.op === "in" ? "逗号分隔多个值" : "值"}
+                                                    />
+                                                    <Button
+                                                      size='sm'
+                                                      variant='outline'
+                                                      className='text-red-600 hover:text-red-700'
+                                                      onClick={() =>
+                                                        updateVendorPricingV2(vendorIndex, (current) => {
+                                                          const next = [...current.matchingRules];
+                                                          const target = next[ruleIndex];
+                                                          next[ruleIndex] = {
+                                                            ...target,
+                                                            conditions: {
+                                                              all: target.conditions?.all || [],
+                                                              any: (target.conditions?.any || []).filter((_, index) => index !== conditionIndex),
+                                                            },
+                                                          };
+                                                          return { ...current, matchingRules: next };
+                                                        })
+                                                      }
+                                                    >
+                                                      删除
+                                                    </Button>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          </div>
+                                        ))
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div className='hidden rounded-lg border bg-white p-3'>
+                                    <div className='mb-3 flex items-center justify-between'>
+                                      <div className='font-medium text-gray-800'>3. Evaluator</div>
+                                      <div className='flex gap-2'>
+                                        {(["fixed", "linear", "base_plus_linear", "lookup_matrix"] as const).map((type) => (
+                                          <Button
+                                            key={type}
+                                            size='sm'
+                                            variant='outline'
+                                            onClick={() =>
+                                              updateVendorPricingV2(vendorIndex, (current) => ({
+                                                ...current,
+                                                evaluators: {
+                                                  ...current.evaluators,
+                                                  [`eval_${type}_${Object.keys(current.evaluators || {}).length + 1}`]: createEvaluatorByType(type),
+                                                },
+                                              }))
+                                            }
+                                          >
+                                            新增 {type}
+                                          </Button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                    <div className='space-y-3'>
+                                      {evaluatorEntries.length === 0 ? (
+                                        <div className='rounded border border-dashed px-3 py-4 text-sm text-gray-500'>
+                                          暂无 evaluator。建议先创建 `lookup_matrix` 或 `linear`。
+                                        </div>
+                                      ) : (
+                                        evaluatorEntries.map(([evaluatorKey, evaluator]) => (
+                                          <div key={evaluatorKey} className='rounded border p-3 space-y-3'>
+                                            <div className='flex items-center justify-between gap-3'>
+                                              <div className='font-medium text-gray-800'>{evaluatorKey}</div>
+                                              <div className='flex items-center gap-2'>
+                                                <span className='rounded bg-gray-100 px-2 py-1 text-xs text-gray-600'>{evaluator.type}</span>
+                                                <Button
+                                                  size='sm'
+                                                  variant='outline'
+                                                  className='text-red-600 hover:text-red-700'
+                                                  onClick={() =>
+                                                    updateVendorPricingV2(vendorIndex, (current) => {
+                                                      const nextEvaluators = { ...current.evaluators };
+                                                      delete nextEvaluators[evaluatorKey];
+                                                      return { ...current, evaluators: nextEvaluators };
+                                                    })
+                                                  }
+                                                >
+                                                  删除
+                                                </Button>
+                                              </div>
+                                            </div>
+
+                                            {evaluator.type === "fixed" && (
+                                              <div className='grid gap-3 md:grid-cols-2'>
+                                                <div>
+                                                  <label className='block text-xs text-gray-600 mb-1'>priceYuan</label>
+                                                  <Input
+                                                    type='number'
+                                                    step='0.001'
+                                                    value={evaluator.priceYuan ?? 0}
+                                                    onChange={(e) =>
+                                                      updateVendorPricingV2(vendorIndex, (current) => ({
+                                                        ...current,
+                                                        evaluators: {
+                                                          ...current.evaluators,
+                                                          [evaluatorKey]: { ...evaluator, priceYuan: Number(e.target.value) || 0 },
+                                                        },
+                                                      }))
+                                                    }
+                                                  />
+                                                </div>
+                                              </div>
+                                            )}
+
+                                            {evaluator.type === "linear" && (
+                                              <div className='grid gap-3 md:grid-cols-2'>
+                                                <div>
+                                                  <label className='block text-xs text-gray-600 mb-1'>unitField</label>
+                                                  <select
+                                                    value={evaluator.unitField || ""}
+                                                    onChange={(e) =>
+                                                      updateVendorPricingV2(vendorIndex, (current) => ({
+                                                        ...current,
+                                                        evaluators: {
+                                                          ...current.evaluators,
+                                                          [evaluatorKey]: { ...evaluator, unitField: e.target.value },
+                                                        },
+                                                      }))
+                                                    }
+                                                    className='w-full rounded border px-3 py-2'
+                                                  >
+                                                    <option value=''>选择字段</option>
+                                                    {dimensionOptions.map((option) => (
+                                                      <option key={option.value} value={option.value}>{option.label}</option>
+                                                    ))}
+                                                  </select>
+                                                </div>
+                                                <div>
+                                                  <label className='block text-xs text-gray-600 mb-1'>unitPriceYuan</label>
+                                                  <Input
+                                                    type='number'
+                                                    step='0.001'
+                                                    value={evaluator.unitPriceYuan ?? 0}
+                                                    onChange={(e) =>
+                                                      updateVendorPricingV2(vendorIndex, (current) => ({
+                                                        ...current,
+                                                        evaluators: {
+                                                          ...current.evaluators,
+                                                          [evaluatorKey]: { ...evaluator, unitPriceYuan: Number(e.target.value) || 0 },
+                                                        },
+                                                      }))
+                                                    }
+                                                  />
+                                                </div>
+                                              </div>
+                                            )}
+
+                                            {evaluator.type === "base_plus_linear" && (
+                                              <div className='grid gap-3 md:grid-cols-4'>
+                                                <Input
+                                                  type='number'
+                                                  value={evaluator.basePriceYuan ?? 0}
+                                                  onChange={(e) =>
+                                                    updateVendorPricingV2(vendorIndex, (current) => ({
+                                                      ...current,
+                                                      evaluators: {
+                                                        ...current.evaluators,
+                                                        [evaluatorKey]: { ...evaluator, basePriceYuan: Number(e.target.value) || 0 },
+                                                      },
+                                                    }))
+                                                  }
+                                                  placeholder='basePriceYuan'
+                                                />
+                                                <Input
+                                                  type='number'
+                                                  value={evaluator.includedUnits ?? 1}
+                                                  onChange={(e) =>
+                                                    updateVendorPricingV2(vendorIndex, (current) => ({
+                                                      ...current,
+                                                      evaluators: {
+                                                        ...current.evaluators,
+                                                        [evaluatorKey]: { ...evaluator, includedUnits: Number(e.target.value) || 1 },
+                                                      },
+                                                    }))
+                                                  }
+                                                  placeholder='includedUnits'
+                                                />
+                                                <select
+                                                  value={evaluator.unitField || ""}
+                                                  onChange={(e) =>
+                                                    updateVendorPricingV2(vendorIndex, (current) => ({
+                                                      ...current,
+                                                      evaluators: {
+                                                        ...current.evaluators,
+                                                        [evaluatorKey]: { ...evaluator, unitField: e.target.value },
+                                                      },
+                                                    }))
+                                                  }
+                                                  className='w-full rounded border px-3 py-2'
+                                                >
+                                                  <option value=''>选择字段</option>
+                                                  {dimensionOptions.map((option) => (
+                                                    <option key={option.value} value={option.value}>{option.label}</option>
+                                                  ))}
+                                                </select>
+                                                <Input
+                                                  type='number'
+                                                  step='0.001'
+                                                  value={evaluator.extraUnitPriceYuan ?? 0}
+                                                  onChange={(e) =>
+                                                    updateVendorPricingV2(vendorIndex, (current) => ({
+                                                      ...current,
+                                                      evaluators: {
+                                                        ...current.evaluators,
+                                                        [evaluatorKey]: { ...evaluator, extraUnitPriceYuan: Number(e.target.value) || 0 },
+                                                      },
+                                                    }))
+                                                  }
+                                                  placeholder='extraUnitPriceYuan'
+                                                />
+                                              </div>
+                                            )}
+
+                                            {evaluator.type === "lookup_matrix" && (
+                                              <div className='space-y-3'>
+                                                <div>
+                                                  <label className='block text-xs text-gray-600 mb-1'>axes</label>
+                                                  <Input
+                                                    value={(evaluator.axes || []).join(", ")}
+                                                    onChange={(e) =>
+                                                      updateVendorPricingV2(vendorIndex, (current) => ({
+                                                        ...current,
+                                                        evaluators: {
+                                                          ...current.evaluators,
+                                                          [evaluatorKey]: {
+                                                            ...evaluator,
+                                                            axes: e.target.value.split(",").map((item) => item.trim()).filter(Boolean),
+                                                          },
+                                                        },
+                                                      }))
+                                                    }
+                                                    placeholder='例如：hasAudio, qualityMode, durationSec'
+                                                  />
+                                                </div>
+                                                {(() => {
+                                                  const axes = Array.isArray(evaluator.axes)
+                                                    ? evaluator.axes.filter(Boolean) as string[]
+                                                    : [];
+                                                  const axisDimensions = axes.map((axis: string) =>
+                                                    pricingV2.dimensions.find((dimension) => dimension.key === axis)
+                                                  );
+                                                  const axisValues = axisDimensions.map((dimension: ManagedPricingDimensionDefinition | undefined) =>
+                                                    getDimensionOptionValues(dimension).map((value) => String(value))
+                                                  );
+                                                  const canRenderMatrix =
+                                                    (axes.length === 2 || axes.length === 3) &&
+                                                    axisValues.every((values: string[]) => values.length > 0);
+
+                                                  if (!canRenderMatrix) {
+                                                    return (
+                                                      <div className='rounded border border-dashed px-3 py-4 text-xs text-gray-500'>
+                                                        可视化矩阵编辑需要先满足两个条件：1. `axes` 为 2 或 3 个字段；2. 每个轴字段都已经在维度定义里配置离散 options。
+                                                      </div>
+                                                    );
+                                                  }
+
+                                                  if (axes.length === 2) {
+                                                    const rowAxis = axes[0];
+                                                    const colAxis = axes[1];
+                                                    const rowValues = axisValues[0];
+                                                    const colValues = axisValues[1];
+                                                    return (
+                                                      <div className='overflow-x-auto rounded border'>
+                                                        <table className='min-w-full border-separate border-spacing-0 text-xs'>
+                                                          <thead>
+                                                            <tr>
+                                                              <th className='bg-gray-50 border px-3 py-2 text-left'>{rowAxis} \\ {colAxis}</th>
+                                                              {colValues.map((colValue: string) => (
+                                                                <th key={colValue} className='bg-gray-50 border px-3 py-2 text-center'>{colValue}</th>
+                                                              ))}
+                                                            </tr>
+                                                          </thead>
+                                                          <tbody>
+                                                            {rowValues.map((rowValue: string) => (
+                                                              <tr key={rowValue}>
+                                                                <td className='border px-3 py-2 font-medium bg-white'>{rowValue}</td>
+                                                                {colValues.map((colValue: string) => {
+                                                                  const currentValue = getLookupMatrixValue(
+                                                                    evaluator.matrix,
+                                                                    [rowValue, colValue]
+                                                                  );
+                                                                  return (
+                                                                    <td key={`${rowValue}-${colValue}`} className='border px-2 py-2'>
+                                                                      <Input
+                                                                        type='number'
+                                                                        step='0.001'
+                                                                        value={typeof currentValue === "number" ? currentValue : ""}
+                                                                        onChange={(e) =>
+                                                                          updateVendorPricingV2(vendorIndex, (current) => ({
+                                                                            ...current,
+                                                                            evaluators: {
+                                                                              ...current.evaluators,
+                                                                              [evaluatorKey]: {
+                                                                                ...evaluator,
+                                                                                matrix: setLookupMatrixValue(
+                                                                                  evaluator.matrix,
+                                                                                  [rowValue, colValue],
+                                                                                  e.target.value.trim() === "" ? undefined : Number(e.target.value)
+                                                                                ),
+                                                                              },
+                                                                            },
+                                                                          }))
+                                                                        }
+                                                                        placeholder='-'
+                                                                        className='min-w-[92px]'
+                                                                      />
+                                                                    </td>
+                                                                  );
+                                                                })}
+                                                              </tr>
+                                                            ))}
+                                                          </tbody>
+                                                        </table>
+                                                      </div>
+                                                    );
+                                                  }
+
+                                                  const groupAxis = axes[0];
+                                                  const rowAxis = axes[1];
+                                                  const colAxis = axes[2];
+                                                  const groupValues = axisValues[0];
+                                                  const rowValues = axisValues[1];
+                                                  const colValues = axisValues[2];
+                                                  return (
+                                                    <div className='space-y-3'>
+                                                      {groupValues.map((groupValue: string) => (
+                                                        <div key={groupValue} className='rounded border'>
+                                                          <div className='border-b bg-gray-50 px-3 py-2 text-xs font-medium text-gray-700'>
+                                                            {groupAxis}: {groupValue}
+                                                          </div>
+                                                          <div className='overflow-x-auto'>
+                                                            <table className='min-w-full border-separate border-spacing-0 text-xs'>
+                                                              <thead>
+                                                                <tr>
+                                                                  <th className='bg-gray-50 border px-3 py-2 text-left'>{rowAxis} \\ {colAxis}</th>
+                                                                  {colValues.map((colValue: string) => (
+                                                                    <th key={colValue} className='bg-gray-50 border px-3 py-2 text-center'>{colValue}</th>
+                                                                  ))}
+                                                                </tr>
+                                                              </thead>
+                                                              <tbody>
+                                                                {rowValues.map((rowValue: string) => (
+                                                                  <tr key={`${groupValue}-${rowValue}`}>
+                                                                    <td className='border px-3 py-2 font-medium bg-white'>{rowValue}</td>
+                                                                    {colValues.map((colValue: string) => {
+                                                                      const currentValue = getLookupMatrixValue(
+                                                                        evaluator.matrix,
+                                                                        [groupValue, rowValue, colValue]
+                                                                      );
+                                                                      return (
+                                                                        <td key={`${groupValue}-${rowValue}-${colValue}`} className='border px-2 py-2'>
+                                                                          <Input
+                                                                            type='number'
+                                                                            step='0.001'
+                                                                            value={typeof currentValue === "number" ? currentValue : ""}
+                                                                            onChange={(e) =>
+                                                                              updateVendorPricingV2(vendorIndex, (current) => ({
+                                                                                ...current,
+                                                                                evaluators: {
+                                                                                  ...current.evaluators,
+                                                                                  [evaluatorKey]: {
+                                                                                    ...evaluator,
+                                                                                    matrix: setLookupMatrixValue(
+                                                                                      evaluator.matrix,
+                                                                                      [groupValue, rowValue, colValue],
+                                                                                      e.target.value.trim() === "" ? undefined : Number(e.target.value)
+                                                                                    ),
+                                                                                  },
+                                                                                },
+                                                                              }))
+                                                                            }
+                                                                            placeholder='-'
+                                                                            className='min-w-[92px]'
+                                                                          />
+                                                                        </td>
+                                                                      );
+                                                                    })}
+                                                                  </tr>
+                                                                ))}
+                                                              </tbody>
+                                                            </table>
+                                                          </div>
+                                                        </div>
+                                                      ))}
+                                                    </div>
+                                                  );
+                                                })()}
+                                                <div>
+                                                  <label className='block text-xs text-gray-600 mb-1'>matrix(JSON)</label>
+                                                  <textarea
+                                                    value={JSON.stringify(evaluator.matrix || {}, null, 2)}
+                                                    onChange={(e) => {
+                                                      try {
+                                                        const parsed = e.target.value.trim() ? JSON.parse(e.target.value) : {};
+                                                        updateVendorPricingV2(vendorIndex, (current) => ({
+                                                          ...current,
+                                                          evaluators: {
+                                                            ...current.evaluators,
+                                                            [evaluatorKey]: { ...evaluator, matrix: parsed },
+                                                          },
+                                                        }));
+                                                      } catch {
+                                                        // keep editing text until valid json by ignoring invalid patch
+                                                      }
+                                                    }}
+                                                    rows={8}
+                                                    className='w-full rounded border border-gray-200 px-3 py-2 font-mono text-xs'
+                                                    spellCheck={false}
+                                                  />
+                                                </div>
+                                              </div>
+                                            )}
+                                          </div>
+                                        ))
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div className='hidden rounded-lg border bg-white p-3'>
+                                    <div className='mb-3 font-medium text-gray-800'>4. 展示配置</div>
+                                    <div className='grid gap-3 md:grid-cols-2'>
+                                      <div>
+                                        <label className='block text-xs text-gray-600 mb-1'>specAxes</label>
+                                        <Input
+                                          value={(pricingV2.displayConfig.specAxes || []).join(", ")}
+                                          onChange={(e) =>
+                                            updateVendorPricingV2(vendorIndex, (current) => ({
+                                              ...current,
+                                              displayConfig: {
+                                                ...current.displayConfig,
+                                                specAxes: e.target.value.split(",").map((item) => item.trim()).filter(Boolean),
+                                              },
+                                            }))
+                                          }
+                                          placeholder='例如：qualityMode, durationSec'
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className='block text-xs text-gray-600 mb-1'>默认规格选择</label>
+                                        <div className='grid gap-2 md:grid-cols-2'>
+                                          {pricingV2.dimensions.map((dimension) => (
+                                            <div key={`default-${dimension.key}`}>
+                                              <label className='block text-[11px] text-gray-500 mb-1'>
+                                                {dimension.label || dimension.key}
+                                              </label>
+                                              {dimension.type === "enum" || dimension.type === "boolean" ? (
+                                                <select
+                                                  value={String(pricingV2.displayConfig.defaultSelections?.[dimension.key] ?? "")}
+                                                  onChange={(e) =>
+                                                    updateVendorPricingV2(vendorIndex, (current) => ({
+                                                      ...current,
+                                                      displayConfig: {
+                                                        ...current.displayConfig,
+                                                        defaultSelections: {
+                                                          ...current.displayConfig.defaultSelections,
+                                                          [dimension.key]:
+                                                            dimension.type === "boolean"
+                                                              ? e.target.value === "true"
+                                                              : e.target.value,
+                                                        },
+                                                      },
+                                                    }))
+                                                  }
+                                                  className='w-full rounded border px-3 py-2'
+                                                >
+                                                  <option value=''>未设置</option>
+                                                  {(dimension.options || []).map((option) => (
+                                                    <option key={`${dimension.key}-${String(option.value)}`} value={String(option.value)}>
+                                                      {option.label || String(option.value)}
+                                                    </option>
+                                                  ))}
+                                                </select>
+                                              ) : (
+                                                <Input
+                                                  value={String(pricingV2.displayConfig.defaultSelections?.[dimension.key] ?? "")}
+                                                  onChange={(e) =>
+                                                    updateVendorPricingV2(vendorIndex, (current) => ({
+                                                      ...current,
+                                                      displayConfig: {
+                                                        ...current.displayConfig,
+                                                        defaultSelections: {
+                                                          ...current.displayConfig.defaultSelections,
+                                                          [dimension.key]:
+                                                            dimension.type === "number"
+                                                              ? (e.target.value.trim() === "" ? "" : Number(e.target.value))
+                                                              : e.target.value,
+                                                        },
+                                                      },
+                                                    }))
+                                                  }
+                                                />
+                                              )}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    <div className='mt-3'>
+                                      <label className='block text-xs text-gray-600 mb-2'>标签映射</label>
+                                      <div className='grid gap-2 md:grid-cols-2'>
+                                        {pricingV2.dimensions.flatMap((dimension) =>
+                                          (dimension.options || []).map((option) => {
+                                            const labelKey = `${dimension.key}.${String(option.value)}`;
+                                            return (
+                                              <div key={labelKey}>
+                                                <label className='block text-[11px] text-gray-500 mb-1'>{labelKey}</label>
+                                                <Input
+                                                  value={pricingV2.displayConfig.labels?.[labelKey] || ""}
+                                                  onChange={(e) =>
+                                                    updateVendorPricingV2(vendorIndex, (current) => ({
+                                                      ...current,
+                                                      displayConfig: {
+                                                        ...current.displayConfig,
+                                                        labels: {
+                                                          ...current.displayConfig.labels,
+                                                          [labelKey]: e.target.value,
+                                                        },
+                                                      },
+                                                    }))
+                                                  }
+                                                  placeholder={option.label || String(option.value)}
+                                                />
+                                              </div>
+                                            );
+                                          })
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    <div className='mt-4'>
+                                      <div className='mb-2 flex items-center justify-between'>
+                                        <label className='block text-xs text-gray-600'>预设规格 presets</label>
+                                        <div className='flex gap-2'>
+                                          <Button
+                                            size='sm'
+                                            variant='outline'
+                                            onClick={() =>
+                                              updateVendorPricingV2(vendorIndex, (current) => ({
+                                                ...current,
+                                                displayConfig: {
+                                                  ...current.displayConfig,
+                                                  presets: [
+                                                    ...(current.displayConfig.presets || []),
+                                                    Object.fromEntries(
+                                                      current.dimensions.map((dimension) => [
+                                                        dimension.key,
+                                                        Array.isArray(dimension.options) && dimension.options.length > 0
+                                                          ? dimension.options[0]?.value
+                                                          : dimension.type === "boolean"
+                                                          ? false
+                                                          : dimension.type === "number"
+                                                          ? 0
+                                                          : "",
+                                                      ])
+                                                    ),
+                                                  ],
+                                                },
+                                              }))
+                                            }
+                                          >
+                                            新增 preset
+                                          </Button>
+                                          <Button
+                                            size='sm'
+                                            variant='outline'
+                                            onClick={() => previewVendorPricingPresets(vendorIndex, vendor)}
+                                            disabled={
+                                              presetPreviewLoading ||
+                                              hasPricingV2Errors ||
+                                              (pricingV2.displayConfig.presets || []).length === 0
+                                            }
+                                          >
+                                            {presetPreviewLoading ? "试算中..." : "批量试算"}
+                                          </Button>
+                                        </div>
+                                      </div>
+                                      <div className='space-y-3'>
+                                        {(pricingV2.displayConfig.presets || []).length === 0 ? (
+                                          <div className='rounded border border-dashed px-3 py-4 text-sm text-gray-500'>
+                                            暂无展示预设。可添加一组默认规格用于价格一览和推荐组合展示。
+                                          </div>
+                                        ) : (
+                                          (pricingV2.displayConfig.presets || []).map((preset, presetIndex) => (
+                                            <div key={`preset-${presetIndex}`} className='rounded border p-3'>
+                                              <div className='mb-2 flex items-center justify-between'>
+                                                <div className='text-xs font-medium text-gray-600'>Preset {presetIndex + 1}</div>
+                                                <Button
+                                                  size='sm'
+                                                  variant='outline'
+                                                  className='text-red-600 hover:text-red-700'
+                                                  onClick={() =>
+                                                    updateVendorPricingV2(vendorIndex, (current) => ({
+                                                      ...current,
+                                                      displayConfig: {
+                                                        ...current.displayConfig,
+                                                        presets: (current.displayConfig.presets || []).filter((_, index) => index !== presetIndex),
+                                                      },
+                                                    }))
+                                                  }
+                                                >
+                                                  删除
+                                                </Button>
+                                              </div>
+                                              <div className='grid gap-2 md:grid-cols-2 xl:grid-cols-3'>
+                                                {pricingV2.dimensions.map((dimension) => (
+                                                  <div key={`preset-${presetIndex}-${dimension.key}`}>
+                                                    <label className='block text-[11px] text-gray-500 mb-1'>
+                                                      {dimension.label || dimension.key}
+                                                    </label>
+                                                    {dimension.type === "enum" || dimension.type === "boolean" ? (
+                                                      <select
+                                                        value={String(preset?.[dimension.key] ?? "")}
+                                                        onChange={(e) =>
+                                                          updateVendorPricingV2(vendorIndex, (current) => {
+                                                            const nextPresets = [...(current.displayConfig.presets || [])];
+                                                            const currentPreset = { ...(nextPresets[presetIndex] || {}) };
+                                                            currentPreset[dimension.key] =
+                                                              dimension.type === "boolean"
+                                                                ? e.target.value === "true"
+                                                                : e.target.value;
+                                                            nextPresets[presetIndex] = currentPreset;
+                                                            return {
+                                                              ...current,
+                                                              displayConfig: {
+                                                                ...current.displayConfig,
+                                                                presets: nextPresets,
+                                                              },
+                                                            };
+                                                          })
+                                                        }
+                                                        className='w-full rounded border px-3 py-2'
+                                                      >
+                                                        <option value=''>未设置</option>
+                                                        {(dimension.options || []).map((option) => (
+                                                          <option
+                                                            key={`preset-${presetIndex}-${dimension.key}-${String(option.value)}`}
+                                                            value={String(option.value)}
+                                                          >
+                                                            {option.label || String(option.value)}
+                                                          </option>
+                                                        ))}
+                                                      </select>
+                                                    ) : (
+                                                      <Input
+                                                        value={String(preset?.[dimension.key] ?? "")}
+                                                        onChange={(e) =>
+                                                          updateVendorPricingV2(vendorIndex, (current) => {
+                                                            const nextPresets = [...(current.displayConfig.presets || [])];
+                                                            const currentPreset = { ...(nextPresets[presetIndex] || {}) };
+                                                            currentPreset[dimension.key] =
+                                                              dimension.type === "number"
+                                                                ? (e.target.value.trim() === "" ? "" : Number(e.target.value))
+                                                                : e.target.value;
+                                                            nextPresets[presetIndex] = currentPreset;
+                                                            return {
+                                                              ...current,
+                                                              displayConfig: {
+                                                                ...current.displayConfig,
+                                                                presets: nextPresets,
+                                                              },
+                                                            };
+                                                          })
+                                                        }
+                                                      />
+                                                    )}
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          ))
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className='rounded-lg border bg-white p-3'>
+                                    <div className='mb-2 flex items-center justify-between gap-3'>
+                                      <div className='font-medium text-gray-800'>5. 试算结果</div>
+                                      {presetPreviewResults.length > 0 && (
+                                        <span className='text-xs text-gray-500'>
+                                          已缓存 {presetPreviewResults.length} 条 preset 试算结果
+                                        </span>
+                                      )}
+                                    </div>
+                                    {!previewResult ? (
+                                      <div className='rounded border border-dashed px-3 py-4 text-sm text-gray-500'>
+                                        点击“试算 v2”后，这里会显示命中的规则、evaluator 和最终积分。
+                                      </div>
+                                    ) : (
+                                      <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-4 text-sm'>
+                                        <div className='rounded border bg-gray-50 p-3'>
+                                          <div className='text-xs text-gray-500'>matchedRuleKey</div>
+                                          <div className='font-medium'>{previewResult.matchedRuleKey || "-"}</div>
+                                        </div>
+                                        <div className='rounded border bg-gray-50 p-3'>
+                                          <div className='text-xs text-gray-500'>evaluator</div>
+                                          <div className='font-medium'>
+                                            {previewResult.evaluatorKey || "-"} {previewResult.evaluatorType ? `(${previewResult.evaluatorType})` : ""}
+                                          </div>
+                                        </div>
+                                        <div className='rounded border bg-gray-50 p-3'>
+                                          <div className='text-xs text-gray-500'>priceYuan</div>
+                                          <div className='font-medium'>{previewResult.price?.priceYuan ?? "-"}</div>
+                                        </div>
+                                        <div className='rounded border bg-gray-50 p-3'>
+                                          <div className='text-xs text-gray-500'>credits</div>
+                                          <div className='font-medium'>{previewResult.price?.credits ?? "-"}</div>
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {presetPreviewResults.length > 0 && (
+                                      <div className='mt-4 overflow-x-auto rounded border'>
+                                        <table className='min-w-full text-xs'>
+                                          <thead className='bg-gray-50'>
+                                            <tr>
+                                              <th className='border px-3 py-2 text-left'>Preset</th>
+                                              <th className='border px-3 py-2 text-left'>规则</th>
+                                              <th className='border px-3 py-2 text-left'>Evaluator</th>
+                                              <th className='border px-3 py-2 text-right'>价格(元)</th>
+                                              <th className='border px-3 py-2 text-right'>积分</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {presetPreviewResults.map((result, presetIndex) => {
+                                              const presetSource =
+                                                (pricingV2.displayConfig.presets || [])[presetIndex] || {};
+                                              return (
+                                                <tr key={`preset-preview-${presetIndex}`}>
+                                                  <td className='border px-3 py-2 align-top text-gray-600'>
+                                                    <div className='font-medium text-gray-800'>Preset {presetIndex + 1}</div>
+                                                    <div className='mt-1 whitespace-pre-wrap break-all'>
+                                                      {Object.entries(presetSource)
+                                                        .map(([key, value]) => `${key}: ${String(value)}`)
+                                                        .join(" · ")}
+                                                    </div>
+                                                  </td>
+                                                  <td className='border px-3 py-2 align-top'>{result.matchedRuleKey || "-"}</td>
+                                                  <td className='border px-3 py-2 align-top'>
+                                                    {result.evaluatorKey || "-"}
+                                                    {result.evaluatorType ? ` (${result.evaluatorType})` : ""}
+                                                  </td>
+                                                  <td className='border px-3 py-2 align-top text-right'>
+                                                    {result.price?.priceYuan ?? "-"}
+                                                  </td>
+                                                  <td className='border px-3 py-2 align-top text-right font-medium'>
+                                                    {result.price?.credits ?? "-"}
+                                                  </td>
+                                                </tr>
+                                              );
+                                            })}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
                               {(() => {
                                 const taskType = normalizeManagedModelTaskType(selectedModel.taskType);
 
@@ -9699,7 +12516,7 @@ function UnifiedModelManagementTab() {
             )}
           </div>
 
-          <div className={`bg-white rounded-lg border p-6 shadow-sm ${isSimpleMode && !showPlatformPanel ? "hidden" : ""}`}>
+          <div className={`bg-white rounded-lg border p-6 shadow-sm ${!showPlatformPanel ? "hidden" : ""}`}>
             <div className='mb-4 flex items-start justify-between gap-4'>
               <div>
                 <h4 className='font-semibold'>平台表单</h4>

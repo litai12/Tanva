@@ -423,6 +423,214 @@ export interface SystemSetting {
   updatedAt: string;
 }
 
+export interface ManagedPricingPreviewRequest {
+  modelKey: string;
+  vendorKey: string;
+  context: Record<string, any>;
+  pricing?: Record<string, any>;
+  metadata?: Record<string, any>;
+  creditsPerCall?: number;
+  priceYuan?: number;
+}
+
+export interface ManagedPricingPreviewResponse {
+  modelKey: string;
+  vendorKey: string;
+  pricingContext: Record<string, any>;
+  matchedRuleKey?: string;
+  label?: string;
+  evaluatorKey?: string;
+  evaluatorType?: string;
+  pricingVersion?: string;
+  price: {
+    credits?: number;
+    priceYuan?: number;
+    costYuan?: number;
+  };
+  calcTrace?: Record<string, any>;
+  source: string;
+}
+
+const asObject = (value: unknown): Record<string, any> | null => {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, any>;
+  }
+  return null;
+};
+
+const toFiniteNumber = (value: unknown): number | undefined => {
+  const normalized = Number(value);
+  return Number.isFinite(normalized) ? normalized : undefined;
+};
+
+const toCreditsByPriceYuan = (priceYuan: number | undefined): number | undefined => {
+  if (!Number.isFinite(Number(priceYuan))) return undefined;
+  return Math.ceil(Number(priceYuan) * 100);
+};
+
+const normalizeComparableValue = (value: unknown): string | number | boolean | null => {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const lowered = trimmed.toLowerCase();
+    if (lowered === "true") return true;
+    if (lowered === "false") return false;
+    const numeric = Number(trimmed);
+    if (Number.isFinite(numeric) && `${numeric}` === trimmed) return numeric;
+    return lowered;
+  }
+  return null;
+};
+
+const matchesPreviewCondition = (
+  actualContext: Record<string, any>,
+  condition: { field?: string; op?: string; value?: any }
+) => {
+  const field = String(condition.field || "").trim();
+  if (!field) return false;
+  const actual = normalizeComparableValue(actualContext[field]);
+  const op = String(condition.op || "eq").trim();
+
+  if (op === "exists") {
+    return actualContext[field] !== undefined && actualContext[field] !== null && actualContext[field] !== "";
+  }
+  if (actual === null) return false;
+
+  const normalizedExpectedArray = Array.isArray(condition.value)
+    ? condition.value.map((item) => normalizeComparableValue(item)).filter((item) => item !== null)
+    : null;
+  const normalizedExpected = normalizeComparableValue(condition.value);
+
+  if (op === "in") return (normalizedExpectedArray || []).some((item) => item === actual);
+  if (op === "eq") return normalizedExpected === actual;
+  if (typeof actual !== "number") return false;
+
+  const numericExpected = toFiniteNumber(condition.value);
+  if (numericExpected === undefined) return false;
+  if (op === "gt") return actual > numericExpected;
+  if (op === "gte") return actual >= numericExpected;
+  if (op === "lt") return actual < numericExpected;
+  if (op === "lte") return actual <= numericExpected;
+  return false;
+};
+
+const resolveLookupMatrixPrice = (
+  matrix: Record<string, unknown>,
+  axes: string[],
+  context: Record<string, any>
+): number | undefined => {
+  let current: unknown = matrix;
+  for (const axis of axes) {
+    const axisValue = context[axis];
+    const key = String(axisValue);
+    if (!current || typeof current !== "object" || Array.isArray(current)) return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return typeof current === "number" && Number.isFinite(current) ? current : undefined;
+};
+
+const resolveLocalManagedPricingPreview = (
+  data: ManagedPricingPreviewRequest
+): ManagedPricingPreviewResponse => {
+  const pricing = asObject(data.pricing);
+  const matchingRules = Array.isArray(pricing?.matchingRules) ? pricing?.matchingRules : [];
+  const evaluators = asObject(pricing?.evaluators) || {};
+  const context = data.context || {};
+
+  const activeRules = matchingRules
+    .filter((rule) => rule && rule.enabled !== false && rule.ruleKey && rule.evaluatorKey)
+    .sort((a, b) => (Number(b?.priority) || 0) - (Number(a?.priority) || 0));
+
+  const matchedRule = activeRules.find((rule) => {
+    const all = Array.isArray(rule.conditions?.all) ? rule.conditions.all : [];
+    const any = Array.isArray(rule.conditions?.any) ? rule.conditions.any : [];
+    const allOk = all.every((condition: { field?: string; op?: string; value?: any }) =>
+      matchesPreviewCondition(context, condition)
+    );
+    const anyOk =
+      any.length === 0 ||
+      any.some((condition: { field?: string; op?: string; value?: any }) =>
+        matchesPreviewCondition(context, condition)
+      );
+    return allOk && anyOk;
+  });
+
+  const resultBase = {
+    modelKey: data.modelKey,
+    vendorKey: data.vendorKey,
+    pricingContext: context,
+  };
+
+  if (matchedRule) {
+    const evaluatorKey = String(matchedRule.evaluatorKey || "").trim();
+    const evaluator = evaluatorKey ? evaluators[evaluatorKey] : undefined;
+    const evaluatorType = String(evaluator?.type || "").trim();
+
+    if (evaluatorType === "linear") {
+      const unitField = String(evaluator?.unitField || "").trim();
+      const unitValue = toFiniteNumber(context[unitField]);
+      const unitPriceYuan = toFiniteNumber(evaluator?.unitPriceYuan);
+      if (unitField && unitValue !== undefined && unitPriceYuan !== undefined) {
+        const priceYuan = Number((unitValue * unitPriceYuan).toFixed(3));
+        return {
+          ...resultBase,
+          matchedRuleKey: matchedRule.ruleKey,
+          label: matchedRule.label,
+          evaluatorKey,
+          evaluatorType,
+          pricingVersion: String(pricing?.version || "v2"),
+          price: { priceYuan, credits: toCreditsByPriceYuan(priceYuan) },
+          calcTrace: { evaluatorType, unitField, unitValue, unitPriceYuan },
+          source: "local_vendor_rule",
+        };
+      }
+    }
+
+    if (evaluatorType === "lookup_matrix") {
+      const axes = Array.isArray(evaluator?.axes)
+        ? evaluator.axes.map((item: unknown) => String(item).trim()).filter(Boolean)
+        : [];
+      const matrix = asObject(evaluator?.matrix);
+      if (matrix && axes.length > 0) {
+        const priceYuan = resolveLookupMatrixPrice(matrix, axes, context);
+        if (priceYuan !== undefined) {
+          return {
+            ...resultBase,
+            matchedRuleKey: matchedRule.ruleKey,
+            label: matchedRule.label,
+            evaluatorKey,
+            evaluatorType,
+            pricingVersion: String(pricing?.version || "v2"),
+            price: { priceYuan, credits: toCreditsByPriceYuan(priceYuan) },
+            calcTrace: { evaluatorType, axes },
+            source: "local_vendor_rule",
+          };
+        }
+      }
+    }
+  }
+
+  const defaults = asObject(pricing?.defaults);
+  const defaultPriceYuan =
+    toFiniteNumber(defaults?.priceYuan) ?? toFiniteNumber(data.priceYuan);
+  const defaultCredits =
+    toFiniteNumber(defaults?.credits) ??
+    toFiniteNumber(data.creditsPerCall) ??
+    toCreditsByPriceYuan(defaultPriceYuan);
+
+  return {
+    ...resultBase,
+    pricingVersion: String(pricing?.version || "v2"),
+    price: {
+      ...(defaultPriceYuan !== undefined ? { priceYuan: defaultPriceYuan } : {}),
+      ...(defaultCredits !== undefined ? { credits: defaultCredits } : {}),
+    },
+    source: defaultPriceYuan !== undefined || defaultCredits !== undefined ? "local_vendor_default" : "none",
+  };
+};
+
 // 获取所有系统设置
 export async function getSettings(): Promise<SystemSetting[]> {
   const response = await request("/api/admin/settings");
@@ -448,6 +656,38 @@ export async function upsertSetting(data: {
     body: JSON.stringify(data),
   });
   return response.json();
+}
+
+export async function previewManagedPricing(
+  data: ManagedPricingPreviewRequest
+): Promise<ManagedPricingPreviewResponse> {
+  const response = await fetchWithAuth(buildUrl("/api/admin/pricing/preview"), {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  if (response.ok) {
+    return response.json();
+  }
+
+  const errorText = await response.text().catch(() => "");
+  const shouldFallback =
+    response.status === 404 ||
+    /Cannot POST/i.test(errorText) ||
+    /Not Found/i.test(errorText);
+
+  if (shouldFallback) {
+    return resolveLocalManagedPricingPreview(data);
+  }
+
+  let errorMessage = "请求失败";
+  try {
+    const parsed = errorText ? JSON.parse(errorText) : null;
+    errorMessage = parsed?.message || errorMessage;
+  } catch {
+    if (errorText.trim()) errorMessage = errorText.trim();
+  }
+  throw new Error(errorMessage);
 }
 
 export interface MembershipCreditPolicyConfig {

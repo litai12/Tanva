@@ -9,6 +9,7 @@ import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
 import RunCreditBadge from "./RunCreditBadge";
 import NodeSelect from "./NodeSelect";
+import { useNodeRunCredits } from "../hooks/useNodeRunCredits";
 
 type VideoHistoryItem = {
   id: string;
@@ -299,7 +300,9 @@ function Wan26Node({ id, data, selected }: Props) {
   };
 
   const onRun = React.useCallback(() => data.onRun?.(id), [data, id]);
-  const hasRunCredits = typeof data.creditsPerCall === "number" && data.creditsPerCall > 0;
+  const { credits: runCredits, hasCredits: hasRunCredits } = useNodeRunCredits(
+    data.creditsPerCall
+  );
 
   // 音频上传处理
   const handleChooseFile = React.useCallback(() => {
@@ -572,7 +575,9 @@ function Wan26Node({ id, data, selected }: Props) {
             onMouseDown={handleButtonMouseDown}
             disabled={data.status === "running"}
             style={{
-              width: 36,
+              width: hasRunCredits ? "auto" : 36,
+              minWidth: hasRunCredits ? 64 : 36,
+              padding: hasRunCredits ? "0 10px" : undefined,
               height: 32,
               borderRadius: 8,
               border: "none",
@@ -586,12 +591,9 @@ function Wan26Node({ id, data, selected }: Props) {
               opacity: data.status === "running" ? 0.6 : 1,
               gap: 0,
             }}
-          >
+            >
             {hasRunCredits ? (
-              <>
-                <span className="run-text-trigger">Run</span>
-                <RunCreditBadge credits={data.creditsPerCall} runButton />
-              </>
+              <RunCreditBadge credits={runCredits} runButton />
             ) : (
               "Run"
             )}

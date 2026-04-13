@@ -32,6 +32,7 @@ import { BusinessPolicyService } from '../business-policy/business-policy.servic
 import { MODEL_PROVIDER_MAPPING_SETTING_KEY } from '../ai/services/model-routing.service';
 import {
   resolveManagedModelPricing,
+  resolveManagedModelPricingV2,
   type ManagedPricingMappingLike,
   type ResolvedManagedPricing,
 } from '../ai/services/model-pricing-resolver';
@@ -336,7 +337,7 @@ export class CreditsService {
       if (!raw) return null;
 
       const parsed = JSON.parse(raw) as ManagedPricingMappingLike;
-      const resolved = resolveManagedModelPricing(parsed, modelKey, vendorKey, requestParams);
+      const resolved = await resolveManagedModelPricingV2(parsed, modelKey, vendorKey, requestParams);
       return resolved.source === 'none' ? null : resolved;
     } catch (error) {
       this.logger.warn(

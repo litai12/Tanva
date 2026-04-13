@@ -2,7 +2,12 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { MODEL_PROVIDER_MAPPING_SETTING_KEY } from '../../ai/services/model-routing.service';
-import { resolveManagedVendorPricing } from '../../ai/services/model-pricing-resolver';
+import {
+  resolveManagedModelPricingV2,
+  resolveManagedVendorDefaultPricing,
+  resolveManagedVendorPricingV2,
+  type ManagedPricingVendorLike,
+} from '../../ai/services/model-pricing-resolver';
 
 export interface NodeConfigDto {
   nodeKey: string;
@@ -47,6 +52,16 @@ interface ManagedModelConfig {
 
 interface ModelProviderMappingV2Like {
   models?: ManagedModelConfig[];
+}
+
+export interface ManagedPricingPreviewInput {
+  modelKey: string;
+  vendorKey: string;
+  context: Record<string, any>;
+  pricing?: ManagedPricingVendorLike['pricing'];
+  metadata?: Record<string, any>;
+  creditsPerCall?: number;
+  priceYuan?: number;
 }
 
 interface NodeConfigMetadataLike {
@@ -185,6 +200,74 @@ export class NodeConfigService {
     }
   }
 
+  async previewManagedPricing(input: ManagedPricingPreviewInput) {
+    const modelKey = String(input?.modelKey || '').trim();
+    const vendorKey = String(input?.vendorKey || '').trim();
+    if (!modelKey || !vendorKey) {
+      throw new NotFoundException('模型或供应商不能为空');
+    }
+
+    const pricingContext =
+      input.context && typeof input.context === 'object' && !Array.isArray(input.context)
+        ? {
+            ...input.context,
+            modelKey,
+            vendorKey,
+          }
+        : { modelKey, vendorKey };
+
+    let resolved;
+    const hasDraftPricing =
+      (input.pricing && typeof input.pricing === 'object' && !Array.isArray(input.pricing)) ||
+      (input.metadata && typeof input.metadata === 'object' && !Array.isArray(input.metadata)) ||
+      typeof input.creditsPerCall === 'number' ||
+      typeof input.priceYuan === 'number';
+
+    if (hasDraftPricing) {
+      resolved = await resolveManagedVendorPricingV2(
+        {
+          vendorKey,
+          pricing: input.pricing,
+          metadata: input.metadata,
+          creditsPerCall: input.creditsPerCall,
+          priceYuan: input.priceYuan,
+        },
+        pricingContext,
+      );
+    } else {
+      const setting = await this.prisma.systemSetting.findUnique({
+        where: { key: MODEL_PROVIDER_MAPPING_SETTING_KEY },
+        select: { value: true },
+      });
+      const raw = typeof setting?.value === 'string' ? setting.value.trim() : '';
+      if (!raw) {
+        throw new NotFoundException('模型管理配置不存在');
+      }
+
+      const parsed = JSON.parse(raw) as ModelProviderMappingV2Like;
+      resolved = await resolveManagedModelPricingV2(
+        parsed,
+        modelKey,
+        vendorKey,
+        pricingContext,
+      );
+    }
+
+    return {
+      modelKey,
+      vendorKey,
+      pricingContext,
+      matchedRuleKey: resolved.ruleKey,
+      label: resolved.label,
+      evaluatorKey: resolved.evaluatorKey,
+      evaluatorType: resolved.evaluatorType,
+      pricingVersion: resolved.pricingVersion,
+      price: resolved.price,
+      calcTrace: resolved.calcTrace,
+      source: resolved.source,
+    };
+  }
+
   private buildManagedRouteView(model: ManagedModelConfig): ManagedRouteView | null {
     const modelKey = typeof model?.modelKey === 'string' ? model.modelKey.trim() : '';
     if (!modelKey) return null;
@@ -199,9 +282,8 @@ export class NodeConfigService {
               vendor.vendorKey.trim(),
           )
           .map((vendor) => {
-            const resolvedPricing = resolveManagedVendorPricing(
+            const resolvedPricing = resolveManagedVendorDefaultPricing(
               vendor as Record<string, any>,
-              {},
             );
             const credits =
               typeof resolvedPricing.price.credits === 'number'

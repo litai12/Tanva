@@ -7,6 +7,7 @@ import { fetchWithAuth } from "@/services/authFetch";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
 import RunCreditBadge from "./RunCreditBadge";
+import { useNodeRunCredits } from "../hooks/useNodeRunCredits";
 
 type VideoHistoryItem = {
   id: string;
@@ -53,6 +54,9 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
   const [shotMenuOpen, setShotMenuOpen] = React.useState(false);
   const [showHistory, setShowHistory] = React.useState(false);
 
+  const { credits: runCredits, hasCredits: hasRunCredits } = useNodeRunCredits(
+    data.creditsPerCall
+  );
   const historyItems = React.useMemo<VideoHistoryItem[]>(
     () => (Array.isArray(data.history) ? data.history : []),
     [data.history]
@@ -345,8 +349,6 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
       </div>
     );
   };
-  const hasRunCredits = typeof data.creditsPerCall === "number" && data.creditsPerCall > 0;
-
   return (
     <div
       style={{
@@ -455,8 +457,10 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
             onClick={() => data.onRun?.(id)}
             disabled={data.status === "running"}
             style={{
-              width: 36,
+              width: hasRunCredits ? "auto" : 36,
+              minWidth: hasRunCredits ? 64 : 36,
               height: 32,
+              padding: hasRunCredits ? "0 10px" : undefined,
               borderRadius: 8,
               border: "none",
               background: data.status === "running" ? "#e5e7eb" : "#111827",
@@ -469,12 +473,9 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
               opacity: data.status === "running" ? 0.6 : 1,
               gap: 0,
             }}
-          >
+            >
             {hasRunCredits ? (
-              <>
-                <span className="run-text-trigger">Run</span>
-                <RunCreditBadge credits={data.creditsPerCall} runButton />
-              </>
+              <RunCreditBadge credits={runCredits} runButton />
             ) : (
               "Run"
             )}
