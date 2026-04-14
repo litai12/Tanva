@@ -4,11 +4,35 @@ import { ImageGenerationService } from '../image-generation.service';
 import { OpenObserveTelemetryService } from '../../telemetry/openobserve-telemetry.service';
 import { captureTraceContext, runWithSpan, type PersistedTraceContext } from '../../telemetry/tracing';
 import { OssService } from '../../oss/oss.service';
+import { CreditsService } from '../../credits/credits.service';
+import { ApiResponseStatus } from '../../credits/dto/credits.dto';
 import crypto from 'crypto';
 import { Readable } from 'stream';
 
 export type ImageTaskType = 'generate' | 'edit' | 'blend' | 'expand';
 export type ImageTaskStatus = 'queued' | 'processing' | 'succeeded' | 'failed';
+
+/**
+ * 根据任务类型和模型映射到 ServiceType
+ */
+function resolveTaskServiceType(taskType: ImageTaskType, model?: string): string {
+  switch (taskType) {
+    case 'generate':
+      if (model?.includes('3.1')) return 'gemini-3.1-image';
+      if (model?.includes('2.5')) return 'gemini-2.5-image';
+      return 'gemini-3-pro-image';
+    case 'edit':
+      if (model?.includes('3.1')) return 'gemini-3.1-image-edit';
+      if (model?.includes('2.5')) return 'gemini-2.5-image-edit';
+      return 'gemini-image-edit';
+    case 'blend':
+      if (model?.includes('3.1')) return 'gemini-3.1-image-blend';
+      if (model?.includes('2.5')) return 'gemini-2.5-image-blend';
+      return 'gemini-image-blend';
+    default:
+      return 'gemini-3-pro-image';
+  }
+}
 
 @Injectable()
 export class ImageTaskService {
@@ -19,6 +43,7 @@ export class ImageTaskService {
     private readonly imageGenService: ImageGenerationService,
     private readonly telemetryService: OpenObserveTelemetryService,
     private readonly oss: OssService,
+    private readonly creditsService: CreditsService,
   ) {}
 
   private extractBase64Payload(imageValue: string): string {
@@ -248,28 +273,79 @@ export class ImageTaskService {
         typeof taskRequestData?.traceFlags === 'number' ? taskRequestData.traceFlags : 1,
     };
 
+    // 解析任务的服务类型
+    const model = taskRequestData?.model as string | undefined;
+    const taskType = task.type as ImageTaskType;
+    const serviceType = resolveTaskServiceType(taskType, model);
+    const outputImageCount = 1; // 默认生成1张图片
+    const apiUsageId = taskRequestData?.apiUsageId as string | undefined;
+
+    // 如果有 apiUsageId，则说明已在控制器层预扣积分；否则需要自己处理
+    const needsCreditsProcessing = !apiUsageId;
+
     await runWithSpan(
-      `image-task.${task.type}`,
+      `image-task.${taskType}`,
       taskTraceContext,
       {
         'app.task.id': taskId,
         'app.task.type': task.type,
         'app.user.id': task.userId,
         'app.ai.provider': task.aiProvider || 'unknown',
+        'app.credits.apiUsageId': apiUsageId || 'none',
+        'app.credits.needsProcessing': needsCreditsProcessing,
       },
       async () => {
+        const startedAt = Date.now();
+        let effectiveApiUsageId: string | undefined = apiUsageId;
+
         try {
-          const startedAt = Date.now();
+          // 如果需要自己处理积分，则先预扣积分
+          if (needsCreditsProcessing) {
+            try {
+              const deductResult = await this.creditsService.preDeductCredits({
+                userId: task.userId,
+                serviceType: serviceType as any,
+                model,
+                inputImageCount: 0,
+                outputImageCount,
+                requestParams: {
+                  taskId,
+                  taskType,
+                },
+              });
+              effectiveApiUsageId = deductResult.apiUsageId;
+              this.logger.debug(
+                `异步任务预扣积分: taskId=${taskId}, apiUsageId=${effectiveApiUsageId}`
+              );
+            } catch (deductError) {
+              // 预扣积分失败，标记任务失败
+              const errorMsg =
+                deductError instanceof Error ? deductError.message : String(deductError);
+              this.logger.error(`异步任务预扣积分失败: taskId=${taskId}, error=${errorMsg}`);
+              await this.prisma.imageTask.update({
+                where: { id: taskId },
+                data: {
+                  status: 'failed',
+                  error: `积分预扣失败: ${errorMsg}`,
+                  completedAt: new Date(),
+                },
+              });
+              return;
+            }
+          }
+
           await this.prisma.imageTask.update({
             where: { id: taskId },
             data: { status: 'processing' },
           });
-          this.logger.log(`开始执行任务: taskId=${taskId}, type=${task.type}`);
+          this.logger.log(
+            `开始执行任务: taskId=${taskId}, type=${taskType}, apiUsageId=${effectiveApiUsageId}`
+          );
           void this.telemetryService.ingestGenerationTask({
             traceId: taskTraceContext.traceId || null,
             parentRequestId: taskTraceContext.parentRequestId || null,
             taskId,
-            taskType: task.type,
+            taskType,
             stage: 'processing',
             userId: task.userId,
             provider: task.aiProvider || null,
@@ -285,7 +361,7 @@ export class ImageTaskService {
 
           let result: any;
 
-          switch (task.type) {
+          switch (taskType) {
             case 'generate':
               result = await this.imageGenService.generateImage(task.requestData as any);
               break;
@@ -298,7 +374,7 @@ export class ImageTaskService {
             case 'expand':
               throw new Error('扩图功能暂未实现异步模式');
             default:
-              throw new Error(`不支持的任务类型: ${task.type}`);
+              throw new Error(`不支持的任务类型: ${taskType}`);
           }
 
           const taskImagePayload =
@@ -333,12 +409,28 @@ export class ImageTaskService {
             },
           });
 
+          // 任务成功，更新积分状态为成功
+          if (effectiveApiUsageId) {
+            try {
+              await this.creditsService.updateApiUsageStatus(
+                effectiveApiUsageId,
+                ApiResponseStatus.SUCCESS,
+                undefined,
+                Date.now() - startedAt
+              );
+            } catch (updateError) {
+              this.logger.warn(
+                `更新API使用记录状态失败: taskId=${taskId}, apiUsageId=${effectiveApiUsageId}, error=${updateError}`
+              );
+            }
+          }
+
           this.logger.log(`任务执行成功: taskId=${taskId}`);
           void this.telemetryService.ingestGenerationTask({
             traceId: taskTraceContext.traceId || null,
             parentRequestId: taskTraceContext.parentRequestId || null,
             taskId,
-            taskType: task.type,
+            taskType,
             stage: 'succeeded',
             userId: task.userId,
             provider: task.aiProvider || null,
@@ -352,27 +444,52 @@ export class ImageTaskService {
             receivedAt: new Date().toISOString(),
           });
         } catch (error: any) {
-          this.logger.error(`任务执行失败: taskId=${taskId}, error=${error.message}`);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.logger.error(`任务执行失败: taskId=${taskId}, error=${errorMessage}`);
 
           await this.prisma.imageTask.update({
             where: { id: taskId },
             data: {
               status: 'failed',
-              error: error.message || '图像生成失败',
+              error: errorMessage || '图像生成失败',
               completedAt: new Date(),
             },
           });
+
+          // 任务失败，标记积分状态为失败并触发退款
+          if (effectiveApiUsageId) {
+            try {
+              await this.creditsService.updateApiUsageStatus(
+                effectiveApiUsageId,
+                ApiResponseStatus.FAILED,
+                errorMessage,
+                Date.now() - startedAt
+              );
+              // 执行退款
+              await this.creditsService.refundCredits(task.userId, effectiveApiUsageId);
+              this.logger.log(
+                `异步任务失败已退款: taskId=${taskId}, apiUsageId=${effectiveApiUsageId}`
+              );
+            } catch (creditsError) {
+              const creditsErrorMsg =
+                creditsError instanceof Error ? creditsError.message : String(creditsError);
+              this.logger.error(
+                `异步任务积分退款失败: taskId=${taskId}, apiUsageId=${effectiveApiUsageId}, error=${creditsErrorMsg}`
+              );
+            }
+          }
+
           void this.telemetryService.ingestGenerationTask({
             traceId: taskTraceContext.traceId || null,
             parentRequestId: taskTraceContext.parentRequestId || null,
             taskId,
-            taskType: task.type,
+            taskType,
             stage: 'failed',
             userId: task.userId,
             provider: task.aiProvider || null,
             prompt: task.prompt?.slice(0, 500) || null,
             status: 'failed',
-            error: error?.message || '图像生成失败',
+            error: errorMessage || '图像生成失败',
             receivedAt: new Date().toISOString(),
           });
         }

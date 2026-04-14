@@ -2290,8 +2290,8 @@ export class BananaProvider implements IAIProvider {
         normalizedInputs.length > 1 ? "files" : hasPdf && !hasImage ? "PDF document" : "image";
 
       const analysisPrompt = request.prompt
-        ? `Please analyze the following ${fileTypeDesc} (respond in ${request.prompt})`
-        : `Please analyze this ${fileTypeDesc} in detail`;
+        ? `请详细分析这张${fileTypeDesc}，请用中文输出分析结果：${request.prompt}`
+        : `请详细分析这张${fileTypeDesc}，请用中文输出分析结果`;
 
       const result = await this.withRetry(
         () =>
