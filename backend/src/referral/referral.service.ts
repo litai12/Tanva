@@ -3,20 +3,42 @@ import {
   BadRequestException,
   NotFoundException,
   ConflictException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { CreditsService } from '../credits/credits.service';
 
 // 邀请奖励配置
 const REFERRAL_INVITER_REWARD = 500; // 邀请人奖励积分
 const REFERRAL_INVITER_FIRST_RECHARGE_REWARD = 500; // 邀请好友首充额外奖励积分
 const FREE_USER_REFERRAL_REWARD_LIMIT = 5; // 免费用户邀请奖励次数上限
-const DAILY_CHECK_IN_REWARDS = [50, 50, 50, 50, 50, 50, 50]; // D1-D7 每日签到奖励
-const WEEKLY_BONUS = 150; // 满7天额外奖励
+const DAILY_REWARD_RESET_HOUR = 3;
 
 @Injectable()
 export class ReferralService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Inject(forwardRef(() => CreditsService))
+    private readonly creditsService: CreditsService,
+  ) {}
+
+  private getDailyRewardBusinessDayAnchor(date: Date): Date {
+    const anchor = new Date(date);
+    if (anchor.getHours() < DAILY_REWARD_RESET_HOUR) {
+      anchor.setDate(anchor.getDate() - 1);
+    }
+    anchor.setHours(0, 0, 0, 0);
+    return anchor;
+  }
+
+  private diffDailyRewardBusinessDays(current: Date, previous: Date): number {
+    const currentAnchor = this.getDailyRewardBusinessDayAnchor(current);
+    const previousAnchor = this.getDailyRewardBusinessDayAnchor(previous);
+    const diffMs = currentAnchor.getTime() - previousAnchor.getTime();
+    return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  }
 
   private parseInviteLimitFromPlanMetadata(metadata: Prisma.JsonValue | null | undefined): number | null {
     if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
@@ -337,54 +359,49 @@ export class ReferralService {
    * 获取连续签到状态
    */
   async getCheckInStatus(userId: string) {
+    const rewardStatus = await this.creditsService.canClaimDailyReward(userId);
     const account = await this.prisma.creditAccount.findUnique({
       where: { userId },
     });
 
     if (!account) {
+      const todayReward = rewardStatus.todayRewardCredits;
+      const weeklyBonus = Math.max(0, todayReward * (rewardStatus.rewardMultiplier - 1));
       return {
         consecutiveDays: 0,
         lastCheckInDate: null,
-        canCheckIn: true,
-        todayReward: DAILY_CHECK_IN_REWARDS[0],
-        weeklyBonus: WEEKLY_BONUS,
-        rewards: DAILY_CHECK_IN_REWARDS,
+        canCheckIn: rewardStatus.canClaim,
+        todayReward,
+        weeklyBonus,
+        rewards: [todayReward, todayReward, todayReward, todayReward, todayReward, todayReward, todayReward + weeklyBonus],
       };
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
+    const now = new Date();
     const lastCheckIn = account.lastCheckInDate;
     let consecutiveDays = account.consecutiveDays || 0;
-    let canCheckIn = true;
+    let canCheckIn = rewardStatus.canClaim;
 
     if (lastCheckIn) {
-      const lastCheckInDay = new Date(lastCheckIn);
-      lastCheckInDay.setHours(0, 0, 0, 0);
-
-      const diffDays = Math.floor((today.getTime() - lastCheckInDay.getTime()) / (1000 * 60 * 60 * 24));
-
-      if (diffDays === 0) {
-        // 今天已签到
-        canCheckIn = false;
-      } else if (diffDays > 1) {
-        // 断签，重置连续天数
+      const diffDays = this.diffDailyRewardBusinessDays(now, new Date(lastCheckIn));
+      if (diffDays > 1) {
         consecutiveDays = 0;
+      } else if (diffDays === 0) {
+        canCheckIn = false;
       }
     }
 
-    // 计算今天可获得的奖励
-    const dayIndex = consecutiveDays % 7;
-    const todayReward = DAILY_CHECK_IN_REWARDS[dayIndex];
+    const todayReward = rewardStatus.todayRewardCredits;
+    const weeklyBonus = Math.max(0, todayReward * (rewardStatus.rewardMultiplier - 1));
+    const rewards = [todayReward, todayReward, todayReward, todayReward, todayReward, todayReward, todayReward + weeklyBonus];
 
     return {
       consecutiveDays,
       lastCheckInDate: lastCheckIn,
       canCheckIn,
       todayReward,
-      weeklyBonus: WEEKLY_BONUS,
-      rewards: DAILY_CHECK_IN_REWARDS,
+      weeklyBonus,
+      rewards,
     };
   }
 
@@ -392,67 +409,21 @@ export class ReferralService {
    * 执行签到
    */
   async checkIn(userId: string) {
-    const status = await this.getCheckInStatus(userId);
-
-    if (!status.canCheckIn) {
+    const result = await this.creditsService.claimDailyReward(userId);
+    if (result.alreadyClaimed) {
       throw new BadRequestException('今日已签到');
     }
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    // 计算新的连续天数
-    let newConsecutiveDays = status.consecutiveDays + 1;
-
-    // 计算奖励
-    const dayIndex = status.consecutiveDays % 7;
-    let reward = DAILY_CHECK_IN_REWARDS[dayIndex];
-    let description = `连续签到第${newConsecutiveDays}天奖励`;
-
-    // 如果是第7天，额外奖励
-    if (newConsecutiveDays % 7 === 0) {
-      reward += WEEKLY_BONUS;
-      description = `连续签到满7天奖励（含${WEEKLY_BONUS}额外奖励）`;
+    if (!result.success) {
+      throw new BadRequestException('签到失败，请稍后重试');
     }
-
-    // 更新账户和发放奖励
-    const account = await this.prisma.creditAccount.upsert({
-      where: { userId },
-      create: {
-        userId,
-        balance: reward,
-        totalEarned: reward,
-        consecutiveDays: newConsecutiveDays,
-        lastCheckInDate: today,
-        lastDailyRewardAt: today,
-      },
-      update: {
-        balance: { increment: reward },
-        totalEarned: { increment: reward },
-        consecutiveDays: newConsecutiveDays,
-        lastCheckInDate: today,
-        lastDailyRewardAt: today,
-      },
-    });
-
-    // 创建交易记录
-    await this.prisma.creditTransaction.create({
-      data: {
-        accountId: account.id,
-        type: 'CHECK_IN',
-        amount: reward,
-        balanceBefore: account.balance - reward,
-        balanceAfter: account.balance,
-        description,
-      },
-    });
+    const reward = (result.baseCredits ?? 0) + (result.bonusCredits ?? 0);
 
     return {
       success: true,
-      consecutiveDays: newConsecutiveDays,
+      consecutiveDays: result.consecutiveDays ?? 0,
       reward,
-      newBalance: account.balance,
-      isWeeklyBonus: newConsecutiveDays % 7 === 0,
+      newBalance: result.newBalance,
+      isWeeklyBonus: (result.bonusCredits ?? 0) > 0,
     };
   }
 

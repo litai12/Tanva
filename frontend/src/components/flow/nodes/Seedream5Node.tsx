@@ -10,6 +10,7 @@ import { toRenderableImageSrc } from "@/utils/imageSource";
 import { useLocaleText } from "@/utils/localeText";
 import { flowImagePreviewWell, flowLetterboxBackground, useFlowNodeDarkTheme } from "./flowNodeDarkTheme";
 import RunCreditBadge from "./RunCreditBadge";
+import { useImageNodeCreditsPreview } from "../hooks/useImageNodeCreditsPreview";
 
 type Props = {
   id: string;
@@ -23,6 +24,9 @@ type Props = {
     size?: string;
     watermark?: boolean;
     creditsPerCall?: number;
+    managedModelKey?: string;
+    vendorKey?: string;
+    platformKey?: string;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
   };
@@ -114,6 +118,18 @@ function Seedream5Node({ id, data, selected }: Props) {
   const hasImageInput = imageInputCount > 0;
   // 尺寸模式：有 prompt 且无 image 输入时，支持选择具体像素尺寸
   const usePixelSizeMode = hasPromptInput && !hasImageInput;
+  const { credits: backendCredits } = useImageNodeCreditsPreview({
+    nodeType: "seedream5",
+    aiProvider: "seedream5",
+    imageSize: rawSizeValue,
+    referenceImageCount: imageInputCount,
+    managedModelKey: data.managedModelKey,
+    vendorKey: data.vendorKey,
+    platformKey: data.platformKey,
+    enabled: true,
+  });
+  const resolvedRunCredits =
+    typeof backendCredits === "number" ? backendCredits : data.creditsPerCall;
 
   const borderColor = selected ? "#2563eb" : "#e5e7eb";
   const boxShadow = selected
@@ -218,7 +234,7 @@ function Seedream5Node({ id, data, selected }: Props) {
           >
             {status === "running" ? "Running..." : "Run"}
           </button>
-          <RunCreditBadge credits={data.creditsPerCall} />
+          <RunCreditBadge credits={resolvedRunCredits} />
           <button
             onClick={onSend}
             disabled={images.length === 0}

@@ -38,6 +38,10 @@
 - 统一模型管理已开始从旧 `specPricing` 过渡到正式 `pricing`：
   - 管理台厂商卡片现在支持默认积分、默认价格(元)以及规格规则的积分/价格维护。
   - 后端公开节点接口会优先读取 vendor `pricing.defaults`，旧 `creditsPerCall` 仍作为兼容回退。
+- 画布右上角帮助菜单新增 `定价一览`：
+  - 入口位于帮助 icon 下拉，位置在“用户手册”和“更新日志”之间。
+  - 弹层支持查看全部模型定价，或按单个模型聚焦查看。
+  - 线性定价会直接显示公式，例如 `priceYuan = durationSec × 0.8，credits = ceil(priceYuan × 100)`。
 
 ## 音频节点
 - `minimaxSpeech`：文本转语音节点，输出 `audio` 句柄。

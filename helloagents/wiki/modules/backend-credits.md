@@ -53,6 +53,14 @@
   - `model_provider_mapping_v2.models[].vendors[].pricing.defaults`：厂商默认价
   - `model_provider_mapping_v2.models[].vendors[].pricing.rules[]`：规格组合价
   - 命中模型管理价格时，后端会把 `pricingSnapshot` 写入 `ApiUsageRecord.requestParams`，用于审计规则来源、命中 ruleKey 和最终价格快照。
+- 新增只读接口 `GET /api/credits/pricing/models`：
+  - 面向画布右上角“定价一览”弹层。
+  - 支持通过 `modelKey` 查询单模型，未传时返回全部模型。
+  - 返回模型 / 厂商默认价 / 规格规则 / 计费维度；线性与矩阵等 evaluator 会带公式描述，便于直接展示。
+- Wan 系列（2026-04-14）：
+  - `wan-2.6`、`wan-2.6-r2v`、`wan-2.7` 已升级为按 `resolution × durationSec` 线性计费。
+  - 当前系统定价在阿里云百炼基线之上做了“每秒 +20 积分”上浮，对应 `720P = 0.8 元/秒`、`1080P = 1.2 元/秒`；系统按当前积分汇率自动折算为 `80 / 120 积分每秒`。
+  - DashScope 直连接口必须携带 `managedModelKey + vendorKey + generationMode + resolution + durationSec`，否则会回退到静态服务价。
 
 ## pending 收敛与自动退款
 - 异步视频链路支持前端回写成功：`POST /api/ai/video-task-success` 将 `ApiUsageRecord.responseStatus` 从 `pending` 更新为 `success`。
@@ -118,8 +126,9 @@
   - 新增 `GET /api/admin/membership-plans`、`POST /api/admin/membership-plans`、`PATCH /api/admin/membership-plans/:id`，用于后台会员套餐管理。
   - `PaymentService.processPaymentSuccess` 和 `CreditsService.adminAddCredits` 现在会读取 `fixedCreditExpireDays`，将充值/手工补发 lot 生成为 `fixed_window` 或 `permanent`。
   - `CreditsService.issueFreeUserMonthlyQuotaCredits` 会读取 `freeUserMonthlyQuotaCredits` 与 `membershipRefreshCycleDays`。
-  - `CreditsService.claimDailyReward` 现在会读取 `dailyRewardCredits`（免费）或当前会员套餐 `dailyGiftCredits`（活跃 VIP，且不叠加免费签到额度），新签到积分统一写入 `sourceType=gift` + `validityType=permanent` 的 lot；普通用户会参与 `gift_decay`，活跃会员期间因 `pauseGiftDecay=true` 不衰减；第 7 天按倍率发放。
-  - `CreditsService.adminAddCredits` 的正向加积分现已改为进入 `gift` 池，与定价策略“后台管理员操作积分视为赠送积分”一致。
+- `CreditsService.claimDailyReward` 现在会读取 `dailyRewardCredits`（免费）或当前会员套餐 `dailyGiftCredits`（活跃 VIP，且不叠加免费签到额度），新签到积分统一写入 `sourceType=gift` + `validityType=permanent` 的 lot；普通用户会参与 `gift_decay`，活跃会员期间因 `pauseGiftDecay=true` 不衰减；第 7 天按倍率发放。
+- `ReferralService.getCheckInStatus/checkIn` 现仅作为前端推广页签到入口的兼容壳层，底层状态与发奖统一复用 `CreditsService.canClaimDailyReward/claimDailyReward`；自动签到与手动签到不再各自维护独立逻辑，避免同一天重复发放。
+- `CreditsService.adminAddCredits` 的正向加积分现已改为进入 `gift` 池，与定价策略“后台管理员操作积分视为赠送积分”一致。
 - 尚未接入的链路：
   - 更细粒度 scope 策略（service/provider/model 级命中）
   - 月付会员自动续费

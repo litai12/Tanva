@@ -10,6 +10,8 @@ import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import { resolveImageToBlob, resolveImageToDataUrl, toRenderableImageSrc } from '@/utils/imageSource';
 import { useLocaleText } from '@/utils/localeText';
 import { resolveTextFromSourceNode } from '../utils/textSource';
+import RunCreditBadge from './RunCreditBadge';
+import { useImageNodeCreditsPreview } from '../hooks/useImageNodeCreditsPreview';
 import {
   flowNodeControlField,
   flowNodeMutedWellBackground,
@@ -27,6 +29,10 @@ type Props = {
     prompt?: string;
     error?: string;
     analysisPrompt?: string;
+    creditsPerCall?: number;
+    managedModelKey?: string;
+    vendorKey?: string;
+    platformKey?: string;
   };
   selected?: boolean;
 };
@@ -491,10 +497,22 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
     }
   }, [inputPreviews, previewValue]);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
   const imageModel = React.useMemo(
     () => getImageModelForProvider(aiProvider),
     [aiProvider]
   );
+  const { credits: backendCredits } = useImageNodeCreditsPreview({
+    nodeType: 'analysis',
+    aiProvider,
+    bananaImageRoute,
+    managedModelKey: data.managedModelKey,
+    vendorKey: data.vendorKey,
+    platformKey: data.platformKey,
+    enabled: true,
+  });
+  const resolvedRunCredits =
+    typeof backendCredits === 'number' ? backendCredits : data.creditsPerCall;
   const shell = flowNodeShellChrome(isFlowDark, !!selected);
   const controlField = flowNodeControlField(isFlowDark);
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
@@ -919,17 +937,35 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
         <button
           onClick={onAnalyze}
           disabled={status === 'running' || !hasAnyInput || isAnalyzing}
+          className='run-btn-with-credit'
           style={{
             fontSize: 12,
-            padding: '4px 8px',
+            minHeight: 30,
+            padding: '0 10px',
             background: (status === 'running' || !hasAnyInput || isAnalyzing) ? '#e5e7eb' : '#111827',
             color: '#fff',
             borderRadius: 6,
             border: 'none',
             cursor: (status === 'running' || !hasAnyInput || isAnalyzing) ? 'not-allowed' : 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
           }}
+          title={
+            status === 'running' || isAnalyzing
+              ? 'Running...'
+              : resolvedRunCredits
+              ? `${lt('本次消耗', 'Cost')}: ${resolvedRunCredits} ${lt('积分', 'credits')}`
+              : lt('运行分析', 'Run analysis')
+          }
         >
-          {status === 'running' || isAnalyzing ? 'Running...' : 'Run'}
+          {status === 'running' || isAnalyzing ? (
+            'Running...'
+          ) : resolvedRunCredits ? (
+            <RunCreditBadge credits={resolvedRunCredits} runButton />
+          ) : (
+            'Run'
+          )}
         </button>
       </div>
 

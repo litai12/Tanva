@@ -735,10 +735,22 @@ export class AiController {
 
     if (typeof dto.sound !== 'undefined') {
       params.sound = dto.sound;
+      if (typeof dto.sound === 'boolean') {
+        params.hasAudio = dto.sound;
+      } else if (typeof dto.sound === 'string') {
+        const normalizedSound = dto.sound.trim().toLowerCase();
+        if (['on', 'true', 'yes', '1'].includes(normalizedSound)) {
+          params.hasAudio = true;
+        } else if (['off', 'false', 'no', '0'].includes(normalizedSound)) {
+          params.hasAudio = false;
+        }
+      }
     }
 
     if (typeof dto.duration === 'number' && Number.isFinite(dto.duration)) {
-      params.duration = Math.round(dto.duration);
+      const normalizedDuration = Math.round(dto.duration);
+      params.duration = normalizedDuration;
+      params.durationSec = normalizedDuration;
     }
 
     if (typeof dto.resolution === 'string' && dto.resolution.trim().length > 0) {
@@ -750,7 +762,9 @@ export class AiController {
     }
 
     if (typeof dto.videoMode === 'string' && dto.videoMode.trim().length > 0) {
-      params.videoMode = dto.videoMode.trim().toLowerCase();
+      const normalizedVideoMode = dto.videoMode.trim().toLowerCase();
+      params.videoMode = normalizedVideoMode;
+      params.generationMode = normalizedVideoMode;
     }
 
     if (typeof dto.klingStoryboardMode === 'string' && dto.klingStoryboardMode.trim().length > 0) {
@@ -759,10 +773,46 @@ export class AiController {
 
     if (typeof dto.generateAudio === 'boolean') {
       params.generateAudio = dto.generateAudio;
+      params.hasAudio = dto.generateAudio;
     }
 
     if (typeof dto.watermark === 'boolean') {
       params.watermark = dto.watermark;
+    }
+
+    if (typeof dto.offPeak === 'boolean') {
+      params.offPeak = dto.offPeak;
+    }
+
+    const referenceImageCount = Array.isArray(dto.referenceImages) ? dto.referenceImages.length : 0;
+    const referenceVideoCount = Array.isArray(dto.referenceVideos) ? dto.referenceVideos.length : 0;
+    const audioCount = Array.isArray(dto.audioUrls) ? dto.audioUrls.length : 0;
+    params.referenceImageCount = referenceImageCount;
+    params.referenceVideoCount = referenceVideoCount;
+    params.audioInputCount = audioCount;
+    const normalizedVideoMode =
+      typeof dto.videoMode === 'string' && dto.videoMode.trim().length > 0
+        ? dto.videoMode.trim().toLowerCase()
+        : '';
+
+    if (referenceVideoCount > 0 || typeof dto.referenceVideo === 'string') {
+      params.inputType = 'video';
+      params.referenceVideo = true;
+      params.hasVideoInput = true;
+    } else if (referenceImageCount > 0) {
+      params.inputType =
+        dto.provider === 'doubao' && audioCount > 0 ? 'image_audio' : 'image';
+      params.hasVideoInput = false;
+    } else if (normalizedVideoMode === 'text' || normalizedVideoMode === 'text2video') {
+      params.inputType = 'text';
+      params.hasVideoInput = false;
+    } else if (normalizedVideoMode) {
+      params.inputType = dto.provider === 'doubao' ? 'image' : 'text';
+      params.hasVideoInput = false;
+    }
+
+    if (dto.provider === 'doubao' && typeof params.inputType !== 'string') {
+      params.inputType = normalizedVideoMode === 'text' ? 'text' : 'image';
     }
 
     const assignRouteParams = (
@@ -1745,6 +1795,65 @@ export class AiController {
     }
 
     return next;
+  }
+
+  private inferWanResolutionFromSize(size: unknown): '720P' | '1080P' | undefined {
+    if (typeof size !== 'string') return undefined;
+    const trimmed = size.trim();
+    if (!trimmed) return undefined;
+
+    const explicitTier = trimmed.toUpperCase();
+    if (explicitTier === '720P' || explicitTier === '1080P') {
+      return explicitTier;
+    }
+
+    const match = trimmed.match(/^\s*(\d+)\s*[*xX]\s*(\d+)\s*$/);
+    if (!match) return undefined;
+
+    const width = Number(match[1]);
+    const height = Number(match[2]);
+    if (!Number.isFinite(width) || !Number.isFinite(height)) return undefined;
+
+    return Math.max(width, height) >= 1500 ? '1080P' : '720P';
+  }
+
+  private buildWanCreditRequestParams(
+    body: any,
+    options: {
+      managedModelKey: 'wan-2.6' | 'wan-2.6-r2v' | 'wan-2.7';
+      generationMode: 't2v' | 'i2v' | 'r2v';
+      requestPrompt?: string | null;
+      requestThumbnailUrls?: unknown[];
+      hasAudio?: boolean;
+    },
+  ): Record<string, any> {
+    const parameters =
+      body?.parameters && typeof body.parameters === 'object' && !Array.isArray(body.parameters)
+        ? body.parameters
+        : {};
+    const resolution =
+      (typeof parameters.resolution === 'string' && parameters.resolution.trim().length > 0
+        ? parameters.resolution.trim().toUpperCase()
+        : undefined) || this.inferWanResolutionFromSize(parameters.size);
+    const durationRaw = Number(parameters.duration);
+    const duration =
+      Number.isFinite(durationRaw) && durationRaw > 0 ? Math.round(durationRaw) : undefined;
+
+    return {
+      managedModelKey: options.managedModelKey,
+      modelKey: options.managedModelKey,
+      vendorKey: 'dashscope',
+      platformKey: 'dashscope',
+      aiProvider: 'dashscope',
+      generationMode: options.generationMode,
+      ...(resolution ? { resolution } : {}),
+      ...(duration ? { duration, durationSec: duration } : {}),
+      ...(typeof options.hasAudio === 'boolean' ? { hasAudio: options.hasAudio } : {}),
+      ...this.buildRequestPromptAndImageParams(
+        options.requestPrompt,
+        Array.isArray(options.requestThumbnailUrls) ? options.requestThumbnailUrls : [],
+      ),
+    };
   }
 
   private normalizeWan27I2VBodyForUpstream(body: any): any {
@@ -4312,7 +4421,12 @@ export class AiController {
         this.logger.error('❌ DashScope request exception', error);
         return { success: false, error: { code: 'NETWORK_ERROR', message: error?.message || String(error) } };
       }
-    }, undefined, undefined, undefined, undefined, {
+    }, undefined, undefined, undefined, this.buildWanCreditRequestParams(body, {
+      managedModelKey: 'wan-2.6',
+      generationMode: 't2v',
+      requestPrompt: body?.input?.prompt,
+      requestThumbnailUrls: typeof body?.input?.audio_url === 'string' ? [body.input.audio_url] : [],
+    }), {
       treatReturnedFailureAsError: true,
     });
   }
@@ -4416,7 +4530,16 @@ export class AiController {
           error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
         };
       }
-    }, undefined, undefined, undefined, undefined, {
+    }, undefined, undefined, undefined, this.buildWanCreditRequestParams(body, {
+      managedModelKey: 'wan-2.6',
+      generationMode: 'i2v',
+      requestPrompt: body?.input?.prompt,
+      requestThumbnailUrls: [
+        body?.input?.img_url,
+        body?.input?.audio_url,
+      ],
+      hasAudio: true,
+    }), {
       treatReturnedFailureAsError: true,
       skipFinalizeSuccessIf: (r: any) => this.isWanDashscopeI2VAsyncPending(r),
     });
@@ -4506,7 +4629,15 @@ export class AiController {
           error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
         };
       }
-    }, undefined, undefined, undefined, undefined, {
+    }, undefined, undefined, undefined, this.buildWanCreditRequestParams(body, {
+      managedModelKey: 'wan-2.7',
+      generationMode: 'i2v',
+      requestPrompt: body?.input?.prompt,
+      requestThumbnailUrls: Array.isArray(body?.input?.media)
+        ? body.input.media.map((item: any) => item?.url).filter(Boolean)
+        : [],
+      hasAudio: true,
+    }), {
       treatReturnedFailureAsError: true,
       skipFinalizeSuccessIf: (r: any) => this.isWanDashscopeI2VAsyncPending(r),
     });
@@ -4752,7 +4883,15 @@ export class AiController {
           error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
         };
       }
-    }, undefined, undefined, undefined, undefined, {
+    }, undefined, undefined, undefined, this.buildWanCreditRequestParams(body, {
+      managedModelKey: 'wan-2.6-r2v',
+      generationMode: 'r2v',
+      requestPrompt: body?.input?.prompt,
+      requestThumbnailUrls: Array.isArray(body?.input?.reference_video_urls)
+        ? body.input.reference_video_urls
+        : [],
+      hasAudio: true,
+    }), {
       treatReturnedFailureAsError: true,
     });
   }

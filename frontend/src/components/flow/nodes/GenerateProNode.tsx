@@ -17,6 +17,8 @@ import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import { toRenderableImageSrc } from '@/utils/imageSource';
 import { useLocaleText } from '@/utils/localeText';
 import RunCreditBadge from './RunCreditBadge';
+import NodeSelect from './NodeSelect';
+import { useImageNodeCreditsPreview } from '../hooks/useImageNodeCreditsPreview';
 
 // 长宽比图标
 const AspectRatioIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -47,6 +49,9 @@ type Props = {
     imageWidth?: number;
     promptHeight?: number;
     creditsPerCall?: number;
+    managedModelKey?: string;
+    vendorKey?: string;
+    platformKey?: string;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
   };
@@ -531,6 +536,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   // 使用全局图片历史记录 - 只在预览时才获取
   const projectId = useProjectContentStore((state) => state.projectId);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
   const setAIProvider = useAIChatStore((state) => state.setAIProvider);
   const chatTheme = useAIChatStore((state) => state.chatTheme);
   const isFlowDark = chatTheme === 'black';
@@ -877,6 +883,20 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
 
   const aspectRatioValue = data.aspectRatio ?? '';
   const imageSizeValue = data.imageSize ?? null;
+  const { credits: backendCredits } = useImageNodeCreditsPreview({
+    nodeType: "generatePro",
+    aiProvider,
+    bananaImageRoute,
+    imageSize: imageSizeValue || undefined,
+    aspectRatio: aspectRatioValue || undefined,
+    referenceImageCount: connectedInputImages.length,
+    managedModelKey: data.managedModelKey,
+    vendorKey: data.vendorKey,
+    platformKey: data.platformKey,
+    enabled: true,
+  });
+  const resolvedRunCredits =
+    typeof backendCredits === "number" ? backendCredits : data.creditsPerCall;
 
   const imageSizeOptions: Array<{ label: string; value: '0.5K' | '1K' | '2K' | '4K' | null }> = React.useMemo(() => {
     if (currentProviderValue === 'banana-2.5') {
@@ -1884,7 +1904,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
               >
                 <Play style={{ width: 14, height: 14 }} />
               </button>
-              <RunCreditBadge credits={data.creditsPerCall} compact />
+              <RunCreditBadge credits={resolvedRunCredits} compact />
             </div>
 
             {/* 长宽比水平选择栏 - 仅 Pro 模式显示 */}

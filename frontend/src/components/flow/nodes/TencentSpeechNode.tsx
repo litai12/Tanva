@@ -339,14 +339,9 @@ function TencentSpeechNode({ id, data, selected }: Props) {
             justifyContent: 'center',
             gap: 0,
           }}
-        >
-          {hasRunCredits ? (
-            <>
-              <span className="run-text-trigger">
-                {data.status === 'running' ? lt('运行中...', 'Running...') : 'Run'}
-              </span>
-              <RunCreditBadge credits={data.creditsPerCall} runButton />
-            </>
+          >
+            {hasRunCredits ? (
+            <RunCreditBadge credits={data.creditsPerCall} runButton />
           ) : (
             data.status === 'running' ? lt('运行中...', 'Running...') : 'Run'
           )}

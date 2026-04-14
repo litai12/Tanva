@@ -73,6 +73,7 @@ import { authApi, type GoogleApiKeyInfo } from "@/services/authApi";
 import ReferralRewards from "@/components/ReferralRewards";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import MembershipPanel from "@/components/payment/MembershipPanel";
+import PricingCatalogModal from "@/components/layout/PricingCatalogModal";
 import { useTranslation } from "react-i18next";
 import {
   claimDailyReward,
@@ -324,6 +325,7 @@ const FloatingHeader: React.FC = () => {
   const [dailyRewardLoading, setDailyRewardLoading] = useState(false);
   const [dailyRewardClaiming, setDailyRewardClaiming] = useState(false);
   const [isHelpMenuOpen, setIsHelpMenuOpen] = useState(false);
+  const [isPricingCatalogOpen, setIsPricingCatalogOpen] = useState(false);
   const [isWechatQrOpen, setIsWechatQrOpen] = useState(false);
   const [fpsOverlayAdminButtonLayout, setFpsOverlayAdminButtonLayout] = useState<{
     top: number;
@@ -2155,7 +2157,7 @@ const FloatingHeader: React.FC = () => {
             >
               {isHelpMenuOpen && (
                 <div className='absolute top-full left-1/2 -translate-x-1/2 pt-2 z-[100] animate-in fade-in slide-in-from-top-2 duration-200'>
-                  <div className='tanva-help-dropdown w-[132px] p-1.5 rounded-2xl bg-white/95 backdrop-blur-md border border-slate-200 shadow-[0_12px_28px_rgba(15,23,42,0.12)] flex flex-col gap-0.5'>
+                  <div className='tanva-help-dropdown w-[156px] p-1.5 rounded-2xl bg-white/95 backdrop-blur-md border border-slate-200 shadow-[0_12px_28px_rgba(15,23,42,0.12)] flex flex-col gap-0.5'>
                     <button
                       type='button'
                       className='tanva-help-dropdown-item w-full h-9 px-3 rounded-xl text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300'
@@ -2165,6 +2167,16 @@ const FloatingHeader: React.FC = () => {
                       }}
                     >
                       {t("workspace.header.userManual")}
+                    </button>
+                    <button
+                      type='button'
+                      className='tanva-help-dropdown-item w-full h-9 px-3 rounded-xl text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300'
+                      onClick={() => {
+                        setIsPricingCatalogOpen(true);
+                        setIsHelpMenuOpen(false);
+                      }}
+                    >
+                      定价一览
                     </button>
                     <button
                       type='button'
@@ -2413,6 +2425,11 @@ const FloatingHeader: React.FC = () => {
         <GlobalImageHistoryPage
           isOpen={isGlobalHistoryOpen}
           onClose={() => setIsGlobalHistoryOpen(false)}
+        />
+
+        <PricingCatalogModal
+          isOpen={isPricingCatalogOpen}
+          onClose={() => setIsPricingCatalogOpen(false)}
         />
       </div>
     </>

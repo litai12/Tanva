@@ -20,7 +20,12 @@ import { CreditsService } from '../credits/credits.service';
 import { CreditsAnomalyService } from '../credits/credits-anomaly.service';
 import { TransactionHistoryQueryDto } from '../credits/dto/credits.dto';
 import { TemplateService } from './services/template.service';
-import { NodeConfigService, NodeConfigDto, UpdateNodeConfigDto } from './services/node-config.service';
+import {
+  NodeConfigService,
+  NodeConfigDto,
+  UpdateNodeConfigDto,
+  type ManagedPricingPreviewInput,
+} from './services/node-config.service';
 import { BusinessPolicyService } from '../business-policy/business-policy.service';
 import type { UpdateMembershipCreditPolicyInput } from '../business-policy/business-policy.types';
 import { MembershipService } from '../membership/membership.service';
@@ -254,6 +259,16 @@ export class AdminController {
   async getAllPricing(@Request() req: AuthenticatedRequest) {
     this.checkAdmin(req);
     return this.creditsService.getAllPricing();
+  }
+
+  @Post('pricing/preview')
+  @ApiOperation({ summary: '预览模型管理 v2 定价结果' })
+  async previewManagedPricing(
+    @Request() req: AuthenticatedRequest,
+    @Body() dto: ManagedPricingPreviewInput,
+  ) {
+    this.checkAdmin(req);
+    return this.nodeConfigService.previewManagedPricing(dto);
   }
 
   // ==================== 系统设置 ====================

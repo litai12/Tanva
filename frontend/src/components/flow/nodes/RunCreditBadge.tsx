@@ -1,6 +1,7 @@
 import React from "react";
 import { useLocaleText } from "@/utils/localeText";
 import { Star } from "lucide-react";
+import { useNodeRunCredits } from "../hooks/useNodeRunCredits";
 
 type RunCreditBadgeProps = {
   credits?: number;
@@ -18,7 +19,8 @@ export default function RunCreditBadge({
   className = "",
 }: RunCreditBadgeProps) {
   const { lt } = useLocaleText();
-  const value = Number(credits);
+  const { credits: resolvedCredits } = useNodeRunCredits(credits);
+  const value = Number(resolvedCredits);
 
   if (!Number.isFinite(value) || value <= 0) {
     return null;

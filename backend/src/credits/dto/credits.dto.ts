@@ -139,3 +139,18 @@ export class PricingResponseDto {
   @ApiPropertyOptional({ description: '最大上下文长度' })
   maxContextLength?: number;
 }
+
+export class CreditsPreviewDto {
+  @ApiProperty({ description: '服务类型' })
+  @IsString()
+  serviceType!: string;
+
+  @ApiPropertyOptional({ description: '模型标识' })
+  @IsOptional()
+  @IsString()
+  model?: string;
+
+  @ApiPropertyOptional({ description: '请求上下文参数' })
+  @IsOptional()
+  requestParams?: Record<string, any>;
+}
