@@ -491,3 +491,5 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Pre-deduct duplicate detection now prioritizes `idempotencyKey`: when key exists it no longer falls back to `requestFingerprint` dedup in the same window, preventing two intentional consecutive runs from being merged into one billing record.
 - Frontend image request layer now injects Banana route using runtime store state first (`window.__tanvaBananaImageRoute`), then persisted preferences, and writes route into `providerOptions` for every image request call.
 - Frontend image requests now include `X-Banana-Image-Route`; backend CORS allows this header for cross-origin preflight.
+- Wan Dynamic Pricing: 新增 Prisma migration `202604140002_backfill_wan_dynamic_pricing_from_aliyun`，按阿里云百炼 2026-04-14 官方价格把 `wan-2.6` / `wan-2.6-r2v` / `wan-2.7` 升级为 `resolution × durationSec` 线性定价（720P `0.6 元/秒`、1080P `1 元/秒`，按现有 `1 元 = 100 积分` 自动折算）。
+- Wan Credits Runtime: DashScope Wan 直连接口现在会把 `managedModelKey / vendorKey / resolution / durationSec / generationMode` 一并传入积分预扣，避免已有动态 pricing migration 生效后仍因请求上下文缺失而回退到固定 `600` 积分（`backend/src/ai/ai.controller.ts`）。

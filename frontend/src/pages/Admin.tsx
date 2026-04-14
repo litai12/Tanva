@@ -1800,6 +1800,102 @@ const createQ3TurboPricingTemplate = () => ({
   },
 });
 
+const createWanPricingTemplate = (
+  generationModes: Array<"t2v" | "i2v" | "r2v">
+) => ({
+  version: "v2",
+  dimensions: [
+    createEnumDimension("generationMode", "生成方式", generationModes, {
+      required: true,
+      labels: {
+        t2v: "文生视频",
+        i2v: "图生视频",
+        r2v: "参考视频",
+      },
+    }),
+    createEnumDimension("resolution", "分辨率", ["720P", "1080P"], {
+      required: true,
+      labels: {
+        "720P": "720P",
+        "1080P": "1080P",
+      },
+    }),
+    createNumberDimension("durationSec", "时长（秒）", {
+      required: true,
+      description: "按秒线性计费",
+    }),
+  ],
+  matchingRules: [
+    {
+      ruleKey: "wan_720p_linear",
+      label: "Wan 720P 按秒计费",
+      enabled: true,
+      priority: 100,
+      evaluatorKey: "wan_720p_linear_eval",
+      conditions: {
+        all: [
+          { field: "generationMode", op: "in" as const, value: generationModes },
+          { field: "resolution", op: "eq" as const, value: "720P" },
+        ],
+        any: [],
+      },
+    },
+    {
+      ruleKey: "wan_1080p_linear",
+      label: "Wan 1080P 按秒计费",
+      enabled: true,
+      priority: 110,
+      evaluatorKey: "wan_1080p_linear_eval",
+      conditions: {
+        all: [
+          { field: "generationMode", op: "in" as const, value: generationModes },
+          { field: "resolution", op: "eq" as const, value: "1080P" },
+        ],
+        any: [],
+      },
+    },
+  ],
+  evaluators: {
+    wan_720p_linear_eval: {
+      type: "linear" as const,
+      unitField: "durationSec",
+      unitPriceYuan: 0.6,
+    },
+    wan_1080p_linear_eval: {
+      type: "linear" as const,
+      unitField: "durationSec",
+      unitPriceYuan: 1,
+    },
+  },
+  displayConfig: {
+    specAxes: ["generationMode", "resolution", "durationSec"],
+    labels: {
+      "generationMode.t2v": "文生视频",
+      "generationMode.i2v": "图生视频",
+      "generationMode.r2v": "参考视频",
+      "resolution.720P": "720P",
+      "resolution.1080P": "1080P",
+      "durationSec.5": "5 秒",
+      "durationSec.10": "10 秒",
+      "durationSec.15": "15 秒",
+    },
+    defaultSelections: {
+      generationMode: generationModes[0],
+      resolution: "720P",
+      durationSec: 5,
+    },
+    presets: generationModes.flatMap((generationMode) =>
+      ["720P", "1080P"].flatMap((resolution) =>
+        [5, 10, 15].map((durationSec) => ({
+          generationMode,
+          resolution,
+          durationSec,
+        }))
+      )
+    ),
+  },
+});
+
 const mergeFallbackStructure = <T,>(fallback: T, current?: Partial<T> | null): T => {
   if (Array.isArray(fallback)) {
     return (Array.isArray(current) ? current : fallback) as T;
@@ -2820,7 +2916,9 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "dashscope",
         modelName: "Wan",
         modelVersion: "2.6",
-        creditsPerCall: 600,
+        creditsPerCall: 300,
+        priceYuan: 3,
+        pricing: createWanPricingTemplate(["t2v", "i2v"]),
       },
     ],
   },
@@ -2857,7 +2955,9 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "dashscope",
         modelName: "Wan",
         modelVersion: "2.6-r2v",
-        creditsPerCall: 600,
+        creditsPerCall: 300,
+        priceYuan: 3,
+        pricing: createWanPricingTemplate(["r2v"]),
       },
     ],
   },
@@ -2894,7 +2994,9 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "dashscope",
         modelName: "Wan",
         modelVersion: "2.7-i2v",
-        creditsPerCall: 600,
+        creditsPerCall: 300,
+        priceYuan: 3,
+        pricing: createWanPricingTemplate(["i2v"]),
       },
     ],
   },

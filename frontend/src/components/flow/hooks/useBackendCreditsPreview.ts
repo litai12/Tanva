@@ -1,5 +1,8 @@
 import React from "react";
-import { previewCredits } from "@/services/creditsPreviewService";
+import {
+  buildPreviewRequestSignature,
+  previewCredits,
+} from "@/services/creditsPreviewService";
 
 type Params = {
   serviceType?: string | null;
@@ -15,6 +18,14 @@ export const useBackendCreditsPreview = ({
   enabled = true,
 }: Params) => {
   const [credits, setCredits] = React.useState<number | undefined>(undefined);
+  const requestSignature = React.useMemo(() => {
+    if (!enabled || !serviceType) return "";
+    return buildPreviewRequestSignature({
+      serviceType,
+      model: model || undefined,
+      requestParams: requestParams || undefined,
+    });
+  }, [enabled, model, requestParams, serviceType]);
 
   React.useEffect(() => {
     if (!enabled || !serviceType) {
@@ -44,7 +55,7 @@ export const useBackendCreditsPreview = ({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [enabled, model, requestParams, serviceType]);
+  }, [enabled, requestSignature, serviceType]);
 
   return {
     credits,

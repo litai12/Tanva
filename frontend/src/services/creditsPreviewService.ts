@@ -32,6 +32,29 @@ export type CreditsPreviewResponse = {
   requestParams?: Record<string, any> | null;
 };
 
+export const stableSerializePreviewPayload = (value: unknown): string => {
+  if (value === null || value === undefined) return "null";
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableSerializePreviewPayload(item)).join(",")}]`;
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
+      a.localeCompare(b)
+    );
+    return `{${entries
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableSerializePreviewPayload(item)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+};
+
+export const buildPreviewRequestSignature = (payload: CreditsPreviewRequest): string =>
+  stableSerializePreviewPayload({
+    serviceType: payload.serviceType,
+    model: payload.model || null,
+    requestParams: payload.requestParams || null,
+  });
+
 export async function previewCredits(
   payload: CreditsPreviewRequest
 ): Promise<CreditsPreviewResponse> {

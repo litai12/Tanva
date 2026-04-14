@@ -9,6 +9,7 @@ import { useLocaleText } from "@/utils/localeText";
 import RunCreditBadge from "./RunCreditBadge";
 import NodeSelect from "./NodeSelect";
 import { useNodeRunCredits } from "../hooks/useNodeRunCredits";
+import { useBackendCreditsPreview } from "../hooks/useBackendCreditsPreview";
 
 type VideoHistoryItem = {
   id: string;
@@ -157,8 +158,32 @@ function Wan27VideoNode({ id, data, selected }: Props) {
   const rawDuration = typeof data.duration === "number" && Number.isFinite(data.duration) ? Math.round(data.duration) : 5;
   const duration = rawDuration >= 2 && rawDuration <= 15 ? rawDuration : 5;
   const seedInput = data.seed === undefined || data.seed === null ? "" : String(data.seed).trim();
+  const previewRequestParams = React.useMemo(
+    () => ({
+      generationMode: "i2v",
+      resolution,
+      duration,
+      durationSec: duration,
+    }),
+    [duration, resolution]
+  );
+  const { credits: backendCredits } = useBackendCreditsPreview({
+    serviceType: "wan27-video",
+    model: "wan2.7-i2v",
+    requestParams: {
+      managedModelKey: "wan-2.7",
+      modelKey: "wan-2.7",
+      vendorKey: "dashscope",
+      platformKey: "dashscope",
+      aiProvider: "dashscope",
+      ...previewRequestParams,
+    },
+    enabled: true,
+  });
+  const resolvedRunCredits =
+    typeof backendCredits === "number" ? backendCredits : data.creditsPerCall;
   const { credits: runCredits, hasCredits: hasRunCredits } = useNodeRunCredits(
-    data.creditsPerCall
+    resolvedRunCredits
   );
 
   const mediaHandleStats = useStore((state: any) => {

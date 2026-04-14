@@ -10,6 +10,7 @@ import { useLocaleText } from "@/utils/localeText";
 import RunCreditBadge from "./RunCreditBadge";
 import NodeSelect from "./NodeSelect";
 import { useNodeRunCredits } from "../hooks/useNodeRunCredits";
+import { useBackendCreditsPreview } from "../hooks/useBackendCreditsPreview";
 
 type VideoHistoryItem = {
   id: string;
@@ -64,6 +65,13 @@ const SUPPORTED_AUDIO_PATTERN = new RegExp(
 );
 
 const SUPPORTED_AUDIO_ACCEPT = SUPPORTED_AUDIO_EXTENSIONS.map((ext) => `.${ext}`).join(",");
+
+const inferWanResolutionFromSize = (size?: string): "720P" | "1080P" => {
+  const normalized = typeof size === "string" ? size.trim().toUpperCase() : "";
+  if (normalized === "1080P") return "1080P";
+  if (normalized === "720P") return "720P";
+  return "720P";
+};
 
 const isSupportedAudioFile = (file: File): boolean => {
   const mime = (file.type || "").toLowerCase();
@@ -300,8 +308,42 @@ function Wan26Node({ id, data, selected }: Props) {
   };
 
   const onRun = React.useCallback(() => data.onRun?.(id), [data, id]);
+  const previewRequestParams = React.useMemo(
+    () => ({
+      generationMode: isI2VMode ? "i2v" : "t2v",
+      resolution: isI2VMode
+        ? typeof data.resolution === "string" && data.resolution.trim()
+          ? data.resolution.trim().toUpperCase()
+          : "720P"
+        : inferWanResolutionFromSize(data.size),
+      duration:
+        typeof data.duration === "number" && Number.isFinite(data.duration)
+          ? Math.round(data.duration)
+          : 5,
+      durationSec:
+        typeof data.duration === "number" && Number.isFinite(data.duration)
+          ? Math.round(data.duration)
+          : 5,
+    }),
+    [data.duration, data.resolution, data.size, isI2VMode]
+  );
+  const { credits: backendCredits } = useBackendCreditsPreview({
+    serviceType: "wan26-video",
+    model: isI2VMode ? "wan2.6-i2v" : "wan2.6-t2v",
+    requestParams: {
+      managedModelKey: "wan-2.6",
+      modelKey: "wan-2.6",
+      vendorKey: "dashscope",
+      platformKey: "dashscope",
+      aiProvider: "dashscope",
+      ...previewRequestParams,
+    },
+    enabled: true,
+  });
+  const resolvedRunCredits =
+    typeof backendCredits === "number" ? backendCredits : data.creditsPerCall;
   const { credits: runCredits, hasCredits: hasRunCredits } = useNodeRunCredits(
-    data.creditsPerCall
+    resolvedRunCredits
   );
 
   // 音频上传处理

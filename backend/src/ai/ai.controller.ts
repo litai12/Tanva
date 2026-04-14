@@ -1779,6 +1779,65 @@ export class AiController {
     return next;
   }
 
+  private inferWanResolutionFromSize(size: unknown): '720P' | '1080P' | undefined {
+    if (typeof size !== 'string') return undefined;
+    const trimmed = size.trim();
+    if (!trimmed) return undefined;
+
+    const explicitTier = trimmed.toUpperCase();
+    if (explicitTier === '720P' || explicitTier === '1080P') {
+      return explicitTier;
+    }
+
+    const match = trimmed.match(/^\s*(\d+)\s*[*xX]\s*(\d+)\s*$/);
+    if (!match) return undefined;
+
+    const width = Number(match[1]);
+    const height = Number(match[2]);
+    if (!Number.isFinite(width) || !Number.isFinite(height)) return undefined;
+
+    return Math.max(width, height) >= 1500 ? '1080P' : '720P';
+  }
+
+  private buildWanCreditRequestParams(
+    body: any,
+    options: {
+      managedModelKey: 'wan-2.6' | 'wan-2.6-r2v' | 'wan-2.7';
+      generationMode: 't2v' | 'i2v' | 'r2v';
+      requestPrompt?: string | null;
+      requestThumbnailUrls?: unknown[];
+      hasAudio?: boolean;
+    },
+  ): Record<string, any> {
+    const parameters =
+      body?.parameters && typeof body.parameters === 'object' && !Array.isArray(body.parameters)
+        ? body.parameters
+        : {};
+    const resolution =
+      (typeof parameters.resolution === 'string' && parameters.resolution.trim().length > 0
+        ? parameters.resolution.trim().toUpperCase()
+        : undefined) || this.inferWanResolutionFromSize(parameters.size);
+    const durationRaw = Number(parameters.duration);
+    const duration =
+      Number.isFinite(durationRaw) && durationRaw > 0 ? Math.round(durationRaw) : undefined;
+
+    return {
+      managedModelKey: options.managedModelKey,
+      modelKey: options.managedModelKey,
+      vendorKey: 'dashscope',
+      platformKey: 'dashscope',
+      aiProvider: 'dashscope',
+      generationMode: options.generationMode,
+      ...(resolution ? { resolution } : {}),
+      ...(duration ? { duration, durationSec: duration } : {}),
+      ...(typeof options.hasAudio === 'boolean' ? { hasAudio: options.hasAudio } : {}),
+      ...this.buildRequestPromptAndImageParams(
+        options.requestPrompt,
+        Array.isArray(options.requestThumbnailUrls) ? options.requestThumbnailUrls : [],
+      ),
+    };
+  }
+
   private normalizeWan27I2VBodyForUpstream(body: any): any {
     if (!body || typeof body !== 'object') return body;
     const next: any = { ...body };
@@ -4344,7 +4403,12 @@ export class AiController {
         this.logger.error('❌ DashScope request exception', error);
         return { success: false, error: { code: 'NETWORK_ERROR', message: error?.message || String(error) } };
       }
-    }, undefined, undefined, undefined, undefined, {
+    }, undefined, undefined, undefined, this.buildWanCreditRequestParams(body, {
+      managedModelKey: 'wan-2.6',
+      generationMode: 't2v',
+      requestPrompt: body?.input?.prompt,
+      requestThumbnailUrls: typeof body?.input?.audio_url === 'string' ? [body.input.audio_url] : [],
+    }), {
       treatReturnedFailureAsError: true,
     });
   }
@@ -4448,7 +4512,16 @@ export class AiController {
           error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
         };
       }
-    }, undefined, undefined, undefined, undefined, {
+    }, undefined, undefined, undefined, this.buildWanCreditRequestParams(body, {
+      managedModelKey: 'wan-2.6',
+      generationMode: 'i2v',
+      requestPrompt: body?.input?.prompt,
+      requestThumbnailUrls: [
+        body?.input?.img_url,
+        body?.input?.audio_url,
+      ],
+      hasAudio: true,
+    }), {
       treatReturnedFailureAsError: true,
       skipFinalizeSuccessIf: (r: any) => this.isWanDashscopeI2VAsyncPending(r),
     });
@@ -4538,7 +4611,15 @@ export class AiController {
           error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
         };
       }
-    }, undefined, undefined, undefined, undefined, {
+    }, undefined, undefined, undefined, this.buildWanCreditRequestParams(body, {
+      managedModelKey: 'wan-2.7',
+      generationMode: 'i2v',
+      requestPrompt: body?.input?.prompt,
+      requestThumbnailUrls: Array.isArray(body?.input?.media)
+        ? body.input.media.map((item: any) => item?.url).filter(Boolean)
+        : [],
+      hasAudio: true,
+    }), {
       treatReturnedFailureAsError: true,
       skipFinalizeSuccessIf: (r: any) => this.isWanDashscopeI2VAsyncPending(r),
     });
@@ -4784,7 +4865,15 @@ export class AiController {
           error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
         };
       }
-    }, undefined, undefined, undefined, undefined, {
+    }, undefined, undefined, undefined, this.buildWanCreditRequestParams(body, {
+      managedModelKey: 'wan-2.6-r2v',
+      generationMode: 'r2v',
+      requestPrompt: body?.input?.prompt,
+      requestThumbnailUrls: Array.isArray(body?.input?.reference_video_urls)
+        ? body.input.reference_video_urls
+        : [],
+      hasAudio: true,
+    }), {
       treatReturnedFailureAsError: true,
     });
   }

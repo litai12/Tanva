@@ -8,6 +8,7 @@ import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
 import RunCreditBadge from "./RunCreditBadge";
 import { useNodeRunCredits } from "../hooks/useNodeRunCredits";
+import { useBackendCreditsPreview } from "../hooks/useBackendCreditsPreview";
 
 type VideoHistoryItem = {
   id: string;
@@ -38,6 +39,13 @@ type Props = {
   selected?: boolean;
 };
 
+const inferWanResolutionFromSize = (size?: string): "720P" | "1080P" => {
+  const normalized = typeof size === "string" ? size.trim().toUpperCase() : "";
+  if (normalized === "1080P") return "1080P";
+  if (normalized === "720P") return "720P";
+  return "720P";
+};
+
 function Wan2R2VNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const [hover, setHover] = React.useState<string | null>(null);
@@ -54,8 +62,38 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
   const [shotMenuOpen, setShotMenuOpen] = React.useState(false);
   const [showHistory, setShowHistory] = React.useState(false);
 
+  const previewRequestParams = React.useMemo(
+    () => ({
+      generationMode: "r2v",
+      resolution: inferWanResolutionFromSize(data.size),
+      duration:
+        typeof data.duration === "number" && Number.isFinite(data.duration)
+          ? Math.round(data.duration)
+          : 5,
+      durationSec:
+        typeof data.duration === "number" && Number.isFinite(data.duration)
+          ? Math.round(data.duration)
+          : 5,
+    }),
+    [data.duration, data.size]
+  );
+  const { credits: backendCredits } = useBackendCreditsPreview({
+    serviceType: "wan26-r2v",
+    model: "wan2.6-r2v",
+    requestParams: {
+      managedModelKey: "wan-2.6-r2v",
+      modelKey: "wan-2.6-r2v",
+      vendorKey: "dashscope",
+      platformKey: "dashscope",
+      aiProvider: "dashscope",
+      ...previewRequestParams,
+    },
+    enabled: true,
+  });
+  const resolvedRunCredits =
+    typeof backendCredits === "number" ? backendCredits : data.creditsPerCall;
   const { credits: runCredits, hasCredits: hasRunCredits } = useNodeRunCredits(
-    data.creditsPerCall
+    resolvedRunCredits
   );
   const historyItems = React.useMemo<VideoHistoryItem[]>(
     () => (Array.isArray(data.history) ? data.history : []),
