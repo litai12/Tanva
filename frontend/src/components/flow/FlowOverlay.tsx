@@ -1647,6 +1647,7 @@ const BANANA_DYNAMIC_NODE_TYPES = new Set<FlowNodeType>([
   "generateRef",
   "generatePro",
   "generatePro4",
+  "analysis",
 ]);
 
 const IMAGE_DYNAMIC_CREDIT_NODE_TYPES = new Set<FlowNodeType>([
@@ -1655,6 +1656,7 @@ const IMAGE_DYNAMIC_CREDIT_NODE_TYPES = new Set<FlowNodeType>([
   "generateRef",
   "generatePro",
   "generatePro4",
+  "analysis",
   "midjourney",
   "midjourneyV7",
   "niji7",
@@ -1754,6 +1756,7 @@ const BANANA_STABLE_DYNAMIC_NODE_TYPES = new Set<FlowNodeType>([
   "generateRef",
   "generatePro",
   "generatePro4",
+  "analysis",
 ]);
 
 const resolveBananaStablePricingTier = (
@@ -18558,6 +18561,7 @@ function FlowInner() {
         n.type === "viewAngle" ||
         n.type === "generatePro" ||
         n.type === "generatePro4" ||
+        n.type === "analysis" ||
         n.type === "midjourney" ||
         n.type === "midjourneyV7" ||
         n.type === "niji7" ||

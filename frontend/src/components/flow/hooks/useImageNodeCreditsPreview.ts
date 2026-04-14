@@ -5,6 +5,7 @@ type ImageNodeType =
   | "generate"
   | "generatePro"
   | "generateRef"
+  | "analysis"
   | "seedream5"
   | "nano2"
   | "midjourney"
@@ -66,8 +67,13 @@ const normalizeSeedreamSize = (value?: string | null): string | undefined => {
 
 const resolveBananaServiceType = (
   provider: string,
-  mode: "generate" | "blend"
+  mode: "generate" | "blend" | "analysis"
 ): string => {
+  if (mode === "analysis") {
+    if (provider === "banana-2.5") return "gemini-2.5-image-analyze";
+    return "gemini-image-analyze";
+  }
+
   if (mode === "blend") {
     if (provider === "banana-2.5") return "gemini-2.5-image-blend";
     if (provider === "banana-3.1" || provider === "nano2") {
@@ -100,6 +106,9 @@ const resolveManagedModelKey = (
   }
   if (nodeType === "generateRef") {
     return resolveBananaServiceType(provider, "blend");
+  }
+  if (nodeType === "analysis") {
+    return resolveBananaServiceType(provider, "analysis");
   }
   return resolveBananaServiceType(provider, "generate");
 };
@@ -165,7 +174,12 @@ export const useImageNodeCreditsPreview = ({
       };
     }
 
-    const mode = nodeType === "generateRef" ? "blend" : "generate";
+    const mode =
+      nodeType === "generateRef"
+        ? "blend"
+        : nodeType === "analysis"
+        ? "analysis"
+        : "generate";
     const serviceType = resolveBananaServiceType(provider, mode);
     const modelKey = resolveManagedModelKey(nodeType, provider, managedModelKey);
     const normalizedImageSize = normalizeBananaImageSize(imageSize);

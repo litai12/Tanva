@@ -2537,38 +2537,52 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
   },
   {
     modelKey: "gemini-image-analyze",
-    modelName: "Gemini 图像分析",
+    modelName: "Nano Banana Pro 图像分析",
     taskType: "image",
     enabled: true,
-    defaultVendor: "gemini",
+    defaultVendor: "banana",
     metadata: {
       nodeConfig: buildManagedNodeConfig(
         {
           modelKey: "gemini-image-analyze",
           taskType: "image",
-          vendors: [{ vendorKey: "gemini", creditsPerCall: 6 }],
-          defaultVendor: "gemini",
+          vendors: [{ vendorKey: "banana", creditsPerCall: 40 }],
+          defaultVendor: "banana",
         },
         {
           flowNodeType: "analysis",
           nodeKey: "analysis",
           category: "image",
-          creditsPerCall: 6,
-          description: "Gemini 图像分析",
+          creditsPerCall: 40,
+          description: "Nano Banana Pro 图像分析",
         }
       ),
+      specPricing: {
+        defaults: { credits: 40 },
+        rules: [
+          { when: { resolution: "2K" }, price: { credits: 60, priceYuan: 0.6 } },
+          { when: { resolution: "4K" }, price: { credits: 80, priceYuan: 0.8 } },
+        ],
+      },
     },
     vendors: [
       {
-        vendorKey: "gemini",
-        platformKey: "gemini",
-        label: "Gemini",
+        vendorKey: "banana",
+        platformKey: "banana",
+        label: "Pro / Nano Banana Pro",
         enabled: true,
         route: "legacy",
-        provider: "gemini",
-        modelName: "Gemini Image Analyze",
-        modelVersion: "3.x",
-        creditsPerCall: 6,
+        provider: "banana",
+        modelName: "Nano Banana Pro Analyze",
+        modelVersion: "3.0",
+        creditsPerCall: 40,
+        pricing: {
+          defaults: { credits: 40, priceYuan: 0.4 },
+          rules: [
+            { when: { resolution: "2K" }, price: { credits: 60, priceYuan: 0.6 } },
+            { when: { resolution: "4K" }, price: { credits: 80, priceYuan: 0.8 } },
+          ],
+        },
       },
     ],
   },

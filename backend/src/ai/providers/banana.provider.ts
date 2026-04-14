@@ -2239,7 +2239,12 @@ export class BananaProvider implements IAIProvider {
   async analyzeImage(
     request: ImageAnalysisRequest
   ): Promise<AIProviderResponse<AnalysisResult>> {
-    this.logger.log(`🔍 Analyzing file with Banana (147) API...`);
+    const providerMode = await this.getConfiguredImageProvider(
+      request.providerOptions
+    );
+    this.logger.log(
+      `🔍 Analyzing file with Banana API... mode=${providerMode}`
+    );
 
     try {
       const sourceInputs = Array.from(
@@ -2272,7 +2277,7 @@ export class BananaProvider implements IAIProvider {
       const defaultModel = isFastModel
         ? "gemini-2.5-flash-image-preview"
         : "gemini-3-pro-image-preview";
-      const model = this.normalizeModelName(
+      const model = this.normalizeLegacyImageModel(
         request.model || defaultModel
       );
       const mimeSummary = normalizedInputs.map((item) => item.mimeType).join(", ");
