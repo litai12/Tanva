@@ -255,7 +255,7 @@ export class CreditsService {
       requestParams: params.requestParams ?? null,
     });
     const digest = createHash('sha256').update(signature).digest('hex');
-    return `credits:preview:v1:${digest}`;
+    return `credits:preview:v2:${digest}`;
   }
 
   private async getCachedPreviewQuote(
