@@ -80,6 +80,16 @@ export class CreditsController {
     return this.creditsService.getAllPricing();
   }
 
+  @Get('pricing/models')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '获取模型定价总览' })
+  async getManagedPricingCatalog(
+    @Query('modelKey') modelKey?: string,
+  ) {
+    return this.creditsService.getManagedPricingCatalog(modelKey);
+  }
+
   @Post('preview')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()

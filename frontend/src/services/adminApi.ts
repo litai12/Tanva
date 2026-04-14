@@ -310,6 +310,74 @@ export async function getPricing() {
   return response.json();
 }
 
+export interface ManagedPricingCatalogCondition {
+  field: string;
+  op: string;
+  value?: unknown;
+}
+
+export interface ManagedPricingCatalogRule {
+  ruleKey?: string;
+  label?: string;
+  priority?: number;
+  evaluatorKey?: string;
+  evaluatorType?: string;
+  formula?: string;
+  conditions: {
+    all: ManagedPricingCatalogCondition[];
+    any: ManagedPricingCatalogCondition[];
+  };
+}
+
+export interface ManagedPricingCatalogDimension {
+  key: string;
+  label?: string;
+  type?: string;
+  required?: boolean;
+  description?: string;
+  options?: Array<{
+    value: string | number | boolean;
+    label?: string;
+  }>;
+}
+
+export interface ManagedPricingCatalogVendor {
+  vendorKey: string;
+  label?: string;
+  provider?: string;
+  platformKey?: string;
+  enabled: boolean;
+  creditsPerCall?: number;
+  priceYuan?: number;
+  pricingVersion?: string;
+  defaultPrice: {
+    credits?: number;
+    priceYuan?: number;
+    costYuan?: number;
+  };
+  dimensions: ManagedPricingCatalogDimension[];
+  rules: ManagedPricingCatalogRule[];
+}
+
+export interface ManagedPricingCatalogItem {
+  modelKey: string;
+  modelName?: string;
+  taskType?: string;
+  enabled: boolean;
+  defaultVendor?: string;
+  vendors: ManagedPricingCatalogVendor[];
+}
+
+export async function getManagedPricingCatalog(params?: {
+  modelKey?: string;
+}): Promise<ManagedPricingCatalogItem[]> {
+  const searchParams = new URLSearchParams();
+  if (params?.modelKey) searchParams.set("modelKey", params.modelKey);
+  const suffix = searchParams.toString() ? `?${searchParams}` : "";
+  const response = await request(`/api/credits/pricing/models${suffix}`);
+  return response.json();
+}
+
 // 获取用户积分信息（用户自己）
 export async function getMyCredits(): Promise<UserCreditsInfo> {
   const response = await request("/api/credits/balance");

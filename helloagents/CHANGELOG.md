@@ -493,3 +493,4 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Frontend image requests now include `X-Banana-Image-Route`; backend CORS allows this header for cross-origin preflight.
 - Wan Dynamic Pricing: Prisma migration `202604140002_backfill_wan_dynamic_pricing_from_aliyun` 现将 `wan-2.6` / `wan-2.6-r2v` / `wan-2.7` 升级为 `resolution × durationSec` 线性定价，并在阿里云百炼基线上执行“每秒 +20 积分”上浮（720P `0.8 元/秒`、1080P `1.2 元/秒`，按现有 `1 元 = 100 积分` 自动折算为 `80 / 120 积分每秒`）。
 - Wan Credits Runtime: DashScope Wan 直连接口现在会把 `managedModelKey / vendorKey / resolution / durationSec / generationMode` 一并传入积分预扣，避免已有动态 pricing migration 生效后仍因请求上下文缺失而回退到固定 `600` 积分（`backend/src/ai/ai.controller.ts`）。
+- Pricing Catalog Modal: 画布右上角帮助菜单新增“定价一览”，前端支持查看全部模型或单模型定价；后端新增 `GET /api/credits/pricing/models` 只读接口，直接返回默认价、规则条件和 evaluator 公式，线性定价可直接展示计费公式。

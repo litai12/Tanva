@@ -30,11 +30,20 @@ import {
   type CreditLotStatus,
 } from './credit-lot-policy';
 import { BusinessPolicyService } from '../business-policy/business-policy.service';
-import { MODEL_PROVIDER_MAPPING_SETTING_KEY } from '../ai/services/model-routing.service';
+import {
+  MODEL_PROVIDER_MAPPING_SETTING_KEY,
+  type ManagedModelConfig,
+  type ManagedModelVendorConfig,
+} from '../ai/services/model-routing.service';
 import {
   resolveManagedModelPricing,
   resolveManagedModelPricingV2,
+  resolveManagedVendorDefaultPricing,
   type ManagedPricingMappingLike,
+  type ManagedPricingCondition,
+  type ManagedPricingDimensionDefinition,
+  type ManagedPricingEvaluator,
+  type ManagedPricingMatchingRule,
   type ResolvedManagedPricing,
 } from '../ai/services/model-pricing-resolver';
 
@@ -131,6 +140,64 @@ export interface ApiUsageParams {
   idempotencyKey?: string;
   idempotencyWindowMs?: number;
 }
+
+interface PricingCatalogRuleConditionView {
+  field: string;
+  op: string;
+  value?: unknown;
+}
+
+interface PricingCatalogRuleView {
+  ruleKey?: string;
+  label?: string;
+  priority?: number;
+  evaluatorKey?: string;
+  evaluatorType?: string;
+  formula?: string;
+  conditions: {
+    all: PricingCatalogRuleConditionView[];
+    any: PricingCatalogRuleConditionView[];
+  };
+}
+
+interface PricingCatalogVendorView {
+  vendorKey: string;
+  label?: string;
+  provider?: string;
+  platformKey?: string;
+  enabled: boolean;
+  creditsPerCall?: number;
+  priceYuan?: number;
+  pricingVersion?: string;
+  defaultPrice: {
+    credits?: number;
+    priceYuan?: number;
+    costYuan?: number;
+  };
+  dimensions: Array<{
+    key: string;
+    label?: string;
+    type?: string;
+    required?: boolean;
+    options?: Array<{
+      value: string | number | boolean;
+      label?: string;
+    }>;
+    description?: string;
+  }>;
+  rules: PricingCatalogRuleView[];
+}
+
+export interface ManagedPricingCatalogItem {
+  modelKey: string;
+  modelName?: string;
+  taskType?: string;
+  enabled: boolean;
+  defaultVendor?: string;
+  vendors: PricingCatalogVendorView[];
+}
+
+type PricingCatalogDimensionView = PricingCatalogVendorView['dimensions'][number];
 
 interface PreviewCreditsParams {
   userId: string;
@@ -2008,6 +2075,259 @@ export class CreditsService {
       serviceType,
       ...pricing,
     };
+  }
+
+  private normalizeCatalogCondition(
+    condition: ManagedPricingCondition | null | undefined,
+  ): PricingCatalogRuleConditionView | null {
+    const field = typeof condition?.field === 'string' ? condition.field.trim() : '';
+    if (!field) return null;
+    return {
+      field,
+      op: typeof condition?.op === 'string' ? condition.op : 'eq',
+      ...(condition?.value !== undefined ? { value: condition.value } : {}),
+    };
+  }
+
+  private buildEvaluatorFormula(
+    evaluator: ManagedPricingEvaluator | undefined,
+  ): string | undefined {
+    if (!evaluator || typeof evaluator !== 'object') return undefined;
+
+    if (evaluator.type === 'fixed') {
+      const credits =
+        typeof evaluator.credits === 'number'
+          ? evaluator.credits
+          : typeof evaluator.priceYuan === 'number'
+          ? Math.ceil(evaluator.priceYuan * 100)
+          : undefined;
+      return credits !== undefined ? `${credits} 积分` : '固定定价';
+    }
+
+    if (evaluator.type === 'linear') {
+      const creditsPerUnit = Math.ceil(evaluator.unitPriceYuan * 100);
+      return `credits = ${evaluator.unitField} × ${creditsPerUnit}`;
+    }
+
+    if (evaluator.type === 'base_plus_linear') {
+      const baseCredits = Math.ceil(evaluator.basePriceYuan * 100);
+      const extraCreditsPerUnit = Math.ceil(evaluator.extraUnitPriceYuan * 100);
+      return `credits = ${baseCredits} + max(0, ${evaluator.unitField} - ${evaluator.includedUnits}) × ${extraCreditsPerUnit}`;
+    }
+
+    if (evaluator.type === 'lookup_matrix') {
+      return `credits = lookup_matrix(${evaluator.axes.join(', ')})`;
+    }
+
+    return undefined;
+  }
+
+  private buildCatalogRules(vendor: ManagedModelVendorConfig): PricingCatalogRuleView[] {
+    const pricing =
+      vendor.pricing && typeof vendor.pricing === 'object' && !Array.isArray(vendor.pricing)
+        ? vendor.pricing
+        : null;
+    const matchingRules = Array.isArray(pricing?.matchingRules)
+      ? (pricing.matchingRules as ManagedPricingMatchingRule[])
+      : [];
+    const evaluators =
+      pricing?.evaluators && typeof pricing.evaluators === 'object' && !Array.isArray(pricing.evaluators)
+        ? (pricing.evaluators as Record<string, ManagedPricingEvaluator>)
+        : {};
+
+    const structuredRules = matchingRules.map((rule) => {
+      const evaluatorKey =
+        typeof rule?.evaluatorKey === 'string' ? rule.evaluatorKey.trim() : '';
+      const evaluator = evaluatorKey ? evaluators[evaluatorKey] : undefined;
+      return {
+        ...(typeof rule?.ruleKey === 'string' && rule.ruleKey.trim()
+          ? { ruleKey: rule.ruleKey.trim() }
+          : {}),
+        ...(typeof rule?.label === 'string' && rule.label.trim()
+          ? { label: rule.label.trim() }
+          : {}),
+        ...(typeof rule?.priority === 'number' ? { priority: rule.priority } : {}),
+        ...(evaluatorKey ? { evaluatorKey } : {}),
+        ...(typeof evaluator?.type === 'string' ? { evaluatorType: evaluator.type } : {}),
+        ...(this.buildEvaluatorFormula(evaluator)
+          ? { formula: this.buildEvaluatorFormula(evaluator) }
+          : {}),
+        conditions: {
+          all: (Array.isArray(rule?.conditions?.all) ? rule.conditions.all : [])
+            .map((condition) => this.normalizeCatalogCondition(condition))
+            .filter((condition): condition is PricingCatalogRuleConditionView => !!condition),
+          any: (Array.isArray(rule?.conditions?.any) ? rule.conditions.any : [])
+            .map((condition) => this.normalizeCatalogCondition(condition))
+            .filter((condition): condition is PricingCatalogRuleConditionView => !!condition),
+        },
+      } satisfies PricingCatalogRuleView;
+    });
+
+    if (structuredRules.length > 0) return structuredRules;
+
+    const legacyRules = Array.isArray((vendor.metadata as Record<string, any> | undefined)?.specPricing?.rules)
+      ? ((vendor.metadata as Record<string, any>).specPricing.rules as Array<Record<string, any>>)
+      : [];
+
+    return legacyRules.map((rule, index) => {
+      const credits =
+        typeof rule?.price?.credits === 'number'
+          ? rule.price.credits
+          : typeof rule?.creditsPerCall === 'number'
+          ? rule.creditsPerCall
+          : undefined;
+      const priceYuan =
+        typeof rule?.price?.priceYuan === 'number'
+          ? rule.price.priceYuan
+          : typeof rule?.priceYuan === 'number'
+          ? rule.priceYuan
+          : undefined;
+      const resolvedCredits =
+        credits !== undefined
+          ? credits
+          : priceYuan !== undefined
+          ? Math.ceil(priceYuan * 100)
+          : undefined;
+      return {
+        ruleKey:
+          typeof rule?.ruleKey === 'string' && rule.ruleKey.trim()
+            ? rule.ruleKey.trim()
+            : `legacy_rule_${index + 1}`,
+        ...(typeof rule?.label === 'string' && rule.label.trim()
+          ? { label: rule.label.trim() }
+          : {}),
+        ...(resolvedCredits !== undefined
+          ? { formula: `${resolvedCredits} 积分` }
+          : {}),
+        conditions: {
+          all: Object.entries(
+            rule?.when && typeof rule.when === 'object' && !Array.isArray(rule.when)
+              ? rule.when
+              : rule?.match && typeof rule.match === 'object' && !Array.isArray(rule.match)
+              ? rule.match
+              : {},
+          ).map(([field, value]) => ({
+            field,
+            op: 'eq',
+            value,
+          })),
+          any: [],
+        },
+      };
+    });
+  }
+
+  private buildCatalogDimensions(vendor: ManagedModelVendorConfig): PricingCatalogDimensionView[] {
+    const pricing =
+      vendor.pricing && typeof vendor.pricing === 'object' && !Array.isArray(vendor.pricing)
+        ? vendor.pricing
+        : null;
+    const dimensions = Array.isArray(pricing?.dimensions) ? pricing.dimensions : [];
+    return dimensions
+      .map((dimension): PricingCatalogDimensionView | null => {
+        if (typeof dimension === 'string') {
+          return { key: dimension };
+        }
+        const item = dimension as ManagedPricingDimensionDefinition;
+        const key = typeof item?.key === 'string' ? item.key.trim() : '';
+        if (!key) return null;
+        return {
+          key,
+          ...(typeof item.label === 'string' && item.label.trim()
+            ? { label: item.label.trim() }
+            : {}),
+          ...(typeof item.type === 'string' ? { type: item.type } : {}),
+          ...(typeof item.required === 'boolean' ? { required: item.required } : {}),
+          ...(typeof item.description === 'string' && item.description.trim()
+            ? { description: item.description.trim() }
+            : {}),
+          ...(Array.isArray(item.options)
+            ? {
+                options: item.options
+                  .filter((option) => option && option.value !== undefined)
+                  .map((option) => ({
+                    value: option.value,
+                    ...(typeof option.label === 'string' && option.label.trim()
+                      ? { label: option.label.trim() }
+                      : {}),
+                  })),
+              }
+            : {}),
+        };
+      })
+      .filter((dimension): dimension is PricingCatalogDimensionView => dimension !== null);
+  }
+
+  async getManagedPricingCatalog(modelKey?: string): Promise<ManagedPricingCatalogItem[]> {
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: { key: MODEL_PROVIDER_MAPPING_SETTING_KEY },
+      select: { value: true },
+    });
+    const raw = typeof setting?.value === 'string' ? setting.value.trim() : '';
+    if (!raw) return [];
+
+    const parsed = JSON.parse(raw) as ManagedPricingMappingLike & {
+      models?: ManagedModelConfig[];
+    };
+    const normalizedModelKey = typeof modelKey === 'string' ? modelKey.trim() : '';
+    const models = Array.isArray(parsed.models) ? (parsed.models as ManagedModelConfig[]) : [];
+
+    return models
+      .filter((model) => {
+        const currentModelKey =
+          typeof model?.modelKey === 'string' ? model.modelKey.trim() : '';
+        if (!currentModelKey) return false;
+        if (!normalizedModelKey) return true;
+        return currentModelKey === normalizedModelKey;
+      })
+      .map((model) => {
+        const vendors = (Array.isArray(model.vendors) ? model.vendors : [])
+          .filter((vendor) => vendor && typeof vendor.vendorKey === 'string' && vendor.vendorKey.trim())
+          .map((vendor) => {
+            const normalizedVendor = vendor as ManagedModelVendorConfig;
+            const defaultPricing = resolveManagedVendorDefaultPricing(normalizedVendor);
+            return {
+              vendorKey: normalizedVendor.vendorKey.trim(),
+              ...(typeof normalizedVendor.label === 'string' && normalizedVendor.label.trim()
+                ? { label: normalizedVendor.label.trim() }
+                : {}),
+              ...(typeof normalizedVendor.provider === 'string' && normalizedVendor.provider.trim()
+                ? { provider: normalizedVendor.provider.trim() }
+                : {}),
+              ...(typeof normalizedVendor.platformKey === 'string' && normalizedVendor.platformKey.trim()
+                ? { platformKey: normalizedVendor.platformKey.trim() }
+                : {}),
+              enabled: normalizedVendor.enabled !== false,
+              ...(typeof normalizedVendor.creditsPerCall === 'number'
+                ? { creditsPerCall: normalizedVendor.creditsPerCall }
+                : {}),
+              ...(typeof normalizedVendor.priceYuan === 'number'
+                ? { priceYuan: normalizedVendor.priceYuan }
+                : {}),
+              ...(typeof defaultPricing.pricingVersion === 'string'
+                ? { pricingVersion: defaultPricing.pricingVersion }
+                : {}),
+              defaultPrice: defaultPricing.price || {},
+              dimensions: this.buildCatalogDimensions(normalizedVendor),
+              rules: this.buildCatalogRules(normalizedVendor),
+            } satisfies PricingCatalogVendorView;
+          });
+
+        return {
+          modelKey: model.modelKey.trim(),
+          ...(typeof model.modelName === 'string' && model.modelName.trim()
+            ? { modelName: model.modelName.trim() }
+            : {}),
+          ...(typeof model.taskType === 'string' && model.taskType.trim()
+            ? { taskType: model.taskType.trim() }
+            : {}),
+          enabled: model.enabled !== false,
+          ...(typeof model.defaultVendor === 'string' && model.defaultVendor.trim()
+            ? { defaultVendor: model.defaultVendor.trim() }
+            : {}),
+          vendors,
+        } satisfies ManagedPricingCatalogItem;
+      });
   }
 
   /**
