@@ -2646,22 +2646,21 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         {
           modelKey: "gemini-image-analyze",
           taskType: "image",
-          vendors: [{ vendorKey: "banana", creditsPerCall: 40 }],
+          vendors: [{ vendorKey: "banana", creditsPerCall: 30 }],
           defaultVendor: "banana",
         },
         {
           flowNodeType: "analysis",
           nodeKey: "analysis",
           category: "image",
-          creditsPerCall: 40,
+          creditsPerCall: 30,
           description: "Nano Banana Pro 图像分析",
         }
       ),
       specPricing: {
-        defaults: { credits: 40 },
+        defaults: { credits: 30 },
         rules: [
-          { when: { resolution: "2K" }, price: { credits: 60, priceYuan: 0.6 } },
-          { when: { resolution: "4K" }, price: { credits: 80, priceYuan: 0.8 } },
+          { when: { resolution: "source" }, price: { credits: 30, priceYuan: 0.3 } },
         ],
       },
     },
@@ -2675,12 +2674,11 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "banana",
         modelName: "Nano Banana Pro Analyze",
         modelVersion: "3.0",
-        creditsPerCall: 40,
+        creditsPerCall: 30,
         pricing: {
-          defaults: { credits: 40, priceYuan: 0.4 },
+          defaults: { credits: 30, priceYuan: 0.3 },
           rules: [
-            { when: { resolution: "2K" }, price: { credits: 60, priceYuan: 0.6 } },
-            { when: { resolution: "4K" }, price: { credits: 80, priceYuan: 0.8 } },
+            { when: { resolution: "source" }, price: { credits: 30, priceYuan: 0.3 } },
           ],
         },
       },
@@ -2787,14 +2785,14 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         {
           modelKey: "gemini-2.5-image-analyze",
           taskType: "image",
-          vendors: [{ vendorKey: "banana-2.5", creditsPerCall: 20 }],
+          vendors: [{ vendorKey: "banana-2.5", creditsPerCall: 10 }],
           defaultVendor: "banana-2.5",
         },
         {
           flowNodeType: "analysis",
           nodeKey: "analysis",
           category: "image",
-          creditsPerCall: 20,
+          creditsPerCall: 10,
           description: "Nano Banana Fast 图像分析",
         }
       ),
@@ -2809,6 +2807,43 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "banana-2.5",
         modelName: "Nano Banana Analyze",
         modelVersion: "2.5",
+        creditsPerCall: 10,
+      },
+    ],
+  },
+  {
+    modelKey: "gemini-3.1-image-analyze",
+    modelName: "Nano Banana Ultra 图像分析",
+    taskType: "image",
+    enabled: true,
+    defaultVendor: "banana-3.1",
+    metadata: {
+      nodeConfig: buildManagedNodeConfig(
+        {
+          modelKey: "gemini-3.1-image-analyze",
+          taskType: "image",
+          vendors: [{ vendorKey: "banana-3.1", creditsPerCall: 20 }],
+          defaultVendor: "banana-3.1",
+        },
+        {
+          flowNodeType: "analysis",
+          nodeKey: "analysis",
+          category: "image",
+          creditsPerCall: 20,
+          description: "Nano Banana Ultra 图像分析",
+        }
+      ),
+    },
+    vendors: [
+      {
+        vendorKey: "banana-3.1",
+        platformKey: "banana-3.1",
+        label: "Ultra / Nano Banana 2",
+        enabled: true,
+        route: "legacy",
+        provider: "banana-3.1",
+        modelName: "Nano Banana 2 Analyze",
+        modelVersion: "3.1",
         creditsPerCall: 20,
       },
     ],
@@ -4027,6 +4062,7 @@ const MANAGED_MODEL_SUPPORTED_MODELS_MAP: Record<string, string[]> = {
   "gemini-2.5-image-edit": ["gemini-2.5-flash-image-preview"],
   "gemini-2.5-image-blend": ["gemini-2.5-flash-image-preview"],
   "gemini-2.5-image-analyze": ["gemini-2.5-flash-image-preview"],
+  "gemini-3.1-image-analyze": ["gemini-3.1-flash-image-preview"],
   "seedream5": ["doubao-seedream-5-0-260128"],
   "midjourney": ["midjourney-fast"],
   "wan-2.6": ["wan2.6-t2v", "wan2.6-i2v"],
@@ -4054,6 +4090,7 @@ const MANAGED_MODEL_SERVICE_TYPE_MAP: Record<string, string> = {
   "gemini-2.5-image-edit": "gemini-2.5-image-edit",
   "gemini-2.5-image-blend": "gemini-2.5-image-blend",
   "gemini-2.5-image-analyze": "gemini-2.5-image-analyze",
+  "gemini-3.1-image-analyze": "gemini-3.1-image-analyze",
   "seedream5": "doubao-seedream-5-0-260128",
   "midjourney": "midjourney-imagine",
   "wan-2.6": "wan26-video",
@@ -4182,6 +4219,13 @@ const MANAGED_IMAGE_PRICING_CONFIG_MAP: Record<
     referenceImageCounts: [1, 2, 4],
   },
   "gemini-2.5-image-analyze": {
+    modes: [{ value: "analysis", label: "图像分析" }],
+    imageSizes: ["source"],
+    qualities: ["standard"],
+    outputCounts: [1],
+    referenceImageCounts: [1],
+  },
+  "gemini-3.1-image-analyze": {
     modes: [{ value: "analysis", label: "图像分析" }],
     imageSizes: ["source"],
     qualities: ["standard"],

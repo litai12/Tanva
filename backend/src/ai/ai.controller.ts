@@ -122,12 +122,12 @@ export class AiController {
   private readonly providerDefaultAnalyzeModels: Record<string, string> = {
     gemini: 'gemini-3.1-pro',
     'gemini-pro': 'gemini-3.1-pro',
-    banana: 'gemini-3.1-pro',
+    banana: 'gemini-3-pro-image-preview',
     'banana-2.5': 'gemini-2.5-flash-image-preview',
-    'banana-3.1': 'gemini-3.1-pro',
+    'banana-3.1': 'gemini-3.1-flash-image-preview',
     runninghub: 'gemini-3.1-pro',
     midjourney: 'gemini-3.1-pro',
-    nano2: 'gemini-3.1-pro',
+    nano2: 'gemini-3.1-flash-image-preview',
     seedream5: 'gemini-3.1-pro',
   };
 
@@ -3019,8 +3019,13 @@ export class AiController {
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
 
-    // 根据provider判断serviceType：Fast模式使用gemini-2.5-image-analyze
-    const serviceType = providerName === 'banana-2.5' ? 'gemini-2.5-image-analyze' : 'gemini-image-analyze';
+    // Map analyze billing by provider tier: Fast(2.5), Pro(3.0), Ultra(3.1).
+    const serviceType: ServiceType =
+      providerName === 'banana-2.5'
+        ? 'gemini-2.5-image-analyze'
+        : providerName === 'banana-3.1' || providerName === 'nano2'
+        ? 'gemini-3.1-image-analyze'
+        : 'gemini-image-analyze';
 
     return this.withCredits(req, serviceType as any, model, async () => {
       if (providerName && providerName !== 'gemini-pro') {

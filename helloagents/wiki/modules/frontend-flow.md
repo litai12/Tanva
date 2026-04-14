@@ -1,5 +1,9 @@
 # 前端模块：Flow（frontend-flow）
 
+## 2026-04-15 Update
+- Analysis node now uses node-local Fast/Pro/Ultra selection (analysisProvider) and does not change global provider state.
+- Analysis node requests are forced to Banana normal route, independent from global normal/stable channel toggles.
+
 ## 作用
 - 提供流程/节点编排能力（ReactFlow），并与画布/素材/生成等能力联动。
 

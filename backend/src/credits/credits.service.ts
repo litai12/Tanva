@@ -448,6 +448,8 @@ export class CreditsService {
       effectiveRequestParams,
     );
 
+    creditsToDeduct = this.resolveFixedAnalyzeCredits(params.serviceType, creditsToDeduct);
+
     const serviceName = this.resolveManagedVideoServiceName(
       params.serviceType,
       pricing.serviceName,
@@ -462,6 +464,13 @@ export class CreditsService {
       requestedProvider: requestedProvider || pricing.provider,
       serviceName,
     };
+  }
+
+  private resolveFixedAnalyzeCredits(serviceType: ServiceType, currentCredits: number): number {
+    if (serviceType === 'gemini-2.5-image-analyze') return 10;
+    if (serviceType === 'gemini-image-analyze') return 30;
+    if (serviceType === 'gemini-3.1-image-analyze') return 20;
+    return currentCredits;
   }
 
   private asJsonObject(value: Prisma.JsonValue | null | undefined): Record<string, any> | null {

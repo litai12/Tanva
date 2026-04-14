@@ -97,18 +97,19 @@ export const CREDIT_PRICING_CONFIG = {
   'gemini-image-analyze': {
     serviceName: 'Gemini 图像分析',
     provider: 'gemini',
-    creditsPerCall: 40,
+    creditsPerCall: 30,
     description: '使用 Nano banana Pro 模型分析图像内容',
-    resolutionPricing: {
-      '1K': 40,
-      '2K': 60,
-      '4K': 80,
-    },
+  },
+  'gemini-3.1-image-analyze': {
+    serviceName: 'Nano banana 2 图像分析',
+    provider: 'gemini',
+    creditsPerCall: 20,
+    description: '使用 Nano banana 2 模型分析图像内容',
   },
   'gemini-2.5-image-analyze': {
     serviceName: 'Nano banana 图像分析',
     provider: 'gemini',
-    creditsPerCall: 20,
+    creditsPerCall: 10,
     description: '使用 Nano banana 模型分析图像内容',
   },
 

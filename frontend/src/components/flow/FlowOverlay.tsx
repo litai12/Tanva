@@ -1241,7 +1241,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   textChat: 10, // 纯文本交互节点 - gemini-text
   textNote: 0, // 纯文本节点 - 不消耗积分
   promptOptimize: 10, // 提示词优化节点 - gemini-text
-  analysis: 20, // 图像分析节点 - gemini-image-analyze
+  analysis: 10, // 图像分析节点 - gemini-2.5-image-analyze (Fast default)
   image: 0, // 图片节点 - 不消耗积分
   // Banana 生图节点（按模型+分辨率动态计费，Run 按当前参数实时展示）
   generate: "20-40",
@@ -7532,6 +7532,7 @@ function FlowInner() {
               status: "idle" as const,
               prompt: "",
               analysisPrompt: undefined,
+              analysisProvider: "banana-2.5" as const,
               boxW: size.w,
               boxH: size.h,
             }
@@ -19014,7 +19015,12 @@ function FlowInner() {
             : type === "generateRef"
             ? { status: "idle", referencePrompt: undefined }
             : type === "analysis"
-            ? { status: "idle", prompt: "", analysisPrompt: undefined }
+            ? {
+                status: "idle",
+                prompt: "",
+                analysisPrompt: undefined,
+                analysisProvider: "banana-2.5" as const,
+              }
             : { imageData: undefined },
       };
       setNodes((ns) => ns.concat([base]));

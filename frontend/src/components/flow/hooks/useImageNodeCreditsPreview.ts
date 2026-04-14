@@ -71,6 +71,9 @@ const resolveBananaServiceType = (
 ): string => {
   if (mode === "analysis") {
     if (provider === "banana-2.5") return "gemini-2.5-image-analyze";
+    if (provider === "banana-3.1" || provider === "nano2") {
+      return "gemini-3.1-image-analyze";
+    }
     return "gemini-image-analyze";
   }
 
@@ -187,9 +190,13 @@ export const useImageNodeCreditsPreview = ({
     return {
       serviceType,
       model:
-        serviceType === "gemini-2.5-image" || serviceType === "gemini-2.5-image-blend"
+        serviceType === "gemini-2.5-image" ||
+        serviceType === "gemini-2.5-image-blend" ||
+        serviceType === "gemini-2.5-image-analyze"
           ? "gemini-2.5-flash-image-preview"
-          : serviceType === "gemini-3.1-image" || serviceType === "gemini-3.1-image-blend"
+          : serviceType === "gemini-3.1-image" ||
+            serviceType === "gemini-3.1-image-blend" ||
+            serviceType === "gemini-3.1-image-analyze"
           ? "gemini-3.1-flash-image-preview"
           : "gemini-3-pro-image-preview",
       requestParams: {
@@ -203,10 +210,14 @@ export const useImageNodeCreditsPreview = ({
             imageRoute: bananaImageRoute || undefined,
           },
         },
-        modelKey,
-        managedModelKey: modelKey,
-        vendorKey: vendorKey || undefined,
-        platformKey: platformKey || undefined,
+        ...(nodeType === "analysis"
+          ? {}
+          : {
+              modelKey,
+              managedModelKey: modelKey,
+              vendorKey: vendorKey || undefined,
+              platformKey: platformKey || undefined,
+            }),
       },
     };
   }, [

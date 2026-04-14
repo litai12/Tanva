@@ -911,6 +911,15 @@ export const getImageModelForProvider = (provider: AIProviderType): string => {
   return DEFAULT_IMAGE_MODEL;
 };
 
+export const getAnalyzeModelForProvider = (
+  provider: AIProviderType
+): string => {
+  if (provider === "banana-2.5") return BANANA_25_IMAGE_MODEL;
+  if (provider === "banana-3.1" || provider === "nano2") return BANANA_31_IMAGE_MODEL;
+  if (provider === "banana") return GEMINI_PRO_IMAGE_MODEL;
+  return getImageModelForProvider(provider);
+};
+
 const TEXT_MODEL_BY_PROVIDER: Record<AIProviderType, string> = {
   gemini: DEFAULT_TEXT_MODEL,
   "gemini-pro": GEMINI_PRO_TEXT_MODEL,
@@ -5772,7 +5781,7 @@ export const useAIChatStore = create<AIChatState>()(
             }, 1000);
 
             // 调用后端API分析图像（后端接受多图 base64）
-            const modelToUse = getImageModelForProvider(state.aiProvider);
+            const modelToUse = getAnalyzeModelForProvider(state.aiProvider);
             const analyzeSourceBase64List = await mapWithLimit(
               normalizedAnalyzeSources,
               2,
@@ -6011,7 +6020,7 @@ export const useAIChatStore = create<AIChatState>()(
             }, 1000);
 
             // 调用后端API分析 PDF（复用 analyzeImage 接口）
-            const modelToUse = getImageModelForProvider(state.aiProvider);
+            const modelToUse = getAnalyzeModelForProvider(state.aiProvider);
 
             const result = await analyzeImageViaAPI({
               prompt: prompt || "请详细分析这个 PDF 文件的内容",

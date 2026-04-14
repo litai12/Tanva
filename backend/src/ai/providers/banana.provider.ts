@@ -188,7 +188,7 @@ export class BananaProvider implements IAIProvider {
   private mapUserBananaRouteToProvider(
     route: BananaImageRoute
   ): BananaImageProvider {
-    return route === "stable" ? "tencent" : "apimart";
+    return route === "stable" ? "tencent" : "legacy";
   }
 
   private async getConfiguredImageProvider(
@@ -339,6 +339,22 @@ export class BananaProvider implements IAIProvider {
       message.includes("rate limit") ||
       message.includes("quota")
     );
+  }
+
+  private isModelUnavailableError(error: Error): boolean {
+    const message = error.message.toLowerCase();
+    return (
+      message.includes("no available channel for model") ||
+      message.includes("model_not_found") ||
+      message.includes('"code":"model_not_found"')
+    );
+  }
+
+  private mapAnalyzeErrorMessage(error: Error, currentModel: string): string {
+    if (this.isModelUnavailableError(error)) {
+      return `147渠道当前分组未开通模型 ${currentModel}（model_not_found）。请检查147 API Key绑定分组，建议使用 banana 分组。`;
+    }
+    return error.message;
   }
 
   /**
@@ -2275,6 +2291,22 @@ export class BananaProvider implements IAIProvider {
           },
         };
       }
+      if (providerMode === "tencent") {
+        return {
+          success: false,
+          error: {
+            code: "ANALYSIS_UNSUPPORTED_ON_TENCENT",
+            message:
+              "稳定通道（腾讯）当前暂不支持图片分析，请切换到普通通道后重试。",
+          },
+        };
+      }
+
+      if (providerMode === "tencent_auto") {
+        this.logger.warn(
+          "[Banana/Analyze] tencent_auto does not support analysis on Tencent, fallback to 147 legacy channel."
+        );
+      }
       // 使用异步版本支持 HTTP URL
       const normalizedInputs = await Promise.all(
         sourceInputs.map((source) => this.normalizeFileInputAsync(source, "analysis"))
@@ -2330,7 +2362,9 @@ export class BananaProvider implements IAIProvider {
               ),
             "File analysis",
             2,
-            (err) => !this.isRateLimitedOrQuotaError(err)
+            (err) =>
+              !this.isRateLimitedOrQuotaError(err) &&
+              !this.isModelUnavailableError(err)
           );
 
           this.logger.log(
@@ -2355,6 +2389,7 @@ export class BananaProvider implements IAIProvider {
           if (
             fallbackModel &&
             fallbackModel !== currentModel &&
+            !this.isModelUnavailableError(err) &&
             (this.isRateLimitedOrQuotaError(err) || this.shouldFallback(err))
           ) {
             this.logger.warn(
@@ -2370,7 +2405,7 @@ export class BananaProvider implements IAIProvider {
             success: false,
             error: {
               code: "ANALYSIS_FAILED",
-              message: err.message,
+              message: this.mapAnalyzeErrorMessage(err, currentModel),
               details: error,
             },
           };

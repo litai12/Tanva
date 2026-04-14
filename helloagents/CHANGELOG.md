@@ -6,6 +6,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Added
+- Flow/Analysis: analysis node now has an independent Fast/Pro/Ultra model switch (node-local state), and no longer mutates global aiProvider.
+- Flow/Analysis: analysis requests are pinned to Banana normal route in-node, so global normal/stable channel switching does not affect analysis execution.
+- Credits: image-analysis pricing is aligned to Fast=10 (gemini-2.5-image-analyze), Pro=30 (gemini-image-analyze), Ultra=20 (gemini-3.1-image-analyze) across preview, backend deduction, and credits detail mapping.
 - Gemini/Banana Pricing: 统一模型管理默认目录与定价回填 migration 现按家族映射对齐 Gemini 图片模型价格，`gemini-2.5-*` 对齐 Nano Banana Fast、`gemini-image-* / gemini-3-pro-*` 对齐 Nano Banana Pro、`gemini-3.1-*` 对齐 Nano Banana 2；同时修正 `BananaProvider.analyzeImage` 对 `gemini-2.5-flash-image-preview` 的旧 147 模型名归一化，避免图像分析继续命中未配置价格的 preview 型号。
 - Model Management Pricing: 新增 Prisma migration `202604140001_backfill_missing_managed_model_pricing_from_defaults`，按当前代码写死的默认配置回填 `model_provider_mapping_v2` 中缺失的统一模型管理 pricing，覆盖 Banana 图片链路、Gemini 图像分析、Seedream5、Midjourney、Wan 2.6/2.7，以及按 `model` 维度补齐 Sora 2 的 pricing v2 规则。
 - Flow/Model Management: 图像分析节点默认配置改为挂接统一模型管理 `gemini-2.5-image-analyze`，并新增 Prisma migration `20260413203033_backfill_analysis_node_managed_routes_from_mapping` 回填既有 `NodeConfig.analysis` 的 `modelKeys / managedModelKey / managedRoutes`，避免分析节点继续停留在旧 `gemini-image-analyze` 单节点计费配置而无法命中统一模型路由。

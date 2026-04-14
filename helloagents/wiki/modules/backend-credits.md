@@ -1,5 +1,9 @@
 # 后端模块：积分系统（backend-credits）
 
+## 2026-04-15 Update
+- Image analysis deduction mapping is fixed to: Fast (gemini-2.5-image-analyze) = 10, Pro (gemini-image-analyze) = 30, Ultra (gemini-3.1-image-analyze) = 20.
+- POST /api/ai/analyze-image serviceType routing now follows provider tier (banana-2.5 / banana / banana-3.1|nano2) for consistent billing.
+
 ## 作用
 - 维护用户积分余额、交易流水、API 使用记录与服务定价。
 - 提供每日奖励领取与管理员加/扣积分接口。
