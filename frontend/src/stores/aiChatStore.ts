@@ -548,8 +548,8 @@ const withBananaRouteProviderOptions = (
   };
 };
 
-const DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
-const GEMINI_PRO_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
+const DEFAULT_IMAGE_MODEL = "gemini-3-pro-image-preview";
+const GEMINI_PRO_IMAGE_MODEL = "gemini-3-pro-image-preview";
 const GEMINI_FLASH_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
 const DEFAULT_TEXT_MODEL = "gemini-3-flash-preview";
 const GEMINI_PRO_TEXT_MODEL = "gemini-3-flash-preview";

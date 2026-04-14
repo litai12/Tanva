@@ -1,4 +1,4 @@
-﻿// @ts-nocheck
+// @ts-nocheck
 /**
  * AI生图对话框组件
  * 固定在屏幕底部中央的对话框，用于AI图像生成
@@ -85,13 +85,13 @@ type ManualModeOption = {
 
 const BASE_MANUAL_MODE_OPTIONS: ManualModeOption[] = [
   { value: "auto", label: "Auto", description: "智能判断并选择最佳工具" },
-  { value: "text", label: "Text", description: "直接进入文本对话模式" },
-  { value: "generate", label: "Generate", description: "始终调用生图功能" },
-  { value: "edit", label: "Edit", description: "使用图生图编辑功能" },
-  { value: "blend", label: "Blend", description: "多图融合生成新画面" },
-  { value: "analyze", label: "Analysis", description: "进行图像理解与分析" },
-  { value: "video", label: "Video", description: "生成动态视频内容" },
-  { value: "vector", label: "Vector", description: "生成 Paper.js 矢量图形" },
+  { value: "text", label: "Text", description: "文本对话模式" },
+  { value: "generate", label: "Generate", description: "图片生成模式" },
+  { value: "edit", label: "Edit", description: "图生图编辑模式" },
+  { value: "blend", label: "Blend", description: "多图融合模式" },
+  { value: "analyze", label: "Analysis", description: "图像分析模式" },
+  { value: "video", label: "Video", description: "视频生成模式" },
+  { value: "vector", label: "Vector", description: "矢量图形模式" },
 ];
 
 // 长按提示词扩写按钮触发面板的最小时长（毫秒）

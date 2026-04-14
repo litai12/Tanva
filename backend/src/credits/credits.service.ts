@@ -60,8 +60,12 @@ const STALE_PENDING_IMAGE_SERVICE_TYPES: ServiceType[] = [
   'gemini-2.5-image-blend',
   'midjourney-imagine',
   'midjourney-variation',
+  'midjourney-upscale',
+  'expand-image',
 ];
 const STALE_PENDING_VIDEO_SERVICE_TYPES: ServiceType[] = [
+  'sora-sd',
+  'sora-hd',
   'wan26-video',
   'wan27-video',
   'kling-video',

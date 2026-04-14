@@ -1082,6 +1082,12 @@ export class AiController {
       const processingTime = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : String(error);
 
+      this.logger.error(
+        `[${serviceType}] Operation failed - attempting credits refund: ` +
+        `userId=${userId}, apiUsageId=${apiUsageId}, processingTime=${processingTime}ms, ` +
+        `error=${this.summarizeError(error)}`
+      );
+
       if (apiUsageId) {
         let failedMarked = false;
         try {
@@ -1118,15 +1124,27 @@ export class AiController {
           // 退还积分
           try {
             await this.creditsService.refundCredits(userId, apiUsageId);
-            this.logger.debug(`Credits refunded for failed operation: ${apiUsageId}`);
+            this.logger.warn(
+              `[${serviceType}] Credits successfully refunded for failed operation: ` +
+              `userId=${userId}, apiUsageId=${apiUsageId}`
+            );
           } catch (refundError) {
-            this.logger.error('Failed to refund credits:', refundError);
+            this.logger.error(
+              `[${serviceType}] CRITICAL: Failed to refund credits: ` +
+              `userId=${userId}, apiUsageId=${apiUsageId}, error=${this.summarizeError(refundError)}`
+            );
           }
         } else {
           this.logger.error(
-            `Skip refund because api usage cannot be marked failed. apiUsageId=${apiUsageId}`,
+            `[${serviceType}] CRITICAL: Skip refund because api usage cannot be marked failed. ` +
+            `userId=${userId}, apiUsageId=${apiUsageId}`
           );
         }
+      } else {
+        this.logger.error(
+          `[${serviceType}] CRITICAL: No apiUsageId available for refund. ` +
+          `userId=${userId}, error=${this.summarizeError(error)}`
+        );
       }
 
       if (this.isPrismaPoolTimeoutError(error)) {

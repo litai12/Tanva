@@ -596,18 +596,6 @@ const MyCredits: React.FC = () => {
                               </div>
                               <div className="min-w-0">
                                 <div className="font-medium text-slate-700 truncate max-w-[240px]">{tx.description}</div>
-                                {tx.model && (
-                                  <div className="text-xs text-slate-500">
-                                    <span>
-                                      {t('creditsPage.transactions.model', { model: tx.model })}
-                                    </span>
-                                  </div>
-                                )}
-                                {billingRemark && (
-                                  <div className="max-w-[380px] text-[11px] leading-5 text-slate-500 whitespace-normal break-words">
-                                    {billingRemark}
-                                  </div>
-                                )}
                               </div>
                             </div>
                           </td>
