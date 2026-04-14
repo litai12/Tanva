@@ -56,6 +56,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Membership Backend 调整到期口径：订阅积分优先消耗，会员到期时重置订阅积分；免费用户继续按 30 天周期发放 `freeUserMonthlyQuotaCredits`（默认 `500`）。
 
 ### Fixed
+- Referral / Credits: 手动签到接口 `/api/referral/check-in` 现已复用 `CreditsService.claimDailyReward`，与应用入口自动签到共用同一套 3AM 业务日、事务锁与幂等判断，修复同一用户在自动签到后仍可再手动签到一次的问题。
 - Workspace / Membership Entry: 顶栏积分入口改为就地弹出 `MembershipPanel`，不再通过 `/membership` 路由切换页面；支付成功后仅刷新积分状态并关闭弹窗（`frontend/src/components/layout/FloatingHeader.tsx`）。
 - Backend / Seedance 2.0: 修正 `seedance_api` 直连时的 `resolution` 映射，Seedance V2 请求会把前端/节点里的 `480P/720P` 规范成上游要求的 `480p/720p`，避免规格已透传但因分辨率值格式不匹配被方舟拒绝（`backend/src/ai/services/video-provider.service.ts`）。
 - Backend / Seedance 2.0: 对 `seedance_api` 直连的 `r2v` 请求增加分支保护，检测到参考图/视频/音频模式时自动省略 `resolution`，避免方舟返回 `the parameter resolution ... is not valid for model doubao-seedance-2-0 in r2v`（`backend/src/ai/services/video-provider.service.ts`）。
