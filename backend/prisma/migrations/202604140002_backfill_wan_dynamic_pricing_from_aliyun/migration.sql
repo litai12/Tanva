@@ -70,6 +70,10 @@ LANGUAGE sql
 AS $fn$
   SELECT jsonb_build_object(
     'version', 'v2',
+    'defaults', jsonb_build_object(
+      'credits', 400,
+      'priceYuan', 4
+    ),
     'dimensions', jsonb_build_array(
       jsonb_build_object(
         'key', 'generationMode',
@@ -144,12 +148,12 @@ AS $fn$
       'wan_720p_linear_eval', jsonb_build_object(
         'type', 'linear',
         'unitField', 'durationSec',
-        'unitPriceYuan', 0.6
+        'unitPriceYuan', 0.8
       ),
       'wan_1080p_linear_eval', jsonb_build_object(
         'type', 'linear',
         'unitField', 'durationSec',
-        'unitPriceYuan', 1.0
+        'unitPriceYuan', 1.2
       )
     ),
     'displayConfig', jsonb_build_object(
@@ -197,22 +201,22 @@ BEGIN
     'wan-2.6',
     'dashscope',
     jsonb_build_object(
-      'creditsPerCall', 300,
-      'priceYuan', 3,
+      'creditsPerCall', 400,
+      'priceYuan', 4,
       'pricing', build_wan_linear_pricing('["t2v","i2v"]'::jsonb)
     ),
     jsonb_build_object(
       'specPricing',
       jsonb_build_object(
-        'defaults', jsonb_build_object('credits', 300, 'priceYuan', 3),
+        'defaults', jsonb_build_object('credits', 400, 'priceYuan', 4),
         'rules', jsonb_build_array(
           jsonb_build_object(
             'when', jsonb_build_object('generationMode', 't2v', 'resolution', '720P', 'durationSec', 5),
-            'price', jsonb_build_object('credits', 300, 'priceYuan', 3)
+            'price', jsonb_build_object('credits', 400, 'priceYuan', 4)
           ),
           jsonb_build_object(
             'when', jsonb_build_object('generationMode', 't2v', 'resolution', '1080P', 'durationSec', 5),
-            'price', jsonb_build_object('credits', 500, 'priceYuan', 5)
+            'price', jsonb_build_object('credits', 600, 'priceYuan', 6)
           )
         )
       )
@@ -224,22 +228,22 @@ BEGIN
     'wan-2.6-r2v',
     'dashscope',
     jsonb_build_object(
-      'creditsPerCall', 300,
-      'priceYuan', 3,
+      'creditsPerCall', 400,
+      'priceYuan', 4,
       'pricing', build_wan_linear_pricing('["r2v"]'::jsonb)
     ),
     jsonb_build_object(
       'specPricing',
       jsonb_build_object(
-        'defaults', jsonb_build_object('credits', 300, 'priceYuan', 3),
+        'defaults', jsonb_build_object('credits', 400, 'priceYuan', 4),
         'rules', jsonb_build_array(
           jsonb_build_object(
             'when', jsonb_build_object('generationMode', 'r2v', 'resolution', '720P', 'durationSec', 5),
-            'price', jsonb_build_object('credits', 300, 'priceYuan', 3)
+            'price', jsonb_build_object('credits', 400, 'priceYuan', 4)
           ),
           jsonb_build_object(
             'when', jsonb_build_object('generationMode', 'r2v', 'resolution', '1080P', 'durationSec', 5),
-            'price', jsonb_build_object('credits', 500, 'priceYuan', 5)
+            'price', jsonb_build_object('credits', 600, 'priceYuan', 6)
           )
         )
       )
@@ -251,22 +255,22 @@ BEGIN
     'wan-2.7',
     'dashscope',
     jsonb_build_object(
-      'creditsPerCall', 300,
-      'priceYuan', 3,
+      'creditsPerCall', 400,
+      'priceYuan', 4,
       'pricing', build_wan_linear_pricing('["i2v"]'::jsonb)
     ),
     jsonb_build_object(
       'specPricing',
       jsonb_build_object(
-        'defaults', jsonb_build_object('credits', 300, 'priceYuan', 3),
+        'defaults', jsonb_build_object('credits', 400, 'priceYuan', 4),
         'rules', jsonb_build_array(
           jsonb_build_object(
             'when', jsonb_build_object('generationMode', 'i2v', 'resolution', '720P', 'durationSec', 5),
-            'price', jsonb_build_object('credits', 300, 'priceYuan', 3)
+            'price', jsonb_build_object('credits', 400, 'priceYuan', 4)
           ),
           jsonb_build_object(
             'when', jsonb_build_object('generationMode', 'i2v', 'resolution', '1080P', 'durationSec', 5),
-            'price', jsonb_build_object('credits', 500, 'priceYuan', 5)
+            'price', jsonb_build_object('credits', 600, 'priceYuan', 6)
           )
         )
       )

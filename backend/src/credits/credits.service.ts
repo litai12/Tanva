@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException, NotFoundException, Inject, forwardRef, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -37,6 +38,15 @@ import {
   type ResolvedManagedPricing,
 } from '../ai/services/model-pricing-resolver';
 
+let IORedis: any;
+try {
+  // optional dependency
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  IORedis = require('ioredis');
+} catch (e) {
+  IORedis = null;
+}
+
 const STALE_PENDING_DEFAULT_TIMEOUT_MINUTES = 15;
 const STALE_PENDING_DEFAULT_VIDEO_TIMEOUT_MINUTES = 30;
 const STALE_PENDING_VIDEO_REFUND_DEFAULT_CUTOVER_AT = '2026-03-28T00:00:00.000Z';
@@ -49,6 +59,7 @@ const DEFAULT_FREE_USER_DAILY_IMAGE_LIMIT = 20;
 const DEFAULT_FREE_USER_DAILY_VIDEO_LIMIT = 3;
 const DEFAULT_FREE_USER_MONTHLY_IMAGE_LIMIT = 100;
 const DEFAULT_FREE_USER_MONTHLY_VIDEO_LIMIT = 10;
+const PREVIEW_CREDITS_CACHE_TTL_SEC = 30;
 const STALE_PENDING_IMAGE_SERVICE_TYPES: ServiceType[] = [
   'gemini-3-pro-image',
   'gemini-3.1-image',
@@ -129,6 +140,29 @@ interface PreviewCreditsParams {
   outputImageCount?: number;
 }
 
+interface CachedPreviewQuotePayload {
+  serviceName: string;
+  requestedProvider: string | null;
+  creditsToDeduct: number;
+  managedPricing:
+    | {
+        source?: string;
+        vendorKey?: string;
+        ruleKey?: string;
+        label?: string;
+        evaluatorKey?: string;
+        evaluatorType?: string;
+        pricingVersion?: string;
+        price?: {
+          credits?: number;
+          priceYuan?: number;
+          costYuan?: number;
+        };
+      }
+    | null;
+  effectiveRequestParams: any;
+}
+
 type SoraBillingModel = 'sora-2' | 'sora-2-vip' | 'sora-2-pro';
 type KlingBillingModel = 'kling-v2-6' | 'kling-v3-0' | 'kling-o3';
 type BananaTencentPricingTier = 'fast' | 'pro' | 'ultra';
@@ -176,6 +210,7 @@ const BANANA_TENCENT_RESOLUTION_PRICING: Record<
 @Injectable()
 export class CreditsService {
   private readonly logger = new Logger(CreditsService.name);
+  private redisClient: any | undefined;
   private readonly freeUserImageQuotaServiceTypes = new Set<ServiceType>(
     FREE_USER_IMAGE_LIMITED_SERVICES,
   );
@@ -185,10 +220,82 @@ export class CreditsService {
 
   constructor(
     private prisma: PrismaService,
+    private readonly configService: ConfigService,
     private readonly businessPolicyService: BusinessPolicyService,
     @Inject(forwardRef(() => ReferralService))
     private referralService: ReferralService,
-  ) {}
+  ) {
+    const redisUrl = this.configService.get<string>('REDIS_URL');
+    if (redisUrl && IORedis) {
+      this.redisClient = new IORedis(redisUrl);
+    }
+  }
+
+  private stableSerialize(value: unknown): string {
+    if (value === null || value === undefined) return 'null';
+    if (Array.isArray(value)) {
+      return `[${value.map((item) => this.stableSerialize(item)).join(',')}]`;
+    }
+    if (typeof value === 'object') {
+      const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
+        a.localeCompare(b),
+      );
+      return `{${entries
+        .map(([key, item]) => `${JSON.stringify(key)}:${this.stableSerialize(item)}`)
+        .join(',')}}`;
+    }
+    return JSON.stringify(value);
+  }
+
+  private buildPreviewCreditsCacheKey(params: PreviewCreditsParams): string {
+    const signature = this.stableSerialize({
+      userId: params.userId,
+      serviceType: params.serviceType,
+      model: params.model ?? null,
+      requestParams: params.requestParams ?? null,
+    });
+    const digest = createHash('sha256').update(signature).digest('hex');
+    return `credits:preview:v1:${digest}`;
+  }
+
+  private async getCachedPreviewQuote(
+    params: PreviewCreditsParams,
+  ): Promise<CachedPreviewQuotePayload | null> {
+    if (!this.redisClient) return null;
+    try {
+      const raw = await this.redisClient.get(this.buildPreviewCreditsCacheKey(params));
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as CachedPreviewQuotePayload;
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (error) {
+      this.logger.warn(
+        `读取 preview credits Redis 缓存失败: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return null;
+    }
+  }
+
+  private async setCachedPreviewQuote(
+    params: PreviewCreditsParams,
+    payload: CachedPreviewQuotePayload,
+  ): Promise<void> {
+    if (!this.redisClient) return;
+    try {
+      await this.redisClient.setex(
+        this.buildPreviewCreditsCacheKey(params),
+        PREVIEW_CREDITS_CACHE_TTL_SEC,
+        JSON.stringify(payload),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `写入 preview credits Redis 缓存失败: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
 
   private async resolveServicePricing(serviceType: ServiceType) {
     const staticPricing = CREDIT_PRICING_CONFIG[serviceType as keyof typeof CREDIT_PRICING_CONFIG];
@@ -2371,34 +2478,46 @@ export class CreditsService {
 
   async previewCredits(params: PreviewCreditsParams) {
     const account = await this.getOrCreateAccount(params.userId);
-    const quote = await this.resolveEffectiveCreditsQuote({
-      serviceType: params.serviceType,
-      model: params.model,
-      requestParams: params.requestParams,
-    });
+    let cachedQuote = await this.getCachedPreviewQuote(params);
+
+    if (!cachedQuote) {
+      const quote = await this.resolveEffectiveCreditsQuote({
+        serviceType: params.serviceType,
+        model: params.model,
+        requestParams: params.requestParams,
+      });
+      cachedQuote = {
+        serviceName: quote.serviceName,
+        requestedProvider: quote.requestedProvider,
+        creditsToDeduct: quote.creditsToDeduct,
+        managedPricing:
+          quote.managedRoutePricing?.source && quote.managedRoutePricing.source !== 'none'
+            ? {
+                source: quote.managedRoutePricing.source,
+                vendorKey: quote.managedRoutePricing.vendorKey,
+                ruleKey: quote.managedRoutePricing.ruleKey,
+                label: quote.managedRoutePricing.label,
+                evaluatorKey: quote.managedRoutePricing.evaluatorKey,
+                evaluatorType: quote.managedRoutePricing.evaluatorType,
+                pricingVersion: quote.managedRoutePricing.pricingVersion,
+                price: quote.managedRoutePricing.price,
+              }
+            : null,
+        effectiveRequestParams: quote.effectiveRequestParams ?? null,
+      };
+      await this.setCachedPreviewQuote(params, cachedQuote);
+    }
 
     return {
       serviceType: params.serviceType,
-      serviceName: quote.serviceName,
-      provider: quote.requestedProvider,
+      serviceName: cachedQuote.serviceName,
+      provider: cachedQuote.requestedProvider,
       model: params.model ?? null,
-      credits: quote.creditsToDeduct,
+      credits: cachedQuote.creditsToDeduct,
       balance: account.balance,
-      sufficient: account.balance >= quote.creditsToDeduct,
-      managedPricing:
-        quote.managedRoutePricing?.source && quote.managedRoutePricing.source !== 'none'
-          ? {
-              source: quote.managedRoutePricing.source,
-              vendorKey: quote.managedRoutePricing.vendorKey,
-              ruleKey: quote.managedRoutePricing.ruleKey,
-              label: quote.managedRoutePricing.label,
-              evaluatorKey: quote.managedRoutePricing.evaluatorKey,
-              evaluatorType: quote.managedRoutePricing.evaluatorType,
-              pricingVersion: quote.managedRoutePricing.pricingVersion,
-              price: quote.managedRoutePricing.price,
-            }
-          : null,
-      requestParams: quote.effectiveRequestParams ?? null,
+      sufficient: account.balance >= cachedQuote.creditsToDeduct,
+      managedPricing: cachedQuote.managedPricing,
+      requestParams: cachedQuote.effectiveRequestParams ?? null,
     };
   }
 

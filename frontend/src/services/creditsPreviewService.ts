@@ -55,22 +55,53 @@ export const buildPreviewRequestSignature = (payload: CreditsPreviewRequest): st
     requestParams: payload.requestParams || null,
   });
 
+const PREVIEW_CACHE_TTL_MS = 30000;
+const previewResponseCache = new Map<
+  string,
+  { expiresAt: number; value: CreditsPreviewResponse }
+>();
+const previewInflightCache = new Map<string, Promise<CreditsPreviewResponse>>();
+
 export async function previewCredits(
   payload: CreditsPreviewRequest
 ): Promise<CreditsPreviewResponse> {
+  const signature = buildPreviewRequestSignature(payload);
+  const now = Date.now();
+  const cached = previewResponseCache.get(signature);
+  if (cached && cached.expiresAt > now) {
+    return cached.value;
+  }
+
+  const inflight = previewInflightCache.get(signature);
+  if (inflight) {
+    return inflight;
+  }
+
   const apiBaseUrl = getApiBaseUrl();
-  const response = await fetchWithAuth(`${apiBaseUrl}/api/credits/preview`, {
+  const request = fetchWithAuth(`${apiBaseUrl}/api/credits/preview`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(payload),
-  });
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        const error = await response.text().catch(() => "");
+        throw new Error(error || `HTTP ${response.status}`);
+      }
 
-  if (!response.ok) {
-    const error = await response.text().catch(() => "");
-    throw new Error(error || `HTTP ${response.status}`);
-  }
+      const result = (await response.json()) as CreditsPreviewResponse;
+      previewResponseCache.set(signature, {
+        value: result,
+        expiresAt: Date.now() + PREVIEW_CACHE_TTL_MS,
+      });
+      return result;
+    })
+    .finally(() => {
+      previewInflightCache.delete(signature);
+    });
 
-  return response.json();
+  previewInflightCache.set(signature, request);
+  return request;
 }

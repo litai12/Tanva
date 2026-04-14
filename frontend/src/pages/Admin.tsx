@@ -1804,6 +1804,10 @@ const createWanPricingTemplate = (
   generationModes: Array<"t2v" | "i2v" | "r2v">
 ) => ({
   version: "v2",
+  defaults: {
+    credits: 400,
+    priceYuan: 4,
+  },
   dimensions: [
     createEnumDimension("generationMode", "生成方式", generationModes, {
       required: true,
@@ -1859,12 +1863,12 @@ const createWanPricingTemplate = (
     wan_720p_linear_eval: {
       type: "linear" as const,
       unitField: "durationSec",
-      unitPriceYuan: 0.6,
+      unitPriceYuan: 0.8,
     },
     wan_1080p_linear_eval: {
       type: "linear" as const,
       unitField: "durationSec",
-      unitPriceYuan: 1,
+      unitPriceYuan: 1.2,
     },
   },
   displayConfig: {
@@ -2916,8 +2920,8 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "dashscope",
         modelName: "Wan",
         modelVersion: "2.6",
-        creditsPerCall: 300,
-        priceYuan: 3,
+        creditsPerCall: 400,
+        priceYuan: 4,
         pricing: createWanPricingTemplate(["t2v", "i2v"]),
       },
     ],
@@ -2955,8 +2959,8 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "dashscope",
         modelName: "Wan",
         modelVersion: "2.6-r2v",
-        creditsPerCall: 300,
-        priceYuan: 3,
+        creditsPerCall: 400,
+        priceYuan: 4,
         pricing: createWanPricingTemplate(["r2v"]),
       },
     ],
@@ -2994,8 +2998,8 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "dashscope",
         modelName: "Wan",
         modelVersion: "2.7-i2v",
-        creditsPerCall: 300,
-        priceYuan: 3,
+        creditsPerCall: 400,
+        priceYuan: 4,
         pricing: createWanPricingTemplate(["i2v"]),
       },
     ],

@@ -55,7 +55,7 @@
   - 命中模型管理价格时，后端会把 `pricingSnapshot` 写入 `ApiUsageRecord.requestParams`，用于审计规则来源、命中 ruleKey 和最终价格快照。
 - Wan 系列（2026-04-14）：
   - `wan-2.6`、`wan-2.6-r2v`、`wan-2.7` 已升级为按 `resolution × durationSec` 线性计费。
-  - 官方中国内地价格基线：`720P = 0.6 元/秒`，`1080P = 1 元/秒`；系统按当前积分汇率自动折算为 `60 / 100 积分每秒`。
+  - 当前系统定价在阿里云百炼基线之上做了“每秒 +20 积分”上浮，对应 `720P = 0.8 元/秒`、`1080P = 1.2 元/秒`；系统按当前积分汇率自动折算为 `80 / 120 积分每秒`。
   - DashScope 直连接口必须携带 `managedModelKey + vendorKey + generationMode + resolution + durationSec`，否则会回退到静态服务价。
 
 ## pending 收敛与自动退款
