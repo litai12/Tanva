@@ -608,10 +608,15 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
               gap: 0
             }}
             >
-            {hasRunCredits ? (
-              <RunCreditBadge credits={runCredits} runButton />
+            {data.status === 'running' ? (
+              <span className="run-text-trigger">Running...</span>
             ) : (
-              lt('Run', 'Run')
+              <>
+                <span className="run-text-trigger">{lt('Run', 'Run')}</span>
+                {hasRunCredits ? (
+                  <RunCreditBadge credits={runCredits} runButton />
+                ) : null}
+              </>
             )}
           </button>
           <button

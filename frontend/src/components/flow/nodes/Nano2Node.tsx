@@ -240,6 +240,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
           <button
             onClick={onRun}
             disabled={status === "running"}
+            className='run-btn-with-credit'
             style={{
               fontSize: 12,
               padding: "4px 8px",
@@ -250,9 +251,15 @@ function Nano2NodeInner({ id, data, selected }: Props) {
               cursor: status === "running" ? "not-allowed" : "pointer",
             }}
           >
-            {status === "running" ? "Running..." : "Run"}
+            {status === "running" ? (
+              <span className='run-text-trigger'>Running...</span>
+            ) : (
+              <>
+                <span className='run-text-trigger'>Run</span>
+                <RunCreditBadge credits={resolvedRunCredits} runButton />
+              </>
+            )}
           </button>
-          <RunCreditBadge credits={resolvedRunCredits} />
           <button
             onClick={onSend}
             disabled={!(data.imageData || data.imageUrl)}

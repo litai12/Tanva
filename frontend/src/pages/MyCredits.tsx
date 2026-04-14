@@ -212,17 +212,6 @@ const MyCredits: React.FC = () => {
     ? 'en-US'
     : 'zh-CN';
 
-  const removeChannelFromBillingRemark = (remark: string | null | undefined): string => {
-    if (!remark) return '';
-    const channelPrefixPattern = /^(?:\u6E20\u9053|channel)\s*[:\uFF1A]/i;
-    return remark
-      .split('|')
-      .map((segment) => segment.trim())
-      .filter((segment) => segment.length > 0)
-      .filter((segment) => !channelPrefixPattern.test(segment))
-      .join(' | ');
-  };
-
   const getTransactionStatusMeta = (
     status: string | null | undefined,
     hasApiUsage: boolean
@@ -578,7 +567,9 @@ const MyCredits: React.FC = () => {
                         ? Math.max(0, Math.round(tx.processingTime / 1000))
                         : null;
                       const statusMeta = getTransactionStatusMeta(tx.apiResponseStatus, Boolean(tx.apiUsageId));
-                      const billingRemark = removeChannelFromBillingRemark(tx.billingRemark);
+                      const modelLabel = typeof tx.model === 'string' && tx.model.trim().length > 0
+                        ? tx.model.trim()
+                        : t('creditsPage.transactions.notAvailable');
 
                       return (
                         <tr key={tx.id} className="hover:bg-slate-50/60">
@@ -596,6 +587,9 @@ const MyCredits: React.FC = () => {
                               </div>
                               <div className="min-w-0">
                                 <div className="font-medium text-slate-700 truncate max-w-[240px]">{tx.description}</div>
+                                <div className="mt-0.5 text-xs text-slate-500 truncate max-w-[240px]">
+                                  {t('creditsPage.transactions.model', { model: modelLabel })}
+                                </div>
                               </div>
                             </div>
                           </td>

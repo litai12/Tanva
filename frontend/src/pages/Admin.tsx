@@ -5443,6 +5443,9 @@ function UsersTab({
                                       渠道: {formatChannelLabel(tx.channel)}
                                     </div>
                                   )}
+                                  <div className='text-xs text-gray-500 mt-0.5'>
+                                    模型: {typeof tx.model === "string" && tx.model.trim().length > 0 ? tx.model : "--"}
+                                  </div>
                                 </td>
                                 <td
                                   className={`px-4 py-3 text-right font-semibold ${

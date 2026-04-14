@@ -2164,11 +2164,16 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               gap: 0,
             }}
             >
-              {showRunCredits ? (
-              <RunCreditBadge credits={selectedCredits} runButton />
-            ) : (
-              "Run"
-            )}
+              {data.status === "running" ? (
+                <span className="run-text-trigger">Running...</span>
+              ) : (
+                <>
+                  <span className="run-text-trigger">Run</span>
+                  {showRunCredits ? (
+                    <RunCreditBadge credits={selectedCredits} runButton />
+                  ) : null}
+                </>
+              )}
           </button>
           <button
             className="tanva-video-header-btn tanva-video-header-share"

@@ -1225,7 +1225,7 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
           <button
             onClick={onRun}
             disabled={!hasImageConnection || status === "running"}
-            className='nodrag nopan nowheel'
+            className='nodrag nopan nowheel run-btn-with-credit'
             style={{
               height: 26,
               padding: "0 10px",
@@ -1243,11 +1243,15 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
                   : "pointer",
             }}
           >
-            {status === "running"
-              ? lt("生成中...", "Running...")
-              : lt("渲染", "Render")}
+            {status === "running" ? (
+              <span className='run-text-trigger'>{lt("生成中...", "Running...")}</span>
+            ) : (
+              <>
+                <span className='run-text-trigger'>{lt("渲染", "Render")}</span>
+                <RunCreditBadge credits={data.creditsPerCall} runButton />
+              </>
+            )}
           </button>
-          <RunCreditBadge credits={data.creditsPerCall} compact />
           <button
             onClick={onSend}
             disabled={!resultFullSrc}

@@ -37,6 +37,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- Credits Detail UI: `My Credits` transaction list and Admin `细分积分明细` now show `模型` under each record item, using API usage model when available and `--` fallback when absent.
+- AI Analyze/Text defaults: `ai.controller` now defaults text/analyze model to `gemini-3.1-pro`, while `banana-2.5` analyze keeps `gemini-2.5-flash-image-preview`; Banana image-analyze adds quota-aware fast fallback (`3.1-pro -> 3-pro-image -> 2.5`) and stops same-model retries on explicit 429/quota errors.
 - Flow / Agent Pro Node: replaced the run-toolbar resolution control from `NodeSelect` dropdown to chat-style `HD` button + segmented popup (`Auto/1K/2K/4K`, and `0.5K` for Ultra), with matching interaction (outside-click close, active state, and value persistence to `imageSize`).
 - Flow/Video: 腾讯渠道 `Kling O3` 自定义分镜改为 C 端可用上传交互（图片/视频上传替代手填 URL），运行时会把节点上传素材并入 `referenceImages/referenceVideo` 并按腾讯文档校验（图片上限 `7`，视频参考场景图片上限 `4`，视频时长 `3-10s`），确保 FileInfos 参数可直接对齐下发（`frontend/src/components/flow/nodes/KlingO3VideoNode.tsx`, `frontend/src/components/flow/FlowOverlay.tsx`）。
 - Membership/Credits: removed `VIP 69` daily membership gift behavior end-to-end. Backend now force-disables `dailyGiftCredits` for `vip_69` plans, skips `membership_daily_gift` issuance for `vip_69`, and uses base policy daily check-in credits for `vip_69`; frontend `/my-credits` hides legacy `VIP 69 ... 每日赠送积分` rows.

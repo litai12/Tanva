@@ -109,15 +109,26 @@ export class AiController {
     seedream5: 'doubao-seedream-5-0-260128',
   };
   private readonly providerDefaultTextModels: Record<string, string> = {
-    gemini: 'gemini-3-flash-preview',
-    'gemini-pro': 'gemini-3-flash-preview',
-    banana: 'gemini-3-flash-preview',
-    'banana-2.5': 'gemini-3-flash-preview',
-    'banana-3.1': 'gemini-3-flash-preview',
-    runninghub: 'gemini-3-flash-preview',
-    midjourney: 'gemini-3-flash-preview',
-    nano2: 'gemini-3-flash-preview',
-    seedream5: 'gemini-3-flash-preview',
+    gemini: 'gemini-3.1-pro',
+    'gemini-pro': 'gemini-3.1-pro',
+    banana: 'gemini-3.1-pro',
+    'banana-2.5': 'gemini-3.1-pro',
+    'banana-3.1': 'gemini-3.1-pro',
+    runninghub: 'gemini-3.1-pro',
+    midjourney: 'gemini-3.1-pro',
+    nano2: 'gemini-3.1-pro',
+    seedream5: 'gemini-3.1-pro',
+  };
+  private readonly providerDefaultAnalyzeModels: Record<string, string> = {
+    gemini: 'gemini-3.1-pro',
+    'gemini-pro': 'gemini-3.1-pro',
+    banana: 'gemini-3.1-pro',
+    'banana-2.5': 'gemini-2.5-flash-image-preview',
+    'banana-3.1': 'gemini-3.1-pro',
+    runninghub: 'gemini-3.1-pro',
+    midjourney: 'gemini-3.1-pro',
+    nano2: 'gemini-3.1-pro',
+    seedream5: 'gemini-3.1-pro',
   };
 
   private getHttpErrorMessage(status: number): string {
@@ -1204,6 +1215,11 @@ export class AiController {
         throw new ServiceUnavailableException('数据库繁忙，请稍后重试');
       }
 
+      // 仅在已经完成预扣费并进入上游调用阶段时，才将 quota/rate-limit 归类为上游 429
+      if (apiUsageId && this.isRateLimitOrQuotaError(error)) {
+        throw new HttpException('上游模型额度不足或请求过于频繁，请稍后重试', 429);
+      }
+
       throw error;
     }
   }
@@ -1218,6 +1234,18 @@ export class AiController {
       return this.providerDefaultImageModels[providerName] || 'gemini-3-pro-image-preview';
     }
     return this.providerDefaultImageModels.gemini;
+  }
+
+  private resolveAnalyzeModel(providerName: string | null, requestedModel?: string): string {
+    const model = requestedModel?.trim();
+    if (model?.length) {
+      this.logger.debug(`[${providerName || 'default'}] Using requested analyze model: ${model}`);
+      return model;
+    }
+    if (providerName) {
+      return this.providerDefaultAnalyzeModels[providerName] || 'gemini-3.1-pro';
+    }
+    return this.providerDefaultAnalyzeModels.gemini;
   }
 
   private resolveGeminiVideoModel(requestedModel?: string): string {
@@ -1242,6 +1270,31 @@ export class AiController {
     const causeMessage = cause?.message ? String(cause.message) : String(cause);
     const causeCode = cause?.code ? ` code=${String(cause.code)}` : '';
     return `${name}: ${message}${code} (cause: ${causeName}: ${causeMessage}${causeCode})`;
+  }
+
+  private isRateLimitOrQuotaError(error: any): boolean {
+    if (error instanceof HttpException && error.getStatus() === 429) {
+      return true;
+    }
+
+    const messages = [
+      error?.message,
+      error?.cause?.message,
+      error?.response?.message,
+      typeof error?.response === 'string' ? error.response : '',
+    ]
+      .filter(Boolean)
+      .map((value) => String(value).toLowerCase());
+
+    return messages.some((message) => {
+      return (
+        message.includes('429') ||
+        message.includes('too many requests') ||
+        message.includes('rate limit') ||
+        message.includes('quota') ||
+        message.includes('resource has been exhausted')
+      );
+    });
   }
 
   private getTraceId(req: TraceableReq | any): string | null {
@@ -1969,7 +2022,7 @@ export class AiController {
       return model;
     }
     if (providerName) {
-      return this.providerDefaultTextModels[providerName] || 'gemini-3-flash-preview';
+      return this.providerDefaultTextModels[providerName] || 'gemini-3.1-pro';
     }
     return this.providerDefaultTextModels.gemini;
   }
@@ -2946,7 +2999,7 @@ export class AiController {
   @Post('analyze-image')
   async analyzeImage(@Body() dto: AnalyzeImageDto, @Req() req: any) {
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
-    const model = this.resolveImageModel(providerName, dto.model);
+    const model = this.resolveAnalyzeModel(providerName, dto.model);
     const normalizedImages = Array.from(
       new Set(
         [

@@ -42,7 +42,9 @@
 - `edit-image` / `blend-images` 支持 `sourceImageUrl(s)`，后端会按 OSS 白名单拉取并转换为 dataURL。
 - Banana 文本链路（`text-chat` / `tool-selection`）支持独立于图像链路的供应商配置键 `banana_text_provider`：`auto`（Apimart→147）、`legacy_auto`（147→Apimart）、`apimart`、`legacy`。
 - Banana 文本走 Apimart 时使用 `https://api.apimart.ai/v1/chat/completions`（OpenAI Chat Completions 兼容格式），鉴权复用 `NANO2_API_KEY`。
-- Banana 文本链路默认模型已统一为 `gemini-3-flash-preview`（包含 Apimart 通道默认值与 controller/provider fallback 默认值）。
+- Banana 文本链路默认模型调整为 `gemini-3.1-pro`（legacy 147 通道）；Apimart 通道默认仍为 `gemini-3-flash-preview` 以保持兼容。
+- `POST /api/ai/analyze-image` 默认优先使用 `gemini-3.1-pro`（语言模型）做多模态分析；`banana-2.5` 仍保持 `gemini-2.5-flash-image-preview`。
+- 图像分析链路遇到上游配额/限流（429 / quota / resource exhausted）时，后端会在退款后透传 HTTP `429`，不再统一返回 `500`。
 - `minimax-music` 默认强制 `output_format=url`、`stream=false`，并在上游返回 `status=1`（合成中）或请求超时时返回友好错误提示。
 
 ## 配置项（以代码与环境为准）

@@ -384,7 +384,14 @@ function Wan27VideoNode({ id, data, selected }: Props) {
             <HelpCircle size={14} />
           </button>
           <button className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit" onClick={() => data.onRun?.(id)} onMouseDown={handleButtonMouseDown} disabled={data.status === "running"} style={{ ...styles.iconBtn, width: hasRunCredits ? "auto" : styles.iconBtn.width, minWidth: hasRunCredits ? 64 : styles.iconBtn.width, padding: hasRunCredits ? "0 10px" : undefined, background: data.status === "running" ? "#e5e7eb" : "#111827", opacity: data.status === "running" ? 0.6 : 1, cursor: data.status === "running" ? "not-allowed" : "pointer", fontSize: 12 }}>
-            {hasRunCredits ? <RunCreditBadge credits={runCredits} runButton /> : "Run"}
+            {data.status === "running" ? (
+              <span className="run-text-trigger">Running...</span>
+            ) : (
+              <>
+                <span className="run-text-trigger">Run</span>
+                {hasRunCredits ? <RunCreditBadge credits={runCredits} runButton /> : null}
+              </>
+            )}
           </button>
           <button className="tanva-video-header-btn tanva-video-header-share" onClick={() => copyVideoLink(data.videoUrl)} onMouseDown={handleButtonMouseDown} disabled={!data.videoUrl} style={{ ...styles.iconBtn, opacity: data.videoUrl ? 1 : 0.35, cursor: data.videoUrl ? "pointer" : "not-allowed" }}><Share2 size={14} /></button>
           <button className="tanva-video-header-btn tanva-video-header-download" onClick={() => triggerDownload(data.videoUrl)} onMouseDown={handleButtonMouseDown} disabled={!data.videoUrl || isDownloading} style={{ ...styles.iconBtn, background: !data.videoUrl || isDownloading ? "#e5e7eb" : "#111827", opacity: !data.videoUrl || isDownloading ? 0.35 : 1, cursor: !data.videoUrl || isDownloading ? "not-allowed" : "pointer" }}>{isDownloading ? <span style={{ fontSize: 10, fontWeight: 600, color: "#111827" }}>...</span> : <Download size={14} />}</button>

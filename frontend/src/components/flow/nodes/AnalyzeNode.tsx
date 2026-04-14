@@ -960,11 +960,14 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
           }
         >
           {status === 'running' || isAnalyzing ? (
-            'Running...'
-          ) : resolvedRunCredits ? (
-            <RunCreditBadge credits={resolvedRunCredits} runButton />
+            <span className='run-text-trigger'>Running...</span>
           ) : (
-            'Run'
+            <>
+              <span className='run-text-trigger'>Run</span>
+              {resolvedRunCredits ? (
+                <RunCreditBadge credits={resolvedRunCredits} runButton />
+              ) : null}
+            </>
           )}
         </button>
       </div>

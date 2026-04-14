@@ -93,7 +93,7 @@ export class BananaProvider implements IAIProvider {
   private readonly apimartTaskBaseUrl = "https://api.apimart.ai/v1/tasks";
   private readonly apimartTextUrl = "https://api.apimart.ai/v1/chat/completions";
   private readonly DEFAULT_MODEL = "gemini-3-pro-image-preview";
-  private readonly DEFAULT_TEXT_MODEL = "gemini-3-flash-preview";
+  private readonly DEFAULT_TEXT_MODEL = "gemini-3.1-pro";
   private readonly DEFAULT_APIMART_TEXT_MODEL = "gemini-3-flash-preview";
   private readonly DEFAULT_TIMEOUT = 300000; // 5分钟
   private readonly TEXT_TIMEOUT = 45000; // 文本接口更快失败，便于通道快速切换
@@ -106,6 +106,8 @@ export class BananaProvider implements IAIProvider {
 
   // 降级模型映射：优先同代/同能力降级，再降到更保守模型
   private readonly FALLBACK_MODELS: Record<string, string> = {
+    "gemini-3.1-pro": "gemini-3-pro-image-preview",
+    "banana-gemini-3.1-pro": "gemini-3-pro-image-preview",
     "gemini-3-pro-image-preview": "gemini-2.5-flash-image",
     "gemini-3.1-flash-image-preview": "gemini-3-pro-image-preview",
     "banana-gemini-3.1-flash-image-preview": "gemini-3-pro-image-preview",
@@ -523,7 +525,8 @@ export class BananaProvider implements IAIProvider {
   private async withRetry<T>(
     operation: () => Promise<T>,
     operationType: string,
-    maxRetries: number = this.MAX_RETRIES
+    maxRetries: number = this.MAX_RETRIES,
+    shouldRetry?: (error: Error, attempt: number) => boolean
   ): Promise<T> {
     let lastError: Error;
 
@@ -540,7 +543,8 @@ export class BananaProvider implements IAIProvider {
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
 
-        if (attempt < maxRetries) {
+        const canRetry = attempt < maxRetries && (shouldRetry ? shouldRetry(lastError, attempt) : true);
+        if (canRetry) {
           // 使用递增延迟
           const delay =
             this.RETRY_DELAYS[attempt - 1] ||
@@ -549,6 +553,11 @@ export class BananaProvider implements IAIProvider {
             `${operationType} attempt ${attempt} failed: ${lastError.message}, retrying in ${delay}ms...`
           );
           await new Promise((resolve) => setTimeout(resolve, delay));
+        } else if (attempt < maxRetries) {
+          this.logger.warn(
+            `${operationType} attempt ${attempt} failed: ${lastError.message}, stop retry by policy`
+          );
+          break;
         } else {
           this.logger.error(`${operationType} failed after all attempts`);
         }
@@ -2270,18 +2279,17 @@ export class BananaProvider implements IAIProvider {
       const normalizedInputs = await Promise.all(
         sourceInputs.map((source) => this.normalizeFileInputAsync(source, "analysis"))
       );
-      // 根据传入的model选择，如果没有传入则根据provider默认模型选择
-      // Fast模式(banana-2.5)使用gemini-2.5-flash-image-preview，其他使用gemini-3-pro-image-preview
-      const modelName = request.model || "";
-      const isFastModel = modelName.includes('2.5') || modelName.includes('gemini-2.5');
-      const defaultModel = isFastModel
-        ? "gemini-2.5-flash-image-preview"
-        : "gemini-3-pro-image-preview";
-      const model = this.normalizeLegacyImageModel(
-        request.model || defaultModel
-      );
+      // 分析链路优先语言模型（3.1 Pro），并保留 2.5 Fast 显式请求能力
+      const modelName = request.model?.trim() || "";
+      const isFastModel = modelName.includes("2.5") || modelName.includes("gemini-2.5");
+      const defaultModel = isFastModel ? "gemini-2.5-flash-image-preview" : "gemini-3.1-pro";
+      const originalModel = this.normalizeLegacyImageModel(modelName || defaultModel);
+      let currentModel = originalModel;
+      let usedFallback = false;
       const mimeSummary = normalizedInputs.map((item) => item.mimeType).join(", ");
-      this.logger.log(`📊 Using model: ${model}, files=${normalizedInputs.length}, mimeType=${mimeSummary}`);
+      this.logger.log(
+        `📊 Analyze request: model=${currentModel}, files=${normalizedInputs.length}, mimeType=${mimeSummary}, mode=${providerMode}`
+      );
 
       // 根据文件类型生成不同的提示词
       const hasPdf = normalizedInputs.some((item) => item.mimeType === "application/pdf");
@@ -2293,40 +2301,87 @@ export class BananaProvider implements IAIProvider {
         ? `请详细分析这张${fileTypeDesc}，请用中文输出分析结果：${request.prompt}`
         : `请详细分析这张${fileTypeDesc}，请用中文输出分析结果`;
 
-      const result = await this.withRetry(
-        () =>
-          this.withTimeout(
-            (async () => {
-              return await this.makeRequest(
-                model,
-                [
-                  { text: analysisPrompt },
-                  ...normalizedInputs.map((item) => ({
-                    inlineData: {
-                      mimeType: item.mimeType,
-                      data: item.data,
-                    },
-                  })),
-                ],
-                {}
-              );
-            })(),
-            this.DEFAULT_TIMEOUT,
-            "File analysis"
-          ),
-        "File analysis",
-        2
-      );
+      for (let round = 0; round < this.MAX_MODEL_ATTEMPTS; round++) {
+        try {
+          this.logger.debug(
+            `[Banana/Analyze] using model: ${currentModel}${usedFallback ? " (fallback)" : ""}`
+          );
 
-      this.logger.log(
-        `✅ File analysis succeeded: ${result.textResponse.length} characters`
-      );
+          const result = await this.withRetry(
+            () =>
+              this.withTimeout(
+                (async () => {
+                  return await this.makeRequest(
+                    currentModel,
+                    [
+                      { text: analysisPrompt },
+                      ...normalizedInputs.map((item) => ({
+                        inlineData: {
+                          mimeType: item.mimeType,
+                          data: item.data,
+                        },
+                      })),
+                    ],
+                    {}
+                  );
+                })(),
+                this.DEFAULT_TIMEOUT,
+                "File analysis"
+              ),
+            "File analysis",
+            2,
+            (err) => !this.isRateLimitedOrQuotaError(err)
+          );
+
+          this.logger.log(
+            `✅ File analysis succeeded: ${result.textResponse.length} characters`
+          );
+          if (usedFallback) {
+            this.logger.log(
+              `🔄 [FALLBACK SUCCESS] File analysis succeeded with fallback model: ${currentModel}`
+            );
+          }
+
+          return {
+            success: true,
+            data: {
+              text: result.textResponse,
+              tags: [],
+            },
+          };
+        } catch (error) {
+          const err = error instanceof Error ? error : new Error(String(error));
+          const fallbackModel = this.getFallbackModel(currentModel);
+          if (
+            fallbackModel &&
+            fallbackModel !== currentModel &&
+            (this.isRateLimitedOrQuotaError(err) || this.shouldFallback(err))
+          ) {
+            this.logger.warn(
+              `⚠️ [FALLBACK] File analysis failed with ${currentModel}, falling back to ${fallbackModel}. Error: ${err.message}`
+            );
+            currentModel = fallbackModel;
+            usedFallback = true;
+            continue;
+          }
+
+          this.logger.error("❌ File analysis failed:", error);
+          return {
+            success: false,
+            error: {
+              code: "ANALYSIS_FAILED",
+              message: err.message,
+              details: error,
+            },
+          };
+        }
+      }
 
       return {
-        success: true,
-        data: {
-          text: result.textResponse,
-          tags: [],
+        success: false,
+        error: {
+          code: "ANALYSIS_FAILED",
+          message: "Unexpected error in image analysis",
         },
       };
     } catch (error) {
@@ -2961,6 +3016,7 @@ ${vectorRule ? `${vectorRule}\n\n` : ""}Return strict JSON only:
       name: "Banana API",
       version: "1.0",
       supportedModels: [
+        "gemini-3.1-pro",
         "gemini-3-pro-image-preview",
         "gemini-3.1-flash-image-preview",
         "gemini-3-flash-preview",

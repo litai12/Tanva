@@ -512,10 +512,15 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
               gap: 0,
             }}
             >
-            {hasRunCredits ? (
-              <RunCreditBadge credits={runCredits} runButton />
+            {data.status === "running" ? (
+              <span className="run-text-trigger">Running...</span>
             ) : (
-              "Run"
+              <>
+                <span className="run-text-trigger">Run</span>
+                {hasRunCredits ? (
+                  <RunCreditBadge credits={runCredits} runButton />
+                ) : null}
+              </>
             )}
           </button>
           <button

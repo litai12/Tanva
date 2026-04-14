@@ -640,18 +640,3 @@ video::-webkit-media-controls-fullscreen-button {
   padding-inline: 10px;
   gap: 6px !important;
 }
-
-.tanva-video-header-run.run-btn-with-credit .run-credit-badge {
-  position: static;
-  opacity: 1 !important;
-  transform: none !important;
-  pointer-events: none;
-}
-
-.tanva-video-header-run.run-btn-with-credit:hover:not(:disabled) .run-text-trigger,
-.tanva-video-header-run.run-btn-with-credit:focus-visible:not(:disabled) .run-text-trigger,
-.tanva-video-header-run.run-btn-with-credit:hover:not(:disabled) .run-credit-badge,
-.tanva-video-header-run.run-btn-with-credit:focus-visible:not(:disabled) .run-credit-badge {
-  opacity: 1 !important;
-  transform: none !important;
-}
