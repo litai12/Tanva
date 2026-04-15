@@ -19,6 +19,10 @@ import { useLocaleText } from '@/utils/localeText';
 import RunCreditBadge from './RunCreditBadge';
 import NodeSelect from './NodeSelect';
 import { useImageNodeCreditsPreview } from '../hooks/useImageNodeCreditsPreview';
+import {
+  resolveFlowModelProvider,
+  type FlowModelProvider,
+} from '@/utils/flowModelProvider';
 
 // 长宽比图标
 const AspectRatioIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -52,6 +56,7 @@ type Props = {
     managedModelKey?: string;
     vendorKey?: string;
     platformKey?: string;
+    modelProvider?: FlowModelProvider;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
   };
@@ -537,11 +542,14 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   const projectId = useProjectContentStore((state) => state.projectId);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
   const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
-  const setAIProvider = useAIChatStore((state) => state.setAIProvider);
   const chatTheme = useAIChatStore((state) => state.chatTheme);
   const isFlowDark = chatTheme === 'black';
   const globalWebSearchEnabled = useAIChatStore((state) => state.enableWebSearch);
   const enableWebSearch = data.enableWebSearch ?? globalWebSearchEnabled;
+  const effectiveProvider = React.useMemo<FlowModelProvider>(
+    () => resolveFlowModelProvider(data.modelProvider, aiProvider),
+    [aiProvider, data.modelProvider]
+  );
 
   type ProviderToggleValue = 'banana-2.5' | 'banana' | 'banana-3.1';
   const providerToggleOptions = React.useMemo<Array<{
@@ -569,11 +577,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
     [lt]
   );
 
-  const currentProviderValue = React.useMemo<ProviderToggleValue>(() => {
-    if (aiProvider === 'banana-2.5') return 'banana-2.5';
-    if (aiProvider === 'banana-3.1') return 'banana-3.1';
-    return 'banana';
-  }, [aiProvider]);
+  const currentProviderValue = effectiveProvider;
 
   const currentProviderOption = React.useMemo(
     () =>
@@ -582,13 +586,22 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
     [currentProviderValue, providerToggleOptions]
   );
 
+  React.useEffect(() => {
+    if (
+      typeof data.modelProvider === "string" &&
+      data.modelProvider.trim().length > 0
+    ) {
+      return;
+    }
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: { id, patch: { modelProvider: currentProviderValue } },
+      })
+    );
+  }, [currentProviderValue, data.modelProvider, id]);
+
   // 判断是否为高质量模式（Pro / Ultra）
-  const isProMode =
-    aiProvider === 'gemini-pro' ||
-    aiProvider === 'banana' ||
-    aiProvider === 'banana-2.5' ||
-    aiProvider === 'banana-3.1' ||
-    aiProvider === 'nano2';
+  const isProMode = true;
 
   const rf = useReactFlow();
   // 移除 useEdges() - 改用事件监听方式获取外部提示词，避免频繁重渲染
@@ -885,7 +898,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   const imageSizeValue = data.imageSize ?? null;
   const { credits: backendCredits } = useImageNodeCreditsPreview({
     nodeType: "generatePro",
-    aiProvider,
+    aiProvider: currentProviderValue,
     bananaImageRoute,
     imageSize: imageSizeValue || undefined,
     aspectRatio: aspectRatioValue || undefined,
@@ -1262,8 +1275,12 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
                   key={option.value}
                   onClick={(event) => {
                     event.stopPropagation();
-                    if (aiProvider !== option.value) {
-                      setAIProvider(option.value);
+                    if (currentProviderValue !== option.value) {
+                      window.dispatchEvent(
+                        new CustomEvent("flow:updateNodeData", {
+                          detail: { id, patch: { modelProvider: option.value } },
+                        })
+                      );
                     }
                   }}
                   onPointerDownCapture={stopNodeDrag}

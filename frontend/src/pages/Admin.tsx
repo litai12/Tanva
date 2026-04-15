@@ -3754,11 +3754,11 @@ const VIDEO_MODEL_ROUTE_OPTIONS: Record<
   ],
   kling: [
     { value: "kapon", label: "kapon", description: "Kling 使用 kapon 供应商路线" },
-    { value: "tengxun", label: "腾旭", description: "Kling 使用腾旭供应商路线" },
+    { value: "tengxun", label: "腾讯", description: "Kling 使用腾讯供应商路线" },
   ],
   vidu: [
     { value: "kapon", label: "kapon", description: "Vidu 使用 kapon 供应商路线" },
-    { value: "tengxun", label: "腾旭", description: "Vidu 使用腾旭供应商路线" },
+    { value: "tengxun", label: "腾讯", description: "Vidu 使用腾讯供应商路线" },
   ],
 };
 
@@ -3907,7 +3907,7 @@ const applyVideoModelRouteSelectionToMapping = (
   const soraTencentVendor = ensureVendor(soraModel, "tencent_vod", {
     vendorKey: "tencent_vod",
     platformKey: "tencent_vod",
-    label: "腾旭",
+    label: "腾讯",
     enabled: false,
     route: "tencent_vod",
     provider: "sora2",
@@ -3947,7 +3947,7 @@ const applyVideoModelRouteSelectionToMapping = (
     const tencentVendor = ensureVendor(model, "tencent_vod", {
       vendorKey: "tencent_vod",
       platformKey: "tencent_vod",
-      label: "腾旭",
+      label: "腾讯",
       enabled: false,
       route: "tencent_vod",
       provider: "doubao",
@@ -3989,14 +3989,14 @@ const applyVideoModelRouteSelectionToMapping = (
     const tencentVendor = ensureVendor(model, "tencent_vod", {
       vendorKey: "tencent_vod",
       platformKey: "tencent_vod",
-      label: "腾旭",
+      label: "腾讯",
       enabled: false,
       route: "tencent_vod",
       provider: meta.provider,
       modelName: "Kling",
       modelVersion: meta.modelVersion,
     });
-    tencentVendor.label = "腾旭";
+    tencentVendor.label = "腾讯";
     tencentVendor.route = "tencent_vod";
     tencentVendor.provider = meta.provider;
     tencentVendor.modelName = "Kling";
@@ -4035,14 +4035,14 @@ const applyVideoModelRouteSelectionToMapping = (
     const tencentVendor = ensureVendor(model, "tencent_vod", {
       vendorKey: "tencent_vod",
       platformKey: "tencent_vod",
-      label: "腾旭",
+      label: "腾讯",
       enabled: false,
       route: "tencent_vod",
       provider: "vidu",
       modelName: "Vidu",
       modelVersion: meta.tencentVersion,
     });
-    tencentVendor.label = "腾旭";
+    tencentVendor.label = "腾讯";
     tencentVendor.route = "tencent_vod";
     tencentVendor.provider = "vidu";
     tencentVendor.modelName = "Vidu";
@@ -7827,13 +7827,13 @@ function ModelManagementTab() {
 
       <div className='bg-white rounded-lg border p-6 shadow-sm'>
         <h3 className='text-lg font-semibold mb-4'>kling 供应商</h3>
-        <p className='text-sm text-gray-500 mb-4'>kling 供应商：kapon、腾旭</p>
+        <p className='text-sm text-gray-500 mb-4'>kling 供应商：kapon、腾讯</p>
         {renderRouteOptions("kling", "videoModelKlingProvider")}
       </div>
 
       <div className='bg-white rounded-lg border p-6 shadow-sm'>
         <h3 className='text-lg font-semibold mb-4'>vidu 供应商</h3>
-        <p className='text-sm text-gray-500 mb-4'>vidu 供应商：kapon、腾旭</p>
+        <p className='text-sm text-gray-500 mb-4'>vidu 供应商：kapon、腾讯</p>
         {renderRouteOptions("vidu", "videoModelViduProvider")}
       </div>
 

@@ -26,6 +26,7 @@ import {
 import { blobToDataUrl, canvasToBlob, createImageBitmapLimited } from "@/utils/imageConcurrency";
 import { shallow } from "zustand/shallow";
 import { useLocaleText } from "@/utils/localeText";
+import { resolveFlowNodeSendAnchorClient } from "../utils/flowNodeSendAnchor";
 
 const RESIZE_EDGE_THICKNESS = 8;
 
@@ -1002,21 +1003,10 @@ function ImageNodeInner({ id, data, selected }: Props) {
 
   const handleSendToCanvas = React.useCallback(async (event?: React.MouseEvent<HTMLButtonElement>) => {
     if (!canSend) return;
-
-    const resolveAnchorClient = (triggerTarget?: EventTarget | null) => {
-      const triggerEl =
-        triggerTarget instanceof HTMLElement ? triggerTarget : null;
-      const nodeEl = triggerEl?.closest?.(".react-flow__node") as
-        | HTMLElement
-        | null;
-      const rect = (nodeEl || triggerEl)?.getBoundingClientRect();
-      if (!rect) return undefined;
-      return {
-        x: rect.right + 16,
-        y: rect.top + rect.height / 2,
-      };
-    };
-    const anchorClient = resolveAnchorClient(event?.currentTarget ?? null);
+    const anchorClient = resolveFlowNodeSendAnchorClient({
+      nodeId: id,
+      triggerTarget: event?.currentTarget ?? null,
+    });
 
     const makeFileName = () => {
       const base = resolvedImageName || `flow_${id}_${Date.now()}`;
@@ -1041,6 +1031,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
             operationType: "generate",
             smartPosition: undefined,
             anchorClient,
+            forceAnchorPosition: true,
             sourceImageId: undefined,
             sourceImages: undefined,
           },

@@ -9,6 +9,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Video Provider: 修复 `viduq3-pro` 在收到 `reference2video` 请求时错误回退到 `text2video` 的问题。后端现已补齐 Q3 的 `reference2video` 模式推断、endpoint 映射和 payload 组装，避免“明明传了 prompt 却被上游报 text_video 缺少 prompt”。
 
 ### Added
+- Flow Model Switch: `Generate` / `Agent(generatePro)` 节点新增节点本地 `modelProvider` 持久化，节点内 Fast/Pro/Ultra 切换不再改写全局 `aiProvider`；同时全局设置/对话框切换会广播 `flow:sync-model-provider`，可一键批量同步相关节点（`generate/generatePro/generatePro4/analysis`）到统一模型档位。
 - Flow/Analysis: analysis node now has an independent Fast/Pro/Ultra model switch (node-local state), and no longer mutates global aiProvider.
 - Flow/Analysis: analysis requests are pinned to Banana normal route in-node, so global normal/stable channel switching does not affect analysis execution.
 - Credits: image-analysis pricing is aligned to Fast=10 (gemini-2.5-image-analyze), Pro=30 (gemini-image-analyze), Ultra=20 (gemini-3.1-image-analyze) across preview, backend deduction, and credits detail mapping.

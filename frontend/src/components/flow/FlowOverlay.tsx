@@ -94,6 +94,7 @@ import TencentSpeechNode from "./nodes/TencentSpeechNode";
 import Nano2Node from "./nodes/Nano2Node";
 import Seedream5Node from "./nodes/Seedream5Node";
 import NodeGroupNode from "./nodes/NodeGroupNode";
+import { resolveFlowNodeSendAnchorClient } from "./utils/flowNodeSendAnchor";
 import { FLOW_IMAGE_ASSET_PREFIX } from "@/services/flowImageAssetStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import {
@@ -182,6 +183,7 @@ import PersonalLibraryPanel from "./PersonalLibraryPanel";
 import { resolveTextFromSourceNode } from "./utils/textSource";
 import { sanitizeFlowTextForMidjourneyV7 } from "./utils/mjV7PromptSanitize";
 import { useLocaleText } from "@/utils/localeText";
+import { resolveFlowModelProvider, FLOW_MODEL_PROVIDER_SYNC_EVENT } from "@/utils/flowModelProvider";
 import {
   detectAlignments,
   deduplicateAlignments,
@@ -3979,7 +3981,7 @@ function FlowInner() {
         historyService.commit("flow-group-update").catch(() => {});
       } catch {}
     },
-    [setNodes]
+    [aiProvider, setNodes]
   );
 
   const toggleGroupCollapsed = React.useCallback(
@@ -7476,6 +7478,7 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
               presetPrompt: "",
+              modelProvider: resolveFlowModelProvider(undefined, aiProvider),
             }
           : type === "generatePro"
           ? {
@@ -7485,6 +7488,7 @@ function FlowInner() {
               prompts: [""],
               title: "Agent",
               enableWebSearch: false,
+              modelProvider: resolveFlowModelProvider(undefined, aiProvider),
             }
           : type === "generatePro4"
           ? {
@@ -7494,6 +7498,7 @@ function FlowInner() {
               boxH: size.h,
               prompts: [""],
               enableWebSearch: false,
+              modelProvider: resolveFlowModelProvider(undefined, aiProvider),
             }
           : type === "generate4"
           ? {
@@ -7947,7 +7952,7 @@ function FlowInner() {
       setAddPanel((v) => ({ ...v, visible: false }));
       return id;
     },
-    [setNodes]
+    [aiProvider, setNodes]
   );
 
   const textSourceTypes = React.useMemo(
@@ -10541,6 +10546,7 @@ function FlowInner() {
               imageWidth: 296,
               title: "Agent",
               enableWebSearch: false,
+              modelProvider: resolveFlowModelProvider(undefined, aiProvider),
             }
           : { status: "idle" as const };
 
@@ -16485,8 +16491,14 @@ function FlowInner() {
           ? (raw.trim() as AIImageGenerateRequest["aspectRatio"])
           : undefined;
       })();
+      const runProvider =
+        node.type === "generate" ||
+        node.type === "generatePro" ||
+        node.type === "generatePro4"
+          ? resolveFlowModelProvider((node.data as any)?.modelProvider, aiProvider)
+          : aiProvider;
       const effectiveAspectRatio =
-        node.type === "generate" && aiProvider === "banana-2.5"
+        node.type === "generate" && runProvider === "banana-2.5"
           ? undefined
           : aspectRatioValue;
 
@@ -16522,19 +16534,19 @@ function FlowInner() {
         }
         return undefined;
       };
-      const providerOptions = resolveBananaRouteProviderOptions(aiProvider);
+      const providerOptions = resolveBananaRouteProviderOptions(runProvider);
 
       // 根据节点类型和全局模式选择模型
       const nodeSpecificModel = (() => {
         // 专业生图节点：默认走 Pro；Ultra(3.1) 时切到 3.1 链路
         if (node.type === "generatePro" || node.type === "generatePro4") {
-          if (aiProvider === "banana-3.1" || aiProvider === "nano2") {
+          if (runProvider === "banana-3.1" || runProvider === "nano2") {
             return "gemini-3.1-flash-image-preview";
           }
           return "gemini-3-pro-image-preview";
         }
         // 其他节点（包括 generate/generate4/image 等）使用全局模型设置
-        return imageModel;
+        return getImageModelForProvider(runProvider);
       })();
 
       if (node.type === "generate4") {
@@ -16601,7 +16613,7 @@ function FlowInner() {
               result = await generateImageViaAPI({
                 prompt,
                 outputFormat: "png",
-                aiProvider,
+                aiProvider: runProvider,
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
@@ -16619,7 +16631,7 @@ function FlowInner() {
                   ? { sourceImageUrl: imageDatas[0] }
                   : { sourceImage: imageDatas[0] }),
                 outputFormat: "png",
-                aiProvider,
+                aiProvider: runProvider,
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
@@ -16632,7 +16644,7 @@ function FlowInner() {
                   ? { sourceImageUrls: imageDatas.slice(0, 6) }
                   : { sourceImages: imageDatas.slice(0, 6) }),
                 outputFormat: "png",
-                aiProvider,
+                aiProvider: runProvider,
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
@@ -16657,7 +16669,7 @@ function FlowInner() {
                   {
                     nodeId,
                     slot: i,
-                    aiProvider,
+                    aiProvider: runProvider,
                     model: nodeSpecificModel,
                     prompt,
                     hasImage: !!generatedSrc,
@@ -16730,8 +16742,8 @@ function FlowInner() {
                 metadata: {
                   ...(generatedMetadata || {}),
                   model: generatedModel || nodeSpecificModel,
-                  aiProvider,
-                  provider: aiProvider,
+                  aiProvider: runProvider,
+                  provider: runProvider,
                 },
               })
                 .then(({ remoteUrl }) => {
@@ -16874,7 +16886,7 @@ function FlowInner() {
               result = await generateImageViaAPI({
                 prompt,
                 outputFormat: "png",
-                aiProvider,
+                aiProvider: runProvider,
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
@@ -16892,7 +16904,7 @@ function FlowInner() {
                   ? { sourceImageUrl: imageDatas[0] }
                   : { sourceImage: imageDatas[0] }),
                 outputFormat: "png",
-                aiProvider,
+                aiProvider: runProvider,
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
@@ -16905,7 +16917,7 @@ function FlowInner() {
                   ? { sourceImageUrls: imageDatas.slice(0, 6) }
                   : { sourceImages: imageDatas.slice(0, 6) }),
                 outputFormat: "png",
-                aiProvider,
+                aiProvider: runProvider,
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
@@ -17013,8 +17025,8 @@ function FlowInner() {
                   metadata: {
                     ...(result.metadata || {}),
                     model: result.model || nodeSpecificModel,
-                    aiProvider,
-                    provider: aiProvider,
+                    aiProvider: runProvider,
+                    provider: runProvider,
                   },
                 })
                   .then(({ remoteUrl }) => {
@@ -17129,7 +17141,7 @@ function FlowInner() {
         };
 
         const executeImageRequest = async (
-          provider: typeof aiProvider,
+          provider: string,
           model: string,
           imageSizeOverride?: "0.5K" | "1K" | "2K" | "4K"
         ) => {
@@ -17154,7 +17166,7 @@ function FlowInner() {
             console.log("[FlowOverlay] editImage调用参数:", {
               aiProvider: provider,
               model,
-              imageModel,
+              nodeSpecificModel,
               imageSize: requestImageSize,
             });
             return await editImageViaAPI({
@@ -17184,7 +17196,7 @@ function FlowInner() {
           });
         };
 
-        result = await executeImageRequest(aiProvider, nodeSpecificModel);
+        result = await executeImageRequest(runProvider, nodeSpecificModel);
 
         if (!result.success || !result.data) {
           const msg = result.error?.message || "执行失败";
@@ -17216,7 +17228,7 @@ function FlowInner() {
         if (!imgBase64) {
           console.warn("⚠️ Flow generate success but no image returned", {
             nodeId,
-            aiProvider,
+            aiProvider: runProvider,
             model: nodeSpecificModel,
             prompt,
             hasImage: !!imgBase64,
@@ -17301,8 +17313,8 @@ function FlowInner() {
               metadata: {
                 ...(out.metadata || {}),
                 model: out.model || nodeSpecificModel,
-                aiProvider,
-                provider: aiProvider,
+                aiProvider: runProvider,
+                provider: runProvider,
               },
             })
               .then(({ remoteUrl }) => {
@@ -17380,6 +17392,7 @@ function FlowInner() {
     async (id: string) => {
       const node = rf.getNode(id);
       if (!node) return;
+      const anchorClient = resolveFlowNodeSendAnchorClient({ nodeId: id });
       const cacheKey = "flow_send_image_cache_v1";
       const getCachedUrl = (key: string): string | null => {
         try {
@@ -17554,6 +17567,7 @@ function FlowInner() {
                 fileName,
                 operationType: "generate",
                 smartPosition: undefined,
+                anchorClient,
                 sourceImageId: undefined,
                 sourceImages: undefined,
                 preferHorizontal: true,
@@ -17613,6 +17627,8 @@ function FlowInner() {
                   fileName,
                   operationType: "generate",
                   smartPosition: undefined,
+                  anchorClient,
+                  forceAnchorPosition: true,
                   sourceImageId: undefined,
                   sourceImages: undefined,
                 },
@@ -17635,6 +17651,8 @@ function FlowInner() {
               fileName,
               operationType: "generate",
               smartPosition: undefined,
+              anchorClient,
+              forceAnchorPosition: true,
               sourceImageId: undefined,
               sourceImages: undefined,
             },
@@ -17765,6 +17783,8 @@ function FlowInner() {
                     fileName,
                     operationType: "generate",
                     smartPosition: undefined,
+                    anchorClient,
+                    forceAnchorPosition: true,
                     sourceImageId: undefined,
                     sourceImages: undefined,
                   },
@@ -17795,6 +17815,8 @@ function FlowInner() {
                         fileName,
                         operationType: "generate",
                         smartPosition: undefined,
+                        anchorClient,
+                        forceAnchorPosition: true,
                         sourceImageId: undefined,
                         sourceImages: undefined,
                       },
@@ -17817,6 +17839,8 @@ function FlowInner() {
                   fileName,
                   operationType: "generate",
                   smartPosition: undefined,
+                  anchorClient,
+                  forceAnchorPosition: true,
                   sourceImageId: undefined,
                   sourceImages: undefined,
                 },
@@ -17854,6 +17878,8 @@ function FlowInner() {
               fileName,
               operationType: "generate",
               smartPosition: undefined,
+              anchorClient,
+              forceAnchorPosition: true,
               sourceImageId: undefined,
               sourceImages: undefined,
             },
@@ -17929,6 +17955,8 @@ function FlowInner() {
                   fileName,
                   operationType: "generate",
                   smartPosition: undefined,
+                  anchorClient,
+                  forceAnchorPosition: true,
                   sourceImageId: undefined,
                   sourceImages: undefined,
                 },
@@ -17953,6 +17981,8 @@ function FlowInner() {
             fileName,
             operationType: "generate",
             smartPosition: undefined,
+            anchorClient,
+            forceAnchorPosition: true,
             sourceImageId: undefined,
             sourceImages: undefined,
           },
@@ -19007,9 +19037,19 @@ function FlowInner() {
             : type === "promptOptimize"
             ? { text: "", expandedText: "" }
             : type === "generate"
-            ? { status: "idle", presetPrompt: "" }
+            ? {
+                status: "idle",
+                presetPrompt: "",
+                modelProvider: resolveFlowModelProvider(undefined, aiProvider),
+              }
             : type === "generatePro"
-            ? { status: "idle", prompts: [""], title: "Agent", enableWebSearch: false }
+            ? {
+                status: "idle",
+                prompts: [""],
+                title: "Agent",
+                enableWebSearch: false,
+                modelProvider: resolveFlowModelProvider(undefined, aiProvider),
+              }
             : type === "generate4"
             ? { status: "idle", images: [] }
             : type === "generateRef"
@@ -19029,11 +19069,61 @@ function FlowInner() {
       } catch {}
       return id;
     },
-    [rf, setNodes]
+    [aiProvider, rf, setNodes]
   );
 
   const showFlowPanel = useUIStore((s) => s.showFlowPanel);
   const flowUIEnabled = useUIStore((s) => s.flowUIEnabled);
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ provider?: string }>).detail;
+      const targetProvider = resolveFlowModelProvider(detail?.provider, aiProvider);
+      setNodes((nodes) => {
+        let changed = false;
+        const nextNodes = nodes.map((node) => {
+          if (
+            node.type === "generate" ||
+            node.type === "generatePro" ||
+            node.type === "generatePro4"
+          ) {
+            if ((node.data as any)?.modelProvider === targetProvider) {
+              return node;
+            }
+            changed = true;
+            return {
+              ...node,
+              data: {
+                ...(node.data || {}),
+                modelProvider: targetProvider,
+              },
+            };
+          }
+          if (node.type === "analysis") {
+            if ((node.data as any)?.analysisProvider === targetProvider) {
+              return node;
+            }
+            changed = true;
+            return {
+              ...node,
+              data: {
+                ...(node.data || {}),
+                analysisProvider: targetProvider,
+              },
+            };
+          }
+          return node;
+        });
+        return changed ? nextNodes : nodes;
+      });
+    };
+    window.addEventListener(FLOW_MODEL_PROVIDER_SYNC_EVENT, handler as EventListener);
+    return () =>
+      window.removeEventListener(
+        FLOW_MODEL_PROVIDER_SYNC_EVENT,
+        handler as EventListener
+      );
+  }, [aiProvider, setNodes]);
+
   const selectedNonGroupNodeCount = React.useMemo(
     () =>
       nodes.filter(

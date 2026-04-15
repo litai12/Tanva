@@ -16,6 +16,11 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import RunCreditBadge from "./RunCreditBadge";
 import NodeSelect from "./NodeSelect";
 import { useImageNodeCreditsPreview } from "../hooks/useImageNodeCreditsPreview";
+import {
+  getFlowModelProviderMode,
+  resolveFlowModelProvider,
+  type FlowModelProvider,
+} from "@/utils/flowModelProvider";
 
 type Props = {
   id: string;
@@ -46,6 +51,7 @@ type Props = {
     managedModelKey?: string;
     vendorKey?: string;
     platformKey?: string;
+    modelProvider?: FlowModelProvider;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
   };
@@ -446,7 +452,10 @@ function GenerateNodeInner({ id, data, selected }: Props) {
   const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
   const chatTheme = useAIChatStore((state) => state.chatTheme);
   const isFlowDark = chatTheme === "black";
-  const setAIProvider = useAIChatStore((state) => state.setAIProvider);
+  const effectiveProvider = React.useMemo<FlowModelProvider>(
+    () => resolveFlowModelProvider(data.modelProvider, aiProvider),
+    [aiProvider, data.modelProvider]
+  );
   const rawFullValue = data.imageUrl || data.imageData;
   const fullAssetId = React.useMemo(() => parseFlowImageAssetRef(rawFullValue), [rawFullValue]);
   const fullAssetUrl = useFlowImageAssetUrl(fullAssetId);
@@ -570,12 +579,10 @@ function GenerateNodeInner({ id, data, selected }: Props) {
     [lt]
   );
 
-  const providerMode = React.useMemo<"fast" | "pro" | "ultra" | "other">(() => {
-    if (aiProvider === "banana-2.5") return "fast";
-    if (aiProvider === "banana-3.1") return "ultra";
-    if (aiProvider === "banana" || aiProvider === "gemini-pro") return "pro";
-    return "other";
-  }, [aiProvider]);
+  const providerMode = React.useMemo(
+    () => getFlowModelProviderMode(effectiveProvider),
+    [effectiveProvider]
+  );
 
   type ProviderToggleValue = "banana-2.5" | "banana" | "banana-3.1";
   const providerToggleOptions = React.useMemo<Array<{
@@ -603,11 +610,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
     [lt]
   );
 
-  const currentProviderValue = React.useMemo<ProviderToggleValue>(() => {
-    if (aiProvider === "banana-2.5") return "banana-2.5";
-    if (aiProvider === "banana-3.1") return "banana-3.1";
-    return "banana";
-  }, [aiProvider]);
+  const currentProviderValue = effectiveProvider;
 
   const currentProviderOption = React.useMemo(
     () =>
@@ -616,8 +619,22 @@ function GenerateNodeInner({ id, data, selected }: Props) {
     [currentProviderValue, providerToggleOptions]
   );
 
-  const showAspectRatioSelector = providerMode !== "other";
-  const showImageSizeSelector = providerMode !== "other";
+  React.useEffect(() => {
+    if (
+      typeof data.modelProvider === "string" &&
+      data.modelProvider.trim().length > 0
+    ) {
+      return;
+    }
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: { id, patch: { modelProvider: currentProviderValue } },
+      })
+    );
+  }, [currentProviderValue, data.modelProvider, id]);
+
+  const showAspectRatioSelector = true;
+  const showImageSizeSelector = true;
   const showSizeControls = showAspectRatioSelector || showImageSizeSelector;
   const showTextOutputHandle = providerMode === "ultra";
 
@@ -646,7 +663,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
 
   const { credits: backendCredits } = useImageNodeCreditsPreview({
     nodeType: "generate",
-    aiProvider,
+    aiProvider: currentProviderValue,
     bananaImageRoute,
     imageSize: imageSizeValue || undefined,
     aspectRatio: aspectRatioValue || undefined,
@@ -809,8 +826,12 @@ function GenerateNodeInner({ id, data, selected }: Props) {
                     key={option.value}
                     onClick={(event) => {
                       event.stopPropagation();
-                      if (aiProvider !== option.value) {
-                        setAIProvider(option.value);
+                      if (currentProviderValue !== option.value) {
+                        window.dispatchEvent(
+                          new CustomEvent("flow:updateNodeData", {
+                            detail: { id, patch: { modelProvider: option.value } },
+                          })
+                        );
                       }
                     }}
                     onPointerDownCapture={stopNodeDrag}
