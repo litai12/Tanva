@@ -9,6 +9,8 @@ import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
 import RunCreditBadge from "./RunCreditBadge";
 import NodeSelect from "./NodeSelect";
+import { useNodeRunCredits } from "../hooks/useNodeRunCredits";
+import { useBackendCreditsPreview } from "../hooks/useBackendCreditsPreview";
 
 type VideoHistoryItem = {
   id: string;
@@ -63,6 +65,13 @@ const SUPPORTED_AUDIO_PATTERN = new RegExp(
 );
 
 const SUPPORTED_AUDIO_ACCEPT = SUPPORTED_AUDIO_EXTENSIONS.map((ext) => `.${ext}`).join(",");
+
+const inferWanResolutionFromSize = (size?: string): "720P" | "1080P" => {
+  const normalized = typeof size === "string" ? size.trim().toUpperCase() : "";
+  if (normalized === "1080P") return "1080P";
+  if (normalized === "720P") return "720P";
+  return "720P";
+};
 
 const isSupportedAudioFile = (file: File): boolean => {
   const mime = (file.type || "").toLowerCase();
@@ -299,7 +308,43 @@ function Wan26Node({ id, data, selected }: Props) {
   };
 
   const onRun = React.useCallback(() => data.onRun?.(id), [data, id]);
-  const hasRunCredits = typeof data.creditsPerCall === "number" && data.creditsPerCall > 0;
+  const previewRequestParams = React.useMemo(
+    () => ({
+      generationMode: isI2VMode ? "i2v" : "t2v",
+      resolution: isI2VMode
+        ? typeof data.resolution === "string" && data.resolution.trim()
+          ? data.resolution.trim().toUpperCase()
+          : "720P"
+        : inferWanResolutionFromSize(data.size),
+      duration:
+        typeof data.duration === "number" && Number.isFinite(data.duration)
+          ? Math.round(data.duration)
+          : 5,
+      durationSec:
+        typeof data.duration === "number" && Number.isFinite(data.duration)
+          ? Math.round(data.duration)
+          : 5,
+    }),
+    [data.duration, data.resolution, data.size, isI2VMode]
+  );
+  const { credits: backendCredits } = useBackendCreditsPreview({
+    serviceType: "wan26-video",
+    model: isI2VMode ? "wan2.6-i2v" : "wan2.6-t2v",
+    requestParams: {
+      managedModelKey: "wan-2.6",
+      modelKey: "wan-2.6",
+      vendorKey: "dashscope",
+      platformKey: "dashscope",
+      aiProvider: "dashscope",
+      ...previewRequestParams,
+    },
+    enabled: true,
+  });
+  const resolvedRunCredits =
+    typeof backendCredits === "number" ? backendCredits : data.creditsPerCall;
+  const { credits: runCredits, hasCredits: hasRunCredits } = useNodeRunCredits(
+    resolvedRunCredits
+  );
 
   // 音频上传处理
   const handleChooseFile = React.useCallback(() => {
@@ -572,7 +617,9 @@ function Wan26Node({ id, data, selected }: Props) {
             onMouseDown={handleButtonMouseDown}
             disabled={data.status === "running"}
             style={{
-              width: 36,
+              width: hasRunCredits ? "auto" : 36,
+              minWidth: hasRunCredits ? 64 : 36,
+              padding: hasRunCredits ? "0 10px" : undefined,
               height: 32,
               borderRadius: 8,
               border: "none",
@@ -586,14 +633,16 @@ function Wan26Node({ id, data, selected }: Props) {
               opacity: data.status === "running" ? 0.6 : 1,
               gap: 0,
             }}
-          >
-            {hasRunCredits ? (
+            >
+            {data.status === "running" ? (
+              <span className="run-text-trigger">Running...</span>
+            ) : (
               <>
                 <span className="run-text-trigger">Run</span>
-                <RunCreditBadge credits={data.creditsPerCall} runButton />
+                {hasRunCredits ? (
+                  <RunCreditBadge credits={runCredits} runButton />
+                ) : null}
               </>
-            ) : (
-              "Run"
             )}
           </button>
           <button

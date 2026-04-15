@@ -8,6 +8,8 @@ import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
 import RunCreditBadge from "./RunCreditBadge";
 import NodeSelect from "./NodeSelect";
+import { useNodeRunCredits } from "../hooks/useNodeRunCredits";
+import { useBackendCreditsPreview } from "../hooks/useBackendCreditsPreview";
 
 type VideoHistoryItem = {
   id: string;
@@ -156,7 +158,33 @@ function Wan27VideoNode({ id, data, selected }: Props) {
   const rawDuration = typeof data.duration === "number" && Number.isFinite(data.duration) ? Math.round(data.duration) : 5;
   const duration = rawDuration >= 2 && rawDuration <= 15 ? rawDuration : 5;
   const seedInput = data.seed === undefined || data.seed === null ? "" : String(data.seed).trim();
-  const hasRunCredits = typeof data.creditsPerCall === "number" && data.creditsPerCall > 0;
+  const previewRequestParams = React.useMemo(
+    () => ({
+      generationMode: "i2v",
+      resolution,
+      duration,
+      durationSec: duration,
+    }),
+    [duration, resolution]
+  );
+  const { credits: backendCredits } = useBackendCreditsPreview({
+    serviceType: "wan27-video",
+    model: "wan2.7-i2v",
+    requestParams: {
+      managedModelKey: "wan-2.7",
+      modelKey: "wan-2.7",
+      vendorKey: "dashscope",
+      platformKey: "dashscope",
+      aiProvider: "dashscope",
+      ...previewRequestParams,
+    },
+    enabled: true,
+  });
+  const resolvedRunCredits =
+    typeof backendCredits === "number" ? backendCredits : data.creditsPerCall;
+  const { credits: runCredits, hasCredits: hasRunCredits } = useNodeRunCredits(
+    resolvedRunCredits
+  );
 
   const mediaHandleStats = useStore((state: any) => {
     const edges = state.edges || [];
@@ -355,8 +383,15 @@ function Wan27VideoNode({ id, data, selected }: Props) {
           >
             <HelpCircle size={14} />
           </button>
-          <button className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit" onClick={() => data.onRun?.(id)} onMouseDown={handleButtonMouseDown} disabled={data.status === "running"} style={{ ...styles.iconBtn, background: data.status === "running" ? "#e5e7eb" : "#111827", opacity: data.status === "running" ? 0.6 : 1, cursor: data.status === "running" ? "not-allowed" : "pointer", fontSize: 12 }}>
-            {hasRunCredits ? <><span className="run-text-trigger">Run</span><RunCreditBadge credits={data.creditsPerCall} runButton /></> : "Run"}
+          <button className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit" onClick={() => data.onRun?.(id)} onMouseDown={handleButtonMouseDown} disabled={data.status === "running"} style={{ ...styles.iconBtn, width: hasRunCredits ? "auto" : styles.iconBtn.width, minWidth: hasRunCredits ? 64 : styles.iconBtn.width, padding: hasRunCredits ? "0 10px" : undefined, background: data.status === "running" ? "#e5e7eb" : "#111827", opacity: data.status === "running" ? 0.6 : 1, cursor: data.status === "running" ? "not-allowed" : "pointer", fontSize: 12 }}>
+            {data.status === "running" ? (
+              <span className="run-text-trigger">Running...</span>
+            ) : (
+              <>
+                <span className="run-text-trigger">Run</span>
+                {hasRunCredits ? <RunCreditBadge credits={runCredits} runButton /> : null}
+              </>
+            )}
           </button>
           <button className="tanva-video-header-btn tanva-video-header-share" onClick={() => copyVideoLink(data.videoUrl)} onMouseDown={handleButtonMouseDown} disabled={!data.videoUrl} style={{ ...styles.iconBtn, opacity: data.videoUrl ? 1 : 0.35, cursor: data.videoUrl ? "pointer" : "not-allowed" }}><Share2 size={14} /></button>
           <button className="tanva-video-header-btn tanva-video-header-download" onClick={() => triggerDownload(data.videoUrl)} onMouseDown={handleButtonMouseDown} disabled={!data.videoUrl || isDownloading} style={{ ...styles.iconBtn, background: !data.videoUrl || isDownloading ? "#e5e7eb" : "#111827", opacity: !data.videoUrl || isDownloading ? 0.35 : 1, cursor: !data.videoUrl || isDownloading ? "not-allowed" : "pointer" }}>{isDownloading ? <span style={{ fontSize: 10, fontWeight: 600, color: "#111827" }}>...</span> : <Download size={14} />}</button>

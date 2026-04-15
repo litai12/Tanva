@@ -6,6 +6,12 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Added
+- Flow/Analysis: analysis node now has an independent Fast/Pro/Ultra model switch (node-local state), and no longer mutates global aiProvider.
+- Flow/Analysis: analysis requests are pinned to Banana normal route in-node, so global normal/stable channel switching does not affect analysis execution.
+- Credits: image-analysis pricing is aligned to Fast=10 (gemini-2.5-image-analyze), Pro=30 (gemini-image-analyze), Ultra=20 (gemini-3.1-image-analyze) across preview, backend deduction, and credits detail mapping.
+- Gemini/Banana Pricing: 统一模型管理默认目录与定价回填 migration 现按家族映射对齐 Gemini 图片模型价格，`gemini-2.5-*` 对齐 Nano Banana Fast、`gemini-image-* / gemini-3-pro-*` 对齐 Nano Banana Pro、`gemini-3.1-*` 对齐 Nano Banana 2；同时修正 `BananaProvider.analyzeImage` 对 `gemini-2.5-flash-image-preview` 的旧 147 模型名归一化，避免图像分析继续命中未配置价格的 preview 型号。
+- Model Management Pricing: 新增 Prisma migration `202604140001_backfill_missing_managed_model_pricing_from_defaults`，按当前代码写死的默认配置回填 `model_provider_mapping_v2` 中缺失的统一模型管理 pricing，覆盖 Banana 图片链路、Gemini 图像分析、Seedream5、Midjourney、Wan 2.6/2.7，以及按 `model` 维度补齐 Sora 2 的 pricing v2 规则。
+- Flow/Model Management: 图像分析节点默认配置改为挂接统一模型管理 `gemini-2.5-image-analyze`，并新增 Prisma migration `20260413203033_backfill_analysis_node_managed_routes_from_mapping` 回填既有 `NodeConfig.analysis` 的 `modelKeys / managedModelKey / managedRoutes`，避免分析节点继续停留在旧 `gemini-image-analyze` 单节点计费配置而无法命中统一模型路由。
 - 新增产品定价策略文档，统一整理三类积分、免费用户额度、69/199/599 档会员权益与待确认规则（`frontend/docs/39-产品定价策略.md`）。
 - 新增面向官网/支付页的会员定价展示文案，包含标题、副标题、套餐卡片、对比表、积分说明与年费展示口径（`frontend/docs/40-会员定价展示文案.md`）。
 - Prisma migration fix: added `202604120001_fix_wechat_login_session_profile_columns` to backfill missing `WechatLoginSession.nickname` / `avatarUrl` columns that were omitted from the initial公众号扫码登录建表 migration, preventing `/api/auth/wechat-official/sessions/:id` from failing with Prisma missing-column errors on upgraded environments.
@@ -34,6 +40,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- Credits Detail UI: `My Credits` transaction list and Admin `细分积分明细` now show `模型` under each record item, using API usage model when available and `--` fallback when absent.
+- AI Analyze/Text defaults: `ai.controller` now defaults text/analyze model to `gemini-3.1-pro`, while `banana-2.5` analyze keeps `gemini-2.5-flash-image-preview`; Banana image-analyze adds quota-aware fast fallback (`3.1-pro -> 3-pro-image -> 2.5`) and stops same-model retries on explicit 429/quota errors.
+- Flow / Agent Pro Node: replaced the run-toolbar resolution control from `NodeSelect` dropdown to chat-style `HD` button + segmented popup (`Auto/1K/2K/4K`, and `0.5K` for Ultra), with matching interaction (outside-click close, active state, and value persistence to `imageSize`).
 - Flow/Video: 腾讯渠道 `Kling O3` 自定义分镜改为 C 端可用上传交互（图片/视频上传替代手填 URL），运行时会把节点上传素材并入 `referenceImages/referenceVideo` 并按腾讯文档校验（图片上限 `7`，视频参考场景图片上限 `4`，视频时长 `3-10s`），确保 FileInfos 参数可直接对齐下发（`frontend/src/components/flow/nodes/KlingO3VideoNode.tsx`, `frontend/src/components/flow/FlowOverlay.tsx`）。
 - Membership/Credits: removed `VIP 69` daily membership gift behavior end-to-end. Backend now force-disables `dailyGiftCredits` for `vip_69` plans, skips `membership_daily_gift` issuance for `vip_69`, and uses base policy daily check-in credits for `vip_69`; frontend `/my-credits` hides legacy `VIP 69 ... 每日赠送积分` rows.
 - Credits/Quota: 免费用户生成配额改为按“是否存在 `paymentOrder.status=paid`”统一判定；未付费用户默认执行 `日生图20、月生图100、日视频3、月视频10`（UTC 口径），管理员角色仍豁免（`backend/src/credits/credits.service.ts`）。
@@ -54,6 +63,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Membership Backend 调整到期口径：订阅积分优先消耗，会员到期时重置订阅积分；免费用户继续按 30 天周期发放 `freeUserMonthlyQuotaCredits`（默认 `500`）。
 
 ### Fixed
+- Referral / Credits: 手动签到接口 `/api/referral/check-in` 现已复用 `CreditsService.claimDailyReward`，与应用入口自动签到共用同一套 3AM 业务日、事务锁与幂等判断，修复同一用户在自动签到后仍可再手动签到一次的问题。
 - Workspace / Membership Entry: 顶栏积分入口改为就地弹出 `MembershipPanel`，不再通过 `/membership` 路由切换页面；支付成功后仅刷新积分状态并关闭弹窗（`frontend/src/components/layout/FloatingHeader.tsx`）。
 - Backend / Seedance 2.0: 修正 `seedance_api` 直连时的 `resolution` 映射，Seedance V2 请求会把前端/节点里的 `480P/720P` 规范成上游要求的 `480p/720p`，避免规格已透传但因分辨率值格式不匹配被方舟拒绝（`backend/src/ai/services/video-provider.service.ts`）。
 - Backend / Seedance 2.0: 对 `seedance_api` 直连的 `r2v` 请求增加分支保护，检测到参考图/视频/音频模式时自动省略 `resolution`，避免方舟返回 `the parameter resolution ... is not valid for model doubao-seedance-2-0 in r2v`（`backend/src/ai/services/video-provider.service.ts`）。
@@ -488,3 +498,6 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Pre-deduct duplicate detection now prioritizes `idempotencyKey`: when key exists it no longer falls back to `requestFingerprint` dedup in the same window, preventing two intentional consecutive runs from being merged into one billing record.
 - Frontend image request layer now injects Banana route using runtime store state first (`window.__tanvaBananaImageRoute`), then persisted preferences, and writes route into `providerOptions` for every image request call.
 - Frontend image requests now include `X-Banana-Image-Route`; backend CORS allows this header for cross-origin preflight.
+- Wan Dynamic Pricing: Prisma migration `202604140002_backfill_wan_dynamic_pricing_from_aliyun` 现将 `wan-2.6` / `wan-2.6-r2v` / `wan-2.7` 升级为 `resolution × durationSec` 线性定价，并在阿里云百炼基线上执行“每秒 +20 积分”上浮（720P `0.8 元/秒`、1080P `1.2 元/秒`，按现有 `1 元 = 100 积分` 自动折算为 `80 / 120 积分每秒`）。
+- Wan Credits Runtime: DashScope Wan 直连接口现在会把 `managedModelKey / vendorKey / resolution / durationSec / generationMode` 一并传入积分预扣，避免已有动态 pricing migration 生效后仍因请求上下文缺失而回退到固定 `600` 积分（`backend/src/ai/ai.controller.ts`）。
+- Pricing Catalog Modal: 画布右上角帮助菜单新增“定价一览”，前端支持查看全部模型或单模型定价；后端新增 `GET /api/credits/pricing/models` 只读接口，直接返回默认价、规则条件和 evaluator 公式，线性定价可直接展示计费公式。

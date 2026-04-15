@@ -9,6 +9,20 @@ export interface ManagedRouteOption {
   creditsPerCall?: number;
   pricing?: {
     version?: string;
+    dimensions?: Array<
+      | string
+      | {
+          key: string;
+          label?: string;
+          type?: "string" | "number" | "boolean" | "enum";
+          required?: boolean;
+          options?: Array<{
+            value: string | number | boolean;
+            label?: string;
+          }>;
+          description?: string;
+        }
+    >;
     defaults?: {
       credits?: number;
       priceYuan?: number;
@@ -29,6 +43,58 @@ export interface ManagedRouteOption {
       priceYuan?: number;
       costYuan?: number;
     }>;
+    formula?: {
+      mode?: "additive";
+      adjustments?: Array<{
+        key?: string;
+        label?: string;
+        when?: Record<string, any>;
+        unitPrice?: {
+          credits?: number;
+          priceYuan?: number;
+          costYuan?: number;
+        };
+        multiplier?: {
+          field?: string;
+        };
+      }>;
+    };
+    matchingRules?: Array<{
+      ruleKey?: string;
+      label?: string;
+      enabled?: boolean;
+      priority?: number;
+      evaluatorKey?: string;
+      conditions?: {
+        all?: Array<{
+          field?: string;
+          op?: "eq" | "in" | "gt" | "gte" | "lt" | "lte" | "exists";
+          value?: unknown;
+        }>;
+        any?: Array<{
+          field?: string;
+          op?: "eq" | "in" | "gt" | "gte" | "lt" | "lte" | "exists";
+          value?: unknown;
+        }>;
+      };
+    }>;
+    evaluators?: Record<
+      string,
+      {
+        type?: "fixed" | "linear" | "base_plus_linear" | "lookup_matrix";
+        priceYuan?: number;
+        credits?: number;
+        costYuan?: number;
+        unitField?: string;
+        unitPriceYuan?: number;
+        basePriceYuan?: number;
+        includedUnits?: number;
+        extraUnitPriceYuan?: number;
+        axes?: string[];
+        matrix?: Record<string, unknown>;
+      }
+    >;
+    displayConfig?: Record<string, unknown>;
   };
 }
 
@@ -132,7 +198,21 @@ export const getManagedRouteCredits = (
   vendorKey?: string | null
 ): number | undefined => {
   const selected = getManagedRouteOption(metadata, vendorKey);
-  return typeof selected?.creditsPerCall === "number" ? selected.creditsPerCall : undefined;
+  if (typeof selected?.creditsPerCall === "number") return selected.creditsPerCall;
+  if (!selected?.pricing) return undefined;
+
+  const defaultSelections =
+    selected.pricing.displayConfig &&
+    typeof selected.pricing.displayConfig === "object" &&
+    !Array.isArray(selected.pricing.displayConfig) &&
+    selected.pricing.displayConfig.defaultSelections &&
+    typeof selected.pricing.displayConfig.defaultSelections === "object" &&
+    !Array.isArray(selected.pricing.displayConfig.defaultSelections)
+      ? (selected.pricing.displayConfig.defaultSelections as Record<string, any>)
+      : {};
+
+  const resolved = resolveManagedRoutePricing(metadata, vendorKey, defaultSelections);
+  return typeof resolved?.credits === "number" ? resolved.credits : undefined;
 };
 
 const normalizeComparable = (value: unknown): string | number | boolean | null => {
@@ -153,6 +233,146 @@ const normalizeComparable = (value: unknown): string | number | boolean | null =
   return null;
 };
 
+const toFiniteNumber = (value: unknown): number | undefined => {
+  const normalized = Number(value);
+  return Number.isFinite(normalized) ? normalized : undefined;
+};
+
+const toCreditsByPriceYuan = (priceYuan: number | undefined): number | undefined => {
+  if (!Number.isFinite(Number(priceYuan))) return undefined;
+  return Math.ceil(Number(priceYuan) * 100);
+};
+
+const matchesCondition = (
+  context: Record<string, any>,
+  condition?: {
+    field?: string;
+    op?: "eq" | "in" | "gt" | "gte" | "lt" | "lte" | "exists";
+    value?: unknown;
+  } | null
+): boolean => {
+  const field = String(condition?.field || "").trim();
+  if (!field) return false;
+  const op = condition?.op || "eq";
+
+  if (op === "exists") {
+    const raw = context[field];
+    return raw !== undefined && raw !== null && raw !== "";
+  }
+
+  const actual = normalizeComparable(context[field]);
+  if (actual === null) return false;
+
+  if (op === "in") {
+    const expectedList = Array.isArray(condition?.value) ? condition?.value : [];
+    return expectedList.some((candidate) => normalizeComparable(candidate) === actual);
+  }
+
+  if (op === "eq") {
+    return normalizeComparable(condition?.value) === actual;
+  }
+
+  if (typeof actual !== "number") return false;
+  const expectedNumber = toFiniteNumber(condition?.value);
+  if (expectedNumber === undefined) return false;
+  if (op === "gt") return actual > expectedNumber;
+  if (op === "gte") return actual >= expectedNumber;
+  if (op === "lt") return actual < expectedNumber;
+  if (op === "lte") return actual <= expectedNumber;
+  return false;
+};
+
+const resolveLookupMatrixValue = (
+  matrix: Record<string, unknown> | undefined,
+  axes: string[],
+  context: Record<string, any>
+): number | undefined => {
+  let current: unknown = matrix;
+  for (const axis of axes) {
+    const axisValue = context[axis];
+    const key = String(axisValue);
+    if (!current || typeof current !== "object" || Array.isArray(current)) return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return typeof current === "number" && Number.isFinite(current) ? current : undefined;
+};
+
+const resolveEvaluatorPricing = (
+  evaluator:
+    | {
+        type?: "fixed" | "linear" | "base_plus_linear" | "lookup_matrix";
+        priceYuan?: number;
+        credits?: number;
+        unitField?: string;
+        unitPriceYuan?: number;
+        basePriceYuan?: number;
+        includedUnits?: number;
+        extraUnitPriceYuan?: number;
+        axes?: string[];
+        matrix?: Record<string, unknown>;
+      }
+    | undefined,
+  context: Record<string, any>
+): { credits?: number; priceYuan?: number } | null => {
+  if (!evaluator?.type) return null;
+
+  if (evaluator.type === "fixed") {
+    const priceYuan = toFiniteNumber(evaluator.priceYuan);
+    const credits = toFiniteNumber(evaluator.credits) ?? toCreditsByPriceYuan(priceYuan);
+    return priceYuan !== undefined || credits !== undefined
+      ? {
+          ...(priceYuan !== undefined ? { priceYuan } : {}),
+          ...(credits !== undefined ? { credits } : {}),
+        }
+      : null;
+  }
+
+  if (evaluator.type === "linear") {
+    const unitField = String(evaluator.unitField || "").trim();
+    const unitPriceYuan = toFiniteNumber(evaluator.unitPriceYuan);
+    const unitValue = toFiniteNumber(context[unitField]);
+    if (!unitField || unitPriceYuan === undefined || unitValue === undefined) return null;
+    const priceYuan = Number((unitValue * unitPriceYuan).toFixed(3));
+    return { priceYuan, credits: toCreditsByPriceYuan(priceYuan) };
+  }
+
+  if (evaluator.type === "base_plus_linear") {
+    const unitField = String(evaluator.unitField || "").trim();
+    const basePriceYuan = toFiniteNumber(evaluator.basePriceYuan);
+    const includedUnits = toFiniteNumber(evaluator.includedUnits);
+    const extraUnitPriceYuan = toFiniteNumber(evaluator.extraUnitPriceYuan);
+    const unitValue = toFiniteNumber(context[unitField]);
+    if (
+      !unitField ||
+      basePriceYuan === undefined ||
+      includedUnits === undefined ||
+      extraUnitPriceYuan === undefined ||
+      unitValue === undefined
+    ) {
+      return null;
+    }
+    const extraUnits = Math.max(0, unitValue - includedUnits);
+    const priceYuan = Number((basePriceYuan + extraUnits * extraUnitPriceYuan).toFixed(3));
+    return { priceYuan, credits: toCreditsByPriceYuan(priceYuan) };
+  }
+
+  if (evaluator.type === "lookup_matrix") {
+    const axes = Array.isArray(evaluator.axes)
+      ? evaluator.axes.map((item) => String(item).trim()).filter(Boolean)
+      : [];
+    if (axes.length === 0) return null;
+    const priceYuan = resolveLookupMatrixValue(
+      evaluator.matrix && typeof evaluator.matrix === "object" ? evaluator.matrix : undefined,
+      axes,
+      context
+    );
+    if (priceYuan === undefined) return null;
+    return { priceYuan, credits: toCreditsByPriceYuan(priceYuan) };
+  }
+
+  return null;
+};
+
 const matchesRule = (
   context: Record<string, any>,
   matcher?: Record<string, any> | null
@@ -170,6 +390,60 @@ const matchesRule = (
   });
 };
 
+const resolveFormulaPricing = (
+  pricing: ManagedRouteOption["pricing"] | undefined,
+  context: Record<string, any>
+): { credits?: number; priceYuan?: number; ruleKey?: string; label?: string } | null => {
+  const adjustments = Array.isArray(pricing?.formula?.adjustments)
+    ? pricing?.formula?.adjustments
+    : [];
+  if (adjustments.length === 0) return null;
+
+  let totalPriceYuan = 0;
+  let matchedAny = false;
+  const matchedKeys: string[] = [];
+  const matchedLabels: string[] = [];
+
+  for (const adjustment of adjustments) {
+    const matcher =
+      adjustment?.when && typeof adjustment.when === "object" ? adjustment.when : null;
+    if (!matchesRule(context, matcher)) continue;
+
+    const unitPriceYuan = toFiniteNumber(adjustment?.unitPrice?.priceYuan);
+    const multiplierField =
+      typeof adjustment?.multiplier?.field === "string"
+        ? adjustment.multiplier.field.trim()
+        : "";
+    const multiplierValue = multiplierField ? toFiniteNumber(context[multiplierField]) : undefined;
+    const priceYuan =
+      unitPriceYuan === undefined
+        ? undefined
+        : multiplierField
+        ? multiplierValue === undefined
+          ? undefined
+          : Number((unitPriceYuan * multiplierValue).toFixed(3))
+        : unitPriceYuan;
+    if (priceYuan === undefined) continue;
+
+    matchedAny = true;
+    totalPriceYuan = Number((totalPriceYuan + priceYuan).toFixed(3));
+    if (typeof adjustment?.key === "string" && adjustment.key.trim()) {
+      matchedKeys.push(adjustment.key.trim());
+    }
+    if (typeof adjustment?.label === "string" && adjustment.label.trim()) {
+      matchedLabels.push(adjustment.label.trim());
+    }
+  }
+
+  if (!matchedAny) return null;
+  return {
+    priceYuan: totalPriceYuan,
+    credits: toCreditsByPriceYuan(totalPriceYuan),
+    ...(matchedKeys.length > 0 ? { ruleKey: matchedKeys.join("+") } : {}),
+    ...(matchedLabels.length > 0 ? { label: matchedLabels.join(" + ") } : {}),
+  };
+};
+
 export const resolveManagedRoutePricing = (
   metadata?: Record<string, any> | null,
   vendorKey?: string | null,
@@ -179,6 +453,33 @@ export const resolveManagedRoutePricing = (
   if (!selected) return null;
   const pricing = selected.pricing;
   const context = pricingContext && typeof pricingContext === "object" ? pricingContext : {};
+
+  const matchingRules = Array.isArray(pricing?.matchingRules) ? [...pricing.matchingRules] : [];
+  const evaluators =
+    pricing?.evaluators && typeof pricing.evaluators === "object" ? pricing.evaluators : undefined;
+  if (matchingRules.length > 0 && evaluators && Object.keys(evaluators).length > 0) {
+    matchingRules.sort((a, b) => Number(b?.priority ?? 0) - Number(a?.priority ?? 0));
+    for (const rule of matchingRules) {
+      if (!rule || rule.enabled === false || !rule.evaluatorKey) continue;
+      const all = Array.isArray(rule.conditions?.all) ? rule.conditions.all : [];
+      const any = Array.isArray(rule.conditions?.any) ? rule.conditions.any : [];
+      const allMatched = all.every((condition) => matchesCondition(context, condition));
+      const anyMatched = any.length === 0 || any.some((condition) => matchesCondition(context, condition));
+      if (!allMatched || !anyMatched) continue;
+      const evaluatorKey = String(rule.evaluatorKey || "").trim();
+      const resolved = resolveEvaluatorPricing(
+        evaluatorKey ? evaluators[evaluatorKey] : undefined,
+        context
+      );
+      if (!resolved) continue;
+      return {
+        ...(typeof resolved.credits === "number" ? { credits: resolved.credits } : {}),
+        ...(typeof resolved.priceYuan === "number" ? { priceYuan: resolved.priceYuan } : {}),
+        ...(typeof rule.ruleKey === "string" ? { ruleKey: rule.ruleKey } : {}),
+        ...(typeof rule.label === "string" ? { label: rule.label } : {}),
+      };
+    }
+  }
 
   const rules = Array.isArray(pricing?.rules) ? [...pricing.rules] : [];
   rules.sort((a, b) => {
@@ -215,9 +516,16 @@ export const resolveManagedRoutePricing = (
     };
   }
 
+  const formulaResolved = resolveFormulaPricing(pricing, context);
+  if (formulaResolved) {
+    return formulaResolved;
+  }
+
   const defaultCredits =
     typeof pricing?.defaults?.credits === "number"
       ? pricing.defaults.credits
+      : typeof pricing?.defaults?.priceYuan === "number"
+      ? toCreditsByPriceYuan(pricing.defaults.priceYuan)
       : selected.creditsPerCall;
   const defaultPriceYuan =
     typeof pricing?.defaults?.priceYuan === "number"

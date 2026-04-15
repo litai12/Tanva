@@ -825,15 +825,15 @@ function Generate4NodeInner({ id, data, selected }: Props) {
                 : lt("运行生成", "Run generation")
             }
           >
-            {data.creditsPerCall ? (
-              <>
-                <span className='run-text-trigger'>
-                  {status === "running" ? "Running..." : "Run"}
-                </span>
-                <RunCreditBadge credits={data.creditsPerCall} runButton />
-              </>
+            {status === "running" ? (
+              <span className='run-text-trigger'>Running...</span>
             ) : (
-              <span>{status === "running" ? "Running..." : "Run"}</span>
+              <>
+                <span className='run-text-trigger'>Run</span>
+                {data.creditsPerCall ? (
+                  <RunCreditBadge credits={data.creditsPerCall} runButton />
+                ) : null}
+              </>
             )}
           </button>
           <button

@@ -196,6 +196,319 @@ const DEFAULT_TENCENT_VOD_SEEDANCE15_V2_VENDOR_METADATA = {
   },
 } as const;
 
+const createKling26PricingTemplate = (): ManagedPricingBook => ({
+  version: 'v2',
+  dimensions: [
+    {
+      key: 'generationMode',
+      label: '生成方式',
+      type: 'enum',
+      required: true,
+      options: [{ value: 'i2v', label: '图生视频' }],
+    },
+    {
+      key: 'hasAudio',
+      label: '是否带音频',
+      type: 'boolean',
+      required: true,
+      options: [
+        { value: false, label: '无声' },
+        { value: true, label: '有声' },
+      ],
+    },
+    {
+      key: 'qualityMode',
+      label: '质量档位',
+      type: 'enum',
+      required: true,
+      options: [
+        { value: 'std', label: '标准（std）' },
+        { value: 'pro', label: '高品质（pro）' },
+      ],
+    },
+    {
+      key: 'durationSec',
+      label: '时长（秒）',
+      type: 'enum',
+      required: true,
+      options: [
+        { value: 5, label: '5 秒' },
+        { value: 10, label: '10 秒' },
+      ],
+    },
+  ],
+  matchingRules: [
+    {
+      ruleKey: 'kling26_i2v_rule',
+      label: 'Kling 2.6 图生视频价格矩阵',
+      enabled: true,
+      priority: 100,
+      evaluatorKey: 'kling26_matrix',
+      conditions: {
+        all: [{ field: 'generationMode', op: 'eq', value: 'i2v' }],
+        any: [],
+      },
+    },
+  ],
+  evaluators: {
+    kling26_matrix: {
+      type: 'lookup_matrix',
+      axes: ['hasAudio', 'qualityMode', 'durationSec'],
+      matrix: {
+        false: {
+          std: { '5': 1.5, '10': 3 },
+          pro: { '5': 3, '10': 5 },
+        },
+        true: {
+          std: { '5': 5, '10': 10 },
+          pro: { '5': 6, '10': 12 },
+        },
+      },
+    },
+  },
+  displayConfig: {
+    specAxes: ['hasAudio', 'qualityMode', 'durationSec'],
+    labels: {
+      'generationMode.i2v': '图生视频',
+      'hasAudio.false': '无声',
+      'hasAudio.true': '有声',
+      'qualityMode.std': '标准（std）',
+      'qualityMode.pro': '高品质（pro）',
+      'durationSec.5': '5 秒',
+      'durationSec.10': '10 秒',
+    },
+    defaultSelections: {
+      generationMode: 'i2v',
+      hasAudio: false,
+      qualityMode: 'std',
+      durationSec: 5,
+    },
+    presets: [
+      { generationMode: 'i2v', hasAudio: false, qualityMode: 'std', durationSec: 5 },
+      { generationMode: 'i2v', hasAudio: false, qualityMode: 'pro', durationSec: 5 },
+      { generationMode: 'i2v', hasAudio: true, qualityMode: 'std', durationSec: 5 },
+      { generationMode: 'i2v', hasAudio: true, qualityMode: 'pro', durationSec: 5 },
+      { generationMode: 'i2v', hasAudio: false, qualityMode: 'std', durationSec: 10 },
+      { generationMode: 'i2v', hasAudio: false, qualityMode: 'pro', durationSec: 10 },
+      { generationMode: 'i2v', hasAudio: true, qualityMode: 'std', durationSec: 10 },
+      { generationMode: 'i2v', hasAudio: true, qualityMode: 'pro', durationSec: 10 },
+    ],
+  },
+});
+
+const createKling30PricingTemplate = (): ManagedPricingBook => ({
+  version: 'v2',
+  dimensions: [
+    {
+      key: 'generationMode',
+      label: '生成方式',
+      type: 'enum',
+      required: true,
+      options: [
+        { value: 't2v', label: '文生视频' },
+        { value: 'i2v', label: '图生视频' },
+        { value: 'start_end_frame', label: '首尾帧' },
+      ],
+    },
+    {
+      key: 'hasAudio',
+      label: '是否带音频',
+      type: 'boolean',
+      required: true,
+      options: [
+        { value: false, label: '无声' },
+        { value: true, label: '有声' },
+      ],
+    },
+    {
+      key: 'qualityMode',
+      label: '质量档位',
+      type: 'enum',
+      required: true,
+      options: [
+        { value: 'std', label: '标准（720P）' },
+        { value: 'pro', label: '高品质（1080P）' },
+      ],
+    },
+    {
+      key: 'durationSec',
+      label: '时长（秒）',
+      type: 'enum',
+      required: true,
+      options: [
+        { value: 5, label: '5 秒' },
+        { value: 10, label: '10 秒' },
+      ],
+    },
+  ],
+  matchingRules: [
+    {
+      ruleKey: 'kling30_common_rule',
+      label: 'Kling 3.0 通用价格矩阵',
+      enabled: true,
+      priority: 100,
+      evaluatorKey: 'kling30_matrix',
+      conditions: {
+        all: [{ field: 'generationMode', op: 'in', value: ['t2v', 'i2v', 'start_end_frame'] }],
+        any: [],
+      },
+    },
+  ],
+  evaluators: {
+    kling30_matrix: {
+      type: 'lookup_matrix',
+      axes: ['hasAudio', 'qualityMode', 'durationSec'],
+      matrix: {
+        false: {
+          std: { '5': 3, '10': 6 },
+          pro: { '5': 4, '10': 8 },
+        },
+        true: {
+          std: { '5': 4.5, '10': 9 },
+          pro: { '5': 6, '10': 12 },
+        },
+      },
+    },
+  },
+  displayConfig: {
+    specAxes: ['generationMode', 'hasAudio', 'qualityMode', 'durationSec'],
+    labels: {
+      'generationMode.t2v': '文生视频',
+      'generationMode.i2v': '图生视频',
+      'generationMode.start_end_frame': '首尾帧',
+      'hasAudio.false': '无声',
+      'hasAudio.true': '有声',
+      'qualityMode.std': '标准（720P）',
+      'qualityMode.pro': '高品质（1080P）',
+      'durationSec.5': '5 秒',
+      'durationSec.10': '10 秒',
+    },
+    defaultSelections: {
+      generationMode: 't2v',
+      hasAudio: false,
+      qualityMode: 'std',
+      durationSec: 5,
+    },
+    presets: [
+      { generationMode: 't2v', hasAudio: false, qualityMode: 'std', durationSec: 5 },
+      { generationMode: 't2v', hasAudio: false, qualityMode: 'pro', durationSec: 5 },
+      { generationMode: 'i2v', hasAudio: false, qualityMode: 'std', durationSec: 5 },
+      { generationMode: 'i2v', hasAudio: true, qualityMode: 'std', durationSec: 5 },
+      { generationMode: 'start_end_frame', hasAudio: false, qualityMode: 'std', durationSec: 5 },
+      { generationMode: 't2v', hasAudio: false, qualityMode: 'std', durationSec: 10 },
+      { generationMode: 't2v', hasAudio: true, qualityMode: 'std', durationSec: 10 },
+      { generationMode: 'i2v', hasAudio: true, qualityMode: 'pro', durationSec: 10 },
+    ],
+  },
+});
+
+const createQ3TurboPricingTemplate = (): ManagedPricingBook => ({
+  version: 'v2',
+  dimensions: [
+    {
+      key: 'generationMode',
+      label: '生成方式',
+      type: 'enum',
+      required: true,
+      options: [
+        { value: 't2v', label: '文生视频' },
+        { value: 'i2v', label: '图生视频' },
+        { value: 'start_end_frame', label: '首尾帧' },
+      ],
+    },
+    {
+      key: 'resolution',
+      label: '分辨率',
+      type: 'enum',
+      required: true,
+      options: [
+        { value: '540P', label: '540P' },
+        { value: '720P', label: '720P' },
+        { value: '1080P', label: '1080P' },
+      ],
+    },
+    {
+      key: 'durationSec',
+      label: '时长（秒）',
+      type: 'number',
+      required: true,
+    },
+  ],
+  matchingRules: [
+    {
+      ruleKey: 'q3_turbo_540p_rule',
+      label: 'Q3 Turbo 540P 线性计费',
+      enabled: true,
+      priority: 100,
+      evaluatorKey: 'q3_turbo_540p_linear',
+      conditions: {
+        all: [
+          { field: 'generationMode', op: 'in', value: ['t2v', 'i2v', 'start_end_frame'] },
+          { field: 'resolution', op: 'eq', value: '540P' },
+        ],
+        any: [],
+      },
+    },
+    {
+      ruleKey: 'q3_turbo_720p_rule',
+      label: 'Q3 Turbo 720P 线性计费',
+      enabled: true,
+      priority: 110,
+      evaluatorKey: 'q3_turbo_720p_linear',
+      conditions: {
+        all: [
+          { field: 'generationMode', op: 'in', value: ['t2v', 'i2v', 'start_end_frame'] },
+          { field: 'resolution', op: 'eq', value: '720P' },
+        ],
+        any: [],
+      },
+    },
+    {
+      ruleKey: 'q3_turbo_1080p_rule',
+      label: 'Q3 Turbo 1080P 线性计费',
+      enabled: true,
+      priority: 120,
+      evaluatorKey: 'q3_turbo_1080p_linear',
+      conditions: {
+        all: [
+          { field: 'generationMode', op: 'in', value: ['t2v', 'i2v', 'start_end_frame'] },
+          { field: 'resolution', op: 'eq', value: '1080P' },
+        ],
+        any: [],
+      },
+    },
+  ],
+  evaluators: {
+    q3_turbo_540p_linear: { type: 'linear', unitField: 'durationSec', unitPriceYuan: 0.25 },
+    q3_turbo_720p_linear: { type: 'linear', unitField: 'durationSec', unitPriceYuan: 0.375 },
+    q3_turbo_1080p_linear: { type: 'linear', unitField: 'durationSec', unitPriceYuan: 0.5 },
+  },
+  displayConfig: {
+    specAxes: ['generationMode', 'resolution', 'durationSec'],
+    labels: {
+      'generationMode.t2v': '文生视频',
+      'generationMode.i2v': '图生视频',
+      'generationMode.start_end_frame': '首尾帧',
+      'resolution.540P': '540P',
+      'resolution.720P': '720P',
+      'resolution.1080P': '1080P',
+    },
+    defaultSelections: {
+      generationMode: 't2v',
+      resolution: '540P',
+      durationSec: 5,
+    },
+    presets: [
+      { generationMode: 't2v', resolution: '540P', durationSec: 5 },
+      { generationMode: 't2v', resolution: '720P', durationSec: 5 },
+      { generationMode: 't2v', resolution: '1080P', durationSec: 5 },
+      { generationMode: 'i2v', resolution: '540P', durationSec: 5 },
+      { generationMode: 'i2v', resolution: '720P', durationSec: 10 },
+      { generationMode: 'start_end_frame', resolution: '1080P', durationSec: 10 },
+    ],
+  },
+});
+
 const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
   version: 'v2',
   platforms: [
@@ -498,6 +811,42 @@ export class ModelRoutingService {
     return merge(fallback, current || {}) as T;
   }
 
+  private applyPricingFallback(
+    modelKey: string | undefined,
+    vendor: ManagedModelVendorConfig,
+  ): ManagedModelVendorConfig {
+    const normalized = String(modelKey || '').trim().toLowerCase();
+    const fallback =
+      normalized === 'kling-2.6'
+        ? { pricing: createKling26PricingTemplate(), priceYuan: 1.5, creditsPerCall: 150 }
+        : normalized === 'kling-3.0'
+        ? { pricing: createKling30PricingTemplate(), priceYuan: 3, creditsPerCall: 300 }
+        : normalized === 'vidu-q3'
+        ? { pricing: createQ3TurboPricingTemplate(), priceYuan: 1.25, creditsPerCall: 125 }
+        : null;
+
+    if (!fallback) return vendor;
+
+    return {
+      ...vendor,
+      pricing:
+        vendor.pricing && typeof vendor.pricing === 'object'
+          ? this.mergeMetadataWithFallback(
+              fallback.pricing as Record<string, any>,
+              vendor.pricing as Record<string, any>,
+            )
+          : fallback.pricing,
+      priceYuan:
+        typeof vendor.priceYuan === 'number' && Number.isFinite(vendor.priceYuan)
+          ? vendor.priceYuan
+          : fallback.priceYuan,
+      creditsPerCall:
+        typeof vendor.creditsPerCall === 'number' && Number.isFinite(vendor.creditsPerCall)
+          ? vendor.creditsPerCall
+          : fallback.creditsPerCall,
+    };
+  }
+
   getDefaultConfig(): ModelProviderMappingV2 {
     return JSON.parse(JSON.stringify(DEFAULT_MODEL_PROVIDER_MAPPING_V2));
   }
@@ -626,7 +975,19 @@ export class ModelRoutingService {
         return this.ensureModelDefaultVendor({
           ...model,
           defaultVendor: model.defaultVendor || 'vidu_api',
-          vendors: [normalizedLegacyVendor, normalizedTencentVodVendor],
+          vendors: [
+            this.applyPricingFallback(model.modelKey, normalizedLegacyVendor),
+            this.applyPricingFallback(model.modelKey, normalizedTencentVodVendor),
+          ],
+        });
+      }
+
+      if (model.modelKey === 'kling-2.6' || model.modelKey === 'kling-3.0') {
+        return this.ensureModelDefaultVendor({
+          ...model,
+          vendors: (Array.isArray(model.vendors) ? model.vendors : []).map((vendor) =>
+            this.applyPricingFallback(model.modelKey, vendor),
+          ),
         });
       }
 

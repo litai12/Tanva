@@ -184,12 +184,11 @@ const resolvePersistedBananaImageRoute = (): BananaImageRoute | null => {
 const resolveRequestBananaImageRoute = (request: {
   providerOptions?: Record<string, any>;
 }): BananaImageRoute | null => {
-  const routeFromPersisted = resolvePersistedBananaImageRoute();
-  if (routeFromPersisted) return routeFromPersisted;
-  return (
+  const routeFromRequest =
     normalizeBananaImageRoute(request.providerOptions?.banana?.imageRoute) ||
-    normalizeBananaImageRoute(request.providerOptions?.bananaImageRoute)
-  );
+    normalizeBananaImageRoute(request.providerOptions?.bananaImageRoute);
+  if (routeFromRequest) return routeFromRequest;
+  return resolvePersistedBananaImageRoute();
 };
 
 const attachBananaRouteToProviderOptions = <T extends {
@@ -1040,13 +1039,18 @@ export async function analyzeImageViaAPI(
   request: AIImageAnalyzeRequest
 ): Promise<AIServiceResponse<AIImageAnalysisResult>> {
   const startedAt = getTimestamp();
+  const { request: requestWithRoute, bananaImageRoute } =
+    attachBananaRouteToProviderOptions(request);
   try {
     const response = await fetchWithAuth(`${API_BASE_URL}/ai/analyze-image`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...(bananaImageRoute
+          ? { "X-Banana-Image-Route": bananaImageRoute }
+          : {}),
       },
-      body: JSON.stringify(request),
+      body: JSON.stringify(requestWithRoute),
     });
 
     if (!response.ok) {
@@ -1054,8 +1058,8 @@ export async function analyzeImageViaAPI(
       logApiTiming("analyze-image", startedAt, {
         success: false,
         status: response.status,
-        provider: request.aiProvider,
-        model: request.model,
+        provider: requestWithRoute.aiProvider,
+        model: requestWithRoute.model,
       });
       return {
         success: false,
@@ -1071,8 +1075,8 @@ export async function analyzeImageViaAPI(
 
     logApiTiming("analyze-image", startedAt, {
       success: true,
-      provider: request.aiProvider,
-      model: request.model,
+      provider: requestWithRoute.aiProvider,
+      model: requestWithRoute.model,
       textLength: typeof data?.text === "string" ? data.text.length : undefined,
     });
 
@@ -1087,8 +1091,8 @@ export async function analyzeImageViaAPI(
   } catch (error) {
     logApiTiming("analyze-image", startedAt, {
       success: false,
-      provider: request.aiProvider,
-      model: request.model,
+      provider: requestWithRoute.aiProvider,
+      model: requestWithRoute.model,
       error: error instanceof Error ? error.message : "Unknown error",
     });
     return {

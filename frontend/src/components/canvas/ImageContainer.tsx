@@ -569,6 +569,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     showDialog,
     sourceImageForEditing,
     sourceImagesForBlending,
+    bananaImageRoute,
   } = useAIChatStore();
 
   // 获取画布状态 - 用于监听画布移动变化
@@ -1696,6 +1697,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             sourceImage,
             aiProvider: bananaProvider,
             model: bananaModel,
+            providerOptions: {
+              banana: { imageRoute: bananaImageRoute },
+              bananaImageRoute,
+            },
           });
 
           if (!result.success || !result.data?.analysis) {
@@ -2174,6 +2179,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       sourceImage: baseImage,
       aiProvider: bananaProvider,
       model: bananaModel,
+      providerOptions: {
+        banana: { imageRoute: bananaImageRoute },
+        bananaImageRoute,
+      },
     });
 
     if (!result.success || !result.data?.analysis) {
@@ -2181,7 +2190,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     }
 
     return parseRecognizedTexts(result.data.analysis);
-  }, []);
+  }, [bananaImageRoute]);
 
   const extractTextLayer = useCallback(async (baseImage: string): Promise<string> => {
     const TEXT_LAYER_MODEL = "gemini-2.5-flash-image";

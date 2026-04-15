@@ -13,6 +13,7 @@ import { useLocaleText } from '@/utils/localeText';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { flowImagePreviewWell, flowLetterboxBackground } from './flowNodeDarkTheme';
 import RunCreditBadge from './RunCreditBadge';
+import { useImageNodeCreditsPreview } from '../hooks/useImageNodeCreditsPreview';
 
 type MidjourneyMode = 'FAST' | 'RELAX';
 type AdvancedMidjourneyType = 'midjourneyV7' | 'niji7';
@@ -126,6 +127,9 @@ type Props = {
     omniReference?: string;
     omniWeight?: string | number;
     exp?: string | number;
+    managedModelKey?: string;
+    vendorKey?: string;
+    platformKey?: string;
   };
   selected?: boolean;
 };
@@ -214,6 +218,19 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
     const edges = state.edges || [];
     return edges.filter((edge) => edge.target === id && edge.targetHandle === 'img').length;
   });
+  const aspectRatioValue = isAdvanced ? (data.aspectRatio ?? '1:1') : (data.aspectRatio ?? '');
+  const { credits: backendCredits } = useImageNodeCreditsPreview({
+    nodeType: isAdvanced ? (type as 'midjourneyV7' | 'niji7') : 'midjourney',
+    aiProvider: 'midjourney',
+    aspectRatio: aspectRatioValue || undefined,
+    referenceImageCount: imageInputCount,
+    managedModelKey: data.managedModelKey,
+    vendorKey: data.vendorKey,
+    platformKey: data.platformKey,
+    enabled: true,
+  });
+  const resolvedRunCredits =
+    typeof backendCredits === 'number' ? backendCredits : data.creditsPerCall;
 
   const stopNodeDrag = React.useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
@@ -235,7 +252,6 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
   );
 
   // 宽高比选择
-  const aspectRatioValue = isAdvanced ? (data.aspectRatio ?? '1:1') : (data.aspectRatio ?? '');
   const aspectOptions = React.useMemo(
     () => [
       { label: lt('自动', 'Auto'), value: '' },
@@ -573,7 +589,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
             <Sparkles size={16} color={accentColor} />
             <span style={{ fontWeight: 600, color: accentColor }}>
               {title}
-              <RunCreditBadge credits={data.creditsPerCall} inline />
+              <RunCreditBadge credits={resolvedRunCredits} inline />
             </span>
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
@@ -1014,6 +1030,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <Sparkles size={16} color="#8b5cf6" />
           <span style={{ fontWeight: 600, color: '#7c3aed' }}>Midjourney</span>
+          <RunCreditBadge credits={resolvedRunCredits} inline />
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <button

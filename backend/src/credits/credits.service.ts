@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException, NotFoundException, Inject, forwardRef, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -29,12 +30,31 @@ import {
   type CreditLotStatus,
 } from './credit-lot-policy';
 import { BusinessPolicyService } from '../business-policy/business-policy.service';
-import { MODEL_PROVIDER_MAPPING_SETTING_KEY } from '../ai/services/model-routing.service';
+import {
+  MODEL_PROVIDER_MAPPING_SETTING_KEY,
+  type ManagedModelConfig,
+  type ManagedModelVendorConfig,
+} from '../ai/services/model-routing.service';
 import {
   resolveManagedModelPricing,
+  resolveManagedModelPricingV2,
+  resolveManagedVendorDefaultPricing,
   type ManagedPricingMappingLike,
+  type ManagedPricingCondition,
+  type ManagedPricingDimensionDefinition,
+  type ManagedPricingEvaluator,
+  type ManagedPricingMatchingRule,
   type ResolvedManagedPricing,
 } from '../ai/services/model-pricing-resolver';
+
+let IORedis: any;
+try {
+  // optional dependency
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  IORedis = require('ioredis');
+} catch (e) {
+  IORedis = null;
+}
 
 const STALE_PENDING_DEFAULT_TIMEOUT_MINUTES = 15;
 const STALE_PENDING_DEFAULT_VIDEO_TIMEOUT_MINUTES = 30;
@@ -48,6 +68,7 @@ const DEFAULT_FREE_USER_DAILY_IMAGE_LIMIT = 20;
 const DEFAULT_FREE_USER_DAILY_VIDEO_LIMIT = 3;
 const DEFAULT_FREE_USER_MONTHLY_IMAGE_LIMIT = 100;
 const DEFAULT_FREE_USER_MONTHLY_VIDEO_LIMIT = 10;
+const PREVIEW_CREDITS_CACHE_TTL_SEC = 30;
 const STALE_PENDING_IMAGE_SERVICE_TYPES: ServiceType[] = [
   'gemini-3-pro-image',
   'gemini-3.1-image',
@@ -60,8 +81,12 @@ const STALE_PENDING_IMAGE_SERVICE_TYPES: ServiceType[] = [
   'gemini-2.5-image-blend',
   'midjourney-imagine',
   'midjourney-variation',
+  'midjourney-upscale',
+  'expand-image',
 ];
 const STALE_PENDING_VIDEO_SERVICE_TYPES: ServiceType[] = [
+  'sora-sd',
+  'sora-hd',
   'wan26-video',
   'wan27-video',
   'kling-video',
@@ -120,6 +145,95 @@ export interface ApiUsageParams {
   idempotencyWindowMs?: number;
 }
 
+interface PricingCatalogRuleConditionView {
+  field: string;
+  op: string;
+  value?: unknown;
+}
+
+interface PricingCatalogRuleView {
+  ruleKey?: string;
+  label?: string;
+  priority?: number;
+  evaluatorKey?: string;
+  evaluatorType?: string;
+  formula?: string;
+  conditions: {
+    all: PricingCatalogRuleConditionView[];
+    any: PricingCatalogRuleConditionView[];
+  };
+}
+
+interface PricingCatalogVendorView {
+  vendorKey: string;
+  label?: string;
+  provider?: string;
+  platformKey?: string;
+  enabled: boolean;
+  creditsPerCall?: number;
+  priceYuan?: number;
+  pricingVersion?: string;
+  defaultPrice: {
+    credits?: number;
+    priceYuan?: number;
+    costYuan?: number;
+  };
+  dimensions: Array<{
+    key: string;
+    label?: string;
+    type?: string;
+    required?: boolean;
+    options?: Array<{
+      value: string | number | boolean;
+      label?: string;
+    }>;
+    description?: string;
+  }>;
+  rules: PricingCatalogRuleView[];
+}
+
+export interface ManagedPricingCatalogItem {
+  modelKey: string;
+  modelName?: string;
+  taskType?: string;
+  enabled: boolean;
+  defaultVendor?: string;
+  vendors: PricingCatalogVendorView[];
+}
+
+type PricingCatalogDimensionView = PricingCatalogVendorView['dimensions'][number];
+
+interface PreviewCreditsParams {
+  userId: string;
+  serviceType: ServiceType;
+  model?: string;
+  requestParams?: any;
+  outputImageCount?: number;
+}
+
+interface CachedPreviewQuotePayload {
+  serviceName: string;
+  requestedProvider: string | null;
+  creditsToDeduct: number;
+  managedPricing:
+    | {
+        source?: string;
+        vendorKey?: string;
+        ruleKey?: string;
+        label?: string;
+        evaluatorKey?: string;
+        evaluatorType?: string;
+        pricingVersion?: string;
+        price?: {
+          credits?: number;
+          priceYuan?: number;
+          costYuan?: number;
+        };
+      }
+    | null;
+  effectiveRequestParams: any;
+}
+
 type SoraBillingModel = 'sora-2' | 'sora-2-vip' | 'sora-2-pro';
 type KlingBillingModel = 'kling-v2-6' | 'kling-v3-0' | 'kling-o3';
 type BananaTencentPricingTier = 'fast' | 'pro' | 'ultra';
@@ -167,6 +281,7 @@ const BANANA_TENCENT_RESOLUTION_PRICING: Record<
 @Injectable()
 export class CreditsService {
   private readonly logger = new Logger(CreditsService.name);
+  private redisClient: any | undefined;
   private readonly freeUserImageQuotaServiceTypes = new Set<ServiceType>(
     FREE_USER_IMAGE_LIMITED_SERVICES,
   );
@@ -176,10 +291,82 @@ export class CreditsService {
 
   constructor(
     private prisma: PrismaService,
+    private readonly configService: ConfigService,
     private readonly businessPolicyService: BusinessPolicyService,
     @Inject(forwardRef(() => ReferralService))
     private referralService: ReferralService,
-  ) {}
+  ) {
+    const redisUrl = this.configService.get<string>('REDIS_URL');
+    if (redisUrl && IORedis) {
+      this.redisClient = new IORedis(redisUrl);
+    }
+  }
+
+  private stableSerialize(value: unknown): string {
+    if (value === null || value === undefined) return 'null';
+    if (Array.isArray(value)) {
+      return `[${value.map((item) => this.stableSerialize(item)).join(',')}]`;
+    }
+    if (typeof value === 'object') {
+      const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
+        a.localeCompare(b),
+      );
+      return `{${entries
+        .map(([key, item]) => `${JSON.stringify(key)}:${this.stableSerialize(item)}`)
+        .join(',')}}`;
+    }
+    return JSON.stringify(value);
+  }
+
+  private buildPreviewCreditsCacheKey(params: PreviewCreditsParams): string {
+    const signature = this.stableSerialize({
+      userId: params.userId,
+      serviceType: params.serviceType,
+      model: params.model ?? null,
+      requestParams: params.requestParams ?? null,
+    });
+    const digest = createHash('sha256').update(signature).digest('hex');
+    return `credits:preview:v2:${digest}`;
+  }
+
+  private async getCachedPreviewQuote(
+    params: PreviewCreditsParams,
+  ): Promise<CachedPreviewQuotePayload | null> {
+    if (!this.redisClient) return null;
+    try {
+      const raw = await this.redisClient.get(this.buildPreviewCreditsCacheKey(params));
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as CachedPreviewQuotePayload;
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (error) {
+      this.logger.warn(
+        `读取 preview credits Redis 缓存失败: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return null;
+    }
+  }
+
+  private async setCachedPreviewQuote(
+    params: PreviewCreditsParams,
+    payload: CachedPreviewQuotePayload,
+  ): Promise<void> {
+    if (!this.redisClient) return;
+    try {
+      await this.redisClient.setex(
+        this.buildPreviewCreditsCacheKey(params),
+        PREVIEW_CREDITS_CACHE_TTL_SEC,
+        JSON.stringify(payload),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `写入 preview credits Redis 缓存失败: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
 
   private async resolveServicePricing(serviceType: ServiceType) {
     const staticPricing = CREDIT_PRICING_CONFIG[serviceType as keyof typeof CREDIT_PRICING_CONFIG];
@@ -206,6 +393,84 @@ export class CreditsService {
     }
 
     return staticPricing;
+  }
+
+  private async resolveEffectiveCreditsQuote(params: {
+    serviceType: ServiceType;
+    model?: string;
+    requestParams?: any;
+  }) {
+    const pricing = await this.resolveServicePricing(params.serviceType);
+    if (!pricing) {
+      throw new BadRequestException(`未知的服务类型: ${params.serviceType}`);
+    }
+
+    let creditsToDeduct: number = pricing.creditsPerCall;
+    const managedRoutePricing = await this.resolveManagedRoutePricing(params.requestParams);
+    if (typeof managedRoutePricing?.price?.credits === 'number') {
+      creditsToDeduct = managedRoutePricing.price.credits;
+    }
+
+    const effectiveRequestParams =
+      managedRoutePricing && params.requestParams && typeof params.requestParams === 'object'
+        ? {
+            ...params.requestParams,
+            pricingSnapshot: {
+              source: managedRoutePricing.source,
+              ...(managedRoutePricing.ruleKey ? { ruleKey: managedRoutePricing.ruleKey } : {}),
+              ...(managedRoutePricing.label ? { label: managedRoutePricing.label } : {}),
+              price: managedRoutePricing.price,
+            },
+          }
+        : params.requestParams;
+
+    const requestedProvider =
+      typeof effectiveRequestParams?.aiProvider === 'string'
+        ? effectiveRequestParams.aiProvider.trim().toLowerCase()
+        : '';
+
+    creditsToDeduct = this.resolveSoraModelCredits(
+      params.serviceType,
+      creditsToDeduct,
+      effectiveRequestParams,
+      params.model,
+    );
+
+    creditsToDeduct = this.resolveKlingModelCredits(
+      params.serviceType,
+      creditsToDeduct,
+      effectiveRequestParams,
+    );
+
+    creditsToDeduct = this.resolveImageResolutionCredits(
+      params.serviceType,
+      creditsToDeduct,
+      effectiveRequestParams,
+    );
+
+    creditsToDeduct = this.resolveFixedAnalyzeCredits(params.serviceType, creditsToDeduct);
+
+    const serviceName = this.resolveManagedVideoServiceName(
+      params.serviceType,
+      pricing.serviceName,
+      effectiveRequestParams,
+    );
+
+    return {
+      pricing,
+      creditsToDeduct,
+      managedRoutePricing,
+      effectiveRequestParams,
+      requestedProvider: requestedProvider || pricing.provider,
+      serviceName,
+    };
+  }
+
+  private resolveFixedAnalyzeCredits(serviceType: ServiceType, currentCredits: number): number {
+    if (serviceType === 'gemini-2.5-image-analyze') return 10;
+    if (serviceType === 'gemini-image-analyze') return 30;
+    if (serviceType === 'gemini-3.1-image-analyze') return 20;
+    return currentCredits;
   }
 
   private asJsonObject(value: Prisma.JsonValue | null | undefined): Record<string, any> | null {
@@ -322,7 +587,12 @@ export class CreditsService {
     requestParams: any,
   ): Promise<ResolvedManagedPricing | null> {
     const modelKey =
-      typeof requestParams?.modelKey === 'string' ? requestParams.modelKey.trim() : '';
+      typeof requestParams?.modelKey === 'string' && requestParams.modelKey.trim().length > 0
+        ? requestParams.modelKey.trim()
+        : typeof requestParams?.managedModelKey === 'string' &&
+            requestParams.managedModelKey.trim().length > 0
+          ? requestParams.managedModelKey.trim()
+          : this.inferManagedModelKeyFromRequestParams(requestParams);
     const vendorKey =
       typeof requestParams?.vendorKey === 'string' ? requestParams.vendorKey.trim() : '';
     if (!modelKey || !vendorKey) return null;
@@ -336,7 +606,7 @@ export class CreditsService {
       if (!raw) return null;
 
       const parsed = JSON.parse(raw) as ManagedPricingMappingLike;
-      const resolved = resolveManagedModelPricing(parsed, modelKey, vendorKey, requestParams);
+      const resolved = await resolveManagedModelPricingV2(parsed, modelKey, vendorKey, requestParams);
       return resolved.source === 'none' ? null : resolved;
     } catch (error) {
       this.logger.warn(
@@ -346,6 +616,63 @@ export class CreditsService {
       );
       return null;
     }
+  }
+
+  private inferManagedModelKeyFromRequestParams(requestParams: any): string {
+    const seedanceModel =
+      typeof requestParams?.seedanceModel === 'string'
+        ? requestParams.seedanceModel.trim().toLowerCase()
+        : '';
+    if (seedanceModel === 'seedance-2.0' || seedanceModel === 'seedance-2.0-fast') {
+      return 'seedance-2.0';
+    }
+    if (
+      seedanceModel === 'seedance-1.5' ||
+      seedanceModel === 'seedance-1.5-pro' ||
+      seedanceModel === '1.5-pro'
+    ) {
+      return 'seedance-1.5';
+    }
+
+    const klingModel =
+      typeof requestParams?.klingModel === 'string'
+        ? requestParams.klingModel.trim().toLowerCase()
+        : '';
+    if (klingModel === 'kling-v2-6') return 'kling-2.6';
+    if (klingModel === 'kling-v3-0') return 'kling-3.0';
+    if (klingModel === 'kling-o3' || klingModel === 'kling-v3-omni') return 'kling-o3';
+
+    const viduModelRaw =
+      typeof requestParams?.viduModelVariant === 'string' &&
+      requestParams.viduModelVariant.trim().length > 0
+        ? requestParams.viduModelVariant.trim().toLowerCase()
+        : typeof requestParams?.viduModel === 'string'
+          ? requestParams.viduModel.trim().toLowerCase()
+          : '';
+    if (viduModelRaw) {
+      if (
+        viduModelRaw === 'q3' ||
+        viduModelRaw === 'q3-pro' ||
+        viduModelRaw === 'q3pro' ||
+        viduModelRaw === 'q3-turbo' ||
+        viduModelRaw === 'q3turbo' ||
+        viduModelRaw === 'q3-mix' ||
+        viduModelRaw === 'q3mix'
+      ) {
+        return 'vidu-q3';
+      }
+      return 'vidu-q2';
+    }
+
+    const soraModel =
+      typeof requestParams?.soraModel === 'string'
+        ? requestParams.soraModel.trim().toLowerCase()
+        : '';
+    if (soraModel === 'sora-2' || soraModel === 'sora-2-vip' || soraModel === 'sora-2-pro') {
+      return 'sora-2';
+    }
+
+    return '';
   }
 
   private normalizeKlingDuration(raw: unknown): 5 | 10 | null {
@@ -1763,6 +2090,259 @@ export class CreditsService {
     };
   }
 
+  private normalizeCatalogCondition(
+    condition: ManagedPricingCondition | null | undefined,
+  ): PricingCatalogRuleConditionView | null {
+    const field = typeof condition?.field === 'string' ? condition.field.trim() : '';
+    if (!field) return null;
+    return {
+      field,
+      op: typeof condition?.op === 'string' ? condition.op : 'eq',
+      ...(condition?.value !== undefined ? { value: condition.value } : {}),
+    };
+  }
+
+  private buildEvaluatorFormula(
+    evaluator: ManagedPricingEvaluator | undefined,
+  ): string | undefined {
+    if (!evaluator || typeof evaluator !== 'object') return undefined;
+
+    if (evaluator.type === 'fixed') {
+      const credits =
+        typeof evaluator.credits === 'number'
+          ? evaluator.credits
+          : typeof evaluator.priceYuan === 'number'
+          ? Math.ceil(evaluator.priceYuan * 100)
+          : undefined;
+      return credits !== undefined ? `${credits} 积分` : '固定定价';
+    }
+
+    if (evaluator.type === 'linear') {
+      const creditsPerUnit = Math.ceil(evaluator.unitPriceYuan * 100);
+      return `credits = ${evaluator.unitField} × ${creditsPerUnit}`;
+    }
+
+    if (evaluator.type === 'base_plus_linear') {
+      const baseCredits = Math.ceil(evaluator.basePriceYuan * 100);
+      const extraCreditsPerUnit = Math.ceil(evaluator.extraUnitPriceYuan * 100);
+      return `credits = ${baseCredits} + max(0, ${evaluator.unitField} - ${evaluator.includedUnits}) × ${extraCreditsPerUnit}`;
+    }
+
+    if (evaluator.type === 'lookup_matrix') {
+      return `credits = lookup_matrix(${evaluator.axes.join(', ')})`;
+    }
+
+    return undefined;
+  }
+
+  private buildCatalogRules(vendor: ManagedModelVendorConfig): PricingCatalogRuleView[] {
+    const pricing =
+      vendor.pricing && typeof vendor.pricing === 'object' && !Array.isArray(vendor.pricing)
+        ? vendor.pricing
+        : null;
+    const matchingRules = Array.isArray(pricing?.matchingRules)
+      ? (pricing.matchingRules as ManagedPricingMatchingRule[])
+      : [];
+    const evaluators =
+      pricing?.evaluators && typeof pricing.evaluators === 'object' && !Array.isArray(pricing.evaluators)
+        ? (pricing.evaluators as Record<string, ManagedPricingEvaluator>)
+        : {};
+
+    const structuredRules = matchingRules.map((rule) => {
+      const evaluatorKey =
+        typeof rule?.evaluatorKey === 'string' ? rule.evaluatorKey.trim() : '';
+      const evaluator = evaluatorKey ? evaluators[evaluatorKey] : undefined;
+      return {
+        ...(typeof rule?.ruleKey === 'string' && rule.ruleKey.trim()
+          ? { ruleKey: rule.ruleKey.trim() }
+          : {}),
+        ...(typeof rule?.label === 'string' && rule.label.trim()
+          ? { label: rule.label.trim() }
+          : {}),
+        ...(typeof rule?.priority === 'number' ? { priority: rule.priority } : {}),
+        ...(evaluatorKey ? { evaluatorKey } : {}),
+        ...(typeof evaluator?.type === 'string' ? { evaluatorType: evaluator.type } : {}),
+        ...(this.buildEvaluatorFormula(evaluator)
+          ? { formula: this.buildEvaluatorFormula(evaluator) }
+          : {}),
+        conditions: {
+          all: (Array.isArray(rule?.conditions?.all) ? rule.conditions.all : [])
+            .map((condition) => this.normalizeCatalogCondition(condition))
+            .filter((condition): condition is PricingCatalogRuleConditionView => !!condition),
+          any: (Array.isArray(rule?.conditions?.any) ? rule.conditions.any : [])
+            .map((condition) => this.normalizeCatalogCondition(condition))
+            .filter((condition): condition is PricingCatalogRuleConditionView => !!condition),
+        },
+      } satisfies PricingCatalogRuleView;
+    });
+
+    if (structuredRules.length > 0) return structuredRules;
+
+    const legacyRules = Array.isArray((vendor.metadata as Record<string, any> | undefined)?.specPricing?.rules)
+      ? ((vendor.metadata as Record<string, any>).specPricing.rules as Array<Record<string, any>>)
+      : [];
+
+    return legacyRules.map((rule, index) => {
+      const credits =
+        typeof rule?.price?.credits === 'number'
+          ? rule.price.credits
+          : typeof rule?.creditsPerCall === 'number'
+          ? rule.creditsPerCall
+          : undefined;
+      const priceYuan =
+        typeof rule?.price?.priceYuan === 'number'
+          ? rule.price.priceYuan
+          : typeof rule?.priceYuan === 'number'
+          ? rule.priceYuan
+          : undefined;
+      const resolvedCredits =
+        credits !== undefined
+          ? credits
+          : priceYuan !== undefined
+          ? Math.ceil(priceYuan * 100)
+          : undefined;
+      return {
+        ruleKey:
+          typeof rule?.ruleKey === 'string' && rule.ruleKey.trim()
+            ? rule.ruleKey.trim()
+            : `legacy_rule_${index + 1}`,
+        ...(typeof rule?.label === 'string' && rule.label.trim()
+          ? { label: rule.label.trim() }
+          : {}),
+        ...(resolvedCredits !== undefined
+          ? { formula: `${resolvedCredits} 积分` }
+          : {}),
+        conditions: {
+          all: Object.entries(
+            rule?.when && typeof rule.when === 'object' && !Array.isArray(rule.when)
+              ? rule.when
+              : rule?.match && typeof rule.match === 'object' && !Array.isArray(rule.match)
+              ? rule.match
+              : {},
+          ).map(([field, value]) => ({
+            field,
+            op: 'eq',
+            value,
+          })),
+          any: [],
+        },
+      };
+    });
+  }
+
+  private buildCatalogDimensions(vendor: ManagedModelVendorConfig): PricingCatalogDimensionView[] {
+    const pricing =
+      vendor.pricing && typeof vendor.pricing === 'object' && !Array.isArray(vendor.pricing)
+        ? vendor.pricing
+        : null;
+    const dimensions = Array.isArray(pricing?.dimensions) ? pricing.dimensions : [];
+    return dimensions
+      .map((dimension): PricingCatalogDimensionView | null => {
+        if (typeof dimension === 'string') {
+          return { key: dimension };
+        }
+        const item = dimension as ManagedPricingDimensionDefinition;
+        const key = typeof item?.key === 'string' ? item.key.trim() : '';
+        if (!key) return null;
+        return {
+          key,
+          ...(typeof item.label === 'string' && item.label.trim()
+            ? { label: item.label.trim() }
+            : {}),
+          ...(typeof item.type === 'string' ? { type: item.type } : {}),
+          ...(typeof item.required === 'boolean' ? { required: item.required } : {}),
+          ...(typeof item.description === 'string' && item.description.trim()
+            ? { description: item.description.trim() }
+            : {}),
+          ...(Array.isArray(item.options)
+            ? {
+                options: item.options
+                  .filter((option) => option && option.value !== undefined)
+                  .map((option) => ({
+                    value: option.value,
+                    ...(typeof option.label === 'string' && option.label.trim()
+                      ? { label: option.label.trim() }
+                      : {}),
+                  })),
+              }
+            : {}),
+        };
+      })
+      .filter((dimension): dimension is PricingCatalogDimensionView => dimension !== null);
+  }
+
+  async getManagedPricingCatalog(modelKey?: string): Promise<ManagedPricingCatalogItem[]> {
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: { key: MODEL_PROVIDER_MAPPING_SETTING_KEY },
+      select: { value: true },
+    });
+    const raw = typeof setting?.value === 'string' ? setting.value.trim() : '';
+    if (!raw) return [];
+
+    const parsed = JSON.parse(raw) as ManagedPricingMappingLike & {
+      models?: ManagedModelConfig[];
+    };
+    const normalizedModelKey = typeof modelKey === 'string' ? modelKey.trim() : '';
+    const models = Array.isArray(parsed.models) ? (parsed.models as ManagedModelConfig[]) : [];
+
+    return models
+      .filter((model) => {
+        const currentModelKey =
+          typeof model?.modelKey === 'string' ? model.modelKey.trim() : '';
+        if (!currentModelKey) return false;
+        if (!normalizedModelKey) return true;
+        return currentModelKey === normalizedModelKey;
+      })
+      .map((model) => {
+        const vendors = (Array.isArray(model.vendors) ? model.vendors : [])
+          .filter((vendor) => vendor && typeof vendor.vendorKey === 'string' && vendor.vendorKey.trim())
+          .map((vendor) => {
+            const normalizedVendor = vendor as ManagedModelVendorConfig;
+            const defaultPricing = resolveManagedVendorDefaultPricing(normalizedVendor);
+            return {
+              vendorKey: normalizedVendor.vendorKey.trim(),
+              ...(typeof normalizedVendor.label === 'string' && normalizedVendor.label.trim()
+                ? { label: normalizedVendor.label.trim() }
+                : {}),
+              ...(typeof normalizedVendor.provider === 'string' && normalizedVendor.provider.trim()
+                ? { provider: normalizedVendor.provider.trim() }
+                : {}),
+              ...(typeof normalizedVendor.platformKey === 'string' && normalizedVendor.platformKey.trim()
+                ? { platformKey: normalizedVendor.platformKey.trim() }
+                : {}),
+              enabled: normalizedVendor.enabled !== false,
+              ...(typeof normalizedVendor.creditsPerCall === 'number'
+                ? { creditsPerCall: normalizedVendor.creditsPerCall }
+                : {}),
+              ...(typeof normalizedVendor.priceYuan === 'number'
+                ? { priceYuan: normalizedVendor.priceYuan }
+                : {}),
+              ...(typeof defaultPricing.pricingVersion === 'string'
+                ? { pricingVersion: defaultPricing.pricingVersion }
+                : {}),
+              defaultPrice: defaultPricing.price || {},
+              dimensions: this.buildCatalogDimensions(normalizedVendor),
+              rules: this.buildCatalogRules(normalizedVendor),
+            } satisfies PricingCatalogVendorView;
+          });
+
+        return {
+          modelKey: model.modelKey.trim(),
+          ...(typeof model.modelName === 'string' && model.modelName.trim()
+            ? { modelName: model.modelName.trim() }
+            : {}),
+          ...(typeof model.taskType === 'string' && model.taskType.trim()
+            ? { taskType: model.taskType.trim() }
+            : {}),
+          enabled: model.enabled !== false,
+          ...(typeof model.defaultVendor === 'string' && model.defaultVendor.trim()
+            ? { defaultVendor: model.defaultVendor.trim() }
+            : {}),
+          vendors,
+        } satisfies ManagedPricingCatalogItem;
+      });
+  }
+
   /**
    * 获取所有服务定价
    */
@@ -2015,59 +2595,20 @@ export class CreditsService {
       requestParams,
     });
 
-    const pricing = await this.resolveServicePricing(serviceType);
-    if (!pricing) {
-      throw new BadRequestException(`未知的服务类型: ${serviceType}`);
-    }
-
-    let creditsToDeduct: number = pricing.creditsPerCall;
-    const managedRoutePricing = await this.resolveManagedRoutePricing(requestParams);
-    if (typeof managedRoutePricing?.price?.credits === 'number') {
-      creditsToDeduct = managedRoutePricing.price.credits;
-    }
-
-    const effectiveRequestParams =
-      managedRoutePricing && requestParams && typeof requestParams === 'object'
-        ? {
-            ...requestParams,
-            pricingSnapshot: {
-              source: managedRoutePricing.source,
-              ...(managedRoutePricing.ruleKey ? { ruleKey: managedRoutePricing.ruleKey } : {}),
-              ...(managedRoutePricing.label ? { label: managedRoutePricing.label } : {}),
-              price: managedRoutePricing.price,
-            },
-          }
-        : requestParams;
+    const {
+      pricing,
+      creditsToDeduct,
+      effectiveRequestParams,
+      requestedProvider,
+    } = await this.resolveEffectiveCreditsQuote({
+      serviceType,
+      model,
+      requestParams,
+    });
     const apiUsageRequestParams = this.withDedupMetaInRequestParams(
       effectiveRequestParams,
       normalizedIdempotencyKey,
       requestFingerprint,
-    );
-    const requestedProvider =
-      typeof apiUsageRequestParams?.aiProvider === 'string'
-        ? apiUsageRequestParams.aiProvider.trim().toLowerCase()
-        : '';
-    
-    // 处理Sora视频模型的特殊定价
-    creditsToDeduct = this.resolveSoraModelCredits(
-      serviceType,
-        creditsToDeduct,
-        apiUsageRequestParams,
-        model,
-      );
-
-    // 处理 Kling 2.6 / 3.0 按模型、音效、模式、时长阶梯计费
-    creditsToDeduct = this.resolveKlingModelCredits(
-      serviceType,
-      creditsToDeduct,
-      apiUsageRequestParams,
-    );
-
-    // 处理图像生成服务的分辨率定价
-    creditsToDeduct = this.resolveImageResolutionCredits(
-      serviceType,
-      creditsToDeduct,
-      apiUsageRequestParams,
     );
 
     return await this.prisma.$transaction(async (tx) => {
@@ -2266,6 +2807,51 @@ export class CreditsService {
         apiUsageId: apiUsage.id,
       };
     });
+  }
+
+  async previewCredits(params: PreviewCreditsParams) {
+    const account = await this.getOrCreateAccount(params.userId);
+    let cachedQuote = await this.getCachedPreviewQuote(params);
+
+    if (!cachedQuote) {
+      const quote = await this.resolveEffectiveCreditsQuote({
+        serviceType: params.serviceType,
+        model: params.model,
+        requestParams: params.requestParams,
+      });
+      cachedQuote = {
+        serviceName: quote.serviceName,
+        requestedProvider: quote.requestedProvider,
+        creditsToDeduct: quote.creditsToDeduct,
+        managedPricing:
+          quote.managedRoutePricing?.source && quote.managedRoutePricing.source !== 'none'
+            ? {
+                source: quote.managedRoutePricing.source,
+                vendorKey: quote.managedRoutePricing.vendorKey,
+                ruleKey: quote.managedRoutePricing.ruleKey,
+                label: quote.managedRoutePricing.label,
+                evaluatorKey: quote.managedRoutePricing.evaluatorKey,
+                evaluatorType: quote.managedRoutePricing.evaluatorType,
+                pricingVersion: quote.managedRoutePricing.pricingVersion,
+                price: quote.managedRoutePricing.price,
+              }
+            : null,
+        effectiveRequestParams: quote.effectiveRequestParams ?? null,
+      };
+      await this.setCachedPreviewQuote(params, cachedQuote);
+    }
+
+    return {
+      serviceType: params.serviceType,
+      serviceName: cachedQuote.serviceName,
+      provider: cachedQuote.requestedProvider,
+      model: params.model ?? null,
+      credits: cachedQuote.creditsToDeduct,
+      balance: account.balance,
+      sufficient: account.balance >= cachedQuote.creditsToDeduct,
+      managedPricing: cachedQuote.managedPricing,
+      requestParams: cachedQuote.effectiveRequestParams ?? null,
+    };
   }
 
   /**

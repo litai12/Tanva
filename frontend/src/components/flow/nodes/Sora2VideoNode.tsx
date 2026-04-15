@@ -8,6 +8,7 @@ import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { fetchWithAuth } from '@/services/authFetch';
 import { useLocaleText } from '@/utils/localeText';
 import RunCreditBadge from './RunCreditBadge';
+import { useNodeRunCredits } from '../hooks/useNodeRunCredits';
 
 type Props = {
   id: string;
@@ -77,7 +78,9 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
 
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
-  const hasRunCredits = typeof data.creditsPerCall === 'number' && data.creditsPerCall > 0;
+  const { credits: runCredits, hasCredits: hasRunCredits } = useNodeRunCredits(
+    data.creditsPerCall
+  );
   const [hover, setHover] = React.useState<string | null>(null);
   const [previewAspect, setPreviewAspect] = React.useState<string>('16/9');
   const [aspectMenuOpen, setAspectMenuOpen] = React.useState(false);
@@ -588,7 +591,9 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
             onMouseDown={handleButtonMouseDown}
             disabled={data.status === 'running'}
             style={{
-              width: 36,
+              width: hasRunCredits ? 'auto' : 36,
+              minWidth: hasRunCredits ? 64 : 36,
+              padding: hasRunCredits ? '0 10px' : undefined,
               height: 32,
               borderRadius: 8,
               border: 'none',
@@ -602,14 +607,16 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
               opacity: data.status === 'running' ? 0.6 : 1,
               gap: 0
             }}
-          >
-            {hasRunCredits ? (
+            >
+            {data.status === 'running' ? (
+              <span className="run-text-trigger">Running...</span>
+            ) : (
               <>
                 <span className="run-text-trigger">{lt('Run', 'Run')}</span>
-                <RunCreditBadge credits={data.creditsPerCall} runButton />
+                {hasRunCredits ? (
+                  <RunCreditBadge credits={runCredits} runButton />
+                ) : null}
               </>
-            ) : (
-              lt('Run', 'Run')
             )}
           </button>
           <button

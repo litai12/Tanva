@@ -57,7 +57,9 @@ const SERVICE_TYPE_TRANSLATION_KEYS: Record<string, string> = {
   'gemini-3.1-image-edit': 'gemini31ImageEdit',
   'gemini-image-blend': 'geminiImageBlend',
   'gemini-3.1-image-blend': 'gemini31ImageBlend',
+  'gemini-2.5-image-analyze': 'geminiImageAnalyze',
   'gemini-image-analyze': 'geminiImageAnalyze',
+  'gemini-3.1-image-analyze': 'geminiImageAnalyze',
   'gemini-text': 'geminiText',
   'gemini-prompt-optimize': 'geminiPromptOptimize',
   'gemini-paperjs': 'geminiPaperJs',
@@ -211,17 +213,6 @@ const MyCredits: React.FC = () => {
   const currentLocale = i18n.resolvedLanguage?.toLowerCase().startsWith('en')
     ? 'en-US'
     : 'zh-CN';
-
-  const removeChannelFromBillingRemark = (remark: string | null | undefined): string => {
-    if (!remark) return '';
-    const channelPrefixPattern = /^(?:\u6E20\u9053|channel)\s*[:\uFF1A]/i;
-    return remark
-      .split('|')
-      .map((segment) => segment.trim())
-      .filter((segment) => segment.length > 0)
-      .filter((segment) => !channelPrefixPattern.test(segment))
-      .join(' | ');
-  };
 
   const getTransactionStatusMeta = (
     status: string | null | undefined,
@@ -578,7 +569,9 @@ const MyCredits: React.FC = () => {
                         ? Math.max(0, Math.round(tx.processingTime / 1000))
                         : null;
                       const statusMeta = getTransactionStatusMeta(tx.apiResponseStatus, Boolean(tx.apiUsageId));
-                      const billingRemark = removeChannelFromBillingRemark(tx.billingRemark);
+                      const modelLabel = typeof tx.model === 'string' && tx.model.trim().length > 0
+                        ? tx.model.trim()
+                        : t('creditsPage.transactions.notAvailable');
 
                       return (
                         <tr key={tx.id} className="hover:bg-slate-50/60">
@@ -596,18 +589,9 @@ const MyCredits: React.FC = () => {
                               </div>
                               <div className="min-w-0">
                                 <div className="font-medium text-slate-700 truncate max-w-[240px]">{tx.description}</div>
-                                {tx.model && (
-                                  <div className="text-xs text-slate-500">
-                                    <span>
-                                      {t('creditsPage.transactions.model', { model: tx.model })}
-                                    </span>
-                                  </div>
-                                )}
-                                {billingRemark && (
-                                  <div className="max-w-[380px] text-[11px] leading-5 text-slate-500 whitespace-normal break-words">
-                                    {billingRemark}
-                                  </div>
-                                )}
+                                <div className="mt-0.5 text-xs text-slate-500 truncate max-w-[240px]">
+                                  {t('creditsPage.transactions.model', { model: modelLabel })}
+                                </div>
                               </div>
                             </div>
                           </td>

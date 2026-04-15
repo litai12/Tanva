@@ -9,6 +9,7 @@ import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
 import RunCreditBadge from "./RunCreditBadge";
 import { imageUploadService } from "@/services/imageUploadService";
+import { useBackendCreditsPreview } from "../hooks/useBackendCreditsPreview";
 
 type Props = {
   id: string;
@@ -139,7 +140,59 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
   const boxShadow = selected
     ? "0 0 0 2px rgba(37,99,235,0.12)"
     : "0 1px 2px rgba(0,0,0,0.04)";
-  const hasRunCredits = typeof data.creditsPerCall === "number" && data.creditsPerCall > 0;
+  const previewRequestParams = React.useMemo(
+    () => ({
+      aiProvider: "kling-o3",
+      managedModelKey: (data as any).managedModelKey,
+      vendorKey: data.vendorKey,
+      platformKey: data.platformKey,
+      klingModel: "kling-v3-0",
+      mode: data.mode || "std",
+      sound:
+        data.mode === "pro"
+          ? "on"
+          : typeof (data as any).sound === "boolean"
+          ? (data as any).sound
+            ? "on"
+            : "off"
+          : (data as any).sound,
+      duration:
+        typeof data.clipDuration === "number" && Number.isFinite(data.clipDuration)
+          ? Math.round(data.clipDuration)
+          : 5,
+      durationSec:
+        typeof data.clipDuration === "number" && Number.isFinite(data.clipDuration)
+          ? Math.round(data.clipDuration)
+          : 5,
+      aspectRatio: data.aspectRatio,
+      inputType:
+        data.hasVideoInput === true ? "video" : "text",
+      hasVideoInput: data.hasVideoInput === true,
+      referenceVideoType: data.referenceVideoType,
+      resolution: "1080P",
+    }),
+    [
+      data.aspectRatio,
+      data.clipDuration,
+      data.hasVideoInput,
+      data.mode,
+      data.platformKey,
+      data.referenceVideoType,
+      data.vendorKey,
+      (data as any).managedModelKey,
+      (data as any).sound,
+    ]
+  );
+  const { credits: backendCredits } = useBackendCreditsPreview({
+    serviceType: "kling-o3-video",
+    model: "kling-v3-0",
+    requestParams: previewRequestParams,
+    enabled: true,
+  });
+  const resolvedRunCredits =
+    typeof backendCredits === "number" ? backendCredits : data.creditsPerCall;
+  const hasRunCredits =
+    typeof resolvedRunCredits === "number" && resolvedRunCredits > 0;
   const [hover, setHover] = React.useState<string | null>(null);
   const [previewAspect, setPreviewAspect] = React.useState<string>("16/9");
   const [aspectMenuOpen, setAspectMenuOpen] = React.useState(false);
@@ -1167,8 +1220,10 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
             onMouseDown={handleButtonMouseDown}
             disabled={data.status === "running"}
             style={{
-              width: 36,
+              width: hasRunCredits ? "auto" : 36,
+              minWidth: hasRunCredits ? 64 : 36,
               height: 32,
+              padding: hasRunCredits ? "0 10px" : undefined,
               borderRadius: 8,
               border: "none",
               background: data.status === "running" ? "#e5e7eb" : "#111827",
@@ -1181,14 +1236,16 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
               opacity: data.status === "running" ? 0.6 : 1,
               gap: 0,
             }}
-          >
-            {hasRunCredits ? (
+            >
+            {data.status === "running" ? (
+              <span className="run-text-trigger">Running...</span>
+            ) : (
               <>
                 <span className="run-text-trigger">Run</span>
-                <RunCreditBadge credits={data.creditsPerCall} runButton />
+                {hasRunCredits ? (
+                  <RunCreditBadge credits={resolvedRunCredits} runButton />
+                ) : null}
               </>
-            ) : (
-              "Run"
             )}
           </button>
           <button

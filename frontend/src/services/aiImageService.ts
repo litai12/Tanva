@@ -44,6 +44,98 @@ const PUBLIC_ENDPOINT_MAP: Record<string, string> = {
 const MAX_NETWORK_RETRIES = 3;
 const RETRY_DELAY_MS = 1000; // 固定1秒延迟
 const REQUEST_TIMEOUT_MS = 300000; // 5分钟超时（一键分层需要更长时间）
+type BananaImageRoute = "normal" | "stable";
+
+const normalizeBananaImageRoute = (value: unknown): BananaImageRoute | null => {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === "normal" || normalized === "apimart") return "normal";
+  if (normalized === "stable" || normalized === "tencent") return "stable";
+  return null;
+};
+
+const isBananaRouteCapableProvider = (provider: unknown): boolean => {
+  const normalized = String(provider || "").trim().toLowerCase();
+  return (
+    normalized === "banana" ||
+    normalized === "banana-2.5" ||
+    normalized === "banana-3.1" ||
+    normalized === "gemini-pro" ||
+    normalized === "nano2"
+  );
+};
+
+const resolvePersistedBananaImageRoute = (): BananaImageRoute | null => {
+  if (typeof window === "undefined") return null;
+  try {
+    const runtimeRoute = normalizeBananaImageRoute(
+      (window as any).__tanvaBananaImageRoute
+    );
+    if (runtimeRoute) return runtimeRoute;
+
+    const raw = window.localStorage.getItem("ai-chat-preferences");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as
+      | { state?: { bananaImageRoute?: unknown }; bananaImageRoute?: unknown }
+      | null;
+    return (
+      normalizeBananaImageRoute(parsed?.state?.bananaImageRoute) ||
+      normalizeBananaImageRoute(parsed?.bananaImageRoute)
+    );
+  } catch {
+    return null;
+  }
+};
+
+const resolveRequestBananaImageRoute = (request: {
+  providerOptions?: Record<string, any>;
+}): BananaImageRoute | null => {
+  const routeFromRequest =
+    normalizeBananaImageRoute(request.providerOptions?.banana?.imageRoute) ||
+    normalizeBananaImageRoute(request.providerOptions?.bananaImageRoute);
+  if (routeFromRequest) return routeFromRequest;
+  return resolvePersistedBananaImageRoute();
+};
+
+const attachBananaRouteToProviderOptions = <T extends {
+  aiProvider?: string;
+  providerOptions?: Record<string, any>;
+}>(
+  request: T
+): { request: T; bananaImageRoute: BananaImageRoute | null } => {
+  if (!isBananaRouteCapableProvider(request.aiProvider)) {
+    return { request, bananaImageRoute: null };
+  }
+
+  const resolvedRoute = resolveRequestBananaImageRoute(request);
+  if (!resolvedRoute) {
+    return { request, bananaImageRoute: null };
+  }
+
+  const baseOptions =
+    request.providerOptions && typeof request.providerOptions === "object"
+      ? request.providerOptions
+      : {};
+  const bananaOptions =
+    baseOptions.banana && typeof baseOptions.banana === "object"
+      ? baseOptions.banana
+      : {};
+
+  const nextRequest = {
+    ...request,
+    providerOptions: {
+      ...baseOptions,
+      banana: {
+        ...bananaOptions,
+        imageRoute: resolvedRoute,
+      },
+      bananaImageRoute: resolvedRoute,
+    },
+  } as T;
+
+  return { request: nextRequest, bananaImageRoute: resolvedRoute };
+};
 
 // 判断是否为可重试的网络错误
 function isRetryableError(error: Error): boolean {
@@ -352,6 +444,8 @@ class AIImageService {
     retryCount: number = 0,
     allowNetworkRetry: boolean = true
   ): Promise<AIServiceResponse<T>> {
+    const { request: requestWithRoute, bananaImageRoute } =
+      attachBananaRouteToProviderOptions(request);
     // 创建 AbortController 用于超时控制
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -367,8 +461,11 @@ class AIImageService {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(bananaImageRoute
+            ? { "X-Banana-Image-Route": bananaImageRoute }
+            : {}),
         },
-        body: JSON.stringify(request),
+        body: JSON.stringify(requestWithRoute),
         signal: controller.signal,
       });
 
@@ -382,7 +479,7 @@ class AIImageService {
         if (refreshed) {
           return this.callAPI<T>(
             url,
-            request,
+            requestWithRoute,
             `${operationType} (retry)`,
             0,
             allowNetworkRetry
@@ -394,7 +491,7 @@ class AIImageService {
 
         const fallback = await this.callPublicAPI<T>(
           url,
-          request,
+          requestWithRoute,
           operationType
         );
         if (fallback) {
@@ -450,7 +547,7 @@ class AIImageService {
         await sleep(RETRY_DELAY_MS);
         return this.callAPI<T>(
           url,
-          request,
+          requestWithRoute,
           operationType,
           retryCount + 1,
           allowNetworkRetry
@@ -481,6 +578,8 @@ class AIImageService {
     request: any,
     operationType: string
   ): Promise<AIServiceResponse<T> | null> {
+    const { request: requestWithRoute, bananaImageRoute } =
+      attachBananaRouteToProviderOptions(request);
     const publicSuffix = this.mapToPublicEndpoint(url);
     if (!publicSuffix) {
       return null;
@@ -494,8 +593,11 @@ class AIImageService {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(bananaImageRoute
+            ? { "X-Banana-Image-Route": bananaImageRoute }
+            : {}),
         },
-        body: JSON.stringify(request),
+        body: JSON.stringify(requestWithRoute),
         auth: "omit",
         allowRefresh: false,
         credentials: "omit",

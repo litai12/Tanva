@@ -109,15 +109,26 @@ export class AiController {
     seedream5: 'doubao-seedream-5-0-260128',
   };
   private readonly providerDefaultTextModels: Record<string, string> = {
-    gemini: 'gemini-3-flash-preview',
-    'gemini-pro': 'gemini-3-flash-preview',
-    banana: 'gemini-3-flash-preview',
-    'banana-2.5': 'gemini-3-flash-preview',
-    'banana-3.1': 'gemini-3-flash-preview',
-    runninghub: 'gemini-3-flash-preview',
-    midjourney: 'gemini-3-flash-preview',
-    nano2: 'gemini-3-flash-preview',
-    seedream5: 'gemini-3-flash-preview',
+    gemini: 'gemini-3.1-pro',
+    'gemini-pro': 'gemini-3.1-pro',
+    banana: 'gemini-3.1-pro',
+    'banana-2.5': 'gemini-3.1-pro',
+    'banana-3.1': 'gemini-3.1-pro',
+    runninghub: 'gemini-3.1-pro',
+    midjourney: 'gemini-3.1-pro',
+    nano2: 'gemini-3.1-pro',
+    seedream5: 'gemini-3.1-pro',
+  };
+  private readonly providerDefaultAnalyzeModels: Record<string, string> = {
+    gemini: 'gemini-3.1-pro',
+    'gemini-pro': 'gemini-3.1-pro',
+    banana: 'gemini-3-pro-image-preview',
+    'banana-2.5': 'gemini-2.5-flash-image-preview',
+    'banana-3.1': 'gemini-3.1-flash-image-preview',
+    runninghub: 'gemini-3.1-pro',
+    midjourney: 'gemini-3.1-pro',
+    nano2: 'gemini-3.1-flash-image-preview',
+    seedream5: 'gemini-3.1-pro',
   };
 
   private getHttpErrorMessage(status: number): string {
@@ -735,10 +746,22 @@ export class AiController {
 
     if (typeof dto.sound !== 'undefined') {
       params.sound = dto.sound;
+      if (typeof dto.sound === 'boolean') {
+        params.hasAudio = dto.sound;
+      } else if (typeof dto.sound === 'string') {
+        const normalizedSound = dto.sound.trim().toLowerCase();
+        if (['on', 'true', 'yes', '1'].includes(normalizedSound)) {
+          params.hasAudio = true;
+        } else if (['off', 'false', 'no', '0'].includes(normalizedSound)) {
+          params.hasAudio = false;
+        }
+      }
     }
 
     if (typeof dto.duration === 'number' && Number.isFinite(dto.duration)) {
-      params.duration = Math.round(dto.duration);
+      const normalizedDuration = Math.round(dto.duration);
+      params.duration = normalizedDuration;
+      params.durationSec = normalizedDuration;
     }
 
     if (typeof dto.resolution === 'string' && dto.resolution.trim().length > 0) {
@@ -750,7 +773,9 @@ export class AiController {
     }
 
     if (typeof dto.videoMode === 'string' && dto.videoMode.trim().length > 0) {
-      params.videoMode = dto.videoMode.trim().toLowerCase();
+      const normalizedVideoMode = dto.videoMode.trim().toLowerCase();
+      params.videoMode = normalizedVideoMode;
+      params.generationMode = normalizedVideoMode;
     }
 
     if (typeof dto.klingStoryboardMode === 'string' && dto.klingStoryboardMode.trim().length > 0) {
@@ -759,10 +784,46 @@ export class AiController {
 
     if (typeof dto.generateAudio === 'boolean') {
       params.generateAudio = dto.generateAudio;
+      params.hasAudio = dto.generateAudio;
     }
 
     if (typeof dto.watermark === 'boolean') {
       params.watermark = dto.watermark;
+    }
+
+    if (typeof dto.offPeak === 'boolean') {
+      params.offPeak = dto.offPeak;
+    }
+
+    const referenceImageCount = Array.isArray(dto.referenceImages) ? dto.referenceImages.length : 0;
+    const referenceVideoCount = Array.isArray(dto.referenceVideos) ? dto.referenceVideos.length : 0;
+    const audioCount = Array.isArray(dto.audioUrls) ? dto.audioUrls.length : 0;
+    params.referenceImageCount = referenceImageCount;
+    params.referenceVideoCount = referenceVideoCount;
+    params.audioInputCount = audioCount;
+    const normalizedVideoMode =
+      typeof dto.videoMode === 'string' && dto.videoMode.trim().length > 0
+        ? dto.videoMode.trim().toLowerCase()
+        : '';
+
+    if (referenceVideoCount > 0 || typeof dto.referenceVideo === 'string') {
+      params.inputType = 'video';
+      params.referenceVideo = true;
+      params.hasVideoInput = true;
+    } else if (referenceImageCount > 0) {
+      params.inputType =
+        dto.provider === 'doubao' && audioCount > 0 ? 'image_audio' : 'image';
+      params.hasVideoInput = false;
+    } else if (normalizedVideoMode === 'text' || normalizedVideoMode === 'text2video') {
+      params.inputType = 'text';
+      params.hasVideoInput = false;
+    } else if (normalizedVideoMode) {
+      params.inputType = dto.provider === 'doubao' ? 'image' : 'text';
+      params.hasVideoInput = false;
+    }
+
+    if (dto.provider === 'doubao' && typeof params.inputType !== 'string') {
+      params.inputType = normalizedVideoMode === 'text' ? 'text' : 'image';
     }
 
     const assignRouteParams = (
@@ -1082,6 +1143,12 @@ export class AiController {
       const processingTime = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : String(error);
 
+      this.logger.error(
+        `[${serviceType}] Operation failed - attempting credits refund: ` +
+        `userId=${userId}, apiUsageId=${apiUsageId}, processingTime=${processingTime}ms, ` +
+        `error=${this.summarizeError(error)}`
+      );
+
       if (apiUsageId) {
         let failedMarked = false;
         try {
@@ -1118,15 +1185,27 @@ export class AiController {
           // 退还积分
           try {
             await this.creditsService.refundCredits(userId, apiUsageId);
-            this.logger.debug(`Credits refunded for failed operation: ${apiUsageId}`);
+            this.logger.warn(
+              `[${serviceType}] Credits successfully refunded for failed operation: ` +
+              `userId=${userId}, apiUsageId=${apiUsageId}`
+            );
           } catch (refundError) {
-            this.logger.error('Failed to refund credits:', refundError);
+            this.logger.error(
+              `[${serviceType}] CRITICAL: Failed to refund credits: ` +
+              `userId=${userId}, apiUsageId=${apiUsageId}, error=${this.summarizeError(refundError)}`
+            );
           }
         } else {
           this.logger.error(
-            `Skip refund because api usage cannot be marked failed. apiUsageId=${apiUsageId}`,
+            `[${serviceType}] CRITICAL: Skip refund because api usage cannot be marked failed. ` +
+            `userId=${userId}, apiUsageId=${apiUsageId}`
           );
         }
+      } else {
+        this.logger.error(
+          `[${serviceType}] CRITICAL: No apiUsageId available for refund. ` +
+          `userId=${userId}, error=${this.summarizeError(error)}`
+        );
       }
 
       if (this.isPrismaPoolTimeoutError(error)) {
@@ -1134,6 +1213,11 @@ export class AiController {
           `Prisma connection pool timeout during ${serviceType}: ${this.summarizeError(error)}`,
         );
         throw new ServiceUnavailableException('数据库繁忙，请稍后重试');
+      }
+
+      // 仅在已经完成预扣费并进入上游调用阶段时，才将 quota/rate-limit 归类为上游 429
+      if (apiUsageId && this.isRateLimitOrQuotaError(error)) {
+        throw new HttpException('上游模型额度不足或请求过于频繁，请稍后重试', 429);
       }
 
       throw error;
@@ -1150,6 +1234,18 @@ export class AiController {
       return this.providerDefaultImageModels[providerName] || 'gemini-3-pro-image-preview';
     }
     return this.providerDefaultImageModels.gemini;
+  }
+
+  private resolveAnalyzeModel(providerName: string | null, requestedModel?: string): string {
+    const model = requestedModel?.trim();
+    if (model?.length) {
+      this.logger.debug(`[${providerName || 'default'}] Using requested analyze model: ${model}`);
+      return model;
+    }
+    if (providerName) {
+      return this.providerDefaultAnalyzeModels[providerName] || 'gemini-3.1-pro';
+    }
+    return this.providerDefaultAnalyzeModels.gemini;
   }
 
   private resolveGeminiVideoModel(requestedModel?: string): string {
@@ -1174,6 +1270,31 @@ export class AiController {
     const causeMessage = cause?.message ? String(cause.message) : String(cause);
     const causeCode = cause?.code ? ` code=${String(cause.code)}` : '';
     return `${name}: ${message}${code} (cause: ${causeName}: ${causeMessage}${causeCode})`;
+  }
+
+  private isRateLimitOrQuotaError(error: any): boolean {
+    if (error instanceof HttpException && error.getStatus() === 429) {
+      return true;
+    }
+
+    const messages = [
+      error?.message,
+      error?.cause?.message,
+      error?.response?.message,
+      typeof error?.response === 'string' ? error.response : '',
+    ]
+      .filter(Boolean)
+      .map((value) => String(value).toLowerCase());
+
+    return messages.some((message) => {
+      return (
+        message.includes('429') ||
+        message.includes('too many requests') ||
+        message.includes('rate limit') ||
+        message.includes('quota') ||
+        message.includes('resource has been exhausted')
+      );
+    });
   }
 
   private getTraceId(req: TraceableReq | any): string | null {
@@ -1729,6 +1850,65 @@ export class AiController {
     return next;
   }
 
+  private inferWanResolutionFromSize(size: unknown): '720P' | '1080P' | undefined {
+    if (typeof size !== 'string') return undefined;
+    const trimmed = size.trim();
+    if (!trimmed) return undefined;
+
+    const explicitTier = trimmed.toUpperCase();
+    if (explicitTier === '720P' || explicitTier === '1080P') {
+      return explicitTier;
+    }
+
+    const match = trimmed.match(/^\s*(\d+)\s*[*xX]\s*(\d+)\s*$/);
+    if (!match) return undefined;
+
+    const width = Number(match[1]);
+    const height = Number(match[2]);
+    if (!Number.isFinite(width) || !Number.isFinite(height)) return undefined;
+
+    return Math.max(width, height) >= 1500 ? '1080P' : '720P';
+  }
+
+  private buildWanCreditRequestParams(
+    body: any,
+    options: {
+      managedModelKey: 'wan-2.6' | 'wan-2.6-r2v' | 'wan-2.7';
+      generationMode: 't2v' | 'i2v' | 'r2v';
+      requestPrompt?: string | null;
+      requestThumbnailUrls?: unknown[];
+      hasAudio?: boolean;
+    },
+  ): Record<string, any> {
+    const parameters =
+      body?.parameters && typeof body.parameters === 'object' && !Array.isArray(body.parameters)
+        ? body.parameters
+        : {};
+    const resolution =
+      (typeof parameters.resolution === 'string' && parameters.resolution.trim().length > 0
+        ? parameters.resolution.trim().toUpperCase()
+        : undefined) || this.inferWanResolutionFromSize(parameters.size);
+    const durationRaw = Number(parameters.duration);
+    const duration =
+      Number.isFinite(durationRaw) && durationRaw > 0 ? Math.round(durationRaw) : undefined;
+
+    return {
+      managedModelKey: options.managedModelKey,
+      modelKey: options.managedModelKey,
+      vendorKey: 'dashscope',
+      platformKey: 'dashscope',
+      aiProvider: 'dashscope',
+      generationMode: options.generationMode,
+      ...(resolution ? { resolution } : {}),
+      ...(duration ? { duration, durationSec: duration } : {}),
+      ...(typeof options.hasAudio === 'boolean' ? { hasAudio: options.hasAudio } : {}),
+      ...this.buildRequestPromptAndImageParams(
+        options.requestPrompt,
+        Array.isArray(options.requestThumbnailUrls) ? options.requestThumbnailUrls : [],
+      ),
+    };
+  }
+
   private normalizeWan27I2VBodyForUpstream(body: any): any {
     if (!body || typeof body !== 'object') return body;
     const next: any = { ...body };
@@ -1842,7 +2022,7 @@ export class AiController {
       return model;
     }
     if (providerName) {
-      return this.providerDefaultTextModels[providerName] || 'gemini-3-flash-preview';
+      return this.providerDefaultTextModels[providerName] || 'gemini-3.1-pro';
     }
     return this.providerDefaultTextModels.gemini;
   }
@@ -2819,7 +2999,7 @@ export class AiController {
   @Post('analyze-image')
   async analyzeImage(@Body() dto: AnalyzeImageDto, @Req() req: any) {
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
-    const model = this.resolveImageModel(providerName, dto.model);
+    const model = this.resolveAnalyzeModel(providerName, dto.model);
     const normalizedImages = Array.from(
       new Set(
         [
@@ -2839,8 +3019,13 @@ export class AiController {
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
 
-    // 根据provider判断serviceType：Fast模式使用gemini-2.5-image-analyze
-    const serviceType = providerName === 'banana-2.5' ? 'gemini-2.5-image-analyze' : 'gemini-image-analyze';
+    // Map analyze billing by provider tier: Fast(2.5), Pro(3.0), Ultra(3.1).
+    const serviceType: ServiceType =
+      providerName === 'banana-2.5'
+        ? 'gemini-2.5-image-analyze'
+        : providerName === 'banana-3.1' || providerName === 'nano2'
+        ? 'gemini-3.1-image-analyze'
+        : 'gemini-image-analyze';
 
     return this.withCredits(req, serviceType as any, model, async () => {
       if (providerName && providerName !== 'gemini-pro') {
@@ -4294,7 +4479,12 @@ export class AiController {
         this.logger.error('❌ DashScope request exception', error);
         return { success: false, error: { code: 'NETWORK_ERROR', message: error?.message || String(error) } };
       }
-    }, undefined, undefined, undefined, undefined, {
+    }, undefined, undefined, undefined, this.buildWanCreditRequestParams(body, {
+      managedModelKey: 'wan-2.6',
+      generationMode: 't2v',
+      requestPrompt: body?.input?.prompt,
+      requestThumbnailUrls: typeof body?.input?.audio_url === 'string' ? [body.input.audio_url] : [],
+    }), {
       treatReturnedFailureAsError: true,
     });
   }
@@ -4398,7 +4588,16 @@ export class AiController {
           error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
         };
       }
-    }, undefined, undefined, undefined, undefined, {
+    }, undefined, undefined, undefined, this.buildWanCreditRequestParams(body, {
+      managedModelKey: 'wan-2.6',
+      generationMode: 'i2v',
+      requestPrompt: body?.input?.prompt,
+      requestThumbnailUrls: [
+        body?.input?.img_url,
+        body?.input?.audio_url,
+      ],
+      hasAudio: true,
+    }), {
       treatReturnedFailureAsError: true,
       skipFinalizeSuccessIf: (r: any) => this.isWanDashscopeI2VAsyncPending(r),
     });
@@ -4488,7 +4687,15 @@ export class AiController {
           error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
         };
       }
-    }, undefined, undefined, undefined, undefined, {
+    }, undefined, undefined, undefined, this.buildWanCreditRequestParams(body, {
+      managedModelKey: 'wan-2.7',
+      generationMode: 'i2v',
+      requestPrompt: body?.input?.prompt,
+      requestThumbnailUrls: Array.isArray(body?.input?.media)
+        ? body.input.media.map((item: any) => item?.url).filter(Boolean)
+        : [],
+      hasAudio: true,
+    }), {
       treatReturnedFailureAsError: true,
       skipFinalizeSuccessIf: (r: any) => this.isWanDashscopeI2VAsyncPending(r),
     });
@@ -4734,7 +4941,15 @@ export class AiController {
           error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
         };
       }
-    }, undefined, undefined, undefined, undefined, {
+    }, undefined, undefined, undefined, this.buildWanCreditRequestParams(body, {
+      managedModelKey: 'wan-2.6-r2v',
+      generationMode: 'r2v',
+      requestPrompt: body?.input?.prompt,
+      requestThumbnailUrls: Array.isArray(body?.input?.reference_video_urls)
+        ? body.input.reference_video_urls
+        : [],
+      hasAudio: true,
+    }), {
       treatReturnedFailureAsError: true,
     });
   }

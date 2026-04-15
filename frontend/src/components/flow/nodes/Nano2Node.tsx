@@ -1,5 +1,5 @@
 import React from "react";
-import { Handle, Position } from "reactflow";
+import { Handle, Position, useStore } from "reactflow";
 import { Send as SendIcon } from "lucide-react";
 import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
 import SmartImage from "../../ui/SmartImage";
@@ -13,6 +13,8 @@ import { useLocaleText } from "@/utils/localeText";
 import { flowImagePreviewWell, flowLetterboxBackground, useFlowNodeDarkTheme } from "./flowNodeDarkTheme";
 import RunCreditBadge from "./RunCreditBadge";
 import NodeSelect from "./NodeSelect";
+import { useAIChatStore } from "@/stores/aiChatStore";
+import { useImageNodeCreditsPreview } from "../hooks/useImageNodeCreditsPreview";
 
 type Props = {
   id: string;
@@ -28,6 +30,9 @@ type Props = {
     googleSearch?: boolean;
     googleImageSearch?: boolean;
     creditsPerCall?: number;
+    managedModelKey?: string;
+    vendorKey?: string;
+    platformKey?: string;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
   };
@@ -45,6 +50,7 @@ const buildImageSrc = (value?: string): string | undefined => {
 function Nano2NodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const { status, error } = data;
+  const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
 
   // 参数值
   const aspectRatioValue = data.aspectRatio ?? "";
@@ -71,6 +77,12 @@ function Nano2NodeInner({ id, data, selected }: Props) {
     ? "0 0 0 2px rgba(37,99,235,0.12)"
     : "0 1px 2px rgba(0,0,0,0.04)";
   const isFlowDark = useFlowNodeDarkTheme();
+  const imageInputCount = useStore((state) => {
+    const edges = state.edges || [];
+    return edges.filter(
+      (edge) => edge.target === id && edge.targetHandle === "img"
+    ).length;
+  });
 
   // 使用全局图片历史记录
   const projectId = useProjectContentStore((state) => state.projectId);
@@ -168,6 +180,21 @@ function Nano2NodeInner({ id, data, selected }: Props) {
     data.onSend?.(id);
   }, [data, id]);
 
+  const { credits: backendCredits } = useImageNodeCreditsPreview({
+    nodeType: "nano2",
+    aiProvider: "nano2",
+    bananaImageRoute,
+    imageSize: resolutionValue || undefined,
+    aspectRatio: aspectRatioValue || undefined,
+    referenceImageCount: imageInputCount,
+    managedModelKey: data.managedModelKey,
+    vendorKey: data.vendorKey,
+    platformKey: data.platformKey,
+    enabled: true,
+  });
+  const resolvedRunCredits =
+    typeof backendCredits === "number" ? backendCredits : data.creditsPerCall;
+
   const handleImageChange = React.useCallback(
     (imageId: string) => {
       const selectedImage = allImages.find((item) => item.id === imageId);
@@ -213,6 +240,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
           <button
             onClick={onRun}
             disabled={status === "running"}
+            className='run-btn-with-credit'
             style={{
               fontSize: 12,
               padding: "4px 8px",
@@ -223,9 +251,15 @@ function Nano2NodeInner({ id, data, selected }: Props) {
               cursor: status === "running" ? "not-allowed" : "pointer",
             }}
           >
-            {status === "running" ? "Running..." : "Run"}
+            {status === "running" ? (
+              <span className='run-text-trigger'>Running...</span>
+            ) : (
+              <>
+                <span className='run-text-trigger'>Run</span>
+                <RunCreditBadge credits={resolvedRunCredits} runButton />
+              </>
+            )}
           </button>
-          <RunCreditBadge credits={data.creditsPerCall} />
           <button
             onClick={onSend}
             disabled={!(data.imageData || data.imageUrl)}
