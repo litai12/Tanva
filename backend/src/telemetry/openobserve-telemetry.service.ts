@@ -46,6 +46,29 @@ type BackendEventLog = {
   receivedAt: string;
 };
 
+type BackendErrorLog = {
+  traceId: string | null;
+  requestId?: string | null;
+  userId?: string | null;
+  message: string;
+  stack: string | null;
+  errorName?: string | null;
+  category?: string | null;
+  statusCode?: number | null;
+  method?: string | null;
+  path?: string | null;
+  route?: string | null;
+  ip?: string | null;
+  userAgent?: string | null;
+  headers?: Record<string, unknown> | null;
+  query?: Record<string, unknown> | null;
+  params?: Record<string, unknown> | null;
+  body?: unknown;
+  response?: unknown;
+  payload?: Record<string, unknown> | null;
+  receivedAt: string;
+};
+
 type GenerationTaskLog = {
   traceId: string | null;
   parentRequestId?: string | null;
@@ -199,6 +222,24 @@ export class OpenObserveTelemetryService {
         userId: log.userId || requestContext?.userId || null,
         service: 'backend',
         log_type: 'backend_event',
+      },
+    );
+  }
+
+  async ingestBackendError(log: BackendErrorLog): Promise<void> {
+    const requestContext = getRequestContext();
+    const maxBodyLength = this.getBackendRequestBodyMaxLength();
+    await this.ingest(
+      this.configService.get<string>('OPENOBSERVE_BACKEND_ERROR_STREAM')?.trim() || 'backend_errors',
+      {
+        ...log,
+        traceId: log.traceId || getActiveSpanContext()?.traceId || requestContext?.traceId || null,
+        requestId: log.requestId || requestContext?.requestId || null,
+        userId: log.userId || requestContext?.userId || null,
+        body: summarizeBodyForLog(log.body, maxBodyLength),
+        response: summarizeBodyForLog(log.response, maxBodyLength),
+        service: 'backend',
+        log_type: 'backend_error',
       },
     );
   }

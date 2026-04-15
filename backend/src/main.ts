@@ -13,6 +13,7 @@ import { ValidationPipe } from "@nestjs/common";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { ConfigService } from "@nestjs/config";
 import { AppModule } from "./app.module";
+import { OpenObserveTelemetryService } from "./telemetry/openobserve-telemetry.service";
 import { EnvHttpProxyAgent, setGlobalDispatcher } from "undici";
 
 // 配置 undici ProxyAgent 以支持代理（修复 Node.js 20+ 中 @google/genai 的代理问题）
@@ -48,6 +49,49 @@ function configureProxyForUndici() {
 
 configureProxyForUndici();
 
+const toProcessErrorPayload = (value: unknown) => {
+  if (value instanceof Error) {
+    const candidate = value as Error & {
+      code?: string;
+      cause?: unknown;
+    };
+
+    return {
+      message: value.message,
+      stack: value.stack || null,
+      errorName: value.name,
+      payload: {
+        code: candidate.code || null,
+        cause:
+          candidate.cause instanceof Error
+            ? {
+                name: candidate.cause.name,
+                message: candidate.cause.message,
+              }
+            : candidate.cause ?? null,
+      },
+    };
+  }
+
+  if (value && typeof value === "object") {
+    return {
+      message: JSON.stringify(value),
+      stack: null,
+      errorName: null,
+      payload: value as Record<string, unknown>,
+    };
+  }
+
+  return {
+    message: String(value),
+    stack: null,
+    errorName: null,
+    payload: {
+      raw: String(value),
+    },
+  };
+};
+
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
@@ -58,8 +102,41 @@ async function bootstrap() {
   );
 
   const configService = app.get(ConfigService);
+  const telemetryService = app.get(OpenObserveTelemetryService);
   const cookieSecret =
     configService.get("COOKIE_SECRET") ?? "dev-cookie-secret";
+
+  process.on("unhandledRejection", (reason) => {
+    const normalized = toProcessErrorPayload(reason);
+    void telemetryService.ingestBackendError({
+      traceId: null,
+      requestId: null,
+      userId: null,
+      message: normalized.message,
+      stack: normalized.stack,
+      errorName: normalized.errorName,
+      category: "process_unhandled_rejection",
+      statusCode: null,
+      payload: normalized.payload,
+      receivedAt: new Date().toISOString(),
+    });
+  });
+
+  process.on("uncaughtException", (error) => {
+    const normalized = toProcessErrorPayload(error);
+    void telemetryService.ingestBackendError({
+      traceId: null,
+      requestId: null,
+      userId: null,
+      message: normalized.message,
+      stack: normalized.stack,
+      errorName: normalized.errorName,
+      category: "process_uncaught_exception",
+      statusCode: null,
+      payload: normalized.payload,
+      receivedAt: new Date().toISOString(),
+    });
+  });
 
   // 由于 Nest 的 Fastify 类型定义与部分插件的泛型不完全匹配，这里进行类型断言以避免 TS 推断冲突
   // 启用响应压缩（gzip/brotli）- 可减少 50-70% 网络流量
