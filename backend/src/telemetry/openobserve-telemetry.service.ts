@@ -113,6 +113,51 @@ const normalizeKeysForOpenObserve = (value: unknown): unknown => {
   );
 };
 
+const DEFAULT_BACKEND_REQUEST_BODY_MAX_LENGTH = 4096;
+
+const truncateStringValue = (value: string, maxLength: number): string => {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  const omittedLength = value.length - maxLength;
+  return `${value.slice(0, maxLength)}...[truncated ${omittedLength} chars]`;
+};
+
+const summarizeBodyForLog = (body: unknown, maxLength: number): unknown => {
+  if (body == null) {
+    return body;
+  }
+
+  if (typeof body === 'string') {
+    return truncateStringValue(body, maxLength);
+  }
+
+  try {
+    const serialized = JSON.stringify(body);
+    if (typeof serialized !== 'string') {
+      return body;
+    }
+
+    if (serialized.length <= maxLength) {
+      return body;
+    }
+
+    return {
+      truncated: true,
+      originalType: Array.isArray(body) ? 'array' : typeof body,
+      originalLength: serialized.length,
+      preview: truncateStringValue(serialized, maxLength),
+    };
+  } catch {
+    return {
+      truncated: true,
+      originalType: Array.isArray(body) ? 'array' : typeof body,
+      preview: '[unserializable body]',
+    };
+  }
+};
+
 @Injectable()
 export class OpenObserveTelemetryService {
   private readonly logger = new Logger(OpenObserveTelemetryService.name);
@@ -131,10 +176,12 @@ export class OpenObserveTelemetryService {
   }
 
   async ingestBackendRequest(log: BackendRequestLog): Promise<void> {
+    const maxBodyLength = this.getBackendRequestBodyMaxLength();
     await this.ingest(
       this.configService.get<string>('OPENOBSERVE_BACKEND_REQUEST_STREAM')?.trim() || 'backend_requests',
       {
         ...log,
+        body: summarizeBodyForLog(log.body, maxBodyLength),
         service: 'backend',
         log_type: 'backend_request',
       },
@@ -240,5 +287,13 @@ export class OpenObserveTelemetryService {
 
   private shouldSend(): boolean {
     return isEnabled(this.configService.get('OPENOBSERVE_TELEMETRY_ENABLED'), true);
+  }
+
+  private getBackendRequestBodyMaxLength(): number {
+    const raw = Number(this.configService.get('OPENOBSERVE_BACKEND_REQUEST_BODY_MAX_LENGTH'));
+    if (!Number.isFinite(raw) || raw <= 0) {
+      return DEFAULT_BACKEND_REQUEST_BODY_MAX_LENGTH;
+    }
+    return Math.floor(raw);
   }
 }

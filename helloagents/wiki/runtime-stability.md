@@ -20,6 +20,7 @@
 - Added `TelemetryModule` with controller endpoint:
   - `POST /api/telemetry/frontend-error`
 - Logged structured runtime failure payloads with app/build context for release triage.
+- OpenObserve `backend_request` now enforces a whole-body log limit: if serialized `body` exceeds `4096` chars, telemetry stores a summarized object with `preview` and `originalLength` instead of the raw payload; override with `OPENOBSERVE_BACKEND_REQUEST_BODY_MAX_LENGTH`.
 - Added per-project serialized save execution and duplicate-content hash short-circuit in ProjectsService.updateContent to reduce concurrent save amplification without dropping real changes.
 
 ## Deployment changes
