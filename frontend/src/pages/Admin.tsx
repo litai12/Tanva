@@ -8815,12 +8815,12 @@ function VipManagementTab() {
               onClick={() =>
                 void runMembershipOp(
                   () => adminIssueDailyMembershipGifts(),
-                  (result) => `每日赠送发放完成，issued=${result.issuedSubscriptions ?? 0}，granted=${result.grantedCredits ?? 0}`,
+                  (result) => `自动每日赠送已停用，issued=${result.issuedSubscriptions ?? 0}，granted=${result.grantedCredits ?? 0}`,
                 )
               }
               disabled={opsLoading}
             >
-              立即发放每日赠送
+              校验自动赠送停用状态
             </Button>
             <Button
               size='sm'
@@ -8874,7 +8874,7 @@ function VipManagementTab() {
                 <th className='px-3 py-2 text-left'>价格</th>
                 <th className='px-3 py-2 text-left'>总额度</th>
                 <th className='px-3 py-2 text-left'>月额度</th>
-                <th className='px-3 py-2 text-left'>日赠送</th>
+                <th className='px-3 py-2 text-left'>签到积分</th>
                 <th className='px-3 py-2 text-left'>模板库</th>
                 <th className='px-3 py-2 text-left'>邀请上限</th>
                 <th className='px-3 py-2 text-left'>支持等级</th>
@@ -9058,7 +9058,7 @@ function VipManagementTab() {
                 <div className='mt-1 text-xs text-gray-400'>用于补充套餐总额度，不再对外单独展示。</div>
               </div>
               <div>
-                <div className='mb-1 text-sm text-gray-600'>每日赠送积分</div>
+                <div className='mb-1 text-sm text-gray-600'>签到积分额度</div>
                 <Input
                   type='number'
                   min='0'
@@ -9067,6 +9067,9 @@ function VipManagementTab() {
                     setPlanForm((current) => ({ ...current, dailyGiftCredits: e.target.value }))
                   }
                 />
+                <div className='mt-1 text-xs text-gray-400'>
+                  该值只用于会员每日签到发放，不会由系统自动按天直接入账。
+                </div>
               </div>
               <div className='md:col-span-2'>
                 <div className='mb-1 text-sm text-gray-600'>核心权益</div>

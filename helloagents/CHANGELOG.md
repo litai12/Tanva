@@ -40,11 +40,12 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- Membership/Credits: removed frontend auto check-in at app bootstrap. Daily reward now requires an explicit user check-in action, and paid-tier `dailyGiftCredits` is defined as the member's daily check-in credit amount rather than an automatically issued daily grant.
 - Credits Detail UI: `My Credits` transaction list and Admin `细分积分明细` now show `模型` under each record item, using API usage model when available and `--` fallback when absent.
 - AI Analyze/Text defaults: `ai.controller` now defaults text/analyze model to `gemini-3.1-pro`, while `banana-2.5` analyze keeps `gemini-2.5-flash-image-preview`; Banana image-analyze adds quota-aware fast fallback (`3.1-pro -> 3-pro-image -> 2.5`) and stops same-model retries on explicit 429/quota errors.
 - Flow / Agent Pro Node: replaced the run-toolbar resolution control from `NodeSelect` dropdown to chat-style `HD` button + segmented popup (`Auto/1K/2K/4K`, and `0.5K` for Ultra), with matching interaction (outside-click close, active state, and value persistence to `imageSize`).
 - Flow/Video: 腾讯渠道 `Kling O3` 自定义分镜改为 C 端可用上传交互（图片/视频上传替代手填 URL），运行时会把节点上传素材并入 `referenceImages/referenceVideo` 并按腾讯文档校验（图片上限 `7`，视频参考场景图片上限 `4`，视频时长 `3-10s`），确保 FileInfos 参数可直接对齐下发（`frontend/src/components/flow/nodes/KlingO3VideoNode.tsx`, `frontend/src/components/flow/FlowOverlay.tsx`）。
-- Membership/Credits: removed `VIP 69` daily membership gift behavior end-to-end. Backend now force-disables `dailyGiftCredits` for `vip_69` plans, skips `membership_daily_gift` issuance for `vip_69`, and uses base policy daily check-in credits for `vip_69`; frontend `/my-credits` hides legacy `VIP 69 ... 每日赠送积分` rows.
+- Membership/Credits: `VIP 69` no longer participates in legacy automatic daily-gift issuance, and now follows the same manual check-in reward path as other paid tiers. `dailyGiftCredits` is treated as check-in credits instead of an auto grant; frontend `/my-credits` still hides legacy `VIP 69 ... 每日赠送积分` rows.
 - Credits/Quota: 免费用户生成配额改为按“是否存在 `paymentOrder.status=paid`”统一判定；未付费用户默认执行 `日生图20、月生图100、日视频3、月视频10`（UTC 口径），管理员角色仍豁免（`backend/src/credits/credits.service.ts`）。
 - Credits/Quota: 免费用户在 `Run` 触发超限时，后端错误文案统一追加“免费额度已用尽，请前往充值，享有更多权限后可继续生成”，覆盖日/月图与日/月视频四类上限场景（`backend/src/credits/credits.service.ts`）。
 - Chat/Banana route: stable (Tencent) now applies explicit capability guards: manual `Analysis` mode is hidden/blocked, Tencent reference-image limits are enforced (Fast=3, Pro/Ultra=14), and auto tool-selection no longer picks `analyzeImage` on stable route.
@@ -63,7 +64,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Membership Backend 调整到期口径：订阅积分优先消耗，会员到期时重置订阅积分；免费用户继续按 30 天周期发放 `freeUserMonthlyQuotaCredits`（默认 `500`）。
 
 ### Fixed
-- Referral / Credits: 手动签到接口 `/api/referral/check-in` 现已复用 `CreditsService.claimDailyReward`，与应用入口自动签到共用同一套 3AM 业务日、事务锁与幂等判断，修复同一用户在自动签到后仍可再手动签到一次的问题。
+- Referral / Credits: 手动签到接口 `/api/referral/check-in` 现已复用 `CreditsService.claimDailyReward`，并沿用同一套 3AM 业务日、事务锁与幂等判断，避免重复发放。
 - Workspace / Membership Entry: 顶栏积分入口改为就地弹出 `MembershipPanel`，不再通过 `/membership` 路由切换页面；支付成功后仅刷新积分状态并关闭弹窗（`frontend/src/components/layout/FloatingHeader.tsx`）。
 - Backend / Seedance 2.0: 修正 `seedance_api` 直连时的 `resolution` 映射，Seedance V2 请求会把前端/节点里的 `480P/720P` 规范成上游要求的 `480p/720p`，避免规格已透传但因分辨率值格式不匹配被方舟拒绝（`backend/src/ai/services/video-provider.service.ts`）。
 - Backend / Seedance 2.0: 对 `seedance_api` 直连的 `r2v` 请求增加分支保护，检测到参考图/视频/音频模式时自动省略 `resolution`，避免方舟返回 `the parameter resolution ... is not valid for model doubao-seedance-2-0 in r2v`（`backend/src/ai/services/video-provider.service.ts`）。

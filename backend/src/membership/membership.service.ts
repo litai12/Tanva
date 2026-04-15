@@ -148,9 +148,7 @@ export class MembershipService {
     const nextDailyGiftCredits =
       input.dailyGiftCredits !== undefined
         ? this.normalizeDailyGiftCreditsForPlanCode(nextCode, input.dailyGiftCredits)
-        : this.isVip69PlanCode(nextCode)
-          ? 0
-          : undefined;
+        : undefined;
 
     try {
       return await this.prisma.membershipPlan.update({
@@ -2161,11 +2159,8 @@ export class MembershipService {
   }
 
   private normalizeDailyGiftCreditsForPlanCode(code: string | null | undefined, dailyGiftCredits: number): number {
-    const normalizedCredits = Number.isFinite(dailyGiftCredits) ? Math.trunc(dailyGiftCredits) : 0;
-    if (this.isVip69PlanCode(code)) {
-      return 0;
-    }
-    return normalizedCredits;
+    void code;
+    return Number.isFinite(dailyGiftCredits) ? Math.trunc(dailyGiftCredits) : 0;
   }
 
   private toInt(value: unknown, fallback: number): number {

@@ -122,10 +122,10 @@
   - `MembershipService.expireElapsedMemberships()` 会把到期订阅标记为 `expired`，将关联的 `membership_bound` lot 归零并写入 `membership_expire` 流水，同时把权益快照回落到 `free/inactive`。
 - 会员 P1 权益调度：
   - `CreditsService.issueFreeUserMonthlyQuotaCredits()` 会按 `membershipRefreshCycleDays` 为非会员用户发放 `freeUserMonthlyQuotaCredits`，lot 类型为 `sourceType=subscription` + `validityType=fixed_window`，并记录 `free_monthly_quota` 流水；按用户注册时间锚定周期、按周期幂等。
-  - `MembershipService.issueDailyMembershipGiftCredits()` 会为活跃会员按套餐 `dailyGiftCredits` 每日发放一笔 `sourceType=gift` + `validityType=permanent` 的赠送积分，并记录 `membership_daily_gift` 流水；按订阅 + 自然日幂等。
+- `MembershipService.issueDailyMembershipGiftCredits()` 保留为历史兼容入口，但当前产品策略已停用自动每日赠送；会员套餐中的 `dailyGiftCredits` 现用于“每日签到基础积分”，而不是定时直接入账。
   - `MembershipService.decayDailyGiftCredits()` 会在 `pauseGiftDecay=false` 时，对 `sourceType=gift` + `validityType=permanent` 的 lot 执行每日衰减，并记录 `gift_decay` 流水；衰减值改为读取 `SystemSetting[membership_credit_policy].dailyGiftDecayCredits`。
   - `MembershipService.refreshYearlySubscriptionQuotaLots()` 会为 `periodType=yearly` 的活跃订阅补发按配置窗口计算的月度额度，并记录 `membership_refresh` 流水；窗口天数来自 `membershipRefreshCycleDays`。
-  - `MembershipSchedulerService` 新增每日 2 点免费用户月度额度发放任务、每日 2 点赠送衰减任务、每日 5 点会员每日赠送积分发放任务、每日 4 点年费会员月度额度刷新任务。签到业务日切点单独按 `3AM` 计算，形成“先衰减、再开放新一天签到”的顺序。
+- `MembershipSchedulerService` 新增每日 2 点免费用户月度额度发放任务、每日 2 点赠送衰减任务、每日 4 点年费会员月度额度刷新任务；原每日 5 点会员自动赠送任务已停用。签到业务日切点单独按 `3AM` 计算，形成“先衰减、再开放新一天签到”的顺序。
 - 会员读接口：
   - 新增 `GET /api/membership/current`：返回当前活跃订阅、当前套餐摘要和权益快照。
   - 新增 `GET /api/membership/entitlement`：返回当前权益快照；无快照时回退为 `free/inactive`。
@@ -135,7 +135,7 @@
   - 新增 `GET /api/admin/membership-plans`、`POST /api/admin/membership-plans`、`PATCH /api/admin/membership-plans/:id`，用于后台会员套餐管理。
   - `PaymentService.processPaymentSuccess` 和 `CreditsService.adminAddCredits` 现在会读取 `fixedCreditExpireDays`，将充值/手工补发 lot 生成为 `fixed_window` 或 `permanent`。
   - `CreditsService.issueFreeUserMonthlyQuotaCredits` 会读取 `freeUserMonthlyQuotaCredits` 与 `membershipRefreshCycleDays`。
-- `CreditsService.claimDailyReward` 现在会读取 `dailyRewardCredits`（免费）或当前会员套餐 `dailyGiftCredits`（活跃 VIP，且不叠加免费签到额度），新签到积分统一写入 `sourceType=gift` + `validityType=permanent` 的 lot；普通用户会参与 `gift_decay`，活跃会员期间因 `pauseGiftDecay=true` 不衰减；第 7 天按倍率发放。
+- `CreditsService.claimDailyReward` 现在会读取 `dailyRewardCredits`（免费）或当前会员套餐 `dailyGiftCredits`（活跃 VIP，且不叠加免费签到额度，含 `vip_69`），新签到积分统一写入 `sourceType=gift` + `validityType=permanent` 的 lot；普通用户会参与 `gift_decay`，活跃会员期间因 `pauseGiftDecay=true` 不衰减；第 7 天按倍率发放。
 - `ReferralService.getCheckInStatus/checkIn` 现仅作为前端推广页签到入口的兼容壳层，底层状态与发奖统一复用 `CreditsService.canClaimDailyReward/claimDailyReward`；自动签到与手动签到不再各自维护独立逻辑，避免同一天重复发放。
 - `CreditsService.adminAddCredits` 的正向加积分现已改为进入 `gift` 池，与定价策略“后台管理员操作积分视为赠送积分”一致。
 - 尚未接入的链路：
@@ -149,10 +149,10 @@
 - Pricing matrix: Fast `1K=30`; Pro `1K/2K/4K=90/100/170`; Ultra `0.5K/1K/2K/4K=30/50/70/110`.
 - This override is limited to Tencent channel requests and does not affect non-Tencent Banana routes.
 
-## 2026-04-12 VIP69 Daily Gift Guard
-- `vip_69` plan no longer participates in `membership_daily_gift` issuance.
-- Backend now force-normalizes `vip_69` `dailyGiftCredits` to `0` in plan create/update and subscription snapshot build.
-- Daily check-in for `vip_69` uses base policy credits (same source as free-tier check-in), avoiding duplicate "签到 + 会员每日赠送" behavior.
+## 2026-04-15 Membership Check-In Alignment
+- Frontend app entry no longer auto-claims daily reward on login/app bootstrap; users must manually check in.
+- Membership plan `dailyGiftCredits` is treated as the paid-tier daily check-in base credits, not an automatically issued daily gift quota.
+- `vip_69` is aligned with the same rule path as other paid tiers for check-in reward resolution.
 
 ## 2026-04-13 Pre-Deduct Idempotency
 - `CreditsService.preDeductCredits` now accepts `idempotencyKey` and optional `idempotencyWindowMs`.

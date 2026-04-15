@@ -20,22 +20,6 @@ import { useAuthStore } from '@/stores/authStore';
 import { useProjectStore } from '@/stores/projectStore';
 import Workspace from '@/pages/Workspace';
 import { initializeRuntimeStability } from '@/bootstrap/runtimeStability';
-import { claimDailyReward } from '@/services/adminApi';
-
-const DAILY_REWARD_RESET_HOUR = 3;
-const DAILY_REWARD_AUTO_CLAIM_KEY = 'daily_reward_auto_claim_key';
-
-function getDailyRewardBusinessDayKey(date: Date): string {
-  const anchor = new Date(date);
-  if (anchor.getHours() < DAILY_REWARD_RESET_HOUR) {
-    anchor.setDate(anchor.getDate() - 1);
-  }
-
-  const year = anchor.getFullYear();
-  const month = String(anchor.getMonth() + 1).padStart(2, '0');
-  const day = String(anchor.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
 
 function RootRoutes() {
   const user = useAuthStore((s) => s.user);
@@ -44,31 +28,6 @@ function RootRoutes() {
   useEffect(() => {
     if (user) loadProjects();
   }, [user, loadProjects]);
-
-  useEffect(() => {
-    if (!user?.id || typeof window === 'undefined') {
-      return;
-    }
-
-    const businessDayKey = getDailyRewardBusinessDayKey(new Date());
-    const dedupeKey = `${user.id}:${businessDayKey}`;
-    const claimedKey = window.sessionStorage.getItem(DAILY_REWARD_AUTO_CLAIM_KEY);
-    if (claimedKey === dedupeKey) {
-      return;
-    }
-
-    window.sessionStorage.setItem(DAILY_REWARD_AUTO_CLAIM_KEY, dedupeKey);
-    void claimDailyReward()
-      .then((result) => {
-        if (result?.success) {
-          window.dispatchEvent(new CustomEvent('refresh-credits'));
-        }
-      })
-      .catch((error) => {
-        console.warn('Auto claim daily reward failed:', error);
-        window.sessionStorage.removeItem(DAILY_REWARD_AUTO_CLAIM_KEY);
-      });
-  }, [user?.id]);
 
   return (
     <Routes>

@@ -59,6 +59,7 @@ try {
 const STALE_PENDING_DEFAULT_TIMEOUT_MINUTES = 15;
 const STALE_PENDING_DEFAULT_VIDEO_TIMEOUT_MINUTES = 30;
 const STALE_PENDING_VIDEO_REFUND_DEFAULT_CUTOVER_AT = '2026-03-28T00:00:00.000Z';
+const FREE_USAGE_QUOTA_DEFAULT_CUTOVER_AT = '2026-04-15T00:00:00.000Z';
 const STALE_PENDING_DEFAULT_BATCH_SIZE = 100;
 const PRE_DEDUCT_IDEMPOTENCY_DEFAULT_WINDOW_MS = 15_000;
 const PRE_DEDUCT_IDEMPOTENCY_MAX_WINDOW_MS = 120_000;
@@ -1058,7 +1059,7 @@ export class CreditsService {
 
       let baseCredits = policy.dailyRewardCredits;
 
-      if (tierCode !== 'free' && tierCode !== 'vip_69') {
+      if (tierCode !== 'free') {
         let membershipGiftCredits = 0;
         const activeSubscription = await client.userMembershipSubscription.findFirst({
           where: {
@@ -1559,6 +1560,37 @@ export class CreditsService {
     );
   }
 
+  private getFreeUsageQuotaCutoverAt(): Date | null {
+    const raw = process.env.FREE_USAGE_QUOTA_CUTOVER_AT;
+    const trimmed = raw?.trim();
+
+    if (trimmed) {
+      const normalized = trimmed.toLowerCase();
+      if (normalized === 'off' || normalized === 'none' || normalized === '0') {
+        return null;
+      }
+
+      const parsed = new Date(trimmed);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed;
+      }
+
+      this.logger.warn(
+        `Invalid FREE_USAGE_QUOTA_CUTOVER_AT=${trimmed}, fallback to default ${FREE_USAGE_QUOTA_DEFAULT_CUTOVER_AT}`,
+      );
+    }
+
+    const fallback = new Date(FREE_USAGE_QUOTA_DEFAULT_CUTOVER_AT);
+    if (Number.isNaN(fallback.getTime())) {
+      this.logger.warn(
+        `Invalid default free usage quota cutover date ${FREE_USAGE_QUOTA_DEFAULT_CUTOVER_AT}, disable cutover filter`,
+      );
+      return null;
+    }
+
+    return fallback;
+  }
+
   private async getFreeTierBenefitsSetting(): Promise<Record<string, unknown> | null> {
     const setting = await this.prisma.systemSetting.findUnique({
       where: { key: FREE_TIER_BENEFITS_SETTING_KEY },
@@ -1736,6 +1768,7 @@ export class CreditsService {
 
     const requestedCount = this.resolveImageQuotaRequestCount(requestedOutputImageCount);
     const now = new Date();
+    const quotaCutoverAt = this.getFreeUsageQuotaCutoverAt();
     const baseWhere: Prisma.ApiUsageRecordWhereInput = {
       userId,
       serviceType: { in: FREE_USER_IMAGE_LIMITED_SERVICES },
@@ -1744,10 +1777,12 @@ export class CreditsService {
 
     if (dailyLimit > 0) {
       const { start, end, label } = this.getUtcDayRange(now);
+      const effectiveStart =
+        quotaCutoverAt && quotaCutoverAt.getTime() > start.getTime() ? quotaCutoverAt : start;
       const usedCount = await this.countImageQuotaUsage(client, {
         ...baseWhere,
         createdAt: {
-          gte: start,
+          gte: effectiveStart,
           lt: end,
         },
       });
@@ -1757,17 +1792,19 @@ export class CreditsService {
           `免费用户日生图配额超限 userId=${userId} day=${label} used=${usedCount} requested=${requestedCount} limit=${dailyLimit}`,
         );
         throw new BadRequestException(
-          `免费额度已用尽，请前往充值，享有更多权限后可继续生成。免费用户每天最多可生图 ${dailyLimit} 张（UTC ${label}）。今日已使用 ${usedCount} 张，本次请求 ${requestedCount} 张。`,
+          `免费额度已用尽，请前往充值，享有更多权限后可继续生成。免费用户每天最多可使用图片能力 ${dailyLimit} 次（UTC ${label}）。今日已使用 ${usedCount} 次，本次请求 ${requestedCount} 次。`,
         );
       }
     }
 
     if (monthlyLimit > 0) {
       const { start, end, label } = this.getUtcMonthRange(now);
+      const effectiveStart =
+        quotaCutoverAt && quotaCutoverAt.getTime() > start.getTime() ? quotaCutoverAt : start;
       const usedCount = await this.countImageQuotaUsage(client, {
         ...baseWhere,
         createdAt: {
-          gte: start,
+          gte: effectiveStart,
           lt: end,
         },
       });
@@ -1777,7 +1814,7 @@ export class CreditsService {
           `免费用户月生图配额超限 userId=${userId} month=${label} used=${usedCount} requested=${requestedCount} limit=${monthlyLimit}`,
         );
         throw new BadRequestException(
-          `免费额度已用尽，请前往充值，享有更多权限后可继续生成。免费用户每月最多可生图 ${monthlyLimit} 张（UTC ${label}）。本月已使用 ${usedCount} 张，本次请求 ${requestedCount} 张。`,
+          `免费额度已用尽，请前往充值，享有更多权限后可继续生成。免费用户每月最多可使用图片能力 ${monthlyLimit} 次（UTC ${label}）。本月已使用 ${usedCount} 次，本次请求 ${requestedCount} 次。`,
         );
       }
     }
@@ -3769,7 +3806,8 @@ export class CreditsService {
   /**
    * 领取每日登录奖励
    * 签到积分统一进入 gift 池：普通用户会日衰减，活跃 VIP 因 pauseGiftDecay 不衰减
-   * 规则：按会员档位发放基础签到积分，连续签到第 7 天按倍率发放，断签或满 7 天后重置到第 1 天
+   * 规则：免费用户使用策略配置的签到积分；付费会员使用套餐 dailyGiftCredits 作为签到基础积分。
+   * 连续签到第 7 天按倍率发放，断签或满 7 天后重置到第 1 天，不走自动每日发放。
    */
   async claimDailyReward(userId: string): Promise<AddCreditsResult & {
     alreadyClaimed?: boolean;
