@@ -21,6 +21,7 @@ import {
   applyLotRestorationsToSnapshots,
   buildHybridCreditDeductionPlan,
   type HybridCreditDeduction,
+  type HybridCreditDeductionPlan,
 } from './credit-lot-ledger';
 import {
   hydrateCreditConsumePolicyRecord,
@@ -1678,15 +1679,17 @@ export class CreditsService {
     return client.apiUsageRecord.count({ where });
   }
 
-  private async isUsageQuotaExemptUser(
+  private async hasPrivilegedUsageQuotaAccess(
     client: PrismaService | Prisma.TransactionClient,
     userId: string,
   ): Promise<boolean> {
-    const [paidOrder, userProfile] = await Promise.all([
-      client.paymentOrder.findFirst({
+    const [activeMembership, userProfile] = await Promise.all([
+      client.userMembershipSubscription.findFirst({
         where: {
           userId,
-          status: 'paid',
+          status: 'active',
+          currentPeriodStartAt: { lte: new Date() },
+          currentPeriodEndAt: { gt: new Date() },
         },
         select: { id: true },
       }),
@@ -1696,9 +1699,53 @@ export class CreditsService {
       }),
     ]);
 
-    if (paidOrder) return true;
+    if (activeMembership) return true;
     const role = typeof userProfile?.role === 'string' ? userProfile.role.toLowerCase() : '';
     return role === 'admin' || role === 'normal_admin';
+  }
+
+  private isRechargeOnlyDeductionPlan(
+    params: {
+      lots: Array<{
+        id: string;
+        sourceType: string;
+      }>;
+      deductions: HybridCreditDeduction[];
+    },
+  ): boolean {
+    if (!Array.isArray(params.deductions) || params.deductions.length === 0) {
+      return false;
+    }
+
+    return params.deductions.every((deduction) => {
+      const matchedLot = params.lots.find((lot) => lot.id === deduction.lotId);
+      return matchedLot?.sourceType === 'recharge';
+    });
+  }
+
+  private async shouldSkipFreeUsageQuota(
+    client: PrismaService | Prisma.TransactionClient,
+    params: {
+      userId: string;
+      deductionPlan?: HybridCreditDeductionPlan;
+      activeLots?: Array<{
+        id: string;
+        sourceType: string;
+      }>;
+    },
+  ): Promise<boolean> {
+    if (await this.hasPrivilegedUsageQuotaAccess(client, params.userId)) {
+      return true;
+    }
+
+    if (!params.deductionPlan?.sufficient || !params.activeLots?.length) {
+      return false;
+    }
+
+    return this.isRechargeOnlyDeductionPlan({
+      lots: params.activeLots,
+      deductions: params.deductionPlan.deductions,
+    });
   }
 
   private async enforceFreeUserImageQuota(
@@ -1707,6 +1754,7 @@ export class CreditsService {
       userId: string;
       serviceType: ServiceType;
       requestedOutputImageCount?: number;
+      skipQuota?: boolean;
     },
   ): Promise<void> {
     const { userId, serviceType, requestedOutputImageCount } = params;
@@ -1715,9 +1763,7 @@ export class CreditsService {
 
     if (monthlyLimit <= 0 && dailyLimit <= 0) return;
     if (!this.isFreeUserImageQuotaService(serviceType)) return;
-
-    const isQuotaExemptUser = await this.isUsageQuotaExemptUser(client, userId);
-    if (isQuotaExemptUser) return;
+    if (params.skipQuota) return;
 
     const requestedCount = this.resolveImageQuotaRequestCount(requestedOutputImageCount);
     const now = new Date();
@@ -1773,6 +1819,7 @@ export class CreditsService {
     params: {
       userId: string;
       serviceType: ServiceType;
+      skipQuota?: boolean;
     },
   ): Promise<void> {
     const { userId, serviceType } = params;
@@ -1781,9 +1828,7 @@ export class CreditsService {
 
     if (dailyLimit <= 0 && monthlyLimit <= 0) return;
     if (!this.isFreeUserVideoQuotaService(serviceType)) return;
-
-    const isQuotaExemptUser = await this.isUsageQuotaExemptUser(client, userId);
-    if (isQuotaExemptUser) return;
+    if (params.skipQuota) return;
 
     const now = new Date();
     const baseWhere: Prisma.ApiUsageRecordWhereInput = {
@@ -2646,16 +2691,6 @@ export class CreditsService {
         }
       }
 
-      await this.enforceFreeUserImageQuota(tx, {
-        userId,
-        serviceType,
-        requestedOutputImageCount: outputImageCount,
-      });
-      await this.enforceFreeUserVideoQuota(tx, {
-        userId,
-        serviceType,
-      });
-
       const activeLots = await tx.creditLot.findMany({
         where: {
           accountId: account.id,
@@ -2693,6 +2728,27 @@ export class CreditsService {
           model: model ?? null,
         },
         policy: consumePolicy,
+      });
+
+      const skipFreeUsageQuota = await this.shouldSkipFreeUsageQuota(tx, {
+        userId,
+        deductionPlan,
+        activeLots: activeLots.map((lot) => ({
+          id: lot.id,
+          sourceType: lot.sourceType,
+        })),
+      });
+
+      await this.enforceFreeUserImageQuota(tx, {
+        userId,
+        serviceType,
+        requestedOutputImageCount: outputImageCount,
+        skipQuota: skipFreeUsageQuota,
+      });
+      await this.enforceFreeUserVideoQuota(tx, {
+        userId,
+        serviceType,
+        skipQuota: skipFreeUsageQuota,
       });
 
       if (!deductionPlan.sufficient) {
