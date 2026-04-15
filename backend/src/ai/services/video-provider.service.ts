@@ -1555,8 +1555,12 @@ export class VideoProviderService {
       return { status: "processing" };
     }
 
-    const route = await this.modelRoutingService.resolveVideoModel(parsed.modelKey);
-    if (!route || route.vendor.vendorKey !== parsed.vendorKey || !this.shouldUseManagedV2RequestProfile(route)) {
+    const route = await this.modelRoutingService.resolveVideoModelByVendor(
+      parsed.modelKey,
+      parsed.vendorKey,
+      { includeDisabled: true },
+    );
+    if (!route || !this.shouldUseManagedV2RequestProfile(route)) {
       throw new ServiceUnavailableException(`未找到 V2 任务配置: ${parsed.modelKey}/${parsed.vendorKey}`);
     }
 

@@ -1184,6 +1184,64 @@ export class ModelRoutingService {
     return selected || null;
   }
 
+  async resolveVideoModelByVendor(
+    modelKey: string,
+    vendorKey: string,
+    options?: { includeDisabled?: boolean },
+  ): Promise<ResolvedManagedModelRoute | null> {
+    const normalizedKey = typeof modelKey === 'string' ? modelKey.trim() : '';
+    const normalizedVendorKey = typeof vendorKey === 'string' ? vendorKey.trim() : '';
+    if (!normalizedKey || !normalizedVendorKey) return null;
+
+    const config = await this.getParsedConfig();
+    const models = Array.isArray(config.models) ? config.models : [];
+    const platforms = Array.isArray(config.platforms) ? config.platforms.filter(Boolean) : [];
+    const platformMap = new Map(
+      platforms
+        .filter((item) => typeof item.platformKey === 'string' && item.platformKey.trim())
+        .map((item) => [item.platformKey.trim(), item] as const),
+    );
+    const model = models.find(
+      (item) =>
+        item &&
+        item.enabled !== false &&
+        typeof item.modelKey === 'string' &&
+        item.modelKey.trim() === normalizedKey,
+    );
+    if (!model) return null;
+
+    const vendors = Array.isArray(model.vendors) ? model.vendors.filter(Boolean) : [];
+    const vendor = vendors.find(
+      (item) =>
+        item &&
+        typeof item.vendorKey === 'string' &&
+        item.vendorKey.trim() === normalizedVendorKey &&
+        (options?.includeDisabled === true || item.enabled !== false),
+    );
+    if (!vendor) return null;
+
+    const platform =
+      vendor.platformKey && platformMap.has(vendor.platformKey)
+        ? platformMap.get(vendor.platformKey)
+        : null;
+    const mergedVendor: ManagedModelVendorConfig = {
+      ...vendor,
+      label: vendor.label || platform?.platformName || vendor.vendorKey,
+      route: vendor.route || platform?.route || 'legacy',
+      provider: vendor.provider || platform?.provider || '',
+      metadata: {
+        ...(platform?.metadata && typeof platform.metadata === 'object' ? platform.metadata : {}),
+        ...(vendor.metadata && typeof vendor.metadata === 'object' ? vendor.metadata : {}),
+      },
+    };
+
+    return {
+      model,
+      vendor: mergedVendor,
+      route: mergedVendor.route === 'tencent_vod' ? 'tencent_vod' : 'legacy',
+    };
+  }
+
   async resolveVideoModelCandidates(
     modelKey: string,
     preferredVendorKey?: string,
