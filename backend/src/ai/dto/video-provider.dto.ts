@@ -18,7 +18,7 @@ export class VideoProviderRequestDto {
   @ApiProperty({ description: 'Prompt', required: false })
   @IsOptional()
   @IsString()
-  @MaxLength(2500)
+  @MaxLength(5000)
   prompt?: string;
 
   @ApiProperty({ description: 'Reference image URL list', required: false, type: [String] })

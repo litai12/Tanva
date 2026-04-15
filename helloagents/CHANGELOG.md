@@ -44,6 +44,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- Backend/Video Provider: 统一放宽视频生成接口 `VideoProviderRequestDto.prompt` 校验上限，从 `2500` 提升到 `5000` 字符，覆盖 Seedance/Kling/Vidu 共用链路（`backend/src/ai/dto/video-provider.dto.ts`）。
 - Membership/Credits: removed frontend auto check-in at app bootstrap. Daily reward now requires an explicit user check-in action, and paid-tier `dailyGiftCredits` is defined as the member's daily check-in credit amount rather than an automatically issued daily grant.
 - Credits Detail UI: `My Credits` transaction list and Admin `细分积分明细` now show `模型` under each record item, using API usage model when available and `--` fallback when absent.
 - AI Analyze/Text defaults: `ai.controller` now defaults text/analyze model to `gemini-3.1-pro`, while `banana-2.5` analyze keeps `gemini-2.5-flash-image-preview`; Banana image-analyze adds quota-aware fast fallback (`3.1-pro -> 3-pro-image -> 2.5`) and stops same-model retries on explicit 429/quota errors.
