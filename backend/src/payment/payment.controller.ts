@@ -78,7 +78,7 @@ export class PaymentController {
   @UseGuards(JwtAuthGuard)
   async getPackages() {
     const creditsPerYuan = 100;
-    const amounts = [10, 30, 50, 100, 200, 500];
+    const amounts = [10, 50, 100, 200, 500, 1000];
 
     const packages = amounts.map((price) => ({
       price,

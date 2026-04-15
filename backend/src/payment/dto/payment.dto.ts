@@ -55,11 +55,11 @@ export interface PaymentStatusResponse {
 // 充值套餐配置
 export const RECHARGE_PACKAGES = [
   { price: 10, credits: 1000, bonus: null, tag: null },
-  { price: 30, credits: 3000, bonus: null, tag: null },
   { price: 50, credits: 5000, bonus: null, tag: null },
   { price: 100, credits: 10000, bonus: null, tag: null },
   { price: 200, credits: 20000, bonus: null, tag: null },
   { price: 500, credits: 50000, bonus: null, tag: null },
+  { price: 1000, credits: 100000, bonus: null, tag: null },
 ];
 
 // 积分兑换比例：1元 = 100积分
