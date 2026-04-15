@@ -31,10 +31,13 @@
 - `GET usage`
 - `POST admin/add` / `POST admin/deduct`（需要管理员角色）
 
-## 免费用户生成配额（按“本次请求的积分来源”判定）
-- 适用对象：普通用户默认受限；`admin/normal_admin` 与活跃会员仍豁免。
-- 若本次请求可完全由 `sourceType=recharge` 的 lot 覆盖，则不走免费生图/生视频配额限制。
-- 若本次请求仍需消耗免费/月卡/赠送等非充值积分，则继续受免费配额限制。
+## 免费用户生成配额（按“用户是否已付费/白名单”判定）
+- 适用对象：普通免费用户受限。
+- 以下用户不走免费生图/生视频配额限制：
+  - 任意存在 `paymentOrder.status=paid` 的用户
+  - 活跃会员
+  - 白名单用户（`user.noWatermark=true`）
+  - `admin/normal_admin`
 - 生图上限：
   - 每天最多 `20` 张（UTC 日）
   - 每月最多 `100` 张（UTC 月）
