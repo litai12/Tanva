@@ -5,6 +5,9 @@ All notable changes to this knowledge base will be documented in this file.
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning (knowledge-base versioning).
 
 ## [Unreleased]
+### Fixed
+- Video Provider: 修复 `viduq3-pro` 在收到 `reference2video` 请求时错误回退到 `text2video` 的问题。后端现已补齐 Q3 的 `reference2video` 模式推断、endpoint 映射和 payload 组装，避免“明明传了 prompt 却被上游报 text_video 缺少 prompt”。
+
 ### Added
 - Flow/Analysis: analysis node now has an independent Fast/Pro/Ultra model switch (node-local state), and no longer mutates global aiProvider.
 - Flow/Analysis: analysis requests are pinned to Banana normal route in-node, so global normal/stable channel switching does not affect analysis execution.

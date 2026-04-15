@@ -3172,9 +3172,9 @@ export class VideoProviderService {
       if (imageCount === 0) {
         videoMode = "text2video";
       } else if (imageCount === 1) {
-        videoMode = "img2video";
+        videoMode = hasPrompt ? "reference2video" : "img2video";
       } else if (imageCount === 2) {
-        videoMode = "start-end2video";
+        videoMode = hasPrompt ? "reference2video" : "start-end2video";
       } else if (imageCount === 3) {
         videoMode = "start-mid-end2video";
       } else {
@@ -3186,6 +3186,7 @@ export class VideoProviderService {
       "img2video": "https://models.kapon.cloud/vidu/ent/v2/img2video",
       "start-end2video": "https://models.kapon.cloud/vidu/ent/v2/start-end2video",
       "start-mid-end2video": "https://models.kapon.cloud/vidu/ent/v2/start-mid-end2video",
+      "reference2video": "https://models.kapon.cloud/vidu/ent/v2/reference2video",
       "text2video": "https://models.kapon.cloud/vidu/ent/v2/text2video",
     };
     const endpoint = endpointMap[videoMode] || endpointMap["text2video"];
@@ -3222,6 +3223,15 @@ export class VideoProviderService {
       payload.duration = options.duration || 5;
       payload.resolution = options.resolution || "720p";
       payload.aspect_ratio = options.aspectRatio || "16:9";
+    } else if (videoMode === "reference2video") {
+      if (!options.prompt) {
+        throw new Error("参考生视频模式需要提供 prompt 参数");
+      }
+      payload.model = "viduq3-pro";
+      payload.images = preparedReferenceImages.slice(0, 7);
+      payload.prompt = options.prompt;
+      payload.duration = options.duration || 5;
+      payload.resolution = options.resolution || "720p";
     }
 
     payload.aspect_ratio = options.aspectRatio || "16:9";
