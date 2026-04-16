@@ -76,55 +76,67 @@ const FREE_FEATURES: string[] = [
   "支持：有限技术支持",
 ];
 
-function vipFeatureLines(plan: PaymentMembershipPlan): { main: string[]; accent: string[] } {
-  const key = tierKeyFromPlan(plan);
-  const bonusPct = key === "69" ? "5%" : key === "199" ? "10%" : key === "599" ? "15%" : "—";
+function getPlanMetadataObject(metadata?: Record<string, any> | null): Record<string, any> {
+  return metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata : {};
+}
+
+function splitBenefitText(value: unknown): string[] {
+  if (typeof value !== "string") return [];
+  return value
+    .split(/\r?\n|[；;]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function buildPlanCreditsSummary(plan: PaymentMembershipPlan): string {
   const total = plan.monthlyQuotaCredits + plan.signupBonusCredits;
+  return `套餐积分 ${plan.monthlyQuotaCredits} + 开通赠送 ${plan.signupBonusCredits}，合计到账 ${total}`;
+}
 
-  const main = [
-    `月卡积分（固定刷新）${plan.monthlyQuotaCredits} + 档位赠送 ${plan.signupBonusCredits}，合计到账 ${total}（赠送比例 ${bonusPct}）`,
-  ];
+function buildPlanQuotaDetail(plan: PaymentMembershipPlan): string {
+  return `${plan.billingCycle === "yearly" ? "年卡" : "月卡"}配额 ${plan.monthlyQuotaCredits}（按当前会员周期刷新）· 开通赠送 ${plan.signupBonusCredits}`;
+}
 
-  const accent =
-    key === "69"
-      ? [
-          "去水印",
-          "Seedance 2 权益",
-          "积分不衰减",
-          "每日签到 50 积分（连续签到 7 天 3 倍当日）",
-          "模板库：全部开放",
-          "邀请上限 20",
-          "支持：官方支持",
-        ]
-      : key === "199"
-        ? [
-            "去水印",
-            "Seedance 2 权益",
-            "积分不衰减",
-            "每日签到 100 积分（连续签到 7 天 3 倍当日）",
-            "模板库：全部开放",
-            "邀请上限 40",
-            "支持：官方 24 小时支持",
-          ]
-        : key === "599"
-          ? [
-              "去水印",
-              "Seedance 2 权益",
-              "积分不衰减",
-              "每日签到 150 积分（连续签到 7 天 3 倍当日）",
-              "模板库：全部开放",
-              "邀请上限 100",
-              "支持：CEO 直接支持",
-            ]
-          : [
-              "去水印",
-              "Seedance 2 权益",
-              "积分不衰减",
-              "签到与模板权益以账户策略为准",
-              "邀请与支持等级以账户策略为准",
-            ];
+function vipFeatureLines(plan: PaymentMembershipPlan): { main: string[]; accent: string[] } {
+  const metadata = getPlanMetadataObject(plan.metadata);
+  const main = [buildPlanCreditsSummary(plan), ...splitBenefitText(metadata.coreBenefits)];
+  const accent: string[] = [];
 
-  return { main, accent };
+  if (metadata.seedance2Access === "enabled") {
+    accent.push("Seedance 2 权益：支持");
+  }
+
+  if (typeof metadata.templateLibraryAccess === "string" && metadata.templateLibraryAccess.trim()) {
+    accent.push(`模板库：${metadata.templateLibraryAccess.trim()}`);
+  }
+
+  const inviteLimit = metadata.inviteLimit;
+  if (typeof inviteLimit === "number" && Number.isFinite(inviteLimit)) {
+    accent.push(`邀请上限：${Math.trunc(inviteLimit)}`);
+  } else if (typeof inviteLimit === "string" && inviteLimit.trim()) {
+    accent.push(`邀请上限：${inviteLimit.trim()}`);
+  }
+
+  if (typeof metadata.supportLevel === "string" && metadata.supportLevel.trim()) {
+    accent.push(`支持：${metadata.supportLevel.trim()}`);
+  }
+
+  if (typeof plan.dailyGiftCredits === "number" && plan.dailyGiftCredits > 0) {
+    accent.push(`每日赠送：${plan.dailyGiftCredits} 积分`);
+  }
+
+  if (metadata.pauseGiftDecay === true) {
+    accent.push("赠送积分：不衰减");
+  }
+
+  if (accent.length === 0) {
+    accent.push("具体会员权益以账户当前生效策略为准");
+  }
+
+  return {
+    main: Array.from(new Set(main)),
+    accent: Array.from(new Set(accent)),
+  };
 }
 
 const TIER_SERIF_LABEL: Record<string, string> = {
@@ -782,7 +794,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                               isWhite ? "text-slate-500" : "text-zinc-500",
                             )}
                           >
-                            月卡 {plan.monthlyQuotaCredits}（30 天刷新）· 开通赠送 {plan.signupBonusCredits}
+                            {buildPlanQuotaDetail(plan)}
                           </div>
                         </div>
 
@@ -915,8 +927,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                           {selectedPlan ? (
                             <div className={cn("mt-2 text-xs", isWhite ? "text-slate-500" : "text-zinc-500")}>
                               合计 {selectedPlan.monthlyQuotaCredits + selectedPlan.signupBonusCredits} 积分 ·{" "}
-                              {selectedPlan.billingCycle === "yearly" ? "年卡" : "月卡"} {selectedPlan.monthlyQuotaCredits}
-                              （30 天刷新）· 开通赠送 {selectedPlan.signupBonusCredits}
+                              {buildPlanQuotaDetail(selectedPlan)}
                             </div>
                           ) : null}
                         </div>
