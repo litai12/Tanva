@@ -122,6 +122,17 @@ function checkoutPlanDisplayTitle(plan: PaymentMembershipPlan): string {
   return plan.code || "—";
 }
 
+function isRecommendedPlan(plan: PaymentMembershipPlan): boolean {
+  const code = normPlanCode(plan.code);
+  const name = (plan.name || "").trim().toLowerCase();
+  return plan.sortOrder === 20 || code.includes("199") || name.includes("专业");
+}
+
+function isDailyCreationPlan(plan: PaymentMembershipPlan): boolean {
+  const name = (plan.name || "").trim().toLowerCase();
+  return name.includes("日常");
+}
+
 /** 套餐卡默认统一最小高度（免费 + 各档付费、选中/未选中一致，与视觉稿对齐） */
 const PLAN_CARD_MIN_H = "min-h-[520px] sm:min-h-[550px] lg:min-h-[580px] xl:min-h-[600px]";
 
@@ -579,10 +590,11 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                       "relative flex min-h-0 min-w-0 flex-col rounded-2xl border p-4 sm:p-5 xl:p-4",
                       PLAN_CARD_MIN_H,
                       isWhite
-                        ? "border-slate-200 bg-white shadow-[0_12px_24px_rgba(15,23,42,0.08)]"
-                        : "border-zinc-800/70 bg-[#0f0f18] shadow-[0_8px_32px_rgba(0,0,0,0.5)]",
+                        ? "border-[#E8C547]/60 bg-white shadow-[0_0_24px_-14px_rgba(232,197,71,0.4),0_12px_24px_rgba(15,23,42,0.08)]"
+                        : "border-[#E8C547]/55 bg-[#0f0f18] shadow-[0_0_28px_-14px_rgba(232,197,71,0.35),0_8px_32px_rgba(0,0,0,0.5)]",
                       isFreeUser && "ring-1 ring-[#C9A227]/25",
-                      !isFreeUser && (isWhite ? "hover:border-slate-300" : "hover:border-zinc-700"),
+                      !isFreeUser &&
+                        (isWhite ? "hover:border-[#E8C547]/80" : "hover:border-[#E8C547]/75"),
                     )}
                   >
                     <div className="flex items-center gap-2.5">
@@ -654,6 +666,8 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                     const confirmedActive = active && userConfirmedPlan;
                     const tierTitle = plan.name;
                     const { main, accent } = vipFeatureLines(plan);
+                    const isRecommended = isRecommendedPlan(plan);
+                    const isDailyCreation = !isRecommended && isDailyCreationPlan(plan);
                     const billingLabel = plan.billingCycle === "yearly" ? "年费套餐 · 在月付价基础上 8 折" : "月费套餐";
                     const equivMonthly =
                       plan.billingCycle === "yearly" && plan.price > 0
@@ -671,12 +685,24 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                             ? "bg-white shadow-[0_12px_24px_rgba(15,23,42,0.08)]"
                             : "bg-[#0f0f18] shadow-[0_8px_32px_rgba(0,0,0,0.5)]",
                           active
-                            ? isWhite
-                              ? "border-[#8E86F5]/45 shadow-[0_0_30px_-12px_rgba(142,134,245,0.5),inset_0_0_0_1px_rgba(182,195,249,0.24)]"
-                              : "border-[#8E86F5]/70 shadow-[0_0_40px_-12px_rgba(142,134,245,0.6),inset_0_0_0_1.5px_rgba(142,134,245,0.3)]"
-                            : isWhite
-                              ? "border-slate-200 hover:border-slate-300"
-                              : "border-zinc-800/60 hover:border-zinc-700",
+                            ? isDailyCreation
+                              ? isWhite
+                                ? "border-emerald-300/75 shadow-[0_0_22px_-14px_rgba(16,185,129,0.35),inset_0_0_0_1px_rgba(16,185,129,0.16)]"
+                                : "border-emerald-300/70 shadow-[0_0_28px_-14px_rgba(16,185,129,0.35),inset_0_0_0_1px_rgba(16,185,129,0.2)]"
+                              : isWhite
+                                ? "border-[#8E86F5]/45 shadow-[0_0_30px_-12px_rgba(142,134,245,0.5),inset_0_0_0_1px_rgba(182,195,249,0.24)]"
+                                : "border-[#8E86F5]/70 shadow-[0_0_40px_-12px_rgba(142,134,245,0.6),inset_0_0_0_1.5px_rgba(142,134,245,0.3)]"
+                            : isRecommended
+                              ? isWhite
+                                ? "border-[#8E86F5]/60 shadow-[0_0_24px_-14px_rgba(142,134,245,0.38)] hover:border-[#8E86F5]/80"
+                                : "border-[#8E86F5]/65 shadow-[0_0_28px_-14px_rgba(142,134,245,0.38)] hover:border-[#8E86F5]/80"
+                              : isDailyCreation
+                                ? isWhite
+                                  ? "border-emerald-200/85 shadow-[0_0_18px_-16px_rgba(16,185,129,0.22)] hover:border-emerald-300/85"
+                                  : "border-emerald-300/45 shadow-[0_0_22px_-16px_rgba(16,185,129,0.22)] hover:border-emerald-300/65"
+                                : isWhite
+                                  ? "border-slate-200 hover:border-slate-300"
+                                  : "border-zinc-800/60 hover:border-zinc-700",
                           current?.plan?.code &&
                             plan.code === current.plan.code &&
                             current?.entitlement?.membershipStatus === "active"
@@ -684,7 +710,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                             : null,
                         )}
                       >
-                        {plan.sortOrder === 20 ? (
+                        {isRecommended ? (
                           <div className="absolute right-3 top-3 rounded-full bg-gradient-to-r from-[#8E86F5] to-[#9aa8ef] px-2.5 py-0.5 text-[10px] font-semibold text-white shadow-lg shadow-violet-950/60">
                             最受欢迎
                           </div>
