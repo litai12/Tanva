@@ -27,6 +27,7 @@ import {
   flowNodeShellChrome,
   useFlowNodeDarkTheme,
 } from './flowNodeDarkTheme';
+import { useFlowRenderMode } from '../FlowRenderModeContext';
 
 // 类型定义
 type SplitRectItem = {
@@ -75,6 +76,7 @@ const CanvasCropPreview = React.memo(({
   sourceWidth?: number;
   sourceHeight?: number;
 }) => {
+  const { lowDetailMode } = useFlowRenderMode();
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const [size, setSize] = React.useState<{ w: number; h: number }>({ w: 0, h: 0 });
@@ -106,6 +108,7 @@ const CanvasCropPreview = React.memo(({
   }, []);
 
   React.useEffect(() => {
+    if (lowDetailMode) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -163,7 +166,30 @@ const CanvasCropPreview = React.memo(({
     };
     img.onerror = drawPlaceholder;
     img.src = src;
-  }, [rect.height, rect.width, rect.x, rect.y, size.h, size.w, sourceHeight, sourceWidth, src]);
+  }, [
+    rect.height,
+    rect.width,
+    rect.x,
+    rect.y,
+    size.h,
+    size.w,
+    sourceHeight,
+    sourceWidth,
+    lowDetailMode,
+    src,
+  ]);
+
+  if (lowDetailMode) {
+    return (
+      <div
+        style={{
+          width: '100%',
+          height: '100%',
+          background: '#e5e7eb',
+        }}
+      />
+    );
+  }
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%' }}>

@@ -559,9 +559,10 @@ const GEMINI_PRO_IMAGE_MODEL = "gemini-3-pro-image-preview";
 const GEMINI_FLASH_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
 const DEFAULT_TEXT_MODEL = "gemini-3-flash-preview";
 const GEMINI_PRO_TEXT_MODEL = "gemini-3-flash-preview";
-const BANANA_TEXT_MODEL = "gemini-3-flash-preview";
+const BANANA_PRO_TEXT_MODEL = "gemini-3-pro-preview";
 const BANANA_25_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
-const BANANA_25_TEXT_MODEL = "gemini-3-flash-preview";
+const BANANA_25_TEXT_MODEL = "gemini-2.5-flash";
+const BANANA_31_TEXT_MODEL = "gemini-3.1-pro-preview";
 const BANANA_31_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
 const SEEDREAM5_IMAGE_MODEL = "doubao-seedream-5-0-260128";
 export const SORA2_VIDEO_MODELS = {
@@ -929,12 +930,12 @@ export const getAnalyzeModelForProvider = (
 const TEXT_MODEL_BY_PROVIDER: Record<AIProviderType, string> = {
   gemini: DEFAULT_TEXT_MODEL,
   "gemini-pro": GEMINI_PRO_TEXT_MODEL,
-  banana: BANANA_TEXT_MODEL,
+  banana: BANANA_PRO_TEXT_MODEL,
   "banana-2.5": BANANA_25_TEXT_MODEL,
-  "banana-3.1": BANANA_TEXT_MODEL,
+  "banana-3.1": BANANA_31_TEXT_MODEL,
   runninghub: DEFAULT_TEXT_MODEL,
   midjourney: DEFAULT_TEXT_MODEL,
-  nano2: DEFAULT_TEXT_MODEL,
+  nano2: BANANA_31_TEXT_MODEL,
   seedream5: DEFAULT_TEXT_MODEL,
 };
 
@@ -7136,6 +7137,7 @@ export const useAIChatStore = create<AIChatState>()(
             hasCachedImage: !!cachedImage, // 单独标记是否有缓存图片
             availableTools: availableToolsForSelection,
             aiProvider: state.aiProvider,
+            model: getTextModelForProvider(state.aiProvider),
             context: toolSelectionContext,
           };
 
@@ -7653,6 +7655,7 @@ export const useAIChatStore = create<AIChatState>()(
                 hasCachedImage: !!cachedImage,
                 availableTools: availableToolsForSelection,
                 aiProvider: state.aiProvider,
+                model: getTextModelForProvider(state.aiProvider),
                 context: toolSelectionContext,
               };
 

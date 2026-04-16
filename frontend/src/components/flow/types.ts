@@ -62,6 +62,7 @@ export type TextChatData = {
   manualInput?: string;
   enableWebSearch?: boolean;
   error?: string;
+  modelProvider?: 'banana-2.5' | 'banana' | 'banana-3.1';
 };
 
 export type StoryboardSplitStatus = 'idle' | 'succeeded' | 'failed';

@@ -20,6 +20,7 @@ import {
   flowNodeWellOutlineBorder,
   useFlowNodeDarkTheme,
 } from './flowNodeDarkTheme';
+import { useFlowRenderMode } from '../FlowRenderModeContext';
 
 type Props = {
   id: string;
@@ -74,9 +75,11 @@ function InputImageCropThumb({
   src: string;
   crop: CropInfo;
 }) {
+  const { lowDetailMode } = useFlowRenderMode();
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
 
   React.useEffect(() => {
+    if (lowDetailMode) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -148,7 +151,29 @@ function InputImageCropThumb({
     return () => {
       cancelled = true;
     };
-  }, [crop.rect.height, crop.rect.width, crop.rect.x, crop.rect.y, crop.sourceHeight, crop.sourceWidth, src]);
+  }, [
+    crop.rect.height,
+    crop.rect.width,
+    crop.rect.x,
+    crop.rect.y,
+    crop.sourceHeight,
+    crop.sourceWidth,
+    lowDetailMode,
+    src,
+  ]);
+
+  if (lowDetailMode) {
+    return (
+      <div
+        style={{
+          display: 'block',
+          width: 44,
+          height: 44,
+          background: '#e5e7eb',
+        }}
+      />
+    );
+  }
 
   return <canvas ref={canvasRef} style={{ display: 'block', width: 44, height: 44 }} />;
 }

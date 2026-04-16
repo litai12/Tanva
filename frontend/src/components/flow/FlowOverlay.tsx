@@ -180,6 +180,10 @@ import { normalizeWheelDelta, computeSmoothZoom } from "@/lib/zoomUtils";
 import type { AIImageGenerateRequest, AIImageResult } from "@/types/ai";
 import MiniMapImageOverlay from "./MiniMapImageOverlay";
 import PersonalLibraryPanel from "./PersonalLibraryPanel";
+import {
+  FlowRenderModeProvider,
+  type FlowRenderMode,
+} from "./FlowRenderModeContext";
 import { resolveTextFromSourceNode } from "./utils/textSource";
 import { sanitizeFlowTextForMidjourneyV7 } from "./utils/mjV7PromptSanitize";
 import { useLocaleText } from "@/utils/localeText";
@@ -212,6 +216,9 @@ const FLOW_EDGE_COLOR_BY_KIND = {
 const FLOW_AUTO_VISIBLE_RENDER_NODE_THRESHOLD = 31;
 const FLOW_AUTO_DISABLE_SNAP_NODE_THRESHOLD = 51;
 const FLOW_AUTO_HIDE_MINIMAP_IMAGE_OVERLAY_NODE_THRESHOLD = 81;
+const FLOW_LOW_DETAIL_NODE_THRESHOLD = 31;
+const FLOW_LOW_DETAIL_ENTER_ZOOM = 0.4;
+const FLOW_LOW_DETAIL_EXIT_ZOOM = 0.45;
 
 const getEdgeHandleKind = (
   handle?: string | null
@@ -5064,6 +5071,8 @@ function FlowInner() {
     []
   );
 
+  const flowPasteKeepLinksRef = React.useRef(false);
+
   const handleCopyFlow = React.useCallback(() => {
     const allNodes = rf.getNodes();
     const selectedNodes = allNodes.filter((node: any) => node.selected);
@@ -5081,13 +5090,19 @@ function FlowInner() {
       preserveImagePayload: true,
     });
     const selectedIds = new Set(selectedNodes.map((node: any) => node.id));
-    const relatedEdges = rf
-      .getEdges()
+    const allEdges = rf.getEdges();
+    const relatedEdges = allEdges
       .filter(
         (edge: any) =>
           selectedIds.has(edge.source) && selectedIds.has(edge.target)
       );
+    const linkedEdges = allEdges.filter((edge: any) => {
+      const sourceSelected = selectedIds.has(edge.source);
+      const targetSelected = selectedIds.has(edge.target);
+      return sourceSelected !== targetSelected;
+    });
     const edgeSnapshots = rfEdgesToTplEdges(relatedEdges);
+    const linkedEdgeSnapshots = rfEdgesToTplEdges(linkedEdges);
 
     const minX = Math.min(
       ...selectedNodes.map((node: any) => node.position?.x ?? 0)
@@ -5099,6 +5114,7 @@ function FlowInner() {
     clipboardService.setFlowData({
       nodes: nodeSnapshots,
       edges: edgeSnapshots,
+      linkedEdges: linkedEdgeSnapshots,
       origin: { x: minX, y: minY },
     });
     return true;
@@ -5109,16 +5125,20 @@ function FlowInner() {
     buildCanvasClipboardFromFlowNodes,
   ]);
 
-  const handlePasteFlow = React.useCallback(() => {
+  const handlePasteFlow = React.useCallback((options?: { preserveLinkedEdges?: boolean }) => {
     const payload = clipboardService.getFlowData();
     if (!payload || !Array.isArray(payload.nodes) || payload.nodes.length === 0)
       return false;
+    const preserveLinkedEdges = options?.preserveLinkedEdges === true;
 
     const OFFSET = 40;
     const idMap = new Map<string, string>();
     payload.nodes.forEach((node) => {
       idMap.set(node.id, generateId(node.type || "n"));
     });
+    const existingNodeIds = new Set(
+      (rf.getNodes?.() || []).map((node: any) => String(node.id))
+    );
 
     const legacyChildrenByGroupOldId = new Map<string, string[]>();
     payload.nodes.forEach((node: any) => {
@@ -5166,19 +5186,55 @@ function FlowInner() {
 
     if (!newNodes.length) return false;
 
-    const newEdges = (payload.edges || [])
+    const edgeSnapshots = Array.isArray(payload.edges) ? payload.edges : [];
+    const linkedEdgeSnapshots =
+      preserveLinkedEdges && Array.isArray((payload as any).linkedEdges)
+        ? ((payload as any).linkedEdges as TemplateEdge[])
+        : [];
+    const mapEdgeSnapshot = (
+      edge: TemplateEdge,
+      allowExternalEndpoint: boolean
+    ): Edge | null => {
+      const mappedSource = idMap.get(edge.source);
+      const mappedTarget = idMap.get(edge.target);
+      const source = mappedSource ?? (allowExternalEndpoint ? edge.source : undefined);
+      const target = mappedTarget ?? (allowExternalEndpoint ? edge.target : undefined);
+      if (!source || !target) return null;
+      if (!mappedSource && !existingNodeIds.has(String(source))) return null;
+      if (!mappedTarget && !existingNodeIds.has(String(target))) return null;
+      if (!mappedSource && !mappedTarget) return null;
+      return {
+        source,
+        target,
+        sourceHandle: edge.sourceHandle,
+        targetHandle: normalizeFlowTargetHandle(edge.targetHandle),
+        type: edge.type || "default",
+        label: edge.label,
+      } as Edge;
+    };
+    const dedupeKeys = new Set<string>();
+    const newEdges = [
+      ...edgeSnapshots.map((edge) => mapEdgeSnapshot(edge, false)),
+      ...linkedEdgeSnapshots.map((edge) => mapEdgeSnapshot(edge, true)),
+    ]
+      .filter(Boolean)
+      .filter((edge) => {
+        const key = [
+          edge.source,
+          edge.target,
+          edge.sourceHandle || "",
+          edge.targetHandle || "",
+          edge.type || "default",
+          typeof edge.label === "string" ? edge.label : "",
+        ].join("|");
+        if (dedupeKeys.has(key)) return false;
+        dedupeKeys.add(key);
+        return true;
+      })
       .map((edge) => {
-        const source = idMap.get(edge.source);
-        const target = idMap.get(edge.target);
-        if (!source || !target) return null;
         return {
+          ...edge,
           id: generateId("e"),
-          source,
-          target,
-          sourceHandle: edge.sourceHandle,
-          targetHandle: normalizeFlowTargetHandle(edge.targetHandle),
-          type: edge.type || "default",
-          label: edge.label,
         } as any;
       })
       .filter(Boolean) as Edge[];
@@ -5194,7 +5250,7 @@ function FlowInner() {
       historyService.commit("flow-paste").catch(() => {});
     } catch {}
     return true;
-  }, [sanitizeNodeData, setEdges, setNodes]);
+  }, [sanitizeNodeData, setEdges, setNodes, rf]);
 
   // Flow 复制：写入系统剪贴板（覆盖系统截图内容），以便粘贴时能优先恢复节点而非图片
   React.useEffect(() => {
@@ -5319,8 +5375,10 @@ function FlowInner() {
         ) {
           clipboardService.setActiveZone("flow");
         } else {
+          flowPasteKeepLinksRef.current = false;
           return;
         }
+        flowPasteKeepLinksRef.current = !!event.shiftKey;
         // 粘贴逻辑改为在 clipboard/paste 事件中处理，以便检测剪贴板里是否有图片
         return;
       }
@@ -5380,6 +5438,8 @@ function FlowInner() {
   // 只在剪贴板中没有图片/文件时才接管 Flow 的粘贴，避免阻止画布粘贴图片
   React.useEffect(() => {
     const handlePaste = (event: ClipboardEvent) => {
+      const preserveLinkedEdges = flowPasteKeepLinksRef.current || !!event.shiftKey;
+      flowPasteKeepLinksRef.current = false;
       if (event.defaultPrevented) return;
 
       const active = document.activeElement as Element | null;
@@ -5415,7 +5475,7 @@ function FlowInner() {
               : null;
           if (flowPayload) {
             clipboardService.setFlowData(flowPayload);
-            const handled = handlePasteFlow();
+            const handled = handlePasteFlow({ preserveLinkedEdges });
             if (handled) {
               event.preventDefault();
               event.stopPropagation();
@@ -5435,7 +5495,7 @@ function FlowInner() {
 
       // 优先粘贴 Flow 内部剪贴板数据；避免被系统 image/file 项拦截
       {
-        const handled = handlePasteFlow();
+        const handled = handlePasteFlow({ preserveLinkedEdges });
         if (handled) {
           event.preventDefault();
           event.stopPropagation();
@@ -5455,7 +5515,7 @@ function FlowInner() {
         : false;
       if (hasFileOrImage) return;
 
-      const handled = handlePasteFlow();
+      const handled = handlePasteFlow({ preserveLinkedEdges });
       if (handled) {
         event.preventDefault();
         event.stopPropagation();
@@ -5594,12 +5654,34 @@ function FlowInner() {
   const setEdgeColorMode = useFlowStore((s) => s.setEdgeColorMode);
   const showFpsOverlay = useFlowStore((s) => s.showFpsOverlay);
   const setShowFpsOverlay = useFlowStore((s) => s.setShowFpsOverlay);
+  const canvasZoom = useCanvasStore((s) => s.zoom);
   const isLargeGraphForVisibleRendering =
     nodes.length >= FLOW_AUTO_VISIBLE_RENDER_NODE_THRESHOLD;
   const isLargeGraphForMiniMapImageOverlay =
     nodes.length >= FLOW_AUTO_HIDE_MINIMAP_IMAGE_OVERLAY_NODE_THRESHOLD;
   const effectiveOnlyRenderVisibleElements =
     onlyRenderVisibleElements || isLargeGraphForVisibleRendering;
+  const canEnableLowDetailMode = nodes.length >= FLOW_LOW_DETAIL_NODE_THRESHOLD;
+  const [isFlowLowDetailMode, setIsFlowLowDetailMode] = React.useState(false);
+
+  React.useEffect(() => {
+    const zoom =
+      Number.isFinite(Number(canvasZoom)) && Number(canvasZoom) > 0
+        ? Number(canvasZoom)
+        : 1;
+    setIsFlowLowDetailMode((prev) => {
+      if (!canEnableLowDetailMode) return false;
+      if (prev) return zoom <= FLOW_LOW_DETAIL_EXIT_ZOOM;
+      return zoom <= FLOW_LOW_DETAIL_ENTER_ZOOM;
+    });
+  }, [canEnableLowDetailMode, canvasZoom]);
+
+  const flowRenderModeValue = React.useMemo<FlowRenderMode>(
+    () => ({
+      lowDetailMode: isFlowLowDetailMode,
+    }),
+    [isFlowLowDetailMode]
+  );
 
   const [dragFps, setDragFps] = React.useState<number>(0);
   const [dragLongFrames, setDragLongFrames] = React.useState<number>(0);
@@ -5807,16 +5889,8 @@ function FlowInner() {
   const lastApplied = React.useRef<{ x: number; y: number; z: number } | null>(
     null
   );
-  const viewportSyncRafRef = React.useRef<number | null>(null);
-  const pendingViewportRef = React.useRef<{ x: number; y: number; z: number } | null>(
-    null
-  );
 
-  const flushPendingViewport = React.useCallback(() => {
-    viewportSyncRafRef.current = null;
-    const next = pendingViewportRef.current;
-    if (!next) return;
-    pendingViewportRef.current = null;
+  const applyViewportImmediate = React.useCallback((next: { x: number; y: number; z: number }) => {
     try {
       rfRef.current.setViewport(
         { x: next.x, y: next.y, zoom: next.z },
@@ -5827,12 +5901,6 @@ function FlowInner() {
     }
   }, []);
 
-  const queueViewportSync = React.useCallback((next: { x: number; y: number; z: number }) => {
-    pendingViewportRef.current = next;
-    if (viewportSyncRafRef.current !== null) return;
-    viewportSyncRafRef.current = window.requestAnimationFrame(flushPendingViewport);
-  }, [flushPendingViewport]);
-
   const syncViewportToCanvasStore = () => {
     try {
       const state = useCanvasStore.getState();
@@ -5842,7 +5910,7 @@ function FlowInner() {
       const x = ((state.panX || 0) * z) / dpr;
       const y = ((state.panY || 0) * z) / dpr;
       lastApplied.current = { x, y, z };
-      rfRef.current.setViewport({ x, y, zoom: z }, { duration: 0 });
+      applyViewportImmediate({ x, y, z });
     } catch {
       /* noop */
     }
@@ -5865,7 +5933,8 @@ function FlowInner() {
       )
         return;
       lastApplied.current = { x, y, z };
-      queueViewportSync({ x, y, z });
+      // 平移与缩放均立即同步，消除交互中的短暂“脱节/漂移感”。
+      applyViewportImmediate({ x, y, z });
     });
 
     // 初始同步
@@ -5883,18 +5952,7 @@ function FlowInner() {
     }
 
     return unsubscribe;
-  }, [queueViewportSync]);
-
-  React.useEffect(
-    () => () => {
-      if (viewportSyncRafRef.current !== null) {
-        window.cancelAnimationFrame(viewportSyncRafRef.current);
-      }
-      viewportSyncRafRef.current = null;
-      pendingViewportRef.current = null;
-    },
-    []
-  );
+  }, [applyViewportImmediate]);
 
   React.useLayoutEffect(() => {
     if (!projectId) return;
@@ -7559,6 +7617,7 @@ function FlowInner() {
               manualInput: "",
               responseText: "",
               enableWebSearch: false,
+              modelProvider: resolveFlowModelProvider(undefined, aiProvider),
               boxW: size.w,
               boxH: size.h,
             }
@@ -10292,7 +10351,7 @@ function FlowInner() {
       );
   }, [setEdges, setNodes]);
 
-  // 监听节点右键菜单：复制（写入 Flow 内部剪贴板，Ctrl+V 可粘贴）
+  // 监听节点右键菜单：复制（写入 Flow 内部剪贴板，Ctrl/Cmd+V 粘贴，Ctrl/Cmd+Shift+V 可保留外部连线）
   React.useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent).detail as
@@ -10327,12 +10386,18 @@ function FlowInner() {
       const nodeSnapshots = rfNodesToTplNodes(nodesToCopy as any, {
         preserveImagePayload: true,
       });
-      const relatedEdges = rf
-        .getEdges()
+      const allEdges = rf.getEdges();
+      const relatedEdges = allEdges
         .filter(
           (edge: any) => idSet.has(edge.source) && idSet.has(edge.target)
         );
+      const linkedEdges = allEdges.filter((edge: any) => {
+        const sourceSelected = idSet.has(edge.source);
+        const targetSelected = idSet.has(edge.target);
+        return sourceSelected !== targetSelected;
+      });
       const edgeSnapshots = rfEdgesToTplEdges(relatedEdges as any);
+      const linkedEdgeSnapshots = rfEdgesToTplEdges(linkedEdges as any);
       const minX = Math.min(...nodesToCopy.map((n: any) => n.position?.x ?? 0));
       const minY = Math.min(...nodesToCopy.map((n: any) => n.position?.y ?? 0));
 
@@ -10340,6 +10405,7 @@ function FlowInner() {
       clipboardService.setFlowData({
         nodes: nodeSnapshots,
         edges: edgeSnapshots,
+        linkedEdges: linkedEdgeSnapshots,
         origin: { x: minX, y: minY },
       });
 
@@ -10347,8 +10413,8 @@ function FlowInner() {
         new CustomEvent("toast", {
           detail: {
             message: hasCanvasPayload
-              ? "已复制节点：Flow Ctrl+V 粘贴，画板 Ctrl+V 可粘贴图片"
-              : "已复制节点，按 Ctrl+V 粘贴",
+              ? "已复制节点：Flow Ctrl/Cmd+V 粘贴，Ctrl/Cmd+Shift+V 保留原连线，画板 Ctrl/Cmd+V 可粘贴图片"
+              : "已复制节点：Ctrl/Cmd+V 粘贴，Ctrl/Cmd+Shift+V 保留原连线",
             type: "success",
           },
         })
@@ -19215,6 +19281,7 @@ function FlowInner() {
                 manualInput: "",
                 responseText: "",
                 enableWebSearch: false,
+                modelProvider: resolveFlowModelProvider(undefined, aiProvider),
               }
             : type === "promptOptimize"
             ? { text: "", expandedText: "" }
@@ -19266,7 +19333,8 @@ function FlowInner() {
           if (
             node.type === "generate" ||
             node.type === "generatePro" ||
-            node.type === "generatePro4"
+            node.type === "generatePro4" ||
+            node.type === "textChat"
           ) {
             if ((node.data as any)?.modelProvider === targetProvider) {
               return node;
@@ -19550,6 +19618,11 @@ function FlowInner() {
         {isLargeGraphForMiniMapImageOverlay && (
           <span style={{ fontSize: 12, color: "#6b7280" }}>
             大图模式已自动关闭 MiniMap 图片层
+          </span>
+        )}
+        {isFlowLowDetailMode && (
+          <span style={{ fontSize: 12, color: "#4b5563" }}>
+            低缩放已自动降级缩略图为色块
           </span>
         )}
         <label
@@ -20271,18 +20344,19 @@ function FlowInner() {
   }, [flowSnapAlignments, initialViewport]);
 
   return (
-    <div
-      ref={containerRef}
-      className={`tanva-flow-overlay absolute inset-0 ${
-        isFlowBlackTheme ? "tanva-flow-theme-mono-dark" : ""
-      } ${
-        isPointerMode ? "pointer-mode" : ""
-      } ${isMarqueeMode ? "marquee-mode" : ""}`}
-      onDoubleClick={handleContainerDoubleClick}
-      onPointerDownCapture={() => clipboardService.setActiveZone("flow")}
-    >
-      {FlowToolbar}
-      <ReactFlow
+    <FlowRenderModeProvider value={flowRenderModeValue}>
+      <div
+        ref={containerRef}
+        className={`tanva-flow-overlay absolute inset-0 ${
+          isFlowBlackTheme ? "tanva-flow-theme-mono-dark" : ""
+        } ${
+          isPointerMode ? "pointer-mode" : ""
+        } ${isMarqueeMode ? "marquee-mode" : ""}`}
+        onDoubleClick={handleContainerDoubleClick}
+        onPointerDownCapture={() => clipboardService.setActiveZone("flow")}
+      >
+        {FlowToolbar}
+        <ReactFlow
         nodes={nodesForRender}
         edges={edgesForRender}
         onNodesChange={onNodesChangeWithHistory}
@@ -21449,8 +21523,9 @@ function FlowInner() {
           style={{ display: "none" }}
           onChange={(e) => handleImportFiles(e.target.files)}
         />
+        </div>
       </div>
-    </div>
+    </FlowRenderModeProvider>
   );
 }
 

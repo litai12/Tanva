@@ -15,6 +15,7 @@ import {
 import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 import RunCreditBadge from "./RunCreditBadge";
+import { useFlowRenderMode } from "../FlowRenderModeContext";
 
 type Props = {
   id: string;
@@ -251,9 +252,11 @@ function InputImageCropThumb({
     sourceHeight?: number;
   };
 }) {
+  const { lowDetailMode } = useFlowRenderMode();
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
 
   React.useEffect(() => {
+    if (lowDetailMode) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -326,7 +329,29 @@ function InputImageCropThumb({
     return () => {
       cancelled = true;
     };
-  }, [crop.height, crop.sourceHeight, crop.sourceWidth, crop.width, crop.x, crop.y, src]);
+  }, [
+    crop.height,
+    crop.sourceHeight,
+    crop.sourceWidth,
+    crop.width,
+    crop.x,
+    crop.y,
+    lowDetailMode,
+    src,
+  ]);
+
+  if (lowDetailMode) {
+    return (
+      <div
+        style={{
+          display: "block",
+          width: 44,
+          height: 44,
+          background: "#e5e7eb",
+        }}
+      />
+    );
+  }
 
   return <canvas ref={canvasRef} style={{ display: "block", width: 44, height: 44 }} />;
 }

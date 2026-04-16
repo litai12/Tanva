@@ -93,8 +93,8 @@ export class BananaProvider implements IAIProvider {
   private readonly apimartTaskBaseUrl = "https://api.apimart.ai/v1/tasks";
   private readonly apimartTextUrl = "https://api.apimart.ai/v1/chat/completions";
   private readonly DEFAULT_MODEL = "gemini-3-pro-image-preview";
-  private readonly DEFAULT_TEXT_MODEL = "gemini-3.1-pro";
-  private readonly DEFAULT_APIMART_TEXT_MODEL = "gemini-3-flash-preview";
+  private readonly DEFAULT_TEXT_MODEL = "gemini-3.1-pro-preview";
+  private readonly DEFAULT_APIMART_TEXT_MODEL = "gemini-3.1-pro-preview";
   private readonly DEFAULT_TIMEOUT = 300000; // 5分钟
   private readonly TEXT_TIMEOUT = 45000; // 文本接口更快失败，便于通道快速切换
   private readonly MAX_RETRIES = 3;
@@ -108,11 +108,13 @@ export class BananaProvider implements IAIProvider {
   private readonly FALLBACK_MODELS: Record<string, string> = {
     "gemini-3.1-pro": "gemini-3-pro-image-preview",
     "banana-gemini-3.1-pro": "gemini-3-pro-image-preview",
+    "gemini-3.1-pro-preview": "gemini-3-pro-preview",
+    "banana-gemini-3.1-pro-preview": "gemini-3-pro-preview",
     "gemini-3-pro-image-preview": "gemini-2.5-flash-image",
     "gemini-3.1-flash-image-preview": "gemini-3-pro-image-preview",
     "banana-gemini-3.1-flash-image-preview": "gemini-3-pro-image-preview",
-    "gemini-3-pro-preview": "gemini-3-flash-preview",
-    "banana-gemini-3-pro-preview": "gemini-3-flash-preview",
+    "gemini-3-pro-preview": "gemini-2.5-flash",
+    "banana-gemini-3-pro-preview": "gemini-2.5-flash",
     "banana-gemini-3-pro-image-preview": "gemini-2.5-flash-image",
     "gemini-3-flash-preview-apimart": "gemini-3-flash-preview",
   };
@@ -274,6 +276,9 @@ export class BananaProvider implements IAIProvider {
 
   private normalizeApimartTextModel(model: string): string {
     const normalized = this.normalizeModelName(model);
+    if (normalized === "gemini-3.1-pro") {
+      return this.DEFAULT_APIMART_TEXT_MODEL;
+    }
     if (normalized === "gemini-3-flash-preview-apimart") {
       return this.DEFAULT_APIMART_TEXT_MODEL;
     }
@@ -3051,11 +3056,14 @@ ${vectorRule ? `${vectorRule}\n\n` : ""}Return strict JSON only:
       name: "Banana API",
       version: "1.0",
       supportedModels: [
+        "gemini-3.1-pro-preview",
+        "gemini-3-pro-preview",
+        "gemini-2.5-flash",
+        // Backward-compatible aliases still accepted by parts of legacy stack.
         "gemini-3.1-pro",
         "gemini-3-pro-image-preview",
         "gemini-3.1-flash-image-preview",
         "gemini-3-flash-preview",
-        "gemini-2.5-flash",
       ],
     };
   }
@@ -3085,7 +3093,7 @@ ${vectorRule ? `${vectorRule}\n\n` : ""}Return strict JSON only:
         "analysis"
       );
       const originalModel = this.normalizeModelName(
-        request.model || "gemini-3-flash-preview"
+        request.model || this.DEFAULT_TEXT_MODEL
       );
       let currentModel = originalModel;
       let usedFallback = false;
@@ -3294,7 +3302,7 @@ ${imageAnalysis}
     const finalPrompt = `${systemPrompt}\n\n${request.prompt}`;
 
     const originalModel = this.normalizeModelName(
-      request.model || "gemini-3-flash-preview"
+      request.model || this.DEFAULT_TEXT_MODEL
     );
     let currentModel = originalModel;
     let usedFallback = false;

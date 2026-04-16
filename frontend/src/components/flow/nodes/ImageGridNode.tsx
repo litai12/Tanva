@@ -17,6 +17,7 @@ import {
   flowNodeShellChrome,
   useFlowNodeDarkTheme,
 } from './flowNodeDarkTheme';
+import { useFlowRenderMode } from '../FlowRenderModeContext';
 
 type ImageItem = {
   id: string;
@@ -60,6 +61,7 @@ const buildImageSrc = (value?: string): string => {
 };
 
 function FlowImagePreview({ item, alt }: { item: ImageItem; alt: string }) {
+  const { lowDetailMode } = useFlowRenderMode();
   const value = item.thumbnailData || item.imageData;
   const assetId = React.useMemo(() => parseFlowImageAssetRef(value), [value]);
   const assetUrl = useFlowImageAssetUrl(assetId);
@@ -79,6 +81,7 @@ function FlowImagePreview({ item, alt }: { item: ImageItem; alt: string }) {
     crop.sourceHeight > 0;
 
   React.useEffect(() => {
+    if (lowDetailMode) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -161,7 +164,31 @@ function FlowImagePreview({ item, alt }: { item: ImageItem; alt: string }) {
     return () => {
       cancelled = true;
     };
-  }, [canCrop, crop?.height, crop?.sourceHeight, crop?.sourceWidth, crop?.width, crop?.x, crop?.y, src]);
+  }, [
+    canCrop,
+    crop?.height,
+    crop?.sourceHeight,
+    crop?.sourceWidth,
+    crop?.width,
+    crop?.x,
+    crop?.y,
+    lowDetailMode,
+    src,
+  ]);
+
+  if (lowDetailMode) {
+    return (
+      <div
+        aria-label={alt}
+        style={{
+          display: 'block',
+          width: '100%',
+          height: '100%',
+          background: '#e5e7eb',
+        }}
+      />
+    );
+  }
 
   return (
     <canvas ref={canvasRef} aria-label={alt} style={{ display: 'block' }} />

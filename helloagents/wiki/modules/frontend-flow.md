@@ -6,9 +6,15 @@
 
 ## 2026-04-16 Update
 - Generate / Agent(`generatePro`) node model switch is now node-local (`modelProvider`) and no longer mutates global `aiProvider`.
-- Switching model in global settings or AI dialog now emits a flow-wide sync event that bulk-updates related flow nodes (`generate`, `generatePro`, `generatePro4`, `analysis`) to the selected tier for quick consistency.
+- Text Chat node now supports node-local Fast/Pro/Ultra model switch via `modelProvider`.
+- Switching model in global settings or AI dialog now emits a flow-wide sync event that bulk-updates related flow nodes (`generate`, `generatePro`, `generatePro4`, `analysis`, `textChat`) to the selected tier for quick consistency.
 - Video nodes (`Seedance/Kling/Vidu/Wan/Sora2`) no longer hard-code running progress to `30%`; they now rely on the shared `GenerationProgressBar` simulated ramp (5 minutes to 95%, then 100% on success).
 - Image generation nodes (`Generate/GeneratePro/GenerateReference/Midjourney/Nano2/Seedream5/ViewAngle`) now use the same simulated progress strategy with a shorter `60s` ramp to `95%` (then `100%` on success) via `GenerationProgressBar.simulateDurationMs`.
+
+## 2026-04-17 Update
+- Flow 新增低细节渲染模式：当节点数达到阈值且缩放 `<= 40%` 时自动启用（缩放恢复到 `> 45%` 时退出，避免阈值抖动）。
+- 低细节模式下，节点缩略图不再渲染真实图像：`SmartImage` 直接降级为灰色占位块，且部分裁切缩略图 `canvas`（如 `Image/Generate/GeneratePro/Generate4/Analyze/ImageSplit/ImageGrid`）也会改为灰块占位，从而减少缩小时的大量图像重绘与解码压力。
+- Flow 节点复制现会同时记录“选中集合外部连线”快照；`Ctrl/Cmd + V` 继续保持仅恢复选中集合内部连线，`Ctrl/Cmd + Shift + V` 新增“保留原连线粘贴”模式（会尝试恢复复制节点与现有外部节点之间的连线）。
 
 ## 作用
 - 提供流程/节点编排能力（ReactFlow），并与画布/素材/生成等能力联动。

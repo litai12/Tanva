@@ -1,10 +1,13 @@
 import React from 'react';
+import { Check } from 'lucide-react';
 import { Handle, Position, NodeResizer, useReactFlow, useStore, type ReactFlowState, type Edge } from 'reactflow';
 import { aiImageService } from '@/services/aiImageService';
 import { contextManager } from '@/services/contextManager';
 import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import { useLocaleText } from '@/utils/localeText';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '../../ui/dropdown-menu';
+import { resolveFlowModelProvider, type FlowModelProvider } from '@/utils/flowModelProvider';
 
 type TextChatStatus = 'idle' | 'running' | 'succeeded' | 'failed';
 
@@ -21,6 +24,7 @@ type Props = {
     boxW?: number;
     boxH?: number;
     sizeVersion?: number;
+    modelProvider?: FlowModelProvider;
   };
   selected?: boolean;
 };
@@ -61,9 +65,44 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
   const aiProvider = useAIChatStore((state) => state.aiProvider);
   const globalWebSearchEnabled = useAIChatStore((state) => state.enableWebSearch);
   const isDarkTheme = useAIChatStore((state) => state.chatTheme === 'black');
+  const effectiveProvider = React.useMemo<FlowModelProvider>(
+    () => resolveFlowModelProvider(data.modelProvider, aiProvider),
+    [aiProvider, data.modelProvider]
+  );
   const textModel = React.useMemo(
-    () => getTextModelForProvider(aiProvider),
-    [aiProvider]
+    () => getTextModelForProvider(effectiveProvider),
+    [effectiveProvider]
+  );
+  const providerToggleOptions = React.useMemo<Array<{
+    value: FlowModelProvider;
+    label: string;
+    description: string;
+  }>>(
+    () => [
+      {
+        value: 'banana-2.5',
+        label: 'Fast',
+        description: lt('Nano Banana+Gemini 2.5', 'Nano Banana+Gemini 2.5'),
+      },
+      {
+        value: 'banana',
+        label: 'Pro',
+        description: lt('Nano Banana Pro+Gemini 3 Pro', 'Nano Banana Pro+Gemini 3 Pro'),
+      },
+      {
+        value: 'banana-3.1',
+        label: 'Ultra',
+        description: lt('Nano Banana 2+Gemini 3.1', 'Nano Banana 2+Gemini 3.1'),
+      },
+    ],
+    [lt]
+  );
+  const currentProviderValue = effectiveProvider;
+  const currentProviderOption = React.useMemo(
+    () =>
+      providerToggleOptions.find((option) => option.value === currentProviderValue) ??
+      providerToggleOptions[1],
+    [currentProviderValue, providerToggleOptions]
   );
   const themePalette = React.useMemo(() => {
     if (!isDarkTheme) {
@@ -163,6 +202,20 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     }));
   }, [data.boxH, data.sizeVersion, id]);
 
+  React.useEffect(() => {
+    if (
+      typeof data.modelProvider === 'string' &&
+      data.modelProvider.trim().length > 0
+    ) {
+      return;
+    }
+    window.dispatchEvent(
+      new CustomEvent('flow:updateNodeData', {
+        detail: { id, patch: { modelProvider: currentProviderValue } },
+      })
+    );
+  }, [currentProviderValue, data.modelProvider, id]);
+
   const commitManualInput = React.useCallback((value: string) => {
     window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
       detail: { id, patch: { manualInput: value } }
@@ -241,7 +294,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
       const result = await aiImageService.generateTextResponse({
         prompt: requestPrompt,
         enableWebSearch,
-        aiProvider,
+        aiProvider: effectiveProvider,
         model: textModel,
       });
 
@@ -271,7 +324,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     } finally {
       setIsInvoking(false);
     }
-  }, [aiProvider, enableWebSearch, id, incomingTexts, lt, manualInput, textModel]);
+  }, [effectiveProvider, enableWebSearch, id, incomingTexts, lt, manualInput, textModel]);
 
   React.useEffect(() => {
     const handler = (event: Event) => {
@@ -418,46 +471,139 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
         }}
       />
       <div style={contentStyle} ref={contentRef}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-          {isEditingTitle ? (
-            <input
-              ref={titleInputRef}
-              value={titleDraft}
-              onChange={(event) => setTitleDraft(event.target.value)}
-              onBlur={() => commitTitle(titleDraft)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  commitTitle(titleDraft);
-                } else if (event.key === 'Escape') {
-                  event.preventDefault();
-                  cancelTitleEditing();
-                }
-              }}
-              onPointerDownCapture={stopFlowPan}
-              onMouseDownCapture={stopFlowPan}
-              style={{
-                fontWeight: 600,
-                fontSize: 14,
-                color: themePalette.title,
-                border: `1px solid ${themePalette.titleInputBorder}`,
-                borderRadius: 6,
-                padding: '2px 6px',
-                outline: 'none',
-                flex: 1,
-                minWidth: 0,
-                background: themePalette.titleInputBg,
-              }}
-            />
-          ) : (
-            <div
-              onDoubleClick={startTitleEditing}
-              title={lt('双击编辑标题', 'Double click to edit title')}
-              style={{ fontWeight: 600, fontSize: 14, color: themePalette.title, cursor: 'text', userSelect: 'none', flex: 1, minWidth: 0 }}
-            >
-              {title}
-            </div>
-          )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+            {isEditingTitle ? (
+              <input
+                ref={titleInputRef}
+                value={titleDraft}
+                onChange={(event) => setTitleDraft(event.target.value)}
+                onBlur={() => commitTitle(titleDraft)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    commitTitle(titleDraft);
+                  } else if (event.key === 'Escape') {
+                    event.preventDefault();
+                    cancelTitleEditing();
+                  }
+                }}
+                onPointerDownCapture={stopFlowPan}
+                onMouseDownCapture={stopFlowPan}
+                style={{
+                  fontWeight: 600,
+                  fontSize: 14,
+                  color: themePalette.title,
+                  border: `1px solid ${themePalette.titleInputBorder}`,
+                  borderRadius: 6,
+                  padding: '2px 6px',
+                  outline: 'none',
+                  minWidth: 100,
+                  maxWidth: 220,
+                  background: themePalette.titleInputBg,
+                }}
+              />
+            ) : (
+              <div
+                onDoubleClick={startTitleEditing}
+                title={lt('双击编辑标题', 'Double click to edit title')}
+                style={{
+                  fontWeight: 600,
+                  fontSize: 14,
+                  color: themePalette.title,
+                  cursor: 'text',
+                  userSelect: 'none',
+                  maxWidth: 220,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {title}
+              </div>
+            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  onPointerDownCapture={stopFlowPan}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  className='nodrag nopan tanva-flow-provider-mode-badge'
+                  title={lt('切换模型模式', 'Switch model mode')}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '1px 8px',
+                    borderRadius: 50,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    flexShrink: 0,
+                    ...(isDarkTheme
+                      ? {
+                          color: '#ffffff',
+                          background: '#343434',
+                          border: '1px solid #4a4a4a',
+                        }
+                      : {
+                          color:
+                            currentProviderValue === 'banana-3.1'
+                              ? '#0f172a'
+                              : '#475569',
+                          background:
+                            currentProviderValue === 'banana-3.1'
+                              ? '#e2e8f0'
+                              : '#f1f5f9',
+                          border: '1px solid #e2e8f0',
+                        }),
+                  }}
+                >
+                  {currentProviderOption.label}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align='start'
+                side='bottom'
+                sideOffset={8}
+                className='min-w-[200px] rounded-xl border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md'
+              >
+                <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
+                  {lt('模型切换', 'Model switch')}
+                </DropdownMenuLabel>
+                {providerToggleOptions.map((option) => {
+                  const isActive = currentProviderValue === option.value;
+                  return (
+                    <DropdownMenuItem
+                      key={option.value}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (currentProviderValue !== option.value) {
+                          window.dispatchEvent(
+                            new CustomEvent('flow:updateNodeData', {
+                              detail: { id, patch: { modelProvider: option.value } },
+                            })
+                          );
+                        }
+                      }}
+                      onPointerDownCapture={stopFlowPan}
+                      className={`flex items-start gap-2 rounded-lg px-3 py-2 text-xs ${
+                        isActive ? 'bg-gray-100 text-gray-800' : 'text-slate-600'
+                      }`}
+                    >
+                      <div className='flex-1 space-y-0.5'>
+                        <div className='font-medium leading-none'>{option.label}</div>
+                        <div className='text-[11px] leading-snug text-slate-400'>{option.description}</div>
+                      </div>
+                      {isActive && <Check className='h-3.5 w-3.5 text-slate-700' />}
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
           <button
             onClick={runChat}
             disabled={status === 'running' || isInvoking}
@@ -471,6 +617,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
               cursor: status === 'running' || isInvoking ? 'not-allowed' : 'pointer',
               fontWeight: 500,
               flexShrink: 0,
+              marginLeft: 'auto',
             }}
           >
             {status === 'running' || isInvoking ? 'Running...' : 'Run'}

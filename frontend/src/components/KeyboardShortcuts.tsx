@@ -10,6 +10,7 @@ import { saveMonitor } from '@/utils/saveMonitor';
 import { historyService } from '@/services/historyService';
 import { sanitizeProjectContentForCloudSave } from '@/utils/projectContentValidation';
 import { clipboardJsonService } from '@/services/clipboardJsonService';
+import { clipboardService } from '@/services/clipboardService';
 import { useTranslation } from 'react-i18next';
 
 export default function KeyboardShortcuts() {
@@ -37,8 +38,21 @@ export default function KeyboardShortcuts() {
       const isEditable = !!active && ((active.tagName?.toLowerCase() === 'input') || (active.tagName?.toLowerCase() === 'textarea') || (active as HTMLElement).isContentEditable);
       const target = e.target as HTMLElement | null;
       const inChat = !!target?.closest?.("[data-chat-content]");
+      const path = typeof e.composedPath === "function" ? e.composedPath() : [];
+      const inFlow = path.some(
+        (el) =>
+          el instanceof Element &&
+          el.classList?.contains("tanva-flow-overlay")
+      );
 
       if ((e.ctrlKey || e.metaKey) && e.shiftKey) {
+        const hasFlowPayload = !!clipboardService.getFlowData()?.nodes?.length;
+        const shouldDelegateFlowShiftPaste =
+          (e.key === "v" || e.key === "V") &&
+          (inFlow ||
+            (clipboardService.getZone() === "flow" && hasFlowPayload));
+        if (shouldDelegateFlowShiftPaste) return;
+
         if (e.key === 'c' || e.key === 'C') {
           e.preventDefault();
           try {

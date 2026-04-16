@@ -27,6 +27,7 @@ import { blobToDataUrl, canvasToBlob, createImageBitmapLimited } from "@/utils/i
 import { shallow } from "zustand/shallow";
 import { useLocaleText } from "@/utils/localeText";
 import { resolveFlowNodeSendAnchorClient } from "../utils/flowNodeSendAnchor";
+import { useFlowRenderMode } from "../FlowRenderModeContext";
 
 const RESIZE_EDGE_THICKNESS = 8;
 
@@ -197,6 +198,7 @@ const CanvasCropPreview = React.memo(({
   sourceHeight?: number;
   isResizing?: boolean;
 }) => {
+  const { lowDetailMode } = useFlowRenderMode();
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const [size, setSize] = React.useState<{ w: number; h: number }>({ w: 0, h: 0 });
@@ -235,6 +237,7 @@ const CanvasCropPreview = React.memo(({
   }, []);
 
   React.useEffect(() => {
+    if (lowDetailMode) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -331,8 +334,21 @@ const CanvasCropPreview = React.memo(({
     size.w,
     sourceHeight,
     sourceWidth,
+    lowDetailMode,
     src,
   ]);
+
+  if (lowDetailMode) {
+    return (
+      <div
+        style={{
+          width: "100%",
+          height: "100%",
+          background: "#e5e7eb",
+        }}
+      />
+    );
+  }
 
   return (
     <div

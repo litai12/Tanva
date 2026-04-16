@@ -50,8 +50,12 @@ const normalizeBareBase64ToDataUrl = (value: string): string | null => {
  *
  * 注意：objectURL 仅运行时有效，禁止持久化。
  */
-export function useNonBase64ImageSrc(input?: string | null): string | null {
-  const raw = typeof input === "string" ? input.trim() : "";
+export function useNonBase64ImageSrc(
+  input?: string | null,
+  options?: { suspend?: boolean }
+): string | null {
+  const suspend = options?.suspend === true;
+  const raw = !suspend && typeof input === "string" ? input.trim() : "";
 
   const flowAssetId = React.useMemo(() => parseFlowImageAssetRef(raw), [raw]);
   const flowObjectUrl = useFlowImageAssetUrl(flowAssetId);

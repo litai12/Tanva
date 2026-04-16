@@ -29,6 +29,7 @@ export interface ClipboardFlowNode extends TemplateNode {
 export interface FlowClipboardData {
   nodes: ClipboardFlowNode[];
   edges: TemplateEdge[];
+  linkedEdges?: TemplateEdge[];
   origin: { x: number; y: number };
 }
 

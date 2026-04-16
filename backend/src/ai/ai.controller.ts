@@ -111,12 +111,12 @@ export class AiController {
   private readonly providerDefaultTextModels: Record<string, string> = {
     gemini: 'gemini-3.1-pro',
     'gemini-pro': 'gemini-3.1-pro',
-    banana: 'gemini-3.1-pro',
-    'banana-2.5': 'gemini-3.1-pro',
-    'banana-3.1': 'gemini-3.1-pro',
+    banana: 'gemini-3-pro-preview',
+    'banana-2.5': 'gemini-2.5-flash',
+    'banana-3.1': 'gemini-3.1-pro-preview',
     runninghub: 'gemini-3.1-pro',
     midjourney: 'gemini-3.1-pro',
-    nano2: 'gemini-3.1-pro',
+    nano2: 'gemini-3.1-pro-preview',
     seedream5: 'gemini-3.1-pro',
   };
   private readonly providerDefaultAnalyzeModels: Record<string, string> = {
