@@ -8,13 +8,19 @@
 - Generate / Agent(`generatePro`) node model switch is now node-local (`modelProvider`) and no longer mutates global `aiProvider`.
 - Text Chat node now supports node-local Fast/Pro/Ultra model switch via `modelProvider`.
 - Switching model in global settings or AI dialog now emits a flow-wide sync event that bulk-updates related flow nodes (`generate`, `generatePro`, `generatePro4`, `analysis`, `textChat`) to the selected tier for quick consistency.
+- Analysis node model routing now aligns with Text Chat model mapping (Fast/Pro/Ultra -> text multimodal models) instead of image-generation model mapping.
 - Video nodes (`Seedance/Kling/Vidu/Wan/Sora2`) no longer hard-code running progress to `30%`; they now rely on the shared `GenerationProgressBar` simulated ramp (5 minutes to 95%, then 100% on success).
 - Image generation nodes (`Generate/GeneratePro/GenerateReference/Midjourney/Nano2/Seedream5/ViewAngle`) now use the same simulated progress strategy with a shorter `60s` ramp to `95%` (then `100%` on success) via `GenerationProgressBar.simulateDurationMs`.
 
 ## 2026-04-17 Update
+- Flow 缩放事件在节点输入框场景下调整为“缩放优先”：`TextPrompt/TextPromptPro/Analysis/VideoAnalysis` 的 `textarea` 在缩放手势下会放行给 Flow 画布（按 `wheelZoomMode` 计算），避免输入框捕获滚轮后触发浏览器整页缩放；非缩放滚轮仍保留输入区原生滚动。
+- `GlobalZoomCapture` 的 `gesturestart/gesturechange` 对 Flow 区域不再旁路，可将触控板 pinch（含 Safari 手势事件）映射到画布缩放；3D 视口区域仍保持旁路以避免冲突。
 - Flow 新增低细节渲染模式：当节点数达到阈值且缩放 `<= 40%` 时自动启用（缩放恢复到 `> 45%` 时退出，避免阈值抖动）。
 - 低细节模式下，节点缩略图不再渲染真实图像：`SmartImage` 直接降级为灰色占位块，且部分裁切缩略图 `canvas`（如 `Image/Generate/GeneratePro/Generate4/Analyze/ImageSplit/ImageGrid`）也会改为灰块占位，从而减少缩小时的大量图像重绘与解码压力。
+- 低细节模式下会隐藏所有连线与 MiniMap（含图片叠加层），节点仍保留原始 UI 结构，以兼顾性能与可读性。
 - Flow 节点复制现会同时记录“选中集合外部连线”快照；`Ctrl/Cmd + V` 继续保持仅恢复选中集合内部连线，`Ctrl/Cmd + Shift + V` 新增“保留原连线粘贴”模式（会尝试恢复复制节点与现有外部节点之间的连线）。
+- `GeneratePro / ImagePro / GeneratePro4` 右键菜单“复制节点”入口已切换为写入 Flow 剪贴板（不再直接创建副本），便于统一使用 `Ctrl/Cmd + V` / `Ctrl/Cmd + Shift + V` 控制是否保留原连线。
+- 为兼容部分浏览器下 `Ctrl/Cmd + Shift + V` 不稳定触发 `paste` 事件，Flow 增加了按键层兜底：当内部 Flow 剪贴板有节点数据时会直接执行“保留连线粘贴”。
 
 ## 作用
 - 提供流程/节点编排能力（ReactFlow），并与画布/素材/生成等能力联动。

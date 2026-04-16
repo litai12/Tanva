@@ -28,6 +28,7 @@
 - 页面与应用入口都不再静默触发 `claimDailyReward()`；签到积分必须由用户手动触发领取，不再自动签到。
 - 积分流水在“项目”列支持显示 AI 渠道与模型（如 `渠道：A · 模型：gemini-2.5-flash-image-preview`），用于定位实际执行链路。
 - 概览卡片右上角提供“立即充值”文字按钮；点击后在当前页弹出 `PaymentPanel` 充值面板。
+- `MembershipPanel` 中“积分充值”入口可见条件为：`会员状态 active（含月卡/年卡）` 或 `水印白名单用户（noWatermark）`。
 - `PaymentPanel`（`frontend/src/components/payment/PaymentPanel.tsx`）核心交互文案已接入 `useLocaleText`（订单状态、筛选、支付提示、二维码状态、手动核对按钮）。
 - 概览与趋势的“消耗”口径为净消耗：按 `spend - refund` 计算（最小值为 0），避免失败后退款仍被算入“今日/近 7 天消耗”。
 

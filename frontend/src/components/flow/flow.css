@@ -506,6 +506,15 @@ input[type="text"],
   bottom: -3px !important;
 }
 
+/* 低细节模式：隐藏彩色句柄，仅保留节点 UI 主体 */
+.tanva-flow-overlay.low-detail-mode .react-flow__handle,
+.tanva-flow-overlay.low-detail-mode .react-flow__handle *,
+.tanva-flow-overlay.low-detail-mode .react-flow__handle::before,
+.tanva-flow-overlay.low-detail-mode .react-flow__handle::after {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 /* ==================== 框选时禁用 Flow 节点事件 ==================== */
 /* 当 Canvas 正在框选时，禁用 Flow 节点的 pointer-events，避免框选被打断 */
 body.tanva-selection-dragging .tanva-flow-overlay .react-flow__node,

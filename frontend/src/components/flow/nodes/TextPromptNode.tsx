@@ -2,6 +2,7 @@ import React from 'react';
 import { Handle, Position, NodeResizer, useReactFlow, useStore, type ReactFlowState, type Edge } from 'reactflow';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import { useLocaleText } from '@/utils/localeText';
+import { useCanvasStore } from '@/stores';
 
 type Props = {
   id: string;
@@ -30,6 +31,11 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const titleInputRef = React.useRef<HTMLInputElement>(null);
   const incomingCount = incomingTexts.length;
   const hasIncoming = incomingCount > 0;
+  const shouldPassWheelToCanvas = React.useCallback((event: React.WheelEvent<HTMLTextAreaElement>) => {
+    const store = useCanvasStore.getState();
+    const isModifierWheel = event.ctrlKey || event.metaKey;
+    return store.wheelZoomMode === 'direct' ? !isModifierWheel : isModifierWheel;
+  }, []);
 
   const applyIncomingText = React.useCallback((incoming: string) => {
     setValue((prev) => (prev === incoming ? prev : incoming));
@@ -269,6 +275,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
           window.dispatchEvent(ev);
         }}
         onWheelCapture={(event) => {
+          if (shouldPassWheelToCanvas(event)) return;
           event.stopPropagation();
           if (event.nativeEvent?.stopImmediatePropagation) {
             event.nativeEvent.stopImmediatePropagation();

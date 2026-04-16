@@ -3,6 +3,7 @@ import { Handle, Position, useReactFlow } from 'reactflow';
 import { Link } from 'lucide-react';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import { useLocaleText } from '@/utils/localeText';
+import { useCanvasStore } from '@/stores';
 
 type Props = {
   id: string;
@@ -35,6 +36,11 @@ function TextPromptProNodeInner({ id, data, selected }: Props) {
   const [hover, setHover] = React.useState<string | null>(null);
   const [isTextFocused, setIsTextFocused] = React.useState(false);
   const [isResizing, setIsResizing] = React.useState(false);
+  const shouldPassWheelToCanvas = React.useCallback((event: React.WheelEvent<HTMLTextAreaElement>) => {
+    const store = useCanvasStore.getState();
+    const isModifierWheel = event.ctrlKey || event.metaKey;
+    return store.wheelZoomMode === 'direct' ? !isModifierWheel : isModifierWheel;
+  }, []);
 
   const boxWidth = data.boxWidth || DEFAULT_BOX_WIDTH;
   const boxHeight = data.boxHeight || DEFAULT_BOX_HEIGHT;
@@ -337,6 +343,7 @@ function TextPromptProNodeInner({ id, data, selected }: Props) {
               color: '#374151',
             }}
             onWheelCapture={(event) => {
+              if (shouldPassWheelToCanvas(event)) return;
               event.stopPropagation();
               (event.nativeEvent as Event & { stopImmediatePropagation?: () => void })?.stopImmediatePropagation?.();
             }}

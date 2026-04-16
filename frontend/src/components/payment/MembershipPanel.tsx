@@ -9,6 +9,7 @@ import {
   getMembershipOrders,
   getPaymentMembershipPlans,
   getPaymentStatus,
+  getSeedance2Access,
   type MembershipCurrentResponse,
   type MembershipOrderRecord,
   type PaymentMembershipPlan,
@@ -152,6 +153,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   const [showOrders, setShowOrders] = useState(false);
   const [orders, setOrders] = useState<MembershipOrderRecord[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
+  const [hasWhitelistTopUpAccess, setHasWhitelistTopUpAccess] = useState(false);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const hasYearlyPlans = useMemo(() => (plans || []).some((plan) => plan.billingCycle === "yearly"), [plans]);
@@ -167,9 +169,10 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   );
 
   const loadData = useCallback(async () => {
-    const [plansResult, currentResult] = await Promise.allSettled([
+    const [plansResult, currentResult, seedance2AccessResult] = await Promise.allSettled([
       getPaymentMembershipPlans(),
       getMembershipCurrent(),
+      getSeedance2Access(),
     ]);
 
     if (plansResult.status === "fulfilled") {
@@ -186,6 +189,13 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
       // current 失败时仍允许展示套餐和支付区，避免整块不可用
       console.warn("加载当前会员状态失败，已降级为仅展示套餐列表:", currentResult.reason);
       setCurrent(null);
+    }
+
+    if (seedance2AccessResult.status === "fulfilled") {
+      setHasWhitelistTopUpAccess(Boolean(seedance2AccessResult.value.byWhitelist));
+    } else {
+      console.warn("加载白名单状态失败，默认按非白名单处理:", seedance2AccessResult.reason);
+      setHasWhitelistTopUpAccess(false);
     }
   }, []);
 
@@ -330,8 +340,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
 
   const isFreeUser = current?.entitlement?.membershipStatus !== "active";
   const canTopUpCredits =
-    current?.entitlement?.membershipStatus === "active" &&
-    current?.plan?.billingCycle === "monthly";
+    current?.entitlement?.membershipStatus === "active" || hasWhitelistTopUpAccess;
 
   const isWhite = useAIChatStore((state) => state.chatTheme === "white");
 
@@ -961,7 +970,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                         积分充值
                       </h4>
                       <p className={cn("mt-1 text-sm", isWhite ? "text-slate-500" : "text-zinc-500")}>
-                        仅已开通月卡会员可购买积分。
+                        已开通会员（含年卡）或白名单用户可购买积分。
                       </p>
                     </div>
                     <PaymentPanel

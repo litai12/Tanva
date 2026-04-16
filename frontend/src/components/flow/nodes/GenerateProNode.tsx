@@ -901,9 +901,9 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
     setContextMenu(null);
   }, []);
 
-  // 复制节点（直接在画板上创建副本）
+  // 复制节点（写入 Flow 剪贴板，支持 Ctrl/Cmd+V 或 Ctrl/Cmd+Shift+V 粘贴）
   const handleCopy = React.useCallback(() => {
-    window.dispatchEvent(new CustomEvent('flow:duplicateNode', { detail: { nodeId: id } }));
+    window.dispatchEvent(new CustomEvent('flow:copyNode', { detail: { nodeId: id } }));
   }, [id]);
 
   // 删除节点
@@ -2100,7 +2100,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
           onClose={closeContextMenu}
           items={[
             {
-              label: lt('复制节点', 'Duplicate node'),
+              label: lt('复制节点', 'Copy node'),
               icon: <Copy className="w-4 h-4" />,
               onClick: handleCopy,
             },

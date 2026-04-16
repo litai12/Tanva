@@ -4,7 +4,7 @@ import { Handle, Position, useReactFlow, useStore, type ReactFlowState, type Edg
 import ImagePreviewModal from '../../ui/ImagePreviewModal';
 import SmartImage from '../../ui/SmartImage';
 import { aiImageService } from '@/services/aiImageService';
-import { getImageModelForProvider } from '@/stores/aiChatStore';
+import { getTextModelForProvider } from '@/stores/aiChatStore';
 import { canvasToBlob, createImageBitmapLimited, blobToDataUrl } from '@/utils/imageConcurrency';
 import { parseFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
@@ -12,6 +12,7 @@ import { resolveImageToBlob, resolveImageToDataUrl, toRenderableImageSrc } from 
 import { useLocaleText } from '@/utils/localeText';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import RunCreditBadge from './RunCreditBadge';
+import { useCanvasStore } from '@/stores';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '../../ui/dropdown-menu';
 import {
   flowNodeControlField,
@@ -67,6 +68,12 @@ type CropInfo = {
 type ConnectedInput = { kind: 'crop'; crop: CropInfo } | { kind: 'base'; baseRef: string };
 type ConnectedInputPreview = { id: string; baseRef: string; crop?: CropInfo };
 const MAX_INPUT_PREVIEWS = 6;
+
+const shouldPassWheelToCanvas = (event: { ctrlKey: boolean; metaKey: boolean }) => {
+  const store = useCanvasStore.getState();
+  const isModifierWheel = event.ctrlKey || event.metaKey;
+  return store.wheelZoomMode === 'direct' ? !isModifierWheel : isModifierWheel;
+};
 
 function InputImageCropThumb({
   src,
@@ -565,8 +572,8 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
   );
   const effectiveProvider = currentProviderValue;
   const analyzeBananaImageRoute: 'normal' = 'normal';
-  const imageModel = React.useMemo(
-    () => getImageModelForProvider(effectiveProvider),
+  const analysisModel = React.useMemo(
+    () => getTextModelForProvider(effectiveProvider),
     [effectiveProvider]
   );
   const providerFallbackCredits = React.useMemo(() => {
@@ -928,7 +935,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
         sourceImage: primarySource,
         sourceImages: analysisSources.length > 1 ? analysisSources : undefined,
         aiProvider: effectiveProvider,
-        model: imageModel,
+        model: analysisModel,
         providerOptions: {
           banana: {
             imageRoute: analyzeBananaImageRoute,
@@ -964,7 +971,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [analyzeBananaImageRoute, data.analysisPrompt, data.imageData, data.imageUrl, defaultAnalysisPrompt, effectiveProvider, hasAnyInput, id, imageModel, incomingEdges, isAnalyzing, lt, readConnectedExtraPrompt, rf, status]);
+  }, [analysisModel, analyzeBananaImageRoute, data.analysisPrompt, data.imageData, data.imageUrl, defaultAnalysisPrompt, effectiveProvider, hasAnyInput, id, incomingEdges, isAnalyzing, lt, readConnectedExtraPrompt, rf, status]);
 
   React.useEffect(() => {
     const handler = (event: Event) => {
@@ -1199,6 +1206,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
           value={promptInput}
           onChange={onPromptChange}
           onWheelCapture={(event) => {
+            if (shouldPassWheelToCanvas(event)) return;
             event.stopPropagation();
             if (event.nativeEvent?.stopImmediatePropagation) {
               event.nativeEvent.stopImmediatePropagation();

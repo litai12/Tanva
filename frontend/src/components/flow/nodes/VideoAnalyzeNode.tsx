@@ -2,6 +2,7 @@ import React from 'react';
 import { Handle, Position, useStore, type ReactFlowState, type Node } from 'reactflow';
 import { fetchWithAuth } from '@/services/authFetch';
 import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
+import { useCanvasStore } from '@/stores';
 import { useLocaleText } from '@/utils/localeText';
 import {
   flowNodeControlField,
@@ -21,6 +22,12 @@ type Props = {
     text?: string;
   };
   selected?: boolean;
+};
+
+const shouldPassWheelToCanvas = (event: { ctrlKey: boolean; metaKey: boolean }) => {
+  const store = useCanvasStore.getState();
+  const isModifierWheel = event.ctrlKey || event.metaKey;
+  return store.wheelZoomMode === 'direct' ? !isModifierWheel : isModifierWheel;
 };
 
 function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
@@ -264,7 +271,10 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
           className="nodrag nopan nowheel"
           value={promptInput}
           onChange={onPromptChange}
-          onWheelCapture={(e) => e.stopPropagation()}
+          onWheelCapture={(event) => {
+            if (shouldPassWheelToCanvas(event)) return;
+            event.stopPropagation();
+          }}
           onPointerDownCapture={(e) => e.stopPropagation()}
           placeholder={lt('输入分析提示词', 'Enter analysis prompt')}
           style={{

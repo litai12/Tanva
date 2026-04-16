@@ -5379,6 +5379,17 @@ function FlowInner() {
           return;
         }
         flowPasteKeepLinksRef.current = !!event.shiftKey;
+        // 某些浏览器下 Ctrl/Cmd+Shift+V 可能不会稳定触发 paste 事件。
+        // 当 Flow 内部剪贴板已有数据时，直接走一次保留连线粘贴，避免“按键无响应”。
+        if (event.shiftKey && canPasteFlow) {
+          const handled = handlePasteFlow({ preserveLinkedEdges: true });
+          if (handled) {
+            flowPasteKeepLinksRef.current = false;
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
+        }
         // 粘贴逻辑改为在 clipboard/paste 事件中处理，以便检测剪贴板里是否有图片
         return;
       }
@@ -7192,7 +7203,6 @@ function FlowInner() {
     (event: WheelEvent | React.WheelEvent<HTMLDivElement>) => {
       if (!containerRef.current) return;
       if (isInsideThreeViewport(event)) return;
-      if (allowNativeScroll(event.target)) return;
 
       const store = useCanvasStore.getState();
       const dpr =
@@ -7201,6 +7211,16 @@ function FlowInner() {
       const isModifierWheel = event.ctrlKey || event.metaKey;
       const shouldZoom =
         store.wheelZoomMode === "direct" ? !isModifierWheel : isModifierWheel;
+      const prefersNativeScroll = allowNativeScroll(event.target);
+
+      if (prefersNativeScroll && !shouldZoom) {
+        // Keep native scrolling for inputs/scrollable areas, but never allow browser page zoom.
+        if (isModifierWheel) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+        return;
+      }
 
       if (shouldZoom) {
         event.preventDefault();
@@ -18933,6 +18953,7 @@ function FlowInner() {
 
   const edgesForRender = React.useMemo(
     () => {
+      if (isFlowLowDetailMode) return [];
       const mapped: Edge[] = [];
       edges.forEach((edge) => {
         const sourceGroupId = collapsedChildToGroupId.get(edge.source);
@@ -19009,7 +19030,7 @@ function FlowInner() {
       });
       return mapped;
     },
-    [edges, collapsedChildToGroupId, edgeColorMode]
+    [edges, collapsedChildToGroupId, edgeColorMode, isFlowLowDetailMode]
   );
 
   // 简单的全局调试API，便于从控制台添加节点
@@ -19622,7 +19643,7 @@ function FlowInner() {
         )}
         {isFlowLowDetailMode && (
           <span style={{ fontSize: 12, color: "#4b5563" }}>
-            低缩放已自动降级缩略图为色块
+            低缩放已隐藏连线与 MiniMap（节点 UI 保留）
           </span>
         )}
         <label
@@ -20351,7 +20372,9 @@ function FlowInner() {
           isFlowBlackTheme ? "tanva-flow-theme-mono-dark" : ""
         } ${
           isPointerMode ? "pointer-mode" : ""
-        } ${isMarqueeMode ? "marquee-mode" : ""}`}
+        } ${isMarqueeMode ? "marquee-mode" : ""} ${
+          isFlowLowDetailMode ? "low-detail-mode" : ""
+        }`}
         onDoubleClick={handleContainerDoubleClick}
         onPointerDownCapture={() => clipboardService.setActiveZone("flow")}
       >
@@ -20534,7 +20557,7 @@ function FlowInner() {
         selectionOnDrag={isPointerMode}
         selectNodesOnDrag={!isPointerMode}
         nodesDraggable={true}
-        nodesConnectable={!isPointerMode}
+        nodesConnectable={!isPointerMode && !isFlowLowDetailMode}
         multiSelectionKeyCode={isPointerMode ? null : ["Meta", "Control"]}
         selectionKeyCode={isPointerMode ? null : null}
         deleteKeyCode={["Backspace", "Delete"]}
@@ -20556,13 +20579,17 @@ function FlowInner() {
             style={{ opacity: backgroundOpacity }}
           />
         )}
-        {/* 视口由 Canvas 驱动，禁用 MiniMap 交互避免竞态 */}
-        <MiniMap pannable={false} zoomable={false} />
-        {/* 将画布上的图片以绿色块显示在 MiniMap 内；大图时关闭该叠加层以减负 */}
-        {!isLargeGraphForMiniMapImageOverlay && <MiniMapImageOverlay />}
+        {!isFlowLowDetailMode && (
+          <>
+            {/* 视口由 Canvas 驱动，禁用 MiniMap 交互避免竞态 */}
+            <MiniMap pannable={false} zoomable={false} />
+            {/* 将画布上的图片以绿色块显示在 MiniMap 内；大图时关闭该叠加层以减负 */}
+            {!isLargeGraphForMiniMapImageOverlay && <MiniMapImageOverlay />}
+          </>
+        )}
       </ReactFlow>
 
-      {flowSnapAlignments.length > 0 && (
+      {!isFlowLowDetailMode && flowSnapAlignments.length > 0 && (
         <svg className='tanva-flow-snap-guides' aria-hidden='true'>
           {flowSnapAlignments.map((alignment, index) => {
             const zoom = Math.max(0.1, Number(flowSnapViewport.zoom) || 1);

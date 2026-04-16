@@ -57,9 +57,13 @@ const pointHitsSelector = (event: Event, selector: string): boolean => {
   return Boolean(element?.closest(selector));
 };
 
-const shouldBypassCanvasZoom = (event: Event) => {
+const shouldBypassCanvasZoom = (
+  event: Event,
+  options?: { ignoreFlowOverlay?: boolean }
+) => {
+  const includeFlowOverlay = options?.ignoreFlowOverlay ? false : true;
   const path = getEventPath(event);
-  if (pathContainsSelector(path, FLOW_OVERLAY_SELECTOR)) {
+  if (includeFlowOverlay && pathContainsSelector(path, FLOW_OVERLAY_SELECTOR)) {
     return true;
   }
   if (
@@ -71,7 +75,7 @@ const shouldBypassCanvasZoom = (event: Event) => {
 
   const element = resolveEventElement(event);
   if (
-    element?.closest(FLOW_OVERLAY_SELECTOR) ||
+    (includeFlowOverlay && element?.closest(FLOW_OVERLAY_SELECTOR)) ||
     element?.closest(MODEL3D_CONTAINER_SELECTOR) ||
     element?.closest(FLOW_THREE_NODE_SELECTOR)
   ) {
@@ -79,7 +83,7 @@ const shouldBypassCanvasZoom = (event: Event) => {
   }
 
   return (
-    pointHitsSelector(event, FLOW_OVERLAY_SELECTOR) ||
+    (includeFlowOverlay && pointHitsSelector(event, FLOW_OVERLAY_SELECTOR)) ||
     pointHitsSelector(event, MODEL3D_CONTAINER_SELECTOR) ||
     pointHitsSelector(event, FLOW_THREE_NODE_SELECTOR)
   );
@@ -152,7 +156,7 @@ const GlobalZoomCapture = () => {
     };
 
     const handleGestureStart = (event: GestureLikeEvent) => {
-      if (shouldBypassCanvasZoom(event)) return;
+      if (shouldBypassCanvasZoom(event, { ignoreFlowOverlay: true })) return;
       if (event.scale == null || event.clientX == null || event.clientY == null) return;
       const focus = getFocusPoint(event.clientX, event.clientY);
       if (!focus) return;
@@ -163,7 +167,7 @@ const GlobalZoomCapture = () => {
     };
 
     const handleGestureChange = (event: GestureLikeEvent) => {
-      if (shouldBypassCanvasZoom(event)) return;
+      if (shouldBypassCanvasZoom(event, { ignoreFlowOverlay: true })) return;
       if (gestureStartZoomRef.current == null) return;
       if (event.scale == null || event.clientX == null || event.clientY == null) return;
       const focus = getFocusPoint(event.clientX, event.clientY);
