@@ -85,10 +85,8 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
       if (value === "首充翻倍" || value.toLowerCase() === "first top-up x2") {
         return lt("首充翻倍", "First top-up x2");
       }
-      const ratioMatch = /^(?:送|赠送|\+)?\s*(\d+)\s*%$/i.exec(value);
-      if (ratioMatch?.[1]) {
-        const ratio = ratioMatch[1];
-        return lt(`送${ratio}%`, `+${ratio}%`);
+      if (/^(?:送|赠送|\+)?\s*\d+\s*%$/i.test(value)) {
+        return "";
       }
       return value;
     },

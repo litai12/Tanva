@@ -41,6 +41,7 @@ function sortPlansByTier(a: PaymentMembershipPlan, b: PaymentMembershipPlan): nu
 const FREE_FEATURES: string[] = [
   "基础月卡积分：500",
   "每日签到：50 积分",
+  "去水印",
   "签到/活动赠送积分进入「赠送可消退积分」池",
   "赠送积分默认每日衰减 50",
   "邀请上限 5",
@@ -62,11 +63,7 @@ function splitBenefitText(value: unknown): string[] {
 
 function buildPlanCreditsSummary(plan: PaymentMembershipPlan): string {
   const total = plan.monthlyQuotaCredits + plan.signupBonusCredits;
-  return `套餐积分 ${plan.monthlyQuotaCredits} + 开通赠送 ${plan.signupBonusCredits}，合计到账 ${total}`;
-}
-
-function buildPlanQuotaDetail(plan: PaymentMembershipPlan): string {
-  return `${plan.billingCycle === "yearly" ? "年卡" : "月卡"}配额 ${plan.monthlyQuotaCredits}（按当前会员周期刷新）· 开通赠送 ${plan.signupBonusCredits}`;
+  return `套餐积分合计到账 ${total} `;
 }
 
 function vipFeatureLines(plan: PaymentMembershipPlan): { main: string[]; accent: string[] } {
@@ -77,6 +74,10 @@ function vipFeatureLines(plan: PaymentMembershipPlan): { main: string[]; accent:
   if (metadata.seedance2Access === "enabled") {
     accent.push("Seedance 2 权益：支持");
   }
+
+  accent.push(
+    `${metadata.noWatermarkAccess === "enabled" ? "去水印" : "有水印"}`
+  );
 
   if (typeof metadata.templateLibraryAccess === "string" && metadata.templateLibraryAccess.trim()) {
     accent.push(`模板库：${metadata.templateLibraryAccess.trim()}`);
@@ -743,14 +744,6 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                             <span className={isWhite ? "text-indigo-500" : "text-violet-300"}>✦</span>{" "}
                             {planTotalCredits} 合计积分
                           </div>
-                          <div
-                            className={cn(
-                              "mt-1 text-[10px] leading-snug",
-                              isWhite ? "text-slate-500" : "text-zinc-500",
-                            )}
-                          >
-                            {buildPlanQuotaDetail(plan)}
-                          </div>
                         </div>
 
                         <button
@@ -881,8 +874,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                           </div>
                           {selectedPlan ? (
                             <div className={cn("mt-2 text-xs", isWhite ? "text-slate-500" : "text-zinc-500")}>
-                              合计 {selectedPlan.monthlyQuotaCredits + selectedPlan.signupBonusCredits} 积分 ·{" "}
-                              {buildPlanQuotaDetail(selectedPlan)}
+                              {buildPlanCreditsSummary(selectedPlan)}
                             </div>
                           ) : null}
                         </div>

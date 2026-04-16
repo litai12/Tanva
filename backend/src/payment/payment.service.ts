@@ -9,6 +9,7 @@ import {
   CreateOrderDto,
   PaymentOrderResponse,
   PaymentStatusResponse,
+  RECHARGE_PACKAGES,
   CREDITS_PER_YUAN,
   type PaymentOrderType,
 } from './dto/payment.dto';
@@ -27,6 +28,8 @@ const WeChatPay = require('wechatpay-node-v3');
 
 @Injectable()
 export class PaymentService implements OnModuleInit {
+  private static readonly VIP_FIRST_RECHARGE_DOUBLE_TAG = 'first top-up x2';
+  private static readonly VIP_FIRST_RECHARGE_RESET_AT_DEFAULT = '2026-04-16T00:00:00+08:00';
   private alipaySdk: any;
   private wechatPay: any;
   private wechatApiV3Key: string | null = null;
@@ -64,6 +67,27 @@ export class PaymentService implements OnModuleInit {
       return true;
     }
     return Math.abs(expected - actual) < 0.01;
+  }
+
+  private getVipFirstRechargeResetAt(): Date {
+    const configured = this.configService
+      .get<string>('VIP_RECHARGE_FIRST_TOPUP_RESET_AT')
+      ?.trim();
+    const fallback = new Date(PaymentService.VIP_FIRST_RECHARGE_RESET_AT_DEFAULT);
+
+    if (!configured) {
+      return fallback;
+    }
+
+    const parsed = new Date(configured);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed;
+    }
+
+    this.logger.warn(
+      `Invalid VIP_RECHARGE_FIRST_TOPUP_RESET_AT="${configured}", fallback to ${PaymentService.VIP_FIRST_RECHARGE_RESET_AT_DEFAULT}`,
+    );
+    return fallback;
   }
 
   private parseNotifyData(data: unknown): Record<string, string> {
@@ -247,6 +271,10 @@ export class PaymentService implements OnModuleInit {
       console.warn('  - WECHAT_APP_ID:', wechatAppId ? '✅' : '❌ 缺失');
       console.warn('  - WECHAT_PRIVATE_KEY:', wechatPrivateKey ? '✅' : '❌ 缺失');
     }
+
+    this.logger.log(
+      `VIP first-topup resetAt=${this.getVipFirstRechargeResetAt().toISOString()}`,
+    );
   }
 
   // --- 业务逻辑 ---
@@ -254,6 +282,64 @@ export class PaymentService implements OnModuleInit {
     const timestamp = Date.now().toString();
     const random = Math.random().toString(36).substring(2, 8).toUpperCase();
     return `PAY${timestamp}${random}`;
+  }
+
+  private normalizeMoneyAmount(amount: number): number {
+    return Math.round(amount * 100) / 100;
+  }
+
+  private getRechargePackageByAmount(amount: number) {
+    return RECHARGE_PACKAGES.find(
+      (item) => Math.abs(item.price - amount) < 0.0001,
+    );
+  }
+
+  private async isVipRechargeDoubleEnabled(userId: string): Promise<boolean> {
+    const entitlement = await this.membershipService.getMembershipEntitlement(userId);
+    return entitlement.membershipStatus === 'active' || entitlement.hasActiveSubscription;
+  }
+
+  private async resolveRechargeOrderCredits(userId: string, amount: number): Promise<number> {
+    const packageConfig = this.getRechargePackageByAmount(amount);
+    if (!packageConfig) {
+      return Math.max(0, Math.round(amount * CREDITS_PER_YUAN));
+    }
+
+    const [vipEnabled, isFirstRecharge] = await Promise.all([
+      this.isVipRechargeDoubleEnabled(userId),
+      this.checkIsFirstRechargeByAmount(userId, amount),
+    ]);
+
+    if (vipEnabled && isFirstRecharge) {
+      return packageConfig.credits * 2;
+    }
+
+    return packageConfig.credits;
+  }
+
+  async getRechargePackages(userId: string) {
+    const amounts = RECHARGE_PACKAGES.map((item) => item.price);
+    const [firstRechargeMap, vipEnabled] = await Promise.all([
+      this.getFirstRechargeStatusByAmounts(userId, amounts),
+      this.isVipRechargeDoubleEnabled(userId),
+    ]);
+
+    const packages = RECHARGE_PACKAGES.map((item) => {
+      const isFirstRecharge = Boolean(firstRechargeMap[item.price]);
+      const isDoubleCredits = vipEnabled && isFirstRecharge;
+      return {
+        price: item.price,
+        credits: isDoubleCredits ? item.credits * 2 : item.credits,
+        bonus: null,
+        tag: isDoubleCredits ? PaymentService.VIP_FIRST_RECHARGE_DOUBLE_TAG : null,
+        isFirstRecharge,
+      };
+    });
+
+    return {
+      packages,
+      creditsPerYuan: CREDITS_PER_YUAN,
+    };
   }
 
   async getMembershipPlans() {
@@ -305,7 +391,9 @@ export class PaymentService implements OnModuleInit {
   }
 
   async createOrder(userId: string, dto: CreateOrderDto): Promise<PaymentOrderResponse> {
-    const { amount, credits, paymentMethod } = dto;
+    const { paymentMethod } = dto;
+    let orderAmount = dto.amount;
+    let orderCredits = dto.credits;
     const orderType: PaymentOrderType = dto.orderType ?? 'recharge';
     let membershipPlanId: string | null = null;
     let businessCode: string | null = null;
@@ -329,14 +417,15 @@ export class PaymentService implements OnModuleInit {
         typeof dto.metadata === 'object' &&
         !Array.isArray(dto.metadata) &&
         Boolean((dto.metadata as Record<string, unknown>).membershipTransitionType);
-      if (!allowCustomMembershipAmount && Math.abs(Number(plan.price) - amount) >= 0.01) {
+      if (!allowCustomMembershipAmount && Math.abs(Number(plan.price) - orderAmount) >= 0.01) {
         throw new BadRequestException('会员订单金额与套餐价格不匹配');
       }
-      if (credits !== 0) {
+      if (dto.credits !== 0) {
         throw new BadRequestException('会员订单 credits 必须为 0');
       }
       membershipPlanId = plan.id;
       businessCode = plan.code;
+      orderCredits = 0;
       planSnapshot = {
         id: plan.id,
         code: plan.code,
@@ -349,11 +438,15 @@ export class PaymentService implements OnModuleInit {
         metadata: plan.metadata,
       } as Prisma.InputJsonValue;
     } else {
-      const minCredits = amount * CREDITS_PER_YUAN;
-      const maxCredits = amount * CREDITS_PER_YUAN * 10;
-      if (credits < minCredits * 0.5 || credits > maxCredits) {
-        throw new BadRequestException('积分数量不合理');
+      if (!Number.isFinite(orderAmount) || orderAmount <= 0) {
+        throw new BadRequestException('Invalid recharge amount');
       }
+      const normalizedAmount = this.normalizeMoneyAmount(orderAmount);
+      if (Math.abs(normalizedAmount - orderAmount) >= 0.000001) {
+        throw new BadRequestException('Invalid amount precision');
+      }
+      orderAmount = normalizedAmount;
+      orderCredits = await this.resolveRechargeOrderCredits(userId, orderAmount);
     }
 
     await this.prisma.paymentOrder.updateMany({
@@ -366,19 +459,19 @@ export class PaymentService implements OnModuleInit {
 
     let qrCodeUrl: string | null = null;
     if (paymentMethod === PaymentMethod.ALIPAY) {
-      qrCodeUrl = await this.generateAlipayQrCode(orderNo, amount);
+      qrCodeUrl = await this.generateAlipayQrCode(orderNo, orderAmount);
     } else if (paymentMethod === PaymentMethod.WECHAT) {
-      qrCodeUrl = await this.generateWechatQrCode(orderNo, amount);
+      qrCodeUrl = await this.generateWechatQrCode(orderNo, orderAmount);
     }
 
     const order = await this.prisma.paymentOrder.create({
       data: {
         orderNo,
         userId,
-        orderType: dto.orderType ?? 'recharge',
+        orderType,
         businessCode,
-        amount,
-        credits,
+        amount: orderAmount,
+        credits: orderCredits,
         paymentMethod,
         status: PaymentStatus.PENDING, qrCodeUrl, expiredAt,
         membershipPlanId,
@@ -1143,10 +1236,13 @@ export class PaymentService implements OnModuleInit {
    * @param amount 套餐金额（可选，不传则返回所有档位的首充状态）
    */
   async checkIsFirstRechargeByAmount(userId: string, amount?: number): Promise<boolean> {
+    const resetAt = this.getVipFirstRechargeResetAt();
     const paidOrder = await this.prisma.paymentOrder.findFirst({
       where: {
         userId,
+        orderType: 'recharge',
         status: PaymentStatus.PAID,
+        createdAt: { gte: resetAt },
         ...(amount !== undefined && { amount }),
       },
     });
@@ -1159,9 +1255,15 @@ export class PaymentService implements OnModuleInit {
    * @param amounts 套餐金额列表
    */
   async getFirstRechargeStatusByAmounts(userId: string, amounts: number[]): Promise<Record<number, boolean>> {
+    const resetAt = this.getVipFirstRechargeResetAt();
     // 查询用户已支付的所有订单金额
     const paidOrders = await this.prisma.paymentOrder.findMany({
-      where: { userId, status: PaymentStatus.PAID },
+      where: {
+        userId,
+        orderType: 'recharge',
+        status: PaymentStatus.PAID,
+        createdAt: { gte: resetAt },
+      },
       select: { amount: true },
     });
 

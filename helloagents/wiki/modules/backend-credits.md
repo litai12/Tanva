@@ -4,6 +4,16 @@
 - Image analysis deduction mapping is fixed to: Fast (gemini-2.5-image-analyze) = 10, Pro (gemini-image-analyze) = 30, Ultra (gemini-3.1-image-analyze) = 20.
 - POST /api/ai/analyze-image serviceType routing now follows provider tier (banana-2.5 / banana / banana-3.1|nano2) for consistent billing.
 
+## 2026-04-16 VIP Recharge x2
+- `GET /api/payment/packages` now returns user-specific package credits for the VIP first-top-up x2 event.
+- Rules:
+  - Base pricing stays unchanged (`10=1000`, `50=5000`, ...).
+  - A tier is doubled only when the user is currently VIP and has no paid `recharge` order for that exact tier amount.
+  - Each tier can trigger x2 once, independently.
+- Backend enforcement:
+  - Recharge order credits are recalculated server-side in `PaymentService.createOrder` from amount + user state.
+  - Client-provided `credits` no longer controls final recharge grant.
+
 ## 作用
 - 维护用户积分余额、交易流水、API 使用记录与服务定价。
 - 提供每日奖励领取与管理员加/扣积分接口。

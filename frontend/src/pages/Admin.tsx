@@ -8256,6 +8256,10 @@ function VipManagementTab() {
     { value: "disabled", label: "不支持" },
     { value: "enabled", label: "支持" },
   ] as const;
+  const NO_WATERMARK_ACCESS_OPTIONS = [
+    { value: "disabled", label: "不支持" },
+    { value: "enabled", label: "支持" },
+  ] as const;
   const FREE_TIER_BENEFITS_SETTING_KEY = "membership_free_tier_benefits";
   const DEFAULT_FREE_TIER_BENEFITS = {
     coreBenefits: "图片与视频生成不限每日次数",
@@ -8305,6 +8309,11 @@ function VipManagementTab() {
     return value === "enabled" ? "enabled" : "disabled";
   };
 
+  const getPlanNoWatermarkAccess = (metadata?: Record<string, any> | null) => {
+    const value = getPlanMetadataObject(metadata).noWatermarkAccess;
+    return value === "enabled" ? "enabled" : "disabled";
+  };
+
   const buildPlanMetadata = (
     baseMetadata: Record<string, any>,
     form: {
@@ -8312,6 +8321,7 @@ function VipManagementTab() {
       templateLibraryAccess: string;
       inviteLimit: string;
       seedance2Access: string;
+      noWatermarkAccess: string;
       supportLevel: string;
     },
   ) => {
@@ -8339,6 +8349,12 @@ function VipManagementTab() {
       nextMetadata.seedance2Access = "enabled";
     } else {
       nextMetadata.seedance2Access = "disabled";
+    }
+
+    if (form.noWatermarkAccess === "enabled") {
+      nextMetadata.noWatermarkAccess = "enabled";
+    } else {
+      nextMetadata.noWatermarkAccess = "disabled";
     }
 
     const inviteLimitText = form.inviteLimit.trim();
@@ -8409,6 +8425,7 @@ function VipManagementTab() {
     templateLibraryAccess: string;
     inviteLimit: string;
     seedance2Access: string;
+    noWatermarkAccess: string;
     supportLevel: string;
     sortOrder: string;
     isActive: boolean;
@@ -8424,6 +8441,7 @@ function VipManagementTab() {
     templateLibraryAccess: "",
     inviteLimit: "",
     seedance2Access: "disabled",
+    noWatermarkAccess: "disabled",
     supportLevel: "",
     sortOrder: "0",
     isActive: true,
@@ -8511,6 +8529,7 @@ function VipManagementTab() {
       templateLibraryAccess: "",
       inviteLimit: "",
       seedance2Access: "disabled",
+      noWatermarkAccess: "disabled",
       supportLevel: "",
       sortOrder: "0",
       isActive: true,
@@ -8541,6 +8560,7 @@ function VipManagementTab() {
       templateLibraryAccess: getPlanTemplateLibraryAccess(plan.metadata),
       inviteLimit: getPlanInviteLimit(plan.metadata),
       seedance2Access: getPlanSeedance2Access(plan.metadata),
+      noWatermarkAccess: getPlanNoWatermarkAccess(plan.metadata),
       supportLevel: getPlanSupportLevel(plan.metadata),
       sortOrder: String(plan.sortOrder),
       isActive: plan.isActive,
@@ -8569,6 +8589,7 @@ function VipManagementTab() {
       templateLibraryAccess: planForm.templateLibraryAccess,
       inviteLimit: planForm.inviteLimit,
       seedance2Access: planForm.seedance2Access,
+      noWatermarkAccess: planForm.noWatermarkAccess,
       supportLevel: planForm.supportLevel,
     });
 
@@ -8909,6 +8930,7 @@ function VipManagementTab() {
                   <div className='mb-1 text-xs text-gray-500'>
                     {`Seedance 2 权益：${freeTierBenefits.seedance2Access === "enabled" ? "支持" : "不支持"}`}
                   </div>
+                  <div className='mb-1 text-xs text-gray-500'>无水印权益：不支持</div>
                   <div className='flex flex-wrap gap-2'>
                     <Button size='sm' variant='outline' onClick={() => setFreeTierModalOpen(true)}>
                       编辑
@@ -8945,6 +8967,9 @@ function VipManagementTab() {
                     <div className='mb-1 text-xs text-gray-500'>{getPlanCoreBenefits(plan.metadata) || "-"}</div>
                     <div className='mb-1 text-xs text-gray-500'>
                       {`Seedance 2 权益：${getPlanSeedance2Access(plan.metadata) === "enabled" ? "支持" : "不支持"}`}
+                    </div>
+                    <div className='mb-1 text-xs text-gray-500'>
+                      {`无水印权益：${getPlanNoWatermarkAccess(plan.metadata) === "enabled" ? "支持" : "不支持"}`}
                     </div>
                     <div className='flex flex-wrap gap-2'>
                       <Button size='sm' variant='outline' onClick={() => handleEditPlan(plan)}>
@@ -9113,6 +9138,25 @@ function VipManagementTab() {
                   className='w-full rounded-md border border-gray-300 px-3 py-2 text-sm'
                 >
                   {SEEDANCE2_ACCESS_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <div className='mb-1 text-sm text-gray-600'>无水印权益</div>
+                <select
+                  value={planForm.noWatermarkAccess}
+                  onChange={(e) =>
+                    setPlanForm((current) => ({
+                      ...current,
+                      noWatermarkAccess: e.target.value,
+                    }))
+                  }
+                  className='w-full rounded-md border border-gray-300 px-3 py-2 text-sm'
+                >
+                  {NO_WATERMARK_ACCESS_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>

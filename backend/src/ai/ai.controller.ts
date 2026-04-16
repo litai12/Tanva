@@ -164,6 +164,80 @@ export class AiController {
     return 'disabled';
   }
 
+  private normalizeNoWatermarkAccess(value: unknown): 'enabled' | 'disabled' {
+    const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    if (
+      normalized === 'enabled' ||
+      normalized === 'allow' ||
+      normalized === 'on' ||
+      normalized === 'true' ||
+      normalized === 'yes' ||
+      normalized === 'vip' ||
+      normalized === 'supported' ||
+      normalized === 'support' ||
+      normalized === '支持' ||
+      normalized === '可用' ||
+      normalized === '1'
+    ) {
+      return 'enabled';
+    }
+
+    if (typeof value === 'boolean') {
+      return value ? 'enabled' : 'disabled';
+    }
+    if (typeof value === 'number') {
+      return value > 0 ? 'enabled' : 'disabled';
+    }
+    return 'disabled';
+  }
+
+  private async resolveUserNoWatermarkAccess(userId: string): Promise<'enabled' | 'disabled'> {
+    const now = new Date();
+    const subscription = await this.prisma.userMembershipSubscription.findFirst({
+      where: {
+        userId,
+        status: 'active',
+        currentPeriodStartAt: { lte: now },
+        currentPeriodEndAt: { gt: now },
+      },
+      select: {
+        membershipPlanId: true,
+      },
+      orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    if (!subscription?.membershipPlanId) {
+      return 'disabled';
+    }
+
+    const plan = await this.prisma.membershipPlan.findUnique({
+      where: { id: subscription.membershipPlanId },
+      select: { metadata: true },
+    });
+
+    if (plan?.metadata && typeof plan.metadata === 'object' && !Array.isArray(plan.metadata)) {
+      const metadata = plan.metadata as Record<string, unknown>;
+      const explicitNoWatermark =
+        metadata.noWatermarkAccess ??
+        metadata.removeWatermarkAccess ??
+        metadata.watermarkFree ??
+        metadata.noWatermark;
+
+      // No default VIP bypass: must be explicitly enabled on the membership plan.
+      if (
+        explicitNoWatermark === undefined ||
+        explicitNoWatermark === null ||
+        explicitNoWatermark === ''
+      ) {
+        return 'disabled';
+      }
+      return this.normalizeNoWatermarkAccess(explicitNoWatermark);
+    }
+
+    // Plan metadata absent: default to disabled.
+    return 'disabled';
+  }
+
   private async resolveUserSeedance2Access(userId: string): Promise<'enabled' | 'disabled'> {
     const subscription = await this.prisma.userMembershipSubscription.findFirst({
       where: {
@@ -360,7 +434,10 @@ export class AiController {
     }
     try {
       const user = await this.usersService.findById(userId);
-      return this.isPrivilegedAdminRole(user?.role) || user?.noWatermark === true;
+      if (this.isPrivilegedAdminRole(user?.role) || user?.noWatermark === true) {
+        return true;
+      }
+      return (await this.resolveUserNoWatermarkAccess(userId)) === 'enabled';
     } catch (e) {
       this.logger.warn('检查水印白名单失败', e);
       return false;

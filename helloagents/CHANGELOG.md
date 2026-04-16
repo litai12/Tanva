@@ -5,6 +5,9 @@ All notable changes to this knowledge base will be documented in this file.
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning (knowledge-base versioning).
 
 ## [Unreleased]
+### Updated
+- Payment/Credits: recharge packages now support a VIP-only per-tier first-top-up x2 campaign. Backend `/api/payment/packages` returns dynamic credits per tier, and recharge order credits are server-side recalculated (no client-side percentage bonus path).
+
 ### Fixed
 - Membership UI: 会员页年付入口不再硬编码为禁用状态，现按后端返回的 `billingCycle=yearly` 套餐动态启用；同时移除“年付即将开放”的固定文案，并让结算摘要按实际周期展示“年卡/月卡”（`frontend/src/components/payment/MembershipPanel.tsx`）。
 - Video Provider: 修复 `viduq3-pro` 在收到 `reference2video` 请求时错误回退到 `text2video` 的问题。后端现已补齐 Q3 的 `reference2video` 模式推断、endpoint 映射和 payload 组装，避免“明明传了 prompt 却被上游报 text_video 缺少 prompt”。
