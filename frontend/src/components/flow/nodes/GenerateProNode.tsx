@@ -79,6 +79,46 @@ const MAX_PROMPT_HEIGHT = 400;
 const DEFAULT_PROMPT_HEIGHT = 80;
 const DEFAULT_NODE_TITLE = 'Agent';
 const MAX_INPUT_PREVIEWS = 6;
+const EMPTY_CONNECTED_INPUT_IMAGES: ConnectedInputImage[] = [];
+
+type OrderedInputEdge = {
+  edge: ReactFlowState['edges'][number];
+  index: number;
+};
+
+const isImageInputHandle = (handle?: string | null): boolean => {
+  if (!handle || handle === 'img') return true;
+  return /^img\d+$/.test(handle);
+};
+
+const imageInputHandleRank = (handle?: string | null): number => {
+  if (!handle || handle === 'img') return 0;
+  const match = /^img(\d+)$/.exec(handle);
+  if (!match) return Number.MAX_SAFE_INTEGER;
+  return Math.max(0, Number(match[1]) - 1);
+};
+
+const collectOrderedInputEdges = (
+  edges: ReactFlowState['edges'],
+  targetId: string
+): OrderedInputEdge[] => {
+  const matched: OrderedInputEdge[] = [];
+  for (let i = 0; i < edges.length; i += 1) {
+    const edge = edges[i];
+    if (edge.target !== targetId) continue;
+    if (!isImageInputHandle(edge.targetHandle)) continue;
+    matched.push({ edge, index: i });
+  }
+  if (matched.length <= 1) return matched;
+  matched.sort((a, b) => {
+    const rankDelta =
+      imageInputHandleRank(a.edge.targetHandle) -
+      imageInputHandleRank(b.edge.targetHandle);
+    if (rankDelta !== 0) return rankDelta;
+    return a.index - b.index;
+  });
+  return matched;
+};
 
 type ConnectedInputImage = {
   id: string;
@@ -640,45 +680,46 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   const connectedInputImages = useStore(
     React.useCallback(
       (state: ReactFlowState) => {
-        const edgeWithOrder = state.edges
-          .map((edge, index) => ({ edge, index }))
-          .filter(({ edge }) => {
-            if (edge.target !== id) return false;
-            const handle = edge.targetHandle;
-            if (!handle || handle === 'img') return true;
-            return /^img\d+$/.test(handle);
-          })
-          .sort((a, b) => {
-            const rank = (handle?: string | null) => {
-              if (!handle || handle === 'img') return 0;
-              const match = /^img(\d+)$/.exec(handle);
-              if (!match) return Number.MAX_SAFE_INTEGER;
-              return Math.max(0, Number(match[1]) - 1);
-            };
-            const rankDelta = rank(a.edge.targetHandle) - rank(b.edge.targetHandle);
-            if (rankDelta !== 0) return rankDelta;
-            return a.index - b.index;
-          });
+        const edgeWithOrder = collectOrderedInputEdges(state.edges, id);
+        if (edgeWithOrder.length === 0) return EMPTY_CONNECTED_INPUT_IMAGES;
 
-        if (edgeWithOrder.length === 0) return [] as ConnectedInputImage[];
+        const nodeLookup = (
+          state as ReactFlowState & { nodeLookup?: Map<string, FlowNode> }
+        ).nodeLookup;
+        const hasNodeLookup =
+          nodeLookup && typeof nodeLookup.get === 'function';
+        const fallbackNodes = hasNodeLookup
+          ? null
+          : ((state as ReactFlowState & { nodes?: FlowNode[] }).nodes ||
+            state.getNodes());
+        const fallbackNodeById = fallbackNodes
+          ? new Map(fallbackNodes.map((node) => [node.id, node]))
+          : null;
+        const resolveSourceNode = (sourceId: string): FlowNode | undefined => {
+          const fromLookup = hasNodeLookup ? nodeLookup!.get(sourceId) : undefined;
+          return fromLookup || fallbackNodeById?.get(sourceId);
+        };
 
-        const nodes = state.getNodes();
-        const nodeById = new Map(nodes.map((node) => [node.id, node]));
         const out: ConnectedInputImage[] = [];
 
-        edgeWithOrder.forEach(({ edge }, edgeIdx) => {
-          const sourceNode = nodeById.get(edge.source);
-          if (!sourceNode) return;
+        for (let edgeIdx = 0; edgeIdx < edgeWithOrder.length; edgeIdx += 1) {
+          const { edge } = edgeWithOrder[edgeIdx];
+          const sourceNode = resolveSourceNode(edge.source);
+          if (!sourceNode) continue;
           const items = readConnectedImagesFromNode(sourceNode, edge.sourceHandle);
-          items.forEach((item, itemIdx) => {
+          for (let itemIdx = 0; itemIdx < items.length; itemIdx += 1) {
+            const item = items[itemIdx];
             out.push({
               ...item,
               id: `${edge.id || edge.source}-${edgeIdx}-${item.id}-${itemIdx}`,
             });
-          });
-        });
+            if (out.length >= MAX_INPUT_PREVIEWS) {
+              return out;
+            }
+          }
+        }
 
-        return out.slice(0, MAX_INPUT_PREVIEWS);
+        return out;
       },
       [id]
     )

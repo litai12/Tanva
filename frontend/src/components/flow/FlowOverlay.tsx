@@ -209,6 +209,8 @@ const FLOW_EDGE_COLOR_BY_KIND = {
   images: "#eab308",
   audio: "#ec4899",
 } as const;
+const FLOW_AUTO_VISIBLE_RENDER_NODE_THRESHOLD = 31;
+const FLOW_AUTO_DISABLE_SNAP_NODE_THRESHOLD = 51;
 
 const getEdgeHandleKind = (
   handle?: string | null
@@ -3487,6 +3489,10 @@ function FlowInner() {
   }, [lt, nodePaletteConfigs]);
 
   const snapAlignmentEnabled = useUIStore((s) => s.snapAlignmentEnabled);
+  const isLargeGraphForSnapAlignment =
+    nodes.length >= FLOW_AUTO_DISABLE_SNAP_NODE_THRESHOLD;
+  const effectiveSnapAlignmentEnabled =
+    snapAlignmentEnabled && !isLargeGraphForSnapAlignment;
   const [flowSnapAlignments, setFlowSnapAlignments] = React.useState<
     AlignmentLine[]
   >([]);
@@ -3515,7 +3521,7 @@ function FlowInner() {
     (draggingNodes: RFNode[], anchorNodeId?: string) => {
       flowDragAnchorNodeIdRef.current =
         typeof anchorNodeId === "string" ? anchorNodeId : null;
-      if (!snapAlignmentEnabled) {
+      if (!effectiveSnapAlignmentEnabled) {
         flowSnapTargetsRef.current = [];
         updateFlowSnapAlignments([]);
         return;
@@ -3534,7 +3540,7 @@ function FlowInner() {
         .filter((item): item is ObjectBounds => Boolean(item));
       updateFlowSnapAlignments([]);
     },
-    [snapAlignmentEnabled, updateFlowSnapAlignments]
+    [effectiveSnapAlignmentEnabled, updateFlowSnapAlignments]
   );
 
   const applyFlowSnappingToChanges = React.useCallback(
@@ -3551,7 +3557,7 @@ function FlowInner() {
         return changes;
       }
 
-      if (!snapAlignmentEnabled || flowSnapTargetsRef.current.length === 0) {
+      if (!effectiveSnapAlignmentEnabled || flowSnapTargetsRef.current.length === 0) {
         updateFlowSnapAlignments([]);
         return changes;
       }
@@ -3642,7 +3648,7 @@ function FlowInner() {
         return next;
       });
     },
-    [snapAlignmentEnabled, updateFlowSnapAlignments]
+    [effectiveSnapAlignmentEnabled, updateFlowSnapAlignments]
   );
 
   const onNodesChangeWithHistory = React.useCallback(
@@ -3817,10 +3823,10 @@ function FlowInner() {
     rfRef.current = rf;
   }, [rf]);
   React.useEffect(() => {
-    if (!snapAlignmentEnabled) {
+    if (!effectiveSnapAlignmentEnabled) {
       clearFlowSnapState();
     }
-  }, [clearFlowSnapState, snapAlignmentEnabled]);
+  }, [clearFlowSnapState, effectiveSnapAlignmentEnabled]);
   React.useEffect(() => () => clearFlowSnapState(), [clearFlowSnapState]);
 
   const normalizeGroupNodes = React.useCallback((inputNodes: RFNode[]) => {
@@ -5586,6 +5592,10 @@ function FlowInner() {
   const setEdgeColorMode = useFlowStore((s) => s.setEdgeColorMode);
   const showFpsOverlay = useFlowStore((s) => s.showFpsOverlay);
   const setShowFpsOverlay = useFlowStore((s) => s.setShowFpsOverlay);
+  const isLargeGraphForVisibleRendering =
+    nodes.length >= FLOW_AUTO_VISIBLE_RENDER_NODE_THRESHOLD;
+  const effectiveOnlyRenderVisibleElements =
+    onlyRenderVisibleElements || isLargeGraphForVisibleRendering;
 
   const [dragFps, setDragFps] = React.useState<number>(0);
   const [dragLongFrames, setDragLongFrames] = React.useState<number>(0);
@@ -10072,61 +10082,69 @@ function FlowInner() {
       let thumbnailNodeId: string | null = null;
       let thumbnailSourceImageData: string | null = null;
 
-      setNodes((ns) =>
-        ns.map((n) => {
-          if (n.id !== detail.id) return n;
-          const patch = { ...(detail.patch || {}) };
+      setNodes((ns) => {
+        const targetIndex = ns.findIndex((node) => node.id === detail.id);
+        if (targetIndex < 0) return ns;
 
-          // 移除内部使用的 _positionOffset
-          delete patch._positionOffset;
+        const targetNode = ns[targetIndex];
+        const patch = { ...(detail.patch || {}) };
 
-          if (
-            Object.prototype.hasOwnProperty.call(patch, "imageData") &&
-            !Object.prototype.hasOwnProperty.call(patch, "imageName")
-          ) {
-            patch.imageName = undefined;
-          }
-          // imageData 更新时一并清理 thumbnail，避免旧缩略图残留（且 thumbnail 不落库）
-          if (Object.prototype.hasOwnProperty.call(patch, "imageData")) {
-            patch.thumbnail = undefined;
-          }
-          // imageData 清空时一并清理 thumbnail，避免大字符串残留
-          if (
-            Object.prototype.hasOwnProperty.call(patch, "imageData") &&
-            !patch.imageData
-          ) {
-            patch.thumbnail = undefined;
-          }
+        // 移除内部使用的 _positionOffset
+        delete patch._positionOffset;
 
-          // 图片节点：若写入 imageData 但未提供 thumbnail，异步生成缩略图
-          if (
-            Object.prototype.hasOwnProperty.call(patch, "imageData") &&
-            patch.imageData &&
-            !Object.prototype.hasOwnProperty.call(patch, "thumbnail") &&
-            (n.type === "image" || n.type === "imagePro") &&
-            !(
-              typeof patch.imageData === "string" &&
-              patch.imageData.trim().startsWith(FLOW_IMAGE_ASSET_PREFIX)
-            )
-          ) {
-            patch.thumbnail = undefined;
-            shouldAutoGenerateThumbnail = true;
-            thumbnailNodeId = n.id;
-            thumbnailSourceImageData = patch.imageData;
-          }
+        if (
+          Object.prototype.hasOwnProperty.call(patch, "imageData") &&
+          !Object.prototype.hasOwnProperty.call(patch, "imageName")
+        ) {
+          patch.imageName = undefined;
+        }
+        // imageData 更新时一并清理 thumbnail，避免旧缩略图残留（且 thumbnail 不落库）
+        if (Object.prototype.hasOwnProperty.call(patch, "imageData")) {
+          patch.thumbnail = undefined;
+        }
+        // imageData 清空时一并清理 thumbnail，避免大字符串残留
+        if (
+          Object.prototype.hasOwnProperty.call(patch, "imageData") &&
+          !patch.imageData
+        ) {
+          patch.thumbnail = undefined;
+        }
 
-          // 如果有位置偏移，同时更新节点位置
-          let newPosition = n.position;
-          if (positionOffset) {
-            newPosition = {
-              x: n.position.x + positionOffset.x,
-              y: n.position.y + positionOffset.y,
-            };
-          }
+        // 图片节点：若写入 imageData 但未提供 thumbnail，异步生成缩略图
+        if (
+          Object.prototype.hasOwnProperty.call(patch, "imageData") &&
+          patch.imageData &&
+          !Object.prototype.hasOwnProperty.call(patch, "thumbnail") &&
+          (targetNode.type === "image" || targetNode.type === "imagePro") &&
+          !(
+            typeof patch.imageData === "string" &&
+            patch.imageData.trim().startsWith(FLOW_IMAGE_ASSET_PREFIX)
+          )
+        ) {
+          patch.thumbnail = undefined;
+          shouldAutoGenerateThumbnail = true;
+          thumbnailNodeId = targetNode.id;
+          thumbnailSourceImageData = patch.imageData;
+        }
 
-          return { ...n, position: newPosition, data: { ...n.data, ...patch } };
-        })
-      );
+        // 如果有位置偏移，同时更新节点位置
+        let newPosition = targetNode.position;
+        if (positionOffset) {
+          newPosition = {
+            x: targetNode.position.x + positionOffset.x,
+            y: targetNode.position.y + positionOffset.y,
+          };
+        }
+
+        const nextNode = {
+          ...targetNode,
+          position: newPosition,
+          data: { ...targetNode.data, ...patch },
+        };
+        const nextNodes = ns.slice();
+        nextNodes[targetIndex] = nextNode;
+        return nextNodes;
+      });
 
       if (
         shouldAutoGenerateThumbnail &&
@@ -10139,14 +10157,19 @@ function FlowInner() {
             256
           );
           if (!thumb) return;
-          setNodes((ns) =>
-            ns.map((n) => {
-              if (n.id !== thumbnailNodeId) return n;
-              const current = (n.data as any)?.imageData;
-              if (current !== thumbnailSourceImageData) return n;
-              return { ...n, data: { ...n.data, thumbnail: thumb } };
-            })
-          );
+          setNodes((ns) => {
+            const targetIndex = ns.findIndex((node) => node.id === thumbnailNodeId);
+            if (targetIndex < 0) return ns;
+            const targetNode = ns[targetIndex];
+            const current = (targetNode.data as any)?.imageData;
+            if (current !== thumbnailSourceImageData) return ns;
+            const nextNodes = ns.slice();
+            nextNodes[targetIndex] = {
+              ...targetNode,
+              data: { ...targetNode.data, thumbnail: thumb },
+            };
+            return nextNodes;
+          });
         })();
       }
 
@@ -19352,11 +19375,19 @@ function FlowInner() {
         >
           <input
             type='checkbox'
-            checked={onlyRenderVisibleElements}
+            checked={effectiveOnlyRenderVisibleElements}
             onChange={(e) => setOnlyRenderVisibleElements(e.target.checked)}
+            disabled={isLargeGraphForVisibleRendering}
           />{" "}
-          仅渲染可见(性能)
+          {isLargeGraphForVisibleRendering
+            ? "仅渲染可见(性能, 自动)"
+            : "仅渲染可见(性能)"}
         </label>
+        {isLargeGraphForSnapAlignment && (
+          <span style={{ fontSize: 12, color: "#b45309" }}>
+            大图模式已自动关闭吸附对齐
+          </span>
+        )}
         <label
           style={{
             display: "flex",
@@ -20270,7 +20301,7 @@ function FlowInner() {
         selectionKeyCode={isPointerMode ? null : null}
         deleteKeyCode={["Backspace", "Delete"]}
         proOptions={{ hideAttribution: true }}
-        onlyRenderVisibleElements={onlyRenderVisibleElements}
+        onlyRenderVisibleElements={effectiveOnlyRenderVisibleElements}
       >
         {backgroundEnabled && (
           <Background

@@ -46,6 +46,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- Flow/Performance: workflow 画布在大节点量场景下启用自适应性能策略：`onlyRenderVisibleElements` 默认改为开启，并在节点数较大时自动强制“仅渲染可见元素”；同时大图模式会自动关闭节点吸附对齐，减少拖拽时的全图对齐计算开销（`frontend/src/stores/flowStore.ts`, `frontend/src/components/flow/FlowOverlay.tsx`）。
+- Flow/Performance: 优化节点局部更新与连线扫描热点。`FlowOverlay` 的 `flow:updateNodeData` 改为按节点 id 定位并只更新目标节点，避免每次 patch 全量 `map` 节点数组；`Generate/GeneratePro` 输入图选择器改为单次遍历边并优先读取 `nodeLookup`，`GenericVideo` 将多次 `edges` 扫描合并为一次统计，减少大图场景的重复计算（`frontend/src/components/flow/FlowOverlay.tsx`, `frontend/src/components/flow/nodes/GenerateNode.tsx`, `frontend/src/components/flow/nodes/GenerateProNode.tsx`, `frontend/src/components/flow/nodes/GenericVideoNode.tsx`）。
 - Backend/Video Provider: 统一放宽视频生成接口 `VideoProviderRequestDto.prompt` 校验上限，从 `2500` 提升到 `5000` 字符，覆盖 Seedance/Kling/Vidu 共用链路（`backend/src/ai/dto/video-provider.dto.ts`）。
 - Membership/Credits: removed frontend auto check-in at app bootstrap. Daily reward now requires an explicit user check-in action, and paid-tier `dailyGiftCredits` is defined as the member's daily check-in credit amount rather than an automatically issued daily grant.
 - Credits Detail UI: `My Credits` transaction list and Admin `细分积分明细` now show `模型` under each record item, using API usage model when available and `--` fallback when absent.

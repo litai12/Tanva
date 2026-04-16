@@ -83,8 +83,8 @@ export const useFlowStore = create<FlowState>()(
         backgroundOpacity: 0.4,
         edgeColorMode: FlowEdgeColorMode.STANDARD,
 
-        // 默认关闭：避免节点/图片离开视窗后再进入时的卸载/重建“加载感”
-        onlyRenderVisibleElements: false,
+        // 默认开启：优先保证大图场景性能
+        onlyRenderVisibleElements: true,
         showFpsOverlay: false,
         
         // Flow视口初始状态
@@ -167,7 +167,7 @@ export const useFlowStore = create<FlowState>()(
             onlyRenderVisibleElements:
               typeof state.onlyRenderVisibleElements === 'boolean'
                 ? state.onlyRenderVisibleElements
-                : false,
+                : true,
             showFpsOverlay: typeof state.showFpsOverlay === 'boolean' ? state.showFpsOverlay : false,
           };
         },
