@@ -15,6 +15,7 @@ interface GestureLikeEvent extends Event {
 const MODEL3D_CONTAINER_SELECTOR = '[data-model3d-container="true"]';
 const FLOW_THREE_NODE_SELECTOR =
   '[data-flow-three-node-viewport="true"], .react-flow__node-three, .react-flow__node-threePathTracer';
+const FLOW_OVERLAY_SELECTOR = '.tanva-flow-overlay';
 
 const getEventPath = (event: Event): EventTarget[] => {
   const composedPath = (event as Event & { composedPath?: () => EventTarget[] })
@@ -58,6 +59,9 @@ const pointHitsSelector = (event: Event, selector: string): boolean => {
 
 const shouldBypassCanvasZoom = (event: Event) => {
   const path = getEventPath(event);
+  if (pathContainsSelector(path, FLOW_OVERLAY_SELECTOR)) {
+    return true;
+  }
   if (
     pathContainsSelector(path, MODEL3D_CONTAINER_SELECTOR) ||
     pathContainsSelector(path, FLOW_THREE_NODE_SELECTOR)
@@ -67,6 +71,7 @@ const shouldBypassCanvasZoom = (event: Event) => {
 
   const element = resolveEventElement(event);
   if (
+    element?.closest(FLOW_OVERLAY_SELECTOR) ||
     element?.closest(MODEL3D_CONTAINER_SELECTOR) ||
     element?.closest(FLOW_THREE_NODE_SELECTOR)
   ) {
@@ -74,6 +79,7 @@ const shouldBypassCanvasZoom = (event: Event) => {
   }
 
   return (
+    pointHitsSelector(event, FLOW_OVERLAY_SELECTOR) ||
     pointHitsSelector(event, MODEL3D_CONTAINER_SELECTOR) ||
     pointHitsSelector(event, FLOW_THREE_NODE_SELECTOR)
   );
@@ -118,8 +124,11 @@ const GlobalZoomCapture = () => {
       if (currentZoom === nextZoom) return;
       const nextPanX = store.panX + focusX * (1 / nextZoom - 1 / currentZoom);
       const nextPanY = store.panY + focusY * (1 / nextZoom - 1 / currentZoom);
-      store.setPan(nextPanX, nextPanY);
-      store.setZoom(nextZoom);
+      useCanvasStore.setState({
+        panX: nextPanX,
+        panY: nextPanY,
+        zoom: nextZoom,
+      });
     };
 
     const handleWheel = (event: WheelEvent) => {
@@ -168,8 +177,11 @@ const GlobalZoomCapture = () => {
       event.stopPropagation();
       const nextPanX = store.panX + focus.sx * (1 / targetZoom - 1 / currentZoom);
       const nextPanY = store.panY + focus.sy * (1 / targetZoom - 1 / currentZoom);
-      store.setPan(nextPanX, nextPanY);
-      store.setZoom(targetZoom);
+      useCanvasStore.setState({
+        panX: nextPanX,
+        panY: nextPanY,
+        zoom: targetZoom,
+      });
     };
 
     const handleGestureEnd = () => {

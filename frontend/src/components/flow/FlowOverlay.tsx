@@ -211,6 +211,7 @@ const FLOW_EDGE_COLOR_BY_KIND = {
 } as const;
 const FLOW_AUTO_VISIBLE_RENDER_NODE_THRESHOLD = 31;
 const FLOW_AUTO_DISABLE_SNAP_NODE_THRESHOLD = 51;
+const FLOW_AUTO_HIDE_MINIMAP_IMAGE_OVERLAY_NODE_THRESHOLD = 81;
 
 const getEdgeHandleKind = (
   handle?: string | null
@@ -5595,6 +5596,8 @@ function FlowInner() {
   const setShowFpsOverlay = useFlowStore((s) => s.setShowFpsOverlay);
   const isLargeGraphForVisibleRendering =
     nodes.length >= FLOW_AUTO_VISIBLE_RENDER_NODE_THRESHOLD;
+  const isLargeGraphForMiniMapImageOverlay =
+    nodes.length >= FLOW_AUTO_HIDE_MINIMAP_IMAGE_OVERLAY_NODE_THRESHOLD;
   const effectiveOnlyRenderVisibleElements =
     onlyRenderVisibleElements || isLargeGraphForVisibleRendering;
 
@@ -5804,6 +5807,32 @@ function FlowInner() {
   const lastApplied = React.useRef<{ x: number; y: number; z: number } | null>(
     null
   );
+  const viewportSyncRafRef = React.useRef<number | null>(null);
+  const pendingViewportRef = React.useRef<{ x: number; y: number; z: number } | null>(
+    null
+  );
+
+  const flushPendingViewport = React.useCallback(() => {
+    viewportSyncRafRef.current = null;
+    const next = pendingViewportRef.current;
+    if (!next) return;
+    pendingViewportRef.current = null;
+    try {
+      rfRef.current.setViewport(
+        { x: next.x, y: next.y, zoom: next.z },
+        { duration: 0 }
+      );
+    } catch {
+      /* noop */
+    }
+  }, []);
+
+  const queueViewportSync = React.useCallback((next: { x: number; y: number; z: number }) => {
+    pendingViewportRef.current = next;
+    if (viewportSyncRafRef.current !== null) return;
+    viewportSyncRafRef.current = window.requestAnimationFrame(flushPendingViewport);
+  }, [flushPendingViewport]);
+
   const syncViewportToCanvasStore = () => {
     try {
       const state = useCanvasStore.getState();
@@ -5836,12 +5865,7 @@ function FlowInner() {
       )
         return;
       lastApplied.current = { x, y, z };
-      // 直接同步更新，不使用 RAF，与 Canvas 平移在同一帧内完成
-      try {
-        rfRef.current.setViewport({ x, y, zoom: z }, { duration: 0 });
-      } catch {
-        /* noop */
-      }
+      queueViewportSync({ x, y, z });
     });
 
     // 初始同步
@@ -5859,7 +5883,18 @@ function FlowInner() {
     }
 
     return unsubscribe;
-  }, []);
+  }, [queueViewportSync]);
+
+  React.useEffect(
+    () => () => {
+      if (viewportSyncRafRef.current !== null) {
+        window.cancelAnimationFrame(viewportSyncRafRef.current);
+      }
+      viewportSyncRafRef.current = null;
+      pendingViewportRef.current = null;
+    },
+    []
+  );
 
   React.useLayoutEffect(() => {
     if (!projectId) return;
@@ -7120,8 +7155,11 @@ function FlowInner() {
 
         const pan2x = store.panX + sx * (1 / z2 - 1 / z1);
         const pan2y = store.panY + sy * (1 / z2 - 1 / z1);
-        store.setPan(pan2x, pan2y);
-        store.setZoom(z2);
+        useCanvasStore.setState({
+          panX: pan2x,
+          panY: pan2y,
+          zoom: z2,
+        });
         return;
       }
 
@@ -18527,7 +18565,31 @@ function FlowInner() {
     [clearConnectHoverTimer, setIsConnecting]
   );
 
+  const collapsedChildMapCacheRef = React.useRef<{
+    signature: string;
+    map: Map<string, string>;
+  }>({ signature: "", map: new Map() });
+
+  const collapsedGroupsSignature = React.useMemo(() => {
+    const parts: string[] = [];
+    nodes.forEach((node) => {
+      if (!isGroupNode(node as RFNode) || !isGroupCollapsed(node as RFNode)) {
+        return;
+      }
+      const groupId = String(node.id);
+      const childIds = getGroupChildIds(node as RFNode);
+      parts.push(`${groupId}:${childIds.join(",")}`);
+    });
+    parts.sort();
+    return parts.join("|");
+  }, [nodes]);
+
   const collapsedChildToGroupId = React.useMemo(() => {
+    const cached = collapsedChildMapCacheRef.current;
+    if (cached.signature === collapsedGroupsSignature) {
+      return cached.map;
+    }
+
     const hidden = new Map<string, string>();
     nodes.forEach((node) => {
       if (!isGroupNode(node as RFNode) || !isGroupCollapsed(node as RFNode)) {
@@ -18540,8 +18602,12 @@ function FlowInner() {
         }
       });
     });
+    collapsedChildMapCacheRef.current = {
+      signature: collapsedGroupsSignature,
+      map: hidden,
+    };
     return hidden;
-  }, [nodes]);
+  }, [nodes, collapsedGroupsSignature]);
 
   const collapsedChildNodeIds = React.useMemo(
     () => new Set(Array.from(collapsedChildToGroupId.keys())),
@@ -18578,9 +18644,45 @@ function FlowInner() {
   }, [nodes]);
 
   // 在 node 渲染前为 Generate 节点注入 onRun 回调
+  const nodeWithHandlersCacheRef = React.useRef<
+    Map<string, { source: RFNode; enhanced: RFNode }>
+  >(new Map());
+  React.useEffect(() => {
+    nodeWithHandlersCacheRef.current.clear();
+  }, [
+    nodeCreditsByType,
+    managedRuntimeByType,
+    aiProvider,
+    bananaImageRoute,
+    imageSize,
+    imageModel,
+    runNode,
+    onSendHandler,
+    promptGroupName,
+    updateGroupName,
+    changeGroupColor,
+    dissolveGroups,
+    runGroupNodes,
+    runningGroupIds,
+    seedance2AccessEnabled,
+    seedance2AccessResolved,
+    toggleGroupCollapsed,
+    groupPreviewImagesByGroupId,
+    isFlowBlackTheme,
+  ]);
   const nodesWithHandlers = React.useMemo(
-    () =>
-      nodes.map((n) => {
+    () => {
+      const prevCache = nodeWithHandlersCacheRef.current;
+      const nextCache = new Map<string, { source: RFNode; enhanced: RFNode }>();
+
+      const rendered = nodes.map((n) => {
+        const cacheKey = String(n.id);
+        const cached = prevCache.get(cacheKey);
+        if (cached && cached.source === (n as RFNode)) {
+          nextCache.set(cacheKey, cached);
+          return cached.enhanced;
+        }
+
         const resolvedType = typeof n.type === "string" ? normalizeFlowNodeType(n.type) : null;
         const managedRuntime =
           resolvedType ? managedRuntimeByType.get(resolvedType) : undefined;
@@ -18626,84 +18728,92 @@ function FlowInner() {
           globalImageSize: imageSize || null,
           globalImageModel: imageModel || null,
         });
+        let enhancedNode: RFNode;
+        if (n.type === FLOW_GROUP_NODE_TYPE) {
+          enhancedNode = {
+            ...n,
+            data: {
+              ...runtimeNodeData,
+              isDarkTheme: isFlowBlackTheme,
+              onRenameGroup: promptGroupName,
+              onUpdateGroupName: updateGroupName,
+              onChangeGroupColor: changeGroupColor,
+              onUngroup: (groupId: string) => dissolveGroups([groupId]),
+              onRunGroup: runGroupNodes,
+              groupRunning: runningGroupIds.includes(n.id),
+              onToggleCollapse: toggleGroupCollapsed,
+              groupCollapsed: isGroupCollapsed(n as RFNode),
+              groupChildCount: getGroupChildIds(n as RFNode).length,
+              groupPreviewImages: groupPreviewImagesByGroupId.get(String(n.id)) || [],
+            },
+          } as RFNode;
+        } else if (
+          n.type === "generate" ||
+          n.type === "generate4" ||
+          n.type === "generateRef" ||
+          n.type === "viewAngle" ||
+          n.type === "generatePro" ||
+          n.type === "generatePro4" ||
+          n.type === "analysis" ||
+          n.type === "midjourney" ||
+          n.type === "midjourneyV7" ||
+          n.type === "niji7" ||
+          n.type === "nano2" ||
+          n.type === "seedream5" ||
+          n.type === "minimaxSpeech" ||
+          n.type === "tencentSpeech" ||
+          n.type === "minimaxMusic" ||
+          n.type === "image" ||
+          n.type === "imagePro"
+        ) {
+          enhancedNode = {
+            ...n,
+            data: {
+              ...runtimeNodeData,
+              onRun: runNode,
+              onSend: onSendHandler,
+              creditsPerCall,
+            },
+          } as RFNode;
+        } else if (
+          n.type === "sora2Video" ||
+          n.type === "sora2Character" ||
+          n.type === "wan26" ||
+          n.type === "wan2R2V" ||
+          n.type === "wan27Video" ||
+          n.type === "klingVideo" ||
+          n.type === "kling26Video" ||
+          n.type === "kling30Video" ||
+          n.type === "klingO1Video" ||
+          n.type === "viduVideo" ||
+          n.type === "viduQ3" ||
+          n.type === "doubaoVideo" ||
+          n.type === "seedance20Video"
+        ) {
+          enhancedNode = {
+            ...n,
+            data: {
+              ...runtimeNodeData,
+              onRun: runNode,
+              creditsPerCall,
+              seedance2AccessEnabled,
+              seedance2AccessResolved,
+            },
+          } as RFNode;
+        } else {
+          enhancedNode = n as RFNode;
+        }
 
-        return n.type === FLOW_GROUP_NODE_TYPE
-          ? {
-              ...n,
-              data: {
-                ...runtimeNodeData,
-                isDarkTheme: isFlowBlackTheme,
-                onRenameGroup: promptGroupName,
-                onUpdateGroupName: updateGroupName,
-                onChangeGroupColor: changeGroupColor,
-                onUngroup: (groupId: string) => dissolveGroups([groupId]),
-                onRunGroup: runGroupNodes,
-                groupRunning: runningGroupIds.includes(n.id),
-                onToggleCollapse: toggleGroupCollapsed,
-                groupCollapsed: isGroupCollapsed(n as RFNode),
-                groupChildCount: getGroupChildIds(n as RFNode).length,
-                groupPreviewImages: groupPreviewImagesByGroupId.get(String(n.id)) || [],
-              },
-            }
-          : n.type === "generate" ||
-        n.type === "generate4" ||
-        n.type === "generateRef" ||
-        n.type === "viewAngle" ||
-        n.type === "generatePro" ||
-        n.type === "generatePro4" ||
-        n.type === "analysis" ||
-        n.type === "midjourney" ||
-        n.type === "midjourneyV7" ||
-        n.type === "niji7" ||
-        n.type === "nano2" ||
-        n.type === "seedream5" ||
-        n.type === "minimaxSpeech" ||
-        n.type === "tencentSpeech" ||
-        n.type === "minimaxMusic"
-          ? {
-              ...n,
-              data: {
-                ...runtimeNodeData,
-                onRun: runNode,
-                onSend: onSendHandler,
-                creditsPerCall,
-              },
-            }
-          : n.type === "image" || n.type === "imagePro"
-          ? {
-              ...n,
-              data: {
-                ...runtimeNodeData,
-                onRun: runNode,
-                onSend: onSendHandler,
-                creditsPerCall,
-              },
-            }
-          : n.type === "sora2Video" ||
-            n.type === "sora2Character" ||
-            n.type === "wan26" ||
-            n.type === "wan2R2V" ||
-            n.type === "wan27Video" ||
-            n.type === "klingVideo" ||
-            n.type === "kling26Video" ||
-            n.type === "kling30Video" ||
-            n.type === "klingO1Video" ||
-            n.type === "viduVideo" ||
-            n.type === "viduQ3" ||
-            n.type === "doubaoVideo" ||
-            n.type === "seedance20Video"
-          ? {
-              ...n,
-              data: {
-                ...runtimeNodeData,
-                onRun: runNode,
-                creditsPerCall,
-                seedance2AccessEnabled,
-                seedance2AccessResolved,
-              },
-            }
-          : n
-      }),
+        nextCache.set(cacheKey, {
+          source: n as RFNode,
+          enhanced: enhancedNode,
+        });
+        return enhancedNode;
+      });
+
+      nodeWithHandlersCacheRef.current = nextCache;
+      return rendered;
+    },
     [
       nodes,
       nodeCreditsByType,
@@ -18711,6 +18821,7 @@ function FlowInner() {
       aiProvider,
       bananaImageRoute,
       imageSize,
+      imageModel,
       runNode,
       onSendHandler,
       promptGroupName,
@@ -19422,6 +19533,11 @@ function FlowInner() {
         {isLargeGraphForSnapAlignment && (
           <span style={{ fontSize: 12, color: "#b45309" }}>
             大图模式已自动关闭吸附对齐
+          </span>
+        )}
+        {isLargeGraphForMiniMapImageOverlay && (
+          <span style={{ fontSize: 12, color: "#6b7280" }}>
+            大图模式已自动关闭 MiniMap 图片层
           </span>
         )}
         <label
@@ -20356,8 +20472,8 @@ function FlowInner() {
         )}
         {/* 视口由 Canvas 驱动，禁用 MiniMap 交互避免竞态 */}
         <MiniMap pannable={false} zoomable={false} />
-        {/* 将画布上的图片以绿色块显示在 MiniMap 内 */}
-        <MiniMapImageOverlay />
+        {/* 将画布上的图片以绿色块显示在 MiniMap 内；大图时关闭该叠加层以减负 */}
+        {!isLargeGraphForMiniMapImageOverlay && <MiniMapImageOverlay />}
       </ReactFlow>
 
       {flowSnapAlignments.length > 0 && (
