@@ -929,7 +929,17 @@ export class PaymentService implements OnModuleInit {
       };
   }
 
-  async getMembershipOrders(userId: string, page = 1, pageSize = 20) {
+  async getMembershipOrders(
+    userId: string,
+    page = 1,
+    pageSize = 20,
+    options?: { includeRecharge?: boolean },
+  ) {
+    const includeRecharge = options?.includeRecharge !== false;
+    const orderTypeWhere: { in: PaymentOrderType[] } | PaymentOrderType = includeRecharge
+      ? { in: ['membership', 'recharge'] }
+      : 'membership';
+
     try {
       await this.syncPendingOrdersForUser(userId, 10);
     } catch (error) {
@@ -940,20 +950,24 @@ export class PaymentService implements OnModuleInit {
 
     const [orders, total] = await Promise.all([
       this.prisma.paymentOrder.findMany({
-        where: { userId, orderType: 'membership' },
+        where: { userId, orderType: orderTypeWhere },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      this.prisma.paymentOrder.count({ where: { userId, orderType: 'membership' } }),
+      this.prisma.paymentOrder.count({ where: { userId, orderType: orderTypeWhere } }),
     ]);
 
     return {
       items: orders.map((order) => ({
         orderId: order.id,
         orderNo: order.orderNo,
-        planCode: order.businessCode,
+        planCode:
+          order.orderType === 'membership'
+            ? order.businessCode || '会员订阅'
+            : `积分充值（${order.credits} 积分）`,
         amount: Number(order.amount),
+        credits: order.credits,
         paymentMethod: order.paymentMethod,
         orderType: order.orderType,
         membershipPlanId: order.membershipPlanId,

@@ -105,12 +105,19 @@ export class MembershipController {
     @Request() req: FastifyRequest & { user: AuthenticatedUser },
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @Query('includeRecharge') includeRecharge?: string,
   ) {
     const userId = req.user.id ?? req.user.sub;
+    const includeRechargeOrders =
+      includeRecharge === undefined
+        ? true
+        : !['0', 'false', 'no', 'off'].includes(includeRecharge.trim().toLowerCase());
+
     return this.paymentService.getMembershipOrders(
       userId as string,
       parseInt(page || '1'),
       parseInt(pageSize || '20'),
+      { includeRecharge: includeRechargeOrders },
     );
   }
 }

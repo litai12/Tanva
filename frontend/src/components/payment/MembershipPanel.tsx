@@ -207,7 +207,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   const loadOrders = useCallback(async () => {
     setOrdersLoading(true);
     try {
-      const result = await getMembershipOrders({ page: 1, pageSize: 100 });
+      const result = await getMembershipOrders({ page: 1, pageSize: 100, includeRecharge: true });
       setOrders(result.items || []);
     } catch (error) {
       console.error("加载会员订单失败:", error);
@@ -414,7 +414,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
               <Loader2 className="h-7 w-7 animate-spin text-zinc-500" />
             </div>
           ) : orders.length === 0 ? (
-            <div className="py-16 text-center text-zinc-500">暂无会员订单</div>
+            <div className="py-16 text-center text-zinc-500">暂无订单记录</div>
           ) : (
             <div className="space-y-3">
               {orders.map((order) => (
@@ -432,7 +432,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                       {order.planCode}
                     </div>
                     <div className={cn("mt-1 text-xs", isWhite ? "text-slate-500" : "text-zinc-500")}>
-                      {new Date(order.createdAt).toLocaleString()}
+                      {new Date(order.createdAt).toLocaleString()} · {order.orderType === "recharge" ? "积分充值" : "会员订阅"}
                     </div>
                   </div>
                   <div className="flex items-center gap-4">

@@ -1111,8 +1111,9 @@ export interface MembershipOrderRecord {
   orderNo: string;
   planCode: string;
   amount: number;
+  credits: number;
   paymentMethod: string;
-  orderType: "membership";
+  orderType: "membership" | "recharge";
   membershipPlanId: string | null;
   subscriptionId: string | null;
   status: PaymentStatus;
@@ -1123,10 +1124,14 @@ export interface MembershipOrderRecord {
 export async function getMembershipOrders(params?: {
   page?: number;
   pageSize?: number;
+  includeRecharge?: boolean;
 }): Promise<{ items: MembershipOrderRecord[]; page: number; pageSize: number; total: number }> {
   const searchParams = new URLSearchParams();
   if (params?.page) searchParams.set("page", String(params.page));
   if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
+  if (params?.includeRecharge !== undefined) {
+    searchParams.set("includeRecharge", params.includeRecharge ? "true" : "false");
+  }
   const response = await request(`/api/membership/orders?${searchParams}`);
   return response.json();
 }
