@@ -166,6 +166,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   const [ordersLoading, setOrdersLoading] = useState(false);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const hasYearlyPlans = useMemo(() => (plans || []).some((plan) => plan.billingCycle === "yearly"), [plans]);
 
   const filteredPlans = useMemo(() => {
     const list = (plans || []).filter((p) => p.billingCycle === billingPeriod).sort(sortPlansByTier);
@@ -515,11 +516,23 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
               <button
                 type="button"
                 role="tab"
-                aria-selected={false}
-                disabled
+                aria-selected={billingPeriod === "yearly"}
+                onClick={() => {
+                  if (hasYearlyPlans) setBillingPeriod("yearly");
+                }}
                 className={cn(
-                  "min-w-[5.5rem] cursor-not-allowed rounded-full px-5 py-2 text-sm font-medium sm:min-w-[6.5rem]",
-                  isWhite ? "text-slate-300" : "text-zinc-600",
+                  "min-w-[5.5rem] rounded-full px-5 py-2 text-sm font-medium transition-colors sm:min-w-[6.5rem]",
+                  billingPeriod === "yearly"
+                    ? isWhite
+                      ? "bg-white text-zinc-950 shadow-sm"
+                      : "bg-gradient-to-r from-[#8E86F5] to-[#9aa8ef] text-white shadow-[0_0_20px_rgba(142,134,245,0.35)]"
+                    : hasYearlyPlans
+                      ? isWhite
+                        ? "text-slate-500 hover:text-slate-700"
+                        : "text-zinc-400 hover:text-zinc-200"
+                      : isWhite
+                        ? "cursor-not-allowed text-slate-300"
+                        : "cursor-not-allowed text-zinc-600",
                 )}
               >
                 年付
@@ -533,7 +546,9 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
               isWhite ? "text-slate-500" : "text-zinc-500",
             )}
           >
-            月卡积分按 30 天周期刷新。会员在续费状态下，到期日刷新为当前档位的满额月卡积分；未续费则月卡积分刷新为 0。年付功能即将开放。
+            {hasYearlyPlans
+              ? "月卡积分按 30 天周期刷新。会员在续费状态下，到期日刷新为当前档位的满额月卡积分；未续费则月卡积分刷新为 0。年付档位同样按月刷新额度，但按年结算。"
+              : "月卡积分按 30 天周期刷新。会员在续费状态下，到期日刷新为当前档位的满额月卡积分；未续费则月卡积分刷新为 0。"}
           </p>
 
           {!filteredPlans.length ? (
@@ -899,8 +914,9 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                           </div>
                           {selectedPlan ? (
                             <div className={cn("mt-2 text-xs", isWhite ? "text-slate-500" : "text-zinc-500")}>
-                              合计 {selectedPlan.monthlyQuotaCredits + selectedPlan.signupBonusCredits} 积分 · 月卡{" "}
-                              {selectedPlan.monthlyQuotaCredits}（30 天刷新）· 开通赠送 {selectedPlan.signupBonusCredits}
+                              合计 {selectedPlan.monthlyQuotaCredits + selectedPlan.signupBonusCredits} 积分 ·{" "}
+                              {selectedPlan.billingCycle === "yearly" ? "年卡" : "月卡"} {selectedPlan.monthlyQuotaCredits}
+                              （30 天刷新）· 开通赠送 {selectedPlan.signupBonusCredits}
                             </div>
                           ) : null}
                         </div>

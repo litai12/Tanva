@@ -6,6 +6,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Fixed
+- Membership UI: 会员页年付入口不再硬编码为禁用状态，现按后端返回的 `billingCycle=yearly` 套餐动态启用；同时移除“年付即将开放”的固定文案，并让结算摘要按实际周期展示“年卡/月卡”（`frontend/src/components/payment/MembershipPanel.tsx`）。
 - Video Provider: 修复 `viduq3-pro` 在收到 `reference2video` 请求时错误回退到 `text2video` 的问题。后端现已补齐 Q3 的 `reference2video` 模式推断、endpoint 映射和 payload 组装，避免“明明传了 prompt 却被上游报 text_video 缺少 prompt”。
 - Flow/Video: `Seedance/Kling/Vidu/Wan/Sora2` 视频节点移除了运行态固定 `30%` 进度，统一改为使用 `GenerationProgressBar` 的 5 分钟渐进模拟（运行期缓慢递增至 95%，成功后到 100%），避免“假进度卡 30%”。
 - Flow/Image: 图片生成节点统一改为 `GenerationProgressBar` 动态渐进并支持配置时长，`Generate/GeneratePro/GenerateReference/Midjourney/Nano2/Seedream5/ViewAngle` 已切换为 `60s` 渐进到 `95%`（成功后到 `100%`）。
