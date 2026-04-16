@@ -1,19 +1,14 @@
 import { useEffect, useRef } from 'react';
 import { useCanvasStore } from '@/stores';
-import { useCurrentTool } from '@/stores/toolStore';
 import { normalizeWheelDelta, computeSmoothZoom } from '@/lib/zoomUtils';
-import { getCursorForDrawMode } from '@/utils/cursorStyles';
 
 interface InteractionControllerProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
 }
 
 const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef }) => {
-  const isDraggingRef = useRef(false); // Drag state cache.
   const zoomRef = useRef(1); // Cache zoom value to avoid frequent getState calls.
-  const { zoom, setPan, setDragging } = useCanvasStore();
-  const drawMode = useCurrentTool();
-  const drawModeRef = useRef(drawMode);
+  const { zoom, setPan } = useCanvasStore();
 
   // Sync cached zoom value.
   useEffect(() => {
@@ -21,108 +16,8 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
   }, [zoom]);
 
   useEffect(() => {
-    drawModeRef.current = drawMode;
-  }, [drawMode]);
-
-  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
-    // Canvas interaction - keep only middle-button drag.
-    let isDragging = false;
-    let lastScreenPoint: { x: number, y: number } | null = null;
-    let dragStartPanX = 0;
-    let dragStartPanY = 0;
-    let dragAnimationId: number | null = null;
-
-    const stopDragging = () => {
-      if (!isDragging) return;
-      isDragging = false;
-      isDraggingRef.current = false;
-      setDragging(false);
-      lastScreenPoint = null;
-      if (dragAnimationId) {
-        cancelAnimationFrame(dragAnimationId);
-        dragAnimationId = null;
-      }
-      if (canvas) {
-        canvas.style.cursor = getCursorForDrawMode(drawModeRef.current) || 'default';
-      }
-    };
-
-    // Mouse event handlers.
-    const handleMouseDown = (event: MouseEvent) => {
-      // Only respond to middle button (button === 1).
-      if (event.button === 1) {
-        event.preventDefault(); // Prevent default middle-button behavior (scroll).
-        isDragging = true;
-        isDraggingRef.current = true; // Update drag state cache.
-        setDragging(true); // Notify canvasStore that dragging started.
-        
-        const rect = canvas.getBoundingClientRect();
-        lastScreenPoint = {
-          x: event.clientX - rect.left,
-          y: event.clientY - rect.top
-        };
-        
-        // Read latest state values.
-        const currentState = useCanvasStore.getState();
-        dragStartPanX = currentState.panX;
-        dragStartPanY = currentState.panY;
-        canvas.style.cursor = 'grabbing';
-      }
-    };
-
-    const handleMouseMove = (event: MouseEvent) => {
-      if (isDragging && lastScreenPoint) {
-        const rect = canvas.getBoundingClientRect();
-        const dpr = window.devicePixelRatio || 1;
-        const currentScreenPoint = {
-          x: event.clientX - rect.left,
-          y: event.clientY - rect.top
-        };
-        
-        // Compute screen-space delta.
-        const screenDeltaX = currentScreenPoint.x - lastScreenPoint.x;
-        const screenDeltaY = currentScreenPoint.y - lastScreenPoint.y;
-        
-        // Convert deltas using cached zoom.
-        // Convert CSS pixel delta -> Paper view coords (device pixels) -> world coords.
-        const worldDeltaX = (screenDeltaX * dpr) / zoomRef.current;
-        const worldDeltaY = (screenDeltaY * dpr) / zoomRef.current;
-        
-        // Update pan values.
-        const newPanX = dragStartPanX + worldDeltaX;
-        const newPanY = dragStartPanY + worldDeltaY;
-        
-        // Use requestAnimationFrame for drag updates.
-        if (dragAnimationId) {
-          cancelAnimationFrame(dragAnimationId);
-        }
-        
-        dragAnimationId = requestAnimationFrame(() => {
-          setPan(newPanX, newPanY);
-          dragAnimationId = null;
-        });
-      }
-    };
-
-    const handleMouseUp = (event: MouseEvent) => {
-      if (event.button === 1) {
-        stopDragging();
-      }
-    };
-
-    // Handle mouse leaving canvas / window-level middle-button release during dragging.
-    const handleMouseLeave = () => {
-      stopDragging();
-    };
-
-    const handleWindowMouseUp = (event: MouseEvent) => {
-      if (event.button === 1) {
-        stopDragging();
-      }
-    };
 
     // Handle wheel/trackpad: switch between zoom and pan based on settings.
     const handleWheel = (event: WheelEvent) => {
@@ -174,26 +69,10 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
     };
 
     // Register event listeners.
-    canvas.addEventListener('mousedown', handleMouseDown);
-    canvas.addEventListener('mousemove', handleMouseMove);
-    canvas.addEventListener('mouseup', handleMouseUp);
-    canvas.addEventListener('mouseleave', handleMouseLeave);
     canvas.addEventListener('wheel', handleWheel, { passive: false });
-    window.addEventListener('mouseup', handleWindowMouseUp);
 
     return () => {
-      canvas.removeEventListener('mousedown', handleMouseDown);
-      canvas.removeEventListener('mousemove', handleMouseMove);
-      canvas.removeEventListener('mouseup', handleMouseUp);
-      canvas.removeEventListener('mouseleave', handleMouseLeave);
       canvas.removeEventListener('wheel', handleWheel);
-      window.removeEventListener('mouseup', handleWindowMouseUp);
-      
-      // Cleanup pending animation frame to avoid memory leaks.
-      if (dragAnimationId) {
-        cancelAnimationFrame(dragAnimationId);
-        dragAnimationId = null;
-      }
     };
   }, [setPan, canvasRef]);
 

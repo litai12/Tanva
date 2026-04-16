@@ -7011,12 +7011,16 @@ function FlowInner() {
   // 中键拖拽以平移 Flow 视口，阻止浏览器的自动滚动
   const middleDragRef = React.useRef<{
     dragging: boolean;
-    lastX: number;
-    lastY: number;
+    startX: number;
+    startY: number;
+    startPanX: number;
+    startPanY: number;
   }>({
     dragging: false,
-    lastX: 0,
-    lastY: 0,
+    startX: 0,
+    startY: 0,
+    startPanX: 0,
+    startPanY: 0,
   });
   React.useEffect(() => {
     const container = containerRef.current;
@@ -7027,18 +7031,28 @@ function FlowInner() {
       middleDragRef.current.dragging = false;
       container.classList.remove("tanva-flow-middle-panning");
       container.style.cursor = "";
+      try {
+        useCanvasStore.getState().setDragging(false);
+      } catch {}
     };
 
     const handleMouseDown = (event: MouseEvent) => {
       if (event.button !== 1) return;
       if (allowNativeScroll(event.target)) return;
+      const store = useCanvasStore.getState();
       event.preventDefault();
       event.stopPropagation();
+      event.stopImmediatePropagation();
       middleDragRef.current.dragging = true;
-      middleDragRef.current.lastX = event.clientX;
-      middleDragRef.current.lastY = event.clientY;
+      middleDragRef.current.startX = event.clientX;
+      middleDragRef.current.startY = event.clientY;
+      middleDragRef.current.startPanX = store.panX;
+      middleDragRef.current.startPanY = store.panY;
       container.classList.add("tanva-flow-middle-panning");
       container.style.cursor = "grabbing";
+      try {
+        store.setDragging(true);
+      } catch {}
     };
 
     const handleMouseMove = (event: MouseEvent) => {
@@ -7048,14 +7062,12 @@ function FlowInner() {
       const dpr =
         typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
       const zoom = store.zoom || 1;
-      const dx = event.clientX - middleDragRef.current.lastX;
-      const dy = event.clientY - middleDragRef.current.lastY;
+      const dx = event.clientX - middleDragRef.current.startX;
+      const dy = event.clientY - middleDragRef.current.startY;
       if (dx === 0 && dy === 0) return;
-      middleDragRef.current.lastX = event.clientX;
-      middleDragRef.current.lastY = event.clientY;
       store.setPan(
-        store.panX + (dx * dpr) / zoom,
-        store.panY + (dy * dpr) / zoom
+        middleDragRef.current.startPanX + (dx * dpr) / zoom,
+        middleDragRef.current.startPanY + (dy * dpr) / zoom
       );
     };
 
