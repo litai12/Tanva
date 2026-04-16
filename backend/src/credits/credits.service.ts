@@ -469,8 +469,8 @@ export class CreditsService {
 
   private resolveFixedAnalyzeCredits(serviceType: ServiceType, currentCredits: number): number {
     if (serviceType === 'gemini-2.5-image-analyze') return 10;
-    if (serviceType === 'gemini-image-analyze') return 30;
-    if (serviceType === 'gemini-3.1-image-analyze') return 20;
+    if (serviceType === 'gemini-image-analyze') return 10;
+    if (serviceType === 'gemini-3.1-image-analyze') return 10;
     return currentCredits;
   }
 

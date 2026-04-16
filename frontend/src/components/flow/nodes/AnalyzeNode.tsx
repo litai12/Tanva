@@ -576,11 +576,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
     () => getTextModelForProvider(effectiveProvider),
     [effectiveProvider]
   );
-  const providerFallbackCredits = React.useMemo(() => {
-    if (effectiveProvider === 'banana-2.5') return 10;
-    if (effectiveProvider === 'banana-3.1') return 20;
-    return 30;
-  }, [effectiveProvider]);
+  const providerFallbackCredits = React.useMemo(() => 10, []);
   const resolvedRunCredits = providerFallbackCredits;
   const shell = flowNodeShellChrome(isFlowDark, !!selected);
   const controlField = flowNodeControlField(isFlowDark);
