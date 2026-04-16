@@ -983,7 +983,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
           </div>
         )}
 
-        <GenerationProgressBar status={status} />
+        <GenerationProgressBar status={status} simulateDurationMs={60 * 1000} />
 
         {status === 'failed' && error && (
           <div
@@ -1183,7 +1183,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
         )}
       </div>
 
-      <GenerationProgressBar status={status} />
+      <GenerationProgressBar status={status} simulateDurationMs={60 * 1000} />
 
       {/* 错误信息 */}
       {status === 'failed' && error && (

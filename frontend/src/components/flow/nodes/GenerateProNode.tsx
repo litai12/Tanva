@@ -1520,7 +1520,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
             right: 16,
             zIndex: 10,
           }}>
-            <GenerationProgressBar status={status} />
+            <GenerationProgressBar status={status} simulateDurationMs={60 * 1000} />
           </div>
         )}
       </div>

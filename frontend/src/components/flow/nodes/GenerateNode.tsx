@@ -1087,7 +1087,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
           <span style={{ fontSize: 12, color: "#9ca3af" }}>{lt("等待生成", "Waiting for generation")}</span>
         )}
       </div>
-      <GenerationProgressBar status={status} />
+      <GenerationProgressBar status={status} simulateDurationMs={60 * 1000} />
       {status === "failed" && error && (
         <div
           style={{

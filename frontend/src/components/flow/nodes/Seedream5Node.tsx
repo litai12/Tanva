@@ -436,7 +436,7 @@ function Seedream5Node({ id, data, selected }: Props) {
         )}
       </div>
 
-      <GenerationProgressBar status={status} />
+      <GenerationProgressBar status={status} simulateDurationMs={60 * 1000} />
 
       {status === "failed" && error && (
         <div

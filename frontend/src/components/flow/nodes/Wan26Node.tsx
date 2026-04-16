@@ -1127,7 +1127,6 @@ function Wan26Node({ id, data, selected }: Props) {
       {/* 进度条 */}
       <GenerationProgressBar
         status={data.status || "idle"}
-        progress={data.status === "running" ? 30 : data.status === "succeeded" ? 100 : 0}
       />
 
       {historyItems.length > 0 && (

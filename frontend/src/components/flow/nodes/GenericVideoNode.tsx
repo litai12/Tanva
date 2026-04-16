@@ -3129,9 +3129,6 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
 
       <GenerationProgressBar
         status={data.status || "idle"}
-        progress={
-          data.status === "running" ? 30 : data.status === "succeeded" ? 100 : 0
-        }
       />
 
       {historyItems.length > 0 && (
