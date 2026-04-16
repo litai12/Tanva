@@ -5546,6 +5546,7 @@ function FlowInner() {
     if (!projectId) return;
     if (!hydrated) return;
     if (hydratingFromStoreRef.current) return;
+    if (nodeDraggingRef.current) return;
     const nodesSnapshot = rfNodesToTplNodes(nodes as any);
     const edgesSnapshot = rfEdgesToTplEdges(edges);
     scheduleCommit(nodesSnapshot, edgesSnapshot);
@@ -6151,7 +6152,39 @@ function FlowInner() {
   }, [addPanel.visible, addTab, allowedAddTabs]);
 
   // ---------- 导出/导入（序列化） ----------
-  const cleanNodeData = React.useCallback((data: any) => {
+  const compactImportedNodeData = React.useCallback((input: any) => {
+    const seen = new WeakMap<object, any>();
+
+    const walk = (value: any, key?: string): any => {
+      if (typeof value === "function") return undefined;
+      if (!value || typeof value !== "object") return value;
+      if (value instanceof Date) return value.toISOString();
+
+      if (Array.isArray(value)) {
+        // 导入 JSON 时保留最新一条 history，避免把大历史数组全量带入运行态导致拖拽卡顿。
+        const source = key === "history" ? value.slice(0, 1) : value;
+        return source
+          .map((item) => walk(item))
+          .filter((item) => item !== undefined);
+      }
+
+      const cached = seen.get(value as object);
+      if (cached) return cached;
+
+      const next: Record<string, any> = {};
+      seen.set(value as object, next);
+      Object.entries(value as Record<string, any>).forEach(([childKey, child]) => {
+        const sanitized = walk(child, childKey);
+        if (sanitized === undefined) return;
+        next[childKey] = sanitized;
+      });
+      return next;
+    };
+
+    return walk(input) || {};
+  }, []);
+
+  const cleanNodeData = React.useCallback((data: any, options?: { compactForImport?: boolean }) => {
     if (!data) return {};
     // 不导出回调函数/运行时状态字段
     const {
@@ -6164,8 +6197,11 @@ function FlowInner() {
       lastHistoryId,
       ...rest
     } = data || {};
+    if (options?.compactForImport) {
+      return compactImportedNodeData(rest);
+    }
     return rest;
-  }, []);
+  }, [compactImportedNodeData]);
 
   const isRemoteUrl = React.useCallback(
     (value: unknown): value is string =>
@@ -6589,7 +6625,7 @@ function FlowInner() {
       const mappedNodes = rawNodes.map((n: any, idx: number) => {
         const origId = String(n.id || `n_${idx}`);
         const newId = idMap.get(origId) || `${origId}_${now}_${idx}`;
-        const data = cleanNodeData(n.data) || {};
+        const data = cleanNodeData(n.data, { compactForImport: true }) || {};
         if (n.type === FLOW_GROUP_NODE_TYPE) {
           const explicitChildren = Array.isArray((data as any).childNodeIds)
             ? (data as any).childNodeIds.map(
