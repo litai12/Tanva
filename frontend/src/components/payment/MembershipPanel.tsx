@@ -32,38 +32,10 @@ function normPlanCode(code: string | undefined): string {
   return (code || "").trim().toLowerCase();
 }
 
-/** 与后端档位一致；识别不到时不要用假默认（曾误用 599 导致 ¥0.01 测试档标题错成 599VIP） */
-function tierKeyFromPlan(plan: PaymentMembershipPlan): "69" | "199" | "599" | null {
-  const code = normPlanCode(plan.code);
-  if (code === "vip_599" || code === "vip-599") return "599";
-  if (code === "vip_199" || code === "vip-199") return "199";
-  if (code === "vip_69" || code === "vip-69") return "69";
-  if (code === "vip_01" || code === "vip-01" || code === "vip01") return "69";
-
-  const mq = plan.monthlyQuotaCredits;
-  const su = plan.signupBonusCredits;
-  if (mq === 60000 && su === 9000) return "599";
-  if (mq === 20000 && su === 2000) return "199";
-  if (mq === 7000 && su === 350) return "69";
-  if (mq === 1000 && su === 500) return "69";
-
-  const s = `${plan.code} ${plan.name}`.toLowerCase();
-  if (s.includes("599")) return "599";
-  if (s.includes("199")) return "199";
-  if (s.includes("69")) return "69";
-
-  return null;
-}
-
 function sortPlansByTier(a: PaymentMembershipPlan, b: PaymentMembershipPlan): number {
-  const order = (p: PaymentMembershipPlan) => {
-    const k = tierKeyFromPlan(p);
-    if (k === "69") return 1; // 日常创作，在推荐档 199 之前
-    if (k === "199") return 2;
-    if (k === "599") return 3;
-    return 9;
-  };
-  return order(a) - order(b);
+  const sortOrderDelta = Number(a.sortOrder || 0) - Number(b.sortOrder || 0);
+  if (sortOrderDelta !== 0) return sortOrderDelta;
+  return (a.name || "").localeCompare(b.name || "", "zh-CN");
 }
 
 const FREE_FEATURES: string[] = [
@@ -141,17 +113,9 @@ function vipFeatureLines(plan: PaymentMembershipPlan): { main: string[]; accent:
 
 const TIER_SERIF_LABEL: Record<string, string> = {
   free: "标准版",
-  "69": "日常创作",
-  "199": "专业进阶",
-  "599": "旗舰尊享",
 };
 
-/** 结算区标题：避免展示 vip_01 等内部 code，统一为「VIP 69 月卡」 */
 function checkoutPlanDisplayTitle(plan: PaymentMembershipPlan): string {
-  const k = tierKeyFromPlan(plan);
-  if (k) {
-    return `VIP ${k} ${plan.billingCycle === "yearly" ? "年卡" : "月卡"}`;
-  }
   const nm = (plan.name || "").trim();
   if (nm) return nm;
   return plan.code || "—";
@@ -219,14 +183,12 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
       return;
     }
     if (selectedPlanCode === null) {
-      const preferred199 = filteredPlans.find((p) => tierKeyFromPlan(p) === "199");
-      setSelectedPlanCode((preferred199 ?? filteredPlans[0]).code);
+      setSelectedPlanCode(filteredPlans[0].code);
       return;
     }
     const exists = filteredPlans.some((p) => p.code === selectedPlanCode);
     if (!exists) {
-      const preferred199 = filteredPlans.find((p) => tierKeyFromPlan(p) === "199");
-      setSelectedPlanCode((preferred199 ?? filteredPlans[0]).code);
+      setSelectedPlanCode(filteredPlans[0].code);
     }
   }, [filteredPlans, selectedPlanCode]);
 
@@ -358,11 +320,6 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   const canTopUpCredits =
     current?.entitlement?.membershipStatus === "active" &&
     current?.plan?.billingCycle === "monthly";
-
-  const currentTierKey = useMemo(() => {
-    if (!current?.plan) return null;
-    return tierKeyFromPlan(current.plan as PaymentMembershipPlan);
-  }, [current?.plan]);
 
   const isWhite = useAIChatStore((state) => state.chatTheme === "white");
 
@@ -694,9 +651,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                   {filteredPlans.map((plan) => {
                     const active = plan.code === selectedPlanCode;
                     const confirmedActive = active && userConfirmedPlan;
-                    const tk = tierKeyFromPlan(plan);
-                    const tierTitle = tk ? TIER_SERIF_LABEL[tk] : plan.name;
-                    // const tierSub = tk ? TIER_SERIF_LABEL[tk] : "按套餐配置";
+                    const tierTitle = plan.name;
                     const { main, accent } = vipFeatureLines(plan);
                     const billingLabel = plan.billingCycle === "yearly" ? "年费套餐 · 在月付价基础上 8 折" : "月费套餐";
                     const equivMonthly =
@@ -721,14 +676,14 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                             : isWhite
                               ? "border-slate-200 hover:border-slate-300"
                               : "border-zinc-800/60 hover:border-zinc-700",
-                          currentTierKey &&
-                            tierKeyFromPlan(plan) === currentTierKey &&
+                          current?.plan?.code &&
+                            plan.code === current.plan.code &&
                             current?.entitlement?.membershipStatus === "active"
                             ? "ring-1 ring-emerald-500/40"
                             : null,
                         )}
                       >
-                        {tk === "199" ? (
+                        {plan.sortOrder === 20 ? (
                           <div className="absolute right-3 top-3 rounded-full bg-gradient-to-r from-[#8E86F5] to-[#9aa8ef] px-2.5 py-0.5 text-[10px] font-semibold text-white shadow-lg shadow-violet-950/60">
                             最受欢迎
                           </div>
