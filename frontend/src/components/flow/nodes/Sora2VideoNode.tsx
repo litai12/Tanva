@@ -976,7 +976,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
         progress={
           isCreateCharacterMode
             ? (data.status === 'succeeded' ? 100 : progressValue || (data.status === 'running' ? 15 : 0))
-            : (data.status === 'running' ? 30 : data.status === 'succeeded' ? 100 : 0)
+            : undefined
         }
       />
 

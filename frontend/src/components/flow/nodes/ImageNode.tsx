@@ -26,6 +26,7 @@ import {
 import { blobToDataUrl, canvasToBlob, createImageBitmapLimited } from "@/utils/imageConcurrency";
 import { shallow } from "zustand/shallow";
 import { useLocaleText } from "@/utils/localeText";
+import { resolveFlowNodeSendAnchorClient } from "../utils/flowNodeSendAnchor";
 
 const RESIZE_EDGE_THICKNESS = 8;
 
@@ -140,6 +141,48 @@ const MIN_WIDTH = 320;
 const MIN_HEIGHT = 200;
 const MAX_IMAGE_NAME_LENGTH = 28;
 const DEFAULT_NODE_LABEL = "Image";
+type FlowNodeLike = { id: string; type?: string; data?: Record<string, unknown> };
+type FlowEdgeLike = {
+  id: string;
+  source: string;
+  target: string;
+  sourceHandle?: string | null;
+  targetHandle?: string | null;
+};
+type InputConnectionSnapshot = {
+  hasInputConnection: boolean;
+  connectedFrameImage?: string;
+};
+const EMPTY_INPUT_CONNECTION_SNAPSHOT: InputConnectionSnapshot = {
+  hasInputConnection: false,
+  connectedFrameImage: undefined,
+};
+
+const buildNodeByIdMap = (state: ReactFlowState): Map<string, FlowNodeLike> => {
+  const nodeLookup = (
+    state as ReactFlowState & { nodeLookup?: Map<string, FlowNodeLike> }
+  ).nodeLookup;
+  if (nodeLookup && typeof nodeLookup.get === "function") {
+    return nodeLookup as Map<string, FlowNodeLike>;
+  }
+
+  const stateNodes = (state as ReactFlowState & { nodes?: FlowNodeLike[] }).nodes;
+  const nodes = Array.isArray(stateNodes) ? stateNodes : (state.getNodes() as FlowNodeLike[]);
+  return new Map(nodes.map((node) => [node.id, node]));
+};
+
+const buildPrimaryImgInputEdgeByTargetMap = (
+  edges: FlowEdgeLike[]
+): Map<string, FlowEdgeLike> => {
+  const map = new Map<string, FlowEdgeLike>();
+  for (let i = 0; i < edges.length; i += 1) {
+    const edge = edges[i];
+    if (edge.targetHandle !== "img") continue;
+    if (map.has(edge.target)) continue;
+    map.set(edge.target, edge);
+  }
+  return map;
+};
 
 const CanvasCropPreview = React.memo(({
   src,
@@ -434,23 +477,14 @@ function ImageNodeInner({ id, data, selected }: Props) {
   const [nodeLabelDraft, setNodeLabelDraft] = React.useState<string>(normalizedNodeLabel);
   const [isEditingNodeLabel, setIsEditingNodeLabel] = React.useState(false);
   const nodeLabelInputRef = React.useRef<HTMLInputElement | null>(null);
-  const hasInputConnection = useStore(
-    React.useCallback(
-      (state: ReactFlowState) =>
-        state.edges.some(
-          (edge) => edge.target === id && edge.targetHandle === "img"
-        ),
-      [id]
-    )
-  );
-
   // 从连接的节点读取图片（支持 imageGrid / videoFrameExtract / image 的链式传递）
-  const connectedFrameImage = useStore(
+  const inputConnectionSnapshot = useStore(
     React.useCallback(
-      (state: ReactFlowState) => {
-        const edges = state.edges || [];
-        const nodes = state.getNodes();
-        const nodeById = new Map(nodes.map((n) => [n.id, n]));
+      (state: ReactFlowState): InputConnectionSnapshot => {
+        const edges = (Array.isArray(state.edges) ? state.edges : []) as FlowEdgeLike[];
+        if (edges.length === 0) return EMPTY_INPUT_CONNECTION_SNAPSHOT;
+        const nodeById = buildNodeByIdMap(state);
+        const primaryImgInputEdgeByTarget = buildPrimaryImgInputEdgeByTargetMap(edges);
 
         const resolveFromNode = (
           nodeId: string,
@@ -522,9 +556,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
 
           // Image 节点 - 有输入连线时优先使用上游，避免修改上游后未更新
           if (node.type === "image" || node.type === "imagePro") {
-            const upstream = edges.find(
-              (e) => e.target === nodeId && e.targetHandle === "img"
-            );
+            const upstream = primaryImgInputEdgeByTarget.get(nodeId);
             if (upstream) {
               const upstreamResolved = resolveFromNode(
                 upstream.source,
@@ -553,16 +585,20 @@ function ImageNodeInner({ id, data, selected }: Props) {
         };
 
         // 查找连接到 img 输入句柄的边
-        const edgeToThis = edges.find(
-          (e) => e.target === id && e.targetHandle === "img"
-        );
-        if (!edgeToThis) return undefined;
+        const edgeToThis = primaryImgInputEdgeByTarget.get(id);
+        if (!edgeToThis) return EMPTY_INPUT_CONNECTION_SNAPSHOT;
 
-        return resolveFromNode(edgeToThis.source, edgeToThis);
+        return {
+          hasInputConnection: true,
+          connectedFrameImage: resolveFromNode(edgeToThis.source, edgeToThis),
+        };
       },
       [id]
-    )
+    ),
+    shallow
   );
+  const hasInputConnection = inputConnectionSnapshot.hasInputConnection;
+  const connectedFrameImage = inputConnectionSnapshot.connectedFrameImage;
 
   const inputRef = React.useRef<HTMLInputElement | null>(null);
 
@@ -578,9 +614,9 @@ function ImageNodeInner({ id, data, selected }: Props) {
   const thumbAssetId = React.useMemo(() => parseFlowImageAssetRef(rawThumbValue), [rawThumbValue]);
   const thumbAssetUrl = useFlowImageAssetUrl(thumbAssetId);
   const displaySrc = React.useMemo(() => {
-    if (fullSrc) return fullSrc;
-    if (thumbAssetId) return thumbAssetUrl || undefined;
-    return buildImageSrc(rawThumbValue);
+    // 节点内展示优先走缩略图，降低大图解码与绘制开销
+    if (thumbAssetId) return thumbAssetUrl || fullSrc;
+    return buildImageSrc(rawThumbValue) || fullSrc;
   }, [thumbAssetId, thumbAssetUrl, rawThumbValue, fullSrc]);
 
   const nodeCropInfo = React.useMemo(() => {
@@ -621,11 +657,14 @@ function ImageNodeInner({ id, data, selected }: Props) {
   const imageSplitCropInfo = useStore(
     React.useCallback(
       (state: ReactFlowState) => {
-        const edges = state.edges || [];
-        const edgeToThis = edges.find((e) => e.target === id && e.targetHandle === "img");
+        const edges = (Array.isArray(state.edges) ? state.edges : []) as FlowEdgeLike[];
+        if (edges.length === 0) return null;
+        const nodeById = buildNodeByIdMap(state);
+        const primaryImgInputEdgeByTarget = buildPrimaryImgInputEdgeByTargetMap(edges);
+        const edgeToThis = primaryImgInputEdgeByTarget.get(id);
         if (!edgeToThis) return null;
 
-        const srcNode = state.getNodes().find((n) => n.id === edgeToThis.source);
+        const srcNode = nodeById.get(edgeToThis.source);
         if (!srcNode) return null;
 
         const specFromImageSplit = (node: any, sourceHandle?: string) => {
@@ -689,11 +728,9 @@ function ImageNodeInner({ id, data, selected }: Props) {
             }
           }
 
-          const upstream = edges.find(
-            (e) => e.target === node.id && e.targetHandle === "img"
-          );
+          const upstream = primaryImgInputEdgeByTarget.get(node.id);
           if (!upstream) return null;
-          const up = state.getNodes().find((n) => n.id === upstream.source);
+          const up = nodeById.get(upstream.source);
           const handle = (upstream as any).sourceHandle as string | undefined;
           if (up?.type === "imageSplit") {
             return specFromImageSplit(up, handle);
@@ -1002,21 +1039,10 @@ function ImageNodeInner({ id, data, selected }: Props) {
 
   const handleSendToCanvas = React.useCallback(async (event?: React.MouseEvent<HTMLButtonElement>) => {
     if (!canSend) return;
-
-    const resolveAnchorClient = (triggerTarget?: EventTarget | null) => {
-      const triggerEl =
-        triggerTarget instanceof HTMLElement ? triggerTarget : null;
-      const nodeEl = triggerEl?.closest?.(".react-flow__node") as
-        | HTMLElement
-        | null;
-      const rect = (nodeEl || triggerEl)?.getBoundingClientRect();
-      if (!rect) return undefined;
-      return {
-        x: rect.right + 16,
-        y: rect.top + rect.height / 2,
-      };
-    };
-    const anchorClient = resolveAnchorClient(event?.currentTarget ?? null);
+    const anchorClient = resolveFlowNodeSendAnchorClient({
+      nodeId: id,
+      triggerTarget: event?.currentTarget ?? null,
+    });
 
     const makeFileName = () => {
       const base = resolvedImageName || `flow_${id}_${Date.now()}`;
@@ -1041,6 +1067,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
             operationType: "generate",
             smartPosition: undefined,
             anchorClient,
+            forceAnchorPosition: true,
             sourceImageId: undefined,
             sourceImages: undefined,
           },

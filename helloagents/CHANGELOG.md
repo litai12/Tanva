@@ -7,8 +7,11 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ## [Unreleased]
 ### Fixed
 - Video Provider: 修复 `viduq3-pro` 在收到 `reference2video` 请求时错误回退到 `text2video` 的问题。后端现已补齐 Q3 的 `reference2video` 模式推断、endpoint 映射和 payload 组装，避免“明明传了 prompt 却被上游报 text_video 缺少 prompt”。
+- Flow/Video: `Seedance/Kling/Vidu/Wan/Sora2` 视频节点移除了运行态固定 `30%` 进度，统一改为使用 `GenerationProgressBar` 的 5 分钟渐进模拟（运行期缓慢递增至 95%，成功后到 100%），避免“假进度卡 30%”。
+- Flow/Image: 图片生成节点统一改为 `GenerationProgressBar` 动态渐进并支持配置时长，`Generate/GeneratePro/GenerateReference/Midjourney/Nano2/Seedream5/ViewAngle` 已切换为 `60s` 渐进到 `95%`（成功后到 `100%`）。
 
 ### Added
+- Flow Model Switch: `Generate` / `Agent(generatePro)` 节点新增节点本地 `modelProvider` 持久化，节点内 Fast/Pro/Ultra 切换不再改写全局 `aiProvider`；同时全局设置/对话框切换会广播 `flow:sync-model-provider`，可一键批量同步相关节点（`generate/generatePro/generatePro4/analysis`）到统一模型档位。
 - Flow/Analysis: analysis node now has an independent Fast/Pro/Ultra model switch (node-local state), and no longer mutates global aiProvider.
 - Flow/Analysis: analysis requests are pinned to Banana normal route in-node, so global normal/stable channel switching does not affect analysis execution.
 - Credits: image-analysis pricing is aligned to Fast=10 (gemini-2.5-image-analyze), Pro=30 (gemini-image-analyze), Ultra=20 (gemini-3.1-image-analyze) across preview, backend deduction, and credits detail mapping.
@@ -43,6 +46,16 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` 与 `手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖拽/发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题。
 
 ### Changed
+- Flow/Performance: workflow 画布在大节点量场景下启用自适应性能策略：`onlyRenderVisibleElements` 默认改为开启，并在节点数较大时自动强制“仅渲染可见元素”；同时大图模式会自动关闭节点吸附对齐，减少拖拽时的全图对齐计算开销（`frontend/src/stores/flowStore.ts`, `frontend/src/components/flow/FlowOverlay.tsx`）。
+- Flow/Performance: 优化节点局部更新与连线扫描热点。`FlowOverlay` 的 `flow:updateNodeData` 改为按节点 id 定位并只更新目标节点，避免每次 patch 全量 `map` 节点数组；`Generate/GeneratePro` 输入图选择器改为单次遍历边并优先读取 `nodeLookup`，`GenericVideo` 将多次 `edges` 扫描合并为一次统计，减少大图场景的重复计算（`frontend/src/components/flow/FlowOverlay.tsx`, `frontend/src/components/flow/nodes/GenerateNode.tsx`, `frontend/src/components/flow/nodes/GenerateProNode.tsx`, `frontend/src/components/flow/nodes/GenericVideoNode.tsx`）。
+- Flow/Performance: `ImageNode` 进一步收敛 store 热点读取。将 `hasInputConnection` 与 `connectedFrameImage` 合并为单个 selector（共享边/节点索引），并把 `imageSplitCropInfo` 的链路解析改为使用预构建 `nodeById` 与 `img` 入边索引，减少重复 `edges.find` / `getNodes().find` 扫描（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
+- Flow/Performance: `ImageNode` 节点卡片展示改为“缩略图优先、原图兜底”，避免节点视图优先加载原图导致的解码与重绘开销（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
+- Flow/Performance: 优化导入大 JSON 后的拖拽链路。拖拽期间的 `nodes/edges` 同步 effect 现在会在转换前直接短路，避免每帧执行 `rfNodesToTplNodes/rfEdgesToTplEdges`；同时导入模板时会将节点 `history` 数组压缩为最新一条，降低运行态对象体积与后续重渲染开销（`frontend/src/components/flow/FlowOverlay.tsx`）。
+- Flow/Performance: 继续优化大图拖拽路径。`collapsedChildToGroupId` 改为签名缓存，避免普通拖拽时触发全量边映射重算；`nodesWithHandlers` 引入按节点对象命中缓存，减少每帧对全量节点重新包装；节点数较大时自动隐藏 `MiniMap` 与 `MiniMapImageOverlay`，降低缩略图层与全图映射的额外开销（`frontend/src/components/flow/FlowOverlay.tsx`）。
+- Flow/Performance: 恢复 `MiniMap` 常驻显示，仅在大图场景自动关闭 `MiniMapImageOverlay` 图片叠加层；并优化双指/触控板缩放链路：`Canvas -> Flow` 视口同步改为 `RAF` 合帧，且缩放时将 `pan/zoom` 合并为单次 store 写入，减少缩放过程的重复 `setViewport` 与重绘（`frontend/src/components/flow/FlowOverlay.tsx`, `frontend/src/components/canvas/GlobalZoomCapture.tsx`）。
+- Flow/Performance: 关闭“仅渲染可见”的自动强制策略，并将 `flow-settings` v2 默认值回退为全量渲染（`onlyRenderVisibleElements=false`），减少节点进入视窗时的重挂载抖动；前端开关改为纯手动控制（`frontend/src/components/flow/FlowOverlay.tsx`, `frontend/src/stores/flowStore.ts`）。
+- Flow/Performance: 按需恢复“仅渲染可见”策略（含大图自动强制开启）；`flow-settings` 升级到 v3 并将 `onlyRenderVisibleElements` 默认恢复为 `true`，工具栏开关在大图场景显示“自动”状态（`frontend/src/components/flow/FlowOverlay.tsx`, `frontend/src/stores/flowStore.ts`）。
+- Backend/Video Provider: 统一放宽视频生成接口 `VideoProviderRequestDto.prompt` 校验上限，从 `2500` 提升到 `5000` 字符，覆盖 Seedance/Kling/Vidu 共用链路（`backend/src/ai/dto/video-provider.dto.ts`）。
 - Membership/Credits: removed frontend auto check-in at app bootstrap. Daily reward now requires an explicit user check-in action, and paid-tier `dailyGiftCredits` is defined as the member's daily check-in credit amount rather than an automatically issued daily grant.
 - Credits Detail UI: `My Credits` transaction list and Admin `细分积分明细` now show `模型` under each record item, using API usage model when available and `--` fallback when absent.
 - AI Analyze/Text defaults: `ai.controller` now defaults text/analyze model to `gemini-3.1-pro`, while `banana-2.5` analyze keeps `gemini-2.5-flash-image-preview`; Banana image-analyze adds quota-aware fast fallback (`3.1-pro -> 3-pro-image -> 2.5`) and stops same-model retries on explicit 429/quota errors.

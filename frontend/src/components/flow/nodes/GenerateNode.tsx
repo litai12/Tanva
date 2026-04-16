@@ -16,6 +16,11 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import RunCreditBadge from "./RunCreditBadge";
 import NodeSelect from "./NodeSelect";
 import { useImageNodeCreditsPreview } from "../hooks/useImageNodeCreditsPreview";
+import {
+  getFlowModelProviderMode,
+  resolveFlowModelProvider,
+  type FlowModelProvider,
+} from "@/utils/flowModelProvider";
 
 type Props = {
   id: string;
@@ -46,6 +51,7 @@ type Props = {
     managedModelKey?: string;
     vendorKey?: string;
     platformKey?: string;
+    modelProvider?: FlowModelProvider;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
   };
@@ -75,6 +81,46 @@ const buildImageSrc = (value?: string): string | undefined => {
 };
 
 const MAX_INPUT_PREVIEWS = 6;
+const EMPTY_CONNECTED_INPUT_IMAGES: ConnectedInputImage[] = [];
+
+type OrderedInputEdge = {
+  edge: ReactFlowState["edges"][number];
+  index: number;
+};
+
+const isImageInputHandle = (handle?: string | null): boolean => {
+  if (!handle || handle === "img") return true;
+  return /^img\d+$/.test(handle);
+};
+
+const imageInputHandleRank = (handle?: string | null): number => {
+  if (!handle || handle === "img") return 0;
+  const match = /^img(\d+)$/.exec(handle);
+  if (!match) return Number.MAX_SAFE_INTEGER;
+  return Math.max(0, Number(match[1]) - 1);
+};
+
+const collectOrderedInputEdges = (
+  edges: ReactFlowState["edges"],
+  targetId: string
+): OrderedInputEdge[] => {
+  const matched: OrderedInputEdge[] = [];
+  for (let i = 0; i < edges.length; i += 1) {
+    const edge = edges[i];
+    if (edge.target !== targetId) continue;
+    if (!isImageInputHandle(edge.targetHandle)) continue;
+    matched.push({ edge, index: i });
+  }
+  if (matched.length <= 1) return matched;
+  matched.sort((a, b) => {
+    const rankDelta =
+      imageInputHandleRank(a.edge.targetHandle) -
+      imageInputHandleRank(b.edge.targetHandle);
+    if (rankDelta !== 0) return rankDelta;
+    return a.index - b.index;
+  });
+  return matched;
+};
 const HIDDEN_SOURCE_HANDLE_STYLE: React.CSSProperties = {
   width: 1,
   height: 1,
@@ -446,7 +492,10 @@ function GenerateNodeInner({ id, data, selected }: Props) {
   const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
   const chatTheme = useAIChatStore((state) => state.chatTheme);
   const isFlowDark = chatTheme === "black";
-  const setAIProvider = useAIChatStore((state) => state.setAIProvider);
+  const effectiveProvider = React.useMemo<FlowModelProvider>(
+    () => resolveFlowModelProvider(data.modelProvider, aiProvider),
+    [aiProvider, data.modelProvider]
+  );
   const rawFullValue = data.imageUrl || data.imageData;
   const fullAssetId = React.useMemo(() => parseFlowImageAssetRef(rawFullValue), [rawFullValue]);
   const fullAssetUrl = useFlowImageAssetUrl(fullAssetId);
@@ -491,45 +540,46 @@ function GenerateNodeInner({ id, data, selected }: Props) {
   const connectedInputImages = useStore(
     React.useCallback(
       (state: ReactFlowState) => {
-        const edgeWithOrder = state.edges
-          .map((edge, index) => ({ edge, index }))
-          .filter(({ edge }) => {
-            if (edge.target !== id) return false;
-            const handle = edge.targetHandle;
-            if (!handle || handle === "img") return true;
-            return /^img\d+$/.test(handle);
-          })
-          .sort((a, b) => {
-            const rank = (handle?: string | null) => {
-              if (!handle || handle === "img") return 0;
-              const match = /^img(\d+)$/.exec(handle);
-              if (!match) return Number.MAX_SAFE_INTEGER;
-              return Math.max(0, Number(match[1]) - 1);
-            };
-            const rankDelta = rank(a.edge.targetHandle) - rank(b.edge.targetHandle);
-            if (rankDelta !== 0) return rankDelta;
-            return a.index - b.index;
-          });
+        const edgeWithOrder = collectOrderedInputEdges(state.edges, id);
+        if (edgeWithOrder.length === 0) return EMPTY_CONNECTED_INPUT_IMAGES;
 
-        if (edgeWithOrder.length === 0) return [] as ConnectedInputImage[];
+        const nodeLookup = (
+          state as ReactFlowState & { nodeLookup?: Map<string, FlowNode> }
+        ).nodeLookup;
+        const hasNodeLookup =
+          nodeLookup && typeof nodeLookup.get === "function";
+        const fallbackNodes = hasNodeLookup
+          ? null
+          : ((state as ReactFlowState & { nodes?: FlowNode[] }).nodes ||
+            state.getNodes());
+        const fallbackNodeById = fallbackNodes
+          ? new Map(fallbackNodes.map((node) => [node.id, node]))
+          : null;
+        const resolveSourceNode = (sourceId: string): FlowNode | undefined => {
+          const fromLookup = hasNodeLookup ? nodeLookup!.get(sourceId) : undefined;
+          return fromLookup || fallbackNodeById?.get(sourceId);
+        };
 
-        const nodes = state.getNodes();
-        const nodeById = new Map(nodes.map((node) => [node.id, node]));
         const out: ConnectedInputImage[] = [];
 
-        edgeWithOrder.forEach(({ edge }, edgeIdx) => {
-          const sourceNode = nodeById.get(edge.source);
-          if (!sourceNode) return;
+        for (let edgeIdx = 0; edgeIdx < edgeWithOrder.length; edgeIdx += 1) {
+          const { edge } = edgeWithOrder[edgeIdx];
+          const sourceNode = resolveSourceNode(edge.source);
+          if (!sourceNode) continue;
           const items = readConnectedImagesFromNode(sourceNode, edge.sourceHandle);
-          items.forEach((item, itemIdx) => {
+          for (let itemIdx = 0; itemIdx < items.length; itemIdx += 1) {
+            const item = items[itemIdx];
             out.push({
               ...item,
               id: `${edge.id || edge.source}-${edgeIdx}-${item.id}-${itemIdx}`,
             });
-          });
-        });
+            if (out.length >= MAX_INPUT_PREVIEWS) {
+              return out;
+            }
+          }
+        }
 
-        return out.slice(0, MAX_INPUT_PREVIEWS);
+        return out;
       },
       [id]
     )
@@ -570,12 +620,10 @@ function GenerateNodeInner({ id, data, selected }: Props) {
     [lt]
   );
 
-  const providerMode = React.useMemo<"fast" | "pro" | "ultra" | "other">(() => {
-    if (aiProvider === "banana-2.5") return "fast";
-    if (aiProvider === "banana-3.1") return "ultra";
-    if (aiProvider === "banana" || aiProvider === "gemini-pro") return "pro";
-    return "other";
-  }, [aiProvider]);
+  const providerMode = React.useMemo(
+    () => getFlowModelProviderMode(effectiveProvider),
+    [effectiveProvider]
+  );
 
   type ProviderToggleValue = "banana-2.5" | "banana" | "banana-3.1";
   const providerToggleOptions = React.useMemo<Array<{
@@ -603,11 +651,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
     [lt]
   );
 
-  const currentProviderValue = React.useMemo<ProviderToggleValue>(() => {
-    if (aiProvider === "banana-2.5") return "banana-2.5";
-    if (aiProvider === "banana-3.1") return "banana-3.1";
-    return "banana";
-  }, [aiProvider]);
+  const currentProviderValue = effectiveProvider;
 
   const currentProviderOption = React.useMemo(
     () =>
@@ -616,8 +660,22 @@ function GenerateNodeInner({ id, data, selected }: Props) {
     [currentProviderValue, providerToggleOptions]
   );
 
-  const showAspectRatioSelector = providerMode !== "other";
-  const showImageSizeSelector = providerMode !== "other";
+  React.useEffect(() => {
+    if (
+      typeof data.modelProvider === "string" &&
+      data.modelProvider.trim().length > 0
+    ) {
+      return;
+    }
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: { id, patch: { modelProvider: currentProviderValue } },
+      })
+    );
+  }, [currentProviderValue, data.modelProvider, id]);
+
+  const showAspectRatioSelector = true;
+  const showImageSizeSelector = true;
   const showSizeControls = showAspectRatioSelector || showImageSizeSelector;
   const showTextOutputHandle = providerMode === "ultra";
 
@@ -646,7 +704,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
 
   const { credits: backendCredits } = useImageNodeCreditsPreview({
     nodeType: "generate",
-    aiProvider,
+    aiProvider: currentProviderValue,
     bananaImageRoute,
     imageSize: imageSizeValue || undefined,
     aspectRatio: aspectRatioValue || undefined,
@@ -809,8 +867,12 @@ function GenerateNodeInner({ id, data, selected }: Props) {
                     key={option.value}
                     onClick={(event) => {
                       event.stopPropagation();
-                      if (aiProvider !== option.value) {
-                        setAIProvider(option.value);
+                      if (currentProviderValue !== option.value) {
+                        window.dispatchEvent(
+                          new CustomEvent("flow:updateNodeData", {
+                            detail: { id, patch: { modelProvider: option.value } },
+                          })
+                        );
                       }
                     }}
                     onPointerDownCapture={stopNodeDrag}
@@ -1066,7 +1128,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
           <span style={{ fontSize: 12, color: "#9ca3af" }}>{lt("等待生成", "Waiting for generation")}</span>
         )}
       </div>
-      <GenerationProgressBar status={status} />
+      <GenerationProgressBar status={status} simulateDurationMs={60 * 1000} />
       {status === "failed" && error && (
         <div
           style={{

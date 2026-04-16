@@ -164,6 +164,10 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
           right: 0,
           bottom: 0
         }}
+        onContextMenuCapture={(e) => {
+          // Keep native browser context menu in preview, but stop bubbling to node-level handlers.
+          e.stopPropagation();
+        }}
         onClick={handleBackgroundClick}
       >
         {/* 关闭按钮 */}

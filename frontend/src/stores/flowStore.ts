@@ -19,7 +19,7 @@ export const FlowEdgeColorMode = {
 
 export type FlowEdgeColorMode = typeof FlowEdgeColorMode[keyof typeof FlowEdgeColorMode];
 
-const FLOW_SETTINGS_VERSION = 1;
+const FLOW_SETTINGS_VERSION = 3;
 
 const isFlowBackgroundVariant = (value: unknown): value is FlowBackgroundVariant =>
   value === FlowBackgroundVariant.DOTS ||
@@ -83,8 +83,8 @@ export const useFlowStore = create<FlowState>()(
         backgroundOpacity: 0.4,
         edgeColorMode: FlowEdgeColorMode.STANDARD,
 
-        // 默认关闭：避免节点/图片离开视窗后再进入时的卸载/重建“加载感”
-        onlyRenderVisibleElements: false,
+        // 默认开启：优先保证大图场景性能
+        onlyRenderVisibleElements: true,
         showFpsOverlay: false,
         
         // Flow视口初始状态
@@ -164,10 +164,8 @@ export const useFlowStore = create<FlowState>()(
               ? state.edgeColorMode
               : FlowEdgeColorMode.STANDARD,
             snapToGrid: typeof state.snapToGrid === 'boolean' ? state.snapToGrid : true,
-            onlyRenderVisibleElements:
-              typeof state.onlyRenderVisibleElements === 'boolean'
-                ? state.onlyRenderVisibleElements
-                : false,
+            // v3: 恢复“仅渲染可见”默认开启，匹配大图性能优先策略
+            onlyRenderVisibleElements: true,
             showFpsOverlay: typeof state.showFpsOverlay === 'boolean' ? state.showFpsOverlay : false,
           };
         },

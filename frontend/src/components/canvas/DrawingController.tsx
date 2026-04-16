@@ -1527,6 +1527,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         sourceImages,
         videoInfo,
         placeholderId,
+        forceAnchorPosition,
         preferHorizontal, // 🔥 新增：是否优先横向排列
         // 🔥 并行生成分组信息，用于 X4/X8 自动打组
         parallelGroupId,
@@ -1577,11 +1578,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	              sourceImageId,
 	              sourceImages,
 	              {
-	                videoInfo,
-	                placeholderId,
-	                preferHorizontal,
-	                parallelGroupId,
-	                parallelGroupIndex,
+                videoInfo,
+                placeholderId,
+                forceAnchorPosition,
+                preferHorizontal,
+                parallelGroupId,
+                parallelGroupIndex,
 	                parallelGroupTotal,
 	              } // 🔥 传递并行分组信息
 	            )

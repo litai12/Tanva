@@ -615,7 +615,7 @@ const AIChatDialog: React.FC = () => {
   // 如果当前选择的是隐藏的 gemini，自动切换到 gemini-pro
   useEffect(() => {
     if (aiProvider === "gemini") {
-      setAIProvider("gemini-pro");
+      setAIProvider("gemini-pro", { syncFlowNodes: false, source: "internal" });
     }
   }, [aiProvider, setAIProvider]);
 
@@ -3402,7 +3402,7 @@ const AIChatDialog: React.FC = () => {
                                   "🤖 切换 AI 提供商:",
                                   option.value
                                 );
-                                setAIProvider(option.value);
+                                setAIProvider(option.value, { source: "dialog" });
                               }
                               const root = (
                                 event.currentTarget as HTMLElement

@@ -11,6 +11,7 @@ import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import { useLocaleText } from "@/utils/localeText";
 import { flowImagePreviewWell, flowLetterboxBackground, useFlowNodeDarkTheme } from "./flowNodeDarkTheme";
+import { resolveFlowNodeSendAnchorClient } from "../utils/flowNodeSendAnchor";
 
 type Props = {
   id: string;
@@ -173,16 +174,10 @@ function CameraNodeInner({ id, data, selected }: Props) {
     const dataUrl = toRenderableImageSrc(trimmed);
     if (!dataUrl) return;
     const fileName = `capture_${Date.now()}.png`;
-    const triggerEl =
-      event?.currentTarget instanceof HTMLElement ? event.currentTarget : null;
-    const nodeEl = triggerEl?.closest(".react-flow__node") as HTMLElement | null;
-    const rect = (nodeEl || triggerEl)?.getBoundingClientRect();
-    const anchorClient = rect
-      ? {
-          x: rect.right + 16,
-          y: rect.top + rect.height / 2,
-        }
-      : undefined;
+    const anchorClient = resolveFlowNodeSendAnchorClient({
+      nodeId: id,
+      triggerTarget: event?.currentTarget ?? null,
+    });
     window.dispatchEvent(
       new CustomEvent("triggerQuickImageUpload", {
         detail: {
@@ -190,6 +185,7 @@ function CameraNodeInner({ id, data, selected }: Props) {
           fileName,
           operationType: "generate",
           anchorClient,
+          forceAnchorPosition: true,
         },
       })
     );

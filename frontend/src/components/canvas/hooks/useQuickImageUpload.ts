@@ -127,6 +127,7 @@ const GENERATE_COLLISION_PADDING = 32;
 const GENERATE_GROUP_TITLE_SAFE_SPACE = 56;
 const GROUP_HORIZONTAL_GAP_MIN = 16;
 const GROUP_HORIZONTAL_GAP_MAX = 48;
+const FLOW_NODE_SEND_TOP_GAP = 24;
 
 type MatrixLayoutContext = {
     groupId?: string;
@@ -1094,6 +1095,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         extraOptions?: {
             videoInfo?: PendingImageEntry['videoInfo'];
             placeholderId?: string;
+            forceAnchorPosition?: boolean;
             preferHorizontal?: boolean;  // 🔥 新增：是否优先横向排列
             // 🔥 并行生成分组信息，用于 X4/X8 自动打组
             parallelGroupId?: string;
@@ -1311,6 +1313,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             const parallelGroupTotal = extraOptions?.parallelGroupTotal;
             let targetPosition: paper.Point;
             let pendingEntry: PendingImageEntry | null = null;
+            let forcedTopAnchorPoint: paper.Point | null = null;
 
             const registerPending = (initialPoint: paper.Point | null) => {
                 const entry: PendingImageEntry = {
@@ -1388,14 +1391,28 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
             if (smartPosition) {
                 const desiredPoint = new paper.Point(smartPosition.x, smartPosition.y);
-                pendingEntry = registerPending(desiredPoint);
-                const adjustedPoint = resolveTargetPosition(desiredPoint, pendingOperationType);
+                const shouldForceAnchorPosition =
+                    Boolean(extraOptions?.forceAnchorPosition) && (parallelGroupTotal ?? 1) <= 1;
+                let anchorCenterForPlacement = desiredPoint;
+                if (shouldForceAnchorPosition) {
+                    // forceAnchorPosition 语义：smartPosition 表示“顶部锚点”，不是图片中心点。
+                    forcedTopAnchorPoint = desiredPoint.clone();
+                    anchorCenterForPlacement = desiredPoint.add(
+                        new paper.Point(0, expectedHeight / 2 + FLOW_NODE_SEND_TOP_GAP)
+                    );
+                }
+                pendingEntry = registerPending(anchorCenterForPlacement);
+                const adjustedPoint = shouldForceAnchorPosition
+                    ? anchorCenterForPlacement
+                    : resolveTargetPosition(desiredPoint, pendingOperationType);
                 targetPosition = adjustedPoint;
                 if (pendingEntry) {
                     pendingEntry.x = adjustedPoint.x;
                     pendingEntry.y = adjustedPoint.y;
                 }
-                if (!desiredPoint.equals(adjustedPoint)) {
+                if (shouldForceAnchorPosition) {
+                    logger.upload(`📍 快速上传：固定锚点位置 (${adjustedPoint.x}, ${adjustedPoint.y})`);
+                } else if (!desiredPoint.equals(adjustedPoint)) {
                     logger.upload(`📍 快速上传：智能位置冲突，已调整至 (${adjustedPoint.x}, ${adjustedPoint.y})`);
                 } else {
                     logger.upload(`📍 快速上传：使用智能位置 (${adjustedPoint.x}, ${adjustedPoint.y})`);
@@ -1907,6 +1924,17 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     }
                     }
                     // 原始尺寸模式：直接使用原图分辨率，1像素=1像素显示
+                }
+
+                if (forcedTopAnchorPoint) {
+                    finalPosition = new paper.Point(
+                        forcedTopAnchorPoint.x,
+                        forcedTopAnchorPoint.y + displayHeight / 2 + FLOW_NODE_SEND_TOP_GAP
+                    );
+                    if (pendingEntry) {
+                        pendingEntry.x = finalPosition.x;
+                        pendingEntry.y = finalPosition.y;
+                    }
                 }
 
                 // 🎯 关键修复：不设置raster.size，保持原始分辨率

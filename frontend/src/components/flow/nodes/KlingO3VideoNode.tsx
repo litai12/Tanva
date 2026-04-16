@@ -2127,10 +2127,8 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
       >
         {renderPreview()}
       </div>
-
       <GenerationProgressBar
         status={data.status || "idle"}
-        progress={data.status === "running" ? 30 : data.status === "succeeded" ? 100 : 0}
       />
 
       {/* 历史记录 */}

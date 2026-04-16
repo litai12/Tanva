@@ -100,6 +100,32 @@ type DownloadFeedback = {
   message: string;
 };
 
+type ConnectionStats = {
+  hasImageInput: boolean;
+  imageInputCount: number;
+  hasImage2Input: boolean;
+  hasVideoInput: boolean;
+  audioInputCount: number;
+};
+
+const EMPTY_CONNECTION_STATS: ConnectionStats = {
+  hasImageInput: false,
+  imageInputCount: 0,
+  hasImage2Input: false,
+  hasVideoInput: false,
+  audioInputCount: 0,
+};
+
+const areConnectionStatsEqual = (
+  a: ConnectionStats,
+  b: ConnectionStats
+): boolean =>
+  a.hasImageInput === b.hasImageInput &&
+  a.imageInputCount === b.imageInputCount &&
+  a.hasImage2Input === b.hasImage2Input &&
+  a.hasVideoInput === b.hasVideoInput &&
+  a.audioInputCount === b.audioInputCount;
+
 const PROVIDER_CONFIG: Record<VideoProvider, { name: string; zh: string }> = {
   kling: { name: "Kling", zh: "Kling" },
   "kling-2.6": { name: "Kling 2.6", zh: "Kling 2.6" },
@@ -327,33 +353,59 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const [showHistory, setShowHistory] = React.useState(false);
   const [showHelp, setShowHelp] = React.useState(false);
 
-  // 妫€娴嬫槸鍚︽湁鍥剧墖杈撳叆杩炴帴
-  const hasImageInput = useStore((state) => {
-    const edges = state.edges || [];
-    return edges.some(
-      (edge) => edge.target === id && (edge.targetHandle === "image" || edge.targetHandle === "image-2")
-    );
-  });
+  const {
+    hasImageInput,
+    imageInputCount,
+    hasImage2Input,
+    hasVideoInput,
+    audioInputCount,
+  } = useStore(
+    React.useCallback((state): ConnectionStats => {
+      const edges = Array.isArray(state?.edges) ? state.edges : [];
+      if (edges.length === 0) return EMPTY_CONNECTION_STATS;
 
-  // 妫€娴嬪浘鐗囪緭鍏ユ暟閲忥紙鍚?image 鍜?image-2锛?
-  const imageInputCount = useStore((state) => {
-    const edges = state.edges || [];
-    return edges.filter(
-      (edge) => edge.target === id && (edge.targetHandle === "image" || edge.targetHandle === "image-2")
-    ).length;
-  });
-  const hasImage2Input = useStore((state) => {
-    const edges = state.edges || [];
-    return edges.some((edge) => edge.target === id && edge.targetHandle === "image-2");
-  });
-  const hasVideoInput = useStore((state) => {
-    const edges = state.edges || [];
-    return edges.some((edge) => edge.target === id && edge.targetHandle === "video");
-  });
-  const audioInputCount = useStore((state) => {
-    const edges = state.edges || [];
-    return edges.filter((edge) => edge.target === id && edge.targetHandle === "audio").length;
-  });
+      let nextImageInputCount = 0;
+      let nextHasImage2Input = false;
+      let nextHasVideoInput = false;
+      let nextAudioInputCount = 0;
+
+      for (let i = 0; i < edges.length; i += 1) {
+        const edge = edges[i];
+        if (edge.target !== id) continue;
+        const targetHandle = edge.targetHandle;
+        if (targetHandle === "image" || targetHandle === "image-2") {
+          nextImageInputCount += 1;
+          if (targetHandle === "image-2") nextHasImage2Input = true;
+          continue;
+        }
+        if (targetHandle === "video") {
+          nextHasVideoInput = true;
+          continue;
+        }
+        if (targetHandle === "audio") {
+          nextAudioInputCount += 1;
+        }
+      }
+
+      if (
+        nextImageInputCount === 0 &&
+        !nextHasImage2Input &&
+        !nextHasVideoInput &&
+        nextAudioInputCount === 0
+      ) {
+        return EMPTY_CONNECTION_STATS;
+      }
+
+      return {
+        hasImageInput: nextImageInputCount > 0,
+        imageInputCount: nextImageInputCount,
+        hasImage2Input: nextHasImage2Input,
+        hasVideoInput: nextHasVideoInput,
+        audioInputCount: nextAudioInputCount,
+      };
+    }, [id]),
+    areConnectionStatsEqual
+  );
   const provider = data.provider || "kling";
   const nodeConfigMetadata =
     data.nodeConfigMetadata && typeof data.nodeConfigMetadata === "object"
@@ -3129,9 +3181,6 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
 
       <GenerationProgressBar
         status={data.status || "idle"}
-        progress={
-          data.status === "running" ? 30 : data.status === "succeeded" ? 100 : 0
-        }
       />
 
       {historyItems.length > 0 && (

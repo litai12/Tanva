@@ -1498,7 +1498,7 @@ const FloatingHeader: React.FC = () => {
               <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
                 {/* 国际版按钮已注释
                 <button
-                  onClick={() => setAIProvider("gemini-pro")}
+                  onClick={() => setAIProvider("gemini-pro", { source: "global" })}
                   className={cn(
                     "relative rounded-xl border-2 p-4 text-left transition-all",
                     aiProvider === "gemini-pro"
@@ -1526,7 +1526,7 @@ const FloatingHeader: React.FC = () => {
                 */}
 
                 <button
-                  onClick={() => setAIProvider("banana")}
+                  onClick={() => setAIProvider("banana", { source: "global" })}
                   className={cn(
                     "relative rounded-xl border-2 p-4 text-left transition-all",
                     aiProvider === "banana"
@@ -1553,7 +1553,7 @@ const FloatingHeader: React.FC = () => {
                 </button>
 
                 <button
-                  onClick={() => setAIProvider("banana-3.1")}
+                  onClick={() => setAIProvider("banana-3.1", { source: "global" })}
                   className={cn(
                     "relative rounded-xl border-2 p-4 text-left transition-all",
                     aiProvider === "banana-3.1"
@@ -1580,7 +1580,7 @@ const FloatingHeader: React.FC = () => {
                 </button>
 
                 <button
-                  onClick={() => setAIProvider("banana-2.5")}
+                  onClick={() => setAIProvider("banana-2.5", { source: "global" })}
                   className={cn(
                     "relative rounded-xl border-2 p-4 text-left transition-all",
                     aiProvider === "banana-2.5"

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Check, CheckCircle, Clock, Crown, FileText, Loader2, RefreshCw, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import PaymentPanel, { type PaymentPanelHandle } from "@/components/payment/PaymentPanel";
+import PaymentPanel from "@/components/payment/PaymentPanel";
 import { useAIChatStore } from "@/stores/aiChatStore";
 import {
   createMembershipOrder,
@@ -27,8 +27,6 @@ interface MembershipPanelProps {
 }
 
 type BillingPeriod = "monthly" | "yearly";
-
-type VipMainTab = "plans" | "credits";
 
 function normPlanCode(code: string | undefined): string {
   return (code || "").trim().toLowerCase();
@@ -82,25 +80,17 @@ function vipFeatureLines(plan: PaymentMembershipPlan): { main: string[]; accent:
   const key = tierKeyFromPlan(plan);
   const bonusPct = key === "69" ? "5%" : key === "199" ? "10%" : key === "599" ? "15%" : "—";
   const total = plan.monthlyQuotaCredits + plan.signupBonusCredits;
-  const dailyNote =
-    key === "69"
-      ? "约 1500 / 30 天"
-      : key === "199"
-        ? "约 3000 / 30 天"
-        : key === "599"
-          ? "约 6000 / 30 天"
-          : "按自然月折算参考值";
 
   const main = [
     `月卡积分（固定刷新）${plan.monthlyQuotaCredits} + 档位赠送 ${plan.signupBonusCredits}，合计到账 ${total}（赠送比例 ${bonusPct}）`,
-    "折扣权益：最大折扣按 8 折计算",
-    "年费在对应连续包月价格基础上统一按 8 折",
   ];
 
   const accent =
     key === "69"
       ? [
-          "去水印、Seedance 2 权益、积分不衰减",
+          "去水印",
+          "Seedance 2 权益",
+          "积分不衰减",
           "每日签到 50 积分（连续签到 7 天 3 倍当日）",
           "模板库：全部开放",
           "邀请上限 20",
@@ -108,7 +98,9 @@ function vipFeatureLines(plan: PaymentMembershipPlan): { main: string[]; accent:
         ]
       : key === "199"
         ? [
-            "去水印、Seedance 2 权益、积分不衰减",
+            "去水印",
+            "Seedance 2 权益",
+            "积分不衰减",
             "每日签到 100 积分（连续签到 7 天 3 倍当日）",
             "模板库：全部开放",
             "邀请上限 40",
@@ -116,14 +108,18 @@ function vipFeatureLines(plan: PaymentMembershipPlan): { main: string[]; accent:
           ]
         : key === "599"
           ? [
-              "去水印、Seedance 2 权益、积分不衰减",
+              "去水印",
+              "Seedance 2 权益",
+              "积分不衰减",
               "每日签到 150 积分（连续签到 7 天 3 倍当日）",
               "模板库：全部开放",
               "邀请上限 100",
               "支持：CEO 直接支持",
             ]
           : [
-              "去水印、Seedance 2 权益、积分不衰减",
+              "去水印",
+              "Seedance 2 权益",
+              "积分不衰减",
               "签到与模板权益以账户策略为准",
               "邀请与支持等级以账户策略为准",
             ];
@@ -164,28 +160,17 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   const [currentOrderNo, setCurrentOrderNo] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(300);
   const [isExpired, setIsExpired] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [showOrders, setShowOrders] = useState(false);
   const [orders, setOrders] = useState<MembershipOrderRecord[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
-  const [vipMainTab, setVipMainTab] = useState<VipMainTab>("plans");
-  const [creditOrdersOpen, setCreditOrdersOpen] = useState(false);
-  const paymentPanelRef = useRef<PaymentPanelHandle>(null);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
-
-  useEffect(() => {
-    if (vipMainTab === "plans") setCreditOrdersOpen(false);
-  }, [vipMainTab]);
 
   const filteredPlans = useMemo(() => {
     const list = (plans || []).filter((p) => p.billingCycle === billingPeriod).sort(sortPlansByTier);
     return list;
   }, [plans, billingPeriod]);
-
-  const hasYearly = useMemo(() => plans.some((p) => p.billingCycle === "yearly"), [plans]);
-  const hasMonthly = useMemo(() => plans.some((p) => p.billingCycle === "monthly"), [plans]);
 
   const selectedPlan = useMemo(
     () => filteredPlans.find((plan) => plan.code === selectedPlanCode) ?? null,
@@ -193,30 +178,25 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   );
 
   const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [plansResult, currentResult] = await Promise.allSettled([
-        getPaymentMembershipPlans(),
-        getMembershipCurrent(),
-      ]);
+    const [plansResult, currentResult] = await Promise.allSettled([
+      getPaymentMembershipPlans(),
+      getMembershipCurrent(),
+    ]);
 
-      if (plansResult.status === "fulfilled") {
-        setPlans(plansResult.value.plans || []);
-      } else {
-        console.error("加载会员套餐失败:", plansResult.reason);
-        setPlans([]);
-        showToast("加载会员套餐失败", "error");
-      }
+    if (plansResult.status === "fulfilled") {
+      setPlans(plansResult.value.plans || []);
+    } else {
+      console.error("加载会员套餐失败:", plansResult.reason);
+      setPlans([]);
+      showToast("加载会员套餐失败", "error");
+    }
 
-      if (currentResult.status === "fulfilled") {
-        setCurrent(currentResult.value);
-      } else {
-        // current 失败时仍允许展示套餐和支付区，避免整块不可用
-        console.warn("加载当前会员状态失败，已降级为仅展示套餐列表:", currentResult.reason);
-        setCurrent(null);
-      }
-    } finally {
-      setLoading(false);
+    if (currentResult.status === "fulfilled") {
+      setCurrent(currentResult.value);
+    } else {
+      // current 失败时仍允许展示套餐和支付区，避免整块不可用
+      console.warn("加载当前会员状态失败，已降级为仅展示套餐列表:", currentResult.reason);
+      setCurrent(null);
     }
   }, []);
 
@@ -320,8 +300,9 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
       });
       setQrCodeUrl(order.qrCodeUrl);
       setCurrentOrderNo(order.orderNo);
-    } catch (error: any) {
-      showToast(error.message || "创建会员订单失败", "error");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "创建会员订单失败";
+      showToast(message, "error");
     } finally {
       setSubmitting(false);
     }
@@ -361,6 +342,9 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   };
 
   const isFreeUser = current?.entitlement?.membershipStatus !== "active";
+  const canTopUpCredits =
+    current?.entitlement?.membershipStatus === "active" &&
+    current?.plan?.billingCycle === "monthly";
 
   const currentTierKey = useMemo(() => {
     if (!current?.plan) return null;
@@ -391,10 +375,6 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                   setShowOrders(false);
                   return;
                 }
-                if (vipMainTab === "credits" && creditOrdersOpen) {
-                  paymentPanelRef.current?.closeOrders();
-                  return;
-                }
                 onBack();
               }}
               className={cn(
@@ -408,40 +388,28 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
             </button>
           )}
           <h3 className={cn("text-lg font-medium tracking-tight", isWhite ? "text-slate-800" : "text-zinc-100")}>
-            {showOrders
-              ? "会员订单"
-              : vipMainTab === "credits"
-                ? creditOrdersOpen
-                  ? "订单记录"
-                  : "积分充值"
-                : "VIP 订阅"}
+            {showOrders ? "会员订单" : "VIP 订阅"}
           </h3>
         </div>
         {!showOrders && (
           <div className="flex items-center gap-1 sm:gap-2">
-            {vipMainTab === "plans" ? (
-              <button
-                type="button"
-                onClick={() => void loadData()}
-                className={cn(
-                  "rounded-lg p-2 transition-colors",
-                  isWhite
-                    ? "text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                    : "text-zinc-500 hover:bg-zinc-800/80 hover:text-zinc-200",
-                )}
-              >
-                <RefreshCw className="h-4 w-4" />
-              </button>
-            ) : null}
+            <button
+              type="button"
+              onClick={() => void loadData()}
+              className={cn(
+                "rounded-lg p-2 transition-colors",
+                isWhite
+                  ? "text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  : "text-zinc-500 hover:bg-zinc-800/80 hover:text-zinc-200",
+              )}
+            >
+              <RefreshCw className="h-4 w-4" />
+            </button>
             <button
               type="button"
               onClick={() => {
-                if (vipMainTab === "plans") {
-                  setShowOrders(true);
-                  void loadOrders();
-                } else {
-                  paymentPanelRef.current?.openOrders();
-                }
+                setShowOrders(true);
+                void loadOrders();
               }}
               className={cn(
                 "flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm transition-colors",
@@ -511,94 +479,75 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
         </div>
       ) : (
         <div className="mt-6 space-y-8 pb-8">
-          {!creditOrdersOpen && (
-            <div className="flex justify-center px-2">
+          <div className="flex justify-center px-2">
+            <div
+              role="tablist"
+              aria-label="会员计费周期"
+              className={cn(
+                "inline-flex items-stretch rounded-full border p-1",
+                isWhite
+                  ? "border-slate-200 bg-white shadow-[inset_0_1px_0_rgba(15,23,42,0.05)]"
+                  : "border-zinc-700/80 bg-[#12121a] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]",
+              )}
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={billingPeriod === "monthly"}
+                onClick={() => setBillingPeriod("monthly")}
+                className={cn(
+                  "min-w-[5.5rem] rounded-full px-5 py-2 text-sm font-medium transition-colors sm:min-w-[6.5rem]",
+                  billingPeriod === "monthly"
+                    ? isWhite
+                      ? "bg-white text-zinc-950 shadow-sm"
+                      : "bg-gradient-to-r from-[#8E86F5] to-[#9aa8ef] text-white shadow-[0_0_20px_rgba(142,134,245,0.35)]"
+                    : isWhite
+                      ? "text-slate-500 hover:text-slate-700"
+                      : "text-zinc-400 hover:text-zinc-200",
+                )}
+              >
+                月付
+              </button>
               <div
-                role="tablist"
-                aria-label="VIP 订阅与积分充值"
+                className={cn("mx-0.5 w-px shrink-0 self-stretch", isWhite ? "bg-slate-200" : "bg-zinc-700")}
+                aria-hidden
+              />
+              <button
+                type="button"
+                role="tab"
+                aria-selected={false}
+                disabled
                 className={cn(
-                  "inline-flex items-stretch rounded-full border p-1",
-                  isWhite
-                    ? "border-slate-200 bg-white shadow-[inset_0_1px_0_rgba(15,23,42,0.05)]"
-                    : "border-zinc-700/80 bg-[#12121a] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]",
+                  "min-w-[5.5rem] cursor-not-allowed rounded-full px-5 py-2 text-sm font-medium sm:min-w-[6.5rem]",
+                  isWhite ? "text-slate-300" : "text-zinc-600",
                 )}
               >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={vipMainTab === "plans"}
-                  onClick={() => setVipMainTab("plans")}
-                  className={cn(
-                    "min-w-[5.5rem] rounded-full px-5 py-2 text-sm font-medium transition-colors sm:min-w-[6.5rem]",
-                    vipMainTab === "plans"
-                      ? isWhite
-                        ? "bg-white text-zinc-950 shadow-sm"
-                        : "bg-gradient-to-r from-[#8E86F5] to-[#9aa8ef] text-white shadow-[0_0_20px_rgba(142,134,245,0.35)]"
-                      : isWhite
-                        ? "text-slate-500 hover:text-slate-700"
-                        : "text-zinc-400 hover:text-zinc-200",
-                  )}
-                >
-                  套餐
-                </button>
-                <div
-                  className={cn("mx-0.5 w-px shrink-0 self-stretch", isWhite ? "bg-slate-200" : "bg-zinc-700")}
-                  aria-hidden
-                />
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={vipMainTab === "credits"}
-                  onClick={() => setVipMainTab("credits")}
-                  className={cn(
-                    "min-w-[5.5rem] rounded-full px-5 py-2 text-sm font-medium transition-colors sm:min-w-[6.5rem]",
-                    vipMainTab === "credits"
-                      ? isWhite
-                        ? "bg-white text-zinc-950 shadow-sm"
-                        : "bg-gradient-to-r from-[#8E86F5] to-[#9aa8ef] text-white shadow-[0_0_20px_rgba(142,134,245,0.35)]"
-                      : isWhite
-                        ? "text-slate-500 hover:text-slate-700"
-                        : "text-zinc-400 hover:text-zinc-200",
-                  )}
-                >
-                  积分
-                </button>
-              </div>
+                年付
+              </button>
             </div>
-          )}
+          </div>
 
-          {vipMainTab === "credits" ? (
-            <PaymentPanel
-              ref={paymentPanelRef}
-              embeddedInVip
-              onBack={onBack}
-              onPaymentSuccess={onPaymentSuccess}
-              onCreditsOrdersOpenChange={setCreditOrdersOpen}
-            />
+          <p
+            className={cn(
+              "mx-auto max-w-6xl text-center text-sm leading-relaxed",
+              isWhite ? "text-slate-500" : "text-zinc-500",
+            )}
+          >
+            月卡积分按 30 天周期刷新。会员在续费状态下，到期日刷新为当前档位的满额月卡积分；未续费则月卡积分刷新为 0。年付功能即将开放。
+          </p>
+
+          {!filteredPlans.length ? (
+            <div
+              className={cn(
+                "rounded-2xl border border-dashed py-16 text-center",
+                isWhite
+                  ? "border-slate-300 bg-white text-slate-500"
+                  : "border-zinc-700/60 bg-[#272727] text-zinc-500",
+              )}
+            >
+              暂无{billingPeriod === "monthly" ? "月付" : "年付"}套餐，请稍后再试或联系管理员
+            </div>
           ) : (
-            <>
-              <p
-                className={cn(
-                  "mx-auto max-w-6xl text-center text-sm leading-relaxed",
-                  isWhite ? "text-slate-500" : "text-zinc-500",
-                )}
-              >
-                月卡积分按 30 天周期刷新。会员在续费状态下，到期日刷新为当前档位的满额月卡积分；未续费则月卡积分刷新为
-                0。切换月付 / 年付查看套餐与应付金额。
-              </p>
-
-              {!filteredPlans.length ? (
-                <div
-                  className={cn(
-                    "rounded-2xl border border-dashed py-16 text-center",
-                    isWhite
-                      ? "border-slate-300 bg-white text-slate-500"
-                      : "border-zinc-700/60 bg-[#272727] text-zinc-500",
-                  )}
-                >
-                  暂无{billingPeriod === "monthly" ? "月付" : "年付"}套餐，请稍后再试或联系管理员
-                </div>
-              ) : (
             <div className="min-w-0 space-y-8">
               <div className="min-w-0 space-y-6">
                 {/* <div className="rounded-[20px] border border-[#C9A227]/85 bg-black p-5 sm:p-6">
@@ -625,61 +574,6 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                     ) : null}
                   </div>
                 </div> */}
-
-                {!isFreeUser ? (
-                  <div className="flex justify-center sm:justify-start">
-                    <div
-                      className={cn(
-                        "inline-flex rounded-full border p-1",
-                        isWhite
-                          ? "border-slate-200 bg-white shadow-[inset_0_1px_0_rgba(15,23,42,0.04)]"
-                          : "border-zinc-700/70 bg-[#12121a] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
-                      )}
-                    >
-                      <button
-                        type="button"
-                        disabled={!hasMonthly}
-                        onClick={() => setBillingPeriod("monthly")}
-                        className={cn(
-                          "rounded-full px-5 py-2 text-sm font-medium transition-all",
-                          billingPeriod === "monthly"
-                            ? isWhite
-                              ? "bg-slate-100 text-slate-900 shadow-[0_0_0_1px_rgba(148,163,184,0.45)]"
-                              : "bg-gradient-to-r from-[#6f66e8] to-[#8E86F5] text-white shadow-[0_0_16px_rgba(142,134,245,0.45)]"
-                            : isWhite
-                              ? "text-slate-500 hover:text-slate-700"
-                              : "text-zinc-400 hover:text-zinc-300",
-                          !hasMonthly && "cursor-not-allowed opacity-40",
-                        )}
-                      >
-                        连续包月
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!hasYearly}
-                        onClick={() => setBillingPeriod("yearly")}
-                        className={cn(
-                          "rounded-full px-5 py-2 text-sm font-medium transition-all",
-                          billingPeriod === "yearly"
-                            ? isWhite
-                              ? "bg-slate-100 text-slate-900 shadow-[0_0_0_1px_rgba(148,163,184,0.45)]"
-                              : "bg-gradient-to-r from-[#6f66e8] to-[#8E86F5] text-white shadow-[0_0_16px_rgba(142,134,245,0.45)]"
-                            : isWhite
-                              ? "text-slate-500 hover:text-slate-700"
-                              : "text-zinc-400 hover:text-zinc-300",
-                          !hasYearly && "cursor-not-allowed opacity-40",
-                        )}
-                      >
-                        年费
-                        {hasYearly ? (
-                          <span className="ml-1.5 bg-gradient-to-r from-[#8E86F5] to-[#B6C3F9] bg-clip-text text-transparent">
-                            8 折
-                          </span>
-                        ) : null}
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
 
                 <div
                   className={cn(
@@ -737,14 +631,14 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                         if (!isFreeUser) showToast("请选择付费档位完成升级", "info");
                       }}
                       className={cn(
-                        "mt-8 w-full rounded-full py-3.5 text-sm font-medium transition-colors",
+                        "mt-16 w-full rounded-xl py-3 text-xs font-semibold transition-all sm:py-3.5 sm:text-sm",
                         isFreeUser
                           ? isWhite
-                            ? "cursor-default bg-slate-100 text-slate-500"
-                            : "cursor-default bg-[#1a1a22] text-zinc-500"
+                            ? "cursor-default border border-slate-200 bg-slate-100 text-slate-500 shadow-sm"
+                            : "cursor-default border border-zinc-700 bg-[#1a1a22] text-zinc-500 shadow-[0_8px_20px_rgba(0,0,0,0.22)]"
                           : isWhite
-                            ? "border border-slate-300 bg-transparent text-slate-700 hover:border-[#C9A227]/40 hover:bg-slate-50"
-                            : "border border-zinc-700 bg-transparent text-zinc-300 hover:border-[#C9A227]/40 hover:bg-[#1c1c1f]",
+                            ? "border border-slate-300 bg-transparent text-slate-700 shadow-sm hover:border-[#C9A227]/40 hover:bg-slate-50"
+                            : "border border-zinc-700 bg-transparent text-zinc-300 shadow-[0_8px_20px_rgba(0,0,0,0.22)] hover:border-[#C9A227]/40 hover:bg-[#1c1c1f]",
                       )}
                     >
                       {isFreeUser ? "当前计划" : "了解标准版"}
@@ -1054,10 +948,31 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                     </aside>
                   ) : null}
                 </div>
+
+                {canTopUpCredits ? (
+                  <section
+                    className={cn(
+                      "space-y-4 border-t pt-2",
+                      isWhite ? "border-slate-200" : "border-zinc-800/80",
+                    )}
+                  >
+                    <div>
+                      <h4 className={cn("text-base font-semibold", isWhite ? "text-slate-900" : "text-zinc-100")}>
+                        积分充值
+                      </h4>
+                      <p className={cn("mt-1 text-sm", isWhite ? "text-slate-500" : "text-zinc-500")}>
+                        仅已开通月卡会员可购买积分。
+                      </p>
+                    </div>
+                    <PaymentPanel
+                      embeddedInVip
+                      onBack={onBack}
+                      onPaymentSuccess={onPaymentSuccess}
+                    />
+                  </section>
+                ) : null}
               </div>
             </div>
-              )}
-            </>
           )}
         </div>
       )}

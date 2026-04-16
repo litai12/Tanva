@@ -53,6 +53,7 @@ import {
   isTencentBananaAnalyzeSupported,
   isTencentStableBananaRoute,
 } from "@/utils/bananaRouteCapabilities";
+import { FLOW_MODEL_PROVIDER_SYNC_EVENT } from "@/utils/flowModelProvider";
 import {
   blobToDataUrl as blobToDataUrlLimited,
   canvasToBlob,
@@ -517,6 +518,11 @@ type AvailableTool =
   | "generatePaperJS";
 
 type AIProviderType = SupportedAIProvider;
+
+type SetAIProviderOptions = {
+  syncFlowNodes?: boolean;
+  source?: "global" | "dialog" | "internal";
+};
 
 const isBananaImageProvider = (provider: AIProviderType): boolean =>
   isBananaRouteProvider(provider) ||
@@ -2622,7 +2628,7 @@ interface AIChatState {
   setVideoAspectRatio: (ratio: "16:9" | "9:16" | null) => void;
   setVideoDurationSeconds: (seconds: AIChatVideoDurationSeconds | null) => void;
   setManualAIMode: (mode: ManualAIMode) => void;
-  setAIProvider: (provider: AIProviderType) => void; // 设置AI提供商
+  setAIProvider: (provider: AIProviderType, options?: SetAIProviderOptions) => void; // 设置AI提供商
   setBananaImageRoute: (route: BananaImageRoute) => void;
   setAutoModeMultiplier: (multiplier: AutoModeMultiplier) => void;
   setSendShortcut: (shortcut: SendShortcut) => void;
@@ -8055,7 +8061,7 @@ export const useAIChatStore = create<AIChatState>()(
           set({ videoDurationSeconds: seconds }),
         setManualAIMode: (mode) =>
           set({ manualAIMode: mode, autoSelectedTool: null }),
-        setAIProvider: (provider) => {
+        setAIProvider: (provider, options) => {
           console.log("🔄 [AI Provider] 切换模式:", {
             from: get().aiProvider,
             to: provider,
@@ -8069,6 +8075,17 @@ export const useAIChatStore = create<AIChatState>()(
                 : provider,
           });
           set({ aiProvider: provider });
+          if (options?.syncFlowNodes === false) return;
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent(FLOW_MODEL_PROVIDER_SYNC_EVENT, {
+                detail: {
+                  provider,
+                  source: options?.source || "global",
+                },
+              })
+            );
+          }
         },
         setBananaImageRoute: (route) => {
           set({ bananaImageRoute: route });

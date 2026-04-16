@@ -165,6 +165,8 @@ interface GroupPathDragState {
 }
 
 interface SpacePanDragState {
+  trigger: 'space' | 'middle';
+  button: 0 | 1;
   startScreen: { x: number; y: number };
   startPan: { x: number; y: number };
 }
@@ -621,13 +623,40 @@ export const useInteractionController = ({
     }
   }, [canvasRef, isSelectionLikeMode]);
 
+  const startViewportPanDrag = useCallback(
+    (event: MouseEvent, trigger: 'space' | 'middle', button: 0 | 1) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const { panX, panY, setDragging } = useCanvasStore.getState();
+      spacePanDragRef.current = {
+        trigger,
+        button,
+        startScreen: { x: event.clientX - rect.left, y: event.clientY - rect.top },
+        startPan: { x: panX, y: panY }
+      };
+      try { setDragging(true); } catch {}
+      canvas.style.cursor = 'grabbing';
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+    },
+    [canvasRef]
+  );
+
   // ========== 鼠标按下事件处理 ==========
   const handleMouseDown = useCallback((event: MouseEvent) => {
-    if (event.button !== 0) return; // 只响应左键点击
-
     const canvas = canvasRef.current;
     if (!canvas) return;
     isAltPressedRef.current = event.altKey;
+
+    if (event.button === 1) {
+      startViewportPanDrag(event, 'middle', 1);
+      return;
+    }
+    if (event.button !== 0) return; // 左键进入绘制/选择；中键已在上方统一接管平移
+
     const currentDrawMode = drawModeRef.current;
     const latestSelectionTool = selectionToolRef.current;
     const latestImageTool = imageToolRef.current;
@@ -643,17 +672,7 @@ export const useInteractionController = ({
     }
 
     if (isSelectionLikeMode() && isSpacePressedRef.current) {
-      const rect = canvas.getBoundingClientRect();
-      const { panX, panY, setDragging } = useCanvasStore.getState();
-      spacePanDragRef.current = {
-        startScreen: { x: event.clientX - rect.left, y: event.clientY - rect.top },
-        startPan: { x: panX, y: panY }
-      };
-      try { setDragging(true); } catch {}
-      canvas.style.cursor = 'grabbing';
-      event.preventDefault();
-      event.stopPropagation();
-      event.stopImmediatePropagation();
+      startViewportPanDrag(event, 'space', 0);
       return;
     }
 
@@ -1061,7 +1080,7 @@ export const useInteractionController = ({
     }
 
     latestDrawingTools.isDrawingRef.current = true;
-  }, [canvasRef, beginGroupPathDrag, isLockedImage, isSelectionLikeMode, isPendingUploadImage]);
+  }, [canvasRef, beginGroupPathDrag, isLockedImage, isSelectionLikeMode, isPendingUploadImage, startViewportPanDrag]);
 
   // 更新鼠标光标样式（需在 handleMouseMove 之前定义，避免临时死区）
   function updateCursorStyle(
@@ -1271,6 +1290,9 @@ export const useInteractionController = ({
     const canvas = canvasRef.current;
     if (!canvas) return;
     isAltPressedRef.current = event.altKey;
+    if (useCanvasStore.getState().isDragging && !spacePanDragRef.current) {
+      return;
+    }
 
     const currentDrawMode = drawModeRef.current;
     const latestSelectionTool = selectionToolRef.current;
@@ -1744,7 +1766,15 @@ export const useInteractionController = ({
     }
 
     if (spacePanDragRef.current) {
-      stopSpacePan();
+      const activePan = spacePanDragRef.current;
+      const isMouseLeave = event.type === 'mouseleave';
+      if (isMouseLeave || event.button === activePan.button) {
+        stopSpacePan();
+      }
+      event.preventDefault();
+      return;
+    }
+    if (event.type !== 'mouseleave' && event.button !== 0) {
       return;
     }
 

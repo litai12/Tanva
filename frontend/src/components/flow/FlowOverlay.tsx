@@ -94,6 +94,7 @@ import TencentSpeechNode from "./nodes/TencentSpeechNode";
 import Nano2Node from "./nodes/Nano2Node";
 import Seedream5Node from "./nodes/Seedream5Node";
 import NodeGroupNode from "./nodes/NodeGroupNode";
+import { resolveFlowNodeSendAnchorClient } from "./utils/flowNodeSendAnchor";
 import { FLOW_IMAGE_ASSET_PREFIX } from "@/services/flowImageAssetStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import {
@@ -182,6 +183,7 @@ import PersonalLibraryPanel from "./PersonalLibraryPanel";
 import { resolveTextFromSourceNode } from "./utils/textSource";
 import { sanitizeFlowTextForMidjourneyV7 } from "./utils/mjV7PromptSanitize";
 import { useLocaleText } from "@/utils/localeText";
+import { resolveFlowModelProvider, FLOW_MODEL_PROVIDER_SYNC_EVENT } from "@/utils/flowModelProvider";
 import {
   detectAlignments,
   deduplicateAlignments,
@@ -207,6 +209,9 @@ const FLOW_EDGE_COLOR_BY_KIND = {
   images: "#eab308",
   audio: "#ec4899",
 } as const;
+const FLOW_AUTO_VISIBLE_RENDER_NODE_THRESHOLD = 31;
+const FLOW_AUTO_DISABLE_SNAP_NODE_THRESHOLD = 51;
+const FLOW_AUTO_HIDE_MINIMAP_IMAGE_OVERLAY_NODE_THRESHOLD = 81;
 
 const getEdgeHandleKind = (
   handle?: string | null
@@ -3485,6 +3490,10 @@ function FlowInner() {
   }, [lt, nodePaletteConfigs]);
 
   const snapAlignmentEnabled = useUIStore((s) => s.snapAlignmentEnabled);
+  const isLargeGraphForSnapAlignment =
+    nodes.length >= FLOW_AUTO_DISABLE_SNAP_NODE_THRESHOLD;
+  const effectiveSnapAlignmentEnabled =
+    snapAlignmentEnabled && !isLargeGraphForSnapAlignment;
   const [flowSnapAlignments, setFlowSnapAlignments] = React.useState<
     AlignmentLine[]
   >([]);
@@ -3513,7 +3522,7 @@ function FlowInner() {
     (draggingNodes: RFNode[], anchorNodeId?: string) => {
       flowDragAnchorNodeIdRef.current =
         typeof anchorNodeId === "string" ? anchorNodeId : null;
-      if (!snapAlignmentEnabled) {
+      if (!effectiveSnapAlignmentEnabled) {
         flowSnapTargetsRef.current = [];
         updateFlowSnapAlignments([]);
         return;
@@ -3532,7 +3541,7 @@ function FlowInner() {
         .filter((item): item is ObjectBounds => Boolean(item));
       updateFlowSnapAlignments([]);
     },
-    [snapAlignmentEnabled, updateFlowSnapAlignments]
+    [effectiveSnapAlignmentEnabled, updateFlowSnapAlignments]
   );
 
   const applyFlowSnappingToChanges = React.useCallback(
@@ -3549,7 +3558,7 @@ function FlowInner() {
         return changes;
       }
 
-      if (!snapAlignmentEnabled || flowSnapTargetsRef.current.length === 0) {
+      if (!effectiveSnapAlignmentEnabled || flowSnapTargetsRef.current.length === 0) {
         updateFlowSnapAlignments([]);
         return changes;
       }
@@ -3640,7 +3649,7 @@ function FlowInner() {
         return next;
       });
     },
-    [snapAlignmentEnabled, updateFlowSnapAlignments]
+    [effectiveSnapAlignmentEnabled, updateFlowSnapAlignments]
   );
 
   const onNodesChangeWithHistory = React.useCallback(
@@ -3815,10 +3824,10 @@ function FlowInner() {
     rfRef.current = rf;
   }, [rf]);
   React.useEffect(() => {
-    if (!snapAlignmentEnabled) {
+    if (!effectiveSnapAlignmentEnabled) {
       clearFlowSnapState();
     }
-  }, [clearFlowSnapState, snapAlignmentEnabled]);
+  }, [clearFlowSnapState, effectiveSnapAlignmentEnabled]);
   React.useEffect(() => () => clearFlowSnapState(), [clearFlowSnapState]);
 
   const normalizeGroupNodes = React.useCallback((inputNodes: RFNode[]) => {
@@ -3979,7 +3988,7 @@ function FlowInner() {
         historyService.commit("flow-group-update").catch(() => {});
       } catch {}
     },
-    [setNodes]
+    [aiProvider, setNodes]
   );
 
   const toggleGroupCollapsed = React.useCallback(
@@ -5538,6 +5547,7 @@ function FlowInner() {
     if (!projectId) return;
     if (!hydrated) return;
     if (hydratingFromStoreRef.current) return;
+    if (nodeDraggingRef.current) return;
     const nodesSnapshot = rfNodesToTplNodes(nodes as any);
     const edgesSnapshot = rfEdgesToTplEdges(edges);
     scheduleCommit(nodesSnapshot, edgesSnapshot);
@@ -5584,6 +5594,12 @@ function FlowInner() {
   const setEdgeColorMode = useFlowStore((s) => s.setEdgeColorMode);
   const showFpsOverlay = useFlowStore((s) => s.showFpsOverlay);
   const setShowFpsOverlay = useFlowStore((s) => s.setShowFpsOverlay);
+  const isLargeGraphForVisibleRendering =
+    nodes.length >= FLOW_AUTO_VISIBLE_RENDER_NODE_THRESHOLD;
+  const isLargeGraphForMiniMapImageOverlay =
+    nodes.length >= FLOW_AUTO_HIDE_MINIMAP_IMAGE_OVERLAY_NODE_THRESHOLD;
+  const effectiveOnlyRenderVisibleElements =
+    onlyRenderVisibleElements || isLargeGraphForVisibleRendering;
 
   const [dragFps, setDragFps] = React.useState<number>(0);
   const [dragLongFrames, setDragLongFrames] = React.useState<number>(0);
@@ -5791,6 +5807,32 @@ function FlowInner() {
   const lastApplied = React.useRef<{ x: number; y: number; z: number } | null>(
     null
   );
+  const viewportSyncRafRef = React.useRef<number | null>(null);
+  const pendingViewportRef = React.useRef<{ x: number; y: number; z: number } | null>(
+    null
+  );
+
+  const flushPendingViewport = React.useCallback(() => {
+    viewportSyncRafRef.current = null;
+    const next = pendingViewportRef.current;
+    if (!next) return;
+    pendingViewportRef.current = null;
+    try {
+      rfRef.current.setViewport(
+        { x: next.x, y: next.y, zoom: next.z },
+        { duration: 0 }
+      );
+    } catch {
+      /* noop */
+    }
+  }, []);
+
+  const queueViewportSync = React.useCallback((next: { x: number; y: number; z: number }) => {
+    pendingViewportRef.current = next;
+    if (viewportSyncRafRef.current !== null) return;
+    viewportSyncRafRef.current = window.requestAnimationFrame(flushPendingViewport);
+  }, [flushPendingViewport]);
+
   const syncViewportToCanvasStore = () => {
     try {
       const state = useCanvasStore.getState();
@@ -5823,12 +5865,7 @@ function FlowInner() {
       )
         return;
       lastApplied.current = { x, y, z };
-      // 直接同步更新，不使用 RAF，与 Canvas 平移在同一帧内完成
-      try {
-        rfRef.current.setViewport({ x, y, zoom: z }, { duration: 0 });
-      } catch {
-        /* noop */
-      }
+      queueViewportSync({ x, y, z });
     });
 
     // 初始同步
@@ -5846,7 +5883,18 @@ function FlowInner() {
     }
 
     return unsubscribe;
-  }, []);
+  }, [queueViewportSync]);
+
+  React.useEffect(
+    () => () => {
+      if (viewportSyncRafRef.current !== null) {
+        window.cancelAnimationFrame(viewportSyncRafRef.current);
+      }
+      viewportSyncRafRef.current = null;
+      pendingViewportRef.current = null;
+    },
+    []
+  );
 
   React.useLayoutEffect(() => {
     if (!projectId) return;
@@ -6139,7 +6187,39 @@ function FlowInner() {
   }, [addPanel.visible, addTab, allowedAddTabs]);
 
   // ---------- 导出/导入（序列化） ----------
-  const cleanNodeData = React.useCallback((data: any) => {
+  const compactImportedNodeData = React.useCallback((input: any) => {
+    const seen = new WeakMap<object, any>();
+
+    const walk = (value: any, key?: string): any => {
+      if (typeof value === "function") return undefined;
+      if (!value || typeof value !== "object") return value;
+      if (value instanceof Date) return value.toISOString();
+
+      if (Array.isArray(value)) {
+        // 导入 JSON 时保留最新一条 history，避免把大历史数组全量带入运行态导致拖拽卡顿。
+        const source = key === "history" ? value.slice(0, 1) : value;
+        return source
+          .map((item) => walk(item))
+          .filter((item) => item !== undefined);
+      }
+
+      const cached = seen.get(value as object);
+      if (cached) return cached;
+
+      const next: Record<string, any> = {};
+      seen.set(value as object, next);
+      Object.entries(value as Record<string, any>).forEach(([childKey, child]) => {
+        const sanitized = walk(child, childKey);
+        if (sanitized === undefined) return;
+        next[childKey] = sanitized;
+      });
+      return next;
+    };
+
+    return walk(input) || {};
+  }, []);
+
+  const cleanNodeData = React.useCallback((data: any, options?: { compactForImport?: boolean }) => {
     if (!data) return {};
     // 不导出回调函数/运行时状态字段
     const {
@@ -6152,8 +6232,11 @@ function FlowInner() {
       lastHistoryId,
       ...rest
     } = data || {};
+    if (options?.compactForImport) {
+      return compactImportedNodeData(rest);
+    }
     return rest;
-  }, []);
+  }, [compactImportedNodeData]);
 
   const isRemoteUrl = React.useCallback(
     (value: unknown): value is string =>
@@ -6577,7 +6660,7 @@ function FlowInner() {
       const mappedNodes = rawNodes.map((n: any, idx: number) => {
         const origId = String(n.id || `n_${idx}`);
         const newId = idMap.get(origId) || `${origId}_${now}_${idx}`;
-        const data = cleanNodeData(n.data) || {};
+        const data = cleanNodeData(n.data, { compactForImport: true }) || {};
         if (n.type === FLOW_GROUP_NODE_TYPE) {
           const explicitChildren = Array.isArray((data as any).childNodeIds)
             ? (data as any).childNodeIds.map(
@@ -6928,12 +7011,16 @@ function FlowInner() {
   // 中键拖拽以平移 Flow 视口，阻止浏览器的自动滚动
   const middleDragRef = React.useRef<{
     dragging: boolean;
-    lastX: number;
-    lastY: number;
+    startX: number;
+    startY: number;
+    startPanX: number;
+    startPanY: number;
   }>({
     dragging: false,
-    lastX: 0,
-    lastY: 0,
+    startX: 0,
+    startY: 0,
+    startPanX: 0,
+    startPanY: 0,
   });
   React.useEffect(() => {
     const container = containerRef.current;
@@ -6944,18 +7031,28 @@ function FlowInner() {
       middleDragRef.current.dragging = false;
       container.classList.remove("tanva-flow-middle-panning");
       container.style.cursor = "";
+      try {
+        useCanvasStore.getState().setDragging(false);
+      } catch {}
     };
 
     const handleMouseDown = (event: MouseEvent) => {
       if (event.button !== 1) return;
       if (allowNativeScroll(event.target)) return;
+      const store = useCanvasStore.getState();
       event.preventDefault();
       event.stopPropagation();
+      event.stopImmediatePropagation();
       middleDragRef.current.dragging = true;
-      middleDragRef.current.lastX = event.clientX;
-      middleDragRef.current.lastY = event.clientY;
+      middleDragRef.current.startX = event.clientX;
+      middleDragRef.current.startY = event.clientY;
+      middleDragRef.current.startPanX = store.panX;
+      middleDragRef.current.startPanY = store.panY;
       container.classList.add("tanva-flow-middle-panning");
       container.style.cursor = "grabbing";
+      try {
+        store.setDragging(true);
+      } catch {}
     };
 
     const handleMouseMove = (event: MouseEvent) => {
@@ -6965,14 +7062,12 @@ function FlowInner() {
       const dpr =
         typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
       const zoom = store.zoom || 1;
-      const dx = event.clientX - middleDragRef.current.lastX;
-      const dy = event.clientY - middleDragRef.current.lastY;
+      const dx = event.clientX - middleDragRef.current.startX;
+      const dy = event.clientY - middleDragRef.current.startY;
       if (dx === 0 && dy === 0) return;
-      middleDragRef.current.lastX = event.clientX;
-      middleDragRef.current.lastY = event.clientY;
       store.setPan(
-        store.panX + (dx * dpr) / zoom,
-        store.panY + (dy * dpr) / zoom
+        middleDragRef.current.startPanX + (dx * dpr) / zoom,
+        middleDragRef.current.startPanY + (dy * dpr) / zoom
       );
     };
 
@@ -7072,8 +7167,11 @@ function FlowInner() {
 
         const pan2x = store.panX + sx * (1 / z2 - 1 / z1);
         const pan2y = store.panY + sy * (1 / z2 - 1 / z1);
-        store.setPan(pan2x, pan2y);
-        store.setZoom(z2);
+        useCanvasStore.setState({
+          panX: pan2x,
+          panY: pan2y,
+          zoom: z2,
+        });
         return;
       }
 
@@ -7476,6 +7574,7 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
               presetPrompt: "",
+              modelProvider: resolveFlowModelProvider(undefined, aiProvider),
             }
           : type === "generatePro"
           ? {
@@ -7485,6 +7584,7 @@ function FlowInner() {
               prompts: [""],
               title: "Agent",
               enableWebSearch: false,
+              modelProvider: resolveFlowModelProvider(undefined, aiProvider),
             }
           : type === "generatePro4"
           ? {
@@ -7494,6 +7594,7 @@ function FlowInner() {
               boxH: size.h,
               prompts: [""],
               enableWebSearch: false,
+              modelProvider: resolveFlowModelProvider(undefined, aiProvider),
             }
           : type === "generate4"
           ? {
@@ -7947,7 +8048,7 @@ function FlowInner() {
       setAddPanel((v) => ({ ...v, visible: false }));
       return id;
     },
-    [setNodes]
+    [aiProvider, setNodes]
   );
 
   const textSourceTypes = React.useMemo(
@@ -10067,61 +10168,69 @@ function FlowInner() {
       let thumbnailNodeId: string | null = null;
       let thumbnailSourceImageData: string | null = null;
 
-      setNodes((ns) =>
-        ns.map((n) => {
-          if (n.id !== detail.id) return n;
-          const patch = { ...(detail.patch || {}) };
+      setNodes((ns) => {
+        const targetIndex = ns.findIndex((node) => node.id === detail.id);
+        if (targetIndex < 0) return ns;
 
-          // 移除内部使用的 _positionOffset
-          delete patch._positionOffset;
+        const targetNode = ns[targetIndex];
+        const patch = { ...(detail.patch || {}) };
 
-          if (
-            Object.prototype.hasOwnProperty.call(patch, "imageData") &&
-            !Object.prototype.hasOwnProperty.call(patch, "imageName")
-          ) {
-            patch.imageName = undefined;
-          }
-          // imageData 更新时一并清理 thumbnail，避免旧缩略图残留（且 thumbnail 不落库）
-          if (Object.prototype.hasOwnProperty.call(patch, "imageData")) {
-            patch.thumbnail = undefined;
-          }
-          // imageData 清空时一并清理 thumbnail，避免大字符串残留
-          if (
-            Object.prototype.hasOwnProperty.call(patch, "imageData") &&
-            !patch.imageData
-          ) {
-            patch.thumbnail = undefined;
-          }
+        // 移除内部使用的 _positionOffset
+        delete patch._positionOffset;
 
-          // 图片节点：若写入 imageData 但未提供 thumbnail，异步生成缩略图
-          if (
-            Object.prototype.hasOwnProperty.call(patch, "imageData") &&
-            patch.imageData &&
-            !Object.prototype.hasOwnProperty.call(patch, "thumbnail") &&
-            (n.type === "image" || n.type === "imagePro") &&
-            !(
-              typeof patch.imageData === "string" &&
-              patch.imageData.trim().startsWith(FLOW_IMAGE_ASSET_PREFIX)
-            )
-          ) {
-            patch.thumbnail = undefined;
-            shouldAutoGenerateThumbnail = true;
-            thumbnailNodeId = n.id;
-            thumbnailSourceImageData = patch.imageData;
-          }
+        if (
+          Object.prototype.hasOwnProperty.call(patch, "imageData") &&
+          !Object.prototype.hasOwnProperty.call(patch, "imageName")
+        ) {
+          patch.imageName = undefined;
+        }
+        // imageData 更新时一并清理 thumbnail，避免旧缩略图残留（且 thumbnail 不落库）
+        if (Object.prototype.hasOwnProperty.call(patch, "imageData")) {
+          patch.thumbnail = undefined;
+        }
+        // imageData 清空时一并清理 thumbnail，避免大字符串残留
+        if (
+          Object.prototype.hasOwnProperty.call(patch, "imageData") &&
+          !patch.imageData
+        ) {
+          patch.thumbnail = undefined;
+        }
 
-          // 如果有位置偏移，同时更新节点位置
-          let newPosition = n.position;
-          if (positionOffset) {
-            newPosition = {
-              x: n.position.x + positionOffset.x,
-              y: n.position.y + positionOffset.y,
-            };
-          }
+        // 图片节点：若写入 imageData 但未提供 thumbnail，异步生成缩略图
+        if (
+          Object.prototype.hasOwnProperty.call(patch, "imageData") &&
+          patch.imageData &&
+          !Object.prototype.hasOwnProperty.call(patch, "thumbnail") &&
+          (targetNode.type === "image" || targetNode.type === "imagePro") &&
+          !(
+            typeof patch.imageData === "string" &&
+            patch.imageData.trim().startsWith(FLOW_IMAGE_ASSET_PREFIX)
+          )
+        ) {
+          patch.thumbnail = undefined;
+          shouldAutoGenerateThumbnail = true;
+          thumbnailNodeId = targetNode.id;
+          thumbnailSourceImageData = patch.imageData;
+        }
 
-          return { ...n, position: newPosition, data: { ...n.data, ...patch } };
-        })
-      );
+        // 如果有位置偏移，同时更新节点位置
+        let newPosition = targetNode.position;
+        if (positionOffset) {
+          newPosition = {
+            x: targetNode.position.x + positionOffset.x,
+            y: targetNode.position.y + positionOffset.y,
+          };
+        }
+
+        const nextNode = {
+          ...targetNode,
+          position: newPosition,
+          data: { ...targetNode.data, ...patch },
+        };
+        const nextNodes = ns.slice();
+        nextNodes[targetIndex] = nextNode;
+        return nextNodes;
+      });
 
       if (
         shouldAutoGenerateThumbnail &&
@@ -10134,14 +10243,19 @@ function FlowInner() {
             256
           );
           if (!thumb) return;
-          setNodes((ns) =>
-            ns.map((n) => {
-              if (n.id !== thumbnailNodeId) return n;
-              const current = (n.data as any)?.imageData;
-              if (current !== thumbnailSourceImageData) return n;
-              return { ...n, data: { ...n.data, thumbnail: thumb } };
-            })
-          );
+          setNodes((ns) => {
+            const targetIndex = ns.findIndex((node) => node.id === thumbnailNodeId);
+            if (targetIndex < 0) return ns;
+            const targetNode = ns[targetIndex];
+            const current = (targetNode.data as any)?.imageData;
+            if (current !== thumbnailSourceImageData) return ns;
+            const nextNodes = ns.slice();
+            nextNodes[targetIndex] = {
+              ...targetNode,
+              data: { ...targetNode.data, thumbnail: thumb },
+            };
+            return nextNodes;
+          });
         })();
       }
 
@@ -10541,6 +10655,7 @@ function FlowInner() {
               imageWidth: 296,
               title: "Agent",
               enableWebSearch: false,
+              modelProvider: resolveFlowModelProvider(undefined, aiProvider),
             }
           : { status: "idle" as const };
 
@@ -16485,8 +16600,14 @@ function FlowInner() {
           ? (raw.trim() as AIImageGenerateRequest["aspectRatio"])
           : undefined;
       })();
+      const runProvider =
+        node.type === "generate" ||
+        node.type === "generatePro" ||
+        node.type === "generatePro4"
+          ? resolveFlowModelProvider((node.data as any)?.modelProvider, aiProvider)
+          : aiProvider;
       const effectiveAspectRatio =
-        node.type === "generate" && aiProvider === "banana-2.5"
+        node.type === "generate" && runProvider === "banana-2.5"
           ? undefined
           : aspectRatioValue;
 
@@ -16522,19 +16643,19 @@ function FlowInner() {
         }
         return undefined;
       };
-      const providerOptions = resolveBananaRouteProviderOptions(aiProvider);
+      const providerOptions = resolveBananaRouteProviderOptions(runProvider);
 
       // 根据节点类型和全局模式选择模型
       const nodeSpecificModel = (() => {
         // 专业生图节点：默认走 Pro；Ultra(3.1) 时切到 3.1 链路
         if (node.type === "generatePro" || node.type === "generatePro4") {
-          if (aiProvider === "banana-3.1" || aiProvider === "nano2") {
+          if (runProvider === "banana-3.1" || runProvider === "nano2") {
             return "gemini-3.1-flash-image-preview";
           }
           return "gemini-3-pro-image-preview";
         }
         // 其他节点（包括 generate/generate4/image 等）使用全局模型设置
-        return imageModel;
+        return getImageModelForProvider(runProvider);
       })();
 
       if (node.type === "generate4") {
@@ -16601,7 +16722,7 @@ function FlowInner() {
               result = await generateImageViaAPI({
                 prompt,
                 outputFormat: "png",
-                aiProvider,
+                aiProvider: runProvider,
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
@@ -16619,7 +16740,7 @@ function FlowInner() {
                   ? { sourceImageUrl: imageDatas[0] }
                   : { sourceImage: imageDatas[0] }),
                 outputFormat: "png",
-                aiProvider,
+                aiProvider: runProvider,
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
@@ -16632,7 +16753,7 @@ function FlowInner() {
                   ? { sourceImageUrls: imageDatas.slice(0, 6) }
                   : { sourceImages: imageDatas.slice(0, 6) }),
                 outputFormat: "png",
-                aiProvider,
+                aiProvider: runProvider,
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
@@ -16657,7 +16778,7 @@ function FlowInner() {
                   {
                     nodeId,
                     slot: i,
-                    aiProvider,
+                    aiProvider: runProvider,
                     model: nodeSpecificModel,
                     prompt,
                     hasImage: !!generatedSrc,
@@ -16730,8 +16851,8 @@ function FlowInner() {
                 metadata: {
                   ...(generatedMetadata || {}),
                   model: generatedModel || nodeSpecificModel,
-                  aiProvider,
-                  provider: aiProvider,
+                  aiProvider: runProvider,
+                  provider: runProvider,
                 },
               })
                 .then(({ remoteUrl }) => {
@@ -16874,7 +16995,7 @@ function FlowInner() {
               result = await generateImageViaAPI({
                 prompt,
                 outputFormat: "png",
-                aiProvider,
+                aiProvider: runProvider,
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
@@ -16892,7 +17013,7 @@ function FlowInner() {
                   ? { sourceImageUrl: imageDatas[0] }
                   : { sourceImage: imageDatas[0] }),
                 outputFormat: "png",
-                aiProvider,
+                aiProvider: runProvider,
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
@@ -16905,7 +17026,7 @@ function FlowInner() {
                   ? { sourceImageUrls: imageDatas.slice(0, 6) }
                   : { sourceImages: imageDatas.slice(0, 6) }),
                 outputFormat: "png",
-                aiProvider,
+                aiProvider: runProvider,
                 model: nodeSpecificModel,
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
@@ -17013,8 +17134,8 @@ function FlowInner() {
                   metadata: {
                     ...(result.metadata || {}),
                     model: result.model || nodeSpecificModel,
-                    aiProvider,
-                    provider: aiProvider,
+                    aiProvider: runProvider,
+                    provider: runProvider,
                   },
                 })
                   .then(({ remoteUrl }) => {
@@ -17129,7 +17250,7 @@ function FlowInner() {
         };
 
         const executeImageRequest = async (
-          provider: typeof aiProvider,
+          provider: string,
           model: string,
           imageSizeOverride?: "0.5K" | "1K" | "2K" | "4K"
         ) => {
@@ -17154,7 +17275,7 @@ function FlowInner() {
             console.log("[FlowOverlay] editImage调用参数:", {
               aiProvider: provider,
               model,
-              imageModel,
+              nodeSpecificModel,
               imageSize: requestImageSize,
             });
             return await editImageViaAPI({
@@ -17184,7 +17305,7 @@ function FlowInner() {
           });
         };
 
-        result = await executeImageRequest(aiProvider, nodeSpecificModel);
+        result = await executeImageRequest(runProvider, nodeSpecificModel);
 
         if (!result.success || !result.data) {
           const msg = result.error?.message || "执行失败";
@@ -17216,7 +17337,7 @@ function FlowInner() {
         if (!imgBase64) {
           console.warn("⚠️ Flow generate success but no image returned", {
             nodeId,
-            aiProvider,
+            aiProvider: runProvider,
             model: nodeSpecificModel,
             prompt,
             hasImage: !!imgBase64,
@@ -17301,8 +17422,8 @@ function FlowInner() {
               metadata: {
                 ...(out.metadata || {}),
                 model: out.model || nodeSpecificModel,
-                aiProvider,
-                provider: aiProvider,
+                aiProvider: runProvider,
+                provider: runProvider,
               },
             })
               .then(({ remoteUrl }) => {
@@ -17380,6 +17501,7 @@ function FlowInner() {
     async (id: string) => {
       const node = rf.getNode(id);
       if (!node) return;
+      const anchorClient = resolveFlowNodeSendAnchorClient({ nodeId: id });
       const cacheKey = "flow_send_image_cache_v1";
       const getCachedUrl = (key: string): string | null => {
         try {
@@ -17554,6 +17676,7 @@ function FlowInner() {
                 fileName,
                 operationType: "generate",
                 smartPosition: undefined,
+                anchorClient,
                 sourceImageId: undefined,
                 sourceImages: undefined,
                 preferHorizontal: true,
@@ -17613,6 +17736,8 @@ function FlowInner() {
                   fileName,
                   operationType: "generate",
                   smartPosition: undefined,
+                  anchorClient,
+                  forceAnchorPosition: true,
                   sourceImageId: undefined,
                   sourceImages: undefined,
                 },
@@ -17635,6 +17760,8 @@ function FlowInner() {
               fileName,
               operationType: "generate",
               smartPosition: undefined,
+              anchorClient,
+              forceAnchorPosition: true,
               sourceImageId: undefined,
               sourceImages: undefined,
             },
@@ -17765,6 +17892,8 @@ function FlowInner() {
                     fileName,
                     operationType: "generate",
                     smartPosition: undefined,
+                    anchorClient,
+                    forceAnchorPosition: true,
                     sourceImageId: undefined,
                     sourceImages: undefined,
                   },
@@ -17795,6 +17924,8 @@ function FlowInner() {
                         fileName,
                         operationType: "generate",
                         smartPosition: undefined,
+                        anchorClient,
+                        forceAnchorPosition: true,
                         sourceImageId: undefined,
                         sourceImages: undefined,
                       },
@@ -17817,6 +17948,8 @@ function FlowInner() {
                   fileName,
                   operationType: "generate",
                   smartPosition: undefined,
+                  anchorClient,
+                  forceAnchorPosition: true,
                   sourceImageId: undefined,
                   sourceImages: undefined,
                 },
@@ -17854,6 +17987,8 @@ function FlowInner() {
               fileName,
               operationType: "generate",
               smartPosition: undefined,
+              anchorClient,
+              forceAnchorPosition: true,
               sourceImageId: undefined,
               sourceImages: undefined,
             },
@@ -17929,6 +18064,8 @@ function FlowInner() {
                   fileName,
                   operationType: "generate",
                   smartPosition: undefined,
+                  anchorClient,
+                  forceAnchorPosition: true,
                   sourceImageId: undefined,
                   sourceImages: undefined,
                 },
@@ -17953,6 +18090,8 @@ function FlowInner() {
             fileName,
             operationType: "generate",
             smartPosition: undefined,
+            anchorClient,
+            forceAnchorPosition: true,
             sourceImageId: undefined,
             sourceImages: undefined,
           },
@@ -18438,7 +18577,31 @@ function FlowInner() {
     [clearConnectHoverTimer, setIsConnecting]
   );
 
+  const collapsedChildMapCacheRef = React.useRef<{
+    signature: string;
+    map: Map<string, string>;
+  }>({ signature: "", map: new Map() });
+
+  const collapsedGroupsSignature = React.useMemo(() => {
+    const parts: string[] = [];
+    nodes.forEach((node) => {
+      if (!isGroupNode(node as RFNode) || !isGroupCollapsed(node as RFNode)) {
+        return;
+      }
+      const groupId = String(node.id);
+      const childIds = getGroupChildIds(node as RFNode);
+      parts.push(`${groupId}:${childIds.join(",")}`);
+    });
+    parts.sort();
+    return parts.join("|");
+  }, [nodes]);
+
   const collapsedChildToGroupId = React.useMemo(() => {
+    const cached = collapsedChildMapCacheRef.current;
+    if (cached.signature === collapsedGroupsSignature) {
+      return cached.map;
+    }
+
     const hidden = new Map<string, string>();
     nodes.forEach((node) => {
       if (!isGroupNode(node as RFNode) || !isGroupCollapsed(node as RFNode)) {
@@ -18451,8 +18614,12 @@ function FlowInner() {
         }
       });
     });
+    collapsedChildMapCacheRef.current = {
+      signature: collapsedGroupsSignature,
+      map: hidden,
+    };
     return hidden;
-  }, [nodes]);
+  }, [nodes, collapsedGroupsSignature]);
 
   const collapsedChildNodeIds = React.useMemo(
     () => new Set(Array.from(collapsedChildToGroupId.keys())),
@@ -18489,9 +18656,45 @@ function FlowInner() {
   }, [nodes]);
 
   // 在 node 渲染前为 Generate 节点注入 onRun 回调
+  const nodeWithHandlersCacheRef = React.useRef<
+    Map<string, { source: RFNode; enhanced: RFNode }>
+  >(new Map());
+  React.useEffect(() => {
+    nodeWithHandlersCacheRef.current.clear();
+  }, [
+    nodeCreditsByType,
+    managedRuntimeByType,
+    aiProvider,
+    bananaImageRoute,
+    imageSize,
+    imageModel,
+    runNode,
+    onSendHandler,
+    promptGroupName,
+    updateGroupName,
+    changeGroupColor,
+    dissolveGroups,
+    runGroupNodes,
+    runningGroupIds,
+    seedance2AccessEnabled,
+    seedance2AccessResolved,
+    toggleGroupCollapsed,
+    groupPreviewImagesByGroupId,
+    isFlowBlackTheme,
+  ]);
   const nodesWithHandlers = React.useMemo(
-    () =>
-      nodes.map((n) => {
+    () => {
+      const prevCache = nodeWithHandlersCacheRef.current;
+      const nextCache = new Map<string, { source: RFNode; enhanced: RFNode }>();
+
+      const rendered = nodes.map((n) => {
+        const cacheKey = String(n.id);
+        const cached = prevCache.get(cacheKey);
+        if (cached && cached.source === (n as RFNode)) {
+          nextCache.set(cacheKey, cached);
+          return cached.enhanced;
+        }
+
         const resolvedType = typeof n.type === "string" ? normalizeFlowNodeType(n.type) : null;
         const managedRuntime =
           resolvedType ? managedRuntimeByType.get(resolvedType) : undefined;
@@ -18537,84 +18740,92 @@ function FlowInner() {
           globalImageSize: imageSize || null,
           globalImageModel: imageModel || null,
         });
+        let enhancedNode: RFNode;
+        if (n.type === FLOW_GROUP_NODE_TYPE) {
+          enhancedNode = {
+            ...n,
+            data: {
+              ...runtimeNodeData,
+              isDarkTheme: isFlowBlackTheme,
+              onRenameGroup: promptGroupName,
+              onUpdateGroupName: updateGroupName,
+              onChangeGroupColor: changeGroupColor,
+              onUngroup: (groupId: string) => dissolveGroups([groupId]),
+              onRunGroup: runGroupNodes,
+              groupRunning: runningGroupIds.includes(n.id),
+              onToggleCollapse: toggleGroupCollapsed,
+              groupCollapsed: isGroupCollapsed(n as RFNode),
+              groupChildCount: getGroupChildIds(n as RFNode).length,
+              groupPreviewImages: groupPreviewImagesByGroupId.get(String(n.id)) || [],
+            },
+          } as RFNode;
+        } else if (
+          n.type === "generate" ||
+          n.type === "generate4" ||
+          n.type === "generateRef" ||
+          n.type === "viewAngle" ||
+          n.type === "generatePro" ||
+          n.type === "generatePro4" ||
+          n.type === "analysis" ||
+          n.type === "midjourney" ||
+          n.type === "midjourneyV7" ||
+          n.type === "niji7" ||
+          n.type === "nano2" ||
+          n.type === "seedream5" ||
+          n.type === "minimaxSpeech" ||
+          n.type === "tencentSpeech" ||
+          n.type === "minimaxMusic" ||
+          n.type === "image" ||
+          n.type === "imagePro"
+        ) {
+          enhancedNode = {
+            ...n,
+            data: {
+              ...runtimeNodeData,
+              onRun: runNode,
+              onSend: onSendHandler,
+              creditsPerCall,
+            },
+          } as RFNode;
+        } else if (
+          n.type === "sora2Video" ||
+          n.type === "sora2Character" ||
+          n.type === "wan26" ||
+          n.type === "wan2R2V" ||
+          n.type === "wan27Video" ||
+          n.type === "klingVideo" ||
+          n.type === "kling26Video" ||
+          n.type === "kling30Video" ||
+          n.type === "klingO1Video" ||
+          n.type === "viduVideo" ||
+          n.type === "viduQ3" ||
+          n.type === "doubaoVideo" ||
+          n.type === "seedance20Video"
+        ) {
+          enhancedNode = {
+            ...n,
+            data: {
+              ...runtimeNodeData,
+              onRun: runNode,
+              creditsPerCall,
+              seedance2AccessEnabled,
+              seedance2AccessResolved,
+            },
+          } as RFNode;
+        } else {
+          enhancedNode = n as RFNode;
+        }
 
-        return n.type === FLOW_GROUP_NODE_TYPE
-          ? {
-              ...n,
-              data: {
-                ...runtimeNodeData,
-                isDarkTheme: isFlowBlackTheme,
-                onRenameGroup: promptGroupName,
-                onUpdateGroupName: updateGroupName,
-                onChangeGroupColor: changeGroupColor,
-                onUngroup: (groupId: string) => dissolveGroups([groupId]),
-                onRunGroup: runGroupNodes,
-                groupRunning: runningGroupIds.includes(n.id),
-                onToggleCollapse: toggleGroupCollapsed,
-                groupCollapsed: isGroupCollapsed(n as RFNode),
-                groupChildCount: getGroupChildIds(n as RFNode).length,
-                groupPreviewImages: groupPreviewImagesByGroupId.get(String(n.id)) || [],
-              },
-            }
-          : n.type === "generate" ||
-        n.type === "generate4" ||
-        n.type === "generateRef" ||
-        n.type === "viewAngle" ||
-        n.type === "generatePro" ||
-        n.type === "generatePro4" ||
-        n.type === "analysis" ||
-        n.type === "midjourney" ||
-        n.type === "midjourneyV7" ||
-        n.type === "niji7" ||
-        n.type === "nano2" ||
-        n.type === "seedream5" ||
-        n.type === "minimaxSpeech" ||
-        n.type === "tencentSpeech" ||
-        n.type === "minimaxMusic"
-          ? {
-              ...n,
-              data: {
-                ...runtimeNodeData,
-                onRun: runNode,
-                onSend: onSendHandler,
-                creditsPerCall,
-              },
-            }
-          : n.type === "image" || n.type === "imagePro"
-          ? {
-              ...n,
-              data: {
-                ...runtimeNodeData,
-                onRun: runNode,
-                onSend: onSendHandler,
-                creditsPerCall,
-              },
-            }
-          : n.type === "sora2Video" ||
-            n.type === "sora2Character" ||
-            n.type === "wan26" ||
-            n.type === "wan2R2V" ||
-            n.type === "wan27Video" ||
-            n.type === "klingVideo" ||
-            n.type === "kling26Video" ||
-            n.type === "kling30Video" ||
-            n.type === "klingO1Video" ||
-            n.type === "viduVideo" ||
-            n.type === "viduQ3" ||
-            n.type === "doubaoVideo" ||
-            n.type === "seedance20Video"
-          ? {
-              ...n,
-              data: {
-                ...runtimeNodeData,
-                onRun: runNode,
-                creditsPerCall,
-                seedance2AccessEnabled,
-                seedance2AccessResolved,
-              },
-            }
-          : n
-      }),
+        nextCache.set(cacheKey, {
+          source: n as RFNode,
+          enhanced: enhancedNode,
+        });
+        return enhancedNode;
+      });
+
+      nodeWithHandlersCacheRef.current = nextCache;
+      return rendered;
+    },
     [
       nodes,
       nodeCreditsByType,
@@ -18622,6 +18833,7 @@ function FlowInner() {
       aiProvider,
       bananaImageRoute,
       imageSize,
+      imageModel,
       runNode,
       onSendHandler,
       promptGroupName,
@@ -19007,9 +19219,19 @@ function FlowInner() {
             : type === "promptOptimize"
             ? { text: "", expandedText: "" }
             : type === "generate"
-            ? { status: "idle", presetPrompt: "" }
+            ? {
+                status: "idle",
+                presetPrompt: "",
+                modelProvider: resolveFlowModelProvider(undefined, aiProvider),
+              }
             : type === "generatePro"
-            ? { status: "idle", prompts: [""], title: "Agent", enableWebSearch: false }
+            ? {
+                status: "idle",
+                prompts: [""],
+                title: "Agent",
+                enableWebSearch: false,
+                modelProvider: resolveFlowModelProvider(undefined, aiProvider),
+              }
             : type === "generate4"
             ? { status: "idle", images: [] }
             : type === "generateRef"
@@ -19029,11 +19251,61 @@ function FlowInner() {
       } catch {}
       return id;
     },
-    [rf, setNodes]
+    [aiProvider, rf, setNodes]
   );
 
   const showFlowPanel = useUIStore((s) => s.showFlowPanel);
   const flowUIEnabled = useUIStore((s) => s.flowUIEnabled);
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ provider?: string }>).detail;
+      const targetProvider = resolveFlowModelProvider(detail?.provider, aiProvider);
+      setNodes((nodes) => {
+        let changed = false;
+        const nextNodes = nodes.map((node) => {
+          if (
+            node.type === "generate" ||
+            node.type === "generatePro" ||
+            node.type === "generatePro4"
+          ) {
+            if ((node.data as any)?.modelProvider === targetProvider) {
+              return node;
+            }
+            changed = true;
+            return {
+              ...node,
+              data: {
+                ...(node.data || {}),
+                modelProvider: targetProvider,
+              },
+            };
+          }
+          if (node.type === "analysis") {
+            if ((node.data as any)?.analysisProvider === targetProvider) {
+              return node;
+            }
+            changed = true;
+            return {
+              ...node,
+              data: {
+                ...(node.data || {}),
+                analysisProvider: targetProvider,
+              },
+            };
+          }
+          return node;
+        });
+        return changed ? nextNodes : nodes;
+      });
+    };
+    window.addEventListener(FLOW_MODEL_PROVIDER_SYNC_EVENT, handler as EventListener);
+    return () =>
+      window.removeEventListener(
+        FLOW_MODEL_PROVIDER_SYNC_EVENT,
+        handler as EventListener
+      );
+  }, [aiProvider, setNodes]);
+
   const selectedNonGroupNodeCount = React.useMemo(
     () =>
       nodes.filter(
@@ -19262,11 +19534,24 @@ function FlowInner() {
         >
           <input
             type='checkbox'
-            checked={onlyRenderVisibleElements}
+            checked={effectiveOnlyRenderVisibleElements}
             onChange={(e) => setOnlyRenderVisibleElements(e.target.checked)}
+            disabled={isLargeGraphForVisibleRendering}
           />{" "}
-          仅渲染可见(性能)
+          {isLargeGraphForVisibleRendering
+            ? "仅渲染可见(性能, 自动)"
+            : "仅渲染可见(性能)"}
         </label>
+        {isLargeGraphForSnapAlignment && (
+          <span style={{ fontSize: 12, color: "#b45309" }}>
+            大图模式已自动关闭吸附对齐
+          </span>
+        )}
+        {isLargeGraphForMiniMapImageOverlay && (
+          <span style={{ fontSize: 12, color: "#6b7280" }}>
+            大图模式已自动关闭 MiniMap 图片层
+          </span>
+        )}
         <label
           style={{
             display: "flex",
@@ -20180,7 +20465,7 @@ function FlowInner() {
         selectionKeyCode={isPointerMode ? null : null}
         deleteKeyCode={["Backspace", "Delete"]}
         proOptions={{ hideAttribution: true }}
-        onlyRenderVisibleElements={onlyRenderVisibleElements}
+        onlyRenderVisibleElements={effectiveOnlyRenderVisibleElements}
       >
         {backgroundEnabled && (
           <Background
@@ -20199,8 +20484,8 @@ function FlowInner() {
         )}
         {/* 视口由 Canvas 驱动，禁用 MiniMap 交互避免竞态 */}
         <MiniMap pannable={false} zoomable={false} />
-        {/* 将画布上的图片以绿色块显示在 MiniMap 内 */}
-        <MiniMapImageOverlay />
+        {/* 将画布上的图片以绿色块显示在 MiniMap 内；大图时关闭该叠加层以减负 */}
+        {!isLargeGraphForMiniMapImageOverlay && <MiniMapImageOverlay />}
       </ReactFlow>
 
       {flowSnapAlignments.length > 0 && (
