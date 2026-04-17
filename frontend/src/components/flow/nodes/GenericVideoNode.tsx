@@ -12,6 +12,12 @@ import RunCreditBadge from "./RunCreditBadge";
 import NodeSelect from "./NodeSelect";
 import { useBackendCreditsPreview } from "../hooks/useBackendCreditsPreview";
 import {
+  buildViduRequestSemantics,
+  normalizeViduModelForApi,
+  normalizeViduModelValue,
+  type ViduModelValue,
+} from "@/services/videoProviderParams";
+import {
   getManagedRouteCredits,
   getManagedRouteOption,
   getManagedRoutesMetadata,
@@ -19,13 +25,7 @@ import {
 } from "../managedRoutePricing";
 
 export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao";
-type ViduModel =
-  | "q2"
-  | "q2-pro"
-  | "q2-turbo"
-  | "q3"
-  | "q3-pro"
-  | "q3-turbo";
+type ViduModel = ViduModelValue;
 type SeedanceModel = "seedance-1.5-pro" | "seedance-2.0" | "seedance-2.0-fast";
 type Seedance20Mode = "reference_images" | "start_end";
 type Seedance15Mode = "text" | "image" | "start_end";
@@ -152,6 +152,20 @@ const resolveVideoServiceType = (
   return `${provider}-video`;
 };
 
+const resolvePreviewVideoBillingModel = (
+  provider: VideoProvider,
+  data: Props["data"],
+  viduModelVariant?: ViduModel
+): string => {
+  if (provider === "vidu" || provider === "viduq3-pro") {
+    return viduModelVariant || data.viduModel || provider;
+  }
+  if (provider === "doubao") {
+    return data.seedanceModel || provider;
+  }
+  return data.klingModel || provider;
+};
+
 const stripVideoGenerationSuffix = (value: string): string =>
   value
     .replace(/\s*视频生成\s*/g, " ")
@@ -160,31 +174,8 @@ const stripVideoGenerationSuffix = (value: string): string =>
     .replace(/\s{2,}/g, " ")
     .trim();
 
-const normalizeViduModelForApi = (value?: string): "q2" | "q3" =>
-  normalizeViduModelValue(value).startsWith("q3") ? "q3" : "q2";
-
 const isViduQ3FamilyModel = (value?: string): boolean =>
   normalizeViduModelForApi(value) === "q3";
-
-const normalizeViduModelValue = (value?: string): ViduModel => {
-  const normalized = String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[_\s]+/g, "-");
-  if (normalized === "q2-pro" || normalized === "q2pro") return "q2-pro";
-  if (normalized === "q2-turbo" || normalized === "q2turbo") return "q2-turbo";
-  if (
-    normalized === "q3-turbo" ||
-    normalized === "q3turbo" ||
-    normalized === "q3-mix" ||
-    normalized === "q3mix"
-  ) {
-    return "q3-turbo";
-  }
-  if (normalized === "q3-pro" || normalized === "q3pro") return "q3-pro";
-  if (normalized === "q3") return "q3";
-  return "q2";
-};
 
 const isViduModelOptionSupported = (
   optionValue: ViduModel,
@@ -499,6 +490,16 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const isUnifiedKlingNode = provider === "kling" || provider === "kling-2.6";
   const isKling26Model = isUnifiedKlingNode && (klingModel === "kling-v2-6" || klingModel === "kling-v3-0");
   const isViduNode = provider === "vidu" || provider === "viduq3-pro";
+  const viduRequestSemantics = isViduNode
+    ? buildViduRequestSemantics({
+        rawViduModel: viduModel,
+        hasImage2Input,
+        imageCount: imageInputCount,
+        hasPrompt: false,
+      })
+    : null;
+  const normalizedViduModelVariant = viduRequestSemantics?.viduModelVariant;
+  const viduModelForPreview = viduRequestSemantics?.viduModel;
   const isProMode = ((data as any).mode || "std") === "pro";
   const normalizedVendorKey =
     typeof data.vendorKey === "string" ? data.vendorKey.trim().toLowerCase() : "";
@@ -522,6 +523,11 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       ((!normalizedVendorKey && !normalizedPlatformKey) &&
         managedDefaultVendorKey === "tencent_vod"));
   const canUseKlingImage2Input = isKling26Model && (isProMode || isTencentKling26Route);
+  const previewVideoMode = isViduNode
+    ? viduRequestSemantics?.videoMode
+    : isSeedanceModel
+    ? seedanceMode
+    : undefined;
   const providerInfo = isUnifiedKlingNode
     ? PROVIDER_CONFIG.kling
     : PROVIDER_CONFIG[provider] || PROVIDER_CONFIG["kling"];
@@ -558,6 +564,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         ? Math.round(data.clipDuration)
         : 5;
     context.duration = duration;
+    context.durationSec = duration;
 
     if (typeof data.resolution === "string" && data.resolution.trim()) {
       context.resolution = data.resolution.trim().toUpperCase();
@@ -591,9 +598,11 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     if (typeof data.seedanceModel === "string" && data.seedanceModel.trim()) {
       context.seedanceModel = data.seedanceModel.trim().toLowerCase();
     }
-    if (typeof data.viduModel === "string" && data.viduModel.trim()) {
-      context.viduModel = data.viduModel.trim().toLowerCase();
-      context.viduModelVariant = data.viduModel.trim().toLowerCase();
+    if (viduModelForPreview) {
+      context.viduModel = viduModelForPreview;
+    }
+    if (normalizedViduModelVariant) {
+      context.viduModelVariant = normalizedViduModelVariant;
     }
     if (typeof data.klingModel === "string" && data.klingModel.trim()) {
       context.klingModel = data.klingModel.trim().toLowerCase();
@@ -611,11 +620,13 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         .trim()
         .toLowerCase();
     }
+    if (previewVideoMode) {
+      context.videoMode = previewVideoMode;
+      context.generationMode = previewVideoMode;
+    }
     if (typeof data.seedanceMode === "string" && data.seedanceMode.trim()) {
-      context.videoMode = data.seedanceMode.trim().toLowerCase();
       context.seedanceMode = data.seedanceMode.trim().toLowerCase();
     } else if (isSeedanceModel) {
-      context.videoMode = seedanceMode;
       context.seedanceMode = seedanceMode;
     }
     if (isViduNode || isSeedanceModel || provider === "kling-o3") {
@@ -633,6 +644,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     data.aspectRatio,
     data.clipDuration,
     data.generateAudio,
+    hasImage2Input,
     data.klingModel,
     (data as any).offPeak,
     (data as any).referenceVideoType,
@@ -646,8 +658,11 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     imageInputCount,
     isSeedanceModel,
     isViduNode,
+    normalizedViduModelVariant,
+    previewVideoMode,
     seedanceMode,
     provider,
+    viduModelForPreview,
     isUnifiedKlingNode,
     (data as any).mode,
   ]);
@@ -660,13 +675,22 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       ...pricingContext,
       aiProvider: data.provider,
       managedModelKey: data.managedModelKey,
+      modelKey: data.managedModelKey,
       vendorKey: data.vendorKey,
       platformKey: data.platformKey,
+      route: selectedManagedRoute?.route,
+      providerChannel:
+        selectedManagedRoute?.platformKey || data.platformKey || data.vendorKey,
+      routedProvider: selectedManagedRoute?.provider || data.provider,
       klingModel: data.klingModel,
-      viduModel: data.viduModel,
-      viduModelVariant: data.viduModel,
+      viduModel: viduModelForPreview,
+      viduModelVariant: normalizedViduModelVariant,
       seedanceModel: data.seedanceModel,
       duration:
+        typeof data.clipDuration === "number" && Number.isFinite(data.clipDuration)
+          ? Math.round(data.clipDuration)
+          : undefined,
+      durationSec:
         typeof data.clipDuration === "number" && Number.isFinite(data.clipDuration)
           ? Math.round(data.clipDuration)
           : undefined,
@@ -675,13 +699,18 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           ? data.resolution.trim().toUpperCase()
           : undefined,
       aspectRatio: data.aspectRatio,
-      videoMode: data.seedanceMode,
+      videoMode: previewVideoMode,
+      generationMode: previewVideoMode,
       generateAudio: data.generateAudio,
       watermark: data.watermark,
       offPeak: data.offPeak,
+      referenceImageCount: imageInputCount,
+      referenceVideoCount: hasVideoInput ? 1 : 0,
+      audioInputCount,
       referenceVideoType: (data as any).referenceVideoType,
     }),
     [
+      audioInputCount,
       data.aspectRatio,
       data.clipDuration,
       data.generateAudio,
@@ -691,21 +720,23 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       data.platformKey,
       data.provider,
       data.resolution,
-      data.seedanceMode,
       data.seedanceModel,
-      data.viduModel,
       data.vendorKey,
       data.watermark,
+      hasVideoInput,
+      imageInputCount,
+      normalizedViduModelVariant,
       pricingContext,
+      previewVideoMode,
+      selectedManagedRoute?.platformKey,
+      selectedManagedRoute?.provider,
+      selectedManagedRoute?.route,
+      viduModelForPreview,
     ]
   );
   const { credits: backendCredits } = useBackendCreditsPreview({
     serviceType: resolveVideoServiceType(data.provider, data),
-    model:
-      data.klingModel ||
-      data.viduModel ||
-      data.seedanceModel ||
-      data.provider,
+    model: resolvePreviewVideoBillingModel(provider, data, normalizedViduModelVariant),
     requestParams: previewRequestParams,
     enabled: true,
   });

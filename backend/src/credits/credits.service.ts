@@ -401,21 +401,24 @@ export class CreditsService {
     model?: string;
     requestParams?: any;
   }) {
+    const normalizedRequestParams = this.normalizeManagedPricingRequestParams(params.requestParams);
     const pricing = await this.resolveServicePricing(params.serviceType);
     if (!pricing) {
       throw new BadRequestException(`未知的服务类型: ${params.serviceType}`);
     }
 
     let creditsToDeduct: number = pricing.creditsPerCall;
-    const managedRoutePricing = await this.resolveManagedRoutePricing(params.requestParams);
+    const managedRoutePricing = await this.resolveManagedRoutePricing(normalizedRequestParams);
     if (typeof managedRoutePricing?.price?.credits === 'number') {
       creditsToDeduct = managedRoutePricing.price.credits;
     }
 
     const effectiveRequestParams =
-      managedRoutePricing && params.requestParams && typeof params.requestParams === 'object'
+      managedRoutePricing &&
+      normalizedRequestParams &&
+      typeof normalizedRequestParams === 'object'
         ? {
-            ...params.requestParams,
+            ...normalizedRequestParams,
             pricingSnapshot: {
               source: managedRoutePricing.source,
               ...(managedRoutePricing.ruleKey ? { ruleKey: managedRoutePricing.ruleKey } : {}),
@@ -423,7 +426,7 @@ export class CreditsService {
               price: managedRoutePricing.price,
             },
           }
-        : params.requestParams;
+        : normalizedRequestParams;
 
     const requestedProvider =
       typeof effectiveRequestParams?.aiProvider === 'string'
@@ -587,15 +590,19 @@ export class CreditsService {
   private async resolveManagedRoutePricing(
     requestParams: any,
   ): Promise<ResolvedManagedPricing | null> {
+    const normalizedRequestParams = this.normalizeManagedPricingRequestParams(requestParams);
     const modelKey =
-      typeof requestParams?.modelKey === 'string' && requestParams.modelKey.trim().length > 0
-        ? requestParams.modelKey.trim()
-        : typeof requestParams?.managedModelKey === 'string' &&
-            requestParams.managedModelKey.trim().length > 0
-          ? requestParams.managedModelKey.trim()
-          : this.inferManagedModelKeyFromRequestParams(requestParams);
+      typeof normalizedRequestParams?.modelKey === 'string' &&
+      normalizedRequestParams.modelKey.trim().length > 0
+        ? normalizedRequestParams.modelKey.trim()
+        : typeof normalizedRequestParams?.managedModelKey === 'string' &&
+            normalizedRequestParams.managedModelKey.trim().length > 0
+          ? normalizedRequestParams.managedModelKey.trim()
+          : this.inferManagedModelKeyFromRequestParams(normalizedRequestParams);
     const vendorKey =
-      typeof requestParams?.vendorKey === 'string' ? requestParams.vendorKey.trim() : '';
+      typeof normalizedRequestParams?.vendorKey === 'string'
+        ? normalizedRequestParams.vendorKey.trim()
+        : '';
     if (!modelKey || !vendorKey) return null;
 
     try {
@@ -607,7 +614,12 @@ export class CreditsService {
       if (!raw) return null;
 
       const parsed = JSON.parse(raw) as ManagedPricingMappingLike;
-      const resolved = await resolveManagedModelPricingV2(parsed, modelKey, vendorKey, requestParams);
+      const resolved = await resolveManagedModelPricingV2(
+        parsed,
+        modelKey,
+        vendorKey,
+        normalizedRequestParams,
+      );
       return resolved.source === 'none' ? null : resolved;
     } catch (error) {
       this.logger.warn(
@@ -617,6 +629,57 @@ export class CreditsService {
       );
       return null;
     }
+  }
+
+  private normalizeManagedPricingRequestParams(requestParams: any): any {
+    if (!requestParams || typeof requestParams !== 'object' || Array.isArray(requestParams)) {
+      return requestParams;
+    }
+
+    const normalizedVendorKey =
+      typeof requestParams.vendorKey === 'string' && requestParams.vendorKey.trim().length > 0
+        ? requestParams.vendorKey.trim().toLowerCase()
+        : typeof requestParams.platformKey === 'string' &&
+            requestParams.platformKey.trim().length > 0
+          ? requestParams.platformKey.trim().toLowerCase()
+          : '';
+    const modelKey =
+      typeof requestParams.modelKey === 'string' && requestParams.modelKey.trim().length > 0
+        ? requestParams.modelKey.trim().toLowerCase()
+        : typeof requestParams.managedModelKey === 'string' &&
+            requestParams.managedModelKey.trim().length > 0
+          ? requestParams.managedModelKey.trim().toLowerCase()
+          : this.inferManagedModelKeyFromRequestParams(requestParams).trim().toLowerCase();
+
+    if (normalizedVendorKey !== 'tencent_vod' || modelKey !== 'vidu-q3') {
+      return requestParams;
+    }
+
+    const normalizedVariant =
+      typeof requestParams.viduModelVariant === 'string'
+        ? requestParams.viduModelVariant.trim().toLowerCase()
+        : '';
+    const normalizedModel =
+      typeof requestParams.viduModel === 'string'
+        ? requestParams.viduModel.trim().toLowerCase()
+        : '';
+
+    let nextRequestParams = requestParams;
+    if (normalizedVariant === 'q3-turbo' || normalizedVariant === 'q3turbo') {
+      nextRequestParams = {
+        ...nextRequestParams,
+        viduModelVariant: 'q3',
+      };
+    }
+
+    if (normalizedModel === 'q3-turbo' || normalizedModel === 'q3turbo') {
+      nextRequestParams = {
+        ...nextRequestParams,
+        viduModel: 'q3',
+      };
+    }
+
+    return nextRequestParams;
   }
 
   private inferManagedModelKeyFromRequestParams(requestParams: any): string {

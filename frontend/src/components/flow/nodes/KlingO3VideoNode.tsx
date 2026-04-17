@@ -144,8 +144,11 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
     () => ({
       aiProvider: "kling-o3",
       managedModelKey: (data as any).managedModelKey,
+      modelKey: (data as any).managedModelKey,
       vendorKey: data.vendorKey,
       platformKey: data.platformKey,
+      providerChannel: data.platformKey || data.vendorKey,
+      routedProvider: "kling-o3",
       klingModel: "kling-v3-0",
       mode: data.mode || "std",
       sound:
@@ -168,6 +171,9 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
       inputType:
         data.hasVideoInput === true ? "video" : "text",
       hasVideoInput: data.hasVideoInput === true,
+      referenceVideoCount: data.hasVideoInput === true ? 1 : 0,
+      referenceImageCount: 0,
+      audioInputCount: 0,
       referenceVideoType: data.referenceVideoType,
       resolution: "1080P",
     }),

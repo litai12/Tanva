@@ -162,6 +162,14 @@ import {
   refundVideoTask,
   type VideoProvider,
 } from "@/services/videoProviderAPI";
+import {
+  buildViduRequestSemantics,
+  getEffectiveViduProvider,
+  isViduQ3FamilyModel,
+  normalizeViduModelForApi,
+  normalizeViduModelValue,
+  type ViduModelValue,
+} from "@/services/videoProviderParams";
 import { imageUploadService } from "@/services/imageUploadService";
 import { personalLibraryApi } from "@/services/personalLibraryApi";
 import {
@@ -938,46 +946,6 @@ const VIDEO_SOURCE_NODE_TYPES = [
   "seedance20Video",
 ];
 
-type ViduModelValue =
-  | "q2"
-  | "q2-pro"
-  | "q2-turbo"
-  | "q3"
-  | "q3-pro"
-  | "q3-turbo";
-
-const normalizeViduModelValue = (value?: string): ViduModelValue => {
-  const normalized = String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[_\s]+/g, "-");
-  if (!normalized) return "q2";
-  if (normalized === "q2") return "q2";
-  if (normalized === "q2-pro" || normalized === "q2pro") return "q2-pro";
-  if (normalized === "q2-turbo" || normalized === "q2turbo") return "q2-turbo";
-  if (
-    normalized === "q3-turbo" ||
-    normalized === "q3turbo" ||
-    normalized === "q3-mix" ||
-    normalized === "q3mix"
-  ) {
-    return "q3-turbo";
-  }
-  if (
-    normalized === "q3-pro" ||
-    normalized === "q3pro"
-  ) {
-    return "q3-pro";
-  }
-  if (normalized === "q3") {
-    return "q3";
-  }
-  return normalized.startsWith("q3") ? "q3" : "q2";
-};
-
-const normalizeViduModelForApi = (value?: string): "q2" | "q3" =>
-  normalizeViduModelValue(value).startsWith("q3") ? "q3" : "q2";
-
 const normalizeSeedanceModelValue = (
   value?: unknown
 ): "seedance-1.5-pro" | "seedance-2.0" | "seedance-2.0-fast" => {
@@ -997,12 +965,6 @@ const isSeedance20ModelValue = (value?: unknown): boolean => {
   const normalized = normalizeSeedanceModelValue(value);
   return normalized === "seedance-2.0" || normalized === "seedance-2.0-fast";
 };
-
-const isViduQ3FamilyModel = (value?: string): boolean =>
-  normalizeViduModelForApi(value) === "q3";
-
-const getEffectiveViduProvider = (nodeData?: Record<string, any>): VideoProvider =>
-  isViduQ3FamilyModel(nodeData?.viduModel) ? "viduq3-pro" : "vidu";
 
 const getEffectiveViduMaxReferenceImages = (nodeData?: Record<string, any>): number =>
   isViduQ3FamilyModel(nodeData?.viduModel)
@@ -13564,8 +13526,14 @@ function FlowInner() {
           rawNodeData.viduModel ||
           (node.type === "viduQ3" || rawNodeData.provider === "viduq3-pro" ? "q3" : "q2");
         const normalizedViduModelVariant = normalizeViduModelValue(inferredViduModel);
-        const isViduQ2ProMode = normalizedViduModelVariant === "q2-pro";
-        const viduModelForApi = normalizeViduModelForApi(normalizedViduModelVariant);
+        const viduSemantics = buildViduRequestSemantics({
+          rawViduModel: inferredViduModel,
+          hasImage2Input: hasImage2Edge,
+          imageCount,
+          hasPrompt: Boolean(finalPrompt),
+        });
+        const isViduQ2ProMode = viduSemantics.isQ2ProMode;
+        const viduModelForApi = viduSemantics.viduModel;
         const viduNodeDataForProvider = {
           ...rawNodeData,
           viduModel: viduModelForApi,
@@ -14445,17 +14413,7 @@ function FlowInner() {
         const viduVideoModeForAPI =
           provider !== "vidu" && provider !== "viduq3-pro"
             ? undefined
-            : hasImage2Edge
-            ? "start-end2video"
-            : imageCount === 0
-            ? "text2video"
-            : imageCount === 1
-            ? finalPrompt
-              ? "reference2video"
-              : "img2video"
-            : finalPrompt
-            ? "reference2video"
-            : "start-end2video";
+            : viduSemantics.videoMode;
 
         try {
           console.log("🎬 [Flow] Sending video request", {
