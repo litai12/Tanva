@@ -13526,17 +13526,9 @@ function FlowInner() {
           rawNodeData.viduModel ||
           (node.type === "viduQ3" || rawNodeData.provider === "viduq3-pro" ? "q3" : "q2");
         const normalizedViduModelVariant = normalizeViduModelValue(inferredViduModel);
-        const viduSemantics = buildViduRequestSemantics({
-          rawViduModel: inferredViduModel,
-          hasImage2Input: hasImage2Edge,
-          imageCount,
-          hasPrompt: Boolean(finalPrompt),
-        });
-        const isViduQ2ProMode = viduSemantics.isQ2ProMode;
-        const viduModelForApi = viduSemantics.viduModel;
         const viduNodeDataForProvider = {
           ...rawNodeData,
-          viduModel: viduModelForApi,
+          viduModel: normalizedViduModelVariant,
         };
         // 根据节点类型确定 provider
         let provider: string;
@@ -13798,6 +13790,15 @@ function FlowInner() {
             return;
           }
         }
+
+        const viduSemantics = buildViduRequestSemantics({
+          rawViduModel: inferredViduModel,
+          hasImage2Input: hasImage2Edge,
+          imageCount,
+          hasPrompt: Boolean(finalPrompt),
+        });
+        const isViduQ2ProMode = viduSemantics.isQ2ProMode;
+        const viduModelForApi = viduSemantics.viduModel;
 
         const clipDuration =
           typeof (node.data as any)?.clipDuration === "number" &&
