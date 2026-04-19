@@ -699,14 +699,14 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       viduModel: viduModelForPreview,
       viduModelVariant: normalizedViduModelVariant,
       seedanceModel: data.seedanceModel,
-      duration:
-        typeof data.clipDuration === "number" && Number.isFinite(data.clipDuration)
-          ? Math.round(data.clipDuration)
-          : undefined,
-      durationSec:
-        typeof data.clipDuration === "number" && Number.isFinite(data.clipDuration)
-          ? Math.round(data.clipDuration)
-          : undefined,
+      // duration/durationSec 由 pricingContext 提供（clipDuration 未设置时默认 5s），
+      // 不再用 undefined 覆盖，确保 Kling 等节点能正确进行按秒动态定价
+      ...(typeof data.clipDuration === "number" && Number.isFinite(data.clipDuration)
+        ? {
+            duration: Math.round(data.clipDuration),
+            durationSec: Math.round(data.clipDuration),
+          }
+        : {}),
       resolution:
         typeof data.resolution === "string" && data.resolution.trim()
           ? data.resolution.trim().toUpperCase()
@@ -1966,14 +1966,10 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     event: React.PointerEvent | React.MouseEvent
   ) => {
     event.stopPropagation();
-    const nativeEvent = (event as any).nativeEvent;
-    nativeEvent?.stopImmediatePropagation?.();
   };
 
   const handleMediaTouchStart = (event: React.TouchEvent) => {
     event.stopPropagation();
-    const nativeEvent = event.nativeEvent;
-    nativeEvent?.stopImmediatePropagation?.();
   };
 
   const handleButtonMouseDown = (event: React.MouseEvent) => {

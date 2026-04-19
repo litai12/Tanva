@@ -3895,7 +3895,6 @@ export class AiController {
         effectiveDto.watermark = false;
       }
     }
-    await this.assertSeedance2Entitlement(userId, effectiveDto, req);
     const serviceType = this.resolveVideoProviderServiceType(effectiveDto);
 
     // 如果没有用户ID（API Key认证），直接执行操作

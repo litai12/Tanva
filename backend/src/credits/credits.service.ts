@@ -600,9 +600,13 @@ export class CreditsService {
           ? normalizedRequestParams.managedModelKey.trim()
           : this.inferManagedModelKeyFromRequestParams(normalizedRequestParams);
     const vendorKey =
-      typeof normalizedRequestParams?.vendorKey === 'string'
+      typeof normalizedRequestParams?.vendorKey === 'string' &&
+      normalizedRequestParams.vendorKey.trim()
         ? normalizedRequestParams.vendorKey.trim()
-        : '';
+        : typeof normalizedRequestParams?.platformKey === 'string' &&
+            normalizedRequestParams.platformKey.trim()
+          ? normalizedRequestParams.platformKey.trim()
+          : '';
     if (!modelKey || !vendorKey) return null;
 
     try {
@@ -636,50 +640,75 @@ export class CreditsService {
       return requestParams;
     }
 
+    // 将 sound("on"/"off"/boolean) 和 generateAudio(boolean) 统一归一化为 hasAudio(boolean)，
+    // 使规则引擎中使用 hasAudio 字段的定价规则（Kling O3、Seedance 1.5）能正确匹配。
+    let normalized: any = requestParams;
+    if (normalized.hasAudio === undefined || normalized.hasAudio === null) {
+      if (normalized.sound !== undefined) {
+        const s = normalized.sound;
+        normalized = {
+          ...normalized,
+          hasAudio: s === true || s === 'on' || s === 'true' || s === '1',
+        };
+      } else if (normalized.generateAudio !== undefined) {
+        normalized = {
+          ...normalized,
+          hasAudio: Boolean(normalized.generateAudio),
+        };
+      }
+    }
+
+    // 将 mode("std"/"pro") 归一化为 resolution("720P"/"1080P")，
+    // 作为兜底：当 tencent_vod 定价规则按 resolution 匹配但请求只有 mode 时仍能命中。
+    if (
+      (normalized.resolution === undefined || normalized.resolution === null || normalized.resolution === '') &&
+      typeof normalized.mode === 'string'
+    ) {
+      const m = normalized.mode.trim().toLowerCase();
+      if (m === 'pro') {
+        normalized = { ...normalized, resolution: '1080P' };
+      } else if (m === 'std') {
+        normalized = { ...normalized, resolution: '720P' };
+      }
+    }
+
     const normalizedVendorKey =
-      typeof requestParams.vendorKey === 'string' && requestParams.vendorKey.trim().length > 0
-        ? requestParams.vendorKey.trim().toLowerCase()
-        : typeof requestParams.platformKey === 'string' &&
-            requestParams.platformKey.trim().length > 0
-          ? requestParams.platformKey.trim().toLowerCase()
+      typeof normalized.vendorKey === 'string' && normalized.vendorKey.trim().length > 0
+        ? normalized.vendorKey.trim().toLowerCase()
+        : typeof normalized.platformKey === 'string' &&
+            normalized.platformKey.trim().length > 0
+          ? normalized.platformKey.trim().toLowerCase()
           : '';
     const modelKey =
-      typeof requestParams.modelKey === 'string' && requestParams.modelKey.trim().length > 0
-        ? requestParams.modelKey.trim().toLowerCase()
-        : typeof requestParams.managedModelKey === 'string' &&
-            requestParams.managedModelKey.trim().length > 0
-          ? requestParams.managedModelKey.trim().toLowerCase()
-          : this.inferManagedModelKeyFromRequestParams(requestParams).trim().toLowerCase();
+      typeof normalized.modelKey === 'string' && normalized.modelKey.trim().length > 0
+        ? normalized.modelKey.trim().toLowerCase()
+        : typeof normalized.managedModelKey === 'string' &&
+            normalized.managedModelKey.trim().length > 0
+          ? normalized.managedModelKey.trim().toLowerCase()
+          : this.inferManagedModelKeyFromRequestParams(normalized).trim().toLowerCase();
 
     if (normalizedVendorKey !== 'tencent_vod' || modelKey !== 'vidu-q3') {
-      return requestParams;
+      return normalized;
     }
 
     const normalizedVariant =
-      typeof requestParams.viduModelVariant === 'string'
-        ? requestParams.viduModelVariant.trim().toLowerCase()
+      typeof normalized.viduModelVariant === 'string'
+        ? normalized.viduModelVariant.trim().toLowerCase()
         : '';
     const normalizedModel =
-      typeof requestParams.viduModel === 'string'
-        ? requestParams.viduModel.trim().toLowerCase()
+      typeof normalized.viduModel === 'string'
+        ? normalized.viduModel.trim().toLowerCase()
         : '';
 
-    let nextRequestParams = requestParams;
     if (normalizedVariant === 'q3-turbo' || normalizedVariant === 'q3turbo') {
-      nextRequestParams = {
-        ...nextRequestParams,
-        viduModelVariant: 'q3',
-      };
+      normalized = { ...normalized, viduModelVariant: 'q3' };
     }
 
     if (normalizedModel === 'q3-turbo' || normalizedModel === 'q3turbo') {
-      nextRequestParams = {
-        ...nextRequestParams,
-        viduModel: 'q3',
-      };
+      normalized = { ...normalized, viduModel: 'q3' };
     }
 
-    return nextRequestParams;
+    return normalized;
   }
 
   private inferManagedModelKeyFromRequestParams(requestParams: any): string {
