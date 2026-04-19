@@ -133,9 +133,23 @@ const serializeStoryboardShots = (shots: StoryboardShotForm[]): string => {
   return JSON.stringify(payload);
 };
 
+const resolveKlingSoundEnabled = (value: unknown): boolean => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "on" || normalized === "true" || normalized === "yes") return true;
+    if (normalized === "off" || normalized === "false" || normalized === "no") return false;
+  }
+  return true;
+};
+
 function KlingO1VideoNode({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const projectId = useProjectContentStore((state) => state.projectId);
+  const klingSoundEnabled = React.useMemo(
+    () => resolveKlingSoundEnabled((data as any).sound),
+    [(data as any).sound]
+  );
   const borderColor = selected ? "#2563eb" : "#e5e7eb";
   const boxShadow = selected
     ? "0 0 0 2px rgba(37,99,235,0.12)"
@@ -149,16 +163,9 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
       platformKey: data.platformKey,
       providerChannel: data.platformKey || data.vendorKey,
       routedProvider: "kling-o3",
-      klingModel: "kling-v3-0",
+      klingModel: "kling-o3",
       mode: data.mode || "std",
-      sound:
-        data.mode === "pro"
-          ? "on"
-          : typeof (data as any).sound === "boolean"
-          ? (data as any).sound
-            ? "on"
-            : "off"
-          : (data as any).sound,
+      sound: klingSoundEnabled ? "on" : "off",
       duration:
         typeof data.clipDuration === "number" && Number.isFinite(data.clipDuration)
           ? Math.round(data.clipDuration)
@@ -186,12 +193,12 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
       data.referenceVideoType,
       data.vendorKey,
       (data as any).managedModelKey,
-      (data as any).sound,
+      klingSoundEnabled,
     ]
   );
   const { credits: backendCredits } = useBackendCreditsPreview({
     serviceType: "kling-o3-video",
-    model: "kling-v3-0",
+    model: "kling-o3",
     requestParams: previewRequestParams,
     enabled: true,
   });
@@ -580,6 +587,15 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
     },
     [id]
   );
+
+  const handleKlingSoundToggle = React.useCallback(() => {
+    patchNodeData({ sound: !klingSoundEnabled });
+  }, [klingSoundEnabled, patchNodeData]);
+
+  React.useEffect(() => {
+    if ((data as any).sound !== undefined && (data as any).sound !== null) return;
+    patchNodeData({ sound: true });
+  }, [(data as any).sound, patchNodeData]);
 
   const readLocalVideoDuration = React.useCallback(
     (file: File): Promise<number> =>
@@ -1589,6 +1605,26 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
           )}
         </div>
       )}
+
+      <div style={{ marginBottom: 8 }}>
+        <button
+          type="button"
+          onClick={handleKlingSoundToggle}
+          style={{
+            width: "100%",
+            padding: "6px 10px",
+            borderRadius: 8,
+            border: "1px solid #e5e7eb",
+            background: klingSoundEnabled ? "#111827" : "#fff",
+            color: klingSoundEnabled ? "#fff" : "#111827",
+            fontSize: 12,
+            cursor: "pointer",
+          }}
+        >
+          {lt("音频", "Audio")}:{" "}
+          {klingSoundEnabled ? lt("开启", "On") : lt("关闭", "Off")}
+        </button>
+      </div>
 
       {isTencentRoute && (
         <div style={{ marginBottom: 8, position: "relative" }}>

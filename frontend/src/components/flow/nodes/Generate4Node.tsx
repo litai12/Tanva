@@ -1,6 +1,6 @@
 import React from "react";
 import { Handle, Position, useStore, type Node as FlowNode, type ReactFlowState } from "reactflow";
-import { Send as SendIcon } from "lucide-react";
+import { Send as SendIcon, Check } from "lucide-react";
 import ImagePreviewModal from "../../ui/ImagePreviewModal";
 import SmartImage from "../../ui/SmartImage";
 import { toRenderableImageSrc } from "@/utils/imageSource";
@@ -16,6 +16,12 @@ import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 import RunCreditBadge from "./RunCreditBadge";
 import { useFlowRenderMode } from "../FlowRenderModeContext";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "../../ui/dropdown-menu";
+import {
+  getFlowModelProviderMode,
+  resolveFlowModelProvider,
+  type FlowModelProvider,
+} from "@/utils/flowModelProvider";
 
 type Props = {
   id: string;
@@ -32,6 +38,7 @@ type Props = {
     aspectRatio?: "1:1" | "2:3" | "3:2" | "3:4" | "4:3" | "4:5" | "5:4" | "9:16" | "16:9" | "21:9";
     imageSize?: "0.5K" | "1K" | "2K" | "4K";
     creditsPerCall?: number;
+    modelProvider?: FlowModelProvider;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
     boxW?: number;
@@ -689,22 +696,62 @@ function Generate4NodeInner({ id, data, selected }: Props) {
   );
   const aiProvider = useAIChatStore((state) => state.aiProvider);
   const chatTheme = useAIChatStore((state) => state.chatTheme);
-  const providerMode = React.useMemo<"fast" | "pro" | "ultra" | "other">(() => {
-    if (aiProvider === "banana-2.5") return "fast";
-    if (aiProvider === "banana-3.1") return "ultra";
-    if (aiProvider === "banana" || aiProvider === "gemini-pro") return "pro";
-    return "other";
-  }, [aiProvider]);
+  const effectiveProvider = React.useMemo(
+    () => resolveFlowModelProvider(data.modelProvider, aiProvider),
+    [aiProvider, data.modelProvider]
+  );
+  const providerMode = React.useMemo(
+    () => getFlowModelProviderMode(effectiveProvider),
+    [effectiveProvider]
+  );
 
-  const providerModeLabel = React.useMemo(() => {
-    if (providerMode === "fast") return "Fast";
-    if (providerMode === "pro") return "Pro";
-    if (providerMode === "ultra") return "Ultra";
-    return aiProvider;
-  }, [aiProvider, providerMode]);
+  type ProviderToggleValue = "banana-2.5" | "banana" | "banana-3.1";
+  const providerToggleOptions = React.useMemo<Array<{
+    value: ProviderToggleValue;
+    label: string;
+    description: string;
+  }>>(
+    () => [
+      {
+        value: "banana-2.5",
+        label: "Fast",
+        description: lt("Nano Banana+Gemini 2.5", "Nano Banana+Gemini 2.5"),
+      },
+      {
+        value: "banana",
+        label: "Pro",
+        description: lt("Nano Banana Pro+Gemini 3.0", "Nano Banana Pro+Gemini 3.0"),
+      },
+      {
+        value: "banana-3.1",
+        label: "Ultra",
+        description: lt("Nano Banana 2+Gemini 3.1", "Nano Banana 2+Gemini 3.1"),
+      },
+    ],
+    [lt]
+  );
 
-  const showAspectRatioSelector = providerMode !== "other";
-  const showImageSizeSelector = providerMode !== "other";
+  const currentProviderValue = effectiveProvider;
+  const currentProviderOption = React.useMemo(
+    () =>
+      providerToggleOptions.find((option) => option.value === currentProviderValue) ??
+      providerToggleOptions[1],
+    [currentProviderValue, providerToggleOptions]
+  );
+
+  React.useEffect(() => {
+    if (typeof data.modelProvider === "string" && data.modelProvider.trim().length > 0) {
+      return;
+    }
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: { id, patch: { modelProvider: currentProviderValue } },
+      })
+    );
+  }, [currentProviderValue, data.modelProvider, id]);
+
+  const showAspectRatioSelector = true;
+  const showImageSizeSelector = true;
   const showSizeControls = showAspectRatioSelector || showImageSizeSelector;
 
   const imageSizeOptions: Array<{ label: string; value: string }> = React.useMemo(() => {
@@ -739,29 +786,6 @@ function Generate4NodeInner({ id, data, selected }: Props) {
     },
     [id]
   );
-
-  const providerBadgeStyle = React.useMemo((): React.CSSProperties => {
-    const base: React.CSSProperties = {
-      padding: "1px 8px",
-      borderRadius: 50,
-      fontSize: 11,
-      fontWeight: 600,
-    };
-    if (chatTheme === "black") {
-      return {
-        ...base,
-        color: "#ffffff",
-        background: "#343434",
-        border: "1px solid #4a4a4a",
-      };
-    }
-    return {
-      ...base,
-      color: providerMode === "ultra" ? "#0f172a" : "#475569",
-      background: providerMode === "ultra" ? "#e2e8f0" : "#f1f5f9",
-      border: "1px solid #e2e8f0",
-    };
-  }, [chatTheme, providerMode]);
 
   const headerRunButtonStyle = (running: boolean): React.CSSProperties => ({
     fontSize: 12,
@@ -819,13 +843,86 @@ function Generate4NodeInner({ id, data, selected }: Props) {
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ fontWeight: 600 }}>Multi Generate</div>
-          <div
-            className='tanva-flow-provider-mode-badge'
-            style={providerBadgeStyle}
-            title={`${lt("当前全局模型模式", "Current global model mode")}: ${providerModeLabel}`}
-          >
-            {providerModeLabel}
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                onPointerDownCapture={stopNodeDrag}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                className='nodrag nopan tanva-flow-provider-mode-badge'
+                title={lt("切换模型模式", "Switch model mode")}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "1px 8px",
+                  borderRadius: 50,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  ...(chatTheme === "black"
+                    ? {
+                        color: "#ffffff",
+                        background: "#343434",
+                        border: "1px solid #4a4a4a",
+                      }
+                    : {
+                        color:
+                          currentProviderValue === "banana-3.1"
+                            ? "#0f172a"
+                            : "#475569",
+                        background:
+                          currentProviderValue === "banana-3.1"
+                            ? "#e2e8f0"
+                            : "#f1f5f9",
+                        border: "1px solid #e2e8f0",
+                      }),
+                }}
+              >
+                {currentProviderOption.label}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align='start'
+              side='bottom'
+              sideOffset={8}
+              className='min-w-[200px] rounded-xl border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md'
+            >
+              <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
+                {lt("模型切换", "Model switch")}
+              </DropdownMenuLabel>
+              {providerToggleOptions.map((option) => {
+                const isActive = currentProviderValue === option.value;
+                return (
+                  <DropdownMenuItem
+                    key={option.value}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (currentProviderValue !== option.value) {
+                        window.dispatchEvent(
+                          new CustomEvent("flow:updateNodeData", {
+                            detail: { id, patch: { modelProvider: option.value } },
+                          })
+                        );
+                      }
+                    }}
+                    onPointerDownCapture={stopNodeDrag}
+                    className={`flex items-start gap-2 rounded-lg px-3 py-2 text-xs ${
+                      isActive ? "bg-gray-100 text-gray-800" : "text-slate-600"
+                    }`}
+                  >
+                    <div className='flex-1 space-y-0.5'>
+                      <div className='font-medium leading-none'>{option.label}</div>
+                      <div className='text-[11px] leading-snug text-slate-400'>{option.description}</div>
+                    </div>
+                    {isActive && <Check className='h-3.5 w-3.5 text-slate-700' />}
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         <div
           style={{

@@ -54,7 +54,7 @@ export interface PaymentStatusResponse {
 
 // 充值套餐配置
 export const RECHARGE_PACKAGES = [
-  { price: 10, credits: 1000, bonus: null, tag: null },
+  { price: 25, credits: 2500, bonus: null, tag: null },
   { price: 50, credits: 5000, bonus: null, tag: null },
   { price: 100, credits: 10000, bonus: null, tag: null },
   { price: 200, credits: 20000, bonus: null, tag: null },

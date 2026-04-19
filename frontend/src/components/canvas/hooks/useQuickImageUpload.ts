@@ -9,6 +9,7 @@ import { logger } from '@/utils/logger';
 import { historyService } from '@/services/historyService';
 import { paperSaveService } from '@/services/paperSaveService';
 import { imageUploadService } from '@/services/imageUploadService';
+import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import { useUIStore } from '@/stores/uiStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useImageHistoryStore } from '@/stores/imageHistoryStore';
@@ -128,6 +129,14 @@ const GENERATE_GROUP_TITLE_SAFE_SPACE = 56;
 const GROUP_HORIZONTAL_GAP_MIN = 16;
 const GROUP_HORIZONTAL_GAP_MAX = 48;
 const FLOW_NODE_SEND_TOP_GAP = 24;
+const TOOLBAR_DERIVED_OPERATION_TYPES = new Set([
+    'expand-image',
+    'background-removal',
+    'background-removal-fast',
+    'layer-split',
+    'text-edit',
+    'palette',
+]);
 
 type MatrixLayoutContext = {
     groupId?: string;
@@ -2152,6 +2161,27 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     });
                 } catch (historyError) {
                     // 忽略历史记录错误
+                }
+                if (TOOLBAR_DERIVED_OPERATION_TYPES.has(pendingOperationType)) {
+                    const persistableRef = normalizePersistableImageRef(
+                        resolvedRemoteUrl || resolvedKey || asset.url || asset.src || ''
+                    );
+                    if (persistableRef && isPersistableImageRef(persistableRef)) {
+                        void recordImageHistoryEntry({
+                            id: imageId,
+                            remoteUrl: persistableRef,
+                            title: fileName ? `快速上传 · ${fileName}` : '快速上传图片',
+                            nodeId: 'canvas',
+                            nodeType: 'image',
+                            projectId: projectId ?? null,
+                            skipInitialStoreUpdate: true,
+                            metadata: {
+                                operationType: pendingOperationType,
+                                sourceImageId: sourceImageId || undefined,
+                                sourceImages: Array.isArray(sourceImages) ? sourceImages : undefined,
+                            },
+                        });
+                    }
                 }
 
                 const positionInfo = boundsSource === 'selected'

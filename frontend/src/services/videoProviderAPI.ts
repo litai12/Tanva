@@ -40,7 +40,7 @@ export interface VideoGenerationRequest {
   // Kling/Kling-O1 专用参数
   mode?: "std" | "pro";
   sound?: string;
-  klingModel?: "kling-v2-1" | "kling-v2-6" | "kling-v3-0";
+  klingModel?: "kling-v2-1" | "kling-v2-6" | "kling-v3-0" | "kling-o3" | "kling-v3-omni";
   klingStoryboardMode?: "single" | "intelligence" | "customize";
   klingStoryboardScript?: string;
   viduModel?: "q2" | "q3";

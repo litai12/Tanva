@@ -1517,7 +1517,7 @@ const LayerPanel: React.FC = () => {
 
                                         {editingId === layer.id ? (
                                             <input
-                                                className="w-full text-sm font-medium px-2 py-1 border rounded outline-none focus:ring"
+                                                className="tanva-layer-rename-input w-full text-sm font-medium px-2 py-1 border rounded outline-none focus:ring"
                                                 autoFocus
                                                 value={editingName}
                                                 onChange={(e) => setEditingName(e.target.value)}
@@ -1742,7 +1742,7 @@ const LayerPanel: React.FC = () => {
                                                 {/* 图元名称 */}
                                                 {editingId === item.id ? (
                                                     <input
-                                                        className="flex-1 text-xs px-1 py-0.5 border rounded outline-none focus:ring"
+                                                        className="tanva-layer-rename-input flex-1 text-xs px-1 py-0.5 border rounded outline-none focus:ring"
                                                         autoFocus
                                                         value={editingName}
                                                         onChange={(e) => setEditingName(e.target.value)}

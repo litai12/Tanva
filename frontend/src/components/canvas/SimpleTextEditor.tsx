@@ -8,6 +8,7 @@ import paper from 'paper';
 import { projectToClient } from '@/utils/paperCoords';
 import { useToolStore } from '@/stores/toolStore';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { useAIChatStore } from '@/stores/aiChatStore';
 
 interface TextStyle {
   fontFamily: string;
@@ -41,6 +42,8 @@ const SimpleTextEditor: React.FC<SimpleTextEditorProps> = ({
   const currentEditingText = textItems.find(item => item.id === editingTextId);
   const setDrawMode = useToolStore(state => state.setDrawMode);
   const zoom = useCanvasStore(state => state.zoom);
+  const chatTheme = useAIChatStore(state => state.chatTheme);
+  const isDarkTheme = chatTheme === 'black';
 
   // 强制更新位置的状态
   const [, forceUpdate] = useState(0);
@@ -225,7 +228,7 @@ const SimpleTextEditor: React.FC<SimpleTextEditorProps> = ({
         padding: '2px 4px',
         border: '2px solid #3b82f6',
         borderRadius: '4px',
-        backgroundColor: 'rgba(255, 255, 255, 0.98)',
+        backgroundColor: isDarkTheme ? '#374151' : 'rgba(255, 255, 255, 0.98)',
         // 同步实际文本样式
         fontSize: `${displayFontSize}px`,
         fontFamily: textStyle.fontFamily,
@@ -238,7 +241,7 @@ const SimpleTextEditor: React.FC<SimpleTextEditorProps> = ({
         pointerEvents: 'auto',
         resize: 'none',
         overflow: 'hidden',
-        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+        boxShadow: isDarkTheme ? '0 2px 8px rgba(0, 0, 0, 0.4)' : '0 2px 8px rgba(0, 0, 0, 0.15)',
         // 文本对齐
         textAlign: currentEditingText.style?.align ?? 'left'
       }}

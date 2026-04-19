@@ -1870,6 +1870,13 @@ export class VideoProviderService {
     vendorConfig: { modelName?: string; modelVersion?: string },
     fallbackModelVersion: string
   ): Promise<VideoGenerationResult> {
+    const referenceAudios = this.normalizeManagedV2ReferenceAudios(options);
+    if (referenceAudios.length > 0) {
+      this.logger.warn(
+        `Tencent Kling (${fallbackModelVersion}) does not support audio URL reference input; audioUrls will be ignored`,
+      );
+    }
+
     const normalizedImages = Array.isArray(options.referenceImages)
       ? options.referenceImages
           .map((item) => this.normalizeManagedAssetUrlForUpstream(item))
@@ -2593,16 +2600,23 @@ export class VideoProviderService {
     const endpoint = endpointMap[videoMode] || endpointMap["text2video"];
 
     const mode = (options as any).mode || "std";
+    const normalizedSound =
+      typeof options.sound === "string" ? options.sound.trim().toLowerCase() : "";
     const payload: any = {
       model_name: (options as any).klingModel || "kling-v2-6",
       mode: mode,
       duration: Number(options.duration) === 10 ? "10" : "5",
     };
 
-    // 只有专业模式支持 sound 参数
-    if (mode === "pro") {
+    if (normalizedSound === "on") {
       payload.sound = "on";
-      this.logger.log(`🎵 Kling 2.6 音频参数: sound=on`);
+    } else if (normalizedSound === "off") {
+      payload.sound = "off";
+    } else if (mode === "pro") {
+      payload.sound = "on";
+    }
+    if (typeof payload.sound === "string") {
+      this.logger.log(`🎵 Kling 2.6 音频参数: sound=${payload.sound}`);
     }
 
     this.logger.log(`🎬 Kling 2.6 参数: duration=${options.duration}, 转换后=${Number(options.duration) === 10 ? "10" : "5"}`);
@@ -3003,8 +3017,13 @@ export class VideoProviderService {
       mode: options.mode || "std",
     };
 
-    // 只有专业模式支持 sound 参数
-    if ((options.mode || "std") === "pro") {
+    const normalizedSound =
+      typeof options.sound === "string" ? options.sound.trim().toLowerCase() : "";
+    if (normalizedSound === "on") {
+      payload.sound = "on";
+    } else if (normalizedSound === "off") {
+      payload.sound = "off";
+    } else if ((options.mode || "std") === "pro") {
       payload.sound = "on";
     }
 

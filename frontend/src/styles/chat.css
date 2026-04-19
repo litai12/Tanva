@@ -593,20 +593,20 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node > d
   color: var(--tanva-mono-text) !important;
 }
 
-body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node:not(.react-flow__node-generatePro) > div {
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node:not(.react-flow__node-generatePro):not(.react-flow__node-nodeGroup) > div {
   background: var(--tanva-mono-base) !important;
   border: 1.5px solid var(--tanva-mono-border) !important;
   border-radius: 6px !important;
   box-shadow: none !important;
 }
 
-body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node.selected:not(.react-flow__node-generatePro) > div {
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node.selected:not(.react-flow__node-generatePro):not(.react-flow__node-nodeGroup) > div {
   border-color: var(--tanva-mono-selection) !important;
   border-width: 1px !important;
   box-shadow: none !important;
 }
 
-body.tanva-premium-black-theme .tanva-flow-overlay.pointer-mode .react-flow__node.selected > div {
+body.tanva-premium-black-theme .tanva-flow-overlay.pointer-mode .react-flow__node.selected:not(.react-flow__node-nodeGroup) > div {
   border-color: var(--tanva-mono-selection) !important;
   border-width: 1px !important;
   box-shadow: none !important;
@@ -1624,6 +1624,23 @@ body.tanva-premium-black-theme .tanva-layer-panel .tanva-layer-item-row:hover {
 body.tanva-premium-black-theme .tanva-layer-panel .tanva-layer-item-row.tanva-layer-item-row-active {
   background: #1d1d1d !important;
   border: 1px solid #ffffff !important;
+}
+
+body.tanva-premium-black-theme .tanva-layer-panel .tanva-layer-rename-input {
+  background: #111827 !important;
+  color: #f9fafb !important;
+  border: 1px solid #4b5563 !important;
+  caret-color: #f9fafb !important;
+  box-shadow: none !important;
+}
+
+body.tanva-premium-black-theme .tanva-layer-panel .tanva-layer-rename-input::placeholder {
+  color: #9ca3af !important;
+}
+
+body.tanva-premium-black-theme .tanva-layer-panel .tanva-layer-rename-input:focus {
+  border-color: #60a5fa !important;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.35) !important;
 }
 
 body.tanva-premium-black-theme .tanva-layer-panel .tanva-layer-row button,

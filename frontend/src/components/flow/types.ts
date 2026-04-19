@@ -47,6 +47,7 @@ export type Generate4Data = {
   error?: string;
   aspectRatio?: string;
   imageSize?: '0.5K' | '1K' | '2K' | '4K';
+  modelProvider?: 'banana-2.5' | 'banana' | 'banana-3.1';
 };
 
 export type PromptOptimizeData = {

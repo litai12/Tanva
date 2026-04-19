@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useTextStore, useTextActions, useCurrentTextStyle } from '@/stores/textStore';
 import { useToolStore } from '@/stores/toolStore';
+import { useAIChatStore } from '@/stores/aiChatStore';
 import { cn } from '@/lib/utils';
 import type { TextStyle, TextFormatOptions } from '@/types/text';
 import paper from 'paper';
@@ -42,7 +43,9 @@ const TextEditor: React.FC<TextEditorProps> = ({ className }) => {
   const currentStyle = useCurrentTextStyle();
   const textActions = useTextActions();
   const setDrawMode = useToolStore(state => state.setDrawMode);
-  
+  const chatTheme = useAIChatStore(state => state.chatTheme);
+  const isDarkTheme = chatTheme === 'black';
+
   // 获取当前编辑的文本
   const activeText = toolState.activeTextId ? textInstances.get(toolState.activeTextId) : null;
   
@@ -238,8 +241,10 @@ const TextEditor: React.FC<TextEditorProps> = ({ className }) => {
           onChange={handleContentChange}
           onKeyDown={handleKeyDown}
           onBlur={finishEditing}
-          className="resize-none border-2 border-blue-400 rounded-md p-2 bg-white shadow-lg min-w-[200px] min-h-[40px] font-inherit"
+          className="resize-none border-2 border-blue-400 rounded-md p-2 shadow-lg min-w-[200px] min-h-[40px] font-inherit"
           style={{
+            backgroundColor: isDarkTheme ? '#374151' : '#ffffff',
+            boxShadow: isDarkTheme ? '0 2px 8px rgba(0, 0, 0, 0.4)' : '0 2px 8px rgba(0, 0, 0, 0.15)',
             fontSize: activeText.style.fontSize,
             fontFamily: activeText.style.fontFamily,
             fontWeight: activeText.style.fontWeight,
@@ -262,7 +267,14 @@ const TextEditor: React.FC<TextEditorProps> = ({ className }) => {
           top: toolbarPosition.y
         }}
       >
-        <div className="bg-white shadow-lg border border-gray-200 rounded-lg p-2 flex items-center gap-1">
+        <div
+          className="shadow-lg rounded-lg p-2 flex items-center gap-1"
+          style={{
+            backgroundColor: isDarkTheme ? '#1f2937' : '#ffffff',
+            border: '1px solid',
+            borderColor: isDarkTheme ? '#374151' : '#e5e7eb'
+          }}
+        >
           {/* 字体格式按钮 */}
           <Button
             variant="ghost"

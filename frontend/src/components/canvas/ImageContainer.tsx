@@ -3776,17 +3776,17 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                   align='end'
                   side='bottom'
                   sideOffset={10}
-                  className='w-auto min-w-[138px] rounded-lg border border-gray-200 bg-white/95 shadow-lg backdrop-blur-md'
+                  className='w-auto min-w-[138px] rounded-lg border border-gray-200 bg-white/95 shadow-lg backdrop-blur-md dark:border-gray-700 dark:bg-gray-800/95 dark:shadow-xl'
                 >
                   {moreToolbarActions.map((action) => (
                     <DropdownMenuItem
                       key={action.key}
                       onClick={action.onClick}
                       disabled={action.disabled}
-                      className='flex items-center gap-2 px-3 py-2 text-sm'
+                      className='flex items-center gap-2 px-3 py-2 text-sm dark:text-gray-100'
                     >
                       {action.loading ? (
-                        <LoadingSpinner size='sm' className='text-blue-600' />
+                        <LoadingSpinner size='sm' className='text-blue-600 dark:text-blue-400' />
                       ) : (
                         <action.icon className='w-4 h-4' />
                       )}
@@ -3797,7 +3797,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                   {enableVisibilityToggle && (
                     <DropdownMenuItem
                       onClick={handleToggleVisibility}
-                      className='flex items-center gap-2 px-3 py-2 text-sm'
+                      className='flex items-center gap-2 px-3 py-2 text-sm dark:text-gray-100'
                     >
                       <EyeOff className='w-4 h-4' />
                       <span>隐藏图层</span>
@@ -3805,7 +3805,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                   )}
 
                   {moreToolbarActions.length === 0 && !enableVisibilityToggle && (
-                    <DropdownMenuItem disabled className='px-3 py-2 text-sm'>
+                    <DropdownMenuItem disabled className='px-3 py-2 text-sm dark:text-gray-400'>
                       暂无更多功能
                     </DropdownMenuItem>
                   )}

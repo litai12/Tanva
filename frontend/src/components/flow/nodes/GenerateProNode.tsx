@@ -960,8 +960,29 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
     );
   }, [id]);
 
+  const normalizeImageSizeForProvider = React.useCallback(
+    (
+      provider: FlowModelProvider,
+      size: '0.5K' | '1K' | '2K' | '4K' | null | undefined
+    ): '0.5K' | '1K' | '2K' | '4K' | null => {
+      if (!size) return null;
+      if (provider === 'banana-2.5') {
+        return '1K';
+      }
+      if (provider === 'banana') {
+        if (size === '1K' || size === '2K' || size === '4K') return size;
+        return '1K';
+      }
+      return size;
+    },
+    []
+  );
+
   const aspectRatioValue = data.aspectRatio ?? '';
-  const imageSizeValue = data.imageSize ?? null;
+  const imageSizeValue = normalizeImageSizeForProvider(
+    currentProviderValue,
+    data.imageSize ?? null
+  );
   const { credits: backendCredits } = useImageNodeCreditsPreview({
     nodeType: "generatePro",
     aiProvider: currentProviderValue,
@@ -1014,6 +1035,12 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
       })
     );
   }, [id]);
+
+  React.useEffect(() => {
+    const rawImageSize = data.imageSize ?? null;
+    if (rawImageSize === imageSizeValue) return;
+    updateImageSize(imageSizeValue);
+  }, [data.imageSize, imageSizeValue, updateImageSize]);
 
   // 处理图片切换
   const handleImageChange = React.useCallback((imageId: string) => {
@@ -1342,9 +1369,20 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
                   onClick={(event) => {
                     event.stopPropagation();
                     if (currentProviderValue !== option.value) {
+                      const normalizedNextImageSize = normalizeImageSizeForProvider(
+                        option.value,
+                        (data.imageSize ?? null) as '0.5K' | '1K' | '2K' | '4K' | null
+                      );
+                      const nextPatch: {
+                        modelProvider: ProviderToggleValue;
+                        imageSize?: '0.5K' | '1K' | '2K' | '4K' | null;
+                      } = { modelProvider: option.value };
+                      if (normalizedNextImageSize !== (data.imageSize ?? null)) {
+                        nextPatch.imageSize = normalizedNextImageSize;
+                      }
                       window.dispatchEvent(
                         new CustomEvent("flow:updateNodeData", {
-                          detail: { id, patch: { modelProvider: option.value } },
+                          detail: { id, patch: nextPatch },
                         })
                       );
                     }
