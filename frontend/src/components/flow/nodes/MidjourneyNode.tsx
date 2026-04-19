@@ -8,7 +8,14 @@ import GenerationProgressBar from './GenerationProgressBar';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { parseFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
-import { toRenderableImageSrc } from '@/utils/imageSource';
+import {
+  isAssetKeyRef,
+  isBlobUrl,
+  isDataImageUrl,
+  isRemoteUrl,
+  toRenderableImageSrc,
+} from '@/utils/imageSource';
+import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { useLocaleText } from '@/utils/localeText';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { flowImagePreviewWell, flowLetterboxBackground } from './flowNodeDarkTheme';
@@ -139,6 +146,24 @@ const buildImageSrc = (value?: string): string | undefined => {
   if (!value) return undefined;
   const trimmed = value.trim();
   if (!trimmed) return undefined;
+
+  if (isDataImageUrl(trimmed) || isBlobUrl(trimmed)) {
+    return trimmed;
+  }
+
+  if (isAssetKeyRef(trimmed)) {
+    const key = trimmed.replace(/^\/+/, '');
+    return proxifyRemoteAssetUrl(
+      `/api/assets/proxy?key=${encodeURIComponent(key)}`,
+      { forceProxy: true }
+    );
+  }
+
+  if (isRemoteUrl(trimmed)) {
+    const renderable = toRenderableImageSrc(trimmed);
+    return renderable || proxifyRemoteAssetUrl(trimmed, { forceProxy: true });
+  }
+
   return toRenderableImageSrc(trimmed) || undefined;
 };
 

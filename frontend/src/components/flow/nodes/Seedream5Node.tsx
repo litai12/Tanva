@@ -166,17 +166,22 @@ function Seedream5Node({ id, data, selected }: Props) {
   const firstImage = images[0];
   const assetId = React.useMemo(() => parseFlowImageAssetRef(firstImage), [firstImage]);
   const assetUrl = useFlowImageAssetUrl(assetId);
-  const displaySrc = assetId ? assetUrl : buildImageSrc(firstImage);
+  const resolvePreviewImageSrc = React.useCallback((value?: string): string => {
+    const resolved = buildImageSrc(value);
+    if (resolved) return resolved;
+    return typeof value === "string" ? value.trim() : "";
+  }, []);
+  const displaySrc = assetId ? assetUrl : resolvePreviewImageSrc(firstImage);
 
   // 预览用集合
   const previewCollection = React.useMemo(
     () =>
       images.map((value, i) => ({
         id: `${id}-${i}`,
-        src: buildImageSrc(value) || "",
+        src: resolvePreviewImageSrc(value),
         title: lt(`第 ${i + 1} 张`, `Image ${i + 1}`),
       })),
-    [id, images, lt]
+    [id, images, lt, resolvePreviewImageSrc]
   );
 
   return (
@@ -364,7 +369,11 @@ function Seedream5Node({ id, data, selected }: Props) {
         </div>
       {/* 图片预览 */}
       <div
-        onDoubleClick={() => {
+        className="nodrag nopan nowheel"
+        onPointerDownCapture={stopNodeDrag}
+        onMouseDownCapture={stopNodeDrag}
+        onDoubleClick={(event) => {
+          event.stopPropagation();
           if (images.length > 0) {
             setPreviewIndex(0);
             setPreview(true);
@@ -393,7 +402,11 @@ function Seedream5Node({ id, data, selected }: Props) {
           images.map((img, idx) => (
             <div
               key={idx}
-              onDoubleClick={() => {
+              className="nodrag nopan"
+              onPointerDownCapture={stopNodeDrag}
+              onMouseDownCapture={stopNodeDrag}
+              onDoubleClick={(event) => {
+                event.stopPropagation();
                 setPreviewIndex(idx);
                 setPreview(true);
               }}
@@ -409,7 +422,7 @@ function Seedream5Node({ id, data, selected }: Props) {
               }}
             >
               <SmartImage
-                src={buildImageSrc(img)}
+                src={resolvePreviewImageSrc(img)}
                 alt=""
                 style={{
                   width: "100%",

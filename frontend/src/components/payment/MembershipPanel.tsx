@@ -339,10 +339,31 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   };
 
   const isFreeUser = current?.entitlement?.membershipStatus !== "active";
-  const canTopUpCredits =
-    current?.entitlement?.membershipStatus === "active" || hasWhitelistTopUpAccess;
+  const canTopUpCredits = true;
 
   const isWhite = useAIChatStore((state) => state.chatTheme === "white");
+  const topUpSection = canTopUpCredits ? (
+    <section
+      className={cn(
+        "space-y-4 rounded-2xl border p-4 sm:p-5",
+        isWhite ? "border-slate-200 bg-white" : "border-zinc-800/80 bg-[#0f0f15]",
+      )}
+    >
+      <div>
+        <h4 className={cn("text-base font-semibold", isWhite ? "text-slate-900" : "text-zinc-100")}>
+          积分充值
+        </h4>
+        <p className={cn("mt-1 text-sm", isWhite ? "text-slate-500" : "text-zinc-500")}>
+          积分充值已开放，所有用户均可直接购买积分。
+        </p>
+      </div>
+      <PaymentPanel
+        embeddedInVip
+        onBack={onBack}
+        onPaymentSuccess={onPaymentSuccess}
+      />
+    </section>
+  ) : null;
 
   return (
     <div
@@ -958,31 +979,10 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                   ) : null}
                 </div>
 
-                {canTopUpCredits ? (
-                  <section
-                    className={cn(
-                      "space-y-4 border-t pt-2",
-                      isWhite ? "border-slate-200" : "border-zinc-800/80",
-                    )}
-                  >
-                    <div>
-                      <h4 className={cn("text-base font-semibold", isWhite ? "text-slate-900" : "text-zinc-100")}>
-                        积分充值
-                      </h4>
-                      <p className={cn("mt-1 text-sm", isWhite ? "text-slate-500" : "text-zinc-500")}>
-                        已开通会员（含年卡）或白名单用户可购买积分。
-                      </p>
-                    </div>
-                    <PaymentPanel
-                      embeddedInVip
-                      onBack={onBack}
-                      onPaymentSuccess={onPaymentSuccess}
-                    />
-                  </section>
-                ) : null}
               </div>
             </div>
           )}
+          {topUpSection}
         </div>
       )}
     </div>

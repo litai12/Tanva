@@ -935,7 +935,7 @@ export interface PackagesResponse {
   creditsPerYuan: number;
 }
 
-// 获取充值套餐（根据首充状态返回不同配置）
+// 获取充值套餐
 export async function getPaymentPackages(): Promise<PackagesResponse> {
   const response = await request("/api/payment/packages");
   return response.json();

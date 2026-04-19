@@ -1,6 +1,12 @@
 import React from 'react';
 import { Handle, Position, NodeResizer, useReactFlow, useStore, useUpdateNodeInternals, type ReactFlowState, type Edge } from 'reactflow';
 import { useLocaleText } from '@/utils/localeText';
+import {
+  flowNodeControlField,
+  flowNodeMutedWellBackground,
+  flowNodeShellChrome,
+  useFlowNodeDarkTheme,
+} from './flowNodeDarkTheme';
 
 type Props = {
   id: string;
@@ -106,6 +112,7 @@ function extractSegmentsByMatches(text: string, matches: RegExpMatchArray[]): st
 
 function StoryboardSplitNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
+  const isFlowDark = useFlowNodeDarkTheme();
   const rf = useReactFlow();
   const updateNodeInternals = useUpdateNodeInternals();
   const edges = useStore((state: ReactFlowState) => state.edges);
@@ -118,7 +125,8 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
   );
   const [hover, setHover] = React.useState<string | null>(null);
 
-  const borderColor = selected ? '#2563eb' : '#e5e7eb';
+  const shell = flowNodeShellChrome(isFlowDark, !!selected);
+  const controlField = flowNodeControlField(isFlowDark);
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
 
   // 同步 edges ref
@@ -350,8 +358,9 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
       width: boxW,
       minHeight: boxH,
       padding: 12,
-      background: '#fff',
-      border: `1px solid ${borderColor}`,
+      background: shell.background,
+      border: `1px solid ${shell.borderColor}`,
+      color: shell.color,
       borderRadius: 8,
       boxShadow,
       transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
@@ -376,7 +385,7 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
 
       {/* 标题栏 */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <div style={{ fontWeight: 600 }}>Split</div>
+        <div style={{ fontWeight: 600, color: shell.color }}>Split</div>
         <div style={{ display: 'flex', gap: 6 }}>
           <button
             onClick={handleGeneratePromptNodes}
@@ -384,7 +393,7 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
             style={{
               fontSize: 12,
               padding: '4px 10px',
-              background: segments.length > 0 ? '#059669' : '#9ca3af',
+              background: segments.length > 0 ? '#059669' : (isFlowDark ? '#3f3f46' : '#9ca3af'),
               color: '#fff',
               borderRadius: 6,
               border: 'none',
@@ -400,10 +409,10 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
             style={{
               fontSize: 12,
               padding: '4px 10px',
-              background: '#111827',
+              background: isFlowDark ? '#2563eb' : '#111827',
               color: '#fff',
               borderRadius: 6,
-              border: 'none',
+              border: isFlowDark ? '1px solid rgba(96,165,250,0.7)' : 'none',
               cursor: 'pointer',
             }}
           >
@@ -414,7 +423,7 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
 
       {/* 输出数量配置 */}
       <div className="nodrag nopan" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <label style={{ fontSize: 12, color: '#6b7280' }}>{lt('输出端口', 'Output ports')}</label>
+        <label style={{ fontSize: 12, color: isFlowDark ? '#9ca3af' : '#6b7280' }}>{lt('输出端口', 'Output ports')}</label>
         <input
           type="number"
           min={MIN_OUTPUT_COUNT}
@@ -432,30 +441,31 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
             width: 60,
             fontSize: 12,
             padding: '2px 6px',
-            border: '1px solid #e5e7eb',
-            borderRadius: 6
+            borderRadius: 6,
+            ...controlField,
           }}
         />
-        <span style={{ fontSize: 11, color: '#9ca3af' }}>(1-50)</span>
+        <span style={{ fontSize: 11, color: isFlowDark ? '#6b7280' : '#9ca3af' }}>(1-50)</span>
       </div>
 
       {/* 输入预览 */}
       <div style={{
-        background: '#f9fafb',
+        background: flowNodeMutedWellBackground(isFlowDark),
+        border: `1px solid ${isFlowDark ? '#333333' : '#eef0f2'}`,
         borderRadius: 6,
         padding: 8,
         marginBottom: 8,
         maxHeight: 100,
         overflow: 'auto',
       }}>
-        <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>{lt('输入预览', 'Input preview')}</div>
-        <div style={{ fontSize: 12, color: '#374151', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+        <div style={{ fontSize: 11, color: isFlowDark ? '#9ca3af' : '#6b7280', marginBottom: 4 }}>{lt('输入预览', 'Input preview')}</div>
+        <div style={{ fontSize: 12, color: isFlowDark ? '#d1d5db' : '#374151', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
           {inputText ? inputText.substring(0, 200) + (inputText.length > 200 ? '...' : '') : lt('等待输入...', 'Waiting for input...')}
         </div>
       </div>
 
       {/* 状态显示 */}
-      <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>
+      <div style={{ fontSize: 12, color: isFlowDark ? '#9ca3af' : '#6b7280', marginBottom: 8 }}>
         {lt('状态', 'Status')}: {data.status === 'succeeded'
           ? lt(`已拆分 ${segments.length} 个分镜`, `Split into ${segments.length} storyboards`)
           : data.status === 'failed'
@@ -465,7 +475,15 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
 
       {/* 错误信息 */}
       {data.status === 'failed' && data.error && (
-        <div style={{ fontSize: 12, color: '#ef4444', marginBottom: 8 }}>{data.error}</div>
+        <div style={{
+          fontSize: 12,
+          color: '#ef4444',
+          marginBottom: 8,
+          padding: '6px 8px',
+          borderRadius: 6,
+          border: `1px solid ${isFlowDark ? 'rgba(239,68,68,0.35)' : '#fecaca'}`,
+          background: isFlowDark ? 'rgba(127,29,29,0.22)' : '#fef2f2',
+        }}>{data.error}</div>
       )}
 
       {/* 拆分结果预览 */}
@@ -476,23 +494,24 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
           maxHeight: 150,
           overflow: 'auto',
           fontSize: 11,
-          color: '#374151',
-          background: '#f0fdf4',
+          color: isFlowDark ? '#d1d5db' : '#374151',
+          background: isFlowDark ? 'rgba(16,185,129,0.1)' : '#f0fdf4',
+          border: `1px solid ${isFlowDark ? 'rgba(16,185,129,0.28)' : '#d1fae5'}`,
           borderRadius: 6,
           padding: 8,
         }}>
           {segments.slice(0, outputCount).map((seg, i) => (
             <div key={i} style={{
               marginBottom: 4,
-              borderBottom: i < segments.length - 1 ? '1px dashed #d1d5db' : 'none',
+              borderBottom: i < segments.length - 1 ? `1px dashed ${isFlowDark ? '#3f3f46' : '#d1d5db'}` : 'none',
               paddingBottom: 4
             }}>
-              <strong style={{ color: '#059669' }}>#{i + 1}:</strong>{' '}
+              <strong style={{ color: isFlowDark ? '#34d399' : '#059669' }}>#{i + 1}:</strong>{' '}
               {seg.substring(0, 60)}{seg.length > 60 ? '...' : ''}
             </div>
           ))}
           {segments.length > outputCount && (
-            <div style={{ color: '#f59e0b', fontStyle: 'italic' }}>
+            <div style={{ color: isFlowDark ? '#fbbf24' : '#f59e0b', fontStyle: 'italic' }}>
               {lt(`还有 ${segments.length - outputCount} 个分镜未显示（请增加输出端口数量）`, `${segments.length - outputCount} storyboard items are hidden (increase output ports).`)}
             </div>
           )}

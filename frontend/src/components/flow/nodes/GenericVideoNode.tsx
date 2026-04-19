@@ -66,7 +66,7 @@ type Props = {
     seedanceModel?: SeedanceModel;
     seedanceMode?: SeedanceMode;
     mode?: "std" | "pro";
-    sound?: boolean;
+    sound?: boolean | string;
     audioUrls?: string[];
     generateAudio?: boolean;
     history?: VideoHistoryItem[];
@@ -486,9 +486,23 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   );
   const klingModel =
     data.klingModel ||
-    (provider === "kling-2.6" ? "kling-v2-6" : "kling-v2-6");
-  const isUnifiedKlingNode = provider === "kling" || provider === "kling-2.6";
-  const isKling26Model = isUnifiedKlingNode && (klingModel === "kling-v2-6" || klingModel === "kling-v3-0");
+    (provider === "kling-o3" ? "kling-v3-0" : "kling-v2-6");
+  const isKlingModel26Or30 =
+    klingModel === "kling-v2-6" || klingModel === "kling-v3-0";
+  const isUnifiedKlingNode =
+    provider === "kling" ||
+    provider === "kling-2.6" ||
+    (provider === "kling-o3" && isKlingModel26Or30);
+  const isKling26Model = isUnifiedKlingNode && isKlingModel26Or30;
+  const klingSoundEnabled = React.useMemo(() => {
+    if (typeof data.sound === "boolean") return data.sound;
+    if (typeof data.sound === "string") {
+      const normalized = data.sound.trim().toLowerCase();
+      if (normalized === "on" || normalized === "true" || normalized === "yes") return true;
+      if (normalized === "off" || normalized === "false" || normalized === "no") return false;
+    }
+    return true;
+  }, [data.sound]);
   const isViduNode = provider === "vidu" || provider === "viduq3-pro";
   const viduRequestSemantics = isViduNode
     ? buildViduRequestSemantics({
@@ -584,10 +598,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       context.mode = "std";
     }
 
-    if (typeof data.sound !== "undefined") {
-      context.sound = Boolean(data.sound);
-    } else if (isUnifiedKlingNode) {
-      context.sound = true;
+    if (isUnifiedKlingNode || typeof data.sound !== "undefined") {
+      context.sound = klingSoundEnabled;
     }
     if (typeof data.generateAudio !== "undefined") {
       context.generateAudio = Boolean(data.generateAudio);
@@ -664,6 +676,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     provider,
     viduModelForPreview,
     isUnifiedKlingNode,
+    klingSoundEnabled,
     (data as any).mode,
   ]);
   const resolvedManagedPricing = React.useMemo(
@@ -1354,7 +1367,6 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             id,
             patch: {
               klingModel: value,
-              sound: true,
             },
           },
         })
@@ -1362,6 +1374,15 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     },
     [id, klingModel]
   );
+
+  const handleKlingSoundToggle = React.useCallback(() => {
+    if (!isKling26Model) return;
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: { id, patch: { sound: !klingSoundEnabled } },
+      })
+    );
+  }, [id, isKling26Model, klingSoundEnabled]);
 
   const handleViduModelChange = React.useCallback(
     (value: ViduModel) => {
@@ -1583,7 +1604,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   }, [id, isUnifiedKlingNode, klingModel]);
 
   React.useEffect(() => {
-    if (!isKling26Model || data.sound === true) return;
+    if (!isKling26Model) return;
+    if (typeof data.sound !== "undefined" && data.sound !== null) return;
     window.dispatchEvent(
       new CustomEvent("flow:updateNodeData", {
         detail: { id, patch: { sound: true } },
@@ -2802,6 +2824,28 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {isKling26Model && (
+        <div style={{ marginBottom: 8 }}>
+          <button
+            type='button'
+            onClick={handleKlingSoundToggle}
+            style={{
+              width: "100%",
+              padding: "6px 10px",
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              background: klingSoundEnabled ? "#111827" : "#fff",
+              color: klingSoundEnabled ? "#fff" : "#111827",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            {lt("音频", "Audio")}:{" "}
+            {klingSoundEnabled ? lt("开启", "On") : lt("关闭", "Off")}
+          </button>
         </div>
       )}
 

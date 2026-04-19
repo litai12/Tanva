@@ -318,8 +318,9 @@ input[type="text"],
 }
 
 /* Pointer 模式下禁用节点内文本选择，防止双击时文字变蓝 */
-.tanva-flow-overlay.pointer-mode .react-flow__node,
-.tanva-flow-overlay.pointer-mode .react-flow__node * {
+/* 但允许表单输入元素（textarea、input）正常选择和编辑 */
+.tanva-flow-overlay.pointer-mode .react-flow__node:not(.react-flow__node-textChat):not(.react-flow__node-textPrompt) *,
+.tanva-flow-overlay.pointer-mode .react-flow__node *:not(textarea):not(input):not([contenteditable="true"]) {
   -webkit-user-select: none !important;
   user-select: none !important;
 }

@@ -179,7 +179,7 @@ export const DropdownMenuContent: React.FC<DropdownMenuContentProps> = ({
     <DropdownMenuContext.Provider value={{ onClose }}>
       <div 
         className={cn(
-          'absolute z-[1100] w-48 bg-glass-light backdrop-blur-md rounded-md shadow-glass border border-glass',
+          'absolute z-[1100] w-48 bg-glass-light backdrop-blur-md rounded-md shadow-glass border border-glass dark:bg-gray-800/95 dark:border-gray-700 dark:shadow-xl',
           sideClass,
           alignClass,
           className
@@ -218,8 +218,8 @@ export const DropdownMenuItem: React.FC<DropdownMenuItemProps> = ({ children, cl
       className={cn(
         "w-full text-left px-4 py-2 text-sm flex items-center first:rounded-t-md last:rounded-b-md",
         isDisabled
-          ? "text-gray-400 cursor-not-allowed opacity-50"
-          : "text-gray-700 hover:bg-gray-100",
+          ? "text-gray-400 dark:text-gray-500 cursor-not-allowed opacity-50"
+          : "text-gray-700 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700",
         className
       )}
       onClick={handleClick}
@@ -246,7 +246,7 @@ export const DropdownMenuLabel: React.FC<DropdownMenuLabelProps> = ({ children, 
 export const DropdownMenuSeparator: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({ className, ...props }) => {
   return (
     <div
-      className={cn("h-px bg-gray-200 my-1", className)}
+      className={cn("h-px bg-gray-200 dark:bg-gray-700 my-1", className)}
       {...props}
     />
   );

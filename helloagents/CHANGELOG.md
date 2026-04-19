@@ -6,7 +6,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Updated
-- Payment/Credits: recharge packages now support a VIP-only per-tier first-top-up x2 campaign. Backend `/api/payment/packages` returns dynamic credits per tier, and recharge order credits are server-side recalculated (no client-side percentage bonus path).
+- Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
 - Flow/Zoom: 修复节点文本输入区（`TextPrompt/TextPromptPro/Analysis/VideoAnalysis` 的 `textarea`）内执行缩放时触发浏览器整页缩放的问题。当前按 `wheelZoomMode` 计算后，缩放手势会优先作用于画布；非缩放滚轮继续保留输入区原生滚动。同时 `GlobalZoomCapture` 已覆盖 Flow 区域的 `gesturestart/gesturechange`，避免触控板 pinch 落到浏览器页面缩放（`frontend/src/components/flow/FlowOverlay.tsx`, `frontend/src/components/flow/nodes/TextPromptNode.tsx`, `frontend/src/components/flow/nodes/TextPromptProNode.tsx`, `frontend/src/components/flow/nodes/AnalyzeNode.tsx`, `frontend/src/components/flow/nodes/VideoAnalyzeNode.tsx`, `frontend/src/components/canvas/GlobalZoomCapture.tsx`）。

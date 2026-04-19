@@ -40,6 +40,31 @@ const toRgba = (hexColor: string, alpha: number): string => {
   return `rgba(${r},${g},${b},${alpha})`;
 };
 
+const parseHexColor = (hexColor: string): { r: number; g: number; b: number } | null => {
+  const hex = (hexColor || '').trim().replace('#', '');
+  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return null;
+  return {
+    r: parseInt(hex.slice(0, 2), 16),
+    g: parseInt(hex.slice(2, 4), 16),
+    b: parseInt(hex.slice(4, 6), 16),
+  };
+};
+
+const mixRgb = (
+  base: { r: number; g: number; b: number },
+  tint: { r: number; g: number; b: number } | null,
+  tintWeight: number
+): string => {
+  if (!tint) {
+    return `rgb(${base.r}, ${base.g}, ${base.b})`;
+  }
+  const w = Math.max(0, Math.min(1, tintWeight));
+  const r = Math.round(base.r * (1 - w) + tint.r * w);
+  const g = Math.round(base.g * (1 - w) + tint.g * w);
+  const b = Math.round(base.b * (1 - w) + tint.b * w);
+  return `rgb(${r}, ${g}, ${b})`;
+};
+
 export default function NodeGroupNode({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const [isEditingName, setIsEditingName] = React.useState(false);
@@ -49,6 +74,20 @@ export default function NodeGroupNode({ id, data, selected }: Props) {
     typeof data?.groupColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(data.groupColor)
       ? data.groupColor
       : DEFAULT_GROUP_COLOR;
+  const parsedColor = React.useMemo(() => parseHexColor(color), [color]);
+  const expandedBackground = React.useMemo(() => {
+    if (isDarkTheme) {
+      // In dark mode, keep group fill slightly lighter than normal nodes while allowing hue tinting.
+      return mixRgb({ r: 57, g: 57, b: 57 }, parsedColor, 0.26);
+    }
+    return mixRgb({ r: 236, g: 239, b: 243 }, parsedColor, 0.12);
+  }, [isDarkTheme, parsedColor]);
+  const collapsedBackground = React.useMemo(() => {
+    if (isDarkTheme) {
+      return mixRgb({ r: 54, g: 54, b: 54 }, parsedColor, 0.3);
+    }
+    return mixRgb({ r: 229, g: 231, b: 235 }, parsedColor, 0.16);
+  }, [isDarkTheme, parsedColor]);
   const name =
     typeof data?.groupName === 'string' && data.groupName.trim().length > 0
       ? data.groupName.trim()
@@ -98,15 +137,8 @@ export default function NodeGroupNode({ id, data, selected }: Props) {
       style={{
         width: '100%',
         height: '100%',
-        border: `2px ${collapsed ? 'solid' : 'dashed'} ${toRgba(color, selected ? 0.7 : 0.45)}`,
         // Group background uses solid fills (no transparency) to avoid line haze after grouping.
-        background: collapsed
-          ? isDarkTheme
-            ? '#2f2f2f'
-            : '#e5e7eb'
-          : isDarkTheme
-          ? '#343434'
-          : '#eceff3',
+        background: collapsed ? collapsedBackground : expandedBackground,
         borderRadius: collapsed ? 12 : 16,
         boxShadow: selected ? `0 0 0 1px ${toRgba(color, 0.45)}` : 'none',
         position: 'relative',
@@ -194,7 +226,7 @@ export default function NodeGroupNode({ id, data, selected }: Props) {
                 background: 'transparent',
                 fontSize: 12,
                 fontWeight: 600,
-                color: '#111827',
+                color: isDarkTheme ? '#ffffff' : '#111827',
                 lineHeight: '20px',
                 height: 20,
                 padding: '0 2px',
@@ -218,7 +250,7 @@ export default function NodeGroupNode({ id, data, selected }: Props) {
               background: 'transparent',
               fontSize: 12,
               fontWeight: 600,
-              color: '#111827',
+              color: isDarkTheme ? '#ffffff' : '#111827',
               cursor: 'text',
               padding: 0,
             }}

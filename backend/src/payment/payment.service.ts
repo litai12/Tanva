@@ -28,8 +28,6 @@ const WeChatPay = require('wechatpay-node-v3');
 
 @Injectable()
 export class PaymentService implements OnModuleInit {
-  private static readonly VIP_FIRST_RECHARGE_DOUBLE_TAG = 'first top-up x2';
-  private static readonly VIP_FIRST_RECHARGE_RESET_AT_DEFAULT = '2026-04-16T00:00:00+08:00';
   private alipaySdk: any;
   private wechatPay: any;
   private wechatApiV3Key: string | null = null;
@@ -67,27 +65,6 @@ export class PaymentService implements OnModuleInit {
       return true;
     }
     return Math.abs(expected - actual) < 0.01;
-  }
-
-  private getVipFirstRechargeResetAt(): Date {
-    const configured = this.configService
-      .get<string>('VIP_RECHARGE_FIRST_TOPUP_RESET_AT')
-      ?.trim();
-    const fallback = new Date(PaymentService.VIP_FIRST_RECHARGE_RESET_AT_DEFAULT);
-
-    if (!configured) {
-      return fallback;
-    }
-
-    const parsed = new Date(configured);
-    if (!Number.isNaN(parsed.getTime())) {
-      return parsed;
-    }
-
-    this.logger.warn(
-      `Invalid VIP_RECHARGE_FIRST_TOPUP_RESET_AT="${configured}", fallback to ${PaymentService.VIP_FIRST_RECHARGE_RESET_AT_DEFAULT}`,
-    );
-    return fallback;
   }
 
   private parseNotifyData(data: unknown): Record<string, string> {
@@ -272,9 +249,6 @@ export class PaymentService implements OnModuleInit {
       console.warn('  - WECHAT_PRIVATE_KEY:', wechatPrivateKey ? '✅' : '❌ 缺失');
     }
 
-    this.logger.log(
-      `VIP first-topup resetAt=${this.getVipFirstRechargeResetAt().toISOString()}`,
-    );
   }
 
   // --- 业务逻辑 ---
@@ -294,45 +268,22 @@ export class PaymentService implements OnModuleInit {
     );
   }
 
-  private async isVipRechargeDoubleEnabled(userId: string): Promise<boolean> {
-    const entitlement = await this.membershipService.getMembershipEntitlement(userId);
-    return entitlement.membershipStatus === 'active' || entitlement.hasActiveSubscription;
-  }
-
-  private async resolveRechargeOrderCredits(userId: string, amount: number): Promise<number> {
+  private resolveRechargeOrderCredits(amount: number): number {
     const packageConfig = this.getRechargePackageByAmount(amount);
     if (!packageConfig) {
       return Math.max(0, Math.round(amount * CREDITS_PER_YUAN));
     }
-
-    const [vipEnabled, isFirstRecharge] = await Promise.all([
-      this.isVipRechargeDoubleEnabled(userId),
-      this.checkIsFirstRechargeByAmount(userId, amount),
-    ]);
-
-    if (vipEnabled && isFirstRecharge) {
-      return packageConfig.credits * 2;
-    }
-
     return packageConfig.credits;
   }
 
-  async getRechargePackages(userId: string) {
-    const amounts = RECHARGE_PACKAGES.map((item) => item.price);
-    const [firstRechargeMap, vipEnabled] = await Promise.all([
-      this.getFirstRechargeStatusByAmounts(userId, amounts),
-      this.isVipRechargeDoubleEnabled(userId),
-    ]);
-
+  async getRechargePackages(_userId: string) {
     const packages = RECHARGE_PACKAGES.map((item) => {
-      const isFirstRecharge = Boolean(firstRechargeMap[item.price]);
-      const isDoubleCredits = vipEnabled && isFirstRecharge;
       return {
         price: item.price,
-        credits: isDoubleCredits ? item.credits * 2 : item.credits,
+        credits: item.credits,
         bonus: null,
-        tag: isDoubleCredits ? PaymentService.VIP_FIRST_RECHARGE_DOUBLE_TAG : null,
-        isFirstRecharge,
+        tag: null,
+        isFirstRecharge: false,
       };
     });
 
@@ -446,7 +397,7 @@ export class PaymentService implements OnModuleInit {
         throw new BadRequestException('Invalid amount precision');
       }
       orderAmount = normalizedAmount;
-      orderCredits = await this.resolveRechargeOrderCredits(userId, orderAmount);
+      orderCredits = this.resolveRechargeOrderCredits(orderAmount);
     }
 
     await this.prisma.paymentOrder.updateMany({
@@ -1243,52 +1194,5 @@ export class PaymentService implements OnModuleInit {
       console.error('处理微信支付回调失败:', error);
       return false;
     }
-  }
-  /**
-   * 检查用户某个金额档位是否为首充
-   * @param userId 用户ID
-   * @param amount 套餐金额（可选，不传则返回所有档位的首充状态）
-   */
-  async checkIsFirstRechargeByAmount(userId: string, amount?: number): Promise<boolean> {
-    const resetAt = this.getVipFirstRechargeResetAt();
-    const paidOrder = await this.prisma.paymentOrder.findFirst({
-      where: {
-        userId,
-        orderType: 'recharge',
-        status: PaymentStatus.PAID,
-        createdAt: { gte: resetAt },
-        ...(amount !== undefined && { amount }),
-      },
-    });
-    return !paidOrder;
-  }
-
-  /**
-   * 获取用户各套餐档位的首充状态
-   * @param userId 用户ID
-   * @param amounts 套餐金额列表
-   */
-  async getFirstRechargeStatusByAmounts(userId: string, amounts: number[]): Promise<Record<number, boolean>> {
-    const resetAt = this.getVipFirstRechargeResetAt();
-    // 查询用户已支付的所有订单金额
-    const paidOrders = await this.prisma.paymentOrder.findMany({
-      where: {
-        userId,
-        orderType: 'recharge',
-        status: PaymentStatus.PAID,
-        createdAt: { gte: resetAt },
-      },
-      select: { amount: true },
-    });
-
-    // 已购买过的金额集合
-    const paidAmounts = new Set(paidOrders.map(o => Number(o.amount)));
-
-    // 返回每个金额档位的首充状态
-    const result: Record<number, boolean> = {};
-    for (const amount of amounts) {
-      result[amount] = !paidAmounts.has(amount);
-    }
-    return result;
   }
 }

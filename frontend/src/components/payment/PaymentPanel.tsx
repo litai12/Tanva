@@ -82,10 +82,14 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
     (rawValue?: string | null): string => {
       const value = typeof rawValue === "string" ? rawValue.trim() : "";
       if (!value) return "";
-      if (value === "首充翻倍" || value.toLowerCase() === "first top-up x2") {
-        return lt("首充翻倍", "First top-up x2");
+      if (
+        /(?:\u9996\u5145\u7ffb\u500d|\u7ffb\u500d|\u53cc\u500d|first\s*top-?up\s*x2|x\s*2|2\s*x|double)/i.test(
+          value
+        )
+      ) {
+        return "";
       }
-      if (/^(?:送|赠送|\+)?\s*\d+\s*%$/i.test(value)) {
+      if (/^(?:\u9001|\u8d60\u9001|\+)?\s*\d+\s*%$/i.test(value)) {
         return "";
       }
       return value;

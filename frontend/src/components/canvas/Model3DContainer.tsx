@@ -8,6 +8,7 @@ import { Camera, Trash2, Download, ArrowRightLeft } from 'lucide-react';
 import { LoadingSpinner } from '../ui/loading-spinner';
 import { downloadFile } from '@/utils/downloadHelper';
 import { logger } from '@/utils/logger';
+import { useAIChatStore } from '@/stores/aiChatStore';
 
 interface Model3DContainerProps {
   modelData: Model3DData;
@@ -110,6 +111,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   const zoom = useCanvasStore((state) => state.zoom);
   const panX = useCanvasStore((state) => state.panX);
   const panY = useCanvasStore((state) => state.panY);
+  const isDarkTheme = useAIChatStore((state) => state.chatTheme === 'black');
 
   // 优化的同步机制 - 使用ref跟踪更新状态，避免强制重渲染循环
   const [renderKey, setRenderKey] = useState(0);
@@ -205,16 +207,27 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   // 控制点位置：边框外侧，中心对齐边框边缘
   const handleOffset = -(handleSize / 2); // 控制点中心对齐边框边缘
 
-  const actionButtonStyle = useMemo<React.CSSProperties>(() => ({
-    backdropFilter: 'blur(12px)',
-    background: 'rgba(255, 255, 255, 0.9)',
-    border: '1px solid rgba(148, 163, 184, 0.35)',
-    boxShadow:
-      '0 8px 24px rgba(15, 23, 42, 0.18), 0 4px 12px rgba(15, 23, 42, 0.12), inset 0 1px 0 rgba(255,255,255,0.35)',
-  }), []);
+  const actionButtonStyle = useMemo<React.CSSProperties>(() => {
+    if (isDarkTheme) {
+      return {
+        backdropFilter: 'blur(12px)',
+        background: 'rgba(24, 24, 27, 0.94)',
+        border: '1px solid rgba(148, 163, 184, 0.55)',
+        boxShadow:
+          '0 10px 26px rgba(0, 0, 0, 0.45), 0 4px 14px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.08)',
+      };
+    }
+    return {
+      backdropFilter: 'blur(12px)',
+      background: 'rgba(255, 255, 255, 0.9)',
+      border: '1px solid rgba(148, 163, 184, 0.35)',
+      boxShadow:
+        '0 8px 24px rgba(15, 23, 42, 0.18), 0 4px 12px rgba(15, 23, 42, 0.12), inset 0 1px 0 rgba(255,255,255,0.35)',
+    };
+  }, [isDarkTheme]);
   const actionButtonClass =
     'p-1.5 h-8 w-8 rounded-full shadow-lg hover:shadow-xl transition-all duration-150 ease-out hover:scale-105';
-  const actionIconClass = 'w-4 h-4 text-slate-600';
+  const actionIconClass = isDarkTheme ? 'w-4 h-4 text-slate-100' : 'w-4 h-4 text-slate-600';
 
   const handleConvertToFlowThreeNode = useCallback(() => {
     const modelUrl = modelData.url || modelData.path;
@@ -797,7 +810,10 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
               }
             }}
           >
-            <Download className={actionIconClass} />
+            <Download
+              className={actionIconClass}
+              style={{ color: isDarkTheme ? '#f8fafc' : '#475569' }}
+            />
           </Button>
           <Button
             variant="outline"

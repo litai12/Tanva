@@ -5,6 +5,13 @@ import { imageUploadService } from '@/services/imageUploadService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { fetchWithAuth } from '@/services/authFetch';
 import { useLocaleText } from '@/utils/localeText';
+import {
+  flowNodeControlField,
+  flowNodeMutedWellBackground,
+  flowNodeShellChrome,
+  flowNodeWellOutlineBorder,
+  useFlowNodeDarkTheme,
+} from './flowNodeDarkTheme';
 
 type FrameData = {
   index: number;
@@ -110,6 +117,7 @@ const resolveVideoUrlFromNode = (node?: Node<any> | null): string | undefined =>
 
 function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
   const { lt } = useLocaleText();
+  const isFlowDark = useFlowNodeDarkTheme();
   const { status = 'idle', error, frames = [], totalFrames = 0 } = data;
   const [hover, setHover] = React.useState<string | null>(null);
   const [showAllFrames, setShowAllFrames] = React.useState(false);
@@ -151,7 +159,11 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
     )
   );
 
-  const borderColor = selected ? '#2563eb' : '#e5e7eb';
+  const shell = flowNodeShellChrome(isFlowDark, selected);
+  const controlField = flowNodeControlField(isFlowDark);
+  const mutedWellBg = flowNodeMutedWellBackground(isFlowDark);
+  const wellOutline = flowNodeWellOutlineBorder(isFlowDark);
+  const borderColor = shell.borderColor;
   const boxShadow = selected
     ? '0 0 0 2px rgba(37,99,235,0.12)'
     : '0 1px 2px rgba(0,0,0,0.04)';
@@ -386,7 +398,8 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
       style={{
         width: 300,
         padding: 10,
-        background: '#fff',
+        background: shell.background,
+        color: shell.color,
         border: `1px solid ${borderColor}`,
         borderRadius: 8,
         boxShadow,
@@ -399,7 +412,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
     >
       {/* 标题栏 */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ fontWeight: 600 }}>Video Frame Extract</div>
+        <div style={{ fontWeight: 600, color: shell.color }}>Video Frame Extract</div>
         <button
           onClick={extractFrames}
           disabled={!canExtract}
@@ -428,7 +441,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
           alignItems: 'center',
           justifyContent: 'center',
           overflow: 'hidden',
-          border: '1px solid #eef0f2',
+          border: `1px solid ${wellOutline}`,
         }}
       >
         {effectiveVideoUrl ? (
@@ -447,7 +460,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
 
       {/* 抽帧间隔设置 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: 12, color: '#374151' }}>{lt('抽帧间隔', 'Frame interval')}:</span>
+        <span style={{ fontSize: 12, color: isFlowDark ? '#d1d5db' : '#374151' }}>{lt('抽帧间隔', 'Frame interval')}:</span>
         <input
           type="number"
           className="nodrag nopan"
@@ -461,16 +474,16 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
             fontSize: 12,
             padding: '4px 6px',
             borderRadius: 4,
-            border: '1px solid #d1d5db',
+            ...controlField,
           }}
         />
-        <span style={{ fontSize: 12, color: '#6b7280' }}>{lt('秒', 's')}</span>
+        <span style={{ fontSize: 12, color: isFlowDark ? '#9ca3af' : '#6b7280' }}>{lt('秒', 's')}</span>
       </div>
 
       {/* 帧预览区 */}
       {frames.length > 0 && (
-        <div style={{ background: '#f9fafb', borderRadius: 6, padding: 8 }}>
-          <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 6 }}>
+        <div style={{ background: mutedWellBg, borderRadius: 6, padding: 8, border: `1px solid ${wellOutline}` }}>
+          <div style={{ fontSize: 11, color: isFlowDark ? '#9ca3af' : '#6b7280', marginBottom: 6 }}>
             📷 {lt('已提取', 'Extracted')} {totalFrames} {lt('帧', 'frame(s)')}
           </div>
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
@@ -482,7 +495,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
                   height: 42,
                   borderRadius: 4,
                   overflow: 'hidden',
-                  border: '1px solid #e5e7eb',
+                  border: `1px solid ${wellOutline}`,
                   position: 'relative',
                 }}
               >
@@ -516,12 +529,12 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
                   width: 56,
                   height: 42,
                   borderRadius: 4,
-                  background: '#e5e7eb',
+                  background: isFlowDark ? '#252525' : '#e5e7eb',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   fontSize: 11,
-                  color: '#6b7280',
+                  color: isFlowDark ? '#d1d5db' : '#6b7280',
                 }}
               >
                 +{frames.length - MAX_PREVIEW_FRAMES}
@@ -534,10 +547,11 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
               marginTop: 6,
               fontSize: 11,
               padding: '3px 8px',
-              background: '#fff',
-              border: '1px solid #d1d5db',
+              background: isFlowDark ? '#252525' : '#fff',
+              border: `1px solid ${isFlowDark ? '#3f3f46' : '#d1d5db'}`,
               borderRadius: 4,
               cursor: 'pointer',
+              color: isFlowDark ? '#e5e7eb' : '#111827',
               width: '100%',
             }}
           >
@@ -548,11 +562,11 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
 
       {/* 输出选择 */}
       {frames.length > 0 && (
-        <div style={{ background: '#f3f4f6', borderRadius: 6, padding: 8 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6 }}>{lt('输出选择', 'Output selection')}</div>
+        <div style={{ background: isFlowDark ? '#161616' : '#f3f4f6', borderRadius: 6, padding: 8, border: `1px solid ${wellOutline}` }}>
+          <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: shell.color }}>{lt('输出选择', 'Output selection')}</div>
 
           {/* 全部帧 */}
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, cursor: 'pointer' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, cursor: 'pointer', color: isFlowDark ? '#e5e7eb' : '#111827' }}>
             <input
               type="radio"
               name={`output-${id}`}
@@ -564,7 +578,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
           </label>
 
           {/* 指定帧 */}
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, cursor: 'pointer' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, cursor: 'pointer', color: isFlowDark ? '#e5e7eb' : '#111827' }}>
             <input
               type="radio"
               name={`output-${id}`}
@@ -586,14 +600,14 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
                   fontSize: 11,
                   padding: '2px 4px',
                   borderRadius: 4,
-                  border: '1px solid #d1d5db',
+                  ...controlField,
                 }}
               />
             )}
           </label>
 
           {/* 范围选择 */}
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', color: isFlowDark ? '#e5e7eb' : '#111827' }}>
             <input
               type="radio"
               name={`output-${id}`}
@@ -622,10 +636,10 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
                   fontSize: 11,
                   padding: '2px 4px',
                   borderRadius: 4,
-                  border: '1px solid #d1d5db',
+                  ...controlField,
                 }}
               />
-              <span style={{ fontSize: 11 }}>{lt('至', 'to')}</span>
+              <span style={{ fontSize: 11, color: isFlowDark ? '#d1d5db' : '#111827' }}>{lt('至', 'to')}</span>
               <input
                 type="number"
                 className="nodrag nopan"
@@ -643,7 +657,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
                   fontSize: 11,
                   padding: '2px 4px',
                   borderRadius: 4,
-                  border: '1px solid #d1d5db',
+                  ...controlField,
                 }}
               />
             </div>
@@ -653,7 +667,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
 
       {/* 错误信息 */}
       {status === 'error' && error && (
-        <div style={{ fontSize: 12, color: '#ef4444', padding: '4px 8px', background: '#fef2f2', borderRadius: 4 }}>
+        <div style={{ fontSize: 12, color: '#ef4444', padding: '4px 8px', background: isFlowDark ? 'rgba(127, 29, 29, 0.25)' : '#fef2f2', border: `1px solid ${isFlowDark ? 'rgba(239, 68, 68, 0.35)' : '#fecaca'}`, borderRadius: 4 }}>
           {error}
         </div>
       )}
@@ -727,7 +741,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
             left: 0,
             right: 0,
             bottom: 0,
-            background: 'rgba(0,0,0,0.7)',
+            background: isFlowDark ? 'rgba(0,0,0,0.8)' : 'rgba(0,0,0,0.7)',
             zIndex: 9999,
             display: 'flex',
             alignItems: 'center',
@@ -737,7 +751,9 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
         >
           <div
             style={{
-              background: '#fff',
+              background: isFlowDark ? '#1c1c1c' : '#fff',
+              color: shell.color,
+              border: `1px solid ${isFlowDark ? '#3a3a3a' : '#e5e7eb'}`,
               borderRadius: 12,
               padding: 16,
               maxWidth: '90vw',
@@ -747,7 +763,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <h3 style={{ margin: 0, fontSize: 16 }}>🎞️ {lt('全部帧预览', 'All frame preview')} ({totalFrames}{lt('帧', '')})</h3>
+              <h3 style={{ margin: 0, fontSize: 16, color: shell.color }}>🎞️ {lt('全部帧预览', 'All frame preview')} ({totalFrames}{lt('帧', '')})</h3>
               <button
                 onClick={() => setShowAllFrames(false)}
                 style={{
@@ -755,7 +771,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
                   border: 'none',
                   fontSize: 20,
                   cursor: 'pointer',
-                  color: '#6b7280',
+                  color: isFlowDark ? '#9ca3af' : '#6b7280',
                 }}
               >
                 ✕
@@ -768,7 +784,11 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
                   style={{
                     borderRadius: 6,
                     overflow: 'hidden',
-                    border: '1px solid #e5e7eb',
+                    border:
+                      outputMode === 'single' && selectedFrameIndex === frame.index
+                        ? `1px solid ${isFlowDark ? '#60a5fa' : '#2563eb'}`
+                        : `1px solid ${isFlowDark ? '#3a3a3a' : '#e5e7eb'}`,
+                    background: isFlowDark ? '#161616' : '#ffffff',
                     cursor: 'pointer',
                   }}
                   onClick={() => {
@@ -783,7 +803,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
                     loading="lazy"
                     style={{ width: '100%', aspectRatio: '16/9', objectFit: 'cover' }}
                   />
-                  <div style={{ padding: '4px 6px', background: '#f9fafb', fontSize: 11 }}>
+                  <div style={{ padding: '4px 6px', background: isFlowDark ? '#111827' : '#f9fafb', color: isFlowDark ? '#e5e7eb' : '#111827', fontSize: 11 }}>
                     {lt('帧', 'Frame')} {frame.index} | {frame.timestamp.toFixed(1)}s
                   </div>
                 </div>
