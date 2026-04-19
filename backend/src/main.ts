@@ -270,6 +270,14 @@ async function bootstrap() {
     exposedHeaders: ["x-trace-id"],
   });
 
+  // 所有 /api/* 认证接口均禁止 CDN/代理缓存，防止不同用户共享缓存导致数据泄露
+  fastifyInstance.addHook('onSend', (_request, reply, _payload, done) => {
+    if (!reply.hasHeader('cache-control')) {
+      reply.header('cache-control', 'no-store');
+    }
+    done();
+  });
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
