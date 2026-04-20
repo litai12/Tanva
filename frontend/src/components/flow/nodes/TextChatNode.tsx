@@ -1,6 +1,15 @@
 import React from 'react';
 import { Check } from 'lucide-react';
-import { Handle, Position, NodeResizer, useReactFlow, useStore, type ReactFlowState, type Edge } from 'reactflow';
+import {
+  Handle,
+  Position,
+  NodeResizer,
+  useReactFlow,
+  useStore,
+  useUpdateNodeInternals,
+  type ReactFlowState,
+  type Edge,
+} from 'reactflow';
 import { aiImageService } from '@/services/aiImageService';
 import { contextManager } from '@/services/contextManager';
 import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
@@ -61,6 +70,7 @@ const stopFlowPan = (event: React.SyntheticEvent<Element, Event>) => {
 const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
   const { lt } = useLocaleText();
   const rf = useReactFlow();
+  const updateNodeInternals = useUpdateNodeInternals();
   const edges = useStore((state: ReactFlowState) => state.edges);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
   const globalWebSearchEnabled = useAIChatStore((state) => state.enableWebSearch);
@@ -231,6 +241,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     : DEFAULT_NODE_HEIGHT;
   const nodeHeight = Math.max(MIN_NODE_HEIGHT, normalizedHeight);
   const contentRef = React.useRef<HTMLDivElement | null>(null);
+  const nodeRootRef = React.useRef<HTMLDivElement | null>(null);
   const [contentHeight, setContentHeight] = React.useState(nodeHeight);
 
   const updateAutoHeight = React.useCallback(() => {
@@ -264,6 +275,26 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
   }, [updateAutoHeight]);
 
   const computedHeight = Math.max(nodeHeight, contentHeight);
+  React.useLayoutEffect(() => {
+    updateNodeInternals(id);
+  }, [computedHeight, id, updateNodeInternals]);
+
+  React.useEffect(() => {
+    const element = nodeRootRef.current;
+    if (!element || typeof ResizeObserver !== 'function') return;
+    let rafId = 0;
+    const observer = new ResizeObserver(() => {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        updateNodeInternals(id);
+      });
+    });
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+  }, [id, updateNodeInternals]);
 
   const incomingTexts = React.useMemo(() => {
     return edges
@@ -436,6 +467,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
 
   return (
     <div
+      ref={nodeRootRef}
       style={{
         width: data.boxW || 320,
         height: computedHeight,

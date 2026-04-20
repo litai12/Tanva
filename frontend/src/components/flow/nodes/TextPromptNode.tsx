@@ -1,6 +1,7 @@
 import React from 'react';
 import { Handle, Position, NodeResizer, useReactFlow, useStore, type ReactFlowState, type Edge } from 'reactflow';
 import { resolveTextFromSourceNode } from '../utils/textSource';
+import useNodeInternalsSync from '../hooks/useNodeInternalsSync';
 import { useLocaleText } from '@/utils/localeText';
 import { useCanvasStore } from '@/stores';
 
@@ -29,6 +30,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const [titleDraft, setTitleDraft] = React.useState<string>(normalizedTitle);
   const [isEditingTitle, setIsEditingTitle] = React.useState(false);
   const titleInputRef = React.useRef<HTMLInputElement>(null);
+  const nodeRootRef = React.useRef<HTMLDivElement | null>(null);
   const incomingCount = incomingTexts.length;
   const hasIncoming = incomingCount > 0;
   const shouldPassWheelToCanvas = React.useCallback((event: React.WheelEvent<HTMLTextAreaElement>) => {
@@ -179,8 +181,10 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     setTitleDraft(title);
   }, [title]);
 
+  useNodeInternalsSync(id, nodeRootRef, [data.boxW, data.boxH, isEditingTitle]);
+
   return (
-    <div style={{
+    <div ref={nodeRootRef} style={{
       width: data.boxW || 240,
       height: data.boxH || 180,
       padding: 8,

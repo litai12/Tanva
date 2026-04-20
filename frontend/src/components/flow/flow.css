@@ -164,18 +164,20 @@
 
 /* 连线容易被选中的关键：增加击中检测区域 */
 .react-flow__edge-path {
-  stroke-width: 2px;
-  transition: stroke-width 0.15s ease;
+  stroke-width: 1.8px;
+  transition: stroke-width 0.12s ease;
+  cursor: pointer;
+  filter: none !important;
+  shape-rendering: geometricPrecision;
 }
 
-/* 鼠标悬停时突出显示连线，增大笔画宽度 */
+/* 鼠标悬停时突出显示连线，轻微增大宽度 */
 .react-flow__edge:hover .react-flow__edge-path {
-  stroke-width: 6px;
+  stroke-width: 2.4px;
 }
 
-/* 被选中的连线也要显示视觉反馈 */
 .react-flow__edge.selected .react-flow__edge-path {
-  stroke-width: 4px;
+  stroke-width: 2.8px;
 }
 
 /* 为连线的底层添加隐形击中区域（提高可选性）*/
@@ -183,19 +185,29 @@
   position: relative;
 }
 
-.react-flow__edge-path {
-  /* 添加外发光效果提示可选性 */
-  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.1));
-  cursor: pointer;
+.react-flow__connection-path {
+  stroke-width: 1.8px;
+  filter: none !important;
+  shape-rendering: geometricPrecision;
 }
 
-/* 鼠标悬停时显示吸附效果 */
-.react-flow__edge:hover .react-flow__edge-path {
-  filter: drop-shadow(0 0 4px rgba(37, 99, 235, 0.3));
+body.tanva-selection-dragging .tanva-flow-overlay .react-flow__edge-path,
+body.tanva-flow-selection-dragging .tanva-flow-overlay .react-flow__edge-path,
+body.tanva-flow-node-dragging .tanva-flow-overlay .react-flow__edge-path,
+body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__edge-path {
+  transition: none !important;
+  filter: none !important;
 }
 
-.react-flow__edge.selected .react-flow__edge-path {
-  filter: drop-shadow(0 0 6px rgba(37, 99, 235, 0.6));
+body.tanva-selection-dragging .tanva-flow-overlay .react-flow__edge:hover .react-flow__edge-path,
+body.tanva-flow-selection-dragging .tanva-flow-overlay .react-flow__edge:hover .react-flow__edge-path,
+body.tanva-flow-node-dragging .tanva-flow-overlay .react-flow__edge:hover .react-flow__edge-path,
+body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__edge:hover .react-flow__edge-path,
+body.tanva-selection-dragging .tanva-flow-overlay .react-flow__edge.selected .react-flow__edge-path,
+body.tanva-flow-selection-dragging .tanva-flow-overlay .react-flow__edge.selected .react-flow__edge-path,
+body.tanva-flow-node-dragging .tanva-flow-overlay .react-flow__edge.selected .react-flow__edge-path,
+body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__edge.selected .react-flow__edge-path {
+  stroke-width: 1.8px !important;
 }
 
 .tanva-flow-snap-guides {

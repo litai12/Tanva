@@ -223,6 +223,8 @@ const FLOW_EDGE_COLOR_BY_KIND = {
 } as const;
 const FLOW_AUTO_VISIBLE_RENDER_NODE_THRESHOLD = 31;
 const FLOW_AUTO_DISABLE_SNAP_NODE_THRESHOLD = 51;
+const FLOW_AUTO_DISABLE_SNAP_EDGE_THRESHOLD = 81;
+const FLOW_RENDER_SNAP_GUIDES_WHILE_DRAGGING = false;
 const FLOW_AUTO_HIDE_MINIMAP_IMAGE_OVERLAY_NODE_THRESHOLD = 81;
 const FLOW_LOW_DETAIL_NODE_THRESHOLD = 31;
 const FLOW_LOW_DETAIL_ENTER_ZOOM = 0.4;
@@ -3460,7 +3462,8 @@ function FlowInner() {
 
   const snapAlignmentEnabled = useUIStore((s) => s.snapAlignmentEnabled);
   const isLargeGraphForSnapAlignment =
-    nodes.length >= FLOW_AUTO_DISABLE_SNAP_NODE_THRESHOLD;
+    nodes.length >= FLOW_AUTO_DISABLE_SNAP_NODE_THRESHOLD ||
+    edges.length >= FLOW_AUTO_DISABLE_SNAP_EDGE_THRESHOLD;
   const effectiveSnapAlignmentEnabled =
     snapAlignmentEnabled && !isLargeGraphForSnapAlignment;
   const [flowSnapAlignments, setFlowSnapAlignments] = React.useState<
@@ -3468,11 +3471,22 @@ function FlowInner() {
   >([]);
   const flowSnapTargetsRef = React.useRef<ObjectBounds[]>([]);
   const flowDragAnchorNodeIdRef = React.useRef<string | null>(null);
+  const flowDragAnchorSizeRef = React.useRef<{
+    width: number;
+    height: number;
+  } | null>(null);
   const flowSnapSignatureRef = React.useRef<string>("");
 
   const updateFlowSnapAlignments = React.useCallback(
     (alignments: AlignmentLine[]) => {
       const next = Array.isArray(alignments) ? alignments : [];
+      if (
+        !FLOW_RENDER_SNAP_GUIDES_WHILE_DRAGGING &&
+        nodeDraggingRef.current &&
+        next.length > 0
+      ) {
+        return;
+      }
       const signature = buildAlignmentSignature(next);
       if (signature === flowSnapSignatureRef.current) return;
       flowSnapSignatureRef.current = signature;
@@ -3484,6 +3498,7 @@ function FlowInner() {
   const clearFlowSnapState = React.useCallback(() => {
     flowSnapTargetsRef.current = [];
     flowDragAnchorNodeIdRef.current = null;
+    flowDragAnchorSizeRef.current = null;
     updateFlowSnapAlignments([]);
   }, [updateFlowSnapAlignments]);
 
@@ -3493,6 +3508,7 @@ function FlowInner() {
         typeof anchorNodeId === "string" ? anchorNodeId : null;
       if (!effectiveSnapAlignmentEnabled) {
         flowSnapTargetsRef.current = [];
+        flowDragAnchorSizeRef.current = null;
         updateFlowSnapAlignments([]);
         return;
       }
@@ -3504,6 +3520,23 @@ function FlowInner() {
         getGroupChildIds(node).forEach((childId) => draggingIdSet.add(String(childId)));
       });
       const allNodes = (rfRef.current.getNodes?.() || []) as RFNode[];
+      const anchorId = flowDragAnchorNodeIdRef.current;
+      const anchorNode =
+        (anchorId
+          ? (draggingNodes || []).find(
+              (node) => String(node?.id || "") === anchorId
+            )
+          : null) ||
+        (draggingNodes || [])[0] ||
+        (anchorId
+          ? allNodes.find((node) => String(node.id) === anchorId)
+          : undefined);
+      if (anchorNode) {
+        const { width, height } = getNodeRenderSize(anchorNode);
+        flowDragAnchorSizeRef.current = { width, height };
+      } else {
+        flowDragAnchorSizeRef.current = null;
+      }
       flowSnapTargetsRef.current = allNodes
         .filter((node) => !draggingIdSet.has(String(node.id)))
         .map((node) => toFlowSnapBounds(node))
@@ -3555,21 +3588,28 @@ function FlowInner() {
         return changes;
       }
 
-      const currentNodes = (rfRef.current.getNodes?.() || []) as RFNode[];
-      const nodeMap = new Map(currentNodes.map((node) => [String(node.id), node]));
-      const anchorNode = nodeMap.get(String(anchorChange.id));
-      if (!anchorNode) {
+      let anchorSize = flowDragAnchorSizeRef.current;
+      if (!anchorSize) {
+        const currentNodes = (rfRef.current.getNodes?.() || []) as RFNode[];
+        const anchorNode = currentNodes.find(
+          (node) => String(node.id) === String(anchorChange.id)
+        );
+        if (anchorNode) {
+          const { width, height } = getNodeRenderSize(anchorNode);
+          anchorSize = { width, height };
+          flowDragAnchorSizeRef.current = anchorSize;
+        }
+      }
+      if (!anchorSize) {
         updateFlowSnapAlignments([]);
         return changes;
       }
-
-      const { width, height } = getNodeRenderSize(anchorNode);
       const draggingBounds: ObjectBounds = {
         id: String(anchorChange.id),
         x: Number(anchorChange.position.x),
         y: Number(anchorChange.position.y),
-        width,
-        height,
+        width: anchorSize.width,
+        height: anchorSize.height,
       };
 
       const viewportZoom = Number(rfRef.current.getViewport?.()?.zoom);
@@ -3583,8 +3623,12 @@ function FlowInner() {
         flowSnapTargetsRef.current,
         threshold
       );
-      const alignments = deduplicateAlignments(result.alignments || []);
-      updateFlowSnapAlignments(alignments);
+      if (FLOW_RENDER_SNAP_GUIDES_WHILE_DRAGGING || !nodeDraggingRef.current) {
+        const alignments = deduplicateAlignments(result.alignments || []);
+        updateFlowSnapAlignments(alignments);
+      } else if (flowSnapSignatureRef.current) {
+        updateFlowSnapAlignments([]);
+      }
 
       const deltaX = Number(result?.snapDelta?.x || 0);
       const deltaY = Number(result?.snapDelta?.y || 0);
@@ -20325,7 +20369,7 @@ function FlowInner() {
       y: Number(fallback.y || 0),
       zoom: Number(fallback.zoom || 1) || 1,
     };
-  }, [flowSnapAlignments, initialViewport]);
+  }, [initialViewport]);
 
   return (
     <FlowRenderModeProvider value={flowRenderModeValue}>

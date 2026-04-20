@@ -2,6 +2,7 @@ import React from 'react';
 import { Handle, Position, useReactFlow } from 'reactflow';
 import { Link } from 'lucide-react';
 import { resolveTextFromSourceNode } from '../utils/textSource';
+import useNodeInternalsSync from '../hooks/useNodeInternalsSync';
 import { useLocaleText } from '@/utils/localeText';
 import { useCanvasStore } from '@/stores';
 
@@ -36,6 +37,7 @@ function TextPromptProNodeInner({ id, data, selected }: Props) {
   const [hover, setHover] = React.useState<string | null>(null);
   const [isTextFocused, setIsTextFocused] = React.useState(false);
   const [isResizing, setIsResizing] = React.useState(false);
+  const nodeRootRef = React.useRef<HTMLDivElement | null>(null);
   const shouldPassWheelToCanvas = React.useCallback((event: React.WheelEvent<HTMLTextAreaElement>) => {
     const store = useCanvasStore.getState();
     const isModifierWheel = event.ctrlKey || event.metaKey;
@@ -218,8 +220,11 @@ function TextPromptProNodeInner({ id, data, selected }: Props) {
     zIndex: 20,
   };
 
+  useNodeInternalsSync(id, nodeRootRef, [boxWidth, boxHeight, externalPrompts.length, selected]);
+
   return (
     <div
+      ref={nodeRootRef}
       style={{
         width: boxWidth + 24,
         background: 'transparent',

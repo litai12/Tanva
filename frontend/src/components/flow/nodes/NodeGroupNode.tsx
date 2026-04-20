@@ -50,19 +50,21 @@ const parseHexColor = (hexColor: string): { r: number; g: number; b: number } | 
   };
 };
 
-const mixRgb = (
+const mixRgba = (
   base: { r: number; g: number; b: number },
   tint: { r: number; g: number; b: number } | null,
-  tintWeight: number
+  tintWeight: number,
+  alpha: number
 ): string => {
+  const a = Math.max(0, Math.min(1, alpha));
   if (!tint) {
-    return `rgb(${base.r}, ${base.g}, ${base.b})`;
+    return `rgba(${base.r}, ${base.g}, ${base.b}, ${a})`;
   }
   const w = Math.max(0, Math.min(1, tintWeight));
   const r = Math.round(base.r * (1 - w) + tint.r * w);
   const g = Math.round(base.g * (1 - w) + tint.g * w);
   const b = Math.round(base.b * (1 - w) + tint.b * w);
-  return `rgb(${r}, ${g}, ${b})`;
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
 };
 
 export default function NodeGroupNode({ id, data, selected }: Props) {
@@ -77,16 +79,16 @@ export default function NodeGroupNode({ id, data, selected }: Props) {
   const parsedColor = React.useMemo(() => parseHexColor(color), [color]);
   const expandedBackground = React.useMemo(() => {
     if (isDarkTheme) {
-      // In dark mode, keep group fill slightly lighter than normal nodes while allowing hue tinting.
-      return mixRgb({ r: 57, g: 57, b: 57 }, parsedColor, 0.26);
+      // Keep tint in dark mode while preserving internal edge visibility.
+      return mixRgba({ r: 57, g: 57, b: 57 }, parsedColor, 0.26, 0.78);
     }
-    return mixRgb({ r: 236, g: 239, b: 243 }, parsedColor, 0.12);
+    return mixRgba({ r: 236, g: 239, b: 243 }, parsedColor, 0.12, 0.72);
   }, [isDarkTheme, parsedColor]);
   const collapsedBackground = React.useMemo(() => {
     if (isDarkTheme) {
-      return mixRgb({ r: 54, g: 54, b: 54 }, parsedColor, 0.3);
+      return mixRgba({ r: 54, g: 54, b: 54 }, parsedColor, 0.3, 0.84);
     }
-    return mixRgb({ r: 229, g: 231, b: 235 }, parsedColor, 0.16);
+    return mixRgba({ r: 229, g: 231, b: 235 }, parsedColor, 0.16, 0.8);
   }, [isDarkTheme, parsedColor]);
   const name =
     typeof data?.groupName === 'string' && data.groupName.trim().length > 0
@@ -137,7 +139,7 @@ export default function NodeGroupNode({ id, data, selected }: Props) {
       style={{
         width: '100%',
         height: '100%',
-        // Group background uses solid fills (no transparency) to avoid line haze after grouping.
+        // Use translucent fill so internal edges remain visible after grouping.
         background: collapsed ? collapsedBackground : expandedBackground,
         borderRadius: collapsed ? 12 : 16,
         boxShadow: selected ? `0 0 0 1px ${toRgba(color, 0.45)}` : 'none',
