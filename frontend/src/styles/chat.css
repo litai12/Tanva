@@ -1300,6 +1300,22 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .ta
   color: var(--tanva-mono-text) !important;
 }
 
+/* Header project dropdown should stay light in day theme even if dark chat class exists. */
+body:not(.tanva-premium-black-theme) .tanva-project-dropdown-content {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12) !important;
+}
+
+body:not(.tanva-premium-black-theme) .tanva-project-dropdown-content button {
+  color: #334155 !important;
+}
+
+body:not(.tanva-premium-black-theme) .tanva-project-dropdown-content button:hover {
+  background: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
 .ai-chat-theme-premium-dark [data-chat-secondary-action="true"] {
   background: var(--tanva-mono-raised) !important;
   color: var(--tanva-mono-text) !important;

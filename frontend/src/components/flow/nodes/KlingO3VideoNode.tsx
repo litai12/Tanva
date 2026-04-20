@@ -5,6 +5,7 @@ import SmartImage from "../../ui/SmartImage";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { useAuthStore } from "@/stores/authStore";
 import { useProjectContentStore } from "@/stores/projectContentStore";
+import { useAIChatStore } from "@/stores/aiChatStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
 import RunCreditBadge from "./RunCreditBadge";
@@ -145,6 +146,7 @@ const resolveKlingSoundEnabled = (value: unknown): boolean => {
 
 function KlingO1VideoNode({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
+  const isFlowDark = useAIChatStore((state) => state.chatTheme === "black");
   const projectId = useProjectContentStore((state) => state.projectId);
   const klingSoundEnabled = React.useMemo(
     () => resolveKlingSoundEnabled((data as any).sound),
@@ -517,6 +519,101 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
     [storyboardShots]
   );
   const isStoryboardDurationMatched = storyboardDurationTotal === targetStoryboardDuration;
+  const storyboardPanelTheme = React.useMemo(
+    () =>
+      isFlowDark
+        ? {
+            modeLabel: "#9ca3af",
+            modeBtnBorder: "#3f3f46",
+            modeBtnBg: "#18181b",
+            modeBtnText: "#e5e7eb",
+            modeBtnActiveBg: "#0f766e",
+            modeBtnActiveText: "#f0fdfa",
+            summaryBorder: "#3f3f46",
+            summaryBg: "#161616",
+            summaryTriggerBorder: "#52525b",
+            summaryTriggerBg: "#1f2937",
+            summaryTriggerText: "#e5e7eb",
+            panelBorder: "#3f3f46",
+            panelBg: "#111111",
+            panelTitle: "#f3f4f6",
+            panelClose: "#9ca3af",
+            panelMutedText: "#9ca3af",
+            uploadWellBorder: "#475569",
+            uploadWellBg: "#161616",
+            uploadWellTitle: "#e5e7eb",
+            uploadBtnBorder: "#52525b",
+            uploadBtnBg: "#1f2937",
+            uploadBtnText: "#e5e7eb",
+            uploadBtnDisabledText: "#6b7280",
+            uploadMetaText: "#94a3b8",
+            uploadRowText: "#cbd5e1",
+            uploadRowBg: "#1f2937",
+            uploadRowBorder: "#374151",
+            tokenText: "#2dd4bf",
+            shotCardBorder: "#3f3f46",
+            shotCardBg: "#18181b",
+            shotCardTitle: "#f3f4f6",
+            inputBorder: "#52525b",
+            inputBg: "#111827",
+            inputText: "#e5e7eb",
+            durationLabel: "#d1d5db",
+            durationUnit: "#9ca3af",
+            addBtnBorder: "#52525b",
+            addBtnBg: "#1f2937",
+            addBtnText: "#e5e7eb",
+            addBtnDisabledText: "#6b7280",
+            matchedText: "#34d399",
+            warningText: "#f59e0b",
+            dangerText: "#f87171",
+          }
+        : {
+            modeLabel: "#6b7280",
+            modeBtnBorder: "#e5e7eb",
+            modeBtnBg: "#fff",
+            modeBtnText: "#111827",
+            modeBtnActiveBg: "#0f766e",
+            modeBtnActiveText: "#fff",
+            summaryBorder: "#d1d5db",
+            summaryBg: "#f9fafb",
+            summaryTriggerBorder: "#d1d5db",
+            summaryTriggerBg: "#fff",
+            summaryTriggerText: "#111827",
+            panelBorder: "#d1d5db",
+            panelBg: "#ffffff",
+            panelTitle: "#111827",
+            panelClose: "#6b7280",
+            panelMutedText: "#6b7280",
+            uploadWellBorder: "#cbd5e1",
+            uploadWellBg: "#f8fafc",
+            uploadWellTitle: "#0f172a",
+            uploadBtnBorder: "#d1d5db",
+            uploadBtnBg: "#fff",
+            uploadBtnText: "#111827",
+            uploadBtnDisabledText: "#9ca3af",
+            uploadMetaText: "#475569",
+            uploadRowText: "#334155",
+            uploadRowBg: "#fff",
+            uploadRowBorder: "#e2e8f0",
+            tokenText: "#0f766e",
+            shotCardBorder: "#e5e7eb",
+            shotCardBg: "#fff",
+            shotCardTitle: "#111827",
+            inputBorder: "#d1d5db",
+            inputBg: "#fff",
+            inputText: "#111827",
+            durationLabel: "#374151",
+            durationUnit: "#6b7280",
+            addBtnBorder: "#d1d5db",
+            addBtnBg: "#fff",
+            addBtnText: "#111827",
+            addBtnDisabledText: "#9ca3af",
+            matchedText: "#047857",
+            warningText: "#b45309",
+            dangerText: "#dc2626",
+          },
+    [isFlowDark]
+  );
 
   const videoRefTypeOptions = [
     { label: lt("视频参考", "Video reference"), value: "feature", desc: lt("保留风格/节奏/镜头感", "Keep style/rhythm/camera feel") },
@@ -1628,7 +1725,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
 
       {isTencentRoute && (
         <div style={{ marginBottom: 8, position: "relative" }}>
-          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+          <div style={{ fontSize: 12, color: storyboardPanelTheme.modeLabel, marginBottom: 4 }}>
             {lt("分镜模式", "Storyboard")}
           </div>
           <div style={{ display: "flex", gap: 6 }}>
@@ -1643,9 +1740,13 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                     flex: 1,
                     padding: "6px 8px",
                     borderRadius: 8,
-                    border: "1px solid #e5e7eb",
-                    background: isActive ? "#0f766e" : "#fff",
-                    color: isActive ? "#fff" : "#111827",
+                    border: `1px solid ${storyboardPanelTheme.modeBtnBorder}`,
+                    background: isActive
+                      ? storyboardPanelTheme.modeBtnActiveBg
+                      : storyboardPanelTheme.modeBtnBg,
+                    color: isActive
+                      ? storyboardPanelTheme.modeBtnActiveText
+                      : storyboardPanelTheme.modeBtnText,
                     fontSize: 12,
                     cursor: "pointer",
                   }}
@@ -1662,8 +1763,8 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                 marginTop: 6,
                 padding: "6px 8px",
                 borderRadius: 8,
-                border: "1px solid #d1d5db",
-                background: "#f9fafb",
+                border: `1px solid ${storyboardPanelTheme.summaryBorder}`,
+                background: storyboardPanelTheme.summaryBg,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
@@ -1676,12 +1777,12 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                 onClick={() => setShowStoryboardPanel((open) => !open)}
                 onMouseDown={(event) => event.stopPropagation()}
                 style={{
-                  border: "1px solid #d1d5db",
-                  background: "#fff",
+                  border: `1px solid ${storyboardPanelTheme.summaryTriggerBorder}`,
+                  background: storyboardPanelTheme.summaryTriggerBg,
                   borderRadius: 8,
                   padding: "4px 10px",
                   fontSize: 12,
-                  color: "#111827",
+                  color: storyboardPanelTheme.summaryTriggerText,
                   cursor: "pointer",
                   whiteSpace: "nowrap",
                 }}
@@ -1693,7 +1794,9 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
               <span
                 style={{
                   fontSize: 11,
-                  color: isStoryboardDurationMatched ? "#047857" : "#dc2626",
+                  color: isStoryboardDurationMatched
+                    ? storyboardPanelTheme.matchedText
+                    : storyboardPanelTheme.dangerText,
                   fontWeight: 600,
                 }}
               >
@@ -1715,11 +1818,13 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                 top: 0,
                 width: 360,
                 zIndex: 60,
-                border: "1px solid #d1d5db",
+                border: `1px solid ${storyboardPanelTheme.panelBorder}`,
                 borderRadius: 10,
                 padding: 10,
-                background: "#ffffff",
-                boxShadow: "0 12px 26px rgba(15,23,42,0.18)",
+                background: storyboardPanelTheme.panelBg,
+                boxShadow: isFlowDark
+                  ? "0 12px 26px rgba(0,0,0,0.5)"
+                  : "0 12px 26px rgba(15,23,42,0.18)",
               }}
             >
               <div
@@ -1730,7 +1835,13 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                   marginBottom: 6,
                 }}
               >
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>
+                <div
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: storyboardPanelTheme.panelTitle,
+                  }}
+                >
                   {lt("腾讯自定义分镜", "Tencent Storyboard")}
                 </div>
                 <button
@@ -1739,7 +1850,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                   style={{
                     border: "none",
                     background: "transparent",
-                    color: "#6b7280",
+                    color: storyboardPanelTheme.panelClose,
                     fontSize: 16,
                     lineHeight: 1,
                     cursor: "pointer",
@@ -1749,7 +1860,14 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                   ×
                 </button>
               </div>
-              <div style={{ marginBottom: 8, fontSize: 11, color: "#6b7280", lineHeight: 1.45 }}>
+              <div
+                style={{
+                  marginBottom: 8,
+                  fontSize: 11,
+                  color: storyboardPanelTheme.panelMutedText,
+                  lineHeight: 1.45,
+                }}
+              >
                 {lt(
                   "输入限制：图片仅支持 jpg/jpeg/png 且不超过 10MB。参考视频仅支持 mp4/mov/avi，时长 3-10 秒且不超过 100MB。",
                   "Limits: image jpg/jpeg/png <=10MB; video mp4/mov/avi, 3-10s, <=100MB."
@@ -1759,12 +1877,19 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                 style={{
                   marginBottom: 10,
                   padding: 8,
-                  border: "1px dashed #cbd5e1",
+                  border: `1px dashed ${storyboardPanelTheme.uploadWellBorder}`,
                   borderRadius: 8,
-                  background: "#f8fafc",
+                  background: storyboardPanelTheme.uploadWellBg,
                 }}
               >
-                <div style={{ fontSize: 12, color: "#0f172a", fontWeight: 600, marginBottom: 4 }}>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: storyboardPanelTheme.uploadWellTitle,
+                    fontWeight: 600,
+                    marginBottom: 4,
+                  }}
+                >
                   {lt("参考素材上传（可选）", "Reference uploads (optional)")}
                 </div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
@@ -1774,12 +1899,15 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                     onMouseDown={(event) => event.stopPropagation()}
                     disabled={storyboardUploading !== null}
                     style={{
-                      border: "1px solid #d1d5db",
-                      background: "#fff",
+                      border: `1px solid ${storyboardPanelTheme.uploadBtnBorder}`,
+                      background: storyboardPanelTheme.uploadBtnBg,
                       borderRadius: 8,
                       padding: "4px 8px",
                       fontSize: 12,
-                      color: storyboardUploading !== null ? "#9ca3af" : "#111827",
+                      color:
+                        storyboardUploading !== null
+                          ? storyboardPanelTheme.uploadBtnDisabledText
+                          : storyboardPanelTheme.uploadBtnText,
                       cursor: storyboardUploading !== null ? "not-allowed" : "pointer",
                     }}
                   >
@@ -1793,12 +1921,15 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                     onMouseDown={(event) => event.stopPropagation()}
                     disabled={storyboardUploading !== null}
                     style={{
-                      border: "1px solid #d1d5db",
-                      background: "#fff",
+                      border: `1px solid ${storyboardPanelTheme.uploadBtnBorder}`,
+                      background: storyboardPanelTheme.uploadBtnBg,
                       borderRadius: 8,
                       padding: "4px 8px",
                       fontSize: 12,
-                      color: storyboardUploading !== null ? "#9ca3af" : "#111827",
+                      color:
+                        storyboardUploading !== null
+                          ? storyboardPanelTheme.uploadBtnDisabledText
+                          : storyboardPanelTheme.uploadBtnText,
                       cursor: storyboardUploading !== null ? "not-allowed" : "pointer",
                     }}
                   >
@@ -1807,7 +1938,13 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                       : lt("上传参考视频", "Upload video")}
                   </button>
                 </div>
-                <div style={{ fontSize: 11, color: "#475569", marginBottom: 4 }}>
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: storyboardPanelTheme.uploadMetaText,
+                    marginBottom: 4,
+                  }}
+                >
                   {lt(
                     `已上传图片 ${uploadedStoryboardImages.length}/${storyboardImageLimit}`,
                     `Uploaded images ${uploadedStoryboardImages.length}/${storyboardImageLimit}`
@@ -1824,9 +1961,9 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                           justifyContent: "space-between",
                           gap: 8,
                           fontSize: 11,
-                          color: "#334155",
-                          background: "#fff",
-                          border: "1px solid #e2e8f0",
+                          color: storyboardPanelTheme.uploadRowText,
+                          background: storyboardPanelTheme.uploadRowBg,
+                          border: `1px solid ${storyboardPanelTheme.uploadRowBorder}`,
                           borderRadius: 6,
                           padding: "4px 6px",
                         }}
@@ -1835,14 +1972,16 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                           {(item.name || `image_${index + 1}`).slice(0, 40)}
                         </span>
                         <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                          <span style={{ color: "#0f766e" }}>{`<<<image_${totalImageCount + index + 1}>>>`}</span>
+                          <span style={{ color: storyboardPanelTheme.tokenText }}>
+                            {`<<<image_${totalImageCount + index + 1}>>>`}
+                          </span>
                           <button
                             type="button"
                             onClick={() => handleRemoveUploadedStoryboardImage(index)}
                             style={{
                               border: "none",
                               background: "transparent",
-                              color: "#dc2626",
+                              color: storyboardPanelTheme.dangerText,
                               cursor: "pointer",
                               fontSize: 12,
                               padding: 0,
@@ -1863,9 +2002,9 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                       justifyContent: "space-between",
                       gap: 8,
                       fontSize: 11,
-                      color: "#334155",
-                      background: "#fff",
-                      border: "1px solid #e2e8f0",
+                      color: storyboardPanelTheme.uploadRowText,
+                      background: storyboardPanelTheme.uploadRowBg,
+                      border: `1px solid ${storyboardPanelTheme.uploadRowBorder}`,
                       borderRadius: 6,
                       padding: "4px 6px",
                       marginBottom: 6,
@@ -1878,14 +2017,14 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                         : ""}
                     </span>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                      <span style={{ color: "#0f766e" }}>{`<<<video_1>>>`}</span>
+                      <span style={{ color: storyboardPanelTheme.tokenText }}>{`<<<video_1>>>`}</span>
                       <button
                         type="button"
                         onClick={handleClearUploadedStoryboardVideo}
                         style={{
                           border: "none",
                           background: "transparent",
-                          color: "#dc2626",
+                          color: storyboardPanelTheme.dangerText,
                           cursor: "pointer",
                           fontSize: 12,
                           padding: 0,
@@ -1897,7 +2036,14 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                   </div>
                 )}
                 {hasEdgeVideoInput && uploadedStoryboardVideo?.url && (
-                  <div style={{ fontSize: 11, color: "#b45309", lineHeight: 1.4, marginBottom: 4 }}>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: storyboardPanelTheme.warningText,
+                      lineHeight: 1.4,
+                      marginBottom: 4,
+                    }}
+                  >
                     {lt(
                       "当前已连接 video 句柄，运行时优先使用连线视频。",
                       "Video handle is connected; edge video takes priority at runtime."
@@ -1905,7 +2051,13 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                   </div>
                 )}
                 {storyboardUploadError && (
-                  <div style={{ fontSize: 11, color: "#dc2626", lineHeight: 1.4 }}>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: storyboardPanelTheme.dangerText,
+                      lineHeight: 1.4,
+                    }}
+                  >
                     {storyboardUploadError}
                   </div>
                 )}
@@ -1930,9 +2082,9 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                   <div
                     key={`storyboard-shot-${index}`}
                     style={{
-                      border: "1px solid #e5e7eb",
+                      border: `1px solid ${storyboardPanelTheme.shotCardBorder}`,
                       borderRadius: 8,
-                      background: "#fff",
+                      background: storyboardPanelTheme.shotCardBg,
                       padding: 8,
                     }}
                   >
@@ -1944,7 +2096,13 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                         marginBottom: 6,
                       }}
                     >
-                      <span style={{ fontSize: 12, color: "#111827", fontWeight: 600 }}>
+                      <span
+                        style={{
+                          fontSize: 12,
+                          color: storyboardPanelTheme.shotCardTitle,
+                          fontWeight: 600,
+                        }}
+                      >
                         {lt(`镜头 ${index + 1}`, `Shot ${index + 1}`)}
                       </span>
                       <button
@@ -1954,7 +2112,10 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                         style={{
                           border: "none",
                           background: "transparent",
-                          color: storyboardShots.length <= 1 ? "#9ca3af" : "#dc2626",
+                          color:
+                            storyboardShots.length <= 1
+                              ? storyboardPanelTheme.addBtnDisabledText
+                              : storyboardPanelTheme.dangerText,
                           fontSize: 12,
                           cursor: storyboardShots.length <= 1 ? "not-allowed" : "pointer",
                         }}
@@ -1972,16 +2133,18 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                         width: "100%",
                         minHeight: 56,
                         resize: "vertical",
-                        border: "1px solid #d1d5db",
+                        border: `1px solid ${storyboardPanelTheme.inputBorder}`,
                         borderRadius: 8,
                         padding: "6px 8px",
                         fontSize: 12,
                         lineHeight: 1.4,
                         outline: "none",
+                        background: storyboardPanelTheme.inputBg,
+                        color: storyboardPanelTheme.inputText,
                       }}
                     />
                     <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 12, color: "#374151" }}>{lt("时长", "Duration")}</span>
+                      <span style={{ fontSize: 12, color: storyboardPanelTheme.durationLabel }}>{lt("时长", "Duration")}</span>
                       <input
                         type="number"
                         min={1}
@@ -1993,14 +2156,16 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                         }
                         style={{
                           width: 80,
-                          border: "1px solid #d1d5db",
+                          border: `1px solid ${storyboardPanelTheme.inputBorder}`,
                           borderRadius: 8,
                           padding: "4px 8px",
                           fontSize: 12,
                           outline: "none",
+                          background: storyboardPanelTheme.inputBg,
+                          color: storyboardPanelTheme.inputText,
                         }}
                       />
-                      <span style={{ fontSize: 12, color: "#6b7280" }}>{lt("秒", "s")}</span>
+                      <span style={{ fontSize: 12, color: storyboardPanelTheme.durationUnit }}>{lt("秒", "s")}</span>
                     </div>
                   </div>
                 ))}
@@ -2019,12 +2184,15 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                   onClick={handleAddStoryboardShot}
                   disabled={storyboardShots.length >= MAX_STORYBOARD_SHOTS}
                   style={{
-                    border: "1px solid #d1d5db",
-                    background: "#fff",
+                    border: `1px solid ${storyboardPanelTheme.addBtnBorder}`,
+                    background: storyboardPanelTheme.addBtnBg,
                     borderRadius: 8,
                     padding: "4px 8px",
                     fontSize: 12,
-                    color: storyboardShots.length >= MAX_STORYBOARD_SHOTS ? "#9ca3af" : "#111827",
+                    color:
+                      storyboardShots.length >= MAX_STORYBOARD_SHOTS
+                        ? storyboardPanelTheme.addBtnDisabledText
+                        : storyboardPanelTheme.addBtnText,
                     cursor: storyboardShots.length >= MAX_STORYBOARD_SHOTS ? "not-allowed" : "pointer",
                   }}
                 >
@@ -2033,7 +2201,9 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                 <span
                   style={{
                     fontSize: 11,
-                    color: isStoryboardDurationMatched ? "#047857" : "#dc2626",
+                    color: isStoryboardDurationMatched
+                      ? storyboardPanelTheme.matchedText
+                      : storyboardPanelTheme.dangerText,
                     fontWeight: 600,
                   }}
                 >
@@ -2044,7 +2214,14 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                 </span>
               </div>
               {!isStoryboardDurationMatched && (
-                <div style={{ marginTop: 6, fontSize: 11, color: "#dc2626", lineHeight: 1.45 }}>
+                <div
+                  style={{
+                    marginTop: 6,
+                    fontSize: 11,
+                    color: storyboardPanelTheme.dangerText,
+                    lineHeight: 1.45,
+                  }}
+                >
                   {lt(
                     "分镜总时长必须等于当前节点时长，否则无法提交。",
                     "Total shot duration must match the node duration."
