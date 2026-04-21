@@ -3,7 +3,7 @@
 import React from "react";
 import { Handle, Position, useReactFlow, useStore, type ReactFlowState } from "reactflow";
 import { NodeResizeControl } from "@reactflow/node-resizer";
-import { Send as SendIcon } from "lucide-react";
+import { Send as SendIcon, Shield, ShieldCheck, ShieldAlert, Loader2 } from "lucide-react";
 import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
 import SmartImage from "../../ui/SmartImage";
 import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
@@ -29,6 +29,8 @@ import { useLocaleText } from "@/utils/localeText";
 import { resolveFlowNodeSendAnchorClient } from "../utils/flowNodeSendAnchor";
 import { useFlowRenderMode } from "../FlowRenderModeContext";
 import { flowLetterboxBackground, useFlowNodeDarkTheme } from "./flowNodeDarkTheme";
+import { uploadVolcAsset, type VolcAssetStatus } from "@/services/volcAssetAPI";
+import { useVolcAssetPolling } from "@/hooks/useVolcAssetPolling";
 
 const RESIZE_EDGE_THICKNESS = 8;
 
@@ -1006,6 +1008,59 @@ function ImageNodeInner({ id, data, selected }: Props) {
   const shouldShowImageName = Boolean(data.imageData && truncatedImageName);
   const canSend = Boolean(canvasCrop?.src || displaySrc || fullSrc);
 
+  // ── Volc Asset Library audit state ──────────────────────────────────────────
+  const volcAssetId: string | undefined = (data as any)?.volcAssetId;
+  const volcAssetStatus: VolcAssetStatus | undefined = (data as any)?.volcAssetStatus;
+  const volcAssetError: string | undefined = (data as any)?.volcAssetError;
+
+  const patchNode = React.useCallback((patch: Record<string, any>) => {
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: { id, patch },
+      })
+    );
+  }, [id]);
+
+  useVolcAssetPolling({
+    assetId: volcAssetId,
+    status: volcAssetStatus,
+    onUpdate: ({ status, errorMessage }) => {
+      patchNode({ volcAssetStatus: status, volcAssetError: errorMessage });
+    },
+  });
+
+  const handleReviewClick = React.useCallback(async () => {
+    // Use data.imageUrl — the persistable OSS URL (primary source field for this node)
+    const sourceUrl: string | undefined = typeof data.imageUrl === "string" && data.imageUrl.trim()
+      ? data.imageUrl.trim()
+      : undefined;
+    if (!sourceUrl) {
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: "请先上传图片再送审", type: "warning" },
+        })
+      );
+      return;
+    }
+    if (volcAssetStatus === "processing" || volcAssetStatus === "active") return;
+    patchNode({ volcAssetStatus: "processing", volcAssetError: undefined });
+    try {
+      const r = await uploadVolcAsset(sourceUrl);
+      patchNode({
+        volcAssetId: r.assetId,
+        volcAssetStatus: r.status,
+        volcAssetError: r.errorMessage,
+      });
+    } catch (err: any) {
+      patchNode({
+        volcAssetId: undefined,
+        volcAssetStatus: "failed",
+        volcAssetError: err?.message || "上传失败",
+      });
+    }
+  }, [data.imageUrl, volcAssetStatus, patchNode]);
+  // ────────────────────────────────────────────────────────────────────────────
+
   React.useEffect(() => {
     setNodeLabel(normalizedNodeLabel);
     if (!isEditingNodeLabel) {
@@ -1382,6 +1437,10 @@ function ImageNodeInner({ id, data, selected }: Props) {
               uploading: false,
               uploadError: undefined,
               uploadToken: undefined,
+              // Clear volc audit state when source image changes
+              volcAssetId: undefined,
+              volcAssetStatus: undefined,
+              volcAssetError: undefined,
             },
           },
         })
@@ -1546,6 +1605,32 @@ function ImageNodeInner({ id, data, selected }: Props) {
           </div>
         )}
         <div style={{ display: "flex", gap: 6 }}>
+          <button
+            type="button"
+            onClick={handleReviewClick}
+            title={
+              volcAssetStatus === "active" ? "已通过审核，sd2 将使用 asset://"
+              : volcAssetStatus === "processing" ? "审核中…"
+              : volcAssetStatus === "failed" ? (volcAssetError || "审核失败，点击重试")
+              : "点击上传到方舟素材库"
+            }
+            disabled={volcAssetStatus === "processing" || volcAssetStatus === "active"}
+            className="inline-flex items-center justify-center p-1 rounded hover:bg-black/5 disabled:cursor-default"
+            style={{
+              fontSize: 12,
+              padding: "4px 8px",
+              borderRadius: 6,
+              border: "1px solid #e5e7eb",
+              background: "#fff",
+              cursor: (volcAssetStatus === "processing" || volcAssetStatus === "active") ? "not-allowed" : "pointer",
+              pointerEvents: "auto",
+            }}
+          >
+            {volcAssetStatus === "active" ? <ShieldCheck size={14} className="text-green-600" />
+             : volcAssetStatus === "processing" ? <Loader2 size={14} className="animate-spin text-amber-500" />
+             : volcAssetStatus === "failed" ? <ShieldAlert size={14} className="text-red-500" />
+             : <Shield size={14} className="text-gray-400" />}
+          </button>
           <button
             onClick={handleSendToCanvas}
             disabled={!canSend}
