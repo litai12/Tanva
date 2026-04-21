@@ -1,5 +1,13 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsArray, IsBoolean, IsEnum, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
+
+export type ReferenceImageItem =
+  | string
+  | {
+      url: string;
+      volcAssetId?: string;
+      volcAssetStatus?: 'processing' | 'active' | 'failed';
+    };
 
 export class VideoProviderRequestDto {
   @ApiProperty({ description: 'Provider' })
@@ -23,8 +31,8 @@ export class VideoProviderRequestDto {
 
   @ApiProperty({ description: 'Reference image URL list', required: false, type: [String] })
   @IsOptional()
-  @IsString({ each: true })
-  referenceImages?: string[];
+  @IsArray()
+  referenceImages?: ReferenceImageItem[];
 
   @ApiProperty({ description: 'Audio URL list', required: false, type: [String] })
   @IsOptional()

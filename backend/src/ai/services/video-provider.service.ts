@@ -6,6 +6,7 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { VideoProviderRequestDto } from "../dto/video-provider.dto";
+import type { ReferenceImageItem } from "../dto/video-provider.dto";
 import { OssService } from "../../oss/oss.service";
 import { Readable } from "node:stream";
 import { TencentVodAigcService } from "./tencent-vod-aigc.service";
@@ -523,14 +524,15 @@ export class VideoProviderService {
     }
   }
 
-  private async prepareViduReferenceImages(referenceImages?: string[]): Promise<string[]> {
+  private async prepareViduReferenceImages(referenceImages?: ReferenceImageItem[]): Promise<string[]> {
     if (!Array.isArray(referenceImages) || referenceImages.length === 0) {
       return [];
     }
 
     const output: string[] = [];
     for (const image of referenceImages) {
-      const trimmed = typeof image === "string" ? image.trim() : "";
+      const raw = typeof image === "string" ? image : image.url;
+      const trimmed = typeof raw === "string" ? raw.trim() : "";
       if (!trimmed) continue;
       const normalized = await this.uploadBase64ImageToOSS(trimmed);
       output.push(normalized);
@@ -1078,15 +1080,19 @@ export class VideoProviderService {
     options: VideoProviderRequestDto,
     route: ResolvedManagedModelRoute,
   ) {
-    const referenceImages = Array.isArray(options.referenceImages)
-      ? (
-          await Promise.all(
-            options.referenceImages
-              .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-              .map((item) => this.uploadBase64ImageToOSS(item))
-          )
-        ).filter(Boolean)
+    // Object items (volc asset references) are passed through as-is; string items go through OSS upload.
+    const rawItems: ReferenceImageItem[] = Array.isArray(options.referenceImages)
+      ? (options.referenceImages as ReferenceImageItem[])
       : [];
+    const stringItems = rawItems.filter(
+      (item): item is string => typeof item === "string" && item.trim().length > 0,
+    );
+    const objectItems = rawItems.filter(
+      (item): item is Exclude<ReferenceImageItem, string> => typeof item !== "string",
+    );
+    const uploadedStringUrls: string[] = (
+      await Promise.all(stringItems.map((item) => this.uploadBase64ImageToOSS(item)))
+    ).filter(Boolean) as string[];
 
     const promptText = this.buildManagedV2PromptText(options);
     const referenceVideos = this.normalizeManagedV2ReferenceVideos(options);
@@ -1102,10 +1108,27 @@ export class VideoProviderService {
       content.push({ type: "text", text: promptText });
     }
 
-    for (const imageUrl of referenceImages) {
+    // String items: already resolved to HTTPS URLs via OSS upload
+    for (const imageUrl of uploadedStringUrls) {
       content.push({
         type: "image_url",
         image_url: { url: imageUrl },
+        role: "reference_image",
+      });
+    }
+
+    // Object items: apply asset:// substitution for sd2 active assets, fallback to HTTPS URL
+    const isSeedance20 = modelKey === "seedance-2.0" || modelKey === "seedance-2.0-fast";
+    for (const item of objectItems) {
+      let url: string;
+      if (isSeedance20 && item.volcAssetStatus === "active" && item.volcAssetId) {
+        url = `asset://${item.volcAssetId}`;
+      } else {
+        url = item.url;
+      }
+      content.push({
+        type: "image_url",
+        image_url: { url },
         role: "reference_image",
       });
     }
@@ -1137,8 +1160,8 @@ export class VideoProviderService {
           modelKey.startsWith("seedance-")
             ? resolveSeedanceUpstreamModelId(this.resolveManagedSeedanceModel(options).modelVersion)
             : undefined,
-        referenceImages,
-        referenceImage: referenceImages[0] || "",
+        referenceImages: uploadedStringUrls,
+        referenceImage: uploadedStringUrls[0] || "",
         referenceVideos,
         referenceVideo: referenceVideos[0] || "",
         audioUrls: referenceAudios,
@@ -1220,6 +1243,7 @@ export class VideoProviderService {
   ): TencentVodAigcCreateVideoTaskRequest {
     const normalizedImages = Array.isArray(options.referenceImages)
       ? options.referenceImages
+          .map((item) => typeof item === "string" ? item : item.url)
           .map((item) => this.normalizeManagedAssetUrlForUpstream(item))
           .filter((item) => typeof item === "string" && item.trim().length > 0)
       : [];
@@ -1298,6 +1322,7 @@ export class VideoProviderService {
   ): TencentVodAigcCreateVideoTaskRequest {
     const normalizedImages = Array.isArray(options.referenceImages)
       ? options.referenceImages
+          .map((item) => typeof item === "string" ? item : item.url)
           .map((item) => this.normalizeManagedAssetUrlForUpstream(item))
           .filter((item) => typeof item === "string" && item.trim().length > 0)
       : [];
@@ -1880,6 +1905,7 @@ export class VideoProviderService {
 
     const normalizedImages = Array.isArray(options.referenceImages)
       ? options.referenceImages
+          .map((item) => typeof item === "string" ? item : item.url)
           .map((item) => this.normalizeManagedAssetUrlForUpstream(item))
           .filter((item) => typeof item === "string" && item.trim().length > 0)
       : [];
@@ -2153,23 +2179,42 @@ export class VideoProviderService {
       content.push({ type: "text", text: promptText });
     }
 
-    // 处理参考图片：如果是 base64，先上传到 OSS
+    // 处理参考图片：如果是 base64，先上传到 OSS；volc asset 对象在 sd2 时使用 asset:// 协议
     if (options.referenceImages && options.referenceImages.length > 0) {
-      const imageUrls = (
-        await Promise.all(
-          options.referenceImages
-            .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-            .map((item) => this.uploadBase64ImageToOSS(item))
-        )
-      ).filter(Boolean);
+      const rawItems = options.referenceImages as ReferenceImageItem[];
+      const stringItems = rawItems.filter(
+        (item): item is string => typeof item === "string" && item.trim().length > 0,
+      );
+      const objectItems = rawItems.filter(
+        (item): item is Exclude<ReferenceImageItem, string> => typeof item !== "string",
+      );
 
-      for (const imageUrl of imageUrls) {
+      const uploadedStringUrls: string[] = (
+        await Promise.all(stringItems.map((item) => this.uploadBase64ImageToOSS(item)))
+      ).filter(Boolean) as string[];
+
+      for (const imageUrl of uploadedStringUrls) {
         content.push({
           type: "image_url",
           image_url: { url: imageUrl },
           role: "reference_image",
         });
         this.logger.log(`📸 Seedance 参考图片已处理: ${imageUrl.substring(0, 100)}...`);
+      }
+
+      for (const item of objectItems) {
+        let url: string;
+        if (isSeedance2Model && item.volcAssetStatus === "active" && item.volcAssetId) {
+          url = `asset://${item.volcAssetId}`;
+        } else {
+          url = item.url;
+        }
+        content.push({
+          type: "image_url",
+          image_url: { url },
+          role: "reference_image",
+        });
+        this.logger.log(`📸 Seedance 参考图片 (asset/url): ${url.substring(0, 100)}`);
       }
     }
 
@@ -2348,18 +2393,21 @@ export class VideoProviderService {
       }
       payload.prompt = options.prompt;
     } else if (videoMode === "image2video") {
-      payload.image = await this.uploadBase64ImageToOSS(options.referenceImages![0]);
+      const img0 = options.referenceImages![0];
+      payload.image = await this.uploadBase64ImageToOSS(typeof img0 === "string" ? img0 : img0.url);
       if (options.prompt) {
         payload.prompt = options.prompt;
       }
     } else if (videoMode === "image2video-tail") {
-      payload.image = await this.uploadBase64ImageToOSS(options.referenceImages![0]);
-      payload.image_tail = await this.uploadBase64ImageToOSS(options.referenceImages![1]);
+      const img0 = options.referenceImages![0];
+      const img1 = options.referenceImages![1];
+      payload.image = await this.uploadBase64ImageToOSS(typeof img0 === "string" ? img0 : img0.url);
+      payload.image_tail = await this.uploadBase64ImageToOSS(typeof img1 === "string" ? img1 : img1.url);
       payload.prompt = options.prompt || KLING_DEFAULT_REFERENCE_PROMPT;
     } else if (videoMode === "multi-image2video") {
       payload.model_name = "kling-v1-6";
       const imageUrls = await Promise.all(
-        options.referenceImages!.slice(0, 4).map(img => this.uploadBase64ImageToOSS(img))
+        options.referenceImages!.slice(0, 4).map(img => this.uploadBase64ImageToOSS(typeof img === "string" ? img : img.url))
       );
       payload.image_list = imageUrls.map(url => ({ image: url }));
       payload.prompt = options.prompt || KLING_DEFAULT_REFERENCE_PROMPT;
@@ -2632,20 +2680,23 @@ export class VideoProviderService {
       }
       payload.prompt = options.prompt;
     } else if (videoMode === "image2video") {
-      payload.image = await this.uploadBase64ImageToOSS(options.referenceImages![0]);
+      const img0 = options.referenceImages![0];
+      payload.image = await this.uploadBase64ImageToOSS(typeof img0 === "string" ? img0 : img0.url);
       if (options.prompt) {
         payload.prompt = options.prompt;
       }
     } else if (videoMode === "image2video-tail") {
-      payload.image = await this.uploadBase64ImageToOSS(options.referenceImages![0]);
-      payload.image_tail = await this.uploadBase64ImageToOSS(options.referenceImages![1]);
+      const img0 = options.referenceImages![0];
+      const img1 = options.referenceImages![1];
+      payload.image = await this.uploadBase64ImageToOSS(typeof img0 === "string" ? img0 : img0.url);
+      payload.image_tail = await this.uploadBase64ImageToOSS(typeof img1 === "string" ? img1 : img1.url);
       payload.prompt = options.prompt || KLING_DEFAULT_REFERENCE_PROMPT;
       // 首尾帧模式不支持音效，且 kling-v2-6/std 不支持 image_tail，必须用 pro
       payload.mode = "pro";
       payload.sound = "off";
     } else if (videoMode === "multi-image2video") {
       const imageUrls = await Promise.all(
-        options.referenceImages!.slice(0, 4).map(img => this.uploadBase64ImageToOSS(img))
+        options.referenceImages!.slice(0, 4).map(img => this.uploadBase64ImageToOSS(typeof img === "string" ? img : img.url))
       );
       payload.image_list = imageUrls.map(url => ({ image: url }));
       payload.prompt = options.prompt || KLING_DEFAULT_REFERENCE_PROMPT;
@@ -3063,7 +3114,8 @@ export class VideoProviderService {
     if (imageCount > 0) {
       const imageList: any[] = [];
       for (let i = 0; i < Math.min(imageCount, 7); i++) {
-        const imgUrl = await this.uploadBase64ImageToOSS(options.referenceImages![i]);
+        const imgRaw = options.referenceImages![i];
+        const imgUrl = await this.uploadBase64ImageToOSS(typeof imgRaw === "string" ? imgRaw : imgRaw.url);
         const imgItem: any = { image_url: imgUrl };
         // 只有在无视频输入时，才可以设置首尾帧
         if (!hasVideo) {
