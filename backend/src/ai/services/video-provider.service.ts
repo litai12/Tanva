@@ -532,12 +532,31 @@ export class VideoProviderService {
     const output: string[] = [];
     for (const image of referenceImages) {
       const raw = typeof image === "string" ? image : image.url;
-      const trimmed = typeof raw === "string" ? raw.trim() : "";
+      const trimmed = raw.trim();
       if (!trimmed) continue;
       const normalized = await this.uploadBase64ImageToOSS(trimmed);
       output.push(normalized);
     }
     return output;
+  }
+
+  private async splitAndUploadReferenceImages(
+    referenceImages: ReferenceImageItem[] | undefined,
+  ): Promise<{
+    uploadedStringUrls: string[];
+    objectItems: Array<Exclude<ReferenceImageItem, string>>;
+  }> {
+    const rawItems = Array.isArray(referenceImages) ? referenceImages : [];
+    const stringItems = rawItems.filter(
+      (item): item is string => typeof item === "string" && item.trim().length > 0,
+    );
+    const objectItems = rawItems.filter(
+      (item): item is Exclude<ReferenceImageItem, string> => typeof item !== "string",
+    );
+    const uploadedStringUrls = (
+      await Promise.all(stringItems.map((item) => this.uploadBase64ImageToOSS(item)))
+    ).filter(Boolean) as string[];
+    return { uploadedStringUrls, objectItems };
   }
 
   private summarizeImageHosts(images: string[]): string {
@@ -1081,18 +1100,7 @@ export class VideoProviderService {
     route: ResolvedManagedModelRoute,
   ) {
     // Object items (volc asset references) are passed through as-is; string items go through OSS upload.
-    const rawItems: ReferenceImageItem[] = Array.isArray(options.referenceImages)
-      ? (options.referenceImages as ReferenceImageItem[])
-      : [];
-    const stringItems = rawItems.filter(
-      (item): item is string => typeof item === "string" && item.trim().length > 0,
-    );
-    const objectItems = rawItems.filter(
-      (item): item is Exclude<ReferenceImageItem, string> => typeof item !== "string",
-    );
-    const uploadedStringUrls: string[] = (
-      await Promise.all(stringItems.map((item) => this.uploadBase64ImageToOSS(item)))
-    ).filter(Boolean) as string[];
+    const { uploadedStringUrls, objectItems } = await this.splitAndUploadReferenceImages(options.referenceImages);
 
     const promptText = this.buildManagedV2PromptText(options);
     const referenceVideos = this.normalizeManagedV2ReferenceVideos(options);
@@ -1149,6 +1157,13 @@ export class VideoProviderService {
       });
     }
 
+    const objectItemUrls = objectItems.map((item) =>
+      isSeedance20 && item.volcAssetStatus === "active" && item.volcAssetId
+        ? `asset://${item.volcAssetId}`
+        : item.url,
+    );
+    const allResolvedUrls = [...uploadedStringUrls, ...objectItemUrls];
+
     const transport = String(route.vendor?.metadata?.requestProfile?.transport || "").trim();
     const baseContext: Record<string, any> = {
       request: {
@@ -1160,8 +1175,8 @@ export class VideoProviderService {
           modelKey.startsWith("seedance-")
             ? resolveSeedanceUpstreamModelId(this.resolveManagedSeedanceModel(options).modelVersion)
             : undefined,
-        referenceImages: uploadedStringUrls,
-        referenceImage: uploadedStringUrls[0] || "",
+        referenceImages: allResolvedUrls,
+        referenceImage: allResolvedUrls[0] || "",
         referenceVideos,
         referenceVideo: referenceVideos[0] || "",
         audioUrls: referenceAudios,
@@ -2180,42 +2195,30 @@ export class VideoProviderService {
     }
 
     // 处理参考图片：如果是 base64，先上传到 OSS；volc asset 对象在 sd2 时使用 asset:// 协议
-    if (options.referenceImages && options.referenceImages.length > 0) {
-      const rawItems = options.referenceImages as ReferenceImageItem[];
-      const stringItems = rawItems.filter(
-        (item): item is string => typeof item === "string" && item.trim().length > 0,
-      );
-      const objectItems = rawItems.filter(
-        (item): item is Exclude<ReferenceImageItem, string> => typeof item !== "string",
-      );
+    const { uploadedStringUrls, objectItems } = await this.splitAndUploadReferenceImages(options.referenceImages);
 
-      const uploadedStringUrls: string[] = (
-        await Promise.all(stringItems.map((item) => this.uploadBase64ImageToOSS(item)))
-      ).filter(Boolean) as string[];
+    for (const imageUrl of uploadedStringUrls) {
+      content.push({
+        type: "image_url",
+        image_url: { url: imageUrl },
+        role: "reference_image",
+      });
+      this.logger.log(`📸 Seedance 参考图片已处理: ${imageUrl.substring(0, 100)}...`);
+    }
 
-      for (const imageUrl of uploadedStringUrls) {
-        content.push({
-          type: "image_url",
-          image_url: { url: imageUrl },
-          role: "reference_image",
-        });
-        this.logger.log(`📸 Seedance 参考图片已处理: ${imageUrl.substring(0, 100)}...`);
+    for (const item of objectItems) {
+      let url: string;
+      if (isSeedance2Model && item.volcAssetStatus === "active" && item.volcAssetId) {
+        url = `asset://${item.volcAssetId}`;
+      } else {
+        url = item.url;
       }
-
-      for (const item of objectItems) {
-        let url: string;
-        if (isSeedance2Model && item.volcAssetStatus === "active" && item.volcAssetId) {
-          url = `asset://${item.volcAssetId}`;
-        } else {
-          url = item.url;
-        }
-        content.push({
-          type: "image_url",
-          image_url: { url },
-          role: "reference_image",
-        });
-        this.logger.log(`📸 Seedance 参考图片 (asset/url): ${url.substring(0, 100)}`);
-      }
+      content.push({
+        type: "image_url",
+        image_url: { url },
+        role: "reference_image",
+      });
+      this.logger.log(`📸 Seedance 参考图片 (asset/url): ${url.substring(0, 100)}`);
     }
 
     for (const videoUrl of referenceVideos) {
