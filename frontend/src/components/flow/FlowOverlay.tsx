@@ -14652,13 +14652,49 @@ function FlowInner() {
             return;
           }
 
+          // Seedance 2.0 / 2.0-fast: enrich referenceImages with volcAssetId/Status
+          // pulled from the source image node's data, so the backend can replace
+          // `image_url.url` with `asset://<volcAssetId>` when volcAssetStatus === 'active'.
+          const seedance20ReferenceImages:
+            | Array<{
+                url: string;
+                volcAssetId?: string;
+                volcAssetStatus?: "processing" | "active" | "failed";
+              }>
+            | undefined =
+            isSeedanceNode && isSeedance20Request && referenceImageUrls.length > 0
+              ? referenceImageUrls.map((url, idx) => {
+                  const sourceEdge = imageEdges[idx];
+                  const sourceNode = sourceEdge
+                    ? rf.getNode(sourceEdge.source)
+                    : undefined;
+                  const sourceData = (sourceNode?.data as any) || {};
+                  const volcAssetId =
+                    typeof sourceData.volcAssetId === "string" && sourceData.volcAssetId.length > 0
+                      ? sourceData.volcAssetId
+                      : undefined;
+                  const rawVolcStatus = sourceData.volcAssetStatus;
+                  const volcAssetStatus =
+                    rawVolcStatus === "processing" ||
+                    rawVolcStatus === "active" ||
+                    rawVolcStatus === "failed"
+                      ? (rawVolcStatus as "processing" | "active" | "failed")
+                      : undefined;
+                  return { url, volcAssetId, volcAssetStatus };
+                })
+              : undefined;
+
           const requestPayload =
             provider === "doubao"
               ? {
                   ...managedRoutePayload,
                   prompt: finalPrompt || undefined,
                   referenceImages:
-                    referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
+                    seedance20ReferenceImages !== undefined
+                      ? seedance20ReferenceImages
+                      : referenceImageUrls.length > 0
+                      ? referenceImageUrls
+                      : undefined,
                   referenceVideos:
                     referenceVideoUrls.length > 0 ? referenceVideoUrls : undefined,
                   audioUrls:
