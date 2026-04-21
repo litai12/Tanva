@@ -1623,7 +1623,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
               volcAssetStatus === "active" ? "已通过审核，sd2 将使用 asset://"
               : volcAssetStatus === "processing" ? "审核中…"
               : volcAssetStatus === "failed" ? (volcAssetError || "审核失败，点击重试")
-              : "点击上传到方舟素材库";
+              : "审核通过可用于sd2";
             return (
           <button
             type="button"
