@@ -1029,6 +1029,19 @@ function ImageNodeInner({ id, data, selected }: Props) {
     },
   });
 
+  // Recover stuck "processing" state with no assetId — means the upload request
+  // was interrupted (refresh / crash / network drop) before the server replied.
+  // Runs once on mount; in-flight uploads set state AFTER mount so won't trigger.
+  React.useEffect(() => {
+    if (volcAssetStatus === "processing" && !volcAssetId) {
+      patchNode({
+        volcAssetStatus: "failed",
+        volcAssetError: "上传中断，请重试",
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleReviewClick = React.useCallback(async () => {
     // Use data.imageUrl — the persistable OSS URL (primary source field for this node)
     const sourceUrl: string | undefined = typeof data.imageUrl === "string" && data.imageUrl.trim()
