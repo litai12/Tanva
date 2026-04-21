@@ -26,6 +26,12 @@ export const useNodeInternalsSync = (
       }
       rafRef.current = requestAnimationFrame(() => {
         rafRef.current = null;
+        if (
+          typeof document !== "undefined" &&
+          document.body?.classList.contains("tanva-flow-node-dragging")
+        ) {
+          return;
+        }
         updateNodeInternals(id);
       });
     });
@@ -42,4 +48,3 @@ export const useNodeInternalsSync = (
 };
 
 export default useNodeInternalsSync;
-

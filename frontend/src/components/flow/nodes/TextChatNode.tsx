@@ -286,6 +286,12 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     const observer = new ResizeObserver(() => {
       if (rafId) cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
+        if (
+          typeof document !== 'undefined' &&
+          document.body?.classList.contains('tanva-flow-node-dragging')
+        ) {
+          return;
+        }
         updateNodeInternals(id);
       });
     });

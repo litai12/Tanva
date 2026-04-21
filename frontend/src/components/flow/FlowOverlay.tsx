@@ -225,6 +225,7 @@ const FLOW_AUTO_VISIBLE_RENDER_NODE_THRESHOLD = 31;
 const FLOW_AUTO_DISABLE_SNAP_NODE_THRESHOLD = 51;
 const FLOW_AUTO_DISABLE_SNAP_EDGE_THRESHOLD = 81;
 const FLOW_RENDER_SNAP_GUIDES_WHILE_DRAGGING = false;
+const FLOW_DISABLE_SNAP_DURING_NODE_DRAG = true;
 const FLOW_AUTO_HIDE_MINIMAP_IMAGE_OVERLAY_NODE_THRESHOLD = 81;
 const FLOW_LOW_DETAIL_NODE_THRESHOLD = 31;
 const FLOW_LOW_DETAIL_ENTER_ZOOM = 0.4;
@@ -3549,6 +3550,12 @@ function FlowInner() {
   const applyFlowSnappingToChanges = React.useCallback(
     (changes: any[]) => {
       if (!Array.isArray(changes) || changes.length === 0) return changes;
+      if (FLOW_DISABLE_SNAP_DURING_NODE_DRAG && nodeDraggingRef.current) {
+        if (flowSnapSignatureRef.current) {
+          updateFlowSnapAlignments([]);
+        }
+        return changes;
+      }
       const hasDraggingPositionChange = changes.some(
         (change) => change?.type === "position" && change?.dragging
       );
@@ -3760,7 +3767,11 @@ function FlowInner() {
         }
       }
 
-      if (Array.isArray(processedChanges) && processedChanges.length > 0) {
+      if (
+        draggingGroupNodeRef.current &&
+        Array.isArray(processedChanges) &&
+        processedChanges.length > 0
+      ) {
         try {
           const currentNodes = (rfRef.current.getNodes?.() || []) as RFNode[];
           if (currentNodes.length) {
@@ -4615,6 +4626,7 @@ function FlowInner() {
   const hydratingFromStoreRef = React.useRef(false);
   const lastSyncedJSONRef = React.useRef<string | null>(null);
   const nodeDraggingRef = React.useRef(false);
+  const draggingGroupNodeRef = React.useRef(false);
   const [isNodeDragging, setIsNodeDragging] = React.useState(false);
   const commitTimerRef = React.useRef<number | null>(null);
 
@@ -19039,6 +19051,12 @@ function FlowInner() {
     },
     [edges, collapsedChildToGroupId, edgeColorMode, isFlowLowDetailMode]
   );
+  const edgesForInteraction = React.useMemo(() => {
+    if (!isNodeDragging) {
+      return edgesForRender;
+    }
+    return draggingGroupNodeRef.current ? edgesForRender : [];
+  }, [edgesForRender, isNodeDragging]);
 
   // 简单的全局调试API，便于从控制台添加节点
   React.useEffect(() => {
@@ -20388,7 +20406,7 @@ function FlowInner() {
         {FlowToolbar}
         <ReactFlow
         nodes={nodesForRender}
-        edges={edgesForRender}
+        edges={edgesForInteraction}
         onNodesChange={onNodesChangeWithHistory}
         onEdgesChange={onEdgesChangeWithHistory}
         defaultViewport={initialViewport}
@@ -20398,6 +20416,9 @@ function FlowInner() {
           const allNodes = rf.getNodes();
           const selectedNodes = allNodes.filter(
             (n: any) => n.selected || n.id === node.id
+          );
+          draggingGroupNodeRef.current = selectedNodes.some(
+            (n: any) => isGroupNode(n) || Boolean((n as any).parentId)
           );
           // 检测 Alt 键是否按下
           const altPressed = event.altKey;
@@ -20506,6 +20527,7 @@ function FlowInner() {
         }}
         onNodeDragStop={(event, node) => {
           nodeDraggingRef.current = false;
+          draggingGroupNodeRef.current = false;
           setIsNodeDragging(false);
           clearFlowSnapState();
 
