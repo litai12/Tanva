@@ -3790,6 +3790,15 @@ export const useAIChatStore = create<AIChatState>()(
                 console.warn(
                   "⚠️ [generateImage] 没有可用的图像源，无法显示到画布"
                 );
+                const noImageSourceError =
+                  "生成成功但未获取到可渲染图片资源，请重试";
+                if (aiMessageId) {
+                  get().updateMessageStatus(aiMessageId, {
+                    isGenerating: false,
+                    progress: 0,
+                    error: noImageSourceError,
+                  });
+                }
                 removePredictivePlaceholder();
                 return;
               }
@@ -4504,6 +4513,15 @@ export const useAIChatStore = create<AIChatState>()(
 
               if (!placementImageData) {
                 console.warn("⚠️ [editImage] 没有可用的图像源，无法显示到画布");
+                const noImageSourceError =
+                  "编辑成功但未获取到可渲染图片资源，请重试";
+                if (aiMessageId) {
+                  get().updateMessageStatus(aiMessageId, {
+                    isGenerating: false,
+                    progress: 0,
+                    error: noImageSourceError,
+                  });
+                }
                 removePredictivePlaceholder();
                 return;
               }
@@ -5239,6 +5257,15 @@ export const useAIChatStore = create<AIChatState>()(
                 console.warn(
                   "⚠️ [blendImages] 没有可用的图像源，无法显示到画布"
                 );
+                const noImageSourceError =
+                  "融合成功但未获取到可渲染图片资源，请重试";
+                if (aiMessageId) {
+                  get().updateMessageStatus(aiMessageId, {
+                    isGenerating: false,
+                    progress: 0,
+                    error: noImageSourceError,
+                  });
+                }
                 removePredictivePlaceholder();
                 return;
               }

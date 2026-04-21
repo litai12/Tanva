@@ -28,6 +28,7 @@
 
 ## 注意事项
 - `generate-image` 在上游仅返回外链 `imageUrl`（如 Seedream/Nano2）时，会统一下载并转存 OSS 后返回稳定 URL；管理员/白名单只跳过水印，不再直返第三方临时链接。
+- 图像同步接口（`generate-image` / `edit-image` / `blend-images`）现要求“成功响应必须包含可用图像载荷（`imageData` 或 `imageUrl`）”；若上游出现 `HTTP 200` 但空图返回，接口会按失败处理并进入积分失败/退款路径，避免假成功扣分。
 - Seedream5 supports system setting key seedream5_provider (doubao / watcha), defaulting to doubao when missing.
 - Watcha Seedream channel env vars: WATCHA_SEEDREAM_API_KEY, optional WATCHA_SEEDREAM_ENDPOINT, optional WATCHA_SEEDREAM_MODEL.
 - Tencent route for `kling-2.6` uses official start-end mapping: first frame goes to `FileInfos` (`Usage=FirstFrame`) and tail frame goes to `LastFrameUrl`; non-start-end reference images use `Usage=Reference`.

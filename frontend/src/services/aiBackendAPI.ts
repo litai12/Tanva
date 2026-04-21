@@ -418,15 +418,32 @@ async function performGenerateImageRequest(
       }
     );
 
-    // 构建返回结果
+    const mapped = mapBackendImageResult({
+      data,
+      prompt: requestWithRoute.prompt,
+      model: resolvedModel,
+      outputFormat: requestWithRoute.outputFormat || "png",
+    });
+    if (!mapped.hasImage || (!mapped.imageData && !mapped.imageUrl)) {
+      return {
+        success: false,
+        error: {
+          code: "NO_IMAGE_PAYLOAD",
+          message:
+            typeof data?.textResponse === "string" && data.textResponse.trim().length > 0
+              ? `generate-image returned no image payload: ${data.textResponse.trim()}`
+              : "generate-image succeeded but returned no image payload",
+          details: {
+            endpoint: "generate-image",
+          },
+          timestamp: new Date(),
+        },
+      };
+    }
+
     return {
       success: true,
-      data: mapBackendImageResult({
-        data,
-        prompt: requestWithRoute.prompt,
-        model: resolvedModel,
-        outputFormat: requestWithRoute.outputFormat || "png",
-      }),
+      data: mapped,
     };
   } catch (error) {
     return {
@@ -605,14 +622,32 @@ async function performEditImageRequest(
       }
     );
 
+    const mapped = mapBackendImageResult({
+      data,
+      prompt: requestWithRoute.prompt,
+      model: resolvedModel,
+      outputFormat: requestWithRoute.outputFormat || "png",
+    });
+    if (!mapped.hasImage || (!mapped.imageData && !mapped.imageUrl)) {
+      return {
+        success: false,
+        error: {
+          code: "NO_IMAGE_PAYLOAD",
+          message:
+            typeof data?.textResponse === "string" && data.textResponse.trim().length > 0
+              ? `edit-image returned no image payload: ${data.textResponse.trim()}`
+              : "edit-image succeeded but returned no image payload",
+          details: {
+            endpoint: "edit-image",
+          },
+          timestamp: new Date(),
+        },
+      };
+    }
+
     return {
       success: true,
-      data: mapBackendImageResult({
-        data,
-        prompt: requestWithRoute.prompt,
-        model: resolvedModel,
-        outputFormat: requestWithRoute.outputFormat || "png",
-      }),
+      data: mapped,
     };
   } catch (error) {
     return {
@@ -773,14 +808,32 @@ async function performBlendImagesRequest(
       }
     );
 
+    const mapped = mapBackendImageResult({
+      data,
+      prompt: requestWithRoute.prompt,
+      model: resolvedModel,
+      outputFormat: requestWithRoute.outputFormat || "png",
+    });
+    if (!mapped.hasImage || (!mapped.imageData && !mapped.imageUrl)) {
+      return {
+        success: false,
+        error: {
+          code: "NO_IMAGE_PAYLOAD",
+          message:
+            typeof data?.textResponse === "string" && data.textResponse.trim().length > 0
+              ? `blend-images returned no image payload: ${data.textResponse.trim()}`
+              : "blend-images succeeded but returned no image payload",
+          details: {
+            endpoint: "blend-images",
+          },
+          timestamp: new Date(),
+        },
+      };
+    }
+
     return {
       success: true,
-      data: mapBackendImageResult({
-        data,
-        prompt: requestWithRoute.prompt,
-        model: resolvedModel,
-        outputFormat: requestWithRoute.outputFormat || "png",
-      }),
+      data: mapped,
     };
   } catch (error) {
     return {

@@ -5700,6 +5700,17 @@ function FlowInner() {
     onlyRenderVisibleElements || isLargeGraphForVisibleRendering;
   const canEnableLowDetailMode = nodes.length >= FLOW_LOW_DETAIL_NODE_THRESHOLD;
   const [isFlowLowDetailMode, setIsFlowLowDetailMode] = React.useState(false);
+  const hasRunningFlowNode = React.useMemo(
+    () =>
+      nodes.some((node) => {
+        const data = (node as any)?.data;
+        if (!data || typeof data !== "object") return false;
+        const status =
+          typeof data.status === "string" ? data.status.toLowerCase() : "";
+        return status === "running" || data.groupRunning === true;
+      }),
+    [nodes]
+  );
 
   React.useEffect(() => {
     const zoom =
@@ -5712,12 +5723,14 @@ function FlowInner() {
       return zoom <= FLOW_LOW_DETAIL_ENTER_ZOOM;
     });
   }, [canEnableLowDetailMode, canvasZoom]);
+  const effectiveFlowLowDetailMode =
+    isFlowLowDetailMode && !hasRunningFlowNode;
 
   const flowRenderModeValue = React.useMemo<FlowRenderMode>(
     () => ({
-      lowDetailMode: isFlowLowDetailMode,
+      lowDetailMode: effectiveFlowLowDetailMode,
     }),
-    [isFlowLowDetailMode]
+    [effectiveFlowLowDetailMode]
   );
 
   const [dragFps, setDragFps] = React.useState<number>(0);
@@ -19025,7 +19038,7 @@ function FlowInner() {
 
   const edgesForRender = React.useMemo(
     () => {
-      if (isFlowLowDetailMode) return [];
+      if (effectiveFlowLowDetailMode) return [];
       const mapped: Edge[] = [];
       edges.forEach((edge) => {
         const sourceGroupId = collapsedChildToGroupId.get(edge.source);
@@ -19102,7 +19115,7 @@ function FlowInner() {
       });
       return mapped;
     },
-    [edges, collapsedChildToGroupId, edgeColorMode, isFlowLowDetailMode]
+    [edges, collapsedChildToGroupId, edgeColorMode, effectiveFlowLowDetailMode]
   );
   const edgesForInteraction = React.useMemo(
     () => edgesForRender,
@@ -19717,7 +19730,7 @@ function FlowInner() {
             大图模式已自动关闭 MiniMap 图片层
           </span>
         )}
-        {isFlowLowDetailMode && (
+        {effectiveFlowLowDetailMode && (
           <span style={{ fontSize: 12, color: "#4b5563" }}>
             低缩放已隐藏连线与 MiniMap（节点 UI 保留）
           </span>
@@ -20449,7 +20462,7 @@ function FlowInner() {
         } ${
           isPointerMode ? "pointer-mode" : ""
         } ${isMarqueeMode ? "marquee-mode" : ""} ${
-          isFlowLowDetailMode ? "low-detail-mode" : ""
+          effectiveFlowLowDetailMode ? "low-detail-mode" : ""
         }`}
         onDoubleClick={handleContainerDoubleClick}
         onPointerDownCapture={() => clipboardService.setActiveZone("flow")}
@@ -20637,7 +20650,7 @@ function FlowInner() {
         selectionOnDrag={isPointerMode}
         selectNodesOnDrag={!isPointerMode}
         nodesDraggable={true}
-        nodesConnectable={!isPointerMode && !isFlowLowDetailMode}
+        nodesConnectable={!isPointerMode && !effectiveFlowLowDetailMode}
         multiSelectionKeyCode={isPointerMode ? null : ["Meta", "Control"]}
         selectionKeyCode={isPointerMode ? null : null}
         deleteKeyCode={["Backspace", "Delete"]}
@@ -20659,7 +20672,7 @@ function FlowInner() {
             style={{ opacity: backgroundOpacity }}
           />
         )}
-        {!isFlowLowDetailMode && (
+        {!effectiveFlowLowDetailMode && (
           <>
             {/* 视口由 Canvas 驱动，禁用 MiniMap 交互避免竞态 */}
             <MiniMap pannable={false} zoomable={false} />
@@ -20669,7 +20682,7 @@ function FlowInner() {
         )}
       </ReactFlow>
 
-      {!isFlowLowDetailMode && flowSnapAlignments.length > 0 && (
+      {!effectiveFlowLowDetailMode && flowSnapAlignments.length > 0 && (
         <svg className='tanva-flow-snap-guides' aria-hidden='true'>
           {flowSnapAlignments.map((alignment, index) => {
             const zoom = Math.max(0.1, Number(flowSnapViewport.zoom) || 1);

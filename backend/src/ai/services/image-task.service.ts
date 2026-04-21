@@ -384,6 +384,10 @@ export class ImageTaskService {
               ? result.imageData
               : '';
 
+          if (!taskImagePayload) {
+            throw new BadGatewayException('Image task succeeded but no image payload returned');
+          }
+
           let persistedImageUrl: string | null = null;
           let persistedThumbnailUrl: string | null = null;
           if (taskImagePayload) {

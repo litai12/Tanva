@@ -696,6 +696,33 @@ export class AiController {
     return value as Record<string, any>;
   }
 
+  private hasNonEmptyString(value: unknown): value is string {
+    return typeof value === 'string' && value.trim().length > 0;
+  }
+
+  private hasNonEmptyStringInList(value: unknown): boolean {
+    return Array.isArray(value) && value.some((item) => this.hasNonEmptyString(item));
+  }
+
+  private hasImagePayload(result: unknown): boolean {
+    const payload = this.asRecord(result);
+    if (!payload) return false;
+    const metadata = this.asRecord(payload.metadata);
+
+    if (this.hasNonEmptyString(payload.imageData)) return true;
+    if (this.hasNonEmptyString(payload.imageUrl)) return true;
+    if (this.hasNonEmptyStringInList(payload.imageUrls)) return true;
+    if (this.hasNonEmptyStringInList(payload.images)) return true;
+
+    if (!metadata) return false;
+    if (this.hasNonEmptyString(metadata.imageData)) return true;
+    if (this.hasNonEmptyString(metadata.imageUrl)) return true;
+    if (this.hasNonEmptyStringInList(metadata.imageUrls)) return true;
+    if (this.hasNonEmptyStringInList(metadata.images)) return true;
+
+    return false;
+  }
+
   private extractExecutionChannel(result: unknown): string | null {
     const payload = this.asRecord(result);
     if (!payload) return null;
@@ -1108,6 +1135,8 @@ export class AiController {
       treatReturnedFailureAsError?: boolean;
       /** 为 true 时不将本次调用标为成功（保持 pending），用于异步任务后续由前端确认失败并退款 */
       skipFinalizeSuccessIf?: (result: T) => boolean;
+      /** 对 success=true 的返回体做额外校验，校验失败时按失败处理并退款 */
+      validateSuccessResult?: (result: T) => boolean | { ok: boolean; message?: string };
       /** 在创建积分流水后透出 apiUsageId，便于异步链路追加 telemetry 关联字段 */
       onApiUsageId?: (apiUsageId: string) => void;
     },
@@ -1180,6 +1209,21 @@ export class AiController {
               ? errPayload.code
               : '操作失败';
         throw new BadRequestException(msg);
+      }
+
+      const validateOutcome = creditOptions?.validateSuccessResult?.(result);
+      if (validateOutcome !== undefined) {
+        const normalized =
+          typeof validateOutcome === 'boolean'
+            ? { ok: validateOutcome, message: undefined }
+            : validateOutcome;
+        if (!normalized?.ok) {
+          const message =
+            typeof normalized?.message === 'string' && normalized.message.trim().length > 0
+              ? normalized.message.trim()
+              : 'Operation succeeded but response payload is invalid';
+          throw new BadGatewayException(message);
+        }
       }
 
       const executionChannel = this.extractExecutionChannel(result);
@@ -2476,7 +2520,12 @@ export class AiController {
         imageSize: dto.imageSize,
         aspectRatio: dto.aspectRatio,
         ...this.buildRequestPromptAndImageParams(dto.prompt, normalizedImageUrlsForProvider),
-      }, dto.providerOptions));
+      }, dto.providerOptions), {
+        validateSuccessResult: (payload) => ({
+          ok: this.hasImagePayload(payload),
+          message: 'Image generation succeeded but no image payload returned',
+        }),
+      });
 
       void this.telemetryService.ingestGenerationTask({
         traceId,
@@ -2734,7 +2783,12 @@ export class AiController {
           dto.sourceImageUrl,
           dto.sourceImage && /^https?:\/\//i.test(dto.sourceImage) ? dto.sourceImage : undefined,
         ]),
-      }, dto.providerOptions));
+      }, dto.providerOptions), {
+        validateSuccessResult: (payload) => ({
+          ok: this.hasImagePayload(payload),
+          message: 'Image edit succeeded but no image payload returned',
+        }),
+      });
 
       void this.telemetryService.ingestGenerationTask({
         traceId,
@@ -2974,7 +3028,12 @@ export class AiController {
           ...(Array.isArray(dto.sourceImageUrls) ? dto.sourceImageUrls : []),
           ...(Array.isArray(dto.sourceImages) ? dto.sourceImages : []),
         ]),
-      }, dto.providerOptions));
+      }, dto.providerOptions), {
+        validateSuccessResult: (payload) => ({
+          ok: this.hasImagePayload(payload),
+          message: 'Image blend succeeded but no image payload returned',
+        }),
+      });
 
       void this.telemetryService.ingestGenerationTask({
         traceId,
