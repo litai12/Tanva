@@ -3360,9 +3360,9 @@ const AIChatDialog: React.FC = () => {
                       align='start'
                       side={dropdownSide}
                       sideOffset={8}
-                      className='dropdown-menu-root min-w-[220px] rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md'
+                      className='dropdown-menu-root min-w-[220px] rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md dark:!border-slate-200 dark:!bg-white/95'
                     >
-                      <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
+                      <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400 dark:!text-slate-400'>
                         {t("chat.labels.quickSwitchModel")}
                       </DropdownMenuLabel>
                       {providerToggleOptions.map((option) => {
@@ -3391,20 +3391,20 @@ const AIChatDialog: React.FC = () => {
                             className={cn(
                               "flex items-start gap-2 px-3 py-2 text-xs",
                               isActive
-                                ? "bg-gray-100 text-gray-800"
-                                : "text-slate-600"
+                                ? "bg-gray-100 text-gray-800 dark:!bg-gray-100 dark:!text-gray-800"
+                                : "text-slate-600 hover:bg-gray-100 dark:!text-slate-600 dark:hover:!bg-gray-100"
                             )}
                           >
                             <div className='flex-1 space-y-0.5'>
                               <div className='font-medium leading-none'>
                                 {option.label}
                               </div>
-                              <div className='text-[11px] text-slate-400 leading-snug'>
+                              <div className='text-[11px] text-slate-400 leading-snug dark:!text-slate-400'>
                                 {option.description}
                               </div>
                             </div>
                             {isActive && (
-                              <Check className='h-3.5 w-3.5 text-white' />
+                              <Check className='h-3.5 w-3.5 text-slate-700 dark:!text-slate-700' />
                             )}
                           </DropdownMenuItem>
                         );

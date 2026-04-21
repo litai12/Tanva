@@ -606,9 +606,9 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
                 align='start'
                 side='bottom'
                 sideOffset={8}
-                className='min-w-[200px] rounded-xl border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md'
+                className='min-w-[200px] rounded-xl border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md dark:!border-slate-200 dark:!bg-white/95'
               >
-                <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
+                <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400 dark:!text-slate-400'>
                   {lt('模型切换', 'Model switch')}
                 </DropdownMenuLabel>
                 {providerToggleOptions.map((option) => {
@@ -628,14 +628,16 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
                       }}
                       onPointerDownCapture={stopFlowPan}
                       className={`flex items-start gap-2 rounded-lg px-3 py-2 text-xs ${
-                        isActive ? 'bg-gray-100 text-gray-800' : 'text-slate-600'
+                        isActive
+                          ? 'bg-gray-100 text-gray-800 dark:!bg-gray-100 dark:!text-gray-800'
+                          : 'text-slate-600 hover:bg-gray-100 dark:!text-slate-600 dark:hover:!bg-gray-100'
                       }`}
                     >
                       <div className='flex-1 space-y-0.5'>
                         <div className='font-medium leading-none'>{option.label}</div>
-                        <div className='text-[11px] leading-snug text-slate-400'>{option.description}</div>
+                        <div className='text-[11px] leading-snug text-slate-400 dark:!text-slate-400'>{option.description}</div>
                       </div>
-                      {isActive && <Check className='h-3.5 w-3.5 text-slate-700' />}
+                      {isActive && <Check className='h-3.5 w-3.5 text-slate-700 dark:!text-slate-700' />}
                     </DropdownMenuItem>
                   );
                 })}

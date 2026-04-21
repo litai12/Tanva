@@ -3171,6 +3171,14 @@ function FlowInner() {
   const { lt, isZh } = useLocaleText();
   const [nodes, setNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const nodesRef = React.useRef<RFNode[]>([]);
+  const edgesRef = React.useRef<Edge[]>([]);
+  React.useEffect(() => {
+    nodesRef.current = nodes as RFNode[];
+  }, [nodes]);
+  React.useEffect(() => {
+    edgesRef.current = edges as Edge[];
+  }, [edges]);
   // Alt+拖拽复制相关状态（在 onNodesChange 中做位置重映射，让“副本在动、原节点不动”）
   const altDragStartRef = React.useRef<any>(null);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
@@ -19051,12 +19059,10 @@ function FlowInner() {
     },
     [edges, collapsedChildToGroupId, edgeColorMode, isFlowLowDetailMode]
   );
-  const edgesForInteraction = React.useMemo(() => {
-    if (!isNodeDragging) {
-      return edgesForRender;
-    }
-    return draggingGroupNodeRef.current ? edgesForRender : [];
-  }, [edgesForRender, isNodeDragging]);
+  const edgesForInteraction = React.useMemo(
+    () => edgesForRender,
+    [edgesForRender]
+  );
 
   // 简单的全局调试API，便于从控制台添加节点
   React.useEffect(() => {
@@ -20542,8 +20548,8 @@ function FlowInner() {
             } catch {}
 
             // 提交到项目内容
-            const ns = rfNodesToTplNodes((rf.getNodes?.() || nodes) as any);
-            const es = rfEdgesToTplEdges(rf.getEdges?.() || edges);
+            const ns = rfNodesToTplNodes(nodesRef.current as any);
+            const es = rfEdgesToTplEdges(edgesRef.current);
             scheduleCommit(ns, es);
 
             // 不要立刻清理：ReactFlow 可能会在 dragStop 之后再派发一次 position(dragging:false)，
@@ -20562,8 +20568,8 @@ function FlowInner() {
           altDragStartRef.current = null;
 
           // 普通拖拽：提交位置变化
-          const ns = rfNodesToTplNodes((rf.getNodes?.() || nodes) as any);
-          const es = rfEdgesToTplEdges(rf.getEdges?.() || edges);
+          const ns = rfNodesToTplNodes(nodesRef.current as any);
+          const es = rfEdgesToTplEdges(edgesRef.current);
           scheduleCommit(ns, es);
           syncViewportToCanvasStore();
         }}

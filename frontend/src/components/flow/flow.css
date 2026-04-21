@@ -208,13 +208,6 @@ body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__edge.selected .react
   stroke-width: 1.8px !important;
 }
 
-body.tanva-flow-node-dragging .tanva-flow-overlay .react-flow__edge,
-body.tanva-flow-node-dragging .tanva-flow-overlay .react-flow__edge *,
-body.tanva-flow-node-dragging .tanva-flow-overlay .react-flow__handle,
-body.tanva-flow-node-dragging .tanva-flow-overlay .react-flow__handle * {
-  pointer-events: none !important;
-}
-
 .tanva-flow-snap-guides {
   position: absolute;
   inset: 0;
