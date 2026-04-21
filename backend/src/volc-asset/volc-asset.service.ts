@@ -1,0 +1,150 @@
+// backend/src/volc-asset/volc-asset.service.ts
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { signVolcRequest } from './volc-sign.util';
+import type { VolcAssetStatus } from './volc-asset.dto';
+
+interface VolcEnv {
+  accessKey: string;
+  secretKey: string;
+  region: string;
+  service: string;
+  host: string;
+  projectName: string;
+  version: string;
+}
+
+interface CreateAssetGroupResp {
+  Id?: string;
+  ResponseMetadata?: { Error?: { Message?: string; Code?: string } };
+}
+interface CreateAssetResp {
+  Id?: string;
+  ResponseMetadata?: { Error?: { Message?: string; Code?: string } };
+}
+interface GetAssetResp {
+  Status?: 'Processing' | 'Active' | 'Failed';
+  ResponseMetadata?: { Error?: { Message?: string; Code?: string } };
+}
+
+@Injectable()
+export class VolcAssetService implements OnModuleInit {
+  private readonly logger = new Logger(VolcAssetService.name);
+  private env!: VolcEnv;
+  private readonly groupCache = new Map<string, string>();
+
+  constructor(private readonly config: ConfigService) {}
+
+  onModuleInit() {
+    this.env = {
+      accessKey: (this.config.get<string>('VOLC_ARK_ACCESS_KEY') || '').trim(),
+      secretKey: (this.config.get<string>('VOLC_ARK_SECRET_KEY') || '').trim(),
+      region: (this.config.get<string>('VOLC_ARK_REGION') || 'cn-beijing').trim(),
+      service: 'ark',
+      host: (this.config.get<string>('VOLC_ARK_API_HOST') || 'open.volcengineapi.com').trim(),
+      projectName: (this.config.get<string>('VOLC_ARK_PROJECT_NAME') || 'default').trim(),
+      version: '2024-01-01',
+    };
+    if (!this.env.accessKey || !this.env.secretKey) {
+      this.logger.warn(
+        'VOLC_ARK_ACCESS_KEY / VOLC_ARK_SECRET_KEY 未配置，VolcAsset 能力不可用。',
+      );
+    }
+  }
+
+  private normalizeStatus(s?: string): VolcAssetStatus {
+    const u = (s || '').toLowerCase();
+    if (u === 'active') return 'active';
+    if (u === 'failed') return 'failed';
+    return 'processing';
+  }
+
+  private async call<T>(action: string, body: Record<string, any>): Promise<T> {
+    if (!this.env.accessKey || !this.env.secretKey) {
+      throw new Error('Volc asset access key not configured');
+    }
+    const jsonBody = JSON.stringify(body);
+    const signed = signVolcRequest({
+      accessKey: this.env.accessKey,
+      secretKey: this.env.secretKey,
+      region: this.env.region,
+      service: this.env.service,
+      host: this.env.host,
+      method: 'POST',
+      action,
+      version: this.env.version,
+      body: jsonBody,
+    });
+    // Node/undici fetch ignores (and warns about) `Host`; remove before sending.
+    const { Host: _host, ...fetchHeaders } = signed.headers;
+    const resp = await fetch(signed.url, {
+      method: 'POST',
+      headers: fetchHeaders,
+      body: jsonBody,
+    });
+    const text = await resp.text();
+    let parsed: any;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      throw new Error(`Volc ${action} bad response: ${text.slice(0, 200)}`);
+    }
+    const err = parsed?.ResponseMetadata?.Error;
+    if (err?.Code) {
+      throw new Error(`Volc ${action} error [${err.Code}]: ${err.Message || 'unknown'}`);
+    }
+    return parsed as T;
+  }
+
+  async ensureUserGroup(userId: string): Promise<string> {
+    const cached = this.groupCache.get(userId);
+    if (cached) return cached;
+    const resp = await this.call<CreateAssetGroupResp>('CreateAssetGroup', {
+      Name: `tanva-user-${userId}`,
+      Description: `Auto-created group for Tanva user ${userId}`,
+      GroupType: 'AIGC',
+      ProjectName: this.env.projectName,
+    });
+    const groupId = resp?.Id;
+    if (!groupId) throw new Error('Volc CreateAssetGroup: empty Id');
+    this.groupCache.set(userId, groupId);
+    return groupId;
+  }
+
+  invalidateUserGroup(userId: string) {
+    this.groupCache.delete(userId);
+  }
+
+  async uploadAsset(
+    userId: string,
+    sourceUrl: string,
+    assetType: 'image',
+  ): Promise<{ assetId: string; status: VolcAssetStatus; errorMessage?: string }> {
+    const groupId = await this.ensureUserGroup(userId);
+    const resp = await this.call<CreateAssetResp>('CreateAsset', {
+      GroupId: groupId,
+      URL: sourceUrl,
+      AssetType: assetType === 'image' ? 'Image' : 'Image',
+      ProjectName: this.env.projectName,
+    });
+    if (!resp?.Id) throw new Error('Volc CreateAsset: empty Id');
+    const initial = await this.getAssetStatus(resp.Id).catch(() => ({
+      status: 'processing' as VolcAssetStatus,
+      errorMessage: undefined,
+    }));
+    return { assetId: resp.Id, status: initial.status, errorMessage: initial.errorMessage };
+  }
+
+  async getAssetStatus(
+    assetId: string,
+  ): Promise<{ status: VolcAssetStatus; errorMessage?: string }> {
+    const resp = await this.call<GetAssetResp>('GetAsset', {
+      Id: assetId,
+      ProjectName: this.env.projectName,
+    });
+    return {
+      status: this.normalizeStatus(resp?.Status),
+      errorMessage: undefined,
+    };
+  }
+}
