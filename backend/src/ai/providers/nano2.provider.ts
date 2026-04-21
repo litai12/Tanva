@@ -42,8 +42,8 @@ export class Nano2Provider implements IAIProvider {
     this.logger.log(`Nano2 task submitted: ${result.taskId}`);
 
     // 2. 轮询等待任务完成
-    const maxAttempts = 120; // 最多轮询 120 次
-    const pollInterval = 3000; // 每 3 秒轮询一次，总计最长 6 分钟
+    const maxAttempts = 300; // 最多轮询 300 次
+    const pollInterval = 3000; // 每 3 秒轮询一次，总计最长约 15 分钟
 
     // 初始等待 10 秒，让任务有时间开始处理
     await new Promise((resolve) => setTimeout(resolve, 10000));

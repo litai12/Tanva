@@ -95,14 +95,14 @@ export class BananaProvider implements IAIProvider {
   private readonly DEFAULT_MODEL = "gemini-3-pro-image-preview";
   private readonly DEFAULT_TEXT_MODEL = "gemini-3.1-pro-preview";
   private readonly DEFAULT_APIMART_TEXT_MODEL = "gemini-3.1-pro-preview";
-  private readonly DEFAULT_TIMEOUT = 300000; // 5分钟
+  private readonly DEFAULT_TIMEOUT = 900000; // 15分钟
   private readonly TEXT_TIMEOUT = 45000; // 文本接口更快失败，便于通道快速切换
   private readonly MAX_RETRIES = 3;
   private readonly MAX_MODEL_ATTEMPTS = 3; // 主模型 + 两级降级（Ultra -> Pro -> Fast）
   private readonly RETRY_DELAYS = [2000, 5000, 10000]; // 递增延迟: 2s, 5s, 10s
   private readonly APIMART_INITIAL_DELAY_MS = 8000;
   private readonly APIMART_POLL_INTERVAL_MS = 3000;
-  private readonly APIMART_POLL_MAX_ATTEMPTS = 120;
+  private readonly APIMART_POLL_MAX_ATTEMPTS = 300; // 3秒一次，约15分钟窗口
 
   // 降级模型映射：优先同代/同能力降级，再降到更保守模型
   private readonly FALLBACK_MODELS: Record<string, string> = {

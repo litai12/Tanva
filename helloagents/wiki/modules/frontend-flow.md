@@ -12,6 +12,10 @@
 - Video nodes (`Seedance/Kling/Vidu/Wan/Sora2`) no longer hard-code running progress to `30%`; they now rely on the shared `GenerationProgressBar` simulated ramp (5 minutes to 95%, then 100% on success).
 - Image generation nodes (`Generate/GeneratePro/GenerateReference/Midjourney/Nano2/Seedream5/ViewAngle`) now use the same simulated progress strategy with a shorter `60s` ramp to `95%` (then `100%` on success) via `GenerationProgressBar.simulateDurationMs`.
 
+## 2026-04-21 Update
+- Fixed legacy edge reconnection on project reopen: historical `sourceHandle` values such as `image` / `image1` / `image-1` are now normalized to current ids (`img` / `img1`) during Flow edge hydration/serialization.
+- Added compatibility source handle on `ImageCompressNode` so both `image` and `img` references can reconnect safely, avoiding visual “all edges disconnected” regressions in older projects after reload.
+
 ## 2026-04-17 Update
 - Flow 缩放事件在节点输入框场景下调整为“缩放优先”：`TextPrompt/TextPromptPro/Analysis/VideoAnalysis` 的 `textarea` 在缩放手势下会放行给 Flow 画布（按 `wheelZoomMode` 计算），避免输入框捕获滚轮后触发浏览器整页缩放；非缩放滚轮仍保留输入区原生滚动。
 - `GlobalZoomCapture` 的 `gesturestart/gesturechange` 对 Flow 区域不再旁路，可将触控板 pinch（含 Safari 手势事件）映射到画布缩放；3D 视口区域仍保持旁路以避免冲突。
