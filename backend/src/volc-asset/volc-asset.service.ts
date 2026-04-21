@@ -83,6 +83,18 @@ export class VolcAssetService implements OnModuleInit {
       body: jsonBody,
     });
     const text = await resp.text();
+    if (!resp.ok) {
+      let detail = text.slice(0, 200);
+      try {
+        const errParsed = JSON.parse(text);
+        const code = errParsed?.ResponseMetadata?.Error?.Code;
+        const msg = errParsed?.ResponseMetadata?.Error?.Message;
+        if (code) detail = `[${code}] ${msg || 'unknown'}`;
+      } catch {
+        // non-JSON error body — keep raw text
+      }
+      throw new Error(`Volc ${action} HTTP ${resp.status}: ${detail}`);
+    }
     let parsed: any;
     try {
       parsed = JSON.parse(text);
