@@ -14260,7 +14260,16 @@ function FlowInner() {
           }
         }
 
-        const referenceImages = await resolveEdgesAsDataUrls(imageEdges);
+        const resolvedEdgePairs: Array<{
+          edge: (typeof imageEdges)[number];
+          dataUrl: string;
+        }> = [];
+        for (const edge of imageEdges) {
+          const [dataUrl] = await resolveEdgesAsDataUrls([edge]);
+          if (dataUrl) resolvedEdgePairs.push({ edge, dataUrl });
+        }
+        const referenceImages = resolvedEdgePairs.map((p) => p.dataUrl);
+        const referenceImageSourceEdges = resolvedEdgePairs.map((p) => p.edge);
 
         console.log(`🎬 [VideoProvider] 解析后参考图数量: ${referenceImages.length}`);
         referenceImages.forEach((img, i) => {
@@ -14664,7 +14673,7 @@ function FlowInner() {
             | undefined =
             isSeedanceNode && isSeedance20Request && referenceImageUrls.length > 0
               ? referenceImageUrls.map((url, idx) => {
-                  const sourceEdge = imageEdges[idx];
+                  const sourceEdge = referenceImageSourceEdges[idx];
                   const sourceNode = sourceEdge
                     ? rf.getNode(sourceEdge.source)
                     : undefined;
