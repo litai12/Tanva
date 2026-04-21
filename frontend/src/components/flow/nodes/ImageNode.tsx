@@ -1605,17 +1605,19 @@ function ImageNodeInner({ id, data, selected }: Props) {
           </div>
         )}
         <div style={{ display: "flex", gap: 6 }}>
-          <button
-            type="button"
-            onClick={handleReviewClick}
-            title={
+          {(() => {
+            const reviewTitle =
               volcAssetStatus === "active" ? "已通过审核，sd2 将使用 asset://"
               : volcAssetStatus === "processing" ? "审核中…"
               : volcAssetStatus === "failed" ? (volcAssetError || "审核失败，点击重试")
-              : "点击上传到方舟素材库"
-            }
+              : "点击上传到方舟素材库";
+            return (
+          <button
+            type="button"
+            onClick={handleReviewClick}
+            title={reviewTitle}
+            aria-label={reviewTitle}
             disabled={volcAssetStatus === "processing" || volcAssetStatus === "active"}
-            className="inline-flex items-center justify-center p-1 rounded hover:bg-black/5 disabled:cursor-default"
             style={{
               fontSize: 12,
               padding: "4px 8px",
@@ -1623,7 +1625,6 @@ function ImageNodeInner({ id, data, selected }: Props) {
               border: "1px solid #e5e7eb",
               background: "#fff",
               cursor: (volcAssetStatus === "processing" || volcAssetStatus === "active") ? "not-allowed" : "pointer",
-              pointerEvents: "auto",
             }}
           >
             {volcAssetStatus === "active" ? <ShieldCheck size={14} className="text-green-600" />
@@ -1631,6 +1632,8 @@ function ImageNodeInner({ id, data, selected }: Props) {
              : volcAssetStatus === "failed" ? <ShieldAlert size={14} className="text-red-500" />
              : <Shield size={14} className="text-gray-400" />}
           </button>
+            );
+          })()}
           <button
             onClick={handleSendToCanvas}
             disabled={!canSend}
@@ -1680,7 +1683,13 @@ function ImageNodeInner({ id, data, selected }: Props) {
                 const ev = new CustomEvent("flow:updateNodeData", {
                   detail: {
                     id,
-                    patch: { imageData: undefined, imageName: undefined },
+                    patch: {
+                      imageData: undefined,
+                      imageName: undefined,
+                      volcAssetId: undefined,
+                      volcAssetStatus: undefined,
+                      volcAssetError: undefined,
+                    },
                   },
                 });
                 window.dispatchEvent(ev);
