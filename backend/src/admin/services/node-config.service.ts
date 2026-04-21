@@ -124,7 +124,7 @@ const buildManagedImageNodeMetadata = (params: {
 const SEEDANCE20_SUPPORTED_MODELS = ['seedance-1.5-pro', 'seedance-2.0', 'seedance-2.0-fast'];
 const SEEDANCE20_ASPECT_RATIOS = ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'];
 const SEEDANCE20_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
-const SEEDANCE20_RESOLUTIONS = ['480P', '720P'];
+const SEEDANCE20_RESOLUTIONS = ['480P', '720P', '1080P'];
 const SEEDANCE20_INPUT_MODES = [
   'text',
   'first_frame',

@@ -213,7 +213,8 @@ const SUPPORTED_AUDIO_ACCEPT = SUPPORTED_AUDIO_EXTENSIONS.map((ext) => `.${ext}`
 
 const SEEDANCE20_DOC_ASPECT_RATIOS = ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"] as const;
 const SEEDANCE20_DOC_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
-const SEEDANCE20_DOC_RESOLUTIONS = ["480P", "720P"] as const;
+const SEEDANCE20_DOC_RESOLUTIONS = ["480P", "720P", "1080P"] as const;
+const SEEDANCE20_FAST_DOC_RESOLUTIONS = ["480P", "720P"] as const;
 
 const SEEDANCE20_MODE_VALUES: Seedance20Mode[] = ["reference_images", "start_end"];
 const SEEDANCE15_MODE_VALUES: Seedance15Mode[] = ["text", "image", "start_end"];
@@ -1144,20 +1145,36 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       : provider === "vidu"
       ? true
       : !hasImageInput;
+  const seedance20ResolutionList = React.useMemo<string[]>(
+    () =>
+      seedanceModel === "seedance-2.0-fast"
+        ? [...SEEDANCE20_FAST_DOC_RESOLUTIONS]
+        : [...SEEDANCE20_DOC_RESOLUTIONS],
+    [seedanceModel]
+  );
   const legacySeedanceResolutionOptions = React.useMemo(() => {
     if (provider !== "doubao" || isVodManagedNode) return [];
-    return isSeedance20Model ? [...SEEDANCE20_DOC_RESOLUTIONS] : ["720P"];
-  }, [isSeedance20Model, isVodManagedNode, provider]);
+    return isSeedance20Model ? seedance20ResolutionList : ["720P"];
+  }, [isSeedance20Model, isVodManagedNode, provider, seedance20ResolutionList]);
   const resolutionOptions = React.useMemo(
     () => {
       if (provider === "doubao" && isSeedance20Model) {
-        return [...SEEDANCE20_DOC_RESOLUTIONS];
+        if (vodResolutionOptions.length === 0) return seedance20ResolutionList;
+        const allowed = new Set(seedance20ResolutionList);
+        const filtered = vodResolutionOptions.filter((value) => allowed.has(value));
+        return filtered.length > 0 ? filtered : seedance20ResolutionList;
       }
       return vodResolutionOptions.length > 0
         ? vodResolutionOptions
         : legacySeedanceResolutionOptions;
     },
-    [isSeedance20Model, legacySeedanceResolutionOptions, provider, vodResolutionOptions]
+    [
+      isSeedance20Model,
+      legacySeedanceResolutionOptions,
+      provider,
+      seedance20ResolutionList,
+      vodResolutionOptions,
+    ]
   );
   const viduModelFamily = normalizeViduModelForApi(viduModel);
   const isViduQ2FamilyModel = viduModelFamily === "q2";
@@ -1179,13 +1196,20 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const seedanceConstraintTips = React.useMemo(() => {
     if (!isSeedanceModel) return [] as string[];
     if (isSeedance20Model) {
+      const resolutionTip =
+        seedanceModel === "seedance-2.0-fast"
+          ? lt(
+              "分辨率/尺寸：480P、720P；21:9、16:9、4:3、1:1、3:4、9:16",
+              "Resolution/ratio: 480P, 720P; 21:9, 16:9, 4:3, 1:1, 3:4, 9:16"
+            )
+          : lt(
+              "分辨率/尺寸：480P、720P、1080P；21:9、16:9、4:3、1:1、3:4、9:16",
+              "Resolution/ratio: 480P, 720P, 1080P; 21:9, 16:9, 4:3, 1:1, 3:4, 9:16"
+            );
       return [
         lt("图片大小：单图建议不超过 30MB", "Image size: each image should be <= 30MB"),
         lt("生成时长：4-15 秒", "Output duration: 4-15s"),
-        lt(
-          "分辨率/尺寸：480P、720P；21:9、16:9、4:3、1:1、3:4、9:16",
-          "Resolution/ratio: 480P, 720P; 21:9, 16:9, 4:3, 1:1, 3:4, 9:16"
-        ),
+        resolutionTip,
         lt("参考视频最多 3 条；音频最多 3 条且每条≤5秒", "Video refs <=3; audio refs <=3 and <=5s each"),
       ];
     }
@@ -1194,7 +1218,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       lt("生成时长：3-10 秒", "Output duration: 3-10s"),
       lt("分辨率/尺寸：720P；16:9、9:16、1:1", "Resolution/ratio: 720P; 16:9, 9:16, 1:1"),
     ];
-  }, [isSeedance20Model, isSeedanceModel, lt]);
+  }, [isSeedance20Model, isSeedanceModel, lt, seedanceModel]);
   const seedanceModeOptions = React.useMemo(
     () =>
       isSeedance20Model
@@ -1477,6 +1501,12 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           : clipDuration && clipDuration >= 3 && clipDuration <= 10
           ? clipDuration
           : 5;
+      const currentResolution =
+        typeof data.resolution === "string" ? data.resolution.trim().toUpperCase() : "";
+      const nextResolution =
+        value === "seedance-2.0-fast" && currentResolution === "1080P"
+          ? "720P"
+          : undefined;
       window.dispatchEvent(
         new CustomEvent("flow:updateNodeData", {
           detail: {
@@ -1491,12 +1521,13 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                     ? data.generateAudio
                     : true
                   : undefined,
+              ...(nextResolution ? { resolution: nextResolution } : {}),
             },
           },
         })
       );
     },
-    [clipDuration, data.generateAudio, id, isSeedance20LockedOption, lt, seedanceModel]
+    [clipDuration, data.generateAudio, data.resolution, id, isSeedance20LockedOption, lt, seedanceModel]
   );
 
   const handleSeedanceAudioToggle = React.useCallback(() => {

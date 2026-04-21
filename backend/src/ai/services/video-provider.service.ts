@@ -1069,6 +1069,7 @@ export class VideoProviderService {
     const upper = normalized.toUpperCase();
     if (upper === "480P") return "480p";
     if (upper === "720P") return "720p";
+    if (upper === "1080P") return "1080p";
     return normalized;
   }
 
