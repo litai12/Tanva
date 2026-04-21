@@ -105,7 +105,13 @@ export class VolcAssetService implements OnModuleInit {
     if (err?.Code) {
       throw new Error(`Volc ${action} error [${err.Code}]: ${err.Message || 'unknown'}`);
     }
-    return parsed as T;
+    // Volc Open API V3 wraps payload in a Result envelope; fall back to top-level
+    // fields for any action that returns data inline.
+    const unwrapped =
+      parsed && typeof parsed === 'object' && parsed.Result !== undefined
+        ? parsed.Result
+        : parsed;
+    return unwrapped as T;
   }
 
   async ensureUserGroup(userId: string): Promise<string> {
